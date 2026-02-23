@@ -18,6 +18,78 @@ import { getClient } from "./client";
 const streamRequestStartTimes = new WeakMap<object, number>();
 const streamToolContextIds = new WeakMap<object, string>();
 
+function normalizeToolReturnValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const textParts = value
+      .map((part) => {
+        if (
+          part &&
+          typeof part === "object" &&
+          "type" in part &&
+          "text" in part &&
+          (part as { type?: unknown }).type === "text" &&
+          typeof (part as { text?: unknown }).text === "string"
+        ) {
+          return (part as { text: string }).text;
+        }
+        return null;
+      })
+      .filter((part): part is string => part !== null);
+
+    if (textParts.length > 0) {
+      return textParts.join("\n");
+    }
+
+    return JSON.stringify(value);
+  }
+
+  if (value == null) {
+    return "";
+  }
+
+  return String(value);
+}
+
+function normalizeOutgoingMessages(
+  messages: Array<MessageCreate | ApprovalCreate>,
+): Array<MessageCreate | ApprovalCreate> {
+  return messages.map((message) => {
+    if (
+      !message ||
+      typeof message !== "object" ||
+      !("type" in message) ||
+      message.type !== "approval"
+    ) {
+      return message;
+    }
+
+    const approvals = Array.isArray(message.approvals) ? message.approvals : [];
+
+    return {
+      ...message,
+      approvals: approvals.map((approval) => {
+        if (
+          !approval ||
+          typeof approval !== "object" ||
+          !("type" in approval) ||
+          approval.type !== "tool"
+        ) {
+          return approval;
+        }
+
+        return {
+          ...approval,
+          tool_return: normalizeToolReturnValue(approval.tool_return),
+        };
+      }),
+    } as ApprovalCreate;
+  });
+}
+
 export function getStreamRequestStartTime(
   stream: Stream<LettaStreamingResponse>,
 ): number | undefined {
@@ -52,6 +124,7 @@ export async function sendMessageStream(
 ): Promise<Stream<LettaStreamingResponse>> {
   const requestStartTime = isTimingsEnabled() ? performance.now() : undefined;
   const client = await getClient();
+  const normalizedMessages = normalizeOutgoingMessages(messages);
 
   // Wait for any in-progress toolset switch to complete before reading tools
   // This prevents sending messages with stale tools during a switch
@@ -76,7 +149,7 @@ export async function sendMessageStream(
     stream = await client.agents.messages.create(
       opts.agentId,
       {
-        messages: messages,
+        messages: normalizedMessages,
         streaming: true,
         stream_tokens: opts.streamTokens ?? true,
         background: opts.background ?? true,
@@ -90,7 +163,7 @@ export async function sendMessageStream(
     stream = await client.conversations.messages.create(
       conversationId,
       {
-        messages: messages,
+        messages: normalizedMessages,
         streaming: true,
         stream_tokens: opts.streamTokens ?? true,
         background: opts.background ?? true,
