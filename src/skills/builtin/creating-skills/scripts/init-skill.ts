@@ -12,6 +12,7 @@
 
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const SKILL_TEMPLATE = `---
 name: {skill_name}
@@ -248,7 +249,8 @@ function initSkill(skillName: string, path: string): string | null {
 }
 
 // CLI entry point
-if (require.main === module) {
+const isMain = import.meta.url === pathToFileURL(process.argv[1] as string).href;
+if (isMain) {
   const args = process.argv.slice(2);
 
   if (args.length < 3 || args[1] !== "--path") {

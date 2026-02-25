@@ -11,6 +11,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 
 interface ValidationResult {
@@ -162,7 +163,8 @@ export function validateSkill(skillPath: string): ValidationResult {
 }
 
 // CLI entry point
-if (require.main === module) {
+const isMain = import.meta.url === pathToFileURL(process.argv[1] as string).href;
+if (isMain) {
   const args = process.argv.slice(2);
   if (args.length !== 1) {
     console.log("Usage: npx ts-node validate-skill.ts <skill-directory>");

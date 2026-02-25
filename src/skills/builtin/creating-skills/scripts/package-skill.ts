@@ -19,6 +19,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 // Simple zip implementation using Node.js built-in zlib
 // For a proper zip file, we'll create the structure manually
 import { deflateSync } from "node:zlib";
@@ -239,7 +240,8 @@ function packageSkill(skillPath: string, outputDir?: string): string | null {
 }
 
 // CLI entry point
-if (require.main === module) {
+const isMain = import.meta.url === pathToFileURL(process.argv[1] as string).href;
+if (isMain) {
   const args = process.argv.slice(2);
 
   if (args.length < 1) {
