@@ -12,6 +12,13 @@ import {
 import type { AgentProvenance } from "./agent/create";
 import { getLettaCodeHeaders } from "./agent/http-headers";
 import { ISOLATED_BLOCK_LABELS } from "./agent/memory";
+import {
+  getModelPresetUpdateForAgent,
+  getModelUpdateArgs,
+  getResumeRefreshArgs,
+  resolveModel,
+} from "./agent/model";
+import { updateAgentLLMConfig, updateAgentSystemPrompt } from "./agent/modify";
 import { resolveSkillSourcesSelection } from "./agent/skillSources";
 import { LETTA_CLOUD_API_URL } from "./auth/oauth";
 import { ConversationSelector } from "./cli/components/ConversationSelector";
@@ -118,7 +125,7 @@ BEHAVIOR
   - Use /profile save <name> to bookmark your current agent
 
   Profiles are stored in:
-  - Global: ~/.config/letta/settings.json (available everywhere)
+  - Global: ~/.letta/settings.json (available everywhere)
   - Local: .letta/settings.local.json (pinned to project)
 
   If no credentials are configured, you'll be prompted to authenticate via
@@ -409,7 +416,6 @@ async function main(): Promise<void> {
         continue: { type: "boolean" }, // Deprecated - kept for error message
         resume: { type: "boolean", short: "r" }, // Resume last session (or specific conversation with --conversation)
         conversation: { type: "string", short: "C" }, // Specific conversation ID to resume (--conv alias supported)
-        default: { type: "boolean" }, // Alias for --conv default (use agent's default conversation)
         "new-agent": { type: "boolean" }, // Force create a new agent
         new: { type: "boolean" }, // Deprecated - kept for helpful error message
         "init-blocks": { type: "string" },
@@ -518,19 +524,7 @@ async function main(): Promise<void> {
   const shouldResume = (values.resume as boolean | undefined) ?? false;
   let specifiedConversationId =
     (values.conversation as string | undefined) ?? null; // Specific conversation to resume
-  const useDefaultConv = (values.default as boolean | undefined) ?? false; // --default flag
   const forceNew = (values["new-agent"] as boolean | undefined) ?? false;
-
-  // Handle --default flag (alias for --conv default)
-  if (useDefaultConv) {
-    if (specifiedConversationId && specifiedConversationId !== "default") {
-      console.error(
-        "Error: --default cannot be used with --conversation (they're mutually exclusive)",
-      );
-      process.exit(1);
-    }
-    specifiedConversationId = "default";
-  }
 
   // --new: Create a new conversation (for concurrent sessions)
   const forceNewConversation = (values.new as boolean | undefined) ?? false;
@@ -551,8 +545,8 @@ async function main(): Promise<void> {
     specifiedConversationId = "default";
   }
 
-  // Validate --conv default requires --agent
-  if (specifiedConversationId === "default" && !specifiedAgentId) {
+  // Validate --conv default requires --agent (unless --new-agent will create one)
+  if (specifiedConversationId === "default" && !specifiedAgentId && !forceNew) {
     console.error("Error: --conv default requires --agent <agent-id>");
     console.error("Usage: letta --agent agent-xyz --conv default");
     console.error("   or: letta --conv agent-xyz (shorthand)");
@@ -892,7 +886,7 @@ async function main(): Promise<void> {
         "Your credentials may be invalid or the server may be unreachable.",
       );
       console.error(
-        "Delete ~/.config/letta/settings.json then run 'letta' to re-authenticate",
+        "Delete ~/.letta/settings.json then run 'letta' to re-authenticate",
       );
       process.exit(1);
     }
@@ -994,7 +988,7 @@ async function main(): Promise<void> {
 
     const { handleHeadlessCommand } = await import("./headless");
     await handleHeadlessCommand(
-      process.argv,
+      processedArgs,
       specifiedModel,
       skillsDirectory,
       resolvedSkillSources,
@@ -1561,7 +1555,6 @@ async function main(): Promise<void> {
 
         setLoadingState("initializing");
         const { createAgent } = await import("./agent/create");
-        const { getModelUpdateArgs } = await import("./agent/model");
 
         let agent: AgentState | null = null;
 
@@ -1789,12 +1782,11 @@ async function main(): Promise<void> {
         );
         setIsResumingSession(resuming);
 
-        // If resuming and a model or system prompt was specified, apply those changes
-        if (resuming && (model || systemPromptPreset)) {
+        // If resuming, always refresh model settings from presets to keep
+        // preset-derived fields in sync, then apply optional command-line
+        // overrides (model/system prompt).
+        if (resuming) {
           if (model) {
-            const { resolveModel, getModelUpdateArgs } = await import(
-              "./agent/model"
-            );
             const modelHandle = resolveModel(model);
             if (!modelHandle) {
               console.error(`Error: Invalid model "${model}"`);
@@ -1803,15 +1795,29 @@ async function main(): Promise<void> {
 
             // Always apply model update - different model IDs can share the same
             // handle but have different settings (e.g., gpt-5.2-medium vs gpt-5.2-xhigh)
-            const { updateAgentLLMConfig } = await import("./agent/modify");
             const updateArgs = getModelUpdateArgs(model);
-            await updateAgentLLMConfig(agent.id, modelHandle, updateArgs);
-            // Refresh agent state after model update
-            agent = await client.agents.retrieve(agent.id);
+            agent = await updateAgentLLMConfig(
+              agent.id,
+              modelHandle,
+              updateArgs,
+            );
+          } else {
+            const presetRefresh = getModelPresetUpdateForAgent(agent);
+            if (presetRefresh) {
+              const { updateArgs: resumeRefreshUpdateArgs, needsUpdate } =
+                getResumeRefreshArgs(presetRefresh.updateArgs, agent);
+
+              if (needsUpdate) {
+                agent = await updateAgentLLMConfig(
+                  agent.id,
+                  presetRefresh.modelHandle,
+                  resumeRefreshUpdateArgs,
+                );
+              }
+            }
           }
 
           if (systemPromptPreset) {
-            const { updateAgentSystemPrompt } = await import("./agent/modify");
             const result = await updateAgentSystemPrompt(
               agent.id,
               systemPromptPreset,
@@ -1963,7 +1969,7 @@ async function main(): Promise<void> {
             }),
           ]);
           setResumeData(data);
-          setResumedExistingConversation(true);
+          setResumedExistingConversation(data.messageHistory.length > 0);
         }
 
         // Ensure memfs sync completed (already resolved for default path via Promise.all above)

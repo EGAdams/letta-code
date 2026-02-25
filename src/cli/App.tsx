@@ -33,6 +33,7 @@ import {
   fetchRunErrorDetail,
   getPreStreamErrorAction,
   isApprovalPendingError,
+  isEmptyResponseRetryable,
   isInvalidToolCallIdsError,
   parseRetryAfterHeaderMs,
   rebuildInputWithFreshDenials,
@@ -143,6 +144,7 @@ import { FeedbackDialog } from "./components/FeedbackDialog";
 import { HelpDialog } from "./components/HelpDialog";
 import { HooksManager } from "./components/HooksManager";
 import { Input } from "./components/InputRich";
+import { InstallGithubAppFlow } from "./components/InstallGithubAppFlow";
 import { McpConnectFlow } from "./components/McpConnectFlow";
 import { McpSelector } from "./components/McpSelector";
 import { MemfsTreeViewer } from "./components/MemfsTreeViewer";
@@ -297,6 +299,10 @@ const EAGER_CANCEL = true;
 
 // Maximum retries for transient LLM API errors (matches headless.ts)
 const LLM_API_ERROR_MAX_RETRIES = 3;
+
+// Retry config for empty response errors (Opus 4.6 SADs)
+// Retry 1: same input. Retry 2: with system reminder nudge.
+const EMPTY_RESPONSE_MAX_RETRIES = 2;
 
 // Retry config for 409 "conversation busy" errors (exponential backoff)
 const CONVERSATION_BUSY_MAX_RETRIES = 3; // 2.5s -> 5s -> 10s
@@ -1278,6 +1284,7 @@ export default function App({
     | "new"
     | "mcp"
     | "mcp-connect"
+    | "install-github-app"
     | "help"
     | "hooks"
     | "connect"
@@ -1608,6 +1615,7 @@ export default function App({
 
   // Retry counter for transient LLM API errors (ref for synchronous access in loop)
   const llmApiErrorRetriesRef = useRef(0);
+  const emptyResponseRetriesRef = useRef(0);
 
   // Retry counter for 409 "conversation busy" errors
   const conversationBusyRetriesRef = useRef(0);
@@ -1731,15 +1739,123 @@ export default function App({
     null,
   );
   const prevColumnsRef = useRef(rawColumns);
+  const lastResizeColumnsRef = useRef(rawColumns);
+  const lastResizeRowsRef = useRef(terminalRows);
   const lastClearedColumnsRef = useRef(rawColumns);
   const pendingResizeRef = useRef(false);
   const pendingResizeColumnsRef = useRef<number | null>(null);
   const [staticRenderEpoch, setStaticRenderEpoch] = useState(0);
   const resizeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastClearAtRef = useRef(0);
+  const resizeGestureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const didImmediateShrinkClearRef = useRef(false);
   const isInitialResizeRef = useRef(true);
   const columns = stableColumns;
+  // Keep bottom chrome from ever exceeding the *actual* terminal width.
+  // When widening, we prefer the old behavior (wait until settle), so we use
+  // stableColumns. When shrinking, we must clamp to rawColumns to avoid Ink
+  // wrapping the footer/input chrome and "printing" divider rows into the
+  // transcript while dragging.
+  const chromeColumns = Math.min(rawColumns, stableColumns);
   const debugFlicker = process.env.LETTA_DEBUG_FLICKER === "1";
+
+  // Terminal resize + Ink:
+  // When the terminal shrinks, the *previous* frame reflows (wraps to more
+  // lines) instantly at the emulator level. Ink's incremental redraw then tries
+  // to clear based on the old line count and can leave stale rows behind.
+  //
+  // Fix: on shrink events, clear the screen *synchronously* in the resize event
+  // handler (before React/Ink flushes the next frame) and remount Static output.
+  useEffect(() => {
+    if (
+      typeof process === "undefined" ||
+      !process.stdout ||
+      !("on" in process.stdout) ||
+      !process.stdout.isTTY
+    ) {
+      return;
+    }
+
+    const stdout = process.stdout;
+    const onResize = () => {
+      const nextColumns = stdout.columns ?? lastResizeColumnsRef.current;
+      const nextRows = stdout.rows ?? lastResizeRowsRef.current;
+
+      const prevColumns = lastResizeColumnsRef.current;
+      const prevRows = lastResizeRowsRef.current;
+
+      lastResizeColumnsRef.current = nextColumns;
+      lastResizeRowsRef.current = nextRows;
+
+      // Skip initial mount.
+      if (isInitialResizeRef.current) {
+        return;
+      }
+
+      const shrunk = nextColumns < prevColumns || nextRows < prevRows;
+      if (!shrunk) {
+        // Reset shrink-clear guard once the gesture ends.
+        if (resizeGestureTimeoutRef.current) {
+          clearTimeout(resizeGestureTimeoutRef.current);
+        }
+        resizeGestureTimeoutRef.current = setTimeout(() => {
+          resizeGestureTimeoutRef.current = null;
+          didImmediateShrinkClearRef.current = false;
+        }, RESIZE_SETTLE_MS);
+        return;
+      }
+
+      // During a shrink gesture, do an immediate clear only once.
+      // Clearing on every resize event causes extreme flicker.
+      if (didImmediateShrinkClearRef.current) {
+        if (resizeGestureTimeoutRef.current) {
+          clearTimeout(resizeGestureTimeoutRef.current);
+        }
+        resizeGestureTimeoutRef.current = setTimeout(() => {
+          resizeGestureTimeoutRef.current = null;
+          didImmediateShrinkClearRef.current = false;
+        }, RESIZE_SETTLE_MS);
+        return;
+      }
+
+      if (debugFlicker) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[debug:flicker:resize-immediate-clear] next=${nextColumns}x${nextRows} prev=${prevColumns}x${prevRows} streaming=${streamingRef.current}`,
+        );
+      }
+
+      // Cancel any debounced clear; we're taking the immediate-clear path.
+      if (resizeClearTimeout.current) {
+        clearTimeout(resizeClearTimeout.current);
+        resizeClearTimeout.current = null;
+      }
+
+      stdout.write(CLEAR_SCREEN_AND_HOME);
+      setStaticRenderEpoch((epoch) => epoch + 1);
+      lastClearedColumnsRef.current = nextColumns;
+      lastClearAtRef.current = Date.now();
+      didImmediateShrinkClearRef.current = true;
+      if (resizeGestureTimeoutRef.current) {
+        clearTimeout(resizeGestureTimeoutRef.current);
+      }
+      resizeGestureTimeoutRef.current = setTimeout(() => {
+        resizeGestureTimeoutRef.current = null;
+        didImmediateShrinkClearRef.current = false;
+      }, RESIZE_SETTLE_MS);
+    };
+
+    stdout.on("resize", onResize);
+    return () => {
+      stdout.off("resize", onResize);
+      if (resizeGestureTimeoutRef.current) {
+        clearTimeout(resizeGestureTimeoutRef.current);
+        resizeGestureTimeoutRef.current = null;
+      }
+    };
+  }, [debugFlicker, streamingRef]);
 
   useEffect(() => {
     if (rawColumns === stableColumns) {
@@ -1899,6 +2015,20 @@ export default function App({
 
     prevColumnsRef.current = rawColumns;
   }, [rawColumns, streaming, scheduleResizeClear]);
+
+  // Reflow Static output for 1-col width changes too.
+  // rawColumns resize handling intentionally ignores 1-col "jitter" to reduce
+  // flicker, but that also means widening by small increments won't remount
+  // Static and existing output won't reflow.
+  //
+  // stableColumns only advances once the width has settled, so it's safe to use
+  // for a low-frequency remount trigger.
+  useEffect(() => {
+    if (isInitialResizeRef.current) return;
+    if (streaming) return;
+    if (stableColumns === lastClearedColumnsRef.current) return;
+    scheduleResizeClear(stableColumns);
+  }, [stableColumns, streaming, scheduleResizeClear]);
 
   useEffect(() => {
     if (streaming) {
@@ -2133,6 +2263,9 @@ export default function App({
   const statusLine = useConfigurableStatusLine({
     modelId: llmConfigRef.current?.model ?? null,
     modelDisplayName: currentModelDisplay,
+    reasoningEffort: currentReasoningEffort,
+    systemPromptId: currentSystemPromptId,
+    toolset: currentToolset,
     currentDirectory: process.cwd(),
     projectDirectory,
     sessionId: conversationId,
@@ -2145,7 +2278,7 @@ export default function App({
     usedContextTokens: contextTrackerRef.current.lastContextTokens,
     permissionMode: uiPermissionMode,
     networkPhase,
-    terminalWidth: columns,
+    terminalWidth: chromeColumns,
     triggerVersion: statusLineTriggerVersion,
   });
 
@@ -2158,7 +2291,7 @@ export default function App({
     previousStreamingForStatusLineRef.current = streaming;
   }, [streaming, triggerStatusLineRefresh]);
 
-  const statusLineRefreshIdentity = `${conversationId}|${currentModelDisplay ?? ""}|${currentModelProvider ?? ""}|${agentName ?? ""}|${columns}|${contextWindowSize ?? ""}`;
+  const statusLineRefreshIdentity = `${conversationId}|${currentModelDisplay ?? ""}|${currentModelProvider ?? ""}|${agentName ?? ""}|${columns}|${contextWindowSize ?? ""}|${currentReasoningEffort ?? ""}|${currentSystemPromptId ?? ""}|${currentToolset ?? ""}`;
 
   // Trigger status line when key session identity/display state changes.
   useEffect(() => {
@@ -2908,6 +3041,7 @@ export default function App({
       if (!skipTelemetry) {
         telemetry.trackError("ui_error", text, "error_display", {
           modelId: currentModelId || undefined,
+          recentChunks: chunkLog.getEntries(),
         });
       }
     },
@@ -3065,6 +3199,20 @@ export default function App({
       initialInput: Array<MessageCreate | ApprovalCreate>,
       options?: { allowReentry?: boolean; submissionGeneration?: number },
     ): Promise<void> => {
+      // Transient pre-stream retries can yield for seconds.
+      // Pin the user's permission mode for the duration of the submission so
+      // auto-approvals (YOLO / bypassPermissions) don't regress after a retry.
+      const pinnedPermissionMode = uiPermissionModeRef.current;
+      const restorePinnedPermissionMode = () => {
+        if (pinnedPermissionMode === "plan") return;
+        if (permissionMode.getMode() !== pinnedPermissionMode) {
+          permissionMode.setMode(pinnedPermissionMode);
+        }
+        if (uiPermissionModeRef.current !== pinnedPermissionMode) {
+          setUiPermissionMode(pinnedPermissionMode);
+        }
+      };
+
       // Reset per-run approval tracking used by streaming UI.
       buffersRef.current.approvalsPending = false;
       if (buffersRef.current.serverToolCalls.size > 0) {
@@ -3218,6 +3366,7 @@ export default function App({
       // Reset retry counters for new conversation turns (fresh budget per user message)
       if (!allowReentry) {
         llmApiErrorRetriesRef.current = 0;
+        emptyResponseRetriesRef.current = 0;
         conversationBusyRetriesRef.current = 0;
       }
 
@@ -3423,6 +3572,20 @@ export default function App({
                 CONVERSATION_BUSY_RETRY_BASE_DELAY_MS *
                 2 ** (conversationBusyRetriesRef.current - 1);
 
+              // Log the conversation-busy error
+              telemetry.trackError(
+                "retry_conversation_busy",
+                errorDetail || "Conversation is busy",
+                "pre_stream_retry",
+                {
+                  httpStatus:
+                    preStreamError instanceof APIError
+                      ? preStreamError.status
+                      : undefined,
+                  modelId: currentModelId || undefined,
+                },
+              );
+
               // Show status message
               const statusId = uid("status");
               buffersRef.current.byId.set(statusId, {
@@ -3457,6 +3620,7 @@ export default function App({
               if (!cancelled) {
                 // Reset interrupted flag so retry stream chunks are processed
                 buffersRef.current.interrupted = false;
+                restorePinnedPermissionMode();
                 continue;
               }
               // User pressed ESC - fall through to error handling
@@ -3473,6 +3637,20 @@ export default function App({
                     )
                   : null;
               const delayMs = retryAfterMs ?? 1000 * 2 ** (attempt - 1);
+
+              // Log the error that triggered the retry
+              telemetry.trackError(
+                "retry_pre_stream_transient",
+                errorDetail || "Pre-stream transient error",
+                "pre_stream_retry",
+                {
+                  httpStatus:
+                    preStreamError instanceof APIError
+                      ? preStreamError.status
+                      : undefined,
+                  modelId: currentModelId || undefined,
+                },
+              );
 
               const statusId = uid("status");
               buffersRef.current.byId.set(statusId, {
@@ -3505,6 +3683,7 @@ export default function App({
               if (!cancelled) {
                 buffersRef.current.interrupted = false;
                 conversationBusyRetriesRef.current = 0;
+                restorePinnedPermissionMode();
                 continue;
               }
               // User pressed ESC - fall through to error handling
@@ -3796,6 +3975,7 @@ export default function App({
             })();
             closeTrajectorySegment();
             llmApiErrorRetriesRef.current = 0; // Reset retry counter on success
+            emptyResponseRetriesRef.current = 0;
             conversationBusyRetriesRef.current = 0;
             lastDequeuedMessageRef.current = null; // Clear - message was processed successfully
             lastSentInputRef.current = null; // Clear - no recovery needed
@@ -4642,6 +4822,55 @@ export default function App({
             continue;
           }
 
+          // Empty LLM response retry (e.g. Opus 4.6 occasionally returns no content).
+          // Retry 1: same input unchanged. Retry 2: append system reminder nudging the model.
+          if (
+            isEmptyResponseRetryable(
+              stopReasonToHandle === "llm_api_error" ? "llm_error" : undefined,
+              detailFromRun,
+              emptyResponseRetriesRef.current,
+              EMPTY_RESPONSE_MAX_RETRIES,
+            )
+          ) {
+            emptyResponseRetriesRef.current += 1;
+            const attempt = emptyResponseRetriesRef.current;
+            const delayMs = 500 * attempt;
+
+            // Only append a nudge on the last attempt
+            if (attempt >= EMPTY_RESPONSE_MAX_RETRIES) {
+              currentInput = [
+                ...currentInput,
+                {
+                  type: "message" as const,
+                  role: "system" as const,
+                  content: `<system-reminder>The previous response was empty. Please provide a response with either text content or a tool call.</system-reminder>`,
+                },
+              ];
+            }
+
+            const statusId = uid("status");
+            buffersRef.current.byId.set(statusId, {
+              kind: "status",
+              id: statusId,
+              lines: [
+                `Empty LLM response, retrying (attempt ${attempt}/${EMPTY_RESPONSE_MAX_RETRIES})...`,
+              ],
+            });
+            buffersRef.current.order.push(statusId);
+            refreshDerived();
+
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+            buffersRef.current.byId.delete(statusId);
+            buffersRef.current.order = buffersRef.current.order.filter(
+              (id) => id !== statusId,
+            );
+            refreshDerived();
+
+            buffersRef.current.interrupted = false;
+            continue;
+          }
+
           // Check if this is a retriable error (transient LLM API error)
           const retriable = await isRetriableError(
             stopReasonToHandle,
@@ -4655,6 +4884,19 @@ export default function App({
             llmApiErrorRetriesRef.current += 1;
             const attempt = llmApiErrorRetriesRef.current;
             const delayMs = 1000 * 2 ** (attempt - 1); // 1s, 2s, 4s
+
+            // Log the error that triggered the retry
+            telemetry.trackError(
+              "retry_post_stream_error",
+              detailFromRun ||
+                fallbackError ||
+                `Stream stopped: ${stopReasonToHandle}`,
+              "post_stream_retry",
+              {
+                modelId: currentModelId || undefined,
+                runId: lastRunId ?? undefined,
+              },
+            );
 
             // Show subtle grey status message
             const statusId = uid("status");
@@ -4699,6 +4941,7 @@ export default function App({
 
           // Reset retry counters on non-retriable error (or max retries exceeded)
           llmApiErrorRetriesRef.current = 0;
+          emptyResponseRetriesRef.current = 0;
           conversationBusyRetriesRef.current = 0;
 
           // Mark incomplete tool calls as finished to prevent stuck blinking UI
@@ -4719,12 +4962,13 @@ export default function App({
             {
               modelId: currentModelId || undefined,
               runId: lastRunId ?? undefined,
+              recentChunks: chunkLog.getEntries(),
             },
           );
 
-          // If we have a client-side stream error (e.g., JSON parse error), show it directly
-          // Fallback error: no run_id available, show whatever error message we have
-          if (fallbackError) {
+          // If we have a client-side stream error with no run_id, show it directly.
+          // When lastRunId is present, prefer the richer server-side error details below.
+          if (fallbackError && !lastRunId) {
             setNetworkPhase("error");
             const errorMsg = lastRunId
               ? `Stream error: ${fallbackError}\n(run_id: ${lastRunId})`
@@ -4889,6 +5133,7 @@ export default function App({
           httpStatus,
           modelId: currentModelId || undefined,
           runId: currentRunId,
+          recentChunks: chunkLog.getEntries(),
         });
 
         // Use comprehensive error formatting
@@ -6139,6 +6384,18 @@ export default function App({
           return { submitted: true };
         }
 
+        // Special handling for /install-github-app command - interactive setup wizard
+        if (trimmed === "/install-github-app") {
+          startOverlayCommand(
+            "install-github-app",
+            "/install-github-app",
+            "Opening GitHub App installer...",
+            "GitHub App installer dismissed",
+          );
+          setActiveOverlay("install-github-app");
+          return { submitted: true };
+        }
+
         // Special handling for /sleeptime command - opens reflection settings
         if (trimmed === "/sleeptime") {
           startOverlayCommand(
@@ -6208,7 +6465,7 @@ export default function App({
           return { submitted: true };
         }
 
-        // Special handling for /memory command - opens memory viewer
+        // Special handling for /memory command - opens memory viewer overlay
         if (trimmed === "/memory") {
           startOverlayCommand(
             "memory",
@@ -6217,6 +6474,44 @@ export default function App({
             "Memory viewer dismissed",
           );
           setActiveOverlay("memory");
+          return { submitted: true };
+        }
+
+        // /palace - open Memory Palace directly in the browser (skips TUI overlay)
+        if (trimmed === "/palace") {
+          const cmd = commandRunner.start(
+            "/palace",
+            "Opening Memory Palace...",
+          );
+
+          if (!settingsManager.isMemfsEnabled(agentId)) {
+            cmd.finish(
+              "Memory Palace requires memfs. Run /memfs enable first.",
+              false,
+            );
+            return { submitted: true };
+          }
+
+          const { generateAndOpenMemoryViewer } = await import(
+            "../web/generate-memory-viewer"
+          );
+          generateAndOpenMemoryViewer(agentId, {
+            agentName: agentName ?? undefined,
+          })
+            .then((result) => {
+              if (result.opened) {
+                cmd.finish("Opened Memory Palace in browser", true);
+              } else {
+                cmd.finish(`Open manually: ${result.filePath}`, true);
+              }
+            })
+            .catch((err: unknown) => {
+              cmd.finish(
+                `Failed to open: ${err instanceof Error ? err.message : String(err)}`,
+                false,
+              );
+            });
+
           return { submitted: true };
         }
 
@@ -6373,7 +6668,7 @@ export default function App({
         }
 
         // Special handling for /listen command - start listener mode
-        if (trimmed === "/listen" || trimmed.startsWith("/listen ")) {
+        if (trimmed === "/remote" || trimmed.startsWith("/remote ")) {
           // Tokenize with quote support: --name "my laptop"
           const parts = Array.from(
             trimmed.matchAll(
@@ -6383,22 +6678,16 @@ export default function App({
           );
 
           let name: string | undefined;
-          let listenAgentId: string | undefined;
+          let _listenAgentId: string | undefined;
 
           for (let i = 1; i < parts.length; i++) {
             const part = parts[i];
             const nextPart = parts[i + 1];
-            if (part === "--name" && nextPart) {
+            if (part === "--env-name" && nextPart) {
               name = nextPart;
-              i++;
-            } else if (part === "--agent" && nextPart) {
-              listenAgentId = nextPart;
               i++;
             }
           }
-
-          // Default to current agent if not specified
-          const targetAgentId = listenAgentId || agentId;
 
           const cmd = commandRunner.start(msg, "Starting listener...");
           const { handleListen, setActiveCommandId: setActiveListenCommandId } =
@@ -6410,9 +6699,11 @@ export default function App({
                 buffersRef,
                 refreshDerived,
                 setCommandRunning,
+                agentId,
+                conversationId: conversationIdRef.current,
               },
               msg,
-              { name, agentId: targetAgentId },
+              { envName: name },
             );
           } finally {
             setActiveListenCommandId(null);
@@ -6556,6 +6847,9 @@ export default function App({
                   buildStatusLinePayload({
                     modelId: llmConfigRef.current?.model ?? null,
                     modelDisplayName: currentModelDisplay,
+                    reasoningEffort: currentReasoningEffort,
+                    systemPromptId: currentSystemPromptId,
+                    toolset: currentToolset,
                     currentDirectory: wd,
                     projectDirectory,
                     sessionId: conversationIdRef.current,
@@ -6569,7 +6863,7 @@ export default function App({
                       contextTrackerRef.current.lastContextTokens,
                     permissionMode: uiPermissionMode,
                     networkPhase,
-                    terminalWidth: columns,
+                    terminalWidth: chromeColumns,
                   }),
                   { timeout: config.timeout, workingDirectory: wd },
                 );
@@ -11737,6 +12031,18 @@ Plan file path: ${planFilePath}`;
                                   "project")
                             }
                             showPreview={showApprovalPreview}
+                            planContent={
+                              currentApproval.toolName === "ExitPlanMode"
+                                ? _readPlanFile()
+                                : undefined
+                            }
+                            planFilePath={
+                              currentApproval.toolName === "ExitPlanMode"
+                                ? (permissionMode.getPlanFilePath() ??
+                                  undefined)
+                                : undefined
+                            }
+                            agentName={agentName ?? undefined}
                           />
                         ) : ln.kind === "user" ? (
                           <UserMessage line={ln} prompt={statusLine.prompt} />
@@ -11821,6 +12127,17 @@ Plan file path: ${planFilePath}`;
                         : (currentApprovalContext?.defaultScope ?? "project")
                     }
                     showPreview={showApprovalPreview}
+                    planContent={
+                      currentApproval.toolName === "ExitPlanMode"
+                        ? _readPlanFile()
+                        : undefined
+                    }
+                    planFilePath={
+                      currentApproval.toolName === "ExitPlanMode"
+                        ? (permissionMode.getPlanFilePath() ?? undefined)
+                        : undefined
+                    }
+                    agentName={agentName ?? undefined}
                   />
                 </Box>
               )}
@@ -11913,6 +12230,8 @@ Plan file path: ${planFilePath}`;
                 currentModel={currentModelDisplay}
                 currentModelProvider={currentModelProvider}
                 currentReasoningEffort={currentReasoningEffort}
+                currentSystemPromptId={currentSystemPromptId}
+                currentToolset={currentToolset}
                 messageQueue={messageQueue}
                 onEnterQueueEditMode={handleEnterQueueEditMode}
                 onEscapeCancel={
@@ -11927,7 +12246,7 @@ Plan file path: ${planFilePath}`;
                 restoredInput={restoredInput}
                 onRestoredInputConsumed={() => setRestoredInput(null)}
                 networkPhase={networkPhase}
-                terminalWidth={columns}
+                terminalWidth={chromeColumns}
                 shouldAnimate={shouldAnimate}
                 statusLineText={statusLine.text || undefined}
                 statusLineRight={statusLine.rightText || undefined}
@@ -11975,6 +12294,84 @@ Plan file path: ${planFilePath}`;
                 initialSettings={getReflectionSettings()}
                 memfsEnabled={settingsManager.isMemfsEnabled(agentId)}
                 onSave={handleSleeptimeModeSelect}
+                onCancel={closeOverlay}
+              />
+            )}
+
+            {/* GitHub App Installer - setup Letta Code GitHub Action */}
+            {activeOverlay === "install-github-app" && (
+              <InstallGithubAppFlow
+                onComplete={(result) => {
+                  const overlayCommand =
+                    consumeOverlayCommand("install-github-app");
+                  closeOverlay();
+
+                  const cmd =
+                    overlayCommand ??
+                    commandRunner.start(
+                      "/install-github-app",
+                      "Setting up Letta Code GitHub Action...",
+                    );
+
+                  if (!result.committed) {
+                    cmd.finish(
+                      [
+                        `Workflow already up to date for ${result.repo}.`,
+                        result.secretAction === "reused"
+                          ? "Using existing LETTA_API_KEY secret."
+                          : "Updated LETTA_API_KEY secret.",
+                        "No pull request needed.",
+                      ].join("\n"),
+                      true,
+                    );
+                    return;
+                  }
+
+                  const lines: string[] = ["Install GitHub App", "Success", ""];
+                  lines.push("✓ GitHub Actions workflow created!");
+                  lines.push("");
+                  lines.push(
+                    result.secretAction === "reused"
+                      ? "✓ Using existing LETTA_API_KEY secret"
+                      : "✓ API key saved as LETTA_API_KEY secret",
+                  );
+                  if (result.agentId) {
+                    lines.push("");
+                    lines.push(`✓ Agent configured: ${result.agentId}`);
+                  }
+                  lines.push("");
+                  lines.push("Next steps:");
+
+                  if (result.pullRequestUrl) {
+                    lines.push(
+                      result.pullRequestCreateMode === "page-opened"
+                        ? "1. A pre-filled PR page has been created"
+                        : "1. A pull request has been created",
+                    );
+                    lines.push("2. Merge the PR to enable Letta PR assistance");
+                    lines.push(
+                      "3. Mention @letta-code in an issue or PR to test",
+                    );
+                    lines.push("");
+                    lines.push(`PR: ${result.pullRequestUrl}`);
+                    if (result.agentUrl) {
+                      lines.push(`Agent: ${result.agentUrl}`);
+                    }
+                  } else {
+                    lines.push(
+                      "1. Open a PR for the branch created by the installer",
+                    );
+                    lines.push("2. Merge the PR to enable Letta PR assistance");
+                    lines.push(
+                      "3. Mention @letta-code in an issue or PR to test",
+                    );
+                    lines.push("");
+                    lines.push(
+                      "Branch pushed but PR was not opened automatically. Run: gh pr create",
+                    );
+                  }
+                  cmd.finish(lines.join("\n"), true);
+                }}
                 onCancel={closeOverlay}
               />
             )}

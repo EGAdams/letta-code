@@ -1,8 +1,9 @@
 // src/settings-manager.ts
 // In-memory settings manager that loads once and provides sync access
 
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { HooksConfig } from "./hooks/types";
 import type { PermissionRules } from "./permissions/types";
 import { debugWarn } from "./utils/debug.js";
@@ -119,6 +120,7 @@ export interface LocalProjectSettings {
   // Server-indexed settings (agent IDs are server-specific)
   sessionsByServer?: Record<string, SessionRef>; // key = normalized base URL
   pinnedAgentsByServer?: Record<string, string[]>; // key = normalized base URL
+  listenerEnvName?: string; // Saved environment name for listener connections (project-specific)
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -441,7 +443,7 @@ class SettingsManager {
     const settings = this.getSettings();
     let deviceId = settings.deviceId;
     if (!deviceId) {
-      deviceId = crypto.randomUUID();
+      deviceId = randomUUID();
       this.updateSettings({ deviceId });
     }
     return deviceId;
@@ -566,6 +568,14 @@ class SettingsManager {
   async loadProjectSettings(
     workingDirectory: string = process.cwd(),
   ): Promise<ProjectSettings> {
+    // If cwd is HOME, .letta/settings.json is the global settings file.
+    // Never treat it as project settings or we risk duplicate project/global behavior.
+    if (this.isProjectSettingsPathCollidingWithGlobal(workingDirectory)) {
+      const defaults = { ...DEFAULT_PROJECT_SETTINGS };
+      this.projectSettings.set(workingDirectory, defaults);
+      return defaults;
+    }
+
     // Check cache first
     const cached = this.projectSettings.get(workingDirectory);
     if (cached) {
@@ -623,6 +633,22 @@ class SettingsManager {
     updates: Partial<ProjectSettings>,
     workingDirectory: string = process.cwd(),
   ): void {
+    // If cwd is HOME, project settings path collides with global settings path.
+    // Route overlapping keys to user settings and avoid writing project scope.
+    if (this.isProjectSettingsPathCollidingWithGlobal(workingDirectory)) {
+      const globalUpdates: Partial<Settings> = {};
+      if ("hooks" in updates) {
+        globalUpdates.hooks = updates.hooks;
+      }
+      if ("statusLine" in updates) {
+        globalUpdates.statusLine = updates.statusLine;
+      }
+      if (Object.keys(globalUpdates).length > 0) {
+        this.updateSettings(globalUpdates);
+      }
+      return;
+    }
+
     const current = this.projectSettings.get(workingDirectory);
     if (!current) {
       throw new Error(
@@ -698,6 +724,11 @@ class SettingsManager {
   private async persistProjectSettings(
     workingDirectory: string,
   ): Promise<void> {
+    // Safety guard: never persist project settings into global settings path.
+    if (this.isProjectSettingsPathCollidingWithGlobal(workingDirectory)) {
+      return;
+    }
+
     const settings = this.projectSettings.get(workingDirectory);
     if (!settings) return;
 
@@ -738,6 +769,15 @@ class SettingsManager {
 
   private getProjectSettingsPath(workingDirectory: string): string {
     return join(workingDirectory, ".letta", "settings.json");
+  }
+
+  private isProjectSettingsPathCollidingWithGlobal(
+    workingDirectory: string,
+  ): boolean {
+    return (
+      resolve(this.getProjectSettingsPath(workingDirectory)) ===
+      resolve(this.getSettingsPath())
+    );
   }
 
   private getLocalProjectSettingsPath(workingDirectory: string): string {
@@ -1308,6 +1348,54 @@ class SettingsManager {
   unpinProfile(_name: string, _workingDirectory: string = process.cwd()): void {
     // This no longer makes sense with the new model
     console.warn("unpinProfile is deprecated, use unpinLocal(agentId) instead");
+  }
+
+  // =====================================================================
+  // Listener Environment Name Helpers
+  // =====================================================================
+
+  /**
+   * Get saved listener environment name from local project settings (if any).
+   * Returns undefined if not set or settings not loaded.
+   */
+  getListenerEnvName(
+    workingDirectory: string = process.cwd(),
+  ): string | undefined {
+    try {
+      const localSettings = this.getLocalProjectSettings(workingDirectory);
+      return localSettings.listenerEnvName;
+    } catch {
+      // Settings not loaded yet
+      return undefined;
+    }
+  }
+
+  /**
+   * Save listener environment name to local project settings.
+   * Loads settings if not already loaded.
+   */
+  setListenerEnvName(
+    envName: string,
+    workingDirectory: string = process.cwd(),
+  ): void {
+    try {
+      this.updateLocalProjectSettings(
+        { listenerEnvName: envName },
+        workingDirectory,
+      );
+    } catch {
+      // Settings not loaded yet - load and retry
+      this.loadLocalProjectSettings(workingDirectory)
+        .then(() => {
+          this.updateLocalProjectSettings(
+            { listenerEnvName: envName },
+            workingDirectory,
+          );
+        })
+        .catch((error) => {
+          console.error("Failed to save listener environment name:", error);
+        });
+    }
   }
 
   // =====================================================================

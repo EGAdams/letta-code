@@ -48,6 +48,24 @@ describe("getReasoningTierOptionsForHandle", () => {
     ]);
   });
 
+  test("returns ordered reasoning options for gpt-5.3-codex", () => {
+    const options = getReasoningTierOptionsForHandle("openai/gpt-5.3-codex");
+    expect(options.map((option) => option.effort)).toEqual([
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
+    expect(options.map((option) => option.modelId)).toEqual([
+      "gpt-5.3-codex-none",
+      "gpt-5.3-codex-low",
+      "gpt-5.3-codex-medium",
+      "gpt-5.3-codex-high",
+      "gpt-5.3-codex-xhigh",
+    ]);
+  });
+
   test("returns byok reasoning options for chatgpt-plus-pro gpt-5.3-codex", () => {
     const options = getReasoningTierOptionsForHandle(
       "chatgpt-plus-pro/gpt-5.3-codex",
@@ -77,14 +95,12 @@ describe("getReasoningTierOptionsForHandle", () => {
       "low",
       "medium",
       "high",
-      "xhigh",
     ]);
     expect(options.map((option) => option.modelId)).toEqual([
       "sonnet-4.6-no-reasoning",
       "sonnet-4.6-low",
       "sonnet-4.6-medium",
       "sonnet",
-      "sonnet-4.6-xhigh",
     ]);
   });
 
@@ -97,20 +113,18 @@ describe("getReasoningTierOptionsForHandle", () => {
       "low",
       "medium",
       "high",
-      "xhigh",
     ]);
     expect(options.map((option) => option.modelId)).toEqual([
       "opus-4.6-no-reasoning",
       "opus-4.6-low",
       "opus-4.6-medium",
       "opus",
-      "opus-4.6-xhigh",
     ]);
   });
 
   test("returns empty options for models without reasoning tiers", () => {
     const options = getReasoningTierOptionsForHandle(
-      "anthropic/claude-haiku-4-5-20251001",
+      "anthropic/claude-haiku-4-5",
     );
     expect(options).toEqual([]);
   });
