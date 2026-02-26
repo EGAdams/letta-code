@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import subprocess
 from urllib.parse import unquote, urlparse
 from datetime import datetime
@@ -13,10 +14,29 @@ from typing import Any, Iterator
 
 RECEIPTS_ROOT = Path("/home/adamsl/rol_finances/readable_documents/receipts")
 REPORTS_ROOT = Path("/home/adamsl/rol_finances/readable_documents/reports")
-PARSER_SCRIPT = Path(
-    "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
+LOGS_ROOT = REPORTS_ROOT / "logs"
+PARSER_ROOT = Path(
+    "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools"
 )
+PARSER_MODULE_PATH = PARSER_ROOT / "receipt_parsing_tools" / "parse_and_categorize.py"
 ALLOWED_SUFFIXES = {".jpeg", ".jpg", ".png", ".pdf", ".tif", ".tiff"}
+
+if not PARSER_MODULE_PATH.exists():
+    raise RuntimeError(
+        f"Receipt parser module not found: {PARSER_MODULE_PATH}. Fix this before running reports."
+    )
+
+parser_root_str = str(PARSER_ROOT)
+if parser_root_str not in sys.path:
+    sys.path.insert(0, parser_root_str)
+
+try:
+    from receipt_parsing_tools import parse_and_categorize as parser_module
+except Exception as exc:  # pragma: no cover - hard error
+    raise RuntimeError(
+        "Failed to import receipt parser module from receipt_scanning_tools. "
+        "Resolve the import error before proceeding."
+    ) from exc
 
 
 def format_markdown_table(rows: list[dict[str, str]]) -> str:
@@ -25,11 +45,28 @@ def format_markdown_table(rows: list[dict[str, str]]) -> str:
         "status",
         "merchant",
         "date",
+        "subtotal",
+        "tax",
         "total",
         "items",
         "warnings",
+        "model_name",
+        "model_provider",
+        "postprocessed",
         "anomalies",
         "anomaly_details",
+        "second_engine",
+        "second_status",
+        "second_merchant",
+        "second_date",
+        "second_subtotal",
+        "second_tax",
+        "second_total",
+        "second_model_name",
+        "second_model_provider",
+        "second_anomalies",
+        "second_anomaly_details",
+        "second_error",
         "vendor_key",
         "id_light",
         "error",
@@ -39,11 +76,28 @@ def format_markdown_table(rows: list[dict[str, str]]) -> str:
         "status": "Status",
         "merchant": "Merchant",
         "date": "Date",
+        "subtotal": "Subtotal",
+        "tax": "Tax",
         "total": "Total",
         "items": "Items",
         "warnings": "Warnings",
+        "model_name": "Model",
+        "model_provider": "Provider",
+        "postprocessed": "Postprocessed",
         "anomalies": "Anomalies",
         "anomaly_details": "Anomaly Details",
+        "second_engine": "2nd Engine",
+        "second_status": "2nd Status",
+        "second_merchant": "2nd Merchant",
+        "second_date": "2nd Date",
+        "second_subtotal": "2nd Subtotal",
+        "second_tax": "2nd Tax",
+        "second_total": "2nd Total",
+        "second_model_name": "2nd Model",
+        "second_model_provider": "2nd Provider",
+        "second_anomalies": "2nd Anomalies",
+        "second_anomaly_details": "2nd Anomaly Details",
+        "second_error": "2nd Error",
         "vendor_key": "Vendor Key",
         "id_light": "ID Light",
         "error": "Error",
@@ -96,31 +150,30 @@ def normalize_file_arg(value: str) -> Path:
     return Path(value)
 
 
-def parse_receipt(receipt_path: Path) -> tuple[dict[str, Any] | None, str]:
-    command = [
-        "python3",
-        str(PARSER_SCRIPT),
-        "--file",
-        str(receipt_path),
-        "--engine",
-        "local",
-        "--json",
-        "--no-pick",
-    ]
+def parse_receipt(receipt_path: Path, engine: str) -> tuple[dict[str, Any] | None, str]:
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        image_bytes = receipt_path.read_bytes()
     except Exception as exc:
-        return None, str(exc)
-    stdout = completed.stdout.strip()
-    stderr = completed.stderr.strip()
-    if completed.returncode != 0:
-        return None, stderr or stdout or "Parser command failed"
-    if not stdout:
-        return None, stderr or "Empty parser output"
+        return None, f"Failed to read receipt bytes: {exc}"
     try:
-        payload = json.loads(stdout)
-    except json.JSONDecodeError as exc:
-        return None, f"JSON decode error: {exc}"
+        mime_type = parser_module._guess_mime(receipt_path)
+        parsed = parser_module._parse_receipt(image_bytes, mime_type, engine)
+    except Exception as exc:
+        return None, f"Parser exception: {exc}"
+    if parsed is None:
+        return None, "Parser returned no data"
+
+    try:
+        payload = parser_module.to_primitive(parsed)
+    except Exception as exc:
+        return None, f"Failed to convert parser output: {exc}"
+
+    if not isinstance(payload, dict):
+        try:
+            payload = dict(payload)
+        except Exception:
+            payload = {"result": payload}
+
     return payload, ""
 
 
@@ -162,14 +215,57 @@ def parse_total(payload: dict[str, Any]) -> str:
     return ""
 
 
-def parse_raw_snippet(payload: dict[str, Any]) -> str:
+def parse_subtotal(payload: dict[str, Any]) -> str:
+    totals = payload.get("totals")
+    if isinstance(totals, dict):
+        subtotal = totals.get("subtotal")
+        if subtotal is not None:
+            return str(subtotal)
+    return ""
+
+
+def parse_tax(payload: dict[str, Any]) -> str:
+    totals = payload.get("totals")
+    if isinstance(totals, dict):
+        tax_amount = totals.get("tax_amount")
+        if tax_amount is not None:
+            return str(tax_amount)
+    return ""
+
+
+def parse_model_name(payload: dict[str, Any]) -> str:
     meta = payload.get("meta")
     if isinstance(meta, dict):
-        raw_text = meta.get("raw_text")
-        if raw_text:
-            flat = " ".join(str(raw_text).split())
-            return flat[:180]
+        name = meta.get("model_name")
+        if name:
+            return str(name)
     return ""
+
+
+def parse_model_provider(payload: dict[str, Any]) -> str:
+    meta = payload.get("meta")
+    if isinstance(meta, dict):
+        provider = meta.get("model_provider")
+        if provider:
+            return str(provider)
+    return ""
+
+
+def parse_postprocessed(payload: dict[str, Any]) -> str:
+    meta = payload.get("meta")
+    if isinstance(meta, dict):
+        value = meta.get("postprocessed_from_raw_text")
+        if value is not None:
+            return str(bool(value)).lower()
+    return ""
+
+
+def choose_second_engine(primary_engine: str) -> str | None:
+    if primary_engine == "openai":
+        return "gemini"
+    if primary_engine in {"gemini", "auto", "local"}:
+        return "openai"
+    return None
 
 
 def derive_vendor_key(id_light: str) -> str:
@@ -177,10 +273,6 @@ def derive_vendor_key(id_light: str) -> str:
     if len(tokens) > 5:
         return "_".join(tokens[:-5])
     return id_light
-
-
-def tooltip_text(vendor_key: str, id_light: str) -> str:
-    return f"Vendor Key: {vendor_key}\n\nID Lite: {id_light}"
 
 
 def get_anomaly_flags(row: dict[str, str]) -> list[str]:
@@ -191,6 +283,11 @@ def get_anomaly_flags(row: dict[str, str]) -> list[str]:
 def get_anomaly_details(row: dict[str, str]) -> tuple[list[str], list[dict[str, str]]]:
     flags: list[str] = []
     details: list[dict[str, str]] = []
+    provider = (row.get("model_provider") or "").strip().lower()
+    model_name = (row.get("model_name") or "").strip().lower()
+    is_local_engine = provider == "local" or "local" in model_name or (
+        not provider and not model_name
+    )
     merchant_raw = row.get("merchant", "")
     merchant = merchant_raw.strip().lower()
     merchant_len = len(merchant)
@@ -269,18 +366,32 @@ def get_anomaly_details(row: dict[str, str]) -> tuple[list[str], list[dict[str, 
                 "value": date_raw,
             }
         )
-    raw_text_value = row.get("raw_snippet", "")
-    raw_text = raw_text_value.strip()
-    if not raw_text:
-        flags.append("raw_snippet_empty")
-        details.append(
-            {
-                "field": "raw_snippet",
-                "reason": "empty",
-                "value": raw_text_value,
-                "length": str(len(raw_text_value)),
-            }
-        )
+    subtotal_raw = row.get("subtotal", "")
+    tax_raw = row.get("tax", "")
+    total_raw = row.get("total", "")
+    try:
+        subtotal_val = float(subtotal_raw)
+        tax_val = float(tax_raw)
+        total_val = float(total_raw)
+    except (TypeError, ValueError):
+        subtotal_val = tax_val = total_val = None
+
+    if subtotal_val is not None and tax_val is not None and total_val is not None:
+        computed_total = subtotal_val + tax_val
+        diff = abs(computed_total - total_val)
+        if diff > 0.07:
+            flags.append("total_mismatch")
+            details.append(
+                {
+                    "field": "total",
+                    "reason": "mismatch",
+                    "value": total_raw,
+                    "computed": f"{computed_total:.2f}",
+                    "diff": f"{diff:.2f}",
+                    "subtotal": f"{subtotal_val:.2f}",
+                    "tax": f"{tax_val:.2f}",
+                }
+            )
     return flags, details
 
 
@@ -292,6 +403,13 @@ def format_anomaly_details(details: list[dict[str, str]]) -> str:
         field = item.get("field", "")
         reason = item.get("reason", "")
         value = item.get("value", "")
+        if reason == "mismatch":
+            computed = item.get("computed", "")
+            diff = item.get("diff", "")
+            segments.append(
+                f"{field}: mismatch (total={value} vs computed={computed}, diff={diff})"
+            )
+            continue
         extras = [
             f"len={item['length']}" for item in [item] if item.get("length")
         ] + [
@@ -342,10 +460,26 @@ def to_row(
             "status": "error",
             "merchant": "",
             "date": "",
+            "subtotal": "",
+            "tax": "",
             "total": "",
             "items": "",
             "warnings": "",
-            "raw_snippet": "",
+            "model_name": "",
+            "model_provider": "",
+            "postprocessed": "",
+            "second_engine": "",
+            "second_status": "",
+            "second_merchant": "",
+            "second_date": "",
+            "second_subtotal": "",
+            "second_tax": "",
+            "second_total": "",
+            "second_model_name": "",
+            "second_model_provider": "",
+            "second_anomalies": "",
+            "second_anomaly_details": "",
+            "second_error": "",
             "error": error,
             "id_light": id_light,
             "vendor_key": vendor_key,
@@ -357,10 +491,26 @@ def to_row(
             "status": "ok",
             "merchant": parse_merchant(payload),
             "date": str(payload.get("transaction_date", "")),
+            "subtotal": parse_subtotal(payload),
+            "tax": parse_tax(payload),
             "total": parse_total(payload),
             "items": parse_items_count(payload),
             "warnings": parse_warnings(payload),
-            "raw_snippet": parse_raw_snippet(payload),
+            "model_name": parse_model_name(payload),
+            "model_provider": parse_model_provider(payload),
+            "postprocessed": parse_postprocessed(payload),
+            "second_engine": "",
+            "second_status": "",
+            "second_merchant": "",
+            "second_date": "",
+            "second_subtotal": "",
+            "second_tax": "",
+            "second_total": "",
+            "second_model_name": "",
+            "second_model_provider": "",
+            "second_anomalies": "",
+            "second_anomaly_details": "",
+            "second_error": "",
             "error": "",
             "id_light": id_light,
             "vendor_key": vendor_key,
@@ -379,8 +529,6 @@ def to_row(
 
 def build_row_html(row: dict[str, str], include_anomalies: bool) -> str:
     file_html = f'<a href="{html_escape(row["file"])}">{html_escape(row["file_label"])}</a>'
-    raw_text = html_escape(row["raw_snippet"])
-    tip = html_escape(tooltip_text(row["vendor_key"], row["id_light"]))
     anomaly_class = " anomaly" if include_anomalies and row.get("anomalies") else ""
     anomalies_cell = (
         f"<td>{html_escape(row['anomalies'])}</td><td>{html_escape(row.get('anomaly_details', ''))}</td>"
@@ -393,11 +541,27 @@ def build_row_html(row: dict[str, str], include_anomalies: bool) -> str:
         f"<td>{html_escape(row['status'])}</td>"
         f"<td>{html_escape(row['merchant'])}</td>"
         f"<td>{html_escape(row['date'])}</td>"
+        f"<td>{html_escape(row.get('subtotal', ''))}</td>"
+        f"<td>{html_escape(row.get('tax', ''))}</td>"
         f"<td>{html_escape(row['total'])}</td>"
         f"<td>{html_escape(row['items'])}</td>"
         f"<td>{html_escape(row['warnings'])}</td>"
-        f'<td class="tooltip" data-tooltip="{tip}">{raw_text}</td>'
+        f"<td>{html_escape(row.get('model_name', ''))}</td>"
+        f"<td>{html_escape(row.get('model_provider', ''))}</td>"
+        f"<td>{html_escape(row.get('postprocessed', ''))}</td>"
         f"{anomalies_cell}"
+        f"<td>{html_escape(row.get('second_engine', ''))}</td>"
+        f"<td>{html_escape(row.get('second_status', ''))}</td>"
+        f"<td>{html_escape(row.get('second_merchant', ''))}</td>"
+        f"<td>{html_escape(row.get('second_date', ''))}</td>"
+        f"<td>{html_escape(row.get('second_subtotal', ''))}</td>"
+        f"<td>{html_escape(row.get('second_tax', ''))}</td>"
+        f"<td>{html_escape(row.get('second_total', ''))}</td>"
+        f"<td>{html_escape(row.get('second_model_name', ''))}</td>"
+        f"<td>{html_escape(row.get('second_model_provider', ''))}</td>"
+        f"<td>{html_escape(row.get('second_anomalies', ''))}</td>"
+        f"<td>{html_escape(row.get('second_anomaly_details', ''))}</td>"
+        f"<td>{html_escape(row.get('second_error', ''))}</td>"
         f"<td>{html_escape(row['error'])}</td>"
         "</tr>"
     )
@@ -422,25 +586,6 @@ def build_html(rows: list[dict[str, str]], include_anomalies: bool) -> str:
     th {{ background: #f3f4f6; }}
     tr:nth-child(even) {{ background: #f9fafb; }}
     {anomaly_style}
-    .tooltip {{ position: relative; cursor: help; }}
-    .tooltip:hover::after {{
-      content: attr(data-tooltip);
-      position: absolute;
-      right: 100%;
-      left: auto;
-      top: 0;
-      margin-right: 8px;
-      margin-top: 0;
-      white-space: pre-line;
-      background: #111827;
-      color: #ffffff;
-      padding: 8px 10px;
-      border-radius: 6px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.20);
-      z-index: 20;
-      min-width: 260px;
-      max-width: 560px;
-    }}
   </style>
 </head>
 <body>
@@ -453,11 +598,27 @@ def build_html(rows: list[dict[str, str]], include_anomalies: bool) -> str:
         <th>Status</th>
         <th>Merchant</th>
         <th>Date</th>
+        <th>Subtotal</th>
+        <th>Tax</th>
         <th>Total</th>
         <th>Items</th>
         <th>Warnings</th>
-        <th>Raw snippet</th>
+        <th>Model</th>
+        <th>Provider</th>
+        <th>Postprocessed</th>
         {anomaly_header}
+        <th>2nd Engine</th>
+        <th>2nd Status</th>
+        <th>2nd Merchant</th>
+        <th>2nd Date</th>
+        <th>2nd Subtotal</th>
+        <th>2nd Tax</th>
+        <th>2nd Total</th>
+        <th>2nd Model</th>
+        <th>2nd Provider</th>
+        <th>2nd Anomalies</th>
+        <th>2nd Anomaly Details</th>
+        <th>2nd Error</th>
         <th>Error</th>
       </tr>
     </thead>
@@ -474,6 +635,18 @@ def output_path() -> Path:
     REPORTS_ROOT.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return REPORTS_ROOT / f"receipt_parse_sample_3_{stamp}.html"
+
+
+def output_log_path() -> Path:
+    LOGS_ROOT.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return LOGS_ROOT / f"receipt_parse_log_{stamp}.txt"
+
+
+def log_line(handle, message: str) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    handle.write(f"[{timestamp}] {message}\n")
+    handle.flush()
 
 
 def resolve_subdir(subdir: str) -> Path:
@@ -505,6 +678,11 @@ def parse_args() -> argparse.Namespace:
         help="Maximum number of receipts to include",
     )
     parser.add_argument(
+        "--engine",
+        default="auto",
+        help="Parser engine to use: auto, gemini, openai, or local (default: auto)",
+    )
+    parser.add_argument(
         "--anomalies",
         action="store_true",
         help="Highlight rows with missing merchant/date/total/raw snippet",
@@ -529,7 +707,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if args.file:
+    if args.file or args.engine in {"openai", "gemini", "auto"}:
         args.include_missing_id_light = True
     if not args.anomalies:
         args.anomalies = True
@@ -546,24 +724,83 @@ def main() -> None:
             except ValueError as exc:
                 raise SystemExit(str(exc)) from exc
         selected = choose_receipts(search_root=search_root, limit=args.limit)
+    log_path = output_log_path()
     rows: list[dict[str, str]] = []
-    for receipt_path in selected:
-        payload, error = parse_receipt(receipt_path)
-        row = to_row(
-            receipt_path,
-            payload,
-            error,
-            include_anomalies=args.anomalies,
-            include_missing_id_light=args.include_missing_id_light,
-        )
-        if row is None:
-            continue
-        rows.append(row)
+    with log_path.open("w", encoding="utf-8") as log_handle:
+        log_line(log_handle, f"Engine: {args.engine}")
+        log_line(log_handle, f"Receipts selected: {len(selected)}")
+        for idx, receipt_path in enumerate(selected, start=1):
+            log_line(log_handle, f"[{idx}/{len(selected)}] Parsing {receipt_path}")
+            payload, error = parse_receipt(receipt_path, engine=args.engine)
+            if error:
+                log_line(log_handle, f"Primary parse error: {error}")
+            row = to_row(
+                receipt_path,
+                payload,
+                error,
+                include_anomalies=args.anomalies,
+                include_missing_id_light=args.include_missing_id_light,
+            )
+            if row is None:
+                log_line(log_handle, "Row skipped (missing id_light)")
+                continue
+            if row.get("anomalies"):
+                second_engine = choose_second_engine(args.engine)
+                if second_engine:
+                    log_line(log_handle, f"Running second engine: {second_engine}")
+                    second_payload, second_error = parse_receipt(
+                        receipt_path, engine=second_engine
+                    )
+                    if second_error:
+                        log_line(log_handle, f"Second parse error: {second_error}")
+                    if second_payload is None:
+                        row["second_engine"] = second_engine
+                        row["second_status"] = "error"
+                        row["second_error"] = second_error
+                    else:
+                        row["second_engine"] = second_engine
+                        row["second_status"] = "ok"
+                        row["second_merchant"] = parse_merchant(second_payload)
+                        row["second_date"] = str(
+                            second_payload.get("transaction_date", "")
+                        )
+                        row["second_subtotal"] = parse_subtotal(second_payload)
+                        row["second_tax"] = parse_tax(second_payload)
+                        row["second_total"] = parse_total(second_payload)
+                        row["second_model_name"] = parse_model_name(second_payload)
+                        row["second_model_provider"] = parse_model_provider(second_payload)
+                        row["second_anomalies"] = ", ".join(
+                            get_anomaly_flags(row={
+                                **row,
+                                "merchant": parse_merchant(second_payload),
+                                "date": str(second_payload.get("transaction_date", "")),
+                                "subtotal": parse_subtotal(second_payload),
+                                "tax": parse_tax(second_payload),
+                                "total": parse_total(second_payload),
+                                "model_name": parse_model_name(second_payload),
+                                "model_provider": parse_model_provider(second_payload),
+                            })
+                        )
+                        row["second_anomaly_details"] = format_anomaly_details(
+                            get_anomaly_details({
+                                **row,
+                                "merchant": parse_merchant(second_payload),
+                                "date": str(second_payload.get("transaction_date", "")),
+                                "subtotal": parse_subtotal(second_payload),
+                                "tax": parse_tax(second_payload),
+                                "total": parse_total(second_payload),
+                                "model_name": parse_model_name(second_payload),
+                                "model_provider": parse_model_provider(second_payload),
+                            })[1]
+                        )
+            rows.append(row)
+        log_line(log_handle, "Parsing complete")
 
     html = build_html(rows, include_anomalies=args.anomalies)
     report_path = output_path()
     report_path.write_text(html, encoding="utf-8")
     print(report_path)
+    print(f"Log: {log_path}")
     if args.summary_json:
         print(json.dumps({"rows": rows}, ensure_ascii=False, indent=2))
     if args.summary_markdown:
