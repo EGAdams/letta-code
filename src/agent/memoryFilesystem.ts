@@ -146,6 +146,12 @@ export interface ApplyMemfsFlagsResult {
 export interface ApplyMemfsFlagsOptions {
   pullOnExistingRepo?: boolean;
   agentTags?: string[];
+  /** Allow memfs on non-cloud servers (local-only). */
+  allowLocal?: boolean;
+  /** Allow memfs on non-cloud servers with git remote (self-hosted). */
+  allowSelfHosted?: boolean;
+  /** Optional remote override for self-hosted git-backed memfs. */
+  remoteUrl?: string;
 }
 
 /**
@@ -175,9 +181,13 @@ export async function applyMemfsFlags(
   // Validate explicit enable on supported backend.
   if (memfsFlag) {
     const serverUrl = getServerUrl();
+    const allowLocal =
+      options?.allowLocal || process.env.LETTA_MEMFS_LOCAL === "1";
+    const allowSelfHosted = Boolean(options?.allowSelfHosted || options?.remoteUrl);
     if (
       !serverUrl.includes("api.letta.com") &&
-      process.env.LETTA_MEMFS_LOCAL !== "1"
+      !allowLocal &&
+      !allowSelfHosted
     ) {
       throw new Error(
         "--memfs is only available on Letta Cloud (api.letta.com).",
@@ -187,6 +197,8 @@ export async function applyMemfsFlags(
 
   const hasExplicitToggle = Boolean(memfsFlag || noMemfsFlag);
   const localMemfsEnabled = settingsManager.isMemfsEnabled(agentId);
+  const localMemfsLocalEnabled = settingsManager.isMemfsLocalEnabled(agentId);
+  const localMemfsRemote = settingsManager.getMemfsRemote(agentId);
   const { GIT_MEMORY_ENABLED_TAG } = await import("./memoryGit");
   const shouldAutoEnableFromTag =
     !hasExplicitToggle &&
@@ -200,6 +212,14 @@ export async function applyMemfsFlags(
         ? true
         : localMemfsEnabled;
 
+  const targetLocalOnly = Boolean(
+    options?.allowLocal ||
+      process.env.LETTA_MEMFS_LOCAL === "1" ||
+      localMemfsLocalEnabled,
+  );
+
+  const targetRemoteUrl = options?.remoteUrl || localMemfsRemote;
+
   // 2. Reconcile system prompt first, then persist local memfs setting.
   if (hasExplicitToggle || shouldAutoEnableFromTag) {
     const { updateAgentSystemPromptMemfs } = await import("./modify");
@@ -211,6 +231,16 @@ export async function applyMemfsFlags(
       throw new Error(promptUpdate.message);
     }
     settingsManager.setMemfsEnabled(agentId, targetEnabled);
+    if (targetEnabled) {
+      settingsManager.setMemfsLocalEnabled(agentId, targetLocalOnly);
+      if (options?.remoteUrl) {
+        settingsManager.setMemfsRemote(agentId, options.remoteUrl);
+      }
+    }
+    if (!targetEnabled) {
+      settingsManager.setMemfsLocalEnabled(agentId, false);
+      settingsManager.setMemfsRemote(agentId, undefined);
+    }
   }
 
   const isEnabled =
@@ -253,17 +283,28 @@ export async function applyMemfsFlags(
   // 4. Add git tag + clone/pull repo.
   let pullSummary: string | undefined;
   if (isEnabled) {
-    const { addGitMemoryTag, isGitRepo, cloneMemoryRepo, pullMemory } =
-      await import("./memoryGit");
-    await addGitMemoryTag(
-      agentId,
-      options?.agentTags ? { tags: options.agentTags } : undefined,
-    );
-    if (!isGitRepo(agentId)) {
-      await cloneMemoryRepo(agentId);
-    } else if (options?.pullOnExistingRepo) {
-      const result = await pullMemory(agentId);
-      pullSummary = result.summary;
+    const {
+      addGitMemoryTag,
+      isGitRepo,
+      cloneMemoryRepo,
+      pullMemory,
+      initLocalMemoryRepo,
+    } = await import("./memoryGit");
+    if (targetLocalOnly) {
+      if (!isGitRepo(agentId)) {
+        await initLocalMemoryRepo(agentId);
+      }
+    } else {
+      await addGitMemoryTag(
+        agentId,
+        options?.agentTags ? { tags: options.agentTags } : undefined,
+      );
+      if (!isGitRepo(agentId)) {
+        await cloneMemoryRepo(agentId, targetRemoteUrl);
+      } else if (options?.pullOnExistingRepo) {
+        const result = await pullMemory(agentId, targetRemoteUrl);
+        pullSummary = result.summary;
+      }
     }
   }
 

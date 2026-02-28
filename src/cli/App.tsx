@@ -8196,7 +8196,15 @@ export default function App({
 
         // Special handling for /memfs command - manage filesystem-backed memory
         if (trimmed.startsWith("/memfs")) {
-          const [, subcommand] = trimmed.split(/\s+/);
+          const parts = trimmed.split(/\s+/);
+          const subcommand = parts[1];
+          const flags = new Set(parts.slice(2));
+          const localOnly = flags.has("--local") || flags.has("local");
+          const selfHosted =
+            flags.has("--selfhosted") || flags.has("selfhosted");
+          const remoteFlagIndex = parts.findIndex((p) => p === "--remote");
+          const remoteUrl =
+            remoteFlagIndex >= 0 ? parts[remoteFlagIndex + 1] : undefined;
           const cmd = commandRunner.start(
             msg.trim(),
             "Processing memfs command...",
@@ -8211,7 +8219,7 @@ export default function App({
               "",
               "USAGE",
               "  /memfs status    — show status",
-              "  /memfs enable    — enable filesystem-backed memory",
+              "  /memfs enable [--local|--selfhosted|--remote <url>] — enable filesystem-backed memory",
               "  /memfs disable   — disable filesystem-backed memory",
               "  /memfs sync      — sync blocks and files now",
               "  /memfs reset     — move local memfs to /tmp and recreate dirs",
@@ -8250,10 +8258,25 @@ export default function App({
               const { applyMemfsFlags } = await import(
                 "../agent/memoryFilesystem"
               );
-              const result = await applyMemfsFlags(agentId, true, false);
+              if (remoteFlagIndex >= 0 && !remoteUrl) {
+                updateMemorySyncCommand(
+                  cmdId,
+                  "Failed to enable memfs: --remote requires a URL",
+                  false,
+                  msg,
+                );
+                setCommandRunning(false);
+                return { submitted: true };
+              }
+
+              const result = await applyMemfsFlags(agentId, true, false, {
+                allowLocal: localOnly,
+                allowSelfHosted: selfHosted || Boolean(remoteUrl),
+                remoteUrl,
+              });
               updateMemorySyncCommand(
                 cmdId,
-                `Memory filesystem enabled (git-backed).\nPath: ${result.memoryDir}`,
+                `Memory filesystem enabled (${localOnly ? "local" : "git-backed"}).\nPath: ${result.memoryDir}`,
                 true,
                 msg,
               );

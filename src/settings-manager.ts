@@ -48,6 +48,8 @@ export interface AgentSettings {
   baseUrl?: string; // undefined = Letta API (api.letta.com)
   pinned?: boolean; // true if agent is pinned
   memfs?: boolean; // true if memory filesystem is enabled
+  memfsLocal?: boolean; // true if memfs is local-only (no remote sync)
+  memfsRemote?: string; // optional git remote URL for memfs
   toolset?:
     | "auto"
     | "codex"
@@ -1446,6 +1448,14 @@ class SettingsManager {
         pinned: updates.pinned !== undefined ? updates.pinned : existing.pinned,
         // Use nullish coalescing for memfs (undefined = keep existing)
         memfs: updates.memfs !== undefined ? updates.memfs : existing.memfs,
+        memfsLocal:
+          updates.memfsLocal !== undefined
+            ? updates.memfsLocal
+            : existing.memfsLocal,
+        memfsRemote:
+          updates.memfsRemote !== undefined
+            ? updates.memfsRemote
+            : existing.memfsRemote,
         // Use nullish coalescing for toolset (undefined = keep existing)
         toolset:
           updates.toolset !== undefined ? updates.toolset : existing.toolset,
@@ -1453,6 +1463,8 @@ class SettingsManager {
       // Clean up undefined/false values
       if (!updated.pinned) delete updated.pinned;
       if (!updated.memfs) delete updated.memfs;
+      if (!updated.memfsLocal) delete updated.memfsLocal;
+      if (!updated.memfsRemote) delete updated.memfsRemote;
       if (!updated.toolset || updated.toolset === "auto")
         delete updated.toolset;
       if (!updated.baseUrl) delete updated.baseUrl;
@@ -1467,6 +1479,8 @@ class SettingsManager {
       // Clean up undefined/false values
       if (!newAgent.pinned) delete newAgent.pinned;
       if (!newAgent.memfs) delete newAgent.memfs;
+      if (!newAgent.memfsLocal) delete newAgent.memfsLocal;
+      if (!newAgent.memfsRemote) delete newAgent.memfsRemote;
       if (!newAgent.toolset || newAgent.toolset === "auto")
         delete newAgent.toolset;
       if (!newAgent.baseUrl) delete newAgent.baseUrl;
@@ -1484,10 +1498,38 @@ class SettingsManager {
   }
 
   /**
+   * Check if memory filesystem is local-only for an agent on the current server.
+   */
+  isMemfsLocalEnabled(agentId: string): boolean {
+    return this.getAgentSettings(agentId)?.memfsLocal === true;
+  }
+
+  /**
+   * Get memfs remote URL for an agent on the current server.
+   */
+  getMemfsRemote(agentId: string): string | undefined {
+    return this.getAgentSettings(agentId)?.memfsRemote;
+  }
+
+  /**
    * Enable or disable memory filesystem for an agent on the current server.
    */
   setMemfsEnabled(agentId: string, enabled: boolean): void {
     this.upsertAgentSettings(agentId, { memfs: enabled });
+  }
+
+  /**
+   * Mark memory filesystem as local-only for an agent on the current server.
+   */
+  setMemfsLocalEnabled(agentId: string, enabled: boolean): void {
+    this.upsertAgentSettings(agentId, { memfsLocal: enabled });
+  }
+
+  /**
+   * Set memfs remote URL for an agent on the current server.
+   */
+  setMemfsRemote(agentId: string, remoteUrl: string | undefined): void {
+    this.upsertAgentSettings(agentId, { memfsRemote: remoteUrl });
   }
 
   /**

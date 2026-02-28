@@ -57,10 +57,26 @@ export function normalizeCredentialBaseUrl(serverUrl: string): string {
   }
 }
 
+function isSshRemote(remoteUrl?: string): boolean {
+  if (!remoteUrl) return false;
+  if (remoteUrl.startsWith("ssh://")) return true;
+  return /^[^@]+@[^:]+:/.test(remoteUrl);
+}
+
 /** Git remote URL for the agent's state repo */
-function getGitRemoteUrl(agentId: string): string {
+function getGitRemoteUrl(agentId: string, remoteOverride?: string): string {
+  if (remoteOverride) return remoteOverride;
   const baseUrl = getServerUrl().trim().replace(/\/+$/, "");
   return `${baseUrl}/v1/git/${agentId}/state.git`;
+}
+
+async function ensureRemote(dir: string, remoteUrl: string): Promise<void> {
+  const { stdout } = await runGit(dir, ["remote", "-v"]);
+  if (!stdout.includes("origin")) {
+    await runGit(dir, ["remote", "add", "origin", remoteUrl]);
+    return;
+  }
+  await runGit(dir, ["remote", "set-url", "origin", remoteUrl]);
 }
 
 /**
@@ -98,6 +114,9 @@ async function runGit(
     cwd,
     maxBuffer: 10 * 1024 * 1024, // 10MB
     timeout: 60_000, // 60s
+    // Prevent git from hanging waiting for a terminal password prompt.
+    // With no TTY (Ink UI), git would block indefinitely without this.
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
   });
 
   return {
@@ -308,9 +327,13 @@ export function isGitRepo(agentId: string): boolean {
  *
  * Git root is ~/.letta/agents/{id}/memory/ (not the agent root).
  */
-export async function cloneMemoryRepo(agentId: string): Promise<void> {
-  const token = await getAuthToken();
-  const url = getGitRemoteUrl(agentId);
+export async function cloneMemoryRepo(
+  agentId: string,
+  remoteOverride?: string,
+): Promise<void> {
+  const url = getGitRemoteUrl(agentId, remoteOverride);
+  const useSsh = isSshRemote(url);
+  const token = useSsh ? undefined : await getAuthToken();
   const dir = getMemoryRepoDir(agentId);
 
   debugLog("memfs-git", `Cloning ${url} → ${dir}`);
@@ -333,8 +356,16 @@ export async function cloneMemoryRepo(agentId: string): Promise<void> {
       // Move .git into the existing memory directory
       renameSync(join(tmpDir, ".git"), join(dir, ".git"));
 
-      // Reset to match remote state
-      await runGit(dir, ["checkout", "--", "."], token);
+      // Reset to match remote state (skip error if remote is empty)
+      try {
+        await runGit(dir, ["checkout", "--", "."], token);
+      } catch (error) {
+        const msg =
+          error instanceof Error ? error.message : String(error);
+        if (!msg.includes("pathspec '.' did not match")) {
+          throw error;
+        }
+      }
 
       debugLog("memfs-git", "Migrated existing memory directory to git repo");
     } finally {
@@ -346,9 +377,35 @@ export async function cloneMemoryRepo(agentId: string): Promise<void> {
 
   // Configure local credential helper so the agent can do plain
   // `git push` / `git pull` without auth prefixes.
-  await configureLocalCredentialHelper(dir, token);
+  if (token) {
+    if (token) {
+    await configureLocalCredentialHelper(dir, token);
+  }
+  }
+
+  if (remoteOverride) {
+    await ensureRemote(dir, url);
+  }
 
   // Install pre-commit hook to validate frontmatter
+  installPreCommitHook(dir);
+}
+
+/**
+ * Initialize a local-only git repo for memory (no remote).
+ * Creates ~/.letta/agents/{id}/memory/.git and installs pre-commit hook.
+ */
+export async function initLocalMemoryRepo(agentId: string): Promise<void> {
+  const dir = getMemoryRepoDir(agentId);
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  if (!existsSync(join(dir, ".git"))) {
+    await runGit(dir, ["init"]);
+  }
+
   installPreCommitHook(dir);
 }
 
@@ -358,12 +415,21 @@ export async function cloneMemoryRepo(agentId: string): Promise<void> {
  */
 export async function pullMemory(
   agentId: string,
+  remoteOverride?: string,
 ): Promise<{ updated: boolean; summary: string }> {
-  const token = await getAuthToken();
+  const url = getGitRemoteUrl(agentId, remoteOverride);
+  const useSsh = isSshRemote(url);
+  const token = useSsh ? undefined : await getAuthToken();
   const dir = getMemoryRepoDir(agentId);
 
+  if (remoteOverride) {
+    await ensureRemote(dir, url);
+  }
+
   // Self-healing: ensure credential helper and pre-commit hook are configured
-  await configureLocalCredentialHelper(dir, token);
+  if (token) {
+    await configureLocalCredentialHelper(dir, token);
+  }
   installPreCommitHook(dir);
 
   try {
