@@ -24,6 +24,7 @@ export {
   isEmptyResponseError,
   isEmptyResponseRetryable,
   isInvalidToolCallIdsError,
+  isNoPendingApprovalResponseError,
   isNonRetryableProviderErrorDetail,
   isRetryableProviderErrorDetail,
   parseRetryAfterHeaderMs,

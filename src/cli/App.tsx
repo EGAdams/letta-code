@@ -35,6 +35,7 @@ import {
   isApprovalPendingError,
   isEmptyResponseRetryable,
   isInvalidToolCallIdsError,
+  isNoPendingApprovalResponseError,
   parseRetryAfterHeaderMs,
   rebuildInputWithFreshDenials,
   shouldAttemptApprovalRecovery,
@@ -4782,6 +4783,17 @@ export default function App({
             } catch {
               // Fetch failed - fall through to error handling below
             }
+          }
+
+          // Approval payload desync: we sent an approval response, but backend no longer
+          // has a pending approval. Strip stale approval payload and retry.
+          const noPendingApprovalDetected =
+            isNoPendingApprovalResponseError(detailFromRun) ||
+            isNoPendingApprovalResponseError(latestErrorText);
+          if (hasApprovalInPayload && noPendingApprovalDetected) {
+            currentInput = rebuildInputWithFreshDenials(currentInput, [], "");
+            buffersRef.current.interrupted = false;
+            continue;
           }
 
           // Check for approval pending error (sent user message while approval waiting).

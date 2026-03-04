@@ -16,6 +16,7 @@ import {
   isApprovalPendingError,
   isEmptyResponseRetryable,
   isInvalidToolCallIdsError,
+  isNoPendingApprovalResponseError,
   parseRetryAfterHeaderMs,
   shouldRetryRunMetadataError,
 } from "./agent/approval-recovery";
@@ -1994,6 +1995,29 @@ ${SYSTEM_REMINDER_CLOSE}
           }
           process.exit(1);
         }
+      }
+
+      // Approval payload desync: we sent approval results, but backend no longer
+      // has a pending approval. Strip stale approval payload and retry.
+      const hasApprovalInPayload = currentInput.some(
+        (item) => item?.type === "approval",
+      );
+      const noPendingApprovalDetected =
+        isNoPendingApprovalResponseError(detailFromRun) ||
+        isNoPendingApprovalResponseError(latestErrorText);
+      if (hasApprovalInPayload && noPendingApprovalDetected) {
+        currentInput = [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Previous approval response was already processed. Continue.",
+              },
+            ],
+          },
+        ];
+        continue;
       }
 
       // Unexpected stop reason (error, llm_api_error, etc.)

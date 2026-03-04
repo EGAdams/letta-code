@@ -7,6 +7,7 @@ import {
   isApprovalPendingError,
   isConversationBusyError,
   isInvalidToolCallIdsError,
+  isNoPendingApprovalResponseError,
   rebuildInputWithFreshDenials,
 } from "../agent/approval-recovery";
 import { extractApprovals } from "../agent/check-approval";
@@ -102,6 +103,26 @@ describe("isApprovalPendingError", () => {
     expect(isApprovalPendingError(undefined)).toBe(false);
     expect(isApprovalPendingError(123)).toBe(false);
     expect(isApprovalPendingError({ detail: REAL_ERROR_DETAIL })).toBe(false);
+  });
+});
+
+describe("isNoPendingApprovalResponseError", () => {
+  test("detects approval response with no pending tool call", () => {
+    const detail =
+      "Cannot process approval response: No tool call is currently awaiting approval.";
+    expect(isNoPendingApprovalResponseError(detail)).toBe(true);
+  });
+
+  test("returns false for generic approval pending conflict", () => {
+    const detail =
+      "Cannot send a new message: The agent is waiting for approval on a tool call.";
+    expect(isNoPendingApprovalResponseError(detail)).toBe(false);
+  });
+
+  test("returns false for non-string input", () => {
+    expect(isNoPendingApprovalResponseError(null)).toBe(false);
+    expect(isNoPendingApprovalResponseError(undefined)).toBe(false);
+    expect(isNoPendingApprovalResponseError(123)).toBe(false);
   });
 });
 

@@ -14,6 +14,10 @@ import { isZaiNonRetryableError } from "../cli/helpers/zaiErrors";
 
 const INVALID_TOOL_CALL_IDS_FRAGMENT = "invalid tool call ids";
 const APPROVAL_PENDING_DETAIL_FRAGMENT = "waiting for approval";
+const NO_PENDING_APPROVAL_RESPONSE_FRAGMENTS = [
+  "cannot process approval response",
+  "no tool call is currently awaiting approval",
+];
 const CONVERSATION_BUSY_DETAIL_FRAGMENT =
   "another request is currently being processed";
 const EMPTY_RESPONSE_DETAIL_FRAGMENT = "empty content in";
@@ -87,6 +91,15 @@ export function isInvalidToolCallIdsError(detail: unknown): boolean {
 export function isApprovalPendingError(detail: unknown): boolean {
   if (typeof detail !== "string") return false;
   return detail.toLowerCase().includes(APPROVAL_PENDING_DETAIL_FRAGMENT);
+}
+
+/** Sent an approval response, but backend has no pending approval anymore. */
+export function isNoPendingApprovalResponseError(detail: unknown): boolean {
+  if (typeof detail !== "string") return false;
+  const normalized = detail.toLowerCase();
+  return NO_PENDING_APPROVAL_RESPONSE_FRAGMENTS.every((fragment) =>
+    normalized.includes(fragment),
+  );
 }
 
 /** Conversation is busy (another request is being processed). */
