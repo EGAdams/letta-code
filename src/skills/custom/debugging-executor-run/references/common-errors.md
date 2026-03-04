@@ -1,0 +1,5 @@
+- Allowlist blocks: command rejected by `EXECUTOR_ALLOW_CMDS`; add only required safe commands.
+- `500` errors from watchfiles reload loops; run without reload or ignore looping paths.
+- `408` timeouts from broad/slow commands; narrow search scope or use shorter commands.
+- MCP connection failure to `10.0.0.7:8789`; verify the MCP server is up and reachable.
+- Executor server not running; restart the executor service/process.

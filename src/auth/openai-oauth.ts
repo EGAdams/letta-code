@@ -173,12 +173,14 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
 }
 
 /**
- * Extract ChatGPT Account ID from access token JWT
+ * Extract ChatGPT Account ID from a JWT (id_token or access_token).
  * The account ID is in the custom claim: https://api.openai.com/auth.chatgpt_account_id
+ * Per OpenAI's OIDC spec, this claim is present in the id_token; the access_token
+ * may also include it but is not guaranteed to.
  */
-export function extractAccountIdFromToken(accessToken: string): string {
+export function extractAccountIdFromToken(token: string): string {
   try {
-    const payload = decodeJwtPayload(accessToken);
+    const payload = decodeJwtPayload(token);
     // The account ID is in the custom claim path
     const authClaim = payload["https://api.openai.com/auth"] as
       | Record<string, unknown>

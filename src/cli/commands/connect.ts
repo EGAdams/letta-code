@@ -8,6 +8,9 @@ import {
   startLocalOAuthServer,
   startOpenAIOAuth,
 } from "../../auth/openai-oauth";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   getProviderByName,
   removeProviderByName,
@@ -43,6 +46,86 @@ import type { Buffers, Line } from "../helpers/accumulator";
 // tiny helper for unique ids
 function uid(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+interface LocalCodexAuthTokens {
+  access_token: string;
+  id_token: string;
+  refresh_token?: string;
+  account_id: string;
+  expires_at: number;
+}
+
+function decodeJwtExpMs(token: string): number | undefined {
+  const parts = token.split(".");
+  if (parts.length !== 3) return undefined;
+  const payload = parts[1];
+  if (!payload) return undefined;
+
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const decoded = atob(padded);
+    const parsed = JSON.parse(decoded) as { exp?: unknown };
+    if (typeof parsed.exp === "number" && Number.isFinite(parsed.exp)) {
+      return parsed.exp * 1000;
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+async function loadLocalCodexAuthTokens(): Promise<LocalCodexAuthTokens | null> {
+  const authPath = join(homedir(), ".codex", "auth.json");
+
+  try {
+    const raw = await readFile(authPath, "utf-8");
+    const parsed = JSON.parse(raw) as {
+      tokens?: {
+        access_token?: unknown;
+        id_token?: unknown;
+        refresh_token?: unknown;
+        account_id?: unknown;
+      };
+    };
+
+    const accessToken = parsed.tokens?.access_token;
+    const idToken = parsed.tokens?.id_token;
+    const refreshToken = parsed.tokens?.refresh_token;
+    const accountId = parsed.tokens?.account_id;
+
+    if (typeof accessToken !== "string" || typeof idToken !== "string") {
+      return null;
+    }
+
+    const resolvedAccountId =
+      typeof accountId === "string" && accountId.length > 0
+        ? accountId
+        : (() => {
+            try {
+              return extractAccountIdFromToken(idToken);
+            } catch {
+              return extractAccountIdFromToken(accessToken);
+            }
+          })();
+
+    const expiresAt =
+      decodeJwtExpMs(idToken) ??
+      decodeJwtExpMs(accessToken) ??
+      Date.now() + 55 * 60 * 1000;
+
+    return {
+      access_token: accessToken,
+      id_token: idToken,
+      refresh_token: typeof refreshToken === "string" ? refreshToken : undefined,
+      account_id: resolvedAccountId,
+      expires_at: expiresAt,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // Helper type for command result
@@ -197,20 +280,7 @@ async function handleConnectCodex(
   ctx: ConnectCommandContext,
   msg: string,
 ): Promise<void> {
-  // Check if already connected (provider exists on backend)
-  const existingProvider = await getOpenAICodexProvider();
-  if (existingProvider) {
-    addCommandResult(
-      ctx.buffersRef,
-      ctx.refreshDerived,
-      msg,
-      "Already connected to ChatGPT via OAuth.\n\nUse /disconnect codex to remove the current connection first.",
-      false,
-    );
-    return;
-  }
-
-  // Start the OAuth flow
+  // Start OAuth/sync flow
   ctx.setCommandRunning(true);
 
   // Show initial status
@@ -224,6 +294,40 @@ async function handleConnectCodex(
   );
 
   try {
+    // 0. Fast path: reuse existing local Codex OAuth session from ~/.codex/auth.json
+    // This keeps Letta's chatgpt_oauth provider aligned with the same account
+    // used by Codex CLI, avoiding stale provider credentials.
+    const localTokens = await loadLocalCodexAuthTokens();
+    if (localTokens) {
+      updateCommandResult(
+        ctx.buffersRef,
+        ctx.refreshDerived,
+        cmdId,
+        msg,
+        "Found local Codex OAuth session. Syncing ChatGPT provider...",
+        true,
+        "running",
+      );
+
+      await createOrUpdateOpenAICodexProvider(localTokens);
+
+      updateCommandResult(
+        ctx.buffersRef,
+        ctx.refreshDerived,
+        cmdId,
+        msg,
+        `\u2713 Successfully synced ChatGPT OAuth from local Codex session.\n\n` +
+          `Provider '${OPENAI_CODEX_PROVIDER_NAME}' created/updated in Letta.`,
+        true,
+        "finished",
+      );
+
+      if (ctx.onCodexConnected) {
+        setTimeout(() => ctx.onCodexConnected?.(), 500);
+      }
+      return;
+    }
+
     // 1. Start OAuth flow - generate PKCE and authorization URL
     updateCommandResult(
       ctx.buffersRef,
@@ -322,7 +426,14 @@ async function handleConnectCodex(
 
     let accountId: string;
     try {
-      accountId = extractAccountIdFromToken(tokens.access_token);
+      // The chatgpt_account_id claim lives in the id_token (OIDC identity token),
+      // not the access_token. Try id_token first, fall back to access_token for
+      // backward compatibility.
+      try {
+        accountId = extractAccountIdFromToken(tokens.id_token);
+      } catch {
+        accountId = extractAccountIdFromToken(tokens.access_token);
+      }
     } catch (error) {
       throw new Error(
         `Failed to extract account ID from token. This may indicate an incompatible account type. Error: ${error instanceof Error ? error.message : String(error)}`,

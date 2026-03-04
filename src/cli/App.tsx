@@ -8200,11 +8200,25 @@ export default function App({
           const subcommand = parts[1];
           const flags = new Set(parts.slice(2));
           const localOnly = flags.has("--local") || flags.has("local");
-          const selfHosted =
-            flags.has("--selfhosted") || flags.has("selfhosted");
+          const selfHostedFlagIndex = parts.findIndex(
+            (p) => p === "--selfhosted" || p === "selfhosted",
+          );
+          const selfHosted = selfHostedFlagIndex >= 0;
+          const selfHostedUrlCandidate =
+            selfHostedFlagIndex >= 0
+              ? parts[selfHostedFlagIndex + 1]
+              : undefined;
+          const selfHostedUrl =
+            selfHostedUrlCandidate &&
+            !selfHostedUrlCandidate.startsWith("--") &&
+            selfHostedUrlCandidate !== "local" &&
+            selfHostedUrlCandidate !== "selfhosted"
+              ? selfHostedUrlCandidate
+              : undefined;
           const remoteFlagIndex = parts.findIndex((p) => p === "--remote");
           const remoteUrl =
             remoteFlagIndex >= 0 ? parts[remoteFlagIndex + 1] : undefined;
+          const effectiveRemoteUrl = remoteUrl || selfHostedUrl;
           const cmd = commandRunner.start(
             msg.trim(),
             "Processing memfs command...",
@@ -8219,7 +8233,7 @@ export default function App({
               "",
               "USAGE",
               "  /memfs status    — show status",
-              "  /memfs enable [--local|--selfhosted|--remote <url>] — enable filesystem-backed memory",
+              "  /memfs enable [--local|--selfhosted <url>|--remote <url>] — enable filesystem-backed memory",
               "  /memfs disable   — disable filesystem-backed memory",
               "  /memfs sync      — sync blocks and files now",
               "  /memfs reset     — move local memfs to /tmp and recreate dirs",
@@ -8271,8 +8285,8 @@ export default function App({
 
               const result = await applyMemfsFlags(agentId, true, false, {
                 allowLocal: localOnly,
-                allowSelfHosted: selfHosted || Boolean(remoteUrl),
-                remoteUrl,
+                allowSelfHosted: selfHosted || Boolean(effectiveRemoteUrl),
+                remoteUrl: effectiveRemoteUrl,
               });
               updateMemorySyncCommand(
                 cmdId,

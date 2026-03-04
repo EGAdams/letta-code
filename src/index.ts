@@ -1758,12 +1758,33 @@ async function main(): Promise<void> {
         const isSubagent = process.env.LETTA_CODE_AGENT_ROLE === "subagent";
         const agentId = agent.id;
         const agentTags = agent.tags ?? undefined;
-        const memfsSyncPromise = import("./agent/memoryFilesystem").then(
-          ({ applyMemfsFlags }) =>
+        const hasExplicitMemfsToggle = Boolean(memfsFlag || noMemfsFlag);
+        let memfsStartupErrorHandled = false;
+        const handleMemfsStartupError = (error: unknown): void => {
+          if (memfsStartupErrorHandled) return;
+          memfsStartupErrorHandled = true;
+          const message = error instanceof Error ? error.message : String(error);
+          if (hasExplicitMemfsToggle) {
+            console.error(message);
+            process.exit(1);
+          }
+          console.warn(
+            `[memfs] Startup sync skipped: ${message}\n` +
+              "Run `/memfs disable` to continue without memfs, or reconfigure with `/memfs enable --selfhosted <url>` / `--remote <url>`.",
+          );
+        };
+        // Attach a guard catch immediately to avoid unhandled-rejection crashes
+        // when memfs sync fails early during startup.
+        const memfsSyncPromise = import("./agent/memoryFilesystem")
+          .then(({ applyMemfsFlags }) =>
             applyMemfsFlags(agentId, memfsFlag, noMemfsFlag, {
               agentTags,
             }),
-        );
+          )
+          .catch((error) => {
+            handleMemfsStartupError(error);
+            return undefined;
+          });
 
         // Check if we're resuming an existing agent
         // We're resuming if:
@@ -1961,24 +1982,14 @@ async function main(): Promise<void> {
           setLoadingState("checking");
           const [data] = await Promise.all([
             getResumeData(client, agent, "default"),
-            memfsSyncPromise.catch((error) => {
-              console.error(
-                error instanceof Error ? error.message : String(error),
-              );
-              process.exit(1);
-            }),
+            memfsSyncPromise,
           ]);
           setResumeData(data);
           setResumedExistingConversation(data.messageHistory.length > 0);
         }
 
         // Ensure memfs sync completed (already resolved for default path via Promise.all above)
-        try {
-          await memfsSyncPromise;
-        } catch (error) {
-          console.error(error instanceof Error ? error.message : String(error));
-          process.exit(1);
-        }
+        await memfsSyncPromise;
 
         // Save the session (agent + conversation) to settings
         // Skip for subagents - they shouldn't pollute the LRU settings

@@ -86,6 +86,7 @@ export class StreamProcessor {
       };
     }
 
+    // call llm with error message and relevant context.
     // Suppress mid-stream desync errors (match headless behavior)
     // These are transient and will be handled by end-of-turn desync recovery
     if (

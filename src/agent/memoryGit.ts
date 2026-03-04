@@ -64,8 +64,36 @@ function isSshRemote(remoteUrl?: string): boolean {
 }
 
 /** Git remote URL for the agent's state repo */
-function getGitRemoteUrl(agentId: string, remoteOverride?: string): string {
-  if (remoteOverride) return remoteOverride;
+export function getGitRemoteUrl(agentId: string, remoteOverride?: string): string {
+  if (remoteOverride) {
+    const override = remoteOverride.trim();
+    if (!override) {
+      const baseUrl = getServerUrl().trim().replace(/\/+$/, "");
+      return `${baseUrl}/v1/git/${agentId}/state.git`;
+    }
+
+    // SSH remotes are already complete remote URLs.
+    if (isSshRemote(override)) return override;
+
+    // HTTP(S) remotes can be provided either as:
+    // - full git URL: https://host[:port]/v1/git/<agent>/state.git
+    // - base URL:      https://host[:port] (expand to the state.git endpoint)
+    try {
+      const parsed = new URL(override);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        const withoutTrailingSlash = override.replace(/\/+$/, "");
+        if (withoutTrailingSlash.endsWith(".git")) {
+          return withoutTrailingSlash;
+        }
+        return `${withoutTrailingSlash}/v1/git/${agentId}/state.git`;
+      }
+    } catch {
+      // Fall through and use the raw override value.
+    }
+
+    return override;
+  }
+
   const baseUrl = getServerUrl().trim().replace(/\/+$/, "");
   return `${baseUrl}/v1/git/${agentId}/state.git`;
 }

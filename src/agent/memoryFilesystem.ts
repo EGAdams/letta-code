@@ -177,15 +177,16 @@ export async function applyMemfsFlags(
 ): Promise<ApplyMemfsFlagsResult> {
   const { getServerUrl } = await import("./client");
   const { settingsManager } = await import("../settings-manager");
+  const serverUrl = getServerUrl();
+  const isCloudServer = serverUrl.includes("api.letta.com");
 
   // Validate explicit enable on supported backend.
   if (memfsFlag) {
-    const serverUrl = getServerUrl();
     const allowLocal =
       options?.allowLocal || process.env.LETTA_MEMFS_LOCAL === "1";
     const allowSelfHosted = Boolean(options?.allowSelfHosted || options?.remoteUrl);
     if (
-      !serverUrl.includes("api.letta.com") &&
+      !isCloudServer &&
       !allowLocal &&
       !allowSelfHosted
     ) {
@@ -212,13 +213,16 @@ export async function applyMemfsFlags(
         ? true
         : localMemfsEnabled;
 
+  const targetRemoteUrl = options?.remoteUrl || localMemfsRemote;
+  // Self-hosted fallback: if memfs is enabled but no remote was configured,
+  // use local-only mode instead of repeatedly failing clone on startup.
+  const fallbackLocalOnly = !isCloudServer && !targetRemoteUrl;
   const targetLocalOnly = Boolean(
     options?.allowLocal ||
       process.env.LETTA_MEMFS_LOCAL === "1" ||
-      localMemfsLocalEnabled,
+      localMemfsLocalEnabled ||
+      fallbackLocalOnly,
   );
-
-  const targetRemoteUrl = options?.remoteUrl || localMemfsRemote;
 
   // 2. Reconcile system prompt first, then persist local memfs setting.
   if (hasExplicitToggle || shouldAutoEnableFromTag) {
