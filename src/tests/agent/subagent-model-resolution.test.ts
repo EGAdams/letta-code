@@ -206,4 +206,25 @@ describe("resolveSubagentModel", () => {
 
     expect(result).toBe("lc-anthropic/parent-model");
   });
+
+  test("normalizes legacy chatgpt_oauth parent handle", async () => {
+    const result = await resolveSubagentModel({
+      recommendedModel: "inherit",
+      parentModelHandle: "chatgpt_oauth/gpt-5.2-codex",
+      availableHandles: new Set(["chatgpt-plus-pro/gpt-5.2-codex"]),
+    });
+
+    expect(result).toBe("chatgpt-plus-pro/gpt-5.2-codex");
+  });
+
+  test("normalizes legacy chatgpt_oauth explicit user model", async () => {
+    const result = await resolveSubagentModel({
+      userModel: "chatgpt_oauth/gpt-5.2-codex",
+      recommendedModel: "inherit",
+      parentModelHandle: "lc-anthropic/parent-model",
+      availableHandles: new Set(["chatgpt-plus-pro/gpt-5.2-codex"]),
+    });
+
+    expect(result).toBe("chatgpt-plus-pro/gpt-5.2-codex");
+  });
 });

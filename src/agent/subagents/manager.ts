@@ -29,6 +29,7 @@ import { getAvailableModelHandles } from "../available-models";
 import { getClient } from "../client";
 import { getCurrentAgentId } from "../context";
 import { resolveModel } from "../model";
+import { OPENAI_CODEX_PROVIDER_NAME } from "../../providers/openai-codex-provider";
 
 import { getAllSubagentConfigs, type SubagentConfig } from ".";
 
@@ -75,9 +76,9 @@ function getModelHandleFromAgent(agent: {
   const endpoint = agent.llm_config?.model_endpoint_type;
   const model = agent.llm_config?.model;
   if (endpoint && model) {
-    return `${endpoint}/${model}`;
+    return normalizeModelHandle(`${endpoint}/${model}`);
   }
-  return model || null;
+  return normalizeModelHandle(model || null);
 }
 
 async function getPrimaryAgentModelHandle(): Promise<string | null> {
@@ -119,6 +120,14 @@ function getProviderPrefix(handle: string): string | null {
   return handle.slice(0, slashIndex);
 }
 
+function normalizeModelHandle(handle: string | null | undefined): string | null {
+  if (!handle) return null;
+  if (handle.startsWith("chatgpt_oauth/")) {
+    return `${OPENAI_CODEX_PROVIDER_NAME}/${handle.slice("chatgpt_oauth/".length)}`;
+  }
+  return handle;
+}
+
 function swapProviderPrefix(
   parentHandle: string,
   recommendedHandle: string,
@@ -142,13 +151,14 @@ export async function resolveSubagentModel(options: {
   parentModelHandle?: string | null;
   availableHandles?: Set<string>;
 }): Promise<string | null> {
-  const { userModel, recommendedModel, parentModelHandle } = options;
+  const { userModel, recommendedModel } = options;
+  const parentModelHandle = normalizeModelHandle(options.parentModelHandle);
 
-  if (userModel) return userModel;
+  if (userModel) return normalizeModelHandle(userModel);
 
   let recommendedHandle: string | null = null;
   if (recommendedModel && recommendedModel !== "inherit") {
-    recommendedHandle = resolveModel(recommendedModel);
+    recommendedHandle = normalizeModelHandle(resolveModel(recommendedModel));
   }
 
   let availableHandles: Set<string> | null = options.availableHandles ?? null;
