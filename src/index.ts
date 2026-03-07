@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { parseArgs } from "node:util";
 import { APIError } from "@letta-ai/letta-client/core/error";
 import type { AgentState } from "@letta-ai/letta-client/resources/agents/agents";
 import type { Message } from "@letta-ai/letta-client/resources/agents/messages";
@@ -21,16 +20,34 @@ import {
 import { updateAgentLLMConfig, updateAgentSystemPrompt } from "./agent/modify";
 import { resolveSkillSourcesSelection } from "./agent/skillSources";
 import { LETTA_CLOUD_API_URL } from "./auth/oauth";
+import {
+  type ParsedCliArgs,
+  parseCliArgs,
+  preprocessCliArgs,
+  renderCliOptionsHelp,
+} from "./cli/args";
 import { ConversationSelector } from "./cli/components/ConversationSelector";
+import {
+  normalizeConversationShorthandFlags,
+  parseCsvListFlag,
+  parseJsonArrayFlag,
+  resolveImportFlagAlias,
+} from "./cli/flagUtils";
 import { formatErrorDetails } from "./cli/helpers/errorFormatter";
 import type { ApprovalRequest } from "./cli/helpers/stream";
 import { ProfileSelectionInline } from "./cli/profile-selection";
+import {
+  validateConversationDefaultRequiresAgent,
+  validateFlagConflicts,
+  validateRegistryHandleOrThrow,
+} from "./cli/startupFlagValidation";
 import { runSubcommand } from "./cli/subcommands/router";
 import { permissionMode } from "./permissions/mode";
 import { settingsManager } from "./settings-manager";
 import { startStartupAutoUpdateCheck } from "./startup-auto-update";
 import { telemetry } from "./telemetry";
 import { loadTools } from "./tools/manager";
+import { debugLog } from "./utils/debug";
 import { markMilestone } from "./utils/timing";
 
 // Stable empty array constants to prevent new references on every render
@@ -62,46 +79,10 @@ USAGE
   letta agents ...      Agents subcommands (JSON-only)
   letta messages ...    Messages subcommands (JSON-only)
   letta blocks ...      Blocks subcommands (JSON-only)
+  letta connect ...     Connect providers from terminal
 
 OPTIONS
-  -h, --help            Show this help and exit
-  -v, --version         Print version and exit
-  --info                Show current directory, skills, and pinned agents
-  --continue            Resume last session (agent + conversation) directly
-  -r, --resume          Open agent selector UI after loading
-  --new                 Create new conversation (for concurrent sessions)
-  --new-agent           Create new agent directly (skip profile selection)
-  --init-blocks <list>  Comma-separated memory blocks to initialize when using --new-agent (e.g., "persona,skills")
-  --base-tools <list>   Comma-separated base tools to attach when using --new-agent (e.g., "memory,web_search,fetch_webpage")
-  -a, --agent <id>      Use a specific agent ID
-  -n, --name <name>     Resume agent by name (from pinned agents, case-insensitive)
-  -m, --model <id>      Model ID or handle (e.g., "opus-4.5" or "anthropic/claude-opus-4-5")
-  -s, --system <id>     System prompt ID or subagent name (applies to new or existing agent)
-  --toolset <name>      Toolset mode: "auto", "codex", "default", or "gemini" (manual values override model-based auto-selection)
-  -p, --prompt          Headless prompt mode
-  --output-format <fmt> Output format for headless mode (text, json, stream-json)
-                        Default: text
-  --input-format <fmt>  Input format for headless mode (stream-json)
-                        When set, reads JSON messages from stdin for bidirectional communication
-  --include-partial-messages
-                        Emit stream_event wrappers for each chunk (stream-json only)
-  --from-agent <id>     Inject agent-to-agent system reminder (headless mode)
-  --skills <path>       Custom path to skills directory (default: .skills in current directory)
-  --skill-sources <csv> Skill sources: all,bundled,global,agent,project (default: all)
-  --no-skills           Disable all skill sources
-  --no-bundled-skills   Disable bundled skills only
-  --import <path>       Create agent from an AgentFile (.af) template
-                        Use @author/name to import from the agent registry
-  --memfs               Enable memory filesystem for this agent
-  --no-memfs            Disable memory filesystem for this agent
-  --no-system-info-reminder
-                        Disable first-turn environment reminder (device/git/cwd context)
-  --reflection-trigger <mode>
-                        Sleeptime trigger: off, step-count, compaction-event
-  --reflection-behavior <mode>
-                        Sleeptime behavior: reminder, auto-launch
-  --reflection-step-count <n>
-                        Sleeptime step-count interval (positive integer)
+${renderCliOptionsHelp()}
 
 SUBCOMMANDS (JSON-only)
   letta memfs status --agent <id>
@@ -117,6 +98,7 @@ SUBCOMMANDS (JSON-only)
   letta blocks list --agent <id>
   letta blocks copy --block-id <id> [--label <label>] [--agent <id>] [--override]
   letta blocks attach --block-id <id> [--agent <id>] [--read-only] [--override]
+  letta connect <provider> [options]
 
 BEHAVIOR
   On startup, Letta Code checks for saved profiles:
@@ -386,7 +368,7 @@ async function main(): Promise<void> {
 
   // Check for updates on startup (non-blocking)
   const { checkAndAutoUpdate } = await import("./updater/auto-update");
-  startStartupAutoUpdateCheck(checkAndAutoUpdate);
+  const autoUpdatePromise = startStartupAutoUpdateCheck(checkAndAutoUpdate);
 
   // Clean up old overflow files (non-blocking, 24h retention)
   const { cleanupOldOverflowFiles } = await import("./tools/impl/overflow");
@@ -398,69 +380,14 @@ async function main(): Promise<void> {
     }
   });
 
-  // Parse command-line arguments (Bun-idiomatic approach using parseArgs)
-  // Preprocess args to support --conv as alias for --conversation
-  const processedArgs = process.argv.map((arg) =>
-    arg === "--conv" ? "--conversation" : arg,
-  );
+  // Parse command-line arguments from a shared schema used by both TUI and headless flows.
+  // Preprocess args to support --conv as an alias for --conversation.
+  const processedArgs = preprocessCliArgs(process.argv);
 
-  let values: Record<string, unknown>;
-  let positionals: string[];
+  let values: ParsedCliArgs["values"];
+  let positionals: ParsedCliArgs["positionals"];
   try {
-    const parsed = parseArgs({
-      args: processedArgs,
-      options: {
-        help: { type: "boolean", short: "h" },
-        version: { type: "boolean", short: "v" },
-        info: { type: "boolean" },
-        continue: { type: "boolean" }, // Deprecated - kept for error message
-        resume: { type: "boolean", short: "r" }, // Resume last session (or specific conversation with --conversation)
-        conversation: { type: "string", short: "C" }, // Specific conversation ID to resume (--conv alias supported)
-        "new-agent": { type: "boolean" }, // Force create a new agent
-        new: { type: "boolean" }, // Deprecated - kept for helpful error message
-        "init-blocks": { type: "string" },
-        "base-tools": { type: "string" },
-        agent: { type: "string", short: "a" },
-        name: { type: "string", short: "n" },
-        model: { type: "string", short: "m" },
-        embedding: { type: "string" },
-        system: { type: "string", short: "s" },
-        "system-custom": { type: "string" },
-        "system-append": { type: "string" },
-        "memory-blocks": { type: "string" },
-        "block-value": { type: "string", multiple: true },
-        toolset: { type: "string" },
-        prompt: { type: "boolean", short: "p" },
-        run: { type: "boolean" },
-        tools: { type: "string" },
-        allowedTools: { type: "string" },
-        disallowedTools: { type: "string" },
-        "permission-mode": { type: "string" },
-        yolo: { type: "boolean" },
-        "output-format": { type: "string" },
-        "input-format": { type: "string" },
-        "include-partial-messages": { type: "boolean" },
-        "from-agent": { type: "string" },
-        skills: { type: "string" },
-        "skill-sources": { type: "string" },
-        "pre-load-skills": { type: "string" },
-        "from-af": { type: "string" },
-        import: { type: "string" },
-        tags: { type: "string" },
-
-        memfs: { type: "boolean" },
-        "no-memfs": { type: "boolean" },
-        "no-skills": { type: "boolean" },
-        "no-bundled-skills": { type: "boolean" },
-        "no-system-info-reminder": { type: "boolean" },
-        "reflection-trigger": { type: "string" },
-        "reflection-behavior": { type: "string" },
-        "reflection-step-count": { type: "string" },
-        "max-turns": { type: "string" },
-      },
-      strict: true,
-      allowPositionals: true,
-    });
+    const parsed = parseCliArgs(processedArgs, true);
     values = parsed.values;
     positionals = parsed.positionals;
   } catch (error) {
@@ -519,66 +446,67 @@ async function main(): Promise<void> {
   }
 
   // --continue: Resume last session (agent + conversation) automatically
-  const shouldContinue = (values.continue as boolean | undefined) ?? false;
+  const shouldContinue = values.continue ?? false;
   // --resume: Open agent selector UI after loading
-  const shouldResume = (values.resume as boolean | undefined) ?? false;
-  let specifiedConversationId =
-    (values.conversation as string | undefined) ?? null; // Specific conversation to resume
-  const forceNew = (values["new-agent"] as boolean | undefined) ?? false;
+  const shouldResume = values.resume ?? false;
+  let specifiedConversationId = values.conversation ?? null; // Specific conversation to resume
+  const forceNew = values["new-agent"] ?? false;
 
   // --new: Create a new conversation (for concurrent sessions)
-  const forceNewConversation = (values.new as boolean | undefined) ?? false;
+  const forceNewConversation = values.new ?? false;
 
-  const initBlocksRaw = values["init-blocks"] as string | undefined;
-  const baseToolsRaw = values["base-tools"] as string | undefined;
-  let specifiedAgentId = (values.agent as string | undefined) ?? null;
-
-  // Handle --conv {agent-id} shorthand: --conv agent-xyz → --agent agent-xyz --conv default
-  if (specifiedConversationId?.startsWith("agent-")) {
-    if (specifiedAgentId && specifiedAgentId !== specifiedConversationId) {
-      console.error(
-        `Error: Conflicting agent IDs: --agent ${specifiedAgentId} vs --conv ${specifiedConversationId}`,
-      );
-      process.exit(1);
-    }
-    specifiedAgentId = specifiedConversationId;
-    specifiedConversationId = "default";
+  const initBlocksRaw = values["init-blocks"];
+  const baseToolsRaw = values["base-tools"];
+  let specifiedAgentId = values.agent ?? null;
+  try {
+    const normalized = normalizeConversationShorthandFlags({
+      specifiedConversationId,
+      specifiedAgentId,
+    });
+    specifiedConversationId = normalized.specifiedConversationId ?? null;
+    specifiedAgentId = normalized.specifiedAgentId ?? null;
+  } catch (error) {
+    console.error(
+      error instanceof Error ? `Error: ${error.message}` : String(error),
+    );
+    process.exit(1);
   }
 
   // Validate --conv default requires --agent (unless --new-agent will create one)
-  if (specifiedConversationId === "default" && !specifiedAgentId && !forceNew) {
-    console.error("Error: --conv default requires --agent <agent-id>");
+  try {
+    validateConversationDefaultRequiresAgent({
+      specifiedConversationId,
+      specifiedAgentId,
+      forceNew,
+    });
+  } catch (error) {
+    console.error(
+      error instanceof Error ? `Error: ${error.message}` : String(error),
+    );
     console.error("Usage: letta --agent agent-xyz --conv default");
     console.error("   or: letta --conv agent-xyz (shorthand)");
     process.exit(1);
   }
 
-  const specifiedAgentName = (values.name as string | undefined) ?? null;
-  const specifiedModel = (values.model as string | undefined) ?? undefined;
-  const systemPromptPreset = (values.system as string | undefined) ?? undefined;
-  const systemCustom =
-    (values["system-custom"] as string | undefined) ?? undefined;
-  // Note: systemAppend is also parsed but only used in headless mode (headless.ts handles it)
-  const memoryBlocksJson =
-    (values["memory-blocks"] as string | undefined) ?? undefined;
-  const specifiedToolset = (values.toolset as string | undefined) ?? undefined;
-  const skillsDirectory = (values.skills as string | undefined) ?? undefined;
-  const memfsFlag = values.memfs as boolean | undefined;
-  const noMemfsFlag = values["no-memfs"] as boolean | undefined;
+  const specifiedAgentName = values.name ?? null;
+  const specifiedModel = values.model ?? undefined;
+  const systemPromptPreset = values.system ?? undefined;
+  const systemCustom = values["system-custom"] ?? undefined;
+  const memoryBlocksJson = values["memory-blocks"] ?? undefined;
+  const specifiedToolset = values.toolset ?? undefined;
+  const skillsDirectory = values.skills ?? undefined;
+  const memfsFlag = values.memfs;
+  const noMemfsFlag = values["no-memfs"];
   const requestedMemoryPromptMode: "memfs" | "standard" | undefined = memfsFlag
     ? "memfs"
     : noMemfsFlag
       ? "standard"
       : undefined;
   const shouldAutoEnableMemfsForNewAgent = !memfsFlag && !noMemfsFlag;
-  const noSkillsFlag = values["no-skills"] as boolean | undefined;
-  const noBundledSkillsFlag = values["no-bundled-skills"] as
-    | boolean
-    | undefined;
-  const skillSourcesRaw = values["skill-sources"] as string | undefined;
-  const noSystemInfoReminderFlag = values["no-system-info-reminder"] as
-    | boolean
-    | undefined;
+  const noSkillsFlag = values["no-skills"];
+  const noBundledSkillsFlag = values["no-bundled-skills"];
+  const skillSourcesRaw = values["skill-sources"];
+  const noSystemInfoReminderFlag = values["no-system-info-reminder"];
   const resolvedSkillSources = (() => {
     try {
       return resolveSkillSourcesSelection({
@@ -593,9 +521,10 @@ async function main(): Promise<void> {
       process.exit(1);
     }
   })();
-  const fromAfFile =
-    (values.import as string | undefined) ??
-    (values["from-af"] as string | undefined);
+  const fromAfFile = resolveImportFlagAlias({
+    importFlagValue: values.import,
+    fromAfFlagValue: values["from-af"],
+  });
   const isHeadless = values.prompt || values.run || !process.stdin.isTTY;
 
   // Fail if an unknown command/argument is passed (and we're not in headless mode where it might be a prompt)
@@ -613,19 +542,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  let initBlocks: string[] | undefined;
-  if (initBlocksRaw !== undefined) {
-    const trimmed = initBlocksRaw.trim();
-    if (!trimmed || trimmed.toLowerCase() === "none") {
-      // Explicitly requested zero blocks
-      initBlocks = [];
-    } else {
-      initBlocks = trimmed
-        .split(",")
-        .map((name) => name.trim())
-        .filter((name) => name.length > 0);
-    }
-  }
+  const initBlocks = parseCsvListFlag(initBlocksRaw);
 
   // --base-tools only makes sense when creating a brand new agent
   if (baseToolsRaw && !forceNew) {
@@ -635,18 +552,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  let baseTools: string[] | undefined;
-  if (baseToolsRaw !== undefined) {
-    const trimmed = baseToolsRaw.trim();
-    if (!trimmed || trimmed.toLowerCase() === "none") {
-      baseTools = [];
-    } else {
-      baseTools = trimmed
-        .split(",")
-        .map((name) => name.trim())
-        .filter((name) => name.length > 0);
-    }
-  }
+  const baseTools = parseCsvListFlag(baseToolsRaw);
 
   // Validate toolset if provided
   if (
@@ -670,22 +576,19 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Validate system prompt preset if provided (can be a system prompt ID or subagent name)
+  // Validate system prompt preset if provided.
+  // Known preset IDs are always accepted. Subagent names are only accepted
+  // for internal subagent launches (LETTA_CODE_AGENT_ROLE=subagent).
   if (systemPromptPreset) {
-    const { SYSTEM_PROMPTS } = await import("./agent/promptAssets");
-    const { getAllSubagentConfigs } = await import("./agent/subagents");
-
-    const validSystemPrompts = SYSTEM_PROMPTS.map((p) => p.id);
-    const subagentConfigs = await getAllSubagentConfigs();
-    const validSubagentNames = Object.keys(subagentConfigs);
-
-    const isValidSystemPrompt = validSystemPrompts.includes(systemPromptPreset);
-    const isValidSubagent = validSubagentNames.includes(systemPromptPreset);
-
-    if (!isValidSystemPrompt && !isValidSubagent) {
-      const allValid = [...validSystemPrompts, ...validSubagentNames];
+    const { validateSystemPromptPreset } = await import("./agent/promptAssets");
+    const allowSubagentNames = process.env.LETTA_CODE_AGENT_ROLE === "subagent";
+    try {
+      await validateSystemPromptPreset(systemPromptPreset, {
+        allowSubagentNames,
+      });
+    } catch (err) {
       console.error(
-        `Error: Invalid system prompt "${systemPromptPreset}". Must be one of: ${allValid.join(", ")}.`,
+        `Error: ${err instanceof Error ? err.message : String(err)}`,
       );
       process.exit(1);
     }
@@ -697,10 +600,10 @@ async function main(): Promise<void> {
     | undefined;
   if (memoryBlocksJson) {
     try {
-      memoryBlocks = JSON.parse(memoryBlocksJson);
-      if (!Array.isArray(memoryBlocks)) {
-        throw new Error("memory-blocks must be a JSON array");
-      }
+      memoryBlocks = parseJsonArrayFlag(
+        memoryBlocksJson,
+        "memory-blocks",
+      ) as Array<{ label: string; value: string; description?: string }>;
       // Validate each block has required fields
       for (const block of memoryBlocks) {
         if (
@@ -714,75 +617,95 @@ async function main(): Promise<void> {
       }
     } catch (error) {
       console.error(
-        `Error: Invalid --memory-blocks JSON: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
       );
       process.exit(1);
     }
   }
 
-  // Validate --conversation flag (mutually exclusive with agent-selection flags)
-  // Exception: --conv default requires --agent
-  if (specifiedConversationId && specifiedConversationId !== "default") {
-    if (specifiedAgentId) {
-      console.error("Error: --conversation cannot be used with --agent");
-      process.exit(1);
-    }
-    if (specifiedAgentName) {
-      console.error("Error: --conversation cannot be used with --name");
-      process.exit(1);
-    }
-    if (forceNew) {
-      console.error("Error: --conversation cannot be used with --new-agent");
-      process.exit(1);
-    }
-    if (fromAfFile) {
-      console.error("Error: --conversation cannot be used with --import");
-      process.exit(1);
-    }
-    if (shouldResume) {
-      console.error("Error: --conversation cannot be used with --resume");
-      process.exit(1);
-    }
-    if (shouldContinue) {
-      console.error("Error: --conversation cannot be used with --continue");
-      process.exit(1);
-    }
-  }
+  // Validate shared mutual-exclusion rules for startup flags.
+  try {
+    validateFlagConflicts({
+      guard: specifiedConversationId && specifiedConversationId !== "default",
+      checks: [
+        {
+          when: specifiedAgentId,
+          message: "--conversation cannot be used with --agent",
+        },
+        {
+          when: specifiedAgentName,
+          message: "--conversation cannot be used with --name",
+        },
+        {
+          when: forceNew,
+          message: "--conversation cannot be used with --new-agent",
+        },
+        {
+          when: fromAfFile,
+          message: "--conversation cannot be used with --import",
+        },
+        {
+          when: shouldResume,
+          message: "--conversation cannot be used with --resume",
+        },
+        {
+          when: shouldContinue,
+          message: "--conversation cannot be used with --continue",
+        },
+      ],
+    });
 
-  // Validate --new flag (create new conversation)
-  if (forceNewConversation) {
-    if (shouldContinue) {
-      console.error("Error: --new cannot be used with --continue");
-      process.exit(1);
-    }
-    if (specifiedConversationId) {
-      console.error("Error: --new cannot be used with --conversation");
-      process.exit(1);
-    }
-    if (shouldResume) {
-      console.error("Error: --new cannot be used with --resume");
-      process.exit(1);
-    }
+    validateFlagConflicts({
+      guard: forceNewConversation,
+      checks: [
+        {
+          when: shouldContinue,
+          message: "--new cannot be used with --continue",
+        },
+        {
+          when: specifiedConversationId,
+          message: "--new cannot be used with --conversation",
+        },
+        { when: shouldResume, message: "--new cannot be used with --resume" },
+      ],
+    });
+  } catch (error) {
+    console.error(
+      error instanceof Error ? `Error: ${error.message}` : String(error),
+    );
+    process.exit(1);
   }
 
   // Validate --import flag (also accepts legacy --from-af)
   // Detect if it's a registry handle (e.g., @author/name) or a local file path
   let isRegistryImport = false;
   if (fromAfFile) {
-    if (specifiedAgentId) {
-      console.error("Error: --import cannot be used with --agent");
-      process.exit(1);
-    }
-    if (specifiedAgentName) {
-      console.error("Error: --import cannot be used with --name");
-      process.exit(1);
-    }
-    if (shouldResume) {
-      console.error("Error: --import cannot be used with --resume");
-      process.exit(1);
-    }
-    if (forceNew) {
-      console.error("Error: --import cannot be used with --new");
+    try {
+      validateFlagConflicts({
+        guard: fromAfFile,
+        checks: [
+          {
+            when: specifiedAgentId,
+            message: "--import cannot be used with --agent",
+          },
+          {
+            when: specifiedAgentName,
+            message: "--import cannot be used with --name",
+          },
+          {
+            when: shouldResume,
+            message: "--import cannot be used with --resume",
+          },
+          {
+            when: forceNew,
+            message: "--import cannot be used with --new-agent",
+          },
+        ],
+      });
+    } catch (error) {
+      console.error(
+        error instanceof Error ? `Error: ${error.message}` : String(error),
+      );
       process.exit(1);
     }
 
@@ -791,9 +714,9 @@ async function main(): Promise<void> {
       // Definitely a registry handle
       isRegistryImport = true;
       // Validate handle format
-      const normalized = fromAfFile.slice(1);
-      const parts = normalized.split("/");
-      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      try {
+        validateRegistryHandleOrThrow(fromAfFile);
+      } catch {
         console.error(
           `Error: Invalid registry handle "${fromAfFile}". Use format: letta --import @author/agentname`,
         );
@@ -818,7 +741,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     if (forceNew) {
-      console.error("Error: --name cannot be used with --new");
+      console.error("Error: --name cannot be used with --new-agent");
       process.exit(1);
     }
   }
@@ -934,23 +857,23 @@ async function main(): Promise<void> {
   // Set tool filter if provided (controls which tools are loaded)
   if (values.tools !== undefined) {
     const { toolFilter } = await import("./tools/filter");
-    toolFilter.setEnabledTools(values.tools as string);
+    toolFilter.setEnabledTools(values.tools);
   }
 
   // Set CLI permission overrides if provided
   if (values.allowedTools || values.disallowedTools) {
     const { cliPermissions } = await import("./permissions/cli");
     if (values.allowedTools) {
-      cliPermissions.setAllowedTools(values.allowedTools as string);
+      cliPermissions.setAllowedTools(values.allowedTools);
     }
     if (values.disallowedTools) {
-      cliPermissions.setDisallowedTools(values.disallowedTools as string);
+      cliPermissions.setDisallowedTools(values.disallowedTools);
     }
   }
 
   // Set permission mode if provided (or via --yolo alias)
-  const permissionModeValue = values["permission-mode"] as string | undefined;
-  const yoloMode = values.yolo as boolean | undefined;
+  const permissionModeValue = values["permission-mode"];
+  const yoloMode = values.yolo;
 
   if (yoloMode || permissionModeValue) {
     if (yoloMode) {
@@ -983,12 +906,20 @@ async function main(): Promise<void> {
       specifiedModel,
       specifiedToolset as "auto" | "codex" | "default" | "gemini" | undefined,
     );
-    await loadTools(modelForTools);
+    // Exclude interactive-only tools that can't function without a live user session
+    await loadTools(modelForTools, { exclude: ["AskUserQuestion"] });
     markMilestone("TOOLS_LOADED");
+
+    // Keep headless startup in sync with interactive name resolution.
+    // If --name resolved to an agent ID, pass that through as --agent.
+    const headlessValues =
+      specifiedAgentId && values.agent !== specifiedAgentId
+        ? { ...values, agent: specifiedAgentId }
+        : values;
 
     const { handleHeadlessCommand } = await import("./headless");
     await handleHeadlessCommand(
-      processedArgs,
+      { values: headlessValues, positionals },
       specifiedModel,
       skillsDirectory,
       resolvedSkillSources,
@@ -1100,6 +1031,20 @@ async function main(): Promise<void> {
 
     // Release notes to display (checked once on mount)
     const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
+
+    // Update notification: set when auto-update applied a significant new version
+    const [updateNotification, setUpdateNotification] = useState<string | null>(
+      null,
+    );
+    useEffect(() => {
+      autoUpdatePromise
+        .then((result) => {
+          if (result?.latestVersion) {
+            setUpdateNotification(result.latestVersion);
+          }
+        })
+        .catch(() => {});
+    }, []);
 
     // Auto-install Shift+Enter keybinding for VS Code/Cursor/Windsurf (silent, no prompt)
     useEffect(() => {
@@ -1246,6 +1191,10 @@ async function main(): Promise<void> {
 
           // For explicit conversations, derive agent from conversation
           try {
+            debugLog(
+              "conversations",
+              `retrieve(${specifiedConversationId}) [TUI conv→agent lookup]`,
+            );
             const conversation = await client.conversations.retrieve(
               specifiedConversationId,
             );
@@ -1644,7 +1593,7 @@ async function main(): Promise<void> {
           // Determine effective model:
           // 1. Use selectedServerModel if user picked from self-hosted picker
           // 2. Use model if --model flag was passed
-          // 3. Otherwise, use billing-tier-aware default (free tier gets glm-4.7)
+          // 3. Otherwise, use billing-tier-aware default (free tier gets GLM-5)
           let effectiveModel = selectedServerModel || model;
           if (!effectiveModel && !selfHostedBaseUrl) {
             // On Letta API without explicit model - check billing tier for appropriate default
@@ -2124,6 +2073,7 @@ async function main(): Promise<void> {
         messageHistory: resumeData?.messageHistory ?? EMPTY_MESSAGE_ARRAY,
         resumedExistingConversation,
         tokenStreaming: settings.tokenStreaming,
+        reasoningTabCycleEnabled: settings.reasoningTabCycleEnabled === true,
         showCompactions: settings.showCompactions,
         agentProvenance,
         releaseNotes,
@@ -2142,9 +2092,11 @@ async function main(): Promise<void> {
       messageHistory: resumeData?.messageHistory ?? EMPTY_MESSAGE_ARRAY,
       resumedExistingConversation,
       tokenStreaming: settings.tokenStreaming,
+      reasoningTabCycleEnabled: settings.reasoningTabCycleEnabled === true,
       showCompactions: settings.showCompactions,
       agentProvenance,
       releaseNotes,
+      updateNotification,
       sessionContextReminderEnabled: !noSystemInfoReminderFlag,
     });
   }

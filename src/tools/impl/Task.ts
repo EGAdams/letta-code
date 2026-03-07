@@ -67,6 +67,18 @@ export interface SpawnBackgroundSubagentTaskArgs {
   existingConversationId?: string;
   maxTurns?: number;
   /**
+   * When true, skip injecting the completion notification into the primary
+   * agent's message queue and hide from SubagentGroupDisplay.
+   * Use `onComplete` to show a user-facing notification without leaking
+   * into the agent's context.
+   */
+  silentCompletion?: boolean;
+  /**
+   * Called after the subagent finishes (success or failure).
+   * Runs regardless of `silentCompletion`.
+   */
+  onComplete?: (result: { success: boolean; error?: string }) => void;
+  /**
    * Optional dependency overrides for tests.
    * Production callers should not provide this.
    */
@@ -191,6 +203,8 @@ export function spawnBackgroundSubagentTask(
     existingAgentId,
     existingConversationId,
     maxTurns,
+    silentCompletion,
+    onComplete,
     deps,
   } = args;
 
@@ -208,7 +222,14 @@ export function spawnBackgroundSubagentTask(
     deps?.getSubagentSnapshotImpl ?? getSubagentSnapshot;
 
   const subagentId = generateSubagentIdFn();
-  registerSubagentFn(subagentId, subagentType, description, toolCallId, true);
+  registerSubagentFn(
+    subagentId,
+    subagentType,
+    description,
+    toolCallId,
+    true,
+    silentCompletion,
+  );
 
   const taskId = getNextTaskId();
   const outputFile = createBackgroundOutputFile(taskId);
@@ -255,36 +276,43 @@ export function spawnBackgroundSubagentTask(
         totalTokens: result.totalTokens,
       });
 
-      const subagentSnapshot = getSubagentSnapshotFn();
-      const toolUses = subagentSnapshot.agents.find(
-        (agent) => agent.id === subagentId,
-      )?.toolCalls.length;
-      const durationMs = Math.max(0, Date.now() - bgTask.startTime.getTime());
+      onComplete?.({ success: result.success, error: result.error });
 
-      const fullResult = result.success
-        ? `${header}\n\n${result.report || ""}`
-        : result.error || "Subagent execution failed";
-      const userCwd = process.env.USER_CWD || process.cwd();
-      const { content: truncatedResult } = truncateByChars(
-        fullResult,
-        LIMITS.TASK_OUTPUT_CHARS,
-        "Task",
-        { workingDirectory: userCwd, toolName: "Task" },
-      );
+      if (!silentCompletion) {
+        const subagentSnapshot = getSubagentSnapshotFn();
+        const toolUses = subagentSnapshot.agents.find(
+          (agent) => agent.id === subagentId,
+        )?.toolCalls.length;
+        const durationMs = Math.max(0, Date.now() - bgTask.startTime.getTime());
 
-      const notificationXml = formatTaskNotificationFn({
-        taskId,
-        status: result.success ? "completed" : "failed",
-        summary: `Agent "${description}" ${result.success ? "completed" : "failed"}`,
-        result: truncatedResult,
-        outputFile,
-        usage: {
-          totalTokens: result.totalTokens,
-          toolUses,
-          durationMs,
-        },
-      });
-      addToMessageQueueFn({ kind: "task_notification", text: notificationXml });
+        const fullResult = result.success
+          ? `${header}\n\n${result.report || ""}`
+          : result.error || "Subagent execution failed";
+        const userCwd = process.env.USER_CWD || process.cwd();
+        const { content: truncatedResult } = truncateByChars(
+          fullResult,
+          LIMITS.TASK_OUTPUT_CHARS,
+          "Task",
+          { workingDirectory: userCwd, toolName: "Task" },
+        );
+
+        const notificationXml = formatTaskNotificationFn({
+          taskId,
+          status: result.success ? "completed" : "failed",
+          summary: `Agent "${description}" ${result.success ? "completed" : "failed"}`,
+          result: truncatedResult,
+          outputFile,
+          usage: {
+            totalTokens: result.totalTokens,
+            toolUses,
+            durationMs,
+          },
+        });
+        addToMessageQueueFn({
+          kind: "task_notification",
+          text: notificationXml,
+        });
+      }
 
       runSubagentStopHooksFn(
         subagentType,
@@ -305,23 +333,30 @@ export function spawnBackgroundSubagentTask(
       appendToOutputFile(outputFile, `[error] ${errorMessage}\n`);
       completeSubagentFn(subagentId, { success: false, error: errorMessage });
 
-      const subagentSnapshot = getSubagentSnapshotFn();
-      const toolUses = subagentSnapshot.agents.find(
-        (agent) => agent.id === subagentId,
-      )?.toolCalls.length;
-      const durationMs = Math.max(0, Date.now() - bgTask.startTime.getTime());
-      const notificationXml = formatTaskNotificationFn({
-        taskId,
-        status: "failed",
-        summary: `Agent "${description}" failed`,
-        result: errorMessage,
-        outputFile,
-        usage: {
-          toolUses,
-          durationMs,
-        },
-      });
-      addToMessageQueueFn({ kind: "task_notification", text: notificationXml });
+      onComplete?.({ success: false, error: errorMessage });
+
+      if (!silentCompletion) {
+        const subagentSnapshot = getSubagentSnapshotFn();
+        const toolUses = subagentSnapshot.agents.find(
+          (agent) => agent.id === subagentId,
+        )?.toolCalls.length;
+        const durationMs = Math.max(0, Date.now() - bgTask.startTime.getTime());
+        const notificationXml = formatTaskNotificationFn({
+          taskId,
+          status: "failed",
+          summary: `Agent "${description}" failed`,
+          result: errorMessage,
+          outputFile,
+          usage: {
+            toolUses,
+            durationMs,
+          },
+        });
+        addToMessageQueueFn({
+          kind: "task_notification",
+          text: notificationXml,
+        });
+      }
 
       runSubagentStopHooksFn(
         subagentType,

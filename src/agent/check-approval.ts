@@ -346,12 +346,6 @@ export async function getResumeData(
     // use agents API for "default" or no conversationId (agent's primary message history)
     const useConversationsApi = conversationId && conversationId !== "default";
 
-    if (process.env.DEBUG) {
-      console.log(
-        `[DEBUG] getResumeData: conversationId=${conversationId}, useConversationsApi=${useConversationsApi}, agentId=${agent.id}`,
-      );
-    }
-
     if (useConversationsApi) {
       // Get conversation to access in_context_message_ids (source of truth)
       const conversation = await client.conversations.retrieve(conversationId);
@@ -479,22 +473,24 @@ export async function getResumeData(
       }
       const retrievedMessages = await client.messages.retrieve(lastInContextId);
 
-      // Fetch message history for backfill using conversation_id=default
-      // This filters to only the default conversation's messages (like the ADE does)
+      // Fetch message history for backfill through the default conversation route.
+      // Default conversation is represented by the agent id at the conversations endpoint.
       // Wrapped in try/catch so backfill failures don't crash the CLI (e.g., older servers
-      // may not support conversation_id filter)
+      // may not support this pattern)
       if (includeMessageHistory && isBackfillEnabled()) {
         try {
-          const messagesPage = await client.agents.messages.list(agent.id, {
-            limit: BACKFILL_PAGE_LIMIT,
-            order: "desc",
-            conversation_id: "default", // Key: filter to default conversation only
-          });
-          messages = sortChronological(messagesPage.items);
+          const messagesPage = await client.conversations.messages.list(
+            agent.id,
+            {
+              limit: BACKFILL_PAGE_LIMIT,
+              order: "desc",
+            },
+          );
+          messages = sortChronological(messagesPage.getPaginatedItems());
 
           if (process.env.DEBUG) {
             console.log(
-              `[DEBUG] agents.messages.list(conversation_id=default) returned ${messages.length} messages`,
+              `[DEBUG] conversations.messages.list(${agent.id}) returned ${messages.length} messages`,
             );
           }
         } catch (backfillError) {

@@ -7,6 +7,7 @@ import type {
   GoogleAIModelSettings,
   OpenAIModelSettings,
 } from "@letta-ai/letta-client/resources/agents/agents";
+import type { Conversation } from "@letta-ai/letta-client/resources/conversations/conversations";
 import { OPENAI_CODEX_PROVIDER_NAME } from "../providers/openai-codex-provider";
 import { getModelContextWindow } from "./available-models";
 import { getClient } from "./client";
@@ -158,8 +159,10 @@ function buildModelSettings(
     settings = {};
   }
 
-  // Apply max_output_tokens only when provider_type is present.
-  // Without provider_type the discriminated union rejects the payload (e.g. MiniMax).
+  // Apply max_output_tokens only when provider_type is present and the value
+  // is a concrete number.  Null means "unset" and should only be forwarded via
+  // the top-level max_tokens field — some providers (e.g. OpenAI) reject null
+  // inside their typed model_settings.
   if (
     typeof updateArgs?.max_output_tokens === "number" &&
     "provider_type" in settings
@@ -196,17 +199,52 @@ export async function updateAgentLLMConfig(
     (await getModelContextWindow(modelHandle));
   const hasModelSettings = Object.keys(modelSettings).length > 0;
 
+  // MiniMax doesn't have a dedicated ModelSettings class, so model_settings
+  // won't carry parallel_tool_calls. Pass it directly to prevent
+  // get_llm_config_from_handle from defaulting it to false.
+  const isMinimax = modelHandle.startsWith("minimax/");
+
   await client.agents.update(agentId, {
     model: modelHandle,
+    ...(isMinimax && { parallel_tool_calls: true }),
     ...(hasModelSettings && { model_settings: modelSettings }),
     ...(contextWindow && { context_window_limit: contextWindow }),
-    ...(typeof updateArgs?.max_output_tokens === "number" && {
+    ...((typeof updateArgs?.max_output_tokens === "number" ||
+      updateArgs?.max_output_tokens === null) && {
       max_tokens: updateArgs.max_output_tokens,
     }),
   });
 
   const finalAgent = await client.agents.retrieve(agentId);
   return finalAgent;
+}
+
+/**
+ * Updates a conversation's model and model settings.
+ *
+ * Uses conversation-scoped model overrides so different conversations can
+ * run with different models without mutating the agent's default model.
+ *
+ * @param conversationId - The conversation ID (or "default")
+ * @param modelHandle - The model handle (e.g., "anthropic/claude-sonnet-4-5-20250929")
+ * @param updateArgs - Additional config args (reasoning_effort, enable_reasoner, etc.)
+ * @returns The updated conversation from the server
+ */
+export async function updateConversationLLMConfig(
+  conversationId: string,
+  modelHandle: string,
+  updateArgs?: Record<string, unknown>,
+): Promise<Conversation> {
+  const client = await getClient();
+
+  const modelSettings = buildModelSettings(modelHandle, updateArgs);
+  const hasModelSettings = Object.keys(modelSettings).length > 0;
+  const payload = {
+    model: modelHandle,
+    ...(hasModelSettings && { model_settings: modelSettings }),
+  } as unknown as Parameters<typeof client.conversations.update>[1];
+
+  return client.conversations.update(conversationId, payload);
 }
 
 export interface SystemPromptUpdateResult {

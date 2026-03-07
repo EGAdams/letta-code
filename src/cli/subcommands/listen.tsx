@@ -1,5 +1,5 @@
 /**
- * CLI subcommand: letta listen --name \"george\"
+ * CLI subcommand: letta server --name \"george\"
  * Register letta-code as a listener to receive messages from Letta Cloud
  */
 
@@ -11,6 +11,8 @@ import type React from "react";
 import { useState } from "react";
 import { getServerUrl } from "../../agent/client";
 import { settingsManager } from "../../settings-manager";
+import { RemoteSessionLog } from "../../websocket/listen-log";
+import { registerWithCloud } from "../../websocket/listen-register";
 import { ListenerStatusUI } from "../components/ListenerStatusUI";
 
 /**
@@ -36,6 +38,15 @@ function PromptEnvName(props: {
   );
 }
 
+function formatTimestamp(): string {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2, "0");
+  const m = String(now.getMinutes()).padStart(2, "0");
+  const s = String(now.getSeconds()).padStart(2, "0");
+  const ms = String(now.getMilliseconds()).padStart(3, "0");
+  return `${h}:${m}:${s}.${ms}`;
+}
+
 export async function runListenSubcommand(argv: string[]): Promise<number> {
   // Parse arguments
   const { values } = parseArgs({
@@ -43,13 +54,16 @@ export async function runListenSubcommand(argv: string[]): Promise<number> {
     options: {
       envName: { type: "string" },
       help: { type: "boolean", short: "h" },
+      debug: { type: "boolean" },
     },
     allowPositionals: false,
   });
 
+  const debugMode = !!values.debug;
+
   // Show help
   if (values.help) {
-    console.log("Usage: letta listen [--env-name <name>]\n");
+    console.log("Usage: letta server [--env-name <name>] [--debug]\n");
     console.log(
       "Register this letta-code instance to receive messages from Letta Cloud.\n",
     );
@@ -57,12 +71,16 @@ export async function runListenSubcommand(argv: string[]): Promise<number> {
     console.log(
       "  --env-name <name>  Friendly name for this environment (uses hostname if not provided)",
     );
+    console.log(
+      "  --debug            Plain-text mode: log all WebSocket events instead of interactive UI",
+    );
     console.log("  -h, --help         Show this help message\n");
     console.log("Examples:");
     console.log(
-      "  letta listen                      # Uses hostname as default",
+      "  letta server                      # Uses hostname as default",
     );
-    console.log('  letta listen --env-name "work-laptop"\n');
+    console.log('  letta server --env-name "work-laptop"');
+    console.log("  letta server --debug              # Log all WS events\n");
     console.log(
       "Once connected, this instance will listen for incoming messages from cloud agents.",
     );
@@ -89,6 +107,10 @@ export async function runListenSubcommand(argv: string[]): Promise<number> {
     if (savedName) {
       // Reuse saved name
       connectionName = savedName;
+    } else if (debugMode) {
+      // In debug mode, default to hostname without prompting
+      connectionName = hostname();
+      settingsManager.setListenerEnvName(connectionName);
     } else {
       // No saved name - prompt user
       connectionName = await new Promise<string>((resolve) => {
@@ -107,6 +129,11 @@ export async function runListenSubcommand(argv: string[]): Promise<number> {
     }
   }
 
+  // Session log (always written to ~/.letta/logs/remote/)
+  const sessionLog = new RemoteSessionLog();
+  sessionLog.init();
+  console.log(`Log file: ${sessionLog.path}`);
+
   try {
     // Get device ID
     const deviceId = settingsManager.getOrCreateDeviceId();
@@ -121,99 +148,227 @@ export async function runListenSubcommand(argv: string[]): Promise<number> {
       return 1;
     }
 
+    sessionLog.log(`Session started (debug=${debugMode})`);
+    sessionLog.log(`deviceId: ${deviceId}`);
+    sessionLog.log(`connectionName: ${connectionName}`);
+
     // Register with cloud
     const serverUrl = getServerUrl();
-    const registerUrl = `${serverUrl}/v1/environments/register`;
 
-    const registerResponse = await fetch(registerUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "X-Letta-Source": "letta-code",
-      },
-      body: JSON.stringify({
-        deviceId,
-        connectionName,
-      }),
+    if (debugMode) {
+      console.log(
+        `[${formatTimestamp()}] Registering with ${serverUrl}/v1/environments/register`,
+      );
+      console.log(`[${formatTimestamp()}]   deviceId: ${deviceId}`);
+      console.log(`[${formatTimestamp()}]   connectionName: ${connectionName}`);
+    }
+    sessionLog.log(`Registering with ${serverUrl}/v1/environments/register`);
+
+    const { connectionId, wsUrl } = await registerWithCloud({
+      serverUrl,
+      apiKey,
+      deviceId,
+      connectionName,
     });
 
-    if (!registerResponse.ok) {
-      const error = (await registerResponse.json()) as { message?: string };
-      console.error(`Registration failed: ${error.message || "Unknown error"}`);
-      return 1;
+    sessionLog.log(`Registered: connectionId=${connectionId}`);
+    sessionLog.log(`wsUrl: ${wsUrl}`);
+
+    if (debugMode) {
+      console.log(`[${formatTimestamp()}] Registered successfully`);
+      console.log(`[${formatTimestamp()}]   connectionId: ${connectionId}`);
+      console.log(`[${formatTimestamp()}]   wsUrl: ${wsUrl}`);
+      console.log(`[${formatTimestamp()}] Connecting WebSocket...`);
+      console.log("");
     }
-
-    const { connectionId, wsUrl } = (await registerResponse.json()) as {
-      connectionId: string;
-      wsUrl: string;
-    };
-
-    // Clear screen and render Ink UI
-    console.clear();
-
-    let updateStatusCallback:
-      | ((status: "idle" | "receiving" | "processing") => void)
-      | null = null;
-    let updateRetryStatusCallback:
-      | ((attempt: number, nextRetryIn: number) => void)
-      | null = null;
-    let clearRetryStatusCallback: (() => void) | null = null;
-
-    const { unmount } = render(
-      <ListenerStatusUI
-        connectionId={connectionId}
-        envName={connectionName}
-        onReady={(callbacks) => {
-          updateStatusCallback = callbacks.updateStatus;
-          updateRetryStatusCallback = callbacks.updateRetryStatus;
-          clearRetryStatusCallback = callbacks.clearRetryStatus;
-        }}
-      />,
-    );
 
     // Import and start WebSocket client
     const { startListenerClient } = await import(
       "../../websocket/listen-client"
     );
 
-    await startListenerClient({
-      connectionId,
-      wsUrl,
-      deviceId,
-      connectionName,
-      onStatusChange: (status) => {
-        clearRetryStatusCallback?.();
-        updateStatusCallback?.(status);
-      },
-      onConnected: () => {
-        clearRetryStatusCallback?.();
-        updateStatusCallback?.("idle");
-      },
-      onRetrying: (attempt, _maxAttempts, nextRetryIn) => {
-        updateRetryStatusCallback?.(attempt, nextRetryIn);
-      },
-      onDisconnected: () => {
-        unmount();
-        console.log("\n✗ Listener disconnected");
-        console.log("Connection to Letta Cloud was lost.\n");
-        process.exit(1);
-      },
-      onError: (error: Error) => {
-        unmount();
-        console.error(`\n✗ Listener error: ${error.message}\n`);
-        process.exit(1);
-      },
-    });
+    // Re-register helper for when the server closes with 1008 (environment not found)
+    const reregister = async (): Promise<{
+      connectionId: string;
+      wsUrl: string;
+    }> => {
+      sessionLog.log("Environment expired, re-registering...");
+      const result = await registerWithCloud({
+        serverUrl,
+        apiKey,
+        deviceId,
+        connectionName,
+      });
+      sessionLog.log(`Re-registered: connectionId=${result.connectionId}`);
+      return result;
+    };
+
+    // WS event logger: always writes to file, console only in --debug
+    const wsEventLogger = (
+      direction: "send" | "recv",
+      label: "client" | "protocol" | "control" | "lifecycle",
+      event: unknown,
+    ): void => {
+      sessionLog.wsEvent(direction, label, event);
+      if (debugMode) {
+        const arrow = direction === "send" ? "\u2192 send" : "\u2190 recv";
+        const tag = label === "client" ? "" : ` (${label})`;
+        const json = JSON.stringify(event);
+        console.log(`[${formatTimestamp()}] ${arrow}${tag}  ${json}`);
+      }
+    };
+
+    if (debugMode) {
+      // Debug mode: plain-text event logging, no Ink UI
+      const startDebugClient = async (
+        connId: string,
+        url: string,
+      ): Promise<void> => {
+        await startListenerClient({
+          connectionId: connId,
+          wsUrl: url,
+          deviceId,
+          connectionName,
+          onWsEvent: wsEventLogger,
+          onStatusChange: (status) => {
+            sessionLog.log(`status: ${status}`);
+            console.log(`[${formatTimestamp()}] status: ${status}`);
+          },
+          onConnected: () => {
+            sessionLog.log("Connected. Awaiting instructions.");
+            console.log(
+              `[${formatTimestamp()}] Connected. Awaiting instructions.`,
+            );
+            console.log("");
+          },
+          onRetrying: (attempt, _maxAttempts, nextRetryIn) => {
+            sessionLog.log(
+              `Reconnecting (attempt ${attempt}, retry in ${Math.round(nextRetryIn / 1000)}s)`,
+            );
+            console.log(
+              `[${formatTimestamp()}] Reconnecting (attempt ${attempt}, retry in ${Math.round(nextRetryIn / 1000)}s)`,
+            );
+          },
+          onNeedsReregister: async () => {
+            console.log(
+              `[${formatTimestamp()}] Environment expired, re-registering...`,
+            );
+            try {
+              const result = await reregister();
+              await startDebugClient(result.connectionId, result.wsUrl);
+            } catch (error) {
+              const msg =
+                error instanceof Error ? error.message : String(error);
+              sessionLog.log(`Re-registration failed: ${msg}`);
+              console.error(
+                `[${formatTimestamp()}] Re-registration failed: ${msg}`,
+              );
+              process.exit(1);
+            }
+          },
+          onDisconnected: () => {
+            sessionLog.log("Disconnected.");
+            console.log(`[${formatTimestamp()}] Disconnected.`);
+            process.exit(1);
+          },
+          onError: (error: Error) => {
+            sessionLog.log(`Error: ${error.message}`);
+            console.error(`[${formatTimestamp()}] Error: ${error.message}`);
+            process.exit(1);
+          },
+        });
+      };
+      await startDebugClient(connectionId, wsUrl);
+    } else {
+      // Normal mode: interactive Ink UI
+      console.clear();
+
+      let updateStatusCallback:
+        | ((status: "idle" | "receiving" | "processing") => void)
+        | null = null;
+      let updateRetryStatusCallback:
+        | ((attempt: number, nextRetryIn: number) => void)
+        | null = null;
+      let clearRetryStatusCallback: (() => void) | null = null;
+
+      const { unmount } = render(
+        <ListenerStatusUI
+          connectionId={connectionId}
+          envName={connectionName}
+          onReady={(callbacks) => {
+            updateStatusCallback = callbacks.updateStatus;
+            updateRetryStatusCallback = callbacks.updateRetryStatus;
+            clearRetryStatusCallback = callbacks.clearRetryStatus;
+          }}
+        />,
+      );
+
+      const startNormalClient = async (
+        connId: string,
+        url: string,
+      ): Promise<void> => {
+        await startListenerClient({
+          connectionId: connId,
+          wsUrl: url,
+          deviceId,
+          connectionName,
+          onWsEvent: wsEventLogger,
+          onStatusChange: (status) => {
+            sessionLog.log(`status: ${status}`);
+            clearRetryStatusCallback?.();
+            updateStatusCallback?.(status);
+          },
+          onConnected: () => {
+            sessionLog.log("Connected. Awaiting instructions.");
+            clearRetryStatusCallback?.();
+            updateStatusCallback?.("idle");
+          },
+          onRetrying: (attempt, _maxAttempts, nextRetryIn) => {
+            sessionLog.log(
+              `Reconnecting (attempt ${attempt}, retry in ${Math.round(nextRetryIn / 1000)}s)`,
+            );
+            updateRetryStatusCallback?.(attempt, nextRetryIn);
+          },
+          onNeedsReregister: async () => {
+            sessionLog.log("Environment expired, re-registering...");
+            try {
+              const result = await reregister();
+              await startNormalClient(result.connectionId, result.wsUrl);
+            } catch (error) {
+              const msg =
+                error instanceof Error ? error.message : String(error);
+              sessionLog.log(`Re-registration failed: ${msg}`);
+              unmount();
+              console.error(`\n\u2717 Re-registration failed: ${msg}\n`);
+              process.exit(1);
+            }
+          },
+          onDisconnected: () => {
+            sessionLog.log("Disconnected.");
+            unmount();
+            console.log("\n\u2717 Listener disconnected");
+            console.log("Connection to Letta Cloud was lost.\n");
+            process.exit(1);
+          },
+          onError: (error: Error) => {
+            sessionLog.log(`Error: ${error.message}`);
+            unmount();
+            console.error(`\n\u2717 Listener error: ${error.message}\n`);
+            process.exit(1);
+          },
+        });
+      };
+      await startNormalClient(connectionId, wsUrl);
+    }
 
     // Keep process alive
     return new Promise<number>(() => {
       // Never resolves - runs until Ctrl+C
     });
   } catch (error) {
-    console.error(
-      `Failed to start listener: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    const msg = error instanceof Error ? error.message : String(error);
+    sessionLog.log(`FATAL: ${msg}`);
+    console.error(`Failed to start listener: ${msg}`);
     return 1;
   }
 }

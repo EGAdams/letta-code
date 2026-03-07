@@ -11,6 +11,7 @@
 import type { MessageCreate } from "@letta-ai/letta-client/resources/agents/agents";
 import type {
   AssistantMessage as LettaAssistantMessage,
+  Message as LettaMessage,
   ReasoningMessage as LettaReasoningMessage,
   LettaStreamingResponse,
   ToolCallMessage as LettaToolCallMessage,
@@ -23,6 +24,7 @@ import type { ToolReturnMessage as LettaToolReturnMessage } from "@letta-ai/lett
 // Re-export letta-client types that consumers may need
 export type {
   LettaStreamingResponse,
+  LettaMessage,
   ToolCall,
   StopReasonType,
   MessageCreate,
@@ -40,7 +42,7 @@ export type {
  * Use this to select a built-in system prompt with optional appended text.
  *
  * Available presets (validated at runtime by CLI):
- * - 'default' - Alias for letta-claude
+ * - 'default' - Letta-tuned system prompt
  * - 'letta-claude' - Full Letta Code prompt (Claude-optimized)
  * - 'letta-codex' - Full Letta Code prompt (Codex-optimized)
  * - 'letta-gemini' - Full Letta Code prompt (Gemini-optimized)
@@ -71,6 +73,8 @@ export type SystemPromptConfig = string | SystemPromptPresetConfig;
 export interface MessageEnvelope {
   session_id: string;
   uuid: string;
+  /** Monotonic per-session event sequence. Optional for backward compatibility. */
+  event_seq?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -220,6 +224,17 @@ export interface RecoveryMessage extends MessageEnvelope {
   run_id?: string;
 }
 
+/**
+ * Acknowledges a cancel request received over the device websocket control path.
+ */
+export interface CancelAckMessage extends MessageEnvelope {
+  type: "cancel_ack";
+  request_id: string;
+  accepted: boolean;
+  run_id?: string | null;
+  reason?: string;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // RESULT
 // ═══════════════════════════════════════════════════════════════
@@ -253,6 +268,149 @@ export interface ResultMessage extends MessageEnvelope {
    */
   stop_reason?: StopReasonType;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// QUEUE LIFECYCLE
+// Events emitted by the shared queue runtime. Each describes a
+// discrete state transition in the turn queue. Consumers (TUI,
+// headless bidir JSON, WS listen) emit these through their
+// respective output channels.
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Source that produced the queue item.
+ * - user: Submitted via Enter in TUI or stdin in headless
+ * - task_notification: Background subagent completion
+ * - subagent: Direct subagent result
+ * - system: Approval results, overlay actions, system reminders
+ */
+export type QueueItemSource =
+  | "user"
+  | "task_notification"
+  | "subagent"
+  | "system";
+
+/**
+ * Kind of content carried by the queue item.
+ * - message: User or system text to send to the agent
+ * - task_notification: Background task completed notification
+ * - approval_result: Tool approval/denial result
+ * - overlay_action: Plan mode, AskUserQuestion, etc.
+ */
+export type QueueItemKind =
+  | "message"
+  | "task_notification"
+  | "approval_result"
+  | "overlay_action";
+
+/**
+ * Emitted synchronously when an item enters the queue.
+ * A queue item is a discrete, submitted unit of work (post-Enter for user
+ * messages, or a delivered notification/result for system sources).
+ */
+export interface QueueItemEnqueuedEvent extends MessageEnvelope {
+  type: "queue_item_enqueued";
+  /** Stable queue item identifier. Preferred field. */
+  id?: string;
+  /** @deprecated Use `id`. */
+  item_id: string;
+  /** Correlates this queue item back to the originating client submit payload. */
+  client_message_id: string;
+  source: QueueItemSource;
+  kind: QueueItemKind;
+  /** Full queue item content; renderers may truncate for display. */
+  content?: MessageCreate["content"] | string;
+  /** ISO8601 UTC enqueue timestamp. */
+  enqueued_at?: string;
+  queue_len: number;
+}
+
+/**
+ * Emitted exactly once when the runtime dequeues a batch for submission.
+ * Contiguous coalescable items (user + task messages) are merged into one batch.
+ */
+export interface QueueBatchDequeuedEvent extends MessageEnvelope {
+  type: "queue_batch_dequeued";
+  batch_id: string;
+  item_ids: string[];
+  merged_count: number;
+  queue_len_after: number;
+}
+
+/**
+ * Why the queue cannot dequeue right now.
+ * - streaming: Agent turn is actively streaming
+ * - pending_approvals: Waiting for HITL approval decisions
+ * - overlay_open: Plan mode, AskUserQuestion, or other overlay is active
+ * - command_running: Slash command is executing
+ * - interrupt_in_progress: User interrupt (Esc) is being processed
+ * - runtime_busy: Generic busy state (e.g., listen-client turn in flight)
+ */
+export type QueueBlockedReason =
+  | "streaming"
+  | "pending_approvals"
+  | "overlay_open"
+  | "command_running"
+  | "interrupt_in_progress"
+  | "runtime_busy";
+
+/**
+ * Emitted only on blocked-reason state transitions (not on every dequeue
+ * check while blocked). The runtime tracks lastEmittedBlockedReason and
+ * fires this only when the reason changes or transitions from unblocked.
+ */
+export interface QueueBlockedEvent extends MessageEnvelope {
+  type: "queue_blocked";
+  reason: QueueBlockedReason;
+  queue_len: number;
+}
+
+/**
+ * Why the queue was cleared.
+ */
+export type QueueClearedReason =
+  | "processed"
+  | "error"
+  | "cancelled"
+  | "shutdown"
+  | "stale_generation";
+
+/**
+ * Emitted when the queue is flushed due to a terminal condition.
+ */
+export interface QueueClearedEvent extends MessageEnvelope {
+  type: "queue_cleared";
+  reason: QueueClearedReason;
+  cleared_count: number;
+}
+
+/**
+ * Why an item was dropped without processing.
+ */
+export type QueueItemDroppedReason = "buffer_limit" | "stale_generation";
+
+/**
+ * Emitted when an item is dropped from the queue without being processed.
+ */
+export interface QueueItemDroppedEvent extends MessageEnvelope {
+  type: "queue_item_dropped";
+  /** Stable queue item identifier. Preferred field. */
+  id?: string;
+  /** @deprecated Use `id`. */
+  item_id: string;
+  reason: QueueItemDroppedReason;
+  queue_len: number;
+}
+
+/**
+ * Union of all queue lifecycle events.
+ */
+export type QueueLifecycleEvent =
+  | QueueItemEnqueuedEvent
+  | QueueBatchDequeuedEvent
+  | QueueBlockedEvent
+  | QueueClearedEvent
+  | QueueItemDroppedEvent;
 
 // ═══════════════════════════════════════════════════════════════
 // CONTROL PROTOCOL
@@ -369,6 +527,26 @@ export interface ExternalToolDefinition {
   parameters: Record<string, unknown>; // JSON Schema
 }
 
+// --- Diff preview types (wire-safe, no CLI imports) ---
+
+export interface DiffHunkLine {
+  type: "context" | "add" | "remove";
+  content: string;
+}
+
+export interface DiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffHunkLine[];
+}
+
+export type DiffPreview =
+  | { mode: "advanced"; fileName: string; hunks: DiffHunk[] }
+  | { mode: "fallback"; fileName: string; reason: string }
+  | { mode: "unpreviewable"; fileName: string; reason: string };
+
 // CLI → SDK request subtypes
 export interface CanUseToolControlRequest {
   subtype: "can_use_tool";
@@ -379,6 +557,8 @@ export interface CanUseToolControlRequest {
   permission_suggestions: unknown[];
   /** TODO: Not implemented - path that triggered the permission check */
   blocked_path: string | null;
+  /** Pre-computed diff previews for file-modifying tools (Write/Edit/Patch) */
+  diffs?: DiffPreview[];
 }
 
 /**
@@ -470,6 +650,87 @@ export interface UserInput {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// STATIC TRANSCRIPT SYNC
+// Emitted by the WS listen client when a remote consumer (SDK,
+// desktop app) connects or reconnects mid-session. Together they
+// allow the consumer to reconstruct the full session state without
+// polling. See listen-client.ts for the emit sequence.
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Emitted once during the static sync phase (before sync_complete).
+ * Carries committed message history for the current conversation.
+ *
+ * V1: always a single page (is_final: true). Pagination via multiple
+ * chunks (is_final: false on all but the last) is reserved for future use.
+ */
+export interface TranscriptBackfillMessage extends MessageEnvelope {
+  type: "transcript_backfill";
+  /** Committed conversation messages in chronological order. */
+  messages: LettaMessage[];
+  /**
+   * True when this is the only or last backfill chunk for this sync.
+   * Future pagination will emit multiple chunks with is_final: false
+   * on all but the last.
+   */
+  is_final: boolean;
+}
+
+/**
+ * Emitted during the static sync phase when there are items in the
+ * turn queue at connect time. Gives the consumer a point-in-time
+ * snapshot of queue contents without requiring live queue events.
+ *
+ * Omitted entirely when the queue is empty at sync time.
+ */
+export interface QueueSnapshotMessage extends MessageEnvelope {
+  type: "queue_snapshot";
+  /** Items currently in the queue, in enqueue order. */
+  items: Array<{
+    /** Stable queue item identifier. Preferred field. */
+    id?: string;
+    /** @deprecated Use `id`. */
+    item_id: string;
+    kind: QueueItemKind;
+    source: QueueItemSource;
+  }>;
+}
+
+/**
+ * Marks the end of the initial static sync phase.
+ * All transcript_backfill and queue_snapshot messages are guaranteed
+ * to precede this event. After sync_complete, the consumer receives
+ * live queue lifecycle events (queue_item_enqueued, etc.) and message
+ * stream events in real time.
+ *
+ * had_pending_turn: true means a turn was already in-flight when the
+ * consumer connected; message chunks for that turn will follow.
+ */
+export interface SyncCompleteMessage extends MessageEnvelope {
+  type: "sync_complete";
+  had_pending_turn: boolean;
+}
+
+/**
+ * Post-sync supplemental backfill. Emitted AFTER sync_complete when
+ * context (agent_id / conversation_id) was not available at connect
+ * time but became known from the first inbound message.
+ *
+ * Distinct from transcript_backfill (which is only emitted during the
+ * static phase) so clients can handle it without breaking the
+ * sync_complete contract. The client should replace its (empty)
+ * transcript with the messages provided here.
+ *
+ * Emitted at most once per connection (guarded by supplementSent flag
+ * in the listener runtime).
+ */
+export interface TranscriptSupplementMessage extends MessageEnvelope {
+  type: "transcript_supplement";
+  /** Committed conversation messages in chronological order. */
+  messages: LettaMessage[];
+}
+
+// ═══════════════════════════════════════════════════════════════
 // UNION TYPE
 // ═══════════════════════════════════════════════════════════════
 
@@ -481,9 +742,15 @@ export type WireMessage =
   | ContentMessage
   | StreamEvent
   | AutoApprovalMessage
+  | CancelAckMessage
   | ErrorMessage
   | RetryMessage
   | RecoveryMessage
   | ResultMessage
   | ControlResponse
-  | ControlRequest; // CLI → SDK control requests (e.g., can_use_tool)
+  | ControlRequest // CLI → SDK control requests (e.g., can_use_tool)
+  | QueueLifecycleEvent
+  | TranscriptBackfillMessage
+  | QueueSnapshotMessage
+  | SyncCompleteMessage
+  | TranscriptSupplementMessage;

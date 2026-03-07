@@ -44,6 +44,22 @@ describe("isReadOnlyShellCommand", () => {
     });
   });
 
+  describe("sed command", () => {
+    test("allows read-only sed", () => {
+      expect(isReadOnlyShellCommand("sed -n '1,40p' file.txt")).toBe(true);
+      expect(isReadOnlyShellCommand("sed 's/foo/bar/g' file.txt")).toBe(true);
+    });
+
+    test("blocks in-place sed edits", () => {
+      expect(isReadOnlyShellCommand("sed -i 's/foo/bar/g' file.txt")).toBe(
+        false,
+      );
+      expect(
+        isReadOnlyShellCommand("sed --in-place 's/foo/bar/g' file.txt"),
+      ).toBe(false);
+    });
+  });
+
   describe("git commands", () => {
     test("allows read-only git commands", () => {
       expect(isReadOnlyShellCommand("git status")).toBe(true);
@@ -166,6 +182,15 @@ describe("isReadOnlyShellCommand", () => {
       expect(isReadOnlyShellCommand("ls -la | grep txt | wc -l")).toBe(true);
     });
 
+    test("allows pipe characters inside quoted args", () => {
+      expect(
+        isReadOnlyShellCommand(
+          'rg -n "memfs|memory filesystem|memory_filesystem|skills/|SKILL.md|git-backed|sync" letta tests -S',
+        ),
+      ).toBe(true);
+      expect(isReadOnlyShellCommand("grep 'foo|bar|baz' file.txt")).toBe(true);
+    });
+
     test("blocks pipes with unsafe commands", () => {
       expect(isReadOnlyShellCommand("cat file | rm")).toBe(false);
       expect(isReadOnlyShellCommand("echo test | bash")).toBe(false);
@@ -187,6 +212,13 @@ describe("isReadOnlyShellCommand", () => {
     test("blocks command substitution", () => {
       expect(isReadOnlyShellCommand("echo $(rm file)")).toBe(false);
       expect(isReadOnlyShellCommand("echo `rm file`")).toBe(false);
+      expect(isReadOnlyShellCommand('echo "$(rm file)"')).toBe(false);
+      expect(isReadOnlyShellCommand('echo "`rm file`"')).toBe(false);
+    });
+
+    test("allows literal redirects inside quotes", () => {
+      expect(isReadOnlyShellCommand('echo "a > b"')).toBe(true);
+      expect(isReadOnlyShellCommand("echo 'a >> b'")).toBe(true);
     });
   });
 
@@ -246,6 +278,29 @@ describe("isReadOnlyShellCommand", () => {
       expect(isReadOnlyShellCommand("mv a b")).toBe(false);
       expect(isReadOnlyShellCommand("chmod 755 file")).toBe(false);
       expect(isReadOnlyShellCommand("curl http://example.com")).toBe(false);
+    });
+
+    test("blocks external paths by default", () => {
+      expect(isReadOnlyShellCommand("cat /tmp/file.txt")).toBe(false);
+      expect(isReadOnlyShellCommand("cat ../file.txt")).toBe(false);
+    });
+
+    test("allows external paths when explicitly enabled", () => {
+      expect(
+        isReadOnlyShellCommand("cat /tmp/file.txt", {
+          allowExternalPaths: true,
+        }),
+      ).toBe(true);
+      expect(
+        isReadOnlyShellCommand("cat ../file.txt", {
+          allowExternalPaths: true,
+        }),
+      ).toBe(true);
+      expect(
+        isReadOnlyShellCommand("cd /tmp && git status", {
+          allowExternalPaths: true,
+        }),
+      ).toBe(true);
     });
   });
 });

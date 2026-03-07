@@ -22,10 +22,6 @@ export interface ConversationsMessagesPage {
   getPaginatedItems(): unknown[];
 }
 
-export interface AgentsMessagesPage {
-  items: unknown[];
-}
-
 export interface ListMessagesHandlerClient {
   conversations: {
     messages: {
@@ -34,24 +30,11 @@ export interface ListMessagesHandlerClient {
         opts: {
           limit: number;
           order: "asc" | "desc";
+          agent_id?: string;
           before?: string;
           after?: string;
         },
       ): Promise<ConversationsMessagesPage>;
-    };
-  };
-  agents: {
-    messages: {
-      list(
-        agentId: string,
-        opts: {
-          limit: number;
-          order: "asc" | "desc";
-          before?: string;
-          after?: string;
-          conversation_id?: "default";
-        },
-      ): Promise<AgentsMessagesPage>;
     };
   };
 }
@@ -97,29 +80,22 @@ export async function handleListMessages(
   };
 
   try {
-    let items: unknown[];
-
     const route = resolveListMessagesRoute(
       listReq,
       sessionConversationId,
       sessionAgentId,
     );
 
-    if (route.kind === "conversations") {
-      const page = await client.conversations.messages.list(
-        route.conversationId,
-        { limit, order, ...cursorOpts },
-      );
-      items = page.getPaginatedItems();
-    } else {
-      const page = await client.agents.messages.list(route.agentId, {
+    const page = await client.conversations.messages.list(
+      route.conversationId,
+      {
         limit,
         order,
-        conversation_id: "default",
+        ...(route.agentId ? { agent_id: route.agentId } : {}),
         ...cursorOpts,
-      });
-      items = page.items;
-    }
+      },
+    );
+    const items = page.getPaginatedItems();
 
     const hasMore = items.length >= limit;
     const oldestId =

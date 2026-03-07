@@ -28,8 +28,8 @@ import { getErrorMessage } from "../../utils/error";
 import { getAvailableModelHandles } from "../available-models";
 import { getClient } from "../client";
 import { getCurrentAgentId } from "../context";
-import { resolveModel } from "../model";
 import { OPENAI_CODEX_PROVIDER_NAME } from "../../providers/openai-codex-provider";
+import { getDefaultModelForTier, resolveModel } from "../model";
 
 import { getAllSubagentConfigs, type SubagentConfig } from ".";
 
@@ -92,6 +92,18 @@ async function getPrimaryAgentModelHandle(): Promise<string | null> {
   }
 }
 
+async function getCurrentBillingTier(): Promise<string | null> {
+  try {
+    const client = await getClient();
+    const balance = await client.get<{ billing_tier?: string }>(
+      "/v1/metadata/balance",
+    );
+    return balance.billing_tier ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Check if an error message indicates an unsupported provider
  */
@@ -149,9 +161,10 @@ export async function resolveSubagentModel(options: {
   userModel?: string;
   recommendedModel?: string;
   parentModelHandle?: string | null;
+  billingTier?: string | null;
   availableHandles?: Set<string>;
 }): Promise<string | null> {
-  const { userModel, recommendedModel } = options;
+  const { userModel, recommendedModel, billingTier } = options;
   const parentModelHandle = normalizeModelHandle(options.parentModelHandle);
 
   if (userModel) return normalizeModelHandle(userModel);
@@ -159,6 +172,12 @@ export async function resolveSubagentModel(options: {
   let recommendedHandle: string | null = null;
   if (recommendedModel && recommendedModel !== "inherit") {
     recommendedHandle = normalizeModelHandle(resolveModel(recommendedModel));
+  }
+
+  // Free-tier users should default subagents to GLM-5 instead of provider-specific
+  // recommendations like Sonnet.
+  if (recommendedModel !== "inherit" && billingTier?.toLowerCase() === "free") {
+    recommendedHandle = getDefaultModelForTier(billingTier);
   }
 
   let availableHandles: Set<string> | null = options.availableHandles ?? null;
@@ -525,6 +544,7 @@ function buildSubagentArgs(
   } else {
     // Create new agent (original behavior)
     args.push("--new-agent", "--system", type);
+    args.push("--tags", `type:${type}`);
     if (model) {
       args.push("--model", model);
     }
@@ -878,6 +898,7 @@ export async function spawnSubagent(
   );
 
   const parentModelHandle = await getPrimaryAgentModelHandle();
+  const billingTier = await getCurrentBillingTier();
 
   // For existing agents, don't override model; for new agents, use provided or config default
   const model = isDeployingExisting
@@ -886,6 +907,7 @@ export async function spawnSubagent(
         userModel,
         recommendedModel: config.recommendedModel,
         parentModelHandle,
+        billingTier,
       });
   const baseURL = getBaseURL();
 

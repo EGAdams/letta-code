@@ -28,19 +28,17 @@ type ModelCategory =
 // BYOK provider prefixes (ChatGPT OAuth + lc-* providers from /connect)
 const BYOK_PROVIDER_PREFIXES = ["chatgpt-plus-pro/", "lc-"];
 
-// Get tab order based on billing tier (free = BYOK first, paid = BYOK last)
-// For self-hosted servers, only show server-specific tabs
-function getModelCategories(
-  billingTier?: string,
+// Get tab order for model categories.
+// For self-hosted servers, only show server-specific tabs.
+// For Letta-hosted, keep ordering consistent across billing tiers.
+export function getModelCategories(
+  _billingTier?: string,
   isSelfHosted?: boolean,
 ): ModelCategory[] {
   if (isSelfHosted) {
     return ["server-recommended", "server-all"];
   }
-  const isFreeTier = billingTier?.toLowerCase() === "free";
-  return isFreeTier
-    ? ["byok", "byok-all", "supported", "all"]
-    : ["supported", "all", "byok", "byok-all"];
+  return ["supported", "all", "byok", "byok-all"];
 }
 
 type UiModel = {
@@ -54,6 +52,27 @@ type UiModel = {
   updateArgs?: Record<string, unknown>;
 };
 
+const API_GATED_MODEL_HANDLES = new Set(["letta/auto", "letta/auto-fast"]);
+
+export function filterModelsByAvailabilityForSelector<
+  T extends { handle: string },
+>(
+  typedModels: T[],
+  availableHandles: Set<string> | null,
+  allApiHandles: string[],
+): T[] {
+  if (availableHandles === null) {
+    return typedModels.filter((m) => {
+      if (!API_GATED_MODEL_HANDLES.has(m.handle)) {
+        return true;
+      }
+      return allApiHandles.includes(m.handle);
+    });
+  }
+
+  return typedModels.filter((m) => availableHandles.has(m.handle));
+}
+
 interface ModelSelectorProps {
   currentModelId?: string;
   onSelect: (modelId: string) => void;
@@ -62,7 +81,7 @@ interface ModelSelectorProps {
   filterProvider?: string;
   /** Force refresh the models list on mount */
   forceRefresh?: boolean;
-  /** User's billing tier - affects tab ordering (free = BYOK first) */
+  /** User's billing tier (kept for compatibility and future gating logic) */
   billingTier?: string;
   /** Whether connected to a self-hosted server (not api.letta.com) */
   isSelfHosted?: boolean;
@@ -81,7 +100,6 @@ export function ModelSelector({
   const solidLine = SOLID_LINE.repeat(Math.max(terminalWidth, 10));
   const typedModels = models as UiModel[];
 
-  // Tab order depends on billing tier (free = BYOK first)
   // For self-hosted, only show server-specific tabs
   const modelCategories = useMemo(
     () => getModelCategories(billingTier, isSelfHosted),
@@ -177,14 +195,13 @@ export function ModelSelector({
   // Supported models: models.json entries that are available
   // Featured models first, then non-featured, preserving JSON order within each group
   // If filterProvider is set, only show models from that provider
-  // For free tier, free models go first
-  const isFreeTier = billingTier?.toLowerCase() === "free";
   const supportedModels = useMemo(() => {
     if (availableHandles === undefined) return [];
-    let available =
-      availableHandles === null
-        ? typedModels // fallback
-        : typedModels.filter((m) => availableHandles.has(m.handle));
+    let available = filterModelsByAvailabilityForSelector(
+      typedModels,
+      availableHandles,
+      allApiHandles,
+    );
     // Apply provider filter if specified
     if (filterProvider) {
       available = available.filter((m) =>
@@ -202,19 +219,28 @@ export function ModelSelector({
       );
     }
 
-    // For free tier, put free models first, then others with standard ordering
-    if (isFreeTier) {
-      const freeModels = available.filter((m) => m.free);
-      const paidModels = available.filter((m) => !m.free);
-      const featured = paidModels.filter((m) => m.isFeatured);
-      const nonFeatured = paidModels.filter((m) => !m.isFeatured);
-      return [...freeModels, ...featured, ...nonFeatured];
+    // Deduplicate by handle: keep one representative entry per unique handle.
+    // Models with multiple reasoning tiers (e.g., gpt-5.3-codex none/low/med/high/max)
+    // share the same handle — the ModelReasoningSelector handles tier selection after pick.
+    const seen = new Set<string>();
+    const deduped: UiModel[] = [];
+    for (const m of available) {
+      if (seen.has(m.handle)) continue;
+      seen.add(m.handle);
+      deduped.push(pickPreferredStaticModel(m.handle) ?? m);
     }
 
-    const featured = available.filter((m) => m.isFeatured);
-    const nonFeatured = available.filter((m) => !m.isFeatured);
+    const featured = deduped.filter((m) => m.isFeatured);
+    const nonFeatured = deduped.filter((m) => !m.isFeatured);
     return [...featured, ...nonFeatured];
-  }, [typedModels, availableHandles, filterProvider, searchQuery, isFreeTier]);
+  }, [
+    typedModels,
+    availableHandles,
+    allApiHandles,
+    filterProvider,
+    searchQuery,
+    pickPreferredStaticModel,
+  ]);
 
   // BYOK models: models from chatgpt-plus-pro or lc-* providers
   const isByokHandle = useCallback(
@@ -357,20 +383,34 @@ export function ModelSelector({
   // Filter out letta/letta-free legacy model
   const serverRecommendedModels = useMemo(() => {
     if (!isSelfHosted || availableHandles === undefined) return [];
-    const available = typedModels.filter(
+    let available = typedModels.filter(
       (m) => availableHandles?.has(m.handle) && m.handle !== "letta/letta-free",
     );
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      return available.filter(
+      available = available.filter(
         (m) =>
           m.label.toLowerCase().includes(query) ||
           m.description.toLowerCase().includes(query) ||
           m.handle.toLowerCase().includes(query),
       );
     }
-    return available;
-  }, [isSelfHosted, typedModels, availableHandles, searchQuery]);
+    // Deduplicate by handle (same as supportedModels)
+    const seen = new Set<string>();
+    const deduped: UiModel[] = [];
+    for (const m of available) {
+      if (seen.has(m.handle)) continue;
+      seen.add(m.handle);
+      deduped.push(pickPreferredStaticModel(m.handle) ?? m);
+    }
+    return deduped;
+  }, [
+    isSelfHosted,
+    typedModels,
+    availableHandles,
+    searchQuery,
+    pickPreferredStaticModel,
+  ]);
 
   // Server-all models: ALL handles from the server (for self-hosted)
   // Filter out letta/letta-free legacy model
@@ -582,18 +622,14 @@ export function ModelSelector({
       return "All models currently available for this account";
     }
     if (cat === "supported") {
-      return isFreeTier
-        ? "Upgrade your account to access more models"
-        : "Recommended Letta API models currently available for this account";
+      return "Recommended Letta API models currently available for this account";
     }
     if (cat === "byok")
       return "Recommended models via your connected API keys (use /connect to add more)";
     if (cat === "byok-all")
       return "All models via your connected API keys (use /connect to add more)";
     if (cat === "all") {
-      return isFreeTier
-        ? "Upgrade your account to access more models"
-        : "All Letta API models currently available for this account";
+      return "All Letta API models currently available for this account";
     }
     return "All Letta API models currently available for this account";
   };
@@ -685,11 +721,6 @@ export function ModelSelector({
             const actualIndex = startIndex + index;
             const isSelected = actualIndex === selectedIndex;
             const isCurrent = model.id === currentModelId;
-            // Show lock for non-free models when on free tier (only for Letta API tabs)
-            const showLock =
-              isFreeTier &&
-              !model.free &&
-              (category === "supported" || category === "all");
 
             return (
               <Box key={model.id} flexDirection="row">
@@ -700,7 +731,6 @@ export function ModelSelector({
                 >
                   {isSelected ? "> " : "  "}
                 </Text>
-                {showLock && <Text dimColor>🔒 </Text>}
                 <Text
                   bold={isSelected}
                   color={

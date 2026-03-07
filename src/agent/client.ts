@@ -3,7 +3,98 @@ import Letta from "@letta-ai/letta-client";
 import packageJson from "../../package.json";
 import { LETTA_CLOUD_API_URL, refreshAccessToken } from "../auth/oauth";
 import { settingsManager } from "../settings-manager";
+import { isDebugEnabled } from "../utils/debug";
 import { createTimingFetch, isTimingsEnabled } from "../utils/timing";
+
+const SDK_DIAGNOSTIC_MAX_LEN = 400;
+const SDK_DIAGNOSTIC_MAX_LINES = 4;
+
+type SDKDiagnostic = {
+  lines: string[];
+};
+
+let lastSDKDiagnostic: SDKDiagnostic | null = null;
+
+// In-process cache of the last successfully obtained API key (not from a
+// static env var). Populated on first successful keychain read and updated
+// whenever the OAuth refresh obtains a new token. Used as a fallback so
+// transient keychain failures don't crash the process mid-session.
+let _cachedApiKey: string | undefined;
+
+function safeDiagnosticString(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function truncateDiagnostic(value: unknown): string {
+  const text = safeDiagnosticString(value);
+
+  if (text.length <= SDK_DIAGNOSTIC_MAX_LEN) {
+    return text;
+  }
+
+  return `${text.slice(0, SDK_DIAGNOSTIC_MAX_LEN)}...[truncated, was ${text.length}b]`;
+}
+
+function captureSDKErrorDiagnostic(args: unknown[]): void {
+  const diagnosticLine = truncateDiagnostic(
+    args.map((arg) => safeDiagnosticString(arg)).join(" "),
+  );
+
+  const previous = lastSDKDiagnostic ?? { lines: [] };
+
+  lastSDKDiagnostic = {
+    lines: [...previous.lines, diagnosticLine].slice(-SDK_DIAGNOSTIC_MAX_LINES),
+  };
+}
+
+export function consumeLastSDKDiagnostic(): string | null {
+  const diag = lastSDKDiagnostic;
+  lastSDKDiagnostic = null;
+
+  if (!diag || diag.lines.length === 0) {
+    return null;
+  }
+
+  return `sdk_error=${diag.lines.join(" || ")}`;
+}
+
+export function clearLastSDKDiagnostic(): void {
+  lastSDKDiagnostic = null;
+}
+
+const sdkLogger = {
+  error: (...args: unknown[]) => {
+    try {
+      captureSDKErrorDiagnostic(args);
+    } catch {
+      // Diagnostic capture must never disrupt the SDK
+    }
+    if (isDebugEnabled()) {
+      console.error(...args);
+    }
+  },
+  warn: (...args: unknown[]) => {
+    console.warn(...args);
+  },
+  info: (...args: unknown[]) => {
+    console.info(...args);
+  },
+  debug: (...args: unknown[]) => {
+    console.debug(...args);
+  },
+};
 
 /**
  * Get the current Letta server URL from environment or settings.
@@ -23,6 +114,18 @@ export async function getClient() {
 
   let apiKey = process.env.LETTA_API_KEY || settings.env?.LETTA_API_KEY;
 
+  if (!process.env.LETTA_API_KEY) {
+    if (apiKey) {
+      // Keep the in-process cache current on every successful keychain read.
+      _cachedApiKey = apiKey;
+    } else if (_cachedApiKey) {
+      // Keychain returned null (e.g. delete-then-set race during token
+      // rotation, or a transient keychain failure). Fall back to the last
+      // key we successfully obtained so the process doesn't crash mid-session.
+      apiKey = _cachedApiKey;
+    }
+  }
+
   // Check if token is expired and refresh if needed
   if (
     !process.env.LETTA_API_KEY &&
@@ -32,8 +135,10 @@ export async function getClient() {
     const now = Date.now();
     const expiresAt = settings.tokenExpiresAt;
 
-    // Refresh if token expires within 5 minutes
-    if (expiresAt - now < 5 * 60 * 1000) {
+    // Refresh if token expires within 5 minutes, or if the access token is
+    // missing entirely (e.g. transient keychain read failure during the
+    // delete-then-set window of a concurrent refresh).
+    if (!apiKey || expiresAt - now < 5 * 60 * 1000) {
       try {
         // Get or generate device ID (should always exist, but fallback just in case)
         const deviceId = settingsManager.getOrCreateDeviceId();
@@ -53,6 +158,7 @@ export async function getClient() {
         });
 
         apiKey = tokens.access_token;
+        _cachedApiKey = tokens.access_token;
       } catch (error) {
         console.error("Failed to refresh access token:", error);
         console.error("Please run 'letta login' to re-authenticate");
@@ -70,8 +176,9 @@ export async function getClient() {
   if (!apiKey && baseURL === LETTA_CLOUD_API_URL) {
     console.error("Missing LETTA_API_KEY");
     console.error(
-      "Run 'letta setup' to configure authentication or set your LETTA_API_KEY environment variable",
+      "Run 'letta' to configure authentication, or set LETTA_API_KEY to your API key",
     );
+    console.error(new Error("getClient() called without credentials").stack);
     process.exit(1);
   }
 
@@ -81,6 +188,7 @@ export async function getClient() {
   return new Letta({
     apiKey,
     baseURL,
+    logger: sdkLogger,
     defaultHeaders: {
       "X-Letta-Source": "letta-code",
       "User-Agent": `letta-code/${packageJson.version}`,

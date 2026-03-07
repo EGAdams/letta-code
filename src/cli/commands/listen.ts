@@ -1,13 +1,15 @@
 /**
- * Listen mode - Register letta-code as a listener to receive messages from Letta Cloud
- * Usage: letta listen --name "george"
+ * Server mode - Register letta-code as a listener to receive messages from Letta Cloud
+ * Usage: letta server --name "george"
  */
 
 import { hostname } from "node:os";
 import { getServerUrl } from "../../agent/client";
 import { settingsManager } from "../../settings-manager";
 import { getErrorMessage } from "../../utils/error";
+import { registerWithCloud } from "../../websocket/listen-register";
 import type { Buffers, Line } from "../helpers/accumulator";
+import { buildChatUrl } from "../helpers/appUrls";
 
 // tiny helper for unique ids
 function uid(prefix: string) {
@@ -134,17 +136,18 @@ export async function handleListen(
       ctx.buffersRef,
       ctx.refreshDerived,
       msg,
-      "Usage: /remote [--env-name <name>]\n" +
-        "       /remote off\n\n" +
-        "Register this letta-code instance to receive messages from Letta Cloud.\n\n" +
+      "Usage: /server [--env-name <name>]\n" +
+        "       /server off\n\n" +
+        "Register this letta-code instance to receive messages from Letta Cloud.\n" +
+        "Alias: /remote\n\n" +
         "Options:\n" +
         "  --env-name <name>  Friendly name for this environment (uses hostname if not provided)\n" +
         "  off                Stop the active listener connection\n" +
         "  -h, --help         Show this help message\n\n" +
         "Examples:\n" +
-        "  /remote                         # Start listener with hostname\n" +
-        '  /remote --env-name "work-laptop" # Start with custom name\n' +
-        "  /remote off                     # Stop listening\n\n" +
+        "  /server                         # Start listener with hostname\n" +
+        '  /server --env-name "work-laptop" # Start with custom name\n' +
+        "  /server off                     # Stop listening\n\n" +
         "Once connected, this instance will listen for incoming messages from cloud agents.\n" +
         "Messages will be executed locally using your letta-code environment.",
       true,
@@ -177,11 +180,10 @@ export async function handleListen(
   const buildConnectionUrl = (connId: string): string => {
     if (!ctx.agentId) return "";
 
-    let url = `https://app.letta.com/agents/${ctx.agentId}?deviceId=${connId}`;
-    if (ctx.conversationId) {
-      url += `&conversationId=${ctx.conversationId}`;
-    }
-    return url;
+    return buildChatUrl(ctx.agentId, {
+      deviceId: connId,
+      conversationId: ctx.conversationId ?? undefined,
+    });
   };
 
   // Start listen flow
@@ -221,30 +223,13 @@ export async function handleListen(
       throw new Error("Missing LETTA_API_KEY");
     }
 
-    // Call register endpoint
-    const registerUrl = `${serverUrl}/v1/environments/register`;
-    const registerResponse = await fetch(registerUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "X-Letta-Source": "letta-code",
-      },
-      body: JSON.stringify({
-        deviceId,
-        connectionName,
-      }),
+    // Register with cloud
+    const { connectionId, wsUrl } = await registerWithCloud({
+      serverUrl,
+      apiKey,
+      deviceId,
+      connectionName,
     });
-
-    if (!registerResponse.ok) {
-      const error = (await registerResponse.json()) as { message?: string };
-      throw new Error(error.message || "Registration failed");
-    }
-
-    const { connectionId, wsUrl } = (await registerResponse.json()) as {
-      connectionId: string;
-      wsUrl: string;
-    };
 
     updateCommandResult(
       ctx.buffersRef,
@@ -265,88 +250,134 @@ export async function handleListen(
       "../../websocket/listen-client"
     );
 
-    await startListenerClient({
-      connectionId,
-      wsUrl,
-      deviceId,
-      connectionName,
-      onStatusChange: (status, connId) => {
-        const statusText =
-          status === "receiving"
-            ? "Receiving message"
-            : status === "processing"
-              ? "Processing message"
-              : "Awaiting instructions";
+    // Helper to start client with given connection details
+    const startClient = async (
+      connId: string,
+      wsUrlValue: string,
+    ): Promise<void> => {
+      await startListenerClient({
+        connectionId: connId,
+        wsUrl: wsUrlValue,
+        deviceId,
+        connectionName,
+        onStatusChange: (status, id) => {
+          const statusText =
+            status === "receiving"
+              ? "Receiving message"
+              : status === "processing"
+                ? "Processing message"
+                : "Awaiting instructions";
 
-        const url = buildConnectionUrl(connId);
-        const urlText = url ? `\n\nConnect to this environment:\n${url}` : "";
+          const url = buildConnectionUrl(id);
+          const urlText = url ? `\n\nConnect to this environment:\n${url}` : "";
 
-        updateCommandResult(
-          ctx.buffersRef,
-          ctx.refreshDerived,
-          cmdId,
-          msg,
-          `Environment initialized: ${connectionName}\n${statusText}${urlText}`,
-          true,
-          "finished",
-        );
-      },
-      onRetrying: (attempt, _maxAttempts, nextRetryIn, connId) => {
-        const url = buildConnectionUrl(connId);
-        const urlText = url ? `\n\nConnect to this environment:\n${url}` : "";
+          updateCommandResult(
+            ctx.buffersRef,
+            ctx.refreshDerived,
+            cmdId,
+            msg,
+            `Environment initialized: ${connectionName}\n${statusText}${urlText}`,
+            true,
+            "finished",
+          );
+        },
+        onRetrying: (attempt, _maxAttempts, nextRetryIn, id) => {
+          const url = buildConnectionUrl(id);
+          const urlText = url ? `\n\nConnect to this environment:\n${url}` : "";
 
-        updateCommandResult(
-          ctx.buffersRef,
-          ctx.refreshDerived,
-          cmdId,
-          msg,
-          `Environment initialized: ${connectionName}\n` +
-            `Reconnecting to Letta Cloud...\n` +
-            `Attempt ${attempt}, retrying in ${Math.round(nextRetryIn / 1000)}s${urlText}`,
-          true,
-          "running",
-        );
-      },
-      onConnected: (connId) => {
-        const url = buildConnectionUrl(connId);
-        const urlText = url ? `\n\nConnect to this environment:\n${url}` : "";
+          updateCommandResult(
+            ctx.buffersRef,
+            ctx.refreshDerived,
+            cmdId,
+            msg,
+            `Environment initialized: ${connectionName}\n` +
+              `Reconnecting to Letta Cloud...\n` +
+              `Attempt ${attempt}, retrying in ${Math.round(nextRetryIn / 1000)}s${urlText}`,
+            true,
+            "running",
+          );
+        },
+        onConnected: (id) => {
+          const url = buildConnectionUrl(id);
+          const urlText = url ? `\n\nConnect to this environment:\n${url}` : "";
 
-        updateCommandResult(
-          ctx.buffersRef,
-          ctx.refreshDerived,
-          cmdId,
-          msg,
-          `Environment initialized: ${connectionName}\nAwaiting instructions${urlText}`,
-          true,
-          "finished",
-        );
-        ctx.setCommandRunning(false);
-      },
-      onDisconnected: () => {
-        updateCommandResult(
-          ctx.buffersRef,
-          ctx.refreshDerived,
-          cmdId,
-          msg,
-          `✗ Listener disconnected\n\n` + `Connection to Letta Cloud was lost.`,
-          false,
-          "finished",
-        );
-        ctx.setCommandRunning(false);
-      },
-      onError: (error: Error) => {
-        updateCommandResult(
-          ctx.buffersRef,
-          ctx.refreshDerived,
-          cmdId,
-          msg,
-          `✗ Listener error: ${getErrorMessage(error)}`,
-          false,
-          "finished",
-        );
-        ctx.setCommandRunning(false);
-      },
-    });
+          updateCommandResult(
+            ctx.buffersRef,
+            ctx.refreshDerived,
+            cmdId,
+            msg,
+            `Environment initialized: ${connectionName}\nAwaiting instructions${urlText}`,
+            true,
+            "finished",
+          );
+          ctx.setCommandRunning(false);
+        },
+        onNeedsReregister: async () => {
+          updateCommandResult(
+            ctx.buffersRef,
+            ctx.refreshDerived,
+            cmdId,
+            msg,
+            `Environment expired, re-registering "${connectionName}"...`,
+            true,
+            "running",
+          );
+
+          try {
+            const reregisterResult = await registerWithCloud({
+              serverUrl,
+              apiKey,
+              deviceId,
+              connectionName,
+            });
+
+            // Restart client with new connectionId
+            await startClient(
+              reregisterResult.connectionId,
+              reregisterResult.wsUrl,
+            );
+          } catch (error) {
+            updateCommandResult(
+              ctx.buffersRef,
+              ctx.refreshDerived,
+              cmdId,
+              msg,
+              `✗ Re-registration failed: ${getErrorMessage(error)}`,
+              false,
+              "finished",
+            );
+            ctx.setCommandRunning(false);
+          }
+        },
+        onDisconnected: () => {
+          updateCommandResult(
+            ctx.buffersRef,
+            ctx.refreshDerived,
+            cmdId,
+            msg,
+            `✗ Listener disconnected\n\n` +
+              `Connection to Letta Cloud was lost.`,
+            false,
+            "finished",
+          );
+          ctx.setCommandRunning(false);
+        },
+        onError: (error: Error) => {
+          updateCommandResult(
+            ctx.buffersRef,
+            ctx.refreshDerived,
+            cmdId,
+            msg,
+            `✗ Listener error: ${getErrorMessage(error)}`,
+            false,
+            "finished",
+          );
+          ctx.setCommandRunning(false);
+        },
+      });
+    };
+
+    await startClient(connectionId, wsUrl);
   } catch (error) {
     updateCommandResult(
       ctx.buffersRef,

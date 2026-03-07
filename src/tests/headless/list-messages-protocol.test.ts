@@ -192,31 +192,29 @@ describe("list_messages routing — resolveListMessagesRoute", () => {
 
   /**
    * Case C: no conversation_id in request, session is on the default conversation.
-   * Must use agents.messages.list (implicit default conv via agent route).
+   * Keeps conversation_id="default" and passes agent_id separately.
    */
-  test("C — omitted conversation_id + session default → agents API with session agentId", () => {
+  test("C — omitted conversation_id + session default → conversations API with default + session agentId", () => {
     const route = resolveListMessagesRoute(
       {}, // no conversation_id
       "default", // session is on default conversation
       SESSION_AGENT,
     );
-    expect(route.kind).toBe("agents");
-    if (route.kind === "agents") {
-      expect(route.agentId).toBe(SESSION_AGENT);
-    }
+    expect(route.kind).toBe("conversations");
+    expect(route.conversationId).toBe("default");
+    expect(route.agentId).toBe(SESSION_AGENT);
   });
 
-  test("C — explicit agent_id in request + session default → uses request agentId", () => {
+  test("C — explicit agent_id in request + session default → uses request agentId query", () => {
     const route = resolveListMessagesRoute(
       { agent_id: "agent-override-id" },
       "default",
       SESSION_AGENT,
     );
-    expect(route.kind).toBe("agents");
-    if (route.kind === "agents") {
-      // Request's agent_id takes priority over session agent when on default conv
-      expect(route.agentId).toBe("agent-override-id");
-    }
+    expect(route.kind).toBe("conversations");
+    expect(route.conversationId).toBe("default");
+    // Request's agent_id takes priority over session agent when on default conv
+    expect(route.agentId).toBe("agent-override-id");
   });
 
   test("C — no conversation_id, no agent_id, session default → falls back to session agentId", () => {
@@ -225,15 +223,13 @@ describe("list_messages routing — resolveListMessagesRoute", () => {
       "default",
       "agent-session-fallback",
     );
-    expect(route.kind).toBe("agents");
-    if (route.kind === "agents") {
-      expect(route.agentId).toBe("agent-session-fallback");
-    }
+    expect(route.kind).toBe("conversations");
+    expect(route.conversationId).toBe("default");
+    expect(route.agentId).toBe("agent-session-fallback");
   });
 
   /**
-   * Invariant: "default" is the only string that triggers the agents path.
-   * Any other string (even empty, or a UUID-like string) uses conversations.
+   * All paths use the conversations API.
    */
   test("conversations path for any non-default conversation string", () => {
     const convIds = [

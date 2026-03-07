@@ -15,6 +15,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import stringWidth from "string-width";
 import type { ModelReasoningEffort } from "../../agent/model";
@@ -28,8 +29,15 @@ import { permissionMode } from "../../permissions/mode";
 import { OPENAI_CODEX_PROVIDER_NAME } from "../../providers/openai-codex-provider";
 import { ralphMode } from "../../ralph/mode";
 import { settingsManager } from "../../settings-manager";
+import { buildChatUrl } from "../helpers/appUrls.js";
 import { charsToTokens, formatCompact } from "../helpers/format";
 import type { QueuedMessage } from "../helpers/messageQueueBridge";
+import {
+  getActiveBackgroundAgents,
+  getSnapshot as getSubagentSnapshot,
+  subscribe as subscribeToSubagents,
+} from "../helpers/subagentState.js";
+import { BlinkingSpinner } from "./BlinkingSpinner.js";
 import { colors } from "./colors";
 import { InputAssist } from "./InputAssist";
 import { PasteAwareTextInput } from "./PasteAwareTextInput";
@@ -161,17 +169,26 @@ function parseOsc8Line(line: string, keyPrefix: string): ReactNode[] {
   return parts;
 }
 
+function formatModeLabel(modeName: string, modeGlyph?: string | null): string {
+  if (modeGlyph === "⚡︎") {
+    return `${modeGlyph}${modeName}`;
+  }
+  return `${modeGlyph ?? "⏵⏵"} ${modeName}`;
+}
+
 function StatusLineContent({
   text,
   padding,
   modeName,
   modeColor,
+  modeGlyph,
   showExitHint,
 }: {
   text: string;
   padding: number;
   modeName: string | null;
   modeColor: string | null;
+  modeGlyph?: string | null;
   showExitHint: boolean;
 }) {
   const lines = text.split("\n");
@@ -192,7 +209,7 @@ function StatusLineContent({
       {modeName && modeColor && (
         <>
           {"\n"}
-          <Text color={modeColor}>⏵⏵ {modeName}</Text>
+          <Text color={modeColor}>{formatModeLabel(modeName, modeGlyph)}</Text>
           <Text color={modeColor} dimColor>
             {" "}
             (shift+tab to {showExitHint ? "exit" : "cycle"})
@@ -213,12 +230,11 @@ const InputFooter = memo(function InputFooter({
   isBashMode,
   modeName,
   modeColor,
+  modeGlyph,
   showExitHint,
   agentName,
   currentModel,
   currentReasoningEffort,
-  currentSystemPromptId,
-  currentToolset,
   isOpenAICodexProvider,
   isByokProvider,
   hideFooter,
@@ -226,18 +242,18 @@ const InputFooter = memo(function InputFooter({
   statusLineText,
   statusLineRight,
   statusLinePadding,
+  footerNotification,
 }: {
   ctrlCPressed: boolean;
   escapePressed: boolean;
   isBashMode: boolean;
   modeName: string | null;
   modeColor: string | null;
+  modeGlyph?: string | null;
   showExitHint: boolean;
   agentName: string | null | undefined;
   currentModel: string | null | undefined;
   currentReasoningEffort?: ModelReasoningEffort | null;
-  currentSystemPromptId?: string | null;
-  currentToolset?: string | null;
   isOpenAICodexProvider: boolean;
   isByokProvider: boolean;
   hideFooter: boolean;
@@ -245,8 +261,51 @@ const InputFooter = memo(function InputFooter({
   statusLineText?: string;
   statusLineRight?: string;
   statusLinePadding?: number;
+  footerNotification?: string | null;
 }) {
   const hideFooterContent = hideFooter;
+
+  // Subscribe to subagent state for background agent indicators
+  useSyncExternalStore(subscribeToSubagents, getSubagentSnapshot);
+  const backgroundAgents = [
+    ...getActiveBackgroundAgents(),
+    // DEBUG: hardcoded agent for local footer testing
+    {
+      id: "debug-bg-agent",
+      type: "Reflection",
+      description: "Debug background agent",
+      status: "running" as const,
+      agentURL: "https://app.letta.com/chat/agent-debug-link",
+      toolCalls: [],
+      totalTokens: 0,
+      durationMs: 0,
+      startTime: Date.now() - 12_000,
+      isBackground: true,
+      silent: true,
+    },
+  ];
+
+  // Tick counter for elapsed time display (only active when background agents exist)
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (backgroundAgents.length === 0) return;
+    const t = setInterval(() => setTick((v) => v + 1), 1000);
+    return () => clearInterval(t);
+  }, [backgroundAgents.length]);
+
+  // Background agent display parts for the footer indicator
+  const bgAgentParts = backgroundAgents.map((a) => {
+    const elapsedS = Math.round((Date.now() - a.startTime) / 1000);
+    const agentId =
+      a.agentURL?.match(/\/(?:agents|chat)\/([^/?#]+)/)?.[1] ?? null;
+    return {
+      id: a.id,
+      typeLabel: a.type.toLowerCase(),
+      chatUrl: agentId ? buildChatUrl(agentId) : null,
+      elapsed: `${elapsedS}s`,
+    };
+  });
+
   const maxAgentChars = Math.max(10, Math.floor(rightColumnWidth * 0.45));
   const displayAgentName = truncateEnd(agentName || "Unnamed", maxAgentChars);
   const reasoningTag = getReasoningEffortTag(currentReasoningEffort);
@@ -256,49 +315,37 @@ const InputFooter = memo(function InputFooter({
   const modelWithReasoning =
     (currentModel ?? "unknown") + (reasoningTag ? ` (${reasoningTag})` : "");
 
-  // Optional suffixes: system prompt id + toolset.
-  const suffixParts: string[] = [];
-  if (currentSystemPromptId) {
-    suffixParts.push(`s:${currentSystemPromptId}`);
-  }
-  if (currentToolset) {
-    suffixParts.push(`t:${currentToolset}`);
-  }
-
-  // Reserve 4 chars per suffix part so the label is visible even on narrow terminals.
-  const minSuffixBudget = suffixParts.length * 4;
-  const maxModelChars = Math.max(
-    8,
-    rightColumnWidth - baseReservedChars - minSuffixBudget,
-  );
+  const maxModelChars = Math.max(8, rightColumnWidth - baseReservedChars);
   const displayModel = truncateEnd(modelWithReasoning, maxModelChars);
-
-  const baseTextLength =
+  const rightTextLength =
     displayAgentName.length + displayModel.length + byokExtraChars + 3;
-  const maxSuffixChars = Math.max(0, rightColumnWidth - baseTextLength);
-
-  const displaySuffix = (() => {
-    if (suffixParts.length === 0 || maxSuffixChars <= 0) return "";
-
-    let remaining = maxSuffixChars;
-    const out: string[] = [];
-    for (const part of suffixParts) {
-      // Leading space before each part.
-      if (remaining <= 1) break;
-      const budget = remaining - 1;
-      const clipped = truncateEnd(part, budget);
-      if (!clipped) break;
-      out.push(` ${clipped}`);
-      remaining -= 1 + clipped.length;
-    }
-    return out.join("");
-  })();
-
-  const rightTextLength = baseTextLength + displaySuffix.length;
   const rightPrefixSpaces = Math.max(0, rightColumnWidth - rightTextLength);
-  const rightLabel = useMemo(() => {
+
+  // When bg agents are active, widen the right column to fit the indicator + label
+  // spinner slot (3) + parts text + " │ " (3)
+  const bgIndicatorWidth =
+    backgroundAgents.length > 0
+      ? 3 +
+        bgAgentParts.reduce(
+          (acc, p, i) =>
+            acc +
+            (i > 0 ? 3 : 0) +
+            p.typeLabel.length +
+            1 +
+            p.elapsed.length +
+            2,
+          0,
+        ) +
+        3
+      : 0;
+  const effectiveRightWidth =
+    backgroundAgents.length > 0
+      ? Math.max(rightColumnWidth, bgIndicatorWidth + rightTextLength)
+      : rightColumnWidth;
+
+  // Agent label without leading spaces (used by both default and bg-agent cases)
+  const rightLabelCore = useMemo(() => {
     const parts: string[] = [];
-    parts.push(" ".repeat(rightPrefixSpaces));
     parts.push(chalk.hex(colors.footer.agentName)(displayAgentName));
     parts.push(chalk.dim(" ["));
     parts.push(chalk.dim(displayModel));
@@ -309,20 +356,13 @@ const InputFooter = memo(function InputFooter({
       );
     }
     parts.push(chalk.dim("]"));
-
-    if (displaySuffix) {
-      parts.push(chalk.dim(displaySuffix));
-    }
-
     return parts.join("");
-  }, [
-    rightPrefixSpaces,
-    displayAgentName,
-    displayModel,
-    displaySuffix,
-    isByokProvider,
-    isOpenAICodexProvider,
-  ]);
+  }, [displayAgentName, displayModel, isByokProvider, isOpenAICodexProvider]);
+
+  const rightLabel = useMemo(
+    () => " ".repeat(rightPrefixSpaces) + rightLabelCore,
+    [rightPrefixSpaces, rightLabelCore],
+  );
 
   return (
     <Box flexDirection="row" marginBottom={1}>
@@ -347,15 +387,22 @@ const InputFooter = memo(function InputFooter({
             padding={statusLinePadding ?? 0}
             modeName={modeName}
             modeColor={modeColor}
+            modeGlyph={modeGlyph}
             showExitHint={showExitHint}
           />
         ) : modeName && modeColor ? (
           <Text>
-            <Text color={modeColor}>⏵⏵ {modeName}</Text>
+            <Text color={modeColor}>
+              {formatModeLabel(modeName, modeGlyph)}
+            </Text>
             <Text color={modeColor} dimColor>
               {" "}
               (shift+tab to {showExitHint ? "exit" : "cycle"})
             </Text>
+          </Text>
+        ) : footerNotification ? (
+          <Text color={colors.status.processingShimmer}>
+            {footerNotification}
           </Text>
         ) : (
           <Text dimColor>Press / for commands</Text>
@@ -369,7 +416,9 @@ const InputFooter = memo(function InputFooter({
           statusLineRight && !hideFooterContent ? "flex-end" : undefined
         }
         width={
-          statusLineRight && !hideFooterContent ? undefined : rightColumnWidth
+          statusLineRight && !hideFooterContent
+            ? undefined
+            : effectiveRightWidth
         }
         flexShrink={0}
       >
@@ -381,6 +430,39 @@ const InputFooter = memo(function InputFooter({
               {parseOsc8Line(line, `r${i}`)}
             </Text>
           ))
+        ) : backgroundAgents.length > 0 ? (
+          <Text>
+            <BlinkingSpinner
+              color={colors.bgSubagent.spinner}
+              width={2}
+              marginRight={0}
+              pulseIntervalMs={400}
+            />
+            {bgAgentParts.map((part, i) => (
+              <Text key={`bg-agent-${part}`}>
+                {i > 0 && (
+                  <Text
+                    key={`bg-agent-indicator-${part}`}
+                    color={colors.bgSubagent.label}
+                  >
+                    {" · "}
+                  </Text>
+                )}
+                {part.chatUrl ? (
+                  <Link url={part.chatUrl} fallback={false}>
+                    <Text color={colors.bgSubagent.label}>
+                      {part.typeLabel}
+                    </Text>
+                  </Link>
+                ) : (
+                  <Text color={colors.bgSubagent.label}>{part.typeLabel}</Text>
+                )}
+                <Text dimColor> ({part.elapsed})</Text>
+              </Text>
+            ))}
+            <Text dimColor>{" │ "}</Text>
+            {rightLabelCore}
+          </Text>
         ) : (
           <Text>{rightLabel}</Text>
         )}
@@ -559,16 +641,14 @@ const StreamingStatus = memo(function StreamingStatus({
   // Uses chalk.dim to match reasoning text styling
   // Memoized to prevent unnecessary re-renders during shimmer updates
   const statusHintText = useMemo(() => {
+    const hintColor = chalk.hex(colors.subagent.hint);
+    const hintBold = hintColor.bold;
     const suffix = `${statusHintSuffix})`;
     if (interruptRequested) {
-      return <Text dimColor>{` (interrupting${suffix}`}</Text>;
+      return hintColor(` (interrupting${suffix}`);
     }
     return (
-      <Text dimColor>
-        {" ("}
-        <Text bold>esc</Text>
-        {` to interrupt${suffix}`}
-      </Text>
+      hintColor(" (") + hintBold("esc") + hintColor(` to interrupt${suffix}`)
     );
   }, [interruptRequested, statusHintSuffix]);
 
@@ -633,8 +713,6 @@ export function Input({
   currentModel,
   currentModelProvider,
   currentReasoningEffort,
-  currentSystemPromptId,
-  currentToolset,
   messageQueue,
   onEnterQueueEditMode,
   onEscapeCancel,
@@ -654,6 +732,7 @@ export function Input({
   statusLinePadding = 0,
   statusLinePrompt,
   onCycleReasoningEffort,
+  footerNotification,
 }: {
   visible?: boolean;
   streaming: boolean;
@@ -676,8 +755,6 @@ export function Input({
   currentModel?: string | null;
   currentModelProvider?: string | null;
   currentReasoningEffort?: ModelReasoningEffort | null;
-  currentSystemPromptId?: string | null;
-  currentToolset?: string | null;
   messageQueue?: QueuedMessage[];
   onEnterQueueEditMode?: () => void;
   onEscapeCancel?: () => void;
@@ -697,6 +774,7 @@ export function Input({
   statusLinePadding?: number;
   statusLinePrompt?: string;
   onCycleReasoningEffort?: () => void;
+  footerNotification?: string | null;
 }) {
   const [value, setValue] = useState("");
   const [escapePressed, setEscapePressed] = useState(false);
@@ -1027,8 +1105,8 @@ export function Input({
       // Cycle through permission modes
       const modes: PermissionMode[] = [
         "default",
-        "acceptEdits",
         "plan",
+        "acceptEdits",
         "bypassPermissions",
       ];
       const currentIndex = modes.indexOf(currentMode);
@@ -1351,7 +1429,11 @@ export function Input({
 
   // Get display name and color for permission mode (ralph modes take precedence)
   // Memoized to prevent unnecessary footer re-renders
-  const modeInfo = useMemo(() => {
+  const modeInfo = useMemo<{
+    name: string;
+    color: string;
+    glyph?: string;
+  } | null>(() => {
     // Check ralph pending first (waiting for task input)
     if (ralphPending) {
       if (ralphPendingYolo) {
@@ -1391,11 +1473,16 @@ export function Input({
       case "acceptEdits":
         return { name: "accept edits", color: colors.status.processing };
       case "plan":
-        return { name: "plan (read-only) mode", color: colors.status.success };
+        return {
+          name: "plan (read-only) mode",
+          color: colors.status.success,
+          glyph: "⏸",
+        };
       case "bypassPermissions":
         return {
           name: "yolo (allow all) mode",
           color: colors.status.error,
+          glyph: "⚡︎",
         };
       default:
         return null;
@@ -1403,11 +1490,8 @@ export function Input({
   }, [ralphPending, ralphPendingYolo, ralphActive, currentMode]);
 
   // Create a horizontal line using box-drawing characters.
-  // IMPORTANT: never draw into the terminal's last column; some terminals will
-  // soft-wrap at the edge which breaks Ink's clear/redraw accounting during
-  // resize and can leave stacks of stale divider rows behind.
   const horizontalLine = useMemo(
-    () => "─".repeat(Math.max(0, columns - 1)),
+    () => "─".repeat(Math.max(0, columns)),
     [columns],
   );
 
@@ -1496,12 +1580,11 @@ export function Input({
                 isBashMode={isBashMode}
                 modeName={modeInfo?.name ?? null}
                 modeColor={modeInfo?.color ?? null}
+                modeGlyph={modeInfo?.glyph ?? null}
                 showExitHint={ralphActive || ralphPending}
                 agentName={agentName}
                 currentModel={currentModel}
                 currentReasoningEffort={currentReasoningEffort}
-                currentSystemPromptId={currentSystemPromptId}
-                currentToolset={currentToolset}
                 isOpenAICodexProvider={
                   currentModelProvider === OPENAI_CODEX_PROVIDER_NAME
                 }
@@ -1514,6 +1597,7 @@ export function Input({
                 statusLineText={statusLineText}
                 statusLineRight={statusLineRight}
                 statusLinePadding={statusLinePadding}
+                footerNotification={footerNotification}
               />
             )}
           </Box>
@@ -1547,6 +1631,7 @@ export function Input({
     escapePressed,
     modeInfo?.name,
     modeInfo?.color,
+    modeInfo?.glyph,
     ralphActive,
     ralphPending,
     currentModel,
@@ -1559,8 +1644,7 @@ export function Input({
     statusLineText,
     statusLineRight,
     statusLinePadding,
-    currentSystemPromptId,
-    currentToolset,
+    footerNotification,
     promptChar,
     promptVisualWidth,
     suppressDividers,

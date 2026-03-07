@@ -11,7 +11,7 @@ describe("queue ordering wiring", () => {
   test("dequeue effect keeps all sensitive safety gates", () => {
     const source = readAppSource();
     const start = source.indexOf(
-      "// Process queued messages when streaming ends",
+      "// Process queued messages when streaming ends.",
     );
     const end = source.indexOf(
       "// Helper to send all approval results when done",
@@ -30,9 +30,45 @@ describe("queue ordering wiring", () => {
     expect(segment).toContain("!userCancelledRef.current");
     expect(segment).toContain("!abortControllerRef.current");
     expect(segment).toContain("queuedOverlayAction=");
-    expect(segment).toContain("setMessageQueue([]);");
+    // Queue is now drained via QueueRuntime.consumeItems; setQueueDisplay is
+    // updated automatically via the onDequeued callback — no direct setState here.
+    expect(segment).toContain("tuiQueueRef.current?.consumeItems(queueLen)");
     expect(segment).toContain("onSubmitRef.current(concatenatedMessage);");
     expect(segment).toContain("queuedOverlayAction,");
+  });
+
+  test("queue display trim uses displayable-item count, not mergedCount", () => {
+    const source = readAppSource();
+    const start = source.indexOf("onDequeued: (batch) => {");
+    const end = source.indexOf("onBlocked: (reason, queueLen) =>");
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const segment = source.slice(start, end);
+    expect(segment).toContain("const displayConsumedCount =");
+    expect(segment).toContain('item.kind === "message"');
+    expect(segment).toContain('item.kind === "task_notification"');
+    expect(segment).toContain("prev.slice(displayConsumedCount)");
+  });
+
+  test("onSubmit allows override-only queued submissions", () => {
+    const source = readAppSource();
+    const start = source.indexOf("const onSubmit = useCallback(");
+    const end = source.indexOf(
+      "// Process queued overlay actions when streaming ends",
+    );
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const segment = source.slice(start, end);
+    expect(segment).toContain(
+      "if (!msg && !hasOverrideContent) return { submitted: false };",
+    );
+    expect(segment).toContain(
+      "if (profileConfirmPending && !msg && !hasOverrideContent)",
+    );
   });
 
   test("queued overlay effect only runs when idle and clears action before processing", () => {

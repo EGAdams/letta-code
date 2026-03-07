@@ -27,7 +27,9 @@ export interface StatusLineInputs {
   currentDirectory: string;
   projectDirectory: string;
   sessionId?: string;
+  agentId?: string | null;
   agentName?: string | null;
+  lastRunId?: string | null;
   totalDurationMs?: number;
   totalApiDurationMs?: number;
   totalInputTokens?: number;
@@ -37,6 +39,11 @@ export interface StatusLineInputs {
   permissionMode?: string;
   networkPhase?: "upload" | "download" | "error" | null;
   terminalWidth?: number;
+  backgroundAgents?: Array<{
+    type: string;
+    status: string;
+    duration_ms: number;
+  }>;
   triggerVersion: number;
 }
 
@@ -63,7 +70,9 @@ function toPayloadInput(inputs: StatusLineInputs): StatusLinePayloadBuildInput {
     currentDirectory: inputs.currentDirectory,
     projectDirectory: inputs.projectDirectory,
     sessionId: inputs.sessionId,
+    agentId: inputs.agentId,
     agentName: inputs.agentName,
+    lastRunId: inputs.lastRunId,
     totalDurationMs: inputs.totalDurationMs,
     totalApiDurationMs: inputs.totalApiDurationMs,
     totalInputTokens: inputs.totalInputTokens,
@@ -73,6 +82,7 @@ function toPayloadInput(inputs: StatusLineInputs): StatusLinePayloadBuildInput {
     permissionMode: inputs.permissionMode,
     networkPhase: inputs.networkPhase,
     terminalWidth: inputs.terminalWidth,
+    backgroundAgents: inputs.backgroundAgents,
   };
 }
 

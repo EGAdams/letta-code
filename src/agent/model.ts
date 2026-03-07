@@ -89,14 +89,14 @@ export function getDefaultModel(): string {
 
 /**
  * Get the default model handle based on billing tier.
- * Free tier users get glm-4.7, everyone else gets the standard default.
+ * Free tier users get GLM-5, everyone else gets the standard default.
  * @param billingTier - The user's billing tier (e.g., "free", "pro", "enterprise")
  * @returns The model handle to use as default
  */
 export function getDefaultModelForTier(billingTier?: string | null): string {
-  // Free tier gets glm-4.7 (a free model)
+  // Free tier gets GLM-5.
   if (billingTier?.toLowerCase() === "free") {
-    const freeDefault = models.find((m) => m.id === "glm-4.7");
+    const freeDefault = models.find((m) => m.id === "glm-5");
     if (freeDefault) return freeDefault.handle;
   }
   // Everyone else (pro, enterprise, unknown) gets the standard default
@@ -282,7 +282,10 @@ export function getResumeRefreshArgs(
   // Extract only the resume-scoped fields from the full preset
   for (const field of RESUME_REFRESH_FIELDS) {
     const value = presetUpdateArgs[field];
-    if (field === "max_output_tokens" && typeof value === "number") {
+    if (
+      field === "max_output_tokens" &&
+      (typeof value === "number" || value === null)
+    ) {
       updateArgs[field] = value;
     } else if (field === "parallel_tool_calls" && typeof value === "boolean") {
       updateArgs[field] = value;
@@ -295,7 +298,10 @@ export function getResumeRefreshArgs(
 
   // Compare against the agent's current values
   const currentMaxTokens = agent.llm_config?.max_tokens;
-  const wantMaxTokens = updateArgs.max_output_tokens as number | undefined;
+  const wantMaxTokens = updateArgs.max_output_tokens as
+    | number
+    | null
+    | undefined;
   const currentParallel = agent.model_settings?.parallel_tool_calls;
   const wantParallel = updateArgs.parallel_tool_calls as boolean | undefined;
 

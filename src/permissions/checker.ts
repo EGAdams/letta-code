@@ -1,7 +1,7 @@
 // src/permissions/checker.ts
 // Main permission checking logic
 
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { getCurrentAgentId } from "../agent/context";
 import { runPermissionRequestHooks } from "../hooks";
 import { canonicalToolName, isShellToolName } from "./canonical";
@@ -308,9 +308,15 @@ function checkPermissionForEngine(
     let reason = `Permission mode: ${currentMode}`;
     if (currentMode === "plan" && modeOverride === "deny") {
       const planFilePath = permissionMode.getPlanFilePath();
+      const applyPatchRelativePath = planFilePath
+        ? relative(workingDirectory, planFilePath).replace(/\\/g, "/")
+        : null;
       reason =
         `Plan mode is active. You can only use read-only tools (Read, Grep, Glob, etc.) and write to the plan file. ` +
         `Write your plan to: ${planFilePath || "(error: plan file path not configured)"}. ` +
+        (applyPatchRelativePath
+          ? `If using apply_patch, use this exact relative path in patch headers: ${applyPatchRelativePath}. `
+          : "") +
         `Use ExitPlanMode when your plan is ready for user approval.`;
     }
     traceEvent(trace, "mode-override", reason);
@@ -672,8 +678,6 @@ function matchesPattern(
 const READ_ONLY_SUBAGENT_TYPES = new Set([
   "explore", // Codebase exploration - Glob, Grep, Read, LS, TaskOutput
   "Explore",
-  "plan", // Planning agent - Glob, Grep, Read, LS, TaskOutput
-  "Plan",
   "recall", // Conversation history search - Skill, Bash, Read, TaskOutput
   "Recall",
   "reflection", // Memory reflection - reads history, writes to agent's own memory files

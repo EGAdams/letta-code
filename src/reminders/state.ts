@@ -7,6 +7,8 @@ export interface CommandIoReminder {
   input: string;
   output: string;
   success: boolean;
+  /** Extra context appended only in the agent-facing reminder, not shown in the UI. */
+  agentHint?: string;
 }
 
 export interface ToolsetChangeReminder {
@@ -27,8 +29,11 @@ export interface SharedReminderState {
   turnCount: number;
   pendingSkillsReinject: boolean;
   pendingReflectionTrigger: boolean;
+  pendingAutoInitReminder: boolean;
   pendingCommandIoReminders: CommandIoReminder[];
   pendingToolsetChangeReminders: ToolsetChangeReminder[];
+  shallowInitCompleted: boolean;
+  deepInitFired: boolean;
 }
 
 export function createSharedReminderState(): SharedReminderState {
@@ -42,8 +47,11 @@ export function createSharedReminderState(): SharedReminderState {
     turnCount: 0,
     pendingSkillsReinject: false,
     pendingReflectionTrigger: false,
+    pendingAutoInitReminder: false,
     pendingCommandIoReminders: [],
     pendingToolsetChangeReminders: [],
+    shallowInitCompleted: false,
+    deepInitFired: false,
   };
 }
 

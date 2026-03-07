@@ -4,7 +4,11 @@ import {
   clearErrorContext,
   setErrorContext,
 } from "../../cli/helpers/errorContext";
-import { formatErrorDetails } from "../../cli/helpers/errorFormatter";
+import {
+  checkChatGptUsageLimitError,
+  checkCloudflareEdgeError,
+  formatErrorDetails,
+} from "../../cli/helpers/errorFormatter";
 
 describe("formatErrorDetails", () => {
   beforeEach(() => {
@@ -236,6 +240,91 @@ describe("formatErrorDetails", () => {
     expect(message).toContain("/model");
   });
 
+  describe("ChatGPT usage_limit_reached", () => {
+    const chatGptRateLimitDetail =
+      'RATE_LIMIT_EXCEEDED: ChatGPT rate limit exceeded: {"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"team","resets_at":1772074086,"eligible_promo":null,"resets_in_seconds":3032}}';
+
+    test("pretty-prints with reset time and plan type", () => {
+      const result = checkChatGptUsageLimitError(chatGptRateLimitDetail);
+
+      expect(result).toBeDefined();
+      expect(result).toContain("ChatGPT usage limit reached");
+      expect(result).toContain("team plan");
+      expect(result).toContain("Resets at");
+      expect(result).toContain("/model");
+      expect(result).toContain("/connect");
+      // Should NOT contain raw JSON
+      expect(result).not.toContain('"type"');
+      expect(result).not.toContain("RATE_LIMIT_EXCEEDED");
+    });
+
+    test("handles error with only resets_at (no resets_in_seconds)", () => {
+      const futureTimestamp = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+      const detail = `RATE_LIMIT_EXCEEDED: ChatGPT rate limit exceeded: {"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"plus","resets_at":${futureTimestamp}}}`;
+
+      const result = checkChatGptUsageLimitError(detail);
+
+      expect(result).toBeDefined();
+      expect(result).toContain("ChatGPT usage limit reached");
+      expect(result).toContain("plus plan");
+      expect(result).toContain("Resets at");
+    });
+
+    test("handles error with no reset info gracefully", () => {
+      const detail =
+        'RATE_LIMIT_EXCEEDED: ChatGPT rate limit exceeded: {"error":{"type":"usage_limit_reached","message":"The usage limit has been reached"}}';
+
+      const result = checkChatGptUsageLimitError(detail);
+
+      expect(result).toBeDefined();
+      expect(result).toContain("ChatGPT usage limit reached");
+      expect(result).toContain("Try again later");
+      expect(result).toContain("/model");
+    });
+
+    test("handles malformed JSON gracefully", () => {
+      const detail =
+        "RATE_LIMIT_EXCEEDED: ChatGPT rate limit exceeded: usage_limit_reached {broken json";
+
+      const result = checkChatGptUsageLimitError(detail);
+
+      expect(result).toBeDefined();
+      expect(result).toContain("ChatGPT usage limit reached");
+    });
+
+    test("returns undefined for non-matching errors", () => {
+      const result = checkChatGptUsageLimitError(
+        "ChatGPT API error: some other error",
+      );
+      expect(result).toBeUndefined();
+    });
+
+    test("formats correctly via formatErrorDetails from run metadata object", () => {
+      // Shape constructed in App.tsx from run.metadata.error
+      const errorObject = {
+        error: {
+          error: {
+            message_type: "error_message",
+            run_id: "run-abc123",
+            error_type: "llm_error",
+            message: "An error occurred during agent execution.",
+            detail: chatGptRateLimitDetail,
+          },
+          run_id: "run-abc123",
+        },
+      };
+
+      const result = formatErrorDetails(errorObject);
+
+      expect(result).toContain("ChatGPT usage limit reached");
+      expect(result).toContain("team plan");
+      expect(result).toContain("/model");
+      // Should NOT contain the raw detail
+      expect(result).not.toContain("RATE_LIMIT_EXCEEDED");
+      expect(result).not.toContain("[usage_limit_reached]");
+    });
+  });
+
   test("formats Z.ai error from APIError with embedded error code", () => {
     const error = new APIError(
       429,
@@ -252,5 +341,76 @@ describe("formatErrorDetails", () => {
     expect(message).toContain("Z.ai rate limit");
     expect(message).toContain("High concurrency usage exceeds limits");
     expect(message).not.toContain("OpenAI");
+  });
+
+  describe("Cloudflare HTML 52x errors", () => {
+    const cloudflare521Html = `521 <!DOCTYPE html>
+<html lang="en-US">
+<head>
+<title>api.letta.com | 521: Web server is down</title>
+</head>
+<body>
+<span class="inline-block">Web server is down</span>
+<a href="https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_521&utm_campaign=api.letta.com">cloudflare.com</a>
+Cloudflare Ray ID: <strong>9d431b5f6f656c08</strong>
+</body>
+</html>`;
+
+    test("formats Cloudflare HTML into a concise friendly message", () => {
+      const result = checkCloudflareEdgeError(cloudflare521Html);
+
+      expect(result).toBeDefined();
+      expect(result).toContain("Cloudflare 521");
+      expect(result).toContain("Web server is down");
+      expect(result).toContain("api.letta.com");
+      expect(result).toContain("Ray ID: 9d431b5f6f656c08");
+      expect(result).toContain("retry");
+      expect(result).not.toContain("<!DOCTYPE html>");
+    });
+
+    test("formats via formatErrorDetails for run metadata nested detail", () => {
+      const errorObject = {
+        error: {
+          error: {
+            detail: cloudflare521Html,
+          },
+        },
+      };
+
+      const result = formatErrorDetails(errorObject);
+
+      expect(result).toContain("Cloudflare 521");
+      expect(result).toContain("Web server is down");
+      expect(result).not.toContain("<html");
+    });
+
+    test("returns undefined for non-cloudflare html", () => {
+      const result = checkCloudflareEdgeError(
+        "<!DOCTYPE html><html><head><title>Example</title></head><body>hello</body></html>",
+      );
+      expect(result).toBeUndefined();
+    });
+
+    test("formats Cloudflare 502 bad gateway pages", () => {
+      const cloudflare502Html = `502 <!DOCTYPE html>
+<html>
+<head>
+<title>letta.com | 502: Bad gateway</title>
+</head>
+<body>
+<span class="code-label">Error code 502</span>
+Cloudflare Ray ID: <strong>9d43b2d6dab269e2</strong>
+<a href="https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_502&utm_campaign=api.letta.com">cloudflare.com</a>
+</body>
+</html>`;
+
+      const result = checkCloudflareEdgeError(cloudflare502Html);
+
+      expect(result).toBeDefined();
+      expect(result).toContain("Cloudflare 502");
+      expect(result).toContain("Bad gateway");
+      expect(result).toContain("api.letta.com");
+      expect(result).toContain("Ray ID: 9d43b2d6dab269e2");
+    });
   });
 });

@@ -45,4 +45,53 @@ describe("reasoning tier cycle wiring", () => {
 
     expect(callbackBlocks.length).toBeGreaterThanOrEqual(2);
   });
+
+  test("flush uses conversation-scoped reasoning updates (default updates agent)", () => {
+    const appPath = fileURLToPath(
+      new URL("../../cli/App.tsx", import.meta.url),
+    );
+    const source = readFileSync(appPath, "utf-8");
+
+    const start = source.indexOf(
+      "const flushPendingReasoningEffort = useCallback(",
+    );
+    const end = source.indexOf(
+      "const handleCycleReasoningEffort = useCallback(",
+      start,
+    );
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+
+    const segment = source.slice(start, end);
+    expect(segment).toContain("updateConversationLLMConfig(");
+    expect(segment).toContain("updateAgentLLMConfig(");
+    expect(segment).toContain("conversationIdRef.current");
+    expect(segment).toContain('conversationIdRef.current === "default"');
+  });
+
+  test("tab-based reasoning cycling is opt-in only", () => {
+    const appPath = fileURLToPath(
+      new URL("../../cli/App.tsx", import.meta.url),
+    );
+    const indexPath = fileURLToPath(new URL("../../index.ts", import.meta.url));
+    const settingsPath = fileURLToPath(
+      new URL("../../settings-manager.ts", import.meta.url),
+    );
+
+    const appSource = readFileSync(appPath, "utf-8");
+    const indexSource = readFileSync(indexPath, "utf-8");
+    const settingsSource = readFileSync(settingsPath, "utf-8");
+
+    expect(settingsSource).toContain("reasoningTabCycleEnabled: boolean;");
+    expect(settingsSource).toContain("reasoningTabCycleEnabled: false,");
+    expect(indexSource).toContain(
+      "reasoningTabCycleEnabled: settings.reasoningTabCycleEnabled === true,",
+    );
+    expect(appSource).toMatch(
+      /if\s*\(\s*trimmed\s*===\s*"\/reasoning-tab"\s*\|\|\s*trimmed\.startsWith\("\/reasoning-tab "\)\s*\)\s*\{/,
+    );
+    expect(appSource).toMatch(
+      /onCycleReasoningEffort=\{\s*reasoningTabCycleEnabled\s*\?\s*handleCycleReasoningEffort\s*:\s*undefined\s*\}/,
+    );
+  });
 });
