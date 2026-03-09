@@ -132,17 +132,45 @@ export async function sendMessageStream(
     extraHeaders["X-Experimental-OpenAI-Responses-Websocket"] = "true";
   }
 
-  const stream = await client.conversations.messages.create(
-    resolvedConversationId,
-    requestBody,
-    {
-      ...requestOptions,
-      headers: {
-        ...((requestOptions.headers as Record<string, string>) ?? {}),
-        ...extraHeaders,
-      },
+  const requestOptionsWithHeaders = {
+    ...requestOptions,
+    headers: {
+      ...((requestOptions.headers as Record<string, string>) ?? {}),
+      ...extraHeaders,
     },
-  );
+  };
+
+  // For "default" conversations, try passing "default" first (newer servers).
+  // If the server rejects it (older servers that don't support the sentinel),
+  // fall back to the deprecated approach of passing the agentId as the
+  // conversationId path parameter.
+  let stream: Stream<LettaStreamingResponse>;
+  if (conversationId === "default" && opts.agentId) {
+    try {
+      stream = await client.conversations.messages.create(
+        "default",
+        requestBody,
+        requestOptionsWithHeaders,
+      );
+    } catch (e: unknown) {
+      if (process.env.DEBUG) {
+        console.log(
+          `[DEBUG] "default" conversation rejected, falling back to agentId as conversationId`,
+        );
+      }
+      stream = await client.conversations.messages.create(
+        opts.agentId,
+        requestBody,
+        requestOptionsWithHeaders,
+      );
+    }
+  } else {
+    stream = await client.conversations.messages.create(
+      resolvedConversationId,
+      requestBody,
+      requestOptionsWithHeaders,
+    );
+  }
 
   if (requestStartTime !== undefined) {
     streamRequestStartTimes.set(stream as object, requestStartTime);
