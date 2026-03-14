@@ -32,6 +32,7 @@ class MismatchRow:
     expense_date: str | None
     amount: str | None
     description: str | None
+    reason: str
 
 
 def connect_db():
@@ -190,7 +191,11 @@ def extract_description_date(description: str | None) -> str | None:
         return None
 
 
-def build_mismatch_rows(headers: list[str], rows: list[list[str]]) -> list[MismatchRow]:
+def build_mismatch_rows(
+    headers: list[str],
+    rows: list[list[str]],
+    include_missing: bool = False,
+) -> list[MismatchRow]:
     if not headers:
         return []
     index = {name: idx for idx, name in enumerate(headers)}
@@ -203,7 +208,11 @@ def build_mismatch_rows(headers: list[str], rows: list[list[str]]) -> list[Misma
     for row in rows:
         if len(row) <= index["reason"]:
             continue
-        if row[index["reason"]] != "mismatch":
+        reason_value = row[index["reason"]]
+        if reason_value == "missing_id_light":
+            if not include_missing:
+                continue
+        elif reason_value != "mismatch":
             continue
         try:
             row_id = int(row[index["id"]])
@@ -225,6 +234,7 @@ def build_mismatch_rows(headers: list[str], rows: list[list[str]]) -> list[Misma
                 description=row[index.get("description", -1)]
                 if "description" in index and len(row) > index["description"]
                 else None,
+                reason=reason_value,
             )
         )
     return mismatches
@@ -247,7 +257,7 @@ def prompt_choice(options: list[tuple[str, str]]) -> str:
 
 
 def build_id_light_from_vendor(vendor_key: str, exp_date: date, amount: float) -> str:
-    date_str = exp_date.strftime("%m/%d/%Y")
+    date_str = exp_date.strftime("%m/%d/%y")   # 2-digit year to match CreateIDLite
     return f"{vendor_key}_{date_str.replace('/', '_')}_{amount:.2f}".replace(".", "_")
 
 
@@ -282,6 +292,16 @@ def guess_vendor_key_with_gemini(description: str, date_text: str | None, amount
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fix id_light mismatches from integrity report.")
     parser.add_argument("--report", required=True, help="Path to id_light integrity HTML report")
+    parser.add_argument(
+        "--include-missing",
+        action="store_true",
+        help="Include missing_id_light rows (default: mismatches only)",
+    )
+    parser.add_argument(
+        "--only-missing",
+        action="store_true",
+        help="Process only missing_id_light rows (skip mismatches)",
+    )
     parser.add_argument("--apply", action="store_true", help="Apply updates (still asks for confirmation)")
     parser.add_argument(
         "--auto-accept-yaml",
@@ -300,7 +320,10 @@ def main() -> int:
         raise SystemExit(f"Report not found: {report_path}")
 
     headers, rows = parse_invalid_rows(report_path)
-    mismatches = build_mismatch_rows(headers, rows)
+    include_missing = args.include_missing or args.only_missing
+    mismatches = build_mismatch_rows(headers, rows, include_missing=include_missing)
+    if args.only_missing:
+        mismatches = [item for item in mismatches if item.reason == "missing_id_light"]
 
     generator = GenerateIDLight()
     creator = CreateIDLite()
@@ -308,23 +331,33 @@ def main() -> int:
     yaml_path = Path(creator.pattern_path)
     conn = connect_db()
     preview_lines = []
+    conflict_rows = []
     updated = 0
     skipped_conflict = 0
     skipped_declined = 0
     recompute_warnings = 0
+    remaining_missing = sum(1 for item in mismatches if item.reason == "missing_id_light")
 
     try:
         with conn.cursor() as cur:
             for item in mismatches:
-                expected = item.expected_id_light
-                if not expected:
-                    preview_lines.append(f"SKIP missing expected_id_light for id={item.row_id}")
-                    continue
-
                 exp_date = parse_date(item.expense_date)
                 amount = parse_float(item.amount)
                 if not exp_date or amount is None:
                     preview_lines.append(f"SKIP missing date/amount for id={item.row_id}")
+                    continue
+
+                expected = item.expected_id_light
+                if not expected:
+                    if item.description:
+                        try:
+                            expected = generator.create_id_light(
+                                item.description, exp_date, amount
+                            )
+                        except Exception:
+                            expected = None
+                if not expected:
+                    preview_lines.append(f"SKIP missing expected_id_light for id={item.row_id}")
                     continue
 
                 # YAML-based candidate
@@ -358,16 +391,25 @@ def main() -> int:
                 if expected and expected not in [c[0] for c in candidates]:
                     candidates.append((expected, "report"))
 
+                if item.reason == "missing_id_light":
+                    candidates.sort(
+                        key=lambda entry: 0 if entry[1] == "report" else 1
+                    )
+
                 if not args.apply:
                     preview_lines.append(
                         f"DRYRUN id={item.row_id} old={item.id_light} candidates={candidates}"
                     )
                     continue
 
-                if not sys.stdin.isatty():
+                non_interactive = not sys.stdin.isatty()
+                if non_interactive and not (args.auto_accept_yaml or args.auto_accept_vendor):
                     preview_lines.append(f"SKIP no-tty id={item.row_id}")
                     continue
 
+                if item.reason == "missing_id_light":
+                    print(f"Missing remaining: {remaining_missing}")
+                    remaining_missing = max(remaining_missing - 1, 0)
                 print(f"Row {item.row_id}")
                 print(f"Description: {item.description}")
                 print(f"Amount: {item.amount}")
@@ -375,12 +417,13 @@ def main() -> int:
                 if desc_date:
                     print(f"Description date: {desc_date}")
                 print(f"Expense date: {item.expense_date}")
+                choice = None
                 selected_source = None
                 if args.auto_accept_yaml and yaml_candidate:
                     choice = yaml_candidate
                     selected_source = "id_light.yaml"
                     print(f"Auto-accepted YAML id_light: {choice} [id_light.yaml]")
-                elif args.auto_accept_vendor:
+                if choice is None and args.auto_accept_vendor:
                     vendor_option = next(
                         (val for val, src in candidates if src == "vendor-prefix"), None
                     )
@@ -390,14 +433,20 @@ def main() -> int:
                         print(
                             f"Auto-accepted vendor id_light: {choice} [vendor-prefix]"
                         )
-                elif len(candidates) >= 2:
+                if choice is None and non_interactive:
+                    choice = expected
+                    selected_source = "report"
+                    preview_lines.append(
+                        f"AUTO_ACCEPT report id={item.row_id}"
+                    )
+                if choice is None and len(candidates) >= 2:
                     print("Choose id_light candidate:")
                     choice = prompt_choice(candidates)
                     if choice not in {"skip", "llm"}:
                         selected_source = next(
                             (src for val, src in candidates if val == choice), None
                         )
-                else:
+                if choice is None:
                     choice = candidates[0][0]
                     selected_source = candidates[0][1]
                     print(f"Proposed id_light: {choice} [{candidates[0][1]}]")
@@ -418,14 +467,20 @@ def main() -> int:
                             exp_date,
                             amount,
                         )
-                        confirm = input(
-                            f"Use LLM id_light {llm_id_light} [gemini]? (y/n): "
-                        ).strip().lower()
-                        if confirm == "y":
+                        if sys.stdin.isatty():
+                            confirm = input(
+                                f"Use LLM id_light {llm_id_light} [gemini]? (y/n): "
+                            ).strip().lower()
+                            if confirm == "y":
+                                choice = llm_id_light
+                                selected_source = "gemini"
+                        else:
                             choice = llm_id_light
                             selected_source = "gemini"
-                    if choice == "llm":
-                        manual = input("Enter id_light manually (or blank to skip): ").strip()
+                    if choice == "llm" and sys.stdin.isatty():
+                        manual = input(
+                            "Enter id_light manually (or blank to skip): "
+                        ).strip()
                         if manual:
                             choice = manual
                             selected_source = "manual"
@@ -455,6 +510,54 @@ def main() -> int:
                         preview_lines.append(
                             f"YAML_ERROR id={item.row_id} error={exc}"
                         )
+                if (
+                    item.reason == "mismatch"
+                    and selected_source in {"report", "vendor-prefix"}
+                    and item.description
+                ):
+                    try:
+                        print("Learning pattern from mismatch...")
+                        appended = append_yaml_pattern(
+                            yaml_path,
+                            manual_id_light=choice,
+                            description=item.description,
+                        )
+                        if appended:
+                            preview_lines.append(
+                                f"YAML_ADDED id={item.row_id} base={choice}"
+                            )
+                        else:
+                            preview_lines.append(
+                                f"YAML_EXISTS id={item.row_id} base={choice}"
+                            )
+                    except Exception as exc:
+                        preview_lines.append(
+                            f"YAML_ERROR id={item.row_id} error={exc}"
+                        )
+                if (
+                    selected_source == "report"
+                    and item.reason == "missing_id_light"
+                    and item.description
+                ):
+                    try:
+                        print("Adding id_lite.yaml pattern for report choice...")
+                        appended = append_yaml_pattern(
+                            yaml_path,
+                            manual_id_light=choice,
+                            description=item.description,
+                        )
+                        if appended:
+                            preview_lines.append(
+                                f"YAML_ADDED id={item.row_id} base={choice}"
+                            )
+                        else:
+                            preview_lines.append(
+                                f"YAML_EXISTS id={item.row_id} base={choice}"
+                            )
+                    except Exception as exc:
+                        preview_lines.append(
+                            f"YAML_ERROR id={item.row_id} error={exc}"
+                        )
 
                 cur.execute("SELECT id FROM expenses WHERE id_light = %s", (choice,))
                 existing = cur.fetchone()
@@ -462,6 +565,28 @@ def main() -> int:
                     skipped_conflict += 1
                     preview_lines.append(
                         f"CONFLICT id={item.row_id} expected={choice} exists_on_id={existing[0]}"
+                    )
+                    try:
+                        cur.execute(
+                            "SELECT id_light, description, expense_date, amount FROM expenses WHERE id = %s",
+                            (existing[0],),
+                        )
+                        existing_row = cur.fetchone()
+                    except Exception:
+                        existing_row = None
+                    conflict_rows.append(
+                        {
+                            "row_id": item.row_id,
+                            "expected_id_light": choice,
+                            "existing_id": existing[0],
+                            "existing_id_light": existing_row[0] if existing_row else "",
+                            "description": item.description or "",
+                            "expense_date": item.expense_date or "",
+                            "amount": item.amount or "",
+                            "existing_description": existing_row[1] if existing_row else "",
+                            "existing_expense_date": existing_row[2] if existing_row else "",
+                            "existing_amount": existing_row[3] if existing_row else "",
+                        }
                     )
                     continue
 
@@ -481,14 +606,43 @@ def main() -> int:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     preview_path = REPORT_DIR / f"id_light_mismatch_fix_preview_{timestamp}.txt"
+    conflict_path = None
+    if conflict_rows:
+        conflict_path = REPORT_DIR / f"id_light_conflicts_{timestamp}.tsv"
+        with conflict_path.open("w", encoding="utf-8") as handle:
+            handle.write(
+                "row_id\texpected_id_light\texisting_id\texisting_id_light\t"
+                "description\texpense_date\tamount\t"
+                "existing_description\texisting_expense_date\texisting_amount\n"
+            )
+            for row in conflict_rows:
+                handle.write(
+                    "\t".join(
+                        [
+                            str(row["row_id"]),
+                            str(row["expected_id_light"]),
+                            str(row["existing_id"]),
+                            str(row["existing_id_light"]),
+                            str(row["description"]),
+                            str(row["expense_date"]),
+                            str(row["amount"]),
+                            str(row["existing_description"]),
+                            str(row["existing_expense_date"]),
+                            str(row["existing_amount"]),
+                        ]
+                    )
+                    + "\n"
+                )
     summary = [
         f"mismatches: {len(mismatches)}",
         f"updated: {updated}",
         f"skipped_conflict: {skipped_conflict}",
         f"skipped_declined: {skipped_declined}",
         f"recompute_warnings: {recompute_warnings}",
-        "",
     ]
+    if conflict_path:
+        summary.append(f"conflicts_report: {conflict_path}")
+    summary.append("")
     preview_path.write_text("\n".join(summary + preview_lines), encoding="utf-8")
 
     print(preview_path)

@@ -22,6 +22,10 @@ import { getClient } from "./client";
 
 const streamRequestStartTimes = new WeakMap<object, number>();
 const streamToolContextIds = new WeakMap<object, string>();
+
+// Cache for "default" conversations upgraded to real IDs on older servers
+// (e.g. 0.16.x which requires strict "conv-{uuid}" format, 41 chars).
+const defaultConvIdCache = new Map<string, string>();
 export type StreamRequestContext = {
   conversationId: string;
   resolvedConversationId: string;
@@ -142,28 +146,55 @@ export async function sendMessageStream(
   };
 
   // For "default" conversations, try passing "default" first (newer servers).
-  // If the server rejects it (older servers that don't support the sentinel),
-  // fall back to the deprecated approach of passing the agentId as the
-  // conversationId path parameter.
+  // If the server rejects it (older 0.16.x servers enforce strict "conv-{uuid}"
+  // format and reject both "default" and agent IDs), create a real conversation
+  // on-demand and cache it per agent for the lifetime of the process.
   let stream: Stream<LettaStreamingResponse>;
   if (conversationId === "default" && opts.agentId) {
-    try {
+    const cachedConvId = defaultConvIdCache.get(opts.agentId);
+    if (cachedConvId) {
+      const bodyForCached = buildConversationMessagesCreateRequestBody(
+        cachedConvId,
+        messages,
+        opts,
+        clientTools,
+      );
       stream = await client.conversations.messages.create(
-        "default",
-        requestBody,
+        cachedConvId,
+        bodyForCached,
         requestOptionsWithHeaders,
       );
-    } catch (e: unknown) {
-      if (process.env.DEBUG) {
-        console.log(
-          `[DEBUG] "default" conversation rejected, falling back to agentId as conversationId`,
+    } else {
+      try {
+        stream = await client.conversations.messages.create(
+          "default",
+          requestBody,
+          requestOptionsWithHeaders,
+        );
+      } catch (e: unknown) {
+        if (process.env.DEBUG) {
+          console.log(
+            `[DEBUG] "default" rejected, creating real conversation for agent ${opts.agentId}`,
+          );
+        }
+        // Both "default" and agentId path params fail on older servers.
+        // Create a real conversation and cache it.
+        const conv = await client.conversations.create({
+          agent_id: opts.agentId,
+        });
+        defaultConvIdCache.set(opts.agentId, conv.id);
+        const bodyForNew = buildConversationMessagesCreateRequestBody(
+          conv.id,
+          messages,
+          opts,
+          clientTools,
+        );
+        stream = await client.conversations.messages.create(
+          conv.id,
+          bodyForNew,
+          requestOptionsWithHeaders,
         );
       }
-      stream = await client.conversations.messages.create(
-        opts.agentId,
-        requestBody,
-        requestOptionsWithHeaders,
-      );
     }
   } else {
     stream = await client.conversations.messages.create(

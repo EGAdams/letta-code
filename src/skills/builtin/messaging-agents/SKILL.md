@@ -47,8 +47,8 @@ If you don't have a specific agent ID, use these skills to find one:
 ### By Name or Tags
 Load the `finding-agents` skill to search for agents:
 ```bash
-letta agents list --query "agent-name"
-letta agents list --tags "origin:letta-code"
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py --query "agent-name"
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py --tags "origin:letta-code"
 ```
 
 ### By Topic They Discussed

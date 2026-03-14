@@ -226,7 +226,13 @@ export async function resolveSubagentModel(options: {
       }
     }
 
-    return parentModelHandle;
+    // Check if parent model is actually available on this server before inheriting it.
+    // The parent agent record may have a stale model (e.g. from a different provider
+    // that is no longer configured), in which case fall back to the default model.
+    if (await isAvailable(parentModelHandle)) {
+      return parentModelHandle;
+    }
+    return getDefaultModelForTier(billingTier);
   }
 
   if (recommendedHandle && (await isAvailable(recommendedHandle))) {

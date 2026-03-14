@@ -93,7 +93,33 @@ export async function isChatGPTOAuthConnected(
 ): Promise<boolean> {
   const mergedDeps = { ...DEFAULT_DEPS, ...deps };
   const existing = await mergedDeps.getProvider();
-  return Boolean(existing);
+  if (!existing) return false;
+
+  // Also verify the stored token hasn't expired.
+  // The provider's OAuth config is JSON-encoded in api_key_enc (or api_key).
+  const provider = existing as { api_key_enc?: string; api_key?: string };
+  const keyData = provider.api_key_enc ?? provider.api_key;
+  if (keyData) {
+    try {
+      const creds = JSON.parse(keyData) as { expires_at?: number };
+      if (creds.expires_at != null) {
+        // expires_at may be stored in seconds or milliseconds depending on source.
+        // Values > 1e12 are milliseconds (Date.now()); smaller values are seconds.
+        const expiresAtMs =
+          creds.expires_at > 1e12
+            ? creds.expires_at
+            : creds.expires_at * 1000;
+        // Treat as expired if within 5 minutes of actual expiry.
+        if (Date.now() > expiresAtMs - 5 * 60 * 1000) {
+          return false;
+        }
+      }
+    } catch {
+      // Unparseable key data — assume still connected.
+    }
+  }
+
+  return true;
 }
 
 export async function runChatGPTOAuthConnectFlow(

@@ -44,6 +44,24 @@ source /home/adamsl/rol_finances/.venv/bin/activate && \
 python3 /home/adamsl/letta-code/src/skills/custom/database-integrity/scripts/fix_id_light_mismatches.py \
   --report /home/adamsl/rol_finances/reports/id_light_integrity_report_{ timestamp }.html \
   --apply
+
+### Include missing id_light rows
+Add `--include-missing` to fix rows where `id_light` is blank.
+```bash
+python3 /home/adamsl/letta-code/src/skills/custom/database-integrity/scripts/fix_id_light_mismatches.py \
+  --report /home/adamsl/rol_finances/reports/id_light_integrity_report_{ timestamp }.html \
+  --include-missing \
+  --apply
+```
+
+### Only missing id_light rows (interactive)
+To focus only on missing rows and show a countdown per prompt:
+```bash
+python3 /home/adamsl/letta-code/src/skills/custom/database-integrity/scripts/fix_id_light_mismatches.py \
+  --report /home/adamsl/rol_finances/reports/id_light_integrity_report_{ timestamp }.html \
+  --only-missing \
+  --apply
+```
 ```
 
 Flow:

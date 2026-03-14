@@ -123,7 +123,7 @@ def compute_expected(
         if vendor_key:
             date_val = row.expense_date
             date_string = (
-                date_val.strftime("%m/%d/%Y") if hasattr(date_val, "strftime") else str(date_val)
+                date_val.strftime("%m/%d/%y") if hasattr(date_val, "strftime") else str(date_val)
             )
             expected = id_lite.create_id_light(
                 row.description,
@@ -211,6 +211,7 @@ def build_html(summary: dict, invalid_rows: list[dict], dup_rows: list[dict]) ->
     <ul>
       <li>Total expenses: {summary['total']}</li>
       <li>Invalid id_light rows: {summary['invalid']}</li>
+      <li>Missing id_light rows: {summary['missing']}</li>
       <li>Duplicate id_light groups: {summary['duplicates']}</li>
     </ul>
   </div>
@@ -241,13 +242,18 @@ def main() -> int:
     id_lite = CreateIDLite()
     patterns = id_lite._load_patterns()
     invalid_rows: list[dict] = []
+    missing_count = 0
     for row in expenses:
         if not row.id_light:
+            missing_count += 1
+            expected, error_reason = compute_expected(generator, id_lite, patterns, row)
+            if error_reason:
+                expected = None
             invalid_rows.append(
                 {
                     "id": row.id,
                     "id_light": row.id_light,
-                    "expected_id_light": None,
+                    "expected_id_light": expected,
                     "reason": "missing_id_light",
                     "expense_date": str(row.expense_date) if row.expense_date else None,
                     "amount": str(row.amount) if row.amount is not None else None,
@@ -301,6 +307,7 @@ def main() -> int:
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "total": len(expenses),
         "invalid": len(invalid_rows),
+        "missing": missing_count,
         "duplicates": len(dup_rows),
     }
 
