@@ -9,7 +9,9 @@ export interface StatusLinePayloadBuildInput {
   currentDirectory: string;
   projectDirectory: string;
   sessionId?: string;
+  agentId?: string | null;
   agentName?: string | null;
+  lastRunId?: string | null;
   totalDurationMs?: number;
   totalApiDurationMs?: number;
   totalInputTokens?: number;
@@ -19,6 +21,11 @@ export interface StatusLinePayloadBuildInput {
   permissionMode?: string;
   networkPhase?: "upload" | "download" | "error" | null;
   terminalWidth?: number;
+  backgroundAgents?: Array<{
+    type: string;
+    status: string;
+    duration_ms: number;
+  }>;
 }
 
 /**
@@ -33,6 +40,7 @@ export interface StatusLinePayload {
     project_dir: string;
   };
   session_id?: string;
+  last_run_id: string | null;
   transcript_path: string | null;
   version: string;
   // Back-compat fields used by custom statusline scripts.
@@ -71,11 +79,17 @@ export interface StatusLinePayload {
     mode: string | null;
   } | null;
   agent: {
+    id: string | null;
     name: string | null;
   };
   permission_mode: string | null;
   network_phase: "upload" | "download" | "error" | null;
   terminal_width: number | null;
+  background_agents: Array<{
+    type: string;
+    status: string;
+    duration_ms: number;
+  }>;
 }
 
 export function calculateContextPercentages(
@@ -127,6 +141,7 @@ export function buildStatusLinePayload(
       project_dir: input.projectDirectory,
     },
     ...(input.sessionId ? { session_id: input.sessionId } : {}),
+    last_run_id: input.lastRunId ?? null,
     transcript_path: null,
     version: getVersion(),
     reasoning_effort: input.reasoningEffort ?? null,
@@ -157,10 +172,16 @@ export function buildStatusLinePayload(
     exceeds_200k_tokens: usedContextTokens > 200_000,
     vim: null,
     agent: {
+      id: input.agentId ?? null,
       name: input.agentName ?? null,
     },
     permission_mode: input.permissionMode ?? null,
     network_phase: input.networkPhase ?? null,
     terminal_width: input.terminalWidth ?? null,
+    background_agents: (input.backgroundAgents ?? []).map((a) => ({
+      type: a.type,
+      status: a.status,
+      duration_ms: a.duration_ms,
+    })),
   };
 }

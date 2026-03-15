@@ -242,12 +242,15 @@ export function ConversationSelector({
         let defaultConversation: EnrichedConversation | null = null;
         if (!afterCursor) {
           try {
-            const defaultMessages = await client.agents.messages.list(agentId, {
-              limit: 20,
-              order: "desc",
-              conversation_id: "default", // Filter to default conversation only
-            });
-            const defaultMsgItems = defaultMessages.items;
+            const defaultMessages = await client.conversations.messages.list(
+              "default",
+              {
+                limit: 20,
+                order: "desc",
+                agent_id: agentId,
+              },
+            );
+            const defaultMsgItems = defaultMessages.getPaginatedItems();
             if (defaultMsgItems.length > 0) {
               const defaultStats = getMessageStats(
                 [...defaultMsgItems].reverse(),

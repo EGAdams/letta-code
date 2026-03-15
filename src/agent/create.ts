@@ -12,7 +12,6 @@ import { getModelContextWindow } from "./available-models";
 import { getClient, getServerUrl } from "./client";
 import { getLettaCodeHeaders } from "./http-headers";
 import { getDefaultMemoryBlocks } from "./memory";
-import { type MemoryPromptMode, reconcileMemoryPrompt } from "./memoryPrompt";
 import {
   formatAvailableModels,
   getDefaultModel,
@@ -20,7 +19,12 @@ import {
   resolveModel,
 } from "./model";
 import { updateAgentLLMConfig } from "./modify";
-import { resolveSystemPrompt } from "./promptAssets";
+import {
+  isKnownPreset,
+  type MemoryPromptMode,
+  resolveAndBuildSystemPrompt,
+  swapMemoryAddon,
+} from "./promptAssets";
 import { SLEEPTIME_MEMORY_PERSONA } from "./prompts/sleeptime";
 
 /**
@@ -143,8 +147,6 @@ export interface CreateAgentOptions {
   systemPromptPreset?: string;
   /** Raw system prompt string (mutually exclusive with systemPromptPreset) */
   systemPromptCustom?: string;
-  /** Additional text to append to the resolved system prompt */
-  systemPromptAppend?: string;
   /** Which managed memory prompt mode to apply */
   memoryPromptMode?: MemoryPromptMode;
   /** Block labels to initialize (from default blocks) */
@@ -353,27 +355,11 @@ export async function createAgent(
     (modelUpdateArgs?.context_window as number | undefined) ??
     (await getModelContextWindow(modelHandle));
 
-  // Resolve system prompt content:
-  // 1. If systemPromptCustom is provided, use it as-is
-  // 2. Otherwise, resolve systemPromptPreset to content
-  // 3. Reconcile to the selected managed memory mode
-  // 4. If systemPromptAppend is provided, append it to the result
-  let systemPromptContent: string;
-  if (options.systemPromptCustom) {
-    systemPromptContent = options.systemPromptCustom;
-  } else {
-    systemPromptContent = await resolveSystemPrompt(options.systemPromptPreset);
-  }
-
-  systemPromptContent = reconcileMemoryPrompt(
-    systemPromptContent,
-    options.memoryPromptMode ?? "standard",
-  );
-
-  // Append additional instructions if provided
-  if (options.systemPromptAppend) {
-    systemPromptContent = `${systemPromptContent}\n\n${options.systemPromptAppend}`;
-  }
+  // Resolve system prompt content
+  const memMode: MemoryPromptMode = options.memoryPromptMode ?? "standard";
+  const systemPromptContent = options.systemPromptCustom
+    ? swapMemoryAddon(options.systemPromptCustom, memMode)
+    : await resolveAndBuildSystemPrompt(options.systemPromptPreset, memMode);
 
   // Create agent with inline memory blocks (LET-7101: single API call instead of N+1)
   // - memory_blocks: new blocks to create inline
@@ -468,6 +454,20 @@ export async function createAgent(
         );
       }
     }
+  }
+
+  // Persist system prompt preset — only for non-subagents and known presets or custom.
+  // Guarded by isReady since settings may not be initialized in direct/test callers.
+  if (!isSubagent && settingsManager.isReady) {
+    if (options.systemPromptCustom) {
+      settingsManager.setSystemPromptPreset(fullAgent.id, "custom");
+    } else if (isKnownPreset(options.systemPromptPreset ?? "default")) {
+      settingsManager.setSystemPromptPreset(
+        fullAgent.id,
+        options.systemPromptPreset ?? "default",
+      );
+    }
+    // Subagent names: don't persist (no reproducible recipe)
   }
 
   // Build provenance info

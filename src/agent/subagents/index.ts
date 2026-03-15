@@ -21,8 +21,9 @@ import { MEMORY_BLOCK_LABELS, type MemoryBlockLabel } from "../memory";
 import exploreAgentMd from "./builtin/explore.md";
 import generalPurposeAgentMd from "./builtin/general-purpose.md";
 import historyAnalyzerAgentMd from "./builtin/history-analyzer.md";
+import initAgentMd from "./builtin/init.md";
 import memoryAgentMd from "./builtin/memory.md";
-import planAgentMd from "./builtin/plan.md";
+
 import recallAgentMd from "./builtin/recall.md";
 import reflectionAgentMd from "./builtin/reflection.md";
 
@@ -30,8 +31,8 @@ const BUILTIN_SOURCES = [
   exploreAgentMd,
   generalPurposeAgentMd,
   historyAnalyzerAgentMd,
+  initAgentMd,
   memoryAgentMd,
-  planAgentMd,
   recallAgentMd,
   reflectionAgentMd,
 ];

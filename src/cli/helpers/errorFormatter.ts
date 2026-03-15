@@ -1,10 +1,10 @@
 import { APIError } from "@letta-ai/letta-client/core/error";
+import { buildAppUrl, buildChatUrl } from "./appUrls";
 import { getErrorContext } from "./errorContext";
 import { checkZaiError } from "./zaiErrors";
 
-const LETTA_USAGE_URL = "https://app.letta.com/settings/organization/usage";
-const LETTA_AGENTS_URL =
-  "https://app.letta.com/projects/default-project/agents";
+const LETTA_USAGE_URL = buildAppUrl("/settings/organization/usage");
+const LETTA_AGENTS_URL = buildAppUrl("/projects/default-project/agents");
 
 function extractReasonList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -12,6 +12,87 @@ function extractReasonList(value: unknown): string[] {
   return value
     .filter((reason): reason is string => typeof reason === "string")
     .map((reason) => reason.toLowerCase());
+}
+
+interface CloudflareEdgeErrorInfo {
+  code?: string;
+  statusText?: string;
+  host?: string;
+  rayId?: string;
+}
+
+const CLOUDFLARE_EDGE_5XX_MARKER_PATTERN =
+  /(^|\s)(502|52[0-6])\s*<!doctype html|error code\s*(502|52[0-6])/i;
+const CLOUDFLARE_EDGE_5XX_TITLE_PATTERN = /\|\s*(502|52[0-6])\s*:/i;
+
+export function isCloudflareEdge52xHtmlError(text: string): boolean {
+  const normalized = text.toLowerCase();
+  const hasCloudflare = normalized.includes("cloudflare");
+  const hasHtml =
+    normalized.includes("<!doctype html") ||
+    normalized.includes("<html") ||
+    normalized.includes("error code");
+  const has52xCode =
+    CLOUDFLARE_EDGE_5XX_MARKER_PATTERN.test(text) ||
+    CLOUDFLARE_EDGE_5XX_TITLE_PATTERN.test(text);
+
+  return hasCloudflare && hasHtml && has52xCode;
+}
+
+function parseCloudflareEdgeError(
+  text: string,
+): CloudflareEdgeErrorInfo | undefined {
+  if (!isCloudflareEdge52xHtmlError(text)) return undefined;
+
+  const code =
+    text.match(/^\s*(502|52[0-6])\s*<!doctype html/i)?.[1] ??
+    text.match(/error code\s*(502|52[0-6])/i)?.[1] ??
+    text.match(/\|\s*(502|52[0-6])\s*:/i)?.[1];
+
+  const statusText =
+    text
+      .match(/<title>[^<|]*\|\s*(?:502|52[0-6])\s*:\s*([^<]+)/i)?.[1]
+      ?.trim() ??
+    text.match(/<span\s+class="inline-block">([^<]+)<\/span>/i)?.[1]?.trim();
+
+  const host =
+    text.match(/utm_campaign=([a-z0-9.-]+)/i)?.[1] ??
+    text.match(/<span[^>]*truncate[^>]*>([a-z0-9.-]+)<\/span>/i)?.[1];
+
+  const rayId =
+    text.match(
+      /Cloudflare Ray ID:\s*(?:<strong[^>]*>)?([a-z0-9]+)(?:<\/strong>)?/i,
+    )?.[1] ?? text.match(/Cloudflare Ray ID:\s*([a-z0-9]+)/i)?.[1];
+
+  if (!code && !statusText && !host && !rayId) return undefined;
+
+  return { code, statusText, host, rayId };
+}
+
+export function checkCloudflareEdgeError(text: string): string | undefined {
+  const info = parseCloudflareEdgeError(text);
+  if (!info) return undefined;
+
+  const codeLabel = info.code ? `Cloudflare ${info.code}` : "Cloudflare";
+  const statusSegment = info.statusText
+    ? `: ${info.statusText}`
+    : " upstream error";
+  const hostSegment = info.host ? ` for ${info.host}` : "";
+  const raySegment = info.rayId ? ` (Ray ID: ${info.rayId})` : "";
+
+  return `${codeLabel}${statusSegment}${hostSegment}${raySegment}. This is usually a temporary edge/origin outage. Please retry in a moment.`;
+}
+
+/**
+ * Normalize raw provider error payloads before sending to telemetry.
+ * Keeps telemetry concise by collapsing Cloudflare HTML pages into a
+ * single readable line while preserving non-Cloudflare messages as-is.
+ */
+export function formatTelemetryErrorMessage(
+  message: string | null | undefined,
+): string {
+  if (!message) return "Unknown error";
+  return checkCloudflareEdgeError(message) ?? message;
 }
 
 function getErrorReasons(e: APIError): string[] {
@@ -87,6 +168,62 @@ function getRateLimitResetMs(e: APIError): number | undefined {
       }
     }
   }
+  return undefined;
+}
+
+/**
+ * Walk an error object to find and format Cloudflare HTML 52x pages.
+ */
+function findAndFormatCloudflareEdgeError(e: unknown): string | undefined {
+  if (typeof e === "string") return checkCloudflareEdgeError(e);
+
+  if (typeof e !== "object" || e === null) return undefined;
+
+  if (e instanceof Error) {
+    const msg = checkCloudflareEdgeError(e.message);
+    if (msg) return msg;
+  }
+
+  const obj = e as Record<string, unknown>;
+
+  if (typeof obj.detail === "string") {
+    const msg = checkCloudflareEdgeError(obj.detail);
+    if (msg) return msg;
+  }
+
+  if (typeof obj.message === "string") {
+    const msg = checkCloudflareEdgeError(obj.message);
+    if (msg) return msg;
+  }
+
+  if (obj.error && typeof obj.error === "object") {
+    const errObj = obj.error as Record<string, unknown>;
+
+    if (typeof errObj.detail === "string") {
+      const msg = checkCloudflareEdgeError(errObj.detail);
+      if (msg) return msg;
+    }
+
+    if (typeof errObj.message === "string") {
+      const msg = checkCloudflareEdgeError(errObj.message);
+      if (msg) return msg;
+    }
+
+    if (errObj.error && typeof errObj.error === "object") {
+      const inner = errObj.error as Record<string, unknown>;
+
+      if (typeof inner.detail === "string") {
+        const msg = checkCloudflareEdgeError(inner.detail);
+        if (msg) return msg;
+      }
+
+      if (typeof inner.message === "string") {
+        const msg = checkCloudflareEdgeError(inner.message);
+        if (msg) return msg;
+      }
+    }
+  }
+
   return undefined;
 }
 
@@ -177,6 +314,93 @@ function getTierUsageLimitMessage(reasons: string[]): string | undefined {
   if (reasons.includes("basic-usage-exceeded")) {
     return `You've reached your Basic model usage limit. Try switching models with /model, view your plan and usage at ${LETTA_USAGE_URL}, or connect your own provider keys with /connect.`;
   }
+  return undefined;
+}
+
+const CHATGPT_USAGE_LIMIT_HINT =
+  "Switch models with /model, or connect your own provider keys with /connect.";
+
+/**
+ * Check if a string contains a ChatGPT usage_limit_reached error with optional
+ * reset timing, and return a friendly message.
+ *
+ * ChatGPT wraps the error as embedded JSON inside a detail string like:
+ *   RATE_LIMIT_EXCEEDED: ChatGPT rate limit exceeded: {"error":{"type":"usage_limit_reached",...}}
+ */
+export function checkChatGptUsageLimitError(text: string): string | undefined {
+  if (!text.includes("usage_limit_reached")) return undefined;
+
+  // Try to extract the embedded JSON object
+  const jsonStart = text.indexOf("{");
+  if (jsonStart < 0) {
+    return `ChatGPT usage limit reached. ${CHATGPT_USAGE_LIMIT_HINT}`;
+  }
+
+  try {
+    const parsed = JSON.parse(text.slice(jsonStart));
+    const errorObj = parsed.error || parsed;
+    if (errorObj.type !== "usage_limit_reached") return undefined;
+
+    // Extract plan type
+    const planType = errorObj.plan_type;
+    const planInfo = planType ? ` (${planType} plan)` : "";
+
+    // Extract reset timing — prefer resets_in_seconds, fall back to resets_at
+    let resetInfo = "Try again later";
+    if (
+      typeof errorObj.resets_in_seconds === "number" &&
+      errorObj.resets_in_seconds > 0
+    ) {
+      resetInfo = formatResetTime(errorObj.resets_in_seconds * 1000);
+    } else if (typeof errorObj.resets_at === "number") {
+      const resetMs = errorObj.resets_at * 1000 - Date.now();
+      if (resetMs > 0) {
+        resetInfo = formatResetTime(resetMs);
+      }
+    }
+
+    return `ChatGPT usage limit reached${planInfo}. ${resetInfo}.\n${CHATGPT_USAGE_LIMIT_HINT}`;
+  } catch {
+    // JSON parse failed — return generic message
+    return `ChatGPT usage limit reached. ${CHATGPT_USAGE_LIMIT_HINT}`;
+  }
+}
+
+/**
+ * Walk an error object to find a ChatGPT usage_limit_reached detail string
+ * and format it. Handles APIError, nested run-metadata objects, and strings.
+ */
+function findAndFormatChatGptUsageLimit(e: unknown): string | undefined {
+  // Direct string
+  if (typeof e === "string") return checkChatGptUsageLimitError(e);
+
+  if (typeof e !== "object" || e === null) return undefined;
+
+  // APIError or Error — check .message
+  if (e instanceof Error) {
+    const msg = checkChatGptUsageLimitError(e.message);
+    if (msg) return msg;
+  }
+
+  const obj = e as Record<string, unknown>;
+
+  // Check e.error.error.detail (run-metadata shape)
+  if (obj.error && typeof obj.error === "object") {
+    const errObj = obj.error as Record<string, unknown>;
+    if (errObj.error && typeof errObj.error === "object") {
+      const inner = errObj.error as Record<string, unknown>;
+      if (typeof inner.detail === "string") {
+        const msg = checkChatGptUsageLimitError(inner.detail);
+        if (msg) return msg;
+      }
+    }
+    // Check e.error.detail
+    if (typeof errObj.detail === "string") {
+      const msg = checkChatGptUsageLimitError(errObj.detail);
+      if (msg) return msg;
+    }
+  }
+
   return undefined;
 }
 
@@ -306,6 +530,15 @@ export function formatErrorDetails(
   // Check for OpenAI encrypted content org mismatch before anything else
   const encryptedContentMsg = checkEncryptedContentError(e);
   if (encryptedContentMsg) return encryptedContentMsg;
+
+  // Check for ChatGPT usage limit errors — walk nested error objects like
+  // checkEncryptedContentError does, since these arrive both as APIError
+  // and as plain run-metadata objects ({error: {error: {detail: "..."}}})
+  const chatGptUsageLimitMsg = findAndFormatChatGptUsageLimit(e);
+  if (chatGptUsageLimitMsg) return chatGptUsageLimitMsg;
+
+  const cloudflareEdgeMsg = findAndFormatCloudflareEdgeError(e);
+  if (cloudflareEdgeMsg) return cloudflareEdgeMsg;
 
   // Check for Z.ai provider errors (wrapped in generic "OpenAI" messages)
   const errorText =
@@ -466,8 +699,11 @@ const DEFAULT_RETRY_MESSAGE =
  */
 export function getRetryStatusMessage(
   errorDetail: string | null | undefined,
-): string {
+): string | null {
   if (!errorDetail) return DEFAULT_RETRY_MESSAGE;
+
+  // Cloudflare edge errors are transient and retried silently — no status line
+  if (parseCloudflareEdgeError(errorDetail)) return null;
 
   if (checkZaiError(errorDetail)) return "Z.ai API error, retrying...";
 
@@ -520,6 +756,6 @@ function createAgentLink(
   agentId: string,
   conversationId?: string,
 ): string {
-  const url = `https://app.letta.com/agents/${agentId}${conversationId && conversationId !== "default" ? `?conversation=${conversationId}` : ""}`;
+  const url = buildChatUrl(agentId, { conversationId });
   return `View agent: \x1b]8;;${url}\x1b\\${agentId}\x1b]8;;\x1b\\ (run: ${runId})`;
 }

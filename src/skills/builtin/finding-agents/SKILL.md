@@ -18,7 +18,7 @@ This skill helps you find other agents on the same Letta server.
 ## CLI Usage
 
 ```bash
-letta agents list [options]
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py [options]
 ```
 
 ### Options
@@ -31,6 +31,7 @@ letta agents list [options]
 | `--match-all-tags` | Require ALL tags (default: ANY) |
 | `--include-blocks` | Include agent.blocks in response |
 | `--limit <n>` | Max results (default: 20) |
+| `--json` | Output raw JSON |
 
 ## Common Patterns
 
@@ -39,7 +40,7 @@ letta agents list [options]
 Agents created by Letta Code are tagged with `origin:letta-code`. To find only Letta Code agents:
 
 ```bash
-letta agents list --tags "origin:letta-code"
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py --tags "origin:letta-code"
 ```
 
 This is useful when the user is looking for agents they've worked with in Letta Code CLI sessions.
@@ -49,39 +50,39 @@ This is useful when the user is looking for agents they've worked with in Letta 
 If the user has agents created outside Letta Code (via ADE, SDK, etc.), search without the tag filter:
 
 ```bash
-letta agents list
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py
 ```
 
 ## Examples
 
 **List all agents (up to 20):**
 ```bash
-letta agents list
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py
 ```
 
 **Find agent by exact name:**
 ```bash
-letta agents list --name "ProjectX-v1"
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py --name "ProjectX-v1"
 ```
 
 **Search agents by name (fuzzy):**
 ```bash
-letta agents list --query "project"
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py --query "project"
 ```
 
 **Find only Letta Code agents:**
 ```bash
-letta agents list --tags "origin:letta-code"
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py --tags "origin:letta-code"
 ```
 
 **Find agents with multiple tags:**
 ```bash
-letta agents list --tags "frontend,production" --match-all-tags
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py --tags "frontend,production" --match-all-tags
 ```
 
 **Include memory blocks in results:**
 ```bash
-letta agents list --query "project" --include-blocks
+python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py --query "project" --include-blocks --json
 ```
 
 ## Output
@@ -110,6 +111,6 @@ If you need to find which agent worked on a specific topic:
 3. Note the `agent_id` values from matching messages
 4. Get agent details:
    ```bash
-   letta agents list --query "partial-name"
+   python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_agents.py --query "partial-name"
    ```
    Or use the agent_id directly in the Letta API

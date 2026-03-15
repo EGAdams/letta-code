@@ -757,7 +757,7 @@ describe.skipIf(isWindows)("Hooks Integration Tests", () => {
       });
 
       const result = await runSubagentStopHooks(
-        "plan",
+        "explore",
         "subagent-abc",
         false,
         "Task failed",
@@ -767,7 +767,7 @@ describe.skipIf(isWindows)("Hooks Integration Tests", () => {
       );
 
       const parsed = JSON.parse(result.results[0]?.stdout || "{}");
-      expect(parsed.subagent_type).toBe("plan");
+      expect(parsed.subagent_type).toBe("explore");
       expect(parsed.subagent_id).toBe("subagent-abc");
       expect(parsed.success).toBe(false);
       expect(parsed.error).toBe("Task failed");

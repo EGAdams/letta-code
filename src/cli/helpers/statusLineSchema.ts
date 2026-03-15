@@ -9,9 +9,11 @@ export const STATUSLINE_NATIVE_FIELDS: StatusLineFieldSpec[] = [
   { path: "workspace.current_dir" },
   { path: "workspace.project_dir" },
   { path: "session_id" },
+  { path: "last_run_id" },
   { path: "version" },
   { path: "model.id" },
   { path: "model.display_name" },
+  { path: "agent.id" },
   { path: "agent.name" },
   { path: "cost.total_duration_ms" },
   { path: "cost.total_api_duration_ms" },
@@ -21,6 +23,7 @@ export const STATUSLINE_NATIVE_FIELDS: StatusLineFieldSpec[] = [
   { path: "permission_mode" },
   { path: "network_phase" },
   { path: "terminal_width" },
+  { path: "background_agents" },
 ];
 
 export const STATUSLINE_DERIVED_FIELDS: StatusLineFieldSpec[] = [

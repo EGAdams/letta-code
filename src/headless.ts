@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { parseArgs } from "node:util";
 import type { Letta } from "@letta-ai/letta-client";
 import { APIError } from "@letta-ai/letta-client/core/error";
 import type {
@@ -13,6 +12,7 @@ import {
   extractConflictDetail,
   fetchRunErrorDetail,
   getPreStreamErrorAction,
+  getRetryDelayMs,
   isApprovalPendingError,
   isEmptyResponseRetryable,
   isInvalidToolCallIdsError,
@@ -37,6 +37,14 @@ import { updateAgentLLMConfig, updateAgentSystemPrompt } from "./agent/modify";
 import { resolveSkillSourcesSelection } from "./agent/skillSources";
 import type { SkillSource } from "./agent/skills";
 import { SessionStats } from "./agent/stats";
+import type { ParsedCliArgs } from "./cli/args";
+import {
+  normalizeConversationShorthandFlags,
+  parseCsvListFlag,
+  parseJsonArrayFlag,
+  parsePositiveIntFlag,
+  resolveImportFlagAlias,
+} from "./cli/flagUtils";
 import {
   createBuffers,
   type Line,
@@ -61,7 +69,14 @@ import {
   type DrainStreamHook,
   drainStreamWithResume,
 } from "./cli/helpers/stream";
+import {
+  validateConversationDefaultRequiresAgent,
+  validateFlagConflicts,
+  validateRegistryHandleOrThrow,
+} from "./cli/startupFlagValidation";
 import { SYSTEM_REMINDER_CLOSE, SYSTEM_REMINDER_OPEN } from "./constants";
+import { computeDiffPreviews } from "./helpers/diffPreview";
+import { QueueRuntime } from "./queue/queueRuntime";
 import {
   mergeQueuedTurnInput,
   type QueuedTurnInput,
@@ -94,12 +109,14 @@ import type {
   ErrorMessage,
   ListMessagesControlRequest,
   MessageWire,
+  QueueLifecycleEvent,
   RecoveryMessage,
   ResultMessage,
   RetryMessage,
   StreamEvent,
   SystemInitMessage,
 } from "./types/protocol";
+import { debugLog } from "./utils/debug";
 import {
   markMilestone,
   measureSinceMilestone,
@@ -116,9 +133,8 @@ const LLM_API_ERROR_MAX_RETRIES = 3;
 // Retry 1: same input. Retry 2: with system reminder nudge.
 const EMPTY_RESPONSE_MAX_RETRIES = 2;
 
-// Retry config for 409 "conversation busy" errors
-const CONVERSATION_BUSY_MAX_RETRIES = 1; // Only retry once, fail on 2nd 409
-const CONVERSATION_BUSY_RETRY_DELAY_MS = 2500; // 2.5 seconds
+// Retry config for 409 "conversation busy" errors (exponential backoff)
+const CONVERSATION_BUSY_MAX_RETRIES = 3; // 10s -> 20s -> 40s
 
 export type BidirectionalQueuedInput = QueuedTurnInput<
   MessageCreate["content"]
@@ -139,11 +155,11 @@ type ReflectionOverrides = {
 };
 
 function parseReflectionOverrides(
-  values: Record<string, unknown>,
+  values: ParsedCliArgs["values"],
 ): ReflectionOverrides {
-  const triggerRaw = values["reflection-trigger"] as string | undefined;
-  const behaviorRaw = values["reflection-behavior"] as string | undefined;
-  const stepCountRaw = values["reflection-step-count"] as string | undefined;
+  const triggerRaw = values["reflection-trigger"];
+  const behaviorRaw = values["reflection-behavior"];
+  const stepCountRaw = values["reflection-step-count"];
 
   if (!triggerRaw && !behaviorRaw && !stepCountRaw) {
     return {};
@@ -174,13 +190,16 @@ function parseReflectionOverrides(
   }
 
   if (stepCountRaw !== undefined) {
-    const parsed = Number.parseInt(stepCountRaw, 10);
-    if (Number.isNaN(parsed) || parsed <= 0) {
+    try {
+      overrides.stepCount = parsePositiveIntFlag({
+        rawValue: stepCountRaw,
+        flagName: "reflection-step-count",
+      });
+    } catch {
       throw new Error(
         `Invalid --reflection-step-count "${stepCountRaw}". Expected a positive integer.`,
       );
     }
-    overrides.stepCount = parsed;
   }
 
   return overrides;
@@ -249,77 +268,22 @@ async function applyReflectionOverrides(
 }
 
 export async function handleHeadlessCommand(
-  argv: string[],
+  parsedArgs: ParsedCliArgs,
   model?: string,
   skillsDirectoryOverride?: string,
   skillSourcesOverride?: SkillSource[],
   systemInfoReminderEnabledOverride?: boolean,
 ) {
-  // Parse CLI args
-  // Include all flags from index.ts to prevent them from being treated as positionals
-  const { values, positionals } = parseArgs({
-    args: argv,
-    options: {
-      // Flags used in headless mode
-      continue: { type: "boolean", short: "c" },
-      resume: { type: "boolean", short: "r" },
-      conversation: { type: "string" },
-      "new-agent": { type: "boolean" },
-      new: { type: "boolean" }, // Deprecated - kept for helpful error message
-      agent: { type: "string", short: "a" },
-      model: { type: "string", short: "m" },
-      embedding: { type: "string" },
-      system: { type: "string", short: "s" },
-      "system-custom": { type: "string" },
-      "system-append": { type: "string" },
-      "memory-blocks": { type: "string" },
-      "block-value": { type: "string", multiple: true },
-      toolset: { type: "string" },
-      prompt: { type: "boolean", short: "p" },
-      "output-format": { type: "string" },
-      "input-format": { type: "string" },
-      "include-partial-messages": { type: "boolean" },
-      "from-agent": { type: "string" },
-      // Additional flags from index.ts that need to be filtered out
-      help: { type: "boolean", short: "h" },
-      version: { type: "boolean", short: "v" },
-      run: { type: "boolean" },
-      tools: { type: "string" },
-      allowedTools: { type: "string" },
-      disallowedTools: { type: "string" },
-      "permission-mode": { type: "string" },
-      yolo: { type: "boolean" },
-      skills: { type: "string" },
-      "skill-sources": { type: "string" },
-      "pre-load-skills": { type: "string" },
-      "init-blocks": { type: "string" },
-      "base-tools": { type: "string" },
-      "from-af": { type: "string" },
-      tags: { type: "string" },
-
-      memfs: { type: "boolean" },
-      "no-memfs": { type: "boolean" },
-      "memfs-startup": { type: "string" }, // "blocking" | "background" | "skip"
-      "no-skills": { type: "boolean" },
-      "no-bundled-skills": { type: "boolean" },
-      "no-system-info-reminder": { type: "boolean" },
-      "reflection-trigger": { type: "string" },
-      "reflection-behavior": { type: "string" },
-      "reflection-step-count": { type: "string" },
-      "max-turns": { type: "string" }, // Maximum number of agentic turns
-    },
-    strict: false,
-    allowPositionals: true,
-  });
+  const { values, positionals } = parsedArgs;
 
   // Set tool filter if provided (controls which tools are loaded)
   if (values.tools !== undefined) {
     const { toolFilter } = await import("./tools/filter");
-    toolFilter.setEnabledTools(values.tools as string);
+    toolFilter.setEnabledTools(values.tools);
   }
   // Set permission mode if provided (or via --yolo alias)
-  const permissionModeValue = values["permission-mode"] as string | undefined;
-  const yoloMode = values.yolo as boolean | undefined;
+  const permissionModeValue = values["permission-mode"];
+  const yoloMode = values.yolo;
   if (yoloMode || permissionModeValue) {
     const { permissionMode } = await import("./permissions/mode");
     if (yoloMode) {
@@ -347,15 +311,15 @@ export async function handleHeadlessCommand(
   if (values.allowedTools || values.disallowedTools) {
     const { cliPermissions } = await import("./permissions/cli");
     if (values.allowedTools) {
-      cliPermissions.setAllowedTools(values.allowedTools as string);
+      cliPermissions.setAllowedTools(values.allowedTools);
     }
     if (values.disallowedTools) {
-      cliPermissions.setDisallowedTools(values.disallowedTools as string);
+      cliPermissions.setDisallowedTools(values.disallowedTools);
     }
   }
 
   // Check for input-format early - if stream-json, we don't need a prompt
-  const inputFormat = values["input-format"] as string | undefined;
+  const inputFormat = values["input-format"];
   const isBidirectionalMode = inputFormat === "stream-json";
 
   // If headless output is being piped and the downstream closes early (e.g.
@@ -412,37 +376,34 @@ export async function handleHeadlessCommand(
   }
 
   // --new: Create a new conversation (for concurrent sessions)
-  let forceNewConversation = (values.new as boolean | undefined) ?? false;
-  const fromAgentId = values["from-agent"] as string | undefined;
+  let forceNewConversation = values.new ?? false;
+  const fromAgentId = values["from-agent"];
 
   // Resolve agent (same logic as interactive mode)
   let agent: AgentState | null = null;
-  let specifiedAgentId = values.agent as string | undefined;
-  let specifiedConversationId = values.conversation as string | undefined;
-  const shouldContinue = values.continue as boolean | undefined;
-  const forceNew = values["new-agent"] as boolean | undefined;
-  const systemPromptPreset = values.system as string | undefined;
-  const systemCustom = values["system-custom"] as string | undefined;
-  const systemAppend = values["system-append"] as string | undefined;
-  const embeddingModel = values.embedding as string | undefined;
-  const memoryBlocksJson = values["memory-blocks"] as string | undefined;
-  const blockValueArgs = values["block-value"] as string[] | undefined;
-  const initBlocksRaw = values["init-blocks"] as string | undefined;
-  const baseToolsRaw = values["base-tools"] as string | undefined;
-  const skillsDirectory =
-    (values.skills as string | undefined) ?? skillsDirectoryOverride;
-  const noSkillsFlag = values["no-skills"] as boolean | undefined;
-  const noBundledSkillsFlag = values["no-bundled-skills"] as
-    | boolean
-    | undefined;
-  const skillSourcesRaw = values["skill-sources"] as string | undefined;
-  const memfsFlag = values.memfs as boolean | undefined;
-  const noMemfsFlag = values["no-memfs"] as boolean | undefined;
+  let specifiedAgentId = values.agent;
+  const specifiedAgentName = values.name;
+  let specifiedConversationId = values.conversation;
+  const shouldContinue = values.continue;
+  const forceNew = values["new-agent"];
+  const systemPromptPreset = values.system;
+  const systemCustom = values["system-custom"];
+  const embeddingModel = values.embedding;
+  const memoryBlocksJson = values["memory-blocks"];
+  const blockValueArgs = values["block-value"];
+  const initBlocksRaw = values["init-blocks"];
+  const baseToolsRaw = values["base-tools"];
+  const skillsDirectory = values.skills ?? skillsDirectoryOverride;
+  const noSkillsFlag = values["no-skills"];
+  const noBundledSkillsFlag = values["no-bundled-skills"];
+  const skillSourcesRaw = values["skill-sources"];
+  const memfsFlag = values.memfs;
+  const noMemfsFlag = values["no-memfs"];
   // Startup policy for the git-backed memory pull on session init.
   // "blocking" (default): await the pull before proceeding.
   // "background": fire the pull async, emit init without waiting.
   // "skip": skip the pull entirely this session.
-  const memfsStartupRaw = values["memfs-startup"] as string | undefined;
+  const memfsStartupRaw = values["memfs-startup"];
   const memfsStartupPolicy: "blocking" | "background" | "skip" =
     memfsStartupRaw === "background" || memfsStartupRaw === "skip"
       ? memfsStartupRaw
@@ -453,11 +414,13 @@ export async function handleHeadlessCommand(
       ? "standard"
       : undefined;
   const shouldAutoEnableMemfsForNewAgent = !memfsFlag && !noMemfsFlag;
-  const fromAfFile = values["from-af"] as string | undefined;
-  const preLoadSkillsRaw = values["pre-load-skills"] as string | undefined;
+  const fromAfFile = resolveImportFlagAlias({
+    importFlagValue: values.import,
+    fromAfFlagValue: values["from-af"],
+  });
+  const preLoadSkillsRaw = values["pre-load-skills"];
   const systemInfoReminderEnabled =
-    systemInfoReminderEnabledOverride ??
-    !(values["no-system-info-reminder"] as boolean | undefined);
+    systemInfoReminderEnabledOverride ?? !values["no-system-info-reminder"];
   const reflectionOverrides = (() => {
     try {
       return parseReflectionOverrides(values);
@@ -468,8 +431,8 @@ export async function handleHeadlessCommand(
       process.exit(1);
     }
   })();
-  const maxTurnsRaw = values["max-turns"] as string | undefined;
-  const tagsRaw = values.tags as string | undefined;
+  const maxTurnsRaw = values["max-turns"];
+  const tagsRaw = values.tags;
   const resolvedSkillSources = (() => {
     if (skillSourcesOverride) {
       return skillSourcesOverride;
@@ -488,31 +451,20 @@ export async function handleHeadlessCommand(
     }
   })();
 
-  // Parse and validate base tools
-  let tags: string[] | undefined;
-  if (tagsRaw !== undefined) {
-    const trimmed = tagsRaw.trim();
-    if (!trimmed || trimmed.toLowerCase() === "none") {
-      tags = [];
-    } else {
-      tags = trimmed
-        .split(",")
-        .map((name) => name.trim())
-        .filter((name) => name.length > 0);
-    }
-  }
+  const tags = parseCsvListFlag(tagsRaw);
 
   // Parse and validate max-turns if provided
   let maxTurns: number | undefined;
-  if (maxTurnsRaw !== undefined) {
-    const parsed = parseInt(maxTurnsRaw, 10);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      console.error(
-        `Error: --max-turns must be a positive integer, got: ${maxTurnsRaw}`,
-      );
-      process.exit(1);
-    }
-    maxTurns = parsed;
+  try {
+    maxTurns = parsePositiveIntFlag({
+      rawValue: maxTurnsRaw,
+      flagName: "max-turns",
+    });
+  } catch (error) {
+    console.error(
+      `Error: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
   }
 
   if (preLoadSkillsRaw && resolvedSkillSources.length === 0) {
@@ -522,21 +474,31 @@ export async function handleHeadlessCommand(
     process.exit(1);
   }
 
-  // Handle --conv {agent-id} shorthand: --conv agent-xyz → --agent agent-xyz --conv default
-  if (specifiedConversationId?.startsWith("agent-")) {
-    if (specifiedAgentId && specifiedAgentId !== specifiedConversationId) {
-      console.error(
-        `Error: Conflicting agent IDs: --agent ${specifiedAgentId} vs --conv ${specifiedConversationId}`,
-      );
-      process.exit(1);
-    }
-    specifiedAgentId = specifiedConversationId;
-    specifiedConversationId = "default";
+  try {
+    const normalized = normalizeConversationShorthandFlags({
+      specifiedConversationId,
+      specifiedAgentId,
+    });
+    specifiedConversationId = normalized.specifiedConversationId ?? undefined;
+    specifiedAgentId = normalized.specifiedAgentId ?? undefined;
+  } catch (error) {
+    console.error(
+      error instanceof Error ? `Error: ${error.message}` : String(error),
+    );
+    process.exit(1);
   }
 
   // Validate --conv default requires --agent (unless --new-agent will create one)
-  if (specifiedConversationId === "default" && !specifiedAgentId && !forceNew) {
-    console.error("Error: --conv default requires --agent <agent-id>");
+  try {
+    validateConversationDefaultRequiresAgent({
+      specifiedConversationId,
+      specifiedAgentId,
+      forceNew,
+    });
+  } catch (error) {
+    console.error(
+      error instanceof Error ? `Error: ${error.message}` : String(error),
+    );
     console.error("Usage: letta --agent agent-xyz --conv default");
     console.error("   or: letta --conv agent-xyz (shorthand)");
     process.exit(1);
@@ -562,53 +524,84 @@ export async function handleHeadlessCommand(
     }
   }
 
-  // Validate --conversation flag (mutually exclusive with agent-selection flags)
-  // Exception: --conv default requires --agent
-  if (specifiedConversationId && specifiedConversationId !== "default") {
-    if (specifiedAgentId) {
-      console.error("Error: --conversation cannot be used with --agent");
-      process.exit(1);
-    }
-    if (forceNew) {
-      console.error("Error: --conversation cannot be used with --new-agent");
-      process.exit(1);
-    }
-    if (fromAfFile) {
-      console.error("Error: --conversation cannot be used with --from-af");
-      process.exit(1);
-    }
-    if (shouldContinue) {
-      console.error("Error: --conversation cannot be used with --continue");
-      process.exit(1);
-    }
+  // Validate shared mutual-exclusion rules for startup flags.
+  try {
+    validateFlagConflicts({
+      guard: specifiedConversationId && specifiedConversationId !== "default",
+      checks: [
+        {
+          when: specifiedAgentId,
+          message: "--conversation cannot be used with --agent",
+        },
+        {
+          when: specifiedAgentName,
+          message: "--conversation cannot be used with --name",
+        },
+        {
+          when: forceNew,
+          message: "--conversation cannot be used with --new-agent",
+        },
+        {
+          when: fromAfFile,
+          message: "--conversation cannot be used with --import",
+        },
+        {
+          when: shouldContinue,
+          message: "--conversation cannot be used with --continue",
+        },
+      ],
+    });
+
+    validateFlagConflicts({
+      guard: forceNewConversation,
+      checks: [
+        {
+          when: shouldContinue,
+          message: "--new cannot be used with --continue",
+        },
+        {
+          when: specifiedConversationId,
+          message: "--new cannot be used with --conversation",
+        },
+      ],
+    });
+  } catch (error) {
+    console.error(
+      error instanceof Error ? `Error: ${error.message}` : String(error),
+    );
+    process.exit(1);
   }
 
-  // Validate --new flag (create new conversation)
-  if (forceNewConversation) {
-    if (shouldContinue) {
-      console.error("Error: --new cannot be used with --continue");
-      process.exit(1);
-    }
-    if (specifiedConversationId) {
-      console.error("Error: --new cannot be used with --conversation");
-      process.exit(1);
-    }
-  }
-
-  // Validate --from-af flag
+  // Validate --import flag (also accepts legacy --from-af)
   // Detect if it's a registry handle (e.g., @author/name) or a local file path
   let isRegistryImport = false;
   if (fromAfFile) {
-    if (specifiedAgentId) {
-      console.error("Error: --from-af cannot be used with --agent");
-      process.exit(1);
-    }
-    if (shouldContinue) {
-      console.error("Error: --from-af cannot be used with --continue");
-      process.exit(1);
-    }
-    if (forceNew) {
-      console.error("Error: --from-af cannot be used with --new");
+    try {
+      validateFlagConflicts({
+        guard: fromAfFile,
+        checks: [
+          {
+            when: specifiedAgentId,
+            message: "--import cannot be used with --agent",
+          },
+          {
+            when: specifiedAgentName,
+            message: "--import cannot be used with --name",
+          },
+          {
+            when: shouldContinue,
+            message: "--import cannot be used with --continue",
+          },
+          {
+            when: forceNew,
+            message: "--import cannot be used with --new-agent",
+          },
+        ],
+      });
+    } catch (error) {
+      console.error(
+        error instanceof Error ? `Error: ${error.message}` : String(error),
+      );
       process.exit(1);
     }
 
@@ -617,14 +610,26 @@ export async function handleHeadlessCommand(
       // Definitely a registry handle
       isRegistryImport = true;
       // Validate handle format
-      const normalized = fromAfFile.slice(1);
-      const parts = normalized.split("/");
-      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      try {
+        validateRegistryHandleOrThrow(fromAfFile);
+      } catch {
         console.error(
-          `Error: Invalid registry handle "${fromAfFile}". Use format: @author/agentname`,
+          `Error: Invalid registry handle "${fromAfFile}". Use format: letta --import @author/agentname`,
         );
         process.exit(1);
       }
+    }
+  }
+
+  // Validate --name flag
+  if (specifiedAgentName) {
+    if (specifiedAgentId) {
+      console.error("Error: --name cannot be used with --agent");
+      process.exit(1);
+    }
+    if (forceNew) {
+      console.error("Error: --name cannot be used with --new-agent");
+      process.exit(1);
     }
   }
 
@@ -635,18 +640,7 @@ export async function handleHeadlessCommand(
     process.exit(1);
   }
 
-  let initBlocks: string[] | undefined;
-  if (initBlocksRaw !== undefined) {
-    const trimmed = initBlocksRaw.trim();
-    if (!trimmed || trimmed.toLowerCase() === "none") {
-      initBlocks = [];
-    } else {
-      initBlocks = trimmed
-        .split(",")
-        .map((name) => name.trim())
-        .filter((name) => name.length > 0);
-    }
-  }
+  const initBlocks = parseCsvListFlag(initBlocksRaw);
 
   if (baseToolsRaw && !forceNew) {
     console.error(
@@ -655,18 +649,7 @@ export async function handleHeadlessCommand(
     process.exit(1);
   }
 
-  let baseTools: string[] | undefined;
-  if (baseToolsRaw !== undefined) {
-    const trimmed = baseToolsRaw.trim();
-    if (!trimmed || trimmed.toLowerCase() === "none") {
-      baseTools = [];
-    } else {
-      baseTools = trimmed
-        .split(",")
-        .map((name) => name.trim())
-        .filter((name) => name.length > 0);
-    }
-  }
+  const baseTools = parseCsvListFlag(baseToolsRaw);
 
   // Validate system prompt options (--system and --system-custom are mutually exclusive)
   if (systemPromptPreset && systemCustom) {
@@ -694,10 +677,9 @@ export async function handleHeadlessCommand(
       process.exit(1);
     }
     try {
-      memoryBlocks = JSON.parse(memoryBlocksJson);
-      if (!Array.isArray(memoryBlocks)) {
-        throw new Error("memory-blocks must be a JSON array");
-      }
+      memoryBlocks = parseJsonArrayFlag(memoryBlocksJson, "memory-blocks") as
+        | Array<{ label: string; value: string; description?: string }>
+        | Array<{ blockId: string }>;
       // Validate each block has required fields
       for (const block of memoryBlocks) {
         const hasBlockId =
@@ -716,7 +698,7 @@ export async function handleHeadlessCommand(
       }
     } catch (error) {
       console.error(
-        `Error: Invalid --memory-blocks JSON: ${error instanceof Error ? error.message : String(error)}`,
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
       );
       process.exit(1);
     }
@@ -751,6 +733,10 @@ export async function handleHeadlessCommand(
   // It requires --agent and should not hit conversations.retrieve().
   if (specifiedConversationId && specifiedConversationId !== "default") {
     try {
+      debugLog(
+        "conversations",
+        `retrieve(${specifiedConversationId}) [headless conv→agent lookup]`,
+      );
       const conversation = await client.conversations.retrieve(
         specifiedConversationId,
       );
@@ -787,6 +773,12 @@ export async function handleHeadlessCommand(
 
     agent = result.agent;
 
+    // Mark imported agents as "custom" to prevent legacy auto-migration
+    // from overwriting their system prompt on resume.
+    if (settingsManager.isReady) {
+      settingsManager.setSystemPromptPreset(agent.id, "custom");
+    }
+
     // Display extracted skills summary
     if (result.skills && result.skills.length > 0) {
       const { getAgentSkillsDir } = await import("./agent/skills");
@@ -810,6 +802,15 @@ export async function handleHeadlessCommand(
   // Priority 3: Check if --new flag was passed (skip all resume logic)
   if (!agent && forceNew) {
     const updateArgs = getModelUpdateArgs(model);
+    // Pre-determine memfs mode so the agent is created with the correct prompt.
+    const { isLettaCloud, enableMemfsIfCloud } = await import(
+      "./agent/memoryFilesystem"
+    );
+    const willAutoEnableMemfs =
+      shouldAutoEnableMemfsForNewAgent && (await isLettaCloud());
+    const effectiveMemoryMode =
+      requestedMemoryPromptMode ?? (willAutoEnableMemfs ? "memfs" : undefined);
+
     const createOptions = {
       model,
       embeddingModel,
@@ -818,8 +819,7 @@ export async function handleHeadlessCommand(
       parallelToolCalls: true,
       systemPromptPreset,
       systemPromptCustom: systemCustom,
-      systemPromptAppend: systemAppend,
-      memoryPromptMode: requestedMemoryPromptMode,
+      memoryPromptMode: effectiveMemoryMode,
       initBlocks,
       baseTools,
       memoryBlocks,
@@ -829,9 +829,8 @@ export async function handleHeadlessCommand(
     const result = await createAgent(createOptions);
     agent = result.agent;
 
-    // Enable memfs by default on Letta Cloud for new agents when no explicit memfs flags are provided.
-    if (shouldAutoEnableMemfsForNewAgent) {
-      const { enableMemfsIfCloud } = await import("./agent/memoryFilesystem");
+    // Enable memfs on Letta Cloud (tags, repo clone, tool detach).
+    if (willAutoEnableMemfs) {
       await enableMemfsIfCloud(agent.id);
     }
   }
@@ -923,18 +922,6 @@ export async function handleHeadlessCommand(
         }
       }
     }
-
-    if (systemPromptPreset) {
-      const result = await updateAgentSystemPrompt(
-        agent.id,
-        systemPromptPreset,
-      );
-      if (!result.success || !result.agent) {
-        console.error(`Failed to update system prompt: ${result.message}`);
-        process.exit(1);
-      }
-      agent = result.agent;
-    }
   }
 
   // Determine which conversation to use
@@ -942,6 +929,9 @@ export async function handleHeadlessCommand(
   let effectiveReflectionSettings: ReflectionSettings;
 
   const isSubagent = process.env.LETTA_CODE_AGENT_ROLE === "subagent";
+
+  // Captured so prompt logic below can await it when needed.
+  let memfsBgPromise: Promise<unknown> | undefined;
 
   // Apply memfs flags and auto-enable from server tag when local settings are missing.
   // Respects memfsStartupPolicy:
@@ -965,7 +955,7 @@ export async function handleHeadlessCommand(
   } else if (memfsStartupPolicy === "background") {
     // Fire pull async; don't block session initialisation.
     const { applyMemfsFlags } = await import("./agent/memoryFilesystem");
-    applyMemfsFlags(agent.id, memfsFlag, noMemfsFlag, {
+    memfsBgPromise = applyMemfsFlags(agent.id, memfsFlag, noMemfsFlag, {
       pullOnExistingRepo: true,
       agentTags: agent.tags,
     }).catch((error) => {
@@ -998,6 +988,56 @@ export async function handleHeadlessCommand(
     }
   }
 
+  // Ensure background memfs sync settles before prompt logic reads isMemfsEnabled().
+  if (memfsBgPromise && isResumingAgent) {
+    await memfsBgPromise;
+  }
+
+  // Apply --system flag after memfs sync so isMemfsEnabled() is up to date.
+  if (isResumingAgent && systemPromptPreset) {
+    const result = await updateAgentSystemPrompt(agent.id, systemPromptPreset);
+    if (!result.success || !result.agent) {
+      console.error(`Failed to update system prompt: ${result.message}`);
+      process.exit(1);
+    }
+    agent = result.agent;
+  }
+
+  // Auto-heal system prompt drift (rebuild from stored recipe).
+  // Runs after memfs sync so isMemfsEnabled() reflects the final state.
+  if (isResumingAgent && !systemPromptPreset) {
+    let storedPreset = settingsManager.getSystemPromptPreset(agent.id);
+
+    // Adopt legacy agents (created before recipe tracking) as "custom"
+    // so their prompts are left untouched by auto-heal.
+    if (
+      !storedPreset &&
+      agent.tags?.includes("origin:letta-code") &&
+      !agent.tags?.includes("role:subagent")
+    ) {
+      storedPreset = "custom";
+      settingsManager.setSystemPromptPreset(agent.id, storedPreset);
+    }
+
+    if (storedPreset && storedPreset !== "custom") {
+      const { buildSystemPrompt: rebuildPrompt, isKnownPreset: isKnown } =
+        await import("./agent/promptAssets");
+      if (isKnown(storedPreset)) {
+        const memoryMode = settingsManager.isMemfsEnabled(agent.id)
+          ? "memfs"
+          : "standard";
+        const expected = rebuildPrompt(storedPreset, memoryMode);
+        if (agent.system !== expected) {
+          const client = await getClient();
+          await client.agents.update(agent.id, { system: expected });
+          agent = await client.agents.retrieve(agent.id);
+        }
+      } else {
+        settingsManager.clearSystemPromptPreset(agent.id);
+      }
+    }
+  }
+
   try {
     effectiveReflectionSettings = await applyReflectionOverrides(
       agent.id,
@@ -1026,6 +1066,10 @@ export async function handleHeadlessCommand(
     } else {
       // User specified an explicit conversation to resume - validate it exists
       try {
+        debugLog(
+          "conversations",
+          `retrieve(${specifiedConversationId}) [headless --conv validate]`,
+        );
         await client.conversations.retrieve(specifiedConversationId);
         conversationId = specifiedConversationId;
       } catch {
@@ -1049,6 +1093,10 @@ export async function handleHeadlessCommand(
       } else {
         // Verify the conversation still exists
         try {
+          debugLog(
+            "conversations",
+            `retrieve(${lastSession.conversationId}) [headless lastSession resume]`,
+          );
           await client.conversations.retrieve(lastSession.conversationId);
           conversationId = lastSession.conversationId;
         } catch {
@@ -1115,8 +1163,7 @@ export async function handleHeadlessCommand(
   setAgentContext(agent.id, skillsDirectory, resolvedSkillSources);
 
   // Validate output format
-  const outputFormat =
-    (values["output-format"] as string | undefined) || "text";
+  const outputFormat = values["output-format"] || "text";
   const includePartialMessages = Boolean(values["include-partial-messages"]);
   if (!["text", "json", "stream-json"].includes(outputFormat)) {
     console.error(
@@ -1553,6 +1600,10 @@ ${SYSTEM_REMINDER_CLOSE}
         // Check for 409 "conversation busy" error - retry once with delay
         if (preStreamAction === "retry_conversation_busy") {
           conversationBusyRetries += 1;
+          const retryDelayMs = getRetryDelayMs({
+            category: "conversation_busy",
+            attempt: conversationBusyRetries,
+          });
 
           // Emit retry message for stream-json mode
           if (outputFormat === "stream-json") {
@@ -1561,21 +1612,19 @@ ${SYSTEM_REMINDER_CLOSE}
               reason: "error", // 409 conversation busy is a pre-stream error
               attempt: conversationBusyRetries,
               max_attempts: CONVERSATION_BUSY_MAX_RETRIES,
-              delay_ms: CONVERSATION_BUSY_RETRY_DELAY_MS,
+              delay_ms: retryDelayMs,
               session_id: sessionId,
               uuid: `retry-conversation-busy-${randomUUID()}`,
             };
             console.log(JSON.stringify(retryMsg));
           } else {
             console.error(
-              `Conversation is busy, waiting ${CONVERSATION_BUSY_RETRY_DELAY_MS / 1000}s and retrying...`,
+              `Conversation is busy, waiting ${Math.round(retryDelayMs / 1000)}s and retrying...`,
             );
           }
 
           // Wait before retry
-          await new Promise((resolve) =>
-            setTimeout(resolve, CONVERSATION_BUSY_RETRY_DELAY_MS),
-          );
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
           continue;
         }
 
@@ -1587,7 +1636,12 @@ ${SYSTEM_REMINDER_CLOSE}
                   preStreamError.headers?.get("retry-after"),
                 )
               : null;
-          const delayMs = retryAfterMs ?? 1000 * 2 ** (attempt - 1);
+          const delayMs = getRetryDelayMs({
+            category: "transient_provider",
+            attempt,
+            detail: errorDetail,
+            retryAfterMs,
+          });
 
           llmApiErrorRetries = attempt;
 
@@ -1918,8 +1972,11 @@ ${SYSTEM_REMINDER_CLOSE}
       if (stopReason === "llm_api_error") {
         if (llmApiErrorRetries < LLM_API_ERROR_MAX_RETRIES) {
           const attempt = llmApiErrorRetries + 1;
-          const baseDelayMs = 1000;
-          const delayMs = baseDelayMs * 2 ** (attempt - 1);
+          const delayMs = getRetryDelayMs({
+            category: "transient_provider",
+            attempt,
+            detail: detailFromRun,
+          });
 
           llmApiErrorRetries = attempt;
 
@@ -2069,7 +2126,10 @@ ${SYSTEM_REMINDER_CLOSE}
             )
           ) {
             const attempt = emptyResponseRetries + 1;
-            const delayMs = 500 * attempt;
+            const delayMs = getRetryDelayMs({
+              category: "empty_response",
+              attempt,
+            });
 
             emptyResponseRetries = attempt;
 
@@ -2106,8 +2166,11 @@ ${SYSTEM_REMINDER_CLOSE}
 
           if (shouldRetryRunMetadataError(errorType, detail)) {
             const attempt = llmApiErrorRetries + 1;
-            const baseDelayMs = 1000;
-            const delayMs = baseDelayMs * 2 ** (attempt - 1);
+            const delayMs = getRetryDelayMs({
+              category: "transient_provider",
+              attempt,
+              detail,
+            });
 
             llmApiErrorRetries = attempt;
 
@@ -2523,6 +2586,117 @@ async function runBidirectionalMode(
   const lineQueue: string[] = [];
   let lineResolver: ((line: string | null) => void) | null = null;
 
+  // ── Queue lifecycle tracking (stream-json only) ────────────────
+  // Bidirectional mode always runs under stream-json input format, so queue
+  // events are always emitted here. emitQueueEvent is a no-op guard retained
+  // for clarity and future-proofing against non-stream-json callers.
+  const emitQueueEvent = (e: QueueLifecycleEvent): void => {
+    console.log(JSON.stringify(e));
+  };
+
+  let turnInProgress = false;
+
+  const msgQueueRuntime = new QueueRuntime({
+    callbacks: {
+      onEnqueued: (item, queueLen) =>
+        emitQueueEvent({
+          type: "queue_item_enqueued",
+          item_id: item.id,
+          client_message_id: item.clientMessageId ?? `cm-${item.id}`,
+          source: item.source,
+          kind: item.kind,
+          queue_len: queueLen,
+          session_id: sessionId,
+          uuid: `q-enq-${item.id}`,
+        }),
+      onDequeued: (batch) =>
+        emitQueueEvent({
+          type: "queue_batch_dequeued",
+          batch_id: batch.batchId,
+          item_ids: batch.items.map((i) => i.id),
+          merged_count: batch.mergedCount,
+          queue_len_after: batch.queueLenAfter,
+          session_id: sessionId,
+          uuid: `q-deq-${batch.batchId}`,
+        }),
+      onCleared: (reason, clearedCount) =>
+        emitQueueEvent({
+          type: "queue_cleared",
+          reason,
+          cleared_count: clearedCount,
+          session_id: sessionId,
+          uuid: `q-clr-${randomUUID()}`,
+        }),
+    },
+  });
+
+  /**
+   * Parses a raw JSON line and returns the queue item payload if it is a
+   * user message or task_notification. Returns null for control lines
+   * (control_request, control_response, etc.) and malformed JSON.
+   */
+  function parseUserLine(raw: string): {
+    kind: "message" | "task_notification";
+    content: string;
+  } | null {
+    if (!raw.trim()) return null;
+    try {
+      const parsed: {
+        type?: string;
+        message?: { content?: string };
+        _queuedKind?: string;
+      } = JSON.parse(raw);
+      if (parsed.type !== "user" || parsed.message?.content === undefined)
+        return null;
+      const kind =
+        parsed._queuedKind === "task_notification"
+          ? "task_notification"
+          : "message";
+      return { kind, content: parsed.message.content };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Emit queue_blocked on the FIRST user/task line arrival during an active
+   * turn. Does NOT enqueue to msgQueueRuntime — that happens later, at the
+   * coalescing loop where consumption is certain (avoids orphaned items from
+   * the external-tool wait loop which drops non-matching lines silently).
+   */
+  let blockedEmittedThisTurn = false;
+  function maybeNotifyBlocked(raw: string): void {
+    if (!turnInProgress || blockedEmittedThisTurn) return;
+    if (!parseUserLine(raw)) return;
+    blockedEmittedThisTurn = true;
+    // queue_len: count user/task items currently in lineQueue (best-effort)
+    const queueLen = lineQueue.filter((l) => parseUserLine(l) !== null).length;
+    emitQueueEvent({
+      type: "queue_blocked",
+      reason: "runtime_busy",
+      queue_len: Math.max(1, queueLen),
+      session_id: sessionId,
+      uuid: `q-blk-${randomUUID()}`,
+    });
+  }
+
+  /** Enqueue a BidirectionalQueuedInput into msgQueueRuntime for lifecycle tracking. */
+  function enqueueForTracking(input: BidirectionalQueuedInput): void {
+    if (input.kind === "task_notification") {
+      msgQueueRuntime.enqueue({
+        kind: "task_notification",
+        source: "task_notification",
+        text: input.text,
+      } as Parameters<typeof msgQueueRuntime.enqueue>[0]);
+    } else {
+      msgQueueRuntime.enqueue({
+        kind: "message",
+        source: "user",
+        content: input.content,
+      } as Parameters<typeof msgQueueRuntime.enqueue>[0]);
+    }
+  }
+
   const serializeQueuedMessageAsUserLine = (queuedMessage: QueuedMessage) =>
     JSON.stringify({
       type: "user",
@@ -2537,6 +2711,7 @@ async function runBidirectionalMode(
   // used by user input so bidirectional mode inherits TUI-style queue behavior.
   setMessageQueueAdder((queuedMessage) => {
     const syntheticUserLine = serializeQueuedMessageAsUserLine(queuedMessage);
+    maybeNotifyBlocked(syntheticUserLine);
     if (lineResolver) {
       const resolve = lineResolver;
       lineResolver = null;
@@ -2548,6 +2723,7 @@ async function runBidirectionalMode(
 
   // Feed lines into queue or resolver
   rl.on("line", (line) => {
+    maybeNotifyBlocked(line);
     if (lineResolver) {
       const resolve = lineResolver;
       lineResolver = null;
@@ -2559,6 +2735,7 @@ async function runBidirectionalMode(
 
   rl.on("close", () => {
     setMessageQueueAdder(null);
+    msgQueueRuntime.clear("shutdown");
     if (lineResolver) {
       const resolve = lineResolver;
       lineResolver = null;
@@ -2589,6 +2766,9 @@ async function runBidirectionalMode(
   }> {
     const requestId = `perm-${toolCallId}`;
 
+    // Compute diff previews for file-modifying tools
+    const diffs = await computeDiffPreviews(toolName, toolInput);
+
     // Build can_use_tool control request (Claude SDK format)
     const canUseToolRequest: CanUseToolControlRequest = {
       subtype: "can_use_tool",
@@ -2597,6 +2777,7 @@ async function runBidirectionalMode(
       tool_call_id: toolCallId, // Letta-specific
       permission_suggestions: [], // TODO: not implemented
       blocked_path: null, // TODO: not implemented
+      ...(diffs.length > 0 ? { diffs } : {}),
     };
 
     const controlRequest: ControlRequest = {
@@ -2945,6 +3126,18 @@ async function runBidirectionalMode(
         break;
       }
 
+      // Enqueue consumed items into msgQueueRuntime for lifecycle tracking.
+      // Done here (not at arrival) to avoid orphaned items from the external-
+      // tool wait loop, which consumes non-matching lines via getNextLine()
+      // without deferring them back to lineQueue.
+      for (const input of queuedInputs) {
+        enqueueForTracking(input);
+      }
+      // Signal dequeue for exactly the items we just enqueued. consumeItems(n)
+      // bypasses QueueRuntime's internal coalescing policy so the count matches
+      // what the coalescing loop actually yielded.
+      msgQueueRuntime.consumeItems(queuedInputs.length);
+
       const userContent = mergeBidirectionalQueuedInput(queuedInputs);
       if (userContent === null) {
         continue;
@@ -2953,6 +3146,7 @@ async function runBidirectionalMode(
       // Create abort controller for this operation
       currentAbortController = new AbortController();
 
+      turnInProgress = true;
       try {
         const buffers = createBuffers(agent.id);
         const startTime = performance.now();
@@ -3069,7 +3263,12 @@ async function runBidirectionalMode(
                       preStreamError.headers?.get("retry-after"),
                     )
                   : null;
-              const delayMs = retryAfterMs ?? 1000 * 2 ** (attempt - 1);
+              const delayMs = getRetryDelayMs({
+                category: "transient_provider",
+                attempt,
+                detail: errorDetail,
+                retryAfterMs,
+              });
               preStreamTransientRetries = attempt;
 
               const retryMsg: RetryMessage = {
@@ -3431,6 +3630,8 @@ async function runBidirectionalMode(
         };
         console.log(JSON.stringify(errorResultMsg));
       } finally {
+        turnInProgress = false;
+        blockedEmittedThisTurn = false;
         currentAbortController = null;
       }
       continue;

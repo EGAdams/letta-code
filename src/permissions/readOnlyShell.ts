@@ -100,7 +100,7 @@ const SAFE_LETTA_COMMANDS: Record<string, Set<string>> = {
 
 // gh CLI read-only commands: category -> allowed actions
 // null means any action is allowed for that category
-const SAFE_GH_COMMANDS: Record<string, Set<string> | null> = {
+export const SAFE_GH_COMMANDS: Record<string, Set<string> | null> = {
   pr: new Set(["list", "status", "checks", "diff", "view"]),
   issue: new Set(["list", "status", "view"]),
   repo: new Set(["list", "view", "gitignore", "license"]),
@@ -111,12 +111,119 @@ const SAFE_GH_COMMANDS: Record<string, Set<string> | null> = {
   status: null, // top-level command, no action needed
 };
 
-// Operators that are always dangerous (file redirects, command substitution)
-// Note: &&, ||, ; are handled by splitting and checking each segment
-const DANGEROUS_OPERATOR_PATTERN = /(>>|>|\$\(|`)/;
+/**
+ * Split a shell command into segments on unquoted separators: |, &&, ||, ;
+ * Returns null if dangerous operators are found:
+ * - redirects (>, >>) outside quotes
+ * - command substitution ($(), backticks) outside single quotes
+ */
+function splitShellSegments(input: string): string[] | null {
+  const segments: string[] = [];
+  let current = "";
+  let i = 0;
+  let quote: "single" | "double" | null = null;
+
+  while (i < input.length) {
+    const ch = input[i];
+
+    if (!ch) {
+      i += 1;
+      continue;
+    }
+
+    if (quote === "single") {
+      current += ch;
+      if (ch === "'") {
+        quote = null;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (quote === "double") {
+      if (ch === "\\" && i + 1 < input.length) {
+        current += input.slice(i, i + 2);
+        i += 2;
+        continue;
+      }
+
+      // Command substitution still evaluates inside double quotes.
+      if (ch === "`" || input.startsWith("$(", i)) {
+        return null;
+      }
+
+      current += ch;
+      if (ch === '"') {
+        quote = null;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "'") {
+      quote = "single";
+      current += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      quote = "double";
+      current += ch;
+      i += 1;
+      continue;
+    }
+
+    if (input.startsWith(">>", i) || ch === ">") {
+      return null;
+    }
+    if (ch === "`" || input.startsWith("$(", i)) {
+      return null;
+    }
+
+    if (input.startsWith("&&", i)) {
+      segments.push(current);
+      current = "";
+      i += 2;
+      continue;
+    }
+    if (input.startsWith("||", i)) {
+      segments.push(current);
+      current = "";
+      i += 2;
+      continue;
+    }
+    if (ch === ";") {
+      segments.push(current);
+      current = "";
+      i += 1;
+      continue;
+    }
+    if (ch === "|") {
+      segments.push(current);
+      current = "";
+      i += 1;
+      continue;
+    }
+
+    current += ch;
+    i += 1;
+  }
+
+  segments.push(current);
+  return segments.map((segment) => segment.trim()).filter(Boolean);
+}
+
+export interface ReadOnlyShellOptions {
+  /**
+   * Allow absolute/home/traversal path arguments for read-only commands.
+   * Used in plan mode where read-only shell should not be restricted to cwd-relative paths.
+   */
+  allowExternalPaths?: boolean;
+}
 
 export function isReadOnlyShellCommand(
   command: string | string[] | undefined | null,
+  options: ReadOnlyShellOptions = {},
 ): boolean {
   if (!command) {
     return false;
@@ -133,9 +240,9 @@ export function isReadOnlyShellCommand(
       if (!nested) {
         return false;
       }
-      return isReadOnlyShellCommand(nested);
+      return isReadOnlyShellCommand(nested, options);
     }
-    return isReadOnlyShellCommand(joined);
+    return isReadOnlyShellCommand(joined, options);
   }
 
   const trimmed = command.trim();
@@ -143,23 +250,13 @@ export function isReadOnlyShellCommand(
     return false;
   }
 
-  if (DANGEROUS_OPERATOR_PATTERN.test(trimmed)) {
-    return false;
-  }
-
-  // Split on command separators: |, &&, ||, ;
-  // Each segment must be safe for the whole command to be safe
-  const segments = trimmed
-    .split(/\||&&|\|\||;/)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
-  if (segments.length === 0) {
+  const segments = splitShellSegments(trimmed);
+  if (!segments || segments.length === 0) {
     return false;
   }
 
   for (const segment of segments) {
-    if (!isSafeSegment(segment)) {
+    if (!isSafeSegment(segment, options)) {
       return false;
     }
   }
@@ -167,7 +264,10 @@ export function isReadOnlyShellCommand(
   return true;
 }
 
-function isSafeSegment(segment: string): boolean {
+function isSafeSegment(
+  segment: string,
+  options: ReadOnlyShellOptions,
+): boolean {
   const tokens = tokenize(segment);
   if (tokens.length === 0) {
     return false;
@@ -182,21 +282,44 @@ function isSafeSegment(segment: string): boolean {
     if (!nested) {
       return false;
     }
-    return isReadOnlyShellCommand(stripQuotes(nested));
+    return isReadOnlyShellCommand(stripQuotes(nested), options);
   }
 
   if (ALWAYS_SAFE_COMMANDS.has(command)) {
     // `cd` is read-only, but it should still respect path restrictions so
     // `cd / && cat relative/path` cannot bypass path checks on later segments.
     if (command === "cd") {
+      if (options.allowExternalPaths) {
+        return true;
+      }
       return !tokens.slice(1).some((t) => hasAbsoluteOrTraversalPathArg(t));
     }
 
     // For other "always safe" commands, ensure they don't read sensitive files
     // outside the allowed directories.
-    const hasExternalPath = tokens
-      .slice(1)
-      .some((t) => hasAbsoluteOrTraversalPathArg(t));
+    const hasExternalPath =
+      !options.allowExternalPaths &&
+      tokens.slice(1).some((t) => hasAbsoluteOrTraversalPathArg(t));
+
+    if (hasExternalPath) {
+      return false;
+    }
+    return true;
+  }
+
+  if (command === "sed") {
+    // sed is read-only unless in-place edit flags are used.
+    const usesInPlace = tokens.some(
+      (token) =>
+        token === "-i" || token.startsWith("-i") || token === "--in-place",
+    );
+    if (usesInPlace) {
+      return false;
+    }
+
+    const hasExternalPath =
+      !options.allowExternalPaths &&
+      tokens.slice(1).some((t) => hasAbsoluteOrTraversalPathArg(t));
 
     if (hasExternalPath) {
       return false;

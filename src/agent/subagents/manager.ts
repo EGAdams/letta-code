@@ -9,6 +9,7 @@
 
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { buildChatUrl } from "../../cli/helpers/appUrls";
 import {
   addToolCall,
   updateSubagent,
@@ -23,12 +24,12 @@ import { permissionMode } from "../../permissions/mode";
 import { sessionPermissions } from "../../permissions/session";
 import { settingsManager } from "../../settings-manager";
 import { resolveLettaInvocation } from "../../tools/impl/shellEnv";
-
 import { getErrorMessage } from "../../utils/error";
 import { getAvailableModelHandles } from "../available-models";
 import { getClient } from "../client";
 import { getCurrentAgentId } from "../context";
-import { resolveModel } from "../model";
+import { OPENAI_CODEX_PROVIDER_NAME } from "../../providers/openai-codex-provider";
+import { getDefaultModelForTier, resolveModel } from "../model";
 
 import { getAllSubagentConfigs, type SubagentConfig } from ".";
 
@@ -75,9 +76,9 @@ function getModelHandleFromAgent(agent: {
   const endpoint = agent.llm_config?.model_endpoint_type;
   const model = agent.llm_config?.model;
   if (endpoint && model) {
-    return `${endpoint}/${model}`;
+    return normalizeModelHandle(`${endpoint}/${model}`);
   }
-  return model || null;
+  return normalizeModelHandle(model || null);
 }
 
 async function getPrimaryAgentModelHandle(): Promise<string | null> {
@@ -91,6 +92,18 @@ async function getPrimaryAgentModelHandle(): Promise<string | null> {
   }
 }
 
+async function getCurrentBillingTier(): Promise<string | null> {
+  try {
+    const client = await getClient();
+    const balance = await client.get<{ billing_tier?: string }>(
+      "/v1/metadata/balance",
+    );
+    return balance.billing_tier ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Check if an error message indicates an unsupported provider
  */
@@ -99,6 +112,13 @@ function isProviderNotSupportedError(errorOutput: string): boolean {
     errorOutput.includes("Provider") &&
     errorOutput.includes("is not supported") &&
     errorOutput.includes("supported providers:")
+  );
+}
+
+export function isSubagentModelUnavailableError(errorOutput: string): boolean {
+  return (
+    errorOutput.includes("NOT_FOUND: Handle") &&
+    errorOutput.includes("not found")
   );
 }
 
@@ -117,6 +137,14 @@ function getProviderPrefix(handle: string): string | null {
   const slashIndex = handle.indexOf("/");
   if (slashIndex === -1) return null;
   return handle.slice(0, slashIndex);
+}
+
+function normalizeModelHandle(handle: string | null | undefined): string | null {
+  if (!handle) return null;
+  if (handle.startsWith("chatgpt_oauth/")) {
+    return `${OPENAI_CODEX_PROVIDER_NAME}/${handle.slice("chatgpt_oauth/".length)}`;
+  }
+  return handle;
 }
 
 function swapProviderPrefix(
@@ -140,15 +168,27 @@ export async function resolveSubagentModel(options: {
   userModel?: string;
   recommendedModel?: string;
   parentModelHandle?: string | null;
+  billingTier?: string | null;
   availableHandles?: Set<string>;
 }): Promise<string | null> {
-  const { userModel, recommendedModel, parentModelHandle } = options;
+  const { recommendedModel, billingTier } = options;
+  const userModel =
+    options.userModel && options.userModel !== "inherit"
+      ? options.userModel
+      : undefined;
+  const parentModelHandle = normalizeModelHandle(options.parentModelHandle);
 
-  if (userModel) return userModel;
+  if (userModel) return normalizeModelHandle(userModel);
 
   let recommendedHandle: string | null = null;
   if (recommendedModel && recommendedModel !== "inherit") {
-    recommendedHandle = resolveModel(recommendedModel);
+    recommendedHandle = normalizeModelHandle(resolveModel(recommendedModel));
+  }
+
+  // Free-tier users should default subagents to GLM-5 instead of provider-specific
+  // recommendations like Sonnet.
+  if (recommendedModel !== "inherit" && billingTier?.toLowerCase() === "free") {
+    recommendedHandle = getDefaultModelForTier(billingTier);
   }
 
   let availableHandles: Set<string> | null = options.availableHandles ?? null;
@@ -197,7 +237,13 @@ export async function resolveSubagentModel(options: {
       }
     }
 
-    return parentModelHandle;
+    // Check if parent model is actually available on this server before inheriting it.
+    // The parent agent record may have a stale model (e.g. from a different provider
+    // that is no longer configured), in which case fall back to the default model.
+    if (await isAvailable(parentModelHandle)) {
+      return parentModelHandle;
+    }
+    return getDefaultModelForTier(billingTier);
   }
 
   if (recommendedHandle && (await isAvailable(recommendedHandle))) {
@@ -228,12 +274,11 @@ function recordToolCall(
 function handleInitEvent(
   event: { agent_id?: string; conversation_id?: string },
   state: ExecutionState,
-  baseURL: string,
   subagentId: string,
 ): void {
   if (event.agent_id) {
     state.agentId = event.agent_id;
-    const agentURL = `${baseURL}/agents/${event.agent_id}`;
+    const agentURL = buildChatUrl(event.agent_id);
     updateSubagent(subagentId, { agentURL });
   }
   if (event.conversation_id) {
@@ -343,7 +388,6 @@ function handleResultEvent(
 function processStreamEvent(
   line: string,
   state: ExecutionState,
-  baseURL: string,
   subagentId: string,
 ): void {
   try {
@@ -354,7 +398,7 @@ function processStreamEvent(
       case "system":
         // Handle both legacy "init" type and new "system" type with subtype "init"
         if (event.type === "init" || event.subtype === "init") {
-          handleInitEvent(event, state, baseURL, subagentId);
+          handleInitEvent(event, state, subagentId);
         }
         break;
 
@@ -515,6 +559,7 @@ function buildSubagentArgs(
   } else {
     // Create new agent (original behavior)
     args.push("--new-agent", "--system", type);
+    args.push("--tags", `type:${type}`);
     if (model) {
       args.push("--model", model);
     }
@@ -688,7 +733,7 @@ async function executeSubagent(
 
     rl.on("line", (line: string) => {
       stdoutChunks.push(Buffer.from(`${line}\n`));
-      processStreamEvent(line, state, baseURL, subagentId);
+      processStreamEvent(line, state, subagentId);
     });
 
     proc.stderr.on("data", (data: Buffer) => {
@@ -719,11 +764,35 @@ async function executeSubagent(
 
     // Handle non-zero exit code
     if (exitCode !== 0) {
-      // Check if this is a provider-not-supported error and we haven't retried yet
-      if (!isRetry && isProviderNotSupportedError(stderr)) {
+      // Retry once when the chosen model/provider can't be created by the
+      // subagent path. This can happen when the parent is using a BYOK handle
+      // (for example chatgpt-plus-pro/*) that the server no longer exposes for
+      // new agents even though the parent agent itself still has it.
+      if (
+        !isRetry &&
+        (isProviderNotSupportedError(stderr) ||
+          isSubagentModelUnavailableError(stderr))
+      ) {
+        const billingTier = await getCurrentBillingTier();
+        const fallbackModel = getDefaultModelForTier(billingTier);
+        if (fallbackModel && fallbackModel !== model) {
+          return executeSubagent(
+            type,
+            config,
+            fallbackModel,
+            userPrompt,
+            baseURL,
+            subagentId,
+            true, // Mark as retry to prevent infinite loops
+            signal,
+            undefined, // existingAgentId
+            undefined, // existingConversationId
+            maxTurns,
+          );
+        }
+
         const primaryModel = await getPrimaryAgentModelHandle();
-        if (primaryModel) {
-          // Retry with the primary agent's model
+        if (primaryModel && primaryModel !== model) {
           return executeSubagent(
             type,
             config,
@@ -868,6 +937,7 @@ export async function spawnSubagent(
   );
 
   const parentModelHandle = await getPrimaryAgentModelHandle();
+  const billingTier = await getCurrentBillingTier();
 
   // For existing agents, don't override model; for new agents, use provided or config default
   const model = isDeployingExisting
@@ -876,6 +946,7 @@ export async function spawnSubagent(
         userModel,
         recommendedModel: config.recommendedModel,
         parentModelHandle,
+        billingTier,
       });
   const baseURL = getBaseURL();
 

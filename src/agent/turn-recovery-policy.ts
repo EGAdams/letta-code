@@ -8,6 +8,7 @@
 
 import type { MessageCreate } from "@letta-ai/letta-client/resources/agents/agents";
 import type { ApprovalCreate } from "@letta-ai/letta-client/resources/agents/messages";
+import { isCloudflareEdge52xHtmlError } from "../cli/helpers/errorFormatter";
 import { isZaiNonRetryableError } from "../cli/helpers/zaiErrors";
 
 // ── Error fragment constants ────────────────────────────────────────
@@ -64,9 +65,19 @@ const NON_RETRYABLE_429_REASONS = [
 const NON_RETRYABLE_QUOTA_DETAIL_PATTERNS = [
   "hosted model usage limit",
   "out of credits",
+  "usage_limit_reached",
 ];
 const NON_RETRYABLE_4XX_PATTERN = /Error code:\s*4(0[0-8]|1\d|2\d|3\d|4\d|51)/i;
 const RETRYABLE_429_PATTERN = /Error code:\s*429|rate limit|too many requests/i;
+const DEFAULT_TRANSIENT_RETRY_BASE_DELAY_MS = 1000;
+const CLOUDFLARE_EDGE_52X_RETRY_BASE_DELAY_MS = 5000;
+const CONVERSATION_BUSY_RETRY_BASE_DELAY_MS = 10000;
+const EMPTY_RESPONSE_RETRY_BASE_DELAY_MS = 500;
+
+function isCloudflareEdge52xDetail(detail: unknown): boolean {
+  if (typeof detail !== "string") return false;
+  return isCloudflareEdge52xHtmlError(detail);
+}
 
 function hasNonRetryableQuotaDetail(detail: unknown): boolean {
   if (typeof detail !== "string") return false;
@@ -120,6 +131,7 @@ export function isEmptyResponseError(detail: unknown): boolean {
 
 /** Transient provider/network detail that is usually safe to retry. */
 export function isRetryableProviderErrorDetail(detail: unknown): boolean {
+  if (isCloudflareEdge52xDetail(detail)) return true;
   if (typeof detail !== "string") return false;
   return RETRYABLE_PROVIDER_DETAIL_PATTERNS.some((pattern) =>
     detail.includes(pattern),
@@ -210,6 +222,56 @@ export function parseRetryAfterHeaderMs(
 
   const delayMs = retryAtMs - Date.now();
   return delayMs > 0 ? delayMs : 0;
+}
+
+export type RetryDelayCategory =
+  | "transient_provider"
+  | "conversation_busy"
+  | "empty_response";
+
+/**
+ * Compute retry delay for known retry classes.
+ * - `transient_provider`: exponential (Cloudflare-specific base) with Retry-After override
+ * - `conversation_busy`: exponential
+ * - `empty_response`: linear
+ */
+export function getRetryDelayMs(opts: {
+  category: RetryDelayCategory;
+  attempt: number;
+  detail?: unknown;
+  retryAfterMs?: number | null;
+}): number {
+  const { category, attempt, detail, retryAfterMs = null } = opts;
+
+  if (category === "transient_provider") {
+    if (retryAfterMs !== null) return retryAfterMs;
+    const baseDelayMs = isCloudflareEdge52xDetail(detail)
+      ? CLOUDFLARE_EDGE_52X_RETRY_BASE_DELAY_MS
+      : DEFAULT_TRANSIENT_RETRY_BASE_DELAY_MS;
+    return baseDelayMs * 2 ** (attempt - 1);
+  }
+
+  if (category === "conversation_busy") {
+    return CONVERSATION_BUSY_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+  }
+
+  return EMPTY_RESPONSE_RETRY_BASE_DELAY_MS * attempt;
+}
+
+/**
+ * Backward-compatible wrapper for transient provider retries.
+ */
+export function getTransientRetryDelayMs(opts: {
+  attempt: number;
+  detail: unknown;
+  retryAfterMs?: number | null;
+}): number {
+  return getRetryDelayMs({
+    category: "transient_provider",
+    attempt: opts.attempt,
+    detail: opts.detail,
+    retryAfterMs: opts.retryAfterMs,
+  });
 }
 
 // ── Pre-stream conflict routing ─────────────────────────────────────

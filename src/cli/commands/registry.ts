@@ -92,6 +92,15 @@ export const commands: Record<string, Command> = {
       return "Opening sleeptime settings...";
     },
   },
+  "/compaction": {
+    desc: "Configure compaction mode settings",
+    order: 15.6,
+    noArgs: true,
+    handler: () => {
+      // Handled specially in App.tsx to open compaction settings
+      return "Opening compaction settings...";
+    },
+  },
   "/memfs": {
     desc: "Manage filesystem-backed memory (/memfs [enable|disable|sync|reset])",
     args: "[enable|disable|sync|reset]",
@@ -288,6 +297,15 @@ export const commands: Record<string, Command> = {
       return "Managing status line...";
     },
   },
+  "/reasoning-tab": {
+    desc: "Toggle Tab shortcut for reasoning tiers (/reasoning-tab on|off|status)",
+    args: "[on|off|status]",
+    order: 36.6,
+    handler: () => {
+      // Handled specially in App.tsx
+      return "Managing reasoning Tab shortcut...";
+    },
+  },
   "/terminal": {
     desc: "Setup terminal shortcuts [--revert]",
     order: 37,
@@ -439,7 +457,7 @@ export const commands: Record<string, Command> = {
   },
   "/compact": {
     desc: "Summarize conversation history (compaction) with optional mode",
-    args: "[all|sliding_window]",
+    args: "[all|sliding_window|self_compact_all|self_compact_sliding_window]",
     handler: () => {
       // Handled specially in App.tsx to access client and agent ID
       return "Compacting conversation...";

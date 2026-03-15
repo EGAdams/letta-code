@@ -197,6 +197,26 @@ test("plan mode - allows Read", () => {
   expect(result.matchedRule).toBe("plan mode");
 });
 
+test("plan mode - allows TaskOutput", () => {
+  permissionMode.setMode("plan");
+
+  const permissions: PermissionRules = {
+    allow: [],
+    deny: [],
+    ask: [],
+  };
+
+  const result = checkPermission(
+    "TaskOutput",
+    { task_id: "task_1" },
+    permissions,
+    "/Users/test/project",
+  );
+
+  expect(result.decision).toBe("allow");
+  expect(result.matchedRule).toBe("plan mode");
+});
+
 test("plan mode - allows Glob", () => {
   permissionMode.setMode("plan");
 
@@ -277,6 +297,35 @@ test("plan mode - denies Write", () => {
   expect(result.matchedRule).toBe("plan mode");
   // Reason now includes detailed guidance (planFilePath not set in test, so shows error fallback)
   expect(result.reason).toContain("Plan mode is active");
+});
+
+test("plan mode deny reason includes exact apply_patch relative path hint", () => {
+  permissionMode.setMode("plan");
+  const workingDirectory = join(homedir(), "dev", "repo");
+  const planPath = join(homedir(), ".letta", "plans", "unit-test-plan.md");
+  const expectedRelativePath = relative(workingDirectory, planPath).replace(
+    /\\/g,
+    "/",
+  );
+  permissionMode.setPlanFilePath(planPath);
+
+  const permissions: PermissionRules = {
+    allow: [],
+    deny: [],
+    ask: [],
+  };
+
+  const result = checkPermission(
+    "Write",
+    { file_path: "/tmp/test.txt" },
+    permissions,
+    workingDirectory,
+  );
+
+  expect(result.decision).toBe("deny");
+  expect(result.reason).toContain(
+    `If using apply_patch, use this exact relative path in patch headers: ${expectedRelativePath}.`,
+  );
 });
 
 test("plan mode - allows Write to plan markdown file", () => {
@@ -381,6 +430,74 @@ test("plan mode - denies non-read-only Bash", () => {
   expect(result.matchedRule).toBe("plan mode");
 });
 
+test("plan mode - allows Bash heredoc write to plan file", () => {
+  permissionMode.setMode("plan");
+
+  const permissions: PermissionRules = {
+    allow: [],
+    deny: [],
+    ask: [],
+  };
+
+  const planPath = join(homedir(), ".letta", "plans", "unit-test-plan.md");
+  const command = `cat > ${planPath} <<'EOF'\n# Plan\n- step 1\nEOF`;
+
+  const result = checkPermission(
+    "Bash",
+    { command },
+    permissions,
+    "/Users/test/project",
+  );
+
+  expect(result.decision).toBe("allow");
+  expect(result.matchedRule).toBe("plan mode");
+});
+
+test("plan mode - denies Bash heredoc write outside plans dir", () => {
+  permissionMode.setMode("plan");
+
+  const permissions: PermissionRules = {
+    allow: [],
+    deny: [],
+    ask: [],
+  };
+
+  const command = "cat > /tmp/not-a-plan.md <<'EOF'\n# Plan\nEOF";
+
+  const result = checkPermission(
+    "Bash",
+    { command },
+    permissions,
+    "/Users/test/project",
+  );
+
+  expect(result.decision).toBe("deny");
+  expect(result.matchedRule).toBe("plan mode");
+});
+
+test("plan mode - denies Bash heredoc write when extra commands follow", () => {
+  permissionMode.setMode("plan");
+
+  const permissions: PermissionRules = {
+    allow: [],
+    deny: [],
+    ask: [],
+  };
+
+  const planPath = join(homedir(), ".letta", "plans", "unit-test-plan.md");
+  const command = `cat > ${planPath} <<'EOF'\n# Plan\nEOF\necho 'extra command'`;
+
+  const result = checkPermission(
+    "Bash",
+    { command },
+    permissions,
+    "/Users/test/project",
+  );
+
+  expect(result.decision).toBe("deny");
+  expect(result.matchedRule).toBe("plan mode");
+});
+
 test("plan mode - allows read-only Bash commands", () => {
   permissionMode.setMode("plan");
 
@@ -454,6 +571,18 @@ test("plan mode - allows read-only Bash commands", () => {
   );
   expect(chainedResult.decision).toBe("allow");
 
+  // quoted pipes in regex patterns should be treated as literals and allowed
+  const quotedPipeResult = checkPermission(
+    "Bash",
+    {
+      command:
+        'rg -n "memfs|memory filesystem|memory_filesystem|skills/|SKILL.md|git-backed|sync" letta tests -S',
+    },
+    permissions,
+    "/Users/test/project",
+  );
+  expect(quotedPipeResult.decision).toBe("allow");
+
   // cd && dangerous command should still be denied
   const cdDangerousResult = checkPermission(
     "Bash",
@@ -462,6 +591,24 @@ test("plan mode - allows read-only Bash commands", () => {
     "/Users/test/project",
   );
   expect(cdDangerousResult.decision).toBe("deny");
+
+  // absolute paths should be allowed in plan mode for read-only analysis
+  const absoluteReadResult = checkPermission(
+    "Bash",
+    { command: "sed -n '1,80p' /tmp/logs/output.log" },
+    permissions,
+    "/Users/test/project",
+  );
+  expect(absoluteReadResult.decision).toBe("allow");
+
+  // traversal paths should also be allowed in plan mode for read-only analysis
+  const traversalReadResult = checkPermission(
+    "Bash",
+    { command: "cat ../shared/config.json" },
+    permissions,
+    "/Users/test/project",
+  );
+  expect(traversalReadResult.decision).toBe("allow");
 });
 
 test("plan mode - denies WebFetch", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isSubagentModelUnavailableError,
   resolveSubagentLauncher,
   resolveSubagentModel,
 } from "../../agent/subagents/manager";
@@ -205,5 +206,84 @@ describe("resolveSubagentModel", () => {
     });
 
     expect(result).toBe("lc-anthropic/parent-model");
+  });
+
+  test("normalizes legacy chatgpt_oauth parent handle", async () => {
+    const result = await resolveSubagentModel({
+      recommendedModel: "inherit",
+      parentModelHandle: "chatgpt_oauth/gpt-5.2-codex",
+      availableHandles: new Set(["chatgpt-plus-pro/gpt-5.2-codex"]),
+    });
+
+    expect(result).toBe("chatgpt-plus-pro/gpt-5.2-codex");
+  });
+
+  test("normalizes legacy chatgpt_oauth explicit user model", async () => {
+    const result = await resolveSubagentModel({
+      userModel: "chatgpt_oauth/gpt-5.2-codex",
+      recommendedModel: "inherit",
+      parentModelHandle: "lc-anthropic/parent-model",
+      availableHandles: new Set(["chatgpt-plus-pro/gpt-5.2-codex"]),
+    });
+
+    expect(result).toBe("chatgpt-plus-pro/gpt-5.2-codex");
+  });
+
+  test('treats explicit user model "inherit" as inherit behavior', async () => {
+    const result = await resolveSubagentModel({
+      userModel: "inherit",
+      recommendedModel: "inherit",
+      parentModelHandle: "lc-anthropic/parent-model",
+      availableHandles: new Set(["lc-anthropic/parent-model"]),
+    });
+
+    expect(result).toBe("lc-anthropic/parent-model");
+  });
+
+  test("uses GLM-5 default for free tier even when subagent recommends another model", async () => {
+    const result = await resolveSubagentModel({
+      recommendedModel: "sonnet-4.5",
+      billingTier: "free",
+      availableHandles: new Set(["zai/glm-5"]),
+    });
+
+    expect(result).toBe("zai/glm-5");
+  });
+
+  test("keeps inherit behavior for free tier", async () => {
+    const result = await resolveSubagentModel({
+      recommendedModel: "inherit",
+      parentModelHandle: "openai/gpt-5",
+      billingTier: "free",
+      availableHandles: new Set(["openai/gpt-5"]),
+    });
+
+    expect(result).toBe("openai/gpt-5");
+  });
+
+  test("user-provided model still overrides free-tier default", async () => {
+    const result = await resolveSubagentModel({
+      userModel: "openai/gpt-5",
+      recommendedModel: "sonnet-4.5",
+      billingTier: "free",
+      availableHandles: new Set(["zai/glm-5", "openai/gpt-5"]),
+    });
+
+    expect(result).toBe("openai/gpt-5");
+  });
+});
+
+describe("isSubagentModelUnavailableError", () => {
+  test("detects handle-not-found model errors", () => {
+    const errorText =
+      'NotFoundError2: 404 {"detail":"NOT_FOUND: Handle chatgpt-plus-pro/gpt-5.3-codex not found, must be one of []"}';
+
+    expect(isSubagentModelUnavailableError(errorText)).toBe(true);
+  });
+
+  test("ignores unrelated errors", () => {
+    expect(
+      isSubagentModelUnavailableError("Provider foo is not supported"),
+    ).toBe(false);
   });
 });

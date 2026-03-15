@@ -12,8 +12,10 @@ export type SharedReminderId =
   | "plan-mode"
   | "reflection-step-count"
   | "reflection-compaction"
+  | "deep-init"
   | "command-io"
-  | "toolset-change";
+  | "toolset-change"
+  | "auto-init";
 
 export interface SharedReminderDefinition {
   id: SharedReminderId;
@@ -65,6 +67,12 @@ export const SHARED_REMINDER_CATALOG: ReadonlyArray<SharedReminderDefinition> =
       modes: ["interactive", "headless-one-shot", "headless-bidirectional"],
     },
     {
+      id: "deep-init",
+      description:
+        "Auto-launch deep memory init after shallow init + turn gate",
+      modes: ["interactive"],
+    },
+    {
       id: "command-io",
       description: "Recent slash command input/output context",
       modes: ["interactive"],
@@ -72,6 +80,11 @@ export const SHARED_REMINDER_CATALOG: ReadonlyArray<SharedReminderDefinition> =
     {
       id: "toolset-change",
       description: "Client-side toolset change context",
+      modes: ["interactive"],
+    },
+    {
+      id: "auto-init",
+      description: "Auto-init background onboarding notification",
       modes: ["interactive"],
     },
   ];

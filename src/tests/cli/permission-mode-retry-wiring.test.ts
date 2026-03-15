@@ -8,6 +8,27 @@ function readAppSource(): string {
 }
 
 describe("permission mode retry wiring", () => {
+  test("setUiPermissionMode syncs singleton mode immediately", () => {
+    const source = readAppSource();
+
+    const start = source.indexOf(
+      "const setUiPermissionMode = useCallback((mode: PermissionMode) => {",
+    );
+    const end = source.indexOf(
+      "const statusLineTriggerVersionRef = useRef(0);",
+    );
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const segment = source.slice(start, end);
+    expect(segment).toContain("if (permissionMode.getMode() !== mode)");
+    expect(segment).toContain(
+      'if (mode === "plan" && !permissionMode.getPlanFilePath())',
+    );
+    expect(segment).toContain("permissionMode.setPlanFilePath(planPath);");
+    expect(segment).toContain("permissionMode.setMode(mode);");
+  });
+
   test("pins submission permission mode and defines a restore helper", () => {
     const source = readAppSource();
 
@@ -67,5 +88,24 @@ describe("permission mode retry wiring", () => {
     expect(segment).toContain("buffersRef.current.interrupted = false;");
     expect(segment).toContain("conversationBusyRetriesRef.current = 0;");
     expect(segment).toContain("continue;");
+  });
+
+  test("preserves saved plan path when approving ExitPlanMode after mode cycling", () => {
+    const source = readAppSource();
+
+    const start = source.indexOf("const handlePlanApprove = useCallback(");
+    const end = source.indexOf(
+      "useEffect(() => {\n    const currentIndex = approvalResults.length;",
+      start,
+    );
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const segment = source.slice(start, end);
+    expect(segment).toContain(
+      "permissionMode.getPlanFilePath() ?? lastPlanFilePathRef.current",
+    );
+    expect(segment).toContain("if (planFilePath) {");
+    expect(segment).toContain("lastPlanFilePathRef.current = planFilePath;");
   });
 });

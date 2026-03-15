@@ -1,5 +1,7 @@
+import { getServerUrl } from "../agent/client";
 import { getLettaCodeHeaders } from "../agent/http-headers";
 import { settingsManager } from "../settings-manager";
+import { debugLogFile } from "../utils/debug";
 import { getVersion } from "../version";
 
 export interface TelemetryEvent {
@@ -50,6 +52,7 @@ export interface ErrorData {
   model_id?: string;
   run_id?: string;
   recent_chunks?: Record<string, unknown>[];
+  debug_log_tail?: string;
 }
 
 export interface UserInputData {
@@ -70,6 +73,7 @@ class TelemetryManager {
   private toolCallCount = 0;
   private sessionEndTracked = false;
   private flushInterval: NodeJS.Timeout | null = null;
+  private serverVersion: string | null = null;
   private readonly FLUSH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
   private readonly MAX_BATCH_SIZE = 100;
   private sessionStatsGetter?: () => {
@@ -122,6 +126,9 @@ class TelemetryManager {
     this.deviceId = settingsManager.getOrCreateDeviceId();
 
     this.trackSessionStart();
+
+    // Fetch server version for diagnostics (best-effort, non-blocking)
+    this.fetchServerVersion().catch(() => {});
 
     // Set up periodic flushing
     this.flushInterval = setInterval(() => {
@@ -208,6 +215,34 @@ class TelemetryManager {
   }
 
   /**
+   * Fetch and cache server version from /v1/health (fire-and-forget, best-effort)
+   */
+  async fetchServerVersion(): Promise<void> {
+    try {
+      const baseURL = getServerUrl();
+      const settings = await settingsManager.getSettingsWithSecureTokens();
+      const apiKey =
+        process.env.LETTA_API_KEY || settings.env?.LETTA_API_KEY || "";
+      const res = await fetch(`${baseURL}/v1/health`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { version?: string };
+        if (data.version) {
+          this.serverVersion = data.version;
+        }
+      }
+    } catch {
+      // Best-effort — don't let this affect startup
+    }
+  }
+
+  getServerVersion(): string | null {
+    return this.serverVersion;
+  }
+
+  /**
    * Set a getter function for session stats (called from App.tsx)
    * This allows safety net handlers to access stats even if not explicitly passed
    * Pass undefined to clear the getter (for cleanup)
@@ -236,6 +271,20 @@ class TelemetryManager {
    */
   getSessionId(): string {
     return this.sessionId;
+  }
+
+  /**
+   * Get the current message count
+   */
+  getMessageCount(): number {
+    return this.messageCount;
+  }
+
+  /**
+   * Get the current tool call count
+   */
+  getToolCallCount(): number {
+    return this.toolCallCount;
   }
 
   /**
@@ -368,6 +417,7 @@ class TelemetryManager {
       model_id: options?.modelId,
       run_id: options?.runId,
       recent_chunks: options?.recentChunks,
+      debug_log_tail: debugLogFile.getTail(),
     };
     this.track("error", data);
   }
@@ -421,6 +471,7 @@ class TelemetryManager {
           },
           body: JSON.stringify({
             service: "letta-code",
+            server_version: this.serverVersion || undefined,
             events: eventsToSend,
           }),
         },

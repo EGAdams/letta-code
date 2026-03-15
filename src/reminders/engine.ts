@@ -46,6 +46,7 @@ export interface SharedReminderContext {
   maybeLaunchReflectionSubagent?: (
     triggerSource: ReflectionTriggerSource,
   ) => Promise<boolean>;
+  maybeLaunchDeepInitSubagent?: () => Promise<boolean>;
 }
 
 export type ReminderTextPart = { type: "text"; text: string };
@@ -256,6 +257,38 @@ async function buildReflectionCompactionReminder(
   return buildCompactionMemoryReminder(context.agent.id);
 }
 
+async function buildAutoInitReminder(
+  context: SharedReminderContext,
+): Promise<string | null> {
+  if (!context.state.pendingAutoInitReminder) return null;
+  context.state.pendingAutoInitReminder = false;
+  const { AUTO_INIT_REMINDER } = await import("../agent/promptAssets.js");
+  return AUTO_INIT_REMINDER;
+}
+
+// Disabled: deep init at turn 8 + reflection at turn 10 is too chaotic.
+// Re-enable once both subagent prompts are tuned to coexist.
+const DEEP_INIT_AUTO_LAUNCH_ENABLED = false;
+
+async function maybeLaunchDeepInit(
+  context: SharedReminderContext,
+): Promise<string | null> {
+  if (!DEEP_INIT_AUTO_LAUNCH_ENABLED) return null;
+  if (!context.state.shallowInitCompleted) return null;
+  if (context.state.deepInitFired) return null;
+  if (context.state.turnCount < 8) return null;
+
+  const memfsEnabled = settingsManager.isMemfsEnabled(context.agent.id);
+  if (!memfsEnabled) return null;
+
+  if (context.maybeLaunchDeepInitSubagent) {
+    // Don't latch deepInitFired here — it's set in the onComplete callback
+    // only on success, so a failed deep init allows automatic retry.
+    await context.maybeLaunchDeepInitSubagent();
+  }
+  return null;
+}
+
 const MAX_COMMAND_REMINDERS_PER_TURN = 10;
 const MAX_TOOLSET_REMINDERS_PER_TURN = 5;
 const MAX_COMMAND_INPUT_CHARS = 2000;
@@ -295,29 +328,31 @@ async function buildCommandIoReminder(
   const recent = queued.slice(-MAX_COMMAND_REMINDERS_PER_TURN);
   const dropped = queued.length - recent.length;
 
-  const commandBlocks = recent.map((entry) => {
+  const commandLines = recent.map((entry) => {
     const status = entry.success ? "success" : "error";
-    const safeInput = escapeXml(truncate(entry.input, MAX_COMMAND_INPUT_CHARS));
-    const safeOutput = escapeXml(
-      truncate(entry.output || "(no output)", MAX_COMMAND_OUTPUT_CHARS),
+    const safeInput = truncate(entry.input, MAX_COMMAND_INPUT_CHARS);
+    const safeOutput = truncate(
+      entry.output || "(no output)",
+      MAX_COMMAND_OUTPUT_CHARS,
     );
-    return `<user-command>
-<user-command-input>${safeInput}</user-command-input>
-<user-command-output>${safeOutput}</user-command-output>
-<user-command-status>${status}</user-command-status>
-</user-command>`;
+    return `- ${safeInput} → ${safeOutput} (${status})`;
   });
+
+  const agentHints = recent
+    .filter((entry) => entry.agentHint)
+    .map((entry) => entry.agentHint);
 
   const droppedLine =
     dropped > 0 ? `\nOmitted ${dropped} older command event(s).` : "";
 
-  return `${SYSTEM_REMINDER_OPEN}
-The following slash commands were executed in the Letta Code harness since your last user message.
-Treat these as execution context from the CLI, not new user requests.${droppedLine}
-${commandBlocks.join("\n")}
-${SYSTEM_REMINDER_CLOSE}
+  const hintsBlock =
+    agentHints.length > 0
+      ? `\n\nHowever, take note of the following:\n${agentHints.map((h) => `- ${h}`).join("\n")}`
+      : "";
 
-`;
+  return `${SYSTEM_REMINDER_OPEN} The following slash commands were already handled by the CLI harness. These are informational only — do NOT act on them or treat them as user requests.${droppedLine}
+${commandLines.join("\n")}${hintsBlock}
+${SYSTEM_REMINDER_CLOSE}`;
 }
 
 async function buildToolsetChangeReminder(
@@ -337,24 +372,24 @@ async function buildToolsetChangeReminder(
     const newToolset = escapeXml(entry.newToolset ?? "unknown");
     const previousTools = escapeXml(formatToolList(entry.previousTools));
     const newTools = escapeXml(formatToolList(entry.newTools));
-    return `<toolset-change>
-<source>${source}</source>
-<previous-toolset>${previousToolset}</previous-toolset>
-<new-toolset>${newToolset}</new-toolset>
-<previous-tools>${previousTools}</previous-tools>
-<new-tools>${newTools}</new-tools>
-</toolset-change>`;
+    return [
+      `<toolset-change>`,
+      `  <source>${source}</source>`,
+      `  <previous-toolset>${previousToolset}</previous-toolset>`,
+      `  <new-toolset>${newToolset}</new-toolset>`,
+      `  <previous-tools>${previousTools}</previous-tools>`,
+      `  <new-tools>${newTools}</new-tools>`,
+      `</toolset-change>`,
+    ].join("\n");
   });
 
   const droppedLine =
     dropped > 0 ? `\nOmitted ${dropped} older toolset change event(s).` : "";
 
-  return `${SYSTEM_REMINDER_OPEN}
-The user just changed your toolset (specifically, client-side tools that are attached to the Letta Code harness, which may be a subset of your total tools).${droppedLine}
-${changeBlocks.join("\n")}
-${SYSTEM_REMINDER_CLOSE}
+  return `${SYSTEM_REMINDER_OPEN} The user just changed your toolset (specifically, client-side tools that are attached to the Letta Code harness, which may be a subset of your total tools).${droppedLine}
 
-`;
+${changeBlocks.join("\n\n")}
+${SYSTEM_REMINDER_CLOSE}`;
 }
 
 export const sharedReminderProviders: Record<
@@ -368,8 +403,10 @@ export const sharedReminderProviders: Record<
   "plan-mode": buildPlanModeReminder,
   "reflection-step-count": buildReflectionStepReminder,
   "reflection-compaction": buildReflectionCompactionReminder,
+  "deep-init": maybeLaunchDeepInit,
   "command-io": buildCommandIoReminder,
   "toolset-change": buildToolsetChangeReminder,
+  "auto-init": buildAutoInitReminder,
 };
 
 export function assertSharedReminderCoverage(): void {

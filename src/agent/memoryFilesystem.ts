@@ -10,6 +10,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { getServerUrl } from "./client";
 
 export const MEMORY_FS_ROOT = ".letta";
 export const MEMORY_FS_AGENTS_DIR = "agents";
@@ -152,6 +153,8 @@ export interface ApplyMemfsFlagsOptions {
   allowSelfHosted?: boolean;
   /** Optional remote override for self-hosted git-backed memfs. */
   remoteUrl?: string;
+  /** Skip the system prompt update (when the agent was created with the correct mode). */
+  skipPromptUpdate?: boolean;
 }
 
 /**
@@ -175,7 +178,6 @@ export async function applyMemfsFlags(
   noMemfsFlag: boolean | undefined,
   options?: ApplyMemfsFlagsOptions,
 ): Promise<ApplyMemfsFlagsResult> {
-  const { getServerUrl } = await import("./client");
   const { settingsManager } = await import("../settings-manager");
   const serverUrl = getServerUrl();
   const isCloudServer = serverUrl.includes("api.letta.com");
@@ -226,13 +228,15 @@ export async function applyMemfsFlags(
 
   // 2. Reconcile system prompt first, then persist local memfs setting.
   if (hasExplicitToggle || shouldAutoEnableFromTag) {
-    const { updateAgentSystemPromptMemfs } = await import("./modify");
-    const promptUpdate = await updateAgentSystemPromptMemfs(
-      agentId,
-      targetEnabled,
-    );
-    if (!promptUpdate.success) {
-      throw new Error(promptUpdate.message);
+    if (!options?.skipPromptUpdate) {
+      const { updateAgentSystemPromptMemfs } = await import("./modify");
+      const promptUpdate = await updateAgentSystemPromptMemfs(
+        agentId,
+        targetEnabled,
+      );
+      if (!promptUpdate.success) {
+        throw new Error(promptUpdate.message);
+      }
     }
     settingsManager.setMemfsEnabled(agentId, targetEnabled);
     if (targetEnabled) {
@@ -326,20 +330,30 @@ export async function applyMemfsFlags(
 }
 
 /**
- * Enable memfs for a newly created agent if on Letta Cloud.
- * Non-fatal: logs a warning on failure. Skips on self-hosted.
+ * Whether the current server is Letta Cloud (or local memfs testing is enabled).
  */
-export async function enableMemfsIfCloud(agentId: string): Promise<void> {
+export async function isLettaCloud(): Promise<boolean> {
   const { getServerUrl } = await import("./client");
   const serverUrl = getServerUrl();
-  if (
-    !serverUrl.includes("api.letta.com") &&
-    process.env.LETTA_MEMFS_LOCAL !== "1"
-  )
-    return;
+  return (
+    serverUrl.includes("api.letta.com") || process.env.LETTA_MEMFS_LOCAL === "1"
+  );
+}
+
+/**
+ * Enable memfs for a newly created agent if on Letta Cloud.
+ * Non-fatal: logs a warning on failure. Skips on self-hosted.
+ *
+ * Skips the system prompt update since callers are expected to create
+ * the agent with the correct memory mode upfront.
+ */
+export async function enableMemfsIfCloud(agentId: string): Promise<void> {
+  if (!(await isLettaCloud())) return;
 
   try {
-    await applyMemfsFlags(agentId, true, undefined);
+    await applyMemfsFlags(agentId, true, undefined, {
+      skipPromptUpdate: true,
+    });
   } catch (error) {
     console.warn(
       `Warning: Could not enable memfs for new agent: ${error instanceof Error ? error.message : String(error)}`,
