@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isSubagentModelUnavailableError,
   resolveSubagentLauncher,
   resolveSubagentModel,
 } from "../../agent/subagents/manager";
@@ -228,6 +229,17 @@ describe("resolveSubagentModel", () => {
     expect(result).toBe("chatgpt-plus-pro/gpt-5.2-codex");
   });
 
+  test('treats explicit user model "inherit" as inherit behavior', async () => {
+    const result = await resolveSubagentModel({
+      userModel: "inherit",
+      recommendedModel: "inherit",
+      parentModelHandle: "lc-anthropic/parent-model",
+      availableHandles: new Set(["lc-anthropic/parent-model"]),
+    });
+
+    expect(result).toBe("lc-anthropic/parent-model");
+  });
+
   test("uses GLM-5 default for free tier even when subagent recommends another model", async () => {
     const result = await resolveSubagentModel({
       recommendedModel: "sonnet-4.5",
@@ -258,5 +270,20 @@ describe("resolveSubagentModel", () => {
     });
 
     expect(result).toBe("openai/gpt-5");
+  });
+});
+
+describe("isSubagentModelUnavailableError", () => {
+  test("detects handle-not-found model errors", () => {
+    const errorText =
+      'NotFoundError2: 404 {"detail":"NOT_FOUND: Handle chatgpt-plus-pro/gpt-5.3-codex not found, must be one of []"}';
+
+    expect(isSubagentModelUnavailableError(errorText)).toBe(true);
+  });
+
+  test("ignores unrelated errors", () => {
+    expect(
+      isSubagentModelUnavailableError("Provider foo is not supported"),
+    ).toBe(false);
   });
 });

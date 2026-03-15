@@ -115,6 +115,13 @@ function isProviderNotSupportedError(errorOutput: string): boolean {
   );
 }
 
+export function isSubagentModelUnavailableError(errorOutput: string): boolean {
+  return (
+    errorOutput.includes("NOT_FOUND: Handle") &&
+    errorOutput.includes("not found")
+  );
+}
+
 const BYOK_PROVIDER_TO_BASE: Record<string, string> = {
   "lc-anthropic": "anthropic",
   "lc-openai": "openai",
@@ -164,7 +171,11 @@ export async function resolveSubagentModel(options: {
   billingTier?: string | null;
   availableHandles?: Set<string>;
 }): Promise<string | null> {
-  const { userModel, recommendedModel, billingTier } = options;
+  const { recommendedModel, billingTier } = options;
+  const userModel =
+    options.userModel && options.userModel !== "inherit"
+      ? options.userModel
+      : undefined;
   const parentModelHandle = normalizeModelHandle(options.parentModelHandle);
 
   if (userModel) return normalizeModelHandle(userModel);
@@ -753,11 +764,35 @@ async function executeSubagent(
 
     // Handle non-zero exit code
     if (exitCode !== 0) {
-      // Check if this is a provider-not-supported error and we haven't retried yet
-      if (!isRetry && isProviderNotSupportedError(stderr)) {
+      // Retry once when the chosen model/provider can't be created by the
+      // subagent path. This can happen when the parent is using a BYOK handle
+      // (for example chatgpt-plus-pro/*) that the server no longer exposes for
+      // new agents even though the parent agent itself still has it.
+      if (
+        !isRetry &&
+        (isProviderNotSupportedError(stderr) ||
+          isSubagentModelUnavailableError(stderr))
+      ) {
+        const billingTier = await getCurrentBillingTier();
+        const fallbackModel = getDefaultModelForTier(billingTier);
+        if (fallbackModel && fallbackModel !== model) {
+          return executeSubagent(
+            type,
+            config,
+            fallbackModel,
+            userPrompt,
+            baseURL,
+            subagentId,
+            true, // Mark as retry to prevent infinite loops
+            signal,
+            undefined, // existingAgentId
+            undefined, // existingConversationId
+            maxTurns,
+          );
+        }
+
         const primaryModel = await getPrimaryAgentModelHandle();
-        if (primaryModel) {
-          // Retry with the primary agent's model
+        if (primaryModel && primaryModel !== model) {
           return executeSubagent(
             type,
             config,
