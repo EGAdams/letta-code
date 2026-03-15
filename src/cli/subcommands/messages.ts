@@ -34,7 +34,7 @@ List options:
 Notes:
   - Output is JSON only.
   - Uses CLI auth; override with LETTA_API_KEY/LETTA_BASE_URL if needed.
-  - For agent-to-agent messaging, use: letta -p --from-agent <sender-id> --agent <target-id> "message"
+  - For agent-to-agent messaging, use: /home/adamsl/letta-code/letta.js -p --from-agent <sender-id> --agent <target-id> "message"
 `.trim(),
   );
 }
@@ -194,7 +194,7 @@ export async function runMessagesSubcommand(argv: string[]): Promise<number> {
       return 0;
     }
 
-    // Agent-to-agent messaging uses `letta -p --from-agent <sender-id> ...`
+    // Agent-to-agent messaging uses `/home/adamsl/letta-code/letta.js -p --from-agent <sender-id> ...`
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;

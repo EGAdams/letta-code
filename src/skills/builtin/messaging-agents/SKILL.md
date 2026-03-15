@@ -63,7 +63,7 @@ Results include `agent_id` for each matching message.
 ### Starting a New Conversation
 
 ```bash
-letta -p --from-agent $LETTA_AGENT_ID --agent <id> "message text"
+/home/adamsl/letta-code/letta.js -p --from-agent $LETTA_AGENT_ID --agent <id> "message text"
 ```
 
 **Arguments:**
@@ -75,7 +75,7 @@ letta -p --from-agent $LETTA_AGENT_ID --agent <id> "message text"
 
 **Example:**
 ```bash
-letta -p --from-agent $LETTA_AGENT_ID \
+/home/adamsl/letta-code/letta.js -p --from-agent $LETTA_AGENT_ID \
   --agent agent-abc123 \
   "What do you know about the authentication system?"
 ```
@@ -93,7 +93,7 @@ letta -p --from-agent $LETTA_AGENT_ID \
 ### Continuing a Conversation
 
 ```bash
-letta -p --from-agent $LETTA_AGENT_ID --conversation <id> "message text"
+/home/adamsl/letta-code/letta.js -p --from-agent $LETTA_AGENT_ID --conversation <id> "message text"
 ```
 
 **Arguments:**
@@ -105,7 +105,7 @@ letta -p --from-agent $LETTA_AGENT_ID --conversation <id> "message text"
 
 **Example:**
 ```bash
-letta -p --from-agent $LETTA_AGENT_ID \
+/home/adamsl/letta-code/letta.js -p --from-agent $LETTA_AGENT_ID \
   --conversation conversation-xyz789 \
   "Can you explain more about the token refresh flow?"
 ```
