@@ -878,30 +878,49 @@ async function main(): Promise<void> {
   markMilestone("CREDENTIALS_VALIDATED");
 
   if (!isValid) {
-    // For headless mode, error out with helpful message
-    if (isHeadless) {
-      console.error("Failed to connect to Letta server");
-      console.error(`Base URL: ${baseURL}`);
-      console.error(
+    const isLettaCloud = baseURL === LETTA_CLOUD_API_URL;
+
+    // Letta Cloud supports OAuth reconfiguration.
+    if (isLettaCloud) {
+      // For headless mode, error out with helpful message
+      if (isHeadless) {
+        console.error("Failed to connect to Letta server");
+        console.error(`Base URL: ${baseURL}`);
+        console.error(
+          "Your credentials may be invalid or the server may be unreachable.",
+        );
+        console.error(
+          "Delete ~/.letta/settings.json then run 'letta' to re-authenticate",
+        );
+        process.exit(1);
+      }
+
+      // For interactive mode, show setup flow
+      console.log("Failed to connect to Letta server.");
+      console.log(`Base URL: ${baseURL}\n`);
+      console.log(
         "Your credentials may be invalid or the server may be unreachable.",
       );
-      console.error(
-        "Delete ~/.letta/settings.json then run 'letta' to re-authenticate",
-      );
-      process.exit(1);
+      console.log("Let's reconfigure your setup.\n");
+      const { runSetup } = await import("./auth/setup");
+      await runSetup();
+      // After setup, restart main flow
+      return main();
     }
 
-    // For interactive mode, show setup flow
-    console.log("Failed to connect to Letta server.");
-    console.log(`Base URL: ${baseURL}\n`);
-    console.log(
+    // Self-hosted servers do not support Letta Cloud OAuth setup.
+    console.error("Failed to connect to Letta server.");
+    console.error(`Base URL: ${baseURL}`);
+    console.error(
       "Your credentials may be invalid or the server may be unreachable.",
     );
-    console.log("Let's reconfigure your setup.\n");
-    const { runSetup } = await import("./auth/setup");
-    await runSetup();
-    // After setup, restart main flow
-    return main();
+    console.error(
+      "Detected a self-hosted Letta URL. Letta Cloud OAuth setup is not available for this server.",
+    );
+    console.error(
+      "Set LETTA_API_KEY for this server and verify LETTA_BASE_URL is reachable.",
+    );
+    process.exit(1);
   }
 
   // Resolve --name to agent ID if provided
