@@ -19,39 +19,33 @@ export interface ToolsetChangeReminder {
   newTools: string[];
 }
 
+export type SessionContextReason = "initial_attach" | "cwd_changed";
+
 export interface SharedReminderState {
   hasSentAgentInfo: boolean;
   hasSentSessionContext: boolean;
-  hasInjectedSkillsReminder: boolean;
-  cachedSkillsReminder: string | null;
-  skillPathById: Record<string, string>;
+  hasSentSecretsInfo: boolean;
   lastNotifiedPermissionMode: PermissionMode | null;
   turnCount: number;
-  pendingSkillsReinject: boolean;
   pendingReflectionTrigger: boolean;
   pendingAutoInitReminder: boolean;
   pendingCommandIoReminders: CommandIoReminder[];
   pendingToolsetChangeReminders: ToolsetChangeReminder[];
-  shallowInitCompleted: boolean;
-  deepInitFired: boolean;
+  /** When set, the next session-context reminder uses this reason for its intro text. */
+  pendingSessionContextReason?: SessionContextReason;
 }
 
 export function createSharedReminderState(): SharedReminderState {
   return {
     hasSentAgentInfo: false,
     hasSentSessionContext: false,
-    hasInjectedSkillsReminder: false,
-    cachedSkillsReminder: null,
-    skillPathById: {},
+    hasSentSecretsInfo: false,
     lastNotifiedPermissionMode: null,
     turnCount: 0,
-    pendingSkillsReinject: false,
     pendingReflectionTrigger: false,
     pendingAutoInitReminder: false,
     pendingCommandIoReminders: [],
     pendingToolsetChangeReminders: [],
-    shallowInitCompleted: false,
-    deepInitFired: false,
   };
 }
 
@@ -63,10 +57,6 @@ export function syncReminderStateFromContextTracker(
   state: SharedReminderState,
   contextTracker: ContextTracker,
 ): void {
-  if (contextTracker.pendingSkillsReinject) {
-    state.pendingSkillsReinject = true;
-    contextTracker.pendingSkillsReinject = false;
-  }
   if (contextTracker.pendingReflectionTrigger) {
     state.pendingReflectionTrigger = true;
     contextTracker.pendingReflectionTrigger = false;

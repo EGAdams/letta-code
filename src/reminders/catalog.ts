@@ -2,17 +2,17 @@ export type SharedReminderMode =
   | "interactive"
   | "headless-one-shot"
   | "headless-bidirectional"
+  | "listen"
   | "subagent";
 
 export type SharedReminderId =
   | "session-context"
   | "agent-info"
-  | "skills"
+  | "secrets-info"
   | "permission-mode"
   | "plan-mode"
   | "reflection-step-count"
   | "reflection-compaction"
-  | "deep-init"
   | "command-io"
   | "toolset-change"
   | "auto-init";
@@ -28,7 +28,12 @@ export const SHARED_REMINDER_CATALOG: ReadonlyArray<SharedReminderDefinition> =
     {
       id: "session-context",
       description: "First-turn device/git/cwd context",
-      modes: ["interactive", "headless-one-shot", "headless-bidirectional"],
+      modes: [
+        "interactive",
+        "headless-one-shot",
+        "headless-bidirectional",
+        "listen",
+      ],
     },
     {
       id: "agent-info",
@@ -37,40 +42,48 @@ export const SHARED_REMINDER_CATALOG: ReadonlyArray<SharedReminderDefinition> =
         "interactive",
         "headless-one-shot",
         "headless-bidirectional",
-        "subagent",
+        "listen",
       ],
     },
     {
-      id: "skills",
-      description: "Available skills system reminder (with reinjection)",
-      modes: ["interactive", "headless-one-shot", "headless-bidirectional"],
+      id: "secrets-info",
+      description: "Available secret names for $SECRET_NAME substitution",
+      modes: [
+        "interactive",
+        "headless-one-shot",
+        "headless-bidirectional",
+        "listen",
+      ],
     },
     {
       id: "permission-mode",
       description: "Permission mode reminder",
-      modes: ["interactive", "headless-one-shot", "headless-bidirectional"],
+      modes: [
+        "interactive",
+        "headless-one-shot",
+        "headless-bidirectional",
+        "listen",
+      ],
     },
     {
       id: "plan-mode",
       description: "Plan mode behavioral reminder",
-      modes: ["interactive", "headless-one-shot", "headless-bidirectional"],
+      modes: [
+        "interactive",
+        "headless-one-shot",
+        "headless-bidirectional",
+        "listen",
+      ],
     },
     {
       id: "reflection-step-count",
-      description: "Step-count reflection reminder/auto-launch behavior",
+      description: "Step-count reflection trigger handling",
       modes: ["interactive", "headless-one-shot", "headless-bidirectional"],
     },
     {
       id: "reflection-compaction",
-      description:
-        "Compaction-triggered reflection reminder/auto-launch behavior",
+      description: "Compaction-triggered reflection trigger handling",
       modes: ["interactive", "headless-one-shot", "headless-bidirectional"],
-    },
-    {
-      id: "deep-init",
-      description:
-        "Auto-launch deep memory init after shallow init + turn gate",
-      modes: ["interactive"],
     },
     {
       id: "command-io",

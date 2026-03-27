@@ -5,32 +5,22 @@
  */
 import { getModelShortName, resolveModel } from "../../agent/model";
 import { OPENAI_CODEX_PROVIDER_NAME } from "../../providers/openai-codex-provider";
+import { formatCompact } from "./format";
 
 /**
  * Format tool count and token statistics for display
  *
  * @param toolCount - Number of tool calls
  * @param totalTokens - Total tokens used (0 or undefined means no data available)
- * @param isRunning - If true, shows "—" for tokens (since usage is only available at end)
  */
-export function formatStats(
-  toolCount: number,
-  totalTokens: number,
-  isRunning = false,
-): string {
+export function formatStats(toolCount: number, totalTokens: number): string {
   const toolStr = `${toolCount} tool use${toolCount !== 1 ? "s" : ""}`;
 
-  // Only show token count if we have actual data (not running and totalTokens > 0)
-  const hasTokenData = !isRunning && totalTokens > 0;
-  if (!hasTokenData) {
-    return toolStr;
+  if (totalTokens > 0) {
+    return `${toolStr} · ${formatCompact(totalTokens)} tokens`;
   }
 
-  const tokenStr =
-    totalTokens >= 1000
-      ? `${(totalTokens / 1000).toFixed(1)}k`
-      : String(totalTokens);
-  return `${toolStr} · ${tokenStr} tokens`;
+  return toolStr;
 }
 
 /**

@@ -1,12 +1,10 @@
 // src/cli/commands/connect.ts
 // Command handlers for provider connection management in TUI slash commands
 
-import {
-  extractAccountIdFromToken,
-} from "../../auth/openai-oauth";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { extractAccountIdFromToken } from "../../auth/openai-oauth";
 import {
   checkProviderApiKey,
   createOrUpdateProvider,
@@ -27,6 +25,7 @@ import {
   isConnectApiKeyProvider,
   isConnectBedrockProvider,
   isConnectOAuthProvider,
+  isConnectZaiBaseProvider,
   listConnectProvidersForHelp,
   listConnectProviderTokens,
   type ResolvedConnectProvider,
@@ -113,7 +112,8 @@ async function loadLocalCodexAuthTokens(): Promise<LocalCodexAuthTokens | null> 
     return {
       access_token: accessToken,
       id_token: idToken,
-      refresh_token: typeof refreshToken === "string" ? refreshToken : undefined,
+      refresh_token:
+        typeof refreshToken === "string" ? refreshToken : undefined,
       account_id: resolvedAccountId,
       expires_at: expiresAt,
     };
@@ -292,6 +292,18 @@ function formatApiKeyUsage(provider: ResolvedConnectProvider): string {
     `Usage: /connect ${provider.canonical} <api_key>`,
     "",
     `Connect to ${provider.byokProvider.displayName} by providing your API key.`,
+  ].join("\n");
+}
+
+function formatZaiCodingPlanPrompt(apiKey?: string): string {
+  const keyHint = apiKey ? ` ${apiKey}` : " <api_key>";
+  return [
+    "Connect to Z.ai",
+    "",
+    "Do you have a Z.ai Coding plan?",
+    "",
+    `  • Coding plan:  /connect zai-coding${keyHint}`,
+    `  • Regular API:  /connect zai${keyHint}`,
   ].join("\n");
 }
 
@@ -619,13 +631,23 @@ export async function handleConnect(
   if (isConnectApiKeyProvider(provider)) {
     const apiKey = parts.slice(2).join("");
     if (!apiKey) {
-      addCommandResult(
-        ctx.buffersRef,
-        ctx.refreshDerived,
-        msg,
-        formatApiKeyUsage(provider),
-        false,
-      );
+      if (isConnectZaiBaseProvider(provider)) {
+        addCommandResult(
+          ctx.buffersRef,
+          ctx.refreshDerived,
+          msg,
+          formatZaiCodingPlanPrompt(),
+          false,
+        );
+      } else {
+        addCommandResult(
+          ctx.buffersRef,
+          ctx.refreshDerived,
+          msg,
+          formatApiKeyUsage(provider),
+          false,
+        );
+      }
       return;
     }
     await handleConnectApiKeyProvider(ctx, msg, provider, apiKey);

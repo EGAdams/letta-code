@@ -23,6 +23,8 @@ export interface SubagentState {
   status: "pending" | "running" | "completed" | "error";
   agentURL: string | null;
   toolCalls: ToolCall[];
+  // Monotonic counter to avoid transient regressions in rendered tool usage.
+  maxToolCallsSeen: number;
   totalTokens: number;
   durationMs: number;
   error?: string;
@@ -121,6 +123,7 @@ export function registerSubagent(
     status: "pending",
     agentURL: null,
     toolCalls: [],
+    maxToolCallsSeen: 0,
     totalTokens: 0,
     durationMs: 0,
     startTime: Date.now(),
@@ -148,8 +151,22 @@ export function updateSubagent(
     updates.status = "running";
   }
 
+  const nextToolCalls = updates.toolCalls ?? agent.toolCalls;
+  const nextMax = Math.max(
+    agent.maxToolCallsSeen,
+    nextToolCalls.length,
+    updates.maxToolCallsSeen ?? 0,
+  );
+
+  // Skip no-op updates to avoid unnecessary re-renders
+  const keys = Object.keys(updates) as (keyof typeof updates)[];
+  const isNoop =
+    keys.every((k) => agent[k] === updates[k]) &&
+    nextMax === agent.maxToolCallsSeen;
+  if (isNoop) return;
+
   // Create a new object to ensure React.memo detects the change
-  const updatedAgent = { ...agent, ...updates };
+  const updatedAgent = { ...agent, ...updates, maxToolCallsSeen: nextMax };
   store.agents.set(id, updatedAgent);
   notifyListeners();
 }
@@ -176,6 +193,10 @@ export function addToolCall(
       ...agent.toolCalls,
       { id: toolCallId, name: toolName, args: toolArgs },
     ],
+    maxToolCallsSeen: Math.max(
+      agent.maxToolCallsSeen,
+      agent.toolCalls.length + 1,
+    ),
   };
   store.agents.set(subagentId, updatedAgent);
   notifyListeners();
@@ -198,9 +219,16 @@ export function completeSubagent(
     error: result.error,
     durationMs: Date.now() - agent.startTime,
     totalTokens: result.totalTokens ?? agent.totalTokens,
+    maxToolCallsSeen: Math.max(agent.maxToolCallsSeen, agent.toolCalls.length),
   } as SubagentState;
   store.agents.set(id, updatedAgent);
   notifyListeners();
+}
+
+export function getSubagentToolCount(
+  agent: Pick<SubagentState, "toolCalls" | "maxToolCallsSeen">,
+): number {
+  return Math.max(agent.toolCalls.length, agent.maxToolCallsSeen);
 }
 
 /**
@@ -336,4 +364,55 @@ export function getSnapshot(): {
   expanded: boolean;
 } {
   return cachedSnapshot;
+}
+
+// ============================================================================
+// Stream Event Forwarding
+// ============================================================================
+
+/**
+ * A raw message-type event from the subagent's stdout (headless format).
+ * Shape: { type: "message", message_type: string, ...LettaStreamingResponse fields }
+ */
+export interface SubagentStreamEvent {
+  type: "message";
+  message_type: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Callback for forwarding raw subagent stream events to the WS layer.
+ * The event is the parsed JSON line from the subagent's stdout.
+ */
+export type SubagentStreamEventListener = (
+  subagentId: string,
+  event: SubagentStreamEvent,
+) => void;
+
+const streamEventListeners = new Set<SubagentStreamEventListener>();
+
+/**
+ * Subscribe to raw subagent stream events (for WS forwarding).
+ * Returns an unsubscribe function.
+ */
+export function subscribeToStreamEvents(
+  listener: SubagentStreamEventListener,
+): () => void {
+  streamEventListeners.add(listener);
+  return () => {
+    streamEventListeners.delete(listener);
+  };
+}
+
+/**
+ * Emit a raw stream event from a subagent. Called from processStreamEvent
+ * in manager.ts for message-type events that should be forwarded to the web UI.
+ */
+export function emitStreamEvent(
+  subagentId: string,
+  event: SubagentStreamEvent,
+): void {
+  for (const listener of streamEventListeners) {
+    listener(subagentId, event);
+  }
 }

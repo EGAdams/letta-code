@@ -2,49 +2,42 @@
 
 import approvalRecoveryAlert from "./prompts/approval_recovery_alert.txt";
 import autoInitReminder from "./prompts/auto_init_reminder.txt";
-import anthropicPrompt from "./prompts/claude.md";
-import codexPrompt from "./prompts/codex.md";
-import geminiPrompt from "./prompts/gemini.md";
 import humanPrompt from "./prompts/human.mdx";
 import interruptRecoveryAlert from "./prompts/interrupt_recovery_alert.txt";
-// init_memory.md is now a bundled skill at src/skills/builtin/init/SKILL.md
-import lettaAnthropicPrompt from "./prompts/letta_claude.md";
-import lettaCodexPrompt from "./prompts/letta_codex.md";
-import lettaGeminiPrompt from "./prompts/letta_gemini.md";
-
+import lettaPrompt from "./prompts/letta.md";
 import memoryCheckReminder from "./prompts/memory_check_reminder.txt";
 import memoryFilesystemPrompt from "./prompts/memory_filesystem.mdx";
-import memoryReflectionReminder from "./prompts/memory_reflection_reminder.txt";
 import personaPrompt from "./prompts/persona.mdx";
-import personaClaudePrompt from "./prompts/persona_claude.mdx";
 import personaKawaiiPrompt from "./prompts/persona_kawaii.mdx";
 import personaMemoPrompt from "./prompts/persona_memo.mdx";
 import planModeReminder from "./prompts/plan_mode_reminder.txt";
 import projectPrompt from "./prompts/project.mdx";
 import rememberPrompt from "./prompts/remember.md";
 import skillCreatorModePrompt from "./prompts/skill_creator_mode.md";
+import sleeptimePersona from "./prompts/sleeptime.md";
+import sourceClaudePrompt from "./prompts/source_claude.md";
+import sourceCodexPrompt from "./prompts/source_codex.md";
+import sourceGeminiPrompt from "./prompts/source_gemini.md";
 
 import stylePrompt from "./prompts/style.mdx";
-import systemPrompt from "./prompts/system_prompt.txt";
-import systemPromptMemfsAddon from "./prompts/system_prompt_memfs.txt";
-import systemPromptMemoryAddon from "./prompts/system_prompt_memory.txt";
+import systemPromptBlocksAddon from "./prompts/system_prompt_blocks.md";
+import systemPromptMemfsAddon from "./prompts/system_prompt_memfs.md";
 
-export const SYSTEM_PROMPT = systemPrompt;
-export const SYSTEM_PROMPT_MEMORY_ADDON = systemPromptMemoryAddon;
+export const SYSTEM_PROMPT = lettaPrompt;
+export const SYSTEM_PROMPT_BLOCKS_ADDON = systemPromptBlocksAddon;
 export const SYSTEM_PROMPT_MEMFS_ADDON = systemPromptMemfsAddon;
 export const PLAN_MODE_REMINDER = planModeReminder;
 
 export const SKILL_CREATOR_PROMPT = skillCreatorModePrompt;
 export const REMEMBER_PROMPT = rememberPrompt;
 export const MEMORY_CHECK_REMINDER = memoryCheckReminder;
-export const MEMORY_REFLECTION_REMINDER = memoryReflectionReminder;
 export const APPROVAL_RECOVERY_PROMPT = approvalRecoveryAlert;
 export const AUTO_INIT_REMINDER = autoInitReminder;
 export const INTERRUPT_RECOVERY_ALERT = interruptRecoveryAlert;
+export const SLEEPTIME_MEMORY_PERSONA = sleeptimePersona;
 
 export const MEMORY_PROMPTS: Record<string, string> = {
   "persona.mdx": personaPrompt,
-  "persona_claude.mdx": personaClaudePrompt,
   "persona_kawaii.mdx": personaKawaiiPrompt,
   "persona_memo.mdx": personaMemoPrompt,
   "human.mdx": humanPrompt,
@@ -68,49 +61,35 @@ export const SYSTEM_PROMPTS: SystemPromptOption[] = [
   {
     id: "default",
     label: "Default",
-    description: "Letta-tuned system prompt",
-    content: systemPrompt,
+    description: "Alias for letta",
+    content: lettaPrompt,
     isDefault: true,
     isFeatured: true,
   },
   {
-    id: "letta-claude",
-    label: "Letta Claude",
-    description: "Full Letta Code system prompt (Claude-optimized)",
-    content: lettaAnthropicPrompt,
+    id: "letta",
+    label: "Letta Code",
+    description: "Full Letta Code system prompt",
+    content: lettaPrompt,
     isFeatured: true,
   },
   {
-    id: "letta-codex",
-    label: "Letta Codex",
-    description: "Full Letta Code system prompt (Codex-optimized)",
-    content: lettaCodexPrompt,
-    isFeatured: true,
+    id: "source-claude",
+    label: "Claude Code",
+    description: "Source-faithful Claude Code prompt (for benchmarking)",
+    content: sourceClaudePrompt,
   },
   {
-    id: "letta-gemini",
-    label: "Letta Gemini",
-    description: "Full Letta Code system prompt (Gemini-optimized)",
-    content: lettaGeminiPrompt,
-    isFeatured: true,
+    id: "source-codex",
+    label: "Codex",
+    description: "Source-faithful OpenAI Codex prompt (for benchmarking)",
+    content: sourceCodexPrompt,
   },
   {
-    id: "claude",
-    label: "Claude (basic)",
-    description: "Basic Claude prompt (no skills/memory instructions)",
-    content: anthropicPrompt,
-  },
-  {
-    id: "codex",
-    label: "Codex (basic)",
-    description: "Basic Codex prompt (no skills/memory instructions)",
-    content: codexPrompt,
-  },
-  {
-    id: "gemini",
-    label: "Gemini (basic)",
-    description: "Basic Gemini prompt (no skills/memory instructions)",
-    content: geminiPrompt,
+    id: "source-gemini",
+    label: "Gemini CLI",
+    description: "Source-faithful Gemini CLI prompt (for benchmarking)",
+    content: sourceGeminiPrompt,
   },
 ];
 
@@ -207,7 +186,7 @@ export function buildSystemPrompt(
   const addon =
     memoryMode === "memfs"
       ? SYSTEM_PROMPT_MEMFS_ADDON
-      : SYSTEM_PROMPT_MEMORY_ADDON;
+      : SYSTEM_PROMPT_BLOCKS_ADDON;
   return `${preset.content.trimEnd()}\n\n${addon.trimStart()}`.trim();
 }
 
@@ -223,7 +202,7 @@ export function swapMemoryAddon(
   let result = systemPrompt;
   // Strip all existing addons (replaceAll handles duplicates)
   for (const addon of [
-    SYSTEM_PROMPT_MEMORY_ADDON.trim(),
+    SYSTEM_PROMPT_BLOCKS_ADDON.trim(),
     SYSTEM_PROMPT_MEMFS_ADDON.trim(),
   ]) {
     result = result.replaceAll(addon, "");
@@ -244,7 +223,7 @@ export function swapMemoryAddon(
   // Compact blank lines and append target addon
   result = result.replace(/\n{3,}/g, "\n\n").trimEnd();
   const target =
-    mode === "memfs" ? SYSTEM_PROMPT_MEMFS_ADDON : SYSTEM_PROMPT_MEMORY_ADDON;
+    mode === "memfs" ? SYSTEM_PROMPT_MEMFS_ADDON : SYSTEM_PROMPT_BLOCKS_ADDON;
   return `${result}\n\n${target.trimStart()}`.trim();
 }
 
@@ -317,7 +296,7 @@ export async function resolveAndBuildSystemPrompt(
  * 3. Subagent name → subagent's system prompt
  * 4. Unknown → throws (callers should validate first via validateSystemPromptPreset)
  *
- * @param systemPromptPreset - The system prompt preset (e.g., "letta-claude") or subagent name (e.g., "explore")
+ * @param systemPromptPreset - The system prompt preset (e.g., "letta", "source-claude") or subagent name (e.g., "explore")
  * @returns The resolved system prompt content
  * @throws Error if the ID doesn't match any preset or subagent
  */

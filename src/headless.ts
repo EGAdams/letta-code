@@ -7,7 +7,10 @@ import type {
 } from "@letta-ai/letta-client/resources/agents/agents";
 import type { ApprovalCreate } from "@letta-ai/letta-client/resources/agents/messages";
 import type { StopReasonType } from "@letta-ai/letta-client/resources/runs/runs";
-import type { ApprovalResult } from "./agent/approval-execution";
+import type {
+  ApprovalDecision,
+  ApprovalResult,
+} from "./agent/approval-execution";
 import {
   extractConflictDetail,
   fetchRunErrorDetail,
@@ -22,6 +25,7 @@ import {
 } from "./agent/approval-recovery";
 import { handleBootstrapSessionState } from "./agent/bootstrapHandler";
 import { getClient } from "./agent/client";
+import { buildClientSkillsPayload } from "./agent/clientSkills";
 import { setAgentContext, setConversationId } from "./agent/context";
 import { createAgent } from "./agent/create";
 import { handleListMessages } from "./agent/listMessagesHandler";
@@ -56,7 +60,6 @@ import { createContextTracker } from "./cli/helpers/contextTracker";
 import { formatErrorDetails } from "./cli/helpers/errorFormatter";
 import {
   getReflectionSettings,
-  type ReflectionBehavior,
   type ReflectionSettings,
   type ReflectionTrigger,
   reflectionSettingsToLegacyMode,
@@ -99,6 +102,7 @@ import {
   registerExternalTools,
   setExternalToolExecutor,
 } from "./tools/manager";
+import { clearPersistedClientToolRules } from "./tools/toolset";
 import type {
   AutoApprovalMessage,
   BootstrapSessionStateRequest,
@@ -110,13 +114,14 @@ import type {
   ListMessagesControlRequest,
   MessageWire,
   QueueLifecycleEvent,
+  RecoverPendingApprovalsControlRequest,
   RecoveryMessage,
   ResultMessage,
   RetryMessage,
   StreamEvent,
   SystemInitMessage,
 } from "./types/protocol";
-import { debugLog } from "./utils/debug";
+import { debugLog, debugWarn, isDebugEnabled } from "./utils/debug";
 import {
   markMilestone,
   measureSinceMilestone,
@@ -150,7 +155,7 @@ export function mergeBidirectionalQueuedInput(
 
 type ReflectionOverrides = {
   trigger?: ReflectionTrigger;
-  behavior?: ReflectionBehavior;
+  deprecatedBehaviorRaw?: string;
   stepCount?: number;
 };
 
@@ -186,7 +191,7 @@ function parseReflectionOverrides(
         `Invalid --reflection-behavior "${behaviorRaw}". Valid values: reminder, auto-launch`,
       );
     }
-    overrides.behavior = behaviorRaw;
+    overrides.deprecatedBehaviorRaw = behaviorRaw;
   }
 
   if (stepCountRaw !== undefined) {
@@ -208,7 +213,7 @@ function parseReflectionOverrides(
 function hasReflectionOverrides(overrides: ReflectionOverrides): boolean {
   return (
     overrides.trigger !== undefined ||
-    overrides.behavior !== undefined ||
+    overrides.deprecatedBehaviorRaw !== undefined ||
     overrides.stepCount !== undefined
   );
 }
@@ -220,7 +225,6 @@ async function applyReflectionOverrides(
   const current = getReflectionSettings();
   const merged: ReflectionSettings = {
     trigger: overrides.trigger ?? current.trigger,
-    behavior: overrides.behavior ?? current.behavior,
     stepCount: overrides.stepCount ?? current.stepCount,
   };
 
@@ -228,19 +232,16 @@ async function applyReflectionOverrides(
     return merged;
   }
 
+  if (overrides.deprecatedBehaviorRaw !== undefined) {
+    console.warn(
+      "Warning: --reflection-behavior is deprecated and ignored. Reflection now always auto-launches subagents.",
+    );
+  }
+
   const memfsEnabled = settingsManager.isMemfsEnabled(agentId);
   if (!memfsEnabled && merged.trigger === "compaction-event") {
     throw new Error(
       "--reflection-trigger compaction-event requires memfs enabled for this agent.",
-    );
-  }
-  if (
-    !memfsEnabled &&
-    merged.trigger !== "off" &&
-    merged.behavior === "auto-launch"
-  ) {
-    throw new Error(
-      "--reflection-behavior auto-launch requires memfs enabled for this agent.",
     );
   }
 
@@ -254,13 +255,11 @@ async function applyReflectionOverrides(
   settingsManager.updateLocalProjectSettings({
     memoryReminderInterval: legacyMode,
     reflectionTrigger: merged.trigger,
-    reflectionBehavior: merged.behavior,
     reflectionStepCount: merged.stepCount,
   });
   settingsManager.updateSettings({
     memoryReminderInterval: legacyMode,
     reflectionTrigger: merged.trigger,
-    reflectionBehavior: merged.behavior,
     reflectionStepCount: merged.stepCount,
   });
 
@@ -369,7 +368,6 @@ export async function handleHeadlessCommand(
     console.error(
       "Error: --resume is for interactive mode only (opens conversation selector).\n" +
         "In headless mode, use:\n" +
-        "  --continue           Resume the last session (agent + conversation)\n" +
         "  --conversation <id>  Resume a specific conversation by ID",
     );
     process.exit(1);
@@ -384,7 +382,6 @@ export async function handleHeadlessCommand(
   let specifiedAgentId = values.agent;
   const specifiedAgentName = values.name;
   let specifiedConversationId = values.conversation;
-  const shouldContinue = values.continue;
   const forceNew = values["new-agent"];
   const systemPromptPreset = values.system;
   const systemCustom = values["system-custom"];
@@ -511,10 +508,6 @@ export async function handleHeadlessCommand(
       );
       process.exit(1);
     }
-    if (shouldContinue) {
-      console.error("Error: --from-agent cannot be used with --continue");
-      process.exit(1);
-    }
     if (forceNew) {
       console.error("Error: --from-agent cannot be used with --new-agent");
       process.exit(1);
@@ -545,20 +538,12 @@ export async function handleHeadlessCommand(
           when: fromAfFile,
           message: "--conversation cannot be used with --import",
         },
-        {
-          when: shouldContinue,
-          message: "--conversation cannot be used with --continue",
-        },
       ],
     });
 
     validateFlagConflicts({
       guard: forceNewConversation,
       checks: [
-        {
-          when: shouldContinue,
-          message: "--new cannot be used with --continue",
-        },
         {
           when: specifiedConversationId,
           message: "--new cannot be used with --conversation",
@@ -587,10 +572,6 @@ export async function handleHeadlessCommand(
           {
             when: specifiedAgentName,
             message: "--import cannot be used with --name",
-          },
-          {
-            when: shouldContinue,
-            message: "--import cannot be used with --continue",
           },
           {
             when: forceNew,
@@ -862,17 +843,12 @@ export async function handleHeadlessCommand(
     }
   }
 
-  // Priority 6: --continue with no agent found → error
-  if (!agent && shouldContinue) {
-    console.error("No recent session found in .letta/ or ~/.letta.");
-    console.error("Run 'letta' to get started.");
-    process.exit(1);
-  }
-
-  // Priority 7: Fresh user with no LRU - create default agent
+  // Priority 6: Fresh user with no LRU - create default agent
   if (!agent) {
     const { ensureDefaultAgents } = await import("./agent/defaults");
-    const defaultAgent = await ensureDefaultAgents(client);
+    const defaultAgent = await ensureDefaultAgents(client, {
+      preferredModel: model,
+    });
     if (defaultAgent) {
       agent = defaultAgent;
     }
@@ -886,11 +862,7 @@ export async function handleHeadlessCommand(
   markMilestone("HEADLESS_AGENT_RESOLVED");
 
   // Check if we're resuming an existing agent (not creating a new one)
-  const isResumingAgent = !!(
-    specifiedAgentId ||
-    shouldContinue ||
-    (!forceNew && !fromAfFile)
-  );
+  const isResumingAgent = !!(specifiedAgentId || (!forceNew && !fromAfFile));
 
   // If resuming, always refresh model settings from presets to keep
   // preset-derived fields in sync, then apply optional command-line
@@ -918,6 +890,7 @@ export async function handleHeadlessCommand(
             agent.id,
             presetRefresh.modelHandle,
             resumeRefreshUpdateArgs,
+            { preserveContextWindow: true },
           );
         }
       }
@@ -933,6 +906,14 @@ export async function handleHeadlessCommand(
   // Captured so prompt logic below can await it when needed.
   let memfsBgPromise: Promise<unknown> | undefined;
 
+  // Init secrets cache — runs in parallel with memfs sync below.
+  const secretsAgentId = agent?.id;
+  const secretsInitPromise = secretsAgentId
+    ? import("./utils/secretsStore").then(({ initSecretsFromServer }) =>
+        initSecretsFromServer(secretsAgentId),
+      )
+    : Promise.resolve();
+
   // Apply memfs flags and auto-enable from server tag when local settings are missing.
   // Respects memfsStartupPolicy:
   //   "blocking"  (default) – await the pull; exit on conflict.
@@ -945,6 +926,7 @@ export async function handleHeadlessCommand(
       await applyMemfsFlags(agent.id, memfsFlag, noMemfsFlag, {
         pullOnExistingRepo: false,
         agentTags: agent.tags,
+        skipPromptUpdate: forceNew,
       });
     } catch (error) {
       console.error(
@@ -958,6 +940,7 @@ export async function handleHeadlessCommand(
     memfsBgPromise = applyMemfsFlags(agent.id, memfsFlag, noMemfsFlag, {
       pullOnExistingRepo: true,
       agentTags: agent.tags,
+      skipPromptUpdate: forceNew,
     }).catch((error) => {
       // Log to stderr only — the session is already live.
       console.error(
@@ -972,7 +955,11 @@ export async function handleHeadlessCommand(
         agent.id,
         memfsFlag,
         noMemfsFlag,
-        { pullOnExistingRepo: true, agentTags: agent.tags },
+        {
+          pullOnExistingRepo: true,
+          agentTags: agent.tags,
+          skipPromptUpdate: forceNew,
+        },
       );
       if (memfsResult.pullSummary?.includes("CONFLICT")) {
         console.error(
@@ -991,6 +978,18 @@ export async function handleHeadlessCommand(
   // Ensure background memfs sync settles before prompt logic reads isMemfsEnabled().
   if (memfsBgPromise && isResumingAgent) {
     await memfsBgPromise;
+  }
+
+  // Ensure secrets cache is populated (non-fatal).
+  try {
+    await secretsInitPromise;
+  } catch (error) {
+    import("./utils/debug").then(({ debugLog }) =>
+      debugLog(
+        "secrets",
+        `Failed to init secrets: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
   }
 
   // Apply --system flag after memfs sync so isMemfsEnabled() is up to date.
@@ -1038,6 +1037,31 @@ export async function handleHeadlessCommand(
     }
   }
 
+  const startupAgentId = agent.id;
+  void clearPersistedClientToolRules(startupAgentId)
+    .then((cleanup) => {
+      if (cleanup) {
+        const count = cleanup.removedToolNames.length;
+        const names = cleanup.removedToolNames.join(", ");
+        debugLog(
+          "headless startup",
+          `Cleared ${count} persisted client tool rule${count === 1 ? "" : "s"} for ${startupAgentId}${count > 0 ? `: ${names}` : ""}`,
+        );
+        return;
+      }
+
+      debugLog(
+        "headless startup",
+        `No persisted client tool rules to clear for ${startupAgentId}`,
+      );
+    })
+    .catch((error) => {
+      debugWarn(
+        "headless startup",
+        `Failed to clear persisted client tool rules for ${startupAgentId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+
   try {
     effectiveReflectionSettings = await applyReflectionOverrides(
       agent.id,
@@ -1079,45 +1103,6 @@ export async function handleHeadlessCommand(
         process.exit(1);
       }
     }
-  } else if (shouldContinue) {
-    // Try to resume the last conversation for this agent
-    await settingsManager.loadLocalProjectSettings();
-    const lastSession =
-      settingsManager.getLocalLastSession(process.cwd()) ??
-      settingsManager.getGlobalLastSession();
-
-    if (lastSession && lastSession.agentId === agent.id) {
-      if (lastSession.conversationId === "default") {
-        // "default" is always valid - just use it directly
-        conversationId = "default";
-      } else {
-        // Verify the conversation still exists
-        try {
-          debugLog(
-            "conversations",
-            `retrieve(${lastSession.conversationId}) [headless lastSession resume]`,
-          );
-          await client.conversations.retrieve(lastSession.conversationId);
-          conversationId = lastSession.conversationId;
-        } catch {
-          // Conversation no longer exists - error with helpful message
-          console.error(
-            `Attempting to resume conversation ${lastSession.conversationId}, but conversation was not found.`,
-          );
-          console.error(
-            "Resume the default conversation with 'letta -p ...', view recent conversations with 'letta --resume', or start a new conversation with 'letta -p ... --new'.",
-          );
-          process.exit(1);
-        }
-      }
-    } else {
-      // No matching session - error with helpful message
-      console.error("No previous session found for this agent to resume.");
-      console.error(
-        "Resume the default conversation with 'letta -p ...', or start a new conversation with 'letta -p ... --new'.",
-      );
-      process.exit(1);
-    }
   } else if (forceNewConversation) {
     // --new flag: create a new conversation (for concurrent sessions)
     const conversation = await client.conversations.create({
@@ -1149,14 +1134,7 @@ export async function handleHeadlessCommand(
   // Skip for subagents - they shouldn't pollute the LRU settings
   if (!isSubagent) {
     await settingsManager.loadLocalProjectSettings();
-    settingsManager.setLocalLastSession(
-      { agentId: agent.id, conversationId },
-      process.cwd(),
-    );
-    settingsManager.setGlobalLastSession({
-      agentId: agent.id,
-      conversationId,
-    });
+    settingsManager.persistSession(agent.id, conversationId);
   }
 
   // Set agent context for tools that need it (e.g., Skill tool, Task tool)
@@ -1228,7 +1206,6 @@ export async function handleHeadlessCommand(
       skill_sources: resolvedSkillSources,
       system_info_reminder_enabled: systemInfoReminderEnabled,
       reflection_trigger: effectiveReflectionSettings.trigger,
-      reflection_behavior: effectiveReflectionSettings.behavior,
       reflection_step_count: effectiveReflectionSettings.stepCount,
       uuid: `init-${agent.id}`,
     };
@@ -1353,6 +1330,7 @@ export async function handleHeadlessCommand(
       const approvalInput: ApprovalCreate = {
         type: "approval",
         approvals: executedResults as ApprovalResult[],
+        otid: randomUUID(),
       };
 
       // Inject queued skill content as user message parts (LET-7353)
@@ -1372,6 +1350,7 @@ export async function handleHeadlessCommand(
               type: "text" as const,
               text: sc.content,
             })),
+            otid: randomUUID(),
           });
         }
       }
@@ -1443,6 +1422,7 @@ ${SYSTEM_REMINDER_CLOSE}
       name: agent.name,
       description: agent.description,
       lastRunAt: lastRunAt ?? null,
+      conversationId,
     },
     state: sharedReminderState,
     sessionContextReminderEnabled: systemInfoReminderEnabled,
@@ -1460,13 +1440,22 @@ ${SYSTEM_REMINDER_CLOSE}
   // Pre-load specific skills' full content (used by subagents with skills: field)
   if (preLoadSkillsRaw) {
     const { readFile: readFileAsync } = await import("node:fs/promises");
+    const { skillPathById } = await buildClientSkillsPayload({
+      agentId: agent.id,
+      skillSources: resolvedSkillSources,
+      logger: (message) => {
+        if (isDebugEnabled()) {
+          console.warn(`[DEBUG] ${message}`);
+        }
+      },
+    });
     const skillIds = preLoadSkillsRaw
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     const loadedContents: string[] = [];
     for (const skillId of skillIds) {
-      const skillPath = sharedReminderState.skillPathById[skillId];
+      const skillPath = skillPathById[skillId];
       if (!skillPath) continue;
       try {
         const content = await readFileAsync(skillPath, "utf-8");
@@ -1490,8 +1479,16 @@ ${SYSTEM_REMINDER_CLOSE}
     {
       role: "user",
       content: contentParts,
+      otid: randomUUID(),
     },
   ];
+  const refreshCurrentInputOtids = () => {
+    // Terminal stop-reason retries are NEW requests and must not reuse OTIDs.
+    currentInput = currentInput.map((item) => ({
+      ...item,
+      otid: randomUUID(),
+    }));
+  };
 
   // Track lastRunId outside the while loop so it's available in catch block
   let lastKnownRunId: string | null = null;
@@ -1542,6 +1539,7 @@ ${SYSTEM_REMINDER_CLOSE}
                 type: "text" as const,
                 text: sc.content,
               })),
+              otid: randomUUID(),
             },
           ];
         }
@@ -1597,35 +1595,61 @@ ${SYSTEM_REMINDER_CLOSE}
           continue;
         }
 
-        // Check for 409 "conversation busy" error - retry once with delay
+        // Check for 409 "conversation busy" - resume via conversation stream endpoint.
+        // Server resolves: (1) otid lookup, (2) active run fallback.
+        // OTID lookup provides server-side request ownership validation.
+        // Falls back to exponential backoff retry if the endpoint fails.
         if (preStreamAction === "retry_conversation_busy") {
-          conversationBusyRetries += 1;
-          const retryDelayMs = getRetryDelayMs({
-            category: "conversation_busy",
-            attempt: conversationBusyRetries,
-          });
+          const messageOtid = currentInput
+            .map((item) => (item as Record<string, unknown>).otid)
+            .find((v): v is string => typeof v === "string");
 
-          // Emit retry message for stream-json mode
-          if (outputFormat === "stream-json") {
-            const retryMsg: RetryMessage = {
-              type: "retry",
-              reason: "error", // 409 conversation busy is a pre-stream error
+          try {
+            const client = await getClient();
+            stream = (await client.conversations.messages.stream(
+              conversationId,
+              // Cast needed until SDK MessageStreamParams includes otid field
+              {
+                agent_id:
+                  conversationId === "default"
+                    ? (agent?.id ?? undefined)
+                    : undefined,
+                otid: messageOtid ?? undefined,
+                starting_after: 0,
+                batch_size: 1000,
+              } as unknown as Parameters<
+                typeof client.conversations.messages.stream
+              >[1],
+            )) as Awaited<ReturnType<typeof sendMessageStream>>;
+            conversationBusyRetries = 0;
+            // Fall through to drain
+          } catch {
+            conversationBusyRetries += 1;
+            const retryDelayMs = getRetryDelayMs({
+              category: "conversation_busy",
               attempt: conversationBusyRetries,
-              max_attempts: CONVERSATION_BUSY_MAX_RETRIES,
-              delay_ms: retryDelayMs,
-              session_id: sessionId,
-              uuid: `retry-conversation-busy-${randomUUID()}`,
-            };
-            console.log(JSON.stringify(retryMsg));
-          } else {
-            console.error(
-              `Conversation is busy, waiting ${Math.round(retryDelayMs / 1000)}s and retrying...`,
-            );
-          }
+            });
 
-          // Wait before retry
-          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-          continue;
+            if (outputFormat === "stream-json") {
+              const retryMsg: RetryMessage = {
+                type: "retry",
+                reason: "error",
+                attempt: conversationBusyRetries,
+                max_attempts: CONVERSATION_BUSY_MAX_RETRIES,
+                delay_ms: retryDelayMs,
+                session_id: sessionId,
+                uuid: `retry-conversation-busy-${randomUUID()}`,
+              };
+              console.log(JSON.stringify(retryMsg));
+            } else {
+              console.error(
+                `Conversation is busy, waiting ${Math.round(retryDelayMs / 1000)}s and retrying...`,
+              );
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+            continue;
+          }
         }
 
         if (preStreamAction === "retry_transient") {
@@ -1899,8 +1923,8 @@ ${SYSTEM_REMINDER_CLOSE}
           })),
           ...needsUserInput.map((ac) => {
             // One-shot headless mode has no control channel for interactive
-            // approvals. Match Claude behavior by auto-allowing EnterPlanMode
-            // while denying tools that need runtime user responses.
+            // approvals. Auto-allow plan-mode entry/exit tools, while denying
+            // tools that need runtime user responses.
             if (isHeadlessAutoAllowTool(ac.approval.toolName)) {
               return {
                 type: "approve" as const,
@@ -1941,12 +1965,12 @@ ${SYSTEM_REMINDER_CLOSE}
         );
 
         // Send all results in one batch
-        currentInput = [
-          {
-            type: "approval",
-            approvals: executedResults as ApprovalResult[],
-          },
-        ];
+        const approvalInputWithOtid = {
+          type: "approval" as const,
+          approvals: executedResults as ApprovalResult[],
+          otid: randomUUID(),
+        };
+        currentInput = [approvalInputWithOtid];
         continue;
       }
 
@@ -2002,6 +2026,8 @@ ${SYSTEM_REMINDER_CLOSE}
           // Exponential backoff before retrying the same input
           await new Promise((resolve) => setTimeout(resolve, delayMs));
 
+          // Post-stream retry creates a new run/request.
+          refreshCurrentInputOtids();
           continue;
         }
       }
@@ -2138,6 +2164,7 @@ ${SYSTEM_REMINDER_CLOSE}
               const nudgeMessage: MessageCreate = {
                 role: "system",
                 content: `<system-reminder>The previous response was empty. Please provide a response with either text content or a tool call.</system-reminder>`,
+                otid: randomUUID(),
               };
               currentInput = [...currentInput, nudgeMessage];
             }
@@ -2161,6 +2188,8 @@ ${SYSTEM_REMINDER_CLOSE}
             }
 
             await new Promise((resolve) => setTimeout(resolve, delayMs));
+            // Empty-response retry creates a new run/request.
+            refreshCurrentInputOtids();
             continue;
           }
 
@@ -2194,6 +2223,8 @@ ${SYSTEM_REMINDER_CLOSE}
             }
 
             await new Promise((resolve) => setTimeout(resolve, delayMs));
+            // Post-stream retry creates a new run/request.
+            refreshCurrentInputOtids();
             continue;
           }
         } catch (_e) {
@@ -2428,7 +2459,6 @@ async function runBidirectionalMode(
     skill_sources: skillSources,
     system_info_reminder_enabled: systemInfoReminderEnabled,
     reflection_trigger: reflectionSettings.trigger,
-    reflection_behavior: reflectionSettings.behavior,
     reflection_step_count: reflectionSettings.stepCount,
     uuid: `init-${agent.id}`,
   };
@@ -2528,6 +2558,7 @@ async function runBidirectionalMode(
       const approvalInput: ApprovalCreate = {
         type: "approval",
         approvals: executedResults as ApprovalResult[],
+        otid: randomUUID(),
       };
 
       const approvalMessages: Array<
@@ -2547,6 +2578,7 @@ async function runBidirectionalMode(
               type: "text" as const,
               text: sc.content,
             })),
+            otid: randomUUID(),
           });
         }
       }
@@ -2686,6 +2718,12 @@ async function runBidirectionalMode(
       msgQueueRuntime.enqueue({
         kind: "task_notification",
         source: "task_notification",
+        text: input.text,
+      } as Parameters<typeof msgQueueRuntime.enqueue>[0]);
+    } else if (input.kind === "cron_prompt") {
+      msgQueueRuntime.enqueue({
+        kind: "cron_prompt",
+        source: "cron",
         text: input.text,
       } as Parameters<typeof msgQueueRuntime.enqueue>[0]);
     } else {
@@ -2850,6 +2888,138 @@ async function runBidirectionalMode(
     return result;
   }
 
+  async function recoverPendingApprovalsFromControlRequest(
+    request: RecoverPendingApprovalsControlRequest,
+  ): Promise<{
+    recovered: boolean;
+    pending_approval: boolean;
+    approvals_processed: number;
+  }> {
+    const targetAgentId = request.agent_id ?? agent.id;
+    const targetConversationId = request.conversation_id ?? conversationId;
+
+    if (targetAgentId !== agent.id) {
+      throw new Error(
+        `recover_pending_approvals agent mismatch: ${targetAgentId} != ${agent.id}`,
+      );
+    }
+
+    const { getResumeData } = await import("./agent/check-approval");
+    const { executeApprovalBatch } = await import("./agent/approval-execution");
+
+    let approvalsProcessed = 0;
+    const MAX_RECOVERY_PASSES = 8;
+
+    for (let pass = 0; pass < MAX_RECOVERY_PASSES; pass += 1) {
+      const freshAgent = await client.agents.retrieve(agent.id);
+
+      let resume: Awaited<ReturnType<typeof getResumeData>>;
+      try {
+        resume = await getResumeData(client, freshAgent, targetConversationId, {
+          includeMessageHistory: false,
+        });
+      } catch (error) {
+        if (
+          error instanceof APIError &&
+          (error.status === 404 || error.status === 422)
+        ) {
+          return {
+            recovered: true,
+            pending_approval: false,
+            approvals_processed: approvalsProcessed,
+          };
+        }
+        throw error;
+      }
+
+      const pendingApprovals = resume.pendingApprovals || [];
+      if (pendingApprovals.length === 0) {
+        return {
+          recovered: true,
+          pending_approval: false,
+          approvals_processed: approvalsProcessed,
+        };
+      }
+
+      const { autoAllowed, autoDenied, needsUserInput } =
+        await classifyApprovals(pendingApprovals, {
+          alwaysRequiresUserInput: isInteractiveApprovalTool,
+          requireArgsForAutoApprove: true,
+          missingNameReason: "Tool call incomplete - missing name",
+        });
+
+      const decisions: ApprovalDecision[] = [
+        ...autoAllowed.map((ac) => ({
+          type: "approve" as const,
+          approval: ac.approval,
+        })),
+        ...autoDenied.map((ac) => ({
+          type: "deny" as const,
+          approval: ac.approval,
+          reason: ac.denyReason || ac.permission.reason || "Permission denied",
+        })),
+      ];
+
+      // In headless recovery mode, auto-deny approvals that would require user
+      // input. Calling requestPermission() here would block waiting for a
+      // response that will never come, causing a timeout.
+      for (const ac of needsUserInput) {
+        decisions.push({
+          type: "deny",
+          approval: ac.approval,
+          reason:
+            ac.denyReason ||
+            "Auto-denied during recovery - tool requires interactive approval",
+        });
+      }
+
+      if (decisions.length === 0) {
+        return {
+          recovered: false,
+          pending_approval: true,
+          approvals_processed: approvalsProcessed,
+        };
+      }
+
+      const executedResults = await executeApprovalBatch(decisions);
+      approvalsProcessed += executedResults.length;
+
+      const approvalInput: ApprovalCreate = {
+        type: "approval",
+        approvals: executedResults as ApprovalResult[],
+        otid: randomUUID(),
+      };
+      const approvalStream = await sendMessageStream(
+        targetConversationId,
+        [approvalInput],
+        { agentId: agent.id },
+      );
+
+      const drainResult = await drainStreamWithResume(
+        approvalStream,
+        createBuffers(agent.id),
+        () => {},
+        undefined,
+        undefined,
+        undefined,
+        reminderContextTracker,
+      );
+
+      if (drainResult.stopReason === "error") {
+        throw new Error(
+          drainResult.fallbackError ||
+            "recover_pending_approvals failed while applying approvals",
+        );
+      }
+    }
+
+    return {
+      recovered: false,
+      pending_approval: true,
+      approvals_processed: approvalsProcessed,
+    };
+  }
+
   // Main processing loop
   while (true) {
     const line = await getNextLine();
@@ -2898,7 +3068,6 @@ async function runBidirectionalMode(
               skill_sources: skillSources,
               system_info_reminder_enabled: systemInfoReminderEnabled,
               reflection_trigger: reflectionSettings.trigger,
-              reflection_behavior: reflectionSettings.behavior,
               reflection_step_count: reflectionSettings.stepCount,
             },
           },
@@ -3041,6 +3210,36 @@ async function runBidirectionalMode(
           client,
         });
         console.log(JSON.stringify(listResp));
+      } else if (subtype === "recover_pending_approvals") {
+        const recoverReq =
+          message.request as RecoverPendingApprovalsControlRequest;
+        try {
+          const recovery =
+            await recoverPendingApprovalsFromControlRequest(recoverReq);
+          const recoveryResponse: ControlResponse = {
+            type: "control_response",
+            response: {
+              subtype: "success",
+              request_id: requestId ?? "",
+              response: recovery,
+            },
+            session_id: sessionId,
+            uuid: randomUUID(),
+          };
+          console.log(JSON.stringify(recoveryResponse));
+        } catch (error) {
+          const recoveryError: ControlResponse = {
+            type: "control_response",
+            response: {
+              subtype: "error",
+              request_id: requestId ?? "",
+              error: error instanceof Error ? error.message : String(error),
+            },
+            session_id: sessionId,
+            uuid: randomUUID(),
+          };
+          console.log(JSON.stringify(recoveryError));
+        }
       } else {
         const errorResponse: ControlResponse = {
           type: "control_response",
@@ -3168,6 +3367,7 @@ async function runBidirectionalMode(
             name: agent.name,
             description: agent.description,
             lastRunAt: lastRunAt ?? null,
+            conversationId,
           },
           state: sharedReminderState,
           sessionContextReminderEnabled: systemInfoReminderEnabled,
@@ -3515,12 +3715,12 @@ async function runBidirectionalMode(
             );
 
             // Send approval results back to continue
-            currentInput = [
-              {
-                type: "approval",
-                approvals: executedResults,
-              } as unknown as MessageCreate,
-            ];
+            const approvalInputWithOtid = {
+              type: "approval" as const,
+              approvals: executedResults,
+              otid: randomUUID(),
+            };
+            currentInput = [approvalInputWithOtid as unknown as MessageCreate];
 
             // Continue the loop to process the next stream
             continue;

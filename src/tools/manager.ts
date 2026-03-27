@@ -1,16 +1,53 @@
 import { getDisplayableToolReturn } from "../agent/approval-execution";
 import { getModelInfo } from "../agent/model";
 import { getAllSubagentConfigs } from "../agent/subagents";
+import { refreshFileIndex } from "../cli/helpers/fileIndex";
 import { INTERRUPTED_BY_USER } from "../constants";
 import {
   runPostToolUseFailureHooks,
   runPostToolUseHooks,
   runPreToolUseHooks,
 } from "../hooks";
+import {
+  permissionMode as globalPermissionMode,
+  type PermissionMode,
+} from "../permissions/mode";
 import { OPENAI_CODEX_PROVIDER_NAME } from "../providers/openai-codex-provider";
 import { telemetry } from "../telemetry";
 import { debugLog } from "../utils/debug";
+import {
+  scrubSecretsFromString,
+  substituteSecretsInArgs,
+} from "./secret-substitution";
 import { TOOL_DEFINITIONS, type ToolName } from "./toolDefinitions";
+
+/**
+ * Tools that may create, modify, or delete files on disk.
+ * After any of these complete successfully, the file index is refreshed
+ * in the background so subsequent @ searches reflect the latest state.
+ */
+const FILE_MODIFYING_TOOLS = new Set([
+  // Anthropic toolset
+  "Write",
+  "Edit",
+  "MultiEdit",
+  "Bash",
+  "ApplyPatch",
+  // Codex toolset
+  "Shell",
+  "shell",
+  "ShellCommand",
+  "shell_command",
+  "apply_patch",
+  "memory_apply_patch",
+  // Gemini toolset
+  "Replace",
+  "replace",
+  "WriteFileGemini",
+  "write_file_gemini",
+  "RunShellCommand",
+  "run_shell_command",
+]);
 
 export const TOOL_NAMES = Object.keys(TOOL_DEFINITIONS) as ToolName[];
 const STREAMING_SHELL_TOOLS = new Set([
@@ -75,6 +112,7 @@ export const ANTHROPIC_DEFAULT_TOOLS: ToolName[] = [
   "TaskStop",
   // "MultiEdit",
   // "LS",
+  "memory",
   "Read",
   "Skill",
   "Task",
@@ -87,6 +125,7 @@ export const OPENAI_DEFAULT_TOOLS: ToolName[] = [
   // TODO(codex-parity): add once request_user_input tool exists in raw codex path.
   // "request_user_input",
   "apply_patch",
+  "memory_apply_patch",
   "update_plan",
   "view_image",
 ];
@@ -97,6 +136,7 @@ export const GEMINI_DEFAULT_TOOLS: ToolName[] = [
   "list_directory",
   "glob_gemini",
   "search_file_content",
+  "memory",
   "replace",
   "write_file_gemini",
   "write_todos",
@@ -111,6 +151,7 @@ export const OPENAI_PASCAL_TOOLS: ToolName[] = [
   "AskUserQuestion",
   "EnterPlanMode",
   "ExitPlanMode",
+  "memory_apply_patch",
   "Task",
   "TaskOutput",
   "TaskStop",
@@ -127,6 +168,7 @@ export const GEMINI_PASCAL_TOOLS: ToolName[] = [
   "AskUserQuestion",
   "EnterPlanMode",
   "ExitPlanMode",
+  "memory",
   "Skill",
   "Task",
   // Standard Gemini tools
@@ -155,6 +197,8 @@ const TOOL_PERMISSIONS: Record<ToolName, { requiresApproval: boolean }> = {
   KillBash: { requiresApproval: true },
   TaskStop: { requiresApproval: true },
   LS: { requiresApproval: false },
+  memory: { requiresApproval: true },
+  memory_apply_patch: { requiresApproval: true },
   MultiEdit: { requiresApproval: true },
   Read: { requiresApproval: false },
   view_image: { requiresApproval: false },
@@ -274,10 +318,25 @@ function getSwitchLock(): SwitchLockState {
 const toolRegistry = getRegistry();
 let toolExecutionContextCounter = 0;
 
+/**
+ * Mutable, shared-by-reference permission mode state.
+ * Stored in each ToolExecutionContextSnapshot so tools like EnterPlanMode
+ * and ExitPlanMode can update the mode without touching the global singleton.
+ * Listener mode populates this from ConversationRuntime; CLI mode uses a
+ * wrapper around the global permissionMode singleton.
+ */
+export type PermissionModeState = {
+  mode: PermissionMode;
+  planFilePath: string | null;
+  modeBeforePlan: PermissionMode | null;
+};
+
 type ToolExecutionContextSnapshot = {
   toolRegistry: ToolRegistry;
   externalTools: Map<string, ExternalToolDefinition>;
   externalExecutor?: ExternalToolExecutor;
+  workingDirectory: string;
+  permissionModeState: PermissionModeState;
 };
 
 export type CapturedToolExecutionContext = {
@@ -314,6 +373,17 @@ function getExecutionContextById(
   contextId: string,
 ): ToolExecutionContextSnapshot | undefined {
   return getExecutionContexts().get(contextId);
+}
+
+/**
+ * Returns the mutable PermissionModeState for an execution context.
+ * EnterPlanMode / ExitPlanMode use this to update the per-conversation
+ * state without touching the global singleton.
+ */
+export function getExecutionContextPermissionModeState(
+  contextId: string,
+): PermissionModeState | undefined {
+  return getExecutionContextById(contextId)?.permissionModeState;
 }
 
 export function clearCapturedToolExecutionContexts(): void {
@@ -586,11 +656,39 @@ export function getClientToolsFromRegistry(): ClientTool[] {
  * The returned context id can be used later to execute tool calls against this
  * exact snapshot even if the global registry changes between dispatch and execute.
  */
-export function captureToolExecutionContext(): CapturedToolExecutionContext {
+export function captureToolExecutionContext(
+  workingDirectory: string = process.env.USER_CWD || process.cwd(),
+  permissionModeState?: PermissionModeState,
+): CapturedToolExecutionContext {
+  // When no scoped state is provided (local/CLI mode), create a live proxy to
+  // the global singleton so EnterPlanMode/ExitPlanMode still work correctly.
+  const effectivePermissionModeState: PermissionModeState =
+    permissionModeState ?? {
+      get mode() {
+        return globalPermissionMode.getMode();
+      },
+      set mode(value: PermissionMode) {
+        globalPermissionMode.setMode(value);
+      },
+      get planFilePath() {
+        return globalPermissionMode.getPlanFilePath();
+      },
+      set planFilePath(value: string | null) {
+        globalPermissionMode.setPlanFilePath(value);
+      },
+      get modeBeforePlan() {
+        return globalPermissionMode.getModeBeforePlan();
+      },
+      set modeBeforePlan(_value: PermissionMode | null) {
+        // managed internally by globalPermissionMode
+      },
+    };
   const snapshot: ToolExecutionContextSnapshot = {
     toolRegistry: new Map(toolRegistry),
     externalTools: new Map(getExternalToolsRegistry()),
     externalExecutor: getExternalToolExecutor(),
+    workingDirectory,
+    permissionModeState: effectivePermissionModeState,
   };
   const contextId = saveExecutionContext(snapshot);
 
@@ -613,6 +711,27 @@ export function captureToolExecutionContext(): CapturedToolExecutionContext {
     contextId,
     clientTools: [...builtInTools, ...externalTools],
   };
+}
+
+async function withExecutionWorkingDirectory<T>(
+  workingDirectory: string | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!workingDirectory) {
+    return fn();
+  }
+
+  const previousUserCwd = process.env.USER_CWD;
+  process.env.USER_CWD = workingDirectory;
+  try {
+    return await fn();
+  } finally {
+    if (previousUserCwd === undefined) {
+      delete process.env.USER_CWD;
+    } else {
+      process.env.USER_CWD = previousUserCwd;
+    }
+  }
 }
 
 /**
@@ -645,6 +764,7 @@ export async function checkToolPermission(
   toolName: string,
   toolArgs: ToolArgs,
   workingDirectory: string = process.cwd(),
+  permissionModeStateArg?: PermissionModeState,
 ): Promise<{
   decision: "allow" | "deny" | "ask";
   matchedRule?: string;
@@ -659,6 +779,7 @@ export async function checkToolPermission(
     toolArgs,
     permissions,
     workingDirectory,
+    permissionModeStateArg,
   );
 }
 
@@ -1142,6 +1263,7 @@ export async function executeTool(
     toolCallId?: string;
     onOutput?: (chunk: string, stream: "stdout" | "stderr") => void;
     toolContextId?: string;
+    parentScope?: { agentId: string; conversationId: string };
   },
 ): Promise<ToolExecutionResult> {
   const context = options?.toolContextId
@@ -1158,6 +1280,7 @@ export async function executeTool(
     context?.externalTools ?? getExternalToolsRegistry();
   const activeExternalExecutor =
     context?.externalExecutor ?? getExternalToolExecutor();
+  const workingDirectory = context?.workingDirectory;
 
   // Check if this is an external tool (SDK-executed)
   if (activeExternalTools.has(name)) {
@@ -1192,6 +1315,7 @@ export async function executeTool(
     internalName,
     args as Record<string, unknown>,
     options?.toolCallId,
+    workingDirectory,
   );
   if (preHookResult.blocked) {
     const feedback = preHookResult.feedback.join("\n") || "Blocked by hook";
@@ -1212,15 +1336,21 @@ export async function executeTool(
       if (options?.onOutput) {
         enhancedArgs = { ...enhancedArgs, onOutput: options.onOutput };
       }
+
+      // Substitute $SECRET_NAME patterns with actual secret values
+      enhancedArgs = substituteSecretsInArgs(enhancedArgs);
     }
 
-    // Inject toolCallId and abort signal for Task tool
+    // Inject toolCallId, abort signal, and parent scope for Task tool
     if (internalName === "Task") {
       if (options?.toolCallId) {
         enhancedArgs = { ...enhancedArgs, toolCallId: options.toolCallId };
       }
       if (options?.signal) {
         enhancedArgs = { ...enhancedArgs, signal: options.signal };
+      }
+      if (options?.parentScope) {
+        enhancedArgs = { ...enhancedArgs, parentScope: options.parentScope };
       }
     }
 
@@ -1229,8 +1359,31 @@ export async function executeTool(
       enhancedArgs = { ...enhancedArgs, toolCallId: options.toolCallId };
     }
 
-    const result = await tool.fn(enhancedArgs);
+    // Inject the execution context id for plan-mode tools so they can update
+    // the per-conversation PermissionModeState without touching the global singleton.
+    const PLAN_MODE_TOOL_NAMES = new Set([
+      "EnterPlanMode",
+      "enter_plan_mode",
+      "ExitPlanMode",
+      "exit_plan_mode",
+    ]);
+    if (PLAN_MODE_TOOL_NAMES.has(internalName) && options?.toolContextId) {
+      enhancedArgs = {
+        ...enhancedArgs,
+        _executionContextId: options.toolContextId,
+      };
+    }
+
+    const result = await withExecutionWorkingDirectory(workingDirectory, () =>
+      tool.fn(enhancedArgs),
+    );
     const duration = Date.now() - startTime;
+
+    // Refresh the file index in the background after file-modifying tools
+    // so subsequent @ searches reflect newly created or deleted files.
+    if (FILE_MODIFYING_TOOLS.has(internalName)) {
+      void refreshFileIndex();
+    }
 
     // Extract stdout/stderr if present (for bash tools)
     const recordResult = isRecord(result) ? result : undefined;
@@ -1243,7 +1396,36 @@ export async function executeTool(
     const toolStatus = recordResult?.status === "error" ? "error" : "success";
 
     // Flatten the response to plain text
-    const flattenedResponse = flattenToolResponse(result);
+    let flattenedResponse = flattenToolResponse(result);
+
+    // Scrub secret values from tool output so they don't leak into agent context
+    if (STREAMING_SHELL_TOOLS.has(internalName)) {
+      if (typeof flattenedResponse === "string") {
+        flattenedResponse = scrubSecretsFromString(flattenedResponse);
+      } else if (Array.isArray(flattenedResponse)) {
+        flattenedResponse = flattenedResponse.map((block) =>
+          block.type === "text"
+            ? { ...block, text: scrubSecretsFromString(block.text) }
+            : block,
+        );
+      }
+      if (stdout) {
+        for (let i = 0; i < stdout.length; i++) {
+          const line = stdout[i];
+          if (line !== undefined) {
+            stdout[i] = scrubSecretsFromString(line);
+          }
+        }
+      }
+      if (stderr) {
+        for (let i = 0; i < stderr.length; i++) {
+          const line = stderr[i];
+          if (line !== undefined) {
+            stderr[i] = scrubSecretsFromString(line);
+          }
+        }
+      }
+    }
 
     // Track tool usage (calculate size for multimodal content)
     const responseSize =
@@ -1271,7 +1453,7 @@ export async function executeTool(
           output: getDisplayableToolReturn(flattenedResponse),
         },
         options?.toolCallId,
-        undefined, // workingDirectory
+        workingDirectory,
         undefined, // agentId
         undefined, // precedingReasoning - not available in tool manager context
         undefined, // precedingAssistantMessage - not available in tool manager context
@@ -1295,7 +1477,7 @@ export async function executeTool(
           errorOutput,
           "tool_error", // error type for returned errors
           options?.toolCallId,
-          undefined, // workingDirectory
+          workingDirectory,
           undefined, // agentId
           undefined, // precedingReasoning - not available in tool manager context
           undefined, // precedingAssistantMessage - not available in tool manager context
@@ -1378,7 +1560,7 @@ export async function executeTool(
         args as Record<string, unknown>,
         { status: "error", output: errorMessage },
         options?.toolCallId,
-        undefined, // workingDirectory
+        workingDirectory,
         undefined, // agentId
         undefined, // precedingReasoning - not available in tool manager context
         undefined, // precedingAssistantMessage - not available in tool manager context
@@ -1397,7 +1579,7 @@ export async function executeTool(
         errorMessage,
         errorType,
         options?.toolCallId,
-        undefined, // workingDirectory
+        workingDirectory,
         undefined, // agentId
         undefined, // precedingReasoning - not available in tool manager context
         undefined, // precedingAssistantMessage - not available in tool manager context

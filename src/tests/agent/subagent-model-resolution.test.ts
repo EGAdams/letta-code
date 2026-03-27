@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { SubagentConfig } from "../../agent/subagents";
 import {
+  buildSubagentArgs,
   isSubagentModelUnavailableError,
   resolveSubagentLauncher,
   resolveSubagentModel,
@@ -116,6 +118,43 @@ describe("resolveSubagentLauncher", () => {
       command: "C:\\Users\\Example User\\AppData\\Roaming\\npm\\letta.cmd",
       args: ["--output-format", "stream-json"],
     });
+  });
+});
+
+describe("buildSubagentArgs", () => {
+  const baseConfig: SubagentConfig = {
+    name: "test-subagent",
+    description: "test",
+    systemPrompt: "test prompt",
+    allowedTools: "all",
+    recommendedModel: "inherit",
+    skills: [],
+    memoryBlocks: "none",
+    mode: "stateful",
+    fork: false,
+    background: false,
+  };
+
+  test("adds --no-memfs for newly spawned subagents by default", () => {
+    const args = buildSubagentArgs("test-subagent", baseConfig, null, "hello");
+
+    expect(args).toContain("--init-blocks");
+    expect(args).toContain("none");
+    expect(args).toContain("--no-memfs");
+  });
+
+  test("does not force --no-memfs when deploying an existing subagent agent", () => {
+    const args = buildSubagentArgs(
+      "test-subagent",
+      baseConfig,
+      null,
+      "hello",
+      "agent-existing",
+    );
+
+    expect(args).toContain("--agent");
+    expect(args).not.toContain("--new-agent");
+    expect(args).not.toContain("--no-memfs");
   });
 });
 
@@ -243,30 +282,54 @@ describe("resolveSubagentModel", () => {
   test("uses GLM-5 default for free tier even when subagent recommends another model", async () => {
     const result = await resolveSubagentModel({
       recommendedModel: "sonnet-4.5",
-      billingTier: "free",
-      availableHandles: new Set(["zai/glm-5"]),
+      availableHandles: new Set(["letta/auto", "anthropic/test-model"]),
     });
 
-    expect(result).toBe("zai/glm-5");
+    expect(result).toBe("letta/auto");
   });
 
-  test("keeps inherit behavior for free tier", async () => {
+  test("uses auto-fast default for free tier when available", async () => {
+    const result = await resolveSubagentModel({
+      billingTier: "free",
+      availableHandles: new Set(["letta/auto-fast", "letta/auto"]),
+    });
+
+    expect(result).toBe("letta/auto-fast");
+  });
+
+  test("free tier falls back to auto when auto-fast is unavailable", async () => {
+    const result = await resolveSubagentModel({
+      billingTier: "free",
+      availableHandles: new Set(["letta/auto"]),
+    });
+
+    expect(result).toBe("letta/auto");
+  });
+
+  test("falls back when auto is unavailable", async () => {
+    const result = await resolveSubagentModel({
+      recommendedModel: "anthropic/test-model",
+      availableHandles: new Set(["anthropic/test-model"]),
+    });
+
+    expect(result).toBe("anthropic/test-model");
+  });
+
+  test("keeps inherit behavior when auto is unavailable", async () => {
     const result = await resolveSubagentModel({
       recommendedModel: "inherit",
       parentModelHandle: "openai/gpt-5",
-      billingTier: "free",
       availableHandles: new Set(["openai/gpt-5"]),
     });
 
     expect(result).toBe("openai/gpt-5");
   });
 
-  test("user-provided model still overrides free-tier default", async () => {
+  test("user-provided model still overrides default auto", async () => {
     const result = await resolveSubagentModel({
       userModel: "openai/gpt-5",
       recommendedModel: "sonnet-4.5",
-      billingTier: "free",
-      availableHandles: new Set(["zai/glm-5", "openai/gpt-5"]),
+      availableHandles: new Set(["letta/auto", "openai/gpt-5"]),
     });
 
     expect(result).toBe("openai/gpt-5");

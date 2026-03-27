@@ -5,7 +5,12 @@
 /**
  * Default model ID to use when no model is specified
  */
-export const DEFAULT_MODEL_ID = "sonnet";
+export const DEFAULT_MODEL_ID = "auto";
+
+/**
+ * Default model handle to use for conversation compaction / summarization.
+ */
+export const DEFAULT_SUMMARIZATION_MODEL = "letta/auto";
 
 /**
  * Default agent name when creating a new agent

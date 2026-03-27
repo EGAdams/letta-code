@@ -1,12 +1,5 @@
-import { join } from "node:path";
 import type { MessageCreate } from "@letta-ai/letta-client/resources/agents/agents";
-import { getSkillsDirectory } from "../agent/context";
-import {
-  discoverSkills,
-  formatSkillsAsSystemReminder,
-  SKILLS_DIR,
-  type SkillSource,
-} from "../agent/skills";
+import type { SkillSource } from "../agent/skills";
 import { buildAgentInfo } from "../cli/helpers/agentInfo";
 import {
   buildCompactionMemoryReminder,
@@ -14,16 +7,20 @@ import {
   type ReflectionSettings,
   shouldFireStepCountTrigger,
 } from "../cli/helpers/memoryReminder";
-import { buildSessionContext } from "../cli/helpers/sessionContext";
+import {
+  buildSessionContext,
+  type SessionContextSource,
+} from "../cli/helpers/sessionContext";
 import { SYSTEM_REMINDER_CLOSE, SYSTEM_REMINDER_OPEN } from "../constants";
 import { permissionMode } from "../permissions/mode";
 import { settingsManager } from "../settings-manager";
+import { debugLog } from "../utils/debug";
 import {
   SHARED_REMINDER_CATALOG,
   type SharedReminderId,
   type SharedReminderMode,
 } from "./catalog";
-import type { SharedReminderState } from "./state";
+import type { SessionContextReason, SharedReminderState } from "./state";
 
 type ReflectionTriggerSource = "step-count" | "compaction-event";
 
@@ -33,6 +30,7 @@ export interface AgentReminderContext {
   description?: string | null;
   lastRunAt?: string | null;
   serverUrl?: string;
+  conversationId?: string;
 }
 
 export interface SharedReminderContext {
@@ -46,7 +44,12 @@ export interface SharedReminderContext {
   maybeLaunchReflectionSubagent?: (
     triggerSource: ReflectionTriggerSource,
   ) => Promise<boolean>;
-  maybeLaunchDeepInitSubagent?: () => Promise<boolean>;
+  /** Explicit working directory (overrides process.cwd() in session context). */
+  workingDirectory?: string;
+  /** Source of the session context (varies intro text). */
+  sessionContextSource?: SessionContextSource;
+  /** Reason the session context is being (re)generated. */
+  sessionContextReason?: SessionContextReason;
 }
 
 export type ReminderTextPart = { type: "text"; text: string };
@@ -75,10 +78,38 @@ async function buildAgentInfoReminder(
       lastRunAt: context.agent.lastRunAt,
     },
     serverUrl: context.agent.serverUrl,
+    conversationId: context.agent.conversationId,
   });
 
   context.state.hasSentAgentInfo = true;
   return reminder || null;
+}
+
+async function buildSecretsInfoReminder(
+  context: SharedReminderContext,
+): Promise<string | null> {
+  if (context.state.hasSentSecretsInfo) {
+    return null;
+  }
+
+  context.state.hasSentSecretsInfo = true;
+
+  try {
+    const { listSecretNames } = await import("../utils/secretsStore");
+    const names = listSecretNames();
+    if (names.length === 0) {
+      return null;
+    }
+
+    const list = names.map((n) => `- \`$${n}\``).join("\n");
+    return `${SYSTEM_REMINDER_OPEN}Use \`$SECRET_NAME\` syntax in shell commands to reference these secrets:\n\n${list}\n${SYSTEM_REMINDER_CLOSE}`;
+  } catch (error) {
+    debugLog(
+      "secrets",
+      `Failed to build secrets reminder: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return null;
+  }
 }
 
 async function buildSessionContextReminder(
@@ -95,56 +126,20 @@ async function buildSessionContextReminder(
     return null;
   }
 
-  const reminder = buildSessionContext();
+  const reason =
+    context.sessionContextReason ??
+    context.state.pendingSessionContextReason ??
+    "initial_attach";
+
+  const reminder = buildSessionContext({
+    cwd: context.workingDirectory,
+    source: context.sessionContextSource,
+    reason,
+  });
 
   context.state.hasSentSessionContext = true;
+  context.state.pendingSessionContextReason = undefined;
   return reminder || null;
-}
-
-async function buildSkillsReminder(
-  context: SharedReminderContext,
-): Promise<string | null> {
-  const previousSkillsReminder = context.state.cachedSkillsReminder;
-  // Keep a stable empty baseline so a later successful discovery can diff
-  // against "" and trigger reinjection, even after an earlier discovery failure.
-  let latestSkillsReminder = previousSkillsReminder ?? "";
-
-  try {
-    const skillsDir = getSkillsDirectory() || join(process.cwd(), SKILLS_DIR);
-    const { skills } = await discoverSkills(skillsDir, context.agent.id, {
-      sources: context.skillSources,
-    });
-    latestSkillsReminder = formatSkillsAsSystemReminder(skills);
-    context.state.skillPathById = Object.fromEntries(
-      skills
-        .filter(
-          (skill) => typeof skill.path === "string" && skill.path.length > 0,
-        )
-        .map((skill) => [skill.id, skill.path as string]),
-    );
-  } catch {
-    // Keep previous snapshot when discovery fails.
-  }
-
-  if (
-    previousSkillsReminder !== null &&
-    previousSkillsReminder !== latestSkillsReminder
-  ) {
-    context.state.pendingSkillsReinject = true;
-  }
-
-  context.state.cachedSkillsReminder = latestSkillsReminder;
-
-  const shouldInject =
-    !context.state.hasInjectedSkillsReminder ||
-    context.state.pendingSkillsReinject;
-  if (!shouldInject) {
-    return null;
-  }
-
-  context.state.hasInjectedSkillsReminder = true;
-  context.state.pendingSkillsReinject = false;
-  return latestSkillsReminder || null;
 }
 
 async function buildPlanModeReminder(
@@ -172,7 +167,7 @@ async function buildPermissionModeReminder(
   const previousMode = context.state.lastNotifiedPermissionMode;
 
   const shouldEmit = (() => {
-    if (context.mode === "interactive") {
+    if (context.mode === "interactive" || context.mode === "listen") {
       if (previousMode === null) {
         // First turn: only remind if in a non-default mode (e.g. bypassPermissions).
         return currentMode !== "default";
@@ -211,20 +206,20 @@ async function buildReflectionStepReminder(
   let reminder: string | null = null;
 
   if (shouldFireStepTrigger) {
-    if (context.reflectionSettings.behavior === "reminder" || !memfsEnabled) {
+    if (memfsEnabled) {
+      if (context.maybeLaunchReflectionSubagent) {
+        await context.maybeLaunchReflectionSubagent("step-count");
+      } else {
+        debugLog(
+          "memory",
+          `Step-count reflection trigger fired with no launcher callback (agent ${context.agent.id})`,
+        );
+      }
+    } else {
       reminder = await buildMemoryReminder(
         context.state.turnCount,
         context.agent.id,
       );
-    } else {
-      if (context.maybeLaunchReflectionSubagent) {
-        await context.maybeLaunchReflectionSubagent("step-count");
-      } else {
-        reminder = await buildMemoryReminder(
-          context.state.turnCount,
-          context.agent.id,
-        );
-      }
     }
   }
 
@@ -247,11 +242,16 @@ async function buildReflectionCompactionReminder(
   }
 
   const memfsEnabled = settingsManager.isMemfsEnabled(context.agent.id);
-  if (context.reflectionSettings.behavior === "auto-launch" && memfsEnabled) {
+  if (memfsEnabled) {
     if (context.maybeLaunchReflectionSubagent) {
       await context.maybeLaunchReflectionSubagent("compaction-event");
-      return null;
+    } else {
+      debugLog(
+        "memory",
+        `Compaction reflection trigger fired with no launcher callback (agent ${context.agent.id})`,
+      );
     }
+    return null;
   }
 
   return buildCompactionMemoryReminder(context.agent.id);
@@ -264,29 +264,6 @@ async function buildAutoInitReminder(
   context.state.pendingAutoInitReminder = false;
   const { AUTO_INIT_REMINDER } = await import("../agent/promptAssets.js");
   return AUTO_INIT_REMINDER;
-}
-
-// Disabled: deep init at turn 8 + reflection at turn 10 is too chaotic.
-// Re-enable once both subagent prompts are tuned to coexist.
-const DEEP_INIT_AUTO_LAUNCH_ENABLED = false;
-
-async function maybeLaunchDeepInit(
-  context: SharedReminderContext,
-): Promise<string | null> {
-  if (!DEEP_INIT_AUTO_LAUNCH_ENABLED) return null;
-  if (!context.state.shallowInitCompleted) return null;
-  if (context.state.deepInitFired) return null;
-  if (context.state.turnCount < 8) return null;
-
-  const memfsEnabled = settingsManager.isMemfsEnabled(context.agent.id);
-  if (!memfsEnabled) return null;
-
-  if (context.maybeLaunchDeepInitSubagent) {
-    // Don't latch deepInitFired here — it's set in the onComplete callback
-    // only on success, so a failed deep init allows automatic retry.
-    await context.maybeLaunchDeepInitSubagent();
-  }
-  return null;
 }
 
 const MAX_COMMAND_REMINDERS_PER_TURN = 10;
@@ -397,13 +374,12 @@ export const sharedReminderProviders: Record<
   SharedReminderProvider
 > = {
   "agent-info": buildAgentInfoReminder,
+  "secrets-info": buildSecretsInfoReminder,
   "session-context": buildSessionContextReminder,
-  skills: buildSkillsReminder,
   "permission-mode": buildPermissionModeReminder,
   "plan-mode": buildPlanModeReminder,
   "reflection-step-count": buildReflectionStepReminder,
   "reflection-compaction": buildReflectionCompactionReminder,
-  "deep-init": maybeLaunchDeepInit,
   "command-io": buildCommandIoReminder,
   "toolset-change": buildToolsetChangeReminder,
   "auto-init": buildAutoInitReminder,

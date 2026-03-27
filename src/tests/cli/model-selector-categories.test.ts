@@ -19,10 +19,12 @@ describe("getModelCategories", () => {
     ]);
   });
 
-  test("keeps self-hosted categories unchanged", () => {
+  test("includes byok tabs for self-hosted (chatgpt-plus-pro may be registered)", () => {
     expect(getModelCategories("free", true)).toEqual([
       "server-recommended",
       "server-all",
+      "byok",
+      "byok-all",
     ]);
   });
 });

@@ -12,6 +12,7 @@ import { createInterface } from "node:readline";
 import { buildChatUrl } from "../../cli/helpers/appUrls";
 import {
   addToolCall,
+  emitStreamEvent,
   updateSubagent,
 } from "../../cli/helpers/subagentState.js";
 import {
@@ -22,13 +23,13 @@ import {
 import { cliPermissions } from "../../permissions/cli";
 import { permissionMode } from "../../permissions/mode";
 import { sessionPermissions } from "../../permissions/session";
+import { OPENAI_CODEX_PROVIDER_NAME } from "../../providers/openai-codex-provider";
 import { settingsManager } from "../../settings-manager";
 import { resolveLettaInvocation } from "../../tools/impl/shellEnv";
 import { getErrorMessage } from "../../utils/error";
 import { getAvailableModelHandles } from "../available-models";
 import { getClient } from "../client";
 import { getCurrentAgentId } from "../context";
-import { OPENAI_CODEX_PROVIDER_NAME } from "../../providers/openai-codex-provider";
 import { getDefaultModelForTier, resolveModel } from "../model";
 
 import { getAllSubagentConfigs, type SubagentConfig } from ".";
@@ -139,7 +140,9 @@ function getProviderPrefix(handle: string): string | null {
   return handle.slice(0, slashIndex);
 }
 
-function normalizeModelHandle(handle: string | null | undefined): string | null {
+function normalizeModelHandle(
+  handle: string | null | undefined,
+): string | null {
   if (!handle) return null;
   if (handle.startsWith("chatgpt_oauth/")) {
     return `${OPENAI_CODEX_PROVIDER_NAME}/${handle.slice("chatgpt_oauth/".length)}`;
@@ -177,18 +180,13 @@ export async function resolveSubagentModel(options: {
       ? options.userModel
       : undefined;
   const parentModelHandle = normalizeModelHandle(options.parentModelHandle);
+  const isFreeTier = billingTier?.toLowerCase() === "free";
 
   if (userModel) return normalizeModelHandle(userModel);
 
   let recommendedHandle: string | null = null;
   if (recommendedModel && recommendedModel !== "inherit") {
     recommendedHandle = normalizeModelHandle(resolveModel(recommendedModel));
-  }
-
-  // Free-tier users should default subagents to GLM-5 instead of provider-specific
-  // recommendations like Sonnet.
-  if (recommendedModel !== "inherit" && billingTier?.toLowerCase() === "free") {
-    recommendedHandle = getDefaultModelForTier(billingTier);
   }
 
   let availableHandles: Set<string> | null = options.availableHandles ?? null;
@@ -203,6 +201,20 @@ export async function resolveSubagentModel(options: {
       return false;
     }
   };
+
+  // Free-tier default for subagents: auto-fast, when available.
+  const freeTierDefaultHandle = isFreeTier ? resolveModel("auto-fast") : null;
+  if (freeTierDefaultHandle && (await isAvailable(freeTierDefaultHandle))) {
+    return freeTierDefaultHandle;
+  }
+
+  // Free-tier fallback default: auto, when available.
+  if (isFreeTier) {
+    const defaultHandle = getDefaultModelForTier(billingTier);
+    if (defaultHandle && (await isAvailable(defaultHandle))) {
+      return defaultHandle;
+    }
+  }
 
   if (parentModelHandle) {
     const parentProvider = getProviderPrefix(parentModelHandle);
@@ -250,6 +262,12 @@ export async function resolveSubagentModel(options: {
     return recommendedHandle;
   }
 
+  // Non-free fallback default: auto, when available.
+  const defaultHandle = getDefaultModelForTier(billingTier);
+  if (defaultHandle && (await isAvailable(defaultHandle))) {
+    return defaultHandle;
+  }
+
   return recommendedHandle;
 }
 
@@ -278,7 +296,9 @@ function handleInitEvent(
 ): void {
   if (event.agent_id) {
     state.agentId = event.agent_id;
-    const agentURL = buildChatUrl(event.agent_id);
+    const agentURL = buildChatUrl(event.agent_id, {
+      conversationId: event.conversation_id,
+    });
     updateSubagent(subagentId, { agentURL });
   }
   if (event.conversation_id) {
@@ -405,6 +425,10 @@ function processStreamEvent(
       case "message":
         if (event.message_type === "approval_request_message") {
           handleApprovalRequestEvent(event, state);
+        } else {
+          // Forward non-approval message events for WS streaming to the web UI.
+          // Approval requests are internal to the subagent's permission flow.
+          emitStreamEvent(subagentId, event);
         }
         break;
 
@@ -530,7 +554,7 @@ export function resolveSubagentLauncher(
 /**
  * Build CLI arguments for spawning a subagent
  */
-function buildSubagentArgs(
+export function buildSubagentArgs(
   type: string,
   config: SubagentConfig,
   model: string | null,
@@ -560,6 +584,9 @@ function buildSubagentArgs(
     // Create new agent (original behavior)
     args.push("--new-agent", "--system", type);
     args.push("--tags", `type:${type}`);
+    // Default all newly spawned subagents to non-memfs mode.
+    // This avoids memfs startup overhead unless explicitly enabled elsewhere.
+    args.push("--no-memfs");
     if (model) {
       args.push("--model", model);
     }
@@ -703,6 +730,12 @@ async function executeSubagent(
       },
     });
 
+    // Consider execution "running" once the child process has successfully spawned.
+    // This avoids waiting on subagent init events (e.g. agentURL) to reflect progress.
+    proc.once("spawn", () => {
+      updateSubagent(subagentId, { status: "running" });
+    });
+
     // Set up abort handler to kill the child process
     let wasAborted = false;
     const abortHandler = () => {
@@ -731,6 +764,14 @@ async function executeSubagent(
       crlfDelay: Number.POSITIVE_INFINITY,
     });
 
+    let rlClosed = false;
+    const rlClosedPromise = new Promise<void>((resolve) => {
+      rl.once("close", () => {
+        rlClosed = true;
+        resolve();
+      });
+    });
+
     rl.on("line", (line: string) => {
       stdoutChunks.push(Buffer.from(`${line}\n`));
       processStreamEvent(line, state, subagentId);
@@ -745,6 +786,13 @@ async function executeSubagent(
       proc.on("close", resolve);
       proc.on("error", () => resolve(null));
     });
+
+    // Ensure all stdout lines have been processed before completing.
+    // Without this, late tool events can be dropped before Task marks completion.
+    if (!rlClosed) {
+      rl.close();
+    }
+    await rlClosedPromise;
 
     // Clean up abort listener
     signal?.removeEventListener("abort", abortHandler);
@@ -899,6 +947,16 @@ ${SYSTEM_REMINDER_CLOSE}
 `;
 }
 
+function buildForkSystemReminder(): string {
+  return `${SYSTEM_REMINDER_OPEN}
+You have been forked from the primary conversational thread to run as an independent subagent.
+You CANNOT ask questions mid-execution - all instructions are provided upfront.
+Your final message will be returned to the caller.
+${SYSTEM_REMINDER_CLOSE}
+
+`;
+}
+
 /**
  * Spawn a subagent and execute it autonomously
  *
@@ -919,6 +977,7 @@ export async function spawnSubagent(
   existingAgentId?: string,
   existingConversationId?: string,
   maxTurns?: number,
+  forkedContext?: boolean,
 ): Promise<SubagentResult> {
   const allConfigs = await getAllSubagentConfigs();
   const config = allConfigs[type];
@@ -957,12 +1016,17 @@ export async function spawnSubagent(
       const parentAgentId = getCurrentAgentId();
       const client = await getClient();
       const parentAgent = await client.agents.retrieve(parentAgentId);
-      const systemReminder = buildDeploySystemReminder(
-        parentAgent.name,
-        parentAgentId,
-        type,
-      );
-      finalPrompt = systemReminder + prompt;
+      if (forkedContext) {
+        const systemReminder = buildForkSystemReminder();
+        finalPrompt = systemReminder + prompt;
+      } else {
+        const systemReminder = buildDeploySystemReminder(
+          parentAgent.name,
+          parentAgentId,
+          type,
+        );
+        finalPrompt = systemReminder + prompt;
+      }
     } catch {
       // If we can't get parent agent info, proceed without the reminder
     }

@@ -8,17 +8,22 @@ import type {
   ApprovalCreate,
   LettaStreamingResponse,
 } from "@letta-ai/letta-client/resources/agents/messages";
+import type { MessageCreateParams as ConversationMessageCreateParams } from "@letta-ai/letta-client/resources/conversations/messages";
 import {
   type ClientTool,
   captureToolExecutionContext,
+  type PermissionModeState,
   waitForToolsetReady,
 } from "../tools/manager";
+import { debugLog, debugWarn, isDebugEnabled } from "../utils/debug";
 import { isTimingsEnabled } from "../utils/timing";
 import {
   type ApprovalNormalizationOptions,
   normalizeOutgoingApprovalMessages,
 } from "./approval-result-normalization";
 import { getClient } from "./client";
+import { buildClientSkillsPayload } from "./clientSkills";
+import { ALL_SKILL_SOURCES } from "./skillSources";
 
 const streamRequestStartTimes = new WeakMap<object, number>();
 const streamToolContextIds = new WeakMap<object, string>();
@@ -31,6 +36,7 @@ export type StreamRequestContext = {
   resolvedConversationId: string;
   agentId: string | null;
   requestStartedAtMs: number;
+  otid?: string;
 };
 const streamRequestContexts = new WeakMap<object, StreamRequestContext>();
 
@@ -57,6 +63,15 @@ export type SendMessageStreamOptions = {
   background?: boolean;
   agentId?: string; // Required when conversationId is "default"
   approvalNormalization?: ApprovalNormalizationOptions;
+  workingDirectory?: string;
+  /** Per-conversation permission mode state. When provided, tool execution uses
+   *  this scoped state instead of the global permissionMode singleton. */
+  permissionModeState?: PermissionModeState;
+  /**
+   * Per-request model override. Uses backend request-scoped override_model and
+   * does not mutate agent/conversation persisted model configuration.
+   */
+  overrideModel?: string;
 };
 
 export function buildConversationMessagesCreateRequestBody(
@@ -64,6 +79,9 @@ export function buildConversationMessagesCreateRequestBody(
   messages: Array<MessageCreate | ApprovalCreate>,
   opts: SendMessageStreamOptions = { streamTokens: true, background: true },
   clientTools: ClientTool[],
+  clientSkills: NonNullable<
+    ConversationMessageCreateParams["client_skills"]
+  > = [],
 ) {
   const isDefaultConversation = conversationId === "default";
   if (isDefaultConversation && !opts.agentId) {
@@ -81,8 +99,10 @@ export function buildConversationMessagesCreateRequestBody(
     stream_tokens: opts.streamTokens ?? true,
     include_pings: true,
     background: opts.background ?? true,
+    client_skills: clientSkills,
     client_tools: clientTools,
     include_compaction_messages: true,
+    ...(opts.overrideModel ? { override_model: opts.overrideModel } : {}),
     ...(isDefaultConversation ? { agent_id: opts.agentId } : {}),
   };
 }
@@ -116,7 +136,15 @@ export async function sendMessageStream(
   // Wait for any in-progress toolset switch to complete before reading tools
   // This prevents sending messages with stale tools during a switch
   await waitForToolsetReady();
-  const { clientTools, contextId } = captureToolExecutionContext();
+  const { clientTools, contextId } = captureToolExecutionContext(
+    opts.workingDirectory,
+    opts.permissionModeState,
+  );
+  const { clientSkills, errors: clientSkillDiscoveryErrors } =
+    await buildClientSkillsPayload({
+      agentId: opts.agentId,
+      skillSources: ALL_SKILL_SOURCES,
+    });
 
   const resolvedConversationId = conversationId;
   const requestBody = buildConversationMessagesCreateRequestBody(
@@ -124,12 +152,37 @@ export async function sendMessageStream(
     messages,
     opts,
     clientTools,
+    clientSkills,
   );
 
-  if (process.env.DEBUG) {
-    console.log(
-      `[DEBUG] sendMessageStream: conversationId=${conversationId}, agentId=${opts.agentId ?? "(none)"}`,
+  if (isDebugEnabled()) {
+    debugLog(
+      "agent-message",
+      "sendMessageStream: conversationId=%s, agentId=%s",
+      conversationId,
+      opts.agentId ?? "(none)",
     );
+
+    const formattedSkills = clientSkills.map(
+      (skill) => `${skill.name} (${skill.location})`,
+    );
+    debugLog(
+      "agent-message",
+      "sendMessageStream: client_skills (%d) %s",
+      clientSkills.length,
+      formattedSkills.length > 0 ? formattedSkills.join(", ") : "(none)",
+    );
+
+    if (clientSkillDiscoveryErrors.length > 0) {
+      for (const error of clientSkillDiscoveryErrors) {
+        debugWarn(
+          "agent-message",
+          "sendMessageStream: client_skills discovery error at %s: %s",
+          error.path,
+          error.message,
+        );
+      }
+    }
   }
 
   const extraHeaders: Record<string, string> = {};
@@ -144,6 +197,8 @@ export async function sendMessageStream(
       ...extraHeaders,
     },
   };
+
+  const firstOtid = (messages[0] as unknown as { otid?: string })?.otid;
 
   // For "default" conversations, try passing "default" first (newer servers).
   // If the server rejects it (older 0.16.x servers enforce strict "conv-{uuid}"
@@ -213,6 +268,7 @@ export async function sendMessageStream(
     resolvedConversationId,
     agentId: opts.agentId ?? null,
     requestStartedAtMs,
+    otid: firstOtid,
   });
 
   return stream;

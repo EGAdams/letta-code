@@ -30,13 +30,14 @@ import { OPENAI_CODEX_PROVIDER_NAME } from "../../providers/openai-codex-provide
 import { ralphMode } from "../../ralph/mode";
 import { settingsManager } from "../../settings-manager";
 import { buildChatUrl } from "../helpers/appUrls.js";
-import { charsToTokens, formatCompact } from "../helpers/format";
+import { bytesToTokens, formatCompact } from "../helpers/format";
 import type { QueuedMessage } from "../helpers/messageQueueBridge";
 import {
   getActiveBackgroundAgents,
   getSnapshot as getSubagentSnapshot,
   subscribe as subscribeToSubagents,
 } from "../helpers/subagentState.js";
+import { getRandomThinkingTip } from "../helpers/thinkingMessages";
 import { BlinkingSpinner } from "./BlinkingSpinner.js";
 import { colors } from "./colors";
 import { InputAssist } from "./InputAssist";
@@ -237,6 +238,7 @@ const InputFooter = memo(function InputFooter({
   currentReasoningEffort,
   isOpenAICodexProvider,
   isByokProvider,
+  hasTemporaryModelOverride,
   hideFooter,
   rightColumnWidth,
   statusLineText,
@@ -256,6 +258,7 @@ const InputFooter = memo(function InputFooter({
   currentReasoningEffort?: ModelReasoningEffort | null;
   isOpenAICodexProvider: boolean;
   isByokProvider: boolean;
+  hasTemporaryModelOverride?: boolean;
   hideFooter: boolean;
   rightColumnWidth: number;
   statusLineText?: string;
@@ -313,15 +316,21 @@ const InputFooter = memo(function InputFooter({
   const displayAgentName = truncateEnd(agentName || "Unnamed", maxAgentChars);
   const reasoningTag = getReasoningEffortTag(currentReasoningEffort);
   const byokExtraChars = isByokProvider ? 2 : 0; // " ▲"
+  const tempOverrideExtraChars = hasTemporaryModelOverride ? 2 : 0; // " ▲"
 
-  const baseReservedChars = displayAgentName.length + byokExtraChars + 4;
+  const baseReservedChars =
+    displayAgentName.length + byokExtraChars + tempOverrideExtraChars + 4;
   const modelWithReasoning =
     (currentModel ?? "unknown") + (reasoningTag ? ` (${reasoningTag})` : "");
 
   const maxModelChars = Math.max(8, rightColumnWidth - baseReservedChars);
   const displayModel = truncateEnd(modelWithReasoning, maxModelChars);
   const rightTextLength =
-    displayAgentName.length + displayModel.length + byokExtraChars + 3;
+    displayAgentName.length +
+    displayModel.length +
+    byokExtraChars +
+    tempOverrideExtraChars +
+    3;
   const rightPrefixSpaces = Math.max(0, rightColumnWidth - rightTextLength);
 
   // When bg agents are active, widen the right column to fit the indicator + label
@@ -358,9 +367,19 @@ const InputFooter = memo(function InputFooter({
         isOpenAICodexProvider ? chalk.hex("#74AA9C")("▲") : chalk.yellow("▲"),
       );
     }
+    if (hasTemporaryModelOverride) {
+      parts.push(chalk.dim(" "));
+      parts.push(chalk.yellow("▲"));
+    }
     parts.push(chalk.dim("]"));
     return parts.join("");
-  }, [displayAgentName, displayModel, isByokProvider, isOpenAICodexProvider]);
+  }, [
+    displayAgentName,
+    displayModel,
+    isByokProvider,
+    isOpenAICodexProvider,
+    hasTemporaryModelOverride,
+  ]);
 
   const rightLabel = useMemo(
     () => " ".repeat(rightPrefixSpaces) + rightLabelCore,
@@ -438,7 +457,7 @@ const InputFooter = memo(function InputFooter({
               pulseIntervalMs={400}
             />
             {bgAgentParts.map((part, i) => (
-              <Text key={`bg-agent-${part}`}>
+              <Text key={`bg-agent-${part.id}`}>
                 {i > 0 && (
                   <Text
                     key={`bg-agent-indicator-${part}`}
@@ -476,6 +495,7 @@ const StreamingStatus = memo(function StreamingStatus({
   tokenCount,
   elapsedBaseMs,
   thinkingMessage,
+  includeSystemPromptUpgradeTip,
   agentName,
   interruptRequested,
   networkPhase,
@@ -487,6 +507,7 @@ const StreamingStatus = memo(function StreamingStatus({
   tokenCount: number;
   elapsedBaseMs: number;
   thinkingMessage: string;
+  includeSystemPromptUpgradeTip: boolean;
   agentName: string | null | undefined;
   interruptRequested: boolean;
   networkPhase: "upload" | "download" | "error" | null;
@@ -527,6 +548,7 @@ const StreamingStatus = memo(function StreamingStatus({
 
   const [shimmerOffset, setShimmerOffset] = useState(-3);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [tipMessage, setTipMessage] = useState("");
   const streamStartRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -578,7 +600,13 @@ const StreamingStatus = memo(function StreamingStatus({
     setElapsedMs(0);
   }, [streaming, visible]);
 
-  const estimatedTokens = charsToTokens(tokenCount);
+  useEffect(() => {
+    if (streaming && visible) {
+      setTipMessage(getRandomThinkingTip({ includeSystemPromptUpgradeTip }));
+    }
+  }, [streaming, visible, includeSystemPromptUpgradeTip]);
+
+  const estimatedTokens = bytesToTokens(tokenCount);
   const totalElapsedMs = elapsedBaseMs + elapsedMs;
   const shouldShowTokenCount =
     streaming && estimatedTokens > TOKEN_DISPLAY_THRESHOLD;
@@ -650,33 +678,46 @@ const StreamingStatus = memo(function StreamingStatus({
       hintColor(" (") + hintBold("esc") + hintColor(` to interrupt${suffix}`)
     );
   }, [interruptRequested, statusHintSuffix]);
+  const tipLineText = useMemo(() => {
+    return truncateEnd(`⎿  Tip: ${tipMessage}`, statusContentWidth);
+  }, [tipMessage, statusContentWidth]);
 
   if (!streaming || !visible) {
     return null;
   }
 
   return (
-    <Box flexDirection="row" marginBottom={1}>
-      <Box width={2} flexShrink={0}>
-        <Text color={colors.status.processing}>
-          {animate ? <Spinner type="layer" /> : "●"}
-        </Text>
-      </Box>
-      <Box width={statusContentWidth} flexShrink={0} flexDirection="row">
-        <Box width={messageColumnWidth} flexShrink={0}>
-          <ShimmerText
-            boldPrefix={agentName || undefined}
-            message={thinkingMessage}
-            shimmerOffset={animate ? shimmerOffset : -3}
-            wrap="truncate-end"
-          />
+    <Box flexDirection="column" marginBottom={1}>
+      <Box flexDirection="row">
+        <Box width={2} flexShrink={0}>
+          <Text color={colors.status.processing}>
+            {animate ? <Spinner type="layer" /> : "●"}
+          </Text>
         </Box>
-        {hintColumnWidth > 0 && (
-          <Box width={hintColumnWidth} flexShrink={0}>
-            <Text wrap="truncate-end">{statusHintText}</Text>
+        <Box width={statusContentWidth} flexShrink={0} flexDirection="row">
+          <Box width={messageColumnWidth} flexShrink={0}>
+            <ShimmerText
+              boldPrefix={agentName || undefined}
+              message={thinkingMessage}
+              shimmerOffset={animate ? shimmerOffset : -3}
+              wrap="truncate-end"
+            />
           </Box>
-        )}
-        <Box flexGrow={1} />
+          {hintColumnWidth > 0 && (
+            <Box width={hintColumnWidth} flexShrink={0}>
+              <Text wrap="truncate-end">{statusHintText}</Text>
+            </Box>
+          )}
+          <Box flexGrow={1} />
+        </Box>
+      </Box>
+      <Box flexDirection="row">
+        <Box width={2} flexShrink={0} />
+        <Box width={statusContentWidth} flexShrink={0}>
+          <Text color={colors.subagent.hint} wrap="truncate-end">
+            {tipLineText}
+          </Text>
+        </Box>
       </Box>
     </Box>
   );
@@ -696,6 +737,7 @@ export function Input({
   tokenCount,
   elapsedBaseMs = 0,
   thinkingMessage,
+  includeSystemPromptUpgradeTip = true,
   onSubmit,
   onBashSubmit,
   bashRunning = false,
@@ -711,6 +753,7 @@ export function Input({
   agentName,
   currentModel,
   currentModelProvider,
+  hasTemporaryModelOverride = false,
   currentReasoningEffort,
   messageQueue,
   onEnterQueueEditMode,
@@ -738,6 +781,7 @@ export function Input({
   tokenCount: number;
   elapsedBaseMs?: number;
   thinkingMessage: string;
+  includeSystemPromptUpgradeTip?: boolean;
   onSubmit: (message?: string) => Promise<{ submitted: boolean }>;
   onBashSubmit?: (command: string) => Promise<void>;
   bashRunning?: boolean;
@@ -753,6 +797,7 @@ export function Input({
   agentName?: string | null;
   currentModel?: string | null;
   currentModelProvider?: string | null;
+  hasTemporaryModelOverride?: boolean;
   currentReasoningEffort?: ModelReasoningEffort | null;
   messageQueue?: QueuedMessage[];
   onEnterQueueEditMode?: () => void;
@@ -803,6 +848,7 @@ export function Input({
 
   // Bash mode state (declared early so prompt width can feed into contentWidth)
   const [isBashMode, setIsBashMode] = useState(false);
+  const [bashExitArmed, setBashExitArmed] = useState(false);
 
   useEffect(() => {
     const prev = lastColumnsRef.current;
@@ -926,14 +972,21 @@ export function Input({
   const handleBangAtEmpty = useCallback(() => {
     if (isBashMode) return false;
     setIsBashMode(true);
+    // Arm immediately so initial empty backspace exits in one press.
+    setBashExitArmed(true);
     return true;
   }, [isBashMode]);
 
   const handleBackspaceAtEmpty = useCallback(() => {
     if (!isBashMode) return false;
+    if (!bashExitArmed) {
+      setBashExitArmed(true);
+      return true;
+    }
     setIsBashMode(false);
+    setBashExitArmed(false);
     return true;
-  }, [isBashMode]);
+  }, [isBashMode, bashExitArmed]);
 
   // Reset cursor position after it's been applied
   useEffect(() => {
@@ -942,6 +995,20 @@ export function Input({
       return () => clearTimeout(timer);
     }
   }, [cursorPos]);
+
+  // Reset bash exit arming when leaving bash mode
+  useEffect(() => {
+    if (!isBashMode && bashExitArmed) {
+      setBashExitArmed(false);
+    }
+  }, [isBashMode, bashExitArmed]);
+
+  // If user types after first backspace-at-empty, disarm exit intent
+  useEffect(() => {
+    if (bashExitArmed && value.length > 0) {
+      setBashExitArmed(false);
+    }
+  }, [value, bashExitArmed]);
 
   // Reset boundary flags and preferred column when cursor moves or value changes
   useEffect(() => {
@@ -1057,6 +1124,7 @@ export function Input({
         // First CTRL-C - wipe input and start 1-second timer
         // Note: In bash mode, this clears input but keeps bash mode active
         setValue("");
+        setBashExitArmed(false);
         setCtrlCPressed(true);
         if (ctrlCTimerRef.current) clearTimeout(ctrlCTimerRef.current);
         ctrlCTimerRef.current = setTimeout(() => {
@@ -1591,6 +1659,7 @@ export function Input({
                   currentModelProvider?.startsWith("lc-") ||
                   currentModelProvider === OPENAI_CODEX_PROVIDER_NAME
                 }
+                hasTemporaryModelOverride={hasTemporaryModelOverride}
                 hideFooter={hideFooter}
                 rightColumnWidth={footerRightColumnWidth}
                 statusLineText={statusLineText}
@@ -1636,6 +1705,7 @@ export function Input({
     currentModel,
     currentReasoningEffort,
     currentModelProvider,
+    hasTemporaryModelOverride,
     hideFooter,
     footerRightColumnWidth,
     reserveInputSpace,
@@ -1662,6 +1732,7 @@ export function Input({
         tokenCount={tokenCount}
         elapsedBaseMs={elapsedBaseMs}
         thinkingMessage={thinkingMessage}
+        includeSystemPromptUpgradeTip={includeSystemPromptUpgradeTip}
         agentName={agentName}
         interruptRequested={interruptRequested}
         networkPhase={networkPhase}

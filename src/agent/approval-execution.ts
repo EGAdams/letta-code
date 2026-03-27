@@ -10,6 +10,7 @@ import type { ToolReturnMessage } from "@letta-ai/letta-client/resources/tools";
 import type { ApprovalRequest } from "../cli/helpers/stream";
 import { INTERRUPTED_BY_USER } from "../constants";
 import {
+  captureToolExecutionContext,
   executeTool,
   type ToolExecutionResult,
   type ToolReturnContent,
@@ -113,6 +114,8 @@ const GLOBAL_LOCK_TOOLS = new Set([
   "KillBash",
   "run_shell_command",
   "RunShellCommand",
+  // Memory tool (file + git side effects)
+  "memory",
   "shell_command",
   "shell",
   "ShellCommand",
@@ -135,6 +138,7 @@ const GLOBAL_LOCK_TOOLS = new Set([
 export function getResourceKey(
   toolName: string,
   toolArgs: Record<string, unknown>,
+  workingDirectory: string = process.env.USER_CWD || process.cwd(),
 ): string {
   // Global lock tools serialize with everything
   if (GLOBAL_LOCK_TOOLS.has(toolName)) {
@@ -146,10 +150,9 @@ export function getResourceKey(
     const filePath = toolArgs.file_path;
     if (typeof filePath === "string") {
       // Normalize to absolute path for consistent comparison
-      const userCwd = process.env.USER_CWD || process.cwd();
       return path.isAbsolute(filePath)
         ? path.normalize(filePath)
-        : path.resolve(userCwd, filePath);
+        : path.resolve(workingDirectory, filePath);
     }
   }
 
@@ -167,13 +170,18 @@ export type ApprovalDecision =
   | {
       type: "approve";
       approval: ApprovalRequest;
+      reason?: string;
       // If set, skip executeTool and use this result (for fancy UI tools)
       precomputedResult?: ToolExecutionResult;
     }
   | { type: "deny"; approval: ApprovalRequest; reason: string };
 
+export type ApprovalToolResult = ToolReturn & {
+  reason?: string;
+};
+
 // Align result type with the SDK's expected union for approvals payloads
-export type ApprovalResult = ToolReturn | ApprovalReturn;
+export type ApprovalResult = ApprovalToolResult | ApprovalReturn;
 
 /**
  * Execute a single approval decision and return the result.
@@ -190,6 +198,7 @@ async function executeSingleDecision(
       isStderr?: boolean,
     ) => void;
     toolContextId?: string;
+    parentScope?: { agentId: string; conversationId: string };
   },
 ): Promise<ApprovalResult> {
   // If aborted, record an interrupted result
@@ -222,6 +231,7 @@ async function executeSingleDecision(
         status: decision.precomputedResult.status,
         stdout: decision.precomputedResult.stdout,
         stderr: decision.precomputedResult.stderr,
+        reason: decision.reason,
       };
     }
 
@@ -247,6 +257,7 @@ async function executeSingleDecision(
           signal: options?.abortSignal,
           toolCallId: decision.approval.toolCallId,
           toolContextId: options?.toolContextId,
+          parentScope: options?.parentScope,
           onOutput: options?.onStreamingOutput
             ? (chunk, stream) =>
                 options.onStreamingOutput?.(
@@ -280,6 +291,7 @@ async function executeSingleDecision(
         status: toolResult.status,
         stdout: toolResult.stdout,
         stderr: toolResult.stderr,
+        reason: decision.reason,
       };
     } catch (e) {
       const isAbortError =
@@ -305,6 +317,7 @@ async function executeSingleDecision(
         tool_call_id: decision.approval.toolCallId,
         tool_return: errorMessage,
         status: "error",
+        reason: decision.reason,
       };
     }
   }
@@ -360,8 +373,16 @@ export async function executeApprovalBatch(
       isStderr?: boolean,
     ) => void;
     toolContextId?: string;
+    workingDirectory?: string;
+    parentScope?: { agentId: string; conversationId: string };
   },
 ): Promise<ApprovalResult[]> {
+  const toolContextId =
+    options?.toolContextId ??
+    (options?.workingDirectory
+      ? captureToolExecutionContext(options.workingDirectory).contextId
+      : undefined);
+
   // Pre-allocate results array to maintain original order
   const results: (ApprovalResult | null)[] = new Array(decisions.length).fill(
     null,
@@ -399,7 +420,11 @@ export async function executeApprovalBatch(
       } else {
         args = decision.approval.toolArgs || {};
       }
-      const resourceKey = getResourceKey(toolName, args);
+      const resourceKey = getResourceKey(
+        toolName,
+        args,
+        options?.workingDirectory,
+      );
 
       const indices = writeToolsByResource.get(resourceKey) || [];
       indices.push(i);
@@ -411,7 +436,10 @@ export async function executeApprovalBatch(
   const execute = async (i: number) => {
     const decision = decisions[i];
     if (decision) {
-      results[i] = await executeSingleDecision(decision, onChunk, options);
+      results[i] = await executeSingleDecision(decision, onChunk, {
+        ...options,
+        toolContextId,
+      });
     }
   };
 
@@ -456,6 +484,7 @@ export async function executeAutoAllowedTools(
       isStderr?: boolean,
     ) => void;
     toolContextId?: string;
+    workingDirectory?: string;
   },
 ): Promise<AutoAllowedResult[]> {
   const decisions: ApprovalDecision[] = autoAllowed.map((ac) => ({

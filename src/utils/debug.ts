@@ -1,7 +1,8 @@
 // src/utils/debug.ts
 // Debug logging utility.
 //
-// Screen output: controlled by LETTA_DEBUG=1 (or LETTA_DEBUG_FILE for a custom path).
+// Screen output: controlled by LETTA_DEBUG=1 (or DEBUG=1 for legacy compatibility),
+// or LETTA_DEBUG_FILE for a custom path.
 // File output:   always written to ~/.letta/logs/debug/{agent-id}/{session-id}.log
 //                once debugLogFile.init() has been called.  Before init, lines are
 //                silently dropped (no file path yet).
@@ -23,12 +24,18 @@ import { format } from "node:util";
 // ---------------------------------------------------------------------------
 
 /**
- * Check if debug mode is enabled via LETTA_DEBUG env var
- * Set LETTA_DEBUG=1 or LETTA_DEBUG=true to enable debug logging
+ * Check if debug mode is enabled via LETTA_DEBUG env var.
+ * Also accepts DEBUG=1|true for legacy compatibility.
  */
 export function isDebugEnabled(): boolean {
-  const debug = process.env.LETTA_DEBUG;
-  return debug === "1" || debug === "true";
+  const lettaDebug = process.env.LETTA_DEBUG;
+  const legacyDebug = process.env.DEBUG;
+  return (
+    lettaDebug === "1" ||
+    lettaDebug === "true" ||
+    legacyDebug === "1" ||
+    legacyDebug === "true"
+  );
 }
 
 function getDebugFile(): string | null {
@@ -37,7 +44,7 @@ function getDebugFile(): string | null {
 }
 
 /** Print to screen (or LETTA_DEBUG_FILE). Only called when LETTA_DEBUG=1. */
-function printDebugLine(line: string): void {
+function printDebugLine(line: string, level: "log" | "warn" = "log"): void {
   const debugFile = getDebugFile();
   if (debugFile) {
     try {
@@ -47,7 +54,11 @@ function printDebugLine(line: string): void {
       // Fall back to console if file write fails
     }
   }
-  console.log(line.trimEnd());
+  const colored =
+    level === "warn"
+      ? `\x1b[38;5;167m${line.trimEnd()}\x1b[0m` // muted red
+      : `\x1b[38;5;179m${line.trimEnd()}\x1b[0m`; // muted golden yellow
+  console.error(colored);
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +159,7 @@ function writeDebugLine(
   prefix: string,
   message: string,
   args: unknown[],
+  level: "log" | "warn" = "log",
 ): void {
   const ts = new Date().toISOString();
   const body = format(`[${prefix}] ${message}`, ...args);
@@ -158,7 +170,7 @@ function writeDebugLine(
 
   // Screen output only when LETTA_DEBUG is on
   if (isDebugEnabled()) {
-    printDebugLine(line);
+    printDebugLine(line, level);
   }
 }
 
@@ -187,5 +199,5 @@ export function debugWarn(
   message: string,
   ...args: unknown[]
 ): void {
-  writeDebugLine(prefix, `WARN: ${message}`, args);
+  writeDebugLine(prefix, `WARN: ${message}`, args, "warn");
 }

@@ -3,7 +3,7 @@ name: history-analyzer
 description: Analyze Claude Code or Codex conversation history and directly update agent memory files with insights
 tools: Read, Write, Bash, Glob, Grep
 skills: migrating-from-codex-and-claude-code
-model: sonnet
+model: auto
 memoryBlocks: none
 mode: stateless
 permissionMode: bypassPermissions
@@ -41,8 +41,8 @@ The memory you create serves the same purpose as memory built during `/init`:
 Create a git worktree from the memory repo so you can edit files without affecting the main branch. Use a timestamped branch name:
 
 ```bash
-MEMORY_DIR=[provided in assignment]
-WORKTREE_DIR=$MEMORY_DIR/../memory-worktrees
+MEMORY_DIR=~/.letta/agents/$LETTA_PARENT_AGENT_ID/memory
+WORKTREE_DIR=~/.letta/agents/$LETTA_PARENT_AGENT_ID/memory-worktrees
 TS=$(date +%s)
 BRANCH_NAME="migration-$TS"
 

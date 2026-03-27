@@ -246,17 +246,31 @@ class PermissionModeManager {
   }
 
   /**
-   * Check if a tool should be auto-allowed based on current mode
-   * Returns null if mode doesn't apply to this tool
+   * Check if a tool should be auto-allowed based on current mode.
+   * Accepts explicit `mode` and `planFilePath` overrides so callers with a
+   * scoped PermissionModeState (listener/remote mode) can bypass the global
+   * singleton without requiring a temporary mutation of global state.
+   * Returns null if mode doesn't apply to this tool.
    */
   checkModeOverride(
     toolName: string,
     toolArgs?: Record<string, unknown>,
     workingDirectory: string = process.cwd(),
+    modeOverride?: PermissionMode,
+    planFilePathOverride?: string | null,
   ): "allow" | "deny" | null {
-    switch (this.currentMode) {
+    const effectiveMode = modeOverride ?? this.currentMode;
+    const _effectivePlanFilePath =
+      planFilePathOverride !== undefined
+        ? planFilePathOverride
+        : this.getPlanFilePath();
+    switch (effectiveMode) {
       case "bypassPermissions":
-        // Auto-allow everything (except explicit deny rules checked earlier)
+        // ExitPlanMode always requires human approval, even in yolo mode
+        if (toolName === "ExitPlanMode" || toolName === "exit_plan_mode") {
+          return null;
+        }
+        // Auto-allow everything else (except explicit deny rules checked earlier)
         return "allow";
 
       case "acceptEdits":
@@ -268,6 +282,7 @@ class PermissionModeManager {
             "MultiEdit",
             "NotebookEdit",
             "apply_patch",
+            "memory_apply_patch",
             "replace",
             "write_file",
           ].includes(toolName)
@@ -285,6 +300,9 @@ class PermissionModeManager {
           "Grep",
           "NotebookRead",
           "TodoWrite",
+          // Image tools (read-only)
+          "ViewImage",
+          "view_image",
           // Plan mode tools (must allow exit!)
           "ExitPlanMode",
           "exit_plan_mode",
@@ -325,6 +343,7 @@ class PermissionModeManager {
           // Codex toolset (snake_case and PascalCase)
           "apply_patch",
           "ApplyPatch",
+          "memory_apply_patch",
           // Gemini toolset (snake_case and PascalCase)
           "write_file_gemini",
           "WriteFileGemini",
@@ -348,7 +367,9 @@ class PermissionModeManager {
 
           // ApplyPatch/apply_patch: extract all file directives.
           if (
-            (toolName === "ApplyPatch" || toolName === "apply_patch") &&
+            (toolName === "ApplyPatch" ||
+              toolName === "apply_patch" ||
+              toolName === "memory_apply_patch") &&
             toolArgs?.input
           ) {
             const input = toolArgs.input as string;

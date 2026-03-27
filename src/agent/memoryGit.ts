@@ -64,7 +64,10 @@ function isSshRemote(remoteUrl?: string): boolean {
 }
 
 /** Git remote URL for the agent's state repo */
-export function getGitRemoteUrl(agentId: string, remoteOverride?: string): string {
+export function getGitRemoteUrl(
+  agentId: string,
+  remoteOverride?: string,
+): string {
   if (remoteOverride) {
     const override = remoteOverride.trim();
     if (!override) {
@@ -197,20 +200,27 @@ async function configureLocalCredentialHelper(
  * Rules:
  * - Frontmatter is REQUIRED (must start with ---)
  * - Must be properly closed with ---
- * - Required fields: description (non-empty string), limit (positive integer)
+ * - Required fields: description (non-empty string)
  * - read_only is a PROTECTED field: agent cannot add, remove, or change it.
  *   Files where HEAD has read_only: true cannot be modified at all.
- * - Only allowed agent-editable keys: description, limit
+ * - Only allowed agent-editable key: description
+ * - Legacy key 'limit' is tolerated for backward compatibility
  * - read_only may exist (from server) but agent must not change it
  */
 export const PRE_COMMIT_HOOK_SCRIPT = `#!/usr/bin/env bash
 # Validate frontmatter in staged memory .md files
 # Installed by Letta Code CLI
 
-AGENT_EDITABLE_KEYS="description limit"
+AGENT_EDITABLE_KEYS="description"
 PROTECTED_KEYS="read_only"
-ALL_KNOWN_KEYS="description limit read_only"
+ALL_KNOWN_KEYS="description read_only limit"
 errors=""
+
+# Skills must always be directories: skills/<name>/SKILL.md
+# Reject legacy flat skill files (both current and legacy repo layouts).
+for file in $(git diff --cached --name-only --diff-filter=ACMR | grep -E '^(memory/)?skills/[^/]+\\.md$' || true); do
+  errors="$errors\\n  $file: invalid skill path (skills must be folders). Use skills/<name>/SKILL.md"
+done
 
 # Helper: extract a frontmatter value from content
 get_fm_value() {
@@ -221,7 +231,9 @@ get_fm_value() {
   echo "$content" | tail -n +2 | head -n $((closing_line - 1)) | grep "^$key:" | cut -d: -f2- | sed 's/^ *//;s/ *$//'
 }
 
-for file in $(git diff --cached --name-only --diff-filter=ACM | grep '^memory/.*\\.md$'); do
+# Match .md files under system/ or reference/ (with optional memory/ prefix).
+# Skip skill SKILL.md files — they use a different frontmatter format.
+for file in $(git diff --cached --name-only --diff-filter=ACM | grep -E '^(memory/)?(system|reference)/.*\\.md$'); do
   staged=$(git show ":$file")
 
   # Frontmatter is required
@@ -253,7 +265,6 @@ for file in $(git diff --cached --name-only --diff-filter=ACM | grep '^memory/.*
 
   # Track required fields
   has_description=false
-  has_limit=false
 
   # Validate each line
   while IFS= read -r line; do
@@ -294,10 +305,7 @@ for file in $(git diff --cached --name-only --diff-filter=ACM | grep '^memory/.*
     # Validate value types
     case "$key" in
       limit)
-        has_limit=true
-        if ! echo "$value" | grep -qE '^[0-9]+$' || [ "$value" = "0" ]; then
-          errors="$errors\\n  $file: 'limit' must be a positive integer, got '$value'"
-        fi
+        # Legacy field accepted for backward compatibility.
         ;;
       description)
         has_description=true
@@ -311,9 +319,6 @@ for file in $(git diff --cached --name-only --diff-filter=ACM | grep '^memory/.*
   # Check required fields
   if [ "$has_description" = "false" ]; then
     errors="$errors\\n  $file: missing required field 'description'"
-  fi
-  if [ "$has_limit" = "false" ]; then
-    errors="$errors\\n  $file: missing required field 'limit'"
   fi
 
   # Check if protected keys were removed (existed in HEAD but not in staged)
@@ -396,8 +401,7 @@ export async function cloneMemoryRepo(
       try {
         await runGit(dir, ["checkout", "--", "."], token);
       } catch (error) {
-        const msg =
-          error instanceof Error ? error.message : String(error);
+        const msg = error instanceof Error ? error.message : String(error);
         if (!msg.includes("pathspec '.' did not match")) {
           throw error;
         }
@@ -415,8 +419,8 @@ export async function cloneMemoryRepo(
   // `git push` / `git pull` without auth prefixes.
   if (token) {
     if (token) {
-    await configureLocalCredentialHelper(dir, token);
-  }
+      await configureLocalCredentialHelper(dir, token);
+    }
   }
 
   if (remoteOverride) {

@@ -1,6 +1,6 @@
 {
   "name": "@letta-ai/letta-code",
-  "version": "0.17.2",
+  "version": "0.21.0",
   "description": "Letta Code is a CLI tool for interacting with stateful Letta agents from the terminal.",
   "type": "module",
   "bin": {
@@ -33,9 +33,12 @@
     "access": "public"
   },
   "dependencies": {
-    "@letta-ai/letta-client": "^1.7.12",
+    "@letta-ai/letta-client": "1.10.1",
     "glob": "^13.0.0",
+    "highlight.js": "^11.11.1",
     "ink-link": "^5.0.0",
+    "lowlight": "^3.3.0",
+    "node-pty": "^1.1.0",
     "open": "^10.2.0",
     "sharp": "^0.34.5",
     "ws": "^8.19.0"
@@ -61,16 +64,17 @@
     "typescript": "^5.0.0"
   },
   "scripts": {
+    "prepare": "node .husky/install.mjs",
     "lint": "bunx --bun @biomejs/biome@2.2.5 check src",
     "fix": "bunx --bun @biomejs/biome@2.2.5 check --write src",
     "typecheck": "tsc --noEmit",
     "check": "bun run scripts/check.js",
-    "dev": "bun --loader:.md=text --loader:.mdx=text --loader:.txt=text run src/index.ts",
+    "dev": "LETTA_DEBUG=${LETTA_DEBUG:-1} bun --loader:.md=text --loader:.mdx=text --loader:.txt=text run src/index.ts",
     "build": "node scripts/postinstall-patches.js && bun run build.js",
     "test:update-chain:manual": "bun run src/tests/update-chain-smoke.ts --mode manual",
     "test:update-chain:startup": "bun run src/tests/update-chain-smoke.ts --mode startup",
     "prepublishOnly": "bun run build",
-    "postinstall": "node scripts/postinstall-patches.js || echo letta: vendor patches skipped"
+    "postinstall": "node scripts/postinstall-patches.js || echo letta: vendor patches skipped && node -e \"try{require('fs').chmodSync(require('path').join(require.resolve('node-pty/package.json'),'../prebuilds/darwin-arm64/spawn-helper'),0o755)}catch(e){}\" || true"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,json}": [

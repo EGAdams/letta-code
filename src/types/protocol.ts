@@ -42,17 +42,15 @@ export type {
  * Use this to select a built-in system prompt with optional appended text.
  *
  * Available presets (validated at runtime by CLI):
- * - 'default' - Letta-tuned system prompt
- * - 'letta-claude' - Full Letta Code prompt (Claude-optimized)
- * - 'letta-codex' - Full Letta Code prompt (Codex-optimized)
- * - 'letta-gemini' - Full Letta Code prompt (Gemini-optimized)
- * - 'claude' - Basic Claude (no skills/memory instructions)
- * - 'codex' - Basic Codex (no skills/memory instructions)
- * - 'gemini' - Basic Gemini (no skills/memory instructions)
+ * - 'default' - Alias for letta
+ * - 'letta' - Full Letta Code system prompt
+ * - 'source-claude' - Source-faithful Claude Code prompt (for benchmarking)
+ * - 'source-codex' - Source-faithful OpenAI Codex prompt (for benchmarking)
+ * - 'source-gemini' - Source-faithful Gemini CLI prompt (for benchmarking)
  */
 export interface SystemPromptPresetConfig {
   type: "preset";
-  /** Preset ID (e.g., 'default', 'letta-codex'). Validated at runtime. */
+  /** Preset ID (e.g., 'default', 'letta', 'source-claude'). Validated at runtime. */
   preset: string;
   /** Additional instructions to append to the preset */
   append?: string;
@@ -75,6 +73,10 @@ export interface MessageEnvelope {
   uuid: string;
   /** Monotonic per-session event sequence. Optional for backward compatibility. */
   event_seq?: number;
+  /** Agent that triggered this event. Used with default conversation scoping. */
+  agent_id?: string;
+  /** Conversation that triggered this event. Used for conversation-scoped filtering. */
+  conversation_id?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -96,7 +98,6 @@ export interface SystemInitMessage extends MessageEnvelope {
   skill_sources?: Array<"bundled" | "global" | "agent" | "project">;
   system_info_reminder_enabled?: boolean;
   reflection_trigger?: "off" | "step-count" | "compaction-event";
-  reflection_behavior?: "reminder" | "auto-launch";
   reflection_step_count?: number;
   // output_style omitted - Letta Code doesn't have output styles feature
 }
@@ -162,6 +163,8 @@ export type MessageWire = {
   type: "message";
   session_id: string;
   uuid: string;
+  agent_id?: string;
+  conversation_id?: string;
 } & LettaStreamingResponse;
 
 // ═══════════════════════════════════════════════════════════════
@@ -171,6 +174,65 @@ export type MessageWire = {
 export interface StreamEvent extends MessageEnvelope {
   type: "stream_event";
   event: LettaStreamingResponse;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TOOL LIFECYCLE EVENTS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Informational lifecycle event emitted when the runtime asks for user approval
+ * for a specific tool call.
+ *
+ * NOTE:
+ * - `control_request` remains the canonical UI trigger for approval state.
+ * - This event is telemetry/lifecycle only and should not replace
+ *   `control_request` in UI reducers.
+ */
+export interface ApprovalRequestedMessage extends MessageEnvelope {
+  type: "approval_requested";
+  request_id: string;
+  tool_call_id: string;
+  tool_name: string;
+  run_id?: string;
+}
+
+/**
+ * Informational lifecycle event emitted after an approval request receives
+ * a decision.
+ *
+ * NOTE:
+ * - `control_request` + `control_response` remain canonical for approval flow.
+ * - This event is telemetry/lifecycle only.
+ */
+export interface ApprovalReceivedMessage extends MessageEnvelope {
+  type: "approval_received";
+  request_id: string;
+  tool_call_id: string;
+  decision: "allow" | "deny";
+  reason?: string;
+  run_id?: string;
+}
+
+/**
+ * Emitted when local execution starts for a previously approved tool call.
+ * This is authoritative for starting tool-running timers in device clients.
+ */
+export interface ToolExecutionStartedMessage extends MessageEnvelope {
+  type: "tool_execution_started";
+  tool_call_id: string;
+  run_id?: string;
+}
+
+/**
+ * Emitted when local execution finishes for a previously started tool call.
+ * This is authoritative for stopping tool-running timers in device clients.
+ */
+export interface ToolExecutionFinishedMessage extends MessageEnvelope {
+  type: "tool_execution_finished";
+  tool_call_id: string;
+  status: "success" | "error";
+  run_id?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -287,6 +349,7 @@ export interface ResultMessage extends MessageEnvelope {
 export type QueueItemSource =
   | "user"
   | "task_notification"
+  | "cron"
   | "subagent"
   | "system";
 
@@ -300,8 +363,38 @@ export type QueueItemSource =
 export type QueueItemKind =
   | "message"
   | "task_notification"
+  | "cron_prompt"
   | "approval_result"
   | "overlay_action";
+
+/**
+ * Canonical queue item wire shape used by listener state snapshots
+ * and queue lifecycle transport events.
+ */
+export interface QueueRuntimeItemWire {
+  /** Stable queue item identifier. */
+  id: string;
+  /** Correlates this queue item back to the originating client submit payload. */
+  client_message_id: string;
+  kind: QueueItemKind;
+  source: QueueItemSource;
+  /** Full queue item content; renderers may truncate for display. */
+  content: MessageCreate["content"] | string;
+  /** ISO8601 UTC enqueue timestamp. */
+  enqueued_at: string;
+}
+
+/**
+ * Queue item shape used by static queue_snapshot events.
+ * Includes legacy item_id for compatibility and allows optional expanded fields.
+ */
+export interface QueueSnapshotItem
+  extends Omit<Partial<QueueRuntimeItemWire>, "kind" | "source"> {
+  /** @deprecated Use `id` when present. */
+  item_id: string;
+  kind: QueueItemKind;
+  source: QueueItemSource;
+}
 
 /**
  * Emitted synchronously when an item enters the queue.
@@ -315,13 +408,13 @@ export interface QueueItemEnqueuedEvent extends MessageEnvelope {
   /** @deprecated Use `id`. */
   item_id: string;
   /** Correlates this queue item back to the originating client submit payload. */
-  client_message_id: string;
+  client_message_id: QueueRuntimeItemWire["client_message_id"];
   source: QueueItemSource;
   kind: QueueItemKind;
   /** Full queue item content; renderers may truncate for display. */
-  content?: MessageCreate["content"] | string;
+  content?: QueueRuntimeItemWire["content"];
   /** ISO8601 UTC enqueue timestamp. */
-  enqueued_at?: string;
+  enqueued_at?: QueueRuntimeItemWire["enqueued_at"];
   queue_len: number;
 }
 
@@ -339,7 +432,7 @@ export interface QueueBatchDequeuedEvent extends MessageEnvelope {
 
 /**
  * Why the queue cannot dequeue right now.
- * - streaming: Agent turn is actively streaming
+ * - streaming: Agent turn is actively running/streaming (request, response, or local tool execution)
  * - pending_approvals: Waiting for HITL approval decisions
  * - overlay_open: Plan mode, AskUserQuestion, or other overlay is active
  * - command_running: Slash command is executing
@@ -422,6 +515,10 @@ export interface ControlRequest {
   type: "control_request";
   request_id: string;
   request: ControlRequestBody;
+  /** Agent that triggered this control request. */
+  agent_id?: string;
+  /** Conversation that triggered this control request. */
+  conversation_id?: string;
 }
 
 // SDK → CLI request subtypes
@@ -430,6 +527,7 @@ export type SdkToCliControlRequest =
   | { subtype: "interrupt" }
   | RegisterExternalToolsRequest
   | BootstrapSessionStateRequest
+  | RecoverPendingApprovalsControlRequest
   | ListMessagesControlRequest;
 
 /**
@@ -496,6 +594,32 @@ export interface ListMessagesControlRequest {
   order?: "asc" | "desc";
   /** Max messages to return. Defaults to 50. */
   limit?: number;
+}
+
+/**
+ * Request to recover pending approvals in the current session context (SDK → CLI).
+ *
+ * Optional agent/conversation IDs let callers target a specific thread when
+ * the transport has enough context to do so.
+ */
+export interface RecoverPendingApprovalsControlRequest {
+  subtype: "recover_pending_approvals";
+  /** Optional explicit agent ID. Defaults to session agent. */
+  agent_id?: string;
+  /** Optional explicit conversation ID. Defaults to session conversation. */
+  conversation_id?: string;
+}
+
+/**
+ * Successful recover_pending_approvals response payload.
+ *
+ * `pending_approval: true` indicates recovery completed without transport
+ * failure, but unresolved approvals still remain after bounded recovery passes.
+ */
+export interface RecoverPendingApprovalsResponsePayload {
+  recovered: boolean;
+  pending_approval: boolean;
+  approvals_processed: number;
 }
 
 /**
@@ -590,7 +714,10 @@ export type ControlResponseBody =
   | {
       subtype: "success";
       request_id: string;
-      response?: CanUseToolResponse | Record<string, unknown>;
+      response?:
+        | CanUseToolResponse
+        | RecoverPendingApprovalsResponsePayload
+        | Record<string, unknown>;
     }
   | { subtype: "error"; request_id: string; error: string }
   | ExternalToolResultResponse;
@@ -598,6 +725,8 @@ export type ControlResponseBody =
 // --- can_use_tool response payloads ---
 export interface CanUseToolResponseAllow {
   behavior: "allow";
+  /** Optional user comment attached to an allow decision */
+  message?: string;
   /** Modified tool input */
   updatedInput?: Record<string, unknown> | null;
   /** TODO: Not implemented - dynamic permission rule updates */
@@ -686,14 +815,7 @@ export interface TranscriptBackfillMessage extends MessageEnvelope {
 export interface QueueSnapshotMessage extends MessageEnvelope {
   type: "queue_snapshot";
   /** Items currently in the queue, in enqueue order. */
-  items: Array<{
-    /** Stable queue item identifier. Preferred field. */
-    id?: string;
-    /** @deprecated Use `id`. */
-    item_id: string;
-    kind: QueueItemKind;
-    source: QueueItemSource;
-  }>;
+  items: QueueSnapshotItem[];
 }
 
 /**
@@ -741,6 +863,10 @@ export type WireMessage =
   | SystemMessage
   | ContentMessage
   | StreamEvent
+  | ApprovalRequestedMessage
+  | ApprovalReceivedMessage
+  | ToolExecutionStartedMessage
+  | ToolExecutionFinishedMessage
   | AutoApprovalMessage
   | CancelAckMessage
   | ErrorMessage

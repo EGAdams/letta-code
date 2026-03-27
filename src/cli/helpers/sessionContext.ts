@@ -2,10 +2,13 @@
 // Generates session context system reminder for the first message of each CLI session
 // Contains device/environment information only. Agent metadata is in agentMetadata.ts.
 
-import { execSync } from "node:child_process";
 import { platform } from "node:os";
 import { SYSTEM_REMINDER_CLOSE, SYSTEM_REMINDER_OPEN } from "../../constants";
+import type { SessionContextReason } from "../../reminders/state";
 import { getVersion } from "../../version";
+import { gatherGitContextSnapshot } from "./gitContext";
+
+export type SessionContextSource = "interactive-cli" | "headless" | "listen";
 
 /**
  * Get the current local time in a human-readable format
@@ -41,60 +44,57 @@ export function getDeviceType(): string {
 }
 
 /**
- * Safely execute a git command, returning null on failure
- */
-function safeGitExec(command: string, cwd: string): string | null {
-  try {
-    return execSync(command, { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Gather git information if in a git repository
  * Returns truncated commits (3) and status (20 lines)
  * Each field is gathered independently with fallbacks
  */
-function getGitInfo(): {
+function getGitInfo(cwd?: string): {
   isGitRepo: boolean;
   branch?: string;
   recentCommits?: string;
   status?: string;
+  gitUser?: string;
 } {
-  const cwd = process.cwd();
+  const git = gatherGitContextSnapshot({
+    cwd,
+    recentCommitLimit: 3,
+    recentCommitFormat: "%h %s (%an)",
+    statusLineLimit: 20,
+  });
 
-  try {
-    // Check if we're in a git repo
-    execSync("git rev-parse --git-dir", { cwd, stdio: "pipe" });
-
-    // Get current branch (with fallback)
-    const branch = safeGitExec("git branch --show-current", cwd) ?? "(unknown)";
-
-    // Get recent commits (3 commits with author, with fallback)
-    const recentCommits =
-      safeGitExec('git log --format="%h %s (%an)" -3', cwd) ??
-      "(failed to get commits)";
-
-    // Get git status (truncate to 20 lines, with fallback)
-    const fullStatus =
-      safeGitExec("git status --short", cwd) ?? "(failed to get status)";
-    const statusLines = fullStatus.split("\n");
-    let status = fullStatus;
-    if (statusLines.length > 20) {
-      status =
-        statusLines.slice(0, 20).join("\n") +
-        `\n... and ${statusLines.length - 20} more files`;
-    }
-
-    return {
-      isGitRepo: true,
-      branch,
-      recentCommits,
-      status: status || "(clean working tree)",
-    };
-  } catch {
+  if (!git.isGitRepo) {
     return { isGitRepo: false };
+  }
+
+  return {
+    isGitRepo: true,
+    branch: git.branch ?? "(unknown)",
+    recentCommits: git.recentCommits ?? "(failed to get commits)",
+    status: git.status || "(clean working tree)",
+    gitUser: git.gitUser ?? "(not configured)",
+  };
+}
+
+export interface BuildSessionContextOptions {
+  cwd?: string;
+  source?: SessionContextSource;
+  reason?: SessionContextReason;
+}
+
+function getIntroText(
+  source: SessionContextSource,
+  reason: SessionContextReason,
+): string {
+  if (reason === "cwd_changed") {
+    return "The working directory for this conversation has changed. Updated environment context follows.";
+  }
+  switch (source) {
+    case "listen":
+      return "This conversation is now connected to a Letta Code execution environment.";
+    case "headless":
+      return "The user has just initiated a new connection via the Letta Code headless client.";
+    default:
+      return "The user has just initiated a new connection via the [Letta Code CLI client](https://docs.letta.com/letta-code/index.md).";
   }
 }
 
@@ -103,9 +103,13 @@ function getGitInfo(): {
  * Agent metadata is handled separately by buildAgentMetadata().
  * Returns empty string on any failure (graceful degradation).
  */
-export function buildSessionContext(): string {
+export function buildSessionContext(
+  options?: BuildSessionContextOptions,
+): string {
   try {
-    const cwd = process.cwd();
+    const cwd = options?.cwd ?? process.cwd();
+    const source = options?.source ?? "interactive-cli";
+    const reason = options?.reason ?? "initial_attach";
 
     // Gather info with safe fallbacks
     let version = "unknown";
@@ -129,12 +133,12 @@ export function buildSessionContext(): string {
       // localTime stays "unknown"
     }
 
-    const gitInfo = getGitInfo();
+    const gitInfo = getGitInfo(cwd);
 
     // Build the context
     let context = `${SYSTEM_REMINDER_OPEN}
 This is an automated message providing context about the user's environment.
-The user has just initiated a new connection via the [Letta Code CLI client](https://docs.letta.com/letta-code/index.md).
+${getIntroText(source, reason)}
 
 ## Device Information
 - **Local time**: ${localTime}
@@ -146,6 +150,7 @@ The user has just initiated a new connection via the [Letta Code CLI client](htt
     // Add git info if available
     if (gitInfo.isGitRepo) {
       context += `- **Git repository**: Yes (branch: ${gitInfo.branch})
+- **Git user**: ${gitInfo.gitUser}
 
 ### Recent Commits
 \`\`\`
