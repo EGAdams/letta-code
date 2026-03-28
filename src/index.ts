@@ -1915,6 +1915,12 @@ async function main(): Promise<void> {
           ]);
           setResumeData(data);
           setResumedExistingConversation(data.messageHistory.length > 0);
+          // On Letta 0.16.x, a pending approval may live in a real conv-{uuid}
+          // rather than "default". Route to that conversation so the approval
+          // response (and subsequent messages) reach the right place.
+          if (data.foundConversationId) {
+            conversationIdToUse = data.foundConversationId;
+          }
         }
 
         // Ensure memfs sync completed (already resolved for default path via Promise.all above)

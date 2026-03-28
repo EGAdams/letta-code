@@ -55,7 +55,11 @@ import {
   ensureMemoryFilesystemDirs,
   getMemoryFilesystemRoot,
 } from "../agent/memoryFilesystem";
-import { getStreamToolContextId, sendMessageStream } from "../agent/message";
+import {
+  cacheDefaultConversationId,
+  getStreamToolContextId,
+  sendMessageStream,
+} from "../agent/message";
 import {
   getModelInfo,
   getModelInfoForLlmConfig,
@@ -4200,13 +4204,39 @@ export default function App({
               try {
                 const client = await getClient();
                 const agent = await client.agents.retrieve(agentIdRef.current);
-                const { pendingApprovals: existingApprovals } =
-                  await getResumeData(client, agent, conversationIdRef.current);
+                const {
+                  pendingApprovals: existingApprovals,
+                  foundConversationId,
+                } = await getResumeData(
+                  client,
+                  agent,
+                  conversationIdRef.current,
+                );
 
                 if (existingApprovals && existingApprovals.length > 0) {
                   // Active approvals found — surface the dialog instead of auto-denying.
                   // Preserve the user's in-flight message so they can re-send it after
                   // they approve or deny the pending tool call.
+
+                  // On Letta 0.16.x the approval may live in a real conv-{uuid} while
+                  // conversationIdRef is still "default". Routing the approval response
+                  // to the wrong conversation leaves the agent stuck in requires_approval.
+                  // Switch to the conversation where the approval was found so the
+                  // response reaches the right place.
+                  if (
+                    foundConversationId &&
+                    foundConversationId !== conversationIdRef.current
+                  ) {
+                    conversationIdRef.current = foundConversationId;
+                    setConversationId(foundConversationId);
+                    if (agentIdRef.current) {
+                      cacheDefaultConversationId(
+                        agentIdRef.current,
+                        foundConversationId,
+                      );
+                    }
+                  }
+
                   const userMessage = currentInput.find(
                     (item) => item?.type === "message",
                   );
@@ -5738,13 +5768,33 @@ export default function App({
             try {
               const client = await getClient();
               const agent = await client.agents.retrieve(agentIdRef.current);
-              const { pendingApprovals: existingApprovals } =
-                await getResumeData(client, agent, conversationIdRef.current);
+              const {
+                pendingApprovals: existingApprovals,
+                foundConversationId,
+              } = await getResumeData(client, agent, conversationIdRef.current);
 
               if (existingApprovals && existingApprovals.length > 0) {
                 // Active approvals found — surface the dialog instead of auto-denying.
                 // Preserve the user's in-flight message so they can re-send it after
                 // they approve or deny the pending tool call.
+
+                // On Letta 0.16.x the approval may live in a real conv-{uuid} while
+                // conversationIdRef is still "default". Switch to that conversation so
+                // the approval response is routed correctly and the agent can unblock.
+                if (
+                  foundConversationId &&
+                  foundConversationId !== conversationIdRef.current
+                ) {
+                  conversationIdRef.current = foundConversationId;
+                  setConversationId(foundConversationId);
+                  if (agentIdRef.current) {
+                    cacheDefaultConversationId(
+                      agentIdRef.current,
+                      foundConversationId,
+                    );
+                  }
+                }
+
                 const userMessage = currentInput.find(
                   (item) => item?.type === "message",
                 );

@@ -31,6 +31,20 @@ const streamToolContextIds = new WeakMap<object, string>();
 // Cache for "default" conversations upgraded to real IDs on older servers
 // (e.g. 0.16.x which requires strict "conv-{uuid}" format, 41 chars).
 const defaultConvIdCache = new Map<string, string>();
+
+/**
+ * Pre-populate the default conversation cache for an agent.
+ * Used when a specific conversation ID is discovered at startup or during
+ * CONFLICT recovery (e.g., Letta 0.16.x cross-conversation approval scan),
+ * so that subsequent "default" sends route to the correct conversation without
+ * creating a new one.
+ */
+export function cacheDefaultConversationId(
+  agentId: string,
+  conversationId: string,
+): void {
+  defaultConvIdCache.set(agentId, conversationId);
+}
 export type StreamRequestContext = {
   conversationId: string;
   resolvedConversationId: string;

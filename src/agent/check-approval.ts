@@ -77,6 +77,14 @@ export interface ResumeData {
   pendingApproval: ApprovalRequest | null; // Deprecated: use pendingApprovals
   pendingApprovals: ApprovalRequest[];
   messageHistory: Message[];
+  /**
+   * The conversation ID where the pending approval was found, if it differs from
+   * the requested conversationId. Set when the cross-conversation fallback scan
+   * (for Letta 0.16.x) finds an approval in a real conv-{uuid} rather than the
+   * "default" conversation. Callers should route approval responses to this
+   * conversation to ensure the server can match them to the pending approval.
+   */
+  foundConversationId?: string;
 }
 
 export interface GetResumeDataOptions {
@@ -647,12 +655,16 @@ export async function getResumeData(
           );
           const { pendingApproval, pendingApprovals } =
             extractApprovals(approvalInAll);
+          const foundConversationId =
+            (approvalInAll as { conversation_id?: string | null })
+              .conversation_id ?? undefined;
           return {
             pendingApproval,
             pendingApprovals,
             messageHistory: prepareMessageHistory(
               messages.length > 0 ? messages : allRecent,
             ),
+            foundConversationId,
           };
         }
       } catch (allMsgError) {
