@@ -4191,38 +4191,161 @@ export default function App({
               },
             );
 
-            // Resolve stale approval conflict: fetch real pending approvals, auto-deny, retry.
+            // Resolve approval conflict: fetch pending approvals.
+            // If active approvals exist, surface the dialog so the user can approve/deny.
+            // If no approvals found (stale state), auto-deny and retry.
             // Shares llmApiErrorRetriesRef budget with LLM transient-error retries (max 3 per turn).
             // Resets on each processConversation entry and on success.
-            if (
-              shouldAttemptApprovalRecovery({
-                approvalPendingDetected:
-                  preStreamAction === "resolve_approval_pending",
-                retries: llmApiErrorRetriesRef.current,
-                maxRetries: LLM_API_ERROR_MAX_RETRIES,
-              })
-            ) {
-              llmApiErrorRetriesRef.current += 1;
+            if (preStreamAction === "resolve_approval_pending") {
               try {
                 const client = await getClient();
                 const agent = await client.agents.retrieve(agentIdRef.current);
                 const { pendingApprovals: existingApprovals } =
                   await getResumeData(client, agent, conversationIdRef.current);
-                currentInput = rebuildInputWithFreshDenials(
-                  currentInput,
-                  existingApprovals ?? [],
-                  "Auto-denied: stale approval from interrupted session",
-                );
+
+                if (existingApprovals && existingApprovals.length > 0) {
+                  // Active approvals found — surface the dialog instead of auto-denying.
+                  // Preserve the user's in-flight message so they can re-send it after
+                  // they approve or deny the pending tool call.
+                  const userMessage = currentInput.find(
+                    (item) => item?.type === "message",
+                  );
+                  if (userMessage && "content" in userMessage) {
+                    const content = userMessage.content;
+                    let textToRestore = "";
+                    if (typeof content === "string") {
+                      textToRestore = stripSystemReminders(content);
+                    } else if (Array.isArray(content)) {
+                      textToRestore = content
+                        .filter(
+                          (c): c is { type: "text"; text: string } =>
+                            typeof c === "object" &&
+                            c !== null &&
+                            "type" in c &&
+                            c.type === "text" &&
+                            "text" in c &&
+                            typeof c.text === "string" &&
+                            !c.text.includes(SYSTEM_REMINDER_OPEN) &&
+                            !c.text.includes(SYSTEM_ALERT_OPEN),
+                        )
+                        .map((c) => c.text)
+                        .join("\n");
+                    }
+                    if (textToRestore.trim()) {
+                      setRestoredInput(textToRestore);
+                    }
+                  }
+
+                  setApprovalResults([]);
+                  setAutoHandledResults([]);
+                  setAutoDeniedApprovals([]);
+                  setApprovalContexts([]);
+                  queueApprovalResults(null);
+                  setPendingApprovals(existingApprovals);
+
+                  try {
+                    const contexts = await Promise.all(
+                      existingApprovals.map(async (approval) => {
+                        const parsedArgs = safeJsonParseOr<
+                          Record<string, unknown>
+                        >(approval.toolArgs, {});
+                        return await analyzeToolApproval(
+                          approval.toolName,
+                          parsedArgs,
+                        );
+                      }),
+                    );
+                    setApprovalContexts(contexts);
+                  } catch {
+                    // If analysis fails, contexts remain empty
+                  }
+
+                  setStreaming(false);
+                  sendDesktopNotification("Approval needed");
+                  return;
+                }
+
+                // No active approvals (stale state).
+                // Try conversations.cancel(agentId) to forcibly clear the server's
+                // approval-pending lock before retrying. This handles the case where
+                // the approval message exists in a real conv-{uuid} from a previous
+                // session but can't be located via the current API path (e.g. Letta 0.16.3).
+                if (
+                  shouldAttemptApprovalRecovery({
+                    approvalPendingDetected: true,
+                    retries: llmApiErrorRetriesRef.current,
+                    maxRetries: LLM_API_ERROR_MAX_RETRIES,
+                  })
+                ) {
+                  llmApiErrorRetriesRef.current += 1;
+                  // Attempt cancel on the first retry only (avoid hammering the endpoint).
+                  if (llmApiErrorRetriesRef.current === 1) {
+                    try {
+                      const cancelId =
+                        conversationIdRef.current === "default" ||
+                        !conversationIdRef.current
+                          ? agentIdRef.current
+                          : conversationIdRef.current;
+                      if (cancelId && cancelId !== "loading") {
+                        await client.conversations.cancel(cancelId);
+                        debugLog(
+                          "stream",
+                          "conversations.cancel(%s) succeeded — retrying message",
+                          cancelId,
+                        );
+                      }
+                    } catch {
+                      // Cancel failed (no Redis / unsupported) — continue with plain retry
+                    }
+                  }
+                  currentInput = rebuildInputWithFreshDenials(
+                    currentInput,
+                    [],
+                    "Auto-denied: stale approval from interrupted session",
+                  );
+                  buffersRef.current.interrupted = false;
+                  continue;
+                }
               } catch {
-                // Fetch failed — strip stale payload and retry plain message
-                currentInput = rebuildInputWithFreshDenials(
-                  currentInput,
-                  [],
-                  "",
-                );
+                // Fetch failed — strip stale payload and retry plain message (within budget)
+                if (
+                  shouldAttemptApprovalRecovery({
+                    approvalPendingDetected: true,
+                    retries: llmApiErrorRetriesRef.current,
+                    maxRetries: LLM_API_ERROR_MAX_RETRIES,
+                  })
+                ) {
+                  llmApiErrorRetriesRef.current += 1;
+                  // Attempt cancel on the first retry only.
+                  if (llmApiErrorRetriesRef.current === 1) {
+                    try {
+                      const cancelId =
+                        conversationIdRef.current === "default" ||
+                        !conversationIdRef.current
+                          ? agentIdRef.current
+                          : conversationIdRef.current;
+                      if (cancelId && cancelId !== "loading") {
+                        const cancelClient = await getClient();
+                        await cancelClient.conversations.cancel(cancelId);
+                        debugLog(
+                          "stream",
+                          "conversations.cancel(%s) succeeded (fetch-failed path)",
+                          cancelId,
+                        );
+                      }
+                    } catch {
+                      // Cancel failed — continue with plain retry
+                    }
+                  }
+                  currentInput = rebuildInputWithFreshDenials(
+                    currentInput,
+                    [],
+                    "",
+                  );
+                  buffersRef.current.interrupted = false;
+                  continue;
+                }
               }
-              buffersRef.current.interrupted = false;
-              continue;
             }
 
             // Check for 409 "conversation busy" error - retry with exponential backoff
@@ -5685,7 +5808,13 @@ export default function App({
 
             // No active approvals found (stale state): auto-deny any leftover payload
             // and retry, within the retry budget.
-            if (llmApiErrorRetriesRef.current < LLM_API_ERROR_MAX_RETRIES) {
+            if (
+              shouldAttemptApprovalRecovery({
+                approvalPendingDetected: true,
+                retries: llmApiErrorRetriesRef.current,
+                maxRetries: LLM_API_ERROR_MAX_RETRIES,
+              })
+            ) {
               llmApiErrorRetriesRef.current += 1;
               currentInput = rebuildInputWithFreshDenials(currentInput, [], "");
               buffersRef.current.interrupted = false;

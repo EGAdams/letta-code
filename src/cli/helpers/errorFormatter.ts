@@ -678,6 +678,19 @@ export function formatErrorDetails(
       return obj.detail;
     }
 
+    // Handle nested error objects (e.g., { error: { error: { detail, message }, run_id } })
+    // This matches the doubly-nested run metadata shape from Letta 0.16.x servers.
+    if (obj.error && typeof obj.error === "object") {
+      const inner = obj.error as Record<string, unknown>;
+      if (typeof inner.detail === "string") return inner.detail;
+      if (typeof inner.message === "string") return inner.message;
+      if (inner.error && typeof inner.error === "object") {
+        const nested = inner.error as Record<string, unknown>;
+        if (typeof nested.detail === "string") return nested.detail;
+        if (typeof nested.message === "string") return nested.message;
+      }
+    }
+
     // Last resort: JSON stringify
     try {
       return JSON.stringify(e, null, 2);

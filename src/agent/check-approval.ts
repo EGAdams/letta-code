@@ -38,6 +38,27 @@ function isPrimaryMessageType(messageType: string | undefined): boolean {
   );
 }
 
+/**
+ * Find the most recent approval_request_message in a chronologically sorted
+ * message list that has not yet received an approval_response_message.
+ * Used as a fallback when in_context_message_ids is unavailable (e.g. Letta 0.16.3).
+ */
+function findMostRecentPendingApproval(messages: Message[]): Message | null {
+  // messages is oldest-first; scan from newest
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (!msg) continue;
+    if (msg.message_type === "approval_request_message") {
+      // Check if any subsequent message is an approval response
+      const hasResponse = messages
+        .slice(i + 1)
+        .some((m) => m.message_type === "approval_response_message");
+      return hasResponse ? null : msg;
+    }
+  }
+  return null;
+}
+
 function isAnchorMessageType(messageType: string | undefined): boolean {
   return messageType === "user_message" || messageType === "assistant_message";
 }
@@ -357,21 +378,17 @@ export async function getResumeData(
       if (!inContextMessageIds || inContextMessageIds.length === 0) {
         debugWarn(
           "check-approval",
-          "No in-context messages - no pending approvals",
+          "No in-context messages - scanning message list for pending approvals",
         );
-        if (includeMessageHistory && isBackfillEnabled()) {
+        // Letta 0.16.3 may not populate in_context_message_ids on conversations.
+        // Fetch recent messages and look for an unanswered approval_request_message.
+        let backfill: Message[] = [];
+        if (isBackfillEnabled()) {
           try {
-            const backfill = await fetchConversationBackfillMessages(
+            backfill = await fetchConversationBackfillMessages(
               client,
               conversationId,
             );
-            return {
-              pendingApproval: null,
-              pendingApprovals: [],
-              messageHistory: prepareMessageHistory(backfill, {
-                primaryOnly: true,
-              }),
-            };
           } catch (backfillError) {
             debugWarn(
               "check-approval",
@@ -379,10 +396,24 @@ export async function getResumeData(
             );
           }
         }
+        const approvalMsg = findMostRecentPendingApproval(backfill);
+        if (approvalMsg) {
+          const { pendingApproval, pendingApprovals } =
+            extractApprovals(approvalMsg);
+          return {
+            pendingApproval,
+            pendingApprovals,
+            messageHistory: includeMessageHistory
+              ? prepareMessageHistory(backfill, { primaryOnly: true })
+              : [],
+          };
+        }
         return {
           pendingApproval: null,
           pendingApprovals: [],
-          messageHistory: [],
+          messageHistory: includeMessageHistory
+            ? prepareMessageHistory(backfill, { primaryOnly: true })
+            : [],
         };
       }
 
@@ -441,6 +472,19 @@ export async function getResumeData(
           "check-approval",
           `Last in-context message ${lastInContextId} not found via retrieve`,
         );
+      }
+
+      // Fallback: last in-context message wasn't an approval_request_message.
+      // Scan recent messages in case Letta 0.16.3 stores the approval differently.
+      const approvalInBackfill = findMostRecentPendingApproval(messages);
+      if (approvalInBackfill) {
+        const { pendingApproval, pendingApprovals } =
+          extractApprovals(approvalInBackfill);
+        return {
+          pendingApproval,
+          pendingApprovals,
+          messageHistory: prepareMessageHistory(messages),
+        };
       }
 
       return {
@@ -543,50 +587,78 @@ export async function getResumeData(
           "check-approval",
           "No messages in default conversation stream - no pending approvals",
         );
-        return {
-          pendingApproval: null,
-          pendingApprovals: [],
-          messageHistory: [],
-        };
+      } else {
+        const lastDefaultMessage =
+          defaultConversationMessages[defaultConversationMessages.length - 1];
+        const latestMessageId = lastDefaultMessage?.id;
+        const latestMessageVariants = latestMessageId
+          ? defaultConversationMessages.filter(
+              (msg) => msg.id === latestMessageId,
+            )
+          : [];
+        const messageToCheck =
+          latestMessageVariants.find(
+            (msg) => msg.message_type === "approval_request_message",
+          ) ??
+          latestMessageVariants[latestMessageVariants.length - 1] ??
+          lastDefaultMessage;
+
+        if (messageToCheck) {
+          debugWarn(
+            "check-approval",
+            `Found last in-context message: ${messageToCheck.id} (type: ${messageToCheck.message_type})` +
+              (latestMessageVariants.length > 1
+                ? ` - had ${latestMessageVariants.length} variants`
+                : ""),
+          );
+
+          if (messageToCheck.message_type === "approval_request_message") {
+            const { pendingApproval, pendingApprovals } =
+              extractApprovals(messageToCheck);
+            return {
+              pendingApproval,
+              pendingApprovals,
+              messageHistory: prepareMessageHistory(messages),
+            };
+          }
+        } else {
+          debugWarn(
+            "check-approval",
+            "Last default conversation message not found after list()",
+          );
+        }
       }
 
-      const lastDefaultMessage =
-        defaultConversationMessages[defaultConversationMessages.length - 1];
-      const latestMessageId = lastDefaultMessage?.id;
-      const latestMessageVariants = latestMessageId
-        ? defaultConversationMessages.filter(
-            (msg) => msg.id === latestMessageId,
-          )
-        : [];
-      const messageToCheck =
-        latestMessageVariants.find(
-          (msg) => msg.message_type === "approval_request_message",
-        ) ??
-        latestMessageVariants[latestMessageVariants.length - 1] ??
-        lastDefaultMessage;
-
-      if (messageToCheck) {
-        debugWarn(
-          "check-approval",
-          `Found last in-context message: ${messageToCheck.id} (type: ${messageToCheck.message_type})` +
-            (latestMessageVariants.length > 1
-              ? ` - had ${latestMessageVariants.length} variants`
-              : ""),
-        );
-
-        if (messageToCheck.message_type === "approval_request_message") {
+      // Fallback: scan ALL recent agent messages across all conversations.
+      // On Letta 0.16.3, message.ts may have used a real conv-{uuid} internally
+      // while conversationIdRef stays "default". The pending approval lives in
+      // that real conversation and is invisible to the conversation_id="default" filter.
+      try {
+        const allRecentPage = await client.agents.messages.list(agent.id, {
+          limit: 50,
+          order: "desc",
+        });
+        const allRecent = sortChronological(allRecentPage.getPaginatedItems());
+        const approvalInAll = findMostRecentPendingApproval(allRecent);
+        if (approvalInAll) {
+          debugWarn(
+            "check-approval",
+            `Found approval_request_message across all conversations: ${approvalInAll.id}`,
+          );
           const { pendingApproval, pendingApprovals } =
-            extractApprovals(messageToCheck);
+            extractApprovals(approvalInAll);
           return {
             pendingApproval,
             pendingApprovals,
-            messageHistory: prepareMessageHistory(messages),
+            messageHistory: prepareMessageHistory(
+              messages.length > 0 ? messages : allRecent,
+            ),
           };
         }
-      } else {
+      } catch (allMsgError) {
         debugWarn(
           "check-approval",
-          "Last default conversation message not found after list()",
+          `Cross-conversation approval scan failed: ${allMsgError instanceof Error ? allMsgError.message : String(allMsgError)}`,
         );
       }
 
