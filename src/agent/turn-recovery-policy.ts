@@ -28,6 +28,7 @@ const RETRYABLE_PROVIDER_DETAIL_PATTERNS = [
   "Google Vertex API error",
   "ChatGPT API error",
   "ChatGPT server error",
+  "ChatGPT request failed",
   "Connection error during Anthropic streaming",
   "Connection error during streaming",
   "upstream connect error",

@@ -5605,41 +5605,92 @@ export default function App({
           }
 
           // Check for approval pending error (sent user message while approval waiting).
-          // This is the lazy recovery path: fetch real pending approvals, auto-deny, retry.
-          // Works regardless of hasApprovalInPayload — stale queued approvals from an
-          // interrupt may have been rejected by the backend.
+          // Primary path: surface the approval dialog so the user can approve/deny.
+          // Fallback: if no approvals found (stale state), auto-deny and retry (up to budget).
           const approvalPendingDetected =
             isApprovalPendingError(detailFromRun) ||
             isApprovalPendingError(latestErrorText);
 
-          if (
-            shouldAttemptApprovalRecovery({
-              approvalPendingDetected,
-              retries: llmApiErrorRetriesRef.current,
-              maxRetries: LLM_API_ERROR_MAX_RETRIES,
-            })
-          ) {
-            llmApiErrorRetriesRef.current += 1;
-
+          if (approvalPendingDetected) {
             try {
-              // Fetch pending approvals and auto-deny them
               const client = await getClient();
               const agent = await client.agents.retrieve(agentIdRef.current);
               const { pendingApprovals: existingApprovals } =
                 await getResumeData(client, agent, conversationIdRef.current);
-              currentInput = rebuildInputWithFreshDenials(
-                currentInput,
-                existingApprovals ?? [],
-                "Auto-denied: stale approval from interrupted session",
-              );
+
+              if (existingApprovals && existingApprovals.length > 0) {
+                // Active approvals found — surface the dialog instead of auto-denying.
+                // Preserve the user's in-flight message so they can re-send it after
+                // they approve or deny the pending tool call.
+                const userMessage = currentInput.find(
+                  (item) => item?.type === "message",
+                );
+                if (userMessage && "content" in userMessage) {
+                  const content = userMessage.content;
+                  let textToRestore = "";
+                  if (typeof content === "string") {
+                    textToRestore = stripSystemReminders(content);
+                  } else if (Array.isArray(content)) {
+                    textToRestore = content
+                      .filter(
+                        (c): c is { type: "text"; text: string } =>
+                          typeof c === "object" &&
+                          c !== null &&
+                          "type" in c &&
+                          c.type === "text" &&
+                          "text" in c &&
+                          typeof c.text === "string" &&
+                          !c.text.includes(SYSTEM_REMINDER_OPEN) &&
+                          !c.text.includes(SYSTEM_ALERT_OPEN),
+                      )
+                      .map((c) => c.text)
+                      .join("\n");
+                  }
+                  if (textToRestore.trim()) {
+                    setRestoredInput(textToRestore);
+                  }
+                }
+
+                setApprovalResults([]);
+                setAutoHandledResults([]);
+                setAutoDeniedApprovals([]);
+                setApprovalContexts([]);
+                queueApprovalResults(null);
+                setPendingApprovals(existingApprovals);
+
+                try {
+                  const contexts = await Promise.all(
+                    existingApprovals.map(async (approval) => {
+                      const parsedArgs = safeJsonParseOr<
+                        Record<string, unknown>
+                      >(approval.toolArgs, {});
+                      return await analyzeToolApproval(
+                        approval.toolName,
+                        parsedArgs,
+                      );
+                    }),
+                  );
+                  setApprovalContexts(contexts);
+                } catch {
+                  // If analysis fails, contexts remain empty
+                }
+
+                setStreaming(false);
+                sendDesktopNotification("Approval needed");
+                return;
+              }
             } catch {
-              // Fetch failed — strip stale payload and retry plain message
-              currentInput = rebuildInputWithFreshDenials(currentInput, [], "");
+              // Fetch failed — fall through to retry logic below
             }
 
-            // Reset interrupted flag so retry stream chunks are processed
-            buffersRef.current.interrupted = false;
-            continue;
+            // No active approvals found (stale state): auto-deny any leftover payload
+            // and retry, within the retry budget.
+            if (llmApiErrorRetriesRef.current < LLM_API_ERROR_MAX_RETRIES) {
+              llmApiErrorRetriesRef.current += 1;
+              currentInput = rebuildInputWithFreshDenials(currentInput, [], "");
+              buffersRef.current.interrupted = false;
+              continue;
+            }
           }
 
           // Quota-limit fallback: set a temporary client-side override to Auto,
@@ -5902,22 +5953,30 @@ export default function App({
                   type?: string;
                   message?: string;
                   detail?: string;
+                  // Handles doubly-nested shape: { error: { detail, message }, run_id }
+                  error?: { type?: string; message?: string; detail?: string };
                 };
 
                 const serverErrorDetail =
-                  errorData.detail || errorData.message || null;
+                  errorData.detail ||
+                  errorData.message ||
+                  errorData.error?.detail ||
+                  errorData.error?.message ||
+                  null;
 
-                // Pass structured error data to our formatter
+                // Pass structured error data to our formatter.
+                // When a detail string is already extracted, prefer it so that
+                // formatErrorDetails doesn't fall back to JSON.stringify on the
+                // deeply-nested run-metadata object shape.
                 const errorObject = {
                   error: {
                     error: errorData,
                     run_id: lastRunId,
                   },
                 };
-                const errorDetails = formatErrorDetails(
-                  errorObject,
-                  agentIdRef.current,
-                );
+                const errorDetails = serverErrorDetail
+                  ? formatErrorDetails(serverErrorDetail, agentIdRef.current)
+                  : formatErrorDetails(errorObject, agentIdRef.current);
 
                 // Encrypted content errors are self-explanatory (include /clear advice)
                 // — skip the generic "Something went wrong?" hint

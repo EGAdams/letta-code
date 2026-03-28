@@ -40,3 +40,39 @@ bash /home/adamsl/letta-code/src/skills/custom/bridging-nonprofit-finance-ingest
 - Statement docs follow statement ingestion path.
 - Receipt docs follow receipt ingestion path.
 - IRS/tax docs route to IRS specialist pipeline and do not insert as receipt/expense.
+
+## Mom ledger routing lane
+If a scanned page is identified as a mom-ledger/check-history page (printed bank web ledger used as checkbook history):
+
+1. Route first to `moms-ledger-parser` for row extraction and normalization.
+2. Extract transaction rows with statement-like fields (date, description/payee, amount, check number, references, running balance when present).
+3. After parse output is produced, process through the same downstream flow used for bank statements.
+
+This lane is intended to avoid misclassifying ledger pages as receipt content while preserving statement-grade transaction ingestion behavior.
+
+## Tax document follow-up workflow
+After tax classification, place file in:
+- `/home/adamsl/rol_finances/readable_documents/tax_documents/<document_folder>/`
+
+Then ensure folder contains:
+- primary scan file
+- `summary.md`
+- `detail.md`
+- `routing_payload.json`
+- `extracted_fields.json`
+
+Keep `/home/adamsl/rol_finances/readable_documents/tax_documents/INDEX.md` updated as a quick inventory.
+
+Run calculation-grade extraction after scan/file placement:
+
+```bash
+/home/adamsl/planner/.venv/bin/python /home/adamsl/rol_finances/tools/tax_docs/extract_tax_document_fields.py --folder <document_folder_path>
+```
+
+This step is required so critical numbers and checkbox states are persisted without rereading documents later.
+
+For Form 9325 page-pair workflow, use folder pairs like:
+- `form_9325_front_2`
+- `form_9325_back_2`
+
+Markdown should follow standardized headings used by IRS routing skill so later JSON conversion is straightforward.

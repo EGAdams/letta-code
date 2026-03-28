@@ -711,7 +711,8 @@ export function getRetryStatusMessage(
     return "Anthropic API is overloaded, retrying...";
   if (
     errorDetail.includes("ChatGPT API error") ||
-    errorDetail.includes("ChatGPT server error")
+    errorDetail.includes("ChatGPT server error") ||
+    errorDetail.includes("ChatGPT request failed")
   ) {
     return "OpenAI ChatGPT backend connection failed, retrying...";
   }
