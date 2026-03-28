@@ -23,22 +23,32 @@ The CLI now automatically:
 
 This happens in the background when you hit CONFLICT—you just need to approve/deny.
 
-## If Manual Recovery Needed
+## If You Ever See This Error Again
 
-### Diagnose:
-```bash
+**DO NOT PANIC.** Just run these commands in order:
+
+### Step 1: Diagnose what's stuck
+```
 /approval-recovery
 ```
-Shows:
+
+This shows:
 - Whether approvals are actually pending
 - Where the server thinks they are (`in_context_message_ids`)
 - Debug info about message state
+- What to do next
 
-### Force-clear (last resort):
-```bash
+### Step 2: Force-clear (if step 1 recommends it)
+```
 /clear-approval
 ```
-Automatically finds stuck approvals (even in in_context_message_ids) and sends auto-denial responses.
+
+This automatically:
+- Finds stuck approvals (even hidden in `in_context_message_ids`)
+- Sends auto-denial responses to unblock the agent
+- Clears the conflict state
+
+Then try your message again—it should work now.
 
 ## Technical Details
 
