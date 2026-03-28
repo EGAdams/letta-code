@@ -1,0 +1,57 @@
+# Approval Recovery Diagnostics
+
+Automatic and manual tools to diagnose approval conflicts (CONFLICT: "waiting for approval on a tool call").
+
+## The Problem (Letta 0.16.x)
+
+On older Letta servers, approvals can get stuck in a state where:
+- Server marks the approval as pending in `in_context_message_ids`
+- But the approval request message doesn't appear in the normal message list
+- When you try to send a message, the server blocks you with CONFLICT
+- The approval UI never shows up because we can't find the approval to display
+
+This happens because the server tracks approval state internally differently than the message stream.
+
+## Automatic Fix (Should Not Need Manual Intervention)
+
+The CLI now automatically:
+1. **Detects CONFLICT errors immediately** when you try to send a message
+2. **Checks `in_context_message_ids` directly** (where server tracks approvals)
+3. **Fetches the stuck approval** using the message ID from in_context_message_ids
+4. **Surfaces the approval UI** so you can approve/deny
+5. **Routes responses to the correct conversation** to actually unblock the agent
+
+This happens in the background when you hit CONFLICT—you just need to approve/deny.
+
+## If Manual Recovery Needed
+
+### Diagnose:
+```bash
+/approval-recovery
+```
+Shows:
+- Whether approvals are actually pending
+- Where the server thinks they are (`in_context_message_ids`)
+- Debug info about message state
+
+### Force-clear (last resort):
+```bash
+/clear-approval
+```
+Automatically finds stuck approvals (even in in_context_message_ids) and sends auto-denial responses.
+
+## Technical Details
+
+**The Fix (in src/agent/check-approval.ts):**
+- `getResumeData()` now prioritizes `agent.in_context_message_ids` as the source of truth
+- Fetches the last in_context_message directly to check if it's an approval_request_message
+- Falls back to message list scan only when in_context_message_ids is empty
+- Returns `foundConversationId` so responses route to the right place
+
+**The Recovery (in src/cli/App.tsx):**
+- When CONFLICT error detected, calls `getResumeData()` to find pending approvals
+- If approval found, switches to the correct conversation (line 4226-4237)
+- Caches the conversation ID for future messages
+- Surfaces the approval dialog automatically
+
+**You should never see this error.** If you do, it means the approval detection failed. Use `/approval-recovery` to diagnose or `/clear-approval` to force-clear.

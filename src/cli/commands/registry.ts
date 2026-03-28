@@ -1,6 +1,8 @@
 // src/cli/commands/registry.ts
 // Registry of available CLI commands
 
+import { diagnoseApprovalState } from "./approval-recovery";
+import { clearStuckApproval } from "./clear-approval";
 import { handleSecretCommand } from "./secret";
 
 type CommandHandler = (args: string[]) => Promise<string> | string;
@@ -535,6 +537,60 @@ export const commands: Record<string, Command> = {
     handler: () => {
       // Handled specially in App.tsx to show conversation selector or switch directly
       return "Opening conversation selector...";
+    },
+  },
+  "/approval-recovery": {
+    desc: "Diagnose stuck approvals (CONFLICT errors on Letta 0.16.x)",
+    order: 19.5,
+    noArgs: true,
+    handler: async () => {
+      const result = await diagnoseApprovalState();
+      const lines = [
+        `Agent: ${result.agentId}`,
+        `Status: ${result.hasPendingApprovals ? "⚠️ PENDING APPROVALS" : "✅ No pending approvals"}`,
+      ];
+      if (result.pendingApprovals.length > 0) {
+        lines.push(`\nTools waiting for approval:`);
+        for (const approval of result.pendingApprovals) {
+          lines.push(
+            `  • ${approval.toolName} (ID: ${approval.toolCallId.slice(0, 8)}...)`,
+          );
+        }
+      }
+      if (result.foundConversationId) {
+        lines.push(`\nFound in conversation: ${result.foundConversationId}`);
+      }
+      lines.push(`\n${result.recommendation}`);
+
+      // Show debug info if there's a mismatch (no approvals found but error still happening)
+      if (!result.hasPendingApprovals && result.debugInfo) {
+        lines.push(`\n━━ DEBUG INFO ━━`);
+        if (result.debugInfo.agentState?.in_context_message_ids) {
+          lines.push(
+            `in_context_message_ids: ${result.debugInfo.agentState.in_context_message_ids.length} message(s)`,
+          );
+        } else {
+          lines.push(`in_context_message_ids: (not set or empty)`);
+        }
+        if (result.debugInfo.recentMessages.length > 0) {
+          lines.push(`\nLast 3 recent messages (agents.messages.list):`);
+          for (const msg of result.debugInfo.recentMessages.slice(0, 3)) {
+            lines.push(
+              `  • ${msg.type.replace(/_message$/, "")} (ID: ${msg.id.slice(0, 8)}...)`,
+            );
+          }
+        }
+      }
+
+      return lines.join("\n");
+    },
+  },
+  "/clear-approval": {
+    desc: "Force-clear stuck approval state (last resort)",
+    order: 19.6,
+    noArgs: true,
+    handler: async () => {
+      return await clearStuckApproval();
     },
   },
   "/pinned": {

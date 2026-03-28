@@ -542,6 +542,10 @@ export async function getResumeData(
       }
 
       if (lastInContextId) {
+        // Optimization: fetch the last in_context_message first, as it's most likely
+        // to be an approval (CONFLICT errors happen when there's a pending approval).
+        // But if it's not, we'll scan backwards through in_context_message_ids to find
+        // any unanswered approval_request_message.
         const retrievedMessages =
           await client.messages.retrieve(lastInContextId);
         const messageToCheck =
@@ -549,29 +553,102 @@ export async function getResumeData(
             (msg) => msg.message_type === "approval_request_message",
           ) ?? retrievedMessages[0];
 
-        if (messageToCheck) {
+        if (messageToCheck?.message_type === "approval_request_message") {
           debugWarn(
             "check-approval",
-            `Found last in-context message: ${messageToCheck.id} (type: ${messageToCheck.message_type})` +
+            `Found approval in last in-context message: ${messageToCheck.id}` +
               (retrievedMessages.length > 1
                 ? ` - had ${retrievedMessages.length} variants`
                 : ""),
           );
+          const { pendingApproval, pendingApprovals } =
+            extractApprovals(messageToCheck);
+          return {
+            pendingApproval,
+            pendingApprovals,
+            messageHistory: prepareMessageHistory(messages),
+          };
+        }
 
-          if (messageToCheck.message_type === "approval_request_message") {
-            const { pendingApproval, pendingApprovals } =
-              extractApprovals(messageToCheck);
-            return {
-              pendingApproval,
-              pendingApprovals,
-              messageHistory: prepareMessageHistory(messages),
-            };
+        // Fallback: scan backwards through in_context_message_ids to find
+        // any unanswered approval_request_message (e.g., if last message is assistant
+        // but there's an earlier approval waiting for response).
+        // This handles the case where server marks approval pending but it's not
+        // the most recent message.
+        debugWarn(
+          "check-approval",
+          `Last in-context message (${messageToCheck?.id || lastInContextId}) is not an approval. Scanning backwards...`,
+        );
+
+        if (!inContextMessageIds || inContextMessageIds.length === 0) {
+          return {
+            pendingApproval: null,
+            pendingApprovals: [],
+            messageHistory: prepareMessageHistory(messages),
+          };
+        }
+
+        for (let i = inContextMessageIds.length - 1; i >= 0; i--) {
+          const msgId = inContextMessageIds[i];
+          if (!msgId) continue;
+
+          try {
+            const retrieved = await client.messages.retrieve(msgId);
+            const approvalVariant = retrieved.find(
+              (m) => m.message_type === "approval_request_message",
+            );
+
+            if (approvalVariant) {
+              debugWarn(
+                "check-approval",
+                `Found approval_request_message at in_context_message_ids[${i}]: ${msgId}`,
+              );
+
+              // Check if this approval has been answered
+              // (there should be no approval_response after it in the stream)
+              const allRecentMessages =
+                defaultConversationMessages.length > 0
+                  ? defaultConversationMessages
+                  : await (async () => {
+                      try {
+                        const page = await client.agents.messages.list(
+                          agent.id,
+                          {
+                            conversation_id: "default",
+                            limit: 200,
+                            order: "desc",
+                          },
+                        );
+                        return sortChronological(page.getPaginatedItems());
+                      } catch {
+                        return [];
+                      }
+                    })();
+
+              const hasResponse = allRecentMessages.some(
+                (m) =>
+                  m.message_type === "approval_response_message" &&
+                  m.date &&
+                  approvalVariant.date &&
+                  new Date(m.date) > new Date(approvalVariant.date),
+              );
+
+              if (!hasResponse) {
+                const { pendingApproval, pendingApprovals } =
+                  extractApprovals(approvalVariant);
+                return {
+                  pendingApproval,
+                  pendingApprovals,
+                  messageHistory: prepareMessageHistory(messages),
+                };
+              }
+            }
+          } catch (e) {
+            debugWarn(
+              "check-approval",
+              `Failed to check in_context_message_ids[${i}] (${msgId}): ${e instanceof Error ? e.message : String(e)}`,
+            );
           }
-        } else {
-          debugWarn(
-            "check-approval",
-            `Last in-context message ${lastInContextId} not found via retrieve`,
-          );
         }
 
         return {
