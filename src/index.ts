@@ -1410,7 +1410,8 @@ async function main(): Promise<void> {
               console.error(
                 `Failed to create default agent: ${err instanceof Error ? err.message : String(err)}`,
               );
-              process.exit(1);
+              setLoadingState("selecting_global");
+              return;
             }
             break;
           }
