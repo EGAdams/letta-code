@@ -320,6 +320,15 @@ function getTierUsageLimitMessage(reasons: string[]): string | undefined {
 const CHATGPT_USAGE_LIMIT_HINT =
   "Switch models with /model, or connect your own provider keys with /connect.";
 
+const SELF_HOSTED_CHATGPT_SUMMARY_FAILURE_HINT = [
+  "Self-hosted Letta summary generation failed while using ChatGPT / Codex.",
+  "One known cause is an older ChatGPT OAuth SSE parser that ignores response.output_text.delta events.",
+  'Verify with: docker exec letta-server grep -c "accumulated_via_deltas" /app/letta/llm_api/chatgpt_oauth_client.py',
+  "Expected result: 3",
+  "If the count is not 3, rebuild the server image and recreate the container; a plain container restart keeps the stale image.",
+  "If the count is already 3, inspect docker logs letta-server --tail 100 for the underlying server-side failure.",
+].join("\n");
+
 /**
  * Check if a string contains a ChatGPT usage_limit_reached error with optional
  * reset timing, and return a friendly message.
@@ -398,6 +407,88 @@ function findAndFormatChatGptUsageLimit(e: unknown): string | undefined {
     if (typeof errObj.detail === "string") {
       const msg = checkChatGptUsageLimitError(errObj.detail);
       if (msg) return msg;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Detect the self-hosted ChatGPT/Codex summarizer failure where the server
+ * raises "Summary failed to generate" because it failed to accumulate
+ * response.output_text.delta SSE events.
+ */
+function checkSelfHostedChatGptSummaryFailure(
+  text: string,
+): string | undefined {
+  const normalized = text.toLowerCase();
+  if (!normalized.includes("summary failed to generate")) return undefined;
+
+  const { modelEndpointType, modelDisplayName } = getErrorContext();
+  const modelName = modelDisplayName?.toLowerCase() ?? "";
+  const hasChatGptSignal =
+    modelEndpointType === "chatgpt_oauth" ||
+    modelName.includes("codex") ||
+    normalized.includes("chatgpt") ||
+    normalized.includes("response.incomplete") ||
+    normalized.includes("response.output_text.delta");
+
+  if (!hasChatGptSignal) return undefined;
+  return SELF_HOSTED_CHATGPT_SUMMARY_FAILURE_HINT;
+}
+
+/**
+ * Walk an error object to find the self-hosted ChatGPT/Codex summary failure.
+ */
+function findAndFormatSelfHostedChatGptSummaryFailure(
+  e: unknown,
+): string | undefined {
+  if (typeof e === "string") return checkSelfHostedChatGptSummaryFailure(e);
+
+  if (typeof e !== "object" || e === null) return undefined;
+
+  if (e instanceof Error) {
+    const msg = checkSelfHostedChatGptSummaryFailure(e.message);
+    if (msg) return msg;
+  }
+
+  const obj = e as Record<string, unknown>;
+
+  if (typeof obj.detail === "string") {
+    const msg = checkSelfHostedChatGptSummaryFailure(obj.detail);
+    if (msg) return msg;
+  }
+
+  if (typeof obj.message === "string") {
+    const msg = checkSelfHostedChatGptSummaryFailure(obj.message);
+    if (msg) return msg;
+  }
+
+  if (obj.error && typeof obj.error === "object") {
+    const errObj = obj.error as Record<string, unknown>;
+
+    if (typeof errObj.detail === "string") {
+      const msg = checkSelfHostedChatGptSummaryFailure(errObj.detail);
+      if (msg) return msg;
+    }
+
+    if (typeof errObj.message === "string") {
+      const msg = checkSelfHostedChatGptSummaryFailure(errObj.message);
+      if (msg) return msg;
+    }
+
+    if (errObj.error && typeof errObj.error === "object") {
+      const inner = errObj.error as Record<string, unknown>;
+
+      if (typeof inner.detail === "string") {
+        const msg = checkSelfHostedChatGptSummaryFailure(inner.detail);
+        if (msg) return msg;
+      }
+
+      if (typeof inner.message === "string") {
+        const msg = checkSelfHostedChatGptSummaryFailure(inner.message);
+        if (msg) return msg;
+      }
     }
   }
 
@@ -536,6 +627,10 @@ export function formatErrorDetails(
   // and as plain run-metadata objects ({error: {error: {detail: "..."}}})
   const chatGptUsageLimitMsg = findAndFormatChatGptUsageLimit(e);
   if (chatGptUsageLimitMsg) return chatGptUsageLimitMsg;
+
+  const selfHostedSummaryFailureMsg =
+    findAndFormatSelfHostedChatGptSummaryFailure(e);
+  if (selfHostedSummaryFailureMsg) return selfHostedSummaryFailureMsg;
 
   const cloudflareEdgeMsg = findAndFormatCloudflareEdgeError(e);
   if (cloudflareEdgeMsg) return cloudflareEdgeMsg;
