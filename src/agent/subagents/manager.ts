@@ -181,6 +181,7 @@ export async function resolveSubagentModel(options: {
       : undefined;
   const parentModelHandle = normalizeModelHandle(options.parentModelHandle);
   const isFreeTier = billingTier?.toLowerCase() === "free";
+  let availabilityKnown = true;
 
   if (userModel) return normalizeModelHandle(userModel);
 
@@ -198,6 +199,7 @@ export async function resolveSubagentModel(options: {
       }
       return availableHandles.has(handle);
     } catch {
+      availabilityKnown = false;
       return false;
     }
   };
@@ -231,12 +233,18 @@ export async function resolveSubagentModel(options: {
           if (await isAvailable(recommendedHandle)) {
             return recommendedHandle;
           }
+          if (!availabilityKnown) {
+            return recommendedHandle;
+          }
         } else {
           const swapped = swapProviderPrefix(
             parentModelHandle,
             recommendedHandle,
           );
           if (swapped && (await isAvailable(swapped))) {
+            return swapped;
+          }
+          if (swapped && !availabilityKnown) {
             return swapped;
           }
         }
@@ -247,6 +255,9 @@ export async function resolveSubagentModel(options: {
       if (await isAvailable(recommendedHandle)) {
         return recommendedHandle;
       }
+      if (!availabilityKnown) {
+        return recommendedHandle;
+      }
     }
 
     // Check if parent model is actually available on this server before inheriting it.
@@ -255,10 +266,16 @@ export async function resolveSubagentModel(options: {
     if (await isAvailable(parentModelHandle)) {
       return parentModelHandle;
     }
+    if (!availabilityKnown) {
+      return parentModelHandle;
+    }
     return getDefaultModelForTier(billingTier);
   }
 
   if (recommendedHandle && (await isAvailable(recommendedHandle))) {
+    return recommendedHandle;
+  }
+  if (recommendedHandle && !availabilityKnown) {
     return recommendedHandle;
   }
 

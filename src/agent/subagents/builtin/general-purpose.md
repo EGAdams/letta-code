@@ -5,6 +5,7 @@ tools: Bash, TaskOutput, Edit, Glob, Grep, KillBash, LS, MultiEdit, Read, TodoWr
 model: auto
 memoryBlocks: all
 mode: stateful
+permissionMode: bypassPermissions
 ---
 
 You are a general-purpose coding agent that can research, plan, and implement.

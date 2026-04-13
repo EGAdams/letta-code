@@ -69,3 +69,22 @@ The `id_token` from ChatGPT expires in ~10 days. The Letta server handles refres
 ## Gemini
 
 Gemini does not support OAuth in letta-code — it requires a direct API key via `/connect gemini <api_key>`. `GEMINI_API_KEY` / `GOOGLE_API_KEY` env vars are not read by letta-code; the key must be registered on the Letta server via the connect command.
+
+### Important distinction: Gemini CLI auth vs Letta provider auth
+
+- A local `gemini` CLI command can succeed with cached CLI credentials.
+- Letta subagents using `lc-gemini/*` models depend on the **Letta server provider config/quota**, which is separate.
+- Therefore, "Gemini works in shell" does **not** imply "Gemini works in Letta subagents".
+
+### Fast triage when shell works but Letta fails
+
+```bash
+# Local CLI sanity check
+gemini -m gemini-2.5-flash -p "Reply with exactly OK" --output-format text
+
+# Letta-side provider/model visibility
+curl -sL http://<LETTA_BASE_URL>/v1/providers/ | python3 -m json.tool
+curl -sL http://<LETTA_BASE_URL>/v1/models/ | python3 -m json.tool
+```
+
+If Letta returns 429/RESOURCE_EXHAUSTED quota errors, treat it as provider quota/rate-limit configuration, not OAuth token corruption.

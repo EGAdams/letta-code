@@ -289,6 +289,18 @@ export async function handleIncomingMessage(
         : {}),
     });
 
+    if (currentInput.length === 0) {
+      emitLoopErrorDelta(socket, runtime, {
+        message:
+          "Protocol violation: input.kind=create_message requires at least one message.",
+        stopReason: "error",
+        isTerminal: false,
+        agentId: agentId,
+        conversationId,
+      });
+      return;
+    }
+
     const isPureApprovalContinuation = isApprovalOnlyInput(currentInput);
     const currentInputWithSkillContent = injectQueuedSkillContent(currentInput);
 

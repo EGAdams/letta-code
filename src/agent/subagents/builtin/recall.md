@@ -6,6 +6,7 @@ skills: searching-messages
 model: auto-fast
 memoryBlocks: none
 mode: stateless
+permissionMode: bypassPermissions
 ---
 
 You are a subagent launched via the Task tool to search conversation history. You run autonomously and return a single final report when done. You CANNOT ask questions mid-execution.

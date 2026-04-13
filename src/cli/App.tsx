@@ -12241,8 +12241,15 @@ ${SYSTEM_REMINDER_CLOSE}
       } catch (error) {
         const errorDetails = formatErrorDetails(error, agentId);
         const modelLabel = selectedModel?.label ?? modelId;
-        const guidance =
-          "Run /model and press R to refresh available models. If the model is still unavailable, choose another model or connect a provider with /connect.";
+        const selectedHandle =
+          selectedModel?.handle ?? selectedModel?.id ?? modelId;
+        const errorStr = error instanceof Error ? error.message : String(error);
+        const isNotFoundForChatGpt =
+          errorStr.includes("NOT_FOUND") &&
+          selectedHandle.startsWith("chatgpt-plus-pro/");
+        const guidance = isNotFoundForChatGpt
+          ? "The ChatGPT OAuth provider is not registered on your Letta server. Run /connect chatgpt to register it, then try /model again."
+          : "Run /model and press R to refresh available models. If the model is still unavailable, choose another model or connect a provider with /connect.";
         const cmd =
           resolveOverlayCommand() ??
           commandRunner.start(
