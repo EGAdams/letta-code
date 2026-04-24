@@ -13977,7 +13977,7 @@ If using apply_patch, use this exact relative patch path: ${applyPatchRelativePa
                       <Box key={ln.id} flexDirection="column" marginTop={1}>
                         {matchesCurrentApproval ? (
                           <ApprovalSwitch
-                            approval={currentApproval}
+                            approval={currentApproval} // april 19
                             onApprove={handleApproveCurrent}
                             onApproveAlways={handleApproveAlways}
                             onDeny={handleDenyCurrent}
