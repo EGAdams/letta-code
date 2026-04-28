@@ -1,9 +1,24 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type {
   ErrorMessage,
   ResultMessage,
   ResultSubtype,
 } from "../types/protocol";
+import { RemoteLogger } from "../logger/RemoteLogger";
+import { resetAllLoggers } from "./logger-helpers";
+
+const TEST_TIMEOUT_MS = 30000;
+
+const normalizeLoggerMessage = (message: string): string => {
+  if (message.includes("ERROR")) return message;
+  if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: `;
+  if (/\bPASS(?:ED)?\b/.test(message) || /test complete|test finished/i.test(message)) {
+    return message.includes("finished") ? message : ` finished`;
+  }
+  return message;
+};
+const testWithTimeout = (name: string, fn: () => Promise<void> | void) =>
+  test(name, fn, TEST_TIMEOUT_MS);
 
 /**
  * Tests for error handling in headless mode.
@@ -18,21 +33,61 @@ import type {
  */
 
 describe("headless error format types", () => {
-  test("ResultSubtype includes 'error' option", () => {
-    // This is a compile-time check - if ResultSubtype doesn't include "error",
-    // this would fail to compile.
+  beforeEach(async () => {
+    await resetAllLoggers();
+  }, 30000);
+
+  testWithTimeout("ResultSubtype includes 'error' option", async () => {
+    const logger = new RemoteLogger("ErrorFormat_ResultSubtype_2026");
+    let loggerReady = false;
+    try {
+      await logger.init();
+      loggerReady = true;
+    } catch (err) {
+      console.warn(`[error-format:ResultSubtype] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const log = async (message: string) => {
+      console.log(`[error-format:ResultSubtype] ${message}`);
+      if (loggerReady) {
+        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
+          console.error(`[error-format:ResultSubtype] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    };
+
+    await log("Test started: ResultSubtype includes 'error' option");
     const errorSubtype: ResultSubtype = "error";
     expect(errorSubtype).toBe("error");
+    await log("errorSubtype === 'error': PASS");
 
     const successSubtype: ResultSubtype = "success";
     expect(successSubtype).toBe("success");
+    await log("successSubtype === 'success': PASS");
 
     const interruptedSubtype: ResultSubtype = "interrupted";
     expect(interruptedSubtype).toBe("interrupted");
+    await log("interruptedSubtype === 'interrupted': PASS — test complete");
   });
 
-  test("ResultMessage type supports stop_reason field", () => {
-    // Verify the ResultMessage type accepts stop_reason for error cases
+  testWithTimeout("ResultMessage type supports stop_reason field", async () => {
+    const logger = new RemoteLogger("ErrorFormat_StopReason_2026");
+    let loggerReady = false;
+    try {
+      await logger.init();
+      loggerReady = true;
+    } catch (err) {
+      console.warn(`[error-format:StopReason] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const log = async (message: string) => {
+      console.log(`[error-format:StopReason] ${message}`);
+      if (loggerReady) {
+        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
+          console.error(`[error-format:StopReason] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    };
+
+    await log("Test started: ResultMessage type supports stop_reason field");
     const errorResult: ResultMessage = {
       type: "result",
       subtype: "error",
@@ -46,15 +101,33 @@ describe("headless error format types", () => {
       result: null,
       run_ids: ["run-123"],
       usage: null,
-      stop_reason: "error", // This field should be present for errors
+      stop_reason: "error",
     };
-
     expect(errorResult.subtype).toBe("error");
+    await log("errorResult.subtype === 'error': PASS");
     expect(errorResult.stop_reason).toBe("error");
+    await log("errorResult.stop_reason === 'error': PASS — test complete");
   });
 
-  test("ErrorMessage type supports api_error field", () => {
-    // Verify ErrorMessage can include nested API error details
+  testWithTimeout("ErrorMessage type supports api_error field", async () => {
+    const logger = new RemoteLogger("ErrorFormat_ApiError_2026");
+    let loggerReady = false;
+    try {
+      await logger.init();
+      loggerReady = true;
+    } catch (err) {
+      console.warn(`[error-format:ApiError] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const log = async (message: string) => {
+      console.log(`[error-format:ApiError] ${message}`);
+      if (loggerReady) {
+        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
+          console.error(`[error-format:ApiError] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    };
+
+    await log("Test started: ErrorMessage type supports api_error field");
     const errorMsg: ErrorMessage = {
       type: "error",
       message: "CONFLICT: Another request is being processed",
@@ -71,10 +144,12 @@ describe("headless error format types", () => {
         run_id: "run-123",
       },
     };
-
     expect(errorMsg.type).toBe("error");
+    await log("errorMsg.type === 'error': PASS");
     expect(errorMsg.api_error).toBeDefined();
+    await log("errorMsg.api_error defined: PASS");
     expect(errorMsg.api_error?.detail).toContain("Another request");
+    await log("api_error.detail contains 'Another request': PASS — test complete");
   });
 });
 
@@ -84,19 +159,32 @@ describe("headless error format expectations", () => {
    * They verify the wire format contracts that the SDK depends on.
    */
 
-  test("error result should have subtype 'error', not 'success'", () => {
-    // When an error occurs (stop_reason !== "end_turn"), the result
-    // should indicate failure, not success.
-    //
-    // Bug (issue #813): Bidirectional mode was returning subtype: "success"
-    // even when stop_reason was "error".
-    //
-    // Expected: subtype should be "error" so SDK can detect failure
+  beforeEach(async () => {
+    await resetAllLoggers();
+  }, 30000);
 
-    // This is a contract test - verifying the expected structure
+  testWithTimeout("error result should have subtype 'error', not 'success'", async () => {
+    const logger = new RemoteLogger("ErrorFormat_ErrorSubtypeCheck_2026");
+    let loggerReady = false;
+    try {
+      await logger.init();
+      loggerReady = true;
+    } catch (err) {
+      console.warn(`[error-format:ErrorSubtype] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const log = async (message: string) => {
+      console.log(`[error-format:ErrorSubtype] ${message}`);
+      if (loggerReady) {
+        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
+          console.error(`[error-format:ErrorSubtype] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    };
+
+    await log("Test started: error result should have subtype 'error', not 'success'");
     const mockErrorResult: ResultMessage = {
       type: "result",
-      subtype: "error", // NOT "success"
+      subtype: "error",
       session_id: "test",
       uuid: "test",
       agent_id: "agent-123",
@@ -109,47 +197,67 @@ describe("headless error format expectations", () => {
       usage: null,
       stop_reason: "error",
     };
-
-    // SDK transforms this to { success: false } based on subtype
     const sdkSuccess = mockErrorResult.subtype === "success";
     expect(sdkSuccess).toBe(false);
+    await log(`sdkSuccess === false (subtype='${mockErrorResult.subtype}'): PASS — test complete`);
   });
 
-  test("409 conflict error should include detail in message", () => {
-    // When API returns 409 with a detail field, that detail should be
-    // surfaced in the error message, not lost.
-    //
-    // Bug (issue #813): The detail was being lost, making debugging hard.
-    //
-    // Expected: ErrorMessage.message or api_error.detail contains the info
+  testWithTimeout("409 conflict error should include detail in message", async () => {
+    const logger = new RemoteLogger("ErrorFormat_ConflictDetail_2026");
+    let loggerReady = false;
+    try {
+      await logger.init();
+      loggerReady = true;
+    } catch (err) {
+      console.warn(`[error-format:ConflictDetail] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const log = async (message: string) => {
+      console.log(`[error-format:ConflictDetail] ${message}`);
+      if (loggerReady) {
+        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
+          console.error(`[error-format:ConflictDetail] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    };
 
-    // Example 409 error detail
+    await log("Test started: 409 conflict error should include detail in message");
     const conflictDetail =
       "CONFLICT: Cannot send a new message: Another request is currently being processed for this conversation.";
-
-    // The error message should include this detail
     const mockError: ErrorMessage = {
       type: "error",
-      message: conflictDetail, // Detail should be in message
+      message: conflictDetail,
       stop_reason: "error",
       session_id: "test",
       uuid: "test",
       run_id: "run-123",
     };
-
     expect(mockError.message).toContain("CONFLICT");
+    await log("message contains 'CONFLICT': PASS");
     expect(mockError.message).toContain("Another request");
+    await log("message contains 'Another request': PASS — test complete");
   });
 
-  test("approval pending error should include detail", () => {
-    // When conversation has a stuck approval, the error should explain this.
-    //
-    // Example error: "The agent is waiting for approval on a tool call.
-    // Please approve or deny the pending request before continuing."
+  testWithTimeout("approval pending error should include detail", async () => {
+    const logger = new RemoteLogger("ErrorFormat_ApprovalDetail_2026");
+    let loggerReady = false;
+    try {
+      await logger.init();
+      loggerReady = true;
+    } catch (err) {
+      console.warn(`[error-format:ApprovalDetail] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const log = async (message: string) => {
+      console.log(`[error-format:ApprovalDetail] ${message}`);
+      if (loggerReady) {
+        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
+          console.error(`[error-format:ApprovalDetail] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    };
 
+    await log("Test started: approval pending error should include detail");
     const approvalDetail =
       "CONFLICT: Cannot send a new message: The agent is waiting for approval on a tool call.";
-
     const mockError: ErrorMessage = {
       type: "error",
       message: approvalDetail,
@@ -157,8 +265,8 @@ describe("headless error format expectations", () => {
       session_id: "test",
       uuid: "test",
     };
-
     expect(mockError.message).toContain("waiting for approval");
+    await log("message contains 'waiting for approval': PASS — test complete");
   });
 });
 

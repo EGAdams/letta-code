@@ -12,7 +12,7 @@ via the Letta REST API.
 | Telegram bot | `@scissaribot` |
 | Token env var | `TELEGRAM_TOKEN` in `~/.letta/.env` |
 | Scissari agent ID | `agent-5955b0c2-7922-4ffe-9e43-b116053b80fa` |
-| Letta API URL | `http://10.0.0.143:8283` |
+| Letta API URL | `http://100.80.49.10:8283` (from Windows 11 WSL) or `http://10.0.0.143:8283` (local WiFi) or `localhost:8283` (from Windows 10 Docker host) |
 | Bot script | `/home/adamsl/codex_test_agent/claude-agent-sdk-demos/telegram_integration/letta_telegram_bot.py` |
 | Python venv | `/home/adamsl/codex_test_agent/claude-agent-sdk-demos/.venv` |
 | Log file | `/tmp/scissari-telegram.log` |

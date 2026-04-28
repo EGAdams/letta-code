@@ -1,5 +1,20 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
+import { RemoteLogger } from "../logger/RemoteLogger";
+import { resetAllLoggers } from "./logger-helpers";
+
+const TEST_TIMEOUT_MS = 30000;
+
+const normalizeLoggerMessage = (message: string): string => {
+  if (message.includes("ERROR")) return message;
+  if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: `;
+  if (/\bPASS(?:ED)?\b/.test(message) || /test complete|test finished/i.test(message)) {
+    return message.includes("finished") ? message : ` finished`;
+  }
+  return message;
+};
+const testWithTimeout = (name: string, fn: () => Promise<void> | void) =>
+  test(name, fn, TEST_TIMEOUT_MS);
 
 /**
  * Integration test for lazy approval recovery (LET-7101).
@@ -61,7 +76,7 @@ async function runLazyRecoveryTest(timeoutMs = 300000): Promise<{
         "stream-json",
         "--new-agent",
         "-m",
-        "sonnet-4.6-low",
+        "gpt-5.4-mini-plus-pro-medium",
         // NOTE: No --yolo flag - approvals are required
       ],
       {
@@ -290,53 +305,87 @@ async function runLazyRecoveryTest(timeoutMs = 300000): Promise<{
 }
 
 describe("lazy approval recovery", () => {
-  test("handles concurrent message while approval is pending", async () => {
-    let result = await runLazyRecoveryTest();
-    if (!result.success) {
-      // Transient API/tool timing can occasionally miss the approval window;
-      // retry once before failing.
-      result = await runLazyRecoveryTest();
-    }
+  beforeEach(async () => {
+    await resetAllLoggers();
+  }, 30000);
 
-    // Log messages for debugging if test fails
-    if (!result.success) {
-      console.log("All messages received:");
-      for (const msg of result.messages) {
-        console.log(JSON.stringify(msg, null, 2));
+  testWithTimeout("handles concurrent message while approval is pending", async () => {
+    const logger = new RemoteLogger("LazyApproval_ConcurrentMessage_2026");
+    let loggerReady = false;
+    try {
+      await logger.init();
+      loggerReady = true;
+    } catch (err) {
+      console.warn(`[lazy-approval] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const log = async (message: string) => {
+      console.log(`[lazy-approval] ${message}`);
+      if (loggerReady) {
+        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
+          console.error(`[lazy-approval] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
-    }
+    };
 
-    // We should have seen at least one approval signal (message stream or control callback)
-    const approvalSignal = result.messages.find(
-      (m) =>
-        m.message_type === "approval_request_message" ||
-        (m.type === "control_request" && m.request?.subtype === "can_use_tool"),
-    );
-    expect(approvalSignal).toBeDefined();
+    try {
+      await log("Test started: handles concurrent message while approval is pending");
+      await log(`Trigger prompt: ${BASH_TRIGGER_PROMPT}`);
+      await log(`Interrupt message: ${INTERRUPT_MESSAGE}`);
 
-    // The test should complete successfully
-    expect(result.success).toBe(true);
+      let result = await runLazyRecoveryTest();
+      await log(`Attempt 1: success=${result.success} errorSeen=${result.errorSeen} messages=${result.messages.length}`);
 
-    // Count results - we should get at least 1 (the second message should always complete)
-    const resultCount = result.messages.filter(
-      (m) => m.type === "result",
-    ).length;
-    expect(resultCount).toBeGreaterThanOrEqual(1);
+      if (!result.success) {
+        await log("Attempt 1 failed — retrying once for transient timing issues");
+        result = await runLazyRecoveryTest();
+        await log(`Attempt 2: success=${result.success} errorSeen=${result.errorSeen} messages=${result.messages.length}`);
+      }
 
-    // KEY ASSERTION: Check if we saw the recovery message
-    // This proves the lazy recovery mechanism was triggered
-    const recoveryMessage = result.messages.find(
-      (m) => m.type === "recovery" && m.recovery_type === "approval_pending",
-    );
-    if (recoveryMessage) {
-      console.log("Recovery message detected - lazy recovery worked correctly");
-      expect(result.errorSeen).toBe(true); // Should have been set when we saw recovery
-    } else {
-      // Recovery might not be triggered if approval was auto-handled before second message
-      // This can happen due to timing - the test still validates the flow works
-      console.log(
-        "Note: No recovery message seen - approval may have been handled before conflict",
+      if (!result.success) {
+        await log("FAIL: test did not succeed after retry — logging all messages");
+        for (const msg of result.messages) {
+          console.log(JSON.stringify(msg, null, 2));
+        }
+      }
+
+      const approvalSignal = result.messages.find(
+        (m) =>
+          m.message_type === "approval_request_message" ||
+          (m.type === "control_request" && m.request?.subtype === "can_use_tool"),
       );
+      await log(`approval signal found: ${approvalSignal ? "YES" : "NO"}`);
+      expect(approvalSignal).toBeDefined();
+
+      expect(result.success).toBe(true);
+      await log("success check: PASS");
+
+      const resultCount = result.messages.filter(
+        (m) => m.type === "result",
+      ).length;
+      await log(`result message count: ${resultCount}`);
+      expect(resultCount).toBeGreaterThanOrEqual(1);
+
+      const recoveryMessage = result.messages.find(
+        (m) => m.type === "recovery" && m.recovery_type === "approval_pending",
+      );
+      if (recoveryMessage) {
+        await log("Recovery message detected — lazy recovery worked correctly");
+        console.log("Recovery message detected - lazy recovery worked correctly");
+        expect(result.errorSeen).toBe(true);
+      } else {
+        await log("No recovery message seen — approval may have been handled before conflict (timing-dependent)");
+        console.log(
+          "Note: No recovery message seen - approval may have been handled before conflict",
+        );
+      }
+
+      await log("All assertions passed — test complete");
+    } finally {
+      if (loggerReady) {
+        try { await logger.destroy(); } catch (err) {
+          console.error(`[lazy-approval] destroy failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     }
   }, 320000); // 5+ minute timeout for slow CI runners
 });
