@@ -22,6 +22,12 @@ export function normalizeConversationShorthandFlags(options: {
 }) {
   let { specifiedConversationId, specifiedAgentId } = options;
 
+  // Some callers pass a serialized one-item list (e.g. "['conv-...']").
+  // Accept that shape and unwrap it to the raw conversation id.
+  specifiedConversationId = normalizeSerializedConversationId(
+    specifiedConversationId,
+  );
+
   if (specifiedConversationId?.startsWith("agent-")) {
     if (specifiedAgentId && specifiedAgentId !== specifiedConversationId) {
       throw new Error(
@@ -33,6 +39,55 @@ export function normalizeConversationShorthandFlags(options: {
   }
 
   return { specifiedConversationId, specifiedAgentId };
+}
+
+function normalizeSerializedConversationId(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (!value) {
+    return value;
+  }
+
+  const unwrapOneLevel = (raw: string): string => {
+    const trimmed = raw.trim();
+
+    // JSON form: ["conv-..."]
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (
+        Array.isArray(parsed) &&
+        parsed.length === 1 &&
+        typeof parsed[0] === "string"
+      ) {
+        return parsed[0];
+      }
+      // Also support double-serialized values like "\"['conv-...']\"".
+      if (typeof parsed === "string") {
+        return parsed;
+      }
+    } catch {
+      // Not valid JSON; try Python-style single-quoted list next.
+    }
+
+    // Python-ish serialized form: ['conv-...']
+    const singleQuotedListMatch = /^\[\s*'([^']+)'\s*\]$/.exec(trimmed);
+    if (singleQuotedListMatch?.[1]) {
+      return singleQuotedListMatch[1];
+    }
+
+    return raw;
+  };
+
+  let normalized = value;
+  for (let i = 0; i < 3; i += 1) {
+    const next = unwrapOneLevel(normalized);
+    if (next === normalized) {
+      break;
+    }
+    normalized = next;
+  }
+
+  return normalized;
 }
 
 export function resolveImportFlagAlias(options: {

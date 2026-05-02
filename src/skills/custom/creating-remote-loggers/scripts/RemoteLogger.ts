@@ -30,13 +30,18 @@ interface LoggerState {
 }
 
 const RUNNING_COLOR = "lightyellow";
-const PASS_COLOR    = "lightgreen";
-const FAIL_COLOR    = "#fb6666";
+const PASS_COLOR = "lightgreen";
+const FAIL_COLOR = "#fb6666";
 
 function defaultLed(): MonitorLed {
   return {
-    classObject: { background_color: RUNNING_COLOR, text_align: "left", margin_top: "2px", color: "black" },
-    ledText:      "ready.",
+    classObject: {
+      background_color: RUNNING_COLOR,
+      text_align: "left",
+      margin_top: "2px",
+      color: "black",
+    },
+    ledText: "ready.",
     RUNNING_COLOR,
     PASS_COLOR,
     FAIL_COLOR,
@@ -46,7 +51,10 @@ function defaultLed(): MonitorLed {
 function updatedLed(message: string, current: MonitorLed): MonitorLed {
   const led: MonitorLed = {
     ...current,
-    classObject: { ...defaultLed().classObject, ...(current.classObject ?? {}) },
+    classObject: {
+      ...defaultLed().classObject,
+      ...(current.classObject ?? {}),
+    },
     ledText: message,
   };
   if (message.includes("ERROR")) {
@@ -69,12 +77,12 @@ export class RemoteLogger {
 
   constructor(objectViewId: string) {
     this.objectViewId = objectViewId;
-    this.monitorLed   = defaultLed();
+    this.monitorLed = defaultLed();
   }
 
   async init(): Promise<void> {
     const res = await fetch(
-      `${BASE_URL}/object/select/${encodeURIComponent(this.objectViewId)}`,
+      `${BASE_URL}/object/select?object_view_id=${encodeURIComponent(this.objectViewId)}`,
     );
     if (res.ok) {
       const data = (await res.json()) as Record<string, unknown> | null;
@@ -97,12 +105,12 @@ export class RemoteLogger {
 
   async log(message: string): Promise<void> {
     const timestamp = Date.now(); // milliseconds — matches ILogObject
-    const rand      = Math.floor(Math.random() * 1e13);
+    const rand = Math.floor(Math.random() * 1e13);
     this.logObjects.push({
       timestamp,
-      id:      `${this.objectViewId}_${rand}_${timestamp}`,
+      id: `${this.objectViewId}_${rand}_${timestamp}`,
       message,
-      method:  "createLogObject",
+      method: "createLogObject",
     });
     this.monitorLed = updatedLed(message, this.monitorLed);
     await this._post("update");
@@ -110,17 +118,17 @@ export class RemoteLogger {
 
   async destroy(): Promise<void> {
     await fetch(`${BASE_URL}/object/delete`, {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ object_view_id: this.objectViewId }),
+      body: JSON.stringify({ object_view_id: this.objectViewId }),
     });
   }
 
   private _state(): LoggerState {
     return {
       object_view_id: this.objectViewId,
-      logObjects:     this.logObjects,
-      monitorLed:     this.monitorLed,
+      logObjects: this.logObjects,
+      monitorLed: this.monitorLed,
     };
   }
 
@@ -129,12 +137,12 @@ export class RemoteLogger {
     // skips the OPTIONS preflight. The response is opaque but the PHP backend
     // reads the body via file_get_contents('php://input') regardless of headers.
     await fetch(`${BASE_URL}/object/${action}`, {
-      method:  "POST",
-      mode:    "no-cors",
+      method: "POST",
+      mode: "no-cors",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({
+      body: JSON.stringify({
         object_view_id: this.objectViewId,
-        object_data:    JSON.stringify(this._state()),
+        object_data: JSON.stringify(this._state()),
       }),
     });
   }

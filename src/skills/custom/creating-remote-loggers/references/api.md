@@ -8,8 +8,8 @@ All requests/responses use JSON. CORS is open.
 
 | Action | Method | Path |
 |--------|--------|------|
-| Select all | GET | `/object/selectAll` |
-| Select one | GET | `/object/select/{object_view_id}` |
+| Select all | GET | `/object/selectAll` (legacy/admin only; avoid in viewer/test polling) |
+| Select one | GET | `/object/select?object_view_id={object_view_id}` |
 | Insert | POST | `/object/insert` |
 | Update | POST | `/object/update` |
 | Delete | POST | `/object/delete` |
@@ -69,7 +69,7 @@ curl -s -X POST ".../object/insert" -H "Content-Type: application/json" \
   -d '{"object_view_id":"SmokeTest_001","object_data":"{\"test\":true}"}'
 
 # Verify
-curl -s ".../object/select/SmokeTest_001"
+curl -s ".../object/select?object_view_id=SmokeTest_001"
 
 # Clean up
 curl -s -X POST ".../object/delete" -H "Content-Type: application/json" \
@@ -107,9 +107,10 @@ The viewer fetches `monitored_object_id` from the HTML and queries this API to d
 If `index.html` shows no logs, check the `monitored_object_id` registration and viewer script load
 before debugging the API.
 
-For browser viewers, direct cross-origin `GET /object/select/<id>` has shown CORS/protocol
-instability in practice. Prefer `GET /object/selectAll` and client-side filtering in the viewer
-when you need a more resilient read path.
+For browser viewers and integration tests, prefer
+`GET /object/select?object_view_id=<id>`. Do not use `selectAll` for polling or persistence
+checks; oversized historical rows can make unrelated test loggers fail with `507 Insufficient
+Storage`.
 
 When isolating OAuth viewer failures, temporarily reduce the UI to a single accordion section
 containing only the OAuth logger. This avoids request storms and makes fetch failures easier to

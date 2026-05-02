@@ -183,6 +183,58 @@ function getCurrentServerKey(settings?: Settings | null): string {
   return normalizeBaseUrl(baseUrl);
 }
 
+function normalizePersistedConversationId(conversationId: string): string {
+  if (!conversationId.trim()) {
+    return conversationId;
+  }
+
+  const unwrapOneLevel = (raw: string): string => {
+    const trimmed = raw.trim();
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (
+        Array.isArray(parsed) &&
+        parsed.length === 1 &&
+        typeof parsed[0] === "string"
+      ) {
+        return parsed[0];
+      }
+      // Also support double-serialized values like "\"['conv-...']\"".
+      if (typeof parsed === "string") {
+        return parsed;
+      }
+    } catch {
+      // Not JSON; try single-quoted list syntax.
+    }
+
+    const singleQuotedListMatch = /^\[\s*'([^']+)'\s*\]$/.exec(trimmed);
+    if (singleQuotedListMatch?.[1]) {
+      return singleQuotedListMatch[1];
+    }
+
+    return raw;
+  };
+
+  let normalized = conversationId;
+  for (let i = 0; i < 3; i += 1) {
+    const next = unwrapOneLevel(normalized);
+    if (next === normalized) {
+      break;
+    }
+    normalized = next;
+  }
+
+  return normalized;
+}
+
+function normalizeSessionRef(session: SessionRef): SessionRef {
+  return {
+    ...session,
+    conversationId: normalizePersistedConversationId(session.conversationId),
+  };
+}
+
 class SettingsManager {
   private settings: Settings | null = null;
   private projectSettings: Map<string, ProjectSettings> = new Map();
@@ -986,12 +1038,12 @@ class SettingsManager {
 
     // Try server-indexed lookup first
     if (settings.sessionsByServer?.[serverKey]) {
-      return settings.sessionsByServer[serverKey];
+      return normalizeSessionRef(settings.sessionsByServer[serverKey]);
     }
 
     // Fall back to legacy lastSession for migration
     if (settings.lastSession) {
-      return settings.lastSession;
+      return normalizeSessionRef(settings.lastSession);
     }
 
     return null;
@@ -1023,20 +1075,21 @@ class SettingsManager {
    * Writes to both server-indexed and legacy fields for backwards compat.
    */
   setGlobalLastSession(session: SessionRef): void {
+    const normalizedSession = normalizeSessionRef(session);
     const settings = this.getSettings();
     const serverKey = getCurrentServerKey(settings);
 
     // Update server-indexed storage
     const sessionsByServer = {
       ...settings.sessionsByServer,
-      [serverKey]: session,
+      [serverKey]: normalizedSession,
     };
 
     // Also update legacy fields for backwards compat with older CLI versions
     this.updateSettings({
       sessionsByServer,
-      lastSession: session,
-      lastAgent: session.agentId,
+      lastSession: normalizedSession,
+      lastAgent: normalizedSession.agentId,
     });
   }
 
@@ -1054,12 +1107,12 @@ class SettingsManager {
 
     // Try server-indexed lookup first
     if (localSettings.sessionsByServer?.[serverKey]) {
-      return localSettings.sessionsByServer[serverKey];
+      return normalizeSessionRef(localSettings.sessionsByServer[serverKey]);
     }
 
     // Fall back to legacy lastSession for migration
     if (localSettings.lastSession) {
-      return localSettings.lastSession;
+      return normalizeSessionRef(localSettings.lastSession);
     }
 
     return null;
@@ -1095,6 +1148,7 @@ class SettingsManager {
     session: SessionRef,
     workingDirectory: string = process.cwd(),
   ): void {
+    const normalizedSession = normalizeSessionRef(session);
     const globalSettings = this.getSettings();
     const serverKey = getCurrentServerKey(globalSettings);
     const localSettings = this.getLocalProjectSettings(workingDirectory);
@@ -1102,15 +1156,15 @@ class SettingsManager {
     // Update server-indexed storage
     const sessionsByServer = {
       ...localSettings.sessionsByServer,
-      [serverKey]: session,
+      [serverKey]: normalizedSession,
     };
 
     // Also update legacy fields for backwards compat with older CLI versions
     this.updateLocalProjectSettings(
       {
         sessionsByServer,
-        lastSession: session,
-        lastAgent: session.agentId,
+        lastSession: normalizedSession,
+        lastAgent: normalizedSession.agentId,
       },
       workingDirectory,
     );
@@ -1160,7 +1214,10 @@ class SettingsManager {
     conversationId: string,
     workingDirectory: string = process.cwd(),
   ): void {
-    const session: SessionRef = { agentId, conversationId };
+    const session: SessionRef = normalizeSessionRef({
+      agentId,
+      conversationId,
+    });
     this.setLocalLastSession(session, workingDirectory);
     this.setGlobalLastSession(session);
   }

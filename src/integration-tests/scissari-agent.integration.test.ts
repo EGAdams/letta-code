@@ -26,23 +26,30 @@ async function runCli(
   const runOnce = () =>
     new Promise<{ stdout: string; stderr: string; exitCode: number | null }>(
       (resolve, reject) => {
-        console.log(`[scissari-test:runCli] Starting process with args: ${args.join(" ")}`);
+        console.log(
+          `[scissari-test:runCli] Starting process with args: ${args.join(" ")}`,
+        );
 
         const procEnv = { ...process.env };
         procEnv.LETTA_CODE_AGENT_ROLE = "subagent";
         // From Windows 11 WSL → Windows 10 Docker: 100.80.49.10:8283
         // From Windows 10 itself: localhost:8283
         // Override by setting LETTA_BASE_URL in the environment before running the test
-        procEnv.LETTA_BASE_URL = process.env.LETTA_BASE_URL ?? "http://100.80.49.10:8283";
+        procEnv.LETTA_BASE_URL =
+          process.env.LETTA_BASE_URL ?? "http://100.80.49.10:8283";
         procEnv.LETTA_API_KEY = "6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8";
 
-        console.log(`[scissari-test:runCli] Spawning 'bun run dev' in ${projectRoot}`);
+        console.log(
+          `[scissari-test:runCli] Spawning 'bun run dev' in ${projectRoot}`,
+        );
         const proc = spawn("bun", ["run", "dev", ...args], {
           cwd: projectRoot,
           env: procEnv,
         });
 
-        console.log(`[scissari-test:runCli] Process spawned with PID: ${proc.pid}`);
+        console.log(
+          `[scissari-test:runCli] Process spawned with PID: ${proc.pid}`,
+        );
 
         let stdout = "";
         let stderr = "";
@@ -56,7 +63,7 @@ async function runCli(
           const silenceSec = Math.round((Date.now() - lastDataTime) / 1000);
           console.log(
             `[scissari-test:runCli] HEARTBEAT — still waiting at ${elapsedSec}s elapsed, ` +
-            `${silenceSec}s since last data. stdout=${stdout.length}B stderr=${stderr.length}B`,
+              `${silenceSec}s since last data. stdout=${stdout.length}B stderr=${stderr.length}B`,
           );
         }, 10000);
 
@@ -64,7 +71,9 @@ async function runCli(
           if (settled) return;
           settled = true;
           clearInterval(heartbeat);
-          console.error(`[scissari-test:runCli] TIMEOUT after ${timeoutMs}ms, killing process`);
+          console.error(
+            `[scissari-test:runCli] TIMEOUT after ${timeoutMs}ms, killing process`,
+          );
           proc.kill();
           reject(
             new Error(
@@ -77,14 +86,18 @@ async function runCli(
           lastDataTime = Date.now();
           const chunk = data.toString();
           stdout += chunk;
-          console.log(`[scissari-test:runCli] STDOUT chunk (${chunk.length} bytes):\n${chunk}`);
+          console.log(
+            `[scissari-test:runCli] STDOUT chunk (${chunk.length} bytes):\n${chunk}`,
+          );
         });
 
         proc.stderr?.on("data", (data) => {
           lastDataTime = Date.now();
           const chunk = data.toString();
           stderr += chunk;
-          console.log(`[scissari-test:runCli] STDERR chunk (${chunk.length} bytes):\n${chunk}`);
+          console.log(
+            `[scissari-test:runCli] STDERR chunk (${chunk.length} bytes):\n${chunk}`,
+          );
         });
 
         proc.on("close", (code) => {
@@ -92,9 +105,15 @@ async function runCli(
           settled = true;
           clearTimeout(timeout);
           clearInterval(heartbeat);
-          console.log(`[scissari-test:runCli] Process closed with exit code: ${code}`);
-          console.log(`[scissari-test:runCli] Total stdout: ${stdout.length} bytes`);
-          console.log(`[scissari-test:runCli] Total stderr: ${stderr.length} bytes`);
+          console.log(
+            `[scissari-test:runCli] Process closed with exit code: ${code}`,
+          );
+          console.log(
+            `[scissari-test:runCli] Total stdout: ${stdout.length} bytes`,
+          );
+          console.log(
+            `[scissari-test:runCli] Total stderr: ${stderr.length} bytes`,
+          );
           resolve({ stdout, stderr, exitCode: code });
         });
 
@@ -103,7 +122,9 @@ async function runCli(
           settled = true;
           clearTimeout(timeout);
           clearInterval(heartbeat);
-          console.error(`[scissari-test:runCli] Process error: ${error.message}`);
+          console.error(
+            `[scissari-test:runCli] Process error: ${error.message}`,
+          );
           reject(error);
         });
       },
@@ -112,13 +133,17 @@ async function runCli(
   let attempt = 0;
   while (true) {
     try {
-      console.log(`[scissari-test:runCli] Attempt ${attempt + 1}/${retryOnTimeouts + 1}`);
+      console.log(
+        `[scissari-test:runCli] Attempt ${attempt + 1}/${retryOnTimeouts + 1}`,
+      );
       return await runOnce();
     } catch (error) {
       const isTimeoutError =
         error instanceof Error && error.message.includes("Timed out after");
       if (!isTimeoutError || attempt >= retryOnTimeouts) {
-        console.error(`[scissari-test:runCli] Final error: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(
+          `[scissari-test:runCli] Final error: ${error instanceof Error ? error.message : String(error)}`,
+        );
         throw error;
       }
       attempt += 1;
@@ -132,19 +157,37 @@ async function runCli(
 describe("Scissari agent integration", () => {
   const TEST_TIMEOUT_MS = 30000;
 
-const normalizeLoggerMessage = (message: string): string => {
-  if (message.includes("ERROR")) return message;
-  if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: `;
-  if (/\bPASS(?:ED)?\b/.test(message) || /test complete|test finished/i.test(message)) {
-    return message.includes("finished") ? message : ` finished`;
-  }
-  return message;
-};
+  const normalizeLoggerMessage = (message: string): string => {
+    if (message.includes("ERROR")) return message;
+    if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: `;
+    if (
+      /\bPASS(?:ED)?\b/.test(message) ||
+      /test complete|test finished/i.test(message)
+    ) {
+      return message.includes("finished") ? message : ` finished`;
+    }
+    return message;
+  };
 
   const maybeTest =
     process.env.LETTA_RUN_SCISSARI_TEST === "1"
-      ? ((name: string, fn: () => Promise<void> | void) => test(name, fn, TEST_TIMEOUT_MS))
-      : test.skip;
+      ? (
+          name: string,
+          fn: () => Promise<void> | void,
+          opts?: { timeout?: number } | number,
+        ) =>
+          test(
+            name,
+            fn,
+            typeof opts === "number"
+              ? opts
+              : (opts?.timeout ?? TEST_TIMEOUT_MS),
+          )
+      : (
+          name: string,
+          fn: () => Promise<void> | void,
+          _opts?: { timeout?: number } | number,
+        ) => test.skip(name, fn);
 
   beforeEach(async () => {
     await resetAllLoggers();
@@ -207,7 +250,9 @@ const normalizeLoggerMessage = (message: string): string => {
             "--output-format",
             "json",
           ]);
-          console.log(`[scissari-test] CLI returned with exit code: ${result.exitCode}`);
+          console.log(
+            `[scissari-test] CLI returned with exit code: ${result.exitCode}`,
+          );
           await log(`CLI exited with code ${result.exitCode}`);
         } catch (err) {
           await log(
@@ -230,12 +275,14 @@ const normalizeLoggerMessage = (message: string): string => {
         try {
           console.log("[scissari-test] Parsing JSON output...");
           output = extractJsonObject(result.stdout);
-          console.log(`[scissari-test] JSON parsed successfully. Keys: ${Object.keys(output).join(", ")}`);
-          await log(
-            `JSON extracted. Keys: ${Object.keys(output).join(", ")}`,
+          console.log(
+            `[scissari-test] JSON parsed successfully. Keys: ${Object.keys(output).join(", ")}`,
           );
+          await log(`JSON extracted. Keys: ${Object.keys(output).join(", ")}`);
         } catch (err) {
-          console.error(`[scissari-test] JSON extraction failed: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(
+            `[scissari-test] JSON extraction failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
           await log(
             `JSON extraction failed: ${err instanceof Error ? err.message : String(err)}`,
           );
@@ -243,14 +290,18 @@ const normalizeLoggerMessage = (message: string): string => {
         }
 
         const agentIdMatch = output.agent_id === SCISSARI_AGENT_ID;
-        console.log(`[scissari-test] agent_id check: ${agentIdMatch ? "PASS" : "FAIL"} (expected: ${SCISSARI_AGENT_ID}, got: ${String(output.agent_id)})`);
+        console.log(
+          `[scissari-test] agent_id check: ${agentIdMatch ? "PASS" : "FAIL"} (expected: ${SCISSARI_AGENT_ID}, got: ${String(output.agent_id)})`,
+        );
         await log(
           `agent_id check: ${agentIdMatch ? "PASS" : "FAIL"} (got ${String(output.agent_id)})`,
         );
         expect(output.agent_id).toBe(SCISSARI_AGENT_ID);
 
         const resultType = typeof output.result;
-        console.log(`[scissari-test] result type check: ${resultType === "string" ? "PASS" : "FAIL"} (got ${resultType})`);
+        console.log(
+          `[scissari-test] result type check: ${resultType === "string" ? "PASS" : "FAIL"} (got ${resultType})`,
+        );
         await log(
           `result type check: ${resultType === "string" ? "PASS" : "FAIL"} (got ${resultType})`,
         );
@@ -258,12 +309,16 @@ const normalizeLoggerMessage = (message: string): string => {
 
         const resultStr = String(output.result);
         const tokenFound = resultStr.includes("SCISSARI_TEST_OK");
-        console.log(`[scissari-test] SCISSARI_TEST_OK token check: ${tokenFound ? "PASS" : "FAIL"}`);
+        console.log(
+          `[scissari-test] SCISSARI_TEST_OK token check: ${tokenFound ? "PASS" : "FAIL"}`,
+        );
         await log(
           `SCISSARI_TEST_OK token check: ${tokenFound ? "PASS" : "FAIL"}`,
         );
         if (!tokenFound) {
-          console.log(`[scissari-test] result value (first 500 chars): ${resultStr.slice(0, 500)}`);
+          console.log(
+            `[scissari-test] result value (first 500 chars): ${resultStr.slice(0, 500)}`,
+          );
           await log(`result value: ${resultStr.slice(0, 500)}`);
         }
         expect(resultStr).toContain("SCISSARI_TEST_OK");
@@ -272,7 +327,9 @@ const normalizeLoggerMessage = (message: string): string => {
         await log("All assertions passed. Test complete.");
       } finally {
         console.log("[scissari-test] Cleaning up...");
-        console.log("[scissari-test] Leaving logger record in place for viewer inspection");
+        console.log(
+          "[scissari-test] Leaving logger record in place for viewer inspection",
+        );
         console.log("[scissari-test] Test cleanup complete");
       }
     },

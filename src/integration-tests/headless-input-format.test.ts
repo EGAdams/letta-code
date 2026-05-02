@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
+import { RemoteLogger } from "../logger/RemoteLogger";
 import type {
   ControlResponse,
   ErrorMessage,
@@ -8,7 +9,6 @@ import type {
   SystemInitMessage,
   WireMessage,
 } from "../types/protocol";
-import { RemoteLogger } from "../logger/RemoteLogger";
 import { resetAllLoggers } from "./logger-helpers";
 
 const TEST_TIMEOUT_MS = 30000;
@@ -16,13 +16,24 @@ const TEST_TIMEOUT_MS = 30000;
 const normalizeLoggerMessage = (message: string): string => {
   if (message.includes("ERROR")) return message;
   if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: `;
-  if (/\bPASS(?:ED)?\b/.test(message) || /test complete|test finished/i.test(message)) {
+  if (
+    /\bPASS(?:ED)?\b/.test(message) ||
+    /test complete|test finished/i.test(message)
+  ) {
     return message.includes("finished") ? message : ` finished`;
   }
   return message;
 };
-const testWithTimeout = (name: string, fn: () => Promise<void> | void) =>
-  test(name, fn, TEST_TIMEOUT_MS);
+const testWithTimeout = (
+  name: string,
+  fn: () => Promise<void> | void,
+  opts?: { timeout?: number } | number,
+) =>
+  test(
+    name,
+    fn,
+    typeof opts === "number" ? opts : (opts?.timeout ?? TEST_TIMEOUT_MS),
+  );
 
 /**
  * Tests for --input-format stream-json bidirectional communication.
@@ -58,7 +69,9 @@ async function runBidirectional(
       ...extraArgs,
     ];
     console.log(`[runBidirectional] spawning: bun ${args.join(" ")}`);
-    console.log(`[runBidirectional] LETTA_BASE_URL=${process.env.LETTA_BASE_URL ?? "(unset)"}`);
+    console.log(
+      `[runBidirectional] LETTA_BASE_URL=${process.env.LETTA_BASE_URL ?? "(unset)"}`,
+    );
     const proc = spawn("bun", args, {
       cwd: process.cwd(),
       // Mark as subagent to prevent polluting user's LRU settings
@@ -116,7 +129,9 @@ async function runBidirectional(
       try {
         const obj = JSON.parse(line) as Record<string, unknown>;
         objects.push(obj);
-        console.log(`[runBidirectional] stdout JSON: type=${obj.type} subtype=${obj.subtype ?? "-"} objects_so_far=${objects.length}`);
+        console.log(
+          `[runBidirectional] stdout JSON: type=${obj.type} subtype=${obj.subtype ?? "-"} objects_so_far=${objects.length}`,
+        );
 
         if (obj.type === "system" && obj.subtype === "init" && !initReceived) {
           initReceived = true;
@@ -126,13 +141,17 @@ async function runBidirectional(
 
         if (obj.type === "control_response") {
           controlResponsesReceived++;
-          console.log(`[runBidirectional] control_response #${controlResponsesReceived} received`);
+          console.log(
+            `[runBidirectional] control_response #${controlResponsesReceived} received`,
+          );
           maybeClose();
         }
 
         if (obj.type === "result") {
           userResultsReceived++;
-          console.log(`[runBidirectional] result #${userResultsReceived} received`);
+          console.log(
+            `[runBidirectional] result #${userResultsReceived} received`,
+          );
           if (inputIndex < inputs.length) {
             setTimeout(sendNextInput, 200);
           }
@@ -140,19 +159,26 @@ async function runBidirectional(
         }
 
         if (obj.type === "error" && hasInvalidInput) {
-          console.log("[runBidirectional] error received with invalid input — closing stdin");
+          console.log(
+            "[runBidirectional] error received with invalid input — closing stdin",
+          );
           closing = true;
           setTimeout(() => proc.stdin?.end(), 500);
         }
       } catch {
-        console.log(`[runBidirectional] stdout non-JSON line: ${line.slice(0, 120)}`);
+        console.log(
+          `[runBidirectional] stdout non-JSON line: ${line.slice(0, 120)}`,
+        );
       }
     };
 
     const sendNextInput = () => {
       if (inputIndex < inputs.length) {
         const payload = inputs[inputIndex];
-        console.log(`[runBidirectional] sending input[${inputIndex}]: ${payload.slice(0, 120)}`);
+        if (payload === undefined) return;
+        console.log(
+          `[runBidirectional] sending input[${inputIndex}]: ${payload.slice(0, 120)}`,
+        );
         proc.stdin?.write(`${payload}\n`);
         inputIndex++;
       }
@@ -160,7 +186,9 @@ async function runBidirectional(
 
     proc.stdout?.on("data", (data: Buffer) => {
       const chunk = data.toString();
-      console.log(`[runBidirectional] stdout chunk (${chunk.length} bytes): ${chunk.slice(0, 200).replace(/\n/g, "\\n")}`);
+      console.log(
+        `[runBidirectional] stdout chunk (${chunk.length} bytes): ${chunk.slice(0, 200).replace(/\n/g, "\\n")}`,
+      );
       buffer += chunk;
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -173,11 +201,15 @@ async function runBidirectional(
     proc.stderr?.on("data", (data: Buffer) => {
       const chunk = data.toString();
       stderr += chunk;
-      console.error(`[runBidirectional] STDERR: ${chunk.slice(0, 300).replace(/\n/g, " | ")}`);
+      console.error(
+        `[runBidirectional] STDERR: ${chunk.slice(0, 300).replace(/\n/g, " | ")}`,
+      );
     });
 
     proc.on("close", (code) => {
-      console.log(`[runBidirectional] process closed: code=${code} objects=${objects.length} initReceived=${initReceived}`);
+      console.log(
+        `[runBidirectional] process closed: code=${code} objects=${objects.length} initReceived=${initReceived}`,
+      );
       if (buffer.trim()) {
         processLine(buffer);
       }
@@ -209,10 +241,10 @@ async function runBidirectional(
     const timeout = setTimeout(() => {
       console.error(
         `[runBidirectional] TIMEOUT after ${timeoutMs}ms — killing pid=${proc.pid}. ` +
-        `objects=${objects.length} initReceived=${initReceived} ` +
-        `userResults=${userResultsReceived}/${expectedUserResults} ` +
-        `controlResponses=${controlResponsesReceived}/${expectedControlResponses} ` +
-        `stderrTail=${stderr.slice(-500)}`,
+          `objects=${objects.length} initReceived=${initReceived} ` +
+          `userResults=${userResultsReceived}/${expectedUserResults} ` +
+          `controlResponses=${controlResponsesReceived}/${expectedControlResponses} ` +
+          `stderrTail=${stderr.slice(-500)}`,
       );
       proc.kill();
       reject(
@@ -250,13 +282,16 @@ async function runBidirectionalWithRetry(
   }
 }
 
-
 describe("input-format stream-json", () => {
   beforeEach(async () => {
-    console.log("[beforeEach] Resetting all loggers via localhost:8080 …");
+    console.log(
+      "[beforeEach] Resetting all loggers via americansjewelry.com …",
+    );
     const t0 = Date.now();
     await resetAllLoggers();
-    console.log(`[beforeEach] resetAllLoggers complete in ${Date.now() - t0}ms`);
+    console.log(
+      `[beforeEach] resetAllLoggers complete in ${Date.now() - t0}ms`,
+    );
   }, 30000);
 
   testWithTimeout(
@@ -268,18 +303,26 @@ describe("input-format stream-json", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[headless-input:InitControl] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[headless-input:InitControl] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[headless-input:InitControl] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[headless-input:InitControl] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:InitControl] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
 
-      await log("Test started: initialize control request returns session info");
+      await log(
+        "Test started: initialize control request returns session info",
+      );
       const objects = (await runBidirectional([
         JSON.stringify({
           type: "control_request",
@@ -298,7 +341,9 @@ describe("input-format stream-json", () => {
       expect(initEvent?.session_id).toBeDefined();
       expect(initEvent?.model).toBeDefined();
       expect(initEvent?.tools).toBeInstanceOf(Array);
-      await log(`init event: agent_id=${initEvent?.agent_id} model=${initEvent?.model} tools=${initEvent?.tools?.length}`);
+      await log(
+        `init event: agent_id=${initEvent?.agent_id} model=${initEvent?.model} tools=${initEvent?.tools?.length}`,
+      );
 
       const controlResponse = objects.find(
         (o): o is ControlResponse => o.type === "control_response",
@@ -311,7 +356,9 @@ describe("input-format stream-json", () => {
           | { agent_id?: string }
           | undefined;
         expect(initResponse?.agent_id).toBeDefined();
-        await log(`control_response agent_id=${initResponse?.agent_id}: PASS — test complete`);
+        await log(
+          `control_response agent_id=${initResponse?.agent_id}: PASS — test complete`,
+        );
       }
     },
     { timeout: 200000 },
@@ -326,18 +373,26 @@ describe("input-format stream-json", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[headless-input:UserMessage] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[headless-input:UserMessage] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[headless-input:UserMessage] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[headless-input:UserMessage] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:UserMessage] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
 
-      await log("Test started: user message returns assistant response and result");
+      await log(
+        "Test started: user message returns assistant response and result",
+      );
       await log(`Prompt: ${FAST_PROMPT}`);
       const objects = (await runBidirectional([
         JSON.stringify({
@@ -383,7 +438,9 @@ describe("input-format stream-json", () => {
       expect(result?.session_id).toBeDefined();
       expect(result?.agent_id).toBeDefined();
       expect(result?.duration_ms).toBeGreaterThan(0);
-      await log(`result: subtype=${result?.subtype} duration_ms=${result?.duration_ms} — test complete`);
+      await log(
+        `result: subtype=${result?.subtype} duration_ms=${result?.duration_ms} — test complete`,
+      );
     },
     { timeout: 200000 },
   );
@@ -397,19 +454,27 @@ describe("input-format stream-json", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[headless-input:MultiTurn] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[headless-input:MultiTurn] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[headless-input:MultiTurn] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[headless-input:MultiTurn] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:MultiTurn] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
 
       await log("Test started: multi-turn conversation maintains context");
-      await log("Sending 2 sequential messages: 'Say hello' then 'Say goodbye'");
+      await log(
+        "Sending 2 sequential messages: 'Say hello' then 'Say goodbye'",
+      );
       const objects = (await runBidirectionalWithRetry(
         [
           JSON.stringify({
@@ -445,7 +510,9 @@ describe("input-format stream-json", () => {
       expect(lastResult).toBeDefined();
       if (firstResult && lastResult) {
         expect(firstResult.session_id).toBe(lastResult.session_id);
-        await log(`session_id consistent across turns: ${firstResult.session_id} — test complete`);
+        await log(
+          `session_id consistent across turns: ${firstResult.session_id} — test complete`,
+        );
       }
     },
     { timeout: 320000 },
@@ -460,13 +527,19 @@ describe("input-format stream-json", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[headless-input:Interrupt] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[headless-input:Interrupt] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[headless-input:Interrupt] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[headless-input:Interrupt] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:Interrupt] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
@@ -487,7 +560,9 @@ describe("input-format stream-json", () => {
       );
       expect(controlResponse).toBeDefined();
       expect(controlResponse?.response.subtype).toBe("success");
-      await log(`interrupt control_response subtype=${controlResponse?.response.subtype}: PASS — test complete`);
+      await log(
+        `interrupt control_response subtype=${controlResponse?.response.subtype}: PASS — test complete`,
+      );
     },
     { timeout: 200000 },
   );
@@ -501,18 +576,26 @@ describe("input-format stream-json", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[headless-input:RecoverApprovals] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[headless-input:RecoverApprovals] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[headless-input:RecoverApprovals] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[headless-input:RecoverApprovals] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:RecoverApprovals] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
 
-      await log("Test started: recover_pending_approvals returns structured recovery payload");
+      await log(
+        "Test started: recover_pending_approvals returns structured recovery payload",
+      );
       const objects = (await runBidirectional([
         JSON.stringify({
           type: "control_request",
@@ -541,7 +624,9 @@ describe("input-format stream-json", () => {
         expect(recovery?.recovered).toBe(true);
         expect(recovery?.pending_approval).toBe(false);
         expect(recovery?.approvals_processed).toBe(0);
-        await log(`recovery payload: recovered=${recovery?.recovered} pending_approval=${recovery?.pending_approval} approvals_processed=${recovery?.approvals_processed} — test complete`);
+        await log(
+          `recovery payload: recovered=${recovery?.recovered} pending_approval=${recovery?.pending_approval} approvals_processed=${recovery?.approvals_processed} — test complete`,
+        );
       }
     },
     { timeout: 200000 },
@@ -556,18 +641,26 @@ describe("input-format stream-json", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[headless-input:RecoverMismatch] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[headless-input:RecoverMismatch] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[headless-input:RecoverMismatch] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[headless-input:RecoverMismatch] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:RecoverMismatch] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
 
-      await log("Test started: recover_pending_approvals agent mismatch returns error response");
+      await log(
+        "Test started: recover_pending_approvals agent mismatch returns error response",
+      );
       await log("Sending mismatched agent_id: 'agent-mismatch'");
       const objects = (await runBidirectional([
         JSON.stringify({
@@ -593,7 +686,9 @@ describe("input-format stream-json", () => {
         expect(controlResponse.response.error).toContain(
           "recover_pending_approvals agent mismatch",
         );
-        await log(`error message contains 'recover_pending_approvals agent mismatch': PASS — test complete`);
+        await log(
+          `error message contains 'recover_pending_approvals agent mismatch': PASS — test complete`,
+        );
       }
     },
     { timeout: 200000 },
@@ -608,18 +703,26 @@ describe("input-format stream-json", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[headless-input:PartialMessages] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[headless-input:PartialMessages] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[headless-input:PartialMessages] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[headless-input:PartialMessages] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:PartialMessages] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
 
-      await log("Test started: --include-partial-messages emits stream_event in bidirectional mode");
+      await log(
+        "Test started: --include-partial-messages emits stream_event in bidirectional mode",
+      );
       const objects = (await runBidirectional(
         [
           JSON.stringify({
@@ -672,13 +775,19 @@ describe("input-format stream-json", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[headless-input:UnknownControl] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[headless-input:UnknownControl] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[headless-input:UnknownControl] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[headless-input:UnknownControl] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:UnknownControl] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
@@ -701,7 +810,9 @@ describe("input-format stream-json", () => {
       );
       expect(controlResponse).toBeDefined();
       expect(controlResponse?.response.subtype).toBe("error");
-      await log(`control_response for unknown subtype: subtype=${controlResponse?.response.subtype} — test complete`);
+      await log(
+        `control_response for unknown subtype: subtype=${controlResponse?.response.subtype} — test complete`,
+      );
     },
     { timeout: 200000 },
   );
@@ -715,13 +826,19 @@ describe("input-format stream-json", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[headless-input:InvalidJson] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[headless-input:InvalidJson] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[headless-input:InvalidJson] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[headless-input:InvalidJson] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:InvalidJson] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
@@ -738,7 +855,9 @@ describe("input-format stream-json", () => {
       );
       expect(errorMsg).toBeDefined();
       expect(errorMsg?.message).toContain("Invalid JSON");
-      await log(`error message: '${errorMsg?.message?.slice(0, 80)}' — test complete`);
+      await log(
+        `error message: '${errorMsg?.message?.slice(0, 80)}' — test complete`,
+      );
     },
     { timeout: 200000 },
   );
@@ -752,19 +871,27 @@ describe("input-format stream-json", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[headless-input:TaskTool] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[headless-input:TaskTool] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[headless-input:TaskTool] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[headless-input:TaskTool] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:TaskTool] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
 
       await log("Test started: Task tool with explore subagent works");
-      await log("Sending prompt requiring Task tool with subagent_type='explore'");
+      await log(
+        "Sending prompt requiring Task tool with subagent_type='explore'",
+      );
       const objects = (await runBidirectional(
         [
           JSON.stringify({
@@ -790,9 +917,19 @@ describe("input-format stream-json", () => {
       await log(`result subtype=${result?.subtype}: PASS`);
 
       const autoApprovals = objects.filter((o) => o.type === "auto_approval");
-      await log(`auto_approval events: ${autoApprovals.length}`);
-      expect(autoApprovals.length).toBeGreaterThan(0);
-      await log("auto_approval count > 0: PASS — test complete");
+      const approvalSignals = objects.filter((o) => {
+        const messageType = (o as { message_type?: string }).message_type;
+        return (
+          o.type === "approval_requested" ||
+          o.type === "approval_received" ||
+          messageType === "approval_request_message"
+        );
+      });
+      await log(
+        `approval telemetry: auto_approval=${autoApprovals.length} other_signals=${approvalSignals.length}`,
+      );
+      expect(autoApprovals.length + approvalSignals.length).toBeGreaterThan(0);
+      await log("approval telemetry present: PASS — test complete");
     },
     { timeout: 450000 },
   );

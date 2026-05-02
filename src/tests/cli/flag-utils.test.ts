@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  normalizeConversationShorthandFlags,
   parseCsvListFlag,
   parseJsonArrayFlag,
   parsePositiveIntFlag,
@@ -47,5 +48,28 @@ describe("flag utils", () => {
     expect(() =>
       parseJsonArrayFlag('{"label":"persona"}', "memory-blocks"),
     ).toThrow("memory-blocks must be a JSON array");
+  });
+
+  test("normalizeConversationShorthandFlags unwraps serialized list values", () => {
+    expect(
+      normalizeConversationShorthandFlags({
+        specifiedConversationId: "['conv-abc']",
+        specifiedAgentId: null,
+      }).specifiedConversationId,
+    ).toBe("conv-abc");
+
+    expect(
+      normalizeConversationShorthandFlags({
+        specifiedConversationId: '["conv-def"]',
+        specifiedAgentId: null,
+      }).specifiedConversationId,
+    ).toBe("conv-def");
+
+    expect(
+      normalizeConversationShorthandFlags({
+        specifiedConversationId: "\"['conv-nested']\"",
+        specifiedAgentId: null,
+      }).specifiedConversationId,
+    ).toBe("conv-nested");
   });
 });

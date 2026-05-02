@@ -8,13 +8,24 @@ const TEST_TIMEOUT_MS = 30000;
 const normalizeLoggerMessage = (message: string): string => {
   if (message.includes("ERROR")) return message;
   if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: `;
-  if (/\bPASS(?:ED)?\b/.test(message) || /test complete|test finished/i.test(message)) {
+  if (
+    /\bPASS(?:ED)?\b/.test(message) ||
+    /test complete|test finished/i.test(message)
+  ) {
     return message.includes("finished") ? message : ` finished`;
   }
   return message;
 };
-const testWithTimeout = (name: string, fn: () => Promise<void> | void) =>
-  test(name, fn, TEST_TIMEOUT_MS);
+const testWithTimeout = (
+  name: string,
+  fn: () => Promise<void> | void,
+  opts?: { timeout?: number } | number,
+) =>
+  test(
+    name,
+    fn,
+    typeof opts === "number" ? opts : (opts?.timeout ?? TEST_TIMEOUT_MS),
+  );
 
 /**
  * Integration test for lazy approval recovery (LET-7101).
@@ -309,83 +320,115 @@ describe("lazy approval recovery", () => {
     await resetAllLoggers();
   }, 30000);
 
-  testWithTimeout("handles concurrent message while approval is pending", async () => {
-    const logger = new RemoteLogger("LazyApproval_ConcurrentMessage_2026");
-    let loggerReady = false;
-    try {
-      await logger.init();
-      loggerReady = true;
-    } catch (err) {
-      console.warn(`[lazy-approval] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    const log = async (message: string) => {
-      console.log(`[lazy-approval] ${message}`);
-      if (loggerReady) {
-        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-          console.error(`[lazy-approval] log failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-    };
-
-    try {
-      await log("Test started: handles concurrent message while approval is pending");
-      await log(`Trigger prompt: ${BASH_TRIGGER_PROMPT}`);
-      await log(`Interrupt message: ${INTERRUPT_MESSAGE}`);
-
-      let result = await runLazyRecoveryTest();
-      await log(`Attempt 1: success=${result.success} errorSeen=${result.errorSeen} messages=${result.messages.length}`);
-
-      if (!result.success) {
-        await log("Attempt 1 failed — retrying once for transient timing issues");
-        result = await runLazyRecoveryTest();
-        await log(`Attempt 2: success=${result.success} errorSeen=${result.errorSeen} messages=${result.messages.length}`);
-      }
-
-      if (!result.success) {
-        await log("FAIL: test did not succeed after retry — logging all messages");
-        for (const msg of result.messages) {
-          console.log(JSON.stringify(msg, null, 2));
-        }
-      }
-
-      const approvalSignal = result.messages.find(
-        (m) =>
-          m.message_type === "approval_request_message" ||
-          (m.type === "control_request" && m.request?.subtype === "can_use_tool"),
-      );
-      await log(`approval signal found: ${approvalSignal ? "YES" : "NO"}`);
-      expect(approvalSignal).toBeDefined();
-
-      expect(result.success).toBe(true);
-      await log("success check: PASS");
-
-      const resultCount = result.messages.filter(
-        (m) => m.type === "result",
-      ).length;
-      await log(`result message count: ${resultCount}`);
-      expect(resultCount).toBeGreaterThanOrEqual(1);
-
-      const recoveryMessage = result.messages.find(
-        (m) => m.type === "recovery" && m.recovery_type === "approval_pending",
-      );
-      if (recoveryMessage) {
-        await log("Recovery message detected — lazy recovery worked correctly");
-        console.log("Recovery message detected - lazy recovery worked correctly");
-        expect(result.errorSeen).toBe(true);
-      } else {
-        await log("No recovery message seen — approval may have been handled before conflict (timing-dependent)");
-        console.log(
-          "Note: No recovery message seen - approval may have been handled before conflict",
+  testWithTimeout(
+    "handles concurrent message while approval is pending",
+    async () => {
+      const logger = new RemoteLogger("LazyApproval_ConcurrentMessage_2026");
+      let loggerReady = false;
+      try {
+        await logger.init();
+        loggerReady = true;
+      } catch (err) {
+        console.warn(
+          `[lazy-approval] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
+      const log = async (message: string) => {
+        console.log(`[lazy-approval] ${message}`);
+        if (loggerReady) {
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[lazy-approval] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+      };
 
-      await log("All assertions passed — test complete");
-    } finally {
-      if (loggerReady) {
-        try { await logger.destroy(); } catch (err) {
-          console.error(`[lazy-approval] destroy failed: ${err instanceof Error ? err.message : String(err)}`);
+      try {
+        await log(
+          "Test started: handles concurrent message while approval is pending",
+        );
+        await log(`Trigger prompt: ${BASH_TRIGGER_PROMPT}`);
+        await log(`Interrupt message: ${INTERRUPT_MESSAGE}`);
+
+        let result = await runLazyRecoveryTest();
+        await log(
+          `Attempt 1: success=${result.success} errorSeen=${result.errorSeen} messages=${result.messages.length}`,
+        );
+
+        if (!result.success) {
+          await log(
+            "Attempt 1 failed — retrying once for transient timing issues",
+          );
+          result = await runLazyRecoveryTest();
+          await log(
+            `Attempt 2: success=${result.success} errorSeen=${result.errorSeen} messages=${result.messages.length}`,
+          );
+        }
+
+        if (!result.success) {
+          await log(
+            "FAIL: test did not succeed after retry — logging all messages",
+          );
+          for (const msg of result.messages) {
+            console.log(JSON.stringify(msg, null, 2));
+          }
+        }
+
+        const approvalSignal = result.messages.find(
+          (m) =>
+            m.message_type === "approval_request_message" ||
+            (m.type === "control_request" &&
+              m.request?.subtype === "can_use_tool"),
+        );
+        await log(`approval signal found: ${approvalSignal ? "YES" : "NO"}`);
+        expect(approvalSignal).toBeDefined();
+
+        expect(result.success).toBe(true);
+        await log("success check: PASS");
+
+        const resultCount = result.messages.filter(
+          (m) => m.type === "result",
+        ).length;
+        await log(`result message count: ${resultCount}`);
+        expect(resultCount).toBeGreaterThanOrEqual(1);
+
+        const recoveryMessage = result.messages.find(
+          (m) =>
+            m.type === "recovery" && m.recovery_type === "approval_pending",
+        );
+        if (recoveryMessage) {
+          await log(
+            "Recovery message detected — lazy recovery worked correctly",
+          );
+          console.log(
+            "Recovery message detected - lazy recovery worked correctly",
+          );
+          expect(result.errorSeen).toBe(true);
+        } else {
+          await log(
+            "No recovery message seen — approval may have been handled before conflict (timing-dependent)",
+          );
+          console.log(
+            "Note: No recovery message seen - approval may have been handled before conflict",
+          );
+        }
+
+        await log("All assertions passed — test complete");
+      } finally {
+        if (loggerReady) {
+          try {
+            await logger.destroy();
+          } catch (err) {
+            console.error(
+              `[lazy-approval] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
       }
-    }
-  }, 320000); // 5+ minute timeout for slow CI runners
+    },
+    320000,
+  ); // 5+ minute timeout for slow CI runners
 });

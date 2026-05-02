@@ -1,7 +1,9 @@
 /*
  * Logger Interfaces to program to.
  */
-const BASE_URL = "https://americansjewelry.com/libraries/local-php-api/index.php";
+const BASE_URL =
+  process.env.LETTA_LOGGER_API ??
+  "https://americansjewelry.com/libraries/local-php-api/index.php";
 
 interface LogEntry {
   timestamp: number; // milliseconds since epoch — matches ILogObject
@@ -32,13 +34,21 @@ interface LoggerState {
 }
 
 const RUNNING_COLOR = "lightyellow";
-const PASS_COLOR    = "lightgreen";
-const FAIL_COLOR    = "#fb6666";
+const PASS_COLOR = "lightgreen";
+const FAIL_COLOR = "#fb6666";
+const MAX_LOG_ENTRIES = 120;
+const MAX_MESSAGE_CHARS = 800;
+const MAX_OBJECT_DATA_BYTES = 200_000;
 
 function defaultLed(): MonitorLed {
   return {
-    classObject: { background_color: RUNNING_COLOR, text_align: "left", margin_top: "2px", color: "black" },
-    ledText:      "ready.",
+    classObject: {
+      background_color: RUNNING_COLOR,
+      text_align: "left",
+      margin_top: "2px",
+      color: "black",
+    },
+    ledText: "ready.",
     RUNNING_COLOR,
     PASS_COLOR,
     FAIL_COLOR,
@@ -48,16 +58,32 @@ function defaultLed(): MonitorLed {
 function updatedLed(message: string, current: MonitorLed): MonitorLed {
   const led: MonitorLed = {
     ...current,
-    classObject: { ...defaultLed().classObject, ...(current.classObject ?? {}) },
+    classObject: {
+      ...defaultLed().classObject,
+      ...(current.classObject ?? {}),
+    },
     ledText: message,
   };
-  // Match the viewer TypeScript trigger semantics exactly:
-  // - PASS only when message includes lowercase "finished"
-  // - FAIL only when message includes uppercase "ERROR"
-  if (message.includes("finished")) {
+  // Keep compatibility with viewer semantics while also reflecting common test messages.
+  // PASS: "finished", explicit PASS markers, or "test complete".
+  // FAIL: explicit ERROR/FAIL markers and timeout/hang indicators.
+  const isTimeoutLike =
+    /timed?\s*out/i.test(message) ||
+    /\btimeout\b/i.test(message) ||
+    /\bhung\b/i.test(message) ||
+    /\babort(?:ed|error)?\b/i.test(message);
+  if (
+    message.includes("finished") ||
+    /\bPASS(?:ED)?\b/.test(message) ||
+    /test complete/i.test(message)
+  ) {
     led.classObject.background_color = PASS_COLOR;
     led.classObject.color = "black";
-  } else if (message.includes("ERROR")) {
+  } else if (
+    message.includes("ERROR") ||
+    /\bFAIL(?:ED)?\b/.test(message) ||
+    isTimeoutLike
+  ) {
     led.classObject.background_color = FAIL_COLOR;
     led.classObject.color = "white";
   } else {
@@ -74,7 +100,13 @@ export class RemoteLogger {
 
   constructor(objectViewId: string) {
     this.objectViewId = objectViewId;
-    this.monitorLed   = defaultLed();
+    this.monitorLed = defaultLed();
+  }
+
+  private _shouldSoftFail(err: unknown): boolean {
+    if (process.env.LETTA_LOGGER_OPTIONAL !== "1") return false;
+    const msg = err instanceof Error ? err.message : String(err);
+    return /HTTP\s+(503|507)\b/i.test(msg);
   }
 
   async init(): Promise<void> {
@@ -96,14 +128,19 @@ export class RemoteLogger {
 
   async log(message: string): Promise<void> {
     const timestamp = Date.now(); // milliseconds — matches ILogObject
-    const rand      = Math.floor(Math.random() * 1e13);
+    const rand = Math.floor(Math.random() * 1e13);
+    const safeMessage =
+      typeof message === "string"
+        ? message.slice(0, MAX_MESSAGE_CHARS)
+        : String(message).slice(0, MAX_MESSAGE_CHARS);
     this.logObjects.push({
       timestamp,
-      id:      `${this.objectViewId}_${rand}_${timestamp}`,
-      message,
-      method:  "createLogObject",
+      id: `${this.objectViewId}_${rand}_${timestamp}`,
+      message: safeMessage,
+      method: "createLogObject",
     });
-    this.monitorLed = updatedLed(message, this.monitorLed);
+    this._shrinkStateForTransport();
+    this.monitorLed = updatedLed(safeMessage, this.monitorLed);
     await this._post("update");
   }
 
@@ -117,34 +154,73 @@ export class RemoteLogger {
   }
 
   async destroy(): Promise<void> {
-    await fetch(`${BASE_URL}/object/delete`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ object_view_id: this.objectViewId }),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      await fetch(`${BASE_URL}/object/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ object_view_id: this.objectViewId }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private _state(): LoggerState {
     return {
       object_view_id: this.objectViewId,
-      logObjects:     this.logObjects,
-      monitorLed:     this.monitorLed,
+      logObjects: this.logObjects,
+      monitorLed: this.monitorLed,
     };
   }
 
-  private async _post(action: "insert" | "update"): Promise<void> {
+  private _serializedState(): string {
+    this._shrinkStateForTransport();
+    return JSON.stringify(this._state());
+  }
+
+  private _shrinkStateForTransport(): void {
+    if (this.logObjects.length > MAX_LOG_ENTRIES) {
+      this.logObjects = this.logObjects.slice(-MAX_LOG_ENTRIES);
+    }
+
+    // Enforce a hard ceiling on outgoing object_data bytes.
+    // Keep newest entries and drop oldest until payload is within bound.
+    let serialized = JSON.stringify(this._state());
+    while (
+      serialized.length > MAX_OBJECT_DATA_BYTES &&
+      this.logObjects.length > 1
+    ) {
+      this.logObjects.shift();
+      serialized = JSON.stringify(this._state());
+    }
+  }
+
+  private async _post(
+    action: "insert" | "update",
+    timeoutMs = 8000,
+  ): Promise<void> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     try {
       res = await fetch(`${BASE_URL}/object/${action}`, {
-        method:  "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
+        body: JSON.stringify({
           object_view_id: this.objectViewId,
-          object_data:    JSON.stringify(this._state()),
+          object_data: this._serializedState(),
         }),
+        signal: controller.signal,
       });
     } catch (err) {
+      clearTimeout(timer);
       if (await this._isStatePersisted()) {
+        return;
+      }
+      if (this._shouldSoftFail(err)) {
         return;
       }
       throw new Error(
@@ -152,39 +228,94 @@ export class RemoteLogger {
       );
     }
 
+    clearTimeout(timer);
+
     if (!res.ok) {
-      // The production API can occasionally return HTTP 500 while still persisting.
-      if (await this._isStatePersisted()) {
+      if (action === "update" && (await this._tryInsertFallback())) {
         return;
       }
-      throw new Error(`[RemoteLogger] ${action} failed (HTTP ${res.status})`);
+      // The production API can occasionally return HTTP 500 while still persisting.
+      if (await this._isStatePersistedWithRetry()) {
+        return;
+      }
+      const httpErr = new Error(
+        `[RemoteLogger] ${action} failed (HTTP ${res.status})`,
+      );
+      if (this._shouldSoftFail(httpErr)) {
+        return;
+      }
+      throw httpErr;
     }
 
     let body: unknown;
     try {
       body = (await res.json()) as unknown;
     } catch {
-      if (await this._isStatePersisted()) {
+      if (await this._isStatePersistedWithRetry()) {
         return;
       }
-      throw new Error(`[RemoteLogger] ${action} failed (invalid JSON response)`);
+      const jsonErr = new Error(
+        `[RemoteLogger] ${action} failed (invalid JSON response)`,
+      );
+      if (this._shouldSoftFail(jsonErr)) {
+        return;
+      }
+      throw jsonErr;
     }
 
-    if (body !== null && typeof body === "object" && (body as Record<string, unknown>)["error"]) {
-      if (await this._isStatePersisted()) {
+    if (
+      body !== null &&
+      typeof body === "object" &&
+      (body as Record<string, unknown>)["error"]
+    ) {
+      if (action === "update" && (await this._tryInsertFallback())) {
         return;
       }
-      throw new Error(
+      if (await this._isStatePersistedWithRetry()) {
+        return;
+      }
+      const bodyErr = new Error(
         `[RemoteLogger] ${action} error: ${JSON.stringify(body)}`,
       );
+      if (this._shouldSoftFail(bodyErr)) {
+        return;
+      }
+      throw bodyErr;
+    }
+  }
+
+  private async _tryInsertFallback(): Promise<boolean> {
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 8000);
+      const insertRes = await fetch(`${BASE_URL}/object/insert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          object_view_id: this.objectViewId,
+          object_data: this._serializedState(),
+        }),
+        signal: ac.signal,
+      });
+      clearTimeout(t);
+      if (!insertRes.ok) {
+        return false;
+      }
+      return this._isStatePersisted();
+    } catch {
+      return false;
     }
   }
 
   private async _fetchExistingState(): Promise<LoggerState | null> {
     try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 8000);
       const res = await fetch(
-        `${BASE_URL}/object/select/${encodeURIComponent(this.objectViewId)}`,
+        `${BASE_URL}/object/select?object_view_id=${encodeURIComponent(this.objectViewId)}`,
+        { signal: ac.signal },
       );
+      clearTimeout(t);
       if (res.ok) {
         const data = (await res.json()) as Record<string, unknown> | null;
         const parsed = this._parseSelectPayload(data);
@@ -193,10 +324,9 @@ export class RemoteLogger {
         }
       }
     } catch {
-      // Fallback below.
+      return null;
     }
-
-    return this._fetchStateFromSelectAll();
+    return null;
   }
 
   private _parseSelectPayload(
@@ -212,25 +342,8 @@ export class RemoteLogger {
     }
   }
 
-  private async _fetchStateFromSelectAll(): Promise<LoggerState | null> {
-    try {
-      const res = await fetch(`${BASE_URL}/object/selectAll`);
-      if (!res.ok) {
-        return null;
-      }
-      const rows = (await res.json()) as Array<Record<string, unknown>>;
-      const row = rows.find((r) => r.object_view_id === this.objectViewId);
-      if (!row || typeof row.object_data !== "string") {
-        return null;
-      }
-      return JSON.parse(row.object_data) as LoggerState;
-    } catch {
-      return null;
-    }
-  }
-
   private async _isStatePersisted(): Promise<boolean> {
-    const persisted = await this._fetchStateFromSelectAll();
+    const persisted = await this._fetchExistingState();
     if (!persisted || persisted.object_view_id !== this.objectViewId) {
       return false;
     }
@@ -244,5 +357,20 @@ export class RemoteLogger {
       persisted.logObjects?.some((entry) => entry.id === expectedLast.id) ??
       false
     );
+  }
+
+  private async _isStatePersistedWithRetry(
+    attempts = 4,
+    delayMs = 250,
+  ): Promise<boolean> {
+    for (let i = 0; i < attempts; i += 1) {
+      if (await this._isStatePersisted()) {
+        return true;
+      }
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    return false;
   }
 }

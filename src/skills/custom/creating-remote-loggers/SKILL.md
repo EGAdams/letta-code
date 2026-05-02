@@ -1,6 +1,6 @@
 ---
 name: creating-remote-loggers
-description: Creates persistent remote loggers that write structured log entries to a PHP-backed API at americansjewelry.com. The object_data shape matches MonitoredObject so the web viewer renders the LED status and log correctly. Use when the user wants to log operations, test steps, or workflow events to a persistent remote store for later inspection. Handles insert/update/select/delete against the monitored_objects API.
+description: Creates persistent remote loggers that write structured log entries to a PHP-backed API at americansjewelry.com. The object_data shape matches MonitoredObject so the web viewer renders the LED status and log correctly. Use when the user wants to log operations, test steps, or workflow events to a persistent remote store for later inspection. Handles insert/update/select/delete against the monitored_objects API using per-object reads instead of selectAll.
 ---
 
 # Creating Remote Loggers
@@ -16,6 +16,11 @@ System layout to keep straight:
 - The PHP API stays at `https://americansjewelry.com/libraries/local-php-api/index.php`.
 - Logger writes must match the viewer's `monitored_object_id` exactly, or the record will exist
   in the API but never appear in the accordion.
+
+Runtime endpoint notes:
+- `src/logger/RemoteLogger.ts` now supports `LETTA_LOGGER_API` to override the write/read endpoint.
+- Integration reset helpers use `LETTA_LOGGER_RESET_API` for delete/reset path.
+- For local viewer debugging, set both to `http://localhost:8080/php-api`.
 
 ## Quick start
 
@@ -97,6 +102,31 @@ In `updatedLed()`, spread `defaultLed().classObject` as the base so all keys sur
 classObject: { ...defaultLed().classObject, ...(current.classObject ?? {}) },
 ```
 
+## Critical: every fetch must have an AbortController timeout
+
+`fetch()` has no built-in timeout. A TCP connection that is accepted but never answered will
+hang the `await` forever, blocking any test that uses the logger. This causes the log viewer to
+show the last *successfully committed* message (e.g. "Test started") and a yellow LED even
+after the test eventually passes on a rerun.
+
+**Always wrap every `fetch()` call in `RemoteLogger` with an `AbortController`:**
+
+```typescript
+const controller = new AbortController();
+const timer = setTimeout(() => controller.abort(), 8000);
+let res: Response;
+try {
+  res = await fetch(url, { ...opts, signal: controller.signal });
+} catch (err) {
+  clearTimeout(timer);
+  // error path
+}
+clearTimeout(timer);
+```
+
+Apply to: `_post()`, `destroy()`, `_tryInsertFallback()`, and `_fetchExistingState()`.
+8 seconds is the established default in the codebase. Do not add a `selectAll` fallback.
+
 ## Critical: timestamp is milliseconds
 
 `ILogObject.timestamp` is **milliseconds** since epoch. Use `Date.now()`, not `Date.now() / 1000`.
@@ -130,6 +160,17 @@ full breakdown, but the key points:
 - `update`/`delete` return `{"affected_rows":null,...,"error":null}` — operations still work
 - `error: null` is **not** an error — only throw when `body.error` is truthy
 - `select` returns `null` for non-existent records (not a 404)
+
+## Critical: treat occasional HTTP 500 on update as potentially persisted
+
+The monitored_objects API can intermittently return `HTTP 500` (or malformed JSON) even when the
+write eventually lands. For logger stability in tests:
+- after a failed `update`, check whether the expected last log entry is present via `object/select?object_view_id=<id>`
+- retry that persistence check a few times with a short delay (for example 4 attempts × 250ms)
+- only throw if persistence is still not observed
+
+This avoids false-negative logger failures that leave viewer LEDs stale/yellow despite successful
+test execution.
 
 ## Browser usage: POST requests must use `mode: 'no-cors'`
 
@@ -184,6 +225,13 @@ Without this registration, the data is stored correctly but won't appear in the 
 If `index.html` shows no logs, verify two things first: the logger's `monitored_object_id`
 registration exists in the viewer and the viewer script actually loaded.
 
+Fast verification for "logs exist but not visible":
+```bash
+curl -s "http://localhost:8080/php-api/object/select?object_view_id=MyFeature_2026" | rg "MyFeature_2026"
+curl -s http://localhost:8080/ | rg "MyFeature_2026"
+```
+- first matches, second does not: add accordion section to `public/index.html`
+
 For legacy viewers that split IDs, keep the OAuth logger name numeric-suffixed, for example
 `OAuthHealthCheck_2026`.
 
@@ -191,30 +239,31 @@ For local browser viewing with `/php-api`, run a proxy-capable dev server (for e
 `webpack-dev-server`). A plain static server on `localhost:8080` will not proxy API requests and
 the viewer will show 404/HTML parse errors instead of logs.
 
-## Critical: `/php-api/object/selectAll` can hang in `pending`
+## Critical: avoid `/php-api/object/selectAll` in viewer polling
 
 A common failure pattern is:
 - viewer HTML loads at `http://localhost:8080`
 - accordion sections are constructed in console logs
-- browser network shows many `GET /php-api/object/selectAll` requests stuck in `pending`
+- browser network shows `GET /php-api/object/selectAll` or many missing per-object reads
 - console shows `TypeError: Failed to fetch` from `FetchRunner.run`
-- integration tests time out during logger reset calls to `http://localhost:8080/php-api/...`
+- integration tests time out or report `HTTP 507` during logger reset/write calls
 
-This indicates the local viewer is up, but the proxy target (`https://americansjewelry.com`) is
-not responding in time. In that state, the webpack proxy keeps connections open and the UI appears
-to stall on logger fetch.
+`selectAll` can pull oversized historical rows and overload the remote API. The viewer should
+show only loggers with data and fetch each visible row via
+`object/select?object_view_id=<id>`.
 
 Quick verification sequence:
 ```bash
 # 1) Viewer static shell should respond fast
 curl -i --max-time 5 http://localhost:8080/
 
-# 2) Proxy path should respond; timeout here means proxy/upstream issue
-curl -i --max-time 5 http://localhost:8080/php-api/object/selectAll
+# 2) Proxy path should respond for one known logger
+curl -i --max-time 5 \
+  "http://localhost:8080/php-api/object/select?object_view_id=MyFeature_2026"
 
 # 3) Upstream direct check; timeout here confirms upstream outage/latency
 curl -i --max-time 10 \
-  "https://americansjewelry.com/libraries/local-php-api/index.php/object/selectAll"
+  "https://americansjewelry.com/libraries/local-php-api/index.php/object/select?object_view_id=MyFeature_2026"
 ```
 
 Interpretation:
@@ -231,9 +280,10 @@ When debugging one logger (for example OAuth), temporarily keep only one `accord
 
 ## Server health check
 
-Before relying on the logger, verify the server is up and has disk space:
+Before relying on the logger, verify the server can read a single object. Use a known logger ID or
+an insert+select smoke record:
 ```bash
-curl -s "https://americansjewelry.com/libraries/local-php-api/index.php/object/selectAll"
+curl -s "https://americansjewelry.com/libraries/local-php-api/index.php/object/select?object_view_id=MyFeature_2026"
 ```
 A `507 Insufficient Storage` or `503 Service Unavailable` response means the server can't store
 data. Inserts will appear to succeed but nothing will be saved. See [references/api.md](references/api.md).
@@ -244,7 +294,7 @@ Place `init()` at the start of the test body, `log()` around each key operation.
 Leave the record in place after the test (don't call `destroy()`) so failures can be inspected:
 
 ```
-GET https://americansjewelry.com/libraries/local-php-api/index.php/object/select/ScissariTest_2026
+GET https://americansjewelry.com/libraries/local-php-api/index.php/object/select?object_view_id=ScissariTest_2026
 ```
 
 Log the key decision points:

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
+import { RemoteLogger } from "../logger/RemoteLogger";
 import type {
   ResultMessage,
   StreamEvent,
   SystemInitMessage,
 } from "../types/protocol";
-import { RemoteLogger } from "../logger/RemoteLogger";
 import { resetAllLoggers } from "./logger-helpers";
 
 const TEST_TIMEOUT_MS = 30000;
@@ -13,13 +13,24 @@ const TEST_TIMEOUT_MS = 30000;
 const normalizeLoggerMessage = (message: string): string => {
   if (message.includes("ERROR")) return message;
   if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: `;
-  if (/\bPASS(?:ED)?\b/.test(message) || /test complete|test finished/i.test(message)) {
+  if (
+    /\bPASS(?:ED)?\b/.test(message) ||
+    /test complete|test finished/i.test(message)
+  ) {
     return message.includes("finished") ? message : ` finished`;
   }
   return message;
 };
-const testWithTimeout = (name: string, fn: () => Promise<void> | void) =>
-  test(name, fn, TEST_TIMEOUT_MS);
+const testWithTimeout = (
+  name: string,
+  fn: () => Promise<void> | void,
+  opts?: { timeout?: number } | number,
+) =>
+  test(
+    name,
+    fn,
+    typeof opts === "number" ? opts : (opts?.timeout ?? TEST_TIMEOUT_MS),
+  );
 
 /**
  * Tests for stream-json output format.
@@ -112,18 +123,26 @@ describe("stream-json format", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[stream-json:InitMessage] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[stream-json:InitMessage] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[stream-json:InitMessage] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[stream-json:InitMessage] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[stream-json:InitMessage] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
       try {
-        await log("Test started: init message has type 'system' with subtype 'init'");
+        await log(
+          "Test started: init message has type 'system' with subtype 'init'",
+        );
         const lines = await runHeadlessCommand(FAST_PROMPT);
         await log(`CLI returned ${lines.length} JSON lines`);
 
@@ -144,14 +163,22 @@ describe("stream-json format", () => {
         expect(init.tools).toBeInstanceOf(Array);
         expect(init.cwd).toBeDefined();
         expect(init.uuid).toBe(`init-${init.agent_id}`);
-        await log(`Init message validated: agent_id=${init.agent_id} model=${init.model} tools=${init.tools.length} — test finished`);
+        await log(
+          `Init message validated: agent_id=${init.agent_id} model=${init.model} tools=${init.tools.length} — test finished`,
+        );
       } catch (err) {
-        await log(`Test FAILED: ${err instanceof Error ? err.message : String(err)}`);
+        await log(
+          `Test FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
         throw err;
       } finally {
         if (loggerReady) {
-          try { await logger.destroy(); } catch (err) {
-            console.error(`[stream-json:InitMessage] destroy failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.destroy();
+          } catch (err) {
+            console.error(
+              `[stream-json:InitMessage] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }
@@ -168,13 +195,19 @@ describe("stream-json format", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[stream-json:SessionIdUuid] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[stream-json:SessionIdUuid] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[stream-json:SessionIdUuid] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[stream-json:SessionIdUuid] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[stream-json:SessionIdUuid] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
@@ -191,18 +224,29 @@ describe("stream-json format", () => {
         expect(messageLine).toBeDefined();
         if (!messageLine) throw new Error("messageLine not found");
 
-        const msg = JSON.parse(messageLine) as { session_id: string; uuid: string };
+        const msg = JSON.parse(messageLine) as {
+          session_id: string;
+          uuid: string;
+        };
         expect(msg.session_id).toBeDefined();
         expect(msg.uuid).toBeDefined();
         expect(msg.uuid).toBeTruthy();
-        await log(`session_id=${msg.session_id} uuid=${msg.uuid} — test complete`);
+        await log(
+          `session_id=${msg.session_id} uuid=${msg.uuid} — test complete`,
+        );
       } catch (err) {
-        await log(`Test FAILED: ${err instanceof Error ? err.message : String(err)}`);
+        await log(
+          `Test FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
         throw err;
       } finally {
         if (loggerReady) {
-          try { await logger.destroy(); } catch (err) {
-            console.error(`[stream-json:SessionIdUuid] destroy failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.destroy();
+          } catch (err) {
+            console.error(
+              `[stream-json:SessionIdUuid] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }
@@ -219,13 +263,19 @@ describe("stream-json format", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[stream-json:ResultFormat] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[stream-json:ResultFormat] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[stream-json:ResultFormat] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[stream-json:ResultFormat] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[stream-json:ResultFormat] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
@@ -242,7 +292,9 @@ describe("stream-json format", () => {
         expect(resultLine).toBeDefined();
         if (!resultLine) throw new Error("resultLine not found");
 
-        const result = JSON.parse(resultLine) as ResultMessage & { uuid: string };
+        const result = JSON.parse(resultLine) as ResultMessage & {
+          uuid: string;
+        };
         expect(result.type).toBe("result");
         expect(result.subtype).toBe("success");
         expect(result.session_id).toBeDefined();
@@ -251,14 +303,22 @@ describe("stream-json format", () => {
         expect(result.duration_ms).toBeGreaterThan(0);
         expect(result.uuid).toContain("result-");
         expect(result.result).toBeDefined();
-        await log(`Result validated: subtype=${result.subtype} duration_ms=${result.duration_ms} — test complete`);
+        await log(
+          `Result validated: subtype=${result.subtype} duration_ms=${result.duration_ms} — test complete`,
+        );
       } catch (err) {
-        await log(`Test FAILED: ${err instanceof Error ? err.message : String(err)}`);
+        await log(
+          `Test FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
         throw err;
       } finally {
         if (loggerReady) {
-          try { await logger.destroy(); } catch (err) {
-            console.error(`[stream-json:ResultFormat] destroy failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.destroy();
+          } catch (err) {
+            console.error(
+              `[stream-json:ResultFormat] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }
@@ -275,19 +335,29 @@ describe("stream-json format", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[stream-json:PartialMessages] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[stream-json:PartialMessages] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[stream-json:PartialMessages] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[stream-json:PartialMessages] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[stream-json:PartialMessages] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
       try {
-        await log("Test started: --include-partial-messages wraps chunks in stream_event");
-        const lines = await runHeadlessCommand(FAST_PROMPT, ["--include-partial-messages"]);
+        await log(
+          "Test started: --include-partial-messages wraps chunks in stream_event",
+        );
+        const lines = await runHeadlessCommand(FAST_PROMPT, [
+          "--include-partial-messages",
+        ]);
         await log(`CLI returned ${lines.length} JSON lines`);
 
         const streamEventLine = lines.find((line) => {
@@ -304,14 +374,22 @@ describe("stream-json format", () => {
         expect(event.session_id).toBeDefined();
         expect(event.uuid).toBeDefined();
         expect("message_type" in event.event).toBe(true);
-        await log(`stream_event validated: session_id=${event.session_id} — test complete`);
+        await log(
+          `stream_event validated: session_id=${event.session_id} — test complete`,
+        );
       } catch (err) {
-        await log(`Test FAILED: ${err instanceof Error ? err.message : String(err)}`);
+        await log(
+          `Test FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
         throw err;
       } finally {
         if (loggerReady) {
-          try { await logger.destroy(); } catch (err) {
-            console.error(`[stream-json:PartialMessages] destroy failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.destroy();
+          } catch (err) {
+            console.error(
+              `[stream-json:PartialMessages] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }
@@ -328,18 +406,26 @@ describe("stream-json format", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[stream-json:NoPartialMessages] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[stream-json:NoPartialMessages] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[stream-json:NoPartialMessages] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[stream-json:NoPartialMessages] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[stream-json:NoPartialMessages] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
       try {
-        await log("Test started: without --include-partial-messages, messages are type 'message'");
+        await log(
+          "Test started: without --include-partial-messages, messages are type 'message'",
+        );
         const lines = await runHeadlessCommand(FAST_PROMPT);
         await log(`CLI returned ${lines.length} JSON lines`);
 
@@ -351,12 +437,16 @@ describe("stream-json format", () => {
           const obj = JSON.parse(line);
           return obj.type === "stream_event";
         });
-        await log(`message lines: ${messageLines.length}, stream_event lines: ${streamEventLines.length}`);
+        await log(
+          `message lines: ${messageLines.length}, stream_event lines: ${streamEventLines.length}`,
+        );
 
         if (messageLines.length > 0 || streamEventLines.length > 0) {
           expect(messageLines.length).toBeGreaterThan(0);
           expect(streamEventLines.length).toBe(0);
-          await log("message type check: PASS (message > 0, stream_event == 0)");
+          await log(
+            "message type check: PASS (message > 0, stream_event == 0)",
+          );
         }
 
         const resultLine = lines.find((line) => {
@@ -366,12 +456,18 @@ describe("stream-json format", () => {
         expect(resultLine).toBeDefined();
         await log("result line found: PASS — test complete");
       } catch (err) {
-        await log(`Test FAILED: ${err instanceof Error ? err.message : String(err)}`);
+        await log(
+          `Test FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
         throw err;
       } finally {
         if (loggerReady) {
-          try { await logger.destroy(); } catch (err) {
-            console.error(`[stream-json:NoPartialMessages] destroy failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.destroy();
+          } catch (err) {
+            console.error(
+              `[stream-json:NoPartialMessages] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }
