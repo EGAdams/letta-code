@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:5.7
+    container_name: logger-api-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: tinman72_rest_api_demo
+      MYSQL_USER: tinman72_4a4e_cg
+      MYSQL_PASSWORD: WqA4UuFUPs8HWFnxbz
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql-init:/docker-entrypoint-initdb.d
+      - logger_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  php-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: logger-api-php
+    environment:
+      DB_HOST: mysql
+      DB_USERNAME: tinman72_4a4e_cg
+      DB_PASSWORD: WqA4UuFUPs8HWFnxbz
+      DB_DATABASE_NAME: tinman72_rest_api_demo
+    ports:
+      - "8284:80"
+    volumes:
+      - ./api:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - logger_network
+
+networks:
+  logger_network:
+    driver: bridge
+
+volumes:
+  logger_mysql_data:

@@ -1,6 +1,6 @@
 const LOCAL_API =
   process.env.LETTA_LOGGER_RESET_API ??
-  "https://americansjewelry.com/libraries/local-php-api/index.php";
+  "http://100.80.49.10:8284/libraries/local-php-api";
 
 const RESET_TIMEOUT_MS = Number(
   process.env.LETTA_LOGGER_RESET_TIMEOUT_MS ?? "15000",
@@ -48,6 +48,7 @@ export const ALL_LOGGER_IDS = [
   "PrestreamApproval_Recovery_2026",
   "OAuthHealthCheck_2026",
   "ScissariTestLogger_2026",
+  "ToolAttach_Lifecycle_2026",
 ];
 
 export async function resetLogger(objectViewId: string): Promise<boolean> {

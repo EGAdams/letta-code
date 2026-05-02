@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RemoteLogger } from "../logger/RemoteLogger";
-import { resetLogger } from "./logger-helpers";
+import { resetAllLoggers, resetLogger } from "./logger-helpers";
 
 const TEST_TIMEOUT_MS = 30000;
 
@@ -225,6 +225,14 @@ async function runCliNoStdin(
     });
   });
 }
+
+// ============================================================================
+// Test Setup
+// ============================================================================
+
+beforeEach(async () => {
+  await resetAllLoggers();
+});
 
 // ============================================================================
 // Invalid Input Tests (require API calls but fail fast)

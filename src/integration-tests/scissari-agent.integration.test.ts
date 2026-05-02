@@ -154,6 +154,10 @@ async function runCli(
   }
 }
 
+beforeEach(async () => {
+  await resetAllLoggers();
+});
+
 describe("Scissari agent integration", () => {
   const TEST_TIMEOUT_MS = 30000;
 

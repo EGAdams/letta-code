@@ -3,7 +3,7 @@
  */
 const BASE_URL =
   process.env.LETTA_LOGGER_API ??
-  "https://americansjewelry.com/libraries/local-php-api/index.php";
+  "http://100.80.49.10:8284/libraries/local-php-api";
 
 interface LogEntry {
   timestamp: number; // milliseconds since epoch — matches ILogObject
