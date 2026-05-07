@@ -11,9 +11,9 @@ const TEST_TIMEOUT_MS = 30000;
 
 const normalizeLoggerMessage = (message: string): string => {
   if (message.includes("ERROR")) return message;
-  if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: `;
+  if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: ${message}`;
   if (/\bPASS(?:ED)?\b/.test(message) || /test complete|test finished/i.test(message)) {
-    return message.includes("finished") ? message : ` finished`;
+    return message.includes("finished") ? message : `${message} finished`;
   }
   return message;
 };

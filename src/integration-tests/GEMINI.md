@@ -7,6 +7,7 @@ This directory contains the integration test suite for the `letta-code` CLI tool
 The integration tests verify various aspects of the `letta-code` CLI, including:
 - **Startup Flow:** Validating CLI flags like `--agent`, `--conversation`, and `--new-agent`.
 - **Agent Interactions:** Testing specific agent behaviors (e.g., the Scissari agent).
+- **Tool Parity Regressions:** Catching live regressions where loading/reconciling Scissari rewrites her attached tools back to the old two-tool default set.
 - **Headless Formats:** Ensuring correct input/output handling for headless environments.
 - **Approval Recovery:** Testing the ability to recover from interrupted approval flows.
 - **OAuth Health:** Checking the health of OAuth integrations.

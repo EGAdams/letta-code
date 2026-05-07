@@ -48,6 +48,9 @@ export const ALL_LOGGER_IDS = [
   "PrestreamApproval_Recovery_2026",
   "OAuthHealthCheck_2026",
   "ScissariTestLogger_2026",
+  "ScissariMessagePersistence_2026",
+  "ScissariHaileyInteraction_2026",
+  "ScissariToolParity_2026",
   "ToolAttach_Lifecycle_2026",
 ];
 
@@ -75,7 +78,7 @@ export async function resetLogger(objectViewId: string): Promise<boolean> {
       );
       return false;
     } else {
-      console.log(`[resetLogger] DELETE ${objectViewId} → OK (${elapsed}ms)`);
+      // console.log(`[resetLogger] DELETE ${objectViewId} → OK (${elapsed}ms)`);
       return true;
     }
   } catch (err) {

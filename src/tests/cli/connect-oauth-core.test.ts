@@ -1,10 +1,16 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   isChatGPTOAuthConnected,
   runChatGPTOAuthConnectFlow,
 } from "../../cli/commands/connect-oauth-core";
 
 describe("connect OAuth core", () => {
+  const realDateNow = Date.now;
+
+  beforeEach(() => {
+    Date.now = realDateNow;
+  });
+
   test("runs full OAuth flow and creates provider", async () => {
     const startOAuth = mock(() =>
       Promise.resolve({
@@ -116,6 +122,51 @@ describe("connect OAuth core", () => {
     expect(clearOAuthState).toHaveBeenCalledTimes(1);
   });
 
+  test("clears OAuth state when browser launch fails before callback completes", async () => {
+    const expectedError = new Error("browser unavailable");
+    const storeOAuthState = mock(() => undefined);
+    const clearOAuthState = mock(() => undefined);
+    const startCallbackServer = mock(
+      () =>
+        new Promise<{
+          result: { code: string; state: string };
+          server: { close: () => void };
+        }>(() => {
+          // Deliberately unresolved: browser failure should reject the flow first.
+        }),
+    );
+
+    await expect(
+      runChatGPTOAuthConnectFlow(
+        {
+          onStatus: () => undefined,
+          openBrowser: () => Promise.reject(expectedError),
+        },
+        {
+          startOAuth: () =>
+            Promise.resolve({
+              authorizationUrl: "https://auth.openai.com/oauth/authorize?abc",
+              state: "state-123",
+              codeVerifier: "verifier-123",
+              redirectUri: "http://localhost:1455/auth/callback",
+            }),
+          startCallbackServer,
+          exchangeTokens: () => {
+            throw new Error("should not exchange tokens");
+          },
+          extractAccountId: () => "acct_123",
+          createOrUpdateProvider: () => Promise.resolve({ id: "provider-1" }),
+          storeOAuthState,
+          clearOAuthState,
+        },
+      ),
+    ).rejects.toThrow("browser unavailable");
+
+    expect(storeOAuthState).toHaveBeenCalledTimes(1);
+    expect(startCallbackServer).toHaveBeenCalledTimes(1);
+    expect(clearOAuthState).toHaveBeenCalledTimes(1);
+  });
+
   test("isChatGPTOAuthConnected reflects provider presence", async () => {
     expect(
       await isChatGPTOAuthConnected({
@@ -130,6 +181,56 @@ describe("connect OAuth core", () => {
             id: "provider-1",
             name: "chatgpt-plus-pro",
             provider_type: "chatgpt_oauth",
+          }),
+      }),
+    ).toBe(true);
+  });
+
+  test("isChatGPTOAuthConnected treats near-expiry OAuth tokens as disconnected", async () => {
+    Date.now = () => 1_700_000_000_000;
+
+    expect(
+      await isChatGPTOAuthConnected({
+        getProvider: () =>
+          Promise.resolve({
+            id: "provider-1",
+            name: "chatgpt-plus-pro",
+            provider_type: "chatgpt_oauth",
+            api_key: JSON.stringify({
+              expires_at: Math.floor((Date.now() + 60_000) / 1000),
+            }),
+          }),
+      }),
+    ).toBe(false);
+  });
+
+  test("isChatGPTOAuthConnected accepts future expires_at in seconds or milliseconds", async () => {
+    Date.now = () => 1_700_000_000_000;
+
+    expect(
+      await isChatGPTOAuthConnected({
+        getProvider: () =>
+          Promise.resolve({
+            id: "provider-seconds",
+            name: "chatgpt-plus-pro",
+            provider_type: "chatgpt_oauth",
+            api_key: JSON.stringify({
+              expires_at: Math.floor((Date.now() + 3_600_000) / 1000),
+            }),
+          }),
+      }),
+    ).toBe(true);
+
+    expect(
+      await isChatGPTOAuthConnected({
+        getProvider: () =>
+          Promise.resolve({
+            id: "provider-ms",
+            name: "chatgpt-plus-pro",
+            provider_type: "chatgpt_oauth",
+            api_key_enc: JSON.stringify({
+              expires_at: Date.now() + 3_600_000,
+            }),
           }),
       }),
     ).toBe(true);

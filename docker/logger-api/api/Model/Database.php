@@ -6,18 +6,10 @@ class Database {
     protected $connection = null;
 	public function __construct() {
         try {
-            // echo "connecting to database ... <br>";
-            // echo DB_HOST . "<br>" . DB_USERNAME . "<br>" . DB_PASSWORD . "<br>" . DB_DATABASE_NAME . "<br>";
-            
             $this->connection = new mysqli( DB_HOST, DB_USERNAME, DB_PASSWORD, DB_DATABASE_NAME );
-            // echo "done making connection. <br>";
 			if ( mysqli_connect_errno()) { throw new DatabaseException( "Could not connect to database." ); }
 		} catch ( Exception $e ) {
-		    echo "*** ERROR: DatabaseException about to be thrown! *** <br>";
-		    echo "\$e->getMessage(): " . $e->getMessage();
-         
 		    throw new DatabaseException( $e->getMessage()); }
-	        // echo "done constructing Database object. <br>";
 	}
     
 	public function select( $query = "", $params = []) {
@@ -30,22 +22,19 @@ class Database {
 		return false;
 	}
     
-    public function insert( $query ) {
+    public function insert( $query, $params = [] ) {
         try {
-            // echo "query: " . $query . "<br>";
-            
-            $stmt = $this->executeStatement( $query );
+            $stmt = $this->executeStatement( $query, $params );
             $stmt->close();
             return $stmt;
         } catch ( Exception $e ) {
-            echo "*** ERROR: DatabaseException: ".$e->getMessage() ."<br>";
             throw new DatabaseException( $e->getMessage()); }
         return false;
     }
 
-    public function delete( $query ) {
+    public function delete( $query, $params = [] ) {
         try {
-            $stmt = $this->executeStatement( $query );
+            $stmt = $this->executeStatement( $query, $params );
             $stmt->close();
             return $stmt;
         } catch ( Exception $e ) { throw new DatabaseException( $e->getMessage()); }
@@ -65,7 +54,16 @@ class Database {
 		try {
             $stmt = $this->connection->prepare( $query );
 			if ( $stmt === false ) { throw new DatabaseException( "Unable to do prepared statement: " . $query); }
-			if ( $params ) { $stmt->bind_param( $params[ 0 ], $params[ 1 ]); }
+			if ( $params ) {
+                $types = $params[ 0 ];
+                $values = $params[ 1 ];
+                $bindArgs = array_merge( [ $types ], $values );
+                $refs = [];
+                foreach ( $bindArgs as $key => $value ) {
+                    $refs[ $key ] = &$bindArgs[ $key ];
+                }
+                call_user_func_array( [ $stmt, 'bind_param' ], $refs );
+            }
 			$stmt->execute();
 			return $stmt;
 		} catch ( Exception $e ) { throw new DatabaseException( $e->getMessage()); }

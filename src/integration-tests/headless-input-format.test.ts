@@ -15,12 +15,12 @@ const TEST_TIMEOUT_MS = 30000;
 
 const normalizeLoggerMessage = (message: string): string => {
   if (message.includes("ERROR")) return message;
-  if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: `;
+  if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: ${message}`;
   if (
     /\bPASS(?:ED)?\b/.test(message) ||
     /test complete|test finished/i.test(message)
   ) {
-    return message.includes("finished") ? message : ` finished`;
+    return message.includes("finished") ? message : `${message} finished`;
   }
   return message;
 };
@@ -793,26 +793,32 @@ describe("input-format stream-json", () => {
       };
 
       await log("Test started: unknown control request returns error");
-      await log("Sending control_request with subtype 'unknown_subtype'");
-      const objects = (await runBidirectional([
-        JSON.stringify({
-          type: "control_request",
-          request_id: "unknown_1",
-          request: { subtype: "unknown_subtype" },
-        }),
-      ])) as WireMessage[];
-      await log(`CLI returned ${objects.length} objects`);
+      try {
+        await log("Sending control_request with subtype 'unknown_subtype'");
+        const objects = (await runBidirectionalWithRetry([
+          JSON.stringify({
+            type: "control_request",
+            request_id: "unknown_1",
+            request: { subtype: "unknown_subtype" },
+          }),
+        ])) as WireMessage[];
+        await log(`CLI returned ${objects.length} objects`);
 
-      const controlResponse = objects.find(
-        (o): o is ControlResponse =>
-          o.type === "control_response" &&
-          o.response?.request_id === "unknown_1",
-      );
-      expect(controlResponse).toBeDefined();
-      expect(controlResponse?.response.subtype).toBe("error");
-      await log(
-        `control_response for unknown subtype: subtype=${controlResponse?.response.subtype} — test complete`,
-      );
+        const controlResponse = objects.find(
+          (o): o is ControlResponse =>
+            o.type === "control_response" &&
+            o.response?.request_id === "unknown_1",
+        );
+        expect(controlResponse).toBeDefined();
+        expect(controlResponse?.response.subtype).toBe("error");
+        await log(
+          `control_response for unknown subtype: subtype=${controlResponse?.response.subtype} — test complete`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await log(`ERROR: unknown control request test failed: ${msg}`);
+        throw err;
+      }
     },
     { timeout: 200000 },
   );

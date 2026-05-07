@@ -88,6 +88,48 @@ export type SendMessageStreamOptions = {
   overrideModel?: string;
 };
 
+type OutgoingMessage = MessageCreate | ApprovalCreate;
+
+function isNonEmptyText(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasSendableContent(content: MessageCreate["content"]): boolean {
+  if (typeof content === "string") {
+    return isNonEmptyText(content);
+  }
+
+  return content.some((part) => {
+    if (!part || typeof part !== "object" || !("type" in part)) {
+      return false;
+    }
+    if (part.type === "text") {
+      return "text" in part && isNonEmptyText(part.text);
+    }
+    return part.type === "image";
+  });
+}
+
+export function hasSendableOutgoingMessages(
+  messages: Array<OutgoingMessage>,
+): boolean {
+  return messages.some((message) => {
+    if (!message || typeof message !== "object") {
+      return false;
+    }
+
+    if ("type" in message && message.type === "approval") {
+      return Array.isArray(message.approvals) && message.approvals.length > 0;
+    }
+
+    if ("content" in message) {
+      return hasSendableContent(message.content);
+    }
+
+    return false;
+  });
+}
+
 export function buildConversationMessagesCreateRequestBody(
   conversationId: string,
   messages: Array<MessageCreate | ApprovalCreate>,
@@ -104,11 +146,17 @@ export function buildConversationMessagesCreateRequestBody(
     );
   }
 
+  const normalizedMessages = normalizeOutgoingApprovalMessages(
+    messages,
+    opts.approvalNormalization,
+  );
+
+  if (!hasSendableOutgoingMessages(normalizedMessages)) {
+    throw new Error("Cannot send an empty message payload");
+  }
+
   return {
-    messages: normalizeOutgoingApprovalMessages(
-      messages,
-      opts.approvalNormalization,
-    ),
+    messages: normalizedMessages,
     streaming: true,
     stream_tokens: opts.streamTokens ?? true,
     include_pings: true,
@@ -240,7 +288,7 @@ export async function sendMessageStream(
           requestBody,
           requestOptionsWithHeaders,
         );
-      } catch (e: unknown) {
+      } catch (_e: unknown) {
         if (process.env.DEBUG) {
           console.log(
             `[DEBUG] "default" rejected, creating real conversation for agent ${opts.agentId}`,

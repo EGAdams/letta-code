@@ -4,10 +4,7 @@ import type {
   AgentUpdateParams,
 } from "@letta-ai/letta-client/resources/agents/agents";
 import type { Tool } from "@letta-ai/letta-client/resources/tools";
-import {
-  DEFAULT_ATTACHED_BASE_TOOLS,
-  reconcileExistingAgentState,
-} from "../../agent/reconcileExistingAgentState";
+import { reconcileExistingAgentState } from "../../agent/reconcileExistingAgentState";
 
 function mkTool(id: string, name: string): Tool {
   return { id, name } as Tool;
@@ -30,7 +27,7 @@ function mkAgentState(overrides: Partial<AgentState>): AgentState {
 }
 
 describe("reconcileExistingAgentState", () => {
-  test("does not update when compaction model and attached tools are already correct", async () => {
+  test("does not update when compaction model is already correct", async () => {
     const agent = mkAgentState({
       tools: [
         mkTool("tool-web", "web_search"),
@@ -42,12 +39,10 @@ describe("reconcileExistingAgentState", () => {
     });
 
     const update = mock(() => Promise.resolve(agent));
-    const list = mock(() => Promise.resolve({ items: [] as Tool[] }));
 
     const result = await reconcileExistingAgentState(
       {
         agents: { update },
-        tools: { list },
       },
       agent,
     );
@@ -55,10 +50,9 @@ describe("reconcileExistingAgentState", () => {
     expect(result.updated).toBe(false);
     expect(result.appliedTweaks).toEqual([]);
     expect(update).not.toHaveBeenCalled();
-    expect(list).not.toHaveBeenCalled();
   });
 
-  test("updates missing compaction model and enforces only default base tools", async () => {
+  test("updates missing compaction model without rewriting attached tools", async () => {
     const initialAgent = mkAgentState({
       tools: [
         mkTool("tool-web", "web_search"),
@@ -73,7 +67,7 @@ describe("reconcileExistingAgentState", () => {
     const updatedAgent = mkAgentState({
       tools: [
         mkTool("tool-web", "web_search"),
-        mkTool("tool-fetch", "fetch_webpage"),
+        mkTool("tool-convo", "conversation_search"),
       ],
       compaction_settings: {
         mode: "sliding_window",
@@ -84,32 +78,17 @@ describe("reconcileExistingAgentState", () => {
     const update = mock((_agentID: string, _body: AgentUpdateParams) =>
       Promise.resolve(updatedAgent),
     );
-    const list = mock((query?: { name?: string | null }) => {
-      if (query?.name === "fetch_webpage") {
-        return Promise.resolve({
-          items: [mkTool("tool-fetch", "fetch_webpage")],
-        });
-      }
-      return Promise.resolve({ items: [] as Tool[] });
-    });
 
     const result = await reconcileExistingAgentState(
       {
         agents: { update },
-        tools: { list },
       },
       initialAgent,
     );
 
     expect(result.updated).toBe(true);
-    expect(result.appliedTweaks).toEqual([
-      "set_compaction_model",
-      "sync_attached_tools",
-    ]);
+    expect(result.appliedTweaks).toEqual(["set_compaction_model"]);
     expect(result.agent).toBe(updatedAgent);
-
-    expect(list).toHaveBeenCalledTimes(1);
-    expect(list).toHaveBeenCalledWith({ name: "fetch_webpage", limit: 10 });
 
     expect(update).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledWith("agent-test", {
@@ -117,12 +96,6 @@ describe("reconcileExistingAgentState", () => {
         mode: "sliding_window",
         model: "letta/auto",
       },
-      tool_ids: ["tool-web", "tool-fetch"],
     });
-
-    expect(DEFAULT_ATTACHED_BASE_TOOLS).toEqual([
-      "web_search",
-      "fetch_webpage",
-    ]);
   });
 });

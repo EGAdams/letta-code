@@ -1,0 +1,45 @@
+- generic [active] [ref=e1]:
+  - strong [ref=e4] [cursor=pointer]: ErrorFormat_ResultSubtype_2026
+  - strong [ref=e7] [cursor=pointer]: ErrorFormat_StopReason_2026
+  - strong [ref=e10] [cursor=pointer]: ErrorFormat_ApiError_2026
+  - strong [ref=e13] [cursor=pointer]: ErrorFormat_ErrorSubtypeCheck_2026
+  - strong [ref=e16] [cursor=pointer]: ErrorFormat_ConflictDetail_2026
+  - strong [ref=e19] [cursor=pointer]: ErrorFormat_ApprovalDetail_2026
+  - strong [ref=e22] [cursor=pointer]: HeadlessInput_InitControl_2026
+  - strong [ref=e25] [cursor=pointer]: HeadlessInput_UserMessage_2026
+  - strong [ref=e28] [cursor=pointer]: HeadlessInput_MultiTurn_2026
+  - strong [ref=e31] [cursor=pointer]: HeadlessInput_Interrupt_2026
+  - strong [ref=e34] [cursor=pointer]: HeadlessInput_RecoverApprovals_2026
+  - strong [ref=e37] [cursor=pointer]: HeadlessInput_RecoverMismatch_2026
+  - strong [ref=e40] [cursor=pointer]: HeadlessInput_PartialMessages_2026
+  - strong [ref=e43] [cursor=pointer]: HeadlessInput_UnknownControl_2026
+  - generic [ref=e44]:
+    - strong [ref=e46] [cursor=pointer]: HeadlessInput_InvalidJson_2026
+    - generic [ref=e119]:
+      - generic [ref=e120]:
+        - list
+      - generic [ref=e121]: checking status...
+  - strong [ref=e49] [cursor=pointer]: HeadlessInput_TaskTool_2026
+  - strong [ref=e52] [cursor=pointer]: StreamJson_InitMessage_2026
+  - strong [ref=e55] [cursor=pointer]: StreamJson_SessionIdUuid_2026
+  - strong [ref=e58] [cursor=pointer]: StreamJson_ResultFormat_2026
+  - strong [ref=e61] [cursor=pointer]: StreamJson_PartialMessages_2026
+  - strong [ref=e64] [cursor=pointer]: StreamJson_NoPartialMessages_2026
+  - strong [ref=e67] [cursor=pointer]: StartupFlow_AgentNotFound_2026
+  - strong [ref=e70] [cursor=pointer]: StartupFlow_ConvNotFound_2026
+  - strong [ref=e73] [cursor=pointer]: StartupFlow_ImportNotFound_2026
+  - strong [ref=e76] [cursor=pointer]: StartupFlow_NewAgent_2026
+  - strong [ref=e79] [cursor=pointer]: StartupFlow_ValidAgent_2026
+  - strong [ref=e82] [cursor=pointer]: StartupFlow_ValidConv_2026
+  - strong [ref=e85] [cursor=pointer]: StartupFlow_SerializedConvId_2026
+  - strong [ref=e88] [cursor=pointer]: StartupFlow_DefaultConv_2026
+  - strong [ref=e91] [cursor=pointer]: StartupFlow_InitBlocksNone_2026
+  - strong [ref=e94] [cursor=pointer]: StartupFlow_NoPrompt_2026
+  - strong [ref=e97] [cursor=pointer]: StartupFlow_StaleConvFallback_2026
+  - strong [ref=e100] [cursor=pointer]: LazyApproval_ConcurrentMessage_2026
+  - strong [ref=e103] [cursor=pointer]: PrestreamApproval_Recovery_2026
+  - strong [ref=e106] [cursor=pointer]: OAuthHealthCheck_2026
+  - strong [ref=e109] [cursor=pointer]: ScissariTestLogger_2026
+  - strong [ref=e112] [cursor=pointer]: ScissariMessagePersistence_2026
+  - strong [ref=e115] [cursor=pointer]: ScissariHaileyInteraction_2026
+  - strong [ref=e118] [cursor=pointer]: ToolAttach_Lifecycle_2026

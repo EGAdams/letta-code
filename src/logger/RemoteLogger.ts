@@ -37,8 +37,30 @@ const RUNNING_COLOR = "lightyellow";
 const PASS_COLOR = "lightgreen";
 const FAIL_COLOR = "#fb6666";
 const MAX_LOG_ENTRIES = 120;
+
+// When any logger turns red, kill the entire test process immediately.
+(process as unknown as NodeJS.EventEmitter).once(
+  "letta-test-bail",
+  (id: string, msg: string) => {
+    process.stderr.write(`\n[letta-test-bail] ${id}: ${msg}\n`);
+    process.exit(1);
+  },
+);
 const MAX_MESSAGE_CHARS = 800;
 const MAX_OBJECT_DATA_BYTES = 200_000;
+const ANSI_ESCAPE_PATTERN =
+  /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const SAFE_APOSTROPHE = "\u2019";
+
+function sanitizeLogMessage(message: string): string {
+  return message
+    .replace(ANSI_ESCAPE_PATTERN, "")
+    .replace(/'/g, SAFE_APOSTROPHE)
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 
 function defaultLed(): MonitorLed {
   return {
@@ -129,10 +151,11 @@ export class RemoteLogger {
   async log(message: string): Promise<void> {
     const timestamp = Date.now(); // milliseconds — matches ILogObject
     const rand = Math.floor(Math.random() * 1e13);
-    const safeMessage =
+    const safeMessage = sanitizeLogMessage(
       typeof message === "string"
         ? message.slice(0, MAX_MESSAGE_CHARS)
-        : String(message).slice(0, MAX_MESSAGE_CHARS);
+        : String(message).slice(0, MAX_MESSAGE_CHARS),
+    );
     this.logObjects.push({
       timestamp,
       id: `${this.objectViewId}_${rand}_${timestamp}`,
@@ -142,6 +165,13 @@ export class RemoteLogger {
     this._shrinkStateForTransport();
     this.monitorLed = updatedLed(safeMessage, this.monitorLed);
     await this._post("update");
+    if (this.monitorLed.classObject.background_color === FAIL_COLOR) {
+      (process as unknown as NodeJS.EventEmitter).emit(
+        "letta-test-bail",
+        this.objectViewId,
+        safeMessage,
+      );
+    }
   }
 
   async clearLogs(ledText = "ready."): Promise<void> {

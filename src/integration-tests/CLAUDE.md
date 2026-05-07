@@ -28,6 +28,8 @@ bun run dev --new-agent -m gpt-5.4-mini-plus-pro-medium -p "Say OK" --output-for
 | `LETTA_API_KEY` | Yes | Authenticates with the Letta API |
 | `LETTA_BASE_URL` | No | Defaults to `http://100.80.49.10:8283` in Scissari tests |
 | `LETTA_RUN_SCISSARI_TEST` | No | Set to `1` to enable Scissari agent tests |
+| `SCISSARI_TELEGRAM_BOT_TOKEN` | No | Telegram bot token for Scissari bridge test (falls back to `TELEGRAM_TOKEN`) |
+| `SCISSARI_TELEGRAM_CHAT_ID` | No | Telegram chat ID used by Scissari bridge test |
 | `LETTA_LOGGER_RESET_API` | No | Override logger reset API (default: americansjewelry.com PHP API) |
 | `LETTA_LOGGER_RESET_DISABLED` | No | Set to `1` to skip `resetAllLoggers()` in `beforeEach` |
 | `LETTA_LOGGER_RESET_TIMEOUT_MS` | No | Per-logger reset timeout (default: 15000) |
@@ -59,6 +61,8 @@ Each test file follows the same pattern:
 | `lazy-approval-recovery.test.ts` | Approval conflict recovery (LET-7101) |
 | `prestream-approval-recovery.test.ts` | Pre-stream approval state recovery |
 | `scissari-agent.integration.test.ts` | Specific agent (ID hardcoded) — requires `LETTA_RUN_SCISSARI_TEST=1` |
+| `scissari-tool-parity.integration.test.ts` | Live regression check that loading/reconciling Scissari does not rewrite her tool set to the legacy `web_search`/`fetch_webpage` pair — requires `LETTA_RUN_SCISSARI_TEST=1` |
+| `scissari-telegram-connection.integration.test.ts` | Telegram bridge wiring into Scissari — requires `LETTA_RUN_SCISSARI_TEST=1`, `SCISSARI_TELEGRAM_CHAT_ID`, and `SCISSARI_TELEGRAM_BOT_TOKEN` (or `TELEGRAM_TOKEN`) |
 
 ### RemoteLogger and LED status
 `RemoteLogger` (at `../logger/RemoteLogger.ts`) posts log entries to a PHP API. The LED color is controlled by message content:

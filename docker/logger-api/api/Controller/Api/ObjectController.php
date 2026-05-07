@@ -17,7 +17,7 @@ class ObjectController extends BaseController {
 	public function selectAction() {  //  "/[ object ]/select" Endpoint - select one object
 		$requestMethod = $_SERVER[ "REQUEST_METHOD" ];
         $strErrorDesc  = "";
-        $object_id     = $this->is_localhost() ? $this->getUriSegments()[ 4 ] : $this->getUriSegments()[ 6 ];
+        $object_id     = isset( $_GET[ 'object_view_id' ] ) ? $_GET[ 'object_view_id' ] : null;
 		if ( strtoupper( $requestMethod ) == 'GET') {
 			try {
 				$selectResult = $this->model->selectObject( $object_id );
@@ -31,12 +31,10 @@ class ObjectController extends BaseController {
 
 		if ( !$strErrorDesc ) {	////// if no error, send output... ///////
 			$this->sendOutput( $responseData, array( 'Content-Type: application/json',
-                                                     'Access-Control-Allow-Origin : "*"',
-                                                     'Access-Control-Allow-Credentials : true',
+                                                     'Access-Control-Allow-Origin: *',
+                                                     'Access-Control-Allow-Credentials: true',
                                                      'HTTP/1.1 200 OK' ));
-            
 		} else {
-		    echo "error !! <br>";
 			$this->sendOutput( json_encode( array( 'error' => $strErrorDesc )),
 				array( 'Content-Type: application/json', $strErrorHeader )); }}
 
@@ -108,8 +106,8 @@ class ObjectController extends BaseController {
             $this->errorObject->setErrorHeader( 'HTTP/1.1 500 Internal Server Error'               );
             $this->sendErrorOutputAndDie(); }
         $this->sendOutput( $responseData, array( 'Content-Type: application/json',
-                                                 'Access-Control-Allow-Origin : "*"',
-                                                 'Access-Control-Allow-Credentials : true',  'HTTP/1.1 200 OK' )); }
+                                                 'Access-Control-Allow-Origin: *',
+                                                 'Access-Control-Allow-Credentials: true', 'HTTP/1.1 200 OK' )); }
 
     private function isExpectedActionOrDie( $expectedMethod ) {
         $requestMethod = $_SERVER[ "REQUEST_METHOD" ];

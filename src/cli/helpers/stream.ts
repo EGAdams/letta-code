@@ -63,6 +63,7 @@ export type DrainResult = {
   lastSeqId?: number | null;
   approval?: ApprovalRequest | null; // DEPRECATED: kept for backward compat
   approvals?: ApprovalRequest[]; // NEW: supports parallel approvals
+  approvalRequestEndedTurn?: boolean;
   apiDurationMs: number; // time spent in API call
   fallbackError?: string | null; // Error message for when we can't fetch details from server (no run_id)
 };
@@ -463,6 +464,16 @@ export async function drainStream(
   const approval: ApprovalRequest | null = approvals[0] || null;
   streamProcessor.pendingApprovals.clear();
 
+  const approvalRequestEndedTurn =
+    stopReason === "end_turn" && approvals.length > 0;
+  if (approvalRequestEndedTurn) {
+    debugWarn(
+      "drainStream",
+      "Received approval_request_message(s) with end_turn; treating as requires_approval",
+    );
+    stopReason = "requires_approval";
+  }
+
   if (
     stopReason === "requires_approval" &&
     approvals.length === 0 &&
@@ -482,6 +493,7 @@ export async function drainStream(
     stopReason,
     approval,
     approvals,
+    approvalRequestEndedTurn,
     lastRunId: streamProcessor.lastRunId,
     lastSeqId: streamProcessor.lastSeqId,
     apiDurationMs,

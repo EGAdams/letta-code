@@ -172,6 +172,39 @@ write eventually lands. For logger stability in tests:
 This avoids false-negative logger failures that leave viewer LEDs stale/yellow despite successful
 test execution.
 
+## Critical: apostrophes in log messages can expose broken PHP SQL handling
+
+Observed against the local PHP logger API in `docker/logger-api`:
+- viewer reads (`object/select`) can look healthy
+- logger resets (`object/delete`) can look healthy
+- logger writes (`insert` or `update`) fail only for certain message contents
+- `RemoteLogger` reports `invalid JSON response`
+
+Concrete trigger:
+- a log message containing an apostrophe, for example `it's broken`
+
+Underlying bug:
+- PHP interpolates raw `object_data` JSON directly into SQL
+- SQL prepare/execute fails on embedded quotes inside the JSON string
+- the DB layer echoes warnings before headers, so the response becomes HTML/text instead of JSON
+
+Telltale response body:
+- `DatabaseException`
+- `Cannot modify header information`
+- `<br />`
+
+This is not a `RemoteLogger` parsing bug. It is a server bug.
+
+Server-side fix:
+- in `/home/adamsl/letta-code/docker/logger-api/api/Model/ObjectModel.php`, use prepared
+  statements for object CRUD queries instead of string concatenation
+- in `/home/adamsl/letta-code/docker/logger-api/api/Model/Database.php`, stop echoing DB errors
+  before sending the JSON response
+
+Deployment caveat:
+- updating the repo copy of the PHP files is not enough; the running API endpoint must be
+  restarted or redeployed before probes stop returning malformed output
+
 ## Browser usage: POST requests must use `mode: 'no-cors'`
 
 When `RemoteLogger` runs **in a browser** (e.g. an Angular app at `localhost:8080`), POST
