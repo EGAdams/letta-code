@@ -59,6 +59,7 @@ export interface AgentSettings {
     | "gemini_snake"
     | "none"; // toolset mode for this agent (manual override or auto)
   systemPromptPreset?: string; // known preset ID, "custom", or undefined (legacy/subagent)
+  permissionMode?: "default" | "acceptEdits" | "plan" | "bypassPermissions"; // agent-specific permission mode
 }
 
 export interface Settings {
@@ -1730,6 +1731,23 @@ class SettingsManager {
   clearSystemPromptPreset(agentId: string): void {
     // Setting to empty string triggers the cleanup `if (!updated.systemPromptPreset) delete ...`
     this.upsertAgentSettings(agentId, { systemPromptPreset: "" });
+  }
+
+  /**
+   * Get the stored permission mode for an agent on the current server.
+   */
+  getPermissionMode(agentId: string): string | undefined {
+    return this.getAgentSettings(agentId)?.permissionMode;
+  }
+
+  /**
+   * Set the permission mode for an agent on the current server.
+   */
+  setPermissionMode(
+    agentId: string,
+    mode: "default" | "acceptEdits" | "plan" | "bypassPermissions",
+  ): void {
+    this.upsertAgentSettings(agentId, { permissionMode: mode });
   }
 
   /**

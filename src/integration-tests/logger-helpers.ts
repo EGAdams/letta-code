@@ -1,3 +1,6 @@
+import { existsSync, rmSync, statSync } from "node:fs";
+import { BAIL_SENTINEL_PATH } from "../logger/RemoteLogger";
+
 const LOCAL_API =
   process.env.LETTA_LOGGER_RESET_API ??
   "http://100.80.49.10:8284/libraries/local-php-api";
@@ -8,9 +11,13 @@ const RESET_TIMEOUT_MS = Number(
 const RESET_CONCURRENCY = Number(
   process.env.LETTA_LOGGER_RESET_CONCURRENCY ?? "4",
 );
+// Default to auto-reset enabled so stale yellow rows from prior runs do not
+// linger and later show viewer-side timeout fallbacks.
+const AUTO_RESET_ENABLED = process.env.LETTA_LOGGER_AUTO_RESET !== "0";
 const RESET_DISABLED = process.env.LETTA_LOGGER_RESET_DISABLED === "1";
 const DEFAULT_VIEWER_BASE =
-  process.env.LETTA_LOGGER_VIEWER_BASE ?? "http://localhost:8080";
+  process.env.LETTA_LOGGER_VIEWER_BASE ?? "http://100.80.49.10:8284";
+const PROCESS_START_MS = Date.now();
 export const ALL_LOGGER_IDS = [
   "ErrorFormat_ResultSubtype_2026",
   "ErrorFormat_StopReason_2026",
@@ -28,6 +35,8 @@ export const ALL_LOGGER_IDS = [
   "HeadlessInput_UnknownControl_2026",
   "HeadlessInput_InvalidJson_2026",
   "HeadlessInput_TaskTool_2026",
+  "HeadlessInput_TaskToolQueue_2026",
+  "HeadlessInput_InitThenUser_2026",
   "StreamJson_InitMessage_2026",
   "StreamJson_SessionIdUuid_2026",
   "StreamJson_ResultFormat_2026",
@@ -47,10 +56,15 @@ export const ALL_LOGGER_IDS = [
   "LazyApproval_ConcurrentMessage_2026",
   "PrestreamApproval_Recovery_2026",
   "OAuthHealthCheck_2026",
+  "LetabotMetaSuppression_SimpleQ_2026",
+  "LetabotMetaSuppression_WebSearch_2026",
   "ScissariTestLogger_2026",
   "ScissariMessagePersistence_2026",
   "ScissariHaileyInteraction_2026",
   "ScissariToolParity_2026",
+  "ScissariPlanningModeHang_2026",
+  "ScissariInactivityTimeout_2026",
+  "ScissariToolExecutionHang_2026",
   "ToolAttach_Lifecycle_2026",
 ];
 
@@ -127,13 +141,7 @@ async function diagnoseLoggerTransport(): Promise<void> {
   );
 }
 
-export async function resetAllLoggers(): Promise<void> {
-  if (RESET_DISABLED) {
-    console.log(
-      "[resetAllLoggers] Skipped because LETTA_LOGGER_RESET_DISABLED=1",
-    );
-    return;
-  }
+async function performResetAllLoggers(): Promise<void> {
   console.log(
     `[resetAllLoggers] Starting reset of ${ALL_LOGGER_IDS.length} loggers on ${LOCAL_API} ` +
       `(timeout=${RESET_TIMEOUT_MS}ms, concurrency=${RESET_CONCURRENCY}) …`,
@@ -159,4 +167,43 @@ export async function resetAllLoggers(): Promise<void> {
     );
     await diagnoseLoggerTransport();
   }
+}
+
+export async function flushAllLoggers(): Promise<void> {
+  await performResetAllLoggers();
+}
+
+export async function resetAllLoggers(): Promise<void> {
+  if (existsSync(BAIL_SENTINEL_PATH)) {
+    const sentinelMtimeMs = (() => {
+      try {
+        return statSync(BAIL_SENTINEL_PATH).mtimeMs;
+      } catch {
+        return null;
+      }
+    })();
+    if (sentinelMtimeMs !== null && sentinelMtimeMs < PROCESS_START_MS) {
+      try {
+        rmSync(BAIL_SENTINEL_PATH, { force: true });
+      } catch {}
+      console.warn(
+        "[resetAllLoggers] Cleared stale bail sentinel from a previous run.",
+      );
+    } else {
+      process.stderr.write(
+        "[resetAllLoggers] Bail sentinel detected — aborting test file.\n",
+      );
+      process.exit(1);
+    }
+  }
+  if (RESET_DISABLED || !AUTO_RESET_ENABLED) {
+    return;
+  }
+  await performResetAllLoggers();
+}
+
+export function clearBailSentinel(): void {
+  try {
+    rmSync(BAIL_SENTINEL_PATH, { force: true });
+  } catch {}
 }
