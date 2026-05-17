@@ -27,6 +27,7 @@ The tests require several environment variables to be set:
 - `LETTA_BASE_URL`: (Optional) The base URL for the Letta API. Defaults to a hardcoded IP if not provided.
 - `LETTA_RUN_SCISSARI_TEST`: Set to `1` to enable Scissari agent tests.
 - `LETTA_LOGGER_RESET_API`: (Optional) URL for the logger reset API.
+- `LETTA_LOGGER_AUTO_RESET`: Set to `1` to re-enable the automatic per-test reset path.
 - `LETTA_CODE_AGENT_ROLE`: Usually set to `subagent` within tests to avoid polluting user settings.
 
 ### Key Commands
@@ -38,7 +39,7 @@ The tests require several environment variables to be set:
   ```bash
   bun test startup-flow.integration.test.ts
   ```
-- **Clear remote loggers:**
+- **Flush remote loggers explicitly:**
   ```bash
   bun clear-loggers.ts
   ```
@@ -51,13 +52,13 @@ The tests require several environment variables to be set:
 
 ### Test Structure
 - **File Naming:** Integration tests should end with `.integration.test.ts` or `.test.ts`.
-- **Isolation:** Use `beforeEach` to call `resetAllLoggers()` to ensure a clean state for every test.
+- **Isolation:** `resetAllLoggers()` skips by default; set `LETTA_LOGGER_AUTO_RESET=1` only when you want the old automatic clean-state behavior.
 - **Process Spawning:** Use the `runCli` helper function found in most test files to spawn the CLI. This helper handles timeouts, retries, and captures stdout/stderr.
 - **Logging:** Use `RemoteLogger` to provide visibility into test progress, especially for long-running or complex integration scenarios.
 
 ### Logger Helpers
 - `ALL_LOGGER_IDS`: A registry of all logger IDs used across tests, found in `logger-helpers.ts`.
-- `resetAllLoggers()`: Clears all registered loggers via a remote API.
+- `resetAllLoggers()`: Skips by default; explicit wipes use `flushAllLoggers()` or `bun clear-loggers.ts`.
 
 ### Common Patterns
 - **JSON Parsing:** Many tests use `--output-format json` and parse the CLI's stdout to verify properties like `agent_id` and `conversation_id`.

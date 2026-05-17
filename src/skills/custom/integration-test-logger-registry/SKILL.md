@@ -208,6 +208,21 @@ Avoid calling `resetAllLoggers()` in `beforeEach` for focused startup-flow runs.
 push the remote PHP API into transient `503/507`, causing logger init failures even when the actual
 application test passes.
 
+## Rule 13: stale bail sentinels are a shutdown artifact, not a test assertion
+
+`RemoteLogger` writes `/tmp/letta-integration-bail` when a logger turns red, and
+`resetAllLoggers()` aborts if that file is present. That is a useful failure signal only
+when it was created by the current process.
+
+If a run aborts immediately with:
+```text
+[resetAllLoggers] Bail sentinel detected — aborting test file.
+```
+check for an old shutdown first. The integration runner now writes a pidfile at
+`/tmp/letta-integration-tests.*.pid`, and `src/integration-tests/kill-running-tests.sh`
+uses it to stop the tracked test process group. If the sentinel file is older than the
+current test process, `resetAllLoggers()` clears it and continues.
+
 ## Rule 7: outer test timeout must cover the sum of all sequential runCli calls
 
 Each `runCli(args, { timeoutMs: N })` call has its own per-invocation deadline, but the
@@ -283,6 +298,45 @@ if (result.exitCode !== 0) {
 }
 expect(result.exitCode).toBe(0);
 ```
+
+## Rule 14: keep inner CLI timeout + retry budget below outer test timeout
+
+A test can fail silently in the viewer (stuck at "Test started...") when Bun kills it at the
+outer timeout before local `catch` blocks run.
+
+Observed case (2026-05-10):
+- `HeadlessInput_UnknownControl_2026` called:
+  - `runBidirectionalWithRetry(..., timeoutMs=180000, retryOnTimeouts=1)` (default values)
+  - worst-case inner runtime ~360s
+- test outer timeout was `{ timeout: 200000 }`
+- Bun terminated test first; `catch` did not log `ERROR:`, so fail-fast signal never fired.
+
+Required invariant:
+`(inner timeout × (retries + 1)) + overhead < outer test timeout`
+
+Example safe call:
+```typescript
+await runBidirectionalWithRetry(inputs, [], 90000, 0); // <= outer 200000
+```
+
+If this invariant is violated, viewer state can look stale even when assertions fail, because no
+terminal red log message is emitted.
+
+## Rule 15: memory location for stale UI state fixes
+
+When viewer color is stale (yellow persists after row delete/reset), inspect these files first:
+
+- `/home/adamsl/the-factory/src/components/monitor-led/monitor-led.component.ts`
+- `/home/adamsl/the-factory/src/components/accordion-section/accordion-section.component.ts`
+
+Do not start with test code until per-object API checks are done:
+```bash
+curl -s "http://localhost:8080/php-api/object/select?object_view_id=<LoggerId>"
+curl -s "http://100.80.49.10:8284/libraries/local-php-api/object/select?object_view_id=<LoggerId>"
+```
+
+If both return `null`, row should be neutral gray. Any yellow/red at that point is viewer-state
+handling, not integration-test behavior.
 
 Apply this to optional bootstrap calls too (`--new-agent` setup paths), not just main phases.
 

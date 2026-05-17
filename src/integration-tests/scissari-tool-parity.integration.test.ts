@@ -158,6 +158,7 @@ describe("Scissari tool parity integration", () => {
         await ensureExactToolSet(SCISSARI_AGENT_ID, REQUIRED_TOOLS);
         const repairedNames = await listAgentToolNames(SCISSARI_AGENT_ID);
         await log(`Final repaired state: ${formatNames(repairedNames)}`);
+        if (loggerReady) await logger.flushLogs();
       }
     },
     { timeout: 120000 },

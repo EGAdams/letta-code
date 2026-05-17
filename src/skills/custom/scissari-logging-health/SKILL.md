@@ -32,7 +32,7 @@ description: >
 | Local proxy API | `http://localhost:8080/php-api` |
 | Upstream API | `https://americansjewelry.com/libraries/local-php-api/index.php` |
 | Reset API (from WSL) | `http://100.80.49.10:8284/libraries/local-php-api` |
-| Scissari logger IDs | `ScissariTestLogger_2026`, `ScissariMessagePersistence_2026` |
+| Scissari logger IDs | `ScissariTestLogger_2026`, `ScissariMessagePersistence_2026`, `ScissariPlanningModeHang_2026`, `ScissariInactivityTimeout_2026` |
 
 ---
 
@@ -81,6 +81,35 @@ bun test \
   src/integration-tests/scissari-agent.integration.test.ts \
   src/integration-tests/scissari-message-persistence.integration.test.ts
 ```
+
+### Step 2a — Planning Mode Hang Detection Tests (NEW)
+
+If Scissari gets stuck in Planning mode (shows "Thinking…" with no output), use these new tests:
+
+```bash
+cd /home/adamsl/letta-code
+
+# Run hang detection tests with verbose logging
+LETTA_RUN_SCISSARI_TEST=1 \
+LETTA_BASE_URL=http://100.80.49.10:8283 \
+LETTA_API_KEY=6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8 \
+bun test \
+  --timeout 90000 \
+  src/integration-tests/scissari-planning-mode-hang.integration.test.ts
+
+# Or use the convenience script
+bash src/integration-tests/run-scissari-hang-tests.sh
+```
+
+**What these tests do:**
+- **Starvation detection** — monitors for 15+ seconds of no output (indicates planning mode hang)
+- **Crash detection** — detects if the process exits immediately without producing output
+- **Recovery testing** — verifies moderate complexity prompts complete without hanging
+
+**Related files:**
+- `src/integration-tests/scissari-planning-mode-hang.integration.test.ts` — hang detection implementation
+- `src/integration-tests/debug-scissari-cli.sh` — diagnostic script to test basic CLI functionality
+- `src/integration-tests/SCISSARI_HANG_TESTS.md` — detailed documentation
 
 To also run the Telegram bridge test you need two extra env vars:
 ```bash
@@ -246,6 +275,8 @@ Diagnostic steps:
 
 ### Fingerprint 5: Message persistence test fails — streamed result OK but no persisted assistant message
 
+(This is Fingerprint 5 in the original numbering — see below for the hang detection diagnostic)
+
 This is the known bug documented in `handoff.md`. The streamed CLI output contains the nonce token
 but `runs.messages.list(run_id)` shows no `assistant_message` with that token.
 
@@ -279,7 +310,58 @@ the test is correctly failing to document this state.
 
 ---
 
-### Fingerprint 6: Logger reset failures (`HTTP 507` / `HTTP 503`)
+### Fingerprint 6: Planning mode hang — "Thinking…" with no progress
+
+**Symptom:** User sends prompt, Scissari displays "Thinking…" → "● Reviewing user messages" → "✻ Thinking…" (calculating…), then CLI never produces output.
+
+**Cause:** Planning mode (entering plan mode) sends only pings for 2+ minutes without content.
+
+**Diagnostic:**
+1. Run the hang detection test to confirm starvation:
+   ```bash
+   bash src/integration-tests/run-scissari-hang-tests.sh
+   ```
+   Look for `ScissariPlanningModeHang_2026` and `ScissariInactivityTimeout_2026` LED status at `http://localhost:8080`
+
+2. Check if the stream inactivity timeout is in place (`src/cli/helpers/stream.ts`):
+   ```bash
+   grep -n "90" src/cli/helpers/stream.ts | grep -i timeout
+   ```
+   Should show: ~line 15 or nearby, a 90-second inactivity timer in `drainStream()`.
+
+3. If timeout is missing or stale, rebuild:
+   ```bash
+   bun run build
+   ```
+
+4. Verify the built `letta.js` has the timeout (this is the actual binary used):
+   ```bash
+   grep -c "90000\|90 \* 1000" letta.js
+   ```
+   If count is 0, the build didn't pick up the source change.
+
+**Root cause checklist:**
+- [ ] `src/cli/helpers/stream.ts` — 90s inactivity timer was added (2026-05-09)
+- [ ] `letta.js` built after source edit (run `bun run build`)
+- [ ] Letta 0.16.3 MCP streaming issue with reasoning-only output (escalate to Letta backend team)
+- [ ] Model (`gpt-5.3-codex`) behavior changed — check with Anthropic API dashboard
+
+**If tests detect no output at all** (not starvation, but immediate crash):
+1. Run the CLI diagnostic:
+   ```bash
+   bash src/integration-tests/debug-scissari-cli.sh
+   ```
+   This tests basic CLI startup, model swap, and Scissari agent directly.
+
+2. If basic CLI works but Scissari crashes, check agent health directly:
+   ```bash
+   LETTA_BASE_URL=http://100.80.49.10:8283 LETTA_API_KEY=6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8 \
+   bun run dev --agent agent-5955b0c2-7922-4ffe-9e43-b116053b80fa --new -p "Hello" --output-format json
+   ```
+
+---
+
+### Fingerprint 7: Logger reset failures (`HTTP 507` / `HTTP 503`)
 
 **Cause:** The upstream PHP API is under storage pressure or briefly overloaded during the reset
 burst before tests.

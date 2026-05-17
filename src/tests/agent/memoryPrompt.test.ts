@@ -64,6 +64,22 @@ describe("buildSystemPrompt", () => {
     const lettaResult = buildSystemPrompt("letta", "standard");
     expect(defaultResult).toBe(lettaResult);
   });
+
+  test("source-codex prompt includes executor_run preference for Python execution", () => {
+    const result = buildSystemPrompt("source-codex", "standard");
+    expect(result).toContain(
+      "prefer `executor_run` for Python/script execution",
+    );
+    expect(result).toContain("reusable library-style folder");
+  });
+
+  test("source-claude prompt includes executor_run preference for Python execution", () => {
+    const result = buildSystemPrompt("source-claude", "standard");
+    expect(result).toContain(
+      "prefer `executor_run` for Python/script execution",
+    );
+    expect(result).toContain("reusable library-style folder");
+  });
 });
 
 describe("swapMemoryAddon", () => {

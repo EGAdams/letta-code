@@ -116,11 +116,26 @@ describe("Tool attach lifecycle integration", () => {
 
       // ── Phase 2: create an agent ──────────────────────────────────────────
       await log("Phase 2: creating agent via client.agents.create");
-      const agent = await client.agents.create({
-        name: `tool-attach-integration-test-${Date.now()}`,
-        include_base_tools: false,
-        include_base_tool_rules: false,
-      });
+      let agent;
+      try {
+        agent = await client.agents.create({
+          name: `tool-attach-integration-test-${Date.now()}`,
+          llm_config: {
+            model_endpoint_type: "chatgpt_oauth",
+            model: "gpt-5.3-codex",
+            context_window: 140000,
+            parallel_tool_calls: true,
+            reasoning_effort: "medium",
+            enable_reasoner: true,
+          },
+          include_base_tools: false,
+          include_base_tool_rules: false,
+        });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : JSON.stringify(err);
+        await log(`ERROR: agent create failed — ${detail}`);
+        throw err;
+      }
       createdAgentId = agent.id;
       await log(`agent created: id=${agent.id}`);
       expect(agent.id).toMatch(/^agent-/);
@@ -205,11 +220,26 @@ describe("Tool attach lifecycle integration", () => {
 
       // We need a real agent to attempt the attach against.
       await log("creating throwaway agent for bad-tool-id test");
-      const agent = await client.agents.create({
-        name: `tool-attach-badid-test-${Date.now()}`,
-        include_base_tools: false,
-        include_base_tool_rules: false,
-      });
+      let agent;
+      try {
+        agent = await client.agents.create({
+          name: `tool-attach-badid-test-${Date.now()}`,
+          llm_config: {
+            model_endpoint_type: "chatgpt_oauth",
+            model: "gpt-5.3-codex",
+            context_window: 140000,
+            parallel_tool_calls: true,
+            reasoning_effort: "medium",
+            enable_reasoner: true,
+          },
+          include_base_tools: false,
+          include_base_tool_rules: false,
+        });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : JSON.stringify(err);
+        await log(`ERROR: agent create failed — ${detail}`);
+        throw err;
+      }
       const agentId = agent.id;
       await log(`agent created: id=${agentId}`);
 
@@ -251,6 +281,7 @@ describe("Tool attach lifecycle integration", () => {
       await log(
         `nonexistent tool attach returned ${caughtStatus} (not 500): PASS — test complete`,
       );
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 30000 },
   );

@@ -18,6 +18,10 @@ const MULTI_AGENT_TOOL_NAMES = new Set([
   "send_message_to_agent_and_wait_for_reply",
 ]);
 
+// Tools the Letta server streams as tool_call_message + end_turn without executing.
+// The client executes these locally and sends results back as a user message.
+const CLIENT_SIDE_FALLBACK_TOOLS = new Set(["executor_run"]);
+
 function extractText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -55,7 +59,11 @@ export function collectPendingMultiAgentToolCalls(
   const pending: PendingServerToolCall[] = [];
 
   for (const [toolCallId, toolInfo] of serverToolCalls) {
-    if (!MULTI_AGENT_TOOL_NAMES.has(toolInfo.toolName)) continue;
+    if (
+      !MULTI_AGENT_TOOL_NAMES.has(toolInfo.toolName) &&
+      !CLIENT_SIDE_FALLBACK_TOOLS.has(toolInfo.toolName)
+    )
+      continue;
     if (!parseToolArgs(toolInfo.toolArgs)) continue;
     pending.push({
       toolCallId,
@@ -325,13 +333,63 @@ Do not ask the sender to provide another agent ID.
   };
 }
 
+async function executeClientSideTool(
+  call: PendingServerToolCall,
+): Promise<ApprovalResult> {
+  const args = parseToolArgs(call.toolArgs) ?? {};
+
+  if (call.toolName === "executor_run") {
+    const command = typeof args.command === "string" ? args.command : "";
+    const cwd = typeof args.cwd === "string" ? args.cwd : ".";
+
+    if (!command) {
+      return {
+        type: "tool",
+        tool_call_id: call.toolCallId,
+        status: "error",
+        tool_return: "executor_run: missing required argument 'command'",
+      };
+    }
+
+    try {
+      const { executor_run } = await import("../tools/impl/Bash");
+      const result = await executor_run({ command, cwd });
+      const text = result.content.map((c: { text: string }) => c.text).join("");
+      return {
+        type: "tool",
+        tool_call_id: call.toolCallId,
+        status: result.status,
+        tool_return: text,
+      };
+    } catch (e) {
+      return {
+        type: "tool",
+        tool_call_id: call.toolCallId,
+        status: "error",
+        tool_return: `executor_run failed: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  }
+
+  return {
+    type: "tool",
+    tool_call_id: call.toolCallId,
+    status: "error",
+    tool_return: `Unknown client-side fallback tool: ${call.toolName}`,
+  };
+}
+
 export async function executePendingMultiAgentToolCalls(
   calls: PendingServerToolCall[],
   senderAgentId: string,
 ): Promise<ApprovalResult[]> {
   const results: ApprovalResult[] = [];
   for (const call of calls) {
-    results.push(await executeMultiAgentToolCall(call, senderAgentId));
+    if (CLIENT_SIDE_FALLBACK_TOOLS.has(call.toolName)) {
+      results.push(await executeClientSideTool(call));
+    } else {
+      results.push(await executeMultiAgentToolCall(call, senderAgentId));
+    }
   }
   return results;
 }

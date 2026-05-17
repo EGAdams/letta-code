@@ -48,6 +48,13 @@ function normalizeSerializedConversationId(
     return value;
   }
 
+  const isDebug = process.env.LETTA_DEBUG === "1" || process.env.DEBUG_CONV_ID;
+  if (isDebug) {
+    console.error(
+      `[normalizeSerializedConversationId] input="${value}" length=${value.length}`,
+    );
+  }
+
   const unwrapOneLevel = (raw: string): string => {
     const trimmed = raw.trim();
 
@@ -59,10 +66,21 @@ function normalizeSerializedConversationId(
         parsed.length === 1 &&
         typeof parsed[0] === "string"
       ) {
-        return parsed[0];
+        const result = parsed[0];
+        if (isDebug) {
+          console.error(
+            `[normalizeSerializedConversationId] JSON unwrap: "${trimmed}" → "${result}"`,
+          );
+        }
+        return result;
       }
       // Also support double-serialized values like "\"['conv-...']\"".
       if (typeof parsed === "string") {
+        if (isDebug) {
+          console.error(
+            `[normalizeSerializedConversationId] JSON string unwrap: "${trimmed}" → "${parsed}"`,
+          );
+        }
         return parsed;
       }
     } catch {
@@ -72,7 +90,19 @@ function normalizeSerializedConversationId(
     // Python-ish serialized form: ['conv-...']
     const singleQuotedListMatch = /^\[\s*'([^']+)'\s*\]$/.exec(trimmed);
     if (singleQuotedListMatch?.[1]) {
-      return singleQuotedListMatch[1];
+      const result = singleQuotedListMatch[1];
+      if (isDebug) {
+        console.error(
+          `[normalizeSerializedConversationId] regex unwrap: "${trimmed}" → "${result}"`,
+        );
+      }
+      return result;
+    }
+
+    if (isDebug && raw !== trimmed) {
+      console.error(
+        `[normalizeSerializedConversationId] no match (trimmed): "${trimmed}"`,
+      );
     }
 
     return raw;
@@ -82,9 +112,20 @@ function normalizeSerializedConversationId(
   for (let i = 0; i < 3; i += 1) {
     const next = unwrapOneLevel(normalized);
     if (next === normalized) {
+      if (isDebug && i > 0) {
+        console.error(
+          `[normalizeSerializedConversationId] stabilized after ${i} iteration(s)`,
+        );
+      }
       break;
     }
     normalized = next;
+  }
+
+  if (isDebug) {
+    console.error(
+      `[normalizeSerializedConversationId] output="${normalized}" (changed=${normalized !== value})`,
+    );
   }
 
   return normalized;

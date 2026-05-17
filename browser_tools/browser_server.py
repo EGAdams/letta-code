@@ -53,12 +53,18 @@ ensure_dependencies()
 from flask import Flask, request, jsonify
 import undetected_chromedriver as uc
 from selenium import webdriver
-from selenium.common.exceptions import SessionNotCreatedException, TimeoutException, WebDriverException
+from selenium.common.exceptions import (
+    InvalidSessionIdException,
+    SessionNotCreatedException,
+    TimeoutException,
+    WebDriverException,
+)
 from selenium.webdriver.chrome.options import Options as SeleniumChromeOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 
 app = Flask(__name__)
 driver = None
@@ -158,6 +164,17 @@ def create_driver(user_data_dir):
     if version_main:
         kwargs["version_main"] = version_main
     return uc.Chrome(**kwargs)
+
+
+def driver_session_is_alive(d):
+    try:
+        d.window_handles
+        return True
+    except (InvalidSessionIdException, WebDriverException) as exc:
+        message = str(exc).lower()
+        if isinstance(exc, InvalidSessionIdException) or "invalid session id" in message:
+            return False
+        raise
 
 
 def attach_to_startup_browser():
@@ -364,15 +381,34 @@ def current_start_url():
     return os.environ.get("BROWSER_SERVER_START_URL", "https://chatgpt.com/")
 
 
+def normalize_browser_window(d):
+    try:
+        d.set_window_rect(x=600, y=120, width=1000, height=800)
+    except WebDriverException as exc:
+        if "Browser window not found" not in str(exc):
+            raise
+
+
 def ensure_chatgpt_page(d):
     url = current_start_url()
-    try:
-        current_url = d.current_url
-    except WebDriverException:
-        current_url = ""
+    chatgpt_handle = None
 
-    if "chatgpt.com" not in current_url:
-        d.get(url)
+    for handle in d.window_handles:
+        try:
+            d.switch_to.window(handle)
+            if "chatgpt.com" in (d.current_url or ""):
+                chatgpt_handle = handle
+                break
+        except WebDriverException:
+            continue
+
+    if chatgpt_handle:
+        d.switch_to.window(chatgpt_handle)
+        normalize_browser_window(d)
+        return
+
+    d.get(url)
+    normalize_browser_window(d)
 
 
 def find_prompt_element(d, timeout=20):
@@ -384,21 +420,42 @@ def find_prompt_element(d, timeout=20):
         'textarea[data-testid="prompt-textarea"]',
         "textarea",
     ]
-    wait = WebDriverWait(d, timeout)
+    deadline = time.time() + timeout
     last_error = None
 
-    for selector in selectors:
-        try:
-            return wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
-        except TimeoutException as exc:
-            last_error = exc
+    while time.time() < deadline:
+        for selector in selectors:
+            try:
+                elements = d.find_elements(By.CSS_SELECTOR, selector)
+            except WebDriverException as exc:
+                last_error = exc
+                continue
+            for el in elements:
+                try:
+                    if not el.is_displayed() or not el.is_enabled():
+                        continue
+                    rect = el.rect or {}
+                    if rect.get("width", 0) <= 0 or rect.get("height", 0) <= 0:
+                        continue
+                    return el
+                except WebDriverException as exc:
+                    last_error = exc
+                    continue
+        time.sleep(0.25)
 
-    raise TimeoutException(f"Could not find prompt element using selectors: {selectors}") from last_error
+    raise TimeoutException(f"Could not find visible prompt element using selectors: {selectors}") from last_error
 
 
 def get_driver():
     global driver, fallback_profile_dir, startup_browser_pid, startup_debugger_address
     with driver_lock:
+        if driver is not None and not driver_session_is_alive(driver):
+            try:
+                driver.quit()
+            except WebDriverException:
+                pass
+            driver = None
+
         if driver is None:
             user_data_dir = default_user_data_dir()
             existing_pid, existing_debugger_address = find_existing_debugger_address(user_data_dir)
@@ -427,8 +484,7 @@ def get_driver():
                 driver = create_driver(fallback_profile_dir)
             driver.set_page_load_timeout(int(os.environ.get("CHROME_PAGE_LOAD_TIMEOUT", "30")))
             try:
-                driver.set_window_size(860, 540)
-                driver.set_window_position(600, 1200)
+                normalize_browser_window(driver)
             except WebDriverException as exc:
                 if "Browser window not found" not in str(exc):
                     raise
@@ -563,6 +619,46 @@ def open_url():
         return jsonify({"status": "error", "error": "webdriver_error", "details": str(exc)}), 500
 
 
+@app.route('/debug_state', methods=['GET'])
+def debug_state():
+    d = get_driver()
+    selector_counts = {}
+    selectors = [
+        "#prompt-textarea",
+        'div[contenteditable="true"]#prompt-textarea',
+        'div.ProseMirror[contenteditable="true"]',
+        'div[contenteditable="true"][data-placeholder]',
+        'textarea[data-testid="prompt-textarea"]',
+        '[data-message-author-role]',
+    ]
+    windows = []
+
+    for handle in d.window_handles:
+        try:
+            d.switch_to.window(handle)
+            counts = {}
+            for selector in selectors:
+                elements = d.find_elements(By.CSS_SELECTOR, selector)
+                counts[selector] = {
+                    "total": len(elements),
+                    "visible": sum(1 for el in elements if el.is_displayed()),
+                }
+            windows.append({
+                "handle": handle,
+                "title": d.title,
+                "url": d.current_url,
+                "selectors": counts,
+            })
+        except WebDriverException as exc:
+            windows.append({
+                "handle": handle,
+                "error": str(exc),
+            })
+
+    ensure_chatgpt_page(d)
+    return jsonify({"windows": windows, "current_url": d.current_url, "current_title": d.title})
+
+
 @app.route('/new_chat', methods=['POST'])
 @app.route('/new-chat', methods=['POST'])
 def new_chat():
@@ -598,21 +694,72 @@ def type_text():
 @app.route('/send', methods=['POST'])
 def send_message():
     d = get_driver()
-    selector = '#prompt-textarea'
+    ensure_chatgpt_page(d)
     wait = WebDriverWait(d, 10)
-    el = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
-    el.send_keys(Keys.RETURN)
-    return jsonify({"status": "sent"})
+
+    # Primary path: press Enter in the prompt.
+    try:
+        el = find_prompt_element(d, timeout=10)
+        el.click()
+        el.send_keys(Keys.RETURN)
+        return jsonify({"status": "sent", "method": "enter"})
+    except WebDriverException:
+        pass
+
+    # Fallback: send Enter to the active element.
+    try:
+        active = d.switch_to.active_element
+        active.send_keys(Keys.RETURN)
+        return jsonify({"status": "sent", "method": "active_element_enter"})
+    except WebDriverException:
+        pass
+
+    # Final fallback: click common send-button selectors.
+    button_selectors = [
+        'button[data-testid="send-button"]',
+        'button[aria-label^="Send"]',
+        'button[aria-label*="Send message"]',
+    ]
+    for selector in button_selectors:
+        try:
+            btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+            btn.click()
+            return jsonify({"status": "sent", "method": f"button:{selector}"})
+        except WebDriverException:
+            continue
+
+    # Last resort: native Enter key at browser level.
+    try:
+        ActionChains(d).send_keys(Keys.RETURN).perform()
+        return jsonify({"status": "sent", "method": "actionchains_enter"})
+    except WebDriverException as exc:
+        return jsonify({"status": "error", "error": "send_failed", "details": str(exc)}), 500
 
 @app.route('/get_response', methods=['GET'])
 def get_response():
     d = get_driver()
-    time.sleep(3)
-    messages = d.find_elements(By.CSS_SELECTOR, '[data-message-author-role="assistant"]')
-    if messages:
-        last = messages[-1].text
-        return jsonify({"response": last})
-    return jsonify({"response": None})
+    ensure_chatgpt_page(d)
+    timeout = request.args.get("timeout", default=25, type=int)
+    timeout = max(1, min(timeout, 120))
+    stable_seconds = request.args.get("stable_seconds", default=3, type=int)
+    stable_seconds = max(1, min(stable_seconds, 15))
+    deadline = time.time() + timeout
+    last_text = None
+    last_changed_at = time.time()
+
+    while time.time() < deadline:
+        messages = d.find_elements(By.CSS_SELECTOR, '[data-message-author-role="assistant"]')
+        for msg in reversed(messages):
+            text = (msg.text or "").strip()
+            if text:
+                if text != last_text:
+                    last_text = text
+                    last_changed_at = time.time()
+                elif time.time() - last_changed_at >= stable_seconds:
+                    return jsonify({"response": text})
+                break
+        time.sleep(1)
+    return jsonify({"response": last_text})
 
 @app.route('/read_thread', methods=['GET'])
 def read_thread():
@@ -622,33 +769,18 @@ def read_thread():
     Optional query param ?last=N returns only the last N turns.
     """
     d = get_driver()
-
-    # Find all conversation turn sections in order
-    turn_sections = d.find_elements(
-        By.CSS_SELECTOR,
-        'section[data-turn-id][data-turn]'
-    )
+    ensure_chatgpt_page(d)
 
     thread = []
-    for section in turn_sections:
-        role = section.get_attribute('data-turn')           # 'user' or 'assistant'
-        turn_id = section.get_attribute('data-turn-id')
-
-        # Grab all message bubbles within this turn section
-        bubbles = section.find_elements(
-            By.CSS_SELECTOR,
-            f'[data-message-author-role="{role}"]'
-        )
-
-        # Combine text from all bubbles in this turn (handles multi-bubble assistant turns)
-        text_parts = [b.text.strip() for b in bubbles if b.text.strip()]
-        combined_text = "\n\n".join(text_parts)
-
-        if combined_text:
+    bubbles = d.find_elements(By.CSS_SELECTOR, '[data-message-author-role]')
+    for idx, bubble in enumerate(bubbles, start=1):
+        role = (bubble.get_attribute('data-message-author-role') or '').strip()
+        text = (bubble.text or '').strip()
+        if role in ('user', 'assistant') and text:
             thread.append({
                 "role": role,
-                "turn_id": turn_id,
-                "text": combined_text
+                "turn_id": str(idx),
+                "text": text,
             })
 
     # Support ?last=N to fetch only the most recent N turns
@@ -673,6 +805,10 @@ def quit_browser():
 if __name__ == '__main__':
     if os.environ.get("BROWSER_SERVER_OPEN_ON_START") == "1":
         threading.Thread(target=open_initial_url, daemon=True).start()
-    app.run(port=5001, threaded=True)
+    app.run(
+        host=os.environ.get("BROWSER_SERVER_HOST", "127.0.0.1"),
+        port=int(os.environ.get("BROWSER_SERVER_PORT", "5001")),
+        threaded=True,
+    )
 
     

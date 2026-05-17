@@ -35,6 +35,8 @@ Do not use Bash to run `letta`, `letta.js`, or another nested Letta Code CLI for
 
 If either communication tool is missing, load `scissari-hailey-pairing` and run its ensure script before trying to message Hailey.
 
+If a helper `Task` subagent fails while finding or messaging another agent with `NOT_FOUND: Handle letta/auto not found, must be one of []`, do not keep retrying the same Task prompt. Inspect `src/agent/subagents/manager.ts`, especially `resolveSubagentModel()` and the model-unavailable retry path in `executeSubagent()`. The expected behavior is to inherit the parent agent's concrete model, or choose a server-available non-auto handle, instead of launching a new subagent with unavailable `letta/auto`.
+
 ## When to Use This Skill
 
 - You need to ask another agent a question

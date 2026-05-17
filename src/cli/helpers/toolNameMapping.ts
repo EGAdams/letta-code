@@ -20,6 +20,7 @@ export function getDisplayToolName(rawName: string): string {
   if (rawName === "read") return "Read";
   if (rawName === "view_image" || rawName === "ViewImage") return "View Image";
   if (rawName === "bash") return "Bash";
+  if (rawName === "executor_run") return "Executor";
   if (rawName === "grep" || rawName === "Grep") return "Search";
   if (rawName === "glob" || rawName === "Glob") return "Glob";
   if (rawName === "ls") return "LS";
@@ -211,7 +212,8 @@ export function isShellTool(name: string): boolean {
     n === "shell_command" ||
     n === "shellcommand" ||
     n === "run_shell_command" ||
-    n === "runshellcommand"
+    n === "runshellcommand" ||
+    n === "executor_run"
   );
 }
 

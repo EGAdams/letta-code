@@ -7,6 +7,19 @@ import {
   resolveSubagentModel,
 } from "../../agent/subagents/manager";
 
+const baseSubagentConfig: SubagentConfig = {
+  name: "test-subagent",
+  description: "test",
+  systemPrompt: "test prompt",
+  allowedTools: "all",
+  recommendedModel: "inherit",
+  skills: [],
+  memoryBlocks: "none",
+  mode: "stateful",
+  fork: false,
+  background: false,
+};
+
 describe("resolveSubagentLauncher", () => {
   test("explicit launcher takes precedence over .ts script autodetection", () => {
     const launcher = resolveSubagentLauncher(["-p", "hi"], {
@@ -122,21 +135,13 @@ describe("resolveSubagentLauncher", () => {
 });
 
 describe("buildSubagentArgs", () => {
-  const baseConfig: SubagentConfig = {
-    name: "test-subagent",
-    description: "test",
-    systemPrompt: "test prompt",
-    allowedTools: "all",
-    recommendedModel: "inherit",
-    skills: [],
-    memoryBlocks: "none",
-    mode: "stateful",
-    fork: false,
-    background: false,
-  };
-
   test("adds --no-memfs for newly spawned subagents by default", () => {
-    const args = buildSubagentArgs("test-subagent", baseConfig, null, "hello");
+    const args = buildSubagentArgs(
+      "test-subagent",
+      baseSubagentConfig,
+      null,
+      "hello",
+    );
 
     expect(args).toContain("--init-blocks");
     expect(args).toContain("none");
@@ -146,7 +151,7 @@ describe("buildSubagentArgs", () => {
   test("does not force --no-memfs when deploying an existing subagent agent", () => {
     const args = buildSubagentArgs(
       "test-subagent",
-      baseConfig,
+      baseSubagentConfig,
       null,
       "hello",
       "agent-existing",
@@ -313,6 +318,64 @@ describe("resolveSubagentModel", () => {
     });
 
     expect(result).toBe("anthropic/test-model");
+  });
+
+  test("inherits parent model when model availability is empty instead of using auto", async () => {
+    const result = await resolveSubagentModel({
+      recommendedModel: "auto",
+      parentModelHandle: "chatgpt-plus-pro/gpt-5.4-mini",
+      availableHandles: new Set(),
+    });
+
+    expect(result).toBe("chatgpt-plus-pro/gpt-5.4-mini");
+  });
+
+  test("does not return unavailable auto when parent is unavailable but another handle is available", async () => {
+    const result = await resolveSubagentModel({
+      recommendedModel: "auto",
+      parentModelHandle: "openai/stale-parent",
+      availableHandles: new Set(["openai/gpt-5.4-mini"]),
+    });
+
+    expect(result).toBe("openai/gpt-5.4-mini");
+  });
+
+  test("does not return unavailable auto without a parent when another handle is available", async () => {
+    const result = await resolveSubagentModel({
+      recommendedModel: "auto",
+      availableHandles: new Set(["openai/gpt-5.4-mini"]),
+    });
+
+    expect(result).toBe("openai/gpt-5.4-mini");
+  });
+
+  test("free tier does not return unavailable auto-fast or auto", async () => {
+    const result = await resolveSubagentModel({
+      billingTier: "free",
+      recommendedModel: "auto-fast",
+      availableHandles: new Set(["openai/gpt-5.4-mini"]),
+    });
+
+    expect(result).toBe("openai/gpt-5.4-mini");
+  });
+
+  test("subagent launch args use inherited parent model instead of unavailable auto", async () => {
+    const model = await resolveSubagentModel({
+      recommendedModel: "auto",
+      parentModelHandle: "chatgpt-plus-pro/gpt-5.4-mini",
+      availableHandles: new Set(),
+    });
+
+    const args = buildSubagentArgs(
+      "explore",
+      baseSubagentConfig,
+      model,
+      "find files",
+    );
+
+    expect(args).toContain("--model");
+    expect(args).toContain("chatgpt-plus-pro/gpt-5.4-mini");
+    expect(args).not.toContain("letta/auto");
   });
 
   test("keeps inherit behavior when auto is unavailable", async () => {

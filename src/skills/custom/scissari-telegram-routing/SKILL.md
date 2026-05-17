@@ -56,6 +56,53 @@ There are three different paths that are easy to confuse:
 
 If the SDK drops `approval_request_message`, `stop_reason`, or chunks `tool_call` arguments, prefer the `lettabot` logs plus the direct `8091` API check over the raw client stream.
 
+## ChatGPT Relay Tool Workflow Fallback
+
+If Telegram returns:
+
+```text
+(The agent started a tool workflow but did not return the final reply. ...)
+```
+
+start in `/home/adamsl/lettabot/lettabot.log`, not Telegram `getUpdates`.
+The 2026-05-11 failure looked like this:
+
+```text
+type=tool_call toolName=relay_message_to_chatgpt
+type=result success=true result=""
+Attempting ChatGPT relay fallback ...
+Empty response after tool workflow; requesting one continuation turn...
+Stream:continuation type=tool_call toolName=relay_message_to_chatgpt
+Stream:continuation type=result success=true result=""
+Agent had tool activity but no assistant message - returning visible fallback
+```
+
+Important details:
+
+- `lettabot` is the live Telegram process; the relevant code is in `/home/adamsl/lettabot/src/core/bot.ts`.
+- The relay fallback is `/home/adamsl/lettabot/src/core/chatgpt-relay-fallback.ts`.
+- The regression tests are `/home/adamsl/lettabot/src/core/bot-tool-continuation.integration.test.ts`.
+- The actual ChatGPT browser relay tool is `/home/adamsl/letta-code/browser_tools/letta_chatgpt_relay_tool.py`.
+- Server streams may tokenize malformed relay args like `{"message:How ...","browser_server_url":,...}`. `parseChatGptRelayArgs()` repairs that shape.
+
+After editing lettabot source, run:
+
+```bash
+cd /home/adamsl/lettabot
+npm run test:run -- src/core/bot-multi-agent-fallback.test.ts src/core/sdk-session-contract.test.ts src/core/bot-tool-continuation.integration.test.ts
+npm run build
+kill "$(lsof -tiTCP:8091 -sTCP:LISTEN)" 2>/dev/null || true
+setsid -f bash -c 'cd /home/adamsl/lettabot && exec ./start_scissari_bot.sh >> lettabot.log 2>&1 < /dev/null'
+```
+
+Verify the rebuilt live process:
+
+```bash
+rg -n "ChatGPT relay fallback|parseChatGptRelayArgs|executeChatGptRelayFallback" /home/adamsl/lettabot/dist/core -S
+lsof -iTCP:8091 -sTCP:LISTEN -Pn
+ps -ef | rg "node dist/main.js|node /home/adamsl/letta-code/letta.js"
+```
+
 ## Pairing workflow
 
 `@scissaribot` currently uses:
@@ -93,6 +140,42 @@ Look for:
 
 - `Message from <chat_id>: ...`
 - `Stream result: success=true`
+
+Check that the live Telegram path is using the rebuilt local Letta Code bundle:
+
+```bash
+rg -n "lastReasoning\\?\\.text|selectUserVisibleResultText" /home/adamsl/letta-code/letta.js
+lsof -iTCP:8091 -sTCP:LISTEN -Pn
+ps -ef | rg "node dist/main.js|node /home/adamsl/letta-code/letta.js"
+```
+
+If Scissari still returns thoughts after a source fix, rebuild and restart. `/new`
+only creates a new conversation; it does not reload `lettabot` or rebuild `letta.js`.
+
+```bash
+cd /home/adamsl/letta-code
+bun run build
+
+cd /home/adamsl/lettabot
+kill "$(lsof -tiTCP:8091 -sTCP:LISTEN)" 2>/dev/null || true
+nohup ./start_scissari_bot.sh >> lettabot.log 2>&1 &
+```
+
+Verify with the real local API:
+
+```bash
+API_KEY="$(node -e "console.log(require('/home/adamsl/lettabot/lettabot-api.json').apiKey)")"
+curl -sS --max-time 90 -X POST http://127.0.0.1:8091/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $API_KEY" \
+  -d '{"message":"Reply with exactly SCISSARI_RESTART_OK. Do not use tools."}'
+```
+
+Expected response:
+
+```json
+{"success":true,"response":"SCISSARI_RESTART_OK","agentName":"LettaBot"}
+```
 
 Check Scissari/Hailey tool parity before asking Scissari to relay to Hailey:
 

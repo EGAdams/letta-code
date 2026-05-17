@@ -418,15 +418,8 @@ describe("lazy approval recovery", () => {
 
         await log("All assertions passed — test complete");
       } finally {
-        if (loggerReady) {
-          try {
-            await logger.destroy();
-          } catch (err) {
-            console.error(
-              `[lazy-approval] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
+        // Keep the logger row intact so post-run inspection can see the full trace.
+        if (loggerReady) await logger.flushLogs();
       }
     },
     320000,

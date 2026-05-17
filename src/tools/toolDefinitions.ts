@@ -39,7 +39,7 @@ import WriteFileGeminiDescription from "./descriptions/WriteFileGemini.md";
 import WriteTodosGeminiDescription from "./descriptions/WriteTodosGemini.md";
 import { apply_patch } from "./impl/ApplyPatch";
 import { ask_user_question } from "./impl/AskUserQuestion";
-import { bash } from "./impl/Bash";
+import { bash, executor_run } from "./impl/Bash";
 import { bash_output } from "./impl/BashOutput";
 import { edit } from "./impl/Edit";
 import { enter_plan_mode } from "./impl/EnterPlanMode";
@@ -81,6 +81,7 @@ import AskUserQuestionSchema from "./schemas/AskUserQuestion.json";
 import BashSchema from "./schemas/Bash.json";
 import BashOutputSchema from "./schemas/BashOutput.json";
 import EditSchema from "./schemas/Edit.json";
+import ExecutorRunSchema from "./schemas/ExecutorRun.json";
 import EnterPlanModeSchema from "./schemas/EnterPlanMode.json";
 import ExitPlanModeSchema from "./schemas/ExitPlanMode.json";
 import GlobSchema from "./schemas/Glob.json";
@@ -154,6 +155,11 @@ const toolDefinitions = {
     schema: ExitPlanModeSchema,
     description: ExitPlanModeDescription.trim(),
     impl: exit_plan_mode as unknown as ToolImplementation,
+  },
+  executor_run: {
+    schema: ExecutorRunSchema,
+    description: "Execute a shell command, optionally in a specified working directory.",
+    impl: executor_run as unknown as ToolImplementation,
   },
   Glob: {
     schema: GlobSchema,

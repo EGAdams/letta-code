@@ -1,6 +1,10 @@
 /*
  * Logger Interfaces to program to.
  */
+import { writeFileSync } from "node:fs";
+
+export const BAIL_SENTINEL_PATH = "/tmp/letta-integration-bail";
+
 const BASE_URL =
   process.env.LETTA_LOGGER_API ??
   "http://100.80.49.10:8284/libraries/local-php-api";
@@ -38,11 +42,12 @@ const PASS_COLOR = "lightgreen";
 const FAIL_COLOR = "#fb6666";
 const MAX_LOG_ENTRIES = 120;
 
-// When any logger turns red, kill the entire test process immediately.
+// When any logger turns red, write a cross-process sentinel then kill this subprocess.
 (process as unknown as NodeJS.EventEmitter).once(
   "letta-test-bail",
   (id: string, msg: string) => {
     process.stderr.write(`\n[letta-test-bail] ${id}: ${msg}\n`);
+    try { writeFileSync(BAIL_SENTINEL_PATH, `${id}: ${msg}\n`); } catch {}
     process.exit(1);
   },
 );
@@ -51,14 +56,17 @@ const MAX_OBJECT_DATA_BYTES = 200_000;
 const ANSI_ESCAPE_PATTERN =
   /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const SAFE_APOSTROPHE = "\u2019";
+const SAFE_DOUBLE_QUOTE = "\u201d";
 
 function sanitizeLogMessage(message: string): string {
   return message
     .replace(ANSI_ESCAPE_PATTERN, "")
     .replace(/'/g, SAFE_APOSTROPHE)
-    .replace(/[\r\n\t]+/g, " ")
+    .replace(/"/g, SAFE_DOUBLE_QUOTE)
+    .replace(/[\r\t]+/g, " ")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
-    .replace(/\s{2,}/g, " ")
+    .replace(/ {2,}/g, " ")
+    .replace(/\n+/g, " | ")
     .trim();
 }
 
@@ -174,8 +182,17 @@ export class RemoteLogger {
     }
   }
 
+  // Update the status LED/text without deleting history.
   async clearLogs(ledText = "ready."): Promise<void> {
-    this.logObjects = [];
+    this.monitorLed = {
+      ...defaultLed(),
+      ledText,
+    };
+    await this._post("update");
+  }
+
+  // Flush logs to ensure final state is persisted to the viewer without clearing history.
+  async flushLogs(ledText = "ready."): Promise<void> {
     this.monitorLed = {
       ...defaultLed(),
       ledText,

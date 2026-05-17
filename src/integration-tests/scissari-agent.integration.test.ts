@@ -206,28 +206,30 @@ describe("Scissari agent integration", () => {
       console.log(`[scissari-test] Creating RemoteLogger with ID: ${loggerId}`);
 
       const logger = new RemoteLogger(loggerId);
-      const exitOnLoggerFailure = (context: string, err: unknown): never => {
-        const detail = err instanceof Error ? err.message : String(err);
-        console.error(`[scissari-test] ${context}: ${detail}`);
-        process.exit(1);
-      };
+      let loggerReady = false;
 
       try {
         console.log("[scissari-test] Initializing RemoteLogger...");
         await logger.init();
         await logger.clearLogs("Scissari test ready.");
+        loggerReady = true;
         console.log("[scissari-test] RemoteLogger initialized successfully");
       } catch (err) {
-        exitOnLoggerFailure("RemoteLogger init failed", err);
+        console.warn(
+          `[scissari-test] RemoteLogger init failed — continuing without remote logging: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
 
       const log = async (message: string) => {
         const prefix = "[scissari-test-log]";
         console.log(`${prefix} ${message}`);
+        if (!loggerReady) return;
         try {
           await logger.log(normalizeLoggerMessage(message));
         } catch (err) {
-          exitOnLoggerFailure("Failed to log", err);
+          console.warn(
+            `[scissari-test] log() failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       };
 
@@ -335,6 +337,7 @@ describe("Scissari agent integration", () => {
           "[scissari-test] Leaving logger record in place for viewer inspection",
         );
         console.log("[scissari-test] Test cleanup complete");
+        if (loggerReady) await logger.flushLogs();
       }
     },
     { timeout: 190000 },

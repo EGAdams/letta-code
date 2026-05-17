@@ -67,6 +67,7 @@ describe("headless error format types", () => {
     const interruptedSubtype: ResultSubtype = "interrupted";
     expect(interruptedSubtype).toBe("interrupted");
     await log("interruptedSubtype === 'interrupted': PASS — test complete");
+    if (loggerReady) await logger.flushLogs();
   });
 
   testWithTimeout("ResultMessage type supports stop_reason field", async () => {
@@ -107,6 +108,7 @@ describe("headless error format types", () => {
     await log("errorResult.subtype === 'error': PASS");
     expect(errorResult.stop_reason).toBe("error");
     await log("errorResult.stop_reason === 'error': PASS — test complete");
+    if (loggerReady) await logger.flushLogs();
   });
 
   testWithTimeout("ErrorMessage type supports api_error field", async () => {
@@ -150,6 +152,7 @@ describe("headless error format types", () => {
     await log("errorMsg.api_error defined: PASS");
     expect(errorMsg.api_error?.detail).toContain("Another request");
     await log("api_error.detail contains 'Another request': PASS — test complete");
+    if (loggerReady) await logger.flushLogs();
   });
 });
 
@@ -200,6 +203,7 @@ describe("headless error format expectations", () => {
     const sdkSuccess = mockErrorResult.subtype === "success";
     expect(sdkSuccess).toBe(false);
     await log(`sdkSuccess === false (subtype='${mockErrorResult.subtype}'): PASS — test complete`);
+    if (loggerReady) await logger.flushLogs();
   });
 
   testWithTimeout("409 conflict error should include detail in message", async () => {
@@ -235,6 +239,7 @@ describe("headless error format expectations", () => {
     await log("message contains 'CONFLICT': PASS");
     expect(mockError.message).toContain("Another request");
     await log("message contains 'Another request': PASS — test complete");
+    if (loggerReady) await logger.flushLogs();
   });
 
   testWithTimeout("approval pending error should include detail", async () => {
@@ -267,6 +272,7 @@ describe("headless error format expectations", () => {
     };
     expect(mockError.message).toContain("waiting for approval");
     await log("message contains 'waiting for approval': PASS — test complete");
+    if (loggerReady) await logger.flushLogs();
   });
 });
 

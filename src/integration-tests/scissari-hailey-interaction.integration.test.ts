@@ -47,6 +47,7 @@ function extractToolReturnEvents(events: JsonObject[]): JsonObject[] {
       event.type === "stream_event" &&
       streamEvent &&
       typeof streamEvent === "object" &&
+      "message_type" in streamEvent &&
       streamEvent.message_type === "tool_return_message"
     );
   });
@@ -106,7 +107,22 @@ async function runScissariPrompt(
 
     let stdout = "";
     let stderr = "";
+    let stdoutBuffer = "";
+    let settled = false;
+    const finish = (exitCode: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try {
+        proc.kill();
+      } catch {
+        // Ignore cleanup failures; the caller already has the captured output.
+      }
+      resolve({ stdout, stderr, exitCode });
+    };
     const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
       proc.kill();
       reject(
         new Error(
@@ -116,16 +132,42 @@ async function runScissariPrompt(
     }, 150000);
 
     proc.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      stdoutBuffer += text;
+      while (true) {
+        const newlineIndex = stdoutBuffer.indexOf("\n");
+        if (newlineIndex === -1) break;
+        const line = stdoutBuffer.slice(0, newlineIndex).trim();
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+        if (!line) continue;
+        try {
+          const parsed = JSON.parse(line) as JsonObject;
+          if (parsed.type === "result") {
+            finish(0);
+            return;
+          }
+          if (parsed.type === "error") {
+            finish(1);
+            return;
+          }
+        } catch {
+          // Ignore non-JSON lines and keep buffering until the final line arrives.
+        }
+      }
     });
     proc.stderr?.on("data", (chunk) => {
       stderr += chunk.toString();
     });
     proc.on("error", (error) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       reject(error);
     });
     proc.on("close", (exitCode) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       resolve({ stdout, stderr, exitCode });
     });
@@ -281,6 +323,7 @@ describe("Scissari Hailey interaction integration", () => {
         await log(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
         throw err;
       }
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 180000 },
   );

@@ -139,6 +139,8 @@ import {
   isDebugEnabled,
 } from "../utils/debug";
 import { getVersion } from "../version";
+import type { IAgentSessionLogger } from "../logger/agent-event-logger";
+import { createAgentSessionLogger } from "../logger/agent-session-logger-factory";
 import {
   handleMcpAdd,
   type McpCommandContext,
@@ -1063,6 +1065,21 @@ export default function App({
   // Track the most recent run ID from streaming (for statusline display)
   const lastRunIdRef = useRef<string | null>(null);
 
+  // Session logger: streams agent events to localhost:8080 for known agents.
+  const sessionLoggerRef = useRef<IAgentSessionLogger | null>(null);
+  useEffect(() => {
+    const logger = createAgentSessionLogger(agentId);
+    sessionLoggerRef.current = logger;
+    if (logger) {
+      logger.onSessionStart(agentId).catch(() => {});
+    }
+    return () => {
+      const prev = sessionLoggerRef.current;
+      sessionLoggerRef.current = null;
+      prev?.onSessionEnd().catch(() => {});
+    };
+  }, [agentId]);
+
   const resumeKey = useSuspend();
 
   // Pending conversation switch context — consumed on first message after a switch
@@ -1979,6 +1996,7 @@ export default function App({
   const [dequeueEpoch, setDequeueEpoch] = useState(0);
   // Strict lock to ensure dequeue submit path is at-most-once while onSubmit is in flight.
   const dequeueInFlightRef = useRef(false);
+  const streamingSinceMsRef = useRef<number | null>(null);
 
   // Track last dequeued message for restoration on error
   // If an error occurs after dequeue, we restore this to the input field (if input is empty)
@@ -1986,6 +2004,16 @@ export default function App({
 
   // Restored input value - set when we need to restore a message to the input after error
   const [restoredInput, setRestoredInput] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (streaming) {
+      if (streamingSinceMsRef.current === null) {
+        streamingSinceMsRef.current = Date.now();
+      }
+      return;
+    }
+    streamingSinceMsRef.current = null;
+  }, [streaming]);
 
   // Helper to check if agent is busy (streaming, executing tool, or running command)
   // Uses refs for synchronous access outside React's closure system
@@ -4172,6 +4200,10 @@ export default function App({
                 agentId: agentIdRef.current,
                 overrideModel: tempModelOverrideRef.current ?? undefined,
               },
+              {
+                maxRetries: 0,
+                signal: abortControllerRef.current?.signal ?? undefined,
+              },
             );
             stream = nextStream;
             turnToolContextId = getStreamToolContextId(nextStream);
@@ -4830,7 +4862,7 @@ export default function App({
                   refreshDerivedThrottled,
                   signal, // Use captured signal, not ref (which may be nulled by handleInterrupt)
                   handleFirstMessage,
-                  undefined,
+                  sessionLoggerRef.current?.drainHook,
                   contextTrackerRef.current,
                   highestSeqIdSeen,
                 );
@@ -6202,7 +6234,15 @@ export default function App({
           if (lastRunId) {
             try {
               const client = await getClient();
-              const run = await client.runs.retrieve(lastRunId);
+              const run = await Promise.race([
+                client.runs.retrieve(lastRunId),
+                new Promise<never>((_resolve, reject) => {
+                  setTimeout(
+                    () => reject(new Error("Timed out fetching run metadata")),
+                    5000,
+                  );
+                }),
+              ]);
 
               // Check if run has error information in metadata
               if (run.metadata?.error) {
@@ -11403,6 +11443,27 @@ ${SYSTEM_REMINDER_CLOSE}
         }
       });
     } else if (hasAnythingQueued) {
+      const staleStreaming =
+        streaming &&
+        !abortControllerRef.current &&
+        !commandRunning &&
+        !isExecutingTool &&
+        pendingApprovals.length === 0 &&
+        !queuedOverlayAction &&
+        !anySelectorOpen &&
+        !!streamingSinceMsRef.current &&
+        Date.now() - streamingSinceMsRef.current > 15000;
+
+      if (staleStreaming) {
+        debugWarn(
+          "queue",
+          "Detected stale streaming state without active controller; auto-clearing to unblock queue",
+        );
+        setStreaming(false);
+        setDequeueEpoch((e) => e + 1);
+        return;
+      }
+
       // Log why dequeue was blocked (useful for debugging stuck queues)
       debugLog(
         "queue",

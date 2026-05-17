@@ -167,6 +167,20 @@ function swapProviderPrefix(
   return `${parentProvider}/${modelPortion}`;
 }
 
+function getFirstAvailableNonAutoHandle(
+  availableHandles: Set<string> | null,
+): string | null {
+  if (!availableHandles || availableHandles.size === 0) return null;
+
+  return (
+    Array.from(availableHandles).find(
+      (handle) => handle !== "letta/auto" && handle !== "letta/auto-fast",
+    ) ??
+    availableHandles.values().next().value ??
+    null
+  );
+}
+
 export async function resolveSubagentModel(options: {
   userModel?: string;
   recommendedModel?: string;
@@ -196,6 +210,10 @@ export async function resolveSubagentModel(options: {
       if (!availableHandles) {
         const result = await getAvailableModelHandles();
         availableHandles = result.handles;
+      }
+      if (availableHandles.size === 0) {
+        availabilityKnown = false;
+        return false;
       }
       return availableHandles.has(handle);
     } catch {
@@ -234,7 +252,7 @@ export async function resolveSubagentModel(options: {
             return recommendedHandle;
           }
           if (!availabilityKnown) {
-            return recommendedHandle;
+            return parentModelHandle;
           }
         } else {
           const swapped = swapProviderPrefix(
@@ -245,7 +263,7 @@ export async function resolveSubagentModel(options: {
             return swapped;
           }
           if (swapped && !availabilityKnown) {
-            return swapped;
+            return parentModelHandle;
           }
         }
 
@@ -269,7 +287,7 @@ export async function resolveSubagentModel(options: {
     if (!availabilityKnown) {
       return parentModelHandle;
     }
-    return getDefaultModelForTier(billingTier);
+    return getFirstAvailableNonAutoHandle(availableHandles);
   }
 
   if (recommendedHandle && (await isAvailable(recommendedHandle))) {
@@ -285,7 +303,7 @@ export async function resolveSubagentModel(options: {
     return defaultHandle;
   }
 
-  return recommendedHandle;
+  return getFirstAvailableNonAutoHandle(availableHandles) ?? recommendedHandle;
 }
 
 /**
@@ -838,13 +856,12 @@ async function executeSubagent(
         (isProviderNotSupportedError(stderr) ||
           isSubagentModelUnavailableError(stderr))
       ) {
-        const billingTier = await getCurrentBillingTier();
-        const fallbackModel = getDefaultModelForTier(billingTier);
-        if (fallbackModel && fallbackModel !== model) {
+        const primaryModel = await getPrimaryAgentModelHandle();
+        if (primaryModel && primaryModel !== model) {
           return executeSubagent(
             type,
             config,
-            fallbackModel,
+            primaryModel,
             userPrompt,
             baseURL,
             subagentId,
@@ -856,12 +873,13 @@ async function executeSubagent(
           );
         }
 
-        const primaryModel = await getPrimaryAgentModelHandle();
-        if (primaryModel && primaryModel !== model) {
+        const billingTier = await getCurrentBillingTier();
+        const fallbackModel = getDefaultModelForTier(billingTier);
+        if (fallbackModel && fallbackModel !== model) {
           return executeSubagent(
             type,
             config,
-            primaryModel,
+            fallbackModel,
             userPrompt,
             baseURL,
             subagentId,

@@ -16,6 +16,7 @@ Use this skill when one agent needs to hand work to another agent and wants the 
 3. Ask the receiving agent to summarize what it understands, not just say “yes”.
 4. If the user will continue directly with the target agent, ask for a **conversation ID** in the reply.
 5. Prefer compact bullet-point state transfer over vague prose.
+6. If a `Task` helper fails with `NOT_FOUND: Handle letta/auto not found`, stop treating it as a handoff-quality problem. It is a subagent model fallback bug; inspect `src/agent/subagents/manager.ts` and run `bun test src/integration-tests/subagent-model-fallback.integration.test.ts`.
 
 ## Good handoff pattern
 

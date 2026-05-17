@@ -1944,12 +1944,7 @@ ${SYSTEM_REMINDER_CLOSE}
       }
 
       // Case 2: Requires approval - batch process all approvals
-      // Also handle the case where stopReason is end_turn but we have pending approvals
-      // (when approvalRequestEndedTurn was triggered from drainStream conversion)
-      if (
-        stopReason === "requires_approval" ||
-        (stopReason === "end_turn" && approvals.length > 0)
-      ) {
+      if (stopReason === "requires_approval") {
         if (approvals.length === 0) {
           console.error("Unexpected empty approvals array");
           process.exit(1);

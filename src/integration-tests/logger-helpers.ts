@@ -65,7 +65,18 @@ export const ALL_LOGGER_IDS = [
   "ScissariPlanningModeHang_2026",
   "ScissariInactivityTimeout_2026",
   "ScissariToolExecutionHang_2026",
+  "ScissariToolExecutionHang_ErrorPath_2026",
   "ToolAttach_Lifecycle_2026",
+  "Scissari_Session_2026",
+  "Scissari_Thoughts_2026",
+  "Scissari_Assistant_2026",
+  "Scissari_Tool_Bash_2026",
+  "Scissari_Tool_Read_2026",
+  "Scissari_Tool_Edit_2026",
+  "Scissari_Tool_Web_2026",
+  "Scissari_Tool_Other_2026",
+  "Scissari_ToolReturns_2026",
+  "Scissari_Approvals_2026",
 ];
 
 export async function resetLogger(objectViewId: string): Promise<boolean> {

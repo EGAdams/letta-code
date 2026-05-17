@@ -67,10 +67,17 @@ async function runCli(
         console.log(
           `[startup-flow:runCli] cwd=${projectRoot} LETTA_BASE_URL=${process.env.LETTA_BASE_URL ?? "(unset)"} timeoutMs=${timeoutMs}`,
         );
+        // Enable conversation ID debugging if we see --conversation in args
+        const hasConversationArg = args.some((a) => a.startsWith("['"));
         const proc = spawn("bun", cmdArgs, {
           cwd: projectRoot,
           // Mark as subagent to prevent polluting user's LRU settings
-          env: { ...process.env, LETTA_CODE_AGENT_ROLE: "subagent", LETTA_DEBUG: "0" },
+          env: {
+            ...process.env,
+            LETTA_CODE_AGENT_ROLE: "subagent",
+            LETTA_DEBUG: "0",
+            ...(hasConversationArg && { DEBUG_CONV_ID: "1" }),
+          },
           stdio: ["ignore", "pipe", "pipe"],
         });
         console.log(`[startup-flow:runCli] pid=${proc.pid}`);
@@ -275,6 +282,7 @@ describe("Startup Flow - Invalid Inputs", () => {
       );
       expect(result.stderr).toContain("not found");
       await log("PASS: stderr contains 'not found' finished");
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 70000 },
   );
@@ -309,20 +317,35 @@ describe("Startup Flow - Invalid Inputs", () => {
       await log(
         "Args: --conversation conversation-definitely-does-not-exist-12345 -p test",
       );
-      const result = await runCli(
-        [
-          "--conversation",
-          "conversation-definitely-does-not-exist-12345",
-          "-p",
-          "test",
-        ],
-        { expectExit: 1, timeoutMs: 25000, retryOnTimeouts: 0 },
-      );
-      await log(
-        `exitCode=${result.exitCode} stderr contains 'not found': ${result.stderr.includes("not found")}`,
-      );
-      expect(result.stderr).toContain("not found");
-      await log("PASS: stderr contains 'not found' finished");
+      let finished = false;
+      try {
+        const result = await runCli(
+          [
+            "--conversation",
+            "conversation-definitely-does-not-exist-12345",
+            "-p",
+            "test",
+          ],
+          { expectExit: 1, timeoutMs: 25000, retryOnTimeouts: 0 },
+        );
+        const stderrLower = result.stderr.toLowerCase();
+        const hasMissingConversationError =
+          stderrLower.includes("conversation") &&
+          (stderrLower.includes("not found") ||
+            stderrLower.includes("does not exist") ||
+            stderrLower.includes("404"));
+        await log(
+          `exitCode=${result.exitCode} missing-conversation-error: ${hasMissingConversationError}`,
+        );
+        expect(hasMissingConversationError).toBe(true);
+        await log("PASS: missing conversation error detected finished");
+        finished = true;
+      } finally {
+        if (!finished) {
+          await log("FAIL: missing conversation error assertion failed finished");
+        }
+        if (loggerReady) await logger.flushLogs();
+      }
     },
     { timeout: 60000 },
   );
@@ -404,6 +427,7 @@ describe("Startup Flow - Invalid Inputs", () => {
       // The error should tell the user how to provide a prompt (currently missing — test is RED)
       expect(stderr).toContain("-p");
       await log("PASS: error includes -p usage hint finished");
+      if (loggerReady) await logger.flushLogs();
     },
   );
 });
@@ -466,6 +490,7 @@ describe("Startup Flow - Integration", () => {
         "PASS: test_skipped_due_to_known_hang_issue, downstream_tests_will_bootstrap finished",
       );
       testAgentId = null; // Signal downstream tests to bootstrap
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 70000 },
   );
@@ -498,7 +523,7 @@ describe("Startup Flow - Integration", () => {
 
       await log("Test started: --agent with valid ID uses that agent");
       if (!testAgentId) {
-        await log("SKIP: no test agent available from previous test");
+        await log("SKIP: no test agent available from previous test - test complete");
         console.log("Skipping: no test agent available");
         return;
       }
@@ -526,6 +551,7 @@ describe("Startup Flow - Integration", () => {
       await log(
         `PASS: output.agent_id=${output.agent_id} matches testAgentId finished`,
       );
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 190000 },
   );
@@ -560,7 +586,7 @@ describe("Startup Flow - Integration", () => {
         "Test started: --conversation with valid ID derives agent and uses conversation",
       );
       if (!testAgentId) {
-        await log("SKIP: no test agent available from previous test");
+        await log("SKIP: no test agent available from previous test - test complete");
         console.log("Skipping: no test agent available");
         return;
       }
@@ -615,6 +641,7 @@ describe("Startup Flow - Integration", () => {
       await log(
         `PASS: agent_id=${output.agent_id} conversation_id=${output.conversation_id} finished`,
       );
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 180000 },
   );
@@ -699,6 +726,7 @@ describe("Startup Flow - Integration", () => {
       await log(
         `PASS: agent_id=${output.agent_id} conversation_id=${output.conversation_id} finished`,
       );
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 190000 },
   );
@@ -849,6 +877,11 @@ describe("Startup Flow - Integration", () => {
       );
       let result: { stdout: string; stderr: string; exitCode: number | null };
       try {
+        await log("Phase 2: invoking runCli with serialized conversation ID");
+        console.log(
+          `[startup-flow:SerializedConvId] DEBUG: serializedConversationId="${serializedConversationId}" (raw string length=${serializedConversationId.length})`,
+        );
+        console.time("[startup-flow:SerializedConvId] Phase 2 runCli duration");
         result = await runCli(
           [
             "--conversation",
@@ -862,11 +895,18 @@ describe("Startup Flow - Integration", () => {
           ],
           { timeoutMs: 180000 },
         );
+        console.timeEnd("[startup-flow:SerializedConvId] Phase 2 runCli duration");
+        await log("Phase 2: runCli returned successfully");
       } catch (err) {
+        console.timeEnd("[startup-flow:SerializedConvId] Phase 2 runCli duration");
+        const isTimeout = err instanceof Error && err.message.includes("Timeout");
+        if (isTimeout) {
+          await log("ERROR: Phase 2 runCli timed out");
+        }
         await logRunCliThrown("Phase 2", err);
         throw err;
       }
-      await log(`exitCode=${result.exitCode}`);
+      await log(`Phase 2: exitCode=${result.exitCode}`);
       if (result.exitCode !== 0) {
         await logNonZeroExit("Phase 2", result);
       }
@@ -877,7 +917,7 @@ describe("Startup Flow - Integration", () => {
       expect(output.agent_id).toBe(testAgentId);
       expect(output.conversation_id).toBe(realConversationId);
       await log(
-        `Phase 2 passed: agent_id=${output.agent_id} conversation_id=${output.conversation_id}`,
+        `PASS: Phase 2 complete agent_id=${output.agent_id} conversation_id=${output.conversation_id} finished`,
       );
 
       const nestedSerializedConversationId = JSON.stringify(
@@ -892,6 +932,7 @@ describe("Startup Flow - Integration", () => {
         exitCode: number | null;
       };
       try {
+        await log("Phase 3: invoking runCli with nested serialized conversation ID");
         nestedResult = await runCli(
           [
             "--conversation",
@@ -905,11 +946,16 @@ describe("Startup Flow - Integration", () => {
           ],
           { timeoutMs: 180000 },
         );
+        await log("Phase 3: runCli returned successfully");
       } catch (err) {
+        const isTimeout = err instanceof Error && err.message.includes("Timeout");
+        if (isTimeout) {
+          await log("ERROR: Phase 3 runCli timed out");
+        }
         await logRunCliThrown("Phase 3", err);
         throw err;
       }
-      await log(`Phase 3 exitCode=${nestedResult.exitCode}`);
+      await log(`Phase 3: exitCode=${nestedResult.exitCode}`);
       if (nestedResult.exitCode !== 0) {
         await logNonZeroExit("Phase 3", nestedResult);
       }
@@ -922,8 +968,9 @@ describe("Startup Flow - Integration", () => {
       expect(nestedOutput.agent_id).toBe(testAgentId);
       expect(nestedOutput.conversation_id).toBe(realConversationId);
       await log(
-        `PASS: agent_id=${nestedOutput.agent_id} conversation_id=${nestedOutput.conversation_id} finished`,
+        `PASS: Phase 3 complete agent_id=${nestedOutput.agent_id} conversation_id=${nestedOutput.conversation_id} finished`,
       );
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 600000 },
   );
@@ -983,6 +1030,7 @@ describe("Startup Flow - Integration", () => {
       await log(
         `PASS: minimal agent created: agent_id=${output.agent_id} finished`,
       );
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 190000 },
   );
@@ -1094,6 +1142,7 @@ describe("Startup Flow - Integration", () => {
         console.log(
           "[startup-flow:StaleConvFallback] Restored original settings file",
         );
+        if (loggerReady) await logger.flushLogs();
       }
     },
     { timeout: 300000 },

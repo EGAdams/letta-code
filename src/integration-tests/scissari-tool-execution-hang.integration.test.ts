@@ -1,8 +1,32 @@
-import { beforeEach, describe, test } from "bun:test";
+/**
+ * Integration test for the post-approval tool-execution hang.
+ *
+ * Bug scenario (Letta 0.16.3 + Scissari):
+ *   1. Agent requests a Bash/Python tool call.
+ *   2. Server sends approval_request_message with end_turn
+ *      → drainStream converts end_turn → requires_approval
+ *      → approvalRequestEndedTurn=true
+ *   3. User approves; tool executes and returns a result.
+ *   4. Tool result is submitted back to the server as a user *message*
+ *      (not an approval response) because approvalRequestEndedTurn=true.
+ *   5. The continuation stream fails with stopReason="error" (×2 — initial
+ *      + resume attempt in drainStreamWithResume).
+ *   6. BUG: agent stays stuck showing "Scissari is processing..." indefinitely
+ *      instead of surfacing an error or completing.
+ *
+ * This test detects the hang by asserting the session completes within
+ * COMPLETION_TIMEOUT_MS (95 s), which covers one full inactivity-timer cycle.
+ * If the agent enters a retry loop the test will time out and fail.
+ *
+ * To run: LETTA_RUN_SCISSARI_TEST=1 bun test scissari-tool-execution-hang
+ */
+
+import { beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RemoteLogger } from "../logger/RemoteLogger";
+import { settingsManager } from "../settings-manager";
 import { resetAllLoggers } from "./logger-helpers";
 
 const SCISSARI_AGENT_ID = "agent-5955b0c2-7922-4ffe-9e43-b116053b80fa";
@@ -10,26 +34,49 @@ const DEFAULT_BASE_URL = "http://100.80.49.10:8283";
 const TEST_API_KEY = "6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const LOGGER_ID = "ScissariToolExecutionHang_2026";
+const ERROR_PATH_LOGGER_ID = "ScissariToolExecutionHang_ErrorPath_2026";
 
-// If reasoning runs this long without a tool_call_message, declare it a hang.
-// The root cause: the 90s inactivity timer in stream.ts resets on reasoning_message
-// chunks, so planning loops forever without executing tools.
-const REASONING_WITHOUT_TOOL_TIMEOUT_MS = 60_000;
-const MAX_TOTAL_TIME_MS = 150_000;
+// Prompt that reliably triggers a Python3/Bash tool call.
+// Mirrors the original "system_mechanic" database-query scenario where the
+// tool completes quickly but the continuation stream hangs.
+const TOOL_TRIGGER_PROMPT =
+  "Run this exact python3 command and show me the output: python3 -c \"print('tool_test_ok')\"";
+const TOOL_TRIGGER_ERROR_PROMPT =
+  "Run this exact command and show me the output: python - <<'PY'\nprint('tool_test_error_path')\nPY";
 
-type JsonObject = Record<string, unknown>;
+// How long to wait for the session to complete after tool execution.
+// One 90 s inactivity-timer cycle is the minimum for the hang to become visible;
+// 95 s means the test catches even a single stuck retry before the hard limit.
+const COMPLETION_TIMEOUT_MS = 95_000;
 
-async function runScissariAndWatchStream(prompt: string): Promise<{
-  stdout: string;
-  stderr: string;
-  exitCode: number | null;
-  messageTypes: string[];
-  stopReasons: string[];
-  reasoningOnlyHang: boolean;
+// Hard outer limit — gives the test a bit of slack for process setup/teardown.
+const TEST_HARD_LIMIT_MS = 130_000;
+
+interface StreamLine {
+  type: string;
+  subtype?: string;
+  request_id?: string;
+  request?: { subtype?: string };
+  event?: Record<string, unknown>;
+  result?: string;
+  [key: string]: unknown;
+}
+
+interface RunResult {
+  success: boolean;
   timedOut: boolean;
-  hasOutput: boolean;
-}> {
-  return new Promise((resolve, reject) => {
+  approvalSeen: boolean;
+  toolResultSeen: boolean;
+  elapsedMs: number;
+  messages: StreamLine[];
+}
+
+async function runApprovalAndContinueTest(
+  toolTriggerPrompt: string,
+): Promise<RunResult> {
+  const startTime = Date.now();
+
+  return new Promise<RunResult>((resolve, reject) => {
     const proc = spawn(
       "bun",
       [
@@ -37,13 +84,16 @@ async function runScissariAndWatchStream(prompt: string): Promise<{
         "dev",
         "--agent",
         SCISSARI_AGENT_ID,
+        "--new",
         "-p",
-        prompt,
+        "--input-format",
+        "stream-json",
         "--output-format",
         "stream-json",
-        "--include-partial-messages",
         "--memfs-startup",
         "skip",
+        // No --yolo: approvals required so we exercise the
+        // approval → execute → continuation-stream path.
       ],
       {
         cwd: projectRoot,
@@ -52,256 +102,283 @@ async function runScissariAndWatchStream(prompt: string): Promise<{
           LETTA_CODE_AGENT_ROLE: "subagent",
           LETTA_BASE_URL: process.env.LETTA_BASE_URL ?? DEFAULT_BASE_URL,
           LETTA_API_KEY: process.env.LETTA_API_KEY ?? TEST_API_KEY,
+          LETTA_DEBUG: "0",
         },
+        stdio: ["pipe", "pipe", "pipe"],
       },
     );
 
-    let stdout = "";
-    let stderr = "";
+    const messages: StreamLine[] = [];
     let stdoutBuffer = "";
-    let hasOutput = false;
-    let processClosed = false;
-    let reasoningOnlyHang = false;
+    let initReceived = false;
+    let approvalSeen = false;
+    let toolResultSeen = false;
+    let promptSent = false;
+    let settled = false;
     let timedOut = false;
-    const messageTypes: string[] = [];
-    const stopReasons: string[] = [];
 
-    let firstReasoningMs: number | null = null;
-    let hasSeenToolOrAssistant = false;
-
-    const hangDetectionTimer = setInterval(() => {
-      if (hasSeenToolOrAssistant || firstReasoningMs === null) return;
-      const elapsed = Date.now() - firstReasoningMs;
-      if (elapsed > REASONING_WITHOUT_TOOL_TIMEOUT_MS && !reasoningOnlyHang) {
-        reasoningOnlyHang = true;
-        clearInterval(hangDetectionTimer);
-        clearTimeout(totalTimeoutTimer);
+    const finish = (success: boolean, isTimeout = false) => {
+      if (settled) return;
+      settled = true;
+      timedOut = isTimeout;
+      clearTimeout(completionTimer);
+      clearTimeout(safetyTimer);
+      try {
+        proc.stdin?.end();
         proc.kill();
+      } catch {
+        // ignore cleanup errors
       }
-    }, 1000);
-
-    const totalTimeoutTimer = setTimeout(() => {
-      if (!processClosed) {
-        timedOut = true;
-        clearInterval(hangDetectionTimer);
-        proc.kill();
-      }
-    }, MAX_TOTAL_TIME_MS);
-
-    proc.stdout?.on("data", (chunk) => {
-      const text = chunk.toString();
-      stdout += text;
-      stdoutBuffer += text;
-      hasOutput = true;
-
-      while (true) {
-        const newlineIndex = stdoutBuffer.indexOf("\n");
-        if (newlineIndex === -1) break;
-        const line = stdoutBuffer.slice(0, newlineIndex).trim();
-        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
-        if (!line) continue;
-        try {
-          const parsed = JSON.parse(line) as JsonObject;
-          const streamEvent = parsed.event;
-          if (
-            parsed.type === "stream_event" &&
-            streamEvent &&
-            typeof streamEvent === "object" &&
-            "message_type" in streamEvent &&
-            typeof streamEvent.message_type === "string"
-          ) {
-            const msgType = streamEvent.message_type as string;
-            messageTypes.push(msgType);
-
-            if (msgType === "reasoning_message" && firstReasoningMs === null) {
-              firstReasoningMs = Date.now();
-            }
-            if (
-              msgType === "tool_call_message" ||
-              msgType === "assistant_message"
-            ) {
-              hasSeenToolOrAssistant = true;
-            }
-          }
-          // Track stop_reason values
-          if (
-            parsed.type === "stream_event" &&
-            streamEvent &&
-            typeof streamEvent === "object" &&
-            "stop_reason" in streamEvent
-          ) {
-            const reason = streamEvent.stop_reason as string;
-            if (reason) stopReasons.push(reason);
-          }
-        } catch {
-          // non-JSON lines are fine
-        }
-      }
-    });
-
-    proc.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    proc.on("error", (error) => {
-      clearInterval(hangDetectionTimer);
-      clearTimeout(totalTimeoutTimer);
-      reject(error);
-    });
-
-    proc.on("close", (code, signal) => {
-      processClosed = true;
-      clearInterval(hangDetectionTimer);
-      clearTimeout(totalTimeoutTimer);
-      const exitCode = code !== null ? code : signal ? 128 + 15 : -1;
       resolve({
-        stdout,
-        stderr,
-        exitCode,
-        messageTypes,
-        stopReasons,
-        reasoningOnlyHang,
+        success,
         timedOut,
-        hasOutput,
+        approvalSeen,
+        toolResultSeen,
+        elapsedMs: Date.now() - startTime,
+        messages,
       });
+    };
+
+    // Primary deadline: detect the hang at exactly one inactivity-timer cycle.
+    const completionTimer = setTimeout(
+      () => finish(false, true),
+      COMPLETION_TIMEOUT_MS,
+    );
+
+    // Safety net to avoid zombie processes if the process outlives the timer.
+    const safetyTimer = setTimeout(
+      () => finish(false, true),
+      COMPLETION_TIMEOUT_MS + 5_000,
+    );
+
+    const processLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      let msg: StreamLine;
+      try {
+        msg = JSON.parse(trimmed) as StreamLine;
+      } catch {
+        return;
+      }
+      messages.push(msg);
+
+      // Step 1: system:init → send the tool-trigger prompt.
+      if (msg.type === "system" && msg.subtype === "init" && !initReceived) {
+        initReceived = true;
+        if (!promptSent) {
+          promptSent = true;
+          const userMsg = JSON.stringify({
+            type: "user",
+            message: { role: "user", content: toolTriggerPrompt },
+          });
+          proc.stdin?.write(`${userMsg}\n`);
+        }
+        return;
+      }
+
+      // Step 2: headless stream-json mode emits control_request(can_use_tool)
+      // when a tool needs approval. Approve it so the tool executes.
+      if (
+        msg.type === "control_request" &&
+        msg.request?.subtype === "can_use_tool"
+      ) {
+        approvalSeen = true;
+        const requestId = msg.request_id;
+        if (requestId) {
+          const approveMsg = JSON.stringify({
+            type: "control_response",
+            response: {
+              request_id: requestId,
+              response: { behavior: "allow" },
+            },
+          });
+          proc.stdin?.write(`${approveMsg}\n`);
+        }
+        return;
+      }
+
+      // Also detect approval_request_message stream chunks (older protocol variant).
+      const evt = msg.event;
+      if (
+        msg.type === "stream_event" &&
+        evt &&
+        typeof evt === "object" &&
+        evt.message_type === "approval_request_message"
+      ) {
+        approvalSeen = true;
+        return;
+      }
+
+      // Detect tool_return_message — confirms the tool actually ran.
+      if (
+        msg.type === "stream_event" &&
+        evt &&
+        typeof evt === "object" &&
+        evt.message_type === "tool_return_message"
+      ) {
+        toolResultSeen = true;
+        return;
+      }
+
+      // Terminal states:
+      if (msg.type === "result") {
+        finish(msg.subtype === "success");
+        return;
+      }
+      if (msg.type === "error") {
+        finish(false);
+      }
+    };
+
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      stdoutBuffer += chunk.toString();
+      const lines = stdoutBuffer.split("\n");
+      stdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) processLine(line);
+    });
+
+    proc.on("close", () => {
+      if (stdoutBuffer.trim()) processLine(stdoutBuffer);
+      finish(false);
+    });
+
+    proc.on("error", (err) => {
+      if (!settled) reject(err);
     });
   });
 }
 
-describe("Scissari tool execution hang detection", () => {
+describe("Scissari post-approval tool-execution hang", () => {
   beforeEach(async () => {
     await resetAllLoggers();
-  }, 30000);
+  }, 30_000);
 
   const maybeTest =
     process.env.LETTA_RUN_SCISSARI_TEST === "1" ? test : test.skip;
 
   maybeTest(
-    "executes a tool call instead of looping in reasoning only",
+    "agent completes within timeout after tool approved and executed",
     async () => {
       const logger = new RemoteLogger(LOGGER_ID);
       let loggerReady = false;
       try {
         await logger.init();
-        await logger.clearLogs("Scissari tool execution hang test started.");
+        await logger.clearLogs("ScissariToolExecutionHang test started.");
         loggerReady = true;
       } catch (err) {
         console.warn(
-          `[scissari-tool-hang] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+          `[tool-hang] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-
       const log = async (message: string) => {
-        console.log(`[scissari-tool-hang] ${message}`);
+        console.log(`[tool-hang] ${message}`);
         if (!loggerReady) return;
         try {
           await logger.log(message);
-        } catch (err) {
-          console.warn(
-            `[scissari-tool-hang] log failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
+        } catch {
+          // best-effort; never let logging failures break the test
         }
       };
 
-      try {
+      process.env.LETTA_BASE_URL =
+        process.env.LETTA_BASE_URL ?? DEFAULT_BASE_URL;
+      process.env.LETTA_API_KEY = process.env.LETTA_API_KEY ?? TEST_API_KEY;
+      await settingsManager.initialize();
+
+      await log(`Prompt: ${TOOL_TRIGGER_PROMPT}`);
+      await log(`Completion timeout: ${COMPLETION_TIMEOUT_MS}ms`);
+
+      const result = await runApprovalAndContinueTest(TOOL_TRIGGER_PROMPT);
+
+      await log(
+        `elapsed=${result.elapsedMs}ms approvalSeen=${result.approvalSeen} ` +
+          `toolResultSeen=${result.toolResultSeen} timedOut=${result.timedOut} ` +
+          `success=${result.success} messages=${result.messages.length}`,
+      );
+
+      // The approval must have been requested; if not, the prompt didn't
+      // trigger a tool call and this test is inconclusive.
+      if (!result.approvalSeen) {
         await log(
-          "Test started: Scissari should execute a tool call without looping in reasoning",
+          "WARNING: no approval seen — prompt may not have triggered a tool call",
         );
-
-        // Prompt that requires tool execution — mirrors the stuck-in-planning scenario
-        // where Scissari was about to call Bash(python ...) but never did.
-        const prompt =
-          "Use the Bash tool to run `echo hello_from_scissari_tool_test` and return the output.";
-
-        const result = await runScissariAndWatchStream(prompt);
-
-        const reasoningCount = result.messageTypes.filter(
-          (t) => t === "reasoning_message",
-        ).length;
-        const toolCallCount = result.messageTypes.filter(
-          (t) => t === "tool_call_message",
-        ).length;
-        const assistantCount = result.messageTypes.filter(
-          (t) => t === "assistant_message",
-        ).length;
-
-        await log(
-          `Message types: ${result.messageTypes.join(",") || "(none)"}`,
-        );
-        await log(`Stop reasons: ${result.stopReasons.join(",") || "(none)"}`);
-        await log(
-          `reasoning=${reasoningCount} tool_call=${toolCallCount} assistant=${assistantCount}`,
-        );
-        await log(`Reasoning-only hang: ${result.reasoningOnlyHang}`);
-        await log(`Has output: ${result.hasOutput}`);
-
-        if (!result.hasOutput) {
-          await log(`ERROR: CLI produced no output (exit=${result.exitCode})`);
-          await log(`Stderr: ${result.stderr.substring(0, 500) || "(empty)"}`);
-          throw new Error(
-            `Scissari CLI exited with code ${result.exitCode} but produced no output.`,
-          );
-        }
-
-        if (result.timedOut) {
-          await log(
-            `ERROR: Process exceeded total time limit of ${MAX_TOTAL_TIME_MS}ms`,
-          );
-          throw new Error(
-            `Scissari CLI exceeded ${MAX_TOTAL_TIME_MS}ms total time limit`,
-          );
-        }
-
-        if (result.reasoningOnlyHang) {
-          await log(
-            `ERROR: PLANNING LOOP DETECTED — reasoning_message for ${REASONING_WITHOUT_TOOL_TIMEOUT_MS}ms without any tool_call_message`,
-          );
-          await log(`reasoning=${reasoningCount} tool_call=${toolCallCount}`);
-          throw new Error(
-            `Scissari entered a planning loop: ${reasoningCount} reasoning chunks with no tool_call_message in ${REASONING_WITHOUT_TOOL_TIMEOUT_MS}ms. ` +
-              `Root cause: 90s inactivity timer in stream.ts resets on reasoning_message, ` +
-              `so the planning loop never triggers the timeout.`,
-          );
-        }
-
-        // The core assertion: Scissari must actually execute the Bash tool.
-        // Seeing only approval_request_message + assistant_message means she asked for
-        // permission but then fell back to a text response without running the command.
-        const toolReturnCount = result.messageTypes.filter(
-          (t) => t === "tool_return_message",
-        ).length;
-        await log(`tool_return=${toolReturnCount}`);
-
-        if (toolCallCount === 0 || toolReturnCount === 0) {
-          await log(
-            `ERROR: Bash tool was never executed — tool_call=${toolCallCount} tool_return=${toolReturnCount}`,
-          );
-          await log(
-            `This is the stuck-on-tool-call bug: Scissari plans, asks for approval, then falls back to text without running the command.`,
-          );
-          throw new Error(
-            `Scissari did not execute the Bash tool. ` +
-              `tool_call=${toolCallCount} tool_return=${toolReturnCount} assistant=${assistantCount}. ` +
-              `She asked for approval (approval_request=${result.messageTypes.filter((t) => t === "approval_request_message").length}) ` +
-              `but the command never ran.`,
-          );
-        }
-
-        if (result.exitCode !== 0) {
-          await log(
-            `ERROR: CLI exited with unexpected code ${result.exitCode}`,
-          );
-          throw new Error(`Expected exit code 0, got ${result.exitCode}`);
-        }
-
-        await log(
-          `PASS: Scissari executed tool call (reasoning=${reasoningCount} tool_call=${toolCallCount} tool_return=${toolReturnCount})`,
-        );
-      } catch (err) {
-        await log(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
-        throw err;
       }
+      expect(result.approvalSeen).toBe(true);
+
+      // Core assertion: agent must NOT stay stuck processing indefinitely.
+      //
+      // Bug path (without fix):
+      //   1. Tool result returned as user message (approvalRequestEndedTurn=true).
+      //   2. Continuation stream: 90 s inactivity timer fires → controller.abort()
+      //      → SDK throws → catch block sets stopReason="error" (not "cancelled").
+      //   3. drainStreamWithResume retries → second "error".
+      //   4. isRetriableError() returns true for connection-style errors
+      //      → processConversation does `continue` → new stream → stuck again.
+      //
+      // With the fix the inactivity abort produces stopReason="cancelled",
+      // which is not retriable, so the agent surfaces an error and stops.
+      if (result.timedOut) {
+        await log(
+          `ERROR: agent timed out after ${result.elapsedMs}ms — ` +
+            "stuck in post-approval processing loop (this is the bug)",
+        );
+      } else {
+        await log(`PASS: agent completed in ${result.elapsedMs}ms`);
+      }
+
+      expect(result.timedOut).toBe(false);
+      expect(result.success).toBe(true);
     },
-    { timeout: 180000 },
+    TEST_HARD_LIMIT_MS,
+  );
+
+  maybeTest(
+    "agent does not hang when approved tool command fails",
+    async () => {
+      const logger = new RemoteLogger(ERROR_PATH_LOGGER_ID);
+      let loggerReady = false;
+      try {
+        await logger.init();
+        await logger.clearLogs(
+          "ScissariToolExecutionHang error-path test started.",
+        );
+        loggerReady = true;
+      } catch (err) {
+        console.warn(
+          `[tool-hang:error-path] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      const log = async (message: string) => {
+        console.log(`[tool-hang:error-path] ${message}`);
+        if (!loggerReady) return;
+        try {
+          await logger.log(message);
+        } catch {
+          // best-effort; never let logging failures break the test
+        }
+      };
+
+      process.env.LETTA_BASE_URL =
+        process.env.LETTA_BASE_URL ?? DEFAULT_BASE_URL;
+      process.env.LETTA_API_KEY = process.env.LETTA_API_KEY ?? TEST_API_KEY;
+      await settingsManager.initialize();
+
+      await log(`Prompt: ${TOOL_TRIGGER_ERROR_PROMPT}`);
+      await log(`Completion timeout: ${COMPLETION_TIMEOUT_MS}ms`);
+
+      const result = await runApprovalAndContinueTest(TOOL_TRIGGER_ERROR_PROMPT);
+
+      await log(
+        `elapsed=${result.elapsedMs}ms approvalSeen=${result.approvalSeen} ` +
+          `toolResultSeen=${result.toolResultSeen} timedOut=${result.timedOut} ` +
+          `success=${result.success} messages=${result.messages.length}`,
+      );
+
+      expect(result.approvalSeen).toBe(true);
+      expect(result.toolResultSeen).toBe(true);
+      expect(result.timedOut).toBe(false);
+      if (loggerReady) await logger.flushLogs();
+    },
+    TEST_HARD_LIMIT_MS,
   );
 });

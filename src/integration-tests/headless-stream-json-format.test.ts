@@ -61,7 +61,9 @@ async function runHeadlessCommand(
       {
         cwd: process.cwd(),
         // Mark as subagent to prevent polluting user's LRU settings
-        env: { ...process.env, LETTA_CODE_AGENT_ROLE: "subagent" },
+        env: { ...process.env, LETTA_CODE_AGENT_ROLE: "subagent", LETTA_DEBUG: "0" },
+        // Ignore stdin — without this the subprocess may block waiting for input.
+        stdio: ["ignore", "pipe", "pipe"],
       },
     );
 
@@ -130,13 +132,11 @@ describe("stream-json format", () => {
       const log = async (message: string) => {
         console.log(`[stream-json:InitMessage] ${message}`);
         if (loggerReady) {
-          try {
-            await logger.log(normalizeLoggerMessage(message));
-          } catch (err) {
+          await logger.log(normalizeLoggerMessage(message)).catch((err) => {
             console.error(
               `[stream-json:InitMessage] log failed: ${err instanceof Error ? err.message : String(err)}`,
             );
-          }
+          });
         }
       };
       try {
@@ -172,15 +172,7 @@ describe("stream-json format", () => {
         );
         throw err;
       } finally {
-        if (loggerReady) {
-          try {
-            await logger.destroy();
-          } catch (err) {
-            console.error(
-              `[stream-json:InitMessage] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
+        // Keep the logger row intact so the viewer retains the full history.
       }
     },
     { timeout: 200000 },
@@ -202,13 +194,11 @@ describe("stream-json format", () => {
       const log = async (message: string) => {
         console.log(`[stream-json:SessionIdUuid] ${message}`);
         if (loggerReady) {
-          try {
-            await logger.log(normalizeLoggerMessage(message));
-          } catch (err) {
+          await logger.log(normalizeLoggerMessage(message)).catch((err) => {
             console.error(
               `[stream-json:SessionIdUuid] log failed: ${err instanceof Error ? err.message : String(err)}`,
             );
-          }
+          });
         }
       };
       try {
@@ -240,15 +230,7 @@ describe("stream-json format", () => {
         );
         throw err;
       } finally {
-        if (loggerReady) {
-          try {
-            await logger.destroy();
-          } catch (err) {
-            console.error(
-              `[stream-json:SessionIdUuid] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
+        // Keep the logger row intact so the viewer can show the full run history.
       }
     },
     { timeout: 200000 },
@@ -270,13 +252,11 @@ describe("stream-json format", () => {
       const log = async (message: string) => {
         console.log(`[stream-json:ResultFormat] ${message}`);
         if (loggerReady) {
-          try {
-            await logger.log(normalizeLoggerMessage(message));
-          } catch (err) {
+          await logger.log(normalizeLoggerMessage(message)).catch((err) => {
             console.error(
               `[stream-json:ResultFormat] log failed: ${err instanceof Error ? err.message : String(err)}`,
             );
-          }
+          });
         }
       };
       try {
@@ -312,15 +292,7 @@ describe("stream-json format", () => {
         );
         throw err;
       } finally {
-        if (loggerReady) {
-          try {
-            await logger.destroy();
-          } catch (err) {
-            console.error(
-              `[stream-json:ResultFormat] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
+        // Keep the logger row intact so the viewer can show the full run history.
       }
     },
     { timeout: 200000 },
@@ -342,13 +314,11 @@ describe("stream-json format", () => {
       const log = async (message: string) => {
         console.log(`[stream-json:PartialMessages] ${message}`);
         if (loggerReady) {
-          try {
-            await logger.log(normalizeLoggerMessage(message));
-          } catch (err) {
+          await logger.log(normalizeLoggerMessage(message)).catch((err) => {
             console.error(
               `[stream-json:PartialMessages] log failed: ${err instanceof Error ? err.message : String(err)}`,
             );
-          }
+          });
         }
       };
       try {
@@ -383,15 +353,8 @@ describe("stream-json format", () => {
         );
         throw err;
       } finally {
-        if (loggerReady) {
-          try {
-            await logger.destroy();
-          } catch (err) {
-            console.error(
-              `[stream-json:PartialMessages] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
+        // Keep the logger row intact so the viewer can show the full run history.
+        if (loggerReady) await logger.flushLogs();
       }
     },
     { timeout: 200000 },
@@ -413,13 +376,11 @@ describe("stream-json format", () => {
       const log = async (message: string) => {
         console.log(`[stream-json:NoPartialMessages] ${message}`);
         if (loggerReady) {
-          try {
-            await logger.log(normalizeLoggerMessage(message));
-          } catch (err) {
+          await logger.log(normalizeLoggerMessage(message)).catch((err) => {
             console.error(
               `[stream-json:NoPartialMessages] log failed: ${err instanceof Error ? err.message : String(err)}`,
             );
-          }
+          });
         }
       };
       try {
@@ -461,15 +422,8 @@ describe("stream-json format", () => {
         );
         throw err;
       } finally {
-        if (loggerReady) {
-          try {
-            await logger.destroy();
-          } catch (err) {
-            console.error(
-              `[stream-json:NoPartialMessages] destroy failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
+        // Keep the logger row intact so the viewer can show the full run history.
+        if (loggerReady) await logger.flushLogs();
       }
     },
     { timeout: 200000 },

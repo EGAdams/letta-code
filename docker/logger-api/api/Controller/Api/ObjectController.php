@@ -72,7 +72,7 @@ class ObjectController extends BaseController {
             $insertResult   = $this->model->insertObject( $object_view_id, $object_data           );
             $responseData   = json_encode( $insertResult                                          );
         } catch ( Error $e ) {
-            $this->errorObject->addDescription( $e->getMessage() . 'Something went wrong! Please contact support.' );
+            $this->errorObject->addErrorMessage( $e->getMessage() . 'Something went wrong! Please contact support.' );
             $this->errorObject->setErrorHeader( 'HTTP/1.1 500 Internal Server Error' );
             $this->sendErrorOutputAndDie(); }
         $this->sendOutput( $responseData, array( 'Content-Type: application/json', 'HTTP/1.1 200 OK' ));
@@ -87,7 +87,7 @@ class ObjectController extends BaseController {
             $deleteResult   = $this->model->deleteObject( $object_view_id                         );
             $responseData   = json_encode( $deleteResult                                          );
         } catch ( Error $e ) {
-            $this->errorObject->addDescription( $e->getMessage()                                  );
+            $this->errorObject->addErrorMessage( $e->getMessage()                                  );
             $this->errorObject->setErrorHeader( 'HTTP/1.1 500 Internal Server Error' );
             $this->sendErrorOutputAndDie(); }
         $this->sendOutput( $responseData, array( 'Content-Type: application/json', 'HTTP/1.1 200 OK' )); }
@@ -125,7 +125,7 @@ class ObjectController extends BaseController {
         if ( isset( $arrayQueryStringParameters[ $key ]) && $arrayQueryStringParameters[ $key ]) {
             return $arrayQueryStringParameters[ $key ]; // if there's a key, return it.
         } else {                                        // if there's not, die.
-            $this->errorObject->addDescription( "*** ERROR: " . $key . " is required for this action ***" );
+            $this->errorObject->addErrorMessage( "*** ERROR: " . $key . " is required for this action ***" );
             $this->errorObject->setErrorHeader( "HTTP/1.1 422 Unprocessable Entity"                       );
             $this->sendErrorOutputAndDie(); }}
 }

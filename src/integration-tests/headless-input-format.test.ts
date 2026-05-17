@@ -144,6 +144,11 @@ async function runBidirectional(
           console.log(
             `[runBidirectional] control_response #${controlResponsesReceived} received`,
           );
+          if (inputIndex < inputs.length) {
+            // Some test flows submit control_request then user input.
+            // Advance after control responses so mixed sequences don't stall.
+            setTimeout(sendNextInput, 200);
+          }
           maybeClose();
         }
 
@@ -360,6 +365,7 @@ describe("input-format stream-json", () => {
           `control_response agent_id=${initResponse?.agent_id}: PASS — test complete`,
         );
       }
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 200000 },
   );
@@ -441,6 +447,7 @@ describe("input-format stream-json", () => {
       await log(
         `result: subtype=${result?.subtype} duration_ms=${result?.duration_ms} — test complete`,
       );
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 200000 },
   );
@@ -471,49 +478,57 @@ describe("input-format stream-json", () => {
         }
       };
 
-      await log("Test started: multi-turn conversation maintains context");
-      await log(
-        "Sending 2 sequential messages: 'Say hello' then 'Say goodbye'",
-      );
-      const objects = (await runBidirectionalWithRetry(
-        [
-          JSON.stringify({
-            type: "user",
-            message: { role: "user", content: "Say hello" },
-          }),
-          JSON.stringify({
-            type: "user",
-            message: { role: "user", content: "Say goodbye" },
-          }),
-        ],
-        [],
-        300000,
-        1,
-      )) as WireMessage[];
-      await log(`CLI returned ${objects.length} objects`);
-
-      const results = objects.filter(
-        (o): o is ResultMessage => o.type === "result",
-      );
-      await log(`result messages: ${results.length}`);
-      expect(results.length).toBeGreaterThanOrEqual(2);
-
-      for (const result of results) {
-        expect(result.subtype).toBe("success");
-        expect(result.session_id).toBeDefined();
-        expect(result.agent_id).toBeDefined();
-      }
-
-      const firstResult = results[0];
-      const lastResult = results[results.length - 1];
-      expect(firstResult).toBeDefined();
-      expect(lastResult).toBeDefined();
-      if (firstResult && lastResult) {
-        expect(firstResult.session_id).toBe(lastResult.session_id);
+      try {
+        await log("Test started: multi-turn conversation maintains context");
         await log(
-          `session_id consistent across turns: ${firstResult.session_id} — test complete`,
+          "Sending 2 sequential messages: 'Say hello' then 'Say goodbye'",
         );
+        const objects = (await runBidirectionalWithRetry(
+          [
+            JSON.stringify({
+              type: "user",
+              message: { role: "user", content: "Say hello" },
+            }),
+            JSON.stringify({
+              type: "user",
+              message: { role: "user", content: "Say goodbye" },
+            }),
+          ],
+          [],
+          300000,
+          1,
+        )) as WireMessage[];
+        await log(`CLI returned ${objects.length} objects`);
+
+        const results = objects.filter(
+          (o): o is ResultMessage => o.type === "result",
+        );
+        await log(`result messages: ${results.length}`);
+        expect(results.length).toBeGreaterThanOrEqual(2);
+
+        for (const result of results) {
+          expect(result.subtype).toBe("success");
+          expect(result.session_id).toBeDefined();
+          expect(result.agent_id).toBeDefined();
+        }
+
+        const firstResult = results[0];
+        const lastResult = results[results.length - 1];
+        expect(firstResult).toBeDefined();
+        expect(lastResult).toBeDefined();
+        if (firstResult && lastResult) {
+          expect(firstResult.session_id).toBe(lastResult.session_id);
+          await log(
+            `session_id consistent across turns: ${firstResult.session_id} — test complete`,
+          );
+        }
+      } catch (err) {
+        await log(
+          `ERROR: multi-turn conversation test failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
       }
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 320000 },
   );
@@ -563,6 +578,7 @@ describe("input-format stream-json", () => {
       await log(
         `interrupt control_response subtype=${controlResponse?.response.subtype}: PASS — test complete`,
       );
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 200000 },
   );
@@ -628,6 +644,7 @@ describe("input-format stream-json", () => {
           `recovery payload: recovered=${recovery?.recovered} pending_approval=${recovery?.pending_approval} approvals_processed=${recovery?.approvals_processed} — test complete`,
         );
       }
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 200000 },
   );
@@ -658,38 +675,46 @@ describe("input-format stream-json", () => {
         }
       };
 
-      await log(
-        "Test started: recover_pending_approvals agent mismatch returns error response",
-      );
-      await log("Sending mismatched agent_id: 'agent-mismatch'");
-      const objects = (await runBidirectional([
-        JSON.stringify({
-          type: "control_request",
-          request_id: "recover_mismatch_1",
-          request: {
-            subtype: "recover_pending_approvals",
-            agent_id: "agent-mismatch",
-          },
-        }),
-      ])) as WireMessage[];
-      await log(`CLI returned ${objects.length} objects`);
-
-      const controlResponse = objects.find(
-        (o): o is ControlResponse =>
-          o.type === "control_response" &&
-          o.response?.request_id === "recover_mismatch_1",
-      );
-      expect(controlResponse).toBeDefined();
-      expect(controlResponse?.response.subtype).toBe("error");
-
-      if (controlResponse?.response.subtype === "error") {
-        expect(controlResponse.response.error).toContain(
-          "recover_pending_approvals agent mismatch",
-        );
+      try {
         await log(
-          `error message contains 'recover_pending_approvals agent mismatch': PASS — test complete`,
+          "Test started: recover_pending_approvals agent mismatch returns error response",
         );
+        await log("Sending mismatched agent_id: 'agent-mismatch'");
+        const objects = (await runBidirectional([
+          JSON.stringify({
+            type: "control_request",
+            request_id: "recover_mismatch_1",
+            request: {
+              subtype: "recover_pending_approvals",
+              agent_id: "agent-mismatch",
+            },
+          }),
+        ])) as WireMessage[];
+        await log(`CLI returned ${objects.length} objects`);
+
+        const controlResponse = objects.find(
+          (o): o is ControlResponse =>
+            o.type === "control_response" &&
+            o.response?.request_id === "recover_mismatch_1",
+        );
+        expect(controlResponse).toBeDefined();
+        expect(controlResponse?.response.subtype).toBe("error");
+
+        if (controlResponse?.response.subtype === "error") {
+          expect(controlResponse.response.error).toContain(
+            "recover_pending_approvals agent mismatch",
+          );
+          await log(
+            `error message contains 'recover_pending_approvals agent mismatch': PASS — test complete`,
+          );
+        }
+      } catch (err) {
+        await log(
+          `ERROR: recover_pending_approvals agent mismatch test failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
       }
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 200000 },
   );
@@ -762,6 +787,7 @@ describe("input-format stream-json", () => {
       expect(result).toBeDefined();
       expect(result?.subtype).toBe("success");
       await log(`result subtype=${result?.subtype}: PASS — test complete`);
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 200000 },
   );
@@ -795,13 +821,20 @@ describe("input-format stream-json", () => {
       await log("Test started: unknown control request returns error");
       try {
         await log("Sending control_request with subtype 'unknown_subtype'");
-        const objects = (await runBidirectionalWithRetry([
-          JSON.stringify({
-            type: "control_request",
-            request_id: "unknown_1",
-            request: { subtype: "unknown_subtype" },
-          }),
-        ])) as WireMessage[];
+        // Keep runtime below test timeout so failures surface via catch/log path
+        // instead of Bun hard-timeout killing the test process.
+        const objects = (await runBidirectionalWithRetry(
+          [
+            JSON.stringify({
+              type: "control_request",
+              request_id: "unknown_1",
+              request: { subtype: "unknown_subtype" },
+            }),
+          ],
+          [],
+          90000,
+          0,
+        )) as WireMessage[];
         await log(`CLI returned ${objects.length} objects`);
 
         const controlResponse = objects.find(
@@ -819,6 +852,7 @@ describe("input-format stream-json", () => {
         await log(`ERROR: unknown control request test failed: ${msg}`);
         throw err;
       }
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 200000 },
   );
@@ -849,21 +883,29 @@ describe("input-format stream-json", () => {
         }
       };
 
-      await log("Test started: invalid JSON input returns error message");
-      await log("Sending raw string 'not valid json'");
-      const objects = (await runBidirectional([
-        "not valid json",
-      ])) as WireMessage[];
-      await log(`CLI returned ${objects.length} objects`);
+      try {
+        await log("Test started: invalid JSON input returns error message");
+        await log("Sending raw string 'not valid json'");
+        const objects = (await runBidirectional([
+          "not valid json",
+        ])) as WireMessage[];
+        await log(`CLI returned ${objects.length} objects`);
 
-      const errorMsg = objects.find(
-        (o): o is ErrorMessage => o.type === "error",
-      );
-      expect(errorMsg).toBeDefined();
-      expect(errorMsg?.message).toContain("Invalid JSON");
-      await log(
-        `error message: '${errorMsg?.message?.slice(0, 80)}' — test complete`,
-      );
+        const errorMsg = objects.find(
+          (o): o is ErrorMessage => o.type === "error",
+        );
+        expect(errorMsg).toBeDefined();
+        expect(errorMsg?.message).toContain("Invalid JSON");
+        await log(
+          `PASS: error message: '${errorMsg?.message?.slice(0, 80)}' finished`,
+        );
+      } catch (err) {
+        await log(
+          `ERROR: test failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
+      if (loggerReady) await logger.flushLogs();
     },
     { timeout: 200000 },
   );
@@ -885,7 +927,10 @@ describe("input-format stream-json", () => {
         console.log(`[headless-input:TaskTool] ${message}`);
         if (loggerReady) {
           try {
-            await logger.log(normalizeLoggerMessage(message));
+            await Promise.race([
+              logger.log(normalizeLoggerMessage(message)),
+              new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+            ]);
           } catch (err) {
             console.error(
               `[headless-input:TaskTool] log failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -894,49 +939,232 @@ describe("input-format stream-json", () => {
         }
       };
 
-      await log("Test started: Task tool with explore subagent works");
-      await log(
-        "Sending prompt requiring Task tool with subagent_type='explore'",
-      );
-      const objects = (await runBidirectional(
-        [
-          JSON.stringify({
-            type: "user",
-            message: {
-              role: "user",
-              content:
-                "You MUST use the Task tool with subagent_type='explore' to find TypeScript files (*.ts) in the src directory. " +
-                "Return only the subagent's report, nothing else.",
-            },
-          }),
-        ],
-        [],
-        420000,
-      )) as WireMessage[];
-      await log(`CLI returned ${objects.length} objects`);
-
-      const result = objects.find(
-        (o): o is ResultMessage => o.type === "result",
-      );
-      expect(result).toBeDefined();
-      expect(result?.subtype).toBe("success");
-      await log(`result subtype=${result?.subtype}: PASS`);
-
-      const autoApprovals = objects.filter((o) => o.type === "auto_approval");
-      const approvalSignals = objects.filter((o) => {
-        const messageType = (o as { message_type?: string }).message_type;
-        return (
-          o.type === "approval_requested" ||
-          o.type === "approval_received" ||
-          messageType === "approval_request_message"
+      try {
+        await log("Test started: Task tool with explore subagent works");
+        await log(
+          "Sending prompt requiring Task tool with subagent_type='explore'",
         );
-      });
-      await log(
-        `approval telemetry: auto_approval=${autoApprovals.length} other_signals=${approvalSignals.length}`,
-      );
-      expect(autoApprovals.length + approvalSignals.length).toBeGreaterThan(0);
-      await log("approval telemetry present: PASS — test complete");
+        const heartbeatStart = Date.now();
+        const heartbeat = setInterval(() => {
+          void log(
+            `Task tool still running (${Math.round((Date.now() - heartbeatStart) / 1000)}s elapsed)`,
+          );
+        }, 15000);
+
+        let objects: WireMessage[] = [];
+        try {
+          objects = (await runBidirectional(
+            [
+              JSON.stringify({
+                type: "user",
+                message: {
+                  role: "user",
+                  content:
+                    "You MUST use the Task tool with subagent_type='explore' to find TypeScript files (*.ts) in the src directory. " +
+                    "Return only the subagent's report, nothing else.",
+                },
+              }),
+            ],
+            [],
+            420000,
+          )) as WireMessage[];
+        } finally {
+          clearInterval(heartbeat);
+        }
+        await log(`CLI returned ${objects.length} objects`);
+
+        const result = objects.find(
+          (o): o is ResultMessage => o.type === "result",
+        );
+        expect(result).toBeDefined();
+        expect(result?.subtype).toBe("success");
+        await log(`result subtype=${result?.subtype}: PASS`);
+
+        const autoApprovals = objects.filter((o) => o.type === "auto_approval");
+        const approvalSignals = objects.filter((o) => {
+          const messageType = (o as { message_type?: string }).message_type;
+          return (
+            o.type === "approval_requested" ||
+            o.type === "approval_received" ||
+            messageType === "approval_request_message"
+          );
+        });
+        await log(
+          `approval telemetry: auto_approval=${autoApprovals.length} other_signals=${approvalSignals.length}`,
+        );
+        expect(autoApprovals.length + approvalSignals.length).toBeGreaterThan(0);
+        await log("PASS: approval telemetry present finished");
+      } catch (err) {
+        await log(
+          `ERROR: test failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
     },
     { timeout: 450000 },
+  );
+
+  testWithTimeout(
+    "Task tool emits queue lifecycle and terminal shutdown clear",
+    async () => {
+      const logger = new RemoteLogger("HeadlessInput_TaskToolQueue_2026");
+      let loggerReady = false;
+      try {
+        await logger.init();
+        loggerReady = true;
+      } catch (err) {
+        console.warn(
+          `[headless-input:TaskToolQueue] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      const log = async (message: string) => {
+        console.log(`[headless-input:TaskToolQueue] ${message}`);
+        if (loggerReady) {
+          try {
+            await Promise.race([
+              logger.log(normalizeLoggerMessage(message)),
+              new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+            ]);
+          } catch (err) {
+            console.error(
+              `[headless-input:TaskToolQueue] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+      };
+
+      try {
+        await log(
+          "Test started: Task tool emits queue lifecycle and terminal shutdown clear",
+        );
+        const objects = (await runBidirectional(
+          [
+            JSON.stringify({
+              type: "user",
+              message: {
+                role: "user",
+                content:
+                  "Use the Task tool once with subagent_type='explore' to inspect src for .ts files and summarize findings in one short paragraph.",
+              },
+            }),
+          ],
+          [],
+          300000,
+        )) as WireMessage[];
+        await log(`CLI returned ${objects.length} objects`);
+
+        const enqueued = objects.filter((o) => o.type === "queue_item_enqueued");
+        const dequeued = objects.filter((o) => o.type === "queue_batch_dequeued");
+        const queueCleared = objects.filter(
+          (o): o is WireMessage & { type: "queue_cleared"; reason: string } =>
+            o.type === "queue_cleared",
+        );
+        await log(
+          `queue lifecycle counts: enqueued=${enqueued.length} dequeued=${dequeued.length} cleared=${queueCleared.length}`,
+        );
+
+        expect(enqueued.length).toBeGreaterThan(0);
+        expect(dequeued.length).toBeGreaterThan(0);
+        expect(queueCleared.length).toBeGreaterThan(0);
+        expect(queueCleared.some((e) => e.reason === "shutdown")).toBe(true);
+
+        const result = objects.find(
+          (o): o is ResultMessage => o.type === "result",
+        );
+        expect(result).toBeDefined();
+        expect(result?.subtype).toBe("success");
+        expect(result?.duration_ms).toBeGreaterThan(0);
+        expect(result?.result).toBeTruthy();
+        await log(
+          `result subtype=${result?.subtype} duration_ms=${result?.duration_ms}: PASS`,
+        );
+      } catch (err) {
+        await log(
+          `ERROR: test failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
+    },
+    { timeout: 340000 },
+  );
+
+  testWithTimeout(
+    "initialize followed by user message returns both control_response and result",
+    async () => {
+      const logger = new RemoteLogger("HeadlessInput_InitThenUser_2026");
+      let loggerReady = false;
+      try {
+        await logger.init();
+        loggerReady = true;
+      } catch (err) {
+        console.warn(
+          `[headless-input:InitThenUser] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      const log = async (message: string) => {
+        console.log(`[headless-input:InitThenUser] ${message}`);
+        if (loggerReady) {
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[headless-input:InitThenUser] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+      };
+
+      try {
+        await log(
+          "Test started: initialize followed by user message returns both control_response and result",
+        );
+        const objects = (await runBidirectional(
+          [
+            JSON.stringify({
+              type: "control_request",
+              request_id: "init_then_user_1",
+              request: { subtype: "initialize" },
+            }),
+            JSON.stringify({
+              type: "user",
+              message: { role: "user", content: FAST_PROMPT },
+            }),
+          ],
+          [],
+          220000,
+        )) as WireMessage[];
+        await log(`CLI returned ${objects.length} objects`);
+
+        const initResponse = objects.find(
+          (o): o is ControlResponse =>
+            o.type === "control_response" &&
+            o.response?.request_id === "init_then_user_1",
+        );
+        expect(initResponse).toBeDefined();
+        expect(initResponse?.response.subtype).toBe("success");
+
+        const result = objects.find(
+          (o): o is ResultMessage => o.type === "result",
+        );
+        expect(result).toBeDefined();
+        expect(result?.subtype).toBe("success");
+
+        if (initResponse?.response.subtype === "success" && result) {
+          const initPayload = initResponse.response.response as
+            | { agent_id?: string }
+            | undefined;
+          expect(initPayload?.agent_id).toBeDefined();
+          expect(result.agent_id).toBe(initPayload?.agent_id);
+        }
+        await log("PASS: control_response and result both present finished");
+      } catch (err) {
+        await log(
+          `ERROR: test failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      }
+      if (loggerReady) await logger.flushLogs();
+    },
+    { timeout: 240000 },
   );
 });
