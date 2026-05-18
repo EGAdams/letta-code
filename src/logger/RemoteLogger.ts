@@ -191,12 +191,8 @@ export class RemoteLogger {
     await this._post("update");
   }
 
-  // Flush logs to ensure final state is persisted to the viewer without clearing history.
-  async flushLogs(ledText = "ready."): Promise<void> {
-    this.monitorLed = {
-      ...defaultLed(),
-      ledText,
-    };
+  // Flush logs to ensure final state is persisted without modifying history or status.
+  async flushLogs(): Promise<void> {
     await this._post("update");
   }
 
