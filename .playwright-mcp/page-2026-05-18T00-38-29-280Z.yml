@@ -1,0 +1,112 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3] [cursor=pointer]:
+    - strong [ref=e4]: OrchestratorAgent_2026
+    - text: "TIMEOUT: no updates for 110214s"
+  - generic [ref=e6] [cursor=pointer]:
+    - strong [ref=e7]: CoderAgent_2026
+    - text: "TIMEOUT: no updates for 110494s"
+  - generic [ref=e9] [cursor=pointer]:
+    - strong [ref=e10]: ErrorFormat_ResultSubtype_2026
+    - text: "TIMEOUT: no updates for 19713s"
+  - generic [ref=e12] [cursor=pointer]:
+    - strong [ref=e13]: ErrorFormat_StopReason_2026
+    - text: "TIMEOUT: no updates for 19713s"
+  - generic [ref=e15] [cursor=pointer]:
+    - strong [ref=e16]: ErrorFormat_ApiError_2026
+    - text: "TIMEOUT: no updates for 19711s"
+  - generic [ref=e18] [cursor=pointer]:
+    - strong [ref=e19]: ErrorFormat_ErrorSubtypeCheck_2026
+    - text: "TIMEOUT: no updates for 19711s"
+  - generic [ref=e21] [cursor=pointer]:
+    - strong [ref=e22]: ErrorFormat_ConflictDetail_2026
+    - text: "TIMEOUT: no updates for 19710s"
+  - generic [ref=e24] [cursor=pointer]:
+    - strong [ref=e25]: ErrorFormat_ApprovalDetail_2026
+    - text: "TIMEOUT: no updates for 19709s"
+  - generic [ref=e27] [cursor=pointer]:
+    - strong [ref=e28]: HeadlessInput_InitControl_2026
+    - text: "TIMEOUT: no updates for 19704s"
+  - generic [ref=e30] [cursor=pointer]:
+    - strong [ref=e31]: HeadlessInput_UserMessage_2026
+    - text: "TIMEOUT: no updates for 19696s"
+  - generic [ref=e33] [cursor=pointer]:
+    - strong [ref=e34]: HeadlessInput_MultiTurn_2026
+    - text: "TIMEOUT: no updates for 19682s"
+  - generic [ref=e36] [cursor=pointer]:
+    - strong [ref=e37]: HeadlessInput_Interrupt_2026
+    - text: "TIMEOUT: no updates for 19678s"
+  - generic [ref=e39] [cursor=pointer]:
+    - strong [ref=e40]: HeadlessInput_RecoverApprovals_2026
+    - text: "TIMEOUT: no updates for 19673s"
+  - generic [ref=e42] [cursor=pointer]:
+    - strong [ref=e43]: HeadlessInput_RecoverMismatch_2026
+    - text: "TIMEOUT: no updates for 19669s"
+  - generic [ref=e45] [cursor=pointer]:
+    - strong [ref=e46]: HeadlessInput_PartialMessages_2026
+    - text: "TIMEOUT: no updates for 19660s"
+  - generic [ref=e48] [cursor=pointer]:
+    - strong [ref=e49]: HeadlessInput_UnknownControl_2026
+    - text: "TIMEOUT: no updates for 19656s"
+  - generic [ref=e51] [cursor=pointer]:
+    - strong [ref=e52]: HeadlessInput_InvalidJson_2026
+    - text: "TIMEOUT: no updates for 19651s"
+  - generic [ref=e54] [cursor=pointer]:
+    - strong [ref=e55]: HeadlessInput_TaskTool_2026
+    - text: "PASS: approval telemetry present finished"
+  - generic [ref=e57] [cursor=pointer]:
+    - strong [ref=e58]: HeadlessInput_TaskToolQueue_2026
+    - text: "result subtype=success duration_ms=29461: PASS finished"
+  - generic [ref=e60] [cursor=pointer]:
+    - strong [ref=e61]: HeadlessInput_InitThenUser_2026
+    - text: "TIMEOUT: no updates for 19577s"
+  - generic [ref=e63] [cursor=pointer]:
+    - strong [ref=e64]: StreamJson_InitMessage_2026
+    - text: "Init message validated: agent_id=agent-8c56ea58-5e0d-48db-a3ca-678bb2ddae6e model=gpt-5.4-mini tools=11 — test finished"
+  - generic [ref=e66] [cursor=pointer]:
+    - strong [ref=e67]: StreamJson_SessionIdUuid_2026
+    - text: session_id=agent-37d10211-0411-48fb-946b-daca37bbf5e2 uuid=d25b38a2-fc36-4b7a-8f1b-2215d370db00 — test complete finished
+  - generic [ref=e69] [cursor=pointer]:
+    - strong [ref=e70]: StreamJson_ResultFormat_2026
+    - text: "Result validated: subtype=success duration_ms=3262 — test complete finished"
+  - generic [ref=e72] [cursor=pointer]:
+    - strong [ref=e73]: StreamJson_PartialMessages_2026
+    - text: "TIMEOUT: no updates for 19551s"
+  - generic [ref=e75] [cursor=pointer]:
+    - strong [ref=e76]: StreamJson_NoPartialMessages_2026
+    - text: "TIMEOUT: no updates for 19544s"
+  - generic [ref=e78] [cursor=pointer]:
+    - strong [ref=e79]: StartupFlow_AgentNotFound_2026
+    - text: "TIMEOUT: no updates for 19523s"
+  - generic [ref=e81] [cursor=pointer]:
+    - strong [ref=e82]: StartupFlow_ConvNotFound_2026
+    - text: "TIMEOUT: no updates for 19521s"
+  - generic [ref=e84] [cursor=pointer]:
+    - strong [ref=e85]: StartupFlow_ImportNotFound_2026
+    - text: "PASS: stderr contains ’not found’ finished"
+  - generic [ref=e87] [cursor=pointer]:
+    - strong [ref=e88]: StartupFlow_NewAgent_2026
+    - text: "TIMEOUT: no updates for 19516s"
+  - generic [ref=e90] [cursor=pointer]:
+    - strong [ref=e91]: StartupFlow_ValidAgent_2026
+    - text: "SKIP: no test agent available from previous test - test complete finished"
+  - generic [ref=e93] [cursor=pointer]:
+    - strong [ref=e94]: StartupFlow_ValidConv_2026
+    - text: "SKIP: no test agent available from previous test - test complete finished"
+  - generic [ref=e96] [cursor=pointer]:
+    - strong [ref=e97]: StartupFlow_SerializedConvId_2026
+    - text: "TIMEOUT: no updates for 19472s"
+  - generic [ref=e99] [cursor=pointer]:
+    - strong [ref=e100]: StartupFlow_DefaultConv_2026
+    - text: "TIMEOUT: no updates for 19498s"
+  - generic [ref=e102] [cursor=pointer]:
+    - strong [ref=e103]: StartupFlow_InitBlocksNone_2026
+    - text: "TIMEOUT: no updates for 19465s"
+  - generic [ref=e105] [cursor=pointer]:
+    - strong [ref=e106]: StartupFlow_NoPrompt_2026
+    - text: "TIMEOUT: no updates for 19518s"
+  - generic [ref=e108] [cursor=pointer]:
+    - strong [ref=e109]: StartupFlow_StaleConvFallback_2026
+    - text: "TIMEOUT: no updates for 19449s"
+  - generic [ref=e111] [cursor=pointer]:
+    - strong [ref=e112]: LazyApproval_ConcurrentMessage_2026
+    - text: "TIMEOUT: no updates for 19526s"

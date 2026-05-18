@@ -98,7 +98,7 @@ function updatedLed(message: string, current: MonitorLed): MonitorLed {
   // PASS: "finished", explicit PASS markers, or "test complete".
   // FAIL: explicit ERROR/FAIL markers and timeout/hang indicators.
   const isTimeoutLike =
-    /timed?\s*out/i.test(message) ||
+    /\b(?:timed?|hung?)\s+out\b/i.test(message) ||
     /\btimeout\b/i.test(message) ||
     /\bhung\b/i.test(message) ||
     /\babort(?:ed|error)?\b/i.test(message);
