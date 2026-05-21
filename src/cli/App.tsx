@@ -100,6 +100,8 @@ import {
   runStopHooks,
   runUserPromptSubmitHooks,
 } from "../hooks";
+import type { IAgentSessionLogger } from "../logger/agent-event-logger";
+import { createAgentSessionLogger } from "../logger/agent-session-logger-factory";
 import type { ApprovalContext } from "../permissions/analyzer";
 import { type PermissionMode, permissionMode } from "../permissions/mode";
 import { OPENAI_CODEX_PROVIDER_NAME } from "../providers/openai-codex-provider";
@@ -143,8 +145,6 @@ import {
   isDebugEnabled,
 } from "../utils/debug";
 import { getVersion } from "../version";
-import type { IAgentSessionLogger } from "../logger/agent-event-logger";
-import { createAgentSessionLogger } from "../logger/agent-session-logger-factory";
 import {
   handleMcpAdd,
   type McpCommandContext,
@@ -11564,7 +11564,8 @@ ${SYSTEM_REMINDER_CLOSE}
     isExecutingTool,
     anySelectorOpen,
     queuedOverlayAction,
-    dequeueEpoch, // Triggered on every enqueue, turn completion, and cancel-reset
+    dequeueEpoch,
+    setStreaming,
   ]);
 
   // Helper to send all approval results when done

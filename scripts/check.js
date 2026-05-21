@@ -12,7 +12,7 @@ console.log("📝 Running Biome linter...");
 try {
   await $`bun run lint`;
   console.log("✅ Linting passed\n");
-} catch (error) {
+} catch (_error) {
   console.error("❌ Linting failed\n");
   console.error("To fix automatically, run:");
   console.error("  bun run fix\n");
@@ -24,7 +24,7 @@ console.log("🔎 Running TypeScript type checker...");
 try {
   await $`bun run typecheck`;
   console.log("✅ Type checking passed\n");
-} catch (error) {
+} catch (_error) {
   console.error("❌ Type checking failed\n");
   console.error("Fix the type errors shown above, then run:");
   console.error("  bun run typecheck\n");

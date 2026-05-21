@@ -992,7 +992,9 @@ describe("input-format stream-json", () => {
         await log(
           `approval telemetry: auto_approval=${autoApprovals.length} other_signals=${approvalSignals.length}`,
         );
-        expect(autoApprovals.length + approvalSignals.length).toBeGreaterThan(0);
+        expect(autoApprovals.length + approvalSignals.length).toBeGreaterThan(
+          0,
+        );
         await log("PASS: approval telemetry present finished");
       } catch (err) {
         await log(
@@ -1053,8 +1055,12 @@ describe("input-format stream-json", () => {
         )) as WireMessage[];
         await log(`CLI returned ${objects.length} objects`);
 
-        const enqueued = objects.filter((o) => o.type === "queue_item_enqueued");
-        const dequeued = objects.filter((o) => o.type === "queue_batch_dequeued");
+        const enqueued = objects.filter(
+          (o) => o.type === "queue_item_enqueued",
+        );
+        const dequeued = objects.filter(
+          (o) => o.type === "queue_batch_dequeued",
+        );
         const queueCleared = objects.filter(
           (o): o is WireMessage & { type: "queue_cleared"; reason: string } =>
             o.type === "queue_cleared",

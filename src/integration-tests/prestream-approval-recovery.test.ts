@@ -10,7 +10,10 @@ const FOLLOWUP_PROMPT = "Say OK only. Do not call tools.";
 const normalizeLoggerMessage = (message: string): string => {
   if (message.includes("ERROR")) return message;
   if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: ${message}`;
-  if (/\bPASS(?:ED)?\b/.test(message) || /test complete|test finished/i.test(message)) {
+  if (
+    /\bPASS(?:ED)?\b/.test(message) ||
+    /test complete|test finished/i.test(message)
+  ) {
     return message.includes("finished") ? message : `${message} finished`;
   }
   return message;
@@ -126,7 +129,9 @@ async function startPendingApprovalSession(
     const onMessage = (msg: StreamMessage) => {
       messages.push(msg);
       if (msg.type === "control_request") {
-        console.log(`[startPendingApprovalSession] Received control_request: ${JSON.stringify(msg)}`);
+        console.log(
+          `[startPendingApprovalSession] Received control_request: ${JSON.stringify(msg)}`,
+        );
       }
 
       if (
@@ -282,32 +287,52 @@ describe("pre-stream approval recovery", () => {
         await logger.init();
         loggerReady = true;
       } catch (err) {
-        console.warn(`[prestream-approval] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(
+          `[prestream-approval] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       const log = async (message: string) => {
         console.log(`[prestream-approval] ${message}`);
         if (loggerReady) {
-          try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-            console.error(`[prestream-approval] log failed: ${err instanceof Error ? err.message : String(err)}`);
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[prestream-approval] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       };
 
-      await log("Test started: recovers from pre-stream approval conflict and retries successfully");
+      await log(
+        "Test started: recovers from pre-stream approval conflict and retries successfully",
+      );
       await log(`Tool trigger prompt: ${TOOL_TRIGGER_PROMPT}`);
       await log(`Followup prompt: ${FOLLOWUP_PROMPT}`);
 
-      await log("Phase 1: starting pending approval session (bidirectional mode, no --yolo)");
+      await log(
+        "Phase 1: starting pending approval session (bidirectional mode, no --yolo)",
+      );
       const pending = await startPendingApprovalSession();
-      await log(`Phase 1 complete: conversationId=${pending.conversationId} messages=${pending.messages.length}`);
+      await log(
+        `Phase 1 complete: conversationId=${pending.conversationId} messages=${pending.messages.length}`,
+      );
 
       try {
-        await log("Phase 2: running one-shot against conversation with pending approval");
-        const result = await runOneShotAgainstConversation(pending.conversationId);
-        await log(`Phase 2 complete: exitCode=${result.code} messages=${result.messages.length}`);
+        await log(
+          "Phase 2: running one-shot against conversation with pending approval",
+        );
+        const result = await runOneShotAgainstConversation(
+          pending.conversationId,
+        );
+        await log(
+          `Phase 2 complete: exitCode=${result.code} messages=${result.messages.length}`,
+        );
 
         if (result.code !== 0) {
-          await log(`FAIL: one-shot run failed with exit code ${result.code}\nSTDERR: ${result.stderr.slice(0, 500)}`);
+          await log(
+            `FAIL: one-shot run failed with exit code ${result.code}\nSTDERR: ${result.stderr.slice(0, 500)}`,
+          );
           throw new Error(
             `Expected one-shot run to succeed, got exit code ${result.code}\nSTDERR:\n${result.stderr}`,
           );
@@ -327,7 +352,9 @@ describe("pre-stream approval recovery", () => {
         );
 
         const resultEvent = result.messages.find((m) => m.type === "result");
-        await log(`result event found: ${resultEvent ? "YES" : "NO"} subtype=${resultEvent?.subtype}`);
+        await log(
+          `result event found: ${resultEvent ? "YES" : "NO"} subtype=${resultEvent?.subtype}`,
+        );
         expect(resultEvent).toBeDefined();
         expect(resultEvent?.subtype).toBe("success");
 

@@ -367,7 +367,9 @@ describe("Scissari post-approval tool-execution hang", () => {
       await log(`Prompt: ${TOOL_TRIGGER_ERROR_PROMPT}`);
       await log(`Completion time limit: ${COMPLETION_TIMEOUT_MS}ms`);
 
-      const result = await runApprovalAndContinueTest(TOOL_TRIGGER_ERROR_PROMPT);
+      const result = await runApprovalAndContinueTest(
+        TOOL_TRIGGER_ERROR_PROMPT,
+      );
 
       await log(
         `elapsed=${result.elapsedMs}ms approvalSeen=${result.approvalSeen} ` +

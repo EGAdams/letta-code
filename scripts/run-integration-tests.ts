@@ -8,8 +8,7 @@
  * call writes the sentinel during Bun's cleanup phase after tests pass (exit 0),
  * meaning the sentinel exists even though the subprocess exited successfully.
  */
-import { existsSync, rmSync } from "node:fs";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const BAIL_SENTINEL_PATH = "/tmp/letta-integration-bail";
@@ -20,13 +19,15 @@ const files = readdirSync(TEST_DIR)
   .sort()
   .map((f) => join(TEST_DIR, f));
 
-const shortName = (f: string) => f.replace(TEST_DIR + "/", "");
+const shortName = (f: string) => f.replace(`${TEST_DIR}/`, "");
 
 let failed = false;
 for (const file of files) {
   // Clear sentinel before each file — handles stale sentinels from prior runs
   // and the post-exit race condition from the previous file.
-  try { rmSync(BAIL_SENTINEL_PATH, { force: true }); } catch {}
+  try {
+    rmSync(BAIL_SENTINEL_PATH, { force: true });
+  } catch {}
 
   console.log(`\n▶ ${shortName(file)}`);
   const proc = Bun.spawnSync(["bun", "test", file], {
@@ -40,7 +41,9 @@ for (const file of files) {
   const sentinelAfter = existsSync(BAIL_SENTINEL_PATH);
 
   if (proc.exitCode !== 0 || sentinelAfter) {
-    console.error(`\n✗ Failed: ${shortName(file)}${sentinelAfter ? " (bail sentinel)" : ""}`);
+    console.error(
+      `\n✗ Failed: ${shortName(file)}${sentinelAfter ? " (bail sentinel)" : ""}`,
+    );
     failed = true;
     break;
   }

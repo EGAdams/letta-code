@@ -143,7 +143,10 @@ async function runSkillAdoptionFlow(): Promise<RunResult> {
         if (evt.message_type === "tool_return_message") {
           toolReturnCount += 1;
         }
-        if (evt.message_type === "stop_reason" && evt.stop_reason === "end_turn") {
+        if (
+          evt.message_type === "stop_reason" &&
+          evt.stop_reason === "end_turn"
+        ) {
           endTurnStopReasons += 1;
         }
       }
@@ -190,7 +193,9 @@ describe("Scissari skill adoption tool execution", () => {
       let loggerReady = false;
       try {
         await logger.init();
-        await logger.clearLogs("Scissari skill adoption tool-call test started.");
+        await logger.clearLogs(
+          "Scissari skill adoption tool-call test started.",
+        );
         loggerReady = true;
       } catch (err) {
         console.warn(

@@ -4,16 +4,33 @@ const createConversationMock = mock(() =>
   Promise.resolve({ id: `conv-${createConversationMock.mock.calls.length}` }),
 );
 
-const createMessageMock = mock((_conversationId: string, body: { messages: Array<{ content: string }> }) => {
-  const content = body.messages[0]?.content ?? "";
+const createMessageMock = mock(
+  (_conversationId: string, body: { messages: Array<{ content: string }> }) => {
+    const content = body.messages[0]?.content ?? "";
 
-  if (content.includes("Do not use any tools for this answer.")) {
+    if (content.includes("Do not use any tools for this answer.")) {
+      return Promise.resolve({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            message_type: "assistant_message",
+            content: "Retry reply from Hailey",
+            run_id: "run-retry-success",
+          };
+          yield {
+            message_type: "stop_reason",
+            stop_reason: "end_turn",
+          };
+        },
+      });
+    }
+
     return Promise.resolve({
       async *[Symbol.asyncIterator]() {
         yield {
           message_type: "assistant_message",
-          content: "Retry reply from Hailey",
-          run_id: "run-retry-success",
+          content:
+            "**Processing user request**\n\nI need to respond to the user by messaging Hailey.",
+          run_id: "run-first-meta",
         };
         yield {
           message_type: "stop_reason",
@@ -21,23 +38,8 @@ const createMessageMock = mock((_conversationId: string, body: { messages: Array
         };
       },
     });
-  }
-
-  return Promise.resolve({
-    async *[Symbol.asyncIterator]() {
-      yield {
-        message_type: "assistant_message",
-        content:
-          "**Processing user request**\n\nI need to respond to the user by messaging Hailey.",
-        run_id: "run-first-meta",
-      };
-      yield {
-        message_type: "stop_reason",
-        stop_reason: "end_turn",
-      };
-    },
-  });
-});
+  },
+);
 
 const retrieveAgentMock = mock((agentId: string) =>
   Promise.resolve({

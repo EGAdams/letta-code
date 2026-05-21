@@ -6,7 +6,10 @@ describe("RemoteLogger sanitizeLogMessage", () => {
     const requests: Array<{ url: string; body: string }> = [];
 
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       const url = String(input);
       requests.push({ url, body: String(init?.body ?? "") });
       return new Response(JSON.stringify({ ok: true }), {

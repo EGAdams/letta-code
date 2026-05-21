@@ -41,12 +41,12 @@ import {
   resolveModel,
 } from "./agent/model";
 import { updateAgentLLMConfig, updateAgentSystemPrompt } from "./agent/modify";
-import { detectSystemPromptPreset } from "./agent/promptAssets";
-import { resolveDefaultAgentModel } from "./agent/serverModelSelection";
 import {
   collectPendingMultiAgentToolCalls,
   executePendingMultiAgentToolCalls,
 } from "./agent/multi-agent-tool-fallback";
+import { detectSystemPromptPreset } from "./agent/promptAssets";
+import { resolveDefaultAgentModel } from "./agent/serverModelSelection";
 import { resolveSkillSourcesSelection } from "./agent/skillSources";
 import type { SkillSource } from "./agent/skills";
 import { SessionStats } from "./agent/stats";

@@ -1,5 +1,6 @@
 process.env.LETTA_LOGGER_RESET_API =
-  process.env.LETTA_LOGGER_RESET_API ?? "http://100.80.49.10:8284/libraries/local-php-api";
+  process.env.LETTA_LOGGER_RESET_API ??
+  "http://100.80.49.10:8284/libraries/local-php-api";
 
 const { ALL_LOGGER_IDS, flushAllLoggers } = await import("./logger-helpers");
 

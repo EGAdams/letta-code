@@ -120,7 +120,9 @@ describe("Scissari tool parity integration", () => {
       const expectedNames = sortNames(REQUIRED_TOOLS);
 
       try {
-        await log("Repairing Scissari to the expected five-tool set before reconcile");
+        await log(
+          "Repairing Scissari to the expected five-tool set before reconcile",
+        );
         await ensureExactToolSet(SCISSARI_AGENT_ID, REQUIRED_TOOLS);
 
         const beforeNames = await listAgentToolNames(SCISSARI_AGENT_ID);
@@ -132,7 +134,10 @@ describe("Scissari tool parity integration", () => {
           include: ["agent.tools"],
         });
 
-        const reconcileResult = await reconcileExistingAgentState(client, agent);
+        const reconcileResult = await reconcileExistingAgentState(
+          client,
+          agent,
+        );
         await log(
           `Reconcile updated=${reconcileResult.updated} appliedTweaks=${reconcileResult.appliedTweaks.join(",") || "(none)"}`,
         );

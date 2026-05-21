@@ -19,10 +19,7 @@ function getConfiguredServerUrl(): string {
 export function getAppBaseUrl(serverUrl = getConfiguredServerUrl()): string {
   const normalized = serverUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
 
-  if (
-    normalized === CLOUD_API_BASE ||
-    normalized === "https://api.letta.com"
-  ) {
+  if (normalized === CLOUD_API_BASE || normalized === "https://api.letta.com") {
     return CLOUD_APP_BASE;
   }
 

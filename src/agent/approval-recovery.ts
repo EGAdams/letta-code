@@ -52,7 +52,10 @@ type RunErrorMetadata =
 
 const RUN_RETRIEVE_TIMEOUT_MS = 5000;
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
   return await Promise.race([
     promise,
     new Promise<T>((_resolve, reject) => {

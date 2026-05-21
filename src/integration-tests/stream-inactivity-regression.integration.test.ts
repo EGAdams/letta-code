@@ -30,4 +30,3 @@ describe("stream inactivity regression", () => {
     );
   });
 });
-

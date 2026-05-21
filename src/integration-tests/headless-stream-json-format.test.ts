@@ -61,7 +61,11 @@ async function runHeadlessCommand(
       {
         cwd: process.cwd(),
         // Mark as subagent to prevent polluting user's LRU settings
-        env: { ...process.env, LETTA_CODE_AGENT_ROLE: "subagent", LETTA_DEBUG: "0" },
+        env: {
+          ...process.env,
+          LETTA_CODE_AGENT_ROLE: "subagent",
+          LETTA_DEBUG: "0",
+        },
         // Ignore stdin — without this the subprocess may block waiting for input.
         stdio: ["ignore", "pipe", "pipe"],
       },

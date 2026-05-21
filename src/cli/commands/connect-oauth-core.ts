@@ -106,9 +106,7 @@ export async function isChatGPTOAuthConnected(
         // expires_at may be stored in seconds or milliseconds depending on source.
         // Values > 1e12 are milliseconds (Date.now()); smaller values are seconds.
         const expiresAtMs =
-          creds.expires_at > 1e12
-            ? creds.expires_at
-            : creds.expires_at * 1000;
+          creds.expires_at > 1e12 ? creds.expires_at : creds.expires_at * 1000;
         // Treat as expired if within 5 minutes of actual expiry.
         if (Date.now() > expiresAtMs - 5 * 60 * 1000) {
           return false;

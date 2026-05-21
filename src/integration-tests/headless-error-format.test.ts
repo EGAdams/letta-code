@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { RemoteLogger } from "../logger/RemoteLogger";
 import type {
   ErrorMessage,
   ResultMessage,
   ResultSubtype,
 } from "../types/protocol";
-import { RemoteLogger } from "../logger/RemoteLogger";
 import { resetAllLoggers } from "./logger-helpers";
 
 const TEST_TIMEOUT_MS = 30000;
@@ -12,7 +12,10 @@ const TEST_TIMEOUT_MS = 30000;
 const normalizeLoggerMessage = (message: string): string => {
   if (message.includes("ERROR")) return message;
   if (/\bFAIL(?:ED)?\b/.test(message)) return `ERROR: ${message}`;
-  if (/\bPASS(?:ED)?\b/.test(message) || /test complete|test finished/i.test(message)) {
+  if (
+    /\bPASS(?:ED)?\b/.test(message) ||
+    /test complete|test finished/i.test(message)
+  ) {
     return message.includes("finished") ? message : `${message} finished`;
   }
   return message;
@@ -44,13 +47,19 @@ describe("headless error format types", () => {
       await logger.init();
       loggerReady = true;
     } catch (err) {
-      console.warn(`[error-format:ResultSubtype] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(
+        `[error-format:ResultSubtype] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
     const log = async (message: string) => {
       console.log(`[error-format:ResultSubtype] ${message}`);
       if (loggerReady) {
-        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-          console.error(`[error-format:ResultSubtype] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        try {
+          await logger.log(normalizeLoggerMessage(message));
+        } catch (err) {
+          console.error(
+            `[error-format:ResultSubtype] log failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     };
@@ -77,13 +86,19 @@ describe("headless error format types", () => {
       await logger.init();
       loggerReady = true;
     } catch (err) {
-      console.warn(`[error-format:StopReason] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(
+        `[error-format:StopReason] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
     const log = async (message: string) => {
       console.log(`[error-format:StopReason] ${message}`);
       if (loggerReady) {
-        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-          console.error(`[error-format:StopReason] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        try {
+          await logger.log(normalizeLoggerMessage(message));
+        } catch (err) {
+          console.error(
+            `[error-format:StopReason] log failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     };
@@ -118,13 +133,19 @@ describe("headless error format types", () => {
       await logger.init();
       loggerReady = true;
     } catch (err) {
-      console.warn(`[error-format:ApiError] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(
+        `[error-format:ApiError] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
     const log = async (message: string) => {
       console.log(`[error-format:ApiError] ${message}`);
       if (loggerReady) {
-        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-          console.error(`[error-format:ApiError] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        try {
+          await logger.log(normalizeLoggerMessage(message));
+        } catch (err) {
+          console.error(
+            `[error-format:ApiError] log failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     };
@@ -151,7 +172,9 @@ describe("headless error format types", () => {
     expect(errorMsg.api_error).toBeDefined();
     await log("errorMsg.api_error defined: PASS");
     expect(errorMsg.api_error?.detail).toContain("Another request");
-    await log("api_error.detail contains 'Another request': PASS — test complete");
+    await log(
+      "api_error.detail contains 'Another request': PASS — test complete",
+    );
     if (loggerReady) await logger.flushLogs();
   });
 });
@@ -166,81 +189,105 @@ describe("headless error format expectations", () => {
     await resetAllLoggers();
   }, 30000);
 
-  testWithTimeout("error result should have subtype 'error', not 'success'", async () => {
-    const logger = new RemoteLogger("ErrorFormat_ErrorSubtypeCheck_2026");
-    let loggerReady = false;
-    try {
-      await logger.init();
-      loggerReady = true;
-    } catch (err) {
-      console.warn(`[error-format:ErrorSubtype] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    const log = async (message: string) => {
-      console.log(`[error-format:ErrorSubtype] ${message}`);
-      if (loggerReady) {
-        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-          console.error(`[error-format:ErrorSubtype] log failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
+  testWithTimeout(
+    "error result should have subtype 'error', not 'success'",
+    async () => {
+      const logger = new RemoteLogger("ErrorFormat_ErrorSubtypeCheck_2026");
+      let loggerReady = false;
+      try {
+        await logger.init();
+        loggerReady = true;
+      } catch (err) {
+        console.warn(
+          `[error-format:ErrorSubtype] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
-    };
-
-    await log("Test started: error result should have subtype 'error', not 'success'");
-    const mockErrorResult: ResultMessage = {
-      type: "result",
-      subtype: "error",
-      session_id: "test",
-      uuid: "test",
-      agent_id: "agent-123",
-      conversation_id: "conv-123",
-      duration_ms: 1000,
-      duration_api_ms: 500,
-      num_turns: 1,
-      result: null,
-      run_ids: [],
-      usage: null,
-      stop_reason: "error",
-    };
-    const sdkSuccess = mockErrorResult.subtype === "success";
-    expect(sdkSuccess).toBe(false);
-    await log(`sdkSuccess === false (subtype='${mockErrorResult.subtype}'): PASS — test complete`);
-    if (loggerReady) await logger.flushLogs();
-  });
-
-  testWithTimeout("409 conflict error should include detail in message", async () => {
-    const logger = new RemoteLogger("ErrorFormat_ConflictDetail_2026");
-    let loggerReady = false;
-    try {
-      await logger.init();
-      loggerReady = true;
-    } catch (err) {
-      console.warn(`[error-format:ConflictDetail] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    const log = async (message: string) => {
-      console.log(`[error-format:ConflictDetail] ${message}`);
-      if (loggerReady) {
-        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-          console.error(`[error-format:ConflictDetail] log failed: ${err instanceof Error ? err.message : String(err)}`);
+      const log = async (message: string) => {
+        console.log(`[error-format:ErrorSubtype] ${message}`);
+        if (loggerReady) {
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[error-format:ErrorSubtype] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
-      }
-    };
+      };
 
-    await log("Test started: 409 conflict error should include detail in message");
-    const conflictDetail =
-      "CONFLICT: Cannot send a new message: Another request is currently being processed for this conversation.";
-    const mockError: ErrorMessage = {
-      type: "error",
-      message: conflictDetail,
-      stop_reason: "error",
-      session_id: "test",
-      uuid: "test",
-      run_id: "run-123",
-    };
-    expect(mockError.message).toContain("CONFLICT");
-    await log("message contains 'CONFLICT': PASS");
-    expect(mockError.message).toContain("Another request");
-    await log("message contains 'Another request': PASS — test complete");
-    if (loggerReady) await logger.flushLogs();
-  });
+      await log(
+        "Test started: error result should have subtype 'error', not 'success'",
+      );
+      const mockErrorResult: ResultMessage = {
+        type: "result",
+        subtype: "error",
+        session_id: "test",
+        uuid: "test",
+        agent_id: "agent-123",
+        conversation_id: "conv-123",
+        duration_ms: 1000,
+        duration_api_ms: 500,
+        num_turns: 1,
+        result: null,
+        run_ids: [],
+        usage: null,
+        stop_reason: "error",
+      };
+      const sdkSuccess = mockErrorResult.subtype === "success";
+      expect(sdkSuccess).toBe(false);
+      await log(
+        `sdkSuccess === false (subtype='${mockErrorResult.subtype}'): PASS — test complete`,
+      );
+      if (loggerReady) await logger.flushLogs();
+    },
+  );
+
+  testWithTimeout(
+    "409 conflict error should include detail in message",
+    async () => {
+      const logger = new RemoteLogger("ErrorFormat_ConflictDetail_2026");
+      let loggerReady = false;
+      try {
+        await logger.init();
+        loggerReady = true;
+      } catch (err) {
+        console.warn(
+          `[error-format:ConflictDetail] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      const log = async (message: string) => {
+        console.log(`[error-format:ConflictDetail] ${message}`);
+        if (loggerReady) {
+          try {
+            await logger.log(normalizeLoggerMessage(message));
+          } catch (err) {
+            console.error(
+              `[error-format:ConflictDetail] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+      };
+
+      await log(
+        "Test started: 409 conflict error should include detail in message",
+      );
+      const conflictDetail =
+        "CONFLICT: Cannot send a new message: Another request is currently being processed for this conversation.";
+      const mockError: ErrorMessage = {
+        type: "error",
+        message: conflictDetail,
+        stop_reason: "error",
+        session_id: "test",
+        uuid: "test",
+        run_id: "run-123",
+      };
+      expect(mockError.message).toContain("CONFLICT");
+      await log("message contains 'CONFLICT': PASS");
+      expect(mockError.message).toContain("Another request");
+      await log("message contains 'Another request': PASS — test complete");
+      if (loggerReady) await logger.flushLogs();
+    },
+  );
 
   testWithTimeout("approval pending error should include detail", async () => {
     const logger = new RemoteLogger("ErrorFormat_ApprovalDetail_2026");
@@ -249,13 +296,19 @@ describe("headless error format expectations", () => {
       await logger.init();
       loggerReady = true;
     } catch (err) {
-      console.warn(`[error-format:ApprovalDetail] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(
+        `[error-format:ApprovalDetail] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
     const log = async (message: string) => {
       console.log(`[error-format:ApprovalDetail] ${message}`);
       if (loggerReady) {
-        try { await logger.log(normalizeLoggerMessage(message)); } catch (err) {
-          console.error(`[error-format:ApprovalDetail] log failed: ${err instanceof Error ? err.message : String(err)}`);
+        try {
+          await logger.log(normalizeLoggerMessage(message));
+        } catch (err) {
+          console.error(
+            `[error-format:ApprovalDetail] log failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     };

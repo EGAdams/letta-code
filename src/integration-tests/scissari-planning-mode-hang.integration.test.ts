@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -148,7 +148,7 @@ async function runScissariPromptWithStarvationDetection(
         : Date.now() - lastOutputTime;
 
       // If killed by signal, code is null; convert to exit code for consistency
-      const exitCode = code !== null ? code : (signal ? 128 + 15 : -1);
+      const exitCode = code !== null ? code : signal ? 128 + 15 : -1;
 
       resolve({
         stdout,
@@ -219,10 +219,10 @@ describe("Scissari planning mode hang detection", () => {
         );
 
         if (!result.hasOutput) {
+          await log(`ERROR: CLI produced no output. Process may have crashed.`);
           await log(
-            `ERROR: CLI produced no output. Process may have crashed.`,
+            `Stderr (first 500 chars): ${result.stderr.substring(0, 500) || "(empty)"}`,
           );
-          await log(`Stderr (first 500 chars): ${result.stderr.substring(0, 500) || "(empty)"}`);
           throw new Error(
             `Scissari CLI exited with code ${result.exitCode} but produced no output. This suggests a crash or immediate failure.`,
           );
@@ -232,8 +232,12 @@ describe("Scissari planning mode hang detection", () => {
           await log(
             `ERROR: HANG DETECTED — no output for ${STARVATION_TIMEOUT_MS}ms`,
           );
-          await log(`Last stdout (first 500 chars): ${result.stdout.substring(0, 500)}`);
-          await log(`Last stderr (first 500 chars): ${result.stderr.substring(0, 500)}`);
+          await log(
+            `Last stdout (first 500 chars): ${result.stdout.substring(0, 500)}`,
+          );
+          await log(
+            `Last stderr (first 500 chars): ${result.stderr.substring(0, 500)}`,
+          );
 
           const events = parseJsonLines(result.stdout);
           const runIds = extractRunIds(events);
@@ -264,16 +268,16 @@ describe("Scissari planning mode hang detection", () => {
           await log(
             `ERROR: CLI exited with unexpected code ${result.exitCode}. Stderr: ${result.stderr.substring(0, 300) || "(empty)"}`,
           );
-          throw new Error(
-            `Expected exit code 0, got ${result.exitCode}`,
-          );
+          throw new Error(`Expected exit code 0, got ${result.exitCode}`);
         }
 
         const events = parseJsonLines(result.stdout);
         const finalResult = events.find((event) => event.type === "result");
 
         if (finalResult?.subtype !== "success") {
-          await log(`ERROR: Expected success result, got: ${finalResult?.subtype}`);
+          await log(
+            `ERROR: Expected success result, got: ${finalResult?.subtype}`,
+          );
           throw new Error(
             `Expected result subtype "success", got "${finalResult?.subtype || "unknown"}"`,
           );
@@ -298,9 +302,7 @@ describe("Scissari planning mode hang detection", () => {
       let loggerReady = false;
       try {
         await logger.init();
-        await logger.clearLogs(
-          "Scissari inactivity recovery test starting.",
-        );
+        await logger.clearLogs("Scissari inactivity recovery test starting.");
         loggerReady = true;
       } catch (err) {
         console.warn(
@@ -339,10 +341,10 @@ describe("Scissari planning mode hang detection", () => {
         );
 
         if (!result.hasOutput) {
+          await log(`ERROR: CLI produced no output. Process may have crashed.`);
           await log(
-            `ERROR: CLI produced no output. Process may have crashed.`,
+            `Stderr (first 500 chars): ${result.stderr.substring(0, 500) || "(empty)"}`,
           );
-          await log(`Stderr (first 500 chars): ${result.stderr.substring(0, 500) || "(empty)"}`);
           throw new Error(
             `Scissari CLI exited with code ${result.exitCode} but produced no output.`,
           );
@@ -352,7 +354,9 @@ describe("Scissari planning mode hang detection", () => {
           await log(
             `ERROR: STARVATION DETECTED — process hung for ${STARVATION_TIMEOUT_MS}ms`,
           );
-          await log(`Last stdout (first 300 chars): ${result.stdout.substring(0, 300)}`);
+          await log(
+            `Last stdout (first 300 chars): ${result.stdout.substring(0, 300)}`,
+          );
           throw new Error(
             `Scissari starvation timeout: no output for ${STARVATION_TIMEOUT_MS}ms`,
           );
@@ -371,9 +375,7 @@ describe("Scissari planning mode hang detection", () => {
           await log(
             `ERROR: CLI exited with unexpected code ${result.exitCode}. Stderr: ${result.stderr.substring(0, 300) || "(empty)"}`,
           );
-          throw new Error(
-            `Expected exit code 0, got ${result.exitCode}`,
-          );
+          throw new Error(`Expected exit code 0, got ${result.exitCode}`);
         }
 
         const events = parseJsonLines(result.stdout);

@@ -1,7 +1,7 @@
 /**
  * @export
  * @interface ILogObject
-*/
+ */
 /**
  *
  * @description
@@ -13,8 +13,8 @@
  * @property {string} method - The method or function that generated the logged event.
  */
 export default interface ILogObject {
-	id: string;
-	timestamp: number; // timestamp in milliseconds since epoch
-	message: string;
-	method: string;
+  id: string;
+  timestamp: number; // timestamp in milliseconds since epoch
+  message: string;
+  method: string;
 }

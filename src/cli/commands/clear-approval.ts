@@ -58,7 +58,7 @@ export async function clearStuckApproval(): Promise<string> {
           if (approvalVariant) {
             approvalMessage = approvalVariant;
           }
-        } catch (e) {
+        } catch (_e) {
           // Ignore retrieval error, will handle below
         }
       }

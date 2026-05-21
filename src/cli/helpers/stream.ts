@@ -88,7 +88,7 @@ type RunsListClient = {
 
 const FALLBACK_RUN_DISCOVERY_TIMEOUT_MS = 5000;
 
-function hasNonEmptyTextPart(content: unknown): boolean {
+function _hasNonEmptyTextPart(content: unknown): boolean {
   if (typeof content === "string") {
     return content.trim().length > 0;
   }

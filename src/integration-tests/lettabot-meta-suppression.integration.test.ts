@@ -142,12 +142,17 @@ describe("Lettabot meta-only response suppression", () => {
 
         await log("Step 1: Reading lettabot API key");
         const apiKey = await getLettabotApiKey();
-        if (!apiKey) throw new Error(`Could not read API key from ${LETTABOT_API_KEY_FILE}`);
+        if (!apiKey)
+          throw new Error(
+            `Could not read API key from ${LETTABOT_API_KEY_FILE}`,
+          );
         await log(`PASS: API key loaded (${apiKey.slice(0, 8)}...)`);
 
         await log("Step 2: Sending question — 'What is 2 + 2?'");
         const result = await chatWithLettabot("What is 2 + 2?", apiKey, 60000);
-        await log(`Step 3: Response — success=${result.success}, length=${result.response.length}`);
+        await log(
+          `Step 3: Response — success=${result.success}, length=${result.response.length}`,
+        );
         await log(`Response text: ${result.response.slice(0, 300)}`);
 
         expect(result.success).toBe(true);
@@ -157,7 +162,9 @@ describe("Lettabot meta-only response suppression", () => {
         await log("PASS: response is non-empty");
 
         const metaOnly = hasMetaOnlyContent(result.response);
-        await log(`Step 4: meta-only check — prefix: "${result.response.toLowerCase().trim().slice(0, 80)}"`);
+        await log(
+          `Step 4: meta-only check — prefix: "${result.response.toLowerCase().trim().slice(0, 80)}"`,
+        );
         expect(metaOnly).toBe(false);
         await log("PASS: response is not meta-only reasoning text");
 
@@ -198,28 +205,43 @@ describe("Lettabot meta-only response suppression", () => {
       };
 
       try {
-        await log("Test started: web search must not expose raw reasoning text");
-        await log("Before fix: lettabot returned '**Preparing to search the web**...'");
-        await log("After fix: retry fires — empty response or real results, never raw reasoning");
+        await log(
+          "Test started: web search must not expose raw reasoning text",
+        );
+        await log(
+          "Before fix: lettabot returned '**Preparing to search the web**...'",
+        );
+        await log(
+          "After fix: retry fires — empty response or real results, never raw reasoning",
+        );
 
         await log("Step 1: Reading lettabot API key");
         const apiKey = await getLettabotApiKey();
-        if (!apiKey) throw new Error(`Could not read API key from ${LETTABOT_API_KEY_FILE}`);
+        if (!apiKey)
+          throw new Error(
+            `Could not read API key from ${LETTABOT_API_KEY_FILE}`,
+          );
         await log(`PASS: API key loaded (${apiKey.slice(0, 8)}...)`);
 
-        await log("Step 2: Sending web search request — 'Search the web for what memfs is'");
+        await log(
+          "Step 2: Sending web search request — 'Search the web for what memfs is'",
+        );
         const result = await chatWithLettabot(
           "Search the web for what memfs is and give me a brief summary.",
           apiKey,
           90000,
         );
-        await log(`Step 3: Response — success=${result.success}, length=${result.response.length}`);
+        await log(
+          `Step 3: Response — success=${result.success}, length=${result.response.length}`,
+        );
         await log(`Response text: "${result.response.slice(0, 400)}"`);
 
         // Empty response is acceptable — means reasoning was suppressed and retry produced nothing.
         // Only fail if the response contains explicit pre-tool reasoning text.
         const metaOnly = hasMetaOnlyContent(result.response);
-        await log(`Step 4: meta-only check — prefix: "${result.response.toLowerCase().trim().slice(0, 80)}"`);
+        await log(
+          `Step 4: meta-only check — prefix: "${result.response.toLowerCase().trim().slice(0, 80)}"`,
+        );
         expect(metaOnly).toBe(false);
         await log("PASS: response does not contain meta-only reasoning text");
 
@@ -230,7 +252,9 @@ describe("Lettabot meta-only response suppression", () => {
         expect(normalized).not.toMatch(/^i (should|need to|must) search/);
         await log("PASS: does not start with 'I should/need to/must search'");
 
-        await log("PASS: all meta-only suppression assertions passed — test finished");
+        await log(
+          "PASS: all meta-only suppression assertions passed — test finished",
+        );
       } catch (err) {
         await log(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
         throw err;

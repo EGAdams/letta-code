@@ -131,7 +131,9 @@ export class RemoteLogger {
   }
 
   async log(message: string): Promise<void> {
-    const safeMessage = sanitizeLogMessage(String(message).slice(0, MAX_MESSAGE_CHARS));
+    const safeMessage = sanitizeLogMessage(
+      String(message).slice(0, MAX_MESSAGE_CHARS),
+    );
     const timestamp = Date.now();
     const rand = Math.floor(Math.random() * 1e13);
 
@@ -177,13 +179,19 @@ export class RemoteLogger {
     }
 
     let serialized = JSON.stringify(this.state());
-    while (serialized.length > MAX_OBJECT_DATA_BYTES && this.logObjects.length > 1) {
+    while (
+      serialized.length > MAX_OBJECT_DATA_BYTES &&
+      this.logObjects.length > 1
+    ) {
       this.logObjects.shift();
       serialized = JSON.stringify(this.state());
     }
   }
 
-  private async post(action: "insert" | "update", timeoutMs = 8000): Promise<void> {
+  private async post(
+    action: "insert" | "update",
+    timeoutMs = 8000,
+  ): Promise<void> {
     const payload = {
       object_view_id: this.objectViewId,
       object_data: this.serializedState(),
@@ -191,45 +199,61 @@ export class RemoteLogger {
 
     let res: Response;
     try {
-      res = await fetchWithTimeout(`${BASE_URL}/object/${action}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }, timeoutMs);
+      res = await fetchWithTimeout(
+        `${BASE_URL}/object/${action}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        timeoutMs,
+      );
     } catch (err) {
       if (await this.isStatePersisted()) return;
-      throw new Error(`[RemoteLogger] ${action} failed before response: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(
+        `[RemoteLogger] ${action} failed before response: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     if (!res.ok) {
-      if (action === "update" && (await this.tryInsertFallback(timeoutMs))) return;
+      if (action === "update" && (await this.tryInsertFallback(timeoutMs)))
+        return;
       if (await this.isStatePersistedWithRetry()) return;
       throw new Error(`[RemoteLogger] ${action} failed (HTTP ${res.status})`);
     }
 
     try {
       const body = (await res.json()) as Record<string, unknown> | null;
-      if (body && body.error) {
-        if (action === "update" && (await this.tryInsertFallback(timeoutMs))) return;
+      if (body?.error) {
+        if (action === "update" && (await this.tryInsertFallback(timeoutMs)))
+          return;
         if (await this.isStatePersistedWithRetry()) return;
-        throw new Error(`[RemoteLogger] ${action} error: ${JSON.stringify(body)}`);
+        throw new Error(
+          `[RemoteLogger] ${action} error: ${JSON.stringify(body)}`,
+        );
       }
     } catch (err) {
       if (await this.isStatePersistedWithRetry()) return;
-      throw new Error(`[RemoteLogger] ${action} failed (invalid JSON response): ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(
+        `[RemoteLogger] ${action} failed (invalid JSON response): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
   private async tryInsertFallback(timeoutMs = 8000): Promise<boolean> {
     try {
-      const res = await fetchWithTimeout(`${BASE_URL}/object/insert`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          object_view_id: this.objectViewId,
-          object_data: this.serializedState(),
-        }),
-      }, timeoutMs);
+      const res = await fetchWithTimeout(
+        `${BASE_URL}/object/insert`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            object_view_id: this.objectViewId,
+            object_data: this.serializedState(),
+          }),
+        },
+        timeoutMs,
+      );
       if (!res.ok) return false;
       return this.isStatePersisted();
     } catch {
@@ -252,7 +276,9 @@ export class RemoteLogger {
     }
   }
 
-  private parseSelectPayload(data: Record<string, unknown> | null): LoggerState | null {
+  private parseSelectPayload(
+    data: Record<string, unknown> | null,
+  ): LoggerState | null {
     if (!data || data.error || !data.object_data) return null;
     try {
       return JSON.parse(data.object_data as string) as LoggerState;
@@ -263,15 +289,22 @@ export class RemoteLogger {
 
   private async isStatePersisted(): Promise<boolean> {
     const persisted = await this.fetchExistingState();
-    if (!persisted || persisted.object_view_id !== this.objectViewId) return false;
+    if (!persisted || persisted.object_view_id !== this.objectViewId)
+      return false;
 
     const expectedLast = this.logObjects[this.logObjects.length - 1];
     if (!expectedLast) return true;
 
-    return persisted.logObjects?.some((entry) => entry.id === expectedLast.id) ?? false;
+    return (
+      persisted.logObjects?.some((entry) => entry.id === expectedLast.id) ??
+      false
+    );
   }
 
-  private async isStatePersistedWithRetry(attempts = 4, delayMs = 250): Promise<boolean> {
+  private async isStatePersistedWithRetry(
+    attempts = 4,
+    delayMs = 250,
+  ): Promise<boolean> {
     for (let i = 0; i < attempts; i += 1) {
       if (await this.isStatePersisted()) return true;
       if (i < attempts - 1) {

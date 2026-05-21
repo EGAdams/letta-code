@@ -57,7 +57,7 @@ function extractStreamMessageTypes(events: JsonObject[]): string[] {
   return types;
 }
 
-function messageContentText(content: unknown): string {
+function _messageContentText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
@@ -192,7 +192,9 @@ describe("Scissari message persistence integration", () => {
       let loggerReady = false;
       try {
         await logger.init();
-        await logger.clearLogs("Scissari message persistence test run started.");
+        await logger.clearLogs(
+          "Scissari message persistence test run started.",
+        );
         loggerReady = true;
       } catch (err) {
         console.warn(
@@ -217,7 +219,9 @@ describe("Scissari message persistence integration", () => {
       await settingsManager.initialize();
 
       try {
-        await log("Test started: streamed assistant response is persisted on the run");
+        await log(
+          "Test started: streamed assistant response is persisted on the run",
+        );
         const token = `SCISSARI_PERSIST_${Date.now()}`;
         const result = await runScissariPrompt(
           `Reply with exactly ${token}. Do not use tools.`,
@@ -253,7 +257,8 @@ describe("Scissari message persistence integration", () => {
         const completedStep = steps.find(
           (step) =>
             (step as unknown as Record<string, unknown>).status === "success" &&
-            ((step as unknown as Record<string, unknown>).completion_tokens as number ?? 0) > 0,
+            (((step as unknown as Record<string, unknown>)
+              .completion_tokens as number) ?? 0) > 0,
         );
         if (!completedStep) {
           const stepSummary = steps
@@ -286,7 +291,9 @@ describe("Scissari message persistence integration", () => {
       let loggerReady = false;
       try {
         await logger.init();
-        await logger.clearLogs("Scissari reasoning/final-message test run started.");
+        await logger.clearLogs(
+          "Scissari reasoning/final-message test run started.",
+        );
         loggerReady = true;
       } catch (err) {
         console.warn(
@@ -367,7 +374,8 @@ describe("Scissari message persistence integration", () => {
         const completedStep = steps.find(
           (step) =>
             (step as unknown as Record<string, unknown>).status === "success" &&
-            ((step as unknown as Record<string, unknown>).completion_tokens as number ?? 0) > 0,
+            (((step as unknown as Record<string, unknown>)
+              .completion_tokens as number) ?? 0) > 0,
         );
         if (!completedStep) {
           const stepSummary = steps

@@ -87,7 +87,10 @@ async function collectAssistantReply(
     if ("run_id" in chunk && typeof chunk.run_id === "string") {
       runId = chunk.run_id;
     }
-    if ("conversation_id" in chunk && typeof chunk.conversation_id === "string") {
+    if (
+      "conversation_id" in chunk &&
+      typeof chunk.conversation_id === "string"
+    ) {
       conversationId = chunk.conversation_id;
     }
     if (chunk.message_type === "assistant_message") {
@@ -159,7 +162,12 @@ async function sendMessageToAgentAndCollectReply(
 
   const timeout = new Promise<never>((_, reject) =>
     setTimeout(
-      () => reject(new Error(`Agent reply timed out after ${AGENT_REPLY_TIMEOUT_MS / 1000}s`)),
+      () =>
+        reject(
+          new Error(
+            `Agent reply timed out after ${AGENT_REPLY_TIMEOUT_MS / 1000}s`,
+          ),
+        ),
       AGENT_REPLY_TIMEOUT_MS,
     ),
   );
@@ -269,7 +277,10 @@ Do not ask the sender to provide another agent ID.
 
   try {
     ({ reply, runId, stopReason, conversationId } =
-      await sendMessageToAgentAndCollectReply(otherAgentId, firstAttemptMessage));
+      await sendMessageToAgentAndCollectReply(
+        otherAgentId,
+        firstAttemptMessage,
+      ));
   } catch (e) {
     return {
       type: "tool",

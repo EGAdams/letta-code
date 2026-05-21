@@ -37,6 +37,8 @@ describe("app URL helpers", () => {
         conversationId: "conv-123",
         view: "memory",
       }),
-    ).toBe("http://localhost:8283/chat/agent-local?view=memory&conversation=conv-123");
+    ).toBe(
+      "http://localhost:8283/chat/agent-local?view=memory&conversation=conv-123",
+    );
   });
 });

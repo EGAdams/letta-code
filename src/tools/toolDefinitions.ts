@@ -81,8 +81,8 @@ import AskUserQuestionSchema from "./schemas/AskUserQuestion.json";
 import BashSchema from "./schemas/Bash.json";
 import BashOutputSchema from "./schemas/BashOutput.json";
 import EditSchema from "./schemas/Edit.json";
-import ExecutorRunSchema from "./schemas/ExecutorRun.json";
 import EnterPlanModeSchema from "./schemas/EnterPlanMode.json";
+import ExecutorRunSchema from "./schemas/ExecutorRun.json";
 import ExitPlanModeSchema from "./schemas/ExitPlanMode.json";
 import GlobSchema from "./schemas/Glob.json";
 // Gemini toolset
@@ -158,7 +158,8 @@ const toolDefinitions = {
   },
   executor_run: {
     schema: ExecutorRunSchema,
-    description: "Execute a shell command, optionally in a specified working directory.",
+    description:
+      "Execute a shell command, optionally in a specified working directory.",
     impl: executor_run as unknown as ToolImplementation,
   },
   Glob: {

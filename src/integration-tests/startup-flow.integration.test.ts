@@ -342,7 +342,9 @@ describe("Startup Flow - Invalid Inputs", () => {
         finished = true;
       } finally {
         if (!finished) {
-          await log("FAIL: missing conversation error assertion failed finished");
+          await log(
+            "FAIL: missing conversation error assertion failed finished",
+          );
         }
         if (loggerReady) await logger.flushLogs();
       }
@@ -475,12 +477,7 @@ describe("Startup Flow - Integration", () => {
         "Fallback: creating agent via HTTP API instead of CLI subprocess",
       );
       const _bootstrapResult = await runCli(
-        [
-          "--agent",
-          "agent-definitely-does-not-exist-12345",
-          "-p",
-          "test",
-        ],
+        ["--agent", "agent-definitely-does-not-exist-12345", "-p", "test"],
         { expectExit: 1, timeoutMs: 10000 },
       );
       // ^ This fails fast but proves runCli works for simple cases
@@ -523,7 +520,9 @@ describe("Startup Flow - Integration", () => {
 
       await log("Test started: --agent with valid ID uses that agent");
       if (!testAgentId) {
-        await log("SKIP: no test agent available from previous test - test complete");
+        await log(
+          "SKIP: no test agent available from previous test - test complete",
+        );
         console.log("Skipping: no test agent available");
         return;
       }
@@ -586,7 +585,9 @@ describe("Startup Flow - Integration", () => {
         "Test started: --conversation with valid ID derives agent and uses conversation",
       );
       if (!testAgentId) {
-        await log("SKIP: no test agent available from previous test - test complete");
+        await log(
+          "SKIP: no test agent available from previous test - test complete",
+        );
         console.log("Skipping: no test agent available");
         return;
       }
@@ -895,11 +896,16 @@ describe("Startup Flow - Integration", () => {
           ],
           { timeoutMs: 180000 },
         );
-        console.timeEnd("[startup-flow:SerializedConvId] Phase 2 runCli duration");
+        console.timeEnd(
+          "[startup-flow:SerializedConvId] Phase 2 runCli duration",
+        );
         await log("Phase 2: runCli returned successfully");
       } catch (err) {
-        console.timeEnd("[startup-flow:SerializedConvId] Phase 2 runCli duration");
-        const isTimeout = err instanceof Error && err.message.includes("Timeout");
+        console.timeEnd(
+          "[startup-flow:SerializedConvId] Phase 2 runCli duration",
+        );
+        const isTimeout =
+          err instanceof Error && err.message.includes("Timeout");
         if (isTimeout) {
           await log("ERROR: Phase 2 runCli timed out");
         }
@@ -932,7 +938,9 @@ describe("Startup Flow - Integration", () => {
         exitCode: number | null;
       };
       try {
-        await log("Phase 3: invoking runCli with nested serialized conversation ID");
+        await log(
+          "Phase 3: invoking runCli with nested serialized conversation ID",
+        );
         nestedResult = await runCli(
           [
             "--conversation",
@@ -948,7 +956,8 @@ describe("Startup Flow - Integration", () => {
         );
         await log("Phase 3: runCli returned successfully");
       } catch (err) {
-        const isTimeout = err instanceof Error && err.message.includes("Timeout");
+        const isTimeout =
+          err instanceof Error && err.message.includes("Timeout");
         if (isTimeout) {
           await log("ERROR: Phase 3 runCli timed out");
         }

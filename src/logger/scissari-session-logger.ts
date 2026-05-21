@@ -53,7 +53,9 @@ const MAX_SNIPPET = 300;
 function snippet(s: unknown): string {
   if (typeof s !== "string") return "";
   const cleaned = s.replace(/\n+/g, " ").trim();
-  return cleaned.length > MAX_SNIPPET ? `${cleaned.slice(0, MAX_SNIPPET)}…` : cleaned;
+  return cleaned.length > MAX_SNIPPET
+    ? `${cleaned.slice(0, MAX_SNIPPET)}…`
+    : cleaned;
 }
 
 // Returns null for partial delta chunks that carry only argument fragments (no name yet).
@@ -140,7 +142,9 @@ class ScissariLoggerFactory implements IAgentLoggerFactory {
   }
 
   async initAll(): Promise<void> {
-    await Promise.all([...this.loggers.values()].map((l) => l.init().catch(() => {})));
+    await Promise.all(
+      [...this.loggers.values()].map((l) => l.init().catch(() => {})),
+    );
   }
 
   async clearAll(): Promise<void> {
@@ -163,7 +167,10 @@ export class ScissariSessionLogger implements IAgentSessionLogger {
     try {
       const msg = formatChunk(ctx.chunk);
       if (msg) {
-        this.factory.getLogger(ctx.chunk)?.log(msg).catch(() => {});
+        this.factory
+          .getLogger(ctx.chunk)
+          ?.log(msg)
+          .catch(() => {});
       }
     } catch {
       // silently discard — logging errors must not affect the agent
