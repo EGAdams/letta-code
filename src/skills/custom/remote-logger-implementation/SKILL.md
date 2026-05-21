@@ -98,3 +98,53 @@ curl -s "$LETTA_LOGGER_API/object/select?object_view_id=<LoggerId>"
 - Canonical implementation: `src/logger/RemoteLogger.ts`
 - Browser-safe variant: `src/skills/custom/creating-remote-loggers/scripts/RemoteLogger.ts`
 - Related troubleshooting: `src/skills/custom/diagnose-yellow-test-status/SKILL.md`
+
+## Known Pitfall: Permanent Logger Disable on First Error (Python Agents)
+
+When porting `RemoteLogger` to Python (especially for multi-agent systems like a2a_communicating_agents), avoid a critical mistake:
+
+**Bad pattern:**
+```python
+_REMOTE_LOGGER_ENABLED = False
+
+def log_update(msg: str):
+    global _REMOTE_LOGGER_ENABLED
+    if not _REMOTE_LOGGER_ENABLED:
+        return
+    try:
+        response = requests.post(logger_api_url, ...)
+        if response.status_code != 200:
+            _REMOTE_LOGGER_ENABLED = False  # ← WRONG: permanent disable
+            return
+    except Exception:
+        _REMOTE_LOGGER_ENABLED = False  # ← WRONG: permanent disable
+```
+
+This sets `_REMOTE_LOGGER_ENABLED = False` on the first HTTP error or timeout. Once set, it is never reset, and the agent stops logging entirely — even though the process continues running. The log viewer shows a stale timestamp 44+ hours in the past while the agent is still alive.
+
+**Correct pattern:**
+```python
+import time
+
+_REMOTE_LOGGER_RETRY_AFTER = 0.0  # Use time.monotonic() + seconds
+
+def log_update(msg: str):
+    global _REMOTE_LOGGER_RETRY_AFTER
+    now = time.monotonic()
+    if now < _REMOTE_LOGGER_RETRY_AFTER:
+        return  # Still in backoff period
+    
+    try:
+        response = requests.post(logger_api_url, ...)
+        if response.status_code != 200:
+            _REMOTE_LOGGER_RETRY_AFTER = now + 60.0  # 60-second backoff
+            return
+        # SUCCESS: reset backoff so next call goes through
+        _REMOTE_LOGGER_RETRY_AFTER = 0.0
+    except Exception:
+        _REMOTE_LOGGER_RETRY_AFTER = now + 60.0  # 60-second backoff
+```
+
+This replaces a permanent flag with a **60-second retry backoff**. After 60 seconds, the agent automatically tries again. On success, it resets the timer immediately. This allows transient API failures to recover without operator intervention or process restart.
+
+For detailed diagnosis and the bug history, see skill `a2a-remote-logger-debug`.

@@ -47,14 +47,18 @@ const MAX_LOG_ENTRIES = 120;
   "letta-test-bail",
   (id: string, msg: string) => {
     process.stderr.write(`\n[letta-test-bail] ${id}: ${msg}\n`);
-    try { writeFileSync(BAIL_SENTINEL_PATH, `${id}: ${msg}\n`); } catch {}
+    try {
+      writeFileSync(BAIL_SENTINEL_PATH, `${id}: ${msg}\n`);
+    } catch {}
     process.exit(1);
   },
 );
 const MAX_MESSAGE_CHARS = 800;
 const MAX_OBJECT_DATA_BYTES = 200_000;
-const ANSI_ESCAPE_PATTERN =
-  /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: required to strip ANSI escape sequences from log output.
+const ANSI_ESCAPE_PATTERN = /\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: required to sanitize control bytes before JSON serialization.
+const CONTROL_CHAR_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const SAFE_APOSTROPHE = "\u2019";
 const SAFE_DOUBLE_QUOTE = "\u201d";
 
@@ -64,7 +68,7 @@ function sanitizeLogMessage(message: string): string {
     .replace(/'/g, SAFE_APOSTROPHE)
     .replace(/"/g, SAFE_DOUBLE_QUOTE)
     .replace(/[\r\t]+/g, " ")
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .replace(CONTROL_CHAR_PATTERN, " ")
     .replace(/ {2,}/g, " ")
     .replace(/\n+/g, " | ")
     .trim();
@@ -309,7 +313,7 @@ export class RemoteLogger {
     if (
       body !== null &&
       typeof body === "object" &&
-      (body as Record<string, unknown>)["error"]
+      (body as Record<string, unknown>).error
     ) {
       if (action === "update" && (await this._tryInsertFallback())) {
         return;

@@ -152,6 +152,37 @@ await logger.clearLogs("MyFeature ready.");
 This clears `logObjects`, resets LED state/text, and updates the same `object_view_id` row.
 It does **not** delete the record.
 
+### Critical: Never call clearLogs() or flushLogs() after a PASS/finished trigger
+
+Both `clearLogs()` and `flushLogs()` **reset the monitor LED to default yellow**. If you call either after a PASS (green) or finished trigger, the LED will revert from green to yellow, hiding the success signal.
+
+**Bad pattern:**
+```typescript
+await logger.log("PASS: Feature is ready");  // ← LED turns green
+await logger.clearLogs();                     // ← LED reverts to yellow (overwrites PASS)
+```
+
+**Correct patterns:**
+
+Option 1 — clear *before* the PASS trigger:
+```typescript
+await logger.clearLogs();                      // ← Clear first
+await logger.log("PASS: Feature is ready");   // ← Then trigger green
+```
+
+Option 2 — if clearing must happen after PASS, re-trigger green:
+```typescript
+await logger.log("PASS: Feature is ready");   // ← LED turns green
+try {
+  await logger.clearLogs();                   // ← Clear, but this resets LED to yellow
+  await logger.log("PASS: ready");            // ← Re-trigger green to restore color
+} catch (err) {
+  // handle error
+}
+```
+
+This also applies to Python remote loggers in a2a_communicating_agents systems. See skill `a2a-remote-logger-debug` for the full Python example and related LED bugs.
+
 ## API response quirks
 
 The live API does not match its documentation. See [references/api.md](references/api.md) for the
@@ -353,6 +384,29 @@ TypeScript compilation or they will break the host project's build:
   "src/skills/custom/**/references/**"
 ]
 ```
+
+## Error Recovery Pattern for Python Agents
+
+When implementing a remote logger in Python (e.g., for multi-agent orchestration systems), avoid permanent logger disabling on transient API failures:
+
+**Never do this:**
+```python
+# BAD: HTTP 422 once → _REMOTE_LOGGER_ENABLED = False forever
+if response.status_code != 200:
+    _REMOTE_LOGGER_ENABLED = False
+    return
+```
+
+**Do this instead:**
+```python
+# GOOD: HTTP 422 once → backoff 60 seconds → retry automatically
+import time
+if response.status_code != 200:
+    _REMOTE_LOGGER_RETRY_AFTER = time.monotonic() + 60.0
+    return
+```
+
+The permanent-disable pattern silences all future logging indefinitely, even though the API may recover within seconds. The backoff pattern allows automatic recovery. See skill `a2a-remote-logger-debug` for the detailed bug history and diagnosis guide.
 
 ## Reference files
 

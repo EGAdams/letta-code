@@ -395,3 +395,15 @@ curl -s http://localhost:8080/ | rg "LoggerId_2026"
 curl -i --max-time 10 \
   "https://americansjewelry.com/libraries/local-php-api/index.php/object/select?object_view_id=LoggerId_2026"
 ```
+
+## Permanent Logger Disable Bug in Multi-Process Agents
+
+If you are integrating `RemoteLogger` into a long-running multi-agent system (like a2a_communicating_agents), be aware of a critical pitfall:
+
+**Symptom:** Logger shows stale timestamp (hours in the past) while the agent process is alive and logging to its local file. All new remote logger calls are silently skipped.
+
+**Root cause:** A permanent-disable flag (`_REMOTE_LOGGER_ENABLED = False`) is set on the first HTTP error and never reset. Every subsequent `log()` call returns early, and the agent is effectively logging into a black hole.
+
+**The fix:** Replace permanent boolean flags with a **60-second retry backoff** using `time.monotonic()`. After failure, wait 60 seconds before retrying. On success, reset the timer to 0 immediately. This allows transient API failures to recover without process restart.
+
+For complete bug history, diagnosis steps, and Python code examples, see skill `a2a-remote-logger-debug`.
