@@ -21,7 +21,7 @@ via the Letta REST API.
 
 ```bash
 cd /home/adamsl/codex_test_agent/claude-agent-sdk-demos
-nohup .venv/bin/python telegram_integration/letta_telegram_bot.py >> /tmp/scissari-telegram.log 2>&1 &
+nohup .venv/bin/python -u telegram_integration/letta_telegram_bot.py >> /tmp/scissari-telegram.log 2>&1 &
 ```
 
 ## Check if running
@@ -30,6 +30,9 @@ nohup .venv/bin/python telegram_integration/letta_telegram_bot.py >> /tmp/scissa
 ps aux | grep letta_telegram_bot | grep -v grep
 tail -20 /tmp/scissari-telegram.log
 ```
+
+If the process is missing and `/tmp/scissari-telegram.log` does not exist, the bot is simply not running yet.
+If the log is empty immediately after startup, wait for the first Telegram event before treating that as a failure.
 
 ## Stop it
 
@@ -80,3 +83,19 @@ Scissari speaks replies back as voice notes using **edge-tts** (Microsoft Edge N
 
 If Scissari ignores messages, see `references/scissari-telegram-noreply.md` in the
 `reliable-agent-messaging` skill. The fix (message prefix) is already in the bot.
+
+## Confirmed working state (`2026-04-14`)
+
+- `TELEGRAM_TOKEN` in `~/.letta/.env` is valid and resolves to bot `@scissaribot`
+- Bot dependencies import cleanly from:
+  - `/home/adamsl/codex_test_agent/claude-agent-sdk-demos/.venv`
+- End-to-end Telegram test succeeded:
+  - incoming voice message received
+  - Whisper transcription completed
+  - message forwarded to Scissari over Letta
+  - Telegram voice reply sent back successfully
+- Healthy Letta endpoints during the successful test:
+  - `http://10.0.0.143:8283`
+  - `http://100.80.49.10:8283`
+- A running process on this machine looks like:
+  - `.venv/bin/python telegram_integration/letta_telegram_bot.py`

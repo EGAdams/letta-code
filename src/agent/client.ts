@@ -4,7 +4,10 @@ import packageJson from "../../package.json";
 import { LETTA_CLOUD_API_URL, refreshAccessToken } from "../auth/oauth";
 import { settingsManager } from "../settings-manager";
 import { isDebugEnabled } from "../utils/debug";
+import { LettaLogger } from "../utils/LettaLogger";
 import { createTimingFetch, isTimingsEnabled } from "../utils/timing";
+
+const _clientLog = new LettaLogger("LettaClient_2026");
 
 const SDK_DIAGNOSTIC_MAX_LEN = 400;
 const SDK_DIAGNOSTIC_MAX_LINES = 4;
@@ -110,6 +113,7 @@ export function getServerUrl(): string {
 }
 
 export async function getClient() {
+  _clientLog.log("getClient", "called");
   const settings = await settingsManager.getSettingsWithSecureTokens();
 
   let apiKey = process.env.LETTA_API_KEY || settings.env?.LETTA_API_KEY;
@@ -159,7 +163,14 @@ export async function getClient() {
 
         apiKey = tokens.access_token;
         _cachedApiKey = tokens.access_token;
+        _clientLog.log("getClient", "token refreshed", { deviceId });
       } catch (error) {
+        _clientLog.log(
+          "getClient",
+          "token refresh failed",
+          { error: String(error) },
+          "red",
+        );
         console.error("Failed to refresh access token:", error);
         console.error("Please run 'letta login' to re-authenticate");
         process.exit(1);
@@ -185,6 +196,7 @@ export async function getClient() {
   // Note: ChatGPT OAuth token refresh is handled by the Letta backend
   // when using the chatgpt_oauth provider type
 
+  _clientLog.log("getClient", "client created", { baseURL });
   return new Letta({
     apiKey,
     baseURL,

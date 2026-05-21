@@ -1,5 +1,121 @@
 # Handoff: Scissari / cross-machine Letta setup / ROL Finances transfer
 
+---
+
+## Skills used in this shift
+
+- `letta-admin`
+  - used for Letta server health, Windows/WSL `8283` bridge repair, agent tool attachment checks, Scissari↔Hailey message verification, and Telegram bot recovery
+
+## ⚠️ ACTIVE BLOCKER — April 14, 2026 end-of-shift (pick up here first)
+
+**The remaining issue is now client-side Letta Code fallback behavior, not the server/tool path.**
+
+Current verified state:
+- `http://100.80.49.10:8283/v1/health/` returns Letta `0.16.7`
+- `Scissari`, `Hailey`, and `Quinn` all have `send_message_to_agent_async`
+- `Scissari` also has `send_message_to_agent_and_wait_for_reply`
+- real async message delivery between `Scissari` and `Hailey` was verified both directions from the API by checking recent messages
+- Telegram to `@scissaribot` was repaired and confirmed working end-to-end
+
+The still-open user-facing failure looks like this:
+```text
+Quota limit reached; temporarily switching to Auto and continuing...
+NOT_FOUND: Handle letta/auto not found, must be one of []
+```
+
+This is a Letta Code client bug on this self-hosted setup:
+- the CLI falls back to hardcoded `letta/auto`
+- this server does not expose a usable `letta/auto` handle for that path
+- the message-send tool path is already working underneath
+
+### Exact code locations for the next shift
+
+- `/home/adamsl/letta-code/src/cli/App.tsx`
+  - `const TEMP_QUOTA_OVERRIDE_MODEL = "letta/auto";`
+  - quota-limit branch calls `setTempModelOverride(TEMP_QUOTA_OVERRIDE_MODEL)`
+- `/home/adamsl/letta-code/src/constants.ts`
+  - `DEFAULT_SUMMARIZATION_MODEL = "letta/auto"`
+- `/home/adamsl/letta-code/src/agent/defaults.ts`
+  - already has self-hosted-safe selection logic that prefers the first available non-auto handle
+
+### Recommended next step
+
+Patch Letta Code so quota fallback chooses an actually available model handle on self-hosted servers instead of hardcoding `letta/auto`, then retest Scissari from a fresh CLI/ADE session.
+
+### Important operational note
+
+If the next person sees the `Quota limit reached ... letta/auto not found` sequence, do **not** start by reattaching tools again. First verify delivery server-side via the recipient agent's recent messages.
+
+## Historical blocker from earlier in the day
+
+This was the earlier top-of-file blocker before the `8283`/tooling work. Keep it for reference only unless a fresh `401` reproduces again.
+
+## ⚠️ Earlier blocker — April 14, 2026
+
+**ChatGPT OAuth authentication is broken.** Scissari, Hailey, and Quinn all fail with:
+```
+HTTP 401: UNAUTHENTICATED: Failed to obtain valid ChatGPT OAuth credentials
+```
+
+### What was done
+- Fresh tokens copied from Rosemary46 (AOL Plus account `rbarnersrol@aol.com`, account_id `a0eafe76`)
+- `_update_stored_credentials()` run via `docker exec` to write properly-encoded credentials
+- Server restarted — still 401
+
+### Root cause (hypothesis, not confirmed)
+`CryptoUtils.decrypt(plain_json)` raises `ValueError: No encryption key configured` when `LETTA_ENCRYPTION_KEY` is not set. Plain JSON written to `api_key_enc` (even via `_update_stored_credentials`) can't be read back properly after restart.
+
+### What to try next
+
+**Step 1 — Check server logs during a live 401 for actual traceback:**
+```bash
+docker logs letta-server -f --since 0s &
+curl -s -m 30 -X POST \
+  -H "Authorization: Bearer 6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8" \
+  -H "Content-Type: application/json" \
+  "http://100.80.49.10:8283/v1/agents/agent-5955b0c2-7922-4ffe-9e43-b116053b80fa/messages" \
+  -d '{"messages":[{"role":"user","content":"Say hello."}]}'
+```
+
+**Step 2 — Test the Secret roundtrip directly:**
+```bash
+docker exec letta-server python3 -c "
+import asyncio
+async def test():
+    from letta.schemas.secret import Secret
+    s = await Secret.from_plaintext_async('{\"test\": 1}')
+    print('encrypted_value:', repr(s.encrypted_value[:60]))
+    pt = await s.get_plaintext_async()
+    print('roundtrip:', repr(pt))
+asyncio.run(test())
+" 2>&1
+```
+
+**Step 3 — Check if LETTA_ENCRYPTION_KEY was ever set:**
+```bash
+cat ~/.letta/.env | grep -i encrypt
+docker exec letta-server env | grep -i encrypt
+```
+If it was set before, add it to `docker-compose.prod.yml` env block and restart.
+
+**Step 4 — Try the `connecting-llm-oauth` skill** — that is the installed OAuth repair skill in this workspace.
+
+### Key IDs
+| Item | Value |
+|------|-------|
+| Scissari | `agent-5955b0c2-7922-4ffe-9e43-b116053b80fa` |
+| Hailey | `agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03` |
+| Quinn | `agent-fcbd78e5-abcd-459e-852e-921d4946223e` |
+| Provider | `provider-8903011f-f1fd-4312-b5e2-b3ad90ae2031` |
+| Correct account | `rbarnersrol@aol.com` — Plus — `a0eafe76-9d03-4f32-a4c4-f719aab9bfbd` |
+| Wrong account | `rbarnesrol@gmail.com` — Free — `deed1d33-ba9d-4d01-9479-885b400b4d11` |
+| Letta server | `http://100.80.49.10:8283` (Tailscale) — `10.0.0.143` portproxy is DEAD |
+| API key | `6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8` |
+| Auth.json | `/home/adamsl/.codex/auth.json` — fresh AOL Plus tokens, ready to re-push |
+
+---
+
 ## High-level goal
 
 We are transferring responsibility for the ROL Finances planning effort to **Scissari** and making sure she can be accessed and used reliably from multiple machines.
@@ -124,11 +240,11 @@ We set up a shared SSH git remote for Scissari memory:
 ssh://adamsl@desktop-2obsqmc-24.tailb8fc54.ts.net/home/adamsl/memfs/scissari-memory.git
 ```
 
-### Important caveat
+### Historical caveat
 
-Cross-machine memfs is **not fully clean on mom's Ubuntu machine yet**.
+During this shift, cross-machine memfs on mom's Ubuntu machine was temporarily blocked.
 
-Problem found:
+Problem that was found:
 - mom's Ubuntu machine (`rosemary46-24`) still had Scissari memfs pointed at an old HTTP remote
 - it also showed local untracked memfs content
 - when attempting to switch that machine to the shared SSH remote, SSH auth from **that remote machine** to `desktop-2obsqmc-24` failed
@@ -141,7 +257,9 @@ ssh adamsl@desktop-2obsqmc-24.tailb8fc54.ts.net echo ok
 
 from `rosemary46-24`, which failed with publickey auth issues.
 
-So Scissari's memory is set up conceptually for sharing, but that particular remote Ubuntu machine still needs SSH trust fixed before clean memfs sync there.
+That blocker was later resolved by appending `rosemary46-24`'s `~/.ssh/id_ed25519.pub` key to `desktop-2obsqmc-24`'s `~/.ssh/authorized_keys`.
+
+After that, Scissari memfs on `rosemary46-24` was migrated cleanly to the shared SSH remote and verified clean.
 
 ---
 
@@ -299,6 +417,12 @@ Source:
 /home/adamsl/letta-code/src/skills/custom/operating-letta-across-machines
 ```
 
+Installed project skill:
+
+```text
+/home/adamsl/letta-code/.skills/operating-letta-across-machines
+```
+
 Packaged skill:
 
 ```text
@@ -318,6 +442,12 @@ Source:
 
 ```text
 /home/adamsl/letta-code/src/skills/custom/managing-letta-conversation-launchers
+```
+
+Installed project skill:
+
+```text
+/home/adamsl/letta-code/.skills/managing-letta-conversation-launchers
 ```
 
 Packaged skill:
@@ -348,26 +478,7 @@ These skills are expected to be refined over time.
 
 ## What still remains unfinished
 
-### 1. Finish Scissari memfs sync on mom's Ubuntu machine
-
-This is the biggest unresolved operational issue.
-
-Need to fix SSH auth from `rosemary46-24` to:
-
-```bash
-ssh adamsl@desktop-2obsqmc-24.tailb8fc54.ts.net echo ok
-```
-
-Once that works:
-- point mom's machine Scissari memfs remote to the shared SSH remote
-- backup local memfs dir first
-- fetch/reset carefully against the shared remote
-- verify with:
-  - `letta memfs status --agent ...`
-  - `git -C ~/.letta/agents/.../memory status --short`
-  - `git -C ~/.letta/agents/.../memory remote -v`
-
-### 2. Decide whether to install the conversation-saving wrapper as the main script
+### 1. Decide whether to install the conversation-saving wrapper as the main script
 
 The improved conversation-saving variant exists on mom's machine as:
 
@@ -381,7 +492,7 @@ Need to decide whether to:
 - replace `/home/adamsl/letta-code-upstream/scripts/run-local-in-dir.sh`
 - or keep the helper as a separate file
 
-### 3. Resume the actual Scissari takeover work
+### 2. Resume the actual Scissari takeover work
 
 The broader objective is still to make Scissari take over:
 - the ROL Finances planning work
@@ -394,11 +505,9 @@ Infrastructure work dominated this shift, but the bigger goal is still the Sciss
 
 ## Best next actions for next shift
 
-1. Fix SSH auth from `rosemary46-24` to `desktop-2obsqmc-24`
-2. Finish Scissari memfs remote migration on mom's Ubuntu machine
-3. Verify Scissari memory is actually synced cleanly across machines
-4. Decide whether to install the conversation-saving wrapper as the canonical `run-local-in-dir.sh`
-5. Return to the actual finance/agent-planning work with Scissari
+1. Verify Scissari memory is still synced cleanly across machines
+2. Decide whether to install the conversation-saving wrapper as the canonical `run-local-in-dir.sh`
+3. Return to the actual finance/agent-planning work with Scissari
 
 ---
 

@@ -71,6 +71,10 @@ import {
   shouldRecommendDefaultPrompt,
 } from "../agent/promptAssets";
 import { reconcileExistingAgentState } from "../agent/reconcileExistingAgentState";
+import {
+  AUTO_MODEL_HANDLE,
+  resolveDefaultAgentModel,
+} from "../agent/serverModelSelection";
 import { recordSessionEnd } from "../agent/sessionHistory";
 import { SessionStats } from "../agent/stats";
 import {
@@ -360,7 +364,7 @@ const LLM_API_ERROR_MAX_RETRIES = 3;
 // Retry config for empty response errors (Opus 4.6 SADs)
 // Retry 1: same input. Retry 2: with system reminder nudge.
 const EMPTY_RESPONSE_MAX_RETRIES = 2;
-const TEMP_QUOTA_OVERRIDE_MODEL = "letta/auto";
+const TEMP_QUOTA_OVERRIDE_MODEL = AUTO_MODEL_HANDLE;
 
 // Retry config for 409 "conversation busy" errors (exponential backoff)
 const CONVERSATION_BUSY_MAX_RETRIES = 3; // 10s -> 20s -> 40s
@@ -1022,15 +1026,29 @@ export default function App({
     setAgentState((prev) => (prev ? { ...prev, name } : prev));
   }, []);
 
+  const buildDefaultPromptRecommendationLines = useCallback(
+    (agent: AgentState | null | undefined): string[] => {
+      if (!agent?.id || !agent.system) return [];
+      const memMode = settingsManager.isMemfsEnabled(agent.id)
+        ? "memfs"
+        : ("standard" as const);
+      if (!shouldRecommendDefaultPrompt(agent.system, memMode)) {
+        return [];
+      }
+
+      return [
+        "⚠ **Prompt:** This agent is using a custom or legacy system prompt.",
+        "If you want standard Letta Code coding behavior, run **/system default**.",
+      ];
+    },
+    [],
+  );
+
   // Check if the current agent would benefit from switching to the default prompt.
   // Used to conditionally include the /system tip in streaming tip rotation.
   const includeSystemPromptUpgradeTip = useMemo(() => {
-    if (!agentState?.id || !agentState.system) return false;
-    const memMode = settingsManager.isMemfsEnabled(agentState.id)
-      ? "memfs"
-      : ("standard" as const);
-    return shouldRecommendDefaultPrompt(agentState.system, memMode);
-  }, [agentState]);
+    return buildDefaultPromptRecommendationLines(agentState).length > 0;
+  }, [agentState, buildDefaultPromptRecommendationLines]);
 
   const projectDirectory = process.cwd();
 
@@ -1562,6 +1580,7 @@ export default function App({
   const [currentModelHandle, setCurrentModelHandle] = useState<string | null>(
     null,
   );
+  const currentAgentModel = agentState?.model?.trim() || undefined;
   // Derive agentName from agentState (single source of truth)
   const agentName = agentState?.name ?? null;
   const [agentDescription, setAgentDescription] = useState<string | null>(null);
@@ -3208,6 +3227,12 @@ export default function App({
       if (startupSystemPromptWarning) {
         statusLines.push(startupSystemPromptWarning);
       }
+      const promptRecommendationLines =
+        buildDefaultPromptRecommendationLines(agentState);
+      if (promptRecommendationLines.length > 0) {
+        statusLines.push(...promptRecommendationLines);
+        statusLines.push("");
+      }
       statusLines.push(headerMessage);
       statusLines.push(...commandHints);
 
@@ -3226,6 +3251,7 @@ export default function App({
     messageHistory,
     refreshDerived,
     commitEligibleLines,
+    buildDefaultPromptRecommendationLines,
     continueSession,
     columns,
     agentState,
@@ -5888,37 +5914,51 @@ export default function App({
             !quotaAutoSwapAttemptedRef.current;
 
           if (canAttemptQuotaAutoSwap) {
-            quotaAutoSwapAttemptedRef.current = true;
-            setTempModelOverride(TEMP_QUOTA_OVERRIDE_MODEL);
-
-            const statusId = uid("status");
-            buffersRef.current.byId.set(statusId, {
-              kind: "status",
-              id: statusId,
-              lines: [
-                "Quota limit reached; temporarily switching to Auto and continuing...",
-              ],
+            const quotaFallbackModel = await resolveDefaultAgentModel({
+              preferredModel: TEMP_QUOTA_OVERRIDE_MODEL,
+              disallowedHandles: currentModelLabel ? [currentModelLabel] : [],
             });
-            buffersRef.current.order.push(statusId);
-            refreshDerived();
 
-            currentInput = [
-              ...currentInput,
-              {
-                type: "message",
-                role: "user",
-                content: "Keep going.",
-              },
-            ];
+            if (!quotaFallbackModel) {
+              quotaAutoSwapAttemptedRef.current = true;
+            } else {
+              quotaAutoSwapAttemptedRef.current = true;
+              setTempModelOverride(quotaFallbackModel);
 
-            buffersRef.current.byId.delete(statusId);
-            buffersRef.current.order = buffersRef.current.order.filter(
-              (id) => id !== statusId,
-            );
-            refreshDerived();
+              const fallbackLabel =
+                quotaFallbackModel === TEMP_QUOTA_OVERRIDE_MODEL
+                  ? "Auto"
+                  : (getModelShortName(quotaFallbackModel) ??
+                    quotaFallbackModel);
+              const statusId = uid("status");
+              buffersRef.current.byId.set(statusId, {
+                kind: "status",
+                id: statusId,
+                lines: [
+                  `Quota limit reached; temporarily switching to ${fallbackLabel} and continuing...`,
+                ],
+              });
+              buffersRef.current.order.push(statusId);
+              refreshDerived();
 
-            buffersRef.current.interrupted = false;
-            continue;
+              currentInput = [
+                ...currentInput,
+                {
+                  type: "message",
+                  role: "user",
+                  content: "Keep going.",
+                },
+              ];
+
+              buffersRef.current.byId.delete(statusId);
+              buffersRef.current.order = buffersRef.current.order.filter(
+                (id) => id !== statusId,
+              );
+              refreshDerived();
+
+              buffersRef.current.interrupted = false;
+              continue;
+            }
           }
 
           // Empty LLM response retry (e.g. Opus 4.6 occasionally returns no content).
@@ -6875,7 +6915,17 @@ export default function App({
           kind: "separator" as const,
           id: uid("sep"),
         };
-        setStaticItems([separator]);
+        const promptRecommendationLines =
+          buildDefaultPromptRecommendationLines(agent);
+        const nextStaticItems: StaticItem[] = [separator];
+        if (promptRecommendationLines.length > 0) {
+          nextStaticItems.push({
+            kind: "status" as const,
+            id: uid("status"),
+            lines: promptRecommendationLines,
+          });
+        }
+        setStaticItems(nextStaticItems);
         cmd.finish(successOutput, true);
       } catch (error) {
         const errorDetails = formatErrorDetails(error, agentId);
@@ -6895,6 +6945,7 @@ export default function App({
       resetTrajectoryBases,
       resetBootstrapReminderState,
       resetPendingReasoningCycle,
+      buildDefaultPromptRecommendationLines,
     ],
   );
 
@@ -8775,6 +8826,18 @@ export default function App({
               "Agent's in-context messages cleared & moved to conversation history",
               true,
             );
+            const promptRecommendationLines =
+              buildDefaultPromptRecommendationLines(agentState);
+            if (promptRecommendationLines.length > 0) {
+              setStaticItems((prev) => [
+                ...prev,
+                {
+                  kind: "status" as const,
+                  id: uid("status"),
+                  lines: promptRecommendationLines,
+                },
+              ]);
+            }
           } catch (error) {
             const errorDetails = formatErrorDetails(error, agentId);
             cmd.fail(`Failed: ${errorDetails}`);
@@ -8860,6 +8923,14 @@ export default function App({
             }
 
             const client = await getClient();
+            const defaultCompactionModel = await resolveDefaultAgentModel({
+              client,
+              preferredModel: DEFAULT_SUMMARIZATION_MODEL,
+              fallbackModel:
+                agentStateRef.current?.model?.trim() ||
+                currentModelHandle ||
+                undefined,
+            });
 
             // Build compaction settings if mode was specified
             // On server side, if mode changed, summarize function will use corresponding default prompt for new mode
@@ -8869,6 +8940,7 @@ export default function App({
                     mode: modeArg,
                     model:
                       agentStateRef.current?.compaction_settings?.model?.trim() ||
+                      defaultCompactionModel ||
                       DEFAULT_SUMMARIZATION_MODEL,
                   },
                 }
@@ -9645,7 +9717,7 @@ export default function App({
             selfHostedUrlCandidate !== "selfhosted"
               ? selfHostedUrlCandidate
               : undefined;
-          const remoteFlagIndex = parts.findIndex((p) => p === "--remote");
+          const remoteFlagIndex = parts.indexOf("--remote");
           const remoteUrl =
             remoteFlagIndex >= 0 ? parts[remoteFlagIndex + 1] : undefined;
           const effectiveRemoteUrl = remoteUrl || selfHostedUrl;
@@ -12465,15 +12537,23 @@ ${SYSTEM_REMINDER_CLOSE}
         try {
           const client = await getClient();
           // Spread existing compaction_settings to preserve model/other fields,
-          // only override the mode. If no model is configured, default to
-          // letta/auto so compaction uses a consistent summarization model.
+          // only override the mode. Resolve the default model against the live
+          // server so self-hosted setups do not persist an unavailable auto handle.
           const existing = agentState?.compaction_settings;
           const existingModel = existing?.model?.trim();
+          const defaultCompactionModel = await resolveDefaultAgentModel({
+            client,
+            preferredModel: DEFAULT_SUMMARIZATION_MODEL,
+            fallbackModel: currentAgentModel || currentModelHandle || undefined,
+          });
 
           await client.agents.update(agentId, {
             compaction_settings: {
               ...existing,
-              model: existingModel || DEFAULT_SUMMARIZATION_MODEL,
+              model:
+                existingModel ||
+                defaultCompactionModel ||
+                DEFAULT_SUMMARIZATION_MODEL,
               mode: mode as
                 | "all"
                 | "sliding_window"
@@ -12496,6 +12576,8 @@ ${SYSTEM_REMINDER_CLOSE}
       isAgentBusy,
       withCommandLock,
       agentState?.compaction_settings,
+      currentAgentModel,
+      currentModelHandle,
     ],
   );
 

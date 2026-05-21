@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 import type {
   AgentState,
   AgentUpdateParams,
@@ -8,6 +8,7 @@ import {
   DEFAULT_ATTACHED_BASE_TOOLS,
   reconcileExistingAgentState,
 } from "../../agent/reconcileExistingAgentState";
+import { settingsManager } from "../../settings-manager";
 
 function mkTool(id: string, name: string): Tool {
   return { id, name } as Tool;
@@ -30,11 +31,16 @@ function mkAgentState(overrides: Partial<AgentState>): AgentState {
 }
 
 describe("reconcileExistingAgentState", () => {
+  beforeAll(async () => {
+    await settingsManager.initialize();
+  });
+
   test("does not update when compaction model and attached tools are already correct", async () => {
     const agent = mkAgentState({
       tools: [
         mkTool("tool-web", "web_search"),
         mkTool("tool-fetch", "fetch_webpage"),
+        mkTool("tool-send", "send_message"),
       ],
       compaction_settings: {
         model: "letta/auto",
@@ -74,6 +80,7 @@ describe("reconcileExistingAgentState", () => {
       tools: [
         mkTool("tool-web", "web_search"),
         mkTool("tool-fetch", "fetch_webpage"),
+        mkTool("tool-send", "send_message"),
       ],
       compaction_settings: {
         mode: "sliding_window",
@@ -88,6 +95,11 @@ describe("reconcileExistingAgentState", () => {
       if (query?.name === "fetch_webpage") {
         return Promise.resolve({
           items: [mkTool("tool-fetch", "fetch_webpage")],
+        });
+      }
+      if (query?.name === "send_message") {
+        return Promise.resolve({
+          items: [mkTool("tool-send", "send_message")],
         });
       }
       return Promise.resolve({ items: [] as Tool[] });
@@ -108,21 +120,23 @@ describe("reconcileExistingAgentState", () => {
     ]);
     expect(result.agent).toBe(updatedAgent);
 
-    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledTimes(2);
     expect(list).toHaveBeenCalledWith({ name: "fetch_webpage", limit: 10 });
+    expect(list).toHaveBeenCalledWith({ name: "send_message", limit: 10 });
 
     expect(update).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledWith("agent-test", {
       compaction_settings: {
         mode: "sliding_window",
-        model: "letta/auto",
+        model: "letta/letta-free",
       },
-      tool_ids: ["tool-web", "tool-fetch"],
+      tool_ids: ["tool-web", "tool-fetch", "tool-send"],
     });
 
     expect(DEFAULT_ATTACHED_BASE_TOOLS).toEqual([
       "web_search",
       "fetch_webpage",
+      "send_message",
     ]);
   });
 });

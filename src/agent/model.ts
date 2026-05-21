@@ -196,15 +196,13 @@ type AgentModelSnapshot = {
   } | null;
 };
 
-/**
- * Resolve the current model preset + updateArgs for an existing agent.
- *
- * Used during startup/resume refresh to re-apply only preset-defined fields
- * (without requiring an explicit --model flag).
- */
-export function getModelPresetUpdateForAgent(
+const RESUME_MODEL_MIGRATIONS: Record<string, string> = {
+  [`${OPENAI_CODEX_PROVIDER_NAME}/gpt-5.2-codex`]: `${OPENAI_CODEX_PROVIDER_NAME}/gpt-5.3-codex`,
+};
+
+export function getResolvedModelHandleForAgent(
   agent: AgentModelSnapshot,
-): { modelHandle: string; updateArgs: Record<string, unknown> } | null {
+): string | null {
   const directHandle =
     typeof agent.model === "string" && agent.model.length > 0
       ? agent.model
@@ -226,17 +224,53 @@ export function getModelPresetUpdateForAgent(
         ? llmModel
         : null;
 
-  const modelHandle = directHandle ?? llmDerivedHandle;
+  return directHandle ?? llmDerivedHandle;
+}
+
+export function getResumeModelMigrationHandle(
+  agent: AgentModelSnapshot,
+): string | null {
+  const currentHandle = getResolvedModelHandleForAgent(agent);
+  if (!currentHandle) {
+    return null;
+  }
+
+  return RESUME_MODEL_MIGRATIONS[currentHandle] ?? null;
+}
+
+export function getUpdateArgsForModelHandle(
+  modelHandle: string,
+  llmConfig?: {
+    reasoning_effort?: string | null;
+    enable_reasoner?: boolean | null;
+  } | null,
+): Record<string, unknown> | undefined {
+  const modelInfo = getModelInfoForLlmConfig(modelHandle, llmConfig);
+  return (
+    (modelInfo?.updateArgs as Record<string, unknown> | undefined) ??
+    getModelUpdateArgs(modelHandle)
+  );
+}
+
+/**
+ * Resolve the current model preset + updateArgs for an existing agent.
+ *
+ * Used during startup/resume refresh to re-apply only preset-defined fields
+ * (without requiring an explicit --model flag).
+ */
+export function getModelPresetUpdateForAgent(
+  agent: AgentModelSnapshot,
+): { modelHandle: string; updateArgs: Record<string, unknown> } | null {
+  const modelHandle = getResolvedModelHandleForAgent(agent);
   if (!modelHandle) return null;
 
-  const modelInfo = getModelInfoForLlmConfig(modelHandle, {
+  const llmSnapshot = {
     reasoning_effort: agent.llm_config?.reasoning_effort ?? null,
     enable_reasoner: agent.llm_config?.enable_reasoner ?? null,
-  });
+  };
+  const modelInfo = getModelInfoForLlmConfig(modelHandle, llmSnapshot);
 
-  const updateArgs =
-    (modelInfo?.updateArgs as Record<string, unknown> | undefined) ??
-    getModelUpdateArgs(modelHandle);
+  const updateArgs = getUpdateArgsForModelHandle(modelHandle, llmSnapshot);
 
   if (!updateArgs || Object.keys(updateArgs).length === 0) {
     return null;
