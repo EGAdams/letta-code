@@ -183,6 +183,24 @@ export type ApprovalToolResult = ToolReturn & {
 // Align result type with the SDK's expected union for approvals payloads
 export type ApprovalResult = ApprovalToolResult | ApprovalReturn;
 
+export function approvalResultsToUserMessageText(
+  results: ApprovalResult[],
+): string {
+  const lines = results.map((result) => {
+    if (result.type === "tool") {
+      const value =
+        typeof result.tool_return === "string"
+          ? result.tool_return
+          : JSON.stringify(result.tool_return);
+      return `<tool_result tool_call_id="${result.tool_call_id}" status="${result.status}">${value}</tool_result>`;
+    }
+
+    return `<tool_result tool_call_id="${result.tool_call_id}" status="error">${result.reason ?? "Tool call denied"}</tool_result>`;
+  });
+
+  return `<client_tool_results>\n${lines.join("\n")}\n</client_tool_results>`;
+}
+
 /**
  * Execute a single approval decision and return the result.
  * Extracted to allow parallel execution of Task tools.

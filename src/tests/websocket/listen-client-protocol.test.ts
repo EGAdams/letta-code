@@ -132,13 +132,16 @@ describe("listen-client parseServerMessage", () => {
     expect(unknownKind?.type).toBe("__invalid_input");
   });
 
-  test("accepts input create_message and change_device_state", () => {
+  test("accepts non-empty input create_message and change_device_state", () => {
     const msg = parseServerMessage(
       Buffer.from(
         JSON.stringify({
           type: "input",
           runtime: { agent_id: "agent-1", conversation_id: "default" },
-          payload: { kind: "create_message", messages: [] },
+          payload: {
+            kind: "create_message",
+            messages: [{ role: "user", content: "hello" }],
+          },
         }),
       ),
     );
@@ -153,6 +156,26 @@ describe("listen-client parseServerMessage", () => {
     );
     expect(msg?.type).toBe("input");
     expect(changeDeviceState?.type).toBe("change_device_state");
+  });
+
+  test("classifies empty create_message payload as invalid input", () => {
+    const msg = parseServerMessage(
+      Buffer.from(
+        JSON.stringify({
+          type: "input",
+          runtime: { agent_id: "agent-1", conversation_id: "default" },
+          payload: { kind: "create_message", messages: [] },
+        }),
+      ),
+    );
+
+    expect(msg).not.toBeNull();
+    expect(msg?.type).toBe("__invalid_input");
+    if (msg?.type === "__invalid_input") {
+      expect(msg.reason).toContain(
+        "requires at least one message in payload.messages[]",
+      );
+    }
   });
 
   test("parses abort_message as the canonical abort command", () => {

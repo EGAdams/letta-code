@@ -61,6 +61,43 @@ describe("drainStream stop reason wiring", () => {
     expect(result.stopReason).toBe("llm_api_error");
   });
 
+  test("treats pending client approvals as requires_approval even if server sends end_turn", async () => {
+    const fakeStream = {
+      controller: new AbortController(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          message_type: "approval_request_message",
+          id: "msg-approval",
+          tool_call: {
+            tool_call_id: "call-skill",
+            name: "Skill",
+            arguments: '{"skill":"messaging-agents"}',
+          },
+        } as LettaStreamingResponse;
+        yield {
+          message_type: "stop_reason",
+          stop_reason: "end_turn",
+        } as LettaStreamingResponse;
+      },
+    } as unknown as Stream<LettaStreamingResponse>;
+
+    const result = await drainStream(
+      fakeStream,
+      createBuffers("agent-test"),
+      () => {},
+    );
+
+    expect(result.stopReason).toBe("requires_approval");
+    expect(result.approvalRequestEndedTurn).toBe(true);
+    expect(result.approvals).toEqual([
+      {
+        toolCallId: "call-skill",
+        toolName: "Skill",
+        toolArgs: '{"skill":"messaging-agents"}',
+      },
+    ]);
+  });
+
   test("stream error cancels in-progress tool calls by default (skipCancelToolsOnError=false)", async () => {
     const buffers = createBuffers("agent-test");
     await drainStream(makeStreamWithToolCall("tc-1"), buffers, () => {});

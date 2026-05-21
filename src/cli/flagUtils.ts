@@ -22,6 +22,12 @@ export function normalizeConversationShorthandFlags(options: {
 }) {
   let { specifiedConversationId, specifiedAgentId } = options;
 
+  // Some callers pass a serialized one-item list (e.g. "['conv-...']").
+  // Accept that shape and unwrap it to the raw conversation id.
+  specifiedConversationId = normalizeSerializedConversationId(
+    specifiedConversationId,
+  );
+
   if (specifiedConversationId?.startsWith("agent-")) {
     if (specifiedAgentId && specifiedAgentId !== specifiedConversationId) {
       throw new Error(
@@ -33,6 +39,96 @@ export function normalizeConversationShorthandFlags(options: {
   }
 
   return { specifiedConversationId, specifiedAgentId };
+}
+
+function normalizeSerializedConversationId(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (!value) {
+    return value;
+  }
+
+  const isDebug = process.env.LETTA_DEBUG === "1" || process.env.DEBUG_CONV_ID;
+  if (isDebug) {
+    console.error(
+      `[normalizeSerializedConversationId] input="${value}" length=${value.length}`,
+    );
+  }
+
+  const unwrapOneLevel = (raw: string): string => {
+    const trimmed = raw.trim();
+
+    // JSON form: ["conv-..."]
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (
+        Array.isArray(parsed) &&
+        parsed.length === 1 &&
+        typeof parsed[0] === "string"
+      ) {
+        const result = parsed[0];
+        if (isDebug) {
+          console.error(
+            `[normalizeSerializedConversationId] JSON unwrap: "${trimmed}" → "${result}"`,
+          );
+        }
+        return result;
+      }
+      // Also support double-serialized values like "\"['conv-...']\"".
+      if (typeof parsed === "string") {
+        if (isDebug) {
+          console.error(
+            `[normalizeSerializedConversationId] JSON string unwrap: "${trimmed}" → "${parsed}"`,
+          );
+        }
+        return parsed;
+      }
+    } catch {
+      // Not valid JSON; try Python-style single-quoted list next.
+    }
+
+    // Python-ish serialized form: ['conv-...']
+    const singleQuotedListMatch = /^\[\s*'([^']+)'\s*\]$/.exec(trimmed);
+    if (singleQuotedListMatch?.[1]) {
+      const result = singleQuotedListMatch[1];
+      if (isDebug) {
+        console.error(
+          `[normalizeSerializedConversationId] regex unwrap: "${trimmed}" → "${result}"`,
+        );
+      }
+      return result;
+    }
+
+    if (isDebug && raw !== trimmed) {
+      console.error(
+        `[normalizeSerializedConversationId] no match (trimmed): "${trimmed}"`,
+      );
+    }
+
+    return raw;
+  };
+
+  let normalized = value;
+  for (let i = 0; i < 3; i += 1) {
+    const next = unwrapOneLevel(normalized);
+    if (next === normalized) {
+      if (isDebug && i > 0) {
+        console.error(
+          `[normalizeSerializedConversationId] stabilized after ${i} iteration(s)`,
+        );
+      }
+      break;
+    }
+    normalized = next;
+  }
+
+  if (isDebug) {
+    console.error(
+      `[normalizeSerializedConversationId] output="${normalized}" (changed=${normalized !== value})`,
+    );
+  }
+
+  return normalized;
 }
 
 export function resolveImportFlagAlias(options: {

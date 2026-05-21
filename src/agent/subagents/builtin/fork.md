@@ -7,6 +7,7 @@ memoryBlocks: all
 mode: stateful
 fork: true
 background: true
+permissionMode: bypassPermissions
 ---
 
 Fork subagent that inherits the parent agent's full conversation history via conversation forking.

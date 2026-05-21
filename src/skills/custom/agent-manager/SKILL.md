@@ -32,5 +32,5 @@ python3 /home/adamsl/letta-code/src/skills/custom/agent-manager/scripts/list_age
 ```
 
 ## Notes
-- Base URL defaults to `LETTA_BASE_URL` or falls back to `http://10.0.0.143:8283`.
+- Base URL defaults to `LETTA_BASE_URL` env var, or falls back to `http://100.80.49.10:8283` (Windows 11 WSL → Windows 10 Docker). From Windows 10 itself use `localhost:8283`.
 - If the server requires auth, set `LETTA_API_KEY` or pass `--api-key`.

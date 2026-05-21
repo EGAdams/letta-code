@@ -1910,22 +1910,18 @@ async function main(): Promise<void> {
             setResumedExistingConversation(true);
             setResumeData(data);
           } catch (error) {
-            if (
-              error instanceof APIError &&
-              (error.status === 404 || error.status === 422)
-            ) {
-              // Conversation no longer exists — fall back to default conversation
-              console.warn(
-                `Previous conversation ${selectedConversationId} not found, falling back to default`,
-              );
-              conversationIdToUse = "default";
-              setLoadingState("checking");
-              const data = await getResumeData(client, agent, "default");
-              setResumeData(data);
-              setResumedExistingConversation(data.messageHistory.length > 0);
-            } else {
-              throw error;
-            }
+            // Auto-restored conversation is inaccessible — fall back to default.
+            // Letta 0.6.x+ may return status codes other than 404/422 for a missing
+            // conversation (e.g. 400 or 500), so catch all errors on this path.
+            console.warn(
+              `Previous conversation ${selectedConversationId} not found or inaccessible, falling back to default`,
+              error instanceof Error ? error.message : String(error),
+            );
+            conversationIdToUse = "default";
+            setLoadingState("checking");
+            const data = await getResumeData(client, agent, "default");
+            setResumeData(data);
+            setResumedExistingConversation(data.messageHistory.length > 0);
           }
         } else if (forceNewConversation) {
           // --new flag: create a new conversation (for concurrent sessions)

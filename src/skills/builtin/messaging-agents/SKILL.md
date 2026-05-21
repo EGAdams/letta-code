@@ -5,7 +5,37 @@ description: Send messages to other agents on your server. Use when you need to 
 
 # Messaging Agents
 
-This skill enables you to send messages to other agents on the same Letta server using the thread-safe conversations API.
+This skill enables you to send messages to other agents on the same Letta server.
+
+## Preferred Tools
+
+Use Letta server-side multi-agent tools whenever they are available.
+
+For Scissari sending a request to Hailey, use the wait-for-reply tool:
+
+```typescript
+send_message_to_agent_and_wait_for_reply({
+  other_agent_id: "agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03",
+  message: "Your message to Hailey."
+})
+```
+
+For one-way notifications where no answer is needed, use:
+
+```typescript
+send_message_to_agent_async({
+  other_agent_id: "agent-...",
+  message: "Your message to the other agent."
+})
+```
+
+These are the preferred paths because they run inside Letta, preserve sender identity automatically, and avoid starting a nested Letta Code CLI session from inside an active Letta Code turn.
+
+Do not use Bash to run `letta`, `letta.js`, or another nested Letta Code CLI for normal agent-to-agent messaging when these tools are available. Spawning the CLI from inside an active conversation can contend with server/conversation state and appear to hang.
+
+If either communication tool is missing, load `scissari-hailey-pairing` and run its ensure script before trying to message Hailey.
+
+If a helper `Task` subagent fails while finding or messaging another agent with `NOT_FOUND: Handle letta/auto not found, must be one of []`, do not keep retrying the same Task prompt. Inspect `src/agent/subagents/manager.ts`, especially `resolveSubagentModel()` and the model-unavailable retry path in `executeSubagent()`. The expected behavior is to inherit the parent agent's concrete model, or choose a server-available non-auto handle, instead of launching a new subagent with unavailable `letta/auto`.
 
 ## When to Use This Skill
 
@@ -58,7 +88,9 @@ letta messages search --query "topic" --all-agents
 ```
 Results include `agent_id` for each matching message.
 
-## CLI Usage (agent-to-agent)
+## Fallback CLI Usage (only if server-side communication tools are unavailable)
+
+Use this only when the appropriate Letta multi-agent communication tool is not attached and the repair skill cannot attach it.
 
 ### Starting a New Conversation
 

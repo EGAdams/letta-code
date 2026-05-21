@@ -121,7 +121,8 @@ Read these files when needed:
 
 - `references/remote-checklist.md`
 - `references/scissari-memfs-notes.md`
-- `references/scissari-telegram-bot.md` — Scissari's Telegram bot (`@scissaribot`), how to start it, and the wrong-bot mistake to avoid
+- `references/scissari-telegram-bot.md` — Scissari's Telegram routing notes, including the current `lettabot` path and the older Python bridge
+- `../scissari-telegram-routing/SKILL.md` — current operational workflow for sending to Scissari over Telegram and pairing/reachability checks
 
 Read the Scissari notes when the task is specifically about Scissari, mom's machine, rosemary/desktop hosts, or the shared memfs remote.
 Read the Telegram bot notes when the user mentions "lettabot", "scissaribot", or Telegram communication with Scissari.

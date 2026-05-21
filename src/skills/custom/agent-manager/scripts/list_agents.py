@@ -6,7 +6,7 @@ import sys
 import urllib.parse
 import urllib.request
 
-DEFAULT_BASE_URL = "http://10.0.0.143:8283"
+DEFAULT_BASE_URL = "http://100.80.49.10:8283"  # Windows 11 WSL → Windows 10 Docker; use localhost:8283 from Win10 itself
 DEFAULT_SETTINGS_PATH = os.path.expanduser("~/.letta/settings.json")
 
 

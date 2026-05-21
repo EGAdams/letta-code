@@ -26,6 +26,7 @@ import {
 } from "react";
 import {
   type ApprovalResult,
+  approvalResultsToUserMessageText,
   executeAutoAllowedTools,
   getDisplayableToolReturn,
 } from "../agent/approval-execution";
@@ -58,6 +59,7 @@ import {
 import {
   cacheDefaultConversationId,
   getStreamToolContextId,
+  hasSendableOutgoingMessages,
   sendMessageStream,
 } from "../agent/message";
 import {
@@ -66,6 +68,10 @@ import {
   getModelShortName,
   type ModelReasoningEffort,
 } from "../agent/model";
+import {
+  collectPendingMultiAgentToolCalls,
+  executePendingMultiAgentToolCalls,
+} from "../agent/multi-agent-tool-fallback";
 import {
   INTERRUPT_RECOVERY_ALERT,
   shouldRecommendDefaultPrompt,
@@ -137,6 +143,8 @@ import {
   isDebugEnabled,
 } from "../utils/debug";
 import { getVersion } from "../version";
+import type { IAgentSessionLogger } from "../logger/agent-event-logger";
+import { createAgentSessionLogger } from "../logger/agent-session-logger-factory";
 import {
   handleMcpAdd,
   type McpCommandContext,
@@ -1075,6 +1083,21 @@ export default function App({
   // Track the most recent run ID from streaming (for statusline display)
   const lastRunIdRef = useRef<string | null>(null);
 
+  // Session logger: streams agent events to localhost:8080 for known agents.
+  const sessionLoggerRef = useRef<IAgentSessionLogger | null>(null);
+  useEffect(() => {
+    const logger = createAgentSessionLogger(agentId);
+    sessionLoggerRef.current = logger;
+    if (logger) {
+      logger.onSessionStart(agentId).catch(() => {});
+    }
+    return () => {
+      const prev = sessionLoggerRef.current;
+      sessionLoggerRef.current = null;
+      prev?.onSessionEnd().catch(() => {});
+    };
+  }, [agentId]);
+
   const resumeKey = useSuspend();
 
   // Pending conversation switch context — consumed on first message after a switch
@@ -1992,6 +2015,7 @@ export default function App({
   const [dequeueEpoch, setDequeueEpoch] = useState(0);
   // Strict lock to ensure dequeue submit path is at-most-once while onSubmit is in flight.
   const dequeueInFlightRef = useRef(false);
+  const streamingSinceMsRef = useRef<number | null>(null);
 
   // Track last dequeued message for restoration on error
   // If an error occurs after dequeue, we restore this to the input field (if input is empty)
@@ -1999,6 +2023,16 @@ export default function App({
 
   // Restored input value - set when we need to restore a message to the input after error
   const [restoredInput, setRestoredInput] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (streaming) {
+      if (streamingSinceMsRef.current === null) {
+        streamingSinceMsRef.current = Date.now();
+      }
+      return;
+    }
+    streamingSinceMsRef.current = null;
+  }, [streaming]);
 
   // Helper to check if agent is busy (streaming, executing tool, or running command)
   // Uses refs for synchronous access outside React's closure system
@@ -4172,6 +4206,10 @@ export default function App({
             ];
           }
 
+          if (!hasSendableOutgoingMessages(currentInput)) {
+            return;
+          }
+
           // Stream one turn - use ref to always get the latest conversationId
           // Wrap in try-catch to handle pre-stream desync errors (when sendMessageStream
           // throws before streaming begins, e.g., retry after LLM error when backend
@@ -4187,6 +4225,10 @@ export default function App({
               {
                 agentId: agentIdRef.current,
                 overrideModel: tempModelOverrideRef.current ?? undefined,
+              },
+              {
+                maxRetries: 0,
+                signal: abortControllerRef.current?.signal ?? undefined,
               },
             );
             stream = nextStream;
@@ -4846,7 +4888,7 @@ export default function App({
                   refreshDerivedThrottled,
                   signal, // Use captured signal, not ref (which may be nulled by handleInterrupt)
                   handleFirstMessage,
-                  undefined,
+                  sessionLoggerRef.current?.drainHook,
                   contextTrackerRef.current,
                   highestSeqIdSeen,
                 );
@@ -4860,6 +4902,7 @@ export default function App({
             lastRunId,
             lastSeqId,
             fallbackError,
+            approvalRequestEndedTurn,
           } = await drainResult;
 
           if (lastSeqId != null) {
@@ -4913,6 +4956,55 @@ export default function App({
           // and keeps queue-cancel flags consistent with the normal cancel branch below.
           if (wasInterrupted && stopReasonToHandle === "requires_approval") {
             stopReasonToHandle = "cancelled";
+          }
+
+          const pendingMultiAgentToolCalls =
+            stopReasonToHandle === "end_turn"
+              ? collectPendingMultiAgentToolCalls(
+                  buffersRef.current.serverToolCalls,
+                )
+              : [];
+          if (pendingMultiAgentToolCalls.length > 0 && agentIdRef.current) {
+            setThinkingMessage(getRandomThinkingVerb());
+            refreshDerived();
+
+            const executedResults = await executePendingMultiAgentToolCalls(
+              pendingMultiAgentToolCalls,
+              agentIdRef.current,
+            );
+
+            for (const result of executedResults) {
+              if (result.type !== "tool") continue;
+              onChunk(buffersRef.current, {
+                message_type: "tool_return_message",
+                id: randomUUID(),
+                date: new Date().toISOString(),
+                tool_call_id: result.tool_call_id,
+                tool_return:
+                  typeof result.tool_return === "string"
+                    ? result.tool_return
+                    : JSON.stringify(result.tool_return),
+                status: result.status,
+                stdout: result.stdout ?? null,
+                stderr: result.stderr ?? null,
+              });
+            }
+            refreshDerived();
+
+            toolResultsInFlightRef.current = true;
+            await processConversation(
+              [
+                {
+                  type: "message",
+                  role: "user",
+                  content: approvalResultsToUserMessageText(executedResults),
+                  otid: randomUUID(),
+                },
+              ],
+              { allowReentry: true },
+            );
+            toolResultsInFlightRef.current = false;
+            return;
           }
 
           // Case 1: Turn ended normally
@@ -5509,11 +5601,20 @@ export default function App({
                   toolResultsInFlightRef.current = true;
                   await processConversation(
                     [
-                      {
-                        type: "approval",
-                        approvals: allResults,
-                        otid: randomUUID(),
-                      },
+                      approvalRequestEndedTurn
+                        ? {
+                            type: "message",
+                            role: "user",
+                            content: approvalResultsToUserMessageText(
+                              allResults as ApprovalResult[],
+                            ),
+                            otid: randomUUID(),
+                          }
+                        : {
+                            type: "approval",
+                            approvals: allResults,
+                            otid: randomUUID(),
+                          },
                       {
                         type: "message",
                         role: "user",
@@ -5561,11 +5662,20 @@ export default function App({
                 toolResultsInFlightRef.current = true;
                 await processConversation(
                   [
-                    {
-                      type: "approval",
-                      approvals: allResults,
-                      otid: randomUUID(),
-                    },
+                    approvalRequestEndedTurn
+                      ? {
+                          type: "message",
+                          role: "user",
+                          content: approvalResultsToUserMessageText(
+                            allResults as ApprovalResult[],
+                          ),
+                          otid: randomUUID(),
+                        }
+                      : {
+                          type: "approval",
+                          approvals: allResults,
+                          otid: randomUUID(),
+                        },
                   ],
                   { allowReentry: true },
                 );
@@ -6164,7 +6274,15 @@ export default function App({
           if (lastRunId) {
             try {
               const client = await getClient();
-              const run = await client.runs.retrieve(lastRunId);
+              const run = await Promise.race([
+                client.runs.retrieve(lastRunId),
+                new Promise<never>((_resolve, reject) => {
+                  setTimeout(
+                    () => reject(new Error("Timed out fetching run metadata")),
+                    5000,
+                  );
+                }),
+              ]);
 
               // Check if run has error information in metadata
               if (run.metadata?.error) {
@@ -10661,6 +10779,19 @@ ${SYSTEM_REMINDER_CLOSE}
           ? [...reminderParts, ...contentParts]
           : contentParts;
 
+      if (
+        !hasSendableOutgoingMessages([
+          {
+            type: "message",
+            role: "user",
+            content: messageContent as MessageCreate["content"],
+          },
+        ])
+      ) {
+        overrideContentPartsRef.current = null;
+        return { submitted: true };
+      }
+
       // Append task notifications (if any) as event lines before the user message
       appendTaskNotificationEvents(taskNotifications);
 
@@ -11384,6 +11515,27 @@ ${SYSTEM_REMINDER_CLOSE}
         }
       });
     } else if (hasAnythingQueued) {
+      const staleStreaming =
+        streaming &&
+        !abortControllerRef.current &&
+        !commandRunning &&
+        !isExecutingTool &&
+        pendingApprovals.length === 0 &&
+        !queuedOverlayAction &&
+        !anySelectorOpen &&
+        !!streamingSinceMsRef.current &&
+        Date.now() - streamingSinceMsRef.current > 15000;
+
+      if (staleStreaming) {
+        debugWarn(
+          "queue",
+          "Detected stale streaming state without active controller; auto-clearing to unblock queue",
+        );
+        setStreaming(false);
+        setDequeueEpoch((e) => e + 1);
+        return;
+      }
+
       // Log why dequeue was blocked (useful for debugging stuck queues)
       debugLog(
         "queue",
@@ -12313,8 +12465,15 @@ ${SYSTEM_REMINDER_CLOSE}
       } catch (error) {
         const errorDetails = formatErrorDetails(error, agentId);
         const modelLabel = selectedModel?.label ?? modelId;
-        const guidance =
-          "Run /model and press R to refresh available models. If the model is still unavailable, choose another model or connect a provider with /connect.";
+        const selectedHandle =
+          selectedModel?.handle ?? selectedModel?.id ?? modelId;
+        const errorStr = error instanceof Error ? error.message : String(error);
+        const isNotFoundForChatGpt =
+          errorStr.includes("NOT_FOUND") &&
+          selectedHandle.startsWith("chatgpt-plus-pro/");
+        const guidance = isNotFoundForChatGpt
+          ? "The ChatGPT OAuth provider is not registered on your Letta server. Run /connect chatgpt to register it, then try /model again."
+          : "Run /model and press R to refresh available models. If the model is still unavailable, choose another model or connect a provider with /connect.";
         const cmd =
           resolveOverlayCommand() ??
           commandRunner.start(
@@ -14052,7 +14211,7 @@ If using apply_patch, use this exact relative patch path: ${applyPatchRelativePa
                       <Box key={ln.id} flexDirection="column" marginTop={1}>
                         {matchesCurrentApproval ? (
                           <ApprovalSwitch
-                            approval={currentApproval}
+                            approval={currentApproval} // april 19
                             onApprove={handleApproveCurrent}
                             onApproveAlways={handleApproveAlways}
                             onDeny={handleDenyCurrent}

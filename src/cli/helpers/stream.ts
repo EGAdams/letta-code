@@ -63,6 +63,7 @@ export type DrainResult = {
   lastSeqId?: number | null;
   approval?: ApprovalRequest | null; // DEPRECATED: kept for backward compat
   approvals?: ApprovalRequest[]; // NEW: supports parallel approvals
+  approvalRequestEndedTurn?: boolean;
   apiDurationMs: number; // time spent in API call
   fallbackError?: string | null; // Error message for when we can't fetch details from server (no run_id)
 };
@@ -86,6 +87,23 @@ type RunsListClient = {
 };
 
 const FALLBACK_RUN_DISCOVERY_TIMEOUT_MS = 5000;
+
+function hasNonEmptyTextPart(content: unknown): boolean {
+  if (typeof content === "string") {
+    return content.trim().length > 0;
+  }
+  if (!Array.isArray(content)) {
+    return false;
+  }
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const text = (part as { text?: unknown }).text;
+    if (typeof text === "string" && text.trim().length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function hasPaginatedItems(
   response: RunsListResponse,
@@ -229,6 +247,12 @@ export async function drainStream(
   // Track if we triggered abort via our listener (for eager cancellation)
   let abortedViaListener = false;
 
+  // Inactivity timeout: abort if no content tokens arrive for 90 seconds (pings keep
+  // the connection alive but don't produce content, so we need an explicit check).
+  const CONTENT_INACTIVITY_MS = 90_000;
+  let lastContentMs = Date.now();
+  let inactivityAborted = false;
+
   // Capture the abort generation at stream start to detect if handleInterrupt ran
   const startAbortGen = buffers.abortGeneration || 0;
 
@@ -258,6 +282,22 @@ export async function drainStream(
       stream.controller.abort();
     }
   }
+
+  const inactivityTimer = setInterval(() => {
+    const timeSinceLastContent = Date.now() - lastContentMs;
+    if (!inactivityAborted && timeSinceLastContent > CONTENT_INACTIVITY_MS) {
+      inactivityAborted = true;
+      clearInterval(inactivityTimer);
+      debugWarn(
+        "drainStream",
+        `Inactivity timeout: no model content for ${timeSinceLastContent}ms (threshold: ${CONTENT_INACTIVITY_MS}ms), aborting stream`,
+      );
+      abortedViaListener = true;
+      if (stream.controller && !stream.controller.signal.aborted) {
+        stream.controller.abort();
+      }
+    }
+  }, 10_000);
 
   try {
     for await (const chunk of stream) {
@@ -350,6 +390,22 @@ export async function drainStream(
         queueMicrotask(refresh);
       }
 
+      // Reset inactivity timer only on actual tool execution progress.
+      // reasoning_message and assistant_message are intentionally excluded:
+      // they reset when the model is stuck in a planning loop without executing
+      // tools, which caused 2hr+ hangs (the timer never fires if only reasoning
+      // chunks arrive).
+      if (
+        chunk.message_type === "tool_call_message" ||
+        chunk.message_type === "tool_return_message"
+      ) {
+        lastContentMs = Date.now();
+        debugLog(
+          "drainStream",
+          `Timer reset by ${chunk.message_type} (tool execution progress)`,
+        );
+      }
+
       if (stopReason) {
         break;
       }
@@ -385,7 +441,13 @@ export async function drainStream(
 
     // Preserve a stop reason already parsed from stream chunks (e.g. llm_api_error)
     // and only fall back to generic "error" when none is available.
-    stopReason = streamProcessor.stopReason || "error";
+    // If our own abort (inactivity timer or user signal) caused the SDK to throw,
+    // use "cancelled" so the caller does not treat it as a retriable network error.
+    if (abortedViaListener && !streamProcessor.stopReason) {
+      stopReason = "cancelled";
+    } else {
+      stopReason = streamProcessor.stopReason || "error";
+    }
     // skipMarkCurrentLine=true: if a resume follows, the resume stream will
     // finalize the streaming line with full text. Marking it finished now would
     // commit truncated content to static (emittedIdsRef) before resume can append.
@@ -402,6 +464,8 @@ export async function drainStream(
     }
     queueMicrotask(refresh);
   } finally {
+    clearInterval(inactivityTimer);
+
     // Persist chunk log to disk (one write per stream, not per chunk)
     try {
       chunkLog.flush();
@@ -463,6 +527,21 @@ export async function drainStream(
   const approval: ApprovalRequest | null = approvals[0] || null;
   streamProcessor.pendingApprovals.clear();
 
+  const approvalRequestEndedTurn =
+    stopReason === "end_turn" && approvals.length > 0;
+  debugLog(
+    "drainStream",
+    `stopReason="${stopReason}" approvals=${approvals.length} approvalRequestEndedTurn=${approvalRequestEndedTurn}`,
+  );
+  if (approvalRequestEndedTurn) {
+    debugWarn(
+      "drainStream",
+      "Received approval_request_message(s) with end_turn; treating as requires_approval",
+    );
+    stopReason = "requires_approval";
+    debugLog("drainStream", "Converted end_turn to requires_approval");
+  }
+
   if (
     stopReason === "requires_approval" &&
     approvals.length === 0 &&
@@ -482,6 +561,7 @@ export async function drainStream(
     stopReason,
     approval,
     approvals,
+    approvalRequestEndedTurn,
     lastRunId: streamProcessor.lastRunId,
     lastSeqId: streamProcessor.lastSeqId,
     apiDurationMs,

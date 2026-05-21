@@ -63,7 +63,7 @@ function isInputCommand(value: unknown): value is InputCommand {
     error?: unknown;
   };
   if (payload.kind === "create_message") {
-    return Array.isArray(payload.messages);
+    return Array.isArray(payload.messages) && payload.messages.length > 0;
   }
   if (payload.kind === "approval_response") {
     return isValidApprovalResponseBody(payload);
@@ -105,6 +105,13 @@ function getInvalidInputReason(value: unknown): {
         runtime: candidate.runtime,
         reason:
           "Protocol violation: input.kind=create_message requires payload.messages[]",
+      };
+    }
+    if (payload.messages.length === 0) {
+      return {
+        runtime: candidate.runtime,
+        reason:
+          "Protocol violation: input.kind=create_message requires at least one message in payload.messages[]",
       };
     }
     return null;

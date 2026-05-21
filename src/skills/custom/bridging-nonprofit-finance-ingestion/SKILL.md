@@ -50,6 +50,25 @@ If a scanned page is identified as a mom-ledger/check-history page (printed bank
 
 This lane is intended to avoid misclassifying ledger pages as receipt content while preserving statement-grade transaction ingestion behavior.
 
+## Runtime caveat: image-read capability by execution environment
+
+In some Letta subagent runtimes, direct image reading is unavailable (error like "server does not support images in tool responses").
+
+When this happens:
+1. Keep routing decision as `statement.moms_ledger`.
+2. Use local OCR fallback (`tesseract`) to extract text.
+3. Produce transaction JSON with explicit `confidence`, `warnings`, and `evidence` per row.
+4. Save under:
+   - `/home/adamsl/rol_finances/readable_documents/ledger_documents/<page_folder>/`
+
+Example fallback command:
+
+```bash
+tesseract /home/adamsl/rol_finances/tools/scan.jpg stdout --dpi 300
+```
+
+Do not fabricate unreadable fields; set `null` and add warnings.
+
 ## Tax document follow-up workflow
 After tax classification, place file in:
 - `/home/adamsl/rol_finances/readable_documents/tax_documents/<document_folder>/`

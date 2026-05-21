@@ -1,4 +1,33 @@
-const APP_BASE = "https://app.letta.com";
+import { settingsManager } from "../../settings-manager";
+
+const CLOUD_API_BASE = "https://api.letta.com";
+const CLOUD_APP_BASE = "https://app.letta.com";
+
+function getConfiguredServerUrl(): string {
+  try {
+    const settings = settingsManager.getSettings();
+    return (
+      process.env.LETTA_BASE_URL ||
+      settings.env?.LETTA_BASE_URL ||
+      CLOUD_API_BASE
+    );
+  } catch {
+    return process.env.LETTA_BASE_URL || CLOUD_API_BASE;
+  }
+}
+
+export function getAppBaseUrl(serverUrl = getConfiguredServerUrl()): string {
+  const normalized = serverUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
+
+  if (
+    normalized === CLOUD_API_BASE ||
+    normalized === "https://api.letta.com"
+  ) {
+    return CLOUD_APP_BASE;
+  }
+
+  return normalized;
+}
 
 /**
  * Build a chat URL for an agent, with optional conversation and extra query params.
@@ -11,7 +40,7 @@ export function buildChatUrl(
     deviceId?: string;
   },
 ): string {
-  const base = `${APP_BASE}/chat/${agentId}`;
+  const base = `${getAppBaseUrl()}/chat/${agentId}`;
   const params = new URLSearchParams();
 
   if (options?.view) {
@@ -32,5 +61,5 @@ export function buildChatUrl(
  * Build a non-agent app URL (e.g. settings pages).
  */
 export function buildAppUrl(path: string): string {
-  return `${APP_BASE}${path}`;
+  return `${getAppBaseUrl()}${path}`;
 }

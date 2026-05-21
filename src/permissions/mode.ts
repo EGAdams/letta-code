@@ -274,7 +274,7 @@ class PermissionModeManager {
         return "allow";
 
       case "acceptEdits":
-        // Auto-allow edit tools: Write, Edit, MultiEdit, NotebookEdit, apply_patch, replace, write_file
+        // Auto-allow edit tools and shell commands (agents like Scissors need bash for web search)
         if (
           [
             "Write",
@@ -285,6 +285,8 @@ class PermissionModeManager {
             "memory_apply_patch",
             "replace",
             "write_file",
+            "Bash",
+            "bash",
           ].includes(toolName)
         ) {
           return "allow";

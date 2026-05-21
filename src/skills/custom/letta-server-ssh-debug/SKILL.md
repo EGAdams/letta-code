@@ -9,7 +9,7 @@ description: How to SSH into the Windows 10 machine at 10.0.0.143 that runs the 
 
 | Item | Value |
 |------|-------|
-| Remote machine | Windows 10 at `10.0.0.143` |
+| Remote machine | Windows 10 at `10.0.0.143` (local WiFi — SSH target) |
 | SSH user | `NewUser` |
 | SSH key | `~/.ssh/id_ed25519` |
 | Letta container | `letta-server` (port 8283) |
@@ -18,6 +18,16 @@ description: How to SSH into the Windows 10 machine at 10.0.0.143 that runs the 
 | Memfs container | `letta-memfs` (port 8285) |
 | Letta version | 0.16.3 |
 | Active agent | Quinn — `agent-fcbd78e5-abcd-459e-852e-921d4946223e` |
+
+## Letta API Base URL — depends on which machine you're on
+
+| Where letta-code runs | LETTA_BASE_URL to use |
+|-----------------------|----------------------|
+| WSL on Windows 11 | `http://100.80.49.10:8283` |
+| Windows 10 itself (Docker host) | `http://localhost:8283` |
+| Other machine on local WiFi | `http://100.80.49.10:8283` |
+
+Always prefer `LETTA_BASE_URL` env var so scripts work across machines without edits.
 
 SSH works with key auth — no password needed:
 ```bash
@@ -53,7 +63,7 @@ When the user gets:
 ### Step 1 — Check agent state via API (from WSL, no SSH needed)
 ```bash
 AGENT="agent-fcbd78e5-abcd-459e-852e-921d4946223e"
-curl -s "http://10.0.0.143:8283/v1/agents/$AGENT" | python3 -c "
+curl -s "http://100.80.49.10:8283/v1/agents/$AGENT" | python3 -c "
 import sys,json; a=json.load(sys.stdin)
 print('agent_state:', a.get('agent_state'))
 print('in_context_message_ids:', a.get('in_context_message_ids', [])[-5:])
@@ -64,12 +74,12 @@ print('in_context_message_ids:', a.get('in_context_message_ids', [])[-5:])
 ```bash
 AGENT="agent-fcbd78e5-abcd-459e-852e-921d4946223e"
 # List conversations
-curl -s "http://10.0.0.143:8283/v1/conversations/?agent_id=$AGENT&limit=10" | \
+curl -s "http://100.80.49.10:8283/v1/conversations/?agent_id=$AGENT&limit=10" | \
   python3 -c "import sys,json; [print(c['id'], c.get('created_at','')[:19]) for c in json.load(sys.stdin)]"
 
 # Then for each conv-id, check messages
 CONV="<conv-id-from-above>"
-curl -s "http://10.0.0.143:8283/v1/conversations/$CONV/messages?limit=10&order=desc" | \
+curl -s "http://100.80.49.10:8283/v1/conversations/$CONV/messages?limit=10&order=desc" | \
   python3 -c "
 import sys,json
 for m in json.load(sys.stdin):
@@ -82,11 +92,11 @@ for m in json.load(sys.stdin):
 ```bash
 AGENT="agent-fcbd78e5-abcd-459e-852e-921d4946223e"
 # Cancel using agent ID (works because Letta accepts agent_id as conversation_id for default conv)
-curl -s -X POST "http://10.0.0.143:8283/v1/conversations/$AGENT/cancel" \
+curl -s -X POST "http://100.80.49.10:8283/v1/conversations/$AGENT/cancel" \
   -H "Content-Type: application/json" -d '{}'
 
 # Or cancel a specific conversation
-curl -s -X POST "http://10.0.0.143:8283/v1/conversations/$CONV/cancel" \
+curl -s -X POST "http://100.80.49.10:8283/v1/conversations/$CONV/cancel" \
   -H "Content-Type: application/json" -d '{}'
 ```
 
@@ -138,7 +148,8 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJu4jIb5347YGP4FwD9xaFEERPdjBoNBUYJdiCzh3a5G
 ## Letta API Quick Reference (Letta 0.16.3)
 
 ```bash
-BASE="http://10.0.0.143:8283"
+# Set BASE to match your machine (see table above)
+BASE="${LETTA_BASE_URL:-http://100.80.49.10:8283}"
 
 # List agents
 curl -s "$BASE/v1/agents/" | python3 -c "import sys,json; [print(a['id'], a['name']) for a in json.load(sys.stdin)]"

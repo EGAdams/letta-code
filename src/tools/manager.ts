@@ -60,6 +60,7 @@ const STREAMING_SHELL_TOOLS = new Set([
   "Shell",
   "run_shell_command",
   "RunShellCommand",
+  "executor_run",
 ]);
 
 // Maps internal tool names to server/model-facing tool names
@@ -215,6 +216,7 @@ const TOOL_PERMISSIONS: Record<ToolName, { requiresApproval: boolean }> = {
   grep_files: { requiresApproval: false },
   apply_patch: { requiresApproval: true },
   update_plan: { requiresApproval: false },
+  executor_run: { requiresApproval: true },
   // Gemini toolset
   glob_gemini: { requiresApproval: false },
   list_directory: { requiresApproval: false },
@@ -1292,16 +1294,28 @@ export async function executeTool(
     );
   }
 
-  const internalName = resolveInternalToolName(name, activeRegistry);
-  if (!internalName) {
-    return {
-      toolReturn: `Tool not found: ${name}. Available tools: ${Array.from(activeRegistry.keys()).join(", ")}`,
-      status: "error",
-    };
+  let internalName = resolveInternalToolName(name, activeRegistry);
+  let tool = internalName ? activeRegistry.get(internalName) : undefined;
+
+  // Fall back to TOOL_DEFINITIONS for server-sent tools not in the active toolset
+  // (e.g., executor_run from Letta agents that run commands on the client machine)
+  if (!tool) {
+    const defKey = (internalName ?? name) as ToolName;
+    const fallbackDef = TOOL_DEFINITIONS[defKey];
+    if (fallbackDef?.impl) {
+      internalName = defKey;
+      tool = {
+        schema: {
+          name: defKey,
+          description: fallbackDef.description,
+          input_schema: fallbackDef.schema,
+        },
+        fn: fallbackDef.impl as (args: ToolArgs) => Promise<unknown>,
+      };
+    }
   }
 
-  const tool = activeRegistry.get(internalName);
-  if (!tool) {
+  if (!tool || !internalName) {
     return {
       toolReturn: `Tool not found: ${name}. Available tools: ${Array.from(activeRegistry.keys()).join(", ")}`,
       status: "error",

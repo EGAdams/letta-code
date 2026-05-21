@@ -1330,4 +1330,84 @@ describe("Settings Manager - Managed Keys Preservation", () => {
       );
     }
   });
+
+  test("persistSession normalizes serialized conversation list values", async () => {
+    await settingsManager.initialize();
+    await settingsManager.loadLocalProjectSettings(testProjectDir);
+
+    settingsManager.persistSession(
+      "agent-serialized-test",
+      "['conv-serialized-test']",
+      testProjectDir,
+    );
+    await settingsManager.flush();
+
+    const localSession = settingsManager.getLocalLastSession(testProjectDir);
+    const globalSession = settingsManager.getGlobalLastSession();
+
+    expect(localSession?.conversationId).toBe("conv-serialized-test");
+    expect(globalSession?.conversationId).toBe("conv-serialized-test");
+  });
+
+  test("persistSession normalizes double-serialized conversation list values", async () => {
+    await settingsManager.initialize();
+    await settingsManager.loadLocalProjectSettings(testProjectDir);
+
+    settingsManager.persistSession(
+      "agent-serialized-nested-test",
+      "\"['conv-serialized-nested-test']\"",
+      testProjectDir,
+    );
+    await settingsManager.flush();
+
+    const localSession = settingsManager.getLocalLastSession(testProjectDir);
+    const globalSession = settingsManager.getGlobalLastSession();
+
+    expect(localSession?.conversationId).toBe("conv-serialized-nested-test");
+    expect(globalSession?.conversationId).toBe("conv-serialized-nested-test");
+  });
+
+  test("getLocalLastSession normalizes malformed persisted conversation IDs", async () => {
+    const { mkdir, writeFile } = await import("../utils/fs.js");
+    const localDir = join(testProjectDir, ".letta");
+    await mkdir(localDir, { recursive: true });
+
+    await writeFile(
+      join(localDir, "settings.local.json"),
+      JSON.stringify({
+        lastSession: {
+          agentId: "agent-local",
+          conversationId: "['conv-from-local-file']",
+        },
+      }),
+    );
+
+    await settingsManager.initialize();
+    await settingsManager.loadLocalProjectSettings(testProjectDir);
+    const localSession = settingsManager.getLocalLastSession(testProjectDir);
+
+    expect(localSession?.conversationId).toBe("conv-from-local-file");
+  });
+
+  test("getLocalLastSession normalizes double-serialized malformed conversation IDs", async () => {
+    const { mkdir, writeFile } = await import("../utils/fs.js");
+    const localDir = join(testProjectDir, ".letta");
+    await mkdir(localDir, { recursive: true });
+
+    await writeFile(
+      join(localDir, "settings.local.json"),
+      JSON.stringify({
+        lastSession: {
+          agentId: "agent-local",
+          conversationId: "\"['conv-from-local-file-nested']\"",
+        },
+      }),
+    );
+
+    await settingsManager.initialize();
+    await settingsManager.loadLocalProjectSettings(testProjectDir);
+    const localSession = settingsManager.getLocalLastSession(testProjectDir);
+
+    expect(localSession?.conversationId).toBe("conv-from-local-file-nested");
+  });
 });

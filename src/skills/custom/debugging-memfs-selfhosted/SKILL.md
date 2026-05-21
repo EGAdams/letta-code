@@ -10,7 +10,7 @@ description: "Debugs Letta Code memfs failures on self-hosted servers, especiall
 Use this first for base self-hosted URL setups:
 
 ```text
-/memfs enable --selfhosted http://10.0.0.143:8283
+/memfs enable --selfhosted http://100.80.49.10:8283
 ```
 
 ## Symptoms This Skill Covers
@@ -28,7 +28,7 @@ Use this first for base self-hosted URL setups:
    ```
 3. Re-enable with self-hosted base URL:
    ```text
-   /memfs enable --selfhosted http://10.0.0.143:8283
+   /memfs enable --selfhosted http://100.80.49.10:8283
    ```
 4. Confirm:
    ```text
@@ -55,5 +55,5 @@ If your server path is not `/v1/git/...`, provide the full `.git` endpoint requi
 ## Validation Checklist
 
 1. `letta-dev` reaches prompt (no crash on resume).
-2. `/memfs enable --selfhosted http://10.0.0.143:8283` completes or gives actionable remote-path error.
+2. `/memfs enable --selfhosted http://100.80.49.10:8283` completes or gives actionable remote-path error.
 3. Subsequent startup does not hard-crash due to memfs sync.

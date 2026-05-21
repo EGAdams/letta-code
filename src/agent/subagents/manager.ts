@@ -167,6 +167,20 @@ function swapProviderPrefix(
   return `${parentProvider}/${modelPortion}`;
 }
 
+function getFirstAvailableNonAutoHandle(
+  availableHandles: Set<string> | null,
+): string | null {
+  if (!availableHandles || availableHandles.size === 0) return null;
+
+  return (
+    Array.from(availableHandles).find(
+      (handle) => handle !== "letta/auto" && handle !== "letta/auto-fast",
+    ) ??
+    availableHandles.values().next().value ??
+    null
+  );
+}
+
 export async function resolveSubagentModel(options: {
   userModel?: string;
   recommendedModel?: string;
@@ -181,6 +195,7 @@ export async function resolveSubagentModel(options: {
       : undefined;
   const parentModelHandle = normalizeModelHandle(options.parentModelHandle);
   const isFreeTier = billingTier?.toLowerCase() === "free";
+  let availabilityKnown = true;
 
   if (userModel) return normalizeModelHandle(userModel);
 
@@ -196,8 +211,13 @@ export async function resolveSubagentModel(options: {
         const result = await getAvailableModelHandles();
         availableHandles = result.handles;
       }
+      if (availableHandles.size === 0) {
+        availabilityKnown = false;
+        return false;
+      }
       return availableHandles.has(handle);
     } catch {
+      availabilityKnown = false;
       return false;
     }
   };
@@ -231,6 +251,9 @@ export async function resolveSubagentModel(options: {
           if (await isAvailable(recommendedHandle)) {
             return recommendedHandle;
           }
+          if (!availabilityKnown) {
+            return parentModelHandle;
+          }
         } else {
           const swapped = swapProviderPrefix(
             parentModelHandle,
@@ -239,12 +262,18 @@ export async function resolveSubagentModel(options: {
           if (swapped && (await isAvailable(swapped))) {
             return swapped;
           }
+          if (swapped && !availabilityKnown) {
+            return parentModelHandle;
+          }
         }
 
         return parentModelHandle;
       }
 
       if (await isAvailable(recommendedHandle)) {
+        return recommendedHandle;
+      }
+      if (!availabilityKnown) {
         return recommendedHandle;
       }
     }
@@ -255,10 +284,16 @@ export async function resolveSubagentModel(options: {
     if (await isAvailable(parentModelHandle)) {
       return parentModelHandle;
     }
-    return getDefaultModelForTier(billingTier);
+    if (!availabilityKnown) {
+      return parentModelHandle;
+    }
+    return getFirstAvailableNonAutoHandle(availableHandles);
   }
 
   if (recommendedHandle && (await isAvailable(recommendedHandle))) {
+    return recommendedHandle;
+  }
+  if (recommendedHandle && !availabilityKnown) {
     return recommendedHandle;
   }
 
@@ -268,7 +303,7 @@ export async function resolveSubagentModel(options: {
     return defaultHandle;
   }
 
-  return recommendedHandle;
+  return getFirstAvailableNonAutoHandle(availableHandles) ?? recommendedHandle;
 }
 
 /**
@@ -821,13 +856,12 @@ async function executeSubagent(
         (isProviderNotSupportedError(stderr) ||
           isSubagentModelUnavailableError(stderr))
       ) {
-        const billingTier = await getCurrentBillingTier();
-        const fallbackModel = getDefaultModelForTier(billingTier);
-        if (fallbackModel && fallbackModel !== model) {
+        const primaryModel = await getPrimaryAgentModelHandle();
+        if (primaryModel && primaryModel !== model) {
           return executeSubagent(
             type,
             config,
-            fallbackModel,
+            primaryModel,
             userPrompt,
             baseURL,
             subagentId,
@@ -839,12 +873,13 @@ async function executeSubagent(
           );
         }
 
-        const primaryModel = await getPrimaryAgentModelHandle();
-        if (primaryModel && primaryModel !== model) {
+        const billingTier = await getCurrentBillingTier();
+        const fallbackModel = getDefaultModelForTier(billingTier);
+        if (fallbackModel && fallbackModel !== model) {
           return executeSubagent(
             type,
             config,
-            primaryModel,
+            fallbackModel,
             userPrompt,
             baseURL,
             subagentId,
