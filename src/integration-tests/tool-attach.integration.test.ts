@@ -128,6 +128,7 @@ describe("Tool attach lifecycle integration", () => {
 
       // ── Phase 2: create an agent ──────────────────────────────────────────
       await log("Phase 2: creating agent via client.agents.create");
+      // biome-ignore lint/suspicious/noImplicitAnyLet: assigned in try/catch below
       let agent;
       try {
         agent = await client.agents.create({
@@ -226,13 +227,17 @@ describe("Tool attach lifecycle integration", () => {
     "attach with nonexistent tool ID returns a meaningful error (not silent 500)",
     async () => {
       const logger = new RemoteLogger(LOGGER_ID);
-      const { init, log, flushLogs } = makeLoggerHelpers(logger, "ToolAttach:BadId");
+      const { init, log, flushLogs } = makeLoggerHelpers(
+        logger,
+        "ToolAttach:BadId",
+      );
       await init();
 
       const client = await getClient();
 
       // We need a real agent to attempt the attach against.
       await log("creating throwaway agent for bad-tool-id test");
+      // biome-ignore lint/suspicious/noImplicitAnyLet: assigned in try/catch below
       let agent;
       try {
         agent = await client.agents.create({

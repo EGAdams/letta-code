@@ -97,6 +97,7 @@ describe("openai codex provider helpers", () => {
     expect(result.id).toBe("provider-1");
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    // biome-ignore lint/style/noNonNullAssertion: toHaveBeenCalledTimes(1) guarantees this exists
     const [url, options] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://letta.test/v1/providers");
     expect(options?.method).toBe("POST");
@@ -139,6 +140,7 @@ describe("openai codex provider helpers", () => {
     });
 
     expect(result.id).toBe("provider-1");
+    // biome-ignore lint/style/noNonNullAssertion: toHaveBeenCalledTimes guarantees this exists
     const [url, options] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://letta.test/v1/providers/provider-1");
     expect(options?.method).toBe("PATCH");
