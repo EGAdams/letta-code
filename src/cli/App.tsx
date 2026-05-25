@@ -26,6 +26,7 @@ import {
 } from "react";
 import {
   type ApprovalResult,
+  approvalResultsToUserMessageText,
   executeAutoAllowedTools,
   getDisplayableToolReturn,
 } from "../agent/approval-execution";
@@ -58,6 +59,7 @@ import {
 import {
   cacheDefaultConversationId,
   getStreamToolContextId,
+  hasSendableOutgoingMessages,
   sendMessageStream,
 } from "../agent/message";
 import {
@@ -67,10 +69,18 @@ import {
   type ModelReasoningEffort,
 } from "../agent/model";
 import {
+  collectPendingMultiAgentToolCalls,
+  executePendingMultiAgentToolCalls,
+} from "../agent/multi-agent-tool-fallback";
+import {
   INTERRUPT_RECOVERY_ALERT,
   shouldRecommendDefaultPrompt,
 } from "../agent/promptAssets";
 import { reconcileExistingAgentState } from "../agent/reconcileExistingAgentState";
+import {
+  AUTO_MODEL_HANDLE,
+  resolveDefaultAgentModel,
+} from "../agent/serverModelSelection";
 import { recordSessionEnd } from "../agent/sessionHistory";
 import { SessionStats } from "../agent/stats";
 import {
@@ -90,6 +100,8 @@ import {
   runStopHooks,
   runUserPromptSubmitHooks,
 } from "../hooks";
+import type { IAgentSessionLogger } from "../logger/agent-event-logger";
+import { createAgentSessionLogger } from "../logger/agent-session-logger-factory";
 import type { ApprovalContext } from "../permissions/analyzer";
 import { type PermissionMode, permissionMode } from "../permissions/mode";
 import { OPENAI_CODEX_PROVIDER_NAME } from "../providers/openai-codex-provider";
@@ -360,7 +372,7 @@ const LLM_API_ERROR_MAX_RETRIES = 3;
 // Retry config for empty response errors (Opus 4.6 SADs)
 // Retry 1: same input. Retry 2: with system reminder nudge.
 const EMPTY_RESPONSE_MAX_RETRIES = 2;
-const TEMP_QUOTA_OVERRIDE_MODEL = "letta/auto";
+const TEMP_QUOTA_OVERRIDE_MODEL = AUTO_MODEL_HANDLE;
 
 // Retry config for 409 "conversation busy" errors (exponential backoff)
 const CONVERSATION_BUSY_MAX_RETRIES = 3; // 10s -> 20s -> 40s
@@ -1022,15 +1034,29 @@ export default function App({
     setAgentState((prev) => (prev ? { ...prev, name } : prev));
   }, []);
 
+  const buildDefaultPromptRecommendationLines = useCallback(
+    (agent: AgentState | null | undefined): string[] => {
+      if (!agent?.id || !agent.system) return [];
+      const memMode = settingsManager.isMemfsEnabled(agent.id)
+        ? "memfs"
+        : ("standard" as const);
+      if (!shouldRecommendDefaultPrompt(agent.system, memMode)) {
+        return [];
+      }
+
+      return [
+        "⚠ **Prompt:** This agent is using a custom or legacy system prompt.",
+        "If you want standard Letta Code coding behavior, run **/system default**.",
+      ];
+    },
+    [],
+  );
+
   // Check if the current agent would benefit from switching to the default prompt.
   // Used to conditionally include the /system tip in streaming tip rotation.
   const includeSystemPromptUpgradeTip = useMemo(() => {
-    if (!agentState?.id || !agentState.system) return false;
-    const memMode = settingsManager.isMemfsEnabled(agentState.id)
-      ? "memfs"
-      : ("standard" as const);
-    return shouldRecommendDefaultPrompt(agentState.system, memMode);
-  }, [agentState]);
+    return buildDefaultPromptRecommendationLines(agentState).length > 0;
+  }, [agentState, buildDefaultPromptRecommendationLines]);
 
   const projectDirectory = process.cwd();
 
@@ -1056,6 +1082,21 @@ export default function App({
 
   // Track the most recent run ID from streaming (for statusline display)
   const lastRunIdRef = useRef<string | null>(null);
+
+  // Session logger: streams agent events to localhost:8080 for known agents.
+  const sessionLoggerRef = useRef<IAgentSessionLogger | null>(null);
+  useEffect(() => {
+    const logger = createAgentSessionLogger(agentId);
+    sessionLoggerRef.current = logger;
+    if (logger) {
+      logger.onSessionStart(agentId).catch(() => {});
+    }
+    return () => {
+      const prev = sessionLoggerRef.current;
+      sessionLoggerRef.current = null;
+      prev?.onSessionEnd().catch(() => {});
+    };
+  }, [agentId]);
 
   const resumeKey = useSuspend();
 
@@ -1562,6 +1603,7 @@ export default function App({
   const [currentModelHandle, setCurrentModelHandle] = useState<string | null>(
     null,
   );
+  const currentAgentModel = agentState?.model?.trim() || undefined;
   // Derive agentName from agentState (single source of truth)
   const agentName = agentState?.name ?? null;
   const [agentDescription, setAgentDescription] = useState<string | null>(null);
@@ -1973,6 +2015,7 @@ export default function App({
   const [dequeueEpoch, setDequeueEpoch] = useState(0);
   // Strict lock to ensure dequeue submit path is at-most-once while onSubmit is in flight.
   const dequeueInFlightRef = useRef(false);
+  const streamingSinceMsRef = useRef<number | null>(null);
 
   // Track last dequeued message for restoration on error
   // If an error occurs after dequeue, we restore this to the input field (if input is empty)
@@ -1980,6 +2023,16 @@ export default function App({
 
   // Restored input value - set when we need to restore a message to the input after error
   const [restoredInput, setRestoredInput] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (streaming) {
+      if (streamingSinceMsRef.current === null) {
+        streamingSinceMsRef.current = Date.now();
+      }
+      return;
+    }
+    streamingSinceMsRef.current = null;
+  }, [streaming]);
 
   // Helper to check if agent is busy (streaming, executing tool, or running command)
   // Uses refs for synchronous access outside React's closure system
@@ -3208,6 +3261,12 @@ export default function App({
       if (startupSystemPromptWarning) {
         statusLines.push(startupSystemPromptWarning);
       }
+      const promptRecommendationLines =
+        buildDefaultPromptRecommendationLines(agentState);
+      if (promptRecommendationLines.length > 0) {
+        statusLines.push(...promptRecommendationLines);
+        statusLines.push("");
+      }
       statusLines.push(headerMessage);
       statusLines.push(...commandHints);
 
@@ -3226,6 +3285,7 @@ export default function App({
     messageHistory,
     refreshDerived,
     commitEligibleLines,
+    buildDefaultPromptRecommendationLines,
     continueSession,
     columns,
     agentState,
@@ -4146,6 +4206,10 @@ export default function App({
             ];
           }
 
+          if (!hasSendableOutgoingMessages(currentInput)) {
+            return;
+          }
+
           // Stream one turn - use ref to always get the latest conversationId
           // Wrap in try-catch to handle pre-stream desync errors (when sendMessageStream
           // throws before streaming begins, e.g., retry after LLM error when backend
@@ -4161,6 +4225,10 @@ export default function App({
               {
                 agentId: agentIdRef.current,
                 overrideModel: tempModelOverrideRef.current ?? undefined,
+              },
+              {
+                maxRetries: 0,
+                signal: abortControllerRef.current?.signal ?? undefined,
               },
             );
             stream = nextStream;
@@ -4820,7 +4888,7 @@ export default function App({
                   refreshDerivedThrottled,
                   signal, // Use captured signal, not ref (which may be nulled by handleInterrupt)
                   handleFirstMessage,
-                  undefined,
+                  sessionLoggerRef.current?.drainHook,
                   contextTrackerRef.current,
                   highestSeqIdSeen,
                 );
@@ -4834,6 +4902,7 @@ export default function App({
             lastRunId,
             lastSeqId,
             fallbackError,
+            approvalRequestEndedTurn,
           } = await drainResult;
 
           if (lastSeqId != null) {
@@ -4887,6 +4956,55 @@ export default function App({
           // and keeps queue-cancel flags consistent with the normal cancel branch below.
           if (wasInterrupted && stopReasonToHandle === "requires_approval") {
             stopReasonToHandle = "cancelled";
+          }
+
+          const pendingMultiAgentToolCalls =
+            stopReasonToHandle === "end_turn"
+              ? collectPendingMultiAgentToolCalls(
+                  buffersRef.current.serverToolCalls,
+                )
+              : [];
+          if (pendingMultiAgentToolCalls.length > 0 && agentIdRef.current) {
+            setThinkingMessage(getRandomThinkingVerb());
+            refreshDerived();
+
+            const executedResults = await executePendingMultiAgentToolCalls(
+              pendingMultiAgentToolCalls,
+              agentIdRef.current,
+            );
+
+            for (const result of executedResults) {
+              if (result.type !== "tool") continue;
+              onChunk(buffersRef.current, {
+                message_type: "tool_return_message",
+                id: randomUUID(),
+                date: new Date().toISOString(),
+                tool_call_id: result.tool_call_id,
+                tool_return:
+                  typeof result.tool_return === "string"
+                    ? result.tool_return
+                    : JSON.stringify(result.tool_return),
+                status: result.status,
+                stdout: result.stdout ?? null,
+                stderr: result.stderr ?? null,
+              });
+            }
+            refreshDerived();
+
+            toolResultsInFlightRef.current = true;
+            await processConversation(
+              [
+                {
+                  type: "message",
+                  role: "user",
+                  content: approvalResultsToUserMessageText(executedResults),
+                  otid: randomUUID(),
+                },
+              ],
+              { allowReentry: true },
+            );
+            toolResultsInFlightRef.current = false;
+            return;
           }
 
           // Case 1: Turn ended normally
@@ -5483,11 +5601,20 @@ export default function App({
                   toolResultsInFlightRef.current = true;
                   await processConversation(
                     [
-                      {
-                        type: "approval",
-                        approvals: allResults,
-                        otid: randomUUID(),
-                      },
+                      approvalRequestEndedTurn
+                        ? {
+                            type: "message",
+                            role: "user",
+                            content: approvalResultsToUserMessageText(
+                              allResults as ApprovalResult[],
+                            ),
+                            otid: randomUUID(),
+                          }
+                        : {
+                            type: "approval",
+                            approvals: allResults,
+                            otid: randomUUID(),
+                          },
                       {
                         type: "message",
                         role: "user",
@@ -5535,11 +5662,20 @@ export default function App({
                 toolResultsInFlightRef.current = true;
                 await processConversation(
                   [
-                    {
-                      type: "approval",
-                      approvals: allResults,
-                      otid: randomUUID(),
-                    },
+                    approvalRequestEndedTurn
+                      ? {
+                          type: "message",
+                          role: "user",
+                          content: approvalResultsToUserMessageText(
+                            allResults as ApprovalResult[],
+                          ),
+                          otid: randomUUID(),
+                        }
+                      : {
+                          type: "approval",
+                          approvals: allResults,
+                          otid: randomUUID(),
+                        },
                   ],
                   { allowReentry: true },
                 );
@@ -5888,37 +6024,51 @@ export default function App({
             !quotaAutoSwapAttemptedRef.current;
 
           if (canAttemptQuotaAutoSwap) {
-            quotaAutoSwapAttemptedRef.current = true;
-            setTempModelOverride(TEMP_QUOTA_OVERRIDE_MODEL);
-
-            const statusId = uid("status");
-            buffersRef.current.byId.set(statusId, {
-              kind: "status",
-              id: statusId,
-              lines: [
-                "Quota limit reached; temporarily switching to Auto and continuing...",
-              ],
+            const quotaFallbackModel = await resolveDefaultAgentModel({
+              preferredModel: TEMP_QUOTA_OVERRIDE_MODEL,
+              disallowedHandles: currentModelLabel ? [currentModelLabel] : [],
             });
-            buffersRef.current.order.push(statusId);
-            refreshDerived();
 
-            currentInput = [
-              ...currentInput,
-              {
-                type: "message",
-                role: "user",
-                content: "Keep going.",
-              },
-            ];
+            if (!quotaFallbackModel) {
+              quotaAutoSwapAttemptedRef.current = true;
+            } else {
+              quotaAutoSwapAttemptedRef.current = true;
+              setTempModelOverride(quotaFallbackModel);
 
-            buffersRef.current.byId.delete(statusId);
-            buffersRef.current.order = buffersRef.current.order.filter(
-              (id) => id !== statusId,
-            );
-            refreshDerived();
+              const fallbackLabel =
+                quotaFallbackModel === TEMP_QUOTA_OVERRIDE_MODEL
+                  ? "Auto"
+                  : (getModelShortName(quotaFallbackModel) ??
+                    quotaFallbackModel);
+              const statusId = uid("status");
+              buffersRef.current.byId.set(statusId, {
+                kind: "status",
+                id: statusId,
+                lines: [
+                  `Quota limit reached; temporarily switching to ${fallbackLabel} and continuing...`,
+                ],
+              });
+              buffersRef.current.order.push(statusId);
+              refreshDerived();
 
-            buffersRef.current.interrupted = false;
-            continue;
+              currentInput = [
+                ...currentInput,
+                {
+                  type: "message",
+                  role: "user",
+                  content: "Keep going.",
+                },
+              ];
+
+              buffersRef.current.byId.delete(statusId);
+              buffersRef.current.order = buffersRef.current.order.filter(
+                (id) => id !== statusId,
+              );
+              refreshDerived();
+
+              buffersRef.current.interrupted = false;
+              continue;
+            }
           }
 
           // Empty LLM response retry (e.g. Opus 4.6 occasionally returns no content).
@@ -6124,7 +6274,15 @@ export default function App({
           if (lastRunId) {
             try {
               const client = await getClient();
-              const run = await client.runs.retrieve(lastRunId);
+              const run = await Promise.race([
+                client.runs.retrieve(lastRunId),
+                new Promise<never>((_resolve, reject) => {
+                  setTimeout(
+                    () => reject(new Error("Timed out fetching run metadata")),
+                    5000,
+                  );
+                }),
+              ]);
 
               // Check if run has error information in metadata
               if (run.metadata?.error) {
@@ -6875,7 +7033,17 @@ export default function App({
           kind: "separator" as const,
           id: uid("sep"),
         };
-        setStaticItems([separator]);
+        const promptRecommendationLines =
+          buildDefaultPromptRecommendationLines(agent);
+        const nextStaticItems: StaticItem[] = [separator];
+        if (promptRecommendationLines.length > 0) {
+          nextStaticItems.push({
+            kind: "status" as const,
+            id: uid("status"),
+            lines: promptRecommendationLines,
+          });
+        }
+        setStaticItems(nextStaticItems);
         cmd.finish(successOutput, true);
       } catch (error) {
         const errorDetails = formatErrorDetails(error, agentId);
@@ -6895,6 +7063,7 @@ export default function App({
       resetTrajectoryBases,
       resetBootstrapReminderState,
       resetPendingReasoningCycle,
+      buildDefaultPromptRecommendationLines,
     ],
   );
 
@@ -8775,6 +8944,18 @@ export default function App({
               "Agent's in-context messages cleared & moved to conversation history",
               true,
             );
+            const promptRecommendationLines =
+              buildDefaultPromptRecommendationLines(agentState);
+            if (promptRecommendationLines.length > 0) {
+              setStaticItems((prev) => [
+                ...prev,
+                {
+                  kind: "status" as const,
+                  id: uid("status"),
+                  lines: promptRecommendationLines,
+                },
+              ]);
+            }
           } catch (error) {
             const errorDetails = formatErrorDetails(error, agentId);
             cmd.fail(`Failed: ${errorDetails}`);
@@ -8860,6 +9041,14 @@ export default function App({
             }
 
             const client = await getClient();
+            const defaultCompactionModel = await resolveDefaultAgentModel({
+              client,
+              preferredModel: DEFAULT_SUMMARIZATION_MODEL,
+              fallbackModel:
+                agentStateRef.current?.model?.trim() ||
+                currentModelHandle ||
+                undefined,
+            });
 
             // Build compaction settings if mode was specified
             // On server side, if mode changed, summarize function will use corresponding default prompt for new mode
@@ -8869,6 +9058,7 @@ export default function App({
                     mode: modeArg,
                     model:
                       agentStateRef.current?.compaction_settings?.model?.trim() ||
+                      defaultCompactionModel ||
                       DEFAULT_SUMMARIZATION_MODEL,
                   },
                 }
@@ -9645,7 +9835,7 @@ export default function App({
             selfHostedUrlCandidate !== "selfhosted"
               ? selfHostedUrlCandidate
               : undefined;
-          const remoteFlagIndex = parts.findIndex((p) => p === "--remote");
+          const remoteFlagIndex = parts.indexOf("--remote");
           const remoteUrl =
             remoteFlagIndex >= 0 ? parts[remoteFlagIndex + 1] : undefined;
           const effectiveRemoteUrl = remoteUrl || selfHostedUrl;
@@ -10589,6 +10779,19 @@ ${SYSTEM_REMINDER_CLOSE}
           ? [...reminderParts, ...contentParts]
           : contentParts;
 
+      if (
+        !hasSendableOutgoingMessages([
+          {
+            type: "message",
+            role: "user",
+            content: messageContent as MessageCreate["content"],
+          },
+        ])
+      ) {
+        overrideContentPartsRef.current = null;
+        return { submitted: true };
+      }
+
       // Append task notifications (if any) as event lines before the user message
       appendTaskNotificationEvents(taskNotifications);
 
@@ -11312,6 +11515,27 @@ ${SYSTEM_REMINDER_CLOSE}
         }
       });
     } else if (hasAnythingQueued) {
+      const staleStreaming =
+        streaming &&
+        !abortControllerRef.current &&
+        !commandRunning &&
+        !isExecutingTool &&
+        pendingApprovals.length === 0 &&
+        !queuedOverlayAction &&
+        !anySelectorOpen &&
+        !!streamingSinceMsRef.current &&
+        Date.now() - streamingSinceMsRef.current > 15000;
+
+      if (staleStreaming) {
+        debugWarn(
+          "queue",
+          "Detected stale streaming state without active controller; auto-clearing to unblock queue",
+        );
+        setStreaming(false);
+        setDequeueEpoch((e) => e + 1);
+        return;
+      }
+
       // Log why dequeue was blocked (useful for debugging stuck queues)
       debugLog(
         "queue",
@@ -11340,7 +11564,8 @@ ${SYSTEM_REMINDER_CLOSE}
     isExecutingTool,
     anySelectorOpen,
     queuedOverlayAction,
-    dequeueEpoch, // Triggered on every enqueue, turn completion, and cancel-reset
+    dequeueEpoch,
+    setStreaming,
   ]);
 
   // Helper to send all approval results when done
@@ -12241,8 +12466,15 @@ ${SYSTEM_REMINDER_CLOSE}
       } catch (error) {
         const errorDetails = formatErrorDetails(error, agentId);
         const modelLabel = selectedModel?.label ?? modelId;
-        const guidance =
-          "Run /model and press R to refresh available models. If the model is still unavailable, choose another model or connect a provider with /connect.";
+        const selectedHandle =
+          selectedModel?.handle ?? selectedModel?.id ?? modelId;
+        const errorStr = error instanceof Error ? error.message : String(error);
+        const isNotFoundForChatGpt =
+          errorStr.includes("NOT_FOUND") &&
+          selectedHandle.startsWith("chatgpt-plus-pro/");
+        const guidance = isNotFoundForChatGpt
+          ? "The ChatGPT OAuth provider is not registered on your Letta server. Run /connect chatgpt to register it, then try /model again."
+          : "Run /model and press R to refresh available models. If the model is still unavailable, choose another model or connect a provider with /connect.";
         const cmd =
           resolveOverlayCommand() ??
           commandRunner.start(
@@ -12465,15 +12697,23 @@ ${SYSTEM_REMINDER_CLOSE}
         try {
           const client = await getClient();
           // Spread existing compaction_settings to preserve model/other fields,
-          // only override the mode. If no model is configured, default to
-          // letta/auto so compaction uses a consistent summarization model.
+          // only override the mode. Resolve the default model against the live
+          // server so self-hosted setups do not persist an unavailable auto handle.
           const existing = agentState?.compaction_settings;
           const existingModel = existing?.model?.trim();
+          const defaultCompactionModel = await resolveDefaultAgentModel({
+            client,
+            preferredModel: DEFAULT_SUMMARIZATION_MODEL,
+            fallbackModel: currentAgentModel || currentModelHandle || undefined,
+          });
 
           await client.agents.update(agentId, {
             compaction_settings: {
               ...existing,
-              model: existingModel || DEFAULT_SUMMARIZATION_MODEL,
+              model:
+                existingModel ||
+                defaultCompactionModel ||
+                DEFAULT_SUMMARIZATION_MODEL,
               mode: mode as
                 | "all"
                 | "sliding_window"
@@ -12496,6 +12736,8 @@ ${SYSTEM_REMINDER_CLOSE}
       isAgentBusy,
       withCommandLock,
       agentState?.compaction_settings,
+      currentAgentModel,
+      currentModelHandle,
     ],
   );
 
@@ -13970,7 +14212,7 @@ If using apply_patch, use this exact relative patch path: ${applyPatchRelativePa
                       <Box key={ln.id} flexDirection="column" marginTop={1}>
                         {matchesCurrentApproval ? (
                           <ApprovalSwitch
-                            approval={currentApproval}
+                            approval={currentApproval} // april 19
                             onApprove={handleApproveCurrent}
                             onApproveAlways={handleApproveAlways}
                             onDeny={handleDenyCurrent}

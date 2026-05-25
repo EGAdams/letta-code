@@ -9,6 +9,10 @@ describe("toolNameMapping display mappings", () => {
   test("maps memory_apply_patch to a friendly label", () => {
     expect(getDisplayToolName("memory_apply_patch")).toBe("Memory Patch");
   });
+
+  test("shows executor_run distinctly from Bash", () => {
+    expect(getDisplayToolName("executor_run")).toBe("Executor");
+  });
 });
 
 describe("toolNameMapping.isMemoryTool", () => {

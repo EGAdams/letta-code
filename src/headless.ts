@@ -34,10 +34,19 @@ import { getStreamToolContextId, sendMessageStream } from "./agent/message";
 import {
   getModelPresetUpdateForAgent,
   getModelUpdateArgs,
+  getResolvedModelHandleForAgent,
+  getResumeModelMigrationHandle,
   getResumeRefreshArgs,
+  getUpdateArgsForModelHandle,
   resolveModel,
 } from "./agent/model";
 import { updateAgentLLMConfig, updateAgentSystemPrompt } from "./agent/modify";
+import {
+  collectPendingMultiAgentToolCalls,
+  executePendingMultiAgentToolCalls,
+} from "./agent/multi-agent-tool-fallback";
+import { detectSystemPromptPreset } from "./agent/promptAssets";
+import { resolveDefaultAgentModel } from "./agent/serverModelSelection";
 import { resolveSkillSourcesSelection } from "./agent/skillSources";
 import type { SkillSource } from "./agent/skills";
 import { SessionStats } from "./agent/stats";
@@ -53,6 +62,7 @@ import {
   createBuffers,
   type Line,
   markIncompleteToolsAsCancelled,
+  onChunk,
   toLines,
 } from "./cli/helpers/accumulator";
 import { classifyApprovals } from "./cli/helpers/approvalClassification";
@@ -266,6 +276,39 @@ async function applyReflectionOverrides(
   return merged;
 }
 
+/**
+ * Pick the text a user should see as the final headless result.
+ * Prefers the last non-empty assistant message, then the last non-empty tool
+ * result. Reasoning output is intentionally excluded so internal thinking is
+ * never surfaced as the final answer. Returns `fallback` when neither exists.
+ */
+export function selectUserVisibleResultText(
+  lines: Line[],
+  fallback: string,
+): string {
+  const reversed = [...lines].reverse();
+
+  const lastAssistant = reversed.find(
+    (line) =>
+      line.kind === "assistant" &&
+      "text" in line &&
+      typeof line.text === "string" &&
+      line.text.trim().length > 0,
+  ) as Extract<Line, { kind: "assistant" }> | undefined;
+
+  const lastToolResult = reversed.find(
+    (line) =>
+      line.kind === "tool_call" &&
+      "resultText" in line &&
+      typeof (line as Extract<Line, { kind: "tool_call" }>).resultText ===
+        "string" &&
+      ((line as Extract<Line, { kind: "tool_call" }>).resultText ?? "").trim()
+        .length > 0,
+  ) as Extract<Line, { kind: "tool_call" }> | undefined;
+
+  return lastAssistant?.text || lastToolResult?.resultText || fallback;
+}
+
 export async function handleHeadlessCommand(
   parsedArgs: ParsedCliArgs,
   model?: string,
@@ -356,7 +399,10 @@ export async function handleHeadlessCommand(
   }
 
   if (!prompt && !isBidirectionalMode) {
-    console.error("Error: No prompt provided");
+    console.error(
+      "Error: No prompt provided\n" +
+        "Provide a prompt with -p <text> or pipe it on stdin.",
+    );
     process.exit(1);
   }
 
@@ -868,6 +914,31 @@ export async function handleHeadlessCommand(
   // preset-derived fields in sync, then apply optional command-line
   // overrides (model/system prompt).
   if (isResumingAgent) {
+    const modelMigrationHandle = getResumeModelMigrationHandle(agent);
+    if (modelMigrationHandle) {
+      const currentModelHandle = getResolvedModelHandleForAgent(agent);
+      const migratedModelHandle =
+        (await resolveDefaultAgentModel({
+          client,
+          preferredModel: modelMigrationHandle,
+          fallbackModel: modelMigrationHandle,
+        })) || modelMigrationHandle;
+
+      if (
+        typeof currentModelHandle === "string" &&
+        currentModelHandle !== migratedModelHandle
+      ) {
+        agent = await updateAgentLLMConfig(
+          agent.id,
+          migratedModelHandle,
+          getUpdateArgsForModelHandle(migratedModelHandle, {
+            reasoning_effort: agent.llm_config?.reasoning_effort ?? null,
+            enable_reasoner: agent.llm_config?.enable_reasoner ?? null,
+          }),
+        );
+      }
+    }
+
     if (model) {
       const modelHandle = resolveModel(model);
       if (typeof modelHandle !== "string") {
@@ -1007,14 +1078,10 @@ export async function handleHeadlessCommand(
   if (isResumingAgent && !systemPromptPreset) {
     let storedPreset = settingsManager.getSystemPromptPreset(agent.id);
 
-    // Adopt legacy agents (created before recipe tracking) as "custom"
-    // so their prompts are left untouched by auto-heal.
-    if (
-      !storedPreset &&
-      agent.tags?.includes("origin:letta-code") &&
-      !agent.tags?.includes("role:subagent")
-    ) {
-      storedPreset = "custom";
+    // Legacy agents created before recipe tracking should be moved onto a
+    // deterministic preset instead of preserving a stale prompt forever.
+    if (!storedPreset && !agent.tags?.includes("role:subagent")) {
+      storedPreset = detectSystemPromptPreset(agent.system) ?? "default";
       settingsManager.setSystemPromptPreset(agent.id, storedPreset);
     }
 
@@ -1708,6 +1775,7 @@ ${SYSTEM_REMINDER_CLOSE}
       }> = [];
       let apiDurationMs: number;
       let lastRunId: string | null = null;
+      let approvalRequestEndedTurn = false;
       let approvalPendingRecovery = false;
 
       if (outputFormat === "stream-json") {
@@ -1841,6 +1909,7 @@ ${SYSTEM_REMINDER_CLOSE}
         );
         stopReason = result.stopReason;
         approvals = result.approvals || [];
+        approvalRequestEndedTurn = !!result.approvalRequestEndedTurn;
         apiDurationMs = result.apiDurationMs;
         lastRunId = result.lastRunId || null;
         if (lastRunId) lastKnownRunId = lastRunId;
@@ -1857,6 +1926,7 @@ ${SYSTEM_REMINDER_CLOSE}
         );
         stopReason = result.stopReason;
         approvals = result.approvals || [];
+        approvalRequestEndedTurn = !!result.approvalRequestEndedTurn;
         apiDurationMs = result.apiDurationMs;
         lastRunId = result.lastRunId || null;
         if (lastRunId) lastKnownRunId = lastRunId;
@@ -1870,6 +1940,56 @@ ${SYSTEM_REMINDER_CLOSE}
 
       if (approvalPendingRecovery) {
         await resolveAllPendingApprovals();
+        continue;
+      }
+
+      const pendingMultiAgentToolCalls =
+        stopReason === "end_turn"
+          ? collectPendingMultiAgentToolCalls(buffers.serverToolCalls)
+          : [];
+      if (pendingMultiAgentToolCalls.length > 0) {
+        const { approvalResultsToUserMessageText } = await import(
+          "./agent/approval-execution"
+        );
+        const executedResults = await executePendingMultiAgentToolCalls(
+          pendingMultiAgentToolCalls,
+          agent.id,
+        );
+
+        for (const result of executedResults) {
+          if (result.type !== "tool") continue;
+          const toolReturnChunk = {
+            message_type: "tool_return_message" as const,
+            id: randomUUID(),
+            date: new Date().toISOString(),
+            tool_call_id: result.tool_call_id,
+            tool_return:
+              typeof result.tool_return === "string"
+                ? result.tool_return
+                : JSON.stringify(result.tool_return),
+            status: result.status,
+            stdout: result.stdout ?? null,
+            stderr: result.stderr ?? null,
+          };
+          onChunk(buffers, toolReturnChunk);
+          if (outputFormat === "stream-json" && includePartialMessages) {
+            const streamEvent: StreamEvent = {
+              type: "stream_event",
+              event: toolReturnChunk,
+              session_id: sessionId,
+              uuid: toolReturnChunk.id,
+            };
+            console.log(JSON.stringify(streamEvent));
+          }
+        }
+
+        currentInput = [
+          {
+            role: "user" as const,
+            content: approvalResultsToUserMessageText(executedResults),
+            otid: randomUUID(),
+          },
+        ];
         continue;
       }
 
@@ -1953,9 +2073,8 @@ ${SYSTEM_REMINDER_CLOSE}
         ];
 
         // Phase 2: Execute all approved tools and format results using shared function
-        const { executeApprovalBatch } = await import(
-          "./agent/approval-execution"
-        );
+        const { executeApprovalBatch, approvalResultsToUserMessageText } =
+          await import("./agent/approval-execution");
         const executedResults = await executeApprovalBatch(
           decisions,
           undefined,
@@ -1963,6 +2082,19 @@ ${SYSTEM_REMINDER_CLOSE}
             toolContextId: turnToolContextId ?? undefined,
           },
         );
+
+        if (approvalRequestEndedTurn) {
+          currentInput = [
+            {
+              role: "user" as const,
+              content: approvalResultsToUserMessageText(
+                executedResults as ApprovalResult[],
+              ),
+              otid: randomUUID(),
+            },
+          ];
+          continue;
+        }
 
         // Send all results in one batch
         const approvalInputWithOtid = {
@@ -3563,6 +3695,60 @@ async function runBidirectionalMode(
           lastStopReason = stopReason; // Track for result subtype
           const approvals = result.approvals || [];
 
+          // Multi-agent tool fallback: server may stream tool_call_message for
+          // send_message_to_agent_and_wait_for_reply then end with stop_reason:end_turn
+          // without executing the tool. Execute client-side and continue the loop
+          // so Scissari/the agent gets the tool return and can reply to the user.
+          const pendingMultiAgentCalls =
+            stopReason === "end_turn"
+              ? collectPendingMultiAgentToolCalls(buffers.serverToolCalls)
+              : [];
+          if (pendingMultiAgentCalls.length > 0) {
+            const { approvalResultsToUserMessageText } = await import(
+              "./agent/approval-execution"
+            );
+            const executedToolResults = await executePendingMultiAgentToolCalls(
+              pendingMultiAgentCalls,
+              agent.id,
+            );
+
+            for (const toolCallResult of executedToolResults) {
+              if (toolCallResult.type !== "tool") continue;
+              const toolReturnChunk = {
+                message_type: "tool_return_message" as const,
+                id: randomUUID(),
+                date: new Date().toISOString(),
+                tool_call_id: toolCallResult.tool_call_id,
+                tool_return:
+                  typeof toolCallResult.tool_return === "string"
+                    ? toolCallResult.tool_return
+                    : JSON.stringify(toolCallResult.tool_return),
+                status: toolCallResult.status,
+                stdout: toolCallResult.stdout ?? null,
+                stderr: toolCallResult.stderr ?? null,
+              };
+              onChunk(buffers, toolReturnChunk);
+              if (includePartialMessages) {
+                const toolReturnEvent: StreamEvent = {
+                  type: "stream_event",
+                  event: toolReturnChunk,
+                  session_id: sessionId,
+                  uuid: toolReturnChunk.id,
+                };
+                console.log(JSON.stringify(toolReturnEvent));
+              }
+            }
+
+            currentInput = [
+              {
+                role: "user" as const,
+                content: approvalResultsToUserMessageText(executedToolResults),
+                otid: randomUUID(),
+              },
+            ];
+            continue;
+          }
+
           // Case 1: Turn ended normally - break out of loop
           if (stopReason === "end_turn") {
             break;
@@ -3705,22 +3891,29 @@ async function runBidirectionalMode(
             }
 
             // Execute approved tools
-            const { executeApprovalBatch } = await import(
-              "./agent/approval-execution"
-            );
+            const { executeApprovalBatch, approvalResultsToUserMessageText } =
+              await import("./agent/approval-execution");
             const executedResults = await executeApprovalBatch(
               decisions,
               undefined,
               { toolContextId: turnToolContextId ?? undefined },
             );
 
-            // Send approval results back to continue
-            const approvalInputWithOtid = {
-              type: "approval" as const,
-              approvals: executedResults,
-              otid: randomUUID(),
-            };
-            currentInput = [approvalInputWithOtid as unknown as MessageCreate];
+            currentInput = [
+              result.approvalRequestEndedTurn
+                ? {
+                    role: "user" as const,
+                    content: approvalResultsToUserMessageText(
+                      executedResults as ApprovalResult[],
+                    ),
+                    otid: randomUUID(),
+                  }
+                : ({
+                    type: "approval",
+                    approvals: executedResults,
+                    otid: randomUUID(),
+                  } as unknown as MessageCreate),
+            ];
 
             // Continue the loop to process the next stream
             continue;

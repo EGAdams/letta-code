@@ -8,6 +8,10 @@ import type {
 } from "@letta-ai/letta-client/resources/agents/agents";
 import { DEFAULT_AGENT_NAME, DEFAULT_SUMMARIZATION_MODEL } from "../constants";
 import { settingsManager } from "../settings-manager";
+import { LettaLogger } from "../utils/LettaLogger";
+
+const _createLog = new LettaLogger("CreateAgent_2026");
+
 import { getModelContextWindow } from "./available-models";
 import { getClient, getServerUrl } from "./client";
 import { getLettaCodeHeaders } from "./http-headers";
@@ -30,6 +34,7 @@ import {
   SLEEPTIME_MEMORY_PERSONA,
   swapMemoryAddon,
 } from "./promptAssets";
+import { resolveDefaultAgentModel } from "./serverModelSelection";
 
 /**
  * Describes where a memory block came from
@@ -199,6 +204,7 @@ export async function createAgent(
   }
 
   const name = options.name ?? DEFAULT_AGENT_NAME;
+  _createLog.log("createAgent", "called", { name });
   const embeddingModelVal = options.embeddingModel;
   const parallelToolCallsVal = options.parallelToolCalls ?? true;
   const enableSleeptimeVal = options.enableSleeptime ?? false;
@@ -224,7 +230,11 @@ export async function createAgent(
   // Only attach server-side tools to the agent.
   // Client-side tools (Read, Write, Bash, etc.) are passed via client_tools at runtime,
   // NOT attached to the agent. This is the new pattern - no more stub tool registration.
-  const defaultBaseTools = options.baseTools ?? ["web_search", "fetch_webpage"];
+  const defaultBaseTools = options.baseTools ?? [
+    "web_search",
+    "fetch_webpage",
+    "send_message",
+  ];
   const toolNames = [...defaultBaseTools];
 
   // Determine which memory blocks to use:
@@ -348,6 +358,14 @@ export async function createAgent(
 
   const agentDescription =
     options.description ?? `Letta Code agent created in ${process.cwd()}`;
+  const compactionModel =
+    (await resolveDefaultAgentModel({
+      client,
+      preferredModel: DEFAULT_SUMMARIZATION_MODEL,
+      fallbackModel: modelHandle,
+    })) ||
+    modelHandle ||
+    DEFAULT_SUMMARIZATION_MODEL;
 
   const createAgentRequestBase = {
     agent_type: "letta_v1_agent" as AgentType,
@@ -371,7 +389,7 @@ export async function createAgent(
     parallel_tool_calls: parallelToolCallsVal,
     enable_sleeptime: enableSleeptimeVal,
     compaction_settings: {
-      model: DEFAULT_SUMMARIZATION_MODEL,
+      model: compactionModel,
     },
   };
 
@@ -462,5 +480,10 @@ export async function createAgent(
     blocks: blockProvenance,
   };
 
+  _createLog.log("createAgent", "agent created", {
+    agentId: fullAgent.id,
+    name,
+    model: modelHandle,
+  });
   return { agent: fullAgent, provenance };
 }

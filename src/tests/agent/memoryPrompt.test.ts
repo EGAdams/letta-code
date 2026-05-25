@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildSystemPrompt,
+  detectSystemPromptPreset,
   isKnownPreset,
   SYSTEM_PROMPT_BLOCKS_ADDON,
   SYSTEM_PROMPT_MEMFS_ADDON,
@@ -63,6 +64,22 @@ describe("buildSystemPrompt", () => {
     const defaultResult = buildSystemPrompt("default", "standard");
     const lettaResult = buildSystemPrompt("letta", "standard");
     expect(defaultResult).toBe(lettaResult);
+  });
+
+  test("source-codex prompt includes executor_run preference for Python execution", () => {
+    const result = buildSystemPrompt("source-codex", "standard");
+    expect(result).toContain(
+      "prefer `executor_run` for Python/script execution",
+    );
+    expect(result).toContain("reusable library-style folder");
+  });
+
+  test("source-claude prompt includes executor_run preference for Python execution", () => {
+    const result = buildSystemPrompt("source-claude", "standard");
+    expect(result).toContain(
+      "prefer `executor_run` for Python/script execution",
+    );
+    expect(result).toContain("reusable library-style folder");
   });
 });
 
@@ -180,5 +197,26 @@ describe("shouldRecommendDefaultPrompt", () => {
     const current = buildSystemPrompt("default", "standard");
     const modified = `${current}\n\nExtra instructions added by user.`;
     expect(shouldRecommendDefaultPrompt(modified, "standard")).toBe(true);
+  });
+});
+
+describe("detectSystemPromptPreset", () => {
+  test("detects the default preset from the full managed prompt", () => {
+    const current = buildSystemPrompt("default", "standard");
+    expect(detectSystemPromptPreset(current)).toBe("default");
+  });
+
+  test("detects non-default built-in presets", () => {
+    const current = buildSystemPrompt("source-claude", "standard");
+    expect(detectSystemPromptPreset(current)).toBe("source-claude");
+  });
+
+  test("returns null for fully custom prompts", () => {
+    expect(detectSystemPromptPreset("You are a custom agent.")).toBeNull();
+  });
+
+  test("tolerates prompts with extra trailing sections", () => {
+    const current = `${buildSystemPrompt("default", "standard")}\n\nExtra instructions added later.`;
+    expect(detectSystemPromptPreset(current)).toBe("default");
   });
 });

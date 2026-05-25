@@ -36,6 +36,51 @@ describe("connect subcommand", () => {
     );
   });
 
+  test("runs OAuth flow for chatgpt alias without prompting for an API key", async () => {
+    const { stdout, deps } = createIoDeps();
+
+    const exitCode = await runConnectSubcommand(["chatgpt"], deps);
+
+    expect(exitCode).toBe(0);
+    expect(deps.isChatGPTOAuthConnected).toHaveBeenCalledTimes(1);
+    expect(deps.promptSecret).not.toHaveBeenCalled();
+    expect(deps.checkProviderApiKey).not.toHaveBeenCalled();
+    expect(deps.createOrUpdateProvider).not.toHaveBeenCalled();
+    expect(deps.runChatGPTOAuthConnectFlow).toHaveBeenCalledTimes(1);
+    expect(stdout.join("\n")).toContain(
+      "Successfully connected to ChatGPT OAuth.",
+    );
+  });
+
+  test("skips OAuth flow when ChatGPT OAuth is already connected", async () => {
+    const { stdout, deps } = createIoDeps();
+    deps.isChatGPTOAuthConnected.mockImplementation(() =>
+      Promise.resolve(true),
+    );
+
+    const exitCode = await runConnectSubcommand(["codex"], deps);
+
+    expect(exitCode).toBe(0);
+    expect(deps.runChatGPTOAuthConnectFlow).not.toHaveBeenCalled();
+    expect(stdout.join("\n")).toContain(
+      "Already connected to ChatGPT via OAuth",
+    );
+  });
+
+  test("reports OAuth flow failures", async () => {
+    const { stderr, deps } = createIoDeps();
+    deps.runChatGPTOAuthConnectFlow.mockImplementation(() =>
+      Promise.reject(new Error("state mismatch")),
+    );
+
+    const exitCode = await runConnectSubcommand(["codex"], deps);
+
+    expect(exitCode).toBe(1);
+    expect(stderr.join("\n")).toContain(
+      "Failed to connect ChatGPT OAuth: state mismatch",
+    );
+  });
+
   test("connects API key provider from positional key", async () => {
     const { deps } = createIoDeps();
 

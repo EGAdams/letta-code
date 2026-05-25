@@ -200,6 +200,11 @@ describe("model preset refresh wiring", () => {
     const source = readFileSync(path, "utf-8");
 
     expect(source).toContain("if (resuming)");
+    expect(source).toContain("getResumeModelMigrationHandle");
+    expect(source).toContain("resolveDefaultAgentModel");
+    expect(source).toContain(
+      'detectSystemPromptPreset(agent.system) ?? "default"',
+    );
     expect(source).toContain("getModelPresetUpdateForAgent");
     expect(source).toContain(
       "const presetRefresh = getModelPresetUpdateForAgent(agent)",
@@ -222,6 +227,11 @@ describe("model preset refresh wiring", () => {
     const source = readFileSync(path, "utf-8");
 
     expect(source).toContain("if (isResumingAgent)");
+    expect(source).toContain("getResumeModelMigrationHandle");
+    expect(source).toContain("resolveDefaultAgentModel");
+    expect(source).toContain(
+      'detectSystemPromptPreset(agent.system) ?? "default"',
+    );
     expect(source).toContain("getModelPresetUpdateForAgent");
     expect(source).toContain(
       "const presetRefresh = getModelPresetUpdateForAgent(agent)",

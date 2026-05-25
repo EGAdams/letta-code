@@ -24,6 +24,7 @@ import {
 
 // Store original HOME to restore after tests
 const originalHome = process.env.HOME;
+const originalLettaBaseUrl = process.env.LETTA_BASE_URL;
 let testHomeDir: string;
 let testProjectDir: string;
 
@@ -40,6 +41,10 @@ beforeEach(async () => {
 
   // Override HOME for tests (must be done BEFORE initialize is called)
   process.env.HOME = testHomeDir;
+
+  // Unset LETTA_BASE_URL so getCurrentServerKey defaults to "api.letta.com",
+  // matching the server key assumed by tests that write agent settings without baseUrl.
+  delete process.env.LETTA_BASE_URL;
 });
 
 afterEach(async () => {
@@ -53,6 +58,13 @@ afterEach(async () => {
 
   // Restore original HOME AFTER reset completes
   process.env.HOME = originalHome;
+
+  // Restore LETTA_BASE_URL
+  if (originalLettaBaseUrl !== undefined) {
+    process.env.LETTA_BASE_URL = originalLettaBaseUrl;
+  } else {
+    delete process.env.LETTA_BASE_URL;
+  }
 
   // Restore the real service name
   setServiceName("letta-code");
@@ -1329,5 +1341,85 @@ describe("Settings Manager - Managed Keys Preservation", () => {
         "sk-fallback-test",
       );
     }
+  });
+
+  test("persistSession normalizes serialized conversation list values", async () => {
+    await settingsManager.initialize();
+    await settingsManager.loadLocalProjectSettings(testProjectDir);
+
+    settingsManager.persistSession(
+      "agent-serialized-test",
+      "['conv-serialized-test']",
+      testProjectDir,
+    );
+    await settingsManager.flush();
+
+    const localSession = settingsManager.getLocalLastSession(testProjectDir);
+    const globalSession = settingsManager.getGlobalLastSession();
+
+    expect(localSession?.conversationId).toBe("conv-serialized-test");
+    expect(globalSession?.conversationId).toBe("conv-serialized-test");
+  });
+
+  test("persistSession normalizes double-serialized conversation list values", async () => {
+    await settingsManager.initialize();
+    await settingsManager.loadLocalProjectSettings(testProjectDir);
+
+    settingsManager.persistSession(
+      "agent-serialized-nested-test",
+      "\"['conv-serialized-nested-test']\"",
+      testProjectDir,
+    );
+    await settingsManager.flush();
+
+    const localSession = settingsManager.getLocalLastSession(testProjectDir);
+    const globalSession = settingsManager.getGlobalLastSession();
+
+    expect(localSession?.conversationId).toBe("conv-serialized-nested-test");
+    expect(globalSession?.conversationId).toBe("conv-serialized-nested-test");
+  });
+
+  test("getLocalLastSession normalizes malformed persisted conversation IDs", async () => {
+    const { mkdir, writeFile } = await import("../utils/fs.js");
+    const localDir = join(testProjectDir, ".letta");
+    await mkdir(localDir, { recursive: true });
+
+    await writeFile(
+      join(localDir, "settings.local.json"),
+      JSON.stringify({
+        lastSession: {
+          agentId: "agent-local",
+          conversationId: "['conv-from-local-file']",
+        },
+      }),
+    );
+
+    await settingsManager.initialize();
+    await settingsManager.loadLocalProjectSettings(testProjectDir);
+    const localSession = settingsManager.getLocalLastSession(testProjectDir);
+
+    expect(localSession?.conversationId).toBe("conv-from-local-file");
+  });
+
+  test("getLocalLastSession normalizes double-serialized malformed conversation IDs", async () => {
+    const { mkdir, writeFile } = await import("../utils/fs.js");
+    const localDir = join(testProjectDir, ".letta");
+    await mkdir(localDir, { recursive: true });
+
+    await writeFile(
+      join(localDir, "settings.local.json"),
+      JSON.stringify({
+        lastSession: {
+          agentId: "agent-local",
+          conversationId: "\"['conv-from-local-file-nested']\"",
+        },
+      }),
+    );
+
+    await settingsManager.initialize();
+    await settingsManager.loadLocalProjectSettings(testProjectDir);
+    const localSession = settingsManager.getLocalLastSession(testProjectDir);
+
+    expect(localSession?.conversationId).toBe("conv-from-local-file-nested");
   });
 });

@@ -139,8 +139,8 @@ export class StreamProcessor {
           : [];
 
       for (const toolCall of toolCalls) {
-        const toolCallId = toolCall?.tool_call_id;
-        if (!toolCallId) continue; // contract: approval chunks include tool_call_id
+        const toolCallId =
+          toolCall?.tool_call_id || `approval-${chunk.id || Date.now()}`;
         const id = toolCallId;
 
         // Get or create entry for this tool_call_id

@@ -139,11 +139,11 @@ async function runBenchmark(
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    let stdout = "";
+    let _stdout = "";
     let stderr = "";
 
     proc.stdout.on("data", (data) => {
-      stdout += data.toString();
+      _stdout += data.toString();
     });
 
     proc.stderr.on("data", (data) => {
@@ -182,9 +182,9 @@ function formatMs(ms: number): string {
  * Print benchmark results
  */
 function printResults(results: BenchmarkResult[]): void {
-  console.log("\n" + "=".repeat(70));
+  console.log(`\n${"=".repeat(70)}`);
   console.log("LATENCY BENCHMARK RESULTS");
-  console.log("=".repeat(70) + "\n");
+  console.log(`${"=".repeat(70)}\n`);
 
   for (const result of results) {
     const scenario = SCENARIOS.find((s) => s.name === result.scenario);
@@ -249,7 +249,7 @@ function printResults(results: BenchmarkResult[]): void {
       );
     }
 
-    console.log("\n" + "-".repeat(70) + "\n");
+    console.log(`\n${"-".repeat(70)}\n`);
   }
 
   // Summary table

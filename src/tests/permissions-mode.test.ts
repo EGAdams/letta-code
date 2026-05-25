@@ -188,7 +188,7 @@ test("acceptEdits mode - allows NotebookEdit", () => {
   expect(result.matchedRule).toBe("acceptEdits mode");
 });
 
-test("acceptEdits mode - does NOT allow Bash", () => {
+test("acceptEdits mode - allows Bash (shell commands enabled for agent web search)", () => {
   permissionMode.setMode("acceptEdits");
 
   const permissions: PermissionRules = {
@@ -199,14 +199,13 @@ test("acceptEdits mode - does NOT allow Bash", () => {
 
   const result = checkPermission(
     "Bash",
-    { command: "curl http://example.com" }, // Use non-read-only command
+    { command: "curl http://example.com" },
     permissions,
     "/Users/test/project",
   );
 
-  // Bash is not an edit tool, should fall back to default
-  expect(result.decision).toBe("ask");
-  expect(result.reason).toBe("Default behavior for tool");
+  // Bash is allowed in acceptEdits mode — agents like Scissari need bash for web search
+  expect(result.decision).toBe("allow");
 });
 
 // ============================================================================

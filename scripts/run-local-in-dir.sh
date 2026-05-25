@@ -17,9 +17,9 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-bun run build
+(cd "${REPO_ROOT}" && bun run build)
 LETTA_BIN="${REPO_ROOT}/letta.js"
-DEFAULT_SERVER_URL="http://10.0.0.143:8283"
+DEFAULT_SERVER_URL="http://127.0.0.1:18283"
 
 if [[ ! -f "${LETTA_BIN}" ]]; then
   echo "Error: local Letta binary not found: ${LETTA_BIN}" >&2
@@ -50,10 +50,27 @@ extract_host_port() {
 
 read -r server_host server_port < <(extract_host_port "${LETTA_BASE_URL}")
 if ! nc -z -w 2 "${server_host}" "${server_port}" >/dev/null 2>&1; then
-  echo "Error: Letta server is unreachable: ${LETTA_BASE_URL}" >&2
-  echo "Network preflight failed for ${server_host}:${server_port}." >&2
-  echo "Refusing to start CLI to avoid auth/setup reset loops." >&2
-  exit 2
+  echo "[run-local-in-dir] letta-bridge unreachable at ${server_host}:${server_port} — attempting auto-start..." >&2
+  COMPOSE_FILE="/home/adamsl/letta-src/docker-compose.prod.yml"
+  if [[ -f "${COMPOSE_FILE}" ]]; then
+    docker stop letta-bridge 2>/dev/null || true
+    docker rm letta-bridge 2>/dev/null || true
+    docker compose -f "${COMPOSE_FILE}" up -d letta-bridge >&2
+    echo "[run-local-in-dir] Waiting for letta-bridge to become ready..." >&2
+    for i in $(seq 1 15); do
+      if nc -z -w 1 "${server_host}" "${server_port}" >/dev/null 2>&1; then
+        echo "[run-local-in-dir] letta-bridge is up." >&2
+        break
+      fi
+      sleep 1
+    done
+  fi
+  if ! nc -z -w 2 "${server_host}" "${server_port}" >/dev/null 2>&1; then
+    echo "Error: Letta server is unreachable: ${LETTA_BASE_URL}" >&2
+    echo "Network preflight failed for ${server_host}:${server_port}." >&2
+    echo "Refusing to start CLI to avoid auth/setup reset loops." >&2
+    exit 2
+  fi
 fi
 
 echo "[run-local-in-dir] repo: ${REPO_ROOT}"

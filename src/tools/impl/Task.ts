@@ -468,6 +468,11 @@ export async function task(args: TaskArgs): Promise<string> {
   }
 
   // Determine if deploying an existing agent
+  // Reject conversation_id="default" without agent_id — "default" is per-agent,
+  // not a globally unique conversation ID, so it's always ambiguous without agent_id.
+  if (args.conversation_id === "default" && !args.agent_id) {
+    return 'Error: conversation_id "default" requires agent_id. "default" is not a unique conversation ID — pass the agent_id along with it, or omit conversation_id to create a fresh subagent.';
+  }
   const isDeployingExisting = Boolean(args.agent_id || args.conversation_id);
 
   // Validate required parameters based on mode

@@ -160,21 +160,23 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
 
   describe("PreToolUse hooks", () => {
     test(
-      "hook fires when Read tool is called",
+      "hook fires when specific tool is called (ShellCommand matcher)",
       async () => {
         if (!hasApiKey()) {
           console.log("SKIP: Missing LETTA_API_KEY");
           return;
         }
 
+        // The OpenAI/Codex model (gpt-5.4-mini-plus-pro-medium) uses ShellCommand
+        // for file operations. Test that a tool-name-specific matcher fires correctly.
         writeHooksConfig(env, {
           PreToolUse: [
             {
-              matcher: "Read",
+              matcher: "ShellCommand",
               hooks: [
                 {
                   type: "command",
-                  command: `echo "PreToolUse:Read" >> "${env.markerFile}"`,
+                  command: `echo "PreToolUse:ShellCommand" >> "${env.markerFile}"`,
                 },
               ],
             },
@@ -185,16 +187,16 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "haiku",
+            "gpt-5.4-mini-plus-pro-medium",
             "--yolo",
             "-p",
-            "Read the file /etc/hostname and tell me what it says. Do not ask for confirmation.",
+            "Read the file /etc/hostname and tell me what it says.",
           ],
           env,
         );
 
         const marker = readMarker(env);
-        expect(marker).toContain("PreToolUse:Read");
+        expect(marker).toContain("PreToolUse:ShellCommand");
       },
       { timeout: 180000 },
     );
@@ -225,7 +227,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "haiku",
+            "gpt-5.4-mini-plus-pro-medium",
             "--yolo",
             "-p",
             "Read the file /etc/hostname and tell me what it says. Do not ask for confirmation.",
@@ -265,7 +267,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "haiku",
+            "gpt-5.4-mini-plus-pro-medium",
             "--yolo",
             "-p",
             "Read /etc/hostname",
@@ -310,7 +312,14 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
         });
 
         await runCli(
-          ["--new-agent", "-m", "haiku", "--yolo", "-p", "Read /etc/hostname"],
+          [
+            "--new-agent",
+            "-m",
+            "gpt-5.4-mini-plus-pro-medium",
+            "--yolo",
+            "-p",
+            "Read /etc/hostname",
+          ],
           env,
         );
 
@@ -355,7 +364,14 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
         });
 
         await runCli(
-          ["--new-agent", "-m", "haiku", "--yolo", "-p", "Read /etc/hostname"],
+          [
+            "--new-agent",
+            "-m",
+            "gpt-5.4-mini-plus-pro-medium",
+            "--yolo",
+            "-p",
+            "Read /etc/hostname",
+          ],
           env,
         );
 
@@ -390,7 +406,14 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
         });
 
         await runCli(
-          ["--new-agent", "-m", "haiku", "--yolo", "-p", "Read /etc/hostname"],
+          [
+            "--new-agent",
+            "-m",
+            "gpt-5.4-mini-plus-pro-medium",
+            "--yolo",
+            "-p",
+            "Read /etc/hostname",
+          ],
           env,
         );
 
@@ -436,7 +459,10 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           ],
         });
 
-        await runCli(["--new-agent", "-m", "haiku", "-p", "Say OK"], env);
+        await runCli(
+          ["--new-agent", "-m", "gpt-5.4-mini-plus-pro-medium", "-p", "Say OK"],
+          env,
+        );
 
         const marker = readMarker(env);
         expect(marker).toContain("SessionStart:FIRED");
@@ -468,7 +494,10 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           ],
         });
 
-        await runCli(["--new-agent", "-m", "haiku", "-p", "Say OK"], env);
+        await runCli(
+          ["--new-agent", "-m", "gpt-5.4-mini-plus-pro-medium", "-p", "Say OK"],
+          env,
+        );
 
         if (existsSync(inputFile)) {
           const input = JSON.parse(readFileSync(inputFile, "utf-8"));
@@ -511,7 +540,13 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
         });
 
         await runCli(
-          ["--new-agent", "-m", "haiku", "-p", "Say hello world"],
+          [
+            "--new-agent",
+            "-m",
+            "gpt-5.4-mini-plus-pro-medium",
+            "-p",
+            "Say hello world",
+          ],
           env,
         );
 
@@ -546,7 +581,13 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
         });
 
         await runCli(
-          ["--new-agent", "-m", "haiku", "-p", "Test prompt message"],
+          [
+            "--new-agent",
+            "-m",
+            "gpt-5.4-mini-plus-pro-medium",
+            "-p",
+            "Test prompt message",
+          ],
           env,
         );
 
@@ -582,7 +623,13 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
         });
 
         await runCli(
-          ["--new-agent", "-m", "haiku", "-p", "This should be blocked"],
+          [
+            "--new-agent",
+            "-m",
+            "gpt-5.4-mini-plus-pro-medium",
+            "-p",
+            "This should be blocked",
+          ],
           env,
         );
 
@@ -638,7 +685,14 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
         });
 
         await runCli(
-          ["--new-agent", "-m", "haiku", "--yolo", "-p", "Read /etc/hostname"],
+          [
+            "--new-agent",
+            "-m",
+            "gpt-5.4-mini-plus-pro-medium",
+            "--yolo",
+            "-p",
+            "Read /etc/hostname",
+          ],
           env,
         );
 

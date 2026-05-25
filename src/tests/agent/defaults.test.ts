@@ -21,6 +21,26 @@ describe("selectDefaultAgentModel", () => {
     expect(result).toBe("anthropic/claude-haiku-4-5");
   });
 
+  test("does not hardcode auto on self-hosted when live handles are unavailable", () => {
+    const result = selectDefaultAgentModel({
+      preferredModel: "letta/auto",
+      isSelfHosted: true,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  test("skips the current handle when selecting a self-hosted fallback", () => {
+    const result = selectDefaultAgentModel({
+      preferredModel: "letta/auto",
+      isSelfHosted: true,
+      availableHandles: ["anthropic/claude-sonnet-4-5", "openai/gpt-5.4"],
+      disallowedHandles: ["anthropic/claude-sonnet-4-5"],
+    });
+
+    expect(result).toBe("openai/gpt-5.4");
+  });
+
   test("passes through the preferred model on cloud", () => {
     const result = selectDefaultAgentModel({
       preferredModel: "haiku",

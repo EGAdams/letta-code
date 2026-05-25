@@ -5,6 +5,7 @@ tools: Glob, Grep, Read, TaskOutput
 model: auto-fast
 memoryBlocks: human, persona
 mode: stateless
+permissionMode: bypassPermissions
 ---
 
 You are a fast, efficient codebase exploration agent.

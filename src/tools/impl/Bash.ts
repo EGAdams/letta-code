@@ -130,6 +130,14 @@ interface BashArgs {
   onOutput?: (chunk: string, stream: "stdout" | "stderr") => void;
 }
 
+interface ExecutorRunArgs {
+  command: string;
+  cwd?: string;
+  timeout?: number;
+  signal?: AbortSignal;
+  onOutput?: (chunk: string, stream: "stdout" | "stderr") => void;
+}
+
 interface BashResult {
   content: Array<{
     type: string;
@@ -247,9 +255,16 @@ export async function bash(args: BashArgs): Promise<BashResult> {
     };
   }
 
+  // Normalize python → python3: many systems only have python3 in PATH.
+  // Same normalization applied in executor_run; keeps agent code working
+  // regardless of whether the Python symlink is present.
+  const normalizedCommand = command
+    .replace(/(^|\s|[;&|])python(?=\s|$)/g, "$1python3")
+    .trim();
+
   const effectiveTimeout = Math.min(Math.max(timeout, 1), 600000);
   try {
-    const { stdout, stderr, exitCode } = await spawnCommand(command, {
+    const { stdout, stderr, exitCode } = await spawnCommand(normalizedCommand, {
       cwd: userCwd,
       env: getShellEnv(),
       timeout: effectiveTimeout,
@@ -326,4 +341,17 @@ export async function bash(args: BashArgs): Promise<BashResult> {
       status: "error",
     };
   }
+}
+
+export async function executor_run(args: ExecutorRunArgs): Promise<BashResult> {
+  const { command, cwd, ...rest } = args;
+  // Normalize common executor invocations to avoid environments where `python`
+  // is missing but `python3` exists.
+  const normalizedCommand = command
+    .replace(/(^|\s|[;&|])python(?=\s)/g, "$1python3")
+    .trim();
+  const fullCommand = cwd
+    ? `cd ${JSON.stringify(cwd)} && ${normalizedCommand}`
+    : normalizedCommand;
+  return bash({ command: fullCommand, ...rest });
 }

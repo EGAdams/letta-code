@@ -7,6 +7,7 @@ import { settingsManager } from "../settings-manager";
 
 const originalHome = process.env.HOME;
 const originalCwd = process.cwd();
+const originalLettaBaseUrl = process.env.LETTA_BASE_URL;
 
 let testHomeDir: string;
 let testProjectDir: string;
@@ -66,6 +67,9 @@ beforeEach(async () => {
   testHomeDir = await mkdtemp(join(tmpdir(), "letta-startup-home-"));
   testProjectDir = await mkdtemp(join(tmpdir(), "letta-startup-project-"));
   process.env.HOME = testHomeDir;
+  // Unset LETTA_BASE_URL so getCurrentServerKey defaults to "api.letta.com",
+  // matching the server key written into test settings files.
+  delete process.env.LETTA_BASE_URL;
   process.chdir(testProjectDir);
 });
 
@@ -73,6 +77,11 @@ afterEach(async () => {
   await settingsManager.reset();
   process.chdir(originalCwd);
   process.env.HOME = originalHome;
+  if (originalLettaBaseUrl !== undefined) {
+    process.env.LETTA_BASE_URL = originalLettaBaseUrl;
+  } else {
+    delete process.env.LETTA_BASE_URL;
+  }
   await rm(testHomeDir, { recursive: true, force: true });
   await rm(testProjectDir, { recursive: true, force: true });
 });

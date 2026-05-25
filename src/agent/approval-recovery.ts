@@ -50,13 +50,32 @@ type RunErrorMetadata =
   | undefined
   | null;
 
+const RUN_RETRIEVE_TIMEOUT_MS = 5000;
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_resolve, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    }),
+  ]);
+}
+
 export async function fetchRunErrorDetail(
   runId: string | null | undefined,
 ): Promise<string | null> {
   if (!runId) return null;
   try {
     const client = await getClient();
-    const run = await client.runs.retrieve(runId);
+    const run = await withTimeout(
+      client.runs.retrieve(runId),
+      RUN_RETRIEVE_TIMEOUT_MS,
+    );
     const metaError = run.metadata?.error as RunErrorMetadata;
 
     return (

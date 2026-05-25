@@ -270,6 +270,50 @@ export function shouldRecommendDefaultPrompt(
   return currentPrompt !== defaultPrompt;
 }
 
+function normalizePromptForPresetDetection(systemPrompt: string): string {
+  const withoutMemfs = systemPrompt.replace(/\n# Memory[\s\S]*$/, "");
+  return withoutMemfs.replace(/\r\n/g, "\n").trim();
+}
+
+/**
+ * Best-effort detection of which built-in preset a stored system prompt came from.
+ *
+ * Returns a preset ID for exact or prefix-compatible matches, otherwise null.
+ */
+export function detectSystemPromptPreset(
+  systemPrompt: string | null | undefined,
+): string | null {
+  if (typeof systemPrompt !== "string" || systemPrompt.trim().length === 0) {
+    return null;
+  }
+
+  const sysNorm = normalizePromptForPresetDetection(systemPrompt);
+  const contentMatches = (content: string): boolean => {
+    const norm = normalizePromptForPresetDetection(content);
+    return (
+      norm === sysNorm ||
+      (norm.length > 0 &&
+        (sysNorm.startsWith(norm) || norm.startsWith(sysNorm)))
+    );
+  };
+
+  const defaultPrompt = SYSTEM_PROMPTS.find((p) => p.id === "default");
+  if (defaultPrompt && contentMatches(defaultPrompt.content)) {
+    return "default";
+  }
+
+  const found = SYSTEM_PROMPTS.find((p) => contentMatches(p.content));
+  if (found) {
+    return found.id;
+  }
+
+  if (contentMatches(SYSTEM_PROMPT)) {
+    return "default";
+  }
+
+  return null;
+}
+
 /**
  * Resolve a prompt ID and build the full system prompt with memory addon.
  * Known presets are rebuilt deterministically; unknown IDs (subagent names)

@@ -93,6 +93,53 @@ describe("formatErrorDetails", () => {
     });
   });
 
+  describe("self-hosted ChatGPT/Codex summary failure", () => {
+    test("formats direct summary failure string with actionable guidance", () => {
+      setErrorContext({
+        modelEndpointType: "chatgpt_oauth",
+        modelDisplayName: "gpt-5.1-codex",
+      });
+
+      const result = formatErrorDetails(
+        "Unhandled LLM error: Summary failed to generate",
+      );
+
+      expect(result).toContain("Self-hosted Letta summary generation failed");
+      expect(result).toContain(
+        "One known cause is an older ChatGPT OAuth SSE parser",
+      );
+      expect(result).toContain("response.output_text.delta");
+      expect(result).toContain(
+        'docker exec letta-server grep -c "accumulated_via_deltas"',
+      );
+      expect(result).toContain("Expected result: 3");
+      expect(result).toContain(
+        "If the count is already 3, inspect docker logs letta-server --tail 100",
+      );
+    });
+
+    test("formats nested run metadata summary failure", () => {
+      setErrorContext({
+        modelEndpointType: "chatgpt_oauth",
+        modelDisplayName: "gpt-5.1-codex",
+      });
+
+      const errorObject = {
+        error: {
+          error: {
+            message: "Unhandled LLM error: Summary failed to generate",
+            detail: "Unhandled LLM error: Summary failed to generate",
+          },
+        },
+      };
+
+      const result = formatErrorDetails(errorObject);
+
+      expect(result).toContain("Self-hosted Letta summary generation failed");
+      expect(result).toContain("ChatGPT / Codex");
+    });
+  });
+
   test("uses neutral credit exhaustion copy for free tier not-enough-credits", () => {
     setErrorContext({ billingTier: "free", modelDisplayName: "Kimi K2.5" });
 

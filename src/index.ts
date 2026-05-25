@@ -14,10 +14,15 @@ import { ISOLATED_BLOCK_LABELS } from "./agent/memory";
 import {
   getModelPresetUpdateForAgent,
   getModelUpdateArgs,
+  getResolvedModelHandleForAgent,
+  getResumeModelMigrationHandle,
   getResumeRefreshArgs,
+  getUpdateArgsForModelHandle,
   resolveModel,
 } from "./agent/model";
 import { updateAgentLLMConfig, updateAgentSystemPrompt } from "./agent/modify";
+import { detectSystemPromptPreset } from "./agent/promptAssets";
+import { resolveDefaultAgentModel } from "./agent/serverModelSelection";
 import { resolveSkillSourcesSelection } from "./agent/skillSources";
 import { LETTA_CLOUD_API_URL } from "./auth/oauth";
 import {
@@ -1410,7 +1415,8 @@ async function main(): Promise<void> {
               console.error(
                 `Failed to create default agent: ${err instanceof Error ? err.message : String(err)}`,
               );
-              process.exit(1);
+              setLoadingState("selecting_global");
+              return;
             }
             break;
           }
@@ -1744,6 +1750,31 @@ async function main(): Promise<void> {
         // preset-derived fields in sync, then apply optional command-line
         // overrides (model/system prompt).
         if (resuming) {
+          const modelMigrationHandle = getResumeModelMigrationHandle(agent);
+          if (modelMigrationHandle) {
+            const currentModelHandle = getResolvedModelHandleForAgent(agent);
+            const migratedModelHandle =
+              (await resolveDefaultAgentModel({
+                client,
+                preferredModel: modelMigrationHandle,
+                fallbackModel: modelMigrationHandle,
+              })) || modelMigrationHandle;
+
+            if (
+              typeof currentModelHandle === "string" &&
+              currentModelHandle !== migratedModelHandle
+            ) {
+              agent = await updateAgentLLMConfig(
+                agent.id,
+                migratedModelHandle,
+                getUpdateArgsForModelHandle(migratedModelHandle, {
+                  reasoning_effort: agent.llm_config?.reasoning_effort ?? null,
+                  enable_reasoner: agent.llm_config?.enable_reasoner ?? null,
+                }),
+              );
+            }
+          }
+
           if (model) {
             const modelHandle = resolveModel(model);
             if (!modelHandle) {
@@ -1879,22 +1910,18 @@ async function main(): Promise<void> {
             setResumedExistingConversation(true);
             setResumeData(data);
           } catch (error) {
-            if (
-              error instanceof APIError &&
-              (error.status === 404 || error.status === 422)
-            ) {
-              // Conversation no longer exists — fall back to default conversation
-              console.warn(
-                `Previous conversation ${selectedConversationId} not found, falling back to default`,
-              );
-              conversationIdToUse = "default";
-              setLoadingState("checking");
-              const data = await getResumeData(client, agent, "default");
-              setResumeData(data);
-              setResumedExistingConversation(data.messageHistory.length > 0);
-            } else {
-              throw error;
-            }
+            // Auto-restored conversation is inaccessible — fall back to default.
+            // Letta 0.6.x+ may return status codes other than 404/422 for a missing
+            // conversation (e.g. 400 or 500), so catch all errors on this path.
+            console.warn(
+              `Previous conversation ${selectedConversationId} not found or inaccessible, falling back to default`,
+              error instanceof Error ? error.message : String(error),
+            );
+            conversationIdToUse = "default";
+            setLoadingState("checking");
+            const data = await getResumeData(client, agent, "default");
+            setResumeData(data);
+            setResumedExistingConversation(data.messageHistory.length > 0);
           }
         } else if (forceNewConversation) {
           // --new flag: create a new conversation (for concurrent sessions)
@@ -1943,14 +1970,10 @@ async function main(): Promise<void> {
         if (resuming && !systemPromptPreset) {
           let storedPreset = settingsManager.getSystemPromptPreset(agent.id);
 
-          // Adopt legacy agents (created before recipe tracking) as "custom"
-          // so their prompts are left untouched by auto-heal.
-          if (
-            !storedPreset &&
-            agent.tags?.includes("origin:letta-code") &&
-            !agent.tags?.includes("role:subagent")
-          ) {
-            storedPreset = "custom";
+          // Legacy agents created before recipe tracking should be moved onto a
+          // deterministic preset instead of preserving a stale prompt forever.
+          if (!storedPreset && !agent.tags?.includes("role:subagent")) {
+            storedPreset = detectSystemPromptPreset(agent.system) ?? "default";
             settingsManager.setSystemPromptPreset(agent.id, storedPreset);
           }
 

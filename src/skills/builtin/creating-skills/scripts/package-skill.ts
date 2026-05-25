@@ -240,7 +240,8 @@ function packageSkill(skillPath: string, outputDir?: string): string | null {
 }
 
 // CLI entry point
-const isMain = import.meta.url === pathToFileURL(process.argv[1] as string).href;
+const isMain =
+  import.meta.url === pathToFileURL(process.argv[1] as string).href;
 if (isMain) {
   const args = process.argv.slice(2);
 
