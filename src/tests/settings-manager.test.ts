@@ -24,6 +24,7 @@ import {
 
 // Store original HOME to restore after tests
 const originalHome = process.env.HOME;
+const originalLettaBaseUrl = process.env.LETTA_BASE_URL;
 let testHomeDir: string;
 let testProjectDir: string;
 
@@ -40,6 +41,10 @@ beforeEach(async () => {
 
   // Override HOME for tests (must be done BEFORE initialize is called)
   process.env.HOME = testHomeDir;
+
+  // Unset LETTA_BASE_URL so getCurrentServerKey defaults to "api.letta.com",
+  // matching the server key assumed by tests that write agent settings without baseUrl.
+  delete process.env.LETTA_BASE_URL;
 });
 
 afterEach(async () => {
@@ -53,6 +58,13 @@ afterEach(async () => {
 
   // Restore original HOME AFTER reset completes
   process.env.HOME = originalHome;
+
+  // Restore LETTA_BASE_URL
+  if (originalLettaBaseUrl !== undefined) {
+    process.env.LETTA_BASE_URL = originalLettaBaseUrl;
+  } else {
+    delete process.env.LETTA_BASE_URL;
+  }
 
   // Restore the real service name
   setServiceName("letta-code");

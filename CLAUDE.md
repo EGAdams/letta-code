@@ -41,7 +41,7 @@ LETTA_RUN_TOOL_ATTACH_TEST=1 bun test src/integration-tests/tool-attach.integrat
 
 **Pre-commit hook**: Husky runs `bunx lint-staged` (biome `--write` on staged `.ts` files) then `bun run typecheck`. Only `typecheck` gates the commit — biome lint-staged failures are non-fatal. Fix TypeScript errors first; use `// biome-ignore lint/<rule>: <reason>` for non-auto-fixable biome issues.
 
-**Pre-existing failures** (as of 2026-05-25): `bun test src/tests` shows 33 failures (2177 pass) — all environment-specific or aspirational tests, not regressions. Startup/smoke tests expect "Missing LETTA_API_KEY" but the live server is configured. `reconcileExistingAgentState > updates missing compaction model` expects `tools.list` calls that the implementation doesn't make (unimplemented feature). Verify pre-existing status via `git stash && bun test <file> && git stash pop`.
+**Pre-existing failures** (as of 2026-05-25): `bun test src/tests` shows ~17 failures (2193 pass) — all environment-specific or aspirational tests, not regressions. Startup/smoke tests expect "Missing LETTA_API_KEY" but the live server is configured. `reconcileExistingAgentState > updates missing compaction model` expects `tools.list` calls that the implementation doesn't make (unimplemented feature). Some failures (block-tagging, TaskOutput, waitForBackgroundSubagentLink) only appear in the full parallel run — they pass in isolation. Verify pre-existing status via `git stash && bun test <file> && git stash pop`.
 
 **Live agents**: Two letta.js processes run in `--yolo` mode and write to the working tree concurrently. Run `git status` before assuming the tree is clean.
 

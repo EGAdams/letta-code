@@ -588,7 +588,9 @@ export async function getResumeData(
           };
         }
 
-        for (let i = inContextMessageIds.length - 1; i >= 0; i--) {
+        // Start from length - 2 to skip the last in-context message,
+        // which was already fetched and checked above (not an approval).
+        for (let i = inContextMessageIds.length - 2; i >= 0; i--) {
           const msgId = inContextMessageIds[i];
           if (!msgId) continue;
 
