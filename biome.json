@@ -2,10 +2,17 @@
   "$schema": "https://biomejs.dev/schemas/2.2.5/schema.json",
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2 },
   "linter": { "enabled": true, "rules": { "recommended": true } },
-  "files": { "experimentalScannerIgnores": ["vendor/**"] },
+  "files": {
+    "experimentalScannerIgnores": ["vendor/**", "src/skills/custom/**"]
+  },
   "overrides": [
     {
       "includes": ["vendor/**"],
+      "linter": { "enabled": false },
+      "formatter": { "enabled": false }
+    },
+    {
+      "includes": ["src/skills/custom/**"],
       "linter": { "enabled": false },
       "formatter": { "enabled": false }
     }
