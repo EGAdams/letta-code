@@ -31,6 +31,20 @@ bun run test:update-chain:startup
 
 After editing source files, run `bun run build` before using the linked `letta` binary.
 
+## Testing environment
+
+```bash
+bun test src/tests              # unit tests (217 files) — safe to run offline
+bun test src/integration-tests  # needs live Letta server at http://100.80.49.10:8283
+LETTA_RUN_TOOL_ATTACH_TEST=1 bun test src/integration-tests/tool-attach.integration.test.ts
+```
+
+**Pre-commit hook**: Husky runs `bunx lint-staged` (biome `--write` on staged `.ts` files) then `bun run typecheck`. Only `typecheck` gates the commit — biome lint-staged failures are non-fatal. Fix TypeScript errors first; use `// biome-ignore lint/<rule>: <reason>` for non-auto-fixable biome issues.
+
+**Pre-existing failures** (as of 2026-05-25): `bun test src/tests` shows 33 failures (2177 pass) — all environment-specific or aspirational tests, not regressions. Startup/smoke tests expect "Missing LETTA_API_KEY" but the live server is configured. `reconcileExistingAgentState > updates missing compaction model` expects `tools.list` calls that the implementation doesn't make (unimplemented feature). Verify pre-existing status via `git stash && bun test <file> && git stash pop`.
+
+**Live agents**: Two letta.js processes run in `--yolo` mode and write to the working tree concurrently. Run `git status` before assuming the tree is clean.
+
 ## Runtime
 
 Default to using Bun instead of Node.js.
