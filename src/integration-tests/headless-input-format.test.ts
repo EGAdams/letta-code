@@ -1160,7 +1160,7 @@ describe("input-format stream-json", () => {
             | { agent_id?: string }
             | undefined;
           expect(initPayload?.agent_id).toBeDefined();
-          expect(result.agent_id).toBe(initPayload?.agent_id);
+          expect(result.agent_id).toBe(initPayload?.agent_id as string);
         }
         await log("PASS: control_response and result both present finished");
       } catch (err) {

@@ -51,7 +51,19 @@ function makeLoggerHelpers(logger: RemoteLogger, prefix: string) {
     }
   };
 
-  return { init, log };
+  const flushLogs = async () => {
+    if (loggerReady) {
+      try {
+        await logger.flushLogs();
+      } catch (err) {
+        console.error(
+          `[${prefix}] flushLogs failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  };
+
+  return { init, log, flushLogs };
 }
 
 describe("Tool attach lifecycle integration", () => {
@@ -97,7 +109,7 @@ describe("Tool attach lifecycle integration", () => {
     "creates a tool, attaches it to a new agent, verifies, then detaches",
     async () => {
       const logger = new RemoteLogger(LOGGER_ID);
-      const { init, log } = makeLoggerHelpers(logger, "ToolAttach");
+      const { init, log, flushLogs } = makeLoggerHelpers(logger, "ToolAttach");
       await init();
 
       const client = await getClient();
@@ -205,6 +217,7 @@ describe("Tool attach lifecycle integration", () => {
       await log(
         "tool absent from agent tool list after detach: PASS — test complete",
       );
+      await flushLogs();
     },
     { timeout: 60000 },
   );
@@ -213,7 +226,7 @@ describe("Tool attach lifecycle integration", () => {
     "attach with nonexistent tool ID returns a meaningful error (not silent 500)",
     async () => {
       const logger = new RemoteLogger(LOGGER_ID);
-      const { init, log } = makeLoggerHelpers(logger, "ToolAttach:BadId");
+      const { init, log, flushLogs } = makeLoggerHelpers(logger, "ToolAttach:BadId");
       await init();
 
       const client = await getClient();
@@ -281,7 +294,7 @@ describe("Tool attach lifecycle integration", () => {
       await log(
         `nonexistent tool attach returned ${caughtStatus} (not 500): PASS — test complete`,
       );
-      if (loggerReady) await logger.flushLogs();
+      await flushLogs();
     },
     { timeout: 30000 },
   );

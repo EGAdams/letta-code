@@ -365,6 +365,146 @@ describe("stream-json format", () => {
   );
 
   testWithTimeout(
+    "usage_statistics message has required token count fields",
+    async () => {
+      const logger = new RemoteLogger("StreamJson_UsageStatistics_2026");
+      let loggerReady = false;
+      try {
+        await logger.init();
+        loggerReady = true;
+      } catch (err) {
+        console.warn(
+          `[stream-json:UsageStatistics] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      const log = async (message: string) => {
+        console.log(`[stream-json:UsageStatistics] ${message}`);
+        if (loggerReady) {
+          await logger.log(normalizeLoggerMessage(message)).catch((err) => {
+            console.error(
+              `[stream-json:UsageStatistics] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+        }
+      };
+      try {
+        await log(
+          "Test started: usage_statistics message has required token count fields",
+        );
+        const lines = await runHeadlessCommand(FAST_PROMPT);
+        await log(`CLI returned ${lines.length} JSON lines`);
+
+        const statsLine = lines.find((line) => {
+          const obj = JSON.parse(line) as Record<string, unknown>;
+          return (
+            obj.type === "message" &&
+            obj.message_type === "usage_statistics"
+          );
+        });
+
+        expect(statsLine).toBeDefined();
+        if (!statsLine) throw new Error("usage_statistics message not found");
+
+        const stats = JSON.parse(statsLine) as {
+          type: string;
+          message_type: string;
+          completion_tokens: number;
+          prompt_tokens: number;
+          total_tokens: number;
+          step_count: number;
+          session_id: string;
+          uuid: string;
+        };
+        expect(stats.type).toBe("message");
+        expect(stats.message_type).toBe("usage_statistics");
+        expect(stats.completion_tokens).toBeGreaterThan(0);
+        expect(stats.prompt_tokens).toBeGreaterThan(0);
+        expect(stats.total_tokens).toBeGreaterThan(0);
+        expect(stats.step_count).toBeGreaterThan(0);
+        expect(stats.session_id).toBeDefined();
+        expect(stats.uuid).toBeDefined();
+        await log(
+          `usage_statistics validated: completion_tokens=${stats.completion_tokens} prompt_tokens=${stats.prompt_tokens} step_count=${stats.step_count} — test complete`,
+        );
+      } catch (err) {
+        await log(
+          `Test FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      } finally {
+        if (loggerReady) await logger.flushLogs();
+      }
+    },
+    { timeout: 200000 },
+  );
+
+  testWithTimeout(
+    "stop_reason message has correct structure",
+    async () => {
+      const logger = new RemoteLogger("StreamJson_StopReason_2026");
+      let loggerReady = false;
+      try {
+        await logger.init();
+        loggerReady = true;
+      } catch (err) {
+        console.warn(
+          `[stream-json:StopReason] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      const log = async (message: string) => {
+        console.log(`[stream-json:StopReason] ${message}`);
+        if (loggerReady) {
+          await logger.log(normalizeLoggerMessage(message)).catch((err) => {
+            console.error(
+              `[stream-json:StopReason] log failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+        }
+      };
+      try {
+        await log("Test started: stop_reason message has correct structure");
+        const lines = await runHeadlessCommand(FAST_PROMPT);
+        await log(`CLI returned ${lines.length} JSON lines`);
+
+        const stopLine = lines.find((line) => {
+          const obj = JSON.parse(line) as Record<string, unknown>;
+          return (
+            obj.type === "message" &&
+            obj.message_type === "stop_reason"
+          );
+        });
+
+        expect(stopLine).toBeDefined();
+        if (!stopLine) throw new Error("stop_reason message not found");
+
+        const stop = JSON.parse(stopLine) as {
+          type: string;
+          message_type: string;
+          stop_reason: string;
+          session_id: string;
+          uuid: string;
+        };
+        expect(stop.type).toBe("message");
+        expect(stop.message_type).toBe("stop_reason");
+        expect(stop.stop_reason).toBeTruthy();
+        expect(stop.session_id).toBeDefined();
+        expect(stop.uuid).toBeDefined();
+        await log(
+          `stop_reason validated: stop_reason=${stop.stop_reason} — test complete`,
+        );
+      } catch (err) {
+        await log(
+          `Test FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw err;
+      } finally {
+        if (loggerReady) await logger.flushLogs();
+      }
+    },
+    { timeout: 200000 },
+  );
+
+  testWithTimeout(
     "without --include-partial-messages, messages are type 'message'",
     async () => {
       const logger = new RemoteLogger("StreamJson_NoPartialMessages_2026");

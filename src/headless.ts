@@ -276,6 +276,39 @@ async function applyReflectionOverrides(
   return merged;
 }
 
+/**
+ * Pick the text a user should see as the final headless result.
+ * Prefers the last non-empty assistant message, then the last non-empty tool
+ * result. Reasoning output is intentionally excluded so internal thinking is
+ * never surfaced as the final answer. Returns `fallback` when neither exists.
+ */
+export function selectUserVisibleResultText(
+  lines: Line[],
+  fallback: string,
+): string {
+  const reversed = [...lines].reverse();
+
+  const lastAssistant = reversed.find(
+    (line) =>
+      line.kind === "assistant" &&
+      "text" in line &&
+      typeof line.text === "string" &&
+      line.text.trim().length > 0,
+  ) as Extract<Line, { kind: "assistant" }> | undefined;
+
+  const lastToolResult = reversed.find(
+    (line) =>
+      line.kind === "tool_call" &&
+      "resultText" in line &&
+      typeof (line as Extract<Line, { kind: "tool_call" }>).resultText ===
+        "string" &&
+      ((line as Extract<Line, { kind: "tool_call" }>).resultText ?? "").trim()
+        .length > 0,
+  ) as Extract<Line, { kind: "tool_call" }> | undefined;
+
+  return lastAssistant?.text || lastToolResult?.resultText || fallback;
+}
+
 export async function handleHeadlessCommand(
   parsedArgs: ParsedCliArgs,
   model?: string,

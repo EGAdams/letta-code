@@ -52,7 +52,7 @@ describe("reconcileExistingAgentState", () => {
     const result = await reconcileExistingAgentState(
       {
         agents: { update },
-      },
+      } as unknown as Parameters<typeof reconcileExistingAgentState>[0],
       agent,
     );
 
@@ -106,7 +106,7 @@ describe("reconcileExistingAgentState", () => {
     const result = await reconcileExistingAgentState(
       {
         agents: { update },
-      },
+      } as unknown as Parameters<typeof reconcileExistingAgentState>[0],
       initialAgent,
     );
 

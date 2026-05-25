@@ -325,7 +325,7 @@ export function startLocalOAuthServer(
  * Also starts local server to receive callback
  */
 export async function startOpenAIOAuth(
-  port = OPENAI_OAUTH_CONFIG.defaultPort,
+  port: number = OPENAI_OAUTH_CONFIG.defaultPort,
 ): Promise<{
   authorizationUrl: string;
   state: string;

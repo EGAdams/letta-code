@@ -51,7 +51,7 @@ function installCommonMocks(): void {
   process.env.LETTA_BASE_URL = "";
   process.env.LETTA_API_KEY = "";
   (settingsManager as typeof settingsManager).getSettingsWithSecureTokens =
-    mockSettingsWithSecureTokens as typeof settingsManager.getSettingsWithSecureTokens;
+    mockSettingsWithSecureTokens as unknown as typeof settingsManager.getSettingsWithSecureTokens;
 }
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -75,7 +75,7 @@ describe("openai codex provider helpers", () => {
   });
 
   test("createOpenAICodexProvider posts chatgpt_oauth payload", async () => {
-    const fetchMock = mock(() =>
+    const fetchMock = mock((_url: string | URL, _options?: RequestInit) =>
       Promise.resolve(
         jsonResponse({
           id: "provider-1",
@@ -84,7 +84,7 @@ describe("openai codex provider helpers", () => {
         }),
       ),
     );
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await createOpenAICodexProvider({
       access_token: "access-token",
@@ -97,7 +97,7 @@ describe("openai codex provider helpers", () => {
     expect(result.id).toBe("provider-1");
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    const [url, options] = fetchMock.mock.calls[0];
+    const [url, options] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://letta.test/v1/providers");
     expect(options?.method).toBe("POST");
     expect(options?.headers).toMatchObject({
@@ -119,7 +119,7 @@ describe("openai codex provider helpers", () => {
   });
 
   test("updateOpenAICodexProvider patches api_key payload", async () => {
-    const fetchMock = mock(() =>
+    const fetchMock = mock((_url: string | URL, _options?: RequestInit) =>
       Promise.resolve(
         jsonResponse({
           id: "provider-1",
@@ -128,7 +128,7 @@ describe("openai codex provider helpers", () => {
         }),
       ),
     );
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await updateOpenAICodexProvider("provider-1", {
       access_token: "access-token",
@@ -139,7 +139,7 @@ describe("openai codex provider helpers", () => {
     });
 
     expect(result.id).toBe("provider-1");
-    const [url, options] = fetchMock.mock.calls[0];
+    const [url, options] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://letta.test/v1/providers/provider-1");
     expect(options?.method).toBe("PATCH");
     expect(JSON.parse(String(options?.body))).toEqual({
@@ -167,7 +167,7 @@ describe("openai codex provider helpers", () => {
         }),
       );
     });
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await createOrUpdateOpenAICodexProvider({
       access_token: "access-token",
@@ -179,11 +179,11 @@ describe("openai codex provider helpers", () => {
 
     expect(result.id).toBe("provider-created");
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[0][0])).toBe(
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       "https://letta.test/v1/providers",
     );
-    expect(fetchMock.mock.calls[0][1]?.method).toBe("GET");
-    expect(fetchMock.mock.calls[1][1]?.method).toBe("POST");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("GET");
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("POST");
   });
 
   test("createOrUpdateOpenAICodexProvider updates when provider exists", async () => {
@@ -208,7 +208,7 @@ describe("openai codex provider helpers", () => {
         }),
       );
     });
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await createOrUpdateOpenAICodexProvider({
       access_token: "access-token",
@@ -220,10 +220,10 @@ describe("openai codex provider helpers", () => {
 
     expect(result.id).toBe("provider-1");
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[1][0]).toBe(
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "https://letta.test/v1/providers/provider-1",
     );
-    expect(fetchMock.mock.calls[1][1]?.method).toBe("PATCH");
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("PATCH");
   });
 
   test("removeOpenAICodexProvider deletes only when provider exists", async () => {
@@ -242,32 +242,33 @@ describe("openai codex provider helpers", () => {
 
       return Promise.resolve(jsonResponse({}));
     });
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await removeOpenAICodexProvider();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[1][0]).toBe(
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "https://letta.test/v1/providers/provider-1",
     );
-    expect(fetchMock.mock.calls[1][1]?.method).toBe("DELETE");
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("DELETE");
 
     fetchMock.mockClear();
-    globalThis.fetch = mock((url: string | URL, options?: RequestInit) => {
+    const emptyFetchMock = mock((url: string | URL, options?: RequestInit) => {
       if (String(url).endsWith("/v1/providers") && options?.method === "GET") {
         return Promise.resolve(jsonResponse([]));
       }
 
       return Promise.resolve(jsonResponse({}));
-    }) as typeof fetch;
+    });
+    globalThis.fetch = emptyFetchMock as unknown as typeof fetch;
 
     await removeOpenAICodexProvider();
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(String(globalThis.fetch.mock.calls[0][0])).toBe(
+    expect(emptyFetchMock).toHaveBeenCalledTimes(1);
+    expect(String(emptyFetchMock.mock.calls[0]?.[0])).toBe(
       "https://letta.test/v1/providers",
     );
-    expect(globalThis.fetch.mock.calls[0][1]?.method).toBe("GET");
+    expect(emptyFetchMock.mock.calls[0]?.[1]?.method).toBe("GET");
   });
 
   test("getOpenAICodexProvider returns the matching provider from the list", async () => {
@@ -287,7 +288,7 @@ describe("openai codex provider helpers", () => {
         ]),
       ),
     );
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const provider = await getOpenAICodexProvider();
 
@@ -307,7 +308,7 @@ describe("openai codex provider helpers", () => {
         }),
       );
     });
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     for (const billingTier of ["pro", "enterprise"] as const) {
       fetchMock.mockImplementationOnce(() =>
@@ -340,7 +341,7 @@ describe("openai codex provider helpers", () => {
         }),
       ),
     );
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await checkOpenAICodexEligibility();
 
@@ -358,7 +359,7 @@ describe("openai codex provider helpers", () => {
     console.warn = warnMock as typeof console.warn;
 
     const fetchMock = mock(() => Promise.reject(new Error("network down")));
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await checkOpenAICodexEligibility();
 
@@ -373,7 +374,7 @@ describe("openai codex provider helpers", () => {
 
   test("listProviders returns an empty array on request error", async () => {
     const fetchMock = mock(() => Promise.reject(new Error("request failed")));
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(listProviders()).resolves.toEqual([]);
   });

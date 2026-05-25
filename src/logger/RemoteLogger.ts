@@ -43,12 +43,14 @@ const FAIL_COLOR = "#fb6666";
 const MAX_LOG_ENTRIES = 120;
 
 // When any logger turns red, write a cross-process sentinel then kill this subprocess.
+// Flatten newlines before writing so the sentinel output stays single-line.
 (process as unknown as NodeJS.EventEmitter).once(
   "letta-test-bail",
   (id: string, msg: string) => {
-    process.stderr.write(`\n[letta-test-bail] ${id}: ${msg}\n`);
+    const flatMsg = msg.replace(/\n+/g, " | ");
+    process.stderr.write(`\n[letta-test-bail] ${id}: ${flatMsg}\n`);
     try {
-      writeFileSync(BAIL_SENTINEL_PATH, `${id}: ${msg}\n`);
+      writeFileSync(BAIL_SENTINEL_PATH, `${id}: ${flatMsg}\n`);
     } catch {}
     process.exit(1);
   },
@@ -70,7 +72,6 @@ function sanitizeLogMessage(message: string): string {
     .replace(/[\r\t]+/g, " ")
     .replace(CONTROL_CHAR_PATTERN, " ")
     .replace(/ {2,}/g, " ")
-    .replace(/\n+/g, " | ")
     .trim();
 }
 
@@ -138,8 +139,21 @@ export class RemoteLogger {
   }
 
   private _shouldSoftFail(err: unknown): boolean {
-    if (process.env.LETTA_LOGGER_OPTIONAL !== "1") return false;
     const msg = err instanceof Error ? err.message : String(err);
+    const causeMsg =
+      err instanceof Error && err.cause instanceof Error
+        ? err.cause.message
+        : "";
+    // Network-level failures (server down/unreachable) always soft-fail —
+    // logging is non-blocking and state cannot be verified when the server is gone.
+    if (
+      /ECONNREFUSED|ENOTFOUND|ECONNRESET|ETIMEDOUT|EHOSTUNREACH/i.test(
+        `${msg} ${causeMsg}`,
+      )
+    ) {
+      return true;
+    }
+    if (process.env.LETTA_LOGGER_OPTIONAL !== "1") return false;
     return /HTTP\s+(503|507)\b/i.test(msg);
   }
 

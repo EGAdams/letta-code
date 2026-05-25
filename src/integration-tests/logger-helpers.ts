@@ -42,6 +42,8 @@ export const ALL_LOGGER_IDS = [
   "StreamJson_ResultFormat_2026",
   "StreamJson_PartialMessages_2026",
   "StreamJson_NoPartialMessages_2026",
+  "StreamJson_UsageStatistics_2026",
+  "StreamJson_StopReason_2026",
   "StartupFlow_AgentNotFound_2026",
   "StartupFlow_ConvNotFound_2026",
   "StartupFlow_ImportNotFound_2026",
