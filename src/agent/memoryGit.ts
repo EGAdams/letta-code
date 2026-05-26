@@ -462,9 +462,9 @@ export async function pullMemory(
   const token = useSsh ? undefined : await getAuthToken();
   const dir = getMemoryRepoDir(agentId);
 
-  if (remoteOverride) {
-    await ensureRemote(dir, url);
-  }
+  // Always reconcile origin with the current target URL so startup can heal
+  // stale remotes when LETTA_BASE_URL or network routes have changed.
+  await ensureRemote(dir, url);
 
   // Self-healing: ensure credential helper and pre-commit hook are configured
   if (token) {

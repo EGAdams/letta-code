@@ -4,6 +4,7 @@
  */
 
 import Letta from "@letta-ai/letta-client";
+import { APIError } from "@letta-ai/letta-client/core/error";
 
 export const LETTA_CLOUD_API_URL = "https://api.letta.com";
 
@@ -217,7 +218,13 @@ export async function validateCredentials(
     await client.agents.list({ limit: 1 });
 
     return true;
-  } catch {
+  } catch (err) {
+    // Only treat 401/403 as invalid credentials.
+    // A 400 means the server has bad data (e.g. agent with null system prompt) but
+    // the connection and auth are fine — don't block startup for that.
+    if (err instanceof APIError && err.status !== 401 && err.status !== 403) {
+      return true;
+    }
     return false;
   }
 }

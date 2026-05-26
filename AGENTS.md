@@ -50,3 +50,26 @@
 - If Scissari/Task subagents fail with `NOT_FOUND: Handle letta/auto not found, must be one of []`, inspect `src/agent/subagents/manager.ts`.
 - `resolveSubagentModel()` should inherit the parent model or choose a server-available non-auto handle when `letta/auto` is absent.
 - Regression tests: `bun test src/tests/agent/subagent-model-resolution.test.ts` and `bun test src/integration-tests/subagent-model-fallback.integration.test.ts`.
+
+## Agent Memory: Scissari Memfs Remote Drift
+- Symptom: Scissari runs succeed but startup logs show memfs-git pull failures to stale host `10.0.0.143:8283` while current server is `100.80.49.10:8283`.
+- Root cause: persisted per-agent `memfsRemote` can pin an old base URL/remote, which overrides current `LETTA_BASE_URL` during startup sync.
+- Fix locations:
+  - `src/agent/memoryFilesystem.ts`: `resolveMemfsRemoteUrl()` drops stale HTTP remotes when host differs but path is default `.../v1/git/<agent>/state.git` or bare `/`.
+  - `src/agent/memoryGit.ts`: `pullMemory()` now always runs `ensureRemote()` so `origin` is reconciled on every pull.
+  - `src/cli/App.tsx`: startup memfs sync now resolves/clears stale persisted remote before `cloneMemoryRepo()` / `pullMemory()`.
+- Regression tests:
+  - `bun test src/tests/agent/memoryFilesystem.test.ts`
+  - `bun test src/tests/agent/memoryGit.auth.test.ts src/tests/agent/memoryGit.remote-heal-wiring.test.ts`
+- High-signal Scissari integration commands:
+  - `LETTA_RUN_SCISSARI_TEST=1 bun test src/integration-tests/scissari-agent.integration.test.ts`
+  - `LETTA_RUN_SCISSARI_TEST=1 bun test src/integration-tests/scissari-tool-execution-hang.integration.test.ts src/integration-tests/scissari-message-persistence.integration.test.ts src/integration-tests/scissari-tool-parity.integration.test.ts`
+
+## Agent Memory: Scissari/Telegram Test Gating
+- `src/integration-tests/scissari-telegram-connection.integration.test.ts` is intentionally skipped unless all required env vars are set:
+  - `LETTA_RUN_SCISSARI_TEST=1`
+  - `SCISSARI_TELEGRAM_CHAT_ID`
+  - `SCISSARI_TELEGRAM_BOT_TOKEN` (or `TELEGRAM_TOKEN`)
+- Local Scissari integration defaults:
+  - Letta API base URL default: `http://100.80.49.10:8283`
+  - Logger API base URL used by reset helpers: `http://100.80.49.10:8284/libraries/local-php-api`

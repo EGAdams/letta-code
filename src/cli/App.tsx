@@ -3792,10 +3792,23 @@ export default function App({
         const { isGitRepo, cloneMemoryRepo, pullMemory } = await import(
           "../agent/memoryGit"
         );
+        const { getServerUrl } = await import("../agent/client");
+        const { resolveMemfsRemoteUrl } = await import(
+          "../agent/memoryFilesystem"
+        );
+        const persistedRemote = settingsManager.getMemfsRemote(agentId);
+        const effectiveRemote = resolveMemfsRemoteUrl(
+          agentId,
+          getServerUrl(),
+          persistedRemote,
+        );
+        if (persistedRemote && !effectiveRemote) {
+          settingsManager.setMemfsRemote(agentId, undefined);
+        }
         if (!isGitRepo(agentId)) {
-          await cloneMemoryRepo(agentId);
+          await cloneMemoryRepo(agentId, effectiveRemote);
         } else {
-          await pullMemory(agentId);
+          await pullMemory(agentId, effectiveRemote);
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);

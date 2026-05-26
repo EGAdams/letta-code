@@ -249,6 +249,46 @@ export interface ApplyMemfsFlagsOptions {
   skipPromptUpdate?: boolean;
 }
 
+function isHttpUrl(value: string): boolean {
+  return value.startsWith("http://") || value.startsWith("https://");
+}
+
+/**
+ * Resolve which remote URL memfs should use.
+ * If a persisted per-agent remote points at a different host than the current
+ * server URL but still matches the default state.git path for this agent, treat
+ * it as stale and fall back to the current server URL path derivation.
+ */
+export function resolveMemfsRemoteUrl(
+  agentId: string,
+  serverUrl: string,
+  localMemfsRemote?: string,
+  explicitRemoteUrl?: string,
+): string | undefined {
+  if (explicitRemoteUrl) return explicitRemoteUrl;
+  if (!localMemfsRemote) return undefined;
+  if (!isHttpUrl(localMemfsRemote) || !isHttpUrl(serverUrl)) {
+    return localMemfsRemote;
+  }
+
+  try {
+    const local = new URL(localMemfsRemote);
+    const current = new URL(serverUrl);
+    const expectedPath = `/v1/git/${agentId}/state.git`;
+    const normalizedPath = local.pathname.replace(/\/+$/, "") || "/";
+    if (
+      local.origin !== current.origin &&
+      (normalizedPath === expectedPath || normalizedPath === "/")
+    ) {
+      return undefined;
+    }
+  } catch {
+    return localMemfsRemote;
+  }
+
+  return localMemfsRemote;
+}
+
 /**
  * Apply --memfs / --no-memfs CLI flags (or /memfs enable) to an agent.
  *
@@ -305,7 +345,15 @@ export async function applyMemfsFlags(
         ? true
         : localMemfsEnabled;
 
-  const targetRemoteUrl = options?.remoteUrl || localMemfsRemote;
+  const targetRemoteUrl = resolveMemfsRemoteUrl(
+    agentId,
+    serverUrl,
+    localMemfsRemote,
+    options?.remoteUrl,
+  );
+  if (!options?.remoteUrl && localMemfsRemote && !targetRemoteUrl) {
+    settingsManager.setMemfsRemote(agentId, undefined);
+  }
   // Self-hosted fallback: if memfs is enabled but no remote was configured,
   // use local-only mode instead of repeatedly failing clone on startup.
   const fallbackLocalOnly = !isCloudServer && !targetRemoteUrl;

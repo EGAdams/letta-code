@@ -12,6 +12,7 @@ import {
   getMemorySystemDir,
   labelFromRelativePath,
   renderMemoryFilesystemTree,
+  resolveMemfsRemoteUrl,
 } from "../../agent/memoryFilesystem";
 import { DIRECTORY_LIMIT_ENV } from "../../utils/directoryLimits";
 
@@ -127,6 +128,49 @@ describe("labelFromRelativePath", () => {
 
   test("normalizes backslashes to forward slashes", () => {
     expect(labelFromRelativePath("human\\prefs.md")).toBe("human/prefs");
+  });
+});
+
+describe("resolveMemfsRemoteUrl", () => {
+  test("prefers explicit remote when provided", () => {
+    expect(
+      resolveMemfsRemoteUrl(
+        "agent-123",
+        "http://100.80.49.10:8283",
+        "http://10.0.0.143:8283/v1/git/agent-123/state.git",
+        "http://custom-host:8283/v1/git/agent-123/state.git",
+      ),
+    ).toBe("http://custom-host:8283/v1/git/agent-123/state.git");
+  });
+
+  test("drops stale host remote when it matches default state path", () => {
+    expect(
+      resolveMemfsRemoteUrl(
+        "agent-123",
+        "http://100.80.49.10:8283",
+        "http://10.0.0.143:8283/v1/git/agent-123/state.git",
+      ),
+    ).toBeUndefined();
+  });
+
+  test("drops stale host remote when persisted as bare base URL", () => {
+    expect(
+      resolveMemfsRemoteUrl(
+        "agent-123",
+        "http://100.80.49.10:8283",
+        "http://10.0.0.143:8283",
+      ),
+    ).toBeUndefined();
+  });
+
+  test("keeps custom-path remote even when host differs", () => {
+    expect(
+      resolveMemfsRemoteUrl(
+        "agent-123",
+        "http://100.80.49.10:8283",
+        "http://10.0.0.143:8283/custom/path/state.git",
+      ),
+    ).toBe("http://10.0.0.143:8283/custom/path/state.git");
   });
 });
 
