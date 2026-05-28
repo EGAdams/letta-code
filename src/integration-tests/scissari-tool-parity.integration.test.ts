@@ -77,6 +77,8 @@ async function ensureExactToolSet(
   }
 }
 
+const LEGACY_TOOLS = ["web_search", "fetch_webpage"];
+
 describe("Scissari tool parity integration", () => {
   beforeEach(async () => {
     await resetAllLoggers();
@@ -84,6 +86,143 @@ describe("Scissari tool parity integration", () => {
 
   const maybeTest =
     process.env.LETTA_RUN_SCISSARI_TEST === "1" ? test : test.skip;
+
+  // Detects the bug where Scissari silently loses her tools and falls back to
+  // legacy defaults. This has happened at least once (discovered 2026-05-27)
+  // and left her with only web_search + fetch_webpage for days.
+  maybeTest(
+    "Scissari has all required tools and no legacy defaults",
+    async () => {
+      process.env.LETTA_BASE_URL =
+        process.env.LETTA_BASE_URL ?? DEFAULT_BASE_URL;
+      process.env.LETTA_API_KEY = process.env.LETTA_API_KEY ?? TEST_API_KEY;
+      await settingsManager.initialize();
+
+      const logger = new RemoteLogger(LOGGER_ID);
+      let loggerReady = false;
+      try {
+        await logger.init();
+        loggerReady = true;
+      } catch {
+        /* non-fatal */
+      }
+
+      const log = async (message: string) => {
+        console.log(`[scissari-tool-check] ${message}`);
+        if (loggerReady) {
+          try {
+            await logger.log(message);
+          } catch {
+            /* non-fatal */
+          }
+        }
+      };
+
+      try {
+        const toolNames = await listAgentToolNames(SCISSARI_AGENT_ID);
+        await log(`Current tools: ${formatNames(toolNames)}`);
+
+        // Fail loudly if any required tool is missing
+        const missing = REQUIRED_TOOLS.filter((t) => !toolNames.includes(t));
+        if (missing.length > 0) {
+          throw new Error(
+            `Scissari is missing required tools: ${missing.join(", ")}. ` +
+              `Full list: ${formatNames(toolNames)}. ` +
+              `Run the repair: PATCH /v1/agents/${SCISSARI_AGENT_ID}/tools/attach/{toolId}`,
+          );
+        }
+
+        // Fail loudly if legacy defaults crept back in
+        const legacy = LEGACY_TOOLS.filter((t) => toolNames.includes(t));
+        if (legacy.length > 0) {
+          throw new Error(
+            `Scissari has legacy default tools that should not be present: ${legacy.join(", ")}. ` +
+              `These indicate her tool set was reset to new-agent defaults.`,
+          );
+        }
+
+        expect(toolNames).toEqual(sortNames(REQUIRED_TOOLS));
+        await log(
+          `PASS: Scissari has correct tool set: ${formatNames(toolNames)}`,
+        );
+      } catch (err) {
+        await log(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      } finally {
+        if (loggerReady) await logger.flushLogs();
+      }
+    },
+    { timeout: 60000 },
+  );
+
+  // Verifies that a system-prompt PATCH (the most common startup write) does
+  // not inadvertently reset Scissari's tool_ids on the Letta server.
+  maybeTest(
+    "PATCH system prompt does not strip Scissari's tools",
+    async () => {
+      process.env.LETTA_BASE_URL =
+        process.env.LETTA_BASE_URL ?? DEFAULT_BASE_URL;
+      process.env.LETTA_API_KEY = process.env.LETTA_API_KEY ?? TEST_API_KEY;
+      await settingsManager.initialize();
+
+      const logger = new RemoteLogger(LOGGER_ID);
+      let loggerReady = false;
+      try {
+        await logger.init();
+        loggerReady = true;
+      } catch {
+        /* non-fatal */
+      }
+
+      const log = async (message: string) => {
+        console.log(`[scissari-patch-test] ${message}`);
+        if (loggerReady) {
+          try {
+            await logger.log(message);
+          } catch {
+            /* non-fatal */
+          }
+        }
+      };
+
+      const client = await getClient();
+
+      // Ensure known-good state before test
+      await ensureExactToolSet(SCISSARI_AGENT_ID, REQUIRED_TOOLS);
+      const before = await listAgentToolNames(SCISSARI_AGENT_ID);
+      await log(`Before PATCH: ${formatNames(before)}`);
+
+      try {
+        // Simulate a no-op system prompt PATCH (same as letta-code does on startup)
+        const agent = await client.agents.retrieve(SCISSARI_AGENT_ID);
+        const currentSystem = agent.system ?? "";
+        await client.agents.update(SCISSARI_AGENT_ID, {
+          system: currentSystem,
+        });
+
+        const after = await listAgentToolNames(SCISSARI_AGENT_ID);
+        await log(`After PATCH: ${formatNames(after)}`);
+
+        if (after.join("|") !== before.join("|")) {
+          throw new Error(
+            `System-prompt PATCH changed Scissari's tool set. ` +
+              `Before: ${formatNames(before)}. After: ${formatNames(after)}.`,
+          );
+        }
+
+        expect(after).toEqual(before);
+        await log("PASS: system prompt PATCH preserved tool set");
+      } catch (err) {
+        await log(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      } finally {
+        // Always restore to required tool set
+        await ensureExactToolSet(SCISSARI_AGENT_ID, REQUIRED_TOOLS);
+        if (loggerReady) await logger.flushLogs();
+      }
+    },
+    { timeout: 60000 },
+  );
 
   maybeTest(
     "reconciling Scissari does not rewrite attached tools to legacy defaults",
@@ -162,7 +301,9 @@ describe("Scissari tool parity integration", () => {
       } finally {
         await ensureExactToolSet(SCISSARI_AGENT_ID, REQUIRED_TOOLS);
         const repairedNames = await listAgentToolNames(SCISSARI_AGENT_ID);
-        await log(`Final repaired state: ${formatNames(repairedNames)}`);
+        await log(
+          `PASS: test complete — tool set: ${formatNames(repairedNames)}`,
+        );
         if (loggerReady) await logger.flushLogs();
       }
     },

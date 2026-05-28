@@ -68,6 +68,7 @@ export const ALL_LOGGER_IDS = [
   "ScissariInactivityTimeout_2026",
   "ScissariToolExecutionHang_2026",
   "ScissariToolExecutionHang_ErrorPath_2026",
+  "ScissariWebToolResponse_2026",
   "ToolAttach_Lifecycle_2026",
   "Scissari_Session_2026",
   "Scissari_Thoughts_2026",
