@@ -8,6 +8,7 @@ import type {
   OpenAIModelSettings,
 } from "@letta-ai/letta-client/resources/agents/agents";
 import type { Conversation } from "@letta-ai/letta-client/resources/conversations/conversations";
+import type { LlmConfig } from "@letta-ai/letta-client/resources/models/models";
 import { OPENAI_CODEX_PROVIDER_NAME } from "../providers/openai-codex-provider";
 import { debugLog } from "../utils/debug";
 import { getModelContextWindow } from "./available-models";
@@ -191,6 +192,39 @@ function buildModelSettings(
   }
 
   return settings;
+}
+
+/**
+ * Builds a legacy llm_config for ChatGPT OAuth (chatgpt-plus-pro) agents.
+ *
+ * The chatgpt-plus-pro provider uses llm_config (not model_settings) because
+ * its OAuth flow requires the chatgpt_oauth endpoint type.
+ */
+export function buildChatGPTOAuthLegacyLlmConfig(
+  modelHandle: string,
+  updateArgs?: Record<string, unknown>,
+  contextWindow?: number,
+): LlmConfig {
+  let modelName = modelHandle;
+  if (modelHandle.startsWith(`${OPENAI_CODEX_PROVIDER_NAME}/`)) {
+    modelName = modelHandle.slice(`${OPENAI_CODEX_PROVIDER_NAME}/`.length);
+  }
+
+  const config: LlmConfig = {
+    model: modelName,
+    model_endpoint_type: "chatgpt_oauth",
+    provider_name: OPENAI_CODEX_PROVIDER_NAME,
+    context_window: contextWindow ?? 128000,
+    handle: modelHandle,
+    parallel_tool_calls: true,
+  };
+
+  if (updateArgs?.reasoning_effort) {
+    config.reasoning_effort =
+      updateArgs.reasoning_effort as LlmConfig["reasoning_effort"];
+  }
+
+  return config;
 }
 
 /**

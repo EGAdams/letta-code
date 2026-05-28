@@ -28,9 +28,5 @@
     "noPropertyAccessFromIndexSignature": false
   },
   "include": ["src/**/*"],
-  "exclude": [
-    "src/skills/builtin/**/scripts/**",
-    "src/skills/custom/**/scripts/**",
-    "src/skills/custom/**/references/**"
-  ]
+  "exclude": ["src/skills/builtin/**/scripts/**", "src/skills/custom/**"]
 }

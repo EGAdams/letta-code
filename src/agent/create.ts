@@ -22,7 +22,10 @@ import {
   getModelUpdateArgs,
   resolveModel,
 } from "./model";
-import { updateAgentLLMConfig } from "./modify";
+import {
+  buildChatGPTOAuthLegacyLlmConfig,
+  updateAgentLLMConfig,
+} from "./modify";
 import {
   isKnownPreset,
   type MemoryPromptMode,
@@ -390,9 +393,21 @@ export async function createAgent(
     },
   };
 
+  const createAgentRequest = modelHandle.startsWith("chatgpt-plus-pro/")
+    ? {
+        ...createAgentRequestBase,
+        llm_config: buildChatGPTOAuthLegacyLlmConfig(
+          modelHandle,
+          modelUpdateArgs ?? options.updateArgs,
+          contextWindow,
+        ),
+        model: undefined,
+      }
+    : createAgentRequestBase;
+
   const createWithTools = (tools: string[]) =>
     client.agents.create({
-      ...createAgentRequestBase,
+      ...createAgentRequest,
       tools,
     });
 

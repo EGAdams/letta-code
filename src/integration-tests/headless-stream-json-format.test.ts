@@ -397,8 +397,7 @@ describe("stream-json format", () => {
         const statsLine = lines.find((line) => {
           const obj = JSON.parse(line) as Record<string, unknown>;
           return (
-            obj.type === "message" &&
-            obj.message_type === "usage_statistics"
+            obj.type === "message" && obj.message_type === "usage_statistics"
           );
         });
 
@@ -468,10 +467,7 @@ describe("stream-json format", () => {
 
         const stopLine = lines.find((line) => {
           const obj = JSON.parse(line) as Record<string, unknown>;
-          return (
-            obj.type === "message" &&
-            obj.message_type === "stop_reason"
-          );
+          return obj.type === "message" && obj.message_type === "stop_reason";
         });
 
         expect(stopLine).toBeDefined();

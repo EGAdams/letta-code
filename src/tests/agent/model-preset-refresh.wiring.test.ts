@@ -48,6 +48,21 @@ describe("model preset refresh wiring", () => {
     );
   });
 
+  test("modify.ts pins chatgpt-plus-pro model updates to the OAuth provider", () => {
+    const path = fileURLToPath(
+      new URL("../../agent/modify.ts", import.meta.url),
+    );
+    const source = readFileSync(path, "utf-8");
+
+    expect(source).toContain(
+      "if (modelHandle.startsWith(`${OPENAI_CODEX_PROVIDER_NAME}/`))",
+    );
+    expect(source).toContain("provider_name");
+    expect(source).toContain("OPENAI_CODEX_PROVIDER_NAME");
+    expect(source).toContain("buildChatGPTOAuthLegacyLlmConfig");
+    expect(source).toContain('model_endpoint_type: "chatgpt_oauth"');
+  });
+
   test("modify.ts exposes conversation-scoped model updater", () => {
     const path = fileURLToPath(
       new URL("../../agent/modify.ts", import.meta.url),
@@ -76,6 +91,17 @@ describe("model preset refresh wiring", () => {
     );
     expect(updateSegment).toContain("model: modelHandle");
     expect(updateSegment).not.toContain("client.agents.update(");
+  });
+
+  test("create.ts uses legacy llm_config for chatgpt-plus-pro agent creation", () => {
+    const path = fileURLToPath(
+      new URL("../../agent/create.ts", import.meta.url),
+    );
+    const source = readFileSync(path, "utf-8");
+
+    expect(source).toContain("buildChatGPTOAuthLegacyLlmConfig");
+    expect(source).toContain('modelHandle.startsWith("chatgpt-plus-pro/")');
+    expect(source).toContain("llm_config: buildChatGPTOAuthLegacyLlmConfig(");
   });
 
   test("/model handler updates conversation model (default updates agent)", () => {
