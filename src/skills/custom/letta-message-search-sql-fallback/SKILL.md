@@ -74,12 +74,11 @@ docker cp /home/adamsl/letta-src/letta/services/message_manager.py letta-server:
 # 3. Restart the server
 docker restart letta-server
 
-# 4. Wait for healthy, then reload nginx DNS
+# 4. Wait for healthy
 until docker inspect letta-server --format '{{.State.Health.Status}}' | grep -q healthy; do sleep 3; done
-docker exec letta-bridge nginx -s reload
 
 # 5. Test
-curl -s -X POST http://100.80.49.10:18283/v1/agents/messages/search \
+curl -s -X POST http://100.80.49.10:8283/v1/agents/messages/search \
   -H "Content-Type: application/json" \
   -d '{"query": "test", "limit": 3}' | python3 -c "
 import sys, json
@@ -95,10 +94,6 @@ The patch lives in:
 - Container: `/app/letta/services/message_manager.py` (lost on `docker compose up` with rebuild ✗)
 
 After any `docker compose up --build` or image rebuild, re-run step 2 (`docker cp`) and step 3 (restart).
-
-## Why `nginx -s reload` after restart
-
-`letta-bridge` nginx resolves the `letta-server` hostname at startup and caches the IP. When `letta-server` restarts, it may get a different internal IP. `nginx -s reload` forces a fresh DNS lookup without downtime.
 
 ## Notes
 

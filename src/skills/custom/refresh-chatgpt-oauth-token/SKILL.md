@@ -24,7 +24,7 @@ letta-server DB             — provider row: name='chatgpt-plus-pro'
                               before each call (5-min buffer).
 ```
 
-The Letta server is at `http://100.80.49.10:18283` (via letta-bridge nginx proxy).  
+The Letta server is at `http://100.80.49.10:8283`.  
 SSH to Docker host: `ssh 100.80.49.10`  
 Docker command prefix: `ssh 100.80.49.10 "docker exec letta-server python3 -c \"...\""  `
 
@@ -84,7 +84,7 @@ asyncio.run(update())
 ## Step 2 — Verify it works
 
 ```bash
-curl -s -X POST http://100.80.49.10:18283/v1/agents/<AGENT_ID>/messages \
+curl -s -X POST http://100.80.49.10:8283/v1/agents/<AGENT_ID>/messages \
   -H "Content-Type: application/json" \
   -d '{"messages":[{"role":"user","content":"Say hi in 3 words"}],"stream":false}' \
   | python3 -c "
@@ -111,7 +111,7 @@ Available `chatgpt-plus-pro` models (as of 2026-05-23):
 MODEL="gpt-5.3-codex"
 AGENT_ID="agent-5955b0c2-7922-4ffe-9e43-b116053b80fa"  # Scissari
 
-curl -s -X PATCH http://100.80.49.10:18283/v1/agents/$AGENT_ID \
+curl -s -X PATCH http://100.80.49.10:8283/v1/agents/$AGENT_ID \
   -H "Content-Type: application/json" \
   -d "{
     \"llm_config\": {
@@ -151,4 +151,4 @@ if 'error' in d: print('ERROR:', d)
 
 - The Codex CLI (`/usr/local/bin/codex`) automatically refreshes `~/.codex/auth.json` tokens. If the access_token in that file is also expired, run Codex CLI briefly to trigger a refresh before running Step 1.
 - After updating the DB, no restart of letta-server is needed — it reads credentials fresh per call.
-- lettabot reads `baseUrl` from `/home/adamsl/lettabot/lettabot.yaml`. Port `18283` routes through `letta-bridge` nginx → `letta-server`. Port `8283` hits the orphan container (do NOT use).
+- lettabot reads `baseUrl` from `/home/adamsl/lettabot/lettabot.yaml`. The active server is at port `8283`. The old `letta-bridge` nginx proxy (port `18283`) has been decommissioned.

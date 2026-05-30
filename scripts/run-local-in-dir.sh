@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 (cd "${REPO_ROOT}" && bun run build)
 LETTA_BIN="${REPO_ROOT}/letta.js"
-DEFAULT_SERVER_URL="http://127.0.0.1:18283"
+DEFAULT_SERVER_URL="http://100.80.49.10:8283"
 
 if [[ ! -f "${LETTA_BIN}" ]]; then
   echo "Error: local Letta binary not found: ${LETTA_BIN}" >&2
@@ -76,7 +76,17 @@ fi
 echo "[run-local-in-dir] repo: ${REPO_ROOT}"
 echo "[run-local-in-dir] cwd:  ${TARGET_DIR}"
 echo "[run-local-in-dir] server: ${LETTA_BASE_URL}"
-echo "[run-local-in-dir] exec: ${LETTA_BIN} $*"
+
+# Prepend --agent if LETTA_AGENT_ID is set and not already passed.
+AGENT_ARGS=()
+if [[ -n "${LETTA_AGENT_ID:-}" ]]; then
+  # Only prepend if caller didn't already pass --agent.
+  if [[ "$*" != *"--agent"* ]]; then
+    AGENT_ARGS=(--agent "${LETTA_AGENT_ID}")
+  fi
+fi
+
+echo "[run-local-in-dir] exec: ${LETTA_BIN} ${AGENT_ARGS[*]} $*"
 
 cd "${TARGET_DIR}"
-exec "${LETTA_BIN}" "$@"
+exec "${LETTA_BIN}" "${AGENT_ARGS[@]}" "$@"
