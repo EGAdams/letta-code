@@ -139,7 +139,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         print(f"[{self.log_date_time_string()}] {format % args}")
 
 if __name__ == '__main__':
-    port = 8765
+    port = int(os.environ.get('PORT', 8765))
     server = HTTPServer(('0.0.0.0', port), DashboardHandler)
     print(f"Dashboard server running at http://localhost:{port}/")
     print(f"Serving: {os.path.join(HERE, 'dashboard.html')}")
