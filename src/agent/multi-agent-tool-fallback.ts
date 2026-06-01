@@ -106,9 +106,9 @@ async function collectAssistantReply(
 function buildFallbackRetryMessage(message: string): string {
   return `<system-reminder>
 Reply in plain text only.
-Do not use any tools for this answer.
 Do not delegate.
-Provide the best direct answer you can from your current context.
+If tools are necessary to answer correctly, you may use them.
+Provide a direct final answer (no meta commentary).
 </system-reminder>
 
 ${message}`;
