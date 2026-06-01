@@ -1,0 +1,823 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard</title>
+  <style>
+    :root {
+      --bg: #f0f0f0;
+      --text: #333;
+      --sidebar: #333;
+      --tab: #4c6ef5;
+      --tab-active: #2f55e7;
+      --card: #fff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 30px;
+      font-family: Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    @media (max-width: 900px) {
+      body { margin: 0; }
+      .sidebar {
+        position: static;
+        width: 100%;
+        height: auto;
+        top: 0;
+        padding: 10px;
+      }
+      .sidebar h1 {
+        font-size: 1rem;
+        margin-bottom: 10px;
+      }
+      .sidebar nav {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .content {
+        margin: 0;
+        border-radius: 0;
+        padding: 14px;
+      }
+      .tab {
+        font-size: 0.82rem;
+        padding: 6px;
+        text-align: center;
+      }
+    }
+    @media (max-width: 560px) {
+      .sidebar nav {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .sidebar {
+      position: fixed;
+      top: 30px;
+      left: 0;
+      width: 170px;
+      height: calc(100vh - 60px);
+      background: var(--sidebar);
+      padding: 12px;
+      overflow-y: auto;
+    }
+
+    .sidebar h1 {
+      margin: 0 0 16px;
+      font-size: 1.2rem;
+      color: #fff;
+      text-align: center;
+    }
+
+    .sidebar nav {
+      display: grid;
+      gap: 10px;
+    }
+
+    .sidebar nav.hidden { display: none; }
+
+    .tab {
+      border: 0;
+      width: 100%;
+      background: var(--tab);
+      color: #fff;
+      font-size: 0.9rem;
+      line-height: 1.15;
+      padding: 6px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .tab:hover,
+    .tab:focus-visible {
+      outline: none;
+      background: #3a5de3;
+    }
+
+    .tab.active {
+      background: var(--tab-active);
+      font-weight: 700;
+    }
+
+    .tab.back-tab {
+      background: #555;
+    }
+
+    .tab.back-tab:hover,
+    .tab.back-tab:focus-visible {
+      background: #444;
+    }
+
+    .content {
+      max-width: 1100px;
+      margin: 20px auto 20px 220px;
+      background: var(--card);
+      border-radius: 4px;
+      padding: 22px;
+    }
+
+    .content.fullbleed {
+      max-width: none;
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+
+    .view { display: none; }
+    .view.active { display: block; }
+
+    h2, h3, p { margin-top: 0; }
+
+    a {
+      color: #1d4ed8;
+      text-decoration: none;
+      word-break: break-word;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    #scissari-frame {
+      width: 100%;
+      height: calc(100vh - 60px);
+      border: none;
+      display: block;
+    }
+
+    pre {
+      background: #1e1e1e; color: #e6e6e6; padding: 12px 14px;
+      border-radius: 6px; overflow-x: auto; font-size: 13px; line-height: 1.45;
+    }
+    code { font-family: Consolas, Menlo, monospace; }
+    p code, li code, td code { background: #e8e8e8; color: #b3306b; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+    table.kv { border-collapse: collapse; width: 100%; margin: 10px 0; }
+    table.kv th, table.kv td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 0.9rem; vertical-align: top; }
+    table.kv th { background: #f0f0f0; }
+    .note { background: #fff8e1; border-left: 4px solid #f5a623; padding: 10px 14px; border-radius: 4px; margin: 12px 0; }
+    .ok { background: #e8f5e9; border-left: 4px solid #43a047; padding: 10px 14px; border-radius: 4px; margin: 12px 0; }
+    details { margin: 10px 0; }
+    summary { cursor: pointer; font-weight: 700; }
+
+    /* ---- Agent manager ---- */
+    .am-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+    .am-toolbar input { flex: 1; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; }
+    .am-btn { border: 0; background: var(--tab); color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+    .am-btn:hover { background: #3a5de3; }
+    #agent-list { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 6px; }
+    .agent-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #eee; cursor: pointer; }
+    .agent-row:last-child { border-bottom: 0; }
+    .agent-row:hover { background: #eef2ff; }
+    .agent-name { font-weight: 600; }
+    .agent-model { font-family: Consolas, Menlo, monospace; font-size: 0.78rem; color: #666; background: #f0f0f0; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+    .am-dim { padding: 12px; color: #888; }
+    .am-warn { padding: 12px; color: #8a4b00; background: #fff8e1; }
+    .am-back { background: #555; color: #fff; border: 0; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-bottom: 12px; }
+    .am-back:hover { background: #444; }
+    .am-submenu { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 16px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+    .am-sub { border: 0; background: #e8e8e8; color: #333; padding: 7px 16px; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 0.92rem; }
+    .am-sub:hover { background: #dcdcff; }
+    .am-sub.active { background: var(--tab-active); color: #fff; font-weight: 700; }
+
+    /* ---- MSI-installer-style scrolling console ---- */
+    .msi-console {
+      background: #000; color: #fff;
+      font-family: Consolas, "Courier New", monospace; font-size: 13px; line-height: 1.5;
+      height: 60vh; min-height: 320px; overflow-y: auto;
+      padding: 12px 14px; border: 2px inset #888; border-radius: 4px;
+      white-space: pre-wrap; word-break: break-word;
+      scroll-behavior: smooth;
+    }
+    .msi-entry { padding: 2px 0; border-bottom: 1px dotted #1e1e1e; animation: msi-in 0.18s ease-out; }
+    .msi-stamp { color: #00d000; }
+    .msi-entry .hdr { color: #6cf; font-weight: 700; }
+    .msi-line.dim, .msi-entry.dim { color: #888; }
+    .msi-line.err { color: #ff6b6b; }
+    @keyframes msi-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    .msi-cursor { display: inline-block; color: #fff; animation: msi-blink 1s step-end infinite; }
+    @keyframes msi-blink { 50% { opacity: 0; } }
+    .am-test-input { width: 100%; min-height: 80px; padding: 10px; border: 1px solid #111; border-radius: 6px; font-family: inherit; }
+    .am-test-out { margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <h1>Dashboard</h1>
+
+    <!-- Main nav -->
+    <nav id="nav-main">
+      <button type="button" class="tab active" data-nav="main" data-target="home">Home</button>
+      <button type="button" class="tab" data-nav="main" data-target="status">Status</button>
+      <button type="button" class="tab" data-nav="main" data-target="instructions">Instructions</button>
+      <button type="button" class="tab" data-nav="main" data-target="tool-management">Tool Management</button>
+      <button type="button" class="tab" data-nav="main" data-target="agent-management">Agent Management</button>
+    </nav>
+
+    <!-- Status sub-nav -->
+    <nav id="nav-status" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back">Back</button>
+      <button type="button" class="tab active" data-nav="status" data-target="status-home">Home</button>
+      <button type="button" class="tab" data-nav="status" data-target="status-agents">Agents</button>
+      <button type="button" class="tab" data-nav="status" data-target="status-process-monitors">Process Monitors</button>
+      <button type="button" class="tab" data-nav="status" data-target="status-servers">Servers</button>
+      <button type="button" class="tab" data-nav="status" data-target="status-pc-monitor">PC Monitor</button>
+    </nav>
+
+    <!-- Tool management sub-nav -->
+    <nav id="nav-tools" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-tools">Back</button>
+      <button type="button" class="tab active" data-nav="tools" data-target="tools-home">Home</button>
+      <button type="button" class="tab" data-nav="tools" data-target="tools-web-search">web_search_exa</button>
+      <button type="button" class="tab" data-nav="tools" data-target="tools-web-fetch">web_fetch_exa</button>
+      <button type="button" class="tab" data-nav="tools" data-target="tools-executor-run">executor_run</button>
+      <button type="button" class="tab" data-nav="tools" data-target="tools-send-message">send_message_to_agent</button>
+      <button type="button" class="tab" data-nav="tools" data-target="tools-memory">memory</button>
+    </nav>
+
+    <!-- Agent management sub-nav -->
+    <nav id="nav-agents" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-agents">Back</button>
+      <button type="button" class="tab active" data-nav="agents" data-target="agents-home">Agents</button>
+    </nav>
+
+    <!-- Agent detail sub-nav -->
+    <nav id="nav-agent-detail" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-agent-detail">Back</button>
+      <button type="button" class="tab active" data-nav="agent-detail" data-target="agent-detail-home">Home</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-thoughts">Thoughts</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-messages">Messages</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tool-calls">Tool Calls</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tests">Tests</button>
+    </nav>
+  </aside>
+
+  <main class="content" id="main-content">
+    <!-- Main views -->
+    <section id="home" class="view active">
+      <!-- Intentionally left empty for now -->
+    </section>
+
+    <section id="instructions" class="view">
+      <h2>Instructions</h2>
+
+      <h3>SSH into this machine</h3>
+      <p>
+        This box is <strong>DESKTOP-SHDBATI</strong> — a <strong>Windows 10 Home</strong> host running
+        <strong>WSL Ubuntu 24.04</strong>. There are two separate SSH targets, each with its own user.
+        Almost everything (Letta server, agents, <code>/home/adamsl</code>, the code) lives inside
+        <strong>WSL Ubuntu</strong> — that's the one you usually want.
+      </p>
+
+      <div class="note">
+        <strong>Always connect over Tailscale, never the LAN IP.</strong> The <code>10.0.0.x</code> LAN
+        address is DHCP and changes on reboot (it shifted <code>10.0.0.143 → 10.0.0.142</code> on
+        2026-05-30, which is part of why connections broke). Tailscale IPs never change. Both ends must be
+        on the same Tailnet — run <code>tailscale status</code> to confirm.
+      </div>
+
+      <table class="kv">
+        <tr><th>Target</th><th>Connect (Tailscale — use this)</th><th>User</th><th>LAN fallback (drifts!)</th></tr>
+        <tr>
+          <td><strong>WSL Ubuntu</strong><br/>(Letta, agents, code)</td>
+          <td><code>ssh adamsl@100.80.49.10</code></td>
+          <td><code>adamsl</code></td>
+          <td>not on LAN directly</td>
+        </tr>
+        <tr>
+          <td><strong>Windows 10 host</strong></td>
+          <td><code>ssh NewUser@100.69.80.89</code></td>
+          <td><code>NewUser</code></td>
+          <td><code>ssh NewUser@10.0.0.142</code></td>
+        </tr>
+      </table>
+      <p>Both run OpenSSH on port 22.</p>
+
+      <h3>Why SSH broke on 2026-05-30 — and how it's fixed</h3>
+      <p>After the Windows reboot at 17:00, two things went wrong:</p>
+      <ol>
+        <li><strong>WSL's sshd did not auto-start.</strong> The <code>ssh.service</code> was set to
+          <code>disabled</code>, so it stayed down from the 17:00 reboot until someone started it manually at
+          19:13 — anyone trying to connect in that window got "connection refused."</li>
+        <li><strong>The LAN IP drifted</strong> <code>10.0.0.143 → 10.0.0.142</code> via DHCP, so anyone
+          using the old LAN address was hitting a dead host.</li>
+      </ol>
+
+      <div class="ok">
+        <strong>Permanent fix — run once in WSL</strong> so sshd always comes back after a reboot:
+        <pre><code>sudo systemctl enable ssh
+sudo systemctl start ssh</code></pre>
+        After that, always connect over Tailscale (<code>adamsl@100.80.49.10</code> for WSL) — that address
+        never changes, so reboots can't break it.
+      </div>
+
+      <h3>Troubleshooting checklist</h3>
+      <details>
+        <summary>"Connection refused" or "timed out"</summary>
+        <pre><code># On the WSL host, confirm sshd is up and set to auto-start:
+systemctl is-active ssh        # want: active
+systemctl is-enabled ssh       # want: enabled
+ss -tlnp | grep :22            # want: 0.0.0.0:22 listening
+
+# Confirm Tailscale is connected (run on BOTH ends):
+tailscale status
+tailscale ip -4                # WSL should report 100.80.49.10
+
+# End-to-end reachability (proves the box answers over Tailscale):
+curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pre>
+      </details>
+
+      <hr style="margin:20px 0;border:none;border-top:1px solid #ddd;" />
+
+      <h3>Reference pages</h3>
+      <p>
+        Live upload/instructions page:<br />
+        <a id="instructions-guide-link" href="/americanjewelry_live_upload_guide.html" target="_blank" rel="noopener noreferrer">
+          /americanjewelry_live_upload_guide.html
+        </a>
+      </p>
+      <p>
+        Windows 10 management:<br />
+        <a id="instructions-mgmt-link" href="/windows_10_dashboard_management.html" target="_blank" rel="noopener noreferrer">
+          /windows_10_dashboard_management.html
+        </a>
+      </p>
+    </section>
+
+
+
+    <section id="tool-management" class="view">
+      <h2>Tool Management</h2>
+      <p>Use the left tool tabs to view tool notes.</p>
+    </section>
+
+    <section id="tools-home" class="view">
+      <h2>Tools Home</h2><p>Placeholder for tool management overview.</p>
+    </section>
+    <section id="tools-web-search" class="view"><p>web_search_exa placeholder.</p></section>
+    <section id="tools-web-fetch" class="view"><p>web_fetch_exa placeholder.</p></section>
+    <section id="tools-executor-run" class="view"><p>executor_run placeholder.</p></section>
+    <section id="tools-send-message" class="view"><p>send_message_to_agent placeholder.</p></section>
+    <section id="tools-memory" class="view"><p>memory placeholder.</p></section>
+
+    <section id="agent-management" class="view">
+      <h2>Agent Management</h2>
+      <p>Use the left agent tabs to view agent stubs.</p>
+    </section>
+
+    <section id="agents-home" class="view">
+      <h2>Agents</h2>
+      <p id="agents-home-status" class="am-dim">Loading agents&hellip;</p>
+    </section>
+
+    <section id="agent-detail-home" class="view">
+      <h2 id="agent-detail-title">Agent</h2>
+      <p id="agent-detail-home-text">Choose a tab above to view this agent's data.</p>
+    </section>
+    <section id="agent-detail-thoughts" class="view"></section>
+    <section id="agent-detail-messages" class="view"></section>
+    <section id="agent-detail-tool-calls" class="view"></section>
+    <section id="agent-detail-tests" class="view"></section>
+
+    <section id="scissari" class="view">
+      <iframe id="scissari-frame" src="/monitor_thoughts_plan.html"></iframe>
+    </section>
+
+    <!-- Status sub-views -->
+    <section id="status-home" class="view">
+      <h2>Status</h2>
+      <p>
+        Live status page:<br />
+        <a href="/status.html" target="_blank" rel="noopener noreferrer">
+          /status.html
+        </a>
+      </p>
+    </section>
+
+    <section id="status-agents" class="view">
+      <h2>Agents</h2>
+      <p>Live status page for agents monitoring.</p>
+    </section>
+
+    <section id="status-process-monitors" class="view">
+      <p>Process Monitors</p>
+    </section>
+
+    <section id="status-servers" class="view">
+      <p>Servers</p>
+    </section>
+
+    <section id="status-pc-monitor" class="view">
+      <p>PC monitors</p>
+    </section>
+  </main>
+
+  <script>
+    const mainContent = document.getElementById('main-content');
+    const navMain = document.getElementById('nav-main');
+    const navStatus = document.getElementById('nav-status');
+    const navTools = document.getElementById('nav-tools');
+    const navAgents = document.getElementById('nav-agents');
+    const navAgentDetail = document.getElementById('nav-agent-detail');
+
+    let selectedAgentName = '';
+
+    // Leave empty to auto-use the current host/origin.
+    // Set this if you need to pin links to a specific public URL.
+    const WINDOWS_10_PUBLIC_URL = '';
+
+    function getWindows10BaseUrl() {
+      const configured = (typeof WINDOWS_10_PUBLIC_URL === 'string' ? WINDOWS_10_PUBLIC_URL.trim() : '');
+      if (configured) return configured.replace(/\/$/, '');
+      return window.location.origin.replace(/\/$/, '');
+    }
+
+    function applyInstructionLinks() {
+      const base = getWindows10BaseUrl();
+      const guide = `${base}/americanjewelry_live_upload_guide.html`;
+      const mgmt = `${base}/windows_10_dashboard_management.html`;
+      const guideEl = document.getElementById('instructions-guide-link');
+      const mgmtEl = document.getElementById('instructions-mgmt-link');
+      if (guideEl) { guideEl.href = guide; guideEl.textContent = guide; }
+      if (mgmtEl) { mgmtEl.href = mgmt; mgmtEl.textContent = mgmt; }
+    }
+
+    function clearActive(navEl, selector) {
+      if (!navEl) return;
+      navEl.querySelectorAll(selector).forEach(el => el.classList.remove('active'));
+    }
+
+    function safeActivateView(id, fallbackId = 'home') {
+      const next = document.getElementById(id) ? id : fallbackId;
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      const view = document.getElementById(next);
+      if (view) view.classList.add('active');
+      if (mainContent) mainContent.classList.toggle('fullbleed', next === 'scissari');
+    }
+
+    function safeSetActive(navEl, selector, target) {
+      if (!navEl || !target) return;
+      clearActive(navEl, selector);
+      target.classList.add('active');
+    }
+
+    function setAgentDetailContent(agentName) {
+      const name = (agentName || 'Agent').trim();
+      const titleEl = document.getElementById('agent-detail-title');
+      const homeEl = document.getElementById('agent-detail-home-text');
+      if (titleEl) titleEl.textContent = name;
+      if (homeEl) homeEl.textContent = `Choose a tab above to view ${name}'s data.`;
+    }
+
+    applyInstructionLinks();
+    setAgentDetailContent('Agent');
+
+    if (navMain && navStatus && navTools && navAgents && navAgentDetail) {
+      navMain.querySelectorAll('[data-nav="main"][data-target]').forEach(tab => {
+        tab.addEventListener('click', () => {
+          const target = tab.dataset.target;
+          if (!target) return;
+
+          if (target === 'status') {
+            navMain.classList.add('hidden');
+            navStatus.classList.remove('hidden');
+            const statusHome = navStatus.querySelector('[data-nav="status"][data-target="status-home"]');
+            if (statusHome) safeSetActive(navStatus, '[data-nav="status"][data-target]', statusHome);
+            safeActivateView('status-home');
+            return;
+          }
+
+          if (target === 'tool-management') {
+            navMain.classList.add('hidden');
+            navTools.classList.remove('hidden');
+            const toolsHome = navTools.querySelector('[data-nav="tools"][data-target="tools-home"]');
+            if (toolsHome) safeSetActive(navTools, '[data-nav="tools"][data-target]', toolsHome);
+            safeActivateView('tools-home');
+            return;
+          }
+
+          if (target === 'agent-management') {
+            navMain.classList.add('hidden');
+            navAgents.classList.remove('hidden');
+            AM.showAgentsHome();
+            return;
+          }
+
+          safeSetActive(navMain, '[data-nav="main"][data-target]', tab);
+          safeActivateView(target);
+        });
+      });
+
+      navStatus.querySelectorAll('[data-nav="status"][data-target]').forEach(tab => {
+        tab.addEventListener('click', () => {
+          safeSetActive(navStatus, '[data-nav="status"][data-target]', tab);
+          safeActivateView(tab.dataset.target);
+        });
+      });
+
+      navTools.querySelectorAll('[data-nav="tools"][data-target]').forEach(tab => {
+        tab.addEventListener('click', () => {
+          safeSetActive(navTools, '[data-nav="tools"][data-target]', tab);
+          safeActivateView(tab.dataset.target);
+        });
+      });
+
+      // Agent tabs are injected dynamically, so use event delegation.
+      navAgents.addEventListener('click', (e) => {
+        const tab = e.target.closest('.tab');
+        if (!tab || tab.id === 'btn-back-agents') return;
+
+        // "Agents" home tab — show the (re)loaded agent list
+        if (tab.dataset.target === 'agents-home') {
+          AM.showAgentsHome();
+          return;
+        }
+
+        // A specific agent tab — open its detail fanout
+        if (tab.dataset.agentId) {
+          safeSetActive(navAgents, '.tab', tab);
+          AM.openAgent(tab.dataset.agentId, tab.dataset.agentName || tab.textContent);
+        }
+      });
+
+      // Agent-detail tabs (Thoughts / Messages / Tool Calls / Tests).
+      navAgentDetail.addEventListener('click', (e) => {
+        const tab = e.target.closest('.tab');
+        if (!tab || tab.id === 'btn-back-agent-detail') return;
+        const target = tab.dataset.target;
+        if (!target) return;
+        safeSetActive(navAgentDetail, '[data-nav="agent-detail"][data-target]', tab);
+        safeActivateView(target);
+        AM.renderDetail(target);
+      });
+
+      const backTools = document.getElementById('btn-back-tools');
+      if (backTools) {
+        backTools.addEventListener('click', () => {
+          navTools.classList.add('hidden');
+          navMain.classList.remove('hidden');
+          const homeTab = navMain.querySelector('[data-nav="main"][data-target="home"]');
+          if (homeTab) safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
+          safeActivateView('home');
+        });
+      }
+
+      const backStatus = document.getElementById('btn-back');
+      if (backStatus) {
+        backStatus.addEventListener('click', () => {
+          navStatus.classList.add('hidden');
+          navMain.classList.remove('hidden');
+          const homeTab = navMain.querySelector('[data-nav="main"][data-target="home"]');
+          if (homeTab) safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
+          safeActivateView('home');
+        });
+      }
+
+      const backAgents = document.getElementById('btn-back-agents');
+      if (backAgents) {
+        backAgents.addEventListener('click', () => {
+          navAgents.classList.add('hidden');
+          navMain.classList.remove('hidden');
+          const homeTab = navMain.querySelector('[data-nav="main"][data-target="home"]');
+          if (homeTab) safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
+          safeActivateView('home');
+        });
+      }
+
+      const backAgentDetail = document.getElementById('btn-back-agent-detail');
+      if (backAgentDetail) {
+        backAgentDetail.addEventListener('click', () => {
+          AM.stopPoll();
+          navAgentDetail.classList.add('hidden');
+          navAgents.classList.remove('hidden');
+          AM.showAgentsHome();
+        });
+      }
+    }
+
+    /* =====================  Utilities  ===================== */
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    /* =====================  Agent Manager  ===================== */
+    // Maps an agent-detail view id to how its content is rendered.
+    const DETAIL_RENDERERS = {
+      'agent-detail-thoughts':   (am, id) => am.renderThoughts(id),
+      'agent-detail-messages':   (am, id) => am.renderLog(id, '/api/messages', 'messages'),
+      'agent-detail-tool-calls': (am, id) => am.renderLog(id, '/api/toolcalls', 'tool calls'),
+      'agent-detail-tests':      (am, id) => am.renderTest(id),
+    };
+
+    const AM = {
+      current: null,           // { id, name }
+      pollTimer: null,
+      agents: null,
+      served: location.protocol === 'http:' || location.protocol === 'https:',
+
+      stopPoll() { if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; } },
+
+      async fetchJSON(url, opts) {
+        const r = await fetch(url, opts);
+        if (!r.ok) {
+          let d = ''; try { d = (await r.json()).detail || ''; } catch (e) {}
+          throw new Error('HTTP ' + r.status + (d ? ' — ' + d.slice(0, 120) : ''));
+        }
+        return r.json();
+      },
+
+      // Show the agent-list landing in the sidebar and (re)load the agent tabs.
+      showAgentsHome() {
+        this.stopPoll();
+        navAgentDetail.classList.add('hidden');
+        navAgents.classList.remove('hidden');
+        const homeTab = navAgents.querySelector('[data-nav="agents"][data-target="agents-home"]');
+        if (homeTab) safeSetActive(navAgents, '.tab', homeTab);
+        safeActivateView('agents-home');
+        this.loadAgentTabs();
+      },
+
+      // Fetch agents and inject one sidebar tab per agent.
+      async loadAgentTabs() {
+        const status = document.getElementById('agents-home-status');
+        // Drop any previously-injected agent tabs.
+        navAgents.querySelectorAll('.agent-tab').forEach(t => t.remove());
+
+        if (!this.served) {
+          if (status) status.innerHTML = '<span class="am-warn" style="display:block">'
+            + 'This page is open as a <code>file://</code> document, which can\'t reach the Letta API. '
+            + 'Open the served version instead: <strong>http://100.80.49.10:8765/</strong> '
+            + '(over Tailscale) or <strong>http://localhost:8765/</strong> on this machine.<br>'
+            + 'Start it with: <code>python3 ~/dashboard_server.py</code></span>';
+          return;
+        }
+
+        if (status) status.textContent = 'Loading agents…';
+        try {
+          this.agents = await this.fetchJSON('/api/agents');
+        } catch (e) {
+          if (status) status.innerHTML = '<span class="am-warn" style="display:block">Failed to load agents: ' + esc(e.message) + '</span>';
+          return;
+        }
+
+        if (!this.agents.length) {
+          if (status) status.textContent = 'No agents found.';
+          return;
+        }
+
+        for (const a of this.agents) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'tab agent-tab';
+          btn.dataset.nav = 'agents';
+          btn.dataset.agentId = a.id;
+          btn.dataset.agentName = a.name;
+          btn.textContent = a.name;
+          navAgents.appendChild(btn);
+        }
+        if (status) status.innerHTML = 'Loaded <strong>' + this.agents.length
+          + '</strong> agent' + (this.agents.length === 1 ? '' : 's')
+          + '. Pick one from the left to view its Thoughts, Messages, Tool Calls, or run a Test.';
+      },
+
+      // Switch the sidebar to the per-agent detail fanout and show Thoughts first.
+      openAgent(id, name) {
+        this.current = { id, name };
+        this.stopPoll();
+        selectedAgentName = name;
+        setAgentDetailContent(name);
+
+        navAgents.classList.add('hidden');
+        navAgentDetail.classList.remove('hidden');
+
+        const thoughtsTab = navAgentDetail.querySelector('[data-nav="agent-detail"][data-target="agent-detail-thoughts"]');
+        if (thoughtsTab) safeSetActive(navAgentDetail, '[data-nav="agent-detail"][data-target]', thoughtsTab);
+        safeActivateView('agent-detail-thoughts');
+        this.renderDetail('agent-detail-thoughts');
+      },
+
+      // Render content for whichever agent-detail tab is active.
+      renderDetail(target) {
+        this.stopPoll();
+        if (!this.current) return;
+        if (target === 'agent-detail-home') { setAgentDetailContent(this.current.name); return; }
+        const fn = DETAIL_RENDERERS[target];
+        if (fn) fn(this, target);
+      },
+
+      consoleShell(containerId) {
+        const c = document.getElementById(containerId);
+        c.innerHTML = '<div class="msi-console" id="msi-' + containerId + '"><span class="msi-inner"></span>'
+          + '<span class="msi-cursor">&#9608;</span></div>';
+        const box = c.querySelector('.msi-console');
+        return { box, inner: box.querySelector('.msi-inner') };
+      },
+
+      async renderThoughts(containerId) {
+        const { box, inner } = this.consoleShell(containerId);
+        const agentId = this.current.id;
+        const seen = new Set();
+        let first = true;
+        const pull = async () => {
+          if (!this.current || this.current.id !== agentId) return;   // navigated away
+          let rows;
+          try { rows = await this.fetchJSON('/api/thoughts?agent=' + encodeURIComponent(agentId)); }
+          catch (e) { inner.insertAdjacentHTML('beforeend', '<div class="msi-line err">! ' + esc(e.message) + '</div>'); return; }
+          if (first && !rows.length) {
+            inner.insertAdjacentHTML('beforeend', '<div class="msi-entry dim">&mdash; no thoughts recorded for this agent yet &mdash;</div>');
+          }
+          for (const r of rows) {
+            const key = r.date + '|' + r.text.slice(0, 40);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const stamp = (r.date || '').replace('T', ' ').slice(0, 19);
+            const head = r.text.match(/^\*\*(.+?)\*\*\s*/);
+            let html;
+            if (head) {
+              html = '<span class="hdr">' + esc(head[1]) + '</span> '
+                + esc(r.text.slice(head[0].length).replace(/\*\*/g, ''));
+            } else {
+              html = esc(r.text.replace(/\*\*/g, ''));
+            }
+            inner.insertAdjacentHTML('beforeend',
+              '<div class="msi-entry"><span class="msi-stamp">[' + stamp + ']</span> ' + html + '</div>');
+            box.scrollTop = box.scrollHeight;
+            if (!first) await sleep(0); else await sleep(90);
+          }
+          first = false;
+        };
+        await pull();
+        this.pollTimer = setInterval(pull, 8000);
+      },
+
+      async renderLog(containerId, url, label) {
+        const { box, inner } = this.consoleShell(containerId);
+        try {
+          const rows = await this.fetchJSON(url + '?agent=' + encodeURIComponent(this.current.id));
+          if (!rows.length) { inner.innerHTML = '<div class="msi-entry dim">&mdash; no ' + label + ' recorded &mdash;</div>'; return; }
+          inner.innerHTML = rows.map(r => {
+            const stamp = (r.date || '').replace('T', ' ').slice(0, 19);
+            return '<div class="msi-entry"><span class="msi-stamp">[' + stamp + ']</span> '
+              + '<span class="hdr">' + esc((r.type || '').replace('_message', '')) + '</span> ' + esc(r.text) + '</div>';
+          }).join('');
+          box.scrollTop = box.scrollHeight;
+        } catch (e) { inner.innerHTML = '<div class="msi-line err">! ' + esc(e.message) + '</div>'; }
+      },
+
+      renderTest(containerId) {
+        const c = document.getElementById(containerId);
+        c.innerHTML =
+          '<p>Send a test message to <strong>' + esc(this.current.name) + '</strong>:</p>'
+          + '<textarea class="am-test-input" id="am-test-text">ping</textarea>'
+          + '<div style="margin-top:8px;"><button class="am-btn" id="am-test-send">Send</button></div>'
+          + '<div class="am-test-out" id="am-test-out"></div>';
+        document.getElementById('am-test-send').addEventListener('click', async () => {
+          const text = document.getElementById('am-test-text').value;
+          const out = document.getElementById('am-test-out');
+          out.innerHTML = '<div class="msi-console"><span class="msi-cursor">&#9608;</span> sending&hellip;</div>';
+          try {
+            const r = await this.fetchJSON('/api/test', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agent: this.current.id, text })
+            });
+            const replies = (r.replies || []);
+            out.innerHTML = '<div class="msi-console"><span id="ti"></span></div>';
+            const inner = out.querySelector('#ti');
+            inner.innerHTML = replies.length
+              ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
+              : '<div class="msi-entry dim">(no reply content)</div>';
+          } catch (e) { out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>'; }
+        });
+      },
+
+      // Deep-link helper: open an agent (and optional detail tab) by id.
+      async openById(id, view) {
+        navMain.classList.add('hidden');
+        navAgents.classList.remove('hidden');
+        if (!this.agents) { try { this.agents = await this.fetchJSON('/api/agents'); } catch (e) {} }
+        const a = (this.agents || []).find(x => x.id === id);
+        this.openAgent(id, a ? a.name : id);
+        const target = 'agent-detail-' + (view || 'thoughts');
+        const tab = navAgentDetail.querySelector('[data-nav="agent-detail"][data-target="' + target + '"]');
+        if (tab) {
+          safeSetActive(navAgentDetail, '[data-nav="agent-detail"][data-target]', tab);
+          safeActivateView(target);
+          this.renderDetail(target);
+        }
+      },
+    };
+
+    /* =====================  Deep-linking  =====================
+       ?agent=<id>&view=thoughts|messages|tool-calls|tests                       */
+    (function deepLink() {
+      const q = new URLSearchParams(location.search);
+      const agent = q.get('agent');
+      if (!agent) return;
+      AM.openById(agent, q.get('view') || 'thoughts');
+    })();
+  </script>
+</body>
+</html>
