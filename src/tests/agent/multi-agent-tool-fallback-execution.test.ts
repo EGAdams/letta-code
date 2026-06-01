@@ -8,7 +8,11 @@ const createMessageMock = mock(
   (_conversationId: string, body: { messages: Array<{ content: string }> }) => {
     const content = body.messages[0]?.content ?? "";
 
-    if (content.includes("Do not use any tools for this answer.")) {
+    if (
+      content.includes(
+        "If tools are necessary to answer correctly, you may use them.",
+      )
+    ) {
       return Promise.resolve({
         async *[Symbol.asyncIterator]() {
           yield {
@@ -81,7 +85,7 @@ describe("multi-agent tool fallback execution", () => {
     getClientMock.mockClear();
   });
 
-  test("retries with a no-tools plain-text reminder when first relay returns meta/non-actionable text", async () => {
+  test("retries with a plain-text direct-answer reminder when first relay returns meta/non-actionable text", async () => {
     const results = await executePendingMultiAgentToolCalls(
       [
         {
@@ -99,7 +103,7 @@ describe("multi-agent tool fallback execution", () => {
       messages: [
         {
           content: expect.stringContaining(
-            "Do not use any tools for this answer.",
+            "If tools are necessary to answer correctly, you may use them.",
           ),
         },
       ],
