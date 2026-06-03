@@ -23,8 +23,8 @@ letta-server DB             — provider row: name='chatgpt-plus-pro'
                               The server auto-refreshes using refresh_token
                               before each call (5-min buffer).
 ```
-
-The Letta server is at `http://100.80.49.10:8283` (direct to letta-server). The old letta-bridge nginx proxy on `18283` is down/retired as of 2026-05-29 — use `8283`.  
+ 
+The Letta server is at `http://100.80.49.10:8283`.  
 SSH to Docker host: `ssh 100.80.49.10`  
 Docker command prefix: `ssh 100.80.49.10 "docker exec letta-server python3 -c \"...\""  `
 

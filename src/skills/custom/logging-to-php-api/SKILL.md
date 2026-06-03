@@ -81,13 +81,10 @@ Never throw on log failure — logging must never crash the host object.
 
 ## After Hot-Patching the Container
 
-Deploying new logger files via `docker cp` + `docker restart letta-server` **breaks letta-bridge**,
-causing letta-code CLI to fail with "Connection reset by peer". Always run after every letta-server restart:
+After `docker cp` + `docker restart letta-server`, verify the server is back up:
 
 ```bash
-docker stop letta-bridge && docker rm letta-bridge
-docker compose -f /home/adamsl/letta-src/docker-compose.prod.yml up -d letta-bridge
-curl -s http://127.0.0.1:18283/v1/health/   # confirm {"status":"ok"}
+curl -s http://100.80.49.10:8283/v1/health/   # confirm {"status":"ok"}
 ```
 
 ## Adding a New Logged Object

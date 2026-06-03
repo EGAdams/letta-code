@@ -76,7 +76,17 @@ fi
 echo "[run-local-in-dir] repo: ${REPO_ROOT}"
 echo "[run-local-in-dir] cwd:  ${TARGET_DIR}"
 echo "[run-local-in-dir] server: ${LETTA_BASE_URL}"
-echo "[run-local-in-dir] exec: ${LETTA_BIN} $*"
+
+# Prepend --agent if LETTA_AGENT_ID is set and not already passed.
+AGENT_ARGS=()
+if [[ -n "${LETTA_AGENT_ID:-}" ]]; then
+  # Only prepend if caller didn't already pass --agent.
+  if [[ "$*" != *"--agent"* ]]; then
+    AGENT_ARGS=(--agent "${LETTA_AGENT_ID}")
+  fi
+fi
+
+echo "[run-local-in-dir] exec: ${LETTA_BIN} ${AGENT_ARGS[*]} $*"
 
 cd "${TARGET_DIR}"
-exec "${LETTA_BIN}" "$@"
+exec "${LETTA_BIN}" "${AGENT_ARGS[@]}" "$@"

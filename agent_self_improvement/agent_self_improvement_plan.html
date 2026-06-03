@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Self-Improvement System — Flexible GoF Design Review</title>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" />
+  <style>
+    :root {
+      --bg: #0f172a;
+      --bg2: #172554;
+      --card: #ffffff;
+      --ink: #111827;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --soft: #f8fafc;
+      --blue: #2563eb;
+      --green: #16a34a;
+      --orange: #b45309;
+      --red: #dc2626;
+      --purple: #7c3aed;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: #eef2f7;
+      line-height: 1.55;
+    }
+    .hero {
+      color: #fff;
+      background: linear-gradient(135deg, #020617 0%, #172554 54%, #2563eb 100%);
+      padding: 48px 32px 38px;
+    }
+    .hero-inner, .page { max-width: 1240px; margin: 0 auto; }
+    .eyebrow { text-transform: uppercase; letter-spacing: .11em; font-size: 12px; opacity: .86; font-weight: 700; }
+    h1 { margin: 10px 0 12px; font-size: 42px; line-height: 1.1; }
+    .subtitle { max-width: 960px; font-size: 18px; opacity: .93; }
+    .badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+    .badge { border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.12); padding: 8px 11px; border-radius: 999px; font-size: 13px; }
+    .page { padding: 28px 24px 54px; }
+    .section { background: var(--card); border: 1px solid var(--line); border-radius: 18px; margin: 18px 0; padding: 24px; box-shadow: 0 12px 30px rgba(15, 23, 42, .08); }
+    h2 { margin: 0 0 14px; font-size: 26px; color: #0f172a; }
+    h3 { margin: 18px 0 8px; font-size: 19px; color: #1e293b; }
+    h4 { margin: 16px 0 6px; font-size: 16px; color: #334155; }
+    p { margin: 9px 0; }
+    ul { margin-top: 8px; }
+    li { margin: 5px 0; }
+    .callout { border-left: 5px solid var(--blue); background: #eff6ff; padding: 14px 16px; border-radius: 12px; }
+    .warning { border-left-color: var(--orange); background: #fffbeb; }
+    .success { border-left-color: var(--green); background: #f0fdf4; }
+    .danger { border-left-color: var(--red); background: #fef2f2; }
+    .grid { display: grid; gap: 14px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: #fff; }
+    .card.soft { background: var(--soft); }
+    .card h3, .card h4 { margin-top: 0; }
+    .tag { display: inline-block; border-radius: 999px; background: #dbeafe; color: #1e40af; padding: 3px 8px; margin: 2px; font-size: 12px; font-weight: 700; }
+    .tag.green { background:#dcfce7; color:#166534; }
+    .tag.orange { background:#ffedd5; color:#9a3412; }
+    .tag.purple { background:#ede9fe; color:#5b21b6; }
+    .tag.red { background:#fee2e2; color:#991b1b; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+    th, td { text-align: left; vertical-align: top; border: 1px solid var(--line); padding: 10px; }
+    th { background: #f1f5f9; color: #0f172a; }
+    tr:nth-child(even) td { background: #fbfdff; }
+    .phase-title { display: flex; gap: 10px; align-items: center; }
+    .number { display: inline-grid; place-items: center; min-width: 34px; height: 34px; border-radius: 50%; color: #fff; background: var(--blue); font-weight: 800; }
+    .mini { font-size: 13px; color: var(--muted); }
+    .diagram { background: #0b1220; color: #dbeafe; border-radius: 14px; padding: 16px; overflow-x:auto; border: 1px solid #334155; }
+    .diagram code { color: #e0f2fe; }
+    pre { border-radius: 14px; overflow-x: auto; }
+    code { font-family: Consolas, 'Courier New', monospace; }
+    .toc a { color: #1d4ed8; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    .pill-row { display:flex; flex-wrap:wrap; gap:8px; }
+    .factory-family { border-left: 5px solid var(--purple); }
+    @media (max-width: 900px) { .grid.two, .grid.three { grid-template-columns: 1fr; } h1 { font-size: 32px; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">Design Review Package · GoF / SOLID / TDD</div>
+      <h1>Agent Self-Improvement System</h1>
+      <p class="subtitle">A flexible, interface-first architecture for improving the agent wrapper around cheap LLMs: system messages, prompts, tools, workflows, context, evaluations, memory, and rollback-safe improvement proposals.</p>
+      <div class="badges">
+        <span class="badge">Program to Interfaces</span>
+        <span class="badge">Abstract Factories</span>
+        <span class="badge">Small Testable Objects</span>
+        <span class="badge">TDD First</span>
+        <span class="badge">No Pioneer Dependency</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="section toc">
+      <h2>Review Map</h2>
+      <div class="grid three">
+        <div class="card soft"><a href="#big-change"><strong>1. Big Design Change</strong></a><br><span class="mini">Split into factory-created families.</span></div>
+        <div class="card soft"><a href="#factory-families"><strong>2. Abstract Factory Families</strong></a><br><span class="mini">Swappable object families.</span></div>
+        <div class="card soft"><a href="#phases"><strong>3. Finer Implementation Phases</strong></a><br><span class="mini">Small reviewable steps.</span></div>
+        <div class="card soft"><a href="#interfaces"><strong>4. Interface Catalog</strong></a><br><span class="mini">Responsibilities only, not implementations.</span></div>
+        <div class="card soft"><a href="#tdd"><strong>5. First Failing Tests</strong></a><br><span class="mini">Phase 00 and Phase 01 tests.</span></div>
+        <div class="card soft"><a href="#sequence"><strong>6. Improvement Flow</strong></a><br><span class="mini">How a proposed improvement moves safely.</span></div>
+      </div>
+    </section>
+
+    <section class="section" id="big-change">
+      <h2>1. Big Design Change: Make the System More Flexible</h2>
+      <div class="callout">
+        <strong>Recommendation:</strong> Break the design into smaller interface groups and create compatible object families with Abstract Factories. The core agent should not know whether it is using SQLite or Postgres, Gemini Flash Lite or another cheap LLM, local files or a memory database, pytest or another evaluator, or one workflow engine versus another.
+      </div>
+      <div class="grid two" style="margin-top:14px;">
+        <div class="card">
+          <h3>Before</h3>
+          <p>A single design phase tried to cover storage, prompts, LLM calls, tools, memory, workflow, evaluation, and reports together.</p>
+          <p><strong>Risk:</strong> too much coupling and too many reasons to change.</p>
+        </div>
+        <div class="card">
+          <h3>After</h3>
+          <p>Each subsystem has interfaces, contracts, tests, and a factory. The core system receives a family of compatible objects.</p>
+          <p><strong>Benefit:</strong> we can swap whole subsystems without changing the agent kernel.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="factory-families">
+      <h2>2. Abstract Factory Families</h2>
+      <p>The Abstract Factory pattern gives us a way to create related objects without binding the core system to concrete classes.</p>
+      <div class="diagram"><pre><code>AgentKernel
+  └── uses AgentRuntimeFamily
+        ├── PersistenceFactory
+        ├── LlmFactory
+        ├── PromptFactory
+        ├── ToolFactory
+        ├── ContextFactory
+        ├── WorkflowFactory
+        ├── EvaluationFactory
+        ├── ImprovementFactory
+        └── ReportingFactory</code></pre></div>
+
+      <div class="grid three" style="margin-top:16px;">
+        <div class="card factory-family">
+          <h3>PersistenceFactory</h3>
+          <p>Creates repositories, unit-of-work objects, schema managers, and migration runners.</p>
+          <span class="tag purple">Abstract Factory</span><span class="tag">Repository</span><span class="tag">Unit of Work</span>
+        </div>
+        <div class="card factory-family">
+          <h3>LlmFactory</h3>
+          <p>Creates cheap LLM clients, retry decorators, token counters, budget guards, and response parsers.</p>
+          <span class="tag purple">Abstract Factory</span><span class="tag">Adapter</span><span class="tag">Decorator</span>
+        </div>
+        <div class="card factory-family">
+          <h3>PromptFactory</h3>
+          <p>Creates system-message builders, prompt composers, templates, validators, and version diff tools.</p>
+          <span class="tag purple">Abstract Factory</span><span class="tag">Builder</span><span class="tag">Strategy</span>
+        </div>
+        <div class="card factory-family">
+          <h3>ToolFactory</h3>
+          <p>Creates tool registries, tool adapters, permission policies, command wrappers, and audit loggers.</p>
+          <span class="tag purple">Abstract Factory</span><span class="tag">Command</span><span class="tag">Adapter</span>
+        </div>
+        <div class="card factory-family">
+          <h3>ContextFactory</h3>
+          <p>Creates context selectors, memory readers, memory writers, note managers, and summarizers.</p>
+          <span class="tag purple">Abstract Factory</span><span class="tag">Strategy</span><span class="tag">Memento</span>
+        </div>
+        <div class="card factory-family">
+          <h3>EvaluationFactory</h3>
+          <p>Creates evaluators, verdict policies, scoring rules, regression checks, and safety gates.</p>
+          <span class="tag purple">Abstract Factory</span><span class="tag">Chain of Responsibility</span><span class="tag">Strategy</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="phases">
+      <h2>3. Finer Implementation Phases</h2>
+      <p>These phases are intentionally small so the team can review interfaces before implementation. Each phase starts with failing tests.</p>
+      <table>
+        <thead>
+          <tr><th>Phase</th><th>Goal</th><th>Interfaces / Classes</th><th>Tests to Write First</th><th>What Fails First</th><th>Done Means</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>00</strong><br>Vocabulary + IDs</td>
+            <td>Define common terms, IDs, and immutable value objects.</td>
+            <td>AgentId, RunId, VersionId, PromptId, ToolId, EvaluationId, ImprovementId</td>
+            <td>IDs are stable, printable, comparable, and cannot be empty.</td>
+            <td>Value object constructors not implemented.</td>
+            <td>Every subsystem can share IDs without using raw strings everywhere.</td>
+          </tr>
+          <tr>
+            <td><strong>01</strong><br>Database Contracts</td>
+            <td>Design the storage schema and repository contracts.</td>
+            <td>ISchemaManager, IRunRepository, IPromptVersionRepository, IToolVersionRepository, IEvaluationRepository, IImprovementRepository</td>
+            <td>Schema creates required tables; repositories save and retrieve versions; unit of work commits/rolls back.</td>
+            <td>NotImplementedError from schema manager and repositories.</td>
+            <td>Tests describe the storage contract independent of SQLite/Postgres.</td>
+          </tr>
+          <tr>
+            <td><strong>02</strong><br>Factory Contracts</td>
+            <td>Create Abstract Factory interfaces for all object families.</td>
+            <td>IAgentRuntimeFamilyFactory, IPersistenceFactory, ILlmFactory, IPromptFactory, IToolFactory, IContextFactory, IWorkflowFactory, IEvaluationFactory</td>
+            <td>Factory creates a complete family; family validates compatibility; missing factories fail fast.</td>
+            <td>Factory methods raise NotImplementedError.</td>
+            <td>AgentKernel depends only on factory interfaces.</td>
+          </tr>
+          <tr>
+            <td><strong>03</strong><br>Composition Root</td>
+            <td>Centralize object construction and dependency injection.</td>
+            <td>CompositionRoot, RuntimeProfile, RuntimeFamilyValidator</td>
+            <td>Given a runtime profile, CompositionRoot builds AgentKernel with all required ports.</td>
+            <td>build_kernel() raises NotImplementedError.</td>
+            <td>Only CompositionRoot knows concrete classes.</td>
+          </tr>
+          <tr>
+            <td><strong>04</strong><br>LLM Engine Port</td>
+            <td>Hide cheap LLM vendors behind an interface.</td>
+            <td>ILlmClient, ILlmRequest, ILlmResponse, ITokenCounter, IBudgetGuard, IResponseParser</td>
+            <td>LLM request includes model, messages, tools, budget, trace ID; response captures tokens and raw text.</td>
+            <td>Concrete Gemini/OpenAI/local adapters not implemented.</td>
+            <td>Core can swap LLM providers with no workflow changes.</td>
+          </tr>
+          <tr>
+            <td><strong>05</strong><br>Prompt + System Message Versioning</td>
+            <td>Make prompts and system messages versioned, testable artifacts.</td>
+            <td>ISystemMessageBuilder, IPromptComposer, IPromptTemplateRepository, IPromptValidator, IPromptDiff</td>
+            <td>Prompt version includes parent version, rationale, author, diff, and active/inactive state.</td>
+            <td>Prompt builder and repository methods not implemented.</td>
+            <td>Every prompt/system-message change is traceable and reversible.</td>
+          </tr>
+          <tr>
+            <td><strong>06</strong><br>Tool Contract Layer</td>
+            <td>Make tools swappable and permissioned.</td>
+            <td>ITool, IToolRegistry, IToolAdapter, IToolPermissionPolicy, IToolExecutionLogger</td>
+            <td>Tool calls are validated before execution; denied tools never run; all calls are logged.</td>
+            <td>Tool registry and permission policy methods not implemented.</td>
+            <td>Agent can use different tool sets safely.</td>
+          </tr>
+          <tr>
+            <td><strong>07</strong><br>Context Selection</td>
+            <td>Control which memory, notes, files, and examples enter the prompt.</td>
+            <td>IContextSelector, IContextBudgeter, IMemoryReader, INoteReader, IContextPackBuilder</td>
+            <td>Selector respects token budget and ranking policy; context pack is reproducible.</td>
+            <td>Context selectors raise NotImplementedError.</td>
+            <td>Context usage can be improved without touching LLM code.</td>
+          </tr>
+          <tr>
+            <td><strong>08</strong><br>Workflow Skeletons</td>
+            <td>Define workflows as testable templates.</td>
+            <td>IWorkflow, WorkflowTemplate, Step, StepResult, IWorkflowRunner</td>
+            <td>Runner executes steps in order; failed step stops or branches according to policy.</td>
+            <td>WorkflowTemplate.run() not implemented.</td>
+            <td>Different workflows can be swapped by Strategy/Template Method.</td>
+          </tr>
+          <tr>
+            <td><strong>09</strong><br>Evaluation Layer</td>
+            <td>Measure output quality and regressions.</td>
+            <td>IEvaluator, ITestSuiteRunner, IGoldenCaseRepository, IScoreCard, IRegressionDetector</td>
+            <td>Evaluator produces structured scorecards; regression detector compares against baseline.</td>
+            <td>Evaluator returns NotImplementedError.</td>
+            <td>Every change can be judged against evidence.</td>
+          </tr>
+          <tr>
+            <td><strong>10</strong><br>Verdict + Gates</td>
+            <td>Approve or reject changes using explicit rules.</td>
+            <td>IVerdictPolicy, IGate, GateChain, SafetyGate, CostGate, RegressionGate</td>
+            <td>Gate chain stops on hard failure; verdict explains reasons.</td>
+            <td>Gate chain methods not implemented.</td>
+            <td>No improvement can activate without passing gates.</td>
+          </tr>
+          <tr>
+            <td><strong>11</strong><br>Improvement Proposals</td>
+            <td>Represent proposed changes as first-class objects.</td>
+            <td>IImprovementProposal, IProposalGenerator, IProposalRepository, IChangeSet, IRationale</td>
+            <td>Proposal includes target artifact, change type, expected benefit, risk, tests required.</td>
+            <td>Proposal generator not implemented.</td>
+            <td>Proposed wrapper improvements are reviewable before activation.</td>
+          </tr>
+          <tr>
+            <td><strong>12</strong><br>Experiment Runner</td>
+            <td>Run baseline vs candidate comparisons.</td>
+            <td>IExperimentRunner, ABRunConfig, BaselineRun, CandidateRun, ExperimentResult</td>
+            <td>Same inputs run against baseline and candidate; results are comparable.</td>
+            <td>Experiment runner not implemented.</td>
+            <td>We can prove a wrapper change improved behavior before activation.</td>
+          </tr>
+          <tr>
+            <td><strong>13</strong><br>Activation + Rollback</td>
+            <td>Safely activate approved changes and roll back bad ones.</td>
+            <td>IActivationService, IRollbackService, ISnapshotStore, ActiveVersionRegistry</td>
+            <td>Activation creates snapshot; rollback restores previous active versions.</td>
+            <td>Snapshot and rollback services not implemented.</td>
+            <td>No change is permanent without a recoverable previous version.</td>
+          </tr>
+          <tr>
+            <td><strong>14</strong><br>Memory + Notes Improvement</td>
+            <td>Improve agent memory/notes over time without poisoning context.</td>
+            <td>IMemoryWriter, INoteWriter, IMemoryPolicy, INotePolicy, IStalenessDetector</td>
+            <td>Memory changes require source, reason, and expiration/staleness policy.</td>
+            <td>Policies not implemented.</td>
+            <td>Memory improves usefulness without becoming junk drawer context.</td>
+          </tr>
+          <tr>
+            <td><strong>15</strong><br>Plugin Registry</td>
+            <td>Allow new implementations without editing the kernel.</td>
+            <td>IPluginRegistry, IRuntimeProfileRepository, IFactoryResolver</td>
+            <td>Registry resolves factories by profile; unknown profile fails with useful error.</td>
+            <td>Factory resolver not implemented.</td>
+            <td>New vendors/backends/workflows can be added as plugins.</td>
+          </tr>
+          <tr>
+            <td><strong>16</strong><br>Reports + Review UI</td>
+            <td>Present decisions, experiments, and active versions clearly.</td>
+            <td>IReportBuilder, IDesignReviewPageBuilder, IRunReportRepository</td>
+            <td>Report includes baseline, candidate, verdict, approved changes, rollback info.</td>
+            <td>Report builders not implemented.</td>
+            <td>Team can review system behavior without reading raw logs.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section" id="interfaces">
+      <h2>4. Proposed Interfaces and Responsibilities</h2>
+      <div class="grid two">
+        <div class="card">
+          <h3>Kernel Interfaces</h3>
+          <ul>
+            <li><strong>IAgentKernel</strong> — runs one task using injected subsystems.</li>
+            <li><strong>IAgentRuntimeFamily</strong> — bundle of compatible factories.</li>
+            <li><strong>ICompositionRoot</strong> — builds the concrete runtime from a profile.</li>
+            <li><strong>IRuntimeProfile</strong> — describes selected DB, LLM, workflow, tool, context, and evaluation family.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Persistence Interfaces</h3>
+          <ul>
+            <li><strong>ISchemaManager</strong> — creates and migrates required tables.</li>
+            <li><strong>IUnitOfWork</strong> — commits or rolls back repository changes.</li>
+            <li><strong>IRunRepository</strong> — stores agent run records and trace IDs.</li>
+            <li><strong>IVersionRepository</strong> — stores prompt, system-message, workflow, and tool versions.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>LLM Interfaces</h3>
+          <ul>
+            <li><strong>ILlmClient</strong> — sends a vendor-neutral LLM request.</li>
+            <li><strong>ILlmRequestBuilder</strong> — builds messages, tools, model, and budget.</li>
+            <li><strong>ITokenCounter</strong> — estimates or records token usage.</li>
+            <li><strong>IBudgetGuard</strong> — blocks requests that exceed configured cost limits.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Prompt Interfaces</h3>
+          <ul>
+            <li><strong>ISystemMessageBuilder</strong> — creates versioned system messages.</li>
+            <li><strong>IPromptComposer</strong> — combines task, context, tools, examples, and rules.</li>
+            <li><strong>IPromptValidator</strong> — checks required sections and forbidden content.</li>
+            <li><strong>IPromptDiff</strong> — explains differences between prompt versions.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Tool Interfaces</h3>
+          <ul>
+            <li><strong>ITool</strong> — one executable tool contract.</li>
+            <li><strong>IToolRegistry</strong> — lists and resolves available tools.</li>
+            <li><strong>IToolPermissionPolicy</strong> — approves or denies tool execution.</li>
+            <li><strong>IToolExecutionLogger</strong> — records request, result, and error.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Context + Memory Interfaces</h3>
+          <ul>
+            <li><strong>IContextSelector</strong> — chooses relevant memory, notes, examples, and files.</li>
+            <li><strong>IContextBudgeter</strong> — enforces token budget.</li>
+            <li><strong>IMemoryReader / IMemoryWriter</strong> — reads and writes long-lived memory.</li>
+            <li><strong>IStalenessDetector</strong> — finds old or risky context.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Evaluation Interfaces</h3>
+          <ul>
+            <li><strong>IEvaluator</strong> — scores a run or output.</li>
+            <li><strong>ITestSuiteRunner</strong> — runs unit/golden/regression tests.</li>
+            <li><strong>IVerdictPolicy</strong> — converts evidence into approve/reject/manual-review.</li>
+            <li><strong>IGate</strong> — one rule in the approval chain.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Improvement Interfaces</h3>
+          <ul>
+            <li><strong>IProposalGenerator</strong> — proposes wrapper improvements.</li>
+            <li><strong>IChangeSet</strong> — describes exact changes to prompts/tools/workflows/context.</li>
+            <li><strong>IExperimentRunner</strong> — compares baseline against candidate.</li>
+            <li><strong>IActivationService / IRollbackService</strong> — activates or restores versions.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>5. GoF Pattern Map</h2>
+      <table>
+        <thead><tr><th>Pattern</th><th>Where It Fits</th><th>Why We Use It</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Abstract Factory</strong></td><td>Runtime families: persistence, LLM, prompts, tools, context, workflow, evaluation.</td><td>Swap compatible object families without changing AgentKernel.</td></tr>
+          <tr><td><strong>Strategy</strong></td><td>Context selection, LLM choice, evaluation rules, improvement mutation methods.</td><td>Change algorithms independently.</td></tr>
+          <tr><td><strong>Adapter</strong></td><td>Gemini/OpenAI/local LLM clients, Letta-style agents, tool APIs.</td><td>Convert external APIs into our internal ports.</td></tr>
+          <tr><td><strong>Decorator</strong></td><td>LLM logging, retry, cost tracking, cache, rate-limit wrappers.</td><td>Add behavior without subclass explosions.</td></tr>
+          <tr><td><strong>Command</strong></td><td>Tool calls, proposed changes, activation, rollback.</td><td>Represent actions as objects that can be logged, replayed, approved, or rejected.</td></tr>
+          <tr><td><strong>Chain of Responsibility</strong></td><td>Safety gate, cost gate, regression gate, human-review gate.</td><td>Stop unsafe changes early and explain why.</td></tr>
+          <tr><td><strong>Template Method</strong></td><td>Workflow skeletons.</td><td>Keep the workflow shape stable while allowing steps to vary.</td></tr>
+          <tr><td><strong>Memento</strong></td><td>Snapshots before activation.</td><td>Rollback to previous active versions.</td></tr>
+          <tr><td><strong>Observer</strong></td><td>Run events, evaluation events, report updates.</td><td>Allow logging/reporting without coupling to execution.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section" id="tdd">
+      <h2>6. First Failing Unit Tests</h2>
+      <p>The first tests should fail by design. They document the contract before implementation.</p>
+      <div class="callout warning">
+        <strong>Important:</strong> These are not tests that assert <code>NotImplementedError</code>. They call the future behavior directly, so pytest fails until the implementation exists.
+      </div>
+
+      <h3>Phase 00 / 02 Factory Contract Test Example</h3>
+      <pre><code class="language-python">def test_runtime_family_factory_creates_complete_family():
+    factory = NotImplementedRuntimeFamilyFactory()
+
+    family = factory.create_runtime_family("sqlite_gemini_flash_lite_default")
+
+    assert family.persistence_factory is not None
+    assert family.llm_factory is not None
+    assert family.prompt_factory is not None
+    assert family.tool_factory is not None
+    assert family.context_factory is not None
+    assert family.workflow_factory is not None
+    assert family.evaluation_factory is not None
+    assert family.improvement_factory is not None</code></pre>
+
+      <h3>Phase 01 Database Contract Test Example</h3>
+      <pre><code class="language-python">def test_schema_manager_creates_core_tables():
+    schema_manager = NotImplementedSchemaManager()
+
+    schema_manager.create_schema()
+
+    assert schema_manager.has_table("agent_runs")
+    assert schema_manager.has_table("prompt_versions")
+    assert schema_manager.has_table("system_message_versions")
+    assert schema_manager.has_table("tool_versions")
+    assert schema_manager.has_table("workflow_versions")
+    assert schema_manager.has_table("evaluations")
+    assert schema_manager.has_table("improvement_proposals")
+    assert schema_manager.has_table("activation_snapshots")</code></pre>
+    </section>
+
+    <section class="section" id="sequence">
+      <h2>7. Safe Self-Improvement Flow</h2>
+      <p>The system does not let the LLM rewrite itself directly. It proposes changes, tests them, gates them, activates them, and keeps rollback snapshots.</p>
+      <div class="diagram"><pre><code>User / Schedule
+  → AgentKernel runs task
+  → RunRepository stores trace
+  → Evaluator scores result
+  → ProposalGenerator suggests wrapper improvement
+  → ExperimentRunner compares baseline vs candidate
+  → GateChain checks safety, cost, regression, usefulness
+  → VerdictPolicy approves / rejects / sends to manual review
+  → ActivationService activates approved version
+  → SnapshotStore keeps rollback point
+  → ReportingService creates team review report</code></pre></div>
+    </section>
+
+    <section class="section">
+      <h2>8. Suggested Package Layout</h2>
+      <pre><code class="language-bash">agent_self_improvement/
+  core/
+    kernel.py
+    composition_root.py
+    runtime_profile.py
+  contracts/
+    ids.py
+    factories.py
+    persistence.py
+    llm.py
+    prompts.py
+    tools.py
+    context.py
+    workflow.py
+    evaluation.py
+    improvement.py
+    reporting.py
+  implementations/
+    sqlite_persistence/
+    gemini_flash_lite_llm/
+    default_prompting/
+    local_tools/
+    pytest_evaluation/
+  tests/
+    test_phase_00_value_objects.py
+    test_phase_00_factory_contracts.py
+    test_phase_01_database_contracts.py
+    test_phase_02_composition_root.py</code></pre>
+    </section>
+
+    <section class="section">
+      <h2>9. Design Review Decision Points</h2>
+      <div class="grid two">
+        <div class="card success">
+          <h3>Approve Now</h3>
+          <ul>
+            <li>Use Abstract Factory families.</li>
+            <li>Keep AgentKernel free of concrete implementations.</li>
+            <li>Start with failing tests for value objects, factories, and database contracts.</li>
+            <li>Record every run, change, evaluation, verdict, activation, and rollback.</li>
+          </ul>
+        </div>
+        <div class="card danger">
+          <h3>Do Not Implement Yet</h3>
+          <ul>
+            <li>Do not wire real LLM calls yet.</li>
+            <li>Do not build recursive automatic activation yet.</li>
+            <li>Do not let proposed changes become active without gates.</li>
+            <li>Do not hard-code SQLite, Gemini, or any one tool system into the core.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+</body>
+</html>
