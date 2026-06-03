@@ -10,8 +10,16 @@ description: "Debugs Letta Code memfs failures on self-hosted servers, especiall
 Use this first for base self-hosted URL setups:
 
 ```text
-/memfs enable --selfhosted http://100.80.49.10:8283
+/memfs enable --selfhosted http://100.80.49.10:18283
 ```
+
+> **Note**: Port 18283 is the nginx proxy that routes `/v1/git/…` to the
+> letta-memfs container. Port 8283 is uvicorn (API only) and returns 500 for
+> git requests. Use 18283 for memfs.
+>
+> `LETTA_GIT_BASE_URL=http://100.80.49.10:18283` in `~/.letta/settings.json`
+> env is the recommended approach — it lets the API stay on 8283 while git
+> uses 18283, without changing `LETTA_BASE_URL`.
 
 ## Symptoms This Skill Covers
 
@@ -26,9 +34,9 @@ Use this first for base self-hosted URL setups:
    ```text
    /memfs disable
    ```
-3. Re-enable with self-hosted base URL:
+3. Re-enable with self-hosted base URL (use the nginx port, not uvicorn):
    ```text
-   /memfs enable --selfhosted http://100.80.49.10:8283
+   /memfs enable --selfhosted http://100.80.49.10:18283
    ```
 4. Confirm:
    ```text

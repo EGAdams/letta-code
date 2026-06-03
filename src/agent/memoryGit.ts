@@ -63,6 +63,21 @@ function isSshRemote(remoteUrl?: string): boolean {
   return /^[^@]+@[^:]+:/.test(remoteUrl);
 }
 
+/**
+ * Get the base URL to use for git/memfs operations.
+ *
+ * On self-hosted setups the git HTTP endpoint is often served on a different
+ * port than the Letta API (e.g. nginx on :18283 routes /v1/git/… to the
+ * letta-memfs container, while the API lives on :8283 directly).  Set
+ * LETTA_GIT_BASE_URL to override just the git base without touching
+ * LETTA_BASE_URL for regular API calls.
+ */
+export function getGitServerUrl(): string {
+  return (process.env.LETTA_GIT_BASE_URL || getServerUrl())
+    .trim()
+    .replace(/\/+$/, "");
+}
+
 /** Git remote URL for the agent's state repo */
 export function getGitRemoteUrl(
   agentId: string,
@@ -71,8 +86,7 @@ export function getGitRemoteUrl(
   if (remoteOverride) {
     const override = remoteOverride.trim();
     if (!override) {
-      const baseUrl = getServerUrl().trim().replace(/\/+$/, "");
-      return `${baseUrl}/v1/git/${agentId}/state.git`;
+      return `${getGitServerUrl()}/v1/git/${agentId}/state.git`;
     }
 
     // SSH remotes are already complete remote URLs.
@@ -97,8 +111,7 @@ export function getGitRemoteUrl(
     return override;
   }
 
-  const baseUrl = getServerUrl().trim().replace(/\/+$/, "");
-  return `${baseUrl}/v1/git/${agentId}/state.git`;
+  return `${getGitServerUrl()}/v1/git/${agentId}/state.git`;
 }
 
 async function ensureRemote(dir: string, remoteUrl: string): Promise<void> {
@@ -172,7 +185,7 @@ async function configureLocalCredentialHelper(
   dir: string,
   token: string,
 ): Promise<void> {
-  const rawBaseUrl = getServerUrl();
+  const rawBaseUrl = process.env.LETTA_GIT_BASE_URL || getServerUrl();
   const normalizedBaseUrl = normalizeCredentialBaseUrl(rawBaseUrl);
   const helper = `!f() { echo "username=letta"; echo "password=${token}"; }; f`;
 
