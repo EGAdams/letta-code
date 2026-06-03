@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 (cd "${REPO_ROOT}" && bun run build)
 LETTA_BIN="${REPO_ROOT}/letta.js"
-DEFAULT_SERVER_URL="http://127.0.0.1:18283"
+DEFAULT_SERVER_URL="http://100.80.49.10:8283"
 
 if [[ ! -f "${LETTA_BIN}" ]]; then
   echo "Error: local Letta binary not found: ${LETTA_BIN}" >&2

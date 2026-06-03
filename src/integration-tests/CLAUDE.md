@@ -29,8 +29,9 @@ bun run dev --new-agent -m gpt-5.4-mini-plus-pro-medium -p "Say OK" --output-for
 | Variable | Required | Description |
 |---|---|---|
 | `LETTA_API_KEY` | Yes | Authenticates with the Letta API |
-| `LETTA_BASE_URL` | No | Defaults to `http://100.80.49.10:8283` in Scissari tests |
+| `LETTA_BASE_URL` | No | Defaults to `http://100.80.49.10:8283` in agent tests |
 | `LETTA_RUN_SCISSARI_TEST` | No | Set to `1` to enable Scissari agent tests |
+| `LETTA_RUN_FRITA_TEST` | No | Set to `1` to enable Frita agent tests |
 | `SCISSARI_TELEGRAM_BOT_TOKEN` | No | Telegram bot token for Scissari bridge test (falls back to `TELEGRAM_TOKEN`) |
 | `SCISSARI_TELEGRAM_CHAT_ID` | No | Telegram chat ID used by Scissari bridge test |
 | `LETTA_LOGGER_RESET_API` | No | Override logger reset API (default: `http://localhost:8080/php-api`) |
@@ -40,6 +41,36 @@ bun run dev --new-agent -m gpt-5.4-mini-plus-pro-medium -p "Say OK" --output-for
 | `LETTA_LOGGER_RESET_CONCURRENCY` | No | Parallel resets per batch (default: 4) |
 
 Tests automatically set `LETTA_CODE_AGENT_ROLE=subagent` when spawning subprocesses to prevent polluting user LRU agent settings.
+
+## Test Framework (`framework/`)
+
+All agent-specific tests are built on a shared framework under `framework/`. Add a new agent in 5 steps:
+1. Create `framework/agents/MyAgent.ts` implementing `IAgentUnderTest`
+2. Create test files using `new AgentTestContext(MyAgent)`
+3. Add logger IDs to `logger-helpers.ts`
+
+### Interfaces (GoF patterns)
+| File | Pattern | Purpose |
+|---|---|---|
+| `IAgentUnderTest.ts` | Abstract Factory | Agent identity, credentials, tool requirements |
+| `ICliRunner.ts` | Strategy | One interface, four concrete invocation strategies |
+| `IStreamEventParser.ts` | Strategy | Wire-format envelope abstraction (Letta vs future agents) |
+| `ITestLogger.ts` | Null Object | Tests call `log()` unconditionally; `NullTestLogger` absorbs when remote API is down |
+| `AgentTestContext.ts` | Factory / Facade | Wires agent config into all test utilities; exposes `maybeTest`, `createStreamRunner()`, etc. |
+
+### Concrete runners
+| Class | CLI flags | Use case |
+|---|---|---|
+| `StreamJsonRunner` | `--output-format stream-json` | Most tests — resolves on `{type:"result"}` |
+| `JsonOutputRunner` | `--output-format json` | `scissari-agent` / `frita-agent` basic tests |
+| `BidirectionalRunner` | `--input-format stream-json --output-format stream-json` | Tool approval tests; auto-approves all tools |
+| `StarvationRunner` | `--output-format stream-json` + inactivity timers | Planning-mode hang detection |
+
+### Agent configs
+| File | Agent | Enable flag |
+|---|---|---|
+| `agents/ScissariAgent.ts` | `agent-5955b0c2-…` | `LETTA_RUN_SCISSARI_TEST=1` |
+| `agents/FritaAgent.ts` | `agent-881a883f-…` | `LETTA_RUN_FRITA_TEST=1` |
 
 ## Architecture
 
@@ -72,6 +103,12 @@ Each test file follows the same pattern:
 | `scissari-hailey-interaction.integration.test.ts` | Verifies Scissari can ask Hailey a question and relay the answer; also checks `tool_return_message` context is persisted in the run — requires `LETTA_RUN_SCISSARI_TEST=1` |
 | `scissari-tool-execution-hang.integration.test.ts` | Detects post-approval tool-execution hang: approves a tool, asserts agent completes within 95 s; fails if agent loops in `stopReason="error"` retry after tool result — requires `LETTA_RUN_SCISSARI_TEST=1` |
 | `scissari-telegram-connection.integration.test.ts` | Telegram bridge wiring into Scissari — requires `LETTA_RUN_SCISSARI_TEST=1`, `SCISSARI_TELEGRAM_CHAT_ID`, and `SCISSARI_TELEGRAM_BOT_TOKEN` (or `TELEGRAM_TOKEN`) |
+| `frita-agent.integration.test.ts` | Basic prompt/response test for Frita — requires `LETTA_RUN_FRITA_TEST=1` |
+| `frita-message-persistence.integration.test.ts` | Verifies Frita run completes with a model response and no reasoning-only output — requires `LETTA_RUN_FRITA_TEST=1` |
+| `frita-tool-parity.integration.test.ts` | 3 tests: (1) required tools present, (2) PATCH doesn't strip tools, (3) reconcile doesn't reset tools — requires `LETTA_RUN_FRITA_TEST=1` |
+| `frita-web-tool-response.integration.test.ts` | Verifies `web_fetch_exa` returns user-visible text (not stall error) and is attached to Frita — requires `LETTA_RUN_FRITA_TEST=1` |
+| `frita-tool-execution-hang.integration.test.ts` | Post-approval tool-execution hang detection for Frita — requires `LETTA_RUN_FRITA_TEST=1` |
+| `frita-planning-mode-hang.integration.test.ts` | Output starvation and inactivity recovery tests for Frita — requires `LETTA_RUN_FRITA_TEST=1` |
 
 ### RemoteLogger and LED status
 `RemoteLogger` (at `../logger/RemoteLogger.ts`) posts log entries to a PHP API. The LED color is controlled by message content:

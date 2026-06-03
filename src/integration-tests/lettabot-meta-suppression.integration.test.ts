@@ -13,11 +13,13 @@
  */
 
 import { beforeAll, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { RemoteLogger } from "../logger/RemoteLogger";
 import { resetAllLoggers } from "./logger-helpers";
 
 const LETTABOT_API_URL = "http://127.0.0.1:8091/api/v1/chat";
 const LETTABOT_API_KEY_FILE = "/home/adamsl/lettabot/lettabot-api.json";
+const LETTABOT_API_KEY_EXISTS = existsSync(LETTABOT_API_KEY_FILE);
 
 // Mirrors isMetaOnlyResponse() in /home/adamsl/lettabot/src/core/bot.ts
 const META_ONLY_PREFIXES = [
@@ -108,7 +110,9 @@ describe("Lettabot meta-only response suppression", () => {
   }, 30000);
 
   const maybeTest =
-    process.env.LETTA_RUN_LETTABOT_TEST === "1" ? test : test.skip;
+    process.env.LETTA_RUN_LETTABOT_TEST === "1" && LETTABOT_API_KEY_EXISTS
+      ? test
+      : test.skip;
 
   maybeTest(
     "simple question returns a substantive answer (not meta-only reasoning)",

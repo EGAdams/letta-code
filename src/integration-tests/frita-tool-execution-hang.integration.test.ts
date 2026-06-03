@@ -1,23 +1,18 @@
 /**
- * Integration test for the post-approval tool-execution hang.
+ * Integration test: Frita post-approval tool-execution hang detection.
+ * Mirrors scissari-tool-execution-hang: asserts the session completes within
+ * COMPLETION_TIMEOUT_MS after a tool is approved and executed.
  *
- * Bug scenario (Letta 0.16.3 + Scissari):
- *   Tool result submitted back as user message due to approvalRequestEndedTurn=true,
- *   causing a retry loop that hangs indefinitely instead of surfacing an error.
- *
- * The fix: inactivity abort produces stopReason="cancelled" (not retriable).
- * This test asserts the session completes within COMPLETION_TIMEOUT_MS (95 s).
- *
- * To run: LETTA_RUN_SCISSARI_TEST=1 bun test scissari-tool-execution-hang
+ * To run: LETTA_RUN_FRITA_TEST=1 bun test frita-tool-execution-hang
  */
 
 import { beforeEach, describe, expect } from "bun:test";
 import { AgentTestContext } from "./framework/AgentTestContext";
-import { ScissariAgent } from "./framework/agents/ScissariAgent";
+import { FritaAgent } from "./framework/agents/FritaAgent";
 import type { BidirectionalRunResult } from "./framework/runners/BidirectionalRunner";
 import { resetAllLoggers } from "./logger-helpers";
 
-const ctx = new AgentTestContext(ScissariAgent);
+const ctx = new AgentTestContext(FritaAgent);
 
 const TOOL_TRIGGER_PROMPT =
   "Run this exact python3 command and show me the output: python3 -c \"print('tool_test_ok')\"";
@@ -27,7 +22,7 @@ const TOOL_TRIGGER_ERROR_PROMPT =
 const COMPLETION_TIMEOUT_MS = 95_000;
 const TEST_HARD_LIMIT_MS = 130_000;
 
-describe("Scissari post-approval tool-execution hang", () => {
+describe("Frita post-approval tool-execution hang", () => {
   beforeEach(async () => {
     await resetAllLoggers();
   }, 30_000);
@@ -37,10 +32,10 @@ describe("Scissari post-approval tool-execution hang", () => {
     async () => {
       await ctx.initSettings();
       const logger = await ctx.createLogger(
-        "ScissariToolExecutionHang_2026",
-        "tool-hang",
+        "FritaToolExecutionHang_2026",
+        "frita-tool-hang",
       );
-      await logger.clearLogs("ScissariToolExecutionHang test started.");
+      await logger.clearLogs("FritaToolExecutionHang test started.");
 
       await logger.log(`Prompt: ${TOOL_TRIGGER_PROMPT}`);
       await logger.log(`Completion time limit: ${COMPLETION_TIMEOUT_MS}ms`);
@@ -84,12 +79,10 @@ describe("Scissari post-approval tool-execution hang", () => {
     async () => {
       await ctx.initSettings();
       const logger = await ctx.createLogger(
-        "ScissariToolExecutionHang_ErrorPath_2026",
-        "tool-hang:error-path",
+        "FritaToolExecutionHang_ErrorPath_2026",
+        "frita-tool-hang:error-path",
       );
-      await logger.clearLogs(
-        "ScissariToolExecutionHang error-path test started.",
-      );
+      await logger.clearLogs("FritaToolExecutionHang error-path test started.");
 
       await logger.log(`Prompt: ${TOOL_TRIGGER_ERROR_PROMPT}`);
 

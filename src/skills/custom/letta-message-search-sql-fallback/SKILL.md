@@ -79,7 +79,7 @@ until docker inspect letta-server --format '{{.State.Health.Status}}' | grep -q 
 docker exec letta-bridge nginx -s reload
 
 # 5. Test
-curl -s -X POST http://100.80.49.10:18283/v1/agents/messages/search \
+curl -s -X POST http://100.80.49.10:8283/v1/agents/messages/search \
   -H "Content-Type: application/json" \
   -d '{"query": "test", "limit": 3}' | python3 -c "
 import sys, json

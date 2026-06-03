@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 describe("stream inactivity regression", () => {
   test("inactivity timer only resets on tool execution, not reasoning/assistant output", () => {
+    const currentFile = fileURLToPath(import.meta.url);
     const source = readFileSync(
-      resolve(process.cwd(), "src/cli/helpers/stream.ts"),
+      resolve(dirname(currentFile), "../cli/helpers/stream.ts"),
       "utf8",
     );
 

@@ -1,21 +1,19 @@
 /**
- * Integration test: Scissari web-tool response.
+ * Integration test: Frita web-tool response.
+ * Mirrors scissari-web-tool-response: verifies Frita can call web_fetch_exa
+ * (Exa MCP tool) and return a user-visible answer without stall errors.
  *
- * Bug scenario (2026-05-27): Scissari called web_fetch_exa repeatedly; lettabot
- * incorrectly attempted multi-agent fallback for a server-side MCP tool, producing
- * stall errors on every web research query. Fixed in lettabot/src/core/bot.ts.
- *
- * To run: LETTA_RUN_SCISSARI_TEST=1 bun test scissari-web-tool-response
+ * To run: LETTA_RUN_FRITA_TEST=1 bun test frita-web-tool-response
  */
 
 import { beforeEach, describe, expect } from "bun:test";
 import { getClient } from "../agent/client";
 import { AgentTestContext } from "./framework/AgentTestContext";
-import { ScissariAgent } from "./framework/agents/ScissariAgent";
+import { FritaAgent } from "./framework/agents/FritaAgent";
 import { resetAllLoggers } from "./logger-helpers";
 
-const ctx = new AgentTestContext(ScissariAgent);
-const LOGGER_ID = "ScissariWebToolResponse_2026";
+const ctx = new AgentTestContext(FritaAgent);
+const LOGGER_ID = "FritaWebToolResponse_2026";
 
 const TEST_URL =
   "https://americansjewelry.com/americanjewelry_live_upload_guide.html";
@@ -31,7 +29,7 @@ function isStallError(text: string): boolean {
   return STALL_FRAGMENTS.some((s) => lower.includes(s.toLowerCase()));
 }
 
-describe("Scissari web tool response", () => {
+describe("Frita web tool response", () => {
   beforeEach(async () => {
     await resetAllLoggers();
   }, 30000);
@@ -40,8 +38,11 @@ describe("Scissari web tool response", () => {
     "web_fetch_exa call via letta-code produces a user-visible response, not a stall error",
     async () => {
       await ctx.initSettings();
-      const logger = await ctx.createLogger(LOGGER_ID, "web-tool-response");
-      await logger.clearLogs("ScissariWebToolResponse test started.");
+      const logger = await ctx.createLogger(
+        LOGGER_ID,
+        "frita-web-tool-response",
+      );
+      await logger.clearLogs("FritaWebToolResponse test started.");
 
       const prompt = `Fetch this URL and tell me the first section heading: ${TEST_URL}`;
       await logger.log(`Prompt: ${prompt}`);
@@ -73,7 +74,7 @@ describe("Scissari web tool response", () => {
       }
       expect(isStallError(responseText)).toBe(false);
       await logger.log(
-        `PASS: Scissari returned user-visible text (${responseText.length} chars) without stall error`,
+        `PASS: Frita returned user-visible text (${responseText.length} chars) without stall error`,
       );
       await logger.flush();
     },
@@ -81,10 +82,10 @@ describe("Scissari web tool response", () => {
   );
 
   ctx.maybeTest(
-    "Exa MCP tool is registered and attached to Scissari",
+    "Exa MCP tool is registered and attached to Frita",
     async () => {
       await ctx.initSettings();
-      const logger = await ctx.createLogger(LOGGER_ID, "web-tool-exa-health");
+      const logger = await ctx.createLogger(LOGGER_ID, "frita-exa-health");
 
       const client = await getClient();
 
@@ -101,16 +102,14 @@ describe("Scissari web tool response", () => {
         );
 
         const agentToolsPage = await client.agents.tools.list(
-          ScissariAgent.agentId,
+          FritaAgent.agentId,
           { limit: 50 },
         );
         const attached = agentToolsPage.getPaginatedItems().map((t) => t.name);
         expect(attached).toContain("web_fetch_exa");
-        await logger.log("web_fetch_exa attached to Scissari");
+        await logger.log("web_fetch_exa attached to Frita");
 
-        await logger.log(
-          "PASS: Exa MCP tool registered and attached to Scissari",
-        );
+        await logger.log("PASS: Exa MCP tool registered and attached to Frita");
       } catch (err) {
         await logger.log(
           `ERROR: ${err instanceof Error ? err.message : String(err)}`,
