@@ -255,9 +255,13 @@ function isHttpUrl(value: string): boolean {
 
 /**
  * Resolve which remote URL memfs should use.
- * If a persisted per-agent remote points at a different host than the current
- * server URL but still matches the default state.git path for this agent, treat
- * it as stale and fall back to the current server URL path derivation.
+ * If a persisted per-agent remote points at a different HOST than the current
+ * git server URL but still matches the default state.git path for this agent,
+ * treat it as stale and fall back to the current git server URL derivation.
+ *
+ * Same-host, different-port remotes (e.g. API on :8283, git on :18283) are NOT
+ * stale — they are intentional overrides for servers where the git endpoint is
+ * on a different port than the main API.
  */
 export function resolveMemfsRemoteUrl(
   agentId: string,
@@ -276,8 +280,11 @@ export function resolveMemfsRemoteUrl(
     const current = new URL(serverUrl);
     const expectedPath = `/v1/git/${agentId}/state.git`;
     const normalizedPath = local.pathname.replace(/\/+$/, "") || "/";
+    // Only consider it stale when the HOSTNAME changed (e.g. server moved to a
+    // new machine).  Same hostname with a different port is an intentional
+    // git-endpoint override and must be preserved.
     if (
-      local.origin !== current.origin &&
+      local.hostname !== current.hostname &&
       (normalizedPath === expectedPath || normalizedPath === "/")
     ) {
       return undefined;
@@ -311,15 +318,22 @@ export async function applyMemfsFlags(
   options?: ApplyMemfsFlagsOptions,
 ): Promise<ApplyMemfsFlagsResult> {
   const { settingsManager } = await import("../settings-manager");
+  const { GIT_MEMORY_ENABLED_TAG, getGitServerUrl } = await import(
+    "./memoryGit"
+  );
   const serverUrl = getServerUrl();
+  const gitServerUrl = getGitServerUrl();
   const isCloudServer = serverUrl.includes("api.letta.com");
+  const hasConfiguredGitEndpoint = gitServerUrl !== serverUrl;
 
   // Validate explicit enable on supported backend.
   if (memfsFlag) {
     const allowLocal =
       options?.allowLocal || process.env.LETTA_MEMFS_LOCAL === "1";
     const allowSelfHosted = Boolean(
-      options?.allowSelfHosted || options?.remoteUrl,
+      options?.allowSelfHosted ||
+        options?.remoteUrl ||
+        hasConfiguredGitEndpoint,
     );
     if (!isCloudServer && !allowLocal && !allowSelfHosted) {
       throw new Error(
@@ -332,7 +346,6 @@ export async function applyMemfsFlags(
   const localMemfsEnabled = settingsManager.isMemfsEnabled(agentId);
   const localMemfsLocalEnabled = settingsManager.isMemfsLocalEnabled(agentId);
   const localMemfsRemote = settingsManager.getMemfsRemote(agentId);
-  const { GIT_MEMORY_ENABLED_TAG } = await import("./memoryGit");
   const shouldAutoEnableFromTag =
     !hasExplicitToggle &&
     !localMemfsEnabled &&
@@ -347,7 +360,7 @@ export async function applyMemfsFlags(
 
   const targetRemoteUrl = resolveMemfsRemoteUrl(
     agentId,
-    serverUrl,
+    gitServerUrl,
     localMemfsRemote,
     options?.remoteUrl,
   );
@@ -356,7 +369,10 @@ export async function applyMemfsFlags(
   }
   // Self-hosted fallback: if memfs is enabled but no remote was configured,
   // use local-only mode instead of repeatedly failing clone on startup.
-  const fallbackLocalOnly = !isCloudServer && !targetRemoteUrl;
+  // When LETTA_GIT_BASE_URL is set the git endpoint is available so we don't
+  // need the local-only fallback.
+  const hasGitEndpoint = hasConfiguredGitEndpoint || isCloudServer;
+  const fallbackLocalOnly = !hasGitEndpoint && !targetRemoteUrl;
   const targetLocalOnly = Boolean(
     options?.allowLocal ||
       process.env.LETTA_MEMFS_LOCAL === "1" ||

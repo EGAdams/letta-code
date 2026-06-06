@@ -163,6 +163,15 @@ describe("resolveMemfsRemoteUrl", () => {
     ).toBeUndefined();
   });
 
+  test("keeps same-host different-port remote for split api and git endpoints", () => {
+    expect(
+      resolveMemfsRemoteUrl(
+        "agent-123",
+        "http://100.80.49.10:18283",
+        "http://100.80.49.10:8283/v1/git/agent-123/state.git",
+      ),
+    ).toBe("http://100.80.49.10:8283/v1/git/agent-123/state.git");
+  });
   test("keeps custom-path remote even when host differs", () => {
     expect(
       resolveMemfsRemoteUrl(

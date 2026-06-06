@@ -1,113 +1,379 @@
 #!/usr/bin/env python3
 """
-Simple HTTP server for the dashboard SPA.
-Serves dashboard.html and provides stub API endpoints.
+Dashboard SPA server.
+Serves dashboard.html and proxies agent data from the Letta API.
 Run: python3 server.py   (from /home/adamsl/letta-code/dashboard/)
 Then open: http://localhost:8765/
 """
 import json
 import os
+import threading
+import urllib.request
+import urllib.error
 from datetime import datetime
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-# Resolve paths relative to this file so the server works from any cwd.
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(HERE)
+
+# Letta API base URL — override with LETTA_BASE_URL env var
+LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rstrip('/')
+
+# Agents that are wired to the Letta API automatically.
+# Add any new Letta agent here: { 'name': '...', 'id': '<real-letta-agent-id>' }
+# Set 'id' to None to auto-discover by name from the Letta agent list.
+LETTA_AGENTS = [
+    {'name': 'Scissari', 'id': 'agent-5955b0c2-7922-4ffe-9e43-b116053b80fa'},
+    {'name': 'Frita',    'id': 'agent-881a883f-edd0-4963-bf67-6ef178b8f018'},
+    {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
+    {'name': 'Cesare',   'id': None},
+    {'name': 'Jeri',     'id': None},
+    {'name': 'Mazda',    'id': None},
+]
+
+# Cache of name→id resolved from the Letta API
+_letta_id_cache = {}
+_letta_id_cache_lock = threading.Lock()
+
+# Claude Code log files (persistent, local)
+CLAUDE_LOG_FILE = os.path.join(HERE, 'claude_messages.json')
+CLAUDE_TOOL_LOG_FILE = os.path.join(HERE, 'claude_toolcalls.json')
+_claude_log_lock = threading.Lock()
+_claude_tool_log_lock = threading.Lock()
+
+
+# ── Letta API helpers ────────────────────────────────────────────────────────
+
+def letta_get(path, timeout=6):
+    """GET from Letta API; returns parsed JSON or None on error."""
+    try:
+        url = f'{LETTA_BASE_URL}{path}'
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except Exception:
+        return None
+
+def _resolve_letta_id(name):
+    """Look up agent ID by name from the Letta API (cached per server run)."""
+    with _letta_id_cache_lock:
+        if name in _letta_id_cache:
+            return _letta_id_cache[name]
+    data = letta_get('/v1/agents')
+    if not data:
+        return None
+    agents = data if isinstance(data, list) else data.get('agents', [])
+    with _letta_id_cache_lock:
+        for a in agents:
+            _letta_id_cache[a['name']] = a['id']
+        return _letta_id_cache.get(name)
+
+def get_letta_id(agent_cfg):
+    """Return the real Letta agent ID for an agent config dict."""
+    if agent_cfg.get('id'):
+        return agent_cfg['id']
+    return _resolve_letta_id(agent_cfg['name'])
+
+def letta_messages(agent_id, limit=60):
+    """Fetch all message types for an agent from the Letta API."""
+    data = letta_get(f'/v1/agents/{agent_id}/messages?limit={limit}')
+    if not data:
+        return []
+    return data if isinstance(data, list) else data.get('messages', data.get('results', []))
+
+def _msg_date(m):
+    """Return the best available timestamp string for a Letta message."""
+    return str(m.get('created_at') or m.get('date') or '')[:19]
+
+
+def _msg_text(m):
+    """Extract display text from a Letta message object."""
+    # assistant_message / user_message: content is a string
+    content = m.get('content', '')
+    if isinstance(content, list):
+        content = ' '.join(c.get('text', '') for c in content if isinstance(c, dict))
+    # tool_call_message: tool_call.name + arguments
+    tc = m.get('tool_call', {})
+    if tc:
+        args = tc.get('arguments', {})
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:
+                pass
+        arg_str = ', '.join(f'{k}={str(v)[:80]}' for k, v in (args.items() if isinstance(args, dict) else []))
+        return f'{tc.get("name", "?")}({arg_str})'
+    # tool_return_message
+    tr = m.get('tool_return', '')
+    if tr:
+        if isinstance(tr, dict):
+            return str(tr.get('content', ''))[:300]
+        return str(tr)[:300]
+    # approval_request_message
+    approvals = m.get('tool_calls') or []
+    if approvals and isinstance(approvals, list):
+        names = [tc.get('name', '?') for tc in approvals if isinstance(tc, dict)]
+        if names:
+            return 'approval requested: ' + ', '.join(names)
+    # reasoning_message
+    reasoning = m.get('reasoning', '')
+    if reasoning:
+        return reasoning
+    return str(content)
+
+def letta_thoughts(agent_id):
+    msgs = letta_messages(agent_id, limit=80)
+    rows = []
+    for m in msgs:
+        if m.get('message_type') == 'reasoning_message':
+            text = _msg_text(m)
+            if text.strip():
+                rows.append({
+                    'date': _msg_date(m),
+                    'text': text[:500],
+                })
+    if rows:
+        return rows
+
+    # Fallback for agents whose API stream does not expose reasoning_message.
+    fallback_types = {
+        'assistant_message': 'assistant',
+        'tool_call_message': 'tool',
+        'tool_return_message': 'tool',
+        'approval_request_message': 'approval',
+        'approval_response_message': 'approval',
+    }
+    for m in msgs:
+        mt = m.get('message_type', '')
+        if mt not in fallback_types:
+            continue
+        text = _msg_text(m)
+        if not text.strip():
+            continue
+        prefix = fallback_types[mt]
+        rows.append({
+            'date': _msg_date(m),
+            'text': f'[{prefix}] {text[:500]}',
+        })
+    return rows
+
+def letta_convo(agent_id):
+    msgs = letta_messages(agent_id, limit=60)
+    rows = []
+    for m in msgs:
+        mt = m.get('message_type', '')
+        if mt not in ('user_message', 'assistant_message'):
+            continue
+        text = _msg_text(m)
+        if not text.strip():
+            continue
+        rows.append({
+            'date': _msg_date(m),
+            'type': mt,
+            'text': text[:400],
+        })
+    return rows
+
+def letta_toolcalls(agent_id):
+    msgs = letta_messages(agent_id, limit=80)
+    rows = []
+    for m in msgs:
+        mt = m.get('message_type', '')
+        if mt not in ('tool_call_message', 'tool_return_message'):
+            continue
+        text = _msg_text(m)
+        if not text.strip():
+            continue
+        display_type = 'tool_call' if mt == 'tool_call_message' else 'tool_return'
+        # For tool_call: show just the tool name as type
+        if mt == 'tool_call_message':
+            tc = m.get('tool_call', {})
+            display_type = tc.get('name', 'tool_call')
+        rows.append({
+            'date': _msg_date(m),
+            'type': display_type,
+            'text': text[:300],
+        })
+    return rows
+
+
+# ── Claude Code local log helpers ────────────────────────────────────────────
+
+def _load_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+def _append_json(path, lock, entry, maxlen=200):
+    with lock:
+        rows = _load_json(path)
+        rows.append(entry)
+        if len(rows) > maxlen:
+            rows = rows[-maxlen:]
+        with open(path, 'w') as f:
+            json.dump(rows, f, indent=2)
+
+
+# ── Agent registry ────────────────────────────────────────────────────────────
+
+def build_agent_list():
+    """Return the agent list for /api/agents, combining Letta agents + Claude."""
+    agents = []
+    for cfg in LETTA_AGENTS:
+        real_id = get_letta_id(cfg)
+        agents.append({
+            'id': real_id or f'unknown-{cfg["name"].lower()}',
+            'name': cfg['name'],
+            'model': '',   # could fetch from Letta but keep it fast
+            'letta': True,
+        })
+    agents.append({
+        'id': 'agent-claude',
+        'name': 'Claude',
+        'model': 'claude-sonnet-4-6',
+        'letta': False,
+    })
+    return agents
+
+def letta_id_for(agent_id):
+    """Given a dashboard agent ID, return the Letta agent ID (or None if not Letta)."""
+    if agent_id == 'agent-claude':
+        return None
+    # It already IS the Letta ID if it starts with 'agent-' and is a UUID
+    if agent_id.startswith('agent-') and len(agent_id) > 15:
+        return agent_id
+    return None
+
+
+# ── HTTP Handler ──────────────────────────────────────────────────────────────
 
 class DashboardHandler(SimpleHTTPRequestHandler):
-    """Serve dashboard HTML and API endpoints."""
 
     def do_GET(self):
-        parsed_path = urlparse(self.path)
-        path = parsed_path.path
-        query = parse_qs(parsed_path.query)
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
+        agent_id = query.get('agent', [''])[0]
 
-        # API endpoints
         if path == '/api/agents':
-            return self.json_response([
-                {'id': 'agent-1', 'name': 'Scissari', 'model': 'gpt-5.3-codex'},
-                {'id': 'agent-2', 'name': 'Cesare', 'model': 'claude-opus-4.8'},
-                {'id': 'agent-3', 'name': 'Jeri', 'model': 'gpt-5.3-codex'},
-                {'id': 'agent-4', 'name': 'Mazda', 'model': 'claude-sonnet-4.6'},
-                {'id': 'agent-5', 'name': 'Frita', 'model': 'gpt-5.4-mini-plus'},
-                {'id': 'agent-6', 'name': 'Hailey', 'model': 'claude-haiku-4.5'},
-                {'id': 'agent-7', 'name': 'Claude', 'model': 'claude-opus-4.8'},
-            ])
+            return self.json_response(build_agent_list())
 
         if path == '/api/thoughts':
-            agent_id = query.get('agent', [''])[0]
-            return self.json_response([
-                {'date': datetime.now().isoformat(), 'text': f'**Loading thoughts** for agent {agent_id}...'},
-                {'date': datetime.now().isoformat(), 'text': 'Monitoring system health'},
-                {'date': datetime.now().isoformat(), 'text': '**Status**: All systems nominal'},
-            ])
+            if agent_id == 'agent-claude':
+                return self.json_response([])   # Claude Code doesn't have thoughts
+            lid = letta_id_for(agent_id)
+            if lid:
+                return self.json_response(letta_thoughts(lid))
+            return self.json_response([])
 
         if path == '/api/messages':
-            agent_id = query.get('agent', [''])[0]
-            return self.json_response([
-                {'date': datetime.now().isoformat(), 'type': 'user_message', 'text': 'Hello agent'},
-                {'date': datetime.now().isoformat(), 'type': 'assistant_message', 'text': f'Hi! I am {agent_id}.'},
-            ])
+            if agent_id == 'agent-claude':
+                return self.json_response(_load_json(CLAUDE_LOG_FILE))
+            lid = letta_id_for(agent_id)
+            if lid:
+                return self.json_response(letta_convo(lid))
+            return self.json_response([])
 
         if path == '/api/toolcalls':
-            agent_id = query.get('agent', [''])[0]
-            return self.json_response([
-                {'date': datetime.now().isoformat(), 'type': 'tool_call_message', 'text': 'Called bash with: ls -la'},
-                {'date': datetime.now().isoformat(), 'type': 'tool_return_message', 'text': 'Output: total 42...'},
-            ])
+            if agent_id == 'agent-claude':
+                return self.json_response(_load_json(CLAUDE_TOOL_LOG_FILE))
+            lid = letta_id_for(agent_id)
+            if lid:
+                return self.json_response(letta_toolcalls(lid))
+            return self.json_response([])
 
-        # Default: serve dashboard HTML
         if path == '/' or path == '':
-            self.serve_file(os.path.join(HERE, 'dashboard.html'), 'text/html')
-            return
+            return self.serve_file(os.path.join(HERE, 'dashboard.html'), 'text/html')
 
-        # Try to serve static files from the dashboard directory
         if path.startswith('/'):
-            file_path = os.path.join(HERE, path.lstrip('/'))
-            if os.path.isfile(file_path):
-                self.serve_file(file_path)
-                return
+            rel = path.lstrip('/')
+            for base in (HERE, REPO_ROOT):
+                fp = os.path.join(base, rel)
+                if os.path.isfile(fp):
+                    return self.serve_file(fp)
 
         self.send_error(404)
 
     def do_POST(self):
-        """Handle test message POST."""
-        parsed_path = urlparse(self.path)
-        path = parsed_path.path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        body = self._read_body()
 
-        if path == '/api/test':
-            content_length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_length).decode('utf-8')
+        if path == '/api/claude-log':
             try:
                 data = json.loads(body)
-                agent_id = data.get('agent', 'unknown')
-                text = data.get('text', '')
-                return self.json_response({
-                    'replies': [
-                        {'type': 'assistant_message', 'text': f'Agent {agent_id} received: "{text}"'},
-                        {'type': 'assistant_message', 'text': 'Simulated response from agent.'},
-                    ]
+                _append_json(CLAUDE_LOG_FILE, _claude_log_lock, {
+                    'date': data.get('date', datetime.now().isoformat()),
+                    'type': data.get('type', 'assistant_message'),
+                    'text': data.get('text', ''),
                 })
+                return self.json_response({'ok': True})
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+
+        if path == '/api/claude-toollog':
+            try:
+                data = json.loads(body)
+                _append_json(CLAUDE_TOOL_LOG_FILE, _claude_tool_log_lock, {
+                    'date': data.get('date', datetime.now().isoformat()),
+                    'type': data.get('type', 'tool_call'),
+                    'text': data.get('text', ''),
+                }, maxlen=200)
+                return self.json_response({'ok': True})
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+
+        if path == '/api/test':
+            try:
+                data = json.loads(body)
+                agent_id = data.get('agent', '')
+                text = data.get('text', '')
+                lid = letta_id_for(agent_id)
+                if lid:
+                    # Send a real message to the Letta agent
+                    payload = json.dumps({
+                        'messages': [{'role': 'user', 'content': text}],
+                        'stream': False,
+                    }).encode()
+                    req = urllib.request.Request(
+                        f'{LETTA_BASE_URL}/v1/agents/{lid}/messages',
+                        data=payload,
+                        headers={'Content-Type': 'application/json'},
+                        method='POST',
+                    )
+                    try:
+                        with urllib.request.urlopen(req, timeout=30) as r:
+                            resp = json.loads(r.read().decode())
+                        replies = []
+                        for m in resp.get('messages', []):
+                            if m.get('message_type') == 'assistant_message':
+                                replies.append({'type': 'assistant_message', 'text': _msg_text(m)})
+                        return self.json_response({'replies': replies or [{'type': 'assistant_message', 'text': '(no reply)'}]})
+                    except Exception as e:
+                        return self.json_response({'replies': [{'type': 'error', 'text': str(e)}]})
+                return self.json_response({'replies': [{'type': 'assistant_message', 'text': f'[stub] {agent_id} got: {text}'}]})
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
 
         self.send_error(404)
 
+    def _read_body(self):
+        length = int(self.headers.get('Content-Length', 0))
+        return self.rfile.read(length).decode('utf-8')
+
     def serve_file(self, file_path, content_type=None):
-        """Serve a file."""
         try:
             with open(file_path, 'rb') as f:
                 content = f.read()
-            self.send_response(200)
             if content_type is None:
-                if file_path.endswith('.html'):
-                    content_type = 'text/html'
-                elif file_path.endswith('.js'):
-                    content_type = 'application/javascript'
-                elif file_path.endswith('.css'):
-                    content_type = 'text/css'
-                else:
-                    content_type = 'application/octet-stream'
+                ext = file_path.rsplit('.', 1)[-1]
+                content_type = {
+                    'html': 'text/html', 'js': 'application/javascript',
+                    'css': 'text/css', 'json': 'application/json',
+                }.get(ext, 'application/octet-stream')
+            self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', len(content))
             self.end_headers()
@@ -116,35 +382,36 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_error(404)
 
     def json_response(self, data):
-        """Send a JSON response."""
-        response = json.dumps(data, indent=2).encode('utf-8')
+        body = json.dumps(data, indent=2).encode('utf-8')
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', len(response))
+        self.send_header('Content-Length', len(body))
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(response)
+        self.wfile.write(body)
 
     def error_response(self, message, code=400):
-        """Send an error response."""
-        response = json.dumps({'error': message}).encode('utf-8')
+        body = json.dumps({'error': message}).encode('utf-8')
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', len(response))
+        self.send_header('Content-Length', len(body))
         self.end_headers()
-        self.wfile.write(response)
+        self.wfile.write(body)
 
-    def log_message(self, format, *args):
-        """Log HTTP requests."""
-        print(f"[{self.log_date_time_string()}] {format % args}")
+    def log_message(self, fmt, *args):
+        print(f'[{self.log_date_time_string()}] {fmt % args}')
+
+
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8765))
-    server = HTTPServer(('0.0.0.0', port), DashboardHandler)
-    print(f"Dashboard server running at http://localhost:{port}/")
-    print(f"Serving: {os.path.join(HERE, 'dashboard.html')}")
-    print("Press Ctrl+C to stop")
+    server = ReusableHTTPServer(('0.0.0.0', port), DashboardHandler)
+    print(f'Dashboard server on http://localhost:{port}/')
+    print(f'Letta API: {LETTA_BASE_URL}')
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nServer stopped.")
+        print('\nStopped.')

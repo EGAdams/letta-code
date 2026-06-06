@@ -1590,10 +1590,9 @@ class SettingsManager {
           updates.memfsLocal !== undefined
             ? updates.memfsLocal
             : existing.memfsLocal,
-        memfsRemote:
-          updates.memfsRemote !== undefined
-            ? updates.memfsRemote
-            : existing.memfsRemote,
+        memfsRemote: Object.hasOwn(updates, "memfsRemote")
+          ? updates.memfsRemote
+          : existing.memfsRemote,
         // Use nullish coalescing for toolset (undefined = keep existing)
         toolset:
           updates.toolset !== undefined ? updates.toolset : existing.toolset,

@@ -1130,6 +1130,39 @@ describe("Settings Manager - Agents Array Migration", () => {
 
     expect(settingsManager.isMemfsEnabled("agent-persist-test")).toBe(true);
   });
+
+  test("setMemfsRemote stores and clears remote", async () => {
+    await settingsManager.initialize();
+
+    settingsManager.setMemfsRemote(
+      "agent-remote-test",
+      "http://100.80.49.10:18283",
+    );
+    expect(settingsManager.getMemfsRemote("agent-remote-test")).toBe(
+      "http://100.80.49.10:18283",
+    );
+
+    settingsManager.setMemfsRemote("agent-remote-test", undefined);
+    expect(settingsManager.getMemfsRemote("agent-remote-test")).toBeUndefined();
+  });
+
+  test("setMemfsRemote clear persists to disk", async () => {
+    await settingsManager.initialize();
+
+    settingsManager.setMemfsRemote(
+      "agent-remote-persist",
+      "http://100.80.49.10:18283",
+    );
+    settingsManager.setMemfsRemote("agent-remote-persist", undefined);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await settingsManager.reset();
+    await settingsManager.initialize();
+
+    expect(
+      settingsManager.getMemfsRemote("agent-remote-persist"),
+    ).toBeUndefined();
+  });
 });
 
 describe("Settings Manager - Toolset Preferences", () => {
