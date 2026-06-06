@@ -318,8 +318,13 @@ export async function applyMemfsFlags(
   options?: ApplyMemfsFlagsOptions,
 ): Promise<ApplyMemfsFlagsResult> {
   const { settingsManager } = await import("../settings-manager");
+  const { GIT_MEMORY_ENABLED_TAG, getGitServerUrl } = await import(
+    "./memoryGit"
+  );
   const serverUrl = getServerUrl();
+  const gitServerUrl = getGitServerUrl();
   const isCloudServer = serverUrl.includes("api.letta.com");
+  const hasConfiguredGitEndpoint = gitServerUrl !== serverUrl;
 
   // Validate explicit enable on supported backend.
   if (memfsFlag) {
@@ -328,7 +333,7 @@ export async function applyMemfsFlags(
     const allowSelfHosted = Boolean(
       options?.allowSelfHosted ||
         options?.remoteUrl ||
-        process.env.LETTA_GIT_BASE_URL,
+        hasConfiguredGitEndpoint,
     );
     if (!isCloudServer && !allowLocal && !allowSelfHosted) {
       throw new Error(
@@ -341,13 +346,6 @@ export async function applyMemfsFlags(
   const localMemfsEnabled = settingsManager.isMemfsEnabled(agentId);
   const localMemfsLocalEnabled = settingsManager.isMemfsLocalEnabled(agentId);
   const localMemfsRemote = settingsManager.getMemfsRemote(agentId);
-  const { GIT_MEMORY_ENABLED_TAG, getGitServerUrl } = await import(
-    "./memoryGit"
-  );
-  // Use the git server URL (LETTA_GIT_BASE_URL if set, else LETTA_BASE_URL) as
-  // the staleness comparison base so same-host/different-port remotes are not
-  // wrongly discarded.
-  const gitServerUrl = getGitServerUrl();
   const shouldAutoEnableFromTag =
     !hasExplicitToggle &&
     !localMemfsEnabled &&
@@ -373,8 +371,7 @@ export async function applyMemfsFlags(
   // use local-only mode instead of repeatedly failing clone on startup.
   // When LETTA_GIT_BASE_URL is set the git endpoint is available so we don't
   // need the local-only fallback.
-  const hasGitEndpoint =
-    Boolean(process.env.LETTA_GIT_BASE_URL) || isCloudServer;
+  const hasGitEndpoint = hasConfiguredGitEndpoint || isCloudServer;
   const fallbackLocalOnly = !hasGitEndpoint && !targetRemoteUrl;
   const targetLocalOnly = Boolean(
     options?.allowLocal ||

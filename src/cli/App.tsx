@@ -3789,17 +3789,15 @@ export default function App({
     // Git-backed memory: clone or pull on startup
     (async () => {
       try {
-        const { isGitRepo, cloneMemoryRepo, pullMemory } = await import(
-          "../agent/memoryGit"
-        );
-        const { getServerUrl } = await import("../agent/client");
+        const { isGitRepo, cloneMemoryRepo, pullMemory, getGitServerUrl } =
+          await import("../agent/memoryGit");
         const { resolveMemfsRemoteUrl } = await import(
           "../agent/memoryFilesystem"
         );
         const persistedRemote = settingsManager.getMemfsRemote(agentId);
         const effectiveRemote = resolveMemfsRemoteUrl(
           agentId,
-          getServerUrl(),
+          getGitServerUrl(),
           persistedRemote,
         );
         if (persistedRemote && !effectiveRemote) {

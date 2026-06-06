@@ -216,6 +216,7 @@
       <button type="button" class="tab" data-nav="main" data-target="instructions">Instructions</button>
       <button type="button" class="tab" data-nav="main" data-target="tool-management">Tool Management</button>
       <button type="button" class="tab" data-nav="main" data-target="agent-management">Agent Management</button>
+      <button type="button" class="tab" data-nav="main" data-target="project-plans">Project Plans</button>
     </nav>
 
     <!-- Status sub-nav -->
@@ -243,6 +244,13 @@
     <nav id="nav-agents" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-agents">Back</button>
       <button type="button" class="tab active" data-nav="agents" data-target="agents-home">Agents</button>
+    </nav>
+
+    <!-- Project Plans sub-nav -->
+    <nav id="nav-plans" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-plans">Back</button>
+      <button type="button" class="tab active" data-nav="plans" data-target="plans-rol-finance">ROL Finance</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-self-evolving">Self Evolving</button>
     </nav>
 
     <!-- Agent detail sub-nav -->
@@ -372,6 +380,9 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     <section id="agents-home" class="view">
       <h2>Agents</h2>
       <p id="agents-home-status" class="am-dim">Loading agents&hellip;</p>
+      <h3>Scissari Live Thoughts</h3>
+      <p class="am-dim">Streaming Scissari reasoning live in terminal view.</p>
+      <section id="agents-home-scissari-thoughts"></section>
     </section>
 
     <section id="agent-detail-home" class="view">
@@ -414,6 +425,18 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     <section id="status-pc-monitor" class="view">
       <p>PC monitors</p>
     </section>
+
+    <!-- Project Plans views -->
+    <section id="plans-rol-finance" class="view">
+      <h2>ROL Finance</h2>
+      <p>Project plan for ROL Finance.</p>
+    </section>
+
+    <section id="plans-self-evolving" class="view">
+      <h2>Self Evolving</h2>
+      <p>Project plan for Self Evolving agent system.</p>
+      <p><a href="/agent_self_improvement/agent_self_improvement_plan.html" target="_blank" rel="noopener noreferrer">agent_self_improvement_plan.html</a></p>
+    </section>
   </main>
 
   <script>
@@ -423,6 +446,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     const navTools = document.getElementById('nav-tools');
     const navAgents = document.getElementById('nav-agents');
     const navAgentDetail = document.getElementById('nav-agent-detail');
+    const navPlans = document.getElementById('nav-plans');
 
     let selectedAgentName = '';
 
@@ -476,7 +500,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     applyInstructionLinks();
     setAgentDetailContent('Agent');
 
-    if (navMain && navStatus && navTools && navAgents && navAgentDetail) {
+    if (navMain && navStatus && navTools && navAgents && navAgentDetail && navPlans) {
       navMain.querySelectorAll('[data-nav="main"][data-target]').forEach(tab => {
         tab.addEventListener('click', () => {
           const target = tab.dataset.target;
@@ -507,6 +531,15 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             return;
           }
 
+          if (target === 'project-plans') {
+            navMain.classList.add('hidden');
+            navPlans.classList.remove('hidden');
+            const rolTab = navPlans.querySelector('[data-nav="plans"][data-target="plans-rol-finance"]');
+            if (rolTab) safeSetActive(navPlans, '[data-nav="plans"][data-target]', rolTab);
+            safeActivateView('plans-rol-finance');
+            return;
+          }
+
           safeSetActive(navMain, '[data-nav="main"][data-target]', tab);
           safeActivateView(target);
         });
@@ -522,6 +555,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       navTools.querySelectorAll('[data-nav="tools"][data-target]').forEach(tab => {
         tab.addEventListener('click', () => {
           safeSetActive(navTools, '[data-nav="tools"][data-target]', tab);
+          safeActivateView(tab.dataset.target);
+        });
+      });
+
+      navPlans.querySelectorAll('[data-nav="plans"][data-target]').forEach(tab => {
+        tab.addEventListener('click', () => {
+          safeSetActive(navPlans, '[data-nav="plans"][data-target]', tab);
           safeActivateView(tab.dataset.target);
         });
       });
@@ -577,6 +617,17 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         });
       }
 
+      const backPlans = document.getElementById('btn-back-plans');
+      if (backPlans) {
+        backPlans.addEventListener('click', () => {
+          navPlans.classList.add('hidden');
+          navMain.classList.remove('hidden');
+          const homeTab = navMain.querySelector('[data-nav="main"][data-target="home"]');
+          if (homeTab) safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
+          safeActivateView('home');
+        });
+      }
+
       const backAgents = document.getElementById('btn-back-agents');
       if (backAgents) {
         backAgents.addEventListener('click', () => {
@@ -612,13 +663,19 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       'agent-detail-tests':      (am, id) => am.renderTest(id),
     };
 
+    const SCISSARI_AGENT_NAME = 'Scissari';
+
     const AM = {
       current: null,           // { id, name }
       pollTimer: null,
+      homeThoughtsTimer: null,
       agents: null,
       served: location.protocol === 'http:' || location.protocol === 'https:',
 
-      stopPoll() { if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; } },
+      stopPoll() {
+        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+        if (this.homeThoughtsTimer) { clearInterval(this.homeThoughtsTimer); this.homeThoughtsTimer = null; }
+      },
 
       async fetchJSON(url, opts) {
         const r = await fetch(url, opts);
@@ -652,6 +709,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             + 'Open the served version instead: <strong>http://100.80.49.10:8765/</strong> '
             + '(over Tailscale) or <strong>http://localhost:8765/</strong> on this machine.<br>'
             + 'Start it with: <code>python3 ~/dashboard_server.py</code></span>';
+          this.renderHomeThoughtsUnavailable('Open the served dashboard to stream Scissari thoughts.');
           return;
         }
 
@@ -660,11 +718,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           this.agents = await this.fetchJSON('/api/agents');
         } catch (e) {
           if (status) status.innerHTML = '<span class="am-warn" style="display:block">Failed to load agents: ' + esc(e.message) + '</span>';
+          this.renderHomeThoughtsUnavailable('Failed to load Scissari: ' + e.message);
           return;
         }
 
         if (!this.agents.length) {
           if (status) status.textContent = 'No agents found.';
+          this.renderHomeThoughtsUnavailable('Scissari is not in the agent list yet.');
           return;
         }
 
@@ -681,6 +741,59 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         if (status) status.innerHTML = 'Loaded <strong>' + this.agents.length
           + '</strong> agent' + (this.agents.length === 1 ? '' : 's')
           + '. Pick one from the left to view its Thoughts, Messages, Tool Calls, or run a Test.';
+
+        const scissari = this.agents.find(a => (a.name || '').trim().toLowerCase() === SCISSARI_AGENT_NAME.toLowerCase());
+        if (scissari) {
+          this.renderHomeThoughts(scissari);
+        } else {
+          this.renderHomeThoughtsUnavailable('Scissari is not available from /api/agents.');
+        }
+      },
+
+      renderHomeThoughtsUnavailable(message) {
+        const container = document.getElementById('agents-home-scissari-thoughts');
+        if (!container) return;
+        container.innerHTML = '';
+        const { inner } = this.consoleShell('agents-home-scissari-thoughts');
+        inner.innerHTML = '<div class="msi-entry dim">' + esc(message || 'Scissari live thoughts unavailable.') + '</div>';
+      },
+
+      async renderHomeThoughts(agent) {
+        const { box, inner } = this.consoleShell('agents-home-scissari-thoughts');
+        const agentId = agent.id;
+        const seen = new Set();
+        let first = true;
+        const pull = async () => {
+          const homeView = document.getElementById('agents-home');
+          if (!homeView || !homeView.classList.contains('active')) return;
+          let rows;
+          try {
+            rows = await this.fetchJSON('/api/thoughts?agent=' + encodeURIComponent(agentId));
+          } catch (e) {
+            inner.insertAdjacentHTML('beforeend', '<div class="msi-line err">! ' + esc(e.message) + '</div>');
+            return;
+          }
+          if (first && !rows.length) {
+            inner.insertAdjacentHTML('beforeend', '<div class="msi-entry dim">&mdash; no Scissari thoughts recorded yet &mdash;</div>');
+          } else if (first && rows.length && rows[0].text && rows[0].text.startsWith('[assistant]')) {
+            inner.insertAdjacentHTML('beforeend', '<div class="msi-entry dim">&mdash; direct reasoning stream unavailable; showing live fallback activity instead &mdash;</div>');
+          }
+          for (const r of rows) {
+            const key = r.date + '|' + r.text.slice(0, 80);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const stamp = (r.date || '').replace('T', ' ').slice(0, 19);
+            const html = esc((r.text || '').replace(/\*\*/g, ''));
+            inner.insertAdjacentHTML('beforeend',
+              '<div class="msi-entry"><span class="msi-stamp">[' + stamp + ']</span> ' + html + '</div>');
+            box.scrollTop = box.scrollHeight;
+            if (!first) await sleep(0); else await sleep(90);
+          }
+          first = false;
+        };
+        await pull();
+        if (this.homeThoughtsTimer) clearInterval(this.homeThoughtsTimer);
+        this.homeThoughtsTimer = setInterval(pull, 3000);
       },
 
       // Switch the sidebar to the per-agent detail fanout and show Thoughts first.
@@ -728,6 +841,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           catch (e) { inner.insertAdjacentHTML('beforeend', '<div class="msi-line err">! ' + esc(e.message) + '</div>'); return; }
           if (first && !rows.length) {
             inner.insertAdjacentHTML('beforeend', '<div class="msi-entry dim">&mdash; no thoughts recorded for this agent yet &mdash;</div>');
+          } else if (first && rows.length && rows[0].text && rows[0].text.startsWith('[assistant]')) {
+            inner.insertAdjacentHTML('beforeend', '<div class="msi-entry dim">&mdash; reasoning stream not exposed by this agent; showing live fallback activity instead &mdash;</div>');
           }
           for (const r of rows) {
             const key = r.date + '|' + r.text.slice(0, 40);

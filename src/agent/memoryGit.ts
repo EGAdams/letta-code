@@ -21,6 +21,8 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { LETTA_CLOUD_API_URL } from "../auth/oauth";
+import { settingsManager } from "../settings-manager";
 import { debugLog, debugWarn } from "../utils/debug";
 import { getClient, getServerUrl } from "./client";
 
@@ -73,7 +75,28 @@ function isSshRemote(remoteUrl?: string): boolean {
  * LETTA_BASE_URL for regular API calls.
  */
 export function getGitServerUrl(): string {
-  return (process.env.LETTA_GIT_BASE_URL || getServerUrl())
+  let configuredGitBaseUrl: string | undefined;
+  try {
+    configuredGitBaseUrl =
+      settingsManager.getSettings().env?.LETTA_GIT_BASE_URL;
+  } catch {
+    // Settings may not be initialized yet in unit tests or early startup.
+  }
+
+  let configuredServerUrl = process.env.LETTA_BASE_URL;
+  if (!configuredServerUrl) {
+    try {
+      configuredServerUrl = getServerUrl();
+    } catch {
+      configuredServerUrl = LETTA_CLOUD_API_URL;
+    }
+  }
+
+  return (
+    process.env.LETTA_GIT_BASE_URL ||
+    configuredGitBaseUrl ||
+    configuredServerUrl
+  )
     .trim()
     .replace(/\/+$/, "");
 }
@@ -185,7 +208,7 @@ async function configureLocalCredentialHelper(
   dir: string,
   token: string,
 ): Promise<void> {
-  const rawBaseUrl = process.env.LETTA_GIT_BASE_URL || getServerUrl();
+  const rawBaseUrl = getGitServerUrl();
   const normalizedBaseUrl = normalizeCredentialBaseUrl(rawBaseUrl);
   const helper = `!f() { echo "username=letta"; echo "password=${token}"; }; f`;
 
