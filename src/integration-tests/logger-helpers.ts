@@ -64,6 +64,7 @@ export const ALL_LOGGER_IDS = [
   "ScissariMessagePersistence_2026",
   "ScissariHaileyInteraction_2026",
   "ScissariToolParity_2026",
+  "ScissariSkillAdoptionToolCall_2026",
   "ScissariPlanningModeHang_2026",
   "ScissariInactivityTimeout_2026",
   "ScissariToolExecutionHang_2026",
@@ -80,6 +81,14 @@ export const ALL_LOGGER_IDS = [
   "Scissari_Tool_Other_2026",
   "Scissari_ToolReturns_2026",
   "Scissari_Approvals_2026",
+  "FritaTestLogger_2026",
+  "FritaMessagePersistence_2026",
+  "FritaToolParity_2026",
+  "FritaWebToolResponse_2026",
+  "FritaToolExecutionHang_2026",
+  "FritaToolExecutionHang_ErrorPath_2026",
+  "FritaPlanningModeHang_2026",
+  "FritaInactivityTimeout_2026",
 ];
 
 export async function resetLogger(objectViewId: string): Promise<boolean> {
