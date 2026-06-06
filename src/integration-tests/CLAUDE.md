@@ -71,6 +71,7 @@ Each test file follows the same pattern:
 | `scissari-message-persistence.integration.test.ts` | Verifies Scissari's run completes with a model response and that the second test confirms no reasoning-only output — requires `LETTA_RUN_SCISSARI_TEST=1` |
 | `scissari-hailey-interaction.integration.test.ts` | Verifies Scissari can ask Hailey a question and relay the answer; also checks `tool_return_message` context is persisted in the run — requires `LETTA_RUN_SCISSARI_TEST=1` |
 | `scissari-tool-execution-hang.integration.test.ts` | Detects post-approval tool-execution hang: approves a tool, asserts agent completes within 95 s; fails if agent loops in `stopReason="error"` retry after tool result — requires `LETTA_RUN_SCISSARI_TEST=1` |
+| `agent-tool-rule-audit.integration.test.ts` | Server-wide, read-only sweep that fails if ANY agent carries a hang-inducing tool rule — a `required_before_exit` `send_message` rule on a message-terminated agent (`letta_v1_agent`/`react_agent`). Root cause of the 2026-06-05 Scissari↔Frita "tool loop / auto-reset" cycle (Frita hung at `max_steps`, trapping Scissari). Detector lives in `src/tools/toolset.ts` (`findHangingToolRules`); fast unit test in `src/tests/tools/toolset-hanging-tool-rules.test.ts`. Skips gracefully if no server reachable |
 | `scissari-telegram-connection.integration.test.ts` | Telegram bridge wiring into Scissari — requires `LETTA_RUN_SCISSARI_TEST=1`, `SCISSARI_TELEGRAM_CHAT_ID`, and `SCISSARI_TELEGRAM_BOT_TOKEN` (or `TELEGRAM_TOKEN`) |
 
 ### RemoteLogger and LED status

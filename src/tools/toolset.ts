@@ -263,6 +263,68 @@ export async function clearPersistedClientToolRules(
 }
 
 /**
+ * Agent types that terminate a turn by emitting a plain assistant message and
+ * therefore NEVER produce a `send_message` tool call. (The older memgpt agents
+ * DO call `send_message` to talk, so they are intentionally excluded.)
+ */
+const MESSAGE_TERMINATED_AGENT_TYPES: ReadonlySet<string> = new Set([
+  "letta_v1_agent",
+  "react_agent",
+]);
+
+/**
+ * Tools that a message-terminated agent will never call to end its turn.
+ * A `required_before_exit` rule naming one of these can never be satisfied.
+ */
+const UNCALLABLE_EXIT_TOOLS: ReadonlySet<string> = new Set(["send_message"]);
+
+interface AgentForToolRuleAudit {
+  agent_type?: string | null;
+  tool_rules?: PersistedToolRule[] | null;
+}
+
+/**
+ * Detects tool rules that make a message-terminated agent (e.g. `letta_v1_agent`)
+ * hang forever.
+ *
+ * Root cause of the Scissari↔Frita "stuck in a tool loop / I've reset our
+ * conversation" cycle (2026-06-05): Frita was a `letta_v1_agent` carrying a
+ * `{ type: "required_before_exit", tool_name: "send_message" }` rule. A
+ * `letta_v1_agent` ends its turn with an assistant message and never calls
+ * `send_message`, so the rule can never be satisfied — the server emits endless
+ * `ToolRuleViolated` heartbeats until `max_steps`, returning no reply. When
+ * another agent messages such an agent via
+ * `send_message_to_agent_and_wait_for_reply`, the caller gets a `max_steps`
+ * error, retries, trips the loop-guard, and auto-resets in a ~2-minute cycle.
+ *
+ * @returns the offending rules. An empty array means the agent is healthy.
+ */
+export function findHangingToolRules(
+  agent: AgentForToolRuleAudit,
+): PersistedToolRule[] {
+  if (
+    !agent.agent_type ||
+    !MESSAGE_TERMINATED_AGENT_TYPES.has(agent.agent_type)
+  ) {
+    return [];
+  }
+  return (agent.tool_rules ?? []).filter(
+    (rule) =>
+      rule?.type === "required_before_exit" &&
+      typeof rule.tool_name === "string" &&
+      UNCALLABLE_EXIT_TOOLS.has(rule.tool_name),
+  );
+}
+
+/**
+ * Convenience predicate over {@link findHangingToolRules}. True when the agent
+ * carries at least one hang-inducing tool rule.
+ */
+export function hasHangingToolRules(agent: AgentForToolRuleAudit): boolean {
+  return findHangingToolRules(agent).length > 0;
+}
+
+/**
  * Force switch to a specific toolset regardless of model.
  *
  * @param toolsetName - The toolset to switch to
