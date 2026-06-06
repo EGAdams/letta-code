@@ -1,0 +1,19 @@
+[project]
+name = "scissari-executor-fix"
+version = "0.1.0"
+description = "Divide-and-conquer redesign of the Scissari executor_run recovery pipeline"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
