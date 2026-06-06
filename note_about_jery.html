@@ -3,250 +3,364 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Jeri Reference</title>
+  <title>Jeri — Agent Reference</title>
   <style>
     :root {
-      --bg: #0b1020;
-      --panel: #121933;
-      --panel-2: #182243;
-      --text: #e7ecff;
-      --muted: #a9b6df;
-      --accent: #79c0ff;
-      --accent-2: #9b8cff;
-      --success: #7ee787;
-      --warn: #ffd866;
-      --border: rgba(255,255,255,0.1);
-      --code: #0f1530;
+      --bg: #0b1120;
+      --surface: #111827;
+      --border: #1e2d45;
+      --text: #e2eaf8;
+      --muted: #8a9bbf;
+      --accent: #60a5fa;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --orange: #fb923c;
+      --purple: #a78bfa;
+      --red: #f87171;
+      --teal: #2dd4bf;
     }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      margin: 0;
-      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
       color: var(--text);
-      background:
-        radial-gradient(circle at top left, rgba(121,192,255,0.18), transparent 28%),
-        radial-gradient(circle at top right, rgba(155,140,255,0.18), transparent 26%),
-        linear-gradient(180deg, #0a0f1f 0%, #0d1328 100%);
-      line-height: 1.55;
-    }
-    .wrap {
-      max-width: 1100px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.65;
+      padding: 2.5rem 2rem;
+      max-width: 1000px;
       margin: 0 auto;
-      padding: 36px 20px 64px;
     }
-    .hero, .card {
-      background: rgba(18, 25, 51, 0.92);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      box-shadow: 0 20px 45px rgba(0,0,0,0.35);
-      backdrop-filter: blur(10px);
-    }
-    .hero {
-      padding: 28px;
-      margin-bottom: 22px;
-    }
-    h1 {
-      margin: 0 0 10px;
-      font-size: clamp(2rem, 5vw, 3rem);
-      line-height: 1.1;
-    }
+    h1 { font-size: 2rem; color: var(--accent); margin-bottom: 0.2rem; }
+    .subtitle { color: var(--muted); font-size: 0.95rem; margin-bottom: 2.5rem; }
     h2 {
-      margin-top: 0;
-      font-size: 1.3rem;
+      font-size: 1.25rem; color: var(--purple);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.4rem; margin: 2rem 0 0.9rem;
     }
-    p { margin: 0 0 14px; color: var(--muted); }
-    .badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin: 14px 0 4px;
-    }
-    .badge {
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: linear-gradient(135deg, rgba(121,192,255,0.16), rgba(155,140,255,0.16));
-      border: 1px solid rgba(121,192,255,0.26);
-      color: var(--text);
-      font-size: 0.92rem;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 18px;
-    }
+    h3 { font-size: 1rem; color: var(--orange); margin: 1.2rem 0 0.4rem; }
+    p { margin-bottom: 0.7rem; }
+    a { color: var(--accent); }
     .card {
-      padding: 22px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.1rem 1.4rem;
+      margin: 0.8rem 0;
     }
-    ul {
-      margin: 0;
-      padding-left: 20px;
-      color: var(--muted);
-    }
-    li { margin: 8px 0; }
-    .callout {
-      margin-top: 16px;
-      padding: 16px 18px;
-      border-left: 4px solid var(--warn);
-      background: rgba(255, 216, 102, 0.08);
-      border-radius: 12px;
-      color: var(--text);
-    }
-    .callout strong { color: #fff2b3; }
-    code, pre {
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-    }
+    .card.accent  { border-left: 3px solid var(--accent); }
+    .card.green   { border-left: 3px solid var(--green); }
+    .card.yellow  { border-left: 3px solid var(--yellow); }
+    .card.purple  { border-left: 3px solid var(--purple); }
+    .card.orange  { border-left: 3px solid var(--orange); }
     code {
-      background: rgba(255,255,255,0.07);
-      padding: 2px 6px;
-      border-radius: 6px;
-      color: #d8e7ff;
+      font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+      font-size: 0.82rem;
+      color: var(--orange);
+      background: rgba(251,146,60,0.08);
+      padding: 0.05rem 0.3rem;
+      border-radius: 3px;
     }
     pre {
-      margin: 14px 0 0;
-      padding: 14px;
+      background: #060c18;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem 1.2rem;
       overflow-x: auto;
+      font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+      font-size: 0.82rem;
+      line-height: 1.6;
+      margin: 0.7rem 0;
+      color: var(--text);
+    }
+    pre .key   { color: var(--accent); }
+    pre .val   { color: var(--green); }
+    pre .cmt   { color: var(--muted); font-style: italic; }
+    pre .kw    { color: var(--purple); }
+    table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.88rem; }
+    th {
+      background: var(--surface); color: var(--accent);
+      text-align: left; padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border);
+    }
+    td { padding: 0.4rem 0.75rem; border: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+    .pill {
+      display: inline-block;
+      padding: 0.15rem 0.6rem;
       border-radius: 12px;
-      background: var(--code);
-      border: 1px solid rgba(255,255,255,0.08);
-      color: #d6e2ff;
-      font-size: 0.9rem;
-      line-height: 1.45;
+      font-size: 0.75rem;
+      font-weight: 600;
     }
-    .two-col {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 18px;
+    .pill.green  { background: rgba(52,211,153,0.12); color: var(--green);  border: 1px solid rgba(52,211,153,0.3); }
+    .pill.accent { background: rgba(96,165,250,0.12); color: var(--accent); border: 1px solid rgba(96,165,250,0.3); }
+    .pill.yellow { background: rgba(251,191,36,0.12); color: var(--yellow); border: 1px solid rgba(251,191,36,0.3); }
+    ul, ol { padding-left: 1.5rem; margin-bottom: 0.7rem; }
+    li { margin-bottom: 0.25rem; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 680px) { .grid2 { grid-template-columns: 1fr; } }
+    hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+    .note {
+      background: rgba(96,165,250,0.06);
+      border: 1px solid rgba(96,165,250,0.2);
+      border-radius: 6px;
+      padding: 0.7rem 1rem;
+      font-size: 0.875rem;
+      color: var(--muted);
+      margin: 0.8rem 0;
     }
-    .muted { color: var(--muted); }
-    .path { color: var(--success); font-weight: 600; }
-    a { color: var(--accent); }
+    .note strong { color: var(--accent); }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <section class="hero">
-      <h1>Jeri Reference</h1>
-      <p>Practical reference for communicating with Jeri for January bank-statement analysis and <code>claude-code-sdk-ts</code> help.</p>
-      <div class="badges">
-        <span class="badge">Stateful Letta agent</span>
-        <span class="badge">Financial analyst</span>
-        <span class="badge">January statements specialist</span>
-        <span class="badge">claude-code-sdk-ts expert</span>
-        <span class="badge">Letta native + A2A HTTP</span>
-      </div>
-    </section>
 
-    <div class="grid">
-      <section class="card">
-        <h2>Who Is Jeri</h2>
-        <p>Jeri is a stateful Letta agent that specializes in financial analysis, especially January bank statements, and also has expertise with <code>/home/adamsl/claude-code-sdk-ts</code>.</p>
-        <ul>
-          <li><strong>Letta agent ID:</strong> <code>agent-1caa2fff-5188-4f7e-996b-34146de966e3</code></li>
-          <li><strong>A2A HTTP server:</strong> <code>http://10.0.0.143:9001</code></li>
-        </ul>
-      </section>
+<h1>Jeri — Agent Reference</h1>
+<p class="subtitle">
+  Letta-native &nbsp;·&nbsp; A2A-compatible &nbsp;·&nbsp; January statements analyst &amp; claude-code-sdk-ts expert
+  &nbsp;·&nbsp; <span style="color:var(--muted)">Written 2026-06-02 for Scissari</span>
+</p>
 
-      <section class="card">
-        <h2>Five Skills</h2>
-        <ul>
-          <li><code>analyze_statement</code> — deep analysis of a bank statement</li>
-          <li><code>extract_transactions</code> — structured extraction of transaction rows</li>
-          <li><code>summarize_statement</code> — natural-language summary</li>
-          <li><code>prepare_report_snippet</code> — Markdown table + narrative writeup</li>
-          <li><code>find_anomalies</code> — z-score + LLM explanation of unusual items</li>
-        </ul>
-      </section>
+<!-- ═══ IDENTITY ═══════════════════════════════════════════════════════════ -->
+<h2>1. Who Is Jeri?</h2>
+<div class="card accent">
+  <p>
+    <strong>Jeri</strong> is a stateful Letta agent and A2A HTTP server running on Mom's Machine.
+    She has two areas of mastery:
+  </p>
+  <ul>
+    <li><strong>Financial analyst</strong> — January bank statement analysis for the <code>rol_finances</code> project</li>
+    <li><strong>SDK expert</strong> — deep knowledge of the <code>claude-code-sdk-ts</code> TypeScript SDK at <code>/home/adamsl/claude-code-sdk-ts</code></li>
+  </ul>
+</div>
 
-      <section class="card" style="grid-column: 1 / -1;">
-        <h2>Required Statement Context</h2>
-        <p>For financial tasks, include <code>statementPath</code> in the request context.</p>
-        <div class="callout">
-          <strong>Critical rule:</strong> all financial skills require <code>statementPath</code>. Default January statements directory: <span class="path">/home/adamsl/rol_finances/readable_documents/bank_statements/january</span>
-        </div>
-      </section>
+<div class="grid2">
+  <div class="card">
+    <h3>Identity</h3>
+    <table>
+      <tr><th>Field</th><th>Value</th></tr>
+      <tr><td>Letta name</td><td><code>jeri-agent</code></td></tr>
+      <tr><td>Letta agent ID</td><td><code>agent-1caa2fff-5188-4f7e-996b-34146de966e3</code></td></tr>
+      <tr><td>Model</td><td><code>google_ai/gemini-2.5-flash</code></td></tr>
+      <tr><td>A2A server</td><td><code>http://10.0.0.143:9001</code></td></tr>
+      <tr><td>Statements dir</td><td><code>/home/adamsl/rol_finances/readable_documents/<br>bank_statements/january</code></td></tr>
+      <tr><td>Artifact root</td><td><code>$JERI_ARTIFACT_ROOT</code> (default: <code>~/jeri_artifacts</code>)</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Five Core Skills</h3>
+    <table>
+      <tr><th>Skill ID</th><th>What it does</th></tr>
+      <tr><td><code>analyze_statement</code></td><td>Deep structural analysis — dates, totals, merchant breakdown</td></tr>
+      <tr><td><code>extract_transactions</code></td><td>Structured row extraction (regex + LLM)</td></tr>
+      <tr><td><code>summarize_statement</code></td><td>Natural language summary — in/out, top merchants, flags</td></tr>
+      <tr><td><code>prepare_report_snippet</code></td><td>Markdown table + narrative for rollup reports</td></tr>
+      <tr><td><code>find_anomalies</code></td><td>Z-score statistical pass + LLM anomaly explanation</td></tr>
+    </table>
+    <p style="font-size:0.82rem;color:var(--muted);margin-top:0.5rem">
+      All five require <code>statementPath</code> in the A2A <code>context</code> field.
+    </p>
+  </div>
+</div>
 
-      <section class="card">
-        <h2>Approach 1 — Letta Native Messaging</h2>
-        <p>Use native Letta messaging for simple requests when you want the easiest path.</p>
-<pre>send_letta_message(
-  agent_id="agent-1caa2fff-5188-4f7e-996b-34146de966e3",
-  message={
-    "task": "analyze_statement",
-    "context": {
-      "statementPath": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/sample.pdf"
-    }
-  }
+<!-- ═══ APPROACH 1: LETTA NATIVE ═══════════════════════════════════════════ -->
+<h2>2. Approach 1 — Letta Native Messaging (conversational)</h2>
+<div class="card green">
+  <p>Use your <code>send_letta_message</code> tool for conversational asks, SDK questions, or when you don't need structured JSON output. Jeri responds in natural language.</p>
+</div>
+
+<h3>How to call</h3>
+<pre><span class="cmt"># Using your send_letta_message tool:</span>
+send_letta_message(
+    agent_id=<span class="val">"agent-1caa2fff-5188-4f7e-996b-34146de966e3"</span>,
+    message=<span class="val">"Summarize the January Chase statement at /home/adamsl/rol_finances/..."</span>
 )</pre>
-      </section>
 
-      <section class="card">
-        <h2>Approach 2 — A2A JSON-RPC</h2>
-        <p>Use A2A for structured workflows, task polling, and explicit lifecycle control.</p>
-<pre>POST http://10.0.0.143:9001/
+<h3>Good use cases</h3>
+<ul>
+  <li>Asking Jeri about the claude-code-sdk-ts API — <em>"What does <code>claude().withRole()</code> return?"</em></li>
+  <li>Getting a quick summary without needing structured JSON</li>
+  <li>Checking Jeri's status or asking about statements availability</li>
+  <li>Delegating follow-up questions after initial A2A analysis</li>
+</ul>
+
+<!-- ═══ APPROACH 2: A2A HTTP ════════════════════════════════════════════════ -->
+<h2>3. Approach 2 — A2A JSON-RPC (structured tasks)</h2>
+<div class="card yellow">
+  <p>Use the A2A HTTP endpoint when you need structured output, streaming, or want to track task state. All financial skills run through this path.</p>
+</div>
+
+<h3>Step 1 — SendMessage</h3>
+<pre>POST <span class="val">http://10.0.0.143:9001/</span>
+Content-Type: application/json
 
 {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "SendMessage",
-  "params": {
-    "skill": "analyze_statement",
-    "input": {
-      "statementPath": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/sample.pdf"
+  <span class="key">"jsonrpc"</span>: <span class="val">"2.0"</span>,
+  <span class="key">"method"</span>: <span class="val">"SendMessage"</span>,
+  <span class="key">"id"</span>: <span class="val">"my-task-1"</span>,
+  <span class="key">"params"</span>: {
+    <span class="key">"message"</span>: {
+      <span class="key">"role"</span>: <span class="val">"ROLE_USER"</span>,
+      <span class="key">"parts"</span>: [{ <span class="key">"text"</span>: <span class="val">"Summarize the January statement"</span> }]
+    },
+    <span class="key">"skill"</span>: <span class="val">"summarize_statement"</span>,
+    <span class="key">"context"</span>: {
+      <span class="key">"statementPath"</span>: <span class="val">"/home/adamsl/rol_finances/readable_documents/bank_statements/january/chase_jan.txt"</span>
     }
   }
 }</pre>
+
+<p>Response — save the <code>result.id</code> as your task ID:</p>
 <pre>{
-  "jsonrpc": "2.0",
-  "id": 2,
-  "method": "GetTask",
-  "params": {
-    "taskId": "&lt;task-id&gt;"
+  <span class="key">"jsonrpc"</span>: <span class="val">"2.0"</span>,
+  <span class="key">"id"</span>: <span class="val">"my-task-1"</span>,
+  <span class="key">"result"</span>: {
+    <span class="key">"id"</span>: <span class="val">"&lt;task-uuid&gt;"</span>,          <span class="cmt">// ← save this</span>
+    <span class="key">"status"</span>: { <span class="key">"state"</span>: <span class="val">"SUBMITTED"</span> }
   }
 }</pre>
-        <p class="muted">Lifecycle: <code>SUBMITTED -&gt; WORKING -&gt; COMPLETED</code> or <code>FAILED</code>.</p>
-      </section>
-    </div>
 
-    <section class="card" style="margin-top: 18px;">
-      <h2>Quick A2A curl Examples</h2>
-      <div class="two-col">
-<pre>curl -s http://10.0.0.143:9001/   -H 'Content-Type: application/json'   -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "SendMessage",
-    "params": {
-      "skill": "prepare_report_snippet",
-      "input": {
-        "statementPath": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/sample.pdf"
-      }
-    }
-  }'</pre>
-<pre>curl -s http://10.0.0.143:9001/   -H 'Content-Type: application/json'   -d '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "GetTask",
-    "params": {
-      "taskId": "&lt;task-id&gt;"
-    }
-  }'</pre>
-      </div>
-    </section>
+<h3>Step 2 — Poll GetTask until COMPLETED</h3>
+<pre>POST <span class="val">http://10.0.0.143:9001/</span>
+{
+  <span class="key">"jsonrpc"</span>: <span class="val">"2.0"</span>,
+  <span class="key">"method"</span>: <span class="val">"GetTask"</span>,
+  <span class="key">"id"</span>: <span class="val">"poll-1"</span>,
+  <span class="key">"params"</span>: { <span class="key">"id"</span>: <span class="val">"&lt;task-uuid&gt;"</span> }
+}
 
-    <section class="card" style="margin-top: 18px;">
-      <h2>Utility Endpoints</h2>
-      <ul>
-        <li><code>GET http://10.0.0.143:9001/.well-known/agent.json</code></li>
-        <li><code>GET http://10.0.0.143:9001/health</code></li>
-      </ul>
-    </section>
+<span class="cmt">// States: SUBMITTED → WORKING → COMPLETED (or FAILED / CANCELED)</span>
+<span class="cmt">// result.result contains Jeri's answer when COMPLETED</span></pre>
 
-    <section class="card" style="margin-top: 18px;">
-      <h2>When To Use Which Path</h2>
-      <ul>
-        <li>Use <strong>native Letta messaging</strong> for quick, simple requests.</li>
-        <li>Use <strong>A2A JSON-RPC</strong> for structured workflows, integration code, and polling task completion.</li>
-      </ul>
-    </section>
+<h3>Task state flow</h3>
+<p>
+  <span class="pill accent">SUBMITTED</span> →
+  <span class="pill yellow">WORKING</span> →
+  <span class="pill green">COMPLETED</span>
+  &nbsp;or&nbsp;
+  <span class="pill" style="background:rgba(248,113,113,0.12);color:var(--red);border:1px solid rgba(248,113,113,0.3)">FAILED</span>
+</p>
+
+<h3>Streaming (SSE) — SendStreamingMessage</h3>
+<pre>POST <span class="val">http://10.0.0.143:9001/</span>
+{
+  <span class="key">"jsonrpc"</span>: <span class="val">"2.0"</span>,
+  <span class="key">"method"</span>: <span class="val">"SendStreamingMessage"</span>,
+  <span class="key">"id"</span>: <span class="val">"stream-1"</span>,
+  <span class="key">"params"</span>: { <span class="cmt">/* same params as SendMessage */</span> }
+}
+<span class="cmt">// Response is text/event-stream — each data: frame is JSON</span>
+<span class="cmt">// data: {"type":"chunk","taskId":"...","content":"text..."}</span>
+<span class="cmt">// data: {"type":"done","taskId":"...","status":"COMPLETED"}</span></pre>
+
+<!-- ═══ SKILL REFERENCE ════════════════════════════════════════════════════ -->
+<h2>4. Skill Quick Reference</h2>
+<table>
+  <tr>
+    <th>Skill ID</th>
+    <th>Required context key</th>
+    <th>Returns</th>
+    <th>Best model</th>
+  </tr>
+  <tr>
+    <td><code>analyze_statement</code></td>
+    <td><code>statementPath</code></td>
+    <td>JSON — dates, balances, merchant breakdown</td>
+    <td>sonnet</td>
+  </tr>
+  <tr>
+    <td><code>extract_transactions</code></td>
+    <td><code>statementPath</code></td>
+    <td>JSON array of transaction objects</td>
+    <td>sonnet</td>
+  </tr>
+  <tr>
+    <td><code>summarize_statement</code></td>
+    <td><code>statementPath</code></td>
+    <td>Natural language string</td>
+    <td>sonnet</td>
+  </tr>
+  <tr>
+    <td><code>prepare_report_snippet</code></td>
+    <td><code>statementPath</code></td>
+    <td>Markdown table + narrative (saved as artifact)</td>
+    <td>opus</td>
+  </tr>
+  <tr>
+    <td><code>find_anomalies</code></td>
+    <td><code>statementPath</code></td>
+    <td>JSON array of anomaly objects with severity</td>
+    <td>sonnet</td>
+  </tr>
+</table>
+
+<!-- ═══ UTILITY ENDPOINTS ══════════════════════════════════════════════════ -->
+<h2>5. Utility Endpoints</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>AgentCard (discovery)</h3>
+    <pre>GET http://10.0.0.143:9001/.well-known/agent.json</pre>
+    <p style="font-size:0.83rem;color:var(--muted)">Returns Jeri's full A2A card with all skill definitions.</p>
   </div>
+  <div class="card">
+    <h3>Health check</h3>
+    <pre>GET http://10.0.0.143:9001/health</pre>
+    <p style="font-size:0.83rem;color:var(--muted)">Returns <code>{"ok":true,"skills":[...]}</code> when Jeri's A2A server is up.</p>
+  </div>
+</div>
+
+<!-- ═══ LETTA TOOLS ════════════════════════════════════════════════════════ -->
+<h2>6. Jeri's Letta Tools (what she can do)</h2>
+<div class="card purple">
+  <p>Jeri has 10 tools attached in Letta. These are the actions she can take autonomously when you message her:</p>
+  <table>
+    <tr><th>Tool</th><th>What it does</th><th>Exposed via A2A?</th></tr>
+    <tr><td><code>read_sdk_file</code></td><td>Read any file from the claude-code-sdk-ts repo</td><td>No (internal)</td></tr>
+    <tr><td><code>list_sdk_dir</code></td><td>List a directory in the SDK repo</td><td>No (internal)</td></tr>
+    <tr><td><code>run_typescript</code></td><td>Run npm scripts (build/test/typecheck/lint)</td><td>No (security boundary)</td></tr>
+    <tr><td><code>analyze_statement</code></td><td>Delegates to A2A → deep statement analysis</td><td>Yes</td></tr>
+    <tr><td><code>extract_transactions</code></td><td>Delegates to A2A → structured extraction</td><td>Yes</td></tr>
+    <tr><td><code>summarize_statement</code></td><td>Delegates to A2A → natural language summary</td><td>Yes</td></tr>
+    <tr><td><code>prepare_report_snippet</code></td><td>Delegates to A2A → Markdown report</td><td>Yes</td></tr>
+    <tr><td><code>find_anomalies</code></td><td>Delegates to A2A → anomaly detection</td><td>Yes</td></tr>
+    <tr><td><code>send_a2a_task</code></td><td>Call any other A2A agent by URL</td><td>No (outbound)</td></tr>
+    <tr><td><code>send_letta_message</code></td><td>Message any Letta agent by ID</td><td>No (outbound)</td></tr>
+  </table>
+</div>
+
+<!-- ═══ WHEN TO USE WHICH ══════════════════════════════════════════════════ -->
+<h2>7. When to Use Which Approach</h2>
+<table>
+  <tr><th>Situation</th><th>Use</th></tr>
+  <tr><td>Quick question about a statement or the SDK</td><td>Letta native (<code>send_letta_message</code>)</td></tr>
+  <tr><td>Need structured JSON output (transactions, anomalies)</td><td>A2A <code>SendMessage</code> + <code>GetTask</code> poll</td></tr>
+  <tr><td>Want to see output as it streams token by token</td><td>A2A <code>SendStreamingMessage</code> (SSE)</td></tr>
+  <tr><td>Background task — fire and check later</td><td>A2A <code>SendMessage</code> → store task ID → poll later</td></tr>
+  <tr><td>Cancel an in-flight task</td><td>A2A <code>CancelTask</code></td></tr>
+</table>
+
+<!-- ═══ START/STOP ════════════════════════════════════════════════════════ -->
+<h2>8. Starting &amp; Stopping Jeri's A2A Server</h2>
+<div class="card orange">
+  <p>The Letta agent is always on (it's registered on the server). The A2A HTTP server must be started separately on Mom's Machine:</p>
+  <pre><span class="cmt"># Start (from /home/adamsl/claude-code-sdk-ts)</span>
+cd agents/jeri && bash start_jeri_agent.sh
+
+<span class="cmt"># Stop</span>
+bash stop_jeri_agent.sh
+
+<span class="cmt"># Development mode (hot reload)</span>
+npx tsx /home/adamsl/claude-code-sdk-ts/agents/jeri/index.ts</pre>
+</div>
+
+<div class="note">
+  <strong>Note:</strong> Jeri's A2A server at <code>http://10.0.0.143:9001</code> must be running for all five financial skills to work.
+  If the health check fails, start it with <code>start_jeri_agent.sh</code> before delegating tasks.
+</div>
+
+<hr />
+<p style="color:var(--muted);font-size:0.78rem;text-align:center">
+  Written by Claude Sonnet 4.6 · 2026-06-02 · For Scissari, Mom's Machine Team<br>
+  Jeri Letta ID: <code>agent-1caa2fff-5188-4f7e-996b-34146de966e3</code> &nbsp;·&nbsp;
+  A2A: <code>http://10.0.0.143:9001</code>
+</p>
+
 </body>
 </html>

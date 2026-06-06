@@ -23,7 +23,7 @@ letta-server DB             — provider row: name='chatgpt-plus-pro'
                               The server auto-refreshes using refresh_token
                               before each call (5-min buffer).
 ```
-
+ 
 The Letta server is at `http://100.80.49.10:8283`.  
 SSH to Docker host: `ssh 100.80.49.10`  
 Docker command prefix: `ssh 100.80.49.10 "docker exec letta-server python3 -c \"...\""  `
@@ -151,4 +151,4 @@ if 'error' in d: print('ERROR:', d)
 
 - The Codex CLI (`/usr/local/bin/codex`) automatically refreshes `~/.codex/auth.json` tokens. If the access_token in that file is also expired, run Codex CLI briefly to trigger a refresh before running Step 1.
 - After updating the DB, no restart of letta-server is needed — it reads credentials fresh per call.
-- lettabot reads `baseUrl` from `/home/adamsl/lettabot/lettabot.yaml`. The active server is at port `8283`. The old `letta-bridge` nginx proxy (port `18283`) has been decommissioned.
+- lettabot reads `baseUrl` from `/home/adamsl/lettabot/lettabot.yaml`. **Updated 2026-05-29:** the live letta-server is reachable directly on `100.80.49.10:8283` (verified HTTP 200, ADE-confirmed). The `letta-bridge` nginx proxy on `18283` is down/retired — `18283` refuses connections. Use `8283`. If you find a `lettabot.yaml` still pointing at `18283`, update it. (The old guidance that `8283` was "an orphan container, do NOT use" no longer holds — the infrastructure changed.)

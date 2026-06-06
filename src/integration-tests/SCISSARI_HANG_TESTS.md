@@ -6,6 +6,29 @@ These integration tests detect when Scissari gets stuck in Planning mode without
 
 - `scissari-planning-mode-hang.integration.test.ts` — Two tests that catch output starvation and verify timeout recovery
 - `scissari-tool-execution-hang.integration.test.ts` — Covers post-approval continuation for both successful and failing tool commands (including `python: command not found`) and asserts no indefinite hang
+- `agent-tool-rule-audit.integration.test.ts` — Server-wide guard that fails if ANY agent carries a hang-inducing tool rule (see next section)
+
+## Hang-inducing tool rules (root cause of the 2026-06-05 "tool loop / auto-reset" cycle)
+
+A sneakier hang that is NOT in Scissari herself but in an agent she *talks to*. Frita was a
+`letta_v1_agent` carrying `{ "type": "required_before_exit", "tool_name": "send_message" }`.
+A `letta_v1_agent` ends its turn with a plain assistant message and **never calls
+`send_message`**, so the rule can never be satisfied — the server loops on `ToolRuleViolated`
+heartbeats until `max_steps` and returns **no reply**. When Scissari messaged Frita via
+`send_message_to_agent_and_wait_for_reply`, she got a `max_steps` error, retried, tripped
+letta-code's loop-guard, and auto-reset → a new `conv-…` every ~2 minutes (the Telegram
+"Started a new conversation / I got stuck in a tool loop / I've reset" spam).
+
+- **Detector:** `findHangingToolRules()` / `hasHangingToolRules()` in `src/tools/toolset.ts`
+- **Unit test (fast, no server):** `src/tests/tools/toolset-hanging-tool-rules.test.ts`
+- **Live guard:** `agent-tool-rule-audit.integration.test.ts` sweeps every agent and fails on offenders
+- **Manual fix:** `UPDATE agents SET tool_rules='[]'::jsonb WHERE id='<agent-id>';` (PATCH endpoint is unreliable here — use psql). Full writeup: `debugging-agent-to-agent-messaging` skill, Failure 13
+
+```bash
+# Read-only audit against any server:
+LETTA_BASE_URL=http://localhost:8283 LETTA_API_KEY=<key> \
+  bun test src/integration-tests/agent-tool-rule-audit.integration.test.ts
+```
 
 ## What the Tests Do
 

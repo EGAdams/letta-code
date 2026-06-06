@@ -1,57 +1,11 @@
-import { beforeEach, describe, expect, test } from "bun:test";
-import { spawn } from "node:child_process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { beforeEach, describe, expect } from "bun:test";
 import { getClient } from "../agent/client";
-import { RemoteLogger } from "../logger/RemoteLogger";
-import { settingsManager } from "../settings-manager";
+import { AgentTestContext } from "./framework/AgentTestContext";
+import { ScissariAgent } from "./framework/agents/ScissariAgent";
 import { resetAllLoggers } from "./logger-helpers";
 
-const SCISSARI_AGENT_ID = "agent-5955b0c2-7922-4ffe-9e43-b116053b80fa";
-const DEFAULT_BASE_URL = "http://100.80.49.10:8283";
-const TEST_API_KEY = "6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8";
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const ctx = new AgentTestContext(ScissariAgent);
 const LOGGER_ID = "ScissariHaileyInteraction_2026";
-
-type JsonObject = Record<string, unknown>;
-
-function parseJsonLines(stdout: string): JsonObject[] {
-  return stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as JsonObject);
-}
-
-function extractRunIds(events: JsonObject[]): string[] {
-  const ids = new Set<string>();
-  for (const event of events) {
-    const streamEvent = event.event;
-    if (
-      event.type === "stream_event" &&
-      streamEvent &&
-      typeof streamEvent === "object" &&
-      "run_id" in streamEvent &&
-      typeof streamEvent.run_id === "string"
-    ) {
-      ids.add(streamEvent.run_id);
-    }
-  }
-  return [...ids];
-}
-
-function extractToolReturnEvents(events: JsonObject[]): JsonObject[] {
-  return events.filter((event) => {
-    const streamEvent = event.event;
-    return (
-      event.type === "stream_event" &&
-      streamEvent &&
-      typeof streamEvent === "object" &&
-      "message_type" in streamEvent &&
-      streamEvent.message_type === "tool_return_message"
-    );
-  });
-}
 
 function messageContentText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -62,9 +16,9 @@ function messageContentText(content: unknown): string {
           part &&
           typeof part === "object" &&
           "text" in part &&
-          typeof part.text === "string"
+          typeof (part as Record<string, unknown>).text === "string"
         ) {
-          return part.text;
+          return (part as Record<string, unknown>).text as string;
         }
         return JSON.stringify(part);
       })
@@ -73,257 +27,120 @@ function messageContentText(content: unknown): string {
   return content === undefined ? "" : JSON.stringify(content);
 }
 
-async function runScissariPrompt(
-  prompt: string,
-): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(
-      "bun",
-      [
-        "run",
-        "dev",
-        "--agent",
-        SCISSARI_AGENT_ID,
-        "--new",
-        "-p",
-        prompt,
-        "--output-format",
-        "stream-json",
-        "--include-partial-messages",
-        "--memfs-startup",
-        "skip",
-        "--yolo",
-      ],
-      {
-        cwd: projectRoot,
-        env: {
-          ...process.env,
-          LETTA_CODE_AGENT_ROLE: "subagent",
-          LETTA_BASE_URL: process.env.LETTA_BASE_URL ?? DEFAULT_BASE_URL,
-          LETTA_API_KEY: process.env.LETTA_API_KEY ?? TEST_API_KEY,
-        },
-      },
-    );
-
-    let stdout = "";
-    let stderr = "";
-    let stdoutBuffer = "";
-    let settled = false;
-    const finish = (exitCode: number | null) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      try {
-        proc.kill();
-      } catch {
-        // Ignore cleanup failures; the caller already has the captured output.
-      }
-      resolve({ stdout, stderr, exitCode });
-    };
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      proc.kill();
-      reject(
-        new Error(
-          `Timed out waiting for Scissari/Hailey interaction.\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`,
-        ),
-      );
-    }, 150000);
-
-    proc.stdout?.on("data", (chunk) => {
-      const text = chunk.toString();
-      stdout += text;
-      stdoutBuffer += text;
-      while (true) {
-        const newlineIndex = stdoutBuffer.indexOf("\n");
-        if (newlineIndex === -1) break;
-        const line = stdoutBuffer.slice(0, newlineIndex).trim();
-        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
-        if (!line) continue;
-        try {
-          const parsed = JSON.parse(line) as JsonObject;
-          if (parsed.type === "result") {
-            finish(0);
-            return;
-          }
-          if (parsed.type === "error") {
-            finish(1);
-            return;
-          }
-        } catch {
-          // Ignore non-JSON lines and keep buffering until the final line arrives.
-        }
-      }
-    });
-    proc.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    proc.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      reject(error);
-    });
-    proc.on("close", (exitCode) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve({ stdout, stderr, exitCode });
-    });
-  });
-}
-
 describe("Scissari Hailey interaction integration", () => {
   beforeEach(async () => {
     await resetAllLoggers();
   }, 30000);
 
-  const maybeTest =
-    process.env.LETTA_RUN_SCISSARI_TEST === "1" ? test : test.skip;
-
-  maybeTest(
+  ctx.maybeTest(
     "Scissari can ask Hailey and return a final user-facing answer",
     async () => {
-      const logger = new RemoteLogger(LOGGER_ID);
-      let loggerReady = false;
-      try {
-        await logger.init();
-        await logger.clearLogs("Scissari Hailey interaction test run started.");
-        loggerReady = true;
-      } catch (err) {
-        console.warn(
-          `[scissari-hailey] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-      const log = async (message: string) => {
-        console.log(`[scissari-hailey] ${message}`);
-        if (!loggerReady) return;
-        try {
-          await logger.log(message);
-        } catch (err) {
-          console.warn(
-            `[scissari-hailey] log failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      };
-
-      process.env.LETTA_BASE_URL =
-        process.env.LETTA_BASE_URL ?? DEFAULT_BASE_URL;
-      process.env.LETTA_API_KEY = process.env.LETTA_API_KEY ?? TEST_API_KEY;
-      await settingsManager.initialize();
+      await ctx.initSettings();
+      const logger = await ctx.createLogger(LOGGER_ID, "scissari-hailey");
+      await logger.clearLogs("Scissari Hailey interaction test run started.");
 
       try {
         const token = `SCISSARI_HAILEY_INTERACTION_${Date.now()}`;
-        const result = await runScissariPrompt(
+        const runner = ctx.createStreamRunner({
+          new: true,
+          yolo: true,
+          timeoutMs: 150000,
+        });
+        const result = await runner.run(
           `Please ask Hailey how the finance report is going and what we are working on specifically, then summarize her answer for me. Include diagnostic token ${token} in your final answer.`,
         );
 
-        await log(`CLI exit code: ${result.exitCode}`);
+        await logger.log(`CLI exit code: ${result.exitCode}`);
         expect(result.exitCode).toBe(0);
 
-        const events = parseJsonLines(result.stdout);
-        const finalResult = events.find((event) => event.type === "result");
-        const finalText = String(finalResult?.result ?? "");
-        await log(`final result preview: ${finalText.slice(0, 300)}`);
+        const events = ctx.parser.parseLines(result.stdout);
+        const final = ctx.parser.findFinalResult(events);
+        const finalText = String(final?.result ?? "");
+        await logger.log(`final result preview: ${finalText.slice(0, 300)}`);
 
-        expect(finalResult?.subtype).toBe("success");
+        expect(final?.subtype).toBe("success");
         expect(finalText).toContain(token);
         expect(finalText).toContain("Hailey");
         expect(finalText).not.toContain("no assistant reply was returned");
-        await log("PASS: Scissari returned Hailey's answer to the user");
+        await logger.log("PASS: Scissari returned Hailey's answer to the user");
       } catch (err) {
-        await log(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+        await logger.log(
+          `ERROR: ${err instanceof Error ? err.message : String(err)}`,
+        );
         throw err;
       }
     },
     { timeout: 180000 },
   );
 
-  maybeTest(
+  ctx.maybeTest(
     "Scissari stream includes a successful synthetic tool return for Hailey",
     async () => {
-      const logger = new RemoteLogger(LOGGER_ID);
-      let loggerReady = false;
-      try {
-        await logger.init();
-        await logger.clearLogs(
-          "Scissari Hailey tool-return interaction test run started.",
-        );
-        loggerReady = true;
-      } catch (err) {
-        console.warn(
-          `[scissari-hailey] RemoteLogger init failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-      const log = async (message: string) => {
-        console.log(`[scissari-hailey] ${message}`);
-        if (!loggerReady) return;
-        try {
-          await logger.log(message);
-        } catch (err) {
-          console.warn(
-            `[scissari-hailey] log failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      };
-
-      process.env.LETTA_BASE_URL =
-        process.env.LETTA_BASE_URL ?? DEFAULT_BASE_URL;
-      process.env.LETTA_API_KEY = process.env.LETTA_API_KEY ?? TEST_API_KEY;
-      await settingsManager.initialize();
+      await ctx.initSettings();
+      const logger = await ctx.createLogger(LOGGER_ID, "scissari-hailey");
+      await logger.clearLogs(
+        "Scissari Hailey tool-return interaction test run started.",
+      );
 
       try {
         const token = `SCISSARI_HAILEY_TOOLRETURN_${Date.now()}`;
-        const result = await runScissariPrompt(
+        const runner = ctx.createStreamRunner({
+          new: true,
+          yolo: true,
+          timeoutMs: 150000,
+        });
+        const result = await runner.run(
           `Ask Hailey for a concise finance report status update and include diagnostic token ${token} in the final answer.`,
         );
 
-        await log(`CLI exit code: ${result.exitCode}`);
+        await logger.log(`CLI exit code: ${result.exitCode}`);
         expect(result.exitCode).toBe(0);
 
-        const events = parseJsonLines(result.stdout);
-        const toolReturns = extractToolReturnEvents(events);
-        const successfulToolReturn = toolReturns.find((event) => {
-          const streamEvent = event.event as JsonObject;
+        const events = ctx.parser.parseLines(result.stdout);
+        const toolReturns = ctx.parser.extractToolReturnEvents(events);
+        const successfulReturn = toolReturns.find((ev) => {
+          const se = ev.event as Record<string, unknown>;
           return (
-            streamEvent.status === "success" &&
-            String(streamEvent.tool_return ?? "").includes("Hailey replied:")
+            se.status === "success" &&
+            String(se.tool_return ?? "").includes("Hailey replied:")
           );
         });
 
-        if (!successfulToolReturn) {
+        if (!successfulReturn) {
           throw new Error(
             `No successful Hailey tool_return_message found. tool_returns=${JSON.stringify(toolReturns).slice(0, 1000)}`,
           );
         }
 
-        const runIds = extractRunIds(events);
+        const runIds = ctx.parser.extractRunIds(events);
         expect(runIds.length).toBeGreaterThan(0);
-        await log(`run_ids: ${runIds.join(",")}`);
+        await logger.log(`run_ids: ${runIds.join(",")}`);
 
         const client = await getClient();
-        const persistedContextSeen = [];
+        const persistedRuns: string[] = [];
         for (const runId of runIds) {
           const page = await client.runs.messages.list(runId, { limit: 50 });
-          const messages = page.getPaginatedItems();
-          const matched = messages.some((message) =>
-            messageContentText(
-              (message as unknown as Record<string, unknown>).content,
-            ).includes("Hailey replied:"),
-          );
-          if (matched) persistedContextSeen.push(runId);
+          const matched = page
+            .getPaginatedItems()
+            .some((m) =>
+              messageContentText(
+                (m as unknown as Record<string, unknown>).content,
+              ).includes("Hailey replied:"),
+            );
+          if (matched) persistedRuns.push(runId);
         }
 
-        expect(persistedContextSeen.length).toBeGreaterThan(0);
-        await log(
-          `PASS: successful tool_return_message seen in stream and persisted context on runs ${persistedContextSeen.join(",")}`,
+        expect(persistedRuns.length).toBeGreaterThan(0);
+        await logger.log(
+          `PASS: tool_return_message seen and persisted on runs ${persistedRuns.join(",")}`,
         );
       } catch (err) {
-        await log(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+        await logger.log(
+          `ERROR: ${err instanceof Error ? err.message : String(err)}`,
+        );
         throw err;
       }
-      if (loggerReady) await logger.flushLogs();
+      await logger.flush();
     },
     { timeout: 180000 },
   );

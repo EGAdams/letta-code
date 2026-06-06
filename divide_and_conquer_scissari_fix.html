@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Divide &amp; Conquer — Scissari executor_run Stall Fix</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#161b22; --panel2:#1c2330; --ink:#e6edf3;
+    --muted:#9aa7b4; --accent:#4ea1ff; --accent2:#7ee787; --warn:#ffd33d;
+    --bad:#ff7b72; --line:#2b3340; --code:#0b0f14;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 24px 120px}
+  h1{font-size:30px;line-height:1.2;margin:0 0 6px}
+  h2{font-size:23px;margin:48px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:18px;margin:28px 0 8px;color:var(--accent)}
+  .sub{color:var(--muted);margin:0 0 8px}
+  p{margin:10px 0}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;
+    font:13.5px/1.5 "SF Mono",ui-monospace,"Cascadia Code",Consolas,monospace;color:#d2e3ff}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;
+    padding:18px 20px;overflow:auto;margin:14px 0}
+  pre code{background:none;padding:0;color:#cdd9e5}
+  .tag{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.3px;
+    padding:2px 9px;border-radius:999px;margin:0 6px 6px 0;border:1px solid var(--line)}
+  .gof{background:rgba(78,161,255,.12);color:var(--accent);border-color:rgba(78,161,255,.35)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:18px 22px;margin:16px 0}
+  .bad{color:var(--bad)} .good{color:var(--accent2)} .warn{color:var(--warn)}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--ink)}
+  td code{font-size:12.5px}
+  .lead{font-size:17px;color:var(--ink)}
+  .flow{font:13px/1.55 "SF Mono",ui-monospace,Consolas,monospace;white-space:pre;
+    background:var(--code);border:1px solid var(--line);border-radius:10px;padding:18px;overflow:auto;color:#cdd9e5}
+  .pill{font-size:12px;color:var(--muted)}
+  .kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font-size:12px;background:var(--panel2)}
+  ol li,ul li{margin:6px 0}
+  .meta{color:var(--muted);font-size:13px;margin-top:4px}
+  .legend span{margin-right:18px}
+  .hl{color:var(--accent2)}
+  a{color:var(--accent)}
+  .filehdr{color:var(--muted);font-size:12px;border-bottom:1px solid var(--line);
+    margin:-4px 0 10px;padding-bottom:6px;text-transform:uppercase;letter-spacing:.6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Divide &amp; Conquer: the Scissari <code>executor_run</code> Stall</h1>
+<p class="sub">A GoF-pattern redesign that replaces the blind 14-call retry loop with a testable, classified recovery pipeline.</p>
+<p class="meta">Target agent: <code>agent-5955b0c2-7922-4ffe-9e43-b116053b80fa</code> (Scissari) &nbsp;·&nbsp; Executor service: Python/uvicorn &nbsp;·&nbsp; Date: 2026-06-05</p>
+
+<div class="panel">
+<p class="lead"><strong>The symptom (verbatim from Telegram):</strong></p>
+<pre><code>🚨 I stalled and reset my conversation — I could NOT finish your request.
+• Reason: Repeated 'executor_run' calls hit the 14-call cap
+          (the tool is most likely failing and being retried)
+• No specific tool error captured — likely a genuine repetition/stall.</code></pre>
+<p><strong class="bad">Root flaw:</strong> the line &ldquo;<em>No specific tool error captured</em>&rdquo; is the whole bug.
+The loop guard counts calls but never <em>classifies</em> the failure. Every failure mode is treated
+identically — retry the exact same way — until a dumb counter hits 14 and nukes the conversation.
+We are throwing away the one piece of information that would let us recover: <strong>why did <code>executor_run</code> fail?</strong></p>
+</div>
+
+<h2>1. Why it&rsquo;s un-fixable today</h2>
+<p>The current path is one fused blob. <code>executor_run</code> can fail for at least six structurally
+different reasons (documented across the <code>debugging-executor-run</code> skill and
+<code>src/tools/toolset.ts</code>), yet they all funnel into the same blind <code>retry()</code> until the cap:</p>
+
+<table>
+<tr><th>#</th><th>Failure mode</th><th>Real cause</th><th>Correct response (today: <span class="bad">retry blindly</span>)</th></tr>
+<tr><td>F1</td><td><code>HTTP 400 allowlist</code></td><td>Command not in <code>EXECUTOR_ALLOW_CMDS</code></td><td><span class="good">Abort fast</span> — retrying is hopeless; fix allowlist / rewrite cmd</td></tr>
+<tr><td>F2</td><td><code>HTTP 500 reload</code></td><td>watchfiles reload loop on executor</td><td><span class="good">Back off + 1 retry</span>; then circuit-open</td></tr>
+<tr><td>F3</td><td><code>HTTP 408 timeout</code></td><td>Broad/long command</td><td><span class="good">Narrow command</span>, not identical retry</td></tr>
+<tr><td>F4</td><td><code>ECONNREFUSED</code></td><td>Executor process down</td><td><span class="good">Circuit-open</span> + alert ops; do not spin 14×</td></tr>
+<tr><td>F5</td><td><code>end_turn</code> w/o <code>tool_return</code></td><td>Letta 0.16.3 streams tool_call then ends turn</td><td><span class="good">Client-side fallback exec</span> (already exists in <code>multi-agent-tool-fallback.ts</code>)</td></tr>
+<tr><td>F6</td><td><code>max_steps</code> from a peer agent</td><td>Peer is <code>letta_v1_agent</code> with <code>required_before_exit: send_message</code> rule it can never satisfy</td><td><span class="good">Detect &amp; abort</span> via <code>findHangingToolRules()</code>; never retry</td></tr>
+</table>
+
+<p>Notice that <strong>not one</strong> of the six correct responses is &ldquo;retry the same call again.&rdquo;
+Yet that is the <em>only</em> thing the loop does. The cap of 14 is just how long it takes to give up.</p>
+
+<h3>Current (broken) control flow</h3>
+<div class="flow">  Scissari turn
+       │
+       ▼
+  ┌──────────────┐   fail (any reason, unclassified)
+  │ executor_run │ ─────────────────────────────┐
+  └──────────────┘                              │
+       ▲                                         ▼
+       │            ┌───────────────────────────────────┐
+       └────────────│  if ++count &lt; 14:  retry verbatim   │
+                    │  else: RESET conversation + alert   │
+                    └───────────────────────────────────┘
+                       (no classify · no backoff · no memory)</div>
+
+<h2>2. The Divide &amp; Conquer plan</h2>
+<p class="lead">Split the monolith into small objects, each behind a <strong>Pydantic interface</strong>, each
+independently unit-testable. Program to the interface; inject implementations. The loop guard stops being
+a counter and becomes an explicit <em>state machine</em> fed by a <em>classifier</em> that picks a <em>strategy</em>.</p>
+
+<h3>Target control flow</h3>
+<div class="flow">  Scissari turn
+       │
+       ▼
+ ExecutorRunService (Facade)
+       │  build Command (Command pattern)
+       ▼
+ CircuitBreaker.allow()? ──no──&gt; AbortOutcome("executor down")  ──&gt; AlertSink
+       │ yes
+       ▼
+ IExecutorClient.run(cmd)  (Adapter over HTTP)
+       │            │ raises ExecutorFailure
+   success          ▼
+       │     FailureClassifierChain.classify()   (Chain of Responsibility)
+       │            │  -&gt; FailureClassification{kind, retryable, strategy}
+       │            ▼
+       │     RecoveryStrategyFactory.for(kind)    (Factory + Strategy)
+       │            │
+       │            ▼
+       │     strategy.recover(ctx) -&gt; RETRY | NARROW | FALLBACK | ABORT
+       │            │
+       ▼            ▼
+ LoopGuard.register(verdict)  (State machine + Memento snapshot)
+       │  states: RUNNING -&gt; RECOVERING -&gt; (RESOLVED | TRIPPED)
+       ▼
+   AlertSink.emit(event)      (Observer: Telegram + jsonl + dashboard LED)</div>
+
+<h3>What each split buys us</h3>
+<ul>
+<li><strong>The classifier is pure</strong> — given an <code>ExecutorFailure</code> it returns a <code>FailureClassification</code>. No network, no state. <em>Trivially unit-tested</em> with the six fixtures above.</li>
+<li><strong>The loop guard is a state machine</strong> — its transitions are a table you can assert against. &ldquo;14&rdquo; becomes a per-<em>kind</em> budget, not a global blunt counter.</li>
+<li><strong>The circuit breaker</strong> stops the 14× spin on a dead executor in 1–2 calls.</li>
+<li><strong>The Memento</strong> means a &ldquo;reset&rdquo; snapshots state for forensics instead of vaporizing it — the alert can finally say <em>which</em> failure it was.</li>
+</ul>
+
+<h2>3. GoF hat — patterns applied</h2>
+<p>
+<span class="tag gof">Command</span>
+<span class="tag gof">Adapter</span>
+<span class="tag gof">Chain of Responsibility</span>
+<span class="tag gof">Strategy</span>
+<span class="tag gof">Factory Method</span>
+<span class="tag gof">State</span>
+<span class="tag gof">Memento</span>
+<span class="tag gof">Observer</span>
+<span class="tag gof">Facade</span>
+<span class="tag gof">Decorator</span>
+<span class="tag gof">Template Method</span>
+<span class="tag gof">Circuit Breaker*</span>
+</p>
+<p class="pill">*Circuit Breaker is a stability pattern (Nygard), included because it directly kills the 14× spin.</p>
+
+<table>
+<tr><th>Pattern</th><th>Class / interface</th><th>Job in this fix</th></tr>
+<tr><td>Command</td><td><code>ExecutorCommand</code></td><td>Reify each <code>executor_run</code> invocation so it can be logged, hashed, de-duped, and replayed.</td></tr>
+<tr><td>Adapter</td><td><code>IExecutorClient</code></td><td>Hide the HTTP executor behind a clean domain port; map HTTP errors → <code>ExecutorFailure</code>.</td></tr>
+<tr><td>Chain of Responsibility</td><td><code>IFailureClassifier</code></td><td>Six small classifiers, each owns one failure fingerprint; first match wins.</td></tr>
+<tr><td>Strategy</td><td><code>IRecoveryStrategy</code></td><td>One strategy per failure kind: Abort, BackoffRetry, NarrowCommand, ClientSideFallback.</td></tr>
+<tr><td>Factory Method</td><td><code>IRecoveryStrategyFactory</code></td><td>Map a <code>FailureKind</code> to its strategy without <code>if/elif</code> sprawl at the call site.</td></tr>
+<tr><td>State</td><td><code>ILoopGuard</code></td><td>Explicit turn state machine replacing the implicit <code>count &lt; 14</code> counter.</td></tr>
+<tr><td>Memento</td><td><code>ConversationSnapshot</code></td><td>Capture state before any reset for forensics &amp; restore.</td></tr>
+<tr><td>Observer</td><td><code>IAlertSink</code></td><td>Fan out stall/recover events to Telegram, <code>scissari-alerts.jsonl</code>, dashboard LED.</td></tr>
+<tr><td>Facade</td><td><code>IExecutorRunService</code></td><td>One entry point the agent calls; orchestrates all of the above.</td></tr>
+<tr><td>Decorator</td><td><code>RetryingExecutorClient</code>, <code>LoggingExecutorClient</code></td><td>Layer retry/logging/breaker around the bare client without touching it.</td></tr>
+<tr><td>Template Method</td><td><code>BaseRecoveryStrategy</code></td><td>Fixed recover() skeleton; subclasses fill <code>_decide()</code>.</td></tr>
+<tr><td>Circuit Breaker</td><td><code>ICircuitBreaker</code></td><td>Open after N executor-down failures so we stop hammering a dead service.</td></tr>
+</table>
+
+<h2>4. Pydantic interfaces — stubbed, ready for red tests</h2>
+<p>All stubs raise <code>NotImplementedError</code> so the first unit-test run is <strong class="bad">red</strong> by
+construction (TDD). Implementations get filled one interface at a time until green. Drop these into
+<code>scissari_executor/</code> on the executor (Python) side.</p>
+
+<h3>4.1 Domain models &amp; enums</h3>
+<pre><code class="filehdr">scissari_executor/models.py</code><code>from __future__ import annotations
+
+from enum import Enum
+from typing import Any, Optional
+
+from pydantic import BaseModel, Field
+
+
+class FailureKind(str, Enum):
+    """The six structurally-distinct ways executor_run fails (F1–F6)."""
+    ALLOWLIST_BLOCKED = "allowlist_blocked"      # F1  HTTP 400
+    SERVER_RELOAD_500 = "server_reload_500"      # F2  HTTP 500 watchfiles loop
+    REQUEST_TIMEOUT = "request_timeout"          # F3  HTTP 408
+    EXECUTOR_DOWN = "executor_down"              # F4  ECONNREFUSED / no process
+    END_TURN_NO_RETURN = "end_turn_no_return"    # F5  tool_call then end_turn, no tool_return
+    PEER_TOOL_RULE_HANG = "peer_tool_rule_hang"  # F6  peer agent max_steps from bad tool_rule
+    UNKNOWN = "unknown"                          # never silently retried — always aborts
+
+
+class RecoveryAction(str, Enum):
+    RETRY = "retry"                  # safe, after backoff
+    NARROW = "narrow"                # retry only with a tightened command
+    FALLBACK = "fallback"            # run client-side (F5)
+    ABORT = "abort"                  # stop now; retrying cannot help
+    CIRCUIT_OPEN = "circuit_open"    # service dead; stop and alert ops
+
+
+class TurnState(str, Enum):
+    RUNNING = "running"
+    RECOVERING = "recovering"
+    RESOLVED = "resolved"
+    TRIPPED = "tripped"              # replaces the old "reset at 14"
+
+
+class ExecutorCommand(BaseModel):
+    """Command pattern — a reified executor_run invocation."""
+    cmd: str
+    cwd: Optional[str] = None
+    timeout_s: float = 60.0
+    allowlist_key: Optional[str] = None
+
+    def fingerprint(self) -> str:
+        """Stable hash for de-dup / repetition detection. STUB."""
+        raise NotImplementedError
+
+
+class ExecutorResponse(BaseModel):
+    ok: bool
+    status: int
+    stdout: str = ""
+    stderr: str = ""
+    duration_s: float = 0.0
+
+
+class ExecutorFailure(BaseModel):
+    """What IExecutorClient raises/returns on any non-success."""
+    status: Optional[int] = None          # HTTP status if any
+    transport_error: Optional[str] = None  # e.g. "ECONNREFUSED"
+    detail: str = ""                       # server 'detail' body
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class FailureClassification(BaseModel):
+    kind: FailureKind
+    retryable: bool
+    recommended_action: RecoveryAction
+    evidence: str                          # human-readable WHY (fixes the "no error captured" gap)
+    classifier_name: str
+
+
+class RecoveryOutcome(BaseModel):
+    action: RecoveryAction
+    backoff_ms: int = 0
+    next_command: Optional[ExecutorCommand] = None  # set when NARROW/FALLBACK
+    reason: str = ""
+
+
+class GuardVerdict(BaseModel):
+    state: TurnState
+    should_continue: bool
+    calls_used: int
+    budget_for_kind: int
+    snapshot_id: Optional[str] = None      # set when state == TRIPPED
+
+
+class StallReport(BaseModel):
+    """The Observer payload — finally carries a concrete reason."""
+    agent_id: str
+    classification: Optional[FailureClassification]
+    calls_used: int
+    final_state: TurnState
+    snapshot_id: Optional[str]
+    message: str
+</code></pre>
+
+<h3>4.2 Ports / interfaces (ABCs — program to these)</h3>
+<pre><code class="filehdr">scissari_executor/interfaces.py</code><code>from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Optional, Sequence
+
+from .models import (
+    ExecutorCommand, ExecutorResponse, ExecutorFailure,
+    FailureClassification, RecoveryOutcome, GuardVerdict,
+    StallReport, FailureKind,
+)
+
+
+class IExecutorClient(ABC):
+    """Adapter over the HTTP executor service (uvicorn @ 127.0.0.1:8787)."""
+    @abstractmethod
+    async def run(self, cmd: ExecutorCommand) -> ExecutorResponse:
+        """Return ExecutorResponse on success; raise ExecutorFailureError otherwise. STUB."""
+        raise NotImplementedError
+
+
+class IFailureClassifier(ABC):
+    """One link in the Chain of Responsibility. Returns None to defer to the next link."""
+    name: str
+    @abstractmethod
+    def classify(self, failure: ExecutorFailure) -> Optional[FailureClassification]:
+        raise NotImplementedError
+
+
+class IFailureClassifierChain(ABC):
+    @abstractmethod
+    def classify(self, failure: ExecutorFailure) -> FailureClassification:
+        """First matching link wins; falls back to FailureKind.UNKNOWN. STUB."""
+        raise NotImplementedError
+
+
+class IRecoveryStrategy(ABC):
+    """Strategy — decides what to do about one classified failure."""
+    handles: FailureKind
+    @abstractmethod
+    async def recover(
+        self, cmd: ExecutorCommand, classification: FailureClassification
+    ) -> RecoveryOutcome:
+        raise NotImplementedError
+
+
+class IRecoveryStrategyFactory(ABC):
+    @abstractmethod
+    def for_kind(self, kind: FailureKind) -> IRecoveryStrategy:
+        """Map a FailureKind to its Strategy. STUB."""
+        raise NotImplementedError
+
+
+class ICircuitBreaker(ABC):
+    @abstractmethod
+    def allow(self) -> bool:
+        """False when the circuit is open (executor presumed dead). STUB."""
+        raise NotImplementedError
+    @abstractmethod
+    def record_success(self) -> None:
+        raise NotImplementedError
+    @abstractmethod
+    def record_failure(self, kind: FailureKind) -> None:
+        raise NotImplementedError
+
+
+class ILoopGuard(ABC):
+    """State machine that replaces the blind `count &lt; 14` counter."""
+    @abstractmethod
+    def register(self, cmd: ExecutorCommand, outcome: RecoveryOutcome) -> GuardVerdict:
+        """Advance the state machine; enforce per-kind budgets &amp; repetition. STUB."""
+        raise NotImplementedError
+    @abstractmethod
+    def reset(self) -> None:
+        raise NotImplementedError
+
+
+class IConversationSnapshotStore(ABC):
+    """Memento store — snapshot before any TRIPPED reset."""
+    @abstractmethod
+    def capture(self, agent_id: str, transcript: Sequence[dict]) -> str:
+        """Persist a snapshot, return its id. STUB."""
+        raise NotImplementedError
+    @abstractmethod
+    def restore(self, snapshot_id: str) -> Sequence[dict]:
+        raise NotImplementedError
+
+
+class IAlertSink(ABC):
+    """Observer — Telegram, scissari-alerts.jsonl, dashboard LED all implement this."""
+    @abstractmethod
+    async def emit(self, report: StallReport) -> None:
+        raise NotImplementedError
+
+
+class IExecutorRunService(ABC):
+    """Facade — the ONLY thing Scissari's turn loop calls."""
+    @abstractmethod
+    async def execute(self, cmd: ExecutorCommand, agent_id: str) -> ExecutorResponse:
+        """Orchestrate breaker -&gt; client -&gt; classify -&gt; strategy -&gt; guard -&gt; alert. STUB."""
+        raise NotImplementedError
+</code></pre>
+
+<h3>4.3 Template-method strategy base (one concrete skeleton)</h3>
+<pre><code class="filehdr">scissari_executor/strategies.py</code><code>from __future__ import annotations
+
+from .interfaces import IRecoveryStrategy
+from .models import (
+    ExecutorCommand, FailureClassification, RecoveryOutcome,
+    RecoveryAction, FailureKind,
+)
+
+
+class BaseRecoveryStrategy(IRecoveryStrategy):
+    """Template Method: recover() is fixed; subclasses implement _decide()."""
+    async def recover(
+        self, cmd: ExecutorCommand, classification: FailureClassification
+    ) -> RecoveryOutcome:
+        if not classification.retryable:
+            return RecoveryOutcome(action=RecoveryAction.ABORT,
+                                   reason=classification.evidence)
+        return self._decide(cmd, classification)   # subclass hook
+
+    def _decide(self, cmd: ExecutorCommand,
+                c: FailureClassification) -> RecoveryOutcome:
+        raise NotImplementedError
+
+
+class AllowlistAbortStrategy(BaseRecoveryStrategy):       # F1
+    handles = FailureKind.ALLOWLIST_BLOCKED
+    def _decide(self, cmd, c) -> RecoveryOutcome:
+        raise NotImplementedError
+
+class BackoffRetryStrategy(BaseRecoveryStrategy):         # F2
+    handles = FailureKind.SERVER_RELOAD_500
+    def _decide(self, cmd, c) -> RecoveryOutcome:
+        raise NotImplementedError
+
+class NarrowCommandStrategy(BaseRecoveryStrategy):        # F3
+    handles = FailureKind.REQUEST_TIMEOUT
+    def _decide(self, cmd, c) -> RecoveryOutcome:
+        raise NotImplementedError
+
+class ClientSideFallbackStrategy(BaseRecoveryStrategy):   # F5
+    handles = FailureKind.END_TURN_NO_RETURN
+    def _decide(self, cmd, c) -> RecoveryOutcome:
+        raise NotImplementedError
+</code></pre>
+
+<h2>5. The failing unit tests (red phase)</h2>
+<p>Each interface gets a focused test. Because every stub raises <code>NotImplementedError</code>, this suite
+is <strong class="bad">red on first run</strong> — exactly what we want before implementing. The classifier
+fixtures are the six real failure bodies pulled from the executor logs / chunk logs.</p>
+
+<pre><code class="filehdr">tests/test_classifier.py  ·  pytest</code><code>import pytest
+from scissari_executor.models import ExecutorFailure, FailureKind, RecoveryAction
+from scissari_executor.classifiers import build_default_chain   # to be written
+
+
+CASES = [
+    # (ExecutorFailure fixture, expected kind, expected retryable)
+    (ExecutorFailure(status=400, detail="Command not in allowlist: /x/run.sh"),
+        FailureKind.ALLOWLIST_BLOCKED, False),
+    (ExecutorFailure(status=500, detail="watchfiles reload"),
+        FailureKind.SERVER_RELOAD_500, True),
+    (ExecutorFailure(status=408, detail="timed out"),
+        FailureKind.REQUEST_TIMEOUT, True),
+    (ExecutorFailure(transport_error="ECONNREFUSED"),
+        FailureKind.EXECUTOR_DOWN, False),
+    (ExecutorFailure(detail="end_turn with no tool_return_message"),
+        FailureKind.END_TURN_NO_RETURN, True),
+    (ExecutorFailure(detail="max_steps: peer required_before_exit send_message"),
+        FailureKind.PEER_TOOL_RULE_HANG, False),
+]
+
+
+@pytest.mark.parametrize("failure,kind,retryable", CASES)
+def test_chain_classifies_each_failure_mode(failure, kind, retryable):
+    chain = build_default_chain()
+    result = chain.classify(failure)
+    assert result.kind == kind
+    assert result.retryable is retryable
+    assert result.evidence            # MUST capture a reason (kills "no error captured")
+
+
+def test_unknown_failure_never_retries():
+    chain = build_default_chain()
+    result = chain.classify(ExecutorFailure(detail="something nobody mapped"))
+    assert result.kind == FailureKind.UNKNOWN
+    assert result.recommended_action == RecoveryAction.ABORT
+</code></pre>
+
+<pre><code class="filehdr">tests/test_loop_guard.py  ·  pytest</code><code>from scissari_executor.guard import LoopGuard          # to be written
+from scissari_executor.models import (
+    ExecutorCommand, RecoveryOutcome, RecoveryAction, TurnState,
+)
+
+
+def test_identical_command_trips_fast_not_at_14():
+    """The bug: 14 identical failing calls. Fix: trip after the per-kind budget (e.g. 2)."""
+    guard = LoopGuard(budget_per_kind={"server_reload_500": 2})
+    cmd = ExecutorCommand(cmd="ls /huge")
+    retry = RecoveryOutcome(action=RecoveryAction.RETRY)
+    guard.register(cmd, retry)
+    verdict = guard.register(cmd, retry)
+    assert verdict.state == TurnState.TRIPPED
+    assert verdict.calls_used == 2            # NOT 14
+    assert verdict.snapshot_id is not None    # Memento captured before trip
+
+
+def test_abort_outcome_trips_immediately():
+    guard = LoopGuard()
+    verdict = guard.register(
+        ExecutorCommand(cmd="bad"),
+        RecoveryOutcome(action=RecoveryAction.ABORT, reason="allowlist"),
+    )
+    assert verdict.should_continue is False
+    assert verdict.state == TurnState.TRIPPED
+
+
+def test_successful_recovery_resolves():
+    guard = LoopGuard()
+    verdict = guard.register(
+        ExecutorCommand(cmd="ls"),
+        RecoveryOutcome(action=RecoveryAction.RETRY),
+    )
+    assert verdict.state in (TurnState.RUNNING, TurnState.RECOVERING)
+</code></pre>
+
+<pre><code class="filehdr">tests/test_circuit_breaker.py  ·  pytest</code><code>from scissari_executor.breaker import CircuitBreaker   # to be written
+from scissari_executor.models import FailureKind
+
+
+def test_opens_after_two_executor_down_and_stops_the_spin():
+    cb = CircuitBreaker(threshold=2)
+    assert cb.allow() is True
+    cb.record_failure(FailureKind.EXECUTOR_DOWN)
+    cb.record_failure(FailureKind.EXECUTOR_DOWN)
+    assert cb.allow() is False        # would have spun 14× before this fix
+</code></pre>
+
+<pre><code class="filehdr">tests/test_service_facade.py  ·  pytest (integration, fakes injected)</code><code>import pytest
+from scissari_executor.service import ExecutorRunService   # to be written
+from scissari_executor.models import ExecutorCommand, FailureKind
+from tests.fakes import FakeExecutorClient, FakeAlertSink
+
+
+@pytest.mark.asyncio
+async def test_dead_executor_aborts_and_alerts_with_reason():
+    sink = FakeAlertSink()
+    service = ExecutorRunService(
+        client=FakeExecutorClient(always_fail="ECONNREFUSED"),
+        alert_sink=sink,
+        # classifier/factory/guard/breaker injected via DI
+    )
+    with pytest.raises(Exception):
+        await service.execute(ExecutorCommand(cmd="ls"), agent_id="agent-5955...")
+    assert sink.last.classification.kind == FailureKind.EXECUTOR_DOWN
+    assert "No specific tool error" not in sink.last.message   # the old lie is gone
+</code></pre>
+
+<h2>6. Build order (red → green, one interface at a time)</h2>
+<ol>
+<li><strong>Models</strong> — <code>models.py</code>. Implement <code>ExecutorCommand.fingerprint()</code>. <span class="pill">→ greens its own model test</span></li>
+<li><strong>Classifier chain</strong> — six small classifiers + <code>build_default_chain()</code>. <span class="pill">→ greens <code>test_classifier.py</code></span></li>
+<li><strong>Circuit breaker</strong> — counting + open/half-open/closed. <span class="pill">→ greens <code>test_circuit_breaker.py</code></span></li>
+<li><strong>Strategies</strong> — fill the four <code>_decide()</code> hooks + factory. <span class="pill">→ greens strategy tests</span></li>
+<li><strong>Loop guard</strong> — state machine + per-kind budgets + Memento capture. <span class="pill">→ greens <code>test_loop_guard.py</code></span></li>
+<li><strong>Alert sinks</strong> — Telegram + jsonl + LED Observers behind <code>IAlertSink</code>.</li>
+<li><strong>Facade</strong> — wire it all with DI. <span class="pill">→ greens <code>test_service_facade.py</code></span></li>
+<li><strong>Swap</strong> — replace the old blind loop in lettabot with a call to <code>IExecutorRunService.execute()</code>. Delete the bare <code>count &lt; 14</code>.</li>
+</ol>
+
+<div class="panel">
+<h3 style="margin-top:0">The one-sentence fix</h3>
+<p class="lead">Stop counting calls; start <span class="hl">classifying failures</span> — then let a Strategy chosen by
+the classification decide whether to retry, narrow, fall back, or abort, with a Circuit Breaker and an
+explicit State machine making &ldquo;14&rdquo; obsolete and a Memento making every reset explain itself.</p>
+</div>
+
+<p class="meta">Cross-references in this repo: <code>src/tools/toolset.ts</code> (<code>findHangingToolRules</code> — F6),
+<code>src/agent/multi-agent-tool-fallback.ts</code> (<code>CLIENT_SIDE_FALLBACK_TOOLS</code> — F5),
+<code>src/skills/custom/debugging-executor-run/SKILL.md</code> (F1–F4 fingerprints),
+<code>src/integration-tests/agent-tool-rule-audit.integration.test.ts</code> (live F6 guard).</p>
+
+</div>
+</body>
+</html>
