@@ -12,7 +12,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -332,6 +332,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 text = data.get('text', '')
                 lid = letta_id_for(agent_id)
                 if lid:
+                    reset_req = urllib.request.Request(
+                        f'{LETTA_BASE_URL}/v1/agents/{lid}/messages/clear?agent_id={quote(lid, safe="")}',
+                        data=b'',
+                        method='POST',
+                    )
+                    try:
+                        with urllib.request.urlopen(reset_req, timeout=10):
+                            pass
+                    except Exception:
+                        pass
+
                     # Send a real message to the Letta agent
                     payload = json.dumps({
                         'messages': [{'role': 'user', 'content': text}],
@@ -363,6 +374,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         length = int(self.headers.get('Content-Length', 0))
         return self.rfile.read(length).decode('utf-8')
 
+    def _send_no_cache_headers(self):
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        self.send_header('Pragma', 'no-cache')
+        self.send_header('Expires', '0')
+
     def serve_file(self, file_path, content_type=None):
         try:
             with open(file_path, 'rb') as f:
@@ -376,6 +392,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', len(content))
+            self._send_no_cache_headers()
             self.end_headers()
             self.wfile.write(content)
         except FileNotFoundError:
@@ -387,6 +404,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(body))
         self.send_header('Access-Control-Allow-Origin', '*')
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -395,6 +413,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(body))
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(body)
 
