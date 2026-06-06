@@ -23,6 +23,9 @@ CASES = [
         FailureKind.END_TURN_NO_RETURN, True),
     (ExecutorFailure(detail="max_steps: peer required_before_exit send_message"),
         FailureKind.PEER_TOOL_RULE_HANG, False),
+    # F7 — the verbatim new Telegram symptom (2026-06-06).
+    (ExecutorFailure(detail="the response was lost during a tool workflow. Please try again."),
+        FailureKind.TOOL_RESPONSE_LOST, True),
 ]
 
 

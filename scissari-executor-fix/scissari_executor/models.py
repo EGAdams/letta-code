@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 
 class FailureKind(str, Enum):
-    """The six structurally-distinct ways executor_run fails (F1-F6)."""
+    """The structurally-distinct ways executor_run fails (F1-F7)."""
 
     ALLOWLIST_BLOCKED = "allowlist_blocked"      # F1  HTTP 400
     SERVER_RELOAD_500 = "server_reload_500"      # F2  HTTP 500 watchfiles loop
@@ -20,6 +20,7 @@ class FailureKind(str, Enum):
     EXECUTOR_DOWN = "executor_down"              # F4  ECONNREFUSED / no process
     END_TURN_NO_RETURN = "end_turn_no_return"    # F5  tool_call then end_turn, no tool_return
     PEER_TOOL_RULE_HANG = "peer_tool_rule_hang"  # F6  peer agent max_steps from bad tool_rule
+    TOOL_RESPONSE_LOST = "tool_response_lost"    # F7  tool_return produced but lost in transit
     UNKNOWN = "unknown"                          # never silently retried — always aborts
 
 
@@ -27,6 +28,7 @@ class RecoveryAction(str, Enum):
     RETRY = "retry"                  # safe, after backoff
     NARROW = "narrow"                # retry only with a tightened command
     FALLBACK = "fallback"            # run client-side (F5)
+    RESYNC = "resync"                # re-fetch the already-produced result, do NOT re-execute (F7)
     ABORT = "abort"                  # stop now; retrying cannot help
     CIRCUIT_OPEN = "circuit_open"    # service dead; stop and alert ops
 
