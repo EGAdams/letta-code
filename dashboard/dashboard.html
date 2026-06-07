@@ -143,7 +143,8 @@
 
     a:hover { text-decoration: underline; }
 
-    #scissari-frame {
+    #scissari-frame,
+    #audio-plan-frame {
       width: 100%;
       height: calc(100vh - 60px);
       border: none;
@@ -203,6 +204,24 @@
     @keyframes msi-blink { 50% { opacity: 0; } }
     .am-test-input { width: 100%; min-height: 80px; padding: 10px; border: 1px solid #111; border-radius: 6px; font-family: inherit; }
     .am-test-out { margin-top: 12px; }
+
+    /* ---- Voice input controls ---- */
+    .am-controls { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+    .voice-btn { background: #2e9e3f; color: #000; font-weight: 700; }
+    .voice-btn:hover { background: #28902f; }
+    .voice-btn.recording { background: #c62828; color: #fff; }
+    .voice-btn.recording:hover { background: #b71c1c; }
+    .am-mode { background: #555; }
+    .am-mode:hover { background: #444; }
+    .rec-indicator { display: none; align-items: center; gap: 8px; }
+    .rec-indicator.on { display: inline-flex; }
+    .rec-led { width: 20px; height: 20px; background: #fff; border: 1px solid #888;
+      border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; }
+    .rec-led::after { content: ''; width: 10px; height: 10px; background: #e53935;
+      border-radius: 50%; animation: rec-blink 1s step-end infinite; }
+    @keyframes rec-blink { 50% { opacity: 0; } }
+    .rec-text { font-size: 0.85rem; color: #c62828; font-weight: 600;
+      min-width: 84px; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -251,6 +270,8 @@
       <button type="button" class="tab back-tab" id="btn-back-plans">Back</button>
       <button type="button" class="tab active" data-nav="plans" data-target="plans-rol-finance">ROL Finance</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-self-evolving">Self Evolving</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-divide-conquer">Divide Conquer</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-audio-input">Audio Input</button>
     </nav>
 
     <!-- Agent detail sub-nav -->
@@ -260,7 +281,7 @@
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-thoughts">Thoughts</button>
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-messages">Messages</button>
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tool-calls">Tool Calls</button>
-      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tests">Tests</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-chat-interface">Input Options</button>
     </nav>
   </aside>
 
@@ -380,9 +401,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     <section id="agents-home" class="view">
       <h2>Agents</h2>
       <p id="agents-home-status" class="am-dim">Loading agents&hellip;</p>
-      <h3>Scissari Live Thoughts</h3>
-      <p class="am-dim">Streaming Scissari reasoning live in terminal view.</p>
-      <section id="agents-home-scissari-thoughts"></section>
     </section>
 
     <section id="agent-detail-home" class="view">
@@ -392,7 +410,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     <section id="agent-detail-thoughts" class="view"></section>
     <section id="agent-detail-messages" class="view"></section>
     <section id="agent-detail-tool-calls" class="view"></section>
-    <section id="agent-detail-tests" class="view"></section>
+    <section id="agent-detail-chat-interface" class="view"></section>
 
     <section id="scissari" class="view">
       <iframe id="scissari-frame" src="/monitor_thoughts_plan.html"></iframe>
@@ -436,6 +454,17 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <h2>Self Evolving</h2>
       <p>Project plan for Self Evolving agent system.</p>
       <p><a href="/agent_self_improvement/agent_self_improvement_plan.html" target="_blank" rel="noopener noreferrer">agent_self_improvement_plan.html</a></p>
+    </section>
+
+    <section id="plans-divide-conquer" class="view">
+      <h2>Divide &amp; Conquer — Scissari executor_run Stall Fix</h2>
+      <p>Splits the blind 14-call retry loop into a classified, strategy-driven recovery pipeline (GoF patterns). Each failure mode is its own testable division.</p>
+      <p><a href="/divide_and_conquer_scissari_fix.html" target="_blank" rel="noopener noreferrer">divide_and_conquer_scissari_fix.html</a> &nbsp;·&nbsp; scaffold: <code>scissari-executor-fix/</code> (21 tests passing)</p>
+      <p><strong>Latest (2026-06-06):</strong> new symptom <em>"the response was lost during a tool workflow"</em> added as failure mode <strong>F7 (TOOL_RESPONSE_LOST)</strong> with a <code>RESYNC</code> recovery action — re-fetch the lost result once instead of blind-retrying.</p>
+    </section>
+
+    <section id="plans-audio-input" class="view">
+      <iframe id="audio-plan-frame" src="/audio_input/audio_plan.html"></iframe>
     </section>
   </main>
 
@@ -584,7 +613,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         }
       });
 
-      // Agent-detail tabs (Thoughts / Messages / Tool Calls / Tests).
+      // Agent-detail tabs (Thoughts / Messages / Tool Calls / Input Options).
       navAgentDetail.addEventListener('click', (e) => {
         const tab = e.target.closest('.tab');
         if (!tab || tab.id === 'btn-back-agent-detail') return;
@@ -657,10 +686,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     /* =====================  Agent Manager  ===================== */
     // Maps an agent-detail view id to how its content is rendered.
     const DETAIL_RENDERERS = {
-      'agent-detail-thoughts':   (am, id) => am.renderThoughts(id),
-      'agent-detail-messages':   (am, id) => am.renderLog(id, '/api/messages', 'messages'),
-      'agent-detail-tool-calls': (am, id) => am.renderLog(id, '/api/toolcalls', 'tool calls'),
-      'agent-detail-tests':      (am, id) => am.renderTest(id),
+      'agent-detail-thoughts':       (am, id) => am.renderStream(id, '/api/thoughts', 'thoughts'),
+      'agent-detail-messages':       (am, id) => am.renderStream(id, '/api/messages', 'messages'),
+      'agent-detail-tool-calls':     (am, id) => am.renderStream(id, '/api/toolcalls', 'tool calls'),
+      'agent-detail-chat-interface': (am, id) => am.renderChatInterface(id),
     };
 
     const SCISSARI_AGENT_NAME = 'Scissari';
@@ -668,13 +697,11 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     const AM = {
       current: null,           // { id, name }
       pollTimer: null,
-      homeThoughtsTimer: null,
       agents: null,
       served: location.protocol === 'http:' || location.protocol === 'https:',
 
       stopPoll() {
         if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
-        if (this.homeThoughtsTimer) { clearInterval(this.homeThoughtsTimer); this.homeThoughtsTimer = null; }
       },
 
       async fetchJSON(url, opts) {
@@ -689,6 +716,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       // Show the agent-list landing in the sidebar and (re)load the agent tabs.
       showAgentsHome() {
         this.stopPoll();
+        this.current = null;
         navAgentDetail.classList.add('hidden');
         navAgents.classList.remove('hidden');
         const homeTab = navAgents.querySelector('[data-nav="agents"][data-target="agents-home"]');
@@ -709,7 +737,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             + 'Open the served version instead: <strong>http://100.80.49.10:8765/</strong> '
             + '(over Tailscale) or <strong>http://localhost:8765/</strong> on this machine.<br>'
             + 'Start it with: <code>python3 ~/dashboard_server.py</code></span>';
-          this.renderHomeThoughtsUnavailable('Open the served dashboard to stream Scissari thoughts.');
           return;
         }
 
@@ -718,13 +745,11 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           this.agents = await this.fetchJSON('/api/agents');
         } catch (e) {
           if (status) status.innerHTML = '<span class="am-warn" style="display:block">Failed to load agents: ' + esc(e.message) + '</span>';
-          this.renderHomeThoughtsUnavailable('Failed to load Scissari: ' + e.message);
           return;
         }
 
         if (!this.agents.length) {
           if (status) status.textContent = 'No agents found.';
-          this.renderHomeThoughtsUnavailable('Scissari is not in the agent list yet.');
           return;
         }
 
@@ -740,60 +765,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         }
         if (status) status.innerHTML = 'Loaded <strong>' + this.agents.length
           + '</strong> agent' + (this.agents.length === 1 ? '' : 's')
-          + '. Pick one from the left to view its Thoughts, Messages, Tool Calls, or run a Test.';
+          + '. Pick one from the left to view its Thoughts, Messages, Tool Calls, or Input Options.';
 
-        const scissari = this.agents.find(a => (a.name || '').trim().toLowerCase() === SCISSARI_AGENT_NAME.toLowerCase());
-        if (scissari) {
-          this.renderHomeThoughts(scissari);
-        } else {
-          this.renderHomeThoughtsUnavailable('Scissari is not available from /api/agents.');
-        }
-      },
-
-      renderHomeThoughtsUnavailable(message) {
-        const container = document.getElementById('agents-home-scissari-thoughts');
-        if (!container) return;
-        container.innerHTML = '';
-        const { inner } = this.consoleShell('agents-home-scissari-thoughts');
-        inner.innerHTML = '<div class="msi-entry dim">' + esc(message || 'Scissari live thoughts unavailable.') + '</div>';
-      },
-
-      async renderHomeThoughts(agent) {
-        const { box, inner } = this.consoleShell('agents-home-scissari-thoughts');
-        const agentId = agent.id;
-        const seen = new Set();
-        let first = true;
-        const pull = async () => {
-          const homeView = document.getElementById('agents-home');
-          if (!homeView || !homeView.classList.contains('active')) return;
-          let rows;
-          try {
-            rows = await this.fetchJSON('/api/thoughts?agent=' + encodeURIComponent(agentId));
-          } catch (e) {
-            inner.insertAdjacentHTML('beforeend', '<div class="msi-line err">! ' + esc(e.message) + '</div>');
-            return;
-          }
-          if (first && !rows.length) {
-            inner.insertAdjacentHTML('beforeend', '<div class="msi-entry dim">&mdash; no Scissari thoughts recorded yet &mdash;</div>');
-          } else if (first && rows.length && rows[0].text && rows[0].text.startsWith('[assistant]')) {
-            inner.insertAdjacentHTML('beforeend', '<div class="msi-entry dim">&mdash; direct reasoning stream unavailable; showing live fallback activity instead &mdash;</div>');
-          }
-          for (const r of rows) {
-            const key = r.date + '|' + r.text.slice(0, 80);
-            if (seen.has(key)) continue;
-            seen.add(key);
-            const stamp = (r.date || '').replace('T', ' ').slice(0, 19);
-            const html = esc((r.text || '').replace(/\*\*/g, ''));
-            inner.insertAdjacentHTML('beforeend',
-              '<div class="msi-entry"><span class="msi-stamp">[' + stamp + ']</span> ' + html + '</div>');
-            box.scrollTop = box.scrollHeight;
-            if (!first) await sleep(0); else await sleep(90);
-          }
-          first = false;
-        };
-        await pull();
-        if (this.homeThoughtsTimer) clearInterval(this.homeThoughtsTimer);
-        this.homeThoughtsTimer = setInterval(pull, 3000);
       },
 
       // Switch the sidebar to the per-agent detail fanout and show Thoughts first.
@@ -829,82 +802,171 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         return { box, inner: box.querySelector('.msi-inner') };
       },
 
-      async renderThoughts(containerId) {
+      formatStreamRow(r) {
+        const stamp = (r.date || '').replace('T', ' ').slice(0, 19);
+        const type = esc((r.type || '').replace('_message', ''));
+        const text = String(r.text || '');
+        const head = text.match(/^\*\*(.+?)\*\*\s*/);
+        let body;
+        if (head) {
+          body = '<span class="hdr">' + esc(head[1]) + '</span> ' + esc(text.slice(head[0].length).replace(/\*\*/g, ''));
+        } else if (type) {
+          body = '<span class="hdr">' + type + '</span> ' + esc(text.replace(/\*\*/g, ''));
+        } else {
+          body = esc(text.replace(/\*\*/g, ''));
+        }
+        return '<div class="msi-entry"><span class="msi-stamp">[' + stamp + ']</span> ' + body + '</div>';
+      },
+
+      async renderStream(containerId, url, label) {
         const { box, inner } = this.consoleShell(containerId);
         const agentId = this.current.id;
         const seen = new Set();
         let first = true;
         const pull = async () => {
-          if (!this.current || this.current.id !== agentId) return;   // navigated away
+          if (!this.current || this.current.id !== agentId) return;
           let rows;
-          try { rows = await this.fetchJSON('/api/thoughts?agent=' + encodeURIComponent(agentId)); }
+          try { rows = await this.fetchJSON(url + '?agent=' + encodeURIComponent(agentId)); }
           catch (e) { inner.insertAdjacentHTML('beforeend', '<div class="msi-line err">! ' + esc(e.message) + '</div>'); return; }
           if (first && !rows.length) {
-            inner.insertAdjacentHTML('beforeend', '<div class="msi-entry dim">&mdash; no thoughts recorded for this agent yet &mdash;</div>');
-          } else if (first && rows.length && rows[0].text && rows[0].text.startsWith('[assistant]')) {
-            inner.insertAdjacentHTML('beforeend', '<div class="msi-entry dim">&mdash; reasoning stream not exposed by this agent; showing live fallback activity instead &mdash;</div>');
+            inner.innerHTML = '<div class="msi-entry dim">&mdash; no ' + label + ' recorded yet &mdash;</div>';
+            first = false;
+            return;
           }
+          if (first) inner.innerHTML = '';
           for (const r of rows) {
-            const key = r.date + '|' + r.text.slice(0, 40);
+            const key = (r.date || '') + '|' + (r.type || '') + '|' + String(r.text || '').slice(0, 120);
             if (seen.has(key)) continue;
             seen.add(key);
-            const stamp = (r.date || '').replace('T', ' ').slice(0, 19);
-            const head = r.text.match(/^\*\*(.+?)\*\*\s*/);
-            let html;
-            if (head) {
-              html = '<span class="hdr">' + esc(head[1]) + '</span> '
-                + esc(r.text.slice(head[0].length).replace(/\*\*/g, ''));
-            } else {
-              html = esc(r.text.replace(/\*\*/g, ''));
-            }
-            inner.insertAdjacentHTML('beforeend',
-              '<div class="msi-entry"><span class="msi-stamp">[' + stamp + ']</span> ' + html + '</div>');
+            inner.insertAdjacentHTML('beforeend', this.formatStreamRow(r));
             box.scrollTop = box.scrollHeight;
             if (!first) await sleep(0); else await sleep(90);
           }
           first = false;
         };
         await pull();
-        this.pollTimer = setInterval(pull, 8000);
+        this.pollTimer = setInterval(pull, 3000);
       },
 
-      async renderLog(containerId, url, label) {
-        const { box, inner } = this.consoleShell(containerId);
-        try {
-          const rows = await this.fetchJSON(url + '?agent=' + encodeURIComponent(this.current.id));
-          if (!rows.length) { inner.innerHTML = '<div class="msi-entry dim">&mdash; no ' + label + ' recorded &mdash;</div>'; return; }
-          inner.innerHTML = rows.map(r => {
-            const stamp = (r.date || '').replace('T', ' ').slice(0, 19);
-            return '<div class="msi-entry"><span class="msi-stamp">[' + stamp + ']</span> '
-              + '<span class="hdr">' + esc((r.type || '').replace('_message', '')) + '</span> ' + esc(r.text) + '</div>';
-          }).join('');
-          box.scrollTop = box.scrollHeight;
-        } catch (e) { inner.innerHTML = '<div class="msi-line err">! ' + esc(e.message) + '</div>'; }
-      },
-
-      renderTest(containerId) {
+      renderChatInterface(containerId) {
         const c = document.getElementById(containerId);
+        const self = this;
         c.innerHTML =
-          '<p>Send a test message to <strong>' + esc(this.current.name) + '</strong>:</p>'
-          + '<textarea class="am-test-input" id="am-test-text">ping</textarea>'
-          + '<div style="margin-top:8px;"><button class="am-btn" id="am-test-send">Send</button></div>'
-          + '<div class="am-test-out" id="am-test-out"></div>';
-        document.getElementById('am-test-send').addEventListener('click', async () => {
-          const text = document.getElementById('am-test-text').value;
-          const out = document.getElementById('am-test-out');
-          out.innerHTML = '<div class="msi-console"><span class="msi-cursor">&#9608;</span> sending&hellip;</div>';
+          '<p>Meeting with <strong>' + esc(this.current.name) + '</strong>:</p>'
+          + '<div class="msi-console am-test-out" id="am-chat-out"><span class="msi-inner"><div class="msi-entry dim">&mdash; chat replies will appear here &mdash;</div></span><span class="msi-cursor">&#9608;</span></div>'
+          + '<textarea class="am-test-input" id="am-test-text" placeholder="Type a message, or press Start to speak..."></textarea>'
+          + '<div class="am-controls">'
+          +   '<button class="am-btn" id="am-test-send">Send</button>'
+          +   '<button class="am-btn voice-btn" id="am-voice-btn">Start</button>'
+          +   '<span class="rec-indicator" id="am-rec-ind"><span class="rec-led"></span><span class="rec-text" id="am-rec-text">Recording</span></span>'
+          +   '<button class="am-btn am-mode" id="am-mode" data-mode="auto" title="Toggle what happens after voice cleanup">Auto Send</button>'
+          + '</div>';
+
+        const out = document.getElementById('am-chat-out');
+        const textEl = document.getElementById('am-test-text');
+        const voiceBtn = document.getElementById('am-voice-btn');
+        const recInd = document.getElementById('am-rec-ind');
+        const recText = document.getElementById('am-rec-text');
+        const modeBtn = document.getElementById('am-mode');
+
+        const setConsole = (html) => { out.querySelector('.msi-inner').innerHTML = html; out.scrollTop = out.scrollHeight; };
+
+        // Deliver text to the agent through the existing /api/test path.
+        async function sendText(text) {
+          if (!text || !text.trim()) return;
+          setConsole('<div class="msi-entry dim">sending&hellip;</div>');
           try {
-            const r = await this.fetchJSON('/api/test', {
+            const r = await self.fetchJSON('/api/test', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ agent: this.current.id, text })
+              body: JSON.stringify({ agent: self.current.id, text })
             });
             const replies = (r.replies || []);
-            out.innerHTML = '<div class="msi-console"><span id="ti"></span></div>';
-            const inner = out.querySelector('#ti');
-            inner.innerHTML = replies.length
+            setConsole(replies.length
               ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
-              : '<div class="msi-entry dim">(no reply content)</div>';
-          } catch (e) { out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>'; }
+              : '<div class="msi-entry dim">(no reply content)</div>');
+          } catch (e) {
+            setConsole('<div class="msi-line err">! ' + esc(e.message) + '</div>');
+          }
+        }
+        document.getElementById('am-test-send').addEventListener('click', () => sendText(textEl.value));
+
+        // Auto Send  <->  Review then Send toggle (default: Auto Send).
+        modeBtn.addEventListener('click', () => {
+          const auto = modeBtn.dataset.mode === 'auto';
+          modeBtn.dataset.mode = auto ? 'review' : 'auto';
+          modeBtn.textContent = auto ? 'Review then Send' : 'Auto Send';
+        });
+
+        // ── Voice capture (State machine: idle -> recording -> processing) ──────
+        let mediaRecorder = null, chunks = [], recTimer = null, dots = 0;
+
+        function cycleRecText() {
+          recText.textContent = 'Recording' + '.'.repeat(dots);
+          dots = (dots + 1) % 4;
+        }
+        function setRecording(on) {
+          voiceBtn.classList.toggle('recording', on);
+          voiceBtn.textContent = on ? 'Stop' : 'Start';
+          recInd.classList.toggle('on', on);
+          if (on) { dots = 0; cycleRecText(); recTimer = setInterval(cycleRecText, 450); }
+          else if (recTimer) { clearInterval(recTimer); recTimer = null; }
+        }
+
+        async function startRecording() {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setConsole('<div class="msi-line err">! Microphone needs a secure context (https). Open this dashboard via the Tailscale https URL.</div>');
+            return;
+          }
+          let stream;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch (e) {
+            setConsole('<div class="msi-line err">! Mic permission denied or unavailable: ' + esc(e.message) + '</div>');
+            return;
+          }
+          mediaRecorder = new MediaRecorder(stream);
+          chunks = [];
+          mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+          mediaRecorder.onstop = async () => {
+            stream.getTracks().forEach(t => t.stop());
+            const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+            await uploadVoice(blob);
+          };
+          mediaRecorder.start();
+          setRecording(true);
+        }
+
+        function stopRecording() {
+          if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+          setRecording(false);
+          voiceBtn.disabled = true;
+          setConsole('<div class="msi-entry dim">transcribing &amp; cleaning up&hellip;</div>');
+        }
+
+        async function uploadVoice(blob) {
+          try {
+            const res = await fetch('/api/voice', {
+              method: 'POST', headers: { 'X-Filename': 'voice.webm' }, body: blob
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'voice processing failed');
+            textEl.value = data.cleaned_text || '';
+            const raw = data.raw_transcript || '';
+            const cleaned = data.cleaned_text || '';
+            let info = '<div class="msi-entry"><span class="hdr">heard</span> ' + esc(raw) + '</div>';
+            if (cleaned && cleaned !== raw) info += '<div class="msi-entry"><span class="hdr">cleaned</span> ' + esc(cleaned) + '</div>';
+            setConsole(info);
+            if (modeBtn.dataset.mode === 'auto') await sendText(cleaned);
+          } catch (e) {
+            setConsole('<div class="msi-line err">! ' + esc(e.message) + '</div>');
+          } finally {
+            voiceBtn.disabled = false;
+          }
+        }
+
+        voiceBtn.addEventListener('click', () => {
+          if (voiceBtn.classList.contains('recording')) stopRecording();
+          else startRecording();
         });
       },
 
@@ -926,7 +988,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     };
 
     /* =====================  Deep-linking  =====================
-       ?agent=<id>&view=thoughts|messages|tool-calls|tests                       */
+       ?agent=<id>&view=thoughts|messages|tool-calls|chat-interface              */
     (function deepLink() {
       const q = new URLSearchParams(location.search);
       const agent = q.get('agent');

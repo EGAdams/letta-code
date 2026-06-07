@@ -11,8 +11,8 @@ import threading
 import urllib.request
 import urllib.error
 from datetime import datetime
-from http.server import HTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs, quote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -41,6 +41,10 @@ CLAUDE_LOG_FILE = os.path.join(HERE, 'claude_messages.json')
 CLAUDE_TOOL_LOG_FILE = os.path.join(HERE, 'claude_toolcalls.json')
 _claude_log_lock = threading.Lock()
 _claude_tool_log_lock = threading.Lock()
+
+# Voice transcripts (raw whisper vs. cleaned) — for diagnosing mishears.
+VOICE_LOG_FILE = os.path.join(HERE, 'voice_transcripts.json')
+_voice_log_lock = threading.Lock()
 
 
 # ── Letta API helpers ────────────────────────────────────────────────────────
@@ -74,7 +78,7 @@ def get_letta_id(agent_cfg):
         return agent_cfg['id']
     return _resolve_letta_id(agent_cfg['name'])
 
-def letta_messages(agent_id, limit=60):
+def letta_messages(agent_id, limit=200):
     """Fetch all message types for an agent from the Letta API."""
     data = letta_get(f'/v1/agents/{agent_id}/messages?limit={limit}')
     if not data:
@@ -122,20 +126,23 @@ def _msg_text(m):
     return str(content)
 
 def letta_thoughts(agent_id):
-    msgs = letta_messages(agent_id, limit=80)
+    msgs = letta_messages(agent_id, limit=200)
     rows = []
     for m in msgs:
-        if m.get('message_type') == 'reasoning_message':
-            text = _msg_text(m)
-            if text.strip():
-                rows.append({
-                    'date': _msg_date(m),
-                    'text': text[:500],
-                })
+        mt = m.get('message_type', '')
+        if mt != 'reasoning_message':
+            continue
+        text = _msg_text(m)
+        if not text.strip():
+            continue
+        rows.append({
+            'date': _msg_date(m),
+            'type': 'thought',
+            'text': text[:500],
+        })
     if rows:
         return rows
 
-    # Fallback for agents whose API stream does not expose reasoning_message.
     fallback_types = {
         'assistant_message': 'assistant',
         'tool_call_message': 'tool',
@@ -150,15 +157,15 @@ def letta_thoughts(agent_id):
         text = _msg_text(m)
         if not text.strip():
             continue
-        prefix = fallback_types[mt]
         rows.append({
             'date': _msg_date(m),
-            'text': f'[{prefix}] {text[:500]}',
+            'type': fallback_types[mt],
+            'text': text[:500],
         })
     return rows
 
 def letta_convo(agent_id):
-    msgs = letta_messages(agent_id, limit=60)
+    msgs = letta_messages(agent_id, limit=200)
     rows = []
     for m in msgs:
         mt = m.get('message_type', '')
@@ -175,7 +182,7 @@ def letta_convo(agent_id):
     return rows
 
 def letta_toolcalls(agent_id):
-    msgs = letta_messages(agent_id, limit=80)
+    msgs = letta_messages(agent_id, limit=200)
     rows = []
     for m in msgs:
         mt = m.get('message_type', '')
@@ -185,7 +192,6 @@ def letta_toolcalls(agent_id):
         if not text.strip():
             continue
         display_type = 'tool_call' if mt == 'tool_call_message' else 'tool_return'
-        # For tool_call: show just the tool name as type
         if mt == 'tool_call_message':
             tc = m.get('tool_call', {})
             display_type = tc.get('name', 'tool_call')
@@ -206,14 +212,23 @@ def _load_json(path):
     except (FileNotFoundError, json.JSONDecodeError):
         return []
 
+def _write_json(path, rows):
+    with open(path, 'w') as f:
+        json.dump(rows, f, indent=2)
+
+
 def _append_json(path, lock, entry, maxlen=200):
     with lock:
         rows = _load_json(path)
         rows.append(entry)
         if len(rows) > maxlen:
             rows = rows[-maxlen:]
-        with open(path, 'w') as f:
-            json.dump(rows, f, indent=2)
+        _write_json(path, rows)
+
+
+def _clear_json(path, lock):
+    with lock:
+        _write_json(path, [])
 
 
 # ── Agent registry ────────────────────────────────────────────────────────────
@@ -299,7 +314,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        body = self._read_body()
+        length = int(self.headers.get('Content-Length', 0))
+        raw = self.rfile.read(length)
+
+        # /api/voice carries a binary audio blob — handle before decoding as text.
+        if path == '/api/voice':
+            return self._handle_voice(raw)
+
+        body = raw.decode('utf-8', errors='replace')
 
         if path == '/api/claude-log':
             try:
@@ -330,8 +352,25 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data = json.loads(body)
                 agent_id = data.get('agent', '')
                 text = data.get('text', '')
+
+                if agent_id == 'agent-claude':
+                    _clear_json(CLAUDE_LOG_FILE, _claude_log_lock)
+                    _clear_json(CLAUDE_TOOL_LOG_FILE, _claude_tool_log_lock)
+                    return self.json_response({'replies': [{'type': 'assistant_message', 'text': f'[stub] {agent_id} got: {text}'}]})
+
                 lid = letta_id_for(agent_id)
                 if lid:
+                    reset_req = urllib.request.Request(
+                        f'{LETTA_BASE_URL}/v1/agents/{lid}/messages/clear?agent_id={quote(lid, safe="")}',
+                        data=b'',
+                        method='POST',
+                    )
+                    try:
+                        with urllib.request.urlopen(reset_req, timeout=10):
+                            pass
+                    except Exception:
+                        pass
+
                     # Send a real message to the Letta agent
                     payload = json.dumps({
                         'messages': [{'role': 'user', 'content': text}],
@@ -363,6 +402,31 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         length = int(self.headers.get('Content-Length', 0))
         return self.rfile.read(length).decode('utf-8')
 
+    def _handle_voice(self, raw):
+        """Transcribe (whisper.cpp) + clean (Letta agent) an uploaded audio blob.
+
+        Delivery to the main agent is left to the client (it reuses /api/test),
+        so this endpoint only ever returns {ok, raw_transcript, cleaned_text}.
+        """
+        try:
+            from voice import build_pipeline, handle_voice_upload
+        except Exception as exc:  # voice package missing/broken — fail soft
+            return self.json_response({'ok': False, 'error': f'voice unavailable: {exc}'})
+        filename = self.headers.get('X-Filename') or 'audio.webm'
+        result = handle_voice_upload(build_pipeline(), raw, filename)
+        if result.get('ok'):
+            _append_json(VOICE_LOG_FILE, _voice_log_lock, {
+                'date': datetime.now().isoformat(),
+                'raw': result.get('raw_transcript', ''),
+                'cleaned': result.get('cleaned_text', ''),
+            })
+        return self.json_response(result)
+
+    def _send_no_cache_headers(self):
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        self.send_header('Pragma', 'no-cache')
+        self.send_header('Expires', '0')
+
     def serve_file(self, file_path, content_type=None):
         try:
             with open(file_path, 'rb') as f:
@@ -376,6 +440,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', len(content))
+            self._send_no_cache_headers()
             self.end_headers()
             self.wfile.write(content)
         except FileNotFoundError:
@@ -387,6 +452,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(body))
         self.send_header('Access-Control-Allow-Origin', '*')
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -395,6 +461,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(body))
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -402,8 +469,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         print(f'[{self.log_date_time_string()}] {fmt % args}')
 
 
-class ReusableHTTPServer(HTTPServer):
+class ReusableHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
+    daemon_threads = True
 
 
 if __name__ == '__main__':

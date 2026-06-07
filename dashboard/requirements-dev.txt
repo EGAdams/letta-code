@@ -1,0 +1,5 @@
+# Dev/test deps for the dashboard voice pipeline.
+# The server itself needs only the Python stdlib; this is just for the tests.
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+#   .venv/bin/python -m pytest tests/
+pytest>=8
