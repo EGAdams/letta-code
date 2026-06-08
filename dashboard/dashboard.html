@@ -222,6 +222,25 @@
     @keyframes rec-blink { 50% { opacity: 0; } }
     .rec-text { font-size: 0.85rem; color: #c62828; font-weight: 600;
       min-width: 84px; font-variant-numeric: tabular-nums; }
+
+    /* ---- Server status coloring ---- */
+    .tab.server-up { background: #43a047; color: #fff; font-weight: 700; }
+    .tab.server-up:hover, .tab.server-up:focus-visible { background: #388e3c; }
+    .tab.server-down { background: #e53935; color: #fff; font-weight: 700; }
+    .tab.server-down:hover, .tab.server-down:focus-visible { background: #c62828; }
+    .tab.server-starting { background: #f9a825; color: #000; font-weight: 700; }
+    .tab.server-starting:hover, .tab.server-starting:focus-visible { background: #f57f17; color: #000; }
+
+    .srv-status { display: flex; align-items: center; gap: 9px; margin: 4px 0 12px;
+      padding: 9px 12px; border-radius: 6px; font-size: 0.9rem; background: #f0f0f0; }
+    .srv-led { width: 13px; height: 13px; border-radius: 50%; flex: 0 0 auto; background: #999; }
+    .srv-status.up { background: #e8f5e9; } .srv-status.up .srv-led { background: #43a047; box-shadow: 0 0 6px #43a047; }
+    .srv-status.down { background: #fdecea; } .srv-status.down .srv-led { background: #e53935; box-shadow: 0 0 6px #e53935; }
+    .srv-note { color: #666; font-size: 0.82rem; margin: 0 0 10px; }
+    .srv-filter { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-family: inherit; margin-bottom: 10px; }
+    .msi-console { background: #000; color: #fff; font-family: Consolas, "Courier New", monospace; font-size: 13px; line-height: 1.5;
+      height: 60vh; min-height: 320px; overflow-y: auto; padding: 12px 14px; border: 2px inset #888; border-radius: 4px;
+      white-space: pre-wrap; word-break: break-word; scroll-behavior: smooth; }
   </style>
 </head>
 <body>
@@ -235,6 +254,7 @@
       <button type="button" class="tab" data-nav="main" data-target="instructions">Instructions</button>
       <button type="button" class="tab" data-nav="main" data-target="tool-management">Tool Management</button>
       <button type="button" class="tab" data-nav="main" data-target="agent-management">Agent Management</button>
+      <button type="button" class="tab" data-nav="main" data-target="server-management" id="btn-server-mgmt">Server Management</button>
       <button type="button" class="tab" data-nav="main" data-target="project-plans">Project Plans</button>
     </nav>
 
@@ -282,6 +302,11 @@
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-messages">Messages</button>
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tool-calls">Tool Calls</button>
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-chat-interface">Input Options</button>
+    </nav>
+
+    <!-- Server management sub-nav (server tabs injected dynamically) -->
+    <nav id="nav-servers" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-servers">Back</button>
     </nav>
   </aside>
 
@@ -403,6 +428,16 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <p id="agents-home-status" class="am-dim">Loading agents&hellip;</p>
     </section>
 
+    <section id="server-management" class="view">
+      <h2>Server Management</h2>
+      <p>Click a server above to view its logs and health status.</p>
+    </section>
+
+    <section id="servers-detail" class="view">
+      <h2 id="servers-detail-title">Server</h2>
+      <div id="servers-detail-body"></div>
+    </section>
+
     <section id="agent-detail-home" class="view">
       <h2 id="agent-detail-title">Agent</h2>
       <p id="agent-detail-home-text">Choose a tab above to view this agent's data.</p>
@@ -475,6 +510,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     const navTools = document.getElementById('nav-tools');
     const navAgents = document.getElementById('nav-agents');
     const navAgentDetail = document.getElementById('nav-agent-detail');
+    const navServers = document.getElementById('nav-servers');
     const navPlans = document.getElementById('nav-plans');
 
     let selectedAgentName = '';
@@ -529,7 +565,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     applyInstructionLinks();
     setAgentDetailContent('Agent');
 
-    if (navMain && navStatus && navTools && navAgents && navAgentDetail && navPlans) {
+    if (navMain && navStatus && navTools && navAgents && navAgentDetail && navServers && navPlans) {
       navMain.querySelectorAll('[data-nav="main"][data-target]').forEach(tab => {
         tab.addEventListener('click', () => {
           const target = tab.dataset.target;
@@ -557,6 +593,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             navMain.classList.add('hidden');
             navAgents.classList.remove('hidden');
             AM.showAgentsHome();
+            return;
+          }
+
+          if (target === 'server-management') {
+            navMain.classList.add('hidden');
+            navServers.classList.remove('hidden');
+            SM.showServersHome();
             return;
           }
 
@@ -623,6 +666,28 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         safeActivateView(target);
         AM.renderDetail(target);
       });
+
+      // Server tabs are injected dynamically, so use event delegation.
+      navServers.addEventListener('click', (e) => {
+        const tab = e.target.closest('.tab');
+        if (!tab || tab.id === 'btn-back-servers') return;
+        if (tab.dataset.serverKey) {
+          safeSetActive(navServers, '.tab', tab);
+          SM.openServer(tab.dataset.serverKey, tab.dataset.serverName || tab.textContent);
+        }
+      });
+
+      const backServers = document.getElementById('btn-back-servers');
+      if (backServers) {
+        backServers.addEventListener('click', () => {
+          SM.stopPoll();
+          navServers.classList.add('hidden');
+          navMain.classList.remove('hidden');
+          const homeTab = navMain.querySelector('[data-nav="main"][data-target="home"]');
+          if (homeTab) safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
+          safeActivateView('home');
+        });
+      }
 
       const backTools = document.getElementById('btn-back-tools');
       if (backTools) {
@@ -986,6 +1051,176 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         }
       },
     };
+
+    /* =====================  Server Manager  ===================== */
+    const SM = {
+      pollTimer: null,
+      healthPollTimer: null,
+      current: null,        // { key, name }
+      servers: null,
+      health: null,         // last polled health status
+      served: location.protocol === 'http:' || location.protocol === 'https:',
+
+      stopPoll() {
+        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+      },
+
+      stopHealthPoll() {
+        if (this.healthPollTimer) { clearInterval(this.healthPollTimer); this.healthPollTimer = null; }
+      },
+
+      async fetchJSON(url, opts) {
+        const r = await fetch(url, opts);
+        if (!r.ok) {
+          let d = ''; try { d = (await r.json()).detail || ''; } catch (e) {}
+          throw new Error('HTTP ' + r.status + (d ? ' — ' + d.slice(0, 120) : ''));
+        }
+        return r.json();
+      },
+
+      updateMainTabColor() {
+        const tab = document.getElementById('btn-server-mgmt');
+        if (!tab) return;
+        tab.classList.remove('server-up', 'server-down', 'server-starting');
+        if (!this.health) return;
+        if (this.health.any_down) {
+          tab.classList.add('server-down');
+        } else {
+          tab.classList.add('server-up');
+        }
+      },
+
+      updateServerTabColors() {
+        if (!this.health) return;
+        const healthMap = {};
+        for (const s of this.health.servers) {
+          healthMap[s.key] = s.status;
+        }
+        navServers.querySelectorAll('[data-server-key]').forEach(tab => {
+          const status = healthMap[tab.dataset.serverKey] || 'unknown';
+          tab.classList.remove('server-up', 'server-down', 'server-starting');
+          if (status === 'up') tab.classList.add('server-up');
+          else if (status === 'down') tab.classList.add('server-down');
+          else if (status === 'starting') tab.classList.add('server-starting');
+        });
+      },
+
+      async pollHealth() {
+        try {
+          this.health = await this.fetchJSON('/api/server-health');
+          this.updateMainTabColor();
+          this.updateServerTabColors();
+        } catch (e) {
+          // Silent fail
+        }
+      },
+
+      showServersHome() {
+        this.stopPoll();
+        this.current = null;
+        navServers.classList.remove('hidden');
+        safeActivateView('server-management');
+        this.loadServerTabs();
+        this.pollHealth();
+        this.healthPollTimer = setInterval(() => this.pollHealth(), 5000);
+      },
+
+      async loadServerTabs() {
+        if (!this.served) return;
+        if (!this.servers) {
+          try {
+            this.servers = await this.fetchJSON('/api/servers');
+          } catch (e) {
+            return;
+          }
+        }
+        navServers.querySelectorAll('[data-server-key]').forEach(t => t.remove());
+        if (!this.servers) return;
+        for (const s of this.servers) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'tab';
+          btn.dataset.serverKey = s.key;
+          btn.dataset.serverName = s.name;
+          btn.textContent = s.name;
+          navServers.appendChild(btn);
+        }
+        this.updateServerTabColors();
+      },
+
+      openServer(key, name) {
+        this.stopPoll();
+        this.stopHealthPoll();
+        this.current = { key, name };
+        document.getElementById('servers-detail-title').textContent = name;
+        const body = document.getElementById('servers-detail-body');
+        const meta = (this.servers || []).find(s => s.key === key) || {};
+        body.innerHTML =
+          (meta.note ? '<p class="srv-note">' + esc(meta.note) + '</p>' : '')
+          + '<div class="srv-status" id="srv-status"><span class="srv-led"></span><span id="srv-status-text">checking…</span></div>'
+          + '<input class="srv-filter" id="srv-filter" placeholder="Filter log lines (e.g. error)…" />'
+          + '<div class="msi-console" id="srv-console"><span class="msi-inner"></span><span class="msi-cursor">&#9608;</span></div>';
+        safeActivateView('servers-detail');
+
+        const box = body.querySelector('#srv-console');
+        const inner = box.querySelector('.msi-inner');
+        const statusEl = body.querySelector('#srv-status');
+        const statusText = body.querySelector('#srv-status-text');
+        const filterEl = body.querySelector('#srv-filter');
+        filterEl.addEventListener('input', () => { applyFilter(); });
+
+        const seen = new Set();
+        let first = true;
+        const applyFilter = () => {
+          const q = filterEl.value.trim().toLowerCase();
+          inner.querySelectorAll('.msi-entry').forEach(el => {
+            el.style.display = (!q || el.textContent.toLowerCase().includes(q)) ? '' : 'none';
+          });
+        };
+
+        const pull = async () => {
+          if (!this.current || this.current.key !== key) return;
+          let data;
+          try { data = await this.fetchJSON('/api/server-logs?server=' + encodeURIComponent(key)); }
+          catch (e) {
+            statusEl.className = 'srv-status down';
+            statusText.textContent = e.message;
+            return;
+          }
+          if (data.status) {
+            statusEl.className = 'srv-status ' + (data.status.ok ? 'up' : 'down');
+            statusText.textContent = (data.status.ok ? 'UP — ' : 'DOWN — ') + (data.status.text || '');
+          } else {
+            statusEl.className = 'srv-status';
+            statusText.textContent = 'no health check';
+          }
+          const rows = data.rows || [];
+          if (first && !rows.length) {
+            inner.innerHTML = '<div class="msi-entry dim">&mdash; no log lines &mdash;</div>';
+            first = false;
+            return;
+          }
+          if (first) inner.innerHTML = '';
+          const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+          for (const r of rows) {
+            const key2 = 'seq:' + r.seq;
+            if (seen.has(key2)) continue;
+            seen.add(key2);
+            inner.insertAdjacentHTML('beforeend',
+              '<div class="msi-entry">' + esc(String(r.text || '')) + '</div>');
+          }
+          applyFilter();
+          if (atBottom) box.scrollTop = box.scrollHeight;
+          first = false;
+        };
+        pull();
+        this.pollTimer = setInterval(pull, 3000);
+      },
+    };
+
+    // Initial health poll on page load
+    SM.pollHealth();
+    SM.healthPollTimer = setInterval(() => SM.pollHealth(), 10000);
 
     /* =====================  Deep-linking  =====================
        ?agent=<id>&view=thoughts|messages|tool-calls|chat-interface              */

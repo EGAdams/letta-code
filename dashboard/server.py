@@ -46,6 +46,59 @@ _claude_tool_log_lock = threading.Lock()
 VOICE_LOG_FILE = os.path.join(HERE, 'voice_transcripts.json')
 _voice_log_lock = threading.Lock()
 
+# Port this dashboard is served on (also used for the dashboard self-health check).
+PORT = int(os.environ.get('PORT', 8765))
+
+# ── Server Management registry ────────────────────────────────────────────────
+# Each server we monitor. Fields (all optional except key/name):
+#   log_file   — absolute path to a local log file to tail
+#   health_url — URL to ping; an "up/down" status row is derived from it
+#   note       — short human description shown in the UI
+# A server can have a log_file, a health_url, or both. Remote servers we can't
+# tail locally (Docker on another host) are monitored via health_url only — an
+# unreachable health check is itself the "something is awry" signal.
+SERVERS = [
+    {
+        'key': 'letta',
+        'name': 'Letta Server',
+        'health_url': f'{LETTA_BASE_URL}/v1/health/',
+        'note': f'Letta API ({LETTA_BASE_URL})',
+    },
+    {
+        'key': 'executor',
+        'name': 'Executor Server',
+        'health_url': 'http://100.80.49.10:8284/',
+        'note': 'executor_run MCP backend (remote Docker on win10)',
+    },
+    {
+        'key': 'dashboard',
+        'name': 'Dashboard Server',
+        'health_url': f'http://localhost:{PORT}/',
+        'log_file': '/tmp/dashboard_8765.log',
+        'note': 'This dashboard (server.py)',
+    },
+    {
+        'key': 'logger-api',
+        'name': 'Logger API',
+        'health_url': 'http://100.80.49.10:8284/',
+        'note': 'Docker logger API (live agent log viewer)',
+    },
+    {
+        'key': 'lettabot',
+        'name': 'Lettabot (Telegram)',
+        'log_file': os.path.expanduser('~/lettabot/lettabot.log'),
+        'note': 'Scissari Telegram bot',
+    },
+    {
+        'key': 'thought-bridge',
+        'name': 'Thought Bridge',
+        'health_url': 'http://localhost:8899/',
+        'note': 'lettabot → browser live thought stream',
+    },
+]
+
+SERVER_LOG_TAIL = 300   # how many trailing log lines to expose
+
 
 # ── Letta API helpers ────────────────────────────────────────────────────────
 
@@ -231,6 +284,73 @@ def _clear_json(path, lock):
         _write_json(path, [])
 
 
+# ── Server Management helpers ─────────────────────────────────────────────────
+
+def get_server(key):
+    """Return the SERVERS config dict for a key, or None."""
+    for s in SERVERS:
+        if s['key'] == key:
+            return s
+    return None
+
+def server_health(cfg):
+    """Ping a server's health_url. Returns {ok, text} (or None if no health_url)."""
+    url = cfg.get('health_url')
+    if not url:
+        return None
+    try:
+        req = urllib.request.Request(url, method='GET')
+        with urllib.request.urlopen(req, timeout=4) as r:
+            code = r.getcode()
+            body = r.read(400).decode('utf-8', errors='replace').strip()
+        snippet = (' — ' + body.replace('\n', ' ')[:160]) if body else ''
+        return {'ok': 200 <= code < 400, 'text': f'HTTP {code}{snippet}'}
+    except urllib.error.HTTPError as e:
+        return {'ok': False, 'text': f'HTTP {e.code} {e.reason}'}
+    except Exception as e:
+        return {'ok': False, 'text': f'unreachable: {e}'}
+
+def tail_lines(path, n):
+    """Return up to the last n lines of a file as (start_lineno, [lines]).
+
+    start_lineno is the absolute line number of the first returned line so the
+    client can give each physical line a stable key (repeated identical lines
+    stay distinct, and re-polled overlap dedupes correctly)."""
+    try:
+        with open(path, 'r', errors='replace') as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return None
+    start = max(0, len(lines) - n)
+    return start, lines[start:]
+
+def server_log_rows(cfg, q=''):
+    """Build {status, rows} for a server. rows carry a stable 'seq' line key."""
+    out = {'rows': []}
+    health = server_health(cfg)
+    if health is not None:
+        out['status'] = health
+    log_file = cfg.get('log_file')
+    if log_file:
+        tail = tail_lines(log_file, SERVER_LOG_TAIL)
+        if tail is None:
+            out.setdefault('status', {'ok': False, 'text': ''})
+            out['rows'].append({'seq': 0, 'date': '', 'type': 'log',
+                                'text': f'(log file not found: {log_file})'})
+        else:
+            start, lines = tail
+            ql = q.lower()
+            for i, line in enumerate(lines):
+                if ql and ql not in line.lower():
+                    continue
+                out['rows'].append({'seq': start + i, 'date': '', 'type': 'log', 'text': line})
+    elif health is None:
+        out['status'] = {'ok': False, 'text': 'no log file or health check configured'}
+    return out
+
+
 # ── Agent registry ────────────────────────────────────────────────────────────
 
 def build_agent_list():
@@ -298,6 +418,44 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if lid:
                 return self.json_response(letta_toolcalls(lid))
             return self.json_response([])
+
+        if path == '/api/servers':
+            return self.json_response([
+                {'key': s['key'], 'name': s['name'], 'note': s.get('note', '')}
+                for s in SERVERS
+            ])
+
+        if path == '/api/server-logs':
+            key = query.get('server', [''])[0]
+            q = query.get('q', [''])[0]
+            cfg = get_server(key)
+            if not cfg:
+                return self.json_response({'status': {'ok': False, 'text': 'unknown server'}, 'rows': []})
+            return self.json_response(server_log_rows(cfg, q))
+
+        if path == '/api/server-health':
+            # Overall health: returns per-server status + aggregate status.
+            # A server is "down" if it has a health_url and it doesn't respond OK.
+            # A server is "starting" if we can't determine it yet (reserved for future use).
+            result = {
+                'servers': [],
+                'all_up': True,
+                'any_down': False,
+            }
+            for cfg in SERVERS:
+                health_url = cfg.get('health_url')
+                if health_url:
+                    h = server_health(cfg)
+                    status = 'up' if h.get('ok') else 'down'
+                    result['servers'].append({
+                        'key': cfg['key'],
+                        'name': cfg['name'],
+                        'status': status,
+                    })
+                    if not h.get('ok'):
+                        result['any_down'] = True
+                        result['all_up'] = False
+            return self.json_response(result)
 
         if path == '/' or path == '':
             return self.serve_file(os.path.join(HERE, 'dashboard.html'), 'text/html')
