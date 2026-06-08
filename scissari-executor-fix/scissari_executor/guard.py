@@ -31,6 +31,7 @@ DEFAULT_BUDGET_PER_KIND: Dict[str, int] = {
     "executor_down": 0,         # F4 — terminal (CIRCUIT_OPEN)
     "end_turn_no_return": 2,    # F5 — one client-side fallback, then trip
     "peer_tool_rule_hang": 0,   # F6 — terminal (ABORT)
+    "tool_response_lost": 2,    # F7 — one re-sync of the lost result, then trip
     "unknown": 0,               # always abort
 }
 

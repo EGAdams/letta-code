@@ -83,6 +83,22 @@ class ClientSideFallbackStrategy(BaseRecoveryStrategy):   # F5
         )
 
 
+class ResyncStrategy(BaseRecoveryStrategy):               # F7
+    handles = FailureKind.TOOL_RESPONSE_LOST
+
+    def _decide(self, cmd, c) -> RecoveryOutcome:
+        # The tool likely already ran; re-fetch its result rather than re-execute
+        # (a verbatim re-run could double a side-effect). The IExecutorClient
+        # adapter is expected to treat a RESYNC re-call as an idempotent poll of
+        # the existing run. Budget is 1 (see guard) so this can never spin.
+        return RecoveryOutcome(
+            action=RecoveryAction.RESYNC,
+            next_command=cmd,
+            backoff_ms=500,
+            reason="tool_return lost in transit — re-syncing the result once",
+        )
+
+
 class CircuitOpenStrategy(BaseRecoveryStrategy):          # F4
     handles = FailureKind.EXECUTOR_DOWN
 
@@ -115,6 +131,7 @@ class StrategyFactory(IRecoveryStrategyFactory):
             BackoffRetryStrategy(),
             NarrowCommandStrategy(),
             ClientSideFallbackStrategy(),
+            ResyncStrategy(),
             CircuitOpenStrategy(),
             PeerToolRuleAbortStrategy(),
             AbortStrategy(),
