@@ -4,244 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard</title>
-  <style>
-    :root {
-      --bg: #f0f0f0;
-      --text: #333;
-      --sidebar: #333;
-      --tab: #4c6ef5;
-      --tab-active: #2f55e7;
-      --card: #fff;
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 30px;
-      font-family: Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
-
-    @media (max-width: 900px) {
-      body { margin: 0; }
-      .sidebar {
-        position: static;
-        width: 100%;
-        height: auto;
-        top: 0;
-        padding: 10px;
-      }
-      .sidebar h1 {
-        font-size: 1rem;
-        margin-bottom: 10px;
-      }
-      .sidebar nav {
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-      }
-      .content {
-        margin: 0;
-        border-radius: 0;
-        padding: 14px;
-      }
-      .tab {
-        font-size: 0.82rem;
-        padding: 6px;
-        text-align: center;
-      }
-    }
-    @media (max-width: 560px) {
-      .sidebar nav {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .sidebar {
-      position: fixed;
-      top: 30px;
-      left: 0;
-      width: 170px;
-      height: calc(100vh - 60px);
-      background: var(--sidebar);
-      padding: 12px;
-      overflow-y: auto;
-    }
-
-    .sidebar h1 {
-      margin: 0 0 16px;
-      font-size: 1.2rem;
-      color: #fff;
-      text-align: center;
-    }
-
-    .sidebar nav {
-      display: grid;
-      gap: 10px;
-    }
-
-    .sidebar nav.hidden { display: none; }
-
-    .tab {
-      border: 0;
-      width: 100%;
-      background: var(--tab);
-      color: #fff;
-      font-size: 0.9rem;
-      line-height: 1.15;
-      padding: 6px 8px;
-      border-radius: 4px;
-      cursor: pointer;
-      text-align: left;
-    }
-
-    .tab:hover,
-    .tab:focus-visible {
-      outline: none;
-      background: #3a5de3;
-    }
-
-    .tab.active {
-      background: var(--tab-active);
-      font-weight: 700;
-    }
-
-    .tab.back-tab {
-      background: #555;
-    }
-
-    .tab.back-tab:hover,
-    .tab.back-tab:focus-visible {
-      background: #444;
-    }
-
-    .content {
-      max-width: 1100px;
-      margin: 20px auto 20px 220px;
-      background: var(--card);
-      border-radius: 4px;
-      padding: 22px;
-    }
-
-    .content.fullbleed {
-      max-width: none;
-      padding: 0;
-      background: transparent;
-      border-radius: 0;
-    }
-
-    .view { display: none; }
-    .view.active { display: block; }
-
-    h2, h3, p { margin-top: 0; }
-
-    a {
-      color: #1d4ed8;
-      text-decoration: none;
-      word-break: break-word;
-    }
-
-    a:hover { text-decoration: underline; }
-
-    #scissari-frame,
-    #audio-plan-frame {
-      width: 100%;
-      height: calc(100vh - 60px);
-      border: none;
-      display: block;
-    }
-
-    pre {
-      background: #1e1e1e; color: #e6e6e6; padding: 12px 14px;
-      border-radius: 6px; overflow-x: auto; font-size: 13px; line-height: 1.45;
-    }
-    code { font-family: Consolas, Menlo, monospace; }
-    p code, li code, td code { background: #e8e8e8; color: #b3306b; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
-    table.kv { border-collapse: collapse; width: 100%; margin: 10px 0; }
-    table.kv th, table.kv td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 0.9rem; vertical-align: top; }
-    table.kv th { background: #f0f0f0; }
-    .note { background: #fff8e1; border-left: 4px solid #f5a623; padding: 10px 14px; border-radius: 4px; margin: 12px 0; }
-    .ok { background: #e8f5e9; border-left: 4px solid #43a047; padding: 10px 14px; border-radius: 4px; margin: 12px 0; }
-    details { margin: 10px 0; }
-    summary { cursor: pointer; font-weight: 700; }
-
-    /* ---- Agent manager ---- */
-    .am-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
-    .am-toolbar input { flex: 1; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; }
-    .am-btn { border: 0; background: var(--tab); color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
-    .am-btn:hover { background: #3a5de3; }
-    #agent-list { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 6px; }
-    .agent-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #eee; cursor: pointer; }
-    .agent-row:last-child { border-bottom: 0; }
-    .agent-row:hover { background: #eef2ff; }
-    .agent-name { font-weight: 600; }
-    .agent-model { font-family: Consolas, Menlo, monospace; font-size: 0.78rem; color: #666; background: #f0f0f0; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
-    .am-dim { padding: 12px; color: #888; }
-    .am-warn { padding: 12px; color: #8a4b00; background: #fff8e1; }
-    .am-back { background: #555; color: #fff; border: 0; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-bottom: 12px; }
-    .am-back:hover { background: #444; }
-    .am-submenu { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 16px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-    .am-sub { border: 0; background: #e8e8e8; color: #333; padding: 7px 16px; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 0.92rem; }
-    .am-sub:hover { background: #dcdcff; }
-    .am-sub.active { background: var(--tab-active); color: #fff; font-weight: 700; }
-
-    /* ---- MSI-installer-style scrolling console ---- */
-    .msi-console {
-      background: #000; color: #fff;
-      font-family: Consolas, "Courier New", monospace; font-size: 13px; line-height: 1.5;
-      height: 60vh; min-height: 320px; overflow-y: auto;
-      padding: 12px 14px; border: 2px inset #888; border-radius: 4px;
-      white-space: pre-wrap; word-break: break-word;
-      scroll-behavior: smooth;
-    }
-    .msi-entry { padding: 2px 0; border-bottom: 1px dotted #1e1e1e; animation: msi-in 0.18s ease-out; }
-    .msi-stamp { color: #00d000; }
-    .msi-entry .hdr { color: #6cf; font-weight: 700; }
-    .msi-line.dim, .msi-entry.dim { color: #888; }
-    .msi-line.err { color: #ff6b6b; }
-    @keyframes msi-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-    .msi-cursor { display: inline-block; color: #fff; animation: msi-blink 1s step-end infinite; }
-    @keyframes msi-blink { 50% { opacity: 0; } }
-    .am-test-input { width: 100%; min-height: 80px; padding: 10px; border: 1px solid #111; border-radius: 6px; font-family: inherit; }
-    .am-test-out { margin-top: 12px; }
-
-    /* ---- Voice input controls ---- */
-    .am-controls { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
-    .voice-btn { background: #2e9e3f; color: #000; font-weight: 700; }
-    .voice-btn:hover { background: #28902f; }
-    .voice-btn.recording { background: #c62828; color: #fff; }
-    .voice-btn.recording:hover { background: #b71c1c; }
-    .am-mode { background: #555; }
-    .am-mode:hover { background: #444; }
-    .rec-indicator { display: none; align-items: center; gap: 8px; }
-    .rec-indicator.on { display: inline-flex; }
-    .rec-led { width: 20px; height: 20px; background: #fff; border: 1px solid #888;
-      border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; }
-    .rec-led::after { content: ''; width: 10px; height: 10px; background: #e53935;
-      border-radius: 50%; animation: rec-blink 1s step-end infinite; }
-    @keyframes rec-blink { 50% { opacity: 0; } }
-    .rec-text { font-size: 0.85rem; color: #c62828; font-weight: 600;
-      min-width: 84px; font-variant-numeric: tabular-nums; }
-
-    /* ---- Server status coloring ---- */
-    .tab.server-up { background: #43a047; color: #fff; font-weight: 700; }
-    .tab.server-up:hover, .tab.server-up:focus-visible { background: #388e3c; }
-    .tab.server-down { background: #e53935; color: #fff; font-weight: 700; }
-    .tab.server-down:hover, .tab.server-down:focus-visible { background: #c62828; }
-    .tab.server-starting { background: #f9a825; color: #000; font-weight: 700; }
-    .tab.server-starting:hover, .tab.server-starting:focus-visible { background: #f57f17; color: #000; }
-
-    .srv-status { display: flex; align-items: center; gap: 9px; margin: 4px 0 12px;
-      padding: 9px 12px; border-radius: 6px; font-size: 0.9rem; background: #f0f0f0; }
-    .srv-led { width: 13px; height: 13px; border-radius: 50%; flex: 0 0 auto; background: #999; }
-    .srv-status.up { background: #e8f5e9; } .srv-status.up .srv-led { background: #43a047; box-shadow: 0 0 6px #43a047; }
-    .srv-status.down { background: #fdecea; } .srv-status.down .srv-led { background: #e53935; box-shadow: 0 0 6px #e53935; }
-    .srv-note { color: #666; font-size: 0.82rem; margin: 0 0 10px; }
-    .srv-filter { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-family: inherit; margin-bottom: 10px; }
-    .msi-console { background: #000; color: #fff; font-family: Consolas, "Courier New", monospace; font-size: 13px; line-height: 1.5;
-      height: 60vh; min-height: 320px; overflow-y: auto; padding: 12px 14px; border: 2px inset #888; border-radius: 4px;
-      white-space: pre-wrap; word-break: break-word; scroll-behavior: smooth; }
-  </style>
+  <link rel="stylesheet" href="/css/dashboard.css" />
 </head>
 <body>
   <aside class="sidebar">
@@ -292,6 +55,7 @@
       <button type="button" class="tab" data-nav="plans" data-target="plans-self-evolving">Self Evolving</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-divide-conquer">Divide Conquer</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-audio-input">Audio Input</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-orchestrator">Mazda Orchestrator</button>
     </nav>
 
     <!-- Agent detail sub-nav -->
@@ -481,25 +245,23 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
     <!-- Project Plans views -->
     <section id="plans-rol-finance" class="view">
-      <h2>ROL Finance</h2>
-      <p>Project plan for ROL Finance.</p>
+      <iframe id="rol-finance-plan-frame" class="plan-frame" src="/rol_finances/tools/plan.html"></iframe>
     </section>
 
     <section id="plans-self-evolving" class="view">
-      <h2>Self Evolving</h2>
-      <p>Project plan for Self Evolving agent system.</p>
-      <p><a href="/agent_self_improvement/agent_self_improvement_plan.html" target="_blank" rel="noopener noreferrer">agent_self_improvement_plan.html</a></p>
+      <iframe id="self-evolving-plan-frame" class="plan-frame" src="/agent_self_improvement/agent_self_improvement_plan.html"></iframe>
     </section>
 
     <section id="plans-divide-conquer" class="view">
-      <h2>Divide &amp; Conquer — Scissari executor_run Stall Fix</h2>
-      <p>Splits the blind 14-call retry loop into a classified, strategy-driven recovery pipeline (GoF patterns). Each failure mode is its own testable division.</p>
-      <p><a href="/divide_and_conquer_scissari_fix.html" target="_blank" rel="noopener noreferrer">divide_and_conquer_scissari_fix.html</a> &nbsp;·&nbsp; scaffold: <code>scissari-executor-fix/</code> (21 tests passing)</p>
-      <p><strong>Latest (2026-06-06):</strong> new symptom <em>"the response was lost during a tool workflow"</em> added as failure mode <strong>F7 (TOOL_RESPONSE_LOST)</strong> with a <code>RESYNC</code> recovery action — re-fetch the lost result once instead of blind-retrying.</p>
+      <iframe id="divide-conquer-plan-frame" class="plan-frame" src="/divide_and_conquer_scissari_fix.html"></iframe>
     </section>
 
     <section id="plans-audio-input" class="view">
-      <iframe id="audio-plan-frame" src="/audio_input/audio_plan.html"></iframe>
+      <iframe id="audio-plan-frame" class="plan-frame" src="/audio_input/audio_plan.html"></iframe>
+    </section>
+
+    <section id="plans-mazda-orchestrator" class="view">
+      <iframe id="mazda-orchestrator-plan-frame" class="plan-frame" src="/team_construction_plan.html"></iframe>
     </section>
   </main>
 
@@ -748,6 +510,52 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+    /* =====================  Voice output (Web Speech API)  =====================
+       Browser-native text-to-speech. No API key, no server round-trip, free.
+       Mirrors the Telegram TTS *intent* (speak the agent's reply) but uses the
+       browser's built-in SpeechSynthesis instead of a server-side mp3. */
+    const Speech = {
+      synth: window.speechSynthesis || null,
+      voice: null,
+      get supported() { return !!this.synth; },
+
+      // Pick a sensible English voice once the (async) voice list is ready.
+      pickVoice() {
+        if (!this.supported) return;
+        const voices = this.synth.getVoices();
+        if (!voices.length) return;
+        this.voice =
+          voices.find(v => /en[-_]US/i.test(v.lang) && /google|natural|neural/i.test(v.name)) ||
+          voices.find(v => /en[-_]US/i.test(v.lang)) ||
+          voices.find(v => /^en/i.test(v.lang)) ||
+          voices[0];
+      },
+
+      // Strip markdown emphasis / leading "**Header**" so it reads cleanly.
+      clean(text) {
+        return String(text || '').replace(/\*\*/g, '').replace(/[`#_>]/g, '').trim();
+      },
+
+      speak(text) {
+        if (!this.supported) return;
+        const say = this.clean(text);
+        if (!say) return;
+        this.synth.cancel();            // never let replies pile up / overlap
+        if (!this.voice) this.pickVoice();
+        const u = new SpeechSynthesisUtterance(say);
+        if (this.voice) u.voice = this.voice;
+        u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+        this.synth.speak(u);
+      },
+
+      cancel() { if (this.supported) this.synth.cancel(); },
+    };
+    if (Speech.supported) {
+      Speech.pickVoice();
+      // Voices populate asynchronously in Chrome — re-pick when they arrive.
+      window.speechSynthesis.onvoiceschanged = () => Speech.pickVoice();
+    }
+
     /* =====================  Agent Manager  ===================== */
     // Maps an agent-detail view id to how its content is rendered.
     const DETAIL_RENDERERS = {
@@ -763,6 +571,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       current: null,           // { id, name }
       pollTimer: null,
       agents: null,
+      agentsLoadedAt: 0,
       served: location.protocol === 'http:' || location.protocol === 'https:',
 
       stopPoll() {
@@ -792,46 +601,56 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
       // Fetch agents and inject one sidebar tab per agent.
       async loadAgentTabs() {
-        const status = document.getElementById('agents-home-status');
-        // Drop any previously-injected agent tabs.
-        navAgents.querySelectorAll('.agent-tab').forEach(t => t.remove());
-
-        if (!this.served) {
-          if (status) status.innerHTML = '<span class="am-warn" style="display:block">'
-            + 'This page is open as a <code>file://</code> document, which can\'t reach the Letta API. '
-            + 'Open the served version instead: <strong>http://100.80.49.10:8765/</strong> '
-            + '(over Tailscale) or <strong>http://localhost:8765/</strong> on this machine.<br>'
-            + 'Start it with: <code>python3 ~/dashboard_server.py</code></span>';
-          return;
-        }
-
-        if (status) status.textContent = 'Loading agents…';
+        if (this._tabsLoading) return;
+        this._tabsLoading = true;
         try {
-          this.agents = await this.fetchJSON('/api/agents');
-        } catch (e) {
-          if (status) status.innerHTML = '<span class="am-warn" style="display:block">Failed to load agents: ' + esc(e.message) + '</span>';
-          return;
-        }
+          const status = document.getElementById('agents-home-status');
+          // Drop any previously-injected agent tabs.
+          navAgents.querySelectorAll('.agent-tab').forEach(t => t.remove());
 
-        if (!this.agents.length) {
-          if (status) status.textContent = 'No agents found.';
-          return;
-        }
+          if (!this.served) {
+            if (status) status.innerHTML = '<span class="am-warn" style="display:block">'
+              + 'This page is open as a <code>file://</code> document, which can\'t reach the Letta API. '
+              + 'Open the served version instead: <strong>http://100.80.49.10:8765/</strong> '
+              + '(over Tailscale) or <strong>http://localhost:8765/</strong> on this machine.<br>'
+              + 'Start it with: <code>python3 ~/dashboard_server.py</code></span>';
+            return;
+          }
 
-        for (const a of this.agents) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'tab agent-tab';
-          btn.dataset.nav = 'agents';
-          btn.dataset.agentId = a.id;
-          btn.dataset.agentName = a.name;
-          btn.textContent = a.name;
-          navAgents.appendChild(btn);
-        }
-        if (status) status.innerHTML = 'Loaded <strong>' + this.agents.length
-          + '</strong> agent' + (this.agents.length === 1 ? '' : 's')
-          + '. Pick one from the left to view its Thoughts, Messages, Tool Calls, or Input Options.';
+          if (!this.agents) {
+            if (status) status.textContent = 'Loading agents…';
+            try {
+              this.agents = await this.fetchJSON('/api/agents');
+              this.agentsLoadedAt = Date.now();
+            } catch (e) {
+              if (status) status.innerHTML = '<span class="am-warn" style="display:block">Failed to load agents: ' + esc(e.message) + '</span>';
+              return;
+            }
+          }
 
+          if (!this.agents.length) {
+            if (status) status.textContent = 'No agents found.';
+            return;
+          }
+
+          for (const a of this.agents) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'tab agent-tab';
+            btn.dataset.nav = 'agents';
+            btn.dataset.agentId = a.id;
+            btn.dataset.agentName = a.name;
+            btn.textContent = a.name;
+            navAgents.appendChild(btn);
+          }
+          const age = this.agentsLoadedAt ? Math.max(0, Math.round((Date.now() - this.agentsLoadedAt) / 1000)) : 0;
+          if (status) status.innerHTML = 'Loaded <strong>' + this.agents.length
+            + '</strong> agent' + (this.agents.length === 1 ? '' : 's')
+            + (age ? ' <span class="dim">(cached ' + age + 's ago)</span>' : '')
+            + '. Pick one from the left to view its Thoughts, Messages, Tool Calls, or Input Options.';
+        } finally {
+          this._tabsLoading = false;
+        }
       },
 
       // Switch the sidebar to the per-agent detail fanout and show Thoughts first.
@@ -925,6 +744,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           +   '<button class="am-btn voice-btn" id="am-voice-btn">Start</button>'
           +   '<span class="rec-indicator" id="am-rec-ind"><span class="rec-led"></span><span class="rec-text" id="am-rec-text">Recording</span></span>'
           +   '<button class="am-btn am-mode" id="am-mode" data-mode="auto" title="Toggle what happens after voice cleanup">Auto Send</button>'
+          +   '<button class="am-btn am-speak" id="am-speak" title="Read agent replies aloud (browser text-to-speech)">&#128266; Speak Replies</button>'
           + '</div>';
 
         const out = document.getElementById('am-chat-out');
@@ -933,8 +753,29 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         const recInd = document.getElementById('am-rec-ind');
         const recText = document.getElementById('am-rec-text');
         const modeBtn = document.getElementById('am-mode');
+        const speakBtn = document.getElementById('am-speak');
 
         const setConsole = (html) => { out.querySelector('.msi-inner').innerHTML = html; out.scrollTop = out.scrollHeight; };
+
+        // ── Voice output toggle (preference persists across sessions) ───────────
+        let speakReplies = localStorage.getItem('dash-speak-replies') === '1';
+        function renderSpeakBtn() {
+          if (!Speech.supported) {
+            speakBtn.disabled = true;
+            speakBtn.textContent = '🔇 TTS N/A';
+            speakBtn.title = 'This browser has no SpeechSynthesis support';
+            return;
+          }
+          speakBtn.classList.toggle('on', speakReplies);
+          speakBtn.textContent = speakReplies ? '🔊 Speaking On' : '🔈 Speak Replies';
+        }
+        speakBtn.addEventListener('click', () => {
+          speakReplies = !speakReplies;
+          localStorage.setItem('dash-speak-replies', speakReplies ? '1' : '0');
+          if (!speakReplies) Speech.cancel();   // silence anything mid-sentence
+          renderSpeakBtn();
+        });
+        renderSpeakBtn();
 
         // Deliver text to the agent through the existing /api/test path.
         async function sendText(text) {
@@ -949,6 +790,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             setConsole(replies.length
               ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
               : '<div class="msi-entry dim">(no reply content)</div>');
+            // Read the agent's spoken reply aloud (prefer assistant_message text).
+            if (speakReplies && replies.length) {
+              const spoken = replies
+                .filter(x => /assistant|send_message/i.test(x.type || '') || !x.type)
+                .map(x => x.text).join('. ') || replies.map(x => x.text).join('. ');
+              Speech.speak(spoken);
+            }
           } catch (e) {
             setConsole('<div class="msi-line err">! ' + esc(e.message) + '</div>');
           }
@@ -1083,7 +931,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         if (!tab) return;
         tab.classList.remove('server-up', 'server-down', 'server-starting');
         if (!this.health) return;
-        if (this.health.any_down) {
+        const anyStarting = this.health.servers.some(s => s.status === 'starting');
+        if (anyStarting) {
+          tab.classList.add('server-starting');
+        } else if (this.health.any_down) {
           tab.classList.add('server-down');
         } else {
           tab.classList.add('server-up');
@@ -1099,9 +950,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         navServers.querySelectorAll('[data-server-key]').forEach(tab => {
           const status = healthMap[tab.dataset.serverKey] || 'unknown';
           tab.classList.remove('server-up', 'server-down', 'server-starting');
-          if (status === 'up') tab.classList.add('server-up');
-          else if (status === 'down') tab.classList.add('server-down');
-          else if (status === 'starting') tab.classList.add('server-starting');
+          if (status === 'up') {
+            tab.classList.add('server-up');
+          } else if (status === 'starting') {
+            tab.classList.add('server-starting');
+          } else if (status === 'down') {
+            tab.classList.add('server-down');
+          }
         });
       },
 
@@ -1155,10 +1010,12 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         document.getElementById('servers-detail-title').textContent = name;
         const body = document.getElementById('servers-detail-body');
         const meta = (this.servers || []).find(s => s.key === key) || {};
+        const startLabels = { executor: 'Start Executor Server', 'logger-api': 'Start Logger API', 'frita-executor': 'Start Frita Executor' };
         body.innerHTML =
           (meta.note ? '<p class="srv-note">' + esc(meta.note) + '</p>' : '')
           + '<div class="srv-status" id="srv-status"><span class="srv-led"></span><span id="srv-status-text">checking…</span></div>'
           + '<input class="srv-filter" id="srv-filter" placeholder="Filter log lines (e.g. error)…" />'
+          + (startLabels[key] ? '<button class="srv-start-btn" id="srv-start-btn">' + startLabels[key] + '</button>' : '')
           + '<div class="msi-console" id="srv-console"><span class="msi-inner"></span><span class="msi-cursor">&#9608;</span></div>';
         safeActivateView('servers-detail');
 
@@ -1167,7 +1024,31 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         const statusEl = body.querySelector('#srv-status');
         const statusText = body.querySelector('#srv-status-text');
         const filterEl = body.querySelector('#srv-filter');
+        const startBtn = body.querySelector('#srv-start-btn');
+
         filterEl.addEventListener('input', () => { applyFilter(); });
+
+        if (startBtn) {
+          startBtn.addEventListener('click', async () => {
+            startBtn.disabled = true;
+            statusEl.className = 'srv-status starting';
+            statusText.textContent = 'STARTING... — launching ' + name.toLowerCase();
+            try {
+              const res = await this.fetchJSON('/api/server-action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ server: key, action: 'start' })
+              });
+              inner.insertAdjacentHTML('beforeend',
+                '<div class="msi-entry"><span class="hdr">start action</span> ' + esc(res.text || 'OK') + '</div>');
+              box.scrollTop = box.scrollHeight;
+            } catch (e) {
+              statusText.textContent = 'START FAILED — ' + esc(e.message);
+              statusEl.className = 'srv-status down';
+              startBtn.disabled = false;
+            }
+          });
+        }
 
         const seen = new Set();
         let first = true;
@@ -1185,11 +1066,28 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           catch (e) {
             statusEl.className = 'srv-status down';
             statusText.textContent = e.message;
+            if (startBtn) startBtn.disabled = false;
             return;
           }
           if (data.status) {
-            statusEl.className = 'srv-status ' + (data.status.ok ? 'up' : 'down');
-            statusText.textContent = (data.status.ok ? 'UP — ' : 'DOWN — ') + (data.status.text || '');
+            let statusClass = 'srv-status';
+            let statusLabel = '';
+            const statusText_raw = data.status.text || '';
+            if (data.status.ok) {
+              statusClass += ' up';
+              statusLabel = 'UP — ';
+              if (startBtn) startBtn.disabled = true;
+            } else if (statusText_raw.includes('STARTING')) {
+              statusClass += ' starting';
+              statusLabel = '';
+              if (startBtn) startBtn.disabled = true;
+            } else {
+              statusClass += ' down';
+              statusLabel = 'DOWN — ';
+              if (startBtn) startBtn.disabled = false;
+            }
+            statusEl.className = statusClass;
+            statusText.textContent = statusLabel + statusText_raw;
           } else {
             statusEl.className = 'srv-status';
             statusText.textContent = 'no health check';
