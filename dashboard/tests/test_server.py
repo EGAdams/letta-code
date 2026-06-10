@@ -154,3 +154,62 @@ def test_server_log_rows_reports_starting_status(tmp_path):
     assert out['status']['ok'] is False
     assert 'STARTING' in out['status']['text']
     _clear_starting()
+
+
+# ── Logger API "Start" self-healing (2026-06-10) ───────────────────────────────
+#
+# docker-compose v1.29.2 throws `KeyError: 'ContainerConfig'` when it tries to
+# "recreate" a logger-api container stuck in the `Created` state (e.g. an
+# earlier `docker-compose up` was interrupted, or the image was rebuilt with
+# BuildKit). When that happened, clicking "Start Logger API" re-ran
+# `docker-compose up -d` and hit the exact same error every time — the button
+# could never recover the service on its own; it had to be fixed by hand over
+# SSH (`docker rm` the stuck containers, then `docker-compose up -d`).
+#
+# These tests assert the Start command removes any logger-api containers
+# stuck in `Created` state BEFORE running docker-compose, so the button is
+# self-healing — see dashboard_logger_api_containerconfig_2026_06_10 memory.
+
+def test_build_logger_api_start_command_removes_stuck_containers_first():
+    cmd = server.build_logger_api_start_command()
+
+    assert cmd[:5] == ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes']
+    assert cmd[5] == server.LETTA_DOCKER_HOST
+    assert cmd[6:8] == ['bash', '-c']
+
+    remote_script = cmd[8]
+    # Must remove containers stuck in `Created` state (the docker-compose
+    # v1.29.2 `KeyError: 'ContainerConfig'` failure mode) before running
+    # docker-compose, or `docker-compose up -d` hits the same recreate error.
+    assert 'status=created' in remote_script
+    assert 'docker rm' in remote_script
+    assert 'logger-api' in remote_script
+    # Still launches the real start script.
+    assert server.LOGGER_API_START_SCRIPT in remote_script
+    # Cleanup must happen BEFORE the start script runs.
+    assert remote_script.index('docker rm') < remote_script.index(server.LOGGER_API_START_SCRIPT)
+
+
+def test_start_logger_api_uses_self_healing_command(monkeypatch, tmp_path):
+    _clear_starting()
+    log_path = tmp_path / 'logger_api_startup.log'
+    monkeypatch.setattr(server, 'LOGGER_API_STARTUP_LOG', str(log_path))
+
+    captured = {}
+
+    def fake_popen(cmd, **kwargs):
+        captured['cmd'] = cmd
+
+        class FakeProc:
+            pass
+
+        return FakeProc()
+
+    monkeypatch.setattr(server.subprocess, 'Popen', fake_popen)
+
+    result = server.start_logger_api()
+
+    assert result['ok'] is True
+    assert captured['cmd'] == server.build_logger_api_start_command()
+    assert server.is_server_starting('logger-api')
+    _clear_starting()

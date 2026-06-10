@@ -25,6 +25,26 @@ REPO_ROOT = os.path.dirname(HERE)
 ROL_FINANCES_PLAN_PATH = '/rol_finances/tools/plan.html'
 ROL_FINANCES_PLAN_FILE = os.path.expanduser('~/rol_finances/tools/plan.html')
 
+# ROL Finance "Reports" sub-tab: one tab per source-document directory, each
+# containing a generated report.html. Lives outside the repo, so reports are
+# served under ROL_FINANCES_REPORTS_URL_PREFIX (path-traversal checked below).
+# `check_images/` is intentionally excluded — still waiting on those files.
+ROL_FINANCES_REPORTS_BASE = os.path.expanduser(
+    '~/rol_finances/readable_documents/bank_statements/january')
+ROL_FINANCES_REPORTS_URL_PREFIX = '/rol_finances_reports'
+ROL_FINANCE_REPORTS = [
+    {'key': 'amex-61006',        'label': 'Amex 61006',         'dir': 'amex_personal_january_25'},
+    {'key': 'fnbo-4851',         'label': 'FNBO 4851',          'dir': 'january_fnbo_2025_account_4851'},
+    {'key': 'amex-personal-year','label': 'Amex Personal Year', 'dir': 'amex_personal_whole_2025'},
+    {'key': 'bank-5938-pdf1',    'label': 'Bank 5938 PDF 1',    'dir': 'december_january_personal_bank_statement'},
+    {'key': 'bank-6285-pdf1',    'label': 'Bank 6285 PDF 1',    'dir': 'non_profit_rol_Statement_december_january_6285'},
+    {'key': 'bank-6285-pdf2',    'label': 'Bank 6285 PDF 2',    'dir': 'business_january_february_6285'},
+    {'key': 'jetblue-pdf1',      'label': 'Jet Blue PDF 1',     'dir': 'jet_blue__december_january_12_26_25_to_01_23_25'},
+    {'key': 'jetblue-pdf2',      'label': 'Jet Blue PDF 2',     'dir': 'jet_blue_january_february_01_27_to_02_25_25'},
+    {'key': 'platinum-year',     'label': 'Platinum Year',      'dir': 'platinum_business_credit_card_for_the_year'},
+    {'key': 'diners-club-0587',  'label': 'Diners Club 0587',   'dir': 'diners_club__january_25_statements-MONTHLY-0587'},
+]
+
 # Letta API base URL — override with LETTA_BASE_URL env var
 LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rstrip('/')
 
@@ -273,6 +293,31 @@ def start_frita_executor():
         return {'ok': False, 'text': str(e)}
 
 
+# docker-compose v1.29.2 (required on this box — see [[reference_logger_api_ops]])
+# throws `KeyError: 'ContainerConfig'` when it tries to "recreate" a container
+# stuck in the `Created` state (e.g. an interrupted `docker-compose up`, or an
+# image rebuilt with BuildKit). When that happens, every subsequent
+# `docker-compose up -d` fails the same way forever — the containers must be
+# `docker rm`'d first so compose creates fresh ones instead of recreating.
+# See [[dashboard_logger_api_containerconfig_2026_06_10]].
+LOGGER_API_STUCK_CONTAINER_CLEANUP = (
+    "docker ps -a --filter 'status=created' --format '{{.ID}} {{.Names}}' "
+    "| awk '$2 ~ /logger-api/ {print $1}' "
+    "| xargs -r docker rm"
+)
+
+
+def build_logger_api_start_command():
+    """Build the SSH command for the Logger API "Start" button.
+
+    Removes any logger-api containers stuck in `Created` state before
+    running `start_logger_api.sh`, so the button is self-healing against the
+    `KeyError: 'ContainerConfig'` failure mode instead of repeating it."""
+    remote_script = f'{LOGGER_API_STUCK_CONTAINER_CLEANUP}; bash {LOGGER_API_START_SCRIPT}'
+    return ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes', LETTA_DOCKER_HOST,
+            'bash', '-c', remote_script]
+
+
 def start_logger_api():
     """Launch the Logger API's mysql + php-api Docker containers over SSH.
 
@@ -287,8 +332,7 @@ def start_logger_api():
             logf.write(f'\n--- launch requested {datetime.now().isoformat(timespec="seconds")} ---\n')
             logf.flush()
             subprocess.Popen(
-                ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes', LETTA_DOCKER_HOST,
-                 'bash', LOGGER_API_START_SCRIPT],
+                build_logger_api_start_command(),
                 stdout=logf, stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
@@ -867,6 +911,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response(letta_toolcalls(lid))
             return self.json_response([])
 
+        if path == '/api/rol-finance-reports':
+            result = []
+            for r in ROL_FINANCE_REPORTS:
+                report_file = os.path.join(ROL_FINANCES_REPORTS_BASE, r['dir'], 'report.html')
+                exists = os.path.isfile(report_file)
+                result.append({
+                    'key': r['key'],
+                    'label': r['label'],
+                    'exists': exists,
+                    'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{r["dir"]}/report.html' if exists else None,
+                })
+            return self.json_response(result)
+
         if path == '/api/servers':
             return self.json_response([
                 {'key': s['key'], 'name': s['name'], 'note': s.get('note', '')}
@@ -927,6 +984,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == ROL_FINANCES_PLAN_PATH:
             return self.serve_file(ROL_FINANCES_PLAN_FILE, 'text/html')
+
+        if path.startswith(ROL_FINANCES_REPORTS_URL_PREFIX + '/'):
+            rel = path[len(ROL_FINANCES_REPORTS_URL_PREFIX) + 1:]
+            fp = os.path.abspath(os.path.join(ROL_FINANCES_REPORTS_BASE, rel))
+            base = os.path.abspath(ROL_FINANCES_REPORTS_BASE)
+            if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
+                return self.serve_file(fp, 'text/html')
+            self.send_error(404)
+            return
 
         if path.startswith('/'):
             rel = path.lstrip('/')

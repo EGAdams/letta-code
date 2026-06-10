@@ -234,6 +234,10 @@
     .tab.server-starting { background: #f9a825; color: #000; font-weight: 700; }
     .tab.server-starting:hover, .tab.server-starting:focus-visible { background: #f57f17; color: #000; }
 
+    /* Report tab whose report.html is missing on disk */
+    .tab.report-missing { background: #e53935; color: #fff; font-weight: 700; }
+    .tab.report-missing:hover, .tab.report-missing:focus-visible { background: #c62828; }
+
     .srv-status { display: flex; align-items: center; gap: 9px; margin: 4px 0 12px;
       padding: 9px 12px; border-radius: 6px; font-size: 0.9rem; background: #f0f0f0; }
     .srv-led { width: 13px; height: 13px; border-radius: 50%; flex: 0 0 auto; background: #999; animation: none; }

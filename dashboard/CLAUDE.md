@@ -200,6 +200,14 @@ can't be autostarted from here. Logger API is health-checked only; Letta Server 
 log-pulled over SSH (see the `_letta_remote_log_pull_loop` note above) since the box is
 reachable via passwordless key-based SSH + sudo.
 
+**Logger API "Start" button is self-healing**: `start_logger_api()` runs
+`build_logger_api_start_command()`, which `docker rm`s any `logger-api*` container stuck in
+`Created` state on the Win10 box *before* running `~/server_tools/start_logger_api.sh`
+(`docker-compose up -d` + Apache rewrite reinject). This works around a docker-compose v1.29.2
+bug (`KeyError: 'ContainerConfig'`) that otherwise makes `docker-compose up` fail forever once a
+container gets stuck in `Created` — see `dashboard_logger_api_containerconfig_2026_06_10` memory
+and `tests/test_server.py -k logger_api`.
+
 **"Executor Server" is NOT remote** — despite an old `SERVERS` note claiming "remote Docker on
 win10", it actually runs **locally on this same machine** (DESKTOP-2OBSQMC), started by the
 `start_executor_server` alias in `~/.bashrc` → `~/server_tools/start_executor_server.sh`
