@@ -129,6 +129,46 @@ class PeerToolRuleClassifier(IFailureClassifier):        # F6
         return None
 
 
+class ResponseLostClassifier(IFailureClassifier):       # F7
+    """The tool likely RAN, but its tool_return was lost in transit (SSE/relay drop).
+
+    Verbatim Telegram fingerprint:
+        "the response was lost during a tool workflow. Please try again."
+
+    Critically distinct from F5 (END_TURN_NO_RETURN): there the server never
+    produced a tool_return; here it did, but the stream/relay dropped it. Blind
+    re-execution risks DOUBLE side-effects, so the correct response is RESYNC —
+    re-fetch the already-produced result — not a verbatim re-run.
+    """
+
+    name = "response_lost"
+
+    _SIGNATURES = (
+        "response was lost",
+        "response lost",
+        "lost during a tool workflow",
+        "lost the response",
+        "tool_return lost",
+        "lost tool_return",
+        "result was dropped",
+    )
+
+    def classify(self, failure: ExecutorFailure) -> Optional[FailureClassification]:
+        detail = failure.detail.lower()
+        if any(sig in detail for sig in self._SIGNATURES):
+            return _classification(
+                FailureKind.TOOL_RESPONSE_LOST,
+                retryable=True,
+                action=RecoveryAction.RESYNC,
+                evidence=(
+                    "tool likely executed but its tool_return was lost in transit — "
+                    f"re-sync the result instead of re-running: {failure.detail}"
+                ),
+                name=self.name,
+            )
+        return None
+
+
 class FailureClassifierChain(IFailureClassifierChain):
     """Runs each link in order; falls back to FailureKind.UNKNOWN (-> ABORT)."""
 
@@ -155,7 +195,7 @@ class FailureClassifierChain(IFailureClassifierChain):
 
 
 def build_default_chain() -> FailureClassifierChain:
-    """Assemble the canonical F1..F6 chain."""
+    """Assemble the canonical F1..F7 chain."""
     return FailureClassifierChain(
         [
             AllowlistClassifier(),
@@ -164,5 +204,6 @@ def build_default_chain() -> FailureClassifierChain:
             ExecutorDownClassifier(),
             EndTurnNoReturnClassifier(),
             PeerToolRuleClassifier(),
+            ResponseLostClassifier(),
         ]
     )

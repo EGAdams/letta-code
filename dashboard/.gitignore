@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Runtime voice diagnostics (raw vs. cleaned transcripts) — not source.
+voice_transcripts.json

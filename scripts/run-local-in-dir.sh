@@ -49,7 +49,7 @@ extract_host_port() {
 }
 
 read -r server_host server_port < <(extract_host_port "${LETTA_BASE_URL}")
-if ! nc -z -w 2 "${server_host}" "${server_port}" >/dev/null 2>&1; then
+if ! nc -z -w 5 "${server_host}" "${server_port}" >/dev/null 2>&1; then
   echo "[run-local-in-dir] letta-bridge unreachable at ${server_host}:${server_port} — attempting auto-start..." >&2
   COMPOSE_FILE="/home/adamsl/letta-src/docker-compose.prod.yml"
   if [[ -f "${COMPOSE_FILE}" ]]; then
@@ -58,14 +58,14 @@ if ! nc -z -w 2 "${server_host}" "${server_port}" >/dev/null 2>&1; then
     docker compose -f "${COMPOSE_FILE}" up -d letta-bridge >&2
     echo "[run-local-in-dir] Waiting for letta-bridge to become ready..." >&2
     for i in $(seq 1 15); do
-      if nc -z -w 1 "${server_host}" "${server_port}" >/dev/null 2>&1; then
+      if nc -z -w 3 "${server_host}" "${server_port}" >/dev/null 2>&1; then
         echo "[run-local-in-dir] letta-bridge is up." >&2
         break
       fi
       sleep 1
     done
   fi
-  if ! nc -z -w 2 "${server_host}" "${server_port}" >/dev/null 2>&1; then
+  if ! nc -z -w 5 "${server_host}" "${server_port}" >/dev/null 2>&1; then
     echo "Error: Letta server is unreachable: ${LETTA_BASE_URL}" >&2
     echo "Network preflight failed for ${server_host}:${server_port}." >&2
     echo "Refusing to start CLI to avoid auth/setup reset loops." >&2

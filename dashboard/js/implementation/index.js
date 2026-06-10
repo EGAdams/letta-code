@@ -1,0 +1,29 @@
+/**
+ * implementation/ barrel — concrete subclasses that bind each abstract
+ * interface in ../abstract/ to a real browser API. Import these from
+ * dashboard.html (or a bundler entry) to replace the inline AM/SM logic.
+ */
+
+export { ActivePoller } from "./active-poller.js";
+export { AgentStreamController } from "./agent-stream-controller.js";
+export { BrowserSpeechSynthesizer } from "./browser-speech-synthesizer.js";
+export {
+  ChatDetailRenderer,
+  composeSpokenText,
+  renderReplyRows,
+  StreamDetailRenderer,
+} from "./detail-renderers.js";
+export { DomConsoleView } from "./dom-console-view.js";
+export { DomNavigationController } from "./dom-navigation-controller.js";
+export { DomTabFactory } from "./dom-tab-factory.js";
+export { FetchHttpClient } from "./fetch-http-client.js";
+export { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
+export {
+  buildServerActionRequest,
+  ServerActionController,
+} from "./server-action-controller.js";
+export { ServerHealthMonitor } from "./server-health-monitor.js";
+export {
+  classifyServerStatus,
+  ServerLogController,
+} from "./server-log-controller.js";

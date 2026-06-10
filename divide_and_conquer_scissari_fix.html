@@ -94,7 +94,22 @@ different reasons (documented across the <code>debugging-executor-run</code> ski
 <tr><td>F5</td><td><code>end_turn</code> w/o <code>tool_return</code></td><td>Letta 0.16.3 streams tool_call then ends turn</td><td><span class="good">Client-side fallback exec</span> (already exists in <code>multi-agent-tool-fallback.ts</code>)</td></tr>
 <tr><td>F6</td><td><code>max_steps</code> from a peer agent</td><td>Peer is <code>letta_v1_agent</code> with <code>required_before_exit: send_message</code> rule it can never satisfy</td><td><span class="good">Detect &amp; abort</span> via <code>findHangingToolRules()</code>; never retry</td></tr>
 <tr><td>F7 <span class="bad">NEW</span></td><td><code>Stream inactivity 300000ms</code> → <code>Transport not connected (pid=undefined)</code></td><td>Tool call (often <code>executor_run</code>) runs longer than the bot&rsquo;s 5-min stream-inactivity timer, so lettabot force-closes the SDK session; the next heartbeat writes to a dead subprocess</td><td><span class="good">Per-tool-call deadline</span> distinct from stream-idle; <span class="good">tool-call keepalive</span>; <span class="good">re-spawn the subprocess</span> on <code>pid===undefined</code> before send — never just &ldquo;invalidate session&rdquo;</td></tr>
+<tr><td>F7</td><td><code>response was lost during a tool workflow</code></td><td>Tool DID run; its <code>tool_return</code> was lost in transit (SSE / lettabot relay drop) — distinct from F5</td><td><span class="good">Re-sync</span> the already-produced result once (<code>RESYNC</code>); do <em>not</em> blind-retry (double side-effect risk); then trip</td></tr>
 </table>
+
+<div class="panel">
+<p class="lead"><strong class="warn">Update 2026-06-06 — new symptom, new division (F7):</strong></p>
+<pre><code>I ran into an issue completing that request — the response was lost
+during a tool workflow. Please try again.</code></pre>
+<p>This is a <em>different</em> failure than the &ldquo;14-call cap&rdquo; reset above, and it is <strong>not</strong> F5.
+In F5 the server never produces a <code>tool_return</code>; in <strong>F7</strong> it does, but the stream/relay
+drops it on the way back. Blind-retrying a side-effecting command after a lost response can
+<strong>double the side-effect</strong>, so F7 gets its own recovery action — <code>RESYNC</code> — which re-fetches the
+already-produced result (idempotent poll) at most once, then trips with a concrete reason.</p>
+<p class="meta">Implemented as a one-classifier + one-strategy + one-budget addition (<code>ResponseLostClassifier</code>,
+<code>ResyncStrategy</code>, guard budget <code>tool_response_lost: 2</code>) — proof the split is extendable.
+Tests: <code>tests/test_response_lost.py</code> (+ F7 fixture in <code>tests/test_classifier.py</code>). Suite: <strong class="good">21 passed</strong>.</p>
+</div>
 
 <p>Notice that <strong>not one</strong> of the six correct responses is &ldquo;retry the same call again.&rdquo;
 Yet that is the <em>only</em> thing the loop does. The cap of 14 is just how long it takes to give up.</p>

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice Input — Dashboard Plan</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#161b22; --panel2:#1c2330; --ink:#e6edf3;
+    --muted:#9aa7b4; --accent:#4ea1ff; --accent2:#7ee787; --warn:#ffd33d;
+    --bad:#ff7b72; --line:#2b3340; --code:#0b0f14;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 24px 120px}
+  h1{font-size:30px;line-height:1.2;margin:0 0 6px}
+  h2{font-size:23px;margin:48px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:18px;margin:28px 0 8px;color:var(--accent)}
+  .sub{color:var(--muted);margin:0 0 8px}
+  p{margin:10px 0}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;
+    font:13.5px/1.5 "SF Mono",ui-monospace,"Cascadia Code",Consolas,monospace;color:#d2e3ff}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;
+    padding:18px 20px;overflow:auto;margin:14px 0}
+  pre code{background:none;padding:0;color:#cdd9e5}
+  .tag{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.3px;
+    padding:2px 9px;border-radius:999px;margin:0 6px 6px 0;border:1px solid var(--line)}
+  .gof{background:rgba(78,161,255,.12);color:var(--accent);border-color:rgba(78,161,255,.35)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:18px 22px;margin:16px 0}
+  .bad{color:var(--bad)} .good{color:var(--accent2)} .warn{color:var(--warn)}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--ink)}
+  td code{font-size:12.5px}
+  .lead{font-size:17px;color:var(--ink)}
+  .flow{font:13px/1.55 "SF Mono",ui-monospace,Consolas,monospace;white-space:pre;
+    background:var(--code);border:1px solid var(--line);border-radius:10px;padding:18px;overflow:auto;color:#cdd9e5}
+  .pill{font-size:12px;color:var(--muted)}
+  .kbd{border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font-size:12px;background:var(--panel2)}
+  ol li,ul li{margin:6px 0}
+  .meta{color:var(--muted);font-size:13px;margin-top:4px}
+  .hl{color:var(--accent2)}
+  a{color:var(--accent)}
+  .q{background:rgba(255,211,61,.08);border:1px solid rgba(255,211,61,.35);border-radius:12px;
+    padding:16px 20px;margin:16px 0}
+  .q h3{color:var(--warn);margin-top:0}
+  .filehdr{color:var(--muted);font-size:12px;border-bottom:1px solid var(--line);
+    margin:-4px 0 10px;padding-bottom:6px;text-transform:uppercase;letter-spacing:.6px}
+  .ok{color:var(--accent2)} .num{color:var(--accent);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Voice Input for the Agent Dashboard</h1>
+<p class="sub">A TDD + GoF-pattern plan to add browser push-to-talk voice capture to each agent's <strong>Input Options</strong> panel — reusing lettabot's already-working local whisper.cpp pipeline.</p>
+<p class="meta">Source spec: <code>dashboard/audio_input/audio_input.md</code> &nbsp;·&nbsp; Target page: Agent detail &rarr; <em>Input Options</em> tab &nbsp;·&nbsp; Date: 2026-06-06</p>
+
+<p>
+  <span class="tag gof">Strategy</span>
+  <span class="tag gof">Adapter</span>
+  <span class="tag gof">Factory</span>
+  <span class="tag gof">Pipeline</span>
+  <span class="tag gof">State (front-end)</span>
+</p>
+
+<div class="panel" style="border-color:rgba(126,231,135,.45);background:rgba(126,231,135,.07)">
+<p class="lead"><strong class="good">Build status — 2026-06-06: shipped, working end-to-end on Android</strong></p>
+<p class="meta">The full loop — phone mic &rarr; HTTPS upload &rarr; local whisper.cpp &rarr; cleanup agent &rarr; deliver to the chosen agent — <strong class="good">works from the phone today</strong>. One known accuracy issue remains (associate-name mixup, see below). Committed to git so the team is in sync.</p>
+<ul>
+<li><span class="ok">✓</span> <code>dashboard/voice/</code> package (Strategy / Adapter / Factory / Pipeline) — <strong>21 pytest tests green</strong> (<code>so</code> venv → <code>python -m pytest dashboard/tests/</code>).</li>
+<li><span class="ok">✓</span> Real whisper.cpp proven on this host (JFK sample transcribed in ~5s).</li>
+<li><span class="ok">✓</span> <code>transcript-cleanup-agent</code> live on <code>gemini-2.5-flash-lite</code>; whisper is also primed with the agent-name list so mishears are reduced before cleanup.</li>
+<li><span class="ok">✓</span> <code>server.py</code>: <code>ThreadingHTTPServer</code> + <code>POST /api/voice</code> live on :8765; raw+cleaned transcripts logged to <code>voice_transcripts.json</code> for diagnosing mishears.</li>
+<li><span class="ok">✓</span> UI: <em>Input Options</em> tab, "Meeting with {name}", green/red Start/Stop, blinking LED + cycling "Recording…", Auto&nbsp;Send/Review toggle (Auto default).</li>
+<li><span class="ok">✓</span> <strong>Android verified:</strong> Tailscale Serve HTTPS (Let's Encrypt) gives a secure context, so the phone mic is allowed and the end-to-end flow works from <code>samsung-sm-s156v</code>.</li>
+<li><span class="ok">✓</span> <strong>Associate/agent name mixup — fix applied at both stages</strong> (a teammate's Claude agent recently strengthened this; treat as <em>likely resolved, pending a final spoken-name spot check</em>):
+  <ul>
+  <li>Transcription stage — whisper is now primed with <code>--prompt "Agent names: Scissari, Frita, Hailey, Cesare, Jeri, Mazda."</code> so a name is heard correctly in the first place (e.g. "Mazda" no longer becomes "Melissa"). See <code>voice/config.py</code> &amp; <code>voice/transcription.py</code>.</li>
+  <li>Cleanup stage — the <code>transcript-cleanup-agent</code> is instructed to "correct agent names to the closest known agent," with the same name list (<code>voice/cleanup.py</code>).</li>
+  </ul>
+  <span class="warn">▷</span> If any mishear remains, <code>voice_transcripts.json</code> logs raw-vs-cleaned for diagnosis; next lever would be a deterministic fuzzy name-match as a final pass.</li>
+</ul>
+</div>
+
+<div class="panel">
+<p class="lead"><strong>One-line summary:</strong> Press <span class="kbd">Start</span> &rarr; record in the browser &rarr; on <span class="kbd">Stop</span>, upload the audio to the dashboard server &rarr; transcribe locally with <strong>whisper.cpp</strong> &rarr; clean the transcript with a small, fast <strong>Letta agent</strong> (so <code>Friday</code> becomes <code>Frita</code>) &rarr; drop the cleaned text into the message box and send it to the chosen agent.</p>
+</div>
+
+<h2>1. What already exists (so we don't reinvent it)</h2>
+<table>
+<tr><th>Piece</th><th>Where it lives</th><th>Status</th></tr>
+<tr><td>Browser record / stop UI (<code>MediaRecorder</code>, webm upload)</td><td><code>planner/new_voice_menu_app/templates/index.html</code></td><td class="ok">Working — we copy the interaction model</td></tr>
+<tr><td>Local whisper.cpp transcription recipe</td><td><code>lettabot/src/transcription/whispercpp.ts</code></td><td class="ok">Working in lettabot today — we port the recipe to Python</td></tr>
+<tr><td><code>whisper-cli</code> binary</td><td><code>~/whisper.cpp/build/bin/whisper-cli</code></td><td class="ok">Present</td></tr>
+<tr><td>Model</td><td><code>~/whisper.cpp/models/ggml-base.en.bin</code> (148&nbsp;MB)</td><td class="ok">Present</td></tr>
+<tr><td>ffmpeg (audio &rarr; 16k mono wav)</td><td><code>lettabot/.venv_ffmpeg/.../imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2</code></td><td class="ok">Present (no system ffmpeg)</td></tr>
+<tr><td>Dashboard server + agent send (<code>/api/test</code>)</td><td><code>dashboard/server.py</code></td><td class="ok">Working — we reuse it for delivery</td></tr>
+<tr><td>Known agent names (for name correction)</td><td><code>LETTA_AGENTS</code> in <code>server.py</code></td><td class="ok"><code>Scissari, Frita, Hailey, Cesare, Jeri, Mazda</code></td></tr>
+</table>
+
+<h2>2. The pipeline</h2>
+<div class="flow">browser                          dashboard server (server.py)                 Letta API
+───────                          ────────────────────────────                 ─────────
+[Start] ── getUserMedia ──┐
+   │   MediaRecorder       │
+[Stop] ── webm Blob ───────┼──▶  POST /api/voice  (raw body, X-Agent-Id)
+                           │        │
+                           │        ▼  VoicePipeline.process(bytes)
+                           │     ┌─ TranscriptionStrategy (WhisperCpp) ─┐
+                           │     │  ffmpeg → 16k mono wav               │
+                           │     │  whisper-cli -otxt -nt → transcript  │   raw: "Tell Friday about this."
+                           │     └──────────────────────────────────────┘
+                           │        │
+                           │        ▼  CleanupStrategy (LettaAgentCleanup) ──▶ POST /v1/agents/<cleanup>/messages
+                           │     cleaned: "Tell Frita about this."   ◀──────── (gemini-2.5-flash-lite)
+                           │        │
+                           ◀────────┴─ JSON { raw_transcript, cleaned_text }
+   fill #am-test-text with cleaned_text
+   auto-trigger existing [Send] ─────────▶ POST /api/test ─────────────────▶ main agent</div>
+
+<p>The cleanup step is deliberately a <em>separate</em>, cheaper model in front of the main agent. whisper hears <code>Friday</code>; the cleanup agent — primed with the list of real agent names — rewrites it to <code>Frita</code> before the main agent ever sees it.</p>
+
+<h2>3. Design — GoF patterns, used where they earn their place</h2>
+<table>
+<tr><th>Pattern</th><th>Applied to</th><th>Why</th></tr>
+<tr><td><span class="tag gof">Strategy</span></td><td><code>TranscriptionStrategy</code> &rarr; <code>WhisperCppTranscriber</code>; <code>CleanupStrategy</code> &rarr; <code>LettaAgentCleanup</code></td><td>Transcription engine and cleanup brain are both swappable (whisper.cpp today, OpenAI later; Letta agent today, anything later) without touching the pipeline.</td></tr>
+<tr><td><span class="tag gof">Adapter</span></td><td><code>LettaClient</code> wrapping the HTTP calls</td><td>Cleanup and main-send share one thin client; tests inject a fake instead of hitting the network.</td></tr>
+<tr><td><span class="tag gof">Factory</span></td><td><code>build_transcriber()</code> / <code>build_cleanup()</code> reading <code>config</code></td><td><code>server.py</code> stays declarative; tests substitute fakes by config.</td></tr>
+<tr><td><span class="tag gof">Pipeline</span></td><td><code>VoicePipeline.process(bytes) → {raw, cleaned}</code></td><td>Composes transcribe &rarr; cleanup; <strong class="good">falls back to the raw transcript if cleanup fails</strong> so a cleanup hiccup never blocks you.</td></tr>
+<tr><td><span class="tag gof">State</span> (front-end)</td><td>Tiny idle &harr; recording &harr; processing machine for the button</td><td>One source of truth for button colour/label, the LED indicator, and the cycling "Recording…" text.</td></tr>
+</table>
+
+<h2>4. File layout</h2>
+<pre><code>dashboard/
+  voice/
+    __init__.py
+    config.py          # paths + cleanup-agent id from env, with the lettabot defaults baked in
+    letta_client.py    # Adapter — GET/POST helpers around the Letta API
+    transcription.py   # TranscriptionStrategy, WhisperCppTranscriber, build_transcriber()
+    cleanup.py         # CleanupStrategy, LettaAgentCleanup, build_cleanup()
+    pipeline.py        # VoicePipeline.process(audio_bytes, filename) -> {raw, cleaned}
+  tests/
+    conftest.py
+    test_transcription.py   # ffmpeg/whisper args + .txt read; missing-binary/model errors (subprocess mocked)
+    test_cleanup.py         # posts to cleanup agent; Friday→Frita via fake client; raw-fallback on failure
+    test_pipeline.py        # composition with injected fakes; cleanup-failure → raw fallback
+    test_endpoints.py       # POST /api/voice returns correct JSON with a fake pipeline
+  requirements-dev.txt      # pytest
+  server.py            # + POST /api/voice ; + ThreadingHTTPServer (see Q2)
+  dashboard.html       # rename tab → "Input Options"; add Start/Stop button + recording indicator
+</code></pre>
+
+<h2>5. Whisper recipe (ported verbatim from lettabot)</h2>
+<pre><code># 1. browser blob (audio/webm;codecs=opus) written to a temp file
+ffmpeg -y -i source.webm -ar 16000 -ac 1 -c:a pcm_s16le input.wav
+# 2. transcribe
+whisper-cli -m ggml-base.en.bin -f input.wav -l auto -of transcript -otxt -nt
+# 3. read transcript.txt → strip → done</code></pre>
+<p class="meta">Defaults resolved from env with lettabot's exact paths as fallback: <code>WHISPER_CPP_BIN</code>, <code>WHISPER_MODEL_PATH</code>, <code>FFMPEG_BIN</code>.</p>
+
+<h2>6. UI changes (<code>dashboard.html</code>)</h2>
+<ul>
+<li>Rename the agent-detail tab <code>Chat Interface</code> &rarr; <strong>Input Options</strong>. Keep the existing chat text &amp; layout per the spec.</li>
+<li>Add a <strong>Start</strong> button beside the existing <strong>Send</strong>, styled like <code>.am-btn</code>: default <span style="color:#7ee787">green</span> background, <strong>black</strong> "Start" text.</li>
+<li>On click: text &rarr; <strong>Stop</strong>, background &rarr; <span class="bad">red</span>, text &rarr; white; start recording.</li>
+<li>On click again: stop recording, upload, show a <em>Processing…</em> state, then fill + send.</li>
+<li><strong>Recording indicator</strong> to the right: a white LED-style square containing a blinking red circle, with cycling text <code>Recording</code> / <code>Recording.</code> / <code>Recording..</code> / <code>Recording...</code></li>
+</ul>
+
+<h2>7. TDD order (pytest — failing tests first)</h2>
+<ol>
+<li><span class="num">test_transcription</span> — builds the correct ffmpeg + whisper-cli args, reads the <code>.txt</code>; error paths for missing binary/model (subprocess mocked, no real audio needed).</li>
+<li><span class="num">test_cleanup</span> — posts to the cleanup agent, parses the reply; <code>Friday → Frita</code> via a fake Letta client; raw-fallback when cleanup errors.</li>
+<li><span class="num">test_pipeline</span> — composes transcribe &rarr; cleanup with injected fakes; cleanup failure yields the raw transcript.</li>
+<li><span class="num">test_endpoints</span> — <code>POST /api/voice</code> returns the right JSON shape with a fake pipeline (no whisper, no network).</li>
+</ol>
+
+<h2>8. Open questions for the team</h2>
+
+<div class="panel" style="border-color:rgba(126,231,135,.45);background:rgba(126,231,135,.07)">
+<p class="lead"><strong class="good">Decisions locked — 2026-06-06</strong></p>
+<table>
+<tr><th>#</th><th>Decision</th></tr>
+<tr><td>Q1</td><td><strong class="good">Tailscale Serve</strong> — front the dashboard with a real HTTPS cert on the MagicDNS name (<code>https://desktop-2obsqmc-24.tailb8fc54.ts.net/</code>) via <code>tailscale serve --bg 8765</code>. The phone (<code>samsung-sm-s156v</code>) is already on the tailnet. Secure context &rArr; mic works, no cert warnings. <em>Self-signed HTTPS is the fallback</em> only if the tailnet's "HTTPS Certificates" feature can't be enabled. Raw <code>http://</code> over the tailnet IP does <span class="bad">not</span> work — still an insecure context.</td></tr>
+<tr><td>Q2</td><td>Switch <code>server.py</code> to <strong>ThreadingHTTPServer</strong> so transcription doesn't freeze the dashboard.</td></tr>
+<tr><td>Q3</td><td>Clear the <strong>cleanup agent's own message history</strong> on each call (Letta <code>messages/clear</code>, same as <code>/api/test</code>). Only its scratch conversation is cleared — nothing user-facing.</td></tr>
+<tr><td>Q4</td><td>Add a <strong>toggle</strong>: <code>Auto Send</code> &harr; <code>Review then Send</code>. Auto Send delivers the cleaned text to the agent immediately; Review then Send drops it in the box for a manual Send.</td></tr>
+<tr><td>Q5</td><td>Create <code>transcript-cleanup-agent</code> on <strong><code>gemini-2.5-flash-lite</code></strong> (confirmed).</td></tr>
+<tr><td>Q6</td><td>Stay on <strong><code>ggml-base.en</code></strong> (English) + cleanup for name fixes.</td></tr>
+<tr><td>Q7</td><td>Body text &rarr; <strong>"Meeting with {name}"</strong> (replaces the current "Chat with {name}:").</td></tr>
+</table>
+</div>
+
+<div class="q">
+<h3>Q1 — Microphone over the network on Android (highest risk)</h3>
+<p>The dashboard is served over <strong>plain HTTP</strong> on <code>0.0.0.0:8765</code>. A phone reaches it at <code>http://&lt;machine-ip&gt;:8765</code>. Browsers — including Android Chrome — <strong class="bad">block <code>getUserMedia()</code> (the mic) outside a secure context</strong> (<code>https://</code> or <code>localhost</code>). So voice will work on the host's own <code>localhost</code> but <em>silently fail on the phone</em> until we pick one of:</p>
+<ol>
+<li><strong>HTTPS with a self-signed cert</strong> on the dashboard (accept the warning once per device). Self-contained, no extra services.</li>
+<li><strong>A tunnel</strong> (cloudflared / ngrok) that gives a real <code>https://</code> URL. Easiest trust story, adds a dependency.</li>
+<li><strong>Per-device override:</strong> add the origin to <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> on each phone. Zero code, but manual per device.</li>
+</ol>
+<p><strong>Recommendation:</strong> option 1 (self-signed HTTPS) for the dashboard. <em>Which do you want?</em></p>
+</div>
+
+<div class="q">
+<h3>Q2 — Make the server threaded</h3>
+<p><code>server.py</code> runs a single-threaded <code>HTTPServer</code>. A whisper transcription takes a few seconds and would <strong>freeze the entire dashboard</strong> (the 3-second pollers stall) while it runs. Proposed fix: switch to <code>ThreadingHTTPServer</code> (a one-line change). Any objection to that touching shared <code>server.py</code>?</p>
+</div>
+
+<div class="q">
+<h3>Q3 — Keep the cleanup agent stateless</h3>
+<p>Letta agents accumulate history. If we reuse one cleanup agent, every transcript piles into its context (noisy, slowly more expensive). The existing <code>/api/test</code> already calls <code>messages/clear</code> before each send. Plan: <strong>clear the cleanup agent's history on each call</strong> so it behaves statelessly. OK?</p>
+</div>
+
+<div class="q">
+<h3>Q4 — Auto-send, or let me review first?</h3>
+<p>The spec says Stop &rarr; transcribe &rarr; cleanup &rarr; "pass it to the main Agent." Two flavours:</p>
+<ul>
+<li><strong>Auto-send</strong> (spec-literal): cleaned text is sent to the agent immediately.</li>
+<li><strong>Review-then-send</strong>: cleaned text lands in the message box; you eyeball it and press Send.</li>
+</ul>
+<p><strong>Recommendation:</strong> fill the box <em>and</em> auto-send, but show the cleaned text first so nothing is hidden. Good, or do you want a manual confirm?</p>
+</div>
+
+<div class="q">
+<h3>Q5 — Cleanup agent + model</h3>
+<p>Plan: create a dedicated <code>transcript-cleanup-agent</code> on <code>gemini-2.5-flash-lite</code> (cheapest/fastest live model), system prompt = "fix speech-to-text errors and agent names only, don't change meaning," with the known agent list baked in. Confirm the name &amp; model, or point me at a different one.</p>
+</div>
+
+<div class="q">
+<h3>Q6 — English-only model vs multilingual</h3>
+<p><code>ggml-base.en.bin</code> is English-only and fast. Agent names like <em>Cesare</em>, <em>Frita</em>, <em>Scissari</em> may be mis-heard — but that's exactly what the cleanup step fixes. Stay on <code>base.en</code> + cleanup, or download a multilingual model? <strong>Recommendation:</strong> stay on <code>base.en</code>.</p>
+</div>
+
+<div class="q">
+<h3>Q7 — Page body wording (minor)</h3>
+<p>The spec quotes the panel as saying <code>Send a test message to {Agent_Name}</code>, but the live page actually reads <code>Chat with {name}:</code>. Per "keep the existing text the same" I'll leave it as-is and only rename the tab. Say the word if you'd rather I switch the body text to the spec's wording.</p>
+</div>
+
+<h2>9. Status &amp; what's next</h2>
+<p>This started as a plan; it has <strong class="good">shipped</strong>. The pytest suite is green (21), the UI is wired, the cleanup agent exists, and the full loop <strong class="good">works end-to-end from an Android phone</strong> over the Tailscale HTTPS URL (Q1 resolved — secure context obtained). All Q-blocks below were the original open questions and are now answered; the <em>Decisions locked</em> table in §8 records the choices.</p>
+<p>The last accuracy item — the <strong>associate/agent name mixup</strong> — has a fix in place at both the transcription stage (whisper prompt-priming) and the cleanup stage (the cleanup agent's name-correction), and a teammate's Claude agent may have already resolved it; treat it as <strong class="good">likely fixed, pending a final spoken-name spot check</strong>. <code>voice_transcripts.json</code> records raw-vs-cleaned output for any lingering mishears; the remaining lever, if needed, is a deterministic fuzzy name-match as a final pass.</p>
+
+<p class="meta">— Q-blocks below are kept for history; see §8 for the locked decisions.</p>
+
+</div>
+</body>
+</html>
