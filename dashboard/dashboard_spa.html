@@ -115,6 +115,9 @@
       background: #444;
     }
 
+    .tab.agent-active { background: #a07800 !important; }
+    .tab.agent-error  { background: #c0392b !important; }
+
     .content {
       max-width: 1100px;
       margin: 20px auto 20px 220px;
@@ -253,6 +256,7 @@
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-messages">Messages</button>
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tool-calls">Tool Calls</button>
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tests">Tests</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-input-options">Input Options</button>
     </nav>
   </aside>
 
@@ -382,6 +386,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     <section id="agent-detail-messages" class="view"></section>
     <section id="agent-detail-tool-calls" class="view"></section>
     <section id="agent-detail-tests" class="view"></section>
+    <section id="agent-detail-input-options" class="view"></section>
 
     <section id="scissari" class="view">
       <iframe id="scissari-frame" src="/monitor_thoughts_plan.html"></iframe>
@@ -609,7 +614,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       'agent-detail-thoughts':   (am, id) => am.renderThoughts(id),
       'agent-detail-messages':   (am, id) => am.renderLog(id, '/api/messages', 'messages'),
       'agent-detail-tool-calls': (am, id) => am.renderLog(id, '/api/toolcalls', 'tool calls'),
-      'agent-detail-tests':      (am, id) => am.renderTest(id),
+      'agent-detail-tests':        (am, id) => am.renderTest(id),
+      'agent-detail-input-options': (am, id) => am.renderInputOptions(id),
     };
 
     const AM = {
@@ -632,6 +638,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       // Show the agent-list landing in the sidebar and (re)load the agent tabs.
       showAgentsHome() {
         this.stopPoll();
+        this.current = null;
         navAgentDetail.classList.add('hidden');
         navAgents.classList.remove('hidden');
         const homeTab = navAgents.querySelector('[data-nav="agents"][data-target="agents-home"]');
@@ -778,18 +785,151 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           const text = document.getElementById('am-test-text').value;
           const out = document.getElementById('am-test-out');
           out.innerHTML = '<div class="msi-console"><span class="msi-cursor">&#9608;</span> sending&hellip;</div>';
+          setAgentTabStatus(this.current.id, 'active');
           try {
             const r = await this.fetchJSON('/api/test', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ agent: this.current.id, text })
             });
             const replies = (r.replies || []);
+            const hasError = replies.some(x => x.type === 'error');
+            setAgentTabStatus(this.current.id, hasError ? 'error' : 'idle');
             out.innerHTML = '<div class="msi-console"><span id="ti"></span></div>';
             const inner = out.querySelector('#ti');
             inner.innerHTML = replies.length
               ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
               : '<div class="msi-entry dim">(no reply content)</div>';
-          } catch (e) { out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>'; }
+          } catch (e) {
+            setAgentTabStatus(this.current.id, 'error');
+            out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
+          }
+        });
+      },
+
+      renderInputOptions(containerId) {
+        const c = document.getElementById(containerId);
+        // Buttons sized like tabs (0.9rem / line-height 1.15 / padding 6px 8px) but 35% taller → padding-top/bottom ≈ 11px
+        const bs = 'width:100%;padding:11px 8px;font-size:0.9rem;line-height:1.15;border-radius:4px;border:0;cursor:pointer;color:#fff;text-align:left;';
+        c.innerHTML =
+          '<p>Input options for <strong>' + esc(this.current.name) + '</strong>:</p>'
+          + '<div style="display:flex;flex-direction:column;gap:10px;max-width:320px;">'
+          + '<textarea class="am-test-input" id="io-text" placeholder="Type or speak here…" style="min-height:100px;"></textarea>'
+          + '<button id="io-send"    style="' + bs + 'background:#4c6ef5;">Send</button>'
+          + '<button id="io-start"   style="' + bs + 'background:#28a745;">Start</button>'
+          + '<button id="io-autosend" style="' + bs + 'background:#6c757d;">Auto Send</button>'
+          + '<button id="io-speak"   style="' + bs + 'background:#6c757d;">&#128266; Speak</button>'
+          + '<button id="io-copy"    style="' + bs + 'background:#6c757d;">Copy to Clipboard</button>'
+          + '<div id="io-status" style="min-height:1.4em;font-size:0.9rem;color:#555;"></div>'
+          + '<div class="am-test-out" id="io-out"></div>'
+          + '</div>';
+
+        const statusEl = document.getElementById('io-status');
+        const autoSendBtn = document.getElementById('io-autosend');
+        const speakBtn = document.getElementById('io-speak');
+        let autoSendOn = false;
+        let speakOn = false;
+
+        function showStatus(msg, isError) {
+          statusEl.style.color = isError ? '#c0392b' : '#555';
+          statusEl.textContent = msg;
+        }
+
+        autoSendBtn.addEventListener('click', () => {
+          autoSendOn = !autoSendOn;
+          autoSendBtn.style.background = autoSendOn ? '#2f55e7' : '#6c757d';
+          autoSendBtn.style.fontWeight = autoSendOn ? '700' : '';
+        });
+
+        speakBtn.addEventListener('click', () => {
+          speakOn = !speakOn;
+          speakBtn.style.background = speakOn ? '#2f55e7' : '#6c757d';
+          speakBtn.style.fontWeight = speakOn ? '700' : '';
+        });
+
+        // Copy to Clipboard
+        document.getElementById('io-copy').addEventListener('click', () => {
+          let selected = '';
+          const active = document.activeElement;
+          if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT') && active.selectionStart !== active.selectionEnd) {
+            selected = active.value.substring(active.selectionStart, active.selectionEnd);
+          } else {
+            const sel = window.getSelection();
+            if (sel) selected = sel.toString();
+          }
+          if (!selected) { showStatus('No text selected.', true); return; }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(selected).then(() => {
+              showStatus('Copied selected text to clipboard.');
+            }).catch(() => {
+              try { document.execCommand('copy'); showStatus('Copied selected text to clipboard.'); }
+              catch (e2) { showStatus('Clipboard access blocked by browser.', true); }
+            });
+          } else {
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = selected;
+              ta.style.position = 'fixed'; ta.style.opacity = '0';
+              document.body.appendChild(ta); ta.focus(); ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              showStatus('Copied selected text to clipboard.');
+            } catch (e) { showStatus('Clipboard access blocked by browser.', true); }
+          }
+        });
+
+        // Send button
+        document.getElementById('io-send').addEventListener('click', async () => {
+          const text = document.getElementById('io-text').value;
+          const out = document.getElementById('io-out');
+          if (!text.trim()) { showStatus('Nothing to send.', true); return; }
+          out.innerHTML = '<div class="msi-console"><span class="msi-cursor">&#9608;</span> sending&hellip;</div>';
+          showStatus('');
+          setAgentTabStatus(this.current.id, 'active');
+          try {
+            const r = await this.fetchJSON('/api/test', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agent: this.current.id, text })
+            });
+            const replies = (r.replies || []);
+            const hasError = replies.some(x => x.type === 'error');
+            setAgentTabStatus(this.current.id, hasError ? 'error' : 'idle');
+            out.innerHTML = '<div class="msi-console"><span id="io-ti"></span></div>';
+            const inner = out.querySelector('#io-ti');
+            inner.innerHTML = replies.length
+              ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
+              : '<div class="msi-entry dim">(no reply content)</div>';
+            if (speakOn) {
+              const replyText = replies.map(x => x.text || '').join(' ');
+              if (replyText && 'speechSynthesis' in window) {
+                window.speechSynthesis.speak(new SpeechSynthesisUtterance(replyText));
+              }
+            }
+          } catch (e) {
+            setAgentTabStatus(this.current.id, 'error');
+            out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
+          }
+        });
+
+        // Start/Stop — toggles speech recognition
+        let recognition = null;
+        const startBtn = document.getElementById('io-start');
+        startBtn.addEventListener('click', () => {
+          const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+          if (!SpeechRecognition) { showStatus('Speech recognition not supported in this browser.', true); return; }
+          if (recognition) { recognition.stop(); return; }
+          recognition = new SpeechRecognition();
+          recognition.continuous = false;
+          recognition.interimResults = false;
+          recognition.onstart = () => { startBtn.textContent = 'Stop'; startBtn.style.background = '#dc3545'; showStatus('Listening…'); };
+          recognition.onresult = (e) => {
+            const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
+            document.getElementById('io-text').value = transcript;
+            showStatus('Transcribed. Tap Send or enable Auto Send.');
+            if (autoSendOn) document.getElementById('io-send').click();
+          };
+          recognition.onerror = (e) => { showStatus('Speech error: ' + e.error, true); };
+          recognition.onend = () => { recognition = null; startBtn.textContent = 'Start'; startBtn.style.background = '#28a745'; };
+          recognition.start();
         });
       },
 
@@ -809,6 +949,28 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         }
       },
     };
+
+    /* =====================  Agent tab status colors  ===================== */
+    function setAgentTabStatus(agentId, status) {
+      const tab = navAgents.querySelector('.agent-tab[data-agent-id="' + agentId + '"]');
+      if (!tab) return;
+      tab.classList.remove('agent-active', 'agent-error');
+      if (status === 'active') tab.classList.add('agent-active');
+      else if (status === 'error') tab.classList.add('agent-error');
+    }
+
+    (function startActivityPoll() {
+      async function poll() {
+        try {
+          const activity = await AM.fetchJSON('/api/agent-activity');
+          for (const [id, status] of Object.entries(activity)) {
+            setAgentTabStatus(id, status);
+          }
+        } catch (e) {}
+      }
+      poll();
+      setInterval(poll, 5000);
+    })();
 
     /* =====================  Deep-linking  =====================
        ?agent=<id>&view=thoughts|messages|tool-calls|tests                       */

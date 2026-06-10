@@ -36,6 +36,120 @@ LETTA_AGENTS = [
 _letta_id_cache = {}
 _letta_id_cache_lock = threading.Lock()
 
+
+AGENT_CARDS = {
+    'Scissari': {
+        'identity': 'Scissari',
+        'role': 'Lead coordination and execution agent focused on cross-agent orchestration, dashboard work, and operational follow-through.',
+        'responsibilities': [
+            'Coordinate multi-agent tasks and user-facing follow-up',
+            'Drive dashboard and observability improvements',
+            'Track execution flow across agents and tools',
+        ],
+        'tools': [
+            'Letta agent messaging',
+            'executor_run / host command execution',
+            'dashboard inspection and API verification',
+        ],
+        'memory_summary': 'Maintains durable project context and coordination state so shared workflows stay consistent across sessions.',
+    },
+    'Frita': {
+        'identity': 'Frita',
+        'role': 'Infrastructure and deployment agent for the Windows 10 dashboard host and public exposure path.',
+        'responsibilities': [
+            'Publish and repair dashboard hosting on the Win10 machine',
+            'Inspect live services, tunnels, and dashboard backends',
+            'Deploy and verify dashboard/API fixes end-to-end',
+        ],
+        'tools': [
+            'win10_run',
+            'cloudflared / tunnel operations',
+            'host file and process inspection',
+        ],
+        'memory_summary': 'Keeps operational knowledge about the Win10 dashboard environment, serving paths, and tunnel setup.',
+    },
+    'Hailey': {
+        'identity': 'Hailey',
+        'role': 'Support agent available for collaboration and delegated operational tasks.',
+        'responsibilities': [
+            'Assist with shared task execution',
+            'Provide agent-side support when routed work is assigned',
+        ],
+        'tools': [
+            'Letta messaging and standard agent workflows',
+        ],
+        'memory_summary': 'Participates in the shared agent ecosystem with retained project context when available.',
+    },
+    'Cesare': {
+        'identity': 'Cesare',
+        'role': 'Specialized collaborative agent used in the broader multi-agent workflow.',
+        'responsibilities': [
+            'Handle assigned subtasks in coordinated agent workflows',
+            'Contribute focused execution where routed',
+        ],
+        'tools': [
+            'Agent messaging and task execution flows',
+        ],
+        'memory_summary': 'Operates as part of the shared agent network with context continuity when connected.',
+    },
+    'Jeri': {
+        'identity': 'Jeri',
+        'role': 'Financial analyst agent focused on finance workflows, document interpretation, and structured operational guidance.',
+        'responsibilities': [
+            'Support January and finance-analysis workflows',
+            'Interpret financial material and process-related inputs',
+            'Participate in A2A-oriented coordination flows',
+        ],
+        'tools': [
+            'A2A messaging patterns',
+            'finance workflow guidance',
+            'dashboard-driven visibility and control surfaces',
+        ],
+        'memory_summary': 'Designed as a specialized analyst persona with persistent behavioral and workflow guidance.',
+    },
+    'Mazda': {
+        'identity': 'Mazda',
+        'role': 'Self-improving engineering/operations agent focused on thoughtful execution and clearer agent self-description.',
+        'responsibilities': [
+            'Execute assigned technical tasks',
+            'Improve agent-facing structure and usability',
+            'Help define clearer agent identity and card patterns',
+        ],
+        'tools': [
+            'Agent messaging',
+            'technical execution workflows',
+            'structured self-description patterns',
+        ],
+        'memory_summary': 'Uses retained context to refine its own behavior and improve the system around it over time.',
+    },
+    'Claude': {
+        'identity': 'Claude',
+        'role': 'External coding collaborator represented in the dashboard for shared visibility.',
+        'responsibilities': [
+            'Contribute code-focused implementation and analysis',
+            'Coordinate with the local agent ecosystem when integrated',
+        ],
+        'tools': [
+            'Code editing and analysis workflows',
+            'shared dashboard visibility',
+        ],
+        'memory_summary': 'Not a Letta-backed agent here, but included as a visible collaborator in the dashboard ecosystem.',
+    },
+}
+
+
+def build_agent_card(agent_name, agent_id):
+    card = AGENT_CARDS.get(agent_name, {
+        'identity': agent_name,
+        'role': 'Agent in the shared dashboard ecosystem.',
+        'responsibilities': [],
+        'tools': [],
+        'memory_summary': 'No card details have been filled in yet.',
+    }).copy()
+    card['agent_id'] = agent_id
+    card['name'] = agent_name
+    return card
+
 # Claude Code log files (persistent, local)
 CLAUDE_LOG_FILE = os.path.join(HERE, 'claude_messages.json')
 CLAUDE_TOOL_LOG_FILE = os.path.join(HERE, 'claude_toolcalls.json')
@@ -136,12 +250,28 @@ def letta_thoughts(agent_id):
         return rows
 
     # Fallback for agents whose API stream does not expose reasoning_message.
+    # Prefer assistant content as the closest proxy for visible "thoughts".
+    assistant_rows = []
+    for m in msgs:
+        if m.get('message_type') != 'assistant_message':
+            continue
+        text = _msg_text(m)
+        if not text.strip():
+            continue
+        assistant_rows.append({
+            'date': _msg_date(m),
+            'text': text[:500],
+        })
+    if assistant_rows:
+        return assistant_rows
+
+    # Final fallback only when there is no assistant/reasoning content at all.
     fallback_types = {
-        'assistant_message': 'assistant',
         'tool_call_message': 'tool',
         'tool_return_message': 'tool',
         'approval_request_message': 'approval',
         'approval_response_message': 'approval',
+        'user_message': 'user',
     }
     for m in msgs:
         mt = m.get('message_type', '')
@@ -218,6 +348,63 @@ def _append_json(path, lock, entry, maxlen=200):
 
 # ── Agent registry ────────────────────────────────────────────────────────────
 
+def _msg_age_seconds(m, now):
+    """Return how many seconds ago a message was created, or None on parse error."""
+    from datetime import timezone
+    raw = str(m.get('created_at') or m.get('date') or '').strip()
+    if not raw:
+        return None
+    if raw.endswith('Z'):
+        raw = raw[:-1] + '+00:00'
+    elif len(raw) >= 19 and '+' not in raw and 'T' in raw:
+        raw += '+00:00'
+    try:
+        ts = datetime.fromisoformat(raw[:32])
+        if ts.tzinfo is None:
+            from datetime import timezone
+            ts = ts.replace(tzinfo=timezone.utc)
+        return (now - ts).total_seconds()
+    except Exception:
+        return None
+
+
+def agent_activity_status():
+    """Return {agent_id: 'active'|'error'|'idle'} for every configured Letta agent."""
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
+    results = {}
+    for cfg in LETTA_AGENTS:
+        real_id = get_letta_id(cfg)
+        dash_id = real_id or f'unknown-{cfg["name"].lower()}'
+        if not real_id:
+            results[dash_id] = 'idle'
+            continue
+        msgs = letta_messages(real_id, limit=5)
+        if not msgs:
+            results[real_id] = 'idle'
+            continue
+        # Sort ascending so last item is most recent message
+        msgs_sorted = sorted(msgs, key=lambda m: str(m.get('created_at') or m.get('date') or ''))
+        last = msgs_sorted[-1]
+        age = _msg_age_seconds(last, now)
+        if age is None or age > 60:
+            results[real_id] = 'idle'
+            continue
+        mt = last.get('message_type', '')
+        if mt in ('user_message', 'tool_call_message', 'reasoning_message'):
+            results[real_id] = 'active'
+        elif mt == 'tool_return_message':
+            tr = last.get('tool_return', {})
+            if isinstance(tr, dict) and tr.get('status') == 'error':
+                results[real_id] = 'error'
+            else:
+                results[real_id] = 'active'
+        else:
+            # assistant_message or unknown — agent just finished responding
+            results[real_id] = 'idle'
+    return results
+
+
 def build_agent_list():
     """Return the agent list for /api/agents, combining Letta agents + Claude."""
     agents = []
@@ -259,6 +446,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/agents':
             return self.json_response(build_agent_list())
+
+        if path == '/api/agent-activity':
+            return self.json_response(agent_activity_status())
+
+        if path == '/api/agent-card':
+            agent = next((a for a in build_agent_list() if a['id'] == agent_id), None)
+            if not agent:
+                return self.json_response({'error': 'agent not found'})
+            return self.json_response(build_agent_card(agent['name'], agent['id']))
 
         if path == '/api/thoughts':
             if agent_id == 'agent-claude':
@@ -363,6 +559,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         length = int(self.headers.get('Content-Length', 0))
         return self.rfile.read(length).decode('utf-8')
 
+    def _send_no_cache_headers(self):
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        self.send_header('Pragma', 'no-cache')
+        self.send_header('Expires', '0')
+
     def serve_file(self, file_path, content_type=None):
         try:
             with open(file_path, 'rb') as f:
@@ -376,6 +577,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', len(content))
+            self._send_no_cache_headers()
             self.end_headers()
             self.wfile.write(content)
         except FileNotFoundError:
@@ -387,6 +589,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(body))
         self.send_header('Access-Control-Allow-Origin', '*')
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -395,6 +598,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(body))
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(body)
 
