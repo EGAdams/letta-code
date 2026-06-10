@@ -53,7 +53,20 @@
 
 <h1>Divide &amp; Conquer: the Scissari <code>executor_run</code> Stall</h1>
 <p class="sub">A GoF-pattern redesign that replaces the blind 14-call retry loop with a testable, classified recovery pipeline.</p>
-<p class="meta">Target agent: <code>agent-5955b0c2-7922-4ffe-9e43-b116053b80fa</code> (Scissari) &nbsp;·&nbsp; Executor service: Python/uvicorn &nbsp;·&nbsp; Date: 2026-06-05</p>
+<p class="meta">Target agent: <code>agent-5955b0c2-7922-4ffe-9e43-b116053b80fa</code> (Scissari) &nbsp;·&nbsp; Executor service: Python/uvicorn &nbsp;·&nbsp; Date: 2026-06-05 &nbsp;·&nbsp; Updated: 2026-06-06</p>
+
+<div class="panel" style="border-color:#3fb950">
+<p class="lead"><strong>Status — 2026-06-06 · F7 DEPLOYED to lettabot</strong></p>
+<ul>
+<li><span class="good">F7 LIVE ON WIN11 ✅</span> — the F7 fix is committed and built into lettabot on Win11 (<code>100.72.158.63:/home/adamsl/lettabot</code>, commit <code>2ae0d25</code> on <code>diag/executor-run-trace</code>, <code>npm run build</code> = clean tsc, markers present in <code>dist/core/bot.js</code>). Implemented natively against lettabot&rsquo;s own session primitives in <code>src/core/bot.ts</code>: <strong>(a)</strong> a tool-call-aware inactivity timer (<code>TOOL_CALL_DEADLINE_MS</code>, 15 m, while a tool call is in flight) replacing the blind 5-min idle kill; <strong>(b)</strong> <code>isTransportDeadError</code> → re-spawn (<code>invalidateSession</code> + <code>ensureSessionForKey</code>) + retry-once, replacing the raw <code>Transport not connected</code> heartbeat crash.</li>
+<li><span class="bad">PENDING — restart required</span> — lettabot is still running the <em>old</em> code (pid 1345); restart (<code>node dist/main.js</code>) to load the fix.</li>
+<li><span class="good">REFERENCE GREEN ✅ — 29 tests</span> — the design is pinned by the Python/TS scaffold (<code>scissari-executor-fix/</code>): <strong>16 executor (F1–F6) + 13 session-layer (F7)</strong>, <code>pytest -q</code> → 29 passed. TS port: <code>port-typescript/sessionSupervisor.ts</code>; adoption notes: <code>WIRING.md</code>.</li>
+<li><span class="pill">ALSO ON WIN11</span> — a separate <strong>F5</strong> executor_run client-side HTTP fallback was committed (<code>44b442d</code>, <code>src/core/executor-fallback.ts</code> + <code>CLIENT_SIDE_FALLBACK_TOOLS</code>). It targets the original Mode-C stall; its executor HTTP contract (<code>POST 127.0.0.1:8787/run?command=…</code>) is unverified — watch logs after restart.</li>
+</ul>
+<p class="lead" style="margin-top:10px"><strong>Today&rsquo;s symptom (verbatim from Telegram):</strong></p>
+<pre><code>Scissari timed out waiting for a response — a tool call took too long.
+Please try again, or send /new to start a fresh conversation.</code></pre>
+</div>
 
 <div class="panel">
 <p class="lead"><strong>The symptom (verbatim from Telegram):</strong></p>
@@ -80,6 +93,7 @@ different reasons (documented across the <code>debugging-executor-run</code> ski
 <tr><td>F4</td><td><code>ECONNREFUSED</code></td><td>Executor process down</td><td><span class="good">Circuit-open</span> + alert ops; do not spin 14×</td></tr>
 <tr><td>F5</td><td><code>end_turn</code> w/o <code>tool_return</code></td><td>Letta 0.16.3 streams tool_call then ends turn</td><td><span class="good">Client-side fallback exec</span> (already exists in <code>multi-agent-tool-fallback.ts</code>)</td></tr>
 <tr><td>F6</td><td><code>max_steps</code> from a peer agent</td><td>Peer is <code>letta_v1_agent</code> with <code>required_before_exit: send_message</code> rule it can never satisfy</td><td><span class="good">Detect &amp; abort</span> via <code>findHangingToolRules()</code>; never retry</td></tr>
+<tr><td>F7 <span class="bad">NEW</span></td><td><code>Stream inactivity 300000ms</code> → <code>Transport not connected (pid=undefined)</code></td><td>Tool call (often <code>executor_run</code>) runs longer than the bot&rsquo;s 5-min stream-inactivity timer, so lettabot force-closes the SDK session; the next heartbeat writes to a dead subprocess</td><td><span class="good">Per-tool-call deadline</span> distinct from stream-idle; <span class="good">tool-call keepalive</span>; <span class="good">re-spawn the subprocess</span> on <code>pid===undefined</code> before send — never just &ldquo;invalidate session&rdquo;</td></tr>
 <tr><td>F7</td><td><code>response was lost during a tool workflow</code></td><td>Tool DID run; its <code>tool_return</code> was lost in transit (SSE / lettabot relay drop) — distinct from F5</td><td><span class="good">Re-sync</span> the already-produced result once (<code>RESYNC</code>); do <em>not</em> blind-retry (double side-effect risk); then trip</td></tr>
 </table>
 
@@ -567,6 +581,53 @@ async def test_dead_executor_aborts_and_alerts_with_reason():
 the classification decide whether to retry, narrow, fall back, or abort, with a Circuit Breaker and an
 explicit State machine making &ldquo;14&rdquo; obsolete and a Memento making every reset explain itself.</p>
 </div>
+
+<h2>7. F7 — the transport/session layer (today&rsquo;s failure)</h2>
+<p class="lead">F1–F6 all live <em>inside</em> <code>executor_run</code>. F7 is a different concern entirely and the
+executor scaffold cannot see it: it is lettabot&rsquo;s <strong>session lifecycle</strong> around the
+letta-code SDK subprocess. Divide it out as its own testable unit — do <em>not</em> bolt it onto the classifier.</p>
+
+<h3>What actually happened (from the lettabot log)</h3>
+<div class="flow">  [Stream] reasoning "…fix it."         &lt;- agent is mid-tool-call
+       │
+       │   (no stream events for 5 min — tool call is slow, not dead)
+       ▼
+  [Bot] Stream inactivity timeout after 300000ms — closing session
+       │
+       ▼   5 min later, heartbeat fires
+  [Bot] Invalidating session (key=shared)
+  [Heartbeat] Error: Transport not connected
+              (closed=true, pid=undefined, stdin=false)   &lt;- subprocess gone</div>
+
+<p><strong class="bad">Two bugs, fused:</strong></p>
+<ul>
+<li><strong>(a) Coarse timer.</strong> The 300&nbsp;000&nbsp;ms inactivity timer measures <em>stream silence</em>, but a long-but-healthy tool call (a big <code>executor_run</code>) produces no stream events either. A slow success is indistinguishable from a hang, so the bot kills a session that was about to succeed.</li>
+<li><strong>(b) No re-spawn.</strong> After the session is closed, the next heartbeat calls <code>session.send()</code> on a transport whose subprocess is gone (<code>pid=undefined</code>). It throws <code>Transport not connected</code> instead of lazily re-spawning. The user sees &ldquo;a tool call took too long.&rdquo;</li>
+</ul>
+
+<h3>The divide (GoF, same discipline as §2)</h3>
+<table>
+<tr><th>Concern</th><th>Object</th><th>Pattern</th><th>Behaviour</th></tr>
+<tr><td>Is the agent alive?</td><td><code>SessionHealth</code></td><td>State machine</td><td>Track per-<em>tool-call</em> deadline separately from stream-idle. A tool call may exceed stream-idle silently; only trip when its own deadline blows.</td></tr>
+<tr><td>Keep the session warm</td><td><code>ToolCallKeepalive</code></td><td>Observer / heartbeat</td><td>While a tool call is in flight, suppress the inactivity timer (or extend it). Resume idle timing only after <code>tool_return</code>.</td></tr>
+<tr><td>Talk to a dead pid</td><td><code>ResilientTransport</code></td><td>Proxy / Decorator over the SDK transport</td><td>On <code>send()</code> when <code>pid===undefined || closed</code>, lazily re-spawn the subprocess once, then send. Never surface a raw <code>Transport not connected</code> to the heartbeat.</td></tr>
+<tr><td>Don&rsquo;t spam restarts</td><td>reuse <code>CircuitBreaker</code></td><td>Circuit Breaker</td><td>If re-spawn fails N times, open the breaker and alert ops — same component already built for F4.</td></tr>
+</table>
+
+<h3>Unit tests <span class="good">— written &amp; GREEN ✅</span></h3>
+<p>Built in <code>scissari_executor/session/</code>; <strong>13 F7 cases pass</strong> alongside the 16 executor cases (<code>pytest -q</code> → 29 passed).</p>
+<ul>
+<li><code>test_session_health.py</code> — a tool call exceeding stream-idle (300s) but inside its own deadline (900s) is <strong>NOT</strong> killed; one exceeding its deadline <strong>is</strong>; genuine idle still trips <code>STREAM_IDLE</code>; <code>tool_return</code> re-arms the idle timer.</li>
+<li><code>test_resilient_transport.py</code> — <code>send()</code> on a <code>pid=undefined</code> transport triggers exactly one re-spawn then succeeds; repeated spawn failures open the breaker and raise a clean <code>TransportUnavailableError</code>, never the raw <code>Transport not connected</code>.</li>
+<li><code>test_keepalive.py</code> — inactivity timer is suppressed for the duration of an in-flight tool call and re-armed after <code>tool_return</code>.</li>
+<li><code>test_session_supervisor.py</code> — facade: a long tool call neither trips nor alerts; the deadline trip emits a <code>StallReport</code> with a concrete reason; a heartbeat <code>send()</code> re-spawns a dead session.</li>
+</ul>
+<p class="pill">Port: <code>port-typescript/sessionSupervisor.ts</code> is a 1:1 TypeScript drop-in for lettabot (Node). Adoption steps: <code>WIRING.md</code>.</p>
+<p class="pill" style="background:#0d3a1a;color:#3fb950"><strong>DEPLOYED 2026-06-06:</strong> rather than bolt the standalone module onto lettabot, the same F7 semantics were implemented against lettabot&rsquo;s native session primitives in <code>src/core/bot.ts</code> — bug (a) = <code>inFlightToolCalls</code> + <code>TOOL_CALL_DEADLINE_MS</code> gating <code>resetStreamInactivityTimer()</code>; bug (b) = <code>isTransportDeadError()</code> + a re-spawn/retry branch in <code>runSession()</code> reusing <code>invalidateSession</code>/<code>ensureSessionForKey</code>. Committed <code>2ae0d25</code>; tsc clean. Restart lettabot to activate.</p>
+
+<p class="meta">Cross-references for F7 (lettabot, Win11): <code>dist/core/bot.js</code> (<code>Stream inactivity timeout</code>, <code>Invalidating session</code>, <code>trySend</code>/<code>runSession</code>),
+<code>dist/cron/heartbeat.js</code> (<code>runHeartbeat</code> → dead-transport send),
+<code>@letta-ai/letta-code-sdk</code> <code>SubprocessTransport.write</code> (throws <code>Transport not connected</code>).</p>
 
 <p class="meta">Cross-references in this repo: <code>src/tools/toolset.ts</code> (<code>findHangingToolRules</code> — F6),
 <code>src/agent/multi-agent-tool-fallback.ts</code> (<code>CLIENT_SIDE_FALLBACK_TOOLS</code> — F5),

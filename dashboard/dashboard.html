@@ -78,12 +78,9 @@
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-thoughts">Thoughts</button>
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-messages">Messages</button>
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tool-calls">Tool Calls</button>
-      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-chat-interface">Input Options</button>
-    </nav>
-
-    <!-- Server management sub-nav (server tabs injected dynamically) -->
-    <nav id="nav-servers" class="hidden">
-      <button type="button" class="tab back-tab" id="btn-back-servers">Back</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-agent-card">Agent Card</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tests">Tests</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-input-options">Input Options</button>
     </nav>
   </aside>
 
@@ -222,7 +219,9 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     <section id="agent-detail-thoughts" class="view"></section>
     <section id="agent-detail-messages" class="view"></section>
     <section id="agent-detail-tool-calls" class="view"></section>
-    <section id="agent-detail-chat-interface" class="view"></section>
+    <section id="agent-detail-agent-card" class="view"></section>
+    <section id="agent-detail-tests" class="view"></section>
+    <section id="agent-detail-input-options" class="view"></section>
 
     <section id="scissari" class="view">
       <iframe id="scissari-frame" src="/monitor_thoughts_plan.html"></iframe>
@@ -293,6 +292,27 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
     <section id="plans-mazda-orchestrator" class="view">
       <iframe id="mazda-orchestrator-plan-frame" class="plan-frame" src="/team_construction_plan.html"></iframe>
+    </section>
+
+    <section id="plans-mazda-orchestrator" class="view">
+      <h2>Mazda Orchestrator — Team Construction Plan</h2>
+      <div class="dc-status">
+        <b>Status (2026-06-06) — F7 deployed to lettabot:</b>
+        <span class="dc-green">F7 fix is committed + built on Win11</span>
+        (commit <code>2ae0d25</code>, tsc clean, markers in <code>dist/core/bot.js</code>) —
+        implemented in <code>src/core/bot.ts</code>: <b>(a)</b> tool-call-aware inactivity timer
+        (<code>TOOL_CALL_DEADLINE_MS</code> while a tool call is in flight) replacing the blind
+        <code>300000ms</code> kill; <b>(b)</b> <code>isTransportDeadError</code> → re-spawn + retry,
+        replacing the <code>Transport not connected (pid=undefined)</code> heartbeat crash.
+        <span class="dc-bad">Pending: restart lettabot</span> (still running old code, pid 1345).
+        Design pinned by <span class="dc-green">29 passing tests</span> in <code>scissari-executor-fix/</code>
+        (16 executor F1–F6 + 13 session F7). A separate <b>F5</b> executor_run HTTP fallback was also
+        committed (<code>44b442d</code>) — HTTP contract unverified, watch logs.
+        <br>Full plan: <a href="/team_construction_plan.html" target="_blank" rel="noopener noreferrer">divide_and_conquer_scissari_fix.html</a>
+        &nbsp;·&nbsp; <a href="/scissari-executor-fix/README.md" target="_blank" rel="noopener noreferrer">README.md</a>
+        &nbsp;·&nbsp; <a href="/scissari-executor-fix/WIRING.md" target="_blank" rel="noopener noreferrer">WIRING.md</a>
+      </div>
+      <iframe id="divide-conquer-frame" src="/team_construction_plan.html" title="Divide and Conquer plan"></iframe>
     </section>
   </main>
 
@@ -823,7 +843,43 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         this.pollTimer = setInterval(pull, 3000);
       },
 
-      renderChatInterface(containerId) {
+
+      async renderAgentCard(containerId) {
+        const c = document.getElementById(containerId);
+        c.innerHTML = '<div class="msi-console"><span class="msi-inner">loading agent card…</span><span class="msi-cursor">&#9608;</span></div>';
+        try {
+          const card = await this.fetchJSON('/api/agent-card?agent=' + encodeURIComponent(this.current.id));
+          const responsibilities = (card.responsibilities || []).map(x => '<li>' + esc(x) + '</li>').join('');
+          const tools = (card.tools || []).map(x => '<li>' + esc(x) + '</li>').join('');
+          c.innerHTML = ''
+            + '<div class="am-test-out" style="display:block;max-width:980px">'
+            + '<h3 style="margin-top:0">' + esc(card.identity || card.name || 'Agent Card') + '</h3>'
+            + '<p><strong>Agent ID:</strong> ' + esc(card.agent_id || '') + '</p>'
+            + '<p><strong>Role:</strong> ' + esc(card.role || '') + '</p>'
+            + '<p><strong>Core Responsibilities:</strong></p><ul>' + responsibilities + '</ul>'
+            + '<p><strong>Key Tools / Capabilities:</strong></p><ul>' + tools + '</ul>'
+            + '<p><strong>Self-Improvement / Memory Summary:</strong><br>' + esc(card.memory_summary || '') + '</p>'
+            + '</div>';
+        } catch (e) {
+          c.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
+        }
+      }
+
+      async renderLog(containerId, url, label) {
+        const { box, inner } = this.consoleShell(containerId);
+        try {
+          const rows = await this.fetchJSON(url + '?agent=' + encodeURIComponent(this.current.id));
+          if (!rows.length) { inner.innerHTML = '<div class="msi-entry dim">&mdash; no ' + label + ' recorded &mdash;</div>'; return; }
+          inner.innerHTML = rows.map(r => {
+            const stamp = (r.date || '').replace('T', ' ').slice(0, 19);
+            return '<div class="msi-entry"><span class="msi-stamp">[' + stamp + ']</span> '
+              + '<span class="hdr">' + esc((r.type || '').replace('_message', '')) + '</span> ' + esc(r.text) + '</div>';
+          }).join('');
+          box.scrollTop = box.scrollHeight;
+        } catch (e) { inner.innerHTML = '<div class="msi-line err">! ' + esc(e.message) + '</div>'; }
+      },
+
+      renderTest(containerId) {
         const c = document.getElementById(containerId);
         const self = this;
         c.innerHTML =
@@ -881,6 +937,143 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             });
             const replies = (r.replies || []);
             const hasError = replies.some(x => x.type === 'error');
+            setAgentTabStatus(this.current.id, hasError ? 'error' : 'idle');
+            out.innerHTML = '<div class="msi-console"><span id="ti"></span></div>';
+            const inner = out.querySelector('#ti');
+            inner.innerHTML = replies.length
+              ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
+              : '<div class="msi-entry dim">(no reply content)</div>';
+          } catch (e) {
+            setAgentTabStatus(this.current.id, 'error');
+            out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
+          }
+        });
+      },
+
+      renderInputOptions(containerId) {
+        const c = document.getElementById(containerId);
+        // Buttons sized like tabs (0.9rem / line-height 1.15 / padding 6px 8px) but 35% taller → padding-top/bottom ≈ 11px
+        const bs = 'width:100%;padding:11px 8px;font-size:0.9rem;line-height:1.15;border-radius:4px;border:0;cursor:pointer;color:#fff;text-align:left;';
+        c.innerHTML =
+          '<p>Input options for <strong>' + esc(this.current.name) + '</strong>:</p>'
+          + '<div style="display:flex;flex-direction:column;gap:10px;max-width:320px;">'
+          + '<textarea class="am-test-input" id="io-text" placeholder="Type or speak here…" style="min-height:100px;"></textarea>'
+          + '<button id="io-send"    style="' + bs + 'background:#4c6ef5;">Send</button>'
+          + '<button id="io-start"   style="' + bs + 'background:#28a745;">Start</button>'
+          + '<button id="io-autosend" style="' + bs + 'background:#6c757d;">Auto Send</button>'
+          + '<button id="io-speak"   style="' + bs + 'background:#6c757d;">&#128266; Speak</button>'
+          + '<button id="io-copy"    style="' + bs + 'background:#6c757d;">Copy to Clipboard</button>'
+          + '<div id="io-status" style="min-height:1.4em;font-size:0.9rem;color:#555;"></div>'
+          + '<div class="am-test-out" id="io-out"></div>'
+          + '</div>';
+
+        const statusEl = document.getElementById('io-status');
+        const autoSendBtn = document.getElementById('io-autosend');
+        const speakBtn = document.getElementById('io-speak');
+        let autoSendOn = false;
+        let speakOn = false;
+
+        function showStatus(msg, isError) {
+          statusEl.style.color = isError ? '#c0392b' : '#555';
+          statusEl.textContent = msg;
+        }
+
+        autoSendBtn.addEventListener('click', () => {
+          autoSendOn = !autoSendOn;
+          autoSendBtn.style.background = autoSendOn ? '#2f55e7' : '#6c757d';
+          autoSendBtn.style.fontWeight = autoSendOn ? '700' : '';
+        });
+
+        speakBtn.addEventListener('click', () => {
+          speakOn = !speakOn;
+          speakBtn.style.background = speakOn ? '#2f55e7' : '#6c757d';
+          speakBtn.style.fontWeight = speakOn ? '700' : '';
+        });
+
+        // Copy to Clipboard
+        document.getElementById('io-copy').addEventListener('click', () => {
+          let selected = '';
+          const active = document.activeElement;
+          if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT') && active.selectionStart !== active.selectionEnd) {
+            selected = active.value.substring(active.selectionStart, active.selectionEnd);
+          } else {
+            const sel = window.getSelection();
+            if (sel) selected = sel.toString();
+          }
+          if (!selected) { showStatus('No text selected.', true); return; }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(selected).then(() => {
+              showStatus('Copied selected text to clipboard.');
+            }).catch(() => {
+              try { document.execCommand('copy'); showStatus('Copied selected text to clipboard.'); }
+              catch (e2) { showStatus('Clipboard access blocked by browser.', true); }
+            });
+          } else {
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = selected;
+              ta.style.position = 'fixed'; ta.style.opacity = '0';
+              document.body.appendChild(ta); ta.focus(); ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              showStatus('Copied selected text to clipboard.');
+            } catch (e) { showStatus('Clipboard access blocked by browser.', true); }
+          }
+        });
+
+        // Send button
+        document.getElementById('io-send').addEventListener('click', async () => {
+          const text = document.getElementById('io-text').value;
+          const out = document.getElementById('io-out');
+          if (!text.trim()) { showStatus('Nothing to send.', true); return; }
+          out.innerHTML = '<div class="msi-console"><span class="msi-cursor">&#9608;</span> sending&hellip;</div>';
+          showStatus('');
+          setAgentTabStatus(this.current.id, 'active');
+          try {
+            const r = await this.fetchJSON('/api/test', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agent: this.current.id, text })
+            });
+            const replies = (r.replies || []);
+            const hasError = replies.some(x => x.type === 'error');
+            setAgentTabStatus(this.current.id, hasError ? 'error' : 'idle');
+            out.innerHTML = '<div class="msi-console"><span id="io-ti"></span></div>';
+            const inner = out.querySelector('#io-ti');
+            inner.innerHTML = replies.length
+              ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
+              : '<div class="msi-entry dim">(no reply content)</div>';
+            if (speakOn) {
+              const replyText = replies.map(x => x.text || '').join(' ');
+              if (replyText && 'speechSynthesis' in window) {
+                window.speechSynthesis.speak(new SpeechSynthesisUtterance(replyText));
+              }
+            }
+          } catch (e) {
+            setAgentTabStatus(this.current.id, 'error');
+            out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
+          }
+        });
+
+        // Start/Stop — toggles speech recognition
+        let recognition = null;
+        const startBtn = document.getElementById('io-start');
+        startBtn.addEventListener('click', () => {
+          const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+          if (!SpeechRecognition) { showStatus('Speech recognition not supported in this browser.', true); return; }
+          if (recognition) { recognition.stop(); return; }
+          recognition = new SpeechRecognition();
+          recognition.continuous = false;
+          recognition.interimResults = false;
+          recognition.onstart = () => { startBtn.textContent = 'Stop'; startBtn.style.background = '#dc3545'; showStatus('Listening…'); };
+          recognition.onresult = (e) => {
+            const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
+            document.getElementById('io-text').value = transcript;
+            showStatus('Transcribed. Tap Send or enable Auto Send.');
+            if (autoSendOn) document.getElementById('io-send').click();
+          };
+          recognition.onerror = (e) => { showStatus('Speech error: ' + e.error, true); };
+          recognition.onend = () => { recognition = null; startBtn.textContent = 'Start'; startBtn.style.background = '#28a745'; };
+          recognition.start();
             setAgentTabStatus(self.current.id, hasError ? 'error' : 'idle');
             setConsole(replies.length
               ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')

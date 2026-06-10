@@ -72,6 +72,120 @@ _agent_list_cache = {'value': None, 'ts': 0.0}
 _agent_list_cache_lock = threading.Lock()
 AGENT_LIST_CACHE_TTL = 300
 
+
+AGENT_CARDS = {
+    'Scissari': {
+        'identity': 'Scissari',
+        'role': 'Lead coordination and execution agent focused on cross-agent orchestration, dashboard work, and operational follow-through.',
+        'responsibilities': [
+            'Coordinate multi-agent tasks and user-facing follow-up',
+            'Drive dashboard and observability improvements',
+            'Track execution flow across agents and tools',
+        ],
+        'tools': [
+            'Letta agent messaging',
+            'executor_run / host command execution',
+            'dashboard inspection and API verification',
+        ],
+        'memory_summary': 'Maintains durable project context and coordination state so shared workflows stay consistent across sessions.',
+    },
+    'Frita': {
+        'identity': 'Frita',
+        'role': 'Infrastructure and deployment agent for the Windows 10 dashboard host and public exposure path.',
+        'responsibilities': [
+            'Publish and repair dashboard hosting on the Win10 machine',
+            'Inspect live services, tunnels, and dashboard backends',
+            'Deploy and verify dashboard/API fixes end-to-end',
+        ],
+        'tools': [
+            'win10_run',
+            'cloudflared / tunnel operations',
+            'host file and process inspection',
+        ],
+        'memory_summary': 'Keeps operational knowledge about the Win10 dashboard environment, serving paths, and tunnel setup.',
+    },
+    'Hailey': {
+        'identity': 'Hailey',
+        'role': 'Support agent available for collaboration and delegated operational tasks.',
+        'responsibilities': [
+            'Assist with shared task execution',
+            'Provide agent-side support when routed work is assigned',
+        ],
+        'tools': [
+            'Letta messaging and standard agent workflows',
+        ],
+        'memory_summary': 'Participates in the shared agent ecosystem with retained project context when available.',
+    },
+    'Cesare': {
+        'identity': 'Cesare',
+        'role': 'Specialized collaborative agent used in the broader multi-agent workflow.',
+        'responsibilities': [
+            'Handle assigned subtasks in coordinated agent workflows',
+            'Contribute focused execution where routed',
+        ],
+        'tools': [
+            'Agent messaging and task execution flows',
+        ],
+        'memory_summary': 'Operates as part of the shared agent network with context continuity when connected.',
+    },
+    'Jeri': {
+        'identity': 'Jeri',
+        'role': 'Financial analyst agent focused on finance workflows, document interpretation, and structured operational guidance.',
+        'responsibilities': [
+            'Support January and finance-analysis workflows',
+            'Interpret financial material and process-related inputs',
+            'Participate in A2A-oriented coordination flows',
+        ],
+        'tools': [
+            'A2A messaging patterns',
+            'finance workflow guidance',
+            'dashboard-driven visibility and control surfaces',
+        ],
+        'memory_summary': 'Designed as a specialized analyst persona with persistent behavioral and workflow guidance.',
+    },
+    'Mazda': {
+        'identity': 'Mazda',
+        'role': 'Self-improving engineering/operations agent focused on thoughtful execution and clearer agent self-description.',
+        'responsibilities': [
+            'Execute assigned technical tasks',
+            'Improve agent-facing structure and usability',
+            'Help define clearer agent identity and card patterns',
+        ],
+        'tools': [
+            'Agent messaging',
+            'technical execution workflows',
+            'structured self-description patterns',
+        ],
+        'memory_summary': 'Uses retained context to refine its own behavior and improve the system around it over time.',
+    },
+    'Claude': {
+        'identity': 'Claude',
+        'role': 'External coding collaborator represented in the dashboard for shared visibility.',
+        'responsibilities': [
+            'Contribute code-focused implementation and analysis',
+            'Coordinate with the local agent ecosystem when integrated',
+        ],
+        'tools': [
+            'Code editing and analysis workflows',
+            'shared dashboard visibility',
+        ],
+        'memory_summary': 'Not a Letta-backed agent here, but included as a visible collaborator in the dashboard ecosystem.',
+    },
+}
+
+
+def build_agent_card(agent_name, agent_id):
+    card = AGENT_CARDS.get(agent_name, {
+        'identity': agent_name,
+        'role': 'Agent in the shared dashboard ecosystem.',
+        'responsibilities': [],
+        'tools': [],
+        'memory_summary': 'No card details have been filled in yet.',
+    }).copy()
+    card['agent_id'] = agent_id
+    card['name'] = agent_name
+    return card
+
 # Claude Code log files (persistent, local)
 CLAUDE_LOG_FILE = os.path.join(HERE, 'claude_messages.json')
 CLAUDE_TOOL_LOG_FILE = os.path.join(HERE, 'claude_toolcalls.json')
@@ -500,12 +614,29 @@ def letta_thoughts(agent_id):
     if rows:
         return rows
 
+    # Fallback for agents whose API stream does not expose reasoning_message.
+    # Prefer assistant content as the closest proxy for visible "thoughts".
+    assistant_rows = []
+    for m in msgs:
+        if m.get('message_type') != 'assistant_message':
+            continue
+        text = _msg_text(m)
+        if not text.strip():
+            continue
+        assistant_rows.append({
+            'date': _msg_date(m),
+            'text': text[:500],
+        })
+    if assistant_rows:
+        return assistant_rows
+
+    # Final fallback only when there is no assistant/reasoning content at all.
     fallback_types = {
-        'assistant_message': 'assistant',
         'tool_call_message': 'tool',
         'tool_return_message': 'tool',
         'approval_request_message': 'approval',
         'approval_response_message': 'approval',
+        'user_message': 'user',
     }
     for m in msgs:
         mt = m.get('message_type', '')
@@ -780,6 +911,7 @@ def server_log_rows(cfg, q=''):
 
 def _msg_age_seconds(m, now):
     """Return how many seconds ago a message was created, or None on parse error."""
+    from datetime import timezone
     raw = str(m.get('created_at') or m.get('date') or '').strip()
     if not raw:
         return None
@@ -790,6 +922,7 @@ def _msg_age_seconds(m, now):
     try:
         ts = datetime.fromisoformat(raw[:32])
         if ts.tzinfo is None:
+            from datetime import timezone
             ts = ts.replace(tzinfo=timezone.utc)
         return (now - ts).total_seconds()
     except Exception:
@@ -798,6 +931,7 @@ def _msg_age_seconds(m, now):
 
 def agent_activity_status():
     """Return {agent_id: 'active'|'error'|'idle'} for every configured Letta agent."""
+    from datetime import timezone
     now = datetime.now(timezone.utc)
     results = {}
     for cfg in LETTA_AGENTS:
@@ -886,6 +1020,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/agent-activity':
             return self.json_response(agent_activity_status())
+
+        if path == '/api/agent-activity':
+            return self.json_response(agent_activity_status())
+
+        if path == '/api/agent-card':
+            agent = next((a for a in build_agent_list() if a['id'] == agent_id), None)
+            if not agent:
+                return self.json_response({'error': 'agent not found'})
+            return self.json_response(build_agent_card(agent['name'], agent['id']))
 
         if path == '/api/thoughts':
             if agent_id == 'agent-claude':
@@ -1119,26 +1262,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     def _read_body(self):
         length = int(self.headers.get('Content-Length', 0))
         return self.rfile.read(length).decode('utf-8')
-
-    def _handle_voice(self, raw):
-        """Transcribe (whisper.cpp) + clean (Letta agent) an uploaded audio blob.
-
-        Delivery to the main agent is left to the client (it reuses /api/test),
-        so this endpoint only ever returns {ok, raw_transcript, cleaned_text}.
-        """
-        try:
-            from voice import build_pipeline, handle_voice_upload
-        except Exception as exc:  # voice package missing/broken — fail soft
-            return self.json_response({'ok': False, 'error': f'voice unavailable: {exc}'})
-        filename = self.headers.get('X-Filename') or 'audio.webm'
-        result = handle_voice_upload(build_pipeline(), raw, filename)
-        if result.get('ok'):
-            _append_json(VOICE_LOG_FILE, _voice_log_lock, {
-                'date': datetime.now().isoformat(),
-                'raw': result.get('raw_transcript', ''),
-                'cleaned': result.get('cleaned_text', ''),
-            })
-        return self.json_response(result)
 
     def _send_no_cache_headers(self):
         self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')

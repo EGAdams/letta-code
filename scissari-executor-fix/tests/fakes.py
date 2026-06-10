@@ -94,3 +94,54 @@ class FakeSnapshotStore(IConversationSnapshotStore):
 
     def restore(self, snapshot_id: str) -> Sequence[dict]:
         return self._store[snapshot_id]
+
+
+# --- session layer (F7) fakes ---
+from scissari_executor.session.interfaces import ISubprocessTransport
+from scissari_executor.session.models import TransportInfo
+
+
+class FakeSubprocessTransport(ISubprocessTransport):
+    """Models the SDK SubprocessTransport: starts dead (pid=undefined) unless
+    `alive=True`; spawn() gives it a pid.
+
+    - spawn_fails: spawn() returns but leaves the subprocess dead (host can't start it)
+    - spawn_raises: spawn() itself throws
+    """
+
+    def __init__(
+        self,
+        alive: bool = False,
+        spawn_fails: bool = False,
+        spawn_raises: bool = False,
+    ):
+        self._pid: Optional[int] = 4242 if alive else None
+        self._closed = not alive
+        self.spawn_fails = spawn_fails
+        self.spawn_raises = spawn_raises
+        self.spawn_calls = 0
+        self.sent: list[str] = []
+
+    @property
+    def info(self) -> TransportInfo:
+        return TransportInfo(pid=self._pid, closed=self._closed)
+
+    def spawn(self) -> None:
+        self.spawn_calls += 1
+        if self.spawn_raises:
+            raise RuntimeError("spawn boom")
+        if self.spawn_fails:
+            self._pid = None
+            self._closed = True
+            return
+        self._pid = 4242
+        self._closed = False
+
+    def send(self, data: str) -> None:
+        if self._pid is None or self._closed:
+            raise RuntimeError("Transport not connected")  # mirrors the SDK
+        self.sent.append(data)
+
+    def close(self) -> None:
+        self._closed = True
+        self._pid = None

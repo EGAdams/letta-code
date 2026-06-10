@@ -44,26 +44,46 @@ scissari_executor/
   guard.py         # State machine + per-kind budgets + Memento
   breaker.py       # Circuit breaker — kills the 14x spin
   service.py       # Facade — the only entry point Scissari calls
+  session/         # F7 — transport/session layer (today's failure)
+    models.py      # StreamEventKind / SessionState / CloseReason / TransportInfo
+    interfaces.py  # ABC ports for the session layer
+    health.py      # SessionHealth — State machine: per-tool-call deadline != stream-idle
+    keepalive.py   # ToolCallKeepalive — Observer: suppress idle timer during a tool call
+    transport.py   # ResilientTransport — Proxy: re-spawn a dead subprocess on send()
+    supervisor.py  # SessionSupervisor — Facade the bot + heartbeat call
 tests/
   test_classifier.py       # seven real failure fixtures (F1..F7)
   test_loop_guard.py       # trips at budget (2), NOT 14
   test_circuit_breaker.py
   test_service_facade.py    # asserts the old "no error" lie is gone
-  test_response_lost.py     # F7 — re-sync once then trip; double-exec safe
+  test_session_health.py    # F7: long tool call NOT killed; deadline DOES trip
+  test_keepalive.py         # F7: idle timer suppressed during a tool call
+  test_resilient_transport.py  # F7: re-spawn dead pid; circuit opens on repeated failure
+  test_session_supervisor.py   # F7: heartbeat re-spawns; trip carries a real reason
   fakes.py
+port-typescript/
+  sessionSupervisor.ts        # F7 drop-in for lettabot (Node) — mirrors session/
+WIRING.md                     # how to adopt both layers in lettabot (Win11)
 ```
 
 ## Status: GREEN ✅
 
-All modules are implemented and the suite passes (**21 passed**). The scaffold
-started red-by-construction (every method a `NotImplementedError` stub) and was
-turned green one module at a time in the build order below.
+All modules are implemented and the suite passes (**29 passed** — 16 executor
+F1–F6 + 13 session-layer F7). The scaffold started red-by-construction (every
+method a `NotImplementedError` stub) and was turned green one module at a time.
+
+**F7 (session/transport) added 2026-06-06.** Today's live failure is not F1–F6 —
+it is one layer up: lettabot's blind `300000ms` stream-inactivity timer killing
+healthy-but-slow tool calls, then the heartbeat writing to a dead subprocess
+(`Transport not connected (pid=undefined)`). Now divided into
+`scissari_executor/session/` with a TypeScript drop-in at
+`port-typescript/sessionSupervisor.ts`. See **[WIRING.md](WIRING.md)**.
 
 ```bash
 cd scissari-executor-fix
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest -q          # 21 passed
+pytest -q          # 29 passed
 ```
 
 Build order followed (HTML section 6): models → classifiers → breaker →
@@ -79,7 +99,10 @@ implementations or revert any one module's body back to `raise NotImplementedErr
 | `test_loop_guard.py` | trips at the per-kind budget (2), **not 14**; ABORT trips immediately; captures a Memento |
 | `test_service_facade.py` | dead executor / allowlist abort after **1** call and alert with a real reason |
 | `test_recovery_paths.py` | healthy call returns with no alert; a transient 500 retries **once** then succeeds |
-| `test_response_lost.py` | F7 — verbatim Telegram msg classified; RESYNC re-fetches (no re-exec); re-syncs **once** then succeeds or trips with a real reason, never 14 |
+| `test_session_health.py` | **F7**: a tool call past the 300s idle window but inside its 900s deadline is NOT closed; past the deadline it IS; genuine idle still trips |
+| `test_keepalive.py` | **F7**: inactivity timer is suppressed for an in-flight tool call, re-armed after `tool_return` |
+| `test_resilient_transport.py` | **F7**: `send()` on a `pid=undefined` transport re-spawns exactly once then succeeds; repeated spawn failures open the circuit (clean domain error, not raw `Transport not connected`) |
+| `test_session_supervisor.py` | **F7**: a long tool call does not trip/alert; the deadline trip carries a concrete reason; a heartbeat send re-spawns a dead session |
 
 ## Wiring into lettabot (the remaining step)
 
