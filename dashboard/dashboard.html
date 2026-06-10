@@ -744,7 +744,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           +   '<button class="am-btn voice-btn" id="am-voice-btn">Start</button>'
           +   '<span class="rec-indicator" id="am-rec-ind"><span class="rec-led"></span><span class="rec-text" id="am-rec-text">Recording</span></span>'
           +   '<button class="am-btn am-mode" id="am-mode" data-mode="auto" title="Toggle what happens after voice cleanup">Auto Send</button>'
-          +   '<button class="am-btn am-speak" id="am-speak" title="Read agent replies aloud (browser text-to-speech)">&#128266; Speak Replies</button>'
+          +   '<button class="am-btn am-speak" id="am-speak" title="Read agent replies aloud (browser text-to-speech)">&#128266; Speak</button>'
+          +   '<button class="am-btn am-copy" id="am-copy" title="Copy selected text to the clipboard">Copy to Clipboard</button>'
           + '</div>';
 
         const out = document.getElementById('am-chat-out');
@@ -762,12 +763,12 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         function renderSpeakBtn() {
           if (!Speech.supported) {
             speakBtn.disabled = true;
-            speakBtn.textContent = '🔇 TTS N/A';
+            speakBtn.textContent = '🔇 Speak';
             speakBtn.title = 'This browser has no SpeechSynthesis support';
             return;
           }
           speakBtn.classList.toggle('on', speakReplies);
-          speakBtn.textContent = speakReplies ? '🔊 Speaking On' : '🔈 Speak Replies';
+          speakBtn.textContent = speakReplies ? '🔊 Speak' : '🔈 Speak';
         }
         speakBtn.addEventListener('click', () => {
           speakReplies = !speakReplies;
@@ -781,12 +782,15 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         async function sendText(text) {
           if (!text || !text.trim()) return;
           setConsole('<div class="msi-entry dim">sending&hellip;</div>');
+          setAgentTabStatus(self.current.id, 'active');
           try {
             const r = await self.fetchJSON('/api/test', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ agent: self.current.id, text })
             });
             const replies = (r.replies || []);
+            const hasError = replies.some(x => x.type === 'error');
+            setAgentTabStatus(self.current.id, hasError ? 'error' : 'idle');
             setConsole(replies.length
               ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
               : '<div class="msi-entry dim">(no reply content)</div>');
@@ -798,17 +802,26 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
               Speech.speak(spoken);
             }
           } catch (e) {
+            setAgentTabStatus(self.current.id, 'error');
             setConsole('<div class="msi-line err">! ' + esc(e.message) + '</div>');
           }
         }
         document.getElementById('am-test-send').addEventListener('click', () => sendText(textEl.value));
 
         // Auto Send  <->  Review then Send toggle (default: Auto Send).
+        const copyBtn = document.getElementById('am-copy');
+        function renderCopyBtnVisibility() {
+          // Copy to Clipboard only makes sense when reviewing transcribed text
+          // before sending — hide it entirely while Auto Send is active.
+          copyBtn.style.display = modeBtn.dataset.mode === 'auto' ? 'none' : '';
+        }
         modeBtn.addEventListener('click', () => {
           const auto = modeBtn.dataset.mode === 'auto';
           modeBtn.dataset.mode = auto ? 'review' : 'auto';
           modeBtn.textContent = auto ? 'Review then Send' : 'Auto Send';
+          renderCopyBtnVisibility();
         });
+        renderCopyBtnVisibility();
 
         // ── Voice capture (State machine: idle -> recording -> processing) ──────
         let mediaRecorder = null, chunks = [], recTimer = null, dots = 0;
@@ -881,6 +894,48 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           if (voiceBtn.classList.contains('recording')) stopRecording();
           else startRecording();
         });
+
+        // ── Copy to Clipboard: copies whatever text is currently selected ────────
+        document.getElementById('am-copy').addEventListener('click', () => {
+          let selected = '';
+          const active = document.activeElement;
+          if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')
+              && typeof active.selectionStart === 'number'
+              && active.selectionStart !== active.selectionEnd) {
+            selected = active.value.substring(active.selectionStart, active.selectionEnd);
+          } else {
+            selected = (window.getSelection() || '').toString();
+          }
+          if (!selected) {
+            setConsole('<div class="msi-line err">! No text selected.</div>');
+            return;
+          }
+          const onCopied = () => setConsole('<div class="msi-entry">Copied selected text to clipboard.</div>');
+          const onFailed = () => setConsole('<div class="msi-line err">! Clipboard access was blocked by the browser.</div>');
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(selected).then(onCopied, () => {
+              if (legacyCopy(selected)) onCopied(); else onFailed();
+            });
+          } else if (legacyCopy(selected)) {
+            onCopied();
+          } else {
+            onFailed();
+          }
+        });
+
+        function legacyCopy(text) {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          let ok = false;
+          try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+          document.body.removeChild(ta);
+          return ok;
+        }
       },
 
       // Deep-link helper: open an agent (and optional detail tab) by id.
@@ -1013,7 +1068,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         const startLabels = { executor: 'Start Executor Server', 'logger-api': 'Start Logger API', 'frita-executor': 'Start Frita Executor' };
         body.innerHTML =
           (meta.note ? '<p class="srv-note">' + esc(meta.note) + '</p>' : '')
-          + '<div class="srv-status" id="srv-status"><span class="srv-led"></span><span id="srv-status-text">checking…</span></div>'
+          + '<div class="srv-status starting" id="srv-status"><span class="srv-led"></span><span id="srv-status-text">checking…</span></div>'
           + '<input class="srv-filter" id="srv-filter" placeholder="Filter log lines (e.g. error)…" />'
           + (startLabels[key] ? '<button class="srv-start-btn" id="srv-start-btn">' + startLabels[key] + '</button>' : '')
           + '<div class="msi-console" id="srv-console"><span class="msi-inner"></span><span class="msi-cursor">&#9608;</span></div>';
@@ -1119,6 +1174,28 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     // Initial health poll on page load
     SM.pollHealth();
     SM.healthPollTimer = setInterval(() => SM.pollHealth(), 10000);
+
+    /* =====================  Agent tab status colors  ===================== */
+    function setAgentTabStatus(agentId, status) {
+      const tab = navAgents.querySelector('.agent-tab[data-agent-id="' + agentId + '"]');
+      if (!tab) return;
+      tab.classList.remove('agent-active', 'agent-error');
+      if (status === 'active') tab.classList.add('agent-active');
+      else if (status === 'error') tab.classList.add('agent-error');
+    }
+
+    (function startActivityPoll() {
+      async function poll() {
+        try {
+          const activity = await AM.fetchJSON('/api/agent-activity');
+          for (const [id, status] of Object.entries(activity)) {
+            setAgentTabStatus(id, status);
+          }
+        } catch (e) {}
+      }
+      poll();
+      setInterval(poll, 5000);
+    })();
 
     /* =====================  Deep-linking  =====================
        ?agent=<id>&view=thoughts|messages|tool-calls|chat-interface              */

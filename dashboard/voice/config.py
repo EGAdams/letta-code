@@ -34,7 +34,19 @@ CLEANUP_MODEL = os.environ.get("CLEANUP_MODEL", "gemini-2.5-flash-lite")
 
 # Known agent names fed to the cleanup model so it can fix mishears (Friday -> Frita).
 # Kept in sync with LETTA_AGENTS in server.py.
-KNOWN_AGENT_NAMES = ["Scissari", "Frita", "Hailey", "Cesare", "Jeri", "Mazda"]
+KNOWN_AGENT_NAMES = [
+    "Scissari",
+    "Frita",
+    "Hailey",
+    "Cesare",
+    "Jeri",
+    "Mazda",
+    "Mazda Router",
+    "Mazda Parser",
+    "Mazda Vendor Identity",
+    "Mazda Receipt Linker",
+    "Mazda Categorization",
+]
 
 # Initial prompt that biases whisper.cpp toward the real agent names, so e.g.
 # "Mazda" isn't transcribed as the common English name "Melissa" in the first place.

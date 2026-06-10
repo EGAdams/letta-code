@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Early Warning Tests and Dashboard Status Alerts</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 24px;
+      color: #222;
+    }
+
+    h1, h2 {
+      color: #1f2937;
+    }
+
+    h1 {
+      border-bottom: 3px solid #ddd;
+      padding-bottom: 10px;
+    }
+
+    .note {
+      background: #fff7cc;
+      border-left: 5px solid #facc15;
+      padding: 12px 16px;
+      margin: 20px 0;
+      font-weight: bold;
+    }
+
+    .section {
+      margin-top: 28px;
+    }
+
+    ul {
+      padding-left: 24px;
+    }
+
+    code {
+      background: #f3f4f6;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+
+    .healthy {
+      color: #15803d;
+      font-weight: bold;
+    }
+
+    .warning {
+      color: #ca8a04;
+      font-weight: bold;
+    }
+
+    .critical {
+      color: #dc2626;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Add Early Warning Tests and Dashboard Status Alerts</h1>
+
+  <p>
+    We need a way to catch this type of problem earlier and warn the team directly from the dashboard.
+  </p>
+
+  <div class="note">
+    Do not apply the production fix yet. Create the failing tests first.
+  </div>
+
+  <div class="section">
+    <h2>Goal</h2>
+    <p>
+      Add unit tests and integration tests that detect this problem before it reaches users.
+      The tests should fail now, before the implementation fix is applied.
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>Unit Test Requirements</h2>
+    <p>
+      Create unit tests that catch this type of error in the future.
+    </p>
+
+    <ul>
+      <li>Reproduce the current failure.</li>
+      <li>Fail before the fix is applied.</li>
+      <li>Verify the expected behavior.</li>
+      <li>Cover important edge cases.</li>
+      <li>Verify that the system correctly detects the problem condition.</li>
+      <li>Verify that healthy systems are not incorrectly marked as broken.</li>
+    </ul>
+
+    <p>
+      After writing the unit tests, run them and confirm they fail for the correct reason.
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>Integration Test Requirements</h2>
+    <p>
+      After the unit tests are written, create integration tests that verify the dashboard warning behavior.
+    </p>
+
+    <ul>
+      <li>
+        When this type of problem occurs, the main <strong>Status</strong> tab/button should blink
+        <span class="warning">yellow and white</span>.
+      </li>
+      <li>
+        When the user clicks the <strong>Status</strong> tab/button, the related status section should also blink
+        <span class="warning">yellow and white</span>.
+      </li>
+      <li>
+        Healthy status sections should be <span class="healthy">green</span>.
+      </li>
+      <li>
+        Remove the current blue color from these Status tabs.
+      </li>
+      <li>
+        Warning-level problems should use <span class="warning">yellow and white blinking</span>.
+      </li>
+      <li>
+        Critical problems should use <span class="critical">red and white blinking</span>.
+      </li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Status Color Rules</h2>
+
+    <ul>
+      <li>
+        <strong>Healthy:</strong>
+        <span class="healthy">Green</span>
+      </li>
+      <li>
+        <strong>Warning:</strong>
+        <span class="warning">Blinking yellow and white</span>
+      </li>
+      <li>
+        <strong>Critical:</strong>
+        <span class="critical">Blinking red and white</span>
+      </li>
+    </ul>
+
+    <p>
+      Example: if the <strong>Server</strong> status is critically unhealthy, the Server status section should blink
+      <span class="critical">red and white</span>.
+    </p>
+
+    <p>
+      If the system detects an early warning but not a critical failure, the affected status section should blink
+      <span class="warning">yellow and white</span>.
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>Expected Workflow</h2>
+
+    <ol>
+      <li>Write the unit tests first.</li>
+      <li>Run the unit tests and confirm they fail.</li>
+      <li>Write the integration tests.</li>
+      <li>Run the integration tests and confirm they fail.</li>
+      <li>Do not apply the actual production fix yet.</li>
+      <li>After we review the failing tests, we will decide on the implementation fix.</li>
+    </ol>
+  </div>
+
+</body>
+</html>

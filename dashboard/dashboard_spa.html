@@ -616,7 +616,16 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       current: null,           // { id, name }
       pollTimer: null,
       agents: null,
+      agentsLoadedAt: 0,
       served: location.protocol === 'http:' || location.protocol === 'https:',
+
+      // Agent activity indicator (yellow tab while an agent has a recent
+      // conversation message or tool call, blue again once it goes quiet).
+      activityTimer: null,
+      activityRevertTimer: null,
+      activityState: new Map(),
+      ACTIVITY_POLL_MS: 4000,
+      ACTIVE_HOLD_MS: 12000,
 
       stopPoll() { if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; } },
 
@@ -655,12 +664,15 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           return;
         }
 
-        if (status) status.textContent = 'Loading agents…';
-        try {
-          this.agents = await this.fetchJSON('/api/agents');
-        } catch (e) {
-          if (status) status.innerHTML = '<span class="am-warn" style="display:block">Failed to load agents: ' + esc(e.message) + '</span>';
-          return;
+        if (!this.agents) {
+          if (status) status.textContent = 'Loading agents…';
+          try {
+            this.agents = await this.fetchJSON('/api/agents');
+            this.agentsLoadedAt = Date.now();
+          } catch (e) {
+            if (status) status.innerHTML = '<span class="am-warn" style="display:block">Failed to load agents: ' + esc(e.message) + '</span>';
+            return;
+          }
         }
 
         if (!this.agents.length) {
@@ -678,9 +690,62 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           btn.textContent = a.name;
           navAgents.appendChild(btn);
         }
+        const age = this.agentsLoadedAt ? Math.max(0, Math.round((Date.now() - this.agentsLoadedAt) / 1000)) : 0;
         if (status) status.innerHTML = 'Loaded <strong>' + this.agents.length
           + '</strong> agent' + (this.agents.length === 1 ? '' : 's')
+          + (age ? ' <span class="dim">(cached ' + age + 's ago)</span>' : '')
           + '. Pick one from the left to view its Thoughts, Messages, Tool Calls, or run a Test.';
+
+        this.startActivityPolling();
+      },
+
+      // Continuously poll every agent's messages/tool calls so we can flash
+      // its sidebar tab yellow while it's actively talking or calling tools.
+      startActivityPolling() {
+        if (this.activityTimer) return;
+        this.pollActivity();
+        this.activityTimer = setInterval(() => this.pollActivity(), this.ACTIVITY_POLL_MS);
+      },
+
+      async pollActivity() {
+        if (!this.agents) return;
+        const now = Date.now();
+        for (const a of this.agents) {
+          let rows;
+          try {
+            const [msgs, calls] = await Promise.all([
+              this.fetchJSON('/api/messages?agent=' + encodeURIComponent(a.id)),
+              this.fetchJSON('/api/toolcalls?agent=' + encodeURIComponent(a.id)),
+            ]);
+            rows = (msgs || []).concat(calls || []);
+          } catch (e) { continue; }
+          if (!rows.length) continue;
+          rows.sort((x, y) => (x.date || '').localeCompare(y.date || ''));
+          const last = rows[rows.length - 1];
+          const key = (last.date || '') + '|' + (last.type || '') + '|' + (last.text || '').slice(0, 60);
+          const state = this.activityState.get(a.id) || { lastKey: null, activeUntil: 0 };
+          if (state.lastKey !== null && state.lastKey !== key) {
+            state.activeUntil = now + this.ACTIVE_HOLD_MS;
+          }
+          state.lastKey = key;
+          this.activityState.set(a.id, state);
+        }
+        this.updateActivityClasses();
+      },
+
+      // Apply/remove the yellow "agent-active" class based on each agent's
+      // recorded activeUntil timestamp, and keep checking so tabs revert
+      // to blue promptly once the hold window expires.
+      updateActivityClasses() {
+        const now = Date.now();
+        navAgents.querySelectorAll('.agent-tab').forEach(btn => {
+          const state = this.activityState.get(btn.dataset.agentId);
+          const isActive = !!(state && state.activeUntil > now);
+          btn.classList.toggle('agent-active', isActive);
+        });
+        if (!this.activityRevertTimer) {
+          this.activityRevertTimer = setInterval(() => this.updateActivityClasses(), 1000);
+        }
       },
 
       // Switch the sidebar to the per-agent detail fanout and show Thoughts first.

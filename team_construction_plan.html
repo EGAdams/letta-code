@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mazda Orchestrator - Team Construction Plan</title>
+  <style>
+    :root {
+      --bg: #08111f;
+      --bg2: #10223d;
+      --panel: #ffffff;
+      --soft: #f8fafc;
+      --ink: #102033;
+      --muted: #64748b;
+      --line: #dbe4ef;
+      --blue: #2563eb;
+      --green: #16a34a;
+      --orange: #b45309;
+      --red: #dc2626;
+      --purple: #7c3aed;
+      --cyan: #0891b2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: #eaf0f7;
+      line-height: 1.55;
+    }
+    .hero {
+      color: #fff;
+      background: linear-gradient(135deg, #020617 0%, #172554 55%, #0891b2 100%);
+      padding: 44px 30px 34px;
+    }
+    .hero-inner, .page { max-width: 1280px; margin: 0 auto; }
+    .eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; opacity: .85; font-weight: 700; }
+    h1 { margin: 10px 0 12px; font-size: 40px; line-height: 1.1; }
+    .subtitle { max-width: 1000px; font-size: 18px; opacity: .94; }
+    .badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+    .badge { border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.12); padding: 7px 11px; border-radius: 999px; font-size: 13px; }
+    .page { padding: 26px 22px 54px; }
+    .section { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; margin: 18px 0; padding: 24px; box-shadow: 0 12px 30px rgba(15, 23, 42, .08); }
+    h2 { margin: 0 0 14px; font-size: 25px; color: #0f172a; }
+    h3 { margin: 18px 0 8px; font-size: 18px; color: #1e293b; }
+    h4 { margin: 14px 0 6px; font-size: 15px; color: #334155; }
+    p { margin: 9px 0; }
+    ul, ol { margin-top: 8px; }
+    li { margin: 5px 0; }
+    a { color: #1d4ed8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { font-family: Consolas, "Courier New", monospace; background: #eef4ff; padding: 2px 5px; border-radius: 5px; }
+    pre { margin: 14px 0; border-radius: 14px; overflow-x: auto; background: #0b1220; color: #dbeafe; border: 1px solid #334155; padding: 16px; }
+    pre code { background: transparent; padding: 0; color: #e0f2fe; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+    th, td { text-align: left; vertical-align: top; border: 1px solid var(--line); padding: 10px; }
+    th { background: #f1f5f9; color: #0f172a; }
+    tr:nth-child(even) td { background: #fbfdff; }
+    .grid { display: grid; gap: 14px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .card { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: #fff; }
+    .card.soft { background: var(--soft); }
+    .card h3, .card h4 { margin-top: 0; }
+    .callout { border-left: 5px solid var(--blue); background: #eff6ff; padding: 14px 16px; border-radius: 12px; }
+    .warning { border-left-color: var(--orange); background: #fffbeb; }
+    .success { border-left-color: var(--green); background: #f0fdf4; }
+    .danger { border-left-color: var(--red); background: #fef2f2; }
+    .tag { display: inline-block; border-radius: 999px; background: #dbeafe; color: #1e40af; padding: 3px 8px; margin: 2px; font-size: 12px; font-weight: 700; }
+    .tag.green { background:#dcfce7; color:#166534; }
+    .tag.orange { background:#ffedd5; color:#9a3412; }
+    .tag.purple { background:#ede9fe; color:#5b21b6; }
+    .tag.red { background:#fee2e2; color:#991b1b; }
+    .tag.cyan { background:#cffafe; color:#155e75; }
+    .mini { font-size: 13px; color: var(--muted); }
+    .diagram { background: #0b1220; color: #dbeafe; border-radius: 14px; padding: 16px; overflow-x:auto; border: 1px solid #334155; }
+    .agent { border-left: 5px solid var(--cyan); }
+    .service { border-left: 5px solid var(--purple); }
+    .test { border-left: 5px solid var(--green); }
+    .phase-title { display:flex; align-items:center; gap:10px; }
+    .num { display:inline-grid; place-items:center; min-width:32px; height:32px; border-radius:50%; color:#fff; background:var(--blue); font-weight:800; }
+    @media (max-width: 960px) { .grid.two, .grid.three, .grid.four { grid-template-columns: 1fr; } h1 { font-size: 32px; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">Project Plans - Mazda Orchestrator - GoF / SOLID / TDD</div>
+      <h1>Mazda Orchestrator Team Construction Plan</h1>
+      <p class="subtitle">Move Mazda from overloaded tool user to self-improving finance orchestrator. Mazda coordinates specialist agents, deterministic services, shared JSON contracts, evidence capture, evaluation gates, and rollback-safe improvement proposals.</p>
+      <div class="badges">
+        <span class="badge">Mazda Stays Self-Improving</span>
+        <span class="badge">Orchestrator + Specialists</span>
+        <span class="badge">Deterministic Services Stay Deterministic</span>
+        <span class="badge">Abstract Factories</span>
+        <span class="badge">Unit Tests First</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="section">
+      <h2>1. Decision</h2>
+      <div class="callout">
+        <strong>Recommendation:</strong> Mazda becomes the manager/orchestrator agent for finance document runs. Specialist agents handle ambiguous, context-heavy work. Deterministic operations such as exact duplicate lookup, vendor-map lookup, trace writes, proposal persistence, DB insert, activation, and rollback remain service ports behind agents.
+      </div>
+      <div class="grid two" style="margin-top:14px;">
+        <div class="card">
+          <h3>What Changes</h3>
+          <ul>
+            <li>Mazda stops carrying every operation as one overloaded personal toolset.</li>
+            <li>Mazda delegates to named stage agents through stable handoff contracts.</li>
+            <li>Every stage writes an artifact that can be replayed, tested, audited, or resumed.</li>
+            <li>Self-improvement is promoted from "extra tools" to a governed workflow lane.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>What Does Not Change</h3>
+          <ul>
+            <li>Finance checks that must be exact stay in Python/SQL/YAML-backed services.</li>
+            <li>Only the storage lane writes final expense rows.</li>
+            <li>Improvement proposals never auto-activate without gates.</li>
+            <li>Mazda still records traces, evaluates outcomes, proposes changes, and learns.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>2. Relationship To Existing Plans</h2>
+      <p>This plan merges the team-agent idea from <code>/home/adamsl/rol_finances/plans/team_construction_plan.md</code> with the working pipeline details in <code>/home/adamsl/rol_finances/plans/document_processing_steps.md</code>.</p>
+      <p>It also uses the self-improvement architecture in <a href="/agent_self_improvement/agent_self_improvement_plan.html">Agent Self-Improvement System</a> as the control plane. The most relevant pieces are:</p>
+      <table>
+        <thead><tr><th>Self-Improvement Phase</th><th>How This Plan Uses It</th></tr></thead>
+        <tbody>
+          <tr><td>Phase 02 - Factory Contracts</td><td>Agent teams, services, and workflow objects are created from factories, not hard-coded into Mazda.</td></tr>
+          <tr><td>Phase 06 - Tool Contract Layer</td><td>Deterministic services expose strict ports; agents do not invent or bypass tool contracts.</td></tr>
+          <tr><td>Phase 08 - Workflow Skeletons</td><td>The document pipeline becomes a versioned workflow template with ordered steps and branch policy.</td></tr>
+          <tr><td>Phase 09/10 - Evaluation + Gates</td><td>Every run and every candidate improvement is scored, gated, and explained before activation.</td></tr>
+          <tr><td>Phase 11/12 - Proposals + Experiments</td><td>Improvement Analyst drafts proposals; experiments compare baseline vs candidate workflows/prompts/tools.</td></tr>
+          <tr><td>Phase 13 - Activation + Rollback</td><td>Approved changes activate through snapshots and rollback services, never by direct LLM mutation.</td></tr>
+          <tr><td>Phase 14 - Memory + Notes</td><td>Accepted lessons update vendor/category/parser memory with source, reason, and staleness policy.</td></tr>
+          <tr><td>Phase 15/16 - Plugin Registry + Reports</td><td>New agents and stage implementations register as plugins; reports show evidence, decisions, and active versions.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>3. Target Architecture</h2>
+      <div class="diagram"><pre><code>MazdaOrchestratorAgent
+  |
+  +-- AgentTeamFactory
+  |     +-- IntakeScanAgent
+  |     +-- RouterAgent
+  |     +-- ParserAgent
+  |     +-- IdentityVendorAgent
+  |     +-- DuplicateReviewAgent
+  |     +-- ReceiptLinkerAgent
+  |     +-- CategorizationAgent
+  |     +-- StorageIngestAgent
+  |     +-- ReviewExceptionAgent
+  |     +-- ImprovementAnalystAgent
+  |
+  +-- DeterministicServiceFamily
+        +-- TraceCommandService
+        +-- VendorMapService
+        +-- DuplicateLookupService
+        +-- CategoryStoreService
+        +-- ReceiptFinderService
+        +-- ExpenseRepository
+        +-- ProposalRepository
+        +-- GateChain
+        +-- ActivationRollbackService</code></pre></div>
+
+      <div class="grid three" style="margin-top:16px;">
+        <div class="card agent">
+          <h3>Agents</h3>
+          <p>Handle judgment, ambiguity, summarization, routing, exception packets, and explanation.</p>
+          <span class="tag cyan">Facade</span><span class="tag">Strategy</span><span class="tag">Mediator</span>
+        </div>
+        <div class="card service">
+          <h3>Services</h3>
+          <p>Handle exact, auditable, repeatable operations: reads, writes, lookups, IDs, traces, gates.</p>
+          <span class="tag purple">Command</span><span class="tag">Repository</span><span class="tag">Unit of Work</span>
+        </div>
+        <div class="card test">
+          <h3>Tests</h3>
+          <p>Pin every contract before implementation. Fakes prove orchestration without live Letta or live DB.</p>
+          <span class="tag green">Contract Tests</span><span class="tag green">Golden Cases</span><span class="tag green">Regression Gates</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>4. Team Roles</h2>
+      <table>
+        <thead><tr><th>Role</th><th>Agent / Service</th><th>Responsibilities</th><th>Must Not Do</th><th>Primary Patterns</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Mazda Orchestrator</td>
+            <td>Agent</td>
+            <td>Own run state, delegate stages, enforce workflow order, collect artifacts, request review, ask for improvement analysis.</td>
+            <td>Parse documents directly, write final DB rows, activate self-changes directly.</td>
+            <td>Facade, Mediator, Template Method</td>
+          </tr>
+          <tr>
+            <td>Intake / Scan</td>
+            <td>Agent + file service</td>
+            <td>Create run folder, manifest, previews, source metadata.</td>
+            <td>Guess categories or mutate finance DB.</td>
+            <td>Factory Method, Adapter</td>
+          </tr>
+          <tr>
+            <td>Router</td>
+            <td>Agent</td>
+            <td>Classify document type and select parser strategy.</td>
+            <td>Extract final rows or write storage.</td>
+            <td>Strategy, Chain of Responsibility</td>
+          </tr>
+          <tr>
+            <td>Parser</td>
+            <td>Agent + parser adapters</td>
+            <td>Use OCR, Gemini, or structured parsers to emit transaction candidates with evidence.</td>
+            <td>Invent missing fields or insert rows.</td>
+            <td>Adapter, Strategy</td>
+          </tr>
+          <tr>
+            <td>Identity + Vendor</td>
+            <td>Agent + deterministic vendor service</td>
+            <td>Normalize vendor before final <code>id_light</code>; explain alias choice.</td>
+            <td>Bypass vendor map or create unstable IDs.</td>
+            <td>Strategy, Specification</td>
+          </tr>
+          <tr>
+            <td>Duplicate Review</td>
+            <td>Agent + deterministic duplicate service</td>
+            <td>Interpret exact/fuzzy duplicate results and recommend skip/review/proceed.</td>
+            <td>Perform approximate DB logic inside the LLM.</td>
+            <td>Chain of Responsibility, Policy Object</td>
+          </tr>
+          <tr>
+            <td>Receipt Linker</td>
+            <td>Agent + receipt finder service</td>
+            <td>Link best receipt/document artifact; surface alternatives.</td>
+            <td>Write final rows.</td>
+            <td>Strategy, Adapter</td>
+          </tr>
+          <tr>
+            <td>Categorization</td>
+            <td>Agent + category services</td>
+            <td>Use vendor store first, categorizer second, review third; learn from accepted decisions.</td>
+            <td>Silently insert null or low-confidence categories.</td>
+            <td>Chain of Responsibility, Strategy</td>
+          </tr>
+          <tr>
+            <td>Storage / Ingest</td>
+            <td>Agent gate + repository service</td>
+            <td>Validate required fields, write final DB/filesystem records, emit ingest summary.</td>
+            <td>Accept ambiguous rows without review.</td>
+            <td>Unit of Work, Repository, Command</td>
+          </tr>
+          <tr>
+            <td>Review / Exception</td>
+            <td>Agent</td>
+            <td>Prepare human review packets and turn accepted corrections into lessons.</td>
+            <td>Auto-approve risky corrections.</td>
+            <td>State, Observer</td>
+          </tr>
+          <tr>
+            <td>Trace Steward</td>
+            <td>Service first, optional agent facade</td>
+            <td>Validate trace packet shape, then call deterministic <code>record_trace</code>.</td>
+            <td>Let an LLM invent audit rows.</td>
+            <td>Command, Memento, Repository</td>
+          </tr>
+          <tr>
+            <td>Improvement Analyst</td>
+            <td>Agent + proposal service</td>
+            <td>Analyze failed traces and draft proposal candidates with risk/tests/benefit.</td>
+            <td>Persist or activate proposals without the proposal service and gates.</td>
+            <td>Builder, Command, Chain of Responsibility</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>5. Canonical Workflow</h2>
+      <div class="diagram"><pre><code>intake
+  -> route
+  -> parse
+  -> normalize_vendor_and_identity
+  -> duplicate_check
+  -> receipt_link
+  -> categorize
+  -> storage_validation
+  -> store
+  -> record_trace
+  -> evaluate
+  -> propose_improvement_if_reproducible
+  -> experiment_and_gate
+  -> activate_or_reject
+  -> report_and_learn</code></pre></div>
+      <p>The workflow should be represented as <code>IWorkflow</code> / <code>IStep</code> objects, not as scattered prose in tool descriptions. Mazda can read the workflow revision and run it as a template. Steps can be swapped by document type while the skeleton stays stable.</p>
+    </section>
+
+    <section class="section">
+      <h2>6. Interface Catalog</h2>
+      <div class="grid two">
+        <div class="card">
+          <h3>Orchestration</h3>
+          <pre><code>interface IOrchestratorAgent {
+  runDocumentJob(request: DocumentJobRequest): OrchestratorRunResult
+}
+
+interface IAgentTeamFactory {
+  createTeam(profile: TeamRuntimeProfile): AgentTeam
+}
+
+interface IWorkflowRunner {
+  run(workflow: IWorkflow, context: WorkflowContext): WorkflowResult
+}</code></pre>
+        </div>
+        <div class="card">
+          <h3>Agent Ports</h3>
+          <pre><code>interface IStageAgent&lt;TIn, TOut&gt; {
+  stageName(): string
+  run(input: StageEnvelope&lt;TIn&gt;): StageEnvelope&lt;TOut&gt;
+}
+
+interface IAgentTransport {
+  send(agentId: AgentId, request: AgentRunRequest): AgentRunResult
+}</code></pre>
+        </div>
+        <div class="card">
+          <h3>Artifacts</h3>
+          <pre><code>interface IRunArtifactStore {
+  put(runId: RunId, artifact: Artifact): ArtifactRef
+  get(ref: ArtifactRef): Artifact
+  list(runId: RunId): ArtifactRef[]
+}
+
+interface IStageEnvelopeValidator {
+  validate(envelope: StageEnvelope&lt;unknown&gt;): ValidationResult
+}</code></pre>
+        </div>
+        <div class="card">
+          <h3>Deterministic Finance Services</h3>
+          <pre><code>interface IVendorMapService {
+  resolve(rawDescription: string): VendorResolution
+}
+
+interface IDuplicateLookupService {
+  check(candidate: CanonicalTransaction): DuplicateVerdict
+}
+
+interface ICategoryResolutionService {
+  resolve(candidate: CanonicalTransaction): CategoryVerdict
+}</code></pre>
+        </div>
+        <div class="card">
+          <h3>Storage</h3>
+          <pre><code>interface IExpenseUnitOfWork {
+  validate(batch: ValidatedExpenseBatch): ValidationResult
+  commit(batch: ValidatedExpenseBatch): IngestResult
+  rollback(snapshot: SnapshotId): RollbackResult
+}
+
+interface IStoragePolicy {
+  canStore(candidate: CanonicalTransaction): PolicyVerdict
+}</code></pre>
+        </div>
+        <div class="card">
+          <h3>Self-Improvement</h3>
+          <pre><code>interface ITraceCommandService {
+  record(packet: TracePacket): TraceId
+}
+
+interface IImprovementAnalystAgent {
+  analyze(trace: TraceRecord): ImprovementDraft
+}
+
+interface IProposalCommandService {
+  file(draft: ImprovementDraft): ProposalId
+}</code></pre>
+        </div>
+        <div class="card">
+          <h3>Evaluation + Gates</h3>
+          <pre><code>interface IEvaluationSuite {
+  score(run: OrchestratorRunResult): ScoreCard
+}
+
+interface IGate {
+  evaluate(candidate: ImprovementCandidate): GateVerdict
+}
+
+interface IGateChain {
+  evaluate(candidate: ImprovementCandidate): FinalVerdict
+}</code></pre>
+        </div>
+        <div class="card">
+          <h3>Reporting + Learning</h3>
+          <pre><code>interface IRunReportBuilder {
+  build(run: OrchestratorRunResult): HtmlReport
+}
+
+interface ILessonWriter {
+  write(lesson: AcceptedLesson): LessonId
+}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>7. Shared JSON Envelope</h2>
+      <p>Every agent handoff uses one envelope so Mazda can retry, audit, replay, and resume without understanding each specialist's internals.</p>
+      <pre><code>{
+  "schema_version": "finance-stage-envelope/v1",
+  "run_id": "run_...",
+  "document_id": "doc_...",
+  "stage": "parse",
+  "status": "ok|needs_review|failed",
+  "confidence": 0.97,
+  "warnings": [],
+  "artifact_refs": [],
+  "data": {},
+  "evidence": [],
+  "next_recommended_stage": "normalize_vendor_and_identity"
+}</code></pre>
+    </section>
+
+    <section class="section">
+      <h2>8. GoF Pattern Map</h2>
+      <table>
+        <thead><tr><th>Pattern</th><th>Where It Goes</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr><td>Facade</td><td><code>MazdaOrchestratorAgent</code></td><td>Expose one simple run API while hiding team complexity.</td></tr>
+          <tr><td>Mediator</td><td>Mazda coordinating agents</td><td>Specialists do not directly depend on each other.</td></tr>
+          <tr><td>Abstract Factory</td><td><code>IAgentTeamFactory</code>, <code>IServiceFamilyFactory</code></td><td>Create compatible agent/service families by runtime profile.</td></tr>
+          <tr><td>Template Method</td><td><code>DocumentWorkflowTemplate</code></td><td>Stable finance workflow with overridable stage behavior.</td></tr>
+          <tr><td>Strategy</td><td>Routing, parsing, category resolution, receipt linking</td><td>Swap algorithms by document type and confidence.</td></tr>
+          <tr><td>Adapter</td><td>Letta agents, Gemini parser, OCR, existing finance modules</td><td>Normalize external APIs into internal ports.</td></tr>
+          <tr><td>Command</td><td>Trace write, proposal file, DB insert, activation, rollback</td><td>Auditable, replayable actions.</td></tr>
+          <tr><td>Chain of Responsibility</td><td>Category resolution, duplicate policy, improvement gates</td><td>Fast deterministic checks first, expensive/risky checks later.</td></tr>
+          <tr><td>Repository</td><td>Artifacts, traces, proposals, snapshots, expenses</td><td>Persistence stays behind contracts.</td></tr>
+          <tr><td>Unit of Work</td><td>Storage ingest and activation</td><td>Commit/rollback entire validated changesets.</td></tr>
+          <tr><td>Memento</td><td>Workflow/prompt/tool snapshots before activation</td><td>Rollback to previous active versions.</td></tr>
+          <tr><td>Observer</td><td>Run events and dashboard status</td><td>Reports and status update without coupling to execution.</td></tr>
+          <tr><td>State</td><td>Document job lifecycle</td><td>Explicit transitions: queued, running, review, stored, failed, improved.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>9. Unit Test Plan</h2>
+      <div class="callout warning">
+        <strong>TDD rule:</strong> Start with fake agents, fake transports, temp artifact stores, and in-memory repositories. Live Letta and live finance DB tests come later as integration tests.
+      </div>
+      <table>
+        <thead><tr><th>Test File</th><th>Behavior To Pin</th><th>First Failing Assertion</th></tr></thead>
+        <tbody>
+          <tr><td><code>test_orchestrator_workflow_order.py</code></td><td>Mazda calls stages in canonical order.</td><td>Step sequence equals intake, route, parse, normalize, duplicate, receipt, categorize, store, trace, evaluate.</td></tr>
+          <tr><td><code>test_agent_team_factory.py</code></td><td>Factory builds a complete team for the Mazda profile.</td><td>All required stage agents and services are non-null and compatible.</td></tr>
+          <tr><td><code>test_stage_envelope_contract.py</code></td><td>Every stage returns the shared JSON envelope.</td><td>Missing <code>run_id</code>, <code>stage</code>, <code>status</code>, or <code>confidence</code> fails validation.</td></tr>
+          <tr><td><code>test_parser_stage_contract.py</code></td><td>Parser emits candidates with evidence and warnings.</td><td>Parser may not invent required fields without evidence.</td></tr>
+          <tr><td><code>test_vendor_identity_order.py</code></td><td>Final <code>id_light</code> is built after canonical vendor resolution.</td><td><code>id_light.vendor</code> equals canonical vendor key, not raw description guess.</td></tr>
+          <tr><td><code>test_duplicate_policy.py</code></td><td>Exact duplicates stop storage; fuzzy duplicates route to review unless high-confidence safe.</td><td>Exact duplicate never reaches storage stage.</td></tr>
+          <tr><td><code>test_category_chain.py</code></td><td>Vendor store first, categorizer second, review third.</td><td>Known vendor does not call LLM categorizer.</td></tr>
+          <tr><td><code>test_storage_single_writer.py</code></td><td>Only storage/ingest service can commit final expense rows.</td><td>Parser/router/category agents have no DB write port.</td></tr>
+          <tr><td><code>test_trace_command_once.py</code></td><td>Trace is recorded exactly once per orchestrator run.</td><td>Success and failure runs each produce one trace packet.</td></tr>
+          <tr><td><code>test_improvement_gate.py</code></td><td>Improvement proposal requires reproducible failure and trace id.</td><td>Clean run does not call proposal service.</td></tr>
+          <tr><td><code>test_activation_rollback.py</code></td><td>Approved changes snapshot before activation and can roll back.</td><td>Activation without snapshot fails.</td></tr>
+          <tr><td><code>test_memory_lesson_policy.py</code></td><td>Accepted lessons include source, reason, owner, and staleness policy.</td><td>Anonymous memory update fails.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>10. Example Unit Tests</h2>
+      <div class="grid two">
+        <div class="card">
+          <h3>Workflow Order</h3>
+          <pre><code>def test_mazda_runs_canonical_workflow_order():
+    team = FakeAgentTeam()
+    runner = MazdaOrchestrator(team=team, services=FakeServices())
+
+    runner.run_document_job(sample_statement_job())
+
+    assert team.called_stages == [
+        "intake", "route", "parse", "normalize_vendor_and_identity",
+        "duplicate_check", "receipt_link", "categorize",
+        "storage_validation", "store"
+    ]</code></pre>
+        </div>
+        <div class="card">
+          <h3>No DB Writes Outside Storage</h3>
+          <pre><code>def test_only_storage_stage_receives_expense_repository():
+    factory = MazdaTeamFactory(profile="test")
+
+    team = factory.create_team()
+
+    assert not hasattr(team.parser_agent, "expense_repository")
+    assert not hasattr(team.router_agent, "expense_repository")
+    assert team.storage_agent.expense_repository is not None</code></pre>
+        </div>
+        <div class="card">
+          <h3>Self-Improvement Gate</h3>
+          <pre><code>def test_clean_run_does_not_file_improvement():
+    services = FakeServices()
+    runner = MazdaOrchestrator(team=CleanRunTeam(), services=services)
+
+    runner.run_document_job(sample_statement_job())
+
+    assert services.trace_command.calls == 1
+    assert services.proposal_command.calls == 0</code></pre>
+        </div>
+        <div class="card">
+          <h3>Proposal Requires Trace</h3>
+          <pre><code>def test_improvement_draft_requires_trace_id():
+    draft = ImprovementDraft(trace_id=None, failure_type="wrong_category")
+
+    result = ProposalPolicy().validate(draft)
+
+    assert result.ok is False
+    assert "trace_id" in result.reason</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>11. Build Phases</h2>
+      <table>
+        <thead><tr><th>Phase</th><th>Goal</th><th>Interfaces / Classes</th><th>Tests First</th><th>Done Means</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>00</strong><br>Vocabulary</td>
+            <td>Define IDs, envelopes, artifact refs, stage names.</td>
+            <td><code>RunId</code>, <code>DocumentId</code>, <code>StageName</code>, <code>StageEnvelope</code></td>
+            <td><code>test_stage_envelope_contract.py</code></td>
+            <td>All handoffs share one schema.</td>
+          </tr>
+          <tr>
+            <td><strong>01</strong><br>Factories</td>
+            <td>Create team and service families.</td>
+            <td><code>IAgentTeamFactory</code>, <code>IServiceFamilyFactory</code>, <code>TeamRuntimeProfile</code></td>
+            <td><code>test_agent_team_factory.py</code></td>
+            <td>Mazda receives complete team through interfaces.</td>
+          </tr>
+          <tr>
+            <td><strong>02</strong><br>Workflow Skeleton</td>
+            <td>Represent canonical finance workflow as steps.</td>
+            <td><code>IWorkflow</code>, <code>IStep</code>, <code>IWorkflowRunner</code></td>
+            <td><code>test_orchestrator_workflow_order.py</code></td>
+            <td>Stage order is testable and versioned.</td>
+          </tr>
+          <tr>
+            <td><strong>03</strong><br>Fake Agent Runtime</td>
+            <td>Run full workflow offline with fake agents.</td>
+            <td><code>FakeStageAgent</code>, <code>FakeAgentTransport</code>, <code>FakeArtifactStore</code></td>
+            <td>Golden fake-run test</td>
+            <td>No live Letta dependency for unit tests.</td>
+          </tr>
+          <tr>
+            <td><strong>04</strong><br>Deterministic Ports</td>
+            <td>Wrap existing finance modules behind services.</td>
+            <td><code>IVendorMapService</code>, <code>IDuplicateLookupService</code>, <code>IExpenseUnitOfWork</code></td>
+            <td>Vendor, duplicate, category, storage contract tests</td>
+            <td>Agents cannot bypass deterministic checks.</td>
+          </tr>
+          <tr>
+            <td><strong>05</strong><br>Self-Improvement Lane</td>
+            <td>Trace, evaluate, propose, gate, activate, rollback.</td>
+            <td><code>ITraceCommandService</code>, <code>IImprovementAnalystAgent</code>, <code>IGateChain</code></td>
+            <td>Trace-once and clean-run-no-proposal tests</td>
+            <td>Mazda self-improves safely after evidence.</td>
+          </tr>
+          <tr>
+            <td><strong>06</strong><br>Live Letta Wiring</td>
+            <td>Bind stage agents to real Letta IDs through adapters.</td>
+            <td><code>ILettaAgentAdapter</code>, <code>IAgentRegistry</code></td>
+            <td>Registration and transport integration tests</td>
+            <td>Specialists can be swapped without Mazda code changes.</td>
+          </tr>
+          <tr>
+            <td><strong>07</strong><br>Dashboard Reports</td>
+            <td>Show run state, artifacts, gates, active versions.</td>
+            <td><code>IRunReportBuilder</code>, <code>IStatusObserver</code></td>
+            <td>Snapshot-stable report tests</td>
+            <td>Team can review outcomes without reading logs.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>12. Open Design Decisions</h2>
+      <div class="grid three">
+        <div class="card warning">
+          <h3>Agent Granularity</h3>
+          <p>Start with existing agents covering multiple roles. Split into new agents only when repeated workload, context size, or failure isolation justifies it.</p>
+        </div>
+        <div class="card warning">
+          <h3>Trace Steward Shape</h3>
+          <p>Prefer deterministic <code>record_trace</code>. Add a Trace Steward Agent only to inspect/complete evidence packets before the command service writes.</p>
+        </div>
+        <div class="card warning">
+          <h3>Improvement Analyst Scope</h3>
+          <p>The analyst may draft changes, but proposal persistence, gates, experiments, activation, and rollback remain deterministic services.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>13. Immediate Action Items</h2>
+      <ol>
+        <li>Approve Mazda as the orchestrator and the canonical step order.</li>
+        <li>Create <code>StageEnvelope</code>, <code>AgentTeam</code>, and <code>WorkflowContext</code> contracts.</li>
+        <li>Add unit tests for workflow order, envelope validation, single-writer storage, trace-once behavior, and clean-run no-proposal behavior.</li>
+        <li>Wrap current deterministic finance functions as services before adding more live agents.</li>
+        <li>Add fake specialist agents and prove a full offline run.</li>
+        <li>Wire existing Letta agents through an agent registry and transport adapter.</li>
+        <li>Add the self-improvement lane: trace, score, draft proposal, gate, experiment, activate/rollback.</li>
+        <li>Publish run reports in the dashboard so the team can review evidence and active versions.</li>
+      </ol>
+    </section>
+  </main>
+</body>
+</html>

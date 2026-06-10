@@ -73,3 +73,15 @@
 - Local Scissari integration defaults:
   - Letta API base URL default: `http://100.80.49.10:8283`
   - Logger API base URL used by reset helpers: `http://100.80.49.10:8284/libraries/local-php-api`
+
+## Agent Memory: Dashboard Project Plans Deployment
+- The live Windows 10 dashboard is served from the WSL repo at `/home/adamsl/letta-code`, not `/var/www/html`.
+- Dashboard shell: `dashboard/dashboard.html`; server: `dashboard/server.py`; default URL: `http://localhost:8765/`.
+- `dashboard/server.py` serves static files from both `dashboard/` and repo root (`/home/adamsl/letta-code`), so repo-root plan pages are addressable as `/<file>.html`.
+- Project Plans now include `Mazda Orchestrator`, backed by `/home/adamsl/letta-code/team_construction_plan.html`.
+- The old Tool Fix plan was removed: `/home/adamsl/letta-code/agent_self_improvement/mazda_tool_fix_plan.html` should stay gone; the old URL should return 404.
+- Frita can advise on dashboard deployment details at Letta agent id `agent-881a883f-edd0-4963-bf67-6ef178b8f018`.
+- Verify dashboard plan changes with:
+  - `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8765/team_construction_plan.html`
+  - `curl -s http://localhost:8765/ | rg 'Mazda Orchestrator|team_construction_plan|Tool Fix|mazda_tool_fix'`
+  - `cd dashboard && .venv/bin/python -m pytest tests/`
