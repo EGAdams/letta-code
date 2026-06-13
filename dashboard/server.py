@@ -1197,6 +1197,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response(letta_toolcalls(lid))
             return self.json_response([])
 
+        if path == '/api/rol-finance-reports':
+            result = []
+            for r in ROL_FINANCE_REPORTS:
+                report_file = os.path.join(ROL_FINANCES_REPORTS_BASE, r['dir'], 'report.html')
+                exists = os.path.isfile(report_file)
+                result.append({
+                    'key': r['key'],
+                    'label': r['label'],
+                    'exists': exists,
+                    'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{r["dir"]}/report.html' if exists else None,
+                })
+            return self.json_response(result)
+
         if path == '/api/servers':
             return self.json_response([
                 {'key': s['key'], 'name': s['name'], 'note': s.get('note', '')}
