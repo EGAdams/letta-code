@@ -686,13 +686,22 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
        Mirrors js/abstract/agent-voice-catalog.interface.js (AgentVoiceCatalog,
        Strategy/Registry): each agent gets its own cached voice so Scissari,
        Mazda, Frita, Hailey, and Jeri sound distinct from one another. */
-    const FEMALE_VOICE_RE = /female|\b(zira|aria|jenny|samantha|susan|victoria|karen|moira|tessa|allison|ava|joanna|salli|kendra|kimberly|ivy|emma|olivia|amy)\b/i;
+    const FEMALE_VOICE_RE = /female|\b(zira|aria|jenny|samantha|susan|victoria|karen|moira|tessa|allison|ava|joanna|salli|kendra|kimberly|ivy|emma|olivia|amy|michelle|ashley|ana|cora|elizabeth|sara|nancy|monica|libby|sonia|catherine|fiona|natasha|hazel|maisie|google us english)\b/i;
+    // Used to keep voiceFor()'s fallbacks from ever landing on a male voice
+    // when no agent-specific or generic female voice is available.
+    const MALE_VOICE_RE = /\bmale\b|\b(david|mark|guy|davis|tony|jacob|andrew|brian|christopher|eric|roger|steffan|james|william|daniel|liam|ryan|george|thomas)\b/i;
     const AGENT_VOICE_PREFERENCES = {
       Scissari: [/zira/i],
       Mazda:    [/aria/i],
       Frita:    [/jenny|joanna/i],
       Hailey:   [/samantha|susan/i],
       Jeri:     [/salli|kendra|amy|emma|olivia/i],
+      Cesare:   [/ashley|michelle/i],
+      'Mazda Router':           [/ana/i],
+      'Mazda Parser':           [/cora/i],
+      'Mazda Vendor Identity':  [/elizabeth/i],
+      'Mazda Receipt Linker':   [/sara/i],
+      'Mazda Categorization':   [/nancy|monica/i],
     };
     const Speech = {
       synth: window.speechSynthesis || null,
@@ -711,7 +720,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           voices.find(v => /en[-_]US/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name) && /google|natural|neural/i.test(v.name)) ||
           voices.find(v => /en[-_]US/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
           voices.find(v => /^en/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => /en[-_]US/i.test(v.lang) && /google|natural|neural/i.test(v.name)) ||
+          voices.find(v => FEMALE_VOICE_RE.test(v.name)) ||
+          voices.find(v => /en[-_]US/i.test(v.lang) && /google|natural|neural/i.test(v.name) && !MALE_VOICE_RE.test(v.name)) ||
+          voices.find(v => /en[-_]US/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
+          voices.find(v => /^en/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
           voices.find(v => /en[-_]US/i.test(v.lang)) ||
           voices.find(v => /^en/i.test(v.lang)) ||
           voices[0];
@@ -741,8 +753,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         }
         if (!picked) {
           picked =
+            // Prefer a female voice nobody else is using yet...
             unused(v => /en/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
-            unused(v => /en/i.test(v.lang)) ||
+            // ...but reusing a female voice beats falling through to a male one.
+            voices.find(v => /en/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
+            // No identifiably-female voice at all: pick anything not identifiably male.
+            unused(v => /en/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
+            voices.find(v => /en/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
             this.voice;
         }
         if (picked) this.agentVoices.set(agentName, picked);
