@@ -601,11 +601,20 @@ export async function addGitMemoryTag(
 ): Promise<void> {
   const client = await getClient();
   try {
-    const agent = prefetchedAgent ?? (await client.agents.retrieve(agentId));
-    const tags = agent.tags || [];
-    if (!tags.includes(GIT_MEMORY_ENABLED_TAG)) {
+    const prefetchedTags = prefetchedAgent?.tags || [];
+    if (prefetchedTags.includes(GIT_MEMORY_ENABLED_TAG)) {
+      return;
+    }
+
+    // Prefetched agent tags can be stale across long-lived sessions. Re-read the
+    // live agent before updating so we don't keep re-writing the same tag and
+    // accidentally create duplicate rows server-side when the backend lacks a
+    // uniqueness constraint on agents_tags.
+    const agent = await client.agents.retrieve(agentId);
+    const liveTags = agent.tags || [];
+    if (!liveTags.includes(GIT_MEMORY_ENABLED_TAG)) {
       await client.agents.update(agentId, {
-        tags: [...tags, GIT_MEMORY_ENABLED_TAG],
+        tags: Array.from(new Set([...liveTags, GIT_MEMORY_ENABLED_TAG])),
       });
       debugLog("memfs-git", `Added ${GIT_MEMORY_ENABLED_TAG} tag`);
     }

@@ -18,6 +18,7 @@
       <button type="button" class="tab" data-nav="main" data-target="tool-management">Tool Management</button>
       <button type="button" class="tab" data-nav="main" data-target="agent-management">Agent Management</button>
       <button type="button" class="tab" data-nav="main" data-target="server-management" id="btn-server-mgmt">Server Management</button>
+      <button type="button" class="tab" data-nav="main" data-target="ssh-connections" id="btn-ssh-connections">SSH Connections</button>
       <button type="button" class="tab" data-nav="main" data-target="project-plans">Project Plans</button>
     </nav>
 
@@ -81,6 +82,16 @@
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-agent-card">Agent Card</button>
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tests">Tests</button>
       <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-input-options">Input Options</button>
+    </nav>
+
+    <!-- Server management sub-nav (server tabs injected dynamically) -->
+    <nav id="nav-servers" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-servers">Back</button>
+    </nav>
+
+    <!-- SSH Connections sub-nav (connection tabs injected dynamically) -->
+    <nav id="nav-ssh-connections" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-ssh">Back</button>
     </nav>
   </aside>
 
@@ -212,6 +223,16 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <div id="servers-detail-body"></div>
     </section>
 
+    <section id="ssh-connections" class="view">
+      <h2>SSH Connections</h2>
+      <p>Click a connection above to test it and view its terminal/connection log.</p>
+    </section>
+
+    <section id="ssh-connection-detail" class="view">
+      <h2 id="ssh-connection-detail-title">SSH Connection</h2>
+      <div id="ssh-connection-detail-body"></div>
+    </section>
+
     <section id="agent-detail-home" class="view">
       <h2 id="agent-detail-title">Agent</h2>
       <p id="agent-detail-home-text">Choose a tab above to view this agent's data.</p>
@@ -260,24 +281,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <iframe id="rol-finance-plan-frame" class="plan-frame" src="/rol_finances/tools/plan.html"></iframe>
     </section>
 
-    <!-- ROL Finance views -->
-    <section id="rol-finance-current-status" class="view">
-      <h2>Current Status</h2>
-      <p>Current Status content coming soon.</p>
-    </section>
-
-    <section id="rol-finance-taxes" class="view">
-      <h2>Taxes</h2>
-      <p>Taxes content coming soon.</p>
-    </section>
-
-    <section id="rol-finance-reports" class="view">
-      <p>Loading reports…</p>
-    </section>
-
-    <!-- ROL Finance report views injected dynamically by RF.init() -->
-    <section id="rol-finance-reports-views"></section>
-
     <section id="plans-self-evolving" class="view">
       <iframe id="self-evolving-plan-frame" class="plan-frame" src="/agent_self_improvement/agent_self_improvement_plan.html"></iframe>
     </section>
@@ -314,6 +317,24 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       </div>
       <iframe id="divide-conquer-frame" src="/team_construction_plan.html" title="Divide and Conquer plan"></iframe>
     </section>
+
+    <!-- ROL Finance views -->
+    <section id="rol-finance-current-status" class="view">
+      <h2>Current Status</h2>
+      <p>Current Status content coming soon.</p>
+    </section>
+
+    <section id="rol-finance-taxes" class="view">
+      <h2>Taxes</h2>
+      <p>Taxes content coming soon.</p>
+    </section>
+
+    <section id="rol-finance-reports" class="view">
+      <p>Loading reports…</p>
+    </section>
+
+    <!-- ROL Finance report views injected dynamically by RF.init() -->
+    <section id="rol-finance-reports-views"></section>
   </main>
 
   <script>
@@ -324,6 +345,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     const navAgents = document.getElementById('nav-agents');
     const navAgentDetail = document.getElementById('nav-agent-detail');
     const navServers = document.getElementById('nav-servers');
+    const navSSH = document.getElementById('nav-ssh-connections');
     const navPlans = document.getElementById('nav-plans');
     const navRolFinance = document.getElementById('nav-rol-finance');
     const navRolFinanceReports = document.getElementById('nav-rol-finance-reports');
@@ -360,7 +382,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       const view = document.getElementById(next);
       if (view) view.classList.add('active');
-      if (mainContent) mainContent.classList.toggle('fullbleed', next === 'scissari');
+      // Iframe-based views (Scissari chat, Project Plans, ROL Finance Reports)
+      // should fill all available width instead of being capped/padded like
+      // text views — otherwise the report column is too skinny, especially on
+      // Android. Detect them by the presence of a full-bleed frame.
+      const isFullbleed = next === 'scissari'
+        || (view && view.querySelector('#scissari-frame, .plan-frame') !== null);
+      if (mainContent) mainContent.classList.toggle('fullbleed', !!isFullbleed);
     }
 
     function safeSetActive(navEl, selector, target) {
@@ -380,7 +408,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     applyInstructionLinks();
     setAgentDetailContent('Agent');
 
-    if (navMain && navStatus && navTools && navAgents && navAgentDetail && navServers && navPlans && navRolFinance && navRolFinanceReports) {
+    if (navMain && navStatus && navTools && navAgents && navAgentDetail && navServers && navSSH && navPlans && navRolFinance && navRolFinanceReports) {
       navMain.querySelectorAll('[data-nav="main"][data-target]').forEach(tab => {
         tab.addEventListener('click', () => {
           const target = tab.dataset.target;
@@ -415,6 +443,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             navMain.classList.add('hidden');
             navServers.classList.remove('hidden');
             SM.showServersHome();
+            return;
+          }
+
+          if (target === 'ssh-connections') {
+            navMain.classList.add('hidden');
+            navSSH.classList.remove('hidden');
+            SSHM.showConnectionsHome();
             return;
           }
 
@@ -531,6 +566,28 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         backServers.addEventListener('click', () => {
           SM.stopPoll();
           navServers.classList.add('hidden');
+          navMain.classList.remove('hidden');
+          const homeTab = navMain.querySelector('[data-nav="main"][data-target="home"]');
+          if (homeTab) safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
+          safeActivateView('home');
+        });
+      }
+
+      // SSH connection tabs are injected dynamically, so use event delegation.
+      navSSH.addEventListener('click', (e) => {
+        const tab = e.target.closest('.tab');
+        if (!tab || tab.id === 'btn-back-ssh') return;
+        if (tab.dataset.connKey) {
+          safeSetActive(navSSH, '.tab', tab);
+          SSHM.openConnection(tab.dataset.connKey, tab.dataset.connName || tab.textContent);
+        }
+      });
+
+      const backSSH = document.getElementById('btn-back-ssh');
+      if (backSSH) {
+        backSSH.addEventListener('click', () => {
+          SSHM.stopPoll();
+          navSSH.classList.add('hidden');
           navMain.classList.remove('hidden');
           const homeTab = navMain.querySelector('[data-nav="main"][data-target="home"]');
           if (homeTab) safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
@@ -674,6 +731,9 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       'agent-detail-messages':       (am, id) => am.renderStream(id, '/api/messages', 'messages'),
       'agent-detail-tool-calls':     (am, id) => am.renderStream(id, '/api/toolcalls', 'tool calls'),
       'agent-detail-chat-interface': (am, id) => am.renderChatInterface(id),
+      'agent-detail-agent-card':     (am, id) => am.renderAgentCard(id),
+      'agent-detail-tests':          (am, id) => am.renderTest(id),
+      'agent-detail-input-options':  (am, id) => am.renderInputOptions(id),
     };
 
     const SCISSARI_AGENT_NAME = 'Scissari';
@@ -863,7 +923,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         } catch (e) {
           c.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
         }
-      }
+      },
 
       async renderLog(containerId, url, label) {
         const { box, inner } = this.consoleShell(containerId);
@@ -903,7 +963,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         const modeBtn = document.getElementById('am-mode');
         const speakBtn = document.getElementById('am-speak');
 
-        const setConsole = (html) => { out.querySelector('.msi-inner').innerHTML = html; out.scrollTop = out.scrollHeight; };
+        const setConsole = (html) => { out.innerHTML = '<span class="msi-inner">' + html + '</span><span class="msi-cursor">&#9608;</span>'; out.scrollTop = out.scrollHeight; };
 
         // ── Voice output toggle (preference persists across sessions) ───────────
         let speakReplies = localStorage.getItem('dash-speak-replies') === '1';
@@ -937,143 +997,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             });
             const replies = (r.replies || []);
             const hasError = replies.some(x => x.type === 'error');
-            setAgentTabStatus(this.current.id, hasError ? 'error' : 'idle');
-            out.innerHTML = '<div class="msi-console"><span id="ti"></span></div>';
-            const inner = out.querySelector('#ti');
-            inner.innerHTML = replies.length
-              ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
-              : '<div class="msi-entry dim">(no reply content)</div>';
-          } catch (e) {
-            setAgentTabStatus(this.current.id, 'error');
-            out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
-          }
-        });
-      },
-
-      renderInputOptions(containerId) {
-        const c = document.getElementById(containerId);
-        // Buttons sized like tabs (0.9rem / line-height 1.15 / padding 6px 8px) but 35% taller → padding-top/bottom ≈ 11px
-        const bs = 'width:100%;padding:11px 8px;font-size:0.9rem;line-height:1.15;border-radius:4px;border:0;cursor:pointer;color:#fff;text-align:left;';
-        c.innerHTML =
-          '<p>Input options for <strong>' + esc(this.current.name) + '</strong>:</p>'
-          + '<div style="display:flex;flex-direction:column;gap:10px;max-width:320px;">'
-          + '<textarea class="am-test-input" id="io-text" placeholder="Type or speak here…" style="min-height:100px;"></textarea>'
-          + '<button id="io-send"    style="' + bs + 'background:#4c6ef5;">Send</button>'
-          + '<button id="io-start"   style="' + bs + 'background:#28a745;">Start</button>'
-          + '<button id="io-autosend" style="' + bs + 'background:#6c757d;">Auto Send</button>'
-          + '<button id="io-speak"   style="' + bs + 'background:#6c757d;">&#128266; Speak</button>'
-          + '<button id="io-copy"    style="' + bs + 'background:#6c757d;">Copy to Clipboard</button>'
-          + '<div id="io-status" style="min-height:1.4em;font-size:0.9rem;color:#555;"></div>'
-          + '<div class="am-test-out" id="io-out"></div>'
-          + '</div>';
-
-        const statusEl = document.getElementById('io-status');
-        const autoSendBtn = document.getElementById('io-autosend');
-        const speakBtn = document.getElementById('io-speak');
-        let autoSendOn = false;
-        let speakOn = false;
-
-        function showStatus(msg, isError) {
-          statusEl.style.color = isError ? '#c0392b' : '#555';
-          statusEl.textContent = msg;
-        }
-
-        autoSendBtn.addEventListener('click', () => {
-          autoSendOn = !autoSendOn;
-          autoSendBtn.style.background = autoSendOn ? '#2f55e7' : '#6c757d';
-          autoSendBtn.style.fontWeight = autoSendOn ? '700' : '';
-        });
-
-        speakBtn.addEventListener('click', () => {
-          speakOn = !speakOn;
-          speakBtn.style.background = speakOn ? '#2f55e7' : '#6c757d';
-          speakBtn.style.fontWeight = speakOn ? '700' : '';
-        });
-
-        // Copy to Clipboard
-        document.getElementById('io-copy').addEventListener('click', () => {
-          let selected = '';
-          const active = document.activeElement;
-          if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT') && active.selectionStart !== active.selectionEnd) {
-            selected = active.value.substring(active.selectionStart, active.selectionEnd);
-          } else {
-            const sel = window.getSelection();
-            if (sel) selected = sel.toString();
-          }
-          if (!selected) { showStatus('No text selected.', true); return; }
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(selected).then(() => {
-              showStatus('Copied selected text to clipboard.');
-            }).catch(() => {
-              try { document.execCommand('copy'); showStatus('Copied selected text to clipboard.'); }
-              catch (e2) { showStatus('Clipboard access blocked by browser.', true); }
-            });
-          } else {
-            try {
-              const ta = document.createElement('textarea');
-              ta.value = selected;
-              ta.style.position = 'fixed'; ta.style.opacity = '0';
-              document.body.appendChild(ta); ta.focus(); ta.select();
-              document.execCommand('copy');
-              document.body.removeChild(ta);
-              showStatus('Copied selected text to clipboard.');
-            } catch (e) { showStatus('Clipboard access blocked by browser.', true); }
-          }
-        });
-
-        // Send button
-        document.getElementById('io-send').addEventListener('click', async () => {
-          const text = document.getElementById('io-text').value;
-          const out = document.getElementById('io-out');
-          if (!text.trim()) { showStatus('Nothing to send.', true); return; }
-          out.innerHTML = '<div class="msi-console"><span class="msi-cursor">&#9608;</span> sending&hellip;</div>';
-          showStatus('');
-          setAgentTabStatus(this.current.id, 'active');
-          try {
-            const r = await this.fetchJSON('/api/test', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ agent: this.current.id, text })
-            });
-            const replies = (r.replies || []);
-            const hasError = replies.some(x => x.type === 'error');
-            setAgentTabStatus(this.current.id, hasError ? 'error' : 'idle');
-            out.innerHTML = '<div class="msi-console"><span id="io-ti"></span></div>';
-            const inner = out.querySelector('#io-ti');
-            inner.innerHTML = replies.length
-              ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
-              : '<div class="msi-entry dim">(no reply content)</div>';
-            if (speakOn) {
-              const replyText = replies.map(x => x.text || '').join(' ');
-              if (replyText && 'speechSynthesis' in window) {
-                window.speechSynthesis.speak(new SpeechSynthesisUtterance(replyText));
-              }
-            }
-          } catch (e) {
-            setAgentTabStatus(this.current.id, 'error');
-            out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
-          }
-        });
-
-        // Start/Stop — toggles speech recognition
-        let recognition = null;
-        const startBtn = document.getElementById('io-start');
-        startBtn.addEventListener('click', () => {
-          const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-          if (!SpeechRecognition) { showStatus('Speech recognition not supported in this browser.', true); return; }
-          if (recognition) { recognition.stop(); return; }
-          recognition = new SpeechRecognition();
-          recognition.continuous = false;
-          recognition.interimResults = false;
-          recognition.onstart = () => { startBtn.textContent = 'Stop'; startBtn.style.background = '#dc3545'; showStatus('Listening…'); };
-          recognition.onresult = (e) => {
-            const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
-            document.getElementById('io-text').value = transcript;
-            showStatus('Transcribed. Tap Send or enable Auto Send.');
-            if (autoSendOn) document.getElementById('io-send').click();
-          };
-          recognition.onerror = (e) => { showStatus('Speech error: ' + e.error, true); };
-          recognition.onend = () => { recognition = null; startBtn.textContent = 'Start'; startBtn.style.background = '#28a745'; };
-          recognition.start();
             setAgentTabStatus(self.current.id, hasError ? 'error' : 'idle');
             setConsole(replies.length
               ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
@@ -1222,6 +1145,188 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         }
       },
 
+      renderInputOptions(containerId) {
+        const c = document.getElementById(containerId);
+        // Buttons sized like tabs (0.9rem / line-height 1.15 / padding 6px 8px) but 35% taller → padding-top/bottom ≈ 11px
+        const bs = 'width:100%;padding:11px 8px;font-size:0.9rem;line-height:1.15;border-radius:4px;border:0;cursor:pointer;color:#fff;text-align:left;';
+        c.innerHTML =
+          '<p>Input options for <strong>' + esc(this.current.name) + '</strong>:</p>'
+          + '<div style="display:flex;flex-direction:column;gap:10px;max-width:320px;">'
+          + '<textarea class="am-test-input" id="io-text" placeholder="Type or speak here…" style="min-height:100px;"></textarea>'
+          + '<button id="io-send"    style="' + bs + 'background:#4c6ef5;">Send</button>'
+          + '<div style="display:flex;align-items:center;gap:8px;">'
+          +   '<button id="io-start" class="voice-btn" style="' + bs + 'flex:1;background:#28a745;">Start</button>'
+          +   '<span class="rec-indicator" id="io-rec-ind"><span class="rec-led"></span><span class="rec-text" id="io-rec-text">Recording</span></span>'
+          + '</div>'
+          + '<button id="io-autosend" style="' + bs + 'background:#6c757d;">Auto Send</button>'
+          + '<button id="io-speak"   style="' + bs + 'background:#6c757d;">&#128266; Speak</button>'
+          + '<button id="io-copy"    style="' + bs + 'background:#6c757d;">Copy to Clipboard</button>'
+          + '<div id="io-status" style="min-height:1.4em;font-size:0.9rem;color:#555;"></div>'
+          + '<div class="am-test-out" id="io-out"></div>'
+          + '</div>';
+
+        const statusEl = document.getElementById('io-status');
+        const autoSendBtn = document.getElementById('io-autosend');
+        const speakBtn = document.getElementById('io-speak');
+        let autoSendOn = false;
+        let speakOn = false;
+
+        function showStatus(msg, isError) {
+          statusEl.style.color = isError ? '#c0392b' : '#555';
+          statusEl.textContent = msg;
+        }
+
+        autoSendBtn.addEventListener('click', () => {
+          autoSendOn = !autoSendOn;
+          autoSendBtn.style.background = autoSendOn ? '#2f55e7' : '#6c757d';
+          autoSendBtn.style.fontWeight = autoSendOn ? '700' : '';
+        });
+
+        speakBtn.addEventListener('click', () => {
+          speakOn = !speakOn;
+          speakBtn.style.background = speakOn ? '#2f55e7' : '#6c757d';
+          speakBtn.style.fontWeight = speakOn ? '700' : '';
+        });
+
+        // Copy to Clipboard
+        document.getElementById('io-copy').addEventListener('click', () => {
+          let selected = '';
+          const active = document.activeElement;
+          if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT') && active.selectionStart !== active.selectionEnd) {
+            selected = active.value.substring(active.selectionStart, active.selectionEnd);
+          } else {
+            const sel = window.getSelection();
+            if (sel) selected = sel.toString();
+          }
+          if (!selected) { showStatus('No text selected.', true); return; }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(selected).then(() => {
+              showStatus('Copied selected text to clipboard.');
+            }).catch(() => {
+              try { document.execCommand('copy'); showStatus('Copied selected text to clipboard.'); }
+              catch (e2) { showStatus('Clipboard access blocked by browser.', true); }
+            });
+          } else {
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = selected;
+              ta.style.position = 'fixed'; ta.style.opacity = '0';
+              document.body.appendChild(ta); ta.focus(); ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              showStatus('Copied selected text to clipboard.');
+            } catch (e) { showStatus('Clipboard access blocked by browser.', true); }
+          }
+        });
+
+        // Send button
+        document.getElementById('io-send').addEventListener('click', async () => {
+          const text = document.getElementById('io-text').value;
+          const out = document.getElementById('io-out');
+          if (!text.trim()) { showStatus('Nothing to send.', true); return; }
+          out.innerHTML = '<div class="msi-console"><span class="msi-cursor">&#9608;</span> sending&hellip;</div>';
+          showStatus('');
+          setAgentTabStatus(this.current.id, 'active');
+          try {
+            const r = await this.fetchJSON('/api/test', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agent: this.current.id, text })
+            });
+            const replies = (r.replies || []);
+            const hasError = replies.some(x => x.type === 'error');
+            setAgentTabStatus(this.current.id, hasError ? 'error' : 'idle');
+            out.innerHTML = '<div class="msi-console"><span id="io-ti"></span></div>';
+            const inner = out.querySelector('#io-ti');
+            inner.innerHTML = replies.length
+              ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
+              : '<div class="msi-entry dim">(no reply content)</div>';
+            if (speakOn) {
+              const replyText = replies.map(x => x.text || '').join(' ');
+              if (replyText && 'speechSynthesis' in window) {
+                window.speechSynthesis.speak(new SpeechSynthesisUtterance(replyText));
+              }
+            }
+          } catch (e) {
+            setAgentTabStatus(this.current.id, 'error');
+            out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
+          }
+        });
+
+        // ── Voice capture (State machine: idle -> recording -> processing) ──────
+        // Mirrors the Tests tab's pipeline: MediaRecorder -> /api/voice (whisper +
+        // cleanup agent) -> fills io-text. Waits for the Stop button, not silence.
+        let mediaRecorder = null, chunks = [], recTimer = null, dots = 0;
+        const startBtn = document.getElementById('io-start');
+        const recInd = document.getElementById('io-rec-ind');
+        const recText = document.getElementById('io-rec-text');
+
+        function cycleRecText() {
+          recText.textContent = 'Recording' + '.'.repeat(dots);
+          dots = (dots + 1) % 4;
+        }
+        function setRecording(on) {
+          startBtn.classList.toggle('recording', on);
+          startBtn.textContent = on ? 'Stop' : 'Start';
+          recInd.classList.toggle('on', on);
+          if (on) { dots = 0; cycleRecText(); recTimer = setInterval(cycleRecText, 450); }
+          else if (recTimer) { clearInterval(recTimer); recTimer = null; }
+        }
+
+        async function startRecording() {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showStatus('Microphone needs a secure context (https). Open this dashboard via the Tailscale https URL.', true);
+            return;
+          }
+          let stream;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch (e) {
+            showStatus('Mic permission denied or unavailable: ' + e.message, true);
+            return;
+          }
+          mediaRecorder = new MediaRecorder(stream);
+          chunks = [];
+          mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+          mediaRecorder.onstop = async () => {
+            stream.getTracks().forEach(t => t.stop());
+            const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+            await uploadVoice(blob);
+          };
+          mediaRecorder.start();
+          setRecording(true);
+          showStatus('Listening…');
+        }
+
+        function stopRecording() {
+          if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+          setRecording(false);
+          startBtn.disabled = true;
+          showStatus('Transcribing & cleaning up…');
+        }
+
+        async function uploadVoice(blob) {
+          try {
+            const res = await fetch('/api/voice', {
+              method: 'POST', headers: { 'X-Filename': 'voice.webm' }, body: blob
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'voice processing failed');
+            document.getElementById('io-text').value = data.cleaned_text || '';
+            showStatus('Transcribed & cleaned. Tap Send or enable Auto Send.');
+            if (autoSendOn) document.getElementById('io-send').click();
+          } catch (e) {
+            showStatus(e.message, true);
+          } finally {
+            startBtn.disabled = false;
+          }
+        }
+
+        startBtn.addEventListener('click', () => {
+          if (startBtn.classList.contains('recording')) stopRecording();
+          else startRecording();
+        });
+      },
+
       // Deep-link helper: open an agent (and optional detail tab) by id.
       async openById(id, view) {
         navMain.classList.add('hidden');
@@ -1349,7 +1454,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         document.getElementById('servers-detail-title').textContent = name;
         const body = document.getElementById('servers-detail-body');
         const meta = (this.servers || []).find(s => s.key === key) || {};
-        const startLabels = { executor: 'Start Executor Server', 'logger-api': 'Start Logger API', 'frita-executor': 'Start Frita Executor' };
+        const startLabels = { executor: 'Start Executor Server', 'logger-api': 'Start Logger API', 'frita-executor': 'Start Frita Executor', dashboard: 'Re-start Dashboard Server' };
         body.innerHTML =
           (meta.note ? '<p class="srv-note">' + esc(meta.note) + '</p>' : '')
           + '<div class="srv-status starting" id="srv-status"><span class="srv-led"></span><span id="srv-status-text">checking…</span></div>'
@@ -1458,6 +1563,194 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     // Initial health poll on page load
     SM.pollHealth();
     SM.healthPollTimer = setInterval(() => SM.pollHealth(), 10000);
+
+    /* =====================  SSH Connections  ===================== */
+    const SSHM = {
+      pollTimer: null,
+      healthPollTimer: null,
+      current: null,        // { key, name }
+      connections: null,
+      health: null,         // last polled health status
+
+      stopPoll() {
+        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+      },
+
+      stopHealthPoll() {
+        if (this.healthPollTimer) { clearInterval(this.healthPollTimer); this.healthPollTimer = null; }
+      },
+
+      async fetchJSON(url, opts) {
+        const r = await fetch(url, opts);
+        if (!r.ok) {
+          let d = ''; try { d = (await r.json()).detail || ''; } catch (e) {}
+          throw new Error('HTTP ' + r.status + (d ? ' — ' + d.slice(0, 120) : ''));
+        }
+        return r.json();
+      },
+
+      updateMainTabColor() {
+        const tab = document.getElementById('btn-ssh-connections');
+        if (!tab) return;
+        tab.classList.remove('server-up', 'server-down', 'server-starting');
+        if (!this.health) return;
+        tab.classList.add(this.health.any_down ? 'server-down' : 'server-up');
+      },
+
+      updateConnectionTabColors() {
+        if (!this.health) return;
+        const healthMap = {};
+        for (const c of this.health.connections) {
+          healthMap[c.key] = c.status;
+        }
+        navSSH.querySelectorAll('[data-conn-key]').forEach(tab => {
+          const status = healthMap[tab.dataset.connKey] || 'unknown';
+          tab.classList.remove('server-up', 'server-down', 'server-starting');
+          if (status === 'up') {
+            tab.classList.add('server-up');
+          } else if (status === 'down') {
+            tab.classList.add('server-down');
+          }
+        });
+      },
+
+      async pollHealth() {
+        try {
+          this.health = await this.fetchJSON('/api/ssh-connection-health');
+          this.updateMainTabColor();
+          this.updateConnectionTabColors();
+        } catch (e) {
+          // Silent fail
+        }
+      },
+
+      showConnectionsHome() {
+        this.stopPoll();
+        this.current = null;
+        navSSH.classList.remove('hidden');
+        safeActivateView('ssh-connections');
+        this.loadConnectionTabs();
+        this.pollHealth();
+      },
+
+      async loadConnectionTabs() {
+        if (!this.connections) {
+          try {
+            this.connections = await this.fetchJSON('/api/ssh-connections');
+          } catch (e) {
+            return;
+          }
+        }
+        navSSH.querySelectorAll('[data-conn-key]').forEach(t => t.remove());
+        if (!this.connections) return;
+        for (const c of this.connections) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'tab';
+          btn.dataset.connKey = c.key;
+          btn.dataset.connName = c.name;
+          btn.textContent = c.name;
+          navSSH.appendChild(btn);
+        }
+        this.updateConnectionTabColors();
+      },
+
+      openConnection(key, name) {
+        this.stopPoll();
+        this.current = { key, name };
+        document.getElementById('ssh-connection-detail-title').textContent = name;
+        const body = document.getElementById('ssh-connection-detail-body');
+        const meta = (this.connections || []).find(c => c.key === key) || {};
+        body.innerHTML =
+          (meta.note ? '<p class="srv-note">' + esc(meta.note) + '</p>' : '')
+          + '<div class="srv-status starting" id="ssh-status"><span class="srv-led"></span><span id="ssh-status-text">checking…</span></div>'
+          + '<input class="srv-filter" id="ssh-filter" placeholder="Filter log lines (e.g. timed out)…" />'
+          + '<button class="srv-start-btn" id="ssh-test-btn">Test Connection</button>'
+          + '<div class="msi-console" id="ssh-console"><span class="msi-inner"></span><span class="msi-cursor">&#9608;</span></div>';
+        safeActivateView('ssh-connection-detail');
+
+        const box = body.querySelector('#ssh-console');
+        const inner = box.querySelector('.msi-inner');
+        const statusEl = body.querySelector('#ssh-status');
+        const statusText = body.querySelector('#ssh-status-text');
+        const filterEl = body.querySelector('#ssh-filter');
+        const testBtn = body.querySelector('#ssh-test-btn');
+
+        const seen = new Set();
+        let first = true;
+        const applyFilter = () => {
+          const q = filterEl.value.trim().toLowerCase();
+          inner.querySelectorAll('.msi-entry').forEach(el => {
+            el.style.display = (!q || el.textContent.toLowerCase().includes(q)) ? '' : 'none';
+          });
+        };
+        filterEl.addEventListener('input', () => { applyFilter(); });
+
+        const applyStatus = (status) => {
+          if (status) {
+            statusEl.className = 'srv-status ' + (status.ok ? 'up' : 'down');
+            statusText.textContent = (status.ok ? 'CONNECTED — ' : 'DOWN — ') + (status.text || '');
+          } else {
+            statusEl.className = 'srv-status starting';
+            statusText.textContent = 'checking…';
+          }
+        };
+
+        const pull = async () => {
+          if (!this.current || this.current.key !== key) return;
+          let data;
+          try { data = await this.fetchJSON('/api/ssh-connection-logs?conn=' + encodeURIComponent(key)); }
+          catch (e) {
+            statusEl.className = 'srv-status down';
+            statusText.textContent = e.message;
+            return;
+          }
+          applyStatus(data.status);
+          const rows = data.rows || [];
+          if (first && !rows.length) {
+            inner.innerHTML = '<div class="msi-entry dim">&mdash; no connection tests recorded yet &mdash;</div>';
+            first = false;
+            return;
+          }
+          if (first) inner.innerHTML = '';
+          const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+          for (const r of rows) {
+            const key2 = 'seq:' + r.seq;
+            if (seen.has(key2)) continue;
+            seen.add(key2);
+            inner.insertAdjacentHTML('beforeend',
+              '<div class="msi-entry">' + esc(String(r.text || '')) + '</div>');
+          }
+          applyFilter();
+          if (atBottom) box.scrollTop = box.scrollHeight;
+          first = false;
+        };
+
+        testBtn.addEventListener('click', async () => {
+          testBtn.disabled = true;
+          statusEl.className = 'srv-status starting';
+          statusText.textContent = 'TESTING… — ssh ' + name.toLowerCase();
+          try {
+            const res = await this.fetchJSON('/api/ssh-connection-test?conn=' + encodeURIComponent(key));
+            applyStatus(res);
+            this.pollHealth();
+          } catch (e) {
+            statusEl.className = 'srv-status down';
+            statusText.textContent = 'TEST FAILED — ' + esc(e.message);
+          } finally {
+            testBtn.disabled = false;
+            await pull();
+          }
+        });
+
+        pull();
+        this.pollTimer = setInterval(pull, 5000);
+      },
+    };
+
+    // Initial health poll on page load
+    SSHM.pollHealth();
+    SSHM.healthPollTimer = setInterval(() => SSHM.pollHealth(), 15000);
 
     /* =====================  ROL Finance Reports  =====================
        One tab per report directory under ~/rol_finances/readable_documents/
