@@ -38,6 +38,16 @@ describe("SpeechSynthesizer (Facade)", () => {
     expect(s.voice.name).toBe("Google US English Neural");
   });
 
+  test("pickVoice prefers a female voice over a male natural/neural voice", () => {
+    const engine = fakeEngine([
+      { lang: "en-US", name: "Microsoft Guy Online (Natural)" },
+      { lang: "en-US", name: "Microsoft Zira" },
+    ]);
+    const s = new SpeechSynthesizer(engine);
+    s.pickVoice();
+    expect(s.voice.name).toBe("Microsoft Zira");
+  });
+
   test("speak cancels in-flight speech first, then speaks cleaned text", () => {
     const engine = fakeEngine([{ lang: "en-US", name: "Plain" }]);
     const s = new SpeechSynthesizer(engine);
@@ -47,6 +57,18 @@ describe("SpeechSynthesizer (Facade)", () => {
     expect(u.text).toBe("Hello world");
     expect(u.voice.name).toBe("Plain");
     expect(u.rate).toBe(1.0);
+  });
+
+  test("speak with an agentName uses that agent's catalog voice", () => {
+    const engine = fakeEngine([
+      { lang: "en-US", name: "Microsoft Zira" },
+      { lang: "en-US", name: "Microsoft Aria" },
+    ]);
+    const s = new SpeechSynthesizer(engine);
+    const scissari = s.speak("hi", "Scissari");
+    const mazda = s.speak("hi", "Mazda");
+    expect(scissari.voice.name).toBe("Microsoft Zira");
+    expect(mazda.voice.name).toBe("Microsoft Aria");
   });
 
   test("speak with only-markdown text says nothing", () => {

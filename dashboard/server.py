@@ -11,6 +11,7 @@ import socket
 import subprocess
 import threading
 import time
+from collections import deque
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,26 @@ REPO_ROOT = os.path.dirname(HERE)
 # directly under this fixed path since it isn't reachable via HERE/REPO_ROOT.
 ROL_FINANCES_PLAN_PATH = '/rol_finances/tools/plan.html'
 ROL_FINANCES_PLAN_FILE = os.path.expanduser('~/rol_finances/tools/plan.html')
+
+# ROL Finance "Reports" sub-tab: one tab per source-document directory, each
+# containing a generated report.html. Lives outside the repo, so reports are
+# served under ROL_FINANCES_REPORTS_URL_PREFIX (path-traversal checked below).
+# `check_images/` is intentionally excluded — still waiting on those files.
+ROL_FINANCES_REPORTS_BASE = os.path.expanduser(
+    '~/rol_finances/readable_documents/bank_statements/january')
+ROL_FINANCES_REPORTS_URL_PREFIX = '/rol_finances_reports'
+ROL_FINANCE_REPORTS = [
+    {'key': 'amex-61006',        'label': 'Amex 61006',         'dir': 'amex_personal_january_25'},
+    {'key': 'fnbo-4851',         'label': 'FNBO 4851',          'dir': 'january_fnbo_2025_account_4851'},
+    {'key': 'amex-personal-year','label': 'Amex Personal Year', 'dir': 'amex_personal_whole_2025'},
+    {'key': 'bank-5938-pdf1',    'label': 'Bank 5938 PDF 1',    'dir': 'december_january_personal_bank_statement'},
+    {'key': 'bank-6285-pdf1',    'label': 'Bank 6285 PDF 1',    'dir': 'non_profit_rol_Statement_december_january_6285'},
+    {'key': 'bank-6285-pdf2',    'label': 'Bank 6285 PDF 2',    'dir': 'business_january_february_6285'},
+    {'key': 'jetblue-pdf1',      'label': 'Jet Blue PDF 1',     'dir': 'jet_blue__december_january_12_26_25_to_01_23_25'},
+    {'key': 'jetblue-pdf2',      'label': 'Jet Blue PDF 2',     'dir': 'jet_blue_january_february_01_27_to_02_25_25'},
+    {'key': 'platinum-year',     'label': 'Platinum Year',      'dir': 'platinum_business_credit_card_for_the_year'},
+    {'key': 'diners-club-0587',  'label': 'Diners Club 0587',   'dir': 'diners_club__january_25_statements-MONTHLY-0587'},
+]
 
 # Letta API base URL — override with LETTA_BASE_URL env var
 LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rstrip('/')
@@ -204,6 +225,11 @@ LOGGER_API_STARTUP_LOG = '/tmp/logger_api_startup.log'
 FRITA_EXECUTOR_DEPLOY_SCRIPT = '~/server_tools/deploy_frita_executor.sh'
 FRITA_EXECUTOR_STARTUP_LOG = '/tmp/frita_executor_startup.log'
 
+# This dashboard restarts itself via its own systemd --user unit (see the
+# "Re-start Dashboard Server" button on the Dashboard Server tab).
+DASHBOARD_SYSTEMD_UNIT = 'dashboard-server.service'
+DASHBOARD_RESTART_LOG = '/tmp/dashboard_restart.log'
+
 # The Letta server itself runs in Docker on the Win10 box (100.80.49.10), so we
 # can't tail its log locally — a background thread periodically pulls it over
 # SSH (passwordless key auth + passwordless sudo, both already set up on that
@@ -308,6 +334,38 @@ SERVERS = [
     },
 ]
 
+# SSH connections this dashboard can reach for remote administration. Each
+# entry is checked with a real `ssh ... echo CONNECTED` round trip — there's
+# no proxy/relay to fall back on, so "down" here means SSH itself is broken,
+# not just a single service.
+SSH_CONNECTIONS = [
+    {
+        'key': 'win10-host',
+        'name': 'Windows 10 Host',
+        'host': '100.69.80.89',
+        'user': 'NewUser',
+        'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.69.80.89)',
+    },
+    {
+        'key': 'win11',
+        'name': 'Win11 (Lettabot/Dashboard)',
+        'host': '100.72.158.63',
+        'user': 'adamsl',
+        'note': 'Lettabot + the live dashboard deployment (100.72.158.63)',
+    },
+    {
+        'key': 'rosemary46',
+        'name': 'Rosemary46',
+        'host': '100.72.34.38',
+        'user': 'adamsl',
+        'note': 'Rosemary46 Linux box (100.72.34.38)',
+    },
+]
+
+SSH_CONNECT_TIMEOUT = 6          # seconds given to `ssh` to connect + run the check command
+SSH_HEALTH_POLL_INTERVAL = 30    # background poll cadence
+SSH_LOG_TAIL = 50                # how many past connection-test results to keep per connection
+
 SERVER_LOG_TAIL = 300   # how many trailing log lines to expose
 
 # Track servers that are currently starting (for a limited time).
@@ -387,6 +445,60 @@ def start_frita_executor():
         return {'ok': False, 'text': str(e)}
 
 
+def restart_dashboard_server():
+    """Restart THIS dashboard via its systemd --user unit.
+
+    The restart kills the process serving this very request, so two things matter:
+    (1) defer the restart by ~1s so this HTTP response flushes back to the browser
+    first, and (2) run it from OUTSIDE this service's cgroup — a plain detached
+    child would be in the dashboard service's cgroup and get SIGTERM'd by systemd
+    mid-restart. `systemd-run --user` launches a transient scope that survives the
+    restart, so the `systemctl restart` actually completes."""
+    deferred = f'sleep 1; systemctl --user restart {DASHBOARD_SYSTEMD_UNIT}'
+    try:
+        with open(DASHBOARD_RESTART_LOG, 'a') as logf:
+            logf.write(f'\n--- restart requested {datetime.now().isoformat(timespec="seconds")} ---\n')
+            logf.flush()
+            subprocess.Popen(
+                ['systemd-run', '--user', '--collect',
+                 '--unit', 'dashboard-self-restart',
+                 'bash', '-c', deferred],
+                stdout=logf, stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        return {'ok': True, 'text': f'Restarting {DASHBOARD_SYSTEMD_UNIT} in ~1s — '
+                                    'this page will briefly disconnect, then reconnect on refresh.'}
+    except FileNotFoundError:
+        return {'ok': False, 'text': 'systemd-run not found — cannot self-restart on this host.'}
+    except Exception as e:
+        return {'ok': False, 'text': str(e)}
+
+
+# docker-compose v1.29.2 (required on this box — see [[reference_logger_api_ops]])
+# throws `KeyError: 'ContainerConfig'` when it tries to "recreate" a container
+# stuck in the `Created` state (e.g. an interrupted `docker-compose up`, or an
+# image rebuilt with BuildKit). When that happens, every subsequent
+# `docker-compose up -d` fails the same way forever — the containers must be
+# `docker rm`'d first so compose creates fresh ones instead of recreating.
+# See [[dashboard_logger_api_containerconfig_2026_06_10]].
+LOGGER_API_STUCK_CONTAINER_CLEANUP = (
+    "docker ps -a --filter 'status=created' --format '{{.ID}} {{.Names}}' "
+    "| awk '$2 ~ /logger-api/ {print $1}' "
+    "| xargs -r docker rm"
+)
+
+
+def build_logger_api_start_command():
+    """Build the SSH command for the Logger API "Start" button.
+
+    Removes any logger-api containers stuck in `Created` state before
+    running `start_logger_api.sh`, so the button is self-healing against the
+    `KeyError: 'ContainerConfig'` failure mode instead of repeating it."""
+    remote_script = f'{LOGGER_API_STUCK_CONTAINER_CLEANUP}; bash {LOGGER_API_START_SCRIPT}'
+    return ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes', LETTA_DOCKER_HOST,
+            'bash', '-c', remote_script]
+
+
 def start_logger_api():
     """Launch the Logger API's mysql + php-api Docker containers over SSH.
 
@@ -401,8 +513,7 @@ def start_logger_api():
             logf.write(f'\n--- launch requested {datetime.now().isoformat(timespec="seconds")} ---\n')
             logf.flush()
             subprocess.Popen(
-                ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes', LETTA_DOCKER_HOST,
-                 'bash', LOGGER_API_START_SCRIPT],
+                build_logger_api_start_command(),
                 stdout=logf, stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
@@ -621,7 +732,7 @@ def letta_convo(agent_id):
         rows.append({
             'date': _msg_date(m),
             'type': mt,
-            'text': text[:400],
+            'text': text,
         })
     return rows
 
@@ -771,6 +882,82 @@ def cached_server_health(cfg):
     h = server_health(cfg, timeout=HEALTH_CHECK_TIMEOUT)
     with _health_cache_lock:
         _health_cache[cfg['key']] = {'fails': 0 if h.get('ok') else 1, 'result': h}
+    return h
+
+
+# ── SSH connection checks ────────────────────────────────────────────────────
+
+_ssh_health_cache = {}
+_ssh_health_lock = threading.Lock()
+_ssh_log_cache = {}    # key -> deque of {seq, text}
+_ssh_log_seq = 0
+_ssh_log_lock = threading.Lock()
+
+
+def get_ssh_connection(key):
+    """Return the SSH_CONNECTIONS config dict for a key, or None."""
+    for c in SSH_CONNECTIONS:
+        if c['key'] == key:
+            return c
+    return None
+
+
+def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
+    """Run a real `ssh ... echo CONNECTED` round trip against cfg. Returns {ok, text}."""
+    target = f"{cfg['user']}@{cfg['host']}"
+    cmd = ['ssh', '-o', f'ConnectTimeout={timeout}', '-o', 'BatchMode=yes',
+           '-o', 'StrictHostKeyChecking=accept-new', target, 'echo CONNECTED && hostname']
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+        out_lines = result.stdout.strip().splitlines()
+        if result.returncode == 0 and out_lines and out_lines[0] == 'CONNECTED':
+            host = out_lines[1] if len(out_lines) > 1 else '?'
+            return {'ok': True, 'text': f'CONNECTED — {host}'}
+        err_lines = (result.stderr or result.stdout or '').strip().splitlines()
+        text = err_lines[-1][:160] if err_lines else f'ssh exited {result.returncode}'
+        return {'ok': False, 'text': text}
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'text': f'ssh to {target} timed out after {timeout}s'}
+    except Exception as e:
+        return {'ok': False, 'text': f'ssh to {target} failed: {e}'}
+
+
+def _record_ssh_log(key, text):
+    global _ssh_log_seq
+    with _ssh_log_lock:
+        _ssh_log_seq += 1
+        buf = _ssh_log_cache.setdefault(key, deque(maxlen=SSH_LOG_TAIL))
+        buf.append({'seq': _ssh_log_seq, 'text': text})
+
+
+def _poll_all_ssh_once():
+    for cfg in SSH_CONNECTIONS:
+        h = ssh_test(cfg)
+        with _ssh_health_lock:
+            _ssh_health_cache[cfg['key']] = h
+        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        _record_ssh_log(cfg['key'], f"[{ts}] {'OK' if h['ok'] else 'FAIL'} — {h['text']}")
+
+
+def _ssh_poll_loop():
+    """Background daemon thread body: keep the SSH connection cache fresh."""
+    while True:
+        _poll_all_ssh_once()
+        time.sleep(SSH_HEALTH_POLL_INTERVAL)
+
+
+def cached_ssh_health(cfg):
+    """Debounced SSH health result for cfg from the background poll loop.
+
+    Falls back to a synchronous (slow) probe on first access, before the
+    background loop has populated the cache."""
+    with _ssh_health_lock:
+        h = _ssh_health_cache.get(cfg['key'])
+    if h is not None:
+        return h
+    h = ssh_test(cfg)
+    with _ssh_health_lock:
+        _ssh_health_cache[cfg['key']] = h
     return h
 
 # How recently a log-only server (no health_url) must have written to its log
@@ -1065,11 +1252,73 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         result['all_up'] = False
             return self.json_response(result)
 
+        if path == '/api/rol-finance-reports':
+            result = []
+            for r in ROL_FINANCE_REPORTS:
+                report_file = os.path.join(ROL_FINANCES_REPORTS_BASE, r['dir'], 'report.html')
+                exists = os.path.isfile(report_file)
+                result.append({
+                    'key': r['key'],
+                    'label': r['label'],
+                    'exists': exists,
+                    'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{r["dir"]}/report.html' if exists else None,
+                })
+            return self.json_response(result)
+
+        if path == '/api/ssh-connections':
+            return self.json_response([
+                {'key': c['key'], 'name': c['name'], 'note': c.get('note', '')}
+                for c in SSH_CONNECTIONS
+            ])
+
+        if path == '/api/ssh-connection-health':
+            # Overall SSH health: a real `ssh ... echo CONNECTED` round trip per
+            # connection. "down" means SSH itself is broken to that host.
+            result = {'connections': [], 'all_up': True, 'any_down': False}
+            for cfg in SSH_CONNECTIONS:
+                h = cached_ssh_health(cfg)
+                status = 'up' if h.get('ok') else 'down'
+                result['connections'].append({'key': cfg['key'], 'name': cfg['name'], 'status': status})
+                if status == 'down':
+                    result['any_down'] = True
+                    result['all_up'] = False
+            return self.json_response(result)
+
+        if path == '/api/ssh-connection-logs':
+            key = query.get('conn', [''])[0]
+            cfg = get_ssh_connection(key)
+            if not cfg:
+                return self.json_response({'status': {'ok': False, 'text': 'unknown connection'}, 'rows': []})
+            with _ssh_log_lock:
+                rows = list(_ssh_log_cache.get(key, []))
+            return self.json_response({'status': cached_ssh_health(cfg), 'rows': rows})
+
+        if path == '/api/ssh-connection-test':
+            key = query.get('conn', [''])[0]
+            cfg = get_ssh_connection(key)
+            if not cfg:
+                return self.json_response({'ok': False, 'text': 'unknown connection'})
+            h = ssh_test(cfg, timeout=8)
+            with _ssh_health_lock:
+                _ssh_health_cache[key] = h
+            ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            _record_ssh_log(key, f"[{ts}] {'OK' if h['ok'] else 'FAIL'} — {h['text']} (manual test)")
+            return self.json_response(h)
+
         if path == '/' or path == '':
             return self.serve_file(os.path.join(HERE, 'dashboard.html'), 'text/html')
 
         if path == ROL_FINANCES_PLAN_PATH:
             return self.serve_file(ROL_FINANCES_PLAN_FILE, 'text/html')
+
+        if path.startswith(ROL_FINANCES_REPORTS_URL_PREFIX + '/'):
+            rel = path[len(ROL_FINANCES_REPORTS_URL_PREFIX) + 1:]
+            fp = os.path.abspath(os.path.join(ROL_FINANCES_REPORTS_BASE, rel))
+            base = os.path.abspath(ROL_FINANCES_REPORTS_BASE)
+            if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
+                return self.serve_file(fp, 'text/html')
+            self.send_error(404)
+            return
 
         if path.startswith('/'):
             rel = path.lstrip('/')
@@ -1132,6 +1381,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
                 if action == 'start' and server == 'frita-executor':
                     result = start_frita_executor()
+                    return self.json_response(result)
+
+                if action in ('start', 'restart') and server == 'dashboard':
+                    result = restart_dashboard_server()
                     return self.json_response(result)
 
                 return self.json_response({'ok': False, 'text': f'Unknown action: {action} for {server}'})
@@ -1260,6 +1513,8 @@ if __name__ == '__main__':
     threading.Thread(target=_health_poll_loop, daemon=True).start()
     print(f'Polling server health every {HEALTH_POLL_INTERVAL}s '
           f'(timeout={HEALTH_CHECK_TIMEOUT}s, fail-threshold={HEALTH_FAIL_THRESHOLD})')
+    threading.Thread(target=_ssh_poll_loop, daemon=True).start()
+    print(f'Polling {len(SSH_CONNECTIONS)} SSH connections every {SSH_HEALTH_POLL_INTERVAL}s')
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -1,3 +1,4 @@
+import { AgentVoiceCatalog } from "./agent-voice-catalog.interface.js";
 import { TextUtils } from "./text-utils.js";
 
 /**
@@ -10,15 +11,25 @@ import { TextUtils } from "./text-utils.js";
  * overlap") can be tested against a fake engine.
  *
  * The engine port must provide: getVoices(), speak(utterance), cancel().
+ *
+ * Per-agent voice selection is delegated to an injected `AgentVoiceCatalog`
+ * (Strategy) — `speak(text, agentName)` looks up that agent's voice so
+ * different agents are read in different voices.
  */
 export class SpeechSynthesizer {
   /**
    * @param {object} [engine] SpeechSynthesis-like port. Null => unsupported.
    * @param {(text:string)=>object} [utteranceFactory] builds an utterance obj.
+   * @param {AgentVoiceCatalog} [voiceCatalog] per-agent voice strategy.
    */
-  constructor(engine = null, utteranceFactory = (text) => ({ text })) {
+  constructor(
+    engine = null,
+    utteranceFactory = (text) => ({ text }),
+    voiceCatalog = new AgentVoiceCatalog(),
+  ) {
     this._engine = engine;
     this._utteranceFactory = utteranceFactory;
+    this._voiceCatalog = voiceCatalog;
     this.voice = null;
   }
 
@@ -27,12 +38,25 @@ export class SpeechSynthesizer {
     return !!this._engine;
   }
 
-  /** Choose a sensible English voice from the (async) voice list. */
+  /**
+   * Choose a sensible English voice from the (async) voice list. Prefers a
+   * female-sounding voice (matches the agents' established voice).
+   */
   pickVoice() {
     if (!this.supported) return null;
     const voices = this._engine.getVoices() || [];
     if (!voices.length) return null;
+    const FEMALE =
+      /female|\b(zira|aria|jenny|samantha|susan|victoria|karen|moira|tessa|allison|ava|joanna|salli|kendra|kimberly|ivy|emma|olivia|amy)\b/i;
     this.voice =
+      voices.find(
+        (v) =>
+          /en[-_]US/i.test(v.lang) &&
+          FEMALE.test(v.name) &&
+          /google|natural|neural/i.test(v.name),
+      ) ||
+      voices.find((v) => /en[-_]US/i.test(v.lang) && FEMALE.test(v.name)) ||
+      voices.find((v) => /^en/i.test(v.lang) && FEMALE.test(v.name)) ||
       voices.find(
         (v) =>
           /en[-_]US/i.test(v.lang) && /google|natural|neural/i.test(v.name),
@@ -50,16 +74,20 @@ export class SpeechSynthesizer {
 
   /**
    * Speak text. Cancels anything in flight first so replies never overlap.
+   * When `agentName` is given, the catalog picks that agent's own voice
+   * (falling back to the shared default voice if none is assigned).
    * Returns the utterance that was spoken, or null if nothing was said.
    */
-  speak(text) {
+  speak(text, agentName = null) {
     if (!this.supported) return null;
     const say = this.clean(text);
     if (!say) return null;
     this._engine.cancel();
     if (!this.voice) this.pickVoice();
+    const voices = this._engine.getVoices() || [];
+    const voice = this._voiceCatalog.voiceFor(agentName, voices, this.voice);
     const u = this._utteranceFactory(say);
-    if (this.voice) u.voice = this.voice;
+    if (voice) u.voice = voice;
     u.rate = 1.0;
     u.pitch = 1.0;
     u.volume = 1.0;
