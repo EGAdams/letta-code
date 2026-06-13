@@ -11,12 +11,15 @@ import socket
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections import deque
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote
+
+from voice.pipeline import build_pipeline, handle_voice_upload
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -72,6 +75,15 @@ _letta_id_cache_lock = threading.Lock()
 _agent_list_cache = {'value': None, 'ts': 0.0}
 _agent_list_cache_lock = threading.Lock()
 AGENT_LIST_CACHE_TTL = 300
+
+_agent_activity_cache = {'value': None, 'ts': 0.0}
+_agent_activity_cache_lock = threading.Lock()
+# Even fetched in parallel, an 11-agent sweep over the DERP-relayed Letta API
+# (reference_tailscale_derp_relay_100_80_49_10) takes ~30s. The frontend polls
+# every 5s, so without a lock + cache, each poll would kick off its own
+# overlapping 30s sweep. The lock makes concurrent pollers share one sweep;
+# the TTL (longer than a sweep) lets most polls skip the network entirely.
+AGENT_ACTIVITY_CACHE_TTL = 30
 
 
 AGENT_CARDS = {
@@ -291,6 +303,15 @@ SERVERS = [
         'note': 'This dashboard (server.py)',
     },
     {
+        'key': 'dashboard-proxy',
+        'name': 'Dashboard Proxy (Win10)',
+        'health_url': 'http://100.80.49.10:8765/',
+        'note': 'WSL TCP proxy on the Win10 box (100.80.49.10:8765) that relays to '
+                'this dashboard so the Win10-side browser can reach it via '
+                'http://localhost:8765 without the (offline) Win10 Tailscale node. '
+                'If this is red, http://localhost:8765 on the Win10 machine will not load.',
+    },
+    {
         'key': 'logger-api',
         'name': 'Logger API',
         # The bare root has no index file (DocumentRoot serves a directory with
@@ -347,6 +368,14 @@ SSH_CONNECTIONS = [
         'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.69.80.89)',
     },
     {
+        'key': 'win10-wsl-letta',
+        'name': 'Win10 WSL (Letta Docker Host)',
+        'host': '100.80.49.10',
+        'user': 'adamsl',
+        'note': 'WSL side of the Win10 box — actual LETTA_DOCKER_HOST used for Letta server, '
+                'Logger API, and Frita executor admin (100.80.49.10)',
+    },
+    {
         'key': 'win11',
         'name': 'Win11 (Lettabot/Dashboard)',
         'host': '100.72.158.63',
@@ -359,6 +388,16 @@ SSH_CONNECTIONS = [
         'host': '100.72.34.38',
         'user': 'adamsl',
         'note': 'Rosemary46 Linux box (100.72.34.38)',
+    },
+    {
+        'key': 'android-phone',
+        'name': 'Android Phone (Samsung)',
+        'host': '100.111.161.7',
+        'user': None,
+        'check': 'tailscale',
+        'note': 'Samsung phone — checked via `tailscale status` (no sshd). Must show '
+                '"online" here for the tailnet-only live dashboard URL '
+                '(desktop-2obsqmc-24.tailb8fc54.ts.net) to be reachable from it.',
     },
 ]
 
@@ -719,12 +758,22 @@ def letta_thoughts(agent_id):
         })
     return rows
 
+MESSAGES_MAX_AGE_SECONDS = 5 * 3600  # only show messages from the last 5 hours
+
+def _within_max_age(m, now):
+    """True if a message's timestamp is within MESSAGES_MAX_AGE_SECONDS (or unparseable)."""
+    age = _msg_age_seconds(m, now)
+    return age is None or age <= MESSAGES_MAX_AGE_SECONDS
+
 def letta_convo(agent_id):
     msgs = letta_messages(agent_id, limit=200)
+    now = datetime.now(timezone.utc)
     rows = []
     for m in msgs:
         mt = m.get('message_type', '')
         if mt not in ('user_message', 'assistant_message'):
+            continue
+        if not _within_max_age(m, now):
             continue
         text = _msg_text(m)
         if not text.strip():
@@ -922,6 +971,33 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
         return {'ok': False, 'text': f'ssh to {target} failed: {e}'}
 
 
+def tailscale_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
+    """Check a Tailscale peer's online status by scanning `tailscale status`.
+
+    For devices with no sshd (e.g. phones) — "down" here means the device
+    isn't connected to the tailnet, so any tailnet-only URL is unreachable
+    from it."""
+    try:
+        result = subprocess.run(['tailscale', 'status'], capture_output=True, text=True, timeout=timeout)
+        for line in result.stdout.splitlines():
+            if line.split()[:1] == [cfg['host']]:
+                if 'offline' in line:
+                    return {'ok': False, 'text': line.strip()}
+                return {'ok': True, 'text': line.strip()}
+        return {'ok': False, 'text': f"{cfg['host']} not found in tailscale status"}
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'text': f'tailscale status timed out after {timeout}s'}
+    except Exception as e:
+        return {'ok': False, 'text': f'tailscale status failed: {e}'}
+
+
+def connection_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
+    """Dispatch to the right health check based on cfg['check'] (default 'ssh')."""
+    if cfg.get('check') == 'tailscale':
+        return tailscale_test(cfg, timeout=timeout)
+    return ssh_test(cfg, timeout=timeout)
+
+
 def _record_ssh_log(key, text):
     global _ssh_log_seq
     with _ssh_log_lock:
@@ -932,7 +1008,7 @@ def _record_ssh_log(key, text):
 
 def _poll_all_ssh_once():
     for cfg in SSH_CONNECTIONS:
-        h = ssh_test(cfg)
+        h = connection_test(cfg)
         with _ssh_health_lock:
             _ssh_health_cache[cfg['key']] = h
         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -955,7 +1031,7 @@ def cached_ssh_health(cfg):
         h = _ssh_health_cache.get(cfg['key'])
     if h is not None:
         return h
-    h = ssh_test(cfg)
+    h = connection_test(cfg)
     with _ssh_health_lock:
         _ssh_health_cache[cfg['key']] = h
     return h
@@ -1072,41 +1148,57 @@ def _msg_age_seconds(m, now):
         return None
 
 
+def _agent_activity_one(cfg, now):
+    """Compute the activity status for a single agent config. Returns (dash_id, status)."""
+    real_id = get_letta_id(cfg)
+    dash_id = real_id or f'unknown-{cfg["name"].lower()}'
+    if not real_id:
+        return dash_id, 'idle'
+    msgs = letta_messages(real_id, limit=5)
+    if not msgs:
+        return real_id, 'idle'
+    # Sort ascending so last item is most recent message
+    msgs_sorted = sorted(msgs, key=lambda m: str(m.get('created_at') or m.get('date') or ''))
+    last = msgs_sorted[-1]
+    age = _msg_age_seconds(last, now)
+    if age is None or age > 60:
+        return real_id, 'idle'
+    mt = last.get('message_type', '')
+    if mt in ('user_message', 'tool_call_message', 'reasoning_message'):
+        return real_id, 'active'
+    if mt == 'tool_return_message':
+        tr = last.get('tool_return', {})
+        if isinstance(tr, dict) and tr.get('status') == 'error':
+            return real_id, 'error'
+        return real_id, 'active'
+    # assistant_message or unknown — agent just finished responding
+    return real_id, 'idle'
+
+
 def agent_activity_status():
-    """Return {agent_id: 'active'|'error'|'idle'} for every configured Letta agent."""
-    from datetime import timezone
-    now = datetime.now(timezone.utc)
-    results = {}
-    for cfg in LETTA_AGENTS:
-        real_id = get_letta_id(cfg)
-        dash_id = real_id or f'unknown-{cfg["name"].lower()}'
-        if not real_id:
-            results[dash_id] = 'idle'
-            continue
-        msgs = letta_messages(real_id, limit=5)
-        if not msgs:
-            results[real_id] = 'idle'
-            continue
-        # Sort ascending so last item is most recent message
-        msgs_sorted = sorted(msgs, key=lambda m: str(m.get('created_at') or m.get('date') or ''))
-        last = msgs_sorted[-1]
-        age = _msg_age_seconds(last, now)
-        if age is None or age > 60:
-            results[real_id] = 'idle'
-            continue
-        mt = last.get('message_type', '')
-        if mt in ('user_message', 'tool_call_message', 'reasoning_message'):
-            results[real_id] = 'active'
-        elif mt == 'tool_return_message':
-            tr = last.get('tool_return', {})
-            if isinstance(tr, dict) and tr.get('status') == 'error':
-                results[real_id] = 'error'
-            else:
-                results[real_id] = 'active'
-        else:
-            # assistant_message or unknown — agent just finished responding
-            results[real_id] = 'idle'
-    return results
+    """Return {agent_id: 'active'|'error'|'idle'} for every configured Letta agent.
+
+    Each agent's status requires a DERP-relayed round trip to the Letta API
+    (3-8s). Fetched in parallel (not serially) and cached briefly so the
+    frontend's 5s poll doesn't pile up dozens of concurrent multi-agent sweeps."""
+    # Hold the lock for the whole get-or-compute so concurrent pollers share
+    # one sweep instead of each starting their own.
+    with _agent_activity_cache_lock:
+        now_ts = time.time()
+        cached = _agent_activity_cache.get('value')
+        if cached is not None and now_ts - _agent_activity_cache.get('ts', 0.0) < AGENT_ACTIVITY_CACHE_TTL:
+            return cached
+
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        results = {}
+        with ThreadPoolExecutor(max_workers=max(1, len(LETTA_AGENTS))) as pool:
+            for dash_id, status in pool.map(lambda cfg: _agent_activity_one(cfg, now), LETTA_AGENTS):
+                results[dash_id] = status
+
+        _agent_activity_cache['value'] = results
+        _agent_activity_cache['ts'] = time.time()
+        return results
 
 
 def build_agent_list(force_refresh=False):
@@ -1164,9 +1256,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if path == '/api/agent-activity':
             return self.json_response(agent_activity_status())
 
-        if path == '/api/agent-activity':
-            return self.json_response(agent_activity_status())
-
         if path == '/api/agent-card':
             agent = next((a for a in build_agent_list() if a['id'] == agent_id), None)
             if not agent:
@@ -1183,7 +1272,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/messages':
             if agent_id == 'agent-claude':
-                return self.json_response(_load_json(CLAUDE_LOG_FILE))
+                now = datetime.now(timezone.utc)
+                rows = _load_json(CLAUDE_LOG_FILE)
+                rows = [r for r in rows if _within_max_age(r, now)]
+                return self.json_response(rows)
             lid = letta_id_for(agent_id)
             if lid:
                 return self.json_response(letta_convo(lid))
@@ -1196,19 +1288,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if lid:
                 return self.json_response(letta_toolcalls(lid))
             return self.json_response([])
-
-        if path == '/api/rol-finance-reports':
-            result = []
-            for r in ROL_FINANCE_REPORTS:
-                report_file = os.path.join(ROL_FINANCES_REPORTS_BASE, r['dir'], 'report.html')
-                exists = os.path.isfile(report_file)
-                result.append({
-                    'key': r['key'],
-                    'label': r['label'],
-                    'exists': exists,
-                    'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{r["dir"]}/report.html' if exists else None,
-                })
-            return self.json_response(result)
 
         if path == '/api/servers':
             return self.json_response([
@@ -1311,7 +1390,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             cfg = get_ssh_connection(key)
             if not cfg:
                 return self.json_response({'ok': False, 'text': 'unknown connection'})
-            h = ssh_test(cfg, timeout=8)
+            h = connection_test(cfg, timeout=8)
             with _ssh_health_lock:
                 _ssh_health_cache[key] = h
             ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1418,9 +1497,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 lid = letta_id_for(agent_id)
                 if lid:
                     reset_req = urllib.request.Request(
-                        f'{LETTA_BASE_URL}/v1/agents/{lid}/messages/clear?agent_id={quote(lid, safe="")}',
-                        data=b'',
-                        method='POST',
+                        f'{LETTA_BASE_URL}/v1/agents/{lid}/reset-messages',
+                        data=json.dumps({'add_default_initial_messages': False}).encode(),
+                        headers={'Content-Type': 'application/json'},
+                        method='PATCH',
                     )
                     try:
                         with urllib.request.urlopen(reset_req, timeout=10):
@@ -1450,6 +1530,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         for m in resp.get('messages', []):
                             if m.get('message_type') == 'assistant_message':
                                 replies.append({'type': 'assistant_message', 'text': _msg_text(m)})
+                        if not replies:
+                            # The agent ended its turn without a final assistant_message
+                            # (e.g. it ran a tool and stopped). Fall back to showing
+                            # the last tool call/return so the user sees what happened
+                            # instead of a bare "(no reply)".
+                            for m in resp.get('messages', []):
+                                mtype = m.get('message_type')
+                                if mtype in ('tool_call_message', 'tool_return_message', 'reasoning_message'):
+                                    replies.append({'type': mtype, 'text': _msg_text(m)})
                         return self.json_response({'replies': replies or [{'type': 'assistant_message', 'text': '(no reply)'}]})
                     except Exception as e:
                         return self.json_response({'replies': [{'type': 'error', 'text': str(e)}]})
@@ -1458,6 +1547,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.error_response('Invalid JSON', 400)
 
         self.send_error(404)
+
+    def _handle_voice(self, audio_bytes):
+        filename = self.headers.get('X-Filename', 'audio.webm')
+        result = handle_voice_upload(build_pipeline(), audio_bytes, filename)
+        if result.get('ok'):
+            _append_json(VOICE_LOG_FILE, _voice_log_lock, {
+                'date': datetime.now().isoformat(),
+                'raw': result.get('raw_transcript', ''),
+                'cleaned': result.get('cleaned_text', ''),
+            })
+        return self.json_response(result)
 
     def _read_body(self):
         length = int(self.headers.get('Content-Length', 0))

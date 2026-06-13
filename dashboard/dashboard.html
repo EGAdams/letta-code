@@ -281,24 +281,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <iframe id="rol-finance-plan-frame" class="plan-frame" src="/rol_finances/tools/plan.html"></iframe>
     </section>
 
-    <!-- ROL Finance views -->
-    <section id="rol-finance-current-status" class="view">
-      <h2>Current Status</h2>
-      <p>Current Status content coming soon.</p>
-    </section>
-
-    <section id="rol-finance-taxes" class="view">
-      <h2>Taxes</h2>
-      <p>Taxes content coming soon.</p>
-    </section>
-
-    <section id="rol-finance-reports" class="view">
-      <p>Loading reports…</p>
-    </section>
-
-    <!-- ROL Finance report views injected dynamically by RF.init() -->
-    <section id="rol-finance-reports-views"></section>
-
     <section id="plans-self-evolving" class="view">
       <iframe id="self-evolving-plan-frame" class="plan-frame" src="/agent_self_improvement/agent_self_improvement_plan.html"></iframe>
     </section>
@@ -1036,7 +1018,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         const modeBtn = document.getElementById('am-mode');
         const speakBtn = document.getElementById('am-speak');
 
-        const setConsole = (html) => { out.querySelector('.msi-inner').innerHTML = html; out.scrollTop = out.scrollHeight; };
+        const setConsole = (html) => { out.innerHTML = '<span class="msi-inner">' + html + '</span><span class="msi-cursor">&#9608;</span>'; out.scrollTop = out.scrollHeight; };
 
         // ── Voice output toggle (preference persists across sessions) ───────────
         let speakReplies = localStorage.getItem('dash-speak-replies') === '1';
@@ -1229,7 +1211,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           + '<div style="display:flex;flex-direction:column;gap:10px;max-width:320px;">'
           + '<textarea class="am-test-input" id="io-text" placeholder="Type or speak here…" style="min-height:100px;"></textarea>'
           + '<button id="io-send"    style="' + bs + 'background:#4c6ef5;">Send</button>'
-          + '<button id="io-start"   style="' + bs + 'background:#28a745;">Start</button>'
+          + '<div style="display:flex;align-items:center;gap:8px;">'
+          +   '<button id="io-start" class="voice-btn" style="' + bs + 'flex:1;background:#28a745;">Start</button>'
+          +   '<span class="rec-indicator" id="io-rec-ind"><span class="rec-led"></span><span class="rec-text" id="io-rec-text">Recording</span></span>'
+          + '</div>'
           + '<button id="io-autosend" style="' + bs + 'background:#6c757d;">Auto Send</button>'
           + '<button id="io-speak"   style="' + bs + 'background:#6c757d;">&#128266; Speak</button>'
           + '<button id="io-copy"    style="' + bs + 'background:#6c757d;">Copy to Clipboard</button>'
@@ -1322,26 +1307,78 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           }
         });
 
-        // Start/Stop — toggles speech recognition
-        let recognition = null;
+        // ── Voice capture (State machine: idle -> recording -> processing) ──────
+        // Mirrors the Tests tab's pipeline: MediaRecorder -> /api/voice (whisper +
+        // cleanup agent) -> fills io-text. Waits for the Stop button, not silence.
+        let mediaRecorder = null, chunks = [], recTimer = null, dots = 0;
         const startBtn = document.getElementById('io-start');
-        startBtn.addEventListener('click', () => {
-          const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-          if (!SpeechRecognition) { showStatus('Speech recognition not supported in this browser.', true); return; }
-          if (recognition) { recognition.stop(); return; }
-          recognition = new SpeechRecognition();
-          recognition.continuous = false;
-          recognition.interimResults = false;
-          recognition.onstart = () => { startBtn.textContent = 'Stop'; startBtn.style.background = '#dc3545'; showStatus('Listening…'); };
-          recognition.onresult = (e) => {
-            const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
-            document.getElementById('io-text').value = transcript;
-            showStatus('Transcribed. Tap Send or enable Auto Send.');
-            if (autoSendOn) document.getElementById('io-send').click();
+        const recInd = document.getElementById('io-rec-ind');
+        const recText = document.getElementById('io-rec-text');
+
+        function cycleRecText() {
+          recText.textContent = 'Recording' + '.'.repeat(dots);
+          dots = (dots + 1) % 4;
+        }
+        function setRecording(on) {
+          startBtn.classList.toggle('recording', on);
+          startBtn.textContent = on ? 'Stop' : 'Start';
+          recInd.classList.toggle('on', on);
+          if (on) { dots = 0; cycleRecText(); recTimer = setInterval(cycleRecText, 450); }
+          else if (recTimer) { clearInterval(recTimer); recTimer = null; }
+        }
+
+        async function startRecording() {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showStatus('Microphone needs a secure context (https). Open this dashboard via the Tailscale https URL.', true);
+            return;
+          }
+          let stream;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch (e) {
+            showStatus('Mic permission denied or unavailable: ' + e.message, true);
+            return;
+          }
+          mediaRecorder = new MediaRecorder(stream);
+          chunks = [];
+          mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+          mediaRecorder.onstop = async () => {
+            stream.getTracks().forEach(t => t.stop());
+            const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+            await uploadVoice(blob);
           };
-          recognition.onerror = (e) => { showStatus('Speech error: ' + e.error, true); };
-          recognition.onend = () => { recognition = null; startBtn.textContent = 'Start'; startBtn.style.background = '#28a745'; };
-          recognition.start();
+          mediaRecorder.start();
+          setRecording(true);
+          showStatus('Listening…');
+        }
+
+        function stopRecording() {
+          if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+          setRecording(false);
+          startBtn.disabled = true;
+          showStatus('Transcribing & cleaning up…');
+        }
+
+        async function uploadVoice(blob) {
+          try {
+            const res = await fetch('/api/voice', {
+              method: 'POST', headers: { 'X-Filename': 'voice.webm' }, body: blob
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'voice processing failed');
+            document.getElementById('io-text').value = data.cleaned_text || '';
+            showStatus('Transcribed & cleaned. Tap Send or enable Auto Send.');
+            if (autoSendOn) document.getElementById('io-send').click();
+          } catch (e) {
+            showStatus(e.message, true);
+          } finally {
+            startBtn.disabled = false;
+          }
+        }
+
+        startBtn.addEventListener('click', () => {
+          if (startBtn.classList.contains('recording')) stopRecording();
+          else startRecording();
         });
       },
 
