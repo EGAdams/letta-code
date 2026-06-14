@@ -1085,9 +1085,11 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             const replies = (r.replies || []);
             const hasError = replies.some(x => x.type === 'error');
             setAgentTabStatus(self.current.id, hasError ? 'error' : 'idle');
-            setConsole(replies.length
+            out.innerHTML = '<div class="msi-console"><span id="ti"></span></div>';
+            const inner = out.querySelector('#ti');
+            inner.innerHTML = replies.length
               ? replies.map(x => '<div class="msi-entry"><span class="hdr">' + esc((x.type || '').replace('_message', '')) + '</span> ' + esc(x.text) + '</div>').join('')
-              : '<div class="msi-entry dim">(no reply content)</div>');
+              : '<div class="msi-entry dim">(no reply content)</div>';
             // Read the agent's spoken reply aloud (prefer assistant_message text).
             if (speakReplies && replies.length) {
               const spoken = replies
@@ -1097,7 +1099,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             }
           } catch (e) {
             setAgentTabStatus(self.current.id, 'error');
-            setConsole('<div class="msi-line err">! ' + esc(e.message) + '</div>');
+            out.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
           }
         }
         document.getElementById('am-test-send').addEventListener('click', () => sendText(textEl.value));

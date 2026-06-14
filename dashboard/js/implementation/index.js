@@ -4,6 +4,10 @@
  * dashboard.html (or a bundler entry) to replace the inline AM/SM logic.
  */
 
+export {
+  AgentVoiceCatalog,
+  DEFAULT_AGENT_VOICE_PREFERENCES,
+} from "../abstract/agent-voice-catalog.interface.js";
 export { ActivePoller } from "./active-poller.js";
 export { AgentStreamController } from "./agent-stream-controller.js";
 export { BrowserSpeechSynthesizer } from "./browser-speech-synthesizer.js";

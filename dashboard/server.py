@@ -629,6 +629,13 @@ SERVERS = [
 SSH_CONNECTIONS = [
     {
         'key': 'win10-host',
+        'name': 'Windows 10 Host',
+        'host': '100.69.80.89',
+        'user': 'NewUser',
+        'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.69.80.89)',
+    },
+    {
+        'key': 'win10-wsl-letta',
         'name': 'Win10 WSL (Letta Docker Host)',
         'host': '100.80.49.10',
         'user': 'adamsl',
