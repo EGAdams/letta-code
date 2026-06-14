@@ -1,1002 +1,1002 @@
 [
   {
-    "date": "2026-06-12T21:50:16",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-12T21:50:24",
+    "date": "2026-06-14T03:28:17",
     "type": "Bash",
-    "text": "python3 -c \"\nimport re\nhtml = open('dashboard.html').read()\nscripts = re.findall(r'<script>(.*?)</script>', html, re.S)\nprint(len(scripts), 'scripts')\nfor i,s in enumerate(scripts):\n    open(f'/tmp/sc"
+    "text": "echo \"=== resolve agent name -> id from Letta API ===\"\ncurl -s \"http://localhost:8765/api/agents\" 2>/dev/null | python3 -c \"\nimport sys,json\ndata=json.load(sys.stdin)\nwant={'Mazda','Frita','Jeri','Hai"
   },
   {
-    "date": "2026-06-12T21:50:29",
+    "date": "2026-06-14T03:28:48",
     "type": "Bash",
-    "text": "curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8765/"
+    "text": "cd ~/.letta/agents\necho \"=== is each agent memory a git repo? what's tracked? ===\"\nfor id in agent-5955b0c2-7922-4ffe-9e43-b116053b80fa agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03; do\n  echo \"--- $id -"
   },
   {
-    "date": "2026-06-12T21:50:35",
-    "type": "ToolSearch",
-    "text": "query: select:mcp__playwright__browser_navigate,mcp__playwright__browser_snapshot,mcp__playwright__browser_console_messages,mcp__playwright__browser_click,mcp__playwright__browser_type,mcp__playwright__browser_fill_form"
-  },
-  {
-    "date": "2026-06-12T21:50:40",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-12T21:50:44",
-    "type": "mcp__playwright__browser_console_messages",
-    "text": "level: error"
-  },
-  {
-    "date": "2026-06-12T21:50:47",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T21:51:01",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e9"
-  },
-  {
-    "date": "2026-06-12T21:51:06",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T21:51:09",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T21:51:13",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T21:51:20",
-    "type": "ToolSearch",
-    "text": "query: select:mcp__playwright__browser_wait_for"
-  },
-  {
-    "date": "2026-06-12T21:51:40",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "textGone: Loading agents\u2026"
-  },
-  {
-    "date": "2026-06-12T21:51:44",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T21:51:54",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e20"
-  },
-  {
-    "date": "2026-06-12T21:51:57",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T21:52:01",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e41"
-  },
-  {
-    "date": "2026-06-12T21:52:06",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T21:52:10",
-    "type": "mcp__playwright__browser_type",
-    "text": "target: e49"
-  },
-  {
-    "date": "2026-06-12T21:52:20",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e50"
-  },
-  {
-    "date": "2026-06-12T21:52:31",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "time: 8"
-  },
-  {
-    "date": "2026-06-12T21:52:33",
-    "type": "mcp__playwright__browser_console_messages",
-    "text": "level: error"
-  },
-  {
-    "date": "2026-06-12T21:52:58",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "time: 20"
-  },
-  {
-    "date": "2026-06-12T21:53:01",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T21:53:09",
+    "date": "2026-06-14T03:30:49",
     "type": "Bash",
-    "text": "grep -n \"function esc\" /home/adamsl/letta-code/dashboard/dashboard.html"
+    "text": "cd /home/adamsl/rol_finances\nfor F in $(find readable_documents/bank_statements -name '*report.html' | sort); do\n  echo \"=== $F ===\"\n  # first verified-transactions data row\n  grep -o '<tr [^>]*data-v"
   },
   {
-    "date": "2026-06-12T21:53:22",
-    "type": "Bash",
-    "text": "grep -n \"setAgentTabStatus\\|fetchJSON\" /home/adamsl/letta-code/dashboard/dashboard.html | head -20"
-  },
-  {
-    "date": "2026-06-12T21:53:26",
-    "type": "Bash",
-    "text": "grep -n \"function setAgentTabStatus\\|setAgentTabStatus =\" /home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-12T21:53:32",
-    "type": "Bash",
-    "text": "grep -n \"api/test\\|def.*test\\b\" /home/adamsl/letta-code/dashboard/server.py | head -20"
-  },
-  {
-    "date": "2026-06-12T21:53:37",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-12T21:53:50",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-12T21:54:04",
-    "type": "Bash",
-    "text": "grep -n \"const Speech\\|Speech\\.\\|= Speech\\|class Speech\\|Speech =\" /home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-12T21:54:16",
-    "type": "Bash",
-    "text": "grep -n \"this.current\\s*=\\|self.current\\s*=\\|current = null\\|current: null\" /home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-12T21:54:20",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-12T21:54:30",
-    "type": "Bash",
-    "text": "git diff HEAD -- dashboard.html | grep -n \"^[+-]\" | grep -i \"io-send\\|io-out\\|1219\\|setAgentTabStatus\" | head -30"
-  },
-  {
-    "date": "2026-06-12T21:54:37",
-    "type": "Bash",
-    "text": "git diff HEAD -- dashboard.html > /tmp/dash.diff; wc -l /tmp/dash.diff"
-  },
-  {
-    "date": "2026-06-12T21:54:42",
-    "type": "Read",
-    "text": "/tmp/dash.diff"
-  },
-  {
-    "date": "2026-06-12T21:54:52",
-    "type": "Read",
-    "text": "/tmp/dash.diff"
-  },
-  {
-    "date": "2026-06-12T21:54:59",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-12T22:17:57",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-12T22:18:07",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e9"
-  },
-  {
-    "date": "2026-06-12T22:18:27",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "text: Scissari"
-  },
-  {
-    "date": "2026-06-12T22:18:38",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e20"
-  },
-  {
-    "date": "2026-06-12T22:18:43",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e41"
-  },
-  {
-    "date": "2026-06-12T22:18:47",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T22:18:52",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e52"
-  },
-  {
-    "date": "2026-06-12T22:19:00",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T22:19:05",
-    "type": "mcp__playwright__browser_console_messages",
-    "text": "level: debug"
-  },
-  {
-    "date": "2026-06-12T22:19:11",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-12T22:19:19",
-    "type": "Bash",
-    "text": "grep -n \"/api/voice\\|handle_voice_upload\" /home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-12T22:19:24",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-12T22:19:29",
-    "type": "Bash",
-    "text": "grep -n \"_handle_voice\" /home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-12T22:19:35",
-    "type": "Bash",
-    "text": "grep -n \"_handle_voice\\|def _handle\\|handle_voice_upload\\|from voice\" /home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-12T22:19:43",
-    "type": "Bash",
-    "text": "git log --oneline -3 -- server.py && git diff HEAD -- server.py | grep -n \"_handle_voice\\|handle_voice_upload\\|^import\\|^from\" "
-  },
-  {
-    "date": "2026-06-12T22:19:47",
-    "type": "Bash",
-    "text": "git show HEAD:dashboard/server.py | grep -n \"_handle_voice\\|handle_voice_upload\\|from voice\\|import voice\""
-  },
-  {
-    "date": "2026-06-12T22:19:54",
-    "type": "Bash",
-    "text": "grep -n \"^import\\|^from\\|^class \\|voice\" /home/adamsl/letta-code/dashboard/server.py | head -30"
-  },
-  {
-    "date": "2026-06-12T22:20:00",
-    "type": "Bash",
-    "text": "ls /home/adamsl/letta-code/dashboard/voice/ && cat /home/adamsl/letta-code/dashboard/voice/pipeline.py"
-  },
-  {
-    "date": "2026-06-12T22:20:07",
-    "type": "Bash",
-    "text": "grep -n \"voice\\|_handle_voice\\|VOICE_LOG\\|X-Filename\" /home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-06-12T22:20:11",
-    "type": "Bash",
-    "text": "grep -rn \"_handle_voice\\|VOICE_LOG_FILE\\|handle_voice_upload\\|build_pipeline\\|X-Filename\\|api/voice\" /home/adamsl/letta-code/dashboard/tests/ /home/adamsl/letta-code/dashboard/*.py"
-  },
-  {
-    "date": "2026-06-12T22:20:19",
-    "type": "Bash",
-    "text": "grep -n \"_append_json\\|def json_response\\|def error_response\\|_voice_log_lock\\|VOICE_LOG_FILE\" /home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-12T22:20:24",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-12T22:20:31",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-12T22:20:44",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-12T22:20:50",
+    "date": "2026-06-14T03:31:51",
     "type": "Edit",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-06-12T22:20:56",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-12T22:21:04",
+    "date": "2026-06-14T03:32:10",
     "type": "Edit",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-06-12T22:21:09",
-    "type": "Bash",
-    "text": "python3 -c \"import server\" && echo OK"
-  },
-  {
-    "date": "2026-06-12T22:21:14",
-    "type": "Bash",
-    "text": "pwd"
-  },
-  {
-    "date": "2026-06-12T22:21:20",
-    "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-06-12T22:21:26",
-    "type": "Bash",
-    "text": "git stash && .venv/bin/python -m pytest tests/test_server.py::test_every_server_has_a_log_or_health_source -q 2>&1 | tail -5; git stash pop"
-  },
-  {
-    "date": "2026-06-12T22:21:33",
-    "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 1 && systemctl --user is-active dashboard-server.service"
-  },
-  {
-    "date": "2026-06-12T22:22:24",
-    "type": "Bash",
-    "text": "curl -s -X POST http://localhost:8765/api/voice -H \"X-Filename: test.webm\" --data-binary @/dev/null -w '\\nHTTP %{http_code}\\n'"
-  },
-  {
-    "date": "2026-06-12T22:22:31",
-    "type": "Bash",
-    "text": "find /home/adamsl/letta-code/dashboard -iname \"*.webm\" -o -iname \"*.wav\" 2>/dev/null | head -5"
-  },
-  {
-    "date": "2026-06-12T22:22:39",
-    "type": "Bash",
-    "text": "cd /tmp && python3 -c \"import imageio_ffmpeg\" 2>&1; FFMPEG=$(python3 -c \"import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())\" 2>/dev/null || which ffmpeg); echo \"ffmpeg: $FFMPEG\"\n$FFMPEG -f "
-  },
-  {
-    "date": "2026-06-12T22:22:49",
-    "type": "Bash",
-    "text": "FFMPEG=/home/adamsl/lettabot/.venv_ffmpeg/lib/python3.12/site-packages/imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2\nls -la $FFMPEG\n$FFMPEG -f lavfi -i anullsrc=r=16000:cl=mono -t 1 -c:a libopus "
-  },
-  {
-    "date": "2026-06-12T22:23:08",
-    "type": "Bash",
-    "text": "curl -s -X POST http://localhost:8765/api/voice -H \"X-Filename: test.webm\" --data-binary @/tmp/test_audio.webm -w '\\nHTTP %{http_code}\\n' --max-time 60"
-  },
-  {
-    "date": "2026-06-12T22:23:14",
-    "type": "Bash",
-    "text": "tail -5 /home/adamsl/letta-code/dashboard/voice_transcripts.json 2>/dev/null"
-  },
-  {
-    "date": "2026-06-12T22:23:25",
-    "type": "Bash",
-    "text": "curl -s -X POST localhost:8765/api/server-action -H 'Content-Type: application/json' -d '{\"server\":\"executor\",\"action\":\"start\"}' --max-time 15"
-  },
-  {
-    "date": "2026-06-12T22:23:36",
-    "type": "Bash",
-    "text": "sleep 5; curl -s http://127.0.0.1:8787/health -w '\\nHTTP %{http_code}\\n' --max-time 5"
-  },
-  {
-    "date": "2026-06-12T22:23:42",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-12T22:38:58",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-06-12T22:39:08",
-    "type": "Bash",
-    "text": "wc -c /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-06-12T22:39:30",
-    "type": "Bash",
-    "text": "cd /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/ && sed -n '1,51p' MEMORY.md | wc -c && sed -n '52,182p' MEMORY.md | wc -c"
-  },
-  {
-    "date": "2026-06-12T22:39:50",
-    "type": "Write",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_voice_handle_voice_missing_2026_06_12.md\n\u2192 --- name: dashboard-voice-handle-voice-missing-2026-06-12 description: \"/api/voice returned HTML 500 ('unexpected json input' in browser) because DashboardHandler._handle_voice was called but never de"
-  },
-  {
-    "date": "2026-06-12T22:41:37",
+    "date": "2026-06-14T03:32:20",
     "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py"
   },
   {
-    "date": "2026-06-12T22:41:41",
+    "date": "2026-06-14T03:32:41",
     "type": "Bash",
-    "text": "wc -c /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+    "text": "cd /home/adamsl/rol_finances\nmapfile -t FILES < <(find readable_documents/bank_statements -name '*report.html' | sort -u)\npython3 tools/python_tasks/verification_lib/restructure_verified_transactions."
   },
   {
-    "date": "2026-06-13T22:10:42",
+    "date": "2026-06-14T03:33:12",
     "type": "Bash",
-    "text": "curl -s localhost:8765/api/server-status 2>/dev/null | head -50; echo \"---\"; curl -s -o /dev/null -w \"%{http_code}\\n\" localhost:8765"
+    "text": "cd /home/adamsl/letta-code\nsystemctl --user restart dashboard-server.service\nfor i in $(seq 1 20); do curl -sf -o /dev/null http://localhost:8765/ && { echo \"dashboard up\"; break; }; sleep 0.5; done\nc"
   },
   {
-    "date": "2026-06-13T22:10:42",
+    "date": "2026-06-14T03:33:29",
     "type": "Bash",
-    "text": "grep -rn \"Frita\" /home/adamsl/letta-code/dashboard/server.py | head -30"
+    "text": "cd /home/adamsl/rol_finances\nF=\"readable_documents/bank_statements/january/platinum_business_credit_card_for_the_year/report.html\"\nRP=\"/rol_finances_reports/platinum_business_credit_card_for_the_year/"
   },
   {
-    "date": "2026-06-13T22:10:47",
+    "date": "2026-06-14T03:33:53",
     "type": "Bash",
-    "text": "grep -n \"api/agent\\|api/chat\\|/api/message\\|sendMessage\\|agent-chat\\|chat-message\" /home/adamsl/letta-code/dashboard/server.py | head -30"
+    "text": "cd /home/adamsl/letta-code\npython3 - <<'PY' 2>&1\nimport sys; sys.path.insert(0, 'dashboard'); import server\nRP=\"/rol_finances_reports/platinum_business_credit_card_for_the_year/report.html\"\n# file-onl"
   },
   {
-    "date": "2026-06-13T22:10:47",
+    "date": "2026-06-14T03:41:29",
     "type": "Bash",
-    "text": "grep -n \"api/agent\\|api/chat\\|/api/message\\|sendMessage\\|agent-chat\\|chat-message\\|function send\" /home/adamsl/letta-code/dashboard/dashboard.html | head -30"
+    "text": "cd /tmp\nrm -rf memfs_push && mkdir memfs_push && cd memfs_push\nGIT=\"http://100.80.49.10:18283/v1/git\"\nfor nm in \\\n  Mazda:agent-6b536cf4-ec88-4290-b595-fed21d14bd8e \\\n  Frita:agent-881a883f-edd0-4963-"
   },
   {
-    "date": "2026-06-13T22:10:51",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-13T22:10:52",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-13T22:10:56",
+    "date": "2026-06-14T03:41:40",
     "type": "Bash",
-    "text": "grep -n \"api/test\\|def.*test\\|letta_send\\|def letta_\" /home/adamsl/letta-code/dashboard/server.py | head -30"
+    "text": "cd /tmp/memfs_push\necho \"=== Mazda system/ ===\"; ls -1 Mazda/system/ 2>/dev/null\necho \"=== sample existing system file (head) ===\"\nf=$(ls Mazda/system/*.md 2>/dev/null | head -1); [ -n \"$f\" ] && { ech"
   },
   {
-    "date": "2026-06-13T22:11:02",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-13T22:11:03",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-13T22:11:11",
-    "type": "ToolSearch",
-    "text": "query: select:mcp__playwright__browser_navigate,mcp__playwright__browser_snapshot,mcp__playwright__browser_click,mcp__playwright__browser_type,mcp__playwright__browser_wait_for,mcp__playwright__browser_network_requests,mcp__playwright__browser_console_messages"
-  },
-  {
-    "date": "2026-06-13T22:11:17",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-13T22:11:22",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-11-17-862Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:11:22",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/console-2026-06-13T22-11-17-071Z.log"
-  },
-  {
-    "date": "2026-06-13T22:11:35",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e9"
-  },
-  {
-    "date": "2026-06-13T22:11:39",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-11-35-626Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:11:58",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "text: Frita"
-  },
-  {
-    "date": "2026-06-13T22:12:07",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-11-58-555Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:12:16",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e21"
-  },
-  {
-    "date": "2026-06-13T22:12:21",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-12-16-614Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:12:25",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e41"
-  },
-  {
-    "date": "2026-06-13T22:12:27",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-12-24-971Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:12:31",
-    "type": "mcp__playwright__browser_type",
-    "text": "target: e49"
-  },
-  {
-    "date": "2026-06-13T22:12:40",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e50"
-  },
-  {
-    "date": "2026-06-13T22:13:13",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "textGone: sending\u2026"
-  },
-  {
-    "date": "2026-06-13T22:13:17",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-13-13-848Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:13:21",
-    "type": "mcp__playwright__browser_type",
-    "text": "target: e49"
-  },
-  {
-    "date": "2026-06-13T22:13:30",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e50"
-  },
-  {
-    "date": "2026-06-13T22:14:21",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "textGone: sending\u2026"
-  },
-  {
-    "date": "2026-06-13T22:14:26",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-14-21-737Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:14:32",
-    "type": "mcp__playwright__browser_network_requests",
-    "text": "filter: /api/test"
-  },
-  {
-    "date": "2026-06-13T22:14:58",
+    "date": "2026-06-14T03:41:53",
     "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-881a883f-edd0-4963-bf67-6ef178b8f018/messages?limit=10\" | python3 -m json.tool 2>/dev/null | tail -100"
+    "text": "cd /tmp/memfs_push\nfor name in Mazda Frita Jeri Hailey Scissari; do\n  echo \"=== $name/system/ ===\"; ls -1 \"$name/system/\" 2>/dev/null | tr '\\n' ' '; echo\ndone\necho \"=== Mazda/system/project (file or d"
   },
   {
-    "date": "2026-06-13T22:15:08",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e40"
-  },
-  {
-    "date": "2026-06-13T22:15:11",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-15-07-994Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:15:16",
+    "date": "2026-06-14T03:42:27",
     "type": "Bash",
-    "text": "grep -n \"'agent-detail-test\\|agent-detail-tests\\|renderTest\\|renderInputOptions\\|Tests'\\|'agent-detail\" /home/adamsl/letta-code/dashboard/dashboard.html | head -20"
+    "text": "cat > /tmp/rol-finance-category-picker.md <<'EOF'\n---\ndescription: ROL Finance report.html now has a category picker that writes BOTH the DB and the static HTML row color. Start here for \"recategorize"
   },
   {
-    "date": "2026-06-13T22:15:22",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-13T22:16:31",
-    "type": "mcp__playwright__browser_type",
-    "text": "target: e75"
-  },
-  {
-    "date": "2026-06-13T22:16:40",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e77"
-  },
-  {
-    "date": "2026-06-13T22:17:21",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "textGone: sending\u2026"
-  },
-  {
-    "date": "2026-06-13T22:17:27",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-17-21-605Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:17:35",
-    "type": "mcp__playwright__browser_type",
-    "text": "target: e75"
-  },
-  {
-    "date": "2026-06-13T22:17:38",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e77"
-  },
-  {
-    "date": "2026-06-13T22:17:43",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/console-2026-06-13T22-11-17-071Z.log"
-  },
-  {
-    "date": "2026-06-13T22:18:13",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "textGone: sending\u2026"
-  },
-  {
-    "date": "2026-06-13T22:18:37",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-13T22:18:45",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-13T22:19:00",
+    "date": "2026-06-14T03:42:50",
     "type": "Bash",
-    "text": "grep -n \"msi-inner\\|io-out\\|setConsole\\|function sendText\\|io-status\" /home/adamsl/letta-code/dashboard/dashboard.html"
+    "text": "cd /tmp/memfs_push\nfor name in Mazda Frita Jeri Hailey Scissari; do\n  echo \"===== $name =====\"\n  cp /tmp/rol-finance-category-picker.md \"$name/system/rol-finance-category-picker.md\"\n  git -C \"$name\" a"
   },
   {
-    "date": "2026-06-13T22:19:07",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-13T22:19:12",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-13T22:19:19",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-13T22:19:24",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-13T22:19:33",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-13T22:19:43",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e9"
-  },
-  {
-    "date": "2026-06-13T22:20:02",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "text: Frita"
-  },
-  {
-    "date": "2026-06-13T22:20:12",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e21"
-  },
-  {
-    "date": "2026-06-13T22:20:16",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-20-12-591Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:20:56",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e41"
-  },
-  {
-    "date": "2026-06-13T22:21:01",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-20-56-168Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:21:05",
-    "type": "mcp__playwright__browser_type",
-    "text": "target: e49"
-  },
-  {
-    "date": "2026-06-13T22:21:16",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e50"
-  },
-  {
-    "date": "2026-06-13T22:21:50",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "textGone: sending\u2026"
-  },
-  {
-    "date": "2026-06-13T22:21:55",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-21-50-508Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:21:59",
-    "type": "mcp__playwright__browser_type",
-    "text": "target: e49"
-  },
-  {
-    "date": "2026-06-13T22:22:09",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e50"
-  },
-  {
-    "date": "2026-06-13T22:22:14",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-22-09-581Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:22:44",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "textGone: sending\u2026"
-  },
-  {
-    "date": "2026-06-13T22:22:49",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-22-44-365Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:22:56",
-    "type": "mcp__playwright__browser_console_messages",
-    "text": "level: error"
-  },
-  {
-    "date": "2026-06-13T22:22:59",
+    "date": "2026-06-14T03:43:37",
     "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-881a883f-edd0-4963-bf67-6ef178b8f018/messages?limit=15\" | python3 -m json.tool 2>/dev/null"
+    "text": "echo \"=== Do Mazda/Frita/Jeri use memory BLOCKS? (block label + size) ===\"\nfor nm in Mazda:agent-6b536cf4-ec88-4290-b595-fed21d14bd8e Frita:agent-881a883f-edd0-4963-bf67-6ef178b8f018 Jeri:agent-1caa2f"
   },
   {
-    "date": "2026-06-13T22:25:30",
+    "date": "2026-06-14T03:44:07",
+    "type": "Bash",
+    "text": "for nm in Scissari:agent-5955b0c2-7922-4ffe-9e43-b116053b80fa Mazda:agent-6b536cf4-ec88-4290-b595-fed21d14bd8e; do\n  name=${nm%%:*}; id=${nm##*:}\n  echo \"=== $name tools (memory/memfs related) ===\"\n  "
+  },
+  {
+    "date": "2026-06-14T04:01:35",
     "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"How should /api/test handle turns where Frita runs a tool but never sends a final assistant_message?\",\"header\":\"Reply fallback\",\"options\":[{\"label\":\"Show tool_call/tool_return as reply (Recommended)\",\"description\":\"Update server.py to include tool_call_message/tool_return_message text when no assistant_message exists, so the user sees the tool output instead of '(no reply)'.\"},{\"label\":\"Just fix the Tests tab crash, leave this alone\",\"description\":\"The dashboard.html crash fix is already applied. Leave server.py as-is; '(no reply)' on tool-only turns is a model-behavior issue, not a dashboard bug.\"},{\"label\":\"Investigate why Frita doesn't send a final message\",\"description\":\"Dig into Frita's agent config/model to find out why the LLM stops after the tool call without calling send_message, instead of patching the dashboard display.\"}],\"multiSelect\":false}]"
+    "text": "questions: [{\"question\":\"Mazda, Frita, Jeri don't have memfs write enabled. How should I deliver the note to them?\",\"header\":\"Deliver to 3\",\"options\":[{\"label\":\"Enable memfs on Frita & Jeri; message Mazda\",\"description\":\"Enable git-memory on the two low-risk agents (Frita, Jeri) and push the memfs note; for Mazda, send a one-time Letta message instead of risking its orchestrator memory mode. Safest balance.\"},{\"label\":\"Enable memfs on all three + push\",\"description\":\"Enable git-memory on Mazda, Frita, and Jeri and push the note to all. Honors 'put it in their memfs' literally, but may detach Mazda's block-editing tools \u2014 risk to the orchestrator.\"},{\"label\":\"Message all three via Letta\",\"description\":\"Don't change anyone's memory mode. Send each a one-time message summarizing the change. Immediate but not durable memory.\"},{\"label\":\"Leave the three for now\",\"description\":\"Keep the note in my memory + Hailey/Scissari memfs only. Revisit the other three later.\"}],\"multiSelect\":false}]"
   },
   {
-    "date": "2026-06-13T22:25:41",
+    "date": "2026-06-14T04:01:46",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code\necho \"=== memfs subcommand ===\"; sed -n '1,120p' src/cli/subcommands/memfs.ts 2>/dev/null\necho \"=== grep for enable / git endpoint / 18283 / state.git ===\"\ngrep -rn \"enable\\"
+  },
+  {
+    "date": "2026-06-14T04:01:56",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
+    "text": "/home/adamsl/letta-code/src/skills/builtin/syncing-memory-filesystem/SKILL.md"
   },
   {
-    "date": "2026-06-13T22:25:49",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-13T22:26:02",
+    "date": "2026-06-14T04:02:22",
     "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-881a883f-edd0-4963-bf67-6ef178b8f018\" | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\nfor k in ['name','agent_type','llm_config','tool_rules','m"
+    "text": "for nm in Frita:agent-881a883f-edd0-4963-bf67-6ef178b8f018 Jeri:agent-1caa2fff-5188-4f7e-996b-34146de966e3; do\n  name=${nm%%:*}; id=${nm##*:}\n  echo \"=== $name current tags ===\"\n  curl -s \"http://100."
   },
   {
-    "date": "2026-06-13T22:26:16",
+    "date": "2026-06-14T04:02:49",
     "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/runs/run-b8cae7ae-bf6a-4033-aa66-3fe067053269\" | python3 -m json.tool 2>/dev/null\necho \"--- steps ---\"\ncurl -s \"http://100.80.49.10:8283/v1/runs/run-b8cae7ae-bf6a-"
+    "text": "cd /tmp/memfs_push\necho \"=== env key? ===\"; echo \"LETTA_API_KEY=${LETTA_API_KEY:-(unset)}\"\necho \"=== existing working clones' credential config (Scissari/Hailey local) ===\"\ngit -C ~/.letta/agents/agen"
   },
   {
-    "date": "2026-06-13T22:27:06",
+    "date": "2026-06-14T04:03:14",
     "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-881a883f-edd0-4963-bf67-6ef178b8f018/context\" | python3 -m json.tool 2>/dev/null | head -60\necho \"--- memory blocks sizes ---\"\ncurl -s \"http://100.80."
+    "text": "cd /tmp/memfs_push\nHELPER='!f() { echo \"username=letta\"; echo \"password=6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8\"; }; f'\nfor nm in Frita:agent-881a883f-edd0-4963-bf67-6ef178b8f018 Jeri:agent-1caa2fff-5188-4f7e"
   },
   {
-    "date": "2026-06-13T22:27:41",
+    "date": "2026-06-14T04:04:00",
     "type": "Bash",
-    "text": "curl -s -o /dev/null -w \"HTTP %{http_code}\\n\" -X POST \"http://100.80.49.10:8283/v1/agents/agent-881a883f-edd0-4963-bf67-6ef178b8f018/messages/clear?agent_id=agent-881a883f-edd0-4963-bf67-6ef178b8f018\""
+    "text": "cd /tmp\nrm -rf verify_memfs && mkdir verify_memfs && cd verify_memfs\nfor nm in Scissari:agent-5955b0c2-7922-4ffe-9e43-b116053b80fa Hailey:agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03; do\n  name=${nm%%:*"
   },
   {
-    "date": "2026-06-13T22:28:12",
+    "date": "2026-06-14T04:04:33",
     "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/openapi.json\" 2>/dev/null | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\nfor path,methods in d.get('paths',{}).items():\n    if 'agents' in path and ('reset' in"
+    "text": "cd /tmp/memfs_push\nB64=$(printf 'letta:6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8' | base64)\nfor nm in Frita:agent-881a883f-edd0-4963-bf67-6ef178b8f018 Jeri:agent-1caa2fff-5188-4f7e-996b-34146de966e3; do\n  name="
   },
   {
-    "date": "2026-06-13T22:28:42",
+    "date": "2026-06-14T04:04:57",
     "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/openapi.json\" 2>/dev/null | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\np=d['paths']['/v1/agents/{agent_id}/reset-messages']['patch']\nprint(json.dumps(p.get('"
+    "text": "cd /tmp/memfs_push\necho \"=== verbose push (server response body) ===\"\nGIT_CURL_VERBOSE=1 git -C Frita push origin HEAD 2>&1 | grep -iE \"< HTTP|403|forbidden|x-|error|denied|not.?found|receive-pack|inf"
   },
   {
-    "date": "2026-06-13T22:29:51",
+    "date": "2026-06-14T04:05:59",
     "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/openapi.json\" 2>/dev/null | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\nprint(json.dumps(d['components']['schemas']['ResetMessagesRequest'], indent=2))\n\""
+    "text": "cat > /tmp/mazda_msg.json <<'EOF'\n{\"messages\":[{\"role\":\"user\",\"content\":\"FYI \u2014 no action needed right now, just keep this in memory. The ROL Finance report.html 'Verified Transactions' table now has"
   },
   {
-    "date": "2026-06-13T22:30:03",
+    "date": "2026-06-14T04:06:15",
+    "type": "Bash",
+    "text": "rm -rf /tmp/verify_memfs /tmp/mazda_msg.json\necho \"cleaned verify clones (kept /tmp/memfs_push/Frita and Jeri \u2014 note committed, ready to push if enabled)\""
+  },
+  {
+    "date": "2026-06-14T13:29:26",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code\necho \"=== find the /memfs enable command handler ===\"\ngrep -rln \"memfs\" src/cli/commands/ 2>/dev/null\ngrep -rn \"enable\" src/cli/commands/*memfs* src/agent/memoryGit.ts 2>/de"
+  },
+  {
+    "date": "2026-06-14T13:29:37",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code\necho \"=== registry.ts memfs command ===\"\ngrep -n \"memfs\\|enable\\|memoryGit\\|cloneMemory\\|setupMemory\" src/cli/commands/registry.ts | head -30\necho\necho \"=== memoryGit.ts: en"
+  },
+  {
+    "date": "2026-06-14T13:29:47",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code\necho \"=== where addGitMemoryTag / cloneMemoryRepo are called (the enable flow) ===\"\ngrep -rn \"addGitMemoryTag\\|cloneMemoryRepo\\|initLocalMemoryRepo\\|memfs.*enable\\|handleMem"
+  },
+  {
+    "date": "2026-06-14T13:29:55",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code\necho \"=== /memfs command processing in App.tsx ===\"\ngrep -n '\"/memfs\"\\|memfsSub\\|=== \"enable\"\\|memfs enable\\|enableMemfs\\|setMemfsEnabled\\|isMemfsEnabled\\|settingsManager.*["
+  },
+  {
+    "date": "2026-06-14T13:30:02",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
+    "text": "/home/adamsl/letta-code/src/cli/App.tsx"
   },
   {
-    "date": "2026-06-13T22:30:03",
+    "date": "2026-06-14T13:30:10",
     "type": "Bash",
-    "text": "grep -n \"'Mazda\" /home/adamsl/letta-code/dashboard/server.py"
+    "text": "cd /home/adamsl/letta-code\ngrep -n \"export async function applyMemfsFlags\\|export function applyMemfsFlags\" src/agent/memoryFilesystem.ts"
   },
   {
-    "date": "2026-06-13T22:30:11",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-13T22:32:21",
-    "type": "Bash",
-    "text": "for id in agent-bc561f63-a5bd-4192-806e-58d92593da2b agent-a5063757-46c7-4054-a07d-2b1263db43a8 agent-acd624ac-17f2-4a74-aa34-78036cac4d66 agent-9a14f800-d848-4914-bfd4-53ab62bc177b agent-c429ff25-c8a"
-  },
-  {
-    "date": "2026-06-13T22:32:43",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents\" | head -c 300; echo; echo \"---\"; curl -s -o /dev/null -w \"%{http_code}\\n\" \"http://100.80.49.10:8283/v1/agents\""
-  },
-  {
-    "date": "2026-06-13T22:33:13",
-    "type": "Bash",
-    "text": "curl -sL \"http://100.80.49.10:8283/v1/agents\" | python3 -c \"\nimport json,sys\nagents=json.load(sys.stdin)\nfor a in agents:\n    if a.get('name')=='Mazda':\n        print(a['id'], a['name'])\n\""
-  },
-  {
-    "date": "2026-06-13T22:33:43",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e/context\" | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\ncur=d.get('context_window_size_current')\nmx=d.get("
-  },
-  {
-    "date": "2026-06-13T22:33:50",
-    "type": "Bash",
-    "text": "grep -n \"^    {'name':\" /home/adamsl/letta-code/dashboard/server.py | head -20"
-  },
-  {
-    "date": "2026-06-13T22:35:31",
-    "type": "Bash",
-    "text": "curl -sL \"http://100.80.49.10:8283/v1/agents\" > /tmp/all_agents.json\nfor name in Scissari Hailey Cesare Jeri; do\n  id=$(python3 -c \"\nimport json\nagents=json.load(open('/tmp/all_agents.json'))\nfor a in"
-  },
-  {
-    "date": "2026-06-13T22:35:45",
-    "type": "Bash",
-    "text": "systemctl --user is-active dashboard-server 2>/dev/null; ps aux | grep -i \"server.py\" | grep -v grep"
-  },
-  {
-    "date": "2026-06-13T22:38:24",
-    "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"Restart dashboard-server.service now to apply the server.py fix (will also kill the Executor Server, which I'll restart immediately after)?\",\"header\":\"Restart server\",\"options\":[{\"label\":\"Yes, restart now (Recommended)\",\"description\":\"Restart dashboard-server.service to load the fix, then start the Executor Server back up.\"},{\"label\":\"No, leave it for later\",\"description\":\"Don't restart now; apply the fix on a future restart.\"}],\"multiSelect\":false},{\"question\":\"Frita and Mazda are both stuck at ~95% context. Proactively reset their message history now so the next test message works correctly?\",\"header\":\"Reset agents\",\"options\":[{\"label\":\"Yes, reset both now (Recommended)\",\"description\":\"Run PATCH /v1/agents/{id}/reset-messages on Frita and Mazda to clear their bloated in-context history (recall memory / archival search is unaffected).\"},{\"label\":\"No, let it happen naturally\",\"description\":\"Once the server.py fix is live, the next /api/test call to each agent will reset them automatically \u2014 no need to do it manually now.\"}],\"multiSelect\":false}]"
-  },
-  {
-    "date": "2026-06-13T22:38:31",
-    "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 2 && systemctl --user is-active dashboard-server.service"
-  },
-  {
-    "date": "2026-06-13T22:38:37",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/api/server-action\" -X POST -H \"Content-Type: application/json\" -d '{\"server\":\"executor\",\"action\":\"start\"}'"
-  },
-  {
-    "date": "2026-06-13T22:39:09",
-    "type": "Bash",
-    "text": "echo \"Frita:\"\ncurl -s -X PATCH \"http://100.80.49.10:8283/v1/agents/agent-881a883f-edd0-4963-bf67-6ef178b8f018/reset-messages\" -H \"Content-Type: application/json\" -d '{\"add_default_initial_messages\": f"
-  },
-  {
-    "date": "2026-06-13T22:39:21",
-    "type": "Bash",
-    "text": "for x in \"Frita agent-881a883f-edd0-4963-bf67-6ef178b8f018\" \"Mazda agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\"; do\n  set -- $x\n  curl -s \"http://100.80.49.10:8283/v1/agents/$2/context\" | python3 -c \""
-  },
-  {
-    "date": "2026-06-13T22:39:27",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-13T22:39:36",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e9"
-  },
-  {
-    "date": "2026-06-13T22:39:49",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "text: Frita"
-  },
-  {
-    "date": "2026-06-13T22:39:54",
+    "date": "2026-06-14T13:30:14",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-39-49-769Z.yml"
+    "text": "/home/adamsl/letta-code/src/agent/memoryFilesystem.ts"
   },
   {
-    "date": "2026-06-13T22:40:04",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e21"
-  },
-  {
-    "date": "2026-06-13T22:40:09",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-40-04-787Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:40:14",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e41"
-  },
-  {
-    "date": "2026-06-13T22:40:18",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-40-14-669Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:40:23",
-    "type": "mcp__playwright__browser_type",
-    "text": "target: e49"
-  },
-  {
-    "date": "2026-06-13T22:40:33",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e50"
-  },
-  {
-    "date": "2026-06-13T22:42:27",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "textGone: sending\u2026"
-  },
-  {
-    "date": "2026-06-13T22:42:32",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-42-26-988Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:42:37",
-    "type": "mcp__playwright__browser_type",
-    "text": "target: e49"
-  },
-  {
-    "date": "2026-06-13T22:42:47",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: e50"
-  },
-  {
-    "date": "2026-06-13T22:44:34",
-    "type": "mcp__playwright__browser_wait_for",
-    "text": "textGone: sending\u2026"
-  },
-  {
-    "date": "2026-06-13T22:44:39",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/.playwright-mcp/page-2026-06-13T22-44-34-899Z.yml"
-  },
-  {
-    "date": "2026-06-13T22:44:53",
+    "date": "2026-06-14T13:30:53",
     "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-881a883f-edd0-4963-bf67-6ef178b8f018/context\" | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\nprint('context:', d.get('context_window_size_curre"
+    "text": "cd /home/adamsl/letta-code\necho \"=== --memfs flag parsing / headless enable ===\"\ngrep -n \"\\\"memfs\\\"\\|--memfs\\|memfsFlag\\|noMemfsFlag\\|applyMemfsFlags\\|allowSelfHosted\\|allowLocal\" src/index.ts src/hea"
   },
   {
-    "date": "2026-06-13T22:45:49",
+    "date": "2026-06-14T13:31:14",
     "type": "Bash",
-    "text": "ls /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/ | grep -i \"quirk\\|016\\|0.16\""
+    "text": "cd /home/adamsl/letta-code\necho \"=== settings env (git base url / key) ===\"\npython3 -c \"\nimport json,os\nfor p in [os.path.expanduser('~/.letta/settings.json'), '.letta/settings.local.json']:\n    try:"
   },
   {
-    "date": "2026-06-13T22:45:56",
+    "date": "2026-06-14T13:31:30",
     "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/project_letta_tools_api_quirk.md"
+    "text": "/home/adamsl/letta-code/src/index.ts"
   },
   {
-    "date": "2026-06-13T22:46:17",
+    "date": "2026-06-14T13:31:58",
     "type": "Write",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_api_test_reset_messages_bug_2026_06_13.md\n\u2192 --- name: dashboard-api-test-reset-messages-bug-2026-06-13 description: \"Frita/Mazda \\\"1st message works, 2nd fails\\\" \u2014 /api/test's clear-history call was a 404/405 no-op; context grew to 95% causin"
+    "text": "/home/adamsl/letta-code/enable_memfs_tmp.ts\n\u2192 // Temporary: run letta-code's own memfs-enable flow for Frita & Jeri. import { applyMemfsFlags } from \"./src/agent/memoryFilesystem\"; import { getClient } from \"./src/agent/client\";  const agents: Ar"
   },
   {
-    "date": "2026-06-13T22:46:22",
+    "date": "2026-06-14T13:32:07",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code\nLETTA_BASE_URL=http://100.80.49.10:8283 LETTA_GIT_BASE_URL=http://100.80.49.10:18283 LETTA_API_KEY=6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8 \\\n  timeout 180 bun --loader:.md=text --lo"
+  },
+  {
+    "date": "2026-06-14T13:32:15",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/enable_memfs_tmp.ts"
+  },
+  {
+    "date": "2026-06-14T13:32:36",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code\nLETTA_BASE_URL=http://100.80.49.10:8283 LETTA_GIT_BASE_URL=http://100.80.49.10:18283 LETTA_API_KEY=6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8 \\\n  timeout 180 bun --loader:.md=text --lo"
+  },
+  {
+    "date": "2026-06-14T13:32:52",
+    "type": "Bash",
+    "text": "for nm in Frita:agent-881a883f-edd0-4963-bf67-6ef178b8f018 Jeri:agent-1caa2fff-5188-4f7e-996b-34146de966e3; do\n  name=${nm%%:*}; id=${nm##*:}\n  REPO=~/.letta/agents/$id/memory\n  echo \"===== $name ($RE"
+  },
+  {
+    "date": "2026-06-14T13:33:57",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code\necho \"=== memfs setting now (Frita/Jeri) ===\"\npython3 -c \"\nimport json,os\nd=json.load(open(os.path.expanduser('~/.letta/settings.json')))\nfor a in d.get('agents',[]):\n    if"
+  },
+  {
+    "date": "2026-06-14T13:34:54",
+    "type": "Bash",
+    "text": "rm -f enable_memfs_tmp.ts && echo \"removed temp script\"\necho \"=== Frita/Jeri blocks still intact? ===\"\nfor nm in Frita:agent-881a883f-edd0-4963-bf67-6ef178b8f018 Jeri:agent-1caa2fff-5188-4f7e-996b-341"
+  },
+  {
+    "date": "2026-06-14T13:53:35",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"memfs push to Frita/Jeri is blocked server-side (can't fix from the client). How should I leave them?\",\"header\":\"Frita/Jeri\",\"options\":[{\"label\":\"Roll back + message them\",\"description\":\"Restore Frita & Jeri to their original standard memory mode (revert the system-prompt change via letta-code's disable flow), then send each the category-picker note as a Letta message so they get it now. Clean state + delivered.\"},{\"label\":\"Roll back only\",\"description\":\"Just restore them to standard memory mode and don't deliver the note to them for now. Leaves them exactly as they started.\"},{\"label\":\"Leave memfs half-enabled\",\"description\":\"Don't revert. Their system prompt stays in memfs mode, but the note still can't be pushed and local config isn't persisted. Not recommended \u2014 inconsistent state.\"},{\"label\":\"I'll fix the server first\",\"description\":\"You investigate the Letta git proxy receive-pack permission on 100.80.49.10:18283; I leave Frita/Jeri as-is and push the (already-committed) note once pushes are allowed.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-14T13:54:34",
+    "type": "Bash",
+    "text": "for nm in Scissari:agent-5955b0c2-7922-4ffe-9e43-b116053b80fa Hailey:agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03 Frita:agent-881a883f-edd0-4963-bf67-6ef178b8f018 Jeri:agent-1caa2fff-5188-4f7e-996b-3414"
+  },
+  {
+    "date": "2026-06-14T13:55:12",
+    "type": "Bash",
+    "text": "cd /tmp\nfor nm in Scissari:agent-5955b0c2-7922-4ffe-9e43-b116053b80fa Frita:agent-881a883f-edd0-4963-bf67-6ef178b8f018; do\n  name=${nm%%:*}; id=${nm##*:}\n  curl -s \"http://100.80.49.10:8283/v1/agents/"
+  },
+  {
+    "date": "2026-06-14T13:55:47",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no adamsl@100.80.49.10 'echo \"=== listeners ===\"; (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep -E \":18283|:8283\" ; echo \"=== "
+  },
+  {
+    "date": "2026-06-14T13:56:15",
+    "type": "Bash",
+    "text": "timeout 90 ssh -o ConnectTimeout=15 adamsl@100.80.49.10 '\necho \"=== letta-bridge recent logs ===\"; docker logs --tail 25 letta-bridge 2>&1 | tail -25\necho \"=== find git repos inside letta-bridge ===\";"
+  },
+  {
+    "date": "2026-06-14T13:57:13",
+    "type": "Bash",
+    "text": "timeout 110 ssh -o ConnectTimeout=15 adamsl@100.80.49.10 '\necho \"=== letta-server logs mentioning git/receive/403/forbidden/memfs (recent) ===\"\ndocker logs --tail 400 letta-server 2>&1 | grep -iE \"rec"
+  },
+  {
+    "date": "2026-06-14T13:57:42",
+    "type": "Bash",
+    "text": "timeout 110 ssh -o ConnectTimeout=15 adamsl@100.80.49.10 '\nS=/repos/agent-5955b0c2-7922-4ffe-9e43-b116053b80fa/state.git\nF=/repos/agent-881a883f-edd0-4963-bf67-6ef178b8f018/state.git\necho \"=== both re"
+  },
+  {
+    "date": "2026-06-14T13:58:13",
+    "type": "Bash",
+    "text": "timeout 90 ssh -o ConnectTimeout=15 adamsl@100.80.49.10 '\nfor id in agent-881a883f-edd0-4963-bf67-6ef178b8f018 agent-1caa2fff-5188-4f7e-996b-34146de966e3; do\n  R=/repos/$id/state.git\n  echo \"=== $id ="
+  },
+  {
+    "date": "2026-06-14T13:58:34",
+    "type": "Bash",
+    "text": "for nm in Frita:agent-881a883f-edd0-4963-bf67-6ef178b8f018 Jeri:agent-1caa2fff-5188-4f7e-996b-34146de966e3; do\n  name=${nm%%:*}; id=${nm##*:}\n  REPO=~/.letta/agents/$id/memory\n  echo \"=== $name push ="
+  },
+  {
+    "date": "2026-06-14T13:59:08",
+    "type": "Bash",
+    "text": "rm -rf /tmp/verify2 /tmp/memfs_push /tmp/rol-finance-category-picker.md /tmp/agent_Scissari.json /tmp/agent_Frita.json\necho \"temp artifacts (incl. clones holding the API key) removed\""
+  },
+  {
+    "date": "2026-06-14T13:59:39",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/letta_memfs_push_403_http_receivepack_2026_06_14.md\n\u2192 --- name: letta-memfs-push-403-http-receivepack-2026-06-14 description: \"memfs git push to a Letta agent fails with 403 on git-receive-pack \u2014 fix is `git config http.receivepack true` in that agent'"
+  },
+  {
+    "date": "2026-06-14T13:59:50",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-14T14:13:13",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_letta_server_docker_architecture.md"
+  },
+  {
+    "date": "2026-06-14T14:13:33",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_letta_server_docker_architecture.md"
+  },
+  {
+    "date": "2026-06-14T14:14:16",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_rol_finance_reports_data_model_2026_06_14.md\n\u2192 --- name: reference-rol-finance-reports-data-model-2026-06-14 description: \"ROL Finance: where the bank-statement report.html files live, the central MySQL expenses/categories DB + how to connect, the"
+  },
+  {
+    "date": "2026-06-14T14:14:29",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-14T14:14:45",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_rol_finance_category_picker_2026_06_13.md"
+  },
+  {
+    "date": "2026-06-14T14:18:05",
+    "type": "Bash",
+    "text": "grep -rn \"rol-finance-reports\\|Verified Transactions\\|Verified-Transactions\\|verified\" dashboard/ --include=*.py --include=*.html --include=*.js -l 2>/dev/null | head -50"
+  },
+  {
+    "date": "2026-06-14T14:18:08",
+    "type": "Bash",
+    "text": "grep -n \"rol-finance-reports\\|rol_finance_reports\\|Verified Transaction\\|verified\" dashboard/server.py | head -50"
+  },
+  {
+    "date": "2026-06-14T14:18:11",
+    "type": "Bash",
+    "text": "grep -n \"rol-finance-reports\\|Verified Transaction\\|verified\\|view=\\|getParam\\|view ===\" dashboard/dashboard.html | head -60"
+  },
+  {
+    "date": "2026-06-14T14:18:16",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
+  },
+  {
+    "date": "2026-06-14T14:18:23",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-14T14:18:28",
+    "type": "Bash",
+    "text": "grep -n \"ROL_FINANCES_REPORTS_BASE\\s*=\\|ROL_FINANCES_REPORTS_URL_PREFIX\\s*=\\|ROL_FINANCE_REPORTS\\s*=\" dashboard/server.py"
+  },
+  {
+    "date": "2026-06-14T14:18:32",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-14T14:18:36",
+    "type": "Bash",
+    "text": "f=~/rol_finances/readable_documents/bank_statements/january/amex_personal_january_25/report.html; echo \"=== $f ===\"; grep -n \"Verified Transaction\\|<section\\|<h1\\|<h2\\|<h3\\|class=\\\"section\\|id=\" \"$f\" "
+  },
+  {
+    "date": "2026-06-14T14:19:10",
+    "type": "Bash",
+    "text": "f=~/rol_finances/readable_documents/bank_statements/january/amex_personal_january_25/report.html; python3 - \"$f\" <<'EOF'\nimport sys,re\nhtml=open(sys.argv[1]).read()\n# show body-level structure: print "
+  },
+  {
+    "date": "2026-06-14T14:19:35",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
+  },
+  {
+    "date": "2026-06-14T14:19:38",
+    "type": "Bash",
+    "text": "curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8765/ ; curl -s http://localhost:8765/api/rol-finance-reports | python3 -m json.tool 2>/dev/null | head -20"
+  },
+  {
+    "date": "2026-06-14T14:19:46",
+    "type": "ToolSearch",
+    "text": "query: select:mcp__playwright__browser_navigate,mcp__playwright__browser_evaluate,mcp__playwright__browser_wait_for,mcp__playwright__browser_take_screenshot"
+  },
+  {
+    "date": "2026-06-14T14:19:52",
+    "type": "mcp__playwright__browser_navigate",
+    "text": "url: http://localhost:8765/?view=rol-finance-reports"
+  },
+  {
+    "date": "2026-06-14T14:20:00",
+    "type": "mcp__playwright__browser_evaluate",
+    "text": "function: () => {\n  const iframe = document.querySelector('#rol-finance-reports-views .view.active iframe')\n    || document.querySelector('#rol-finance-reports-views iframe');\n  if (!iframe) return { error: 'no iframe', activeView: document.querySelector('#rol-finance-reports-views .view.active')?.id };\n  const doc = iframe.contentDocument;\n  if (!doc) return { error: 'no contentDocument', src: iframe.src };\n  const sections = [...doc.querySelectorAll('main > section, body > section')].map(s => ({\n    heading: (s.querySelector('h1,h2,h3')?.textContent || s.className).trim().slice(0,40),\n    display: s.ownerDocument.defaultView.getComputedStyle(s).display,\n  }));\n  return { src: iframe.src, sections };\n}"
+  },
+  {
+    "date": "2026-06-14T14:20:06",
+    "type": "mcp__playwright__browser_take_screenshot",
+    "text": "type: png"
+  },
+  {
+    "date": "2026-06-14T14:20:13",
+    "type": "Bash",
+    "text": "find /home/adamsl/letta-code -name 'rol-finance-verified-only.png' 2>/dev/null"
+  },
+  {
+    "date": "2026-06-14T14:20:16",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/rol-finance-verified-only.png"
+  },
+  {
+    "date": "2026-06-14T14:25:30",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_rol_finance_reports_data_model_2026_06_14.md"
+  },
+  {
+    "date": "2026-06-14T14:25:38",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_rol_finance_category_picker_2026_06_13.md"
+  },
+  {
+    "date": "2026-06-14T14:25:56",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\necho \"=== create_spreadsheet.py ===\"\ngrep -n \"Staff Benefits\\|REPORTING_CATEGORY_ORDER\\|REPORTING_CATEGORY_STYLES\\|REPORTING_CATEGORY_DB_MAP\\|REPORTING_CATEGORY_GROUPS\\|R"
+  },
+  {
+    "date": "2026-06-14T14:26:27",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py"
+  },
+  {
+    "date": "2026-06-14T14:26:34",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py"
+  },
+  {
+    "date": "2026-06-14T14:26:44",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\necho \"=== cat-* CSS rules in a report.html ===\"\ngrep -n \"cat-staff\\|cat-personal\\|tr\\.cat\\|\\.cat-\" readable_documents/bank_statements/january/amex_personal_january_25/rep"
+  },
+  {
+    "date": "2026-06-14T14:26:53",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-14T14:27:44",
+    "type": "Bash",
+    "text": "cd ~/rol_finances/receipt_parsing_tools 2>/dev/null && python3 - <<'EOF' 2>&1 | head -60\nimport sys\ntry:\n    from app.db import get_connection\nexcept Exception as e:\n    print(\"IMPORT_FAIL\", e); sys.e"
+  },
+  {
+    "date": "2026-06-14T14:27:53",
+    "type": "Bash",
+    "text": "cd ~/rol_finances/receipt_parsing_tools 2>/dev/null && python3 - <<'EOF' 2>&1 | head -60\nimport sys\nfrom app.db import get_connection\nwith get_connection() as conn:\n    cur = conn.cursor(dictionary=Tr"
+  },
+  {
+    "date": "2026-06-14T14:28:01",
+    "type": "Bash",
+    "text": "cd ~/rol_finances/receipt_parsing_tools 2>/dev/null && python3 - <<'EOF' 2>&1 | head -60\nfrom app.db import get_connection\nwith get_connection() as conn:\n    cur = conn.cursor()\n    cur.execute(\"SELEC"
+  },
+  {
+    "date": "2026-06-14T14:28:15",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:28:24",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:31:09",
+    "type": "AskUserQuestion",
+    "text": "annotations: {\"What pink should 'Rosemary Benefits & Medical' use? (Robert keeps the current #CCC0DA lavender.)\":{\"preview\":\"background: #F4B6C2; color:#000  \u2192  Rosemary Benefits & Medical\"}}"
+  },
+  {
+    "date": "2026-06-14T14:31:32",
+    "type": "ToolSearch",
+    "text": "query: select:TaskCreate,TaskUpdate"
+  },
+  {
+    "date": "2026-06-14T14:31:38",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:31:47",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:31:54",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:32:51",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:33:40",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/apply_reporting_category_colors.py"
+  },
+  {
+    "date": "2026-06-14T14:34:29",
+    "type": "TaskCreate",
+    "text": "subject: Update create_spreadsheet.py for the Robert/Rosemary split"
+  },
+  {
+    "date": "2026-06-14T14:34:36",
+    "type": "TaskCreate",
+    "text": "subject: Update apply_reporting_category_colors.py"
+  },
+  {
+    "date": "2026-06-14T14:34:45",
+    "type": "TaskCreate",
+    "text": "subject: Update picker CATS in restructure_verified_transactions.py"
+  },
+  {
+    "date": "2026-06-14T14:34:52",
+    "type": "TaskCreate",
+    "text": "subject: Update dashboard/server.py category maps"
+  },
+  {
+    "date": "2026-06-14T14:34:59",
+    "type": "TaskCreate",
+    "text": "subject: Migrate existing report.html files + re-inject picker"
+  },
+  {
+    "date": "2026-06-14T14:35:08",
+    "type": "TaskCreate",
+    "text": "subject: Restart dashboard + verify in browser"
+  },
+  {
+    "date": "2026-06-14T14:35:15",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\necho \"=== report.html files containing cat-staff-benefits-and-medical ===\"\ngrep -rl \"cat-staff-benefits-and-medical\" readable_documents/bank_statements/ 2>/dev/null\necho"
+  },
+  {
+    "date": "2026-06-14T14:35:22",
+    "type": "TaskUpdate",
+    "text": "taskId: 1"
+  },
+  {
+    "date": "2026-06-14T14:35:40",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:35:46",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:35:55",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:36:02",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:36:10",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:36:17",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:36:25",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:36:33",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py"
+  },
+  {
+    "date": "2026-06-14T14:36:40",
+    "type": "Bash",
+    "text": "cd ~/rol_finances/receipt_parsing_tools 2>/dev/null\necho \"=== remaining Staff refs ===\"\ngrep -n \"Staff Benefits & Medical\\|Staff Benefits and Medical\" create_spreadsheet.py || echo \"none\"\necho \"=== py"
+  },
+  {
+    "date": "2026-06-14T14:36:47",
+    "type": "TaskUpdate",
+    "text": "taskId: 1"
+  },
+  {
+    "date": "2026-06-14T14:36:54",
+    "type": "TaskUpdate",
+    "text": "taskId: 2"
+  },
+  {
+    "date": "2026-06-14T14:37:02",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/apply_reporting_category_colors.py"
+  },
+  {
+    "date": "2026-06-14T14:37:10",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/apply_reporting_category_colors.py"
+  },
+  {
+    "date": "2026-06-14T14:37:17",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/apply_reporting_category_colors.py"
+  },
+  {
+    "date": "2026-06-14T14:37:24",
+    "type": "TaskUpdate",
+    "text": "taskId: 2"
+  },
+  {
+    "date": "2026-06-14T14:37:29",
+    "type": "TaskUpdate",
+    "text": "taskId: 3"
+  },
+  {
+    "date": "2026-06-14T14:37:35",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py"
+  },
+  {
+    "date": "2026-06-14T14:37:42",
+    "type": "TaskUpdate",
+    "text": "taskId: 3"
+  },
+  {
+    "date": "2026-06-14T14:37:47",
+    "type": "TaskUpdate",
+    "text": "taskId: 4"
+  },
+  {
+    "date": "2026-06-14T14:37:54",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-14T14:38:01",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-14T14:38:13",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard && python3 -m py_compile server.py && echo \"server.py OK\"\ncd /home/adamsl/rol_finances/tools/python_tasks/verification_lib && python3 -m py_compile apply_reporting"
+  },
+  {
+    "date": "2026-06-14T14:38:50",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py"
+  },
+  {
+    "date": "2026-06-14T14:38:58",
+    "type": "Bash",
+    "text": "cd ~/rol_finances/tools/python_tasks/verification_lib 2>/dev/null\ngrep -n \"^def \\|^CATEGORY\\|class=\\|cat-\\|tr class\\|restructure_verified_transactions(\" restructure_verified_transactions.py | head -40"
+  },
+  {
+    "date": "2026-06-14T14:39:02",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py"
+  },
+  {
+    "date": "2026-06-14T14:39:28",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\necho \"=== git tracked? ===\"\ngit rev-parse --is-inside-work-tree 2>/dev/null && git status --short readable_documents/bank_statements/ 2>/dev/null | head -3 || echo \"not a"
+  },
+  {
+    "date": "2026-06-14T14:39:35",
+    "type": "TaskUpdate",
+    "text": "taskId: 4"
+  },
+  {
+    "date": "2026-06-14T14:39:38",
+    "type": "TaskUpdate",
+    "text": "taskId: 5"
+  },
+  {
+    "date": "2026-06-14T14:39:48",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null && python3 - <<'EOF'\nimport re, subprocess, pathlib\n\n# All report*.html files that still reference the old staff class.\nout = subprocess.run(\n    [\"grep\",\"-rl\",\"cat-staff"
+  },
+  {
+    "date": "2026-06-14T14:40:09",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\nfor f in \\\n  readable_documents/bank_statements/january/amex_personal_january_25/amex_personal_january_2025_verification_report.html \\\n  readable_documents/bank_statement"
+  },
+  {
+    "date": "2026-06-14T14:40:42",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null && python3 - <<'EOF'\nimport sys, subprocess, pathlib\nsys.path.insert(0, \"tools/python_tasks/verification_lib\")\nimport apply_reporting_category_colors as acc\nimport restru"
+  },
+  {
+    "date": "2026-06-14T14:40:56",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\nfor f in \\\n  readable_documents/bank_statements/january/amex_personal_january_25/report.html \\\n  readable_documents/bank_statements/january/business_january_february_6285"
+  },
+  {
+    "date": "2026-06-14T14:41:08",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\nf=readable_documents/bank_statements/january/platinum_business_credit_card_for_the_year/report.html\ngrep -oE \".{25}Staff Benefits[^<]*|staff-benefits-and-medical\" \"$f\" | "
+  },
+  {
+    "date": "2026-06-14T14:41:22",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\nf=readable_documents/bank_statements/january/platinum_business_credit_card_for_the_year/report.html\npython3 - \"$f\" <<'EOF'\nimport sys,re\nhtml=open(sys.argv[1]).read()\ni=h"
+  },
+  {
+    "date": "2026-06-14T14:41:37",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard 2>/dev/null\ngrep -n \"def recategorize_expense\\|reporting_category\\|REPORTING_CATEGORY_DB_MAP\\|REPORTING_CATEGORY_CLASS\\|not in REPORTING\\|KeyError\\|\\.get(\" server."
+  },
+  {
+    "date": "2026-06-14T14:41:48",
+    "type": "TaskUpdate",
+    "text": "taskId: 5"
+  },
+  {
+    "date": "2026-06-14T14:41:51",
+    "type": "TaskUpdate",
+    "text": "taskId: 6"
+  },
+  {
+    "date": "2026-06-14T14:42:02",
+    "type": "Bash",
+    "text": "systemctl --user restart dashboard-server.service && sleep 3\nsystemctl --user is-active dashboard-server.service\necho \"--- restart Executor Server (killed by dashboard restart) ---\"\ncurl -s -X POST lo"
+  },
+  {
+    "date": "2026-06-14T14:42:09",
+    "type": "mcp__playwright__browser_navigate",
+    "text": "url: http://localhost:8765/?view=rol-finance-reports"
+  },
+  {
+    "date": "2026-06-14T14:42:17",
+    "type": "mcp__playwright__browser_evaluate",
+    "text": "function: () => {\n  const iframe = document.querySelector('#rol-finance-reports-views .view.active iframe')\n    || document.querySelector('#rol-finance-reports-views iframe');\n  if (!iframe) return { error: 'no iframe' };\n  const doc = iframe.contentDocument;\n  const row = doc.querySelector('#verified-transactions tbody tr');\n  if (!row) return { error: 'no row', src: iframe.src };\n  doc.defaultView.openCategoryPicker(row);\n  const squares = [...doc.querySelectorAll('#rol-category-picker .cp-square')].map(s => ({\n    name: s.textContent,\n    bg: s.style.background,\n  }));\n  return { src: iframe.src, count: squares.length, squares };\n}"
+  },
+  {
+    "date": "2026-06-14T14:42:32",
+    "type": "mcp__playwright__browser_take_screenshot",
+    "text": "type: png"
+  },
+  {
+    "date": "2026-06-14T14:42:36",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/picker-robert-rosemary.png"
+  },
+  {
+    "date": "2026-06-14T14:42:45",
+    "type": "Bash",
+    "text": "cd ~/rol_finances/receipt_parsing_tools 2>/dev/null && python3 - <<'EOF'\n# Find a real expense matching the first verified row (ERACTOLL, 19.33, 2025-01-22) to test against.\nfrom app.db import get_con"
+  },
+  {
+    "date": "2026-06-14T14:42:58",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\necho \"=== POST recategorize -> Rosemary ===\"\ncurl -s -X POST localhost:8765/api/recategorize-expense -H 'Content-Type: application/json' -d '{\n  \"vendor_key\":\"eractoll\",\""
+  },
+  {
+    "date": "2026-06-14T14:43:17",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\nf=readable_documents/bank_statements/january/amex_personal_january_25/report.html\npython3 - \"$f\" <<'EOF'\nimport sys,re\nhtml=open(sys.argv[1]).read()\n# Find the ERACTOLL r"
+  },
+  {
+    "date": "2026-06-14T14:43:32",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\nf=readable_documents/bank_statements/january/amex_personal_january_25/report.html\necho \"=== POST recategorize (correct vendor_key) -> Rosemary ===\"\ncurl -s -X POST localh"
+  },
+  {
+    "date": "2026-06-14T14:43:46",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null && python3 - <<'EOF'\nimport pathlib\np=pathlib.Path(\"readable_documents/bank_statements/january/amex_personal_january_25/report.html\")\nhtml=p.read_text()\nold='<tr class=\"c"
+  },
+  {
+    "date": "2026-06-14T14:44:06",
+    "type": "Bash",
+    "text": "cd ~/rol_finances/receipt_parsing_tools 2>/dev/null && python3 - <<'EOF'\nimport importlib.util, sys\nspec=importlib.util.spec_from_file_location(\"cs\",\"create_spreadsheet.py\")\n# Avoid running heavy main"
+  },
+  {
+    "date": "2026-06-14T14:44:25",
+    "type": "Bash",
+    "text": "cd ~/rol_finances/receipt_parsing_tools 2>/dev/null && python3 - <<'EOF'\nimport ast\nsrc=open(\"create_spreadsheet.py\").read()\ntree=ast.parse(src)\nwant={\"REPORTING_CATEGORY_ORDER\",\"REPORTING_CATEGORY_ST"
+  },
+  {
+    "date": "2026-06-14T14:44:33",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard 2>/dev/null\nif [ -x .venv/bin/python ]; then\n  .venv/bin/python -m pytest tests/test_server.py -q 2>&1 | tail -20\nelse\n  echo \"no .venv; trying system pytest\"; pyt"
+  },
+  {
+    "date": "2026-06-14T14:44:45",
+    "type": "Bash",
+    "text": "echo \"=== dashboard repo ===\"\ngrep -rn \"Staff Benefits\\|cat-staff-benefits\" /home/adamsl/letta-code/dashboard --include=*.py --include=*.html --include=*.js 2>/dev/null | grep -v \"\\.bak\" || echo \"  no"
+  },
+  {
+    "date": "2026-06-14T14:45:10",
+    "type": "Bash",
+    "text": "cd ~/rol_finances 2>/dev/null\necho \"=== who imports tax_category_mapper? ===\"\ngrep -rln \"tax_category_mapper\\|import tax_category\" --include=*.py . 2>/dev/null | grep -v \"python_libary/\" || echo \"  no"
+  },
+  {
+    "date": "2026-06-14T14:45:21",
+    "type": "TaskUpdate",
+    "text": "taskId: 6"
+  },
+  {
+    "date": "2026-06-14T14:45:53",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_rol_finance_split_staff_robert_rosemary_2026_06_14.md\n\u2192 --- name: dashboard-rol-finance-split-staff-robert-rosemary-2026-06-14 description: \"ROL Finance: the 'Staff Benefits & Medical' reporting category was split into 'Robert Benefits and Medical' (#CCC0D"
+  },
+  {
+    "date": "2026-06-14T14:46:09",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_rol_finance_reports_verified_only_2026_06_14.md\n\u2192 --- name: dashboard-rol-finance-reports-verified-only-2026-06-14 description: \"ROL Finance reports view (?view=rol-finance-reports) now shows ONLY the Verified Transactions section of each report.html"
+  },
+  {
+    "date": "2026-06-14T14:46:15",
     "type": "Read",
     "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   },
   {
-    "date": "2026-06-13T22:46:29",
+    "date": "2026-06-14T14:46:27",
     "type": "Edit",
     "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-14T14:46:36",
+    "type": "SendUserFile",
+    "text": "files: [\"/home/adamsl/letta-code/picker-robert-rosemary.png\"]"
+  },
+  {
+    "date": "2026-06-14T15:06:11",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_rol_finance_reports_data_model_2026_06_14.md"
+  },
+  {
+    "date": "2026-06-14T15:06:21",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_rol_finance_reports_data_model_2026_06_14.md"
+  },
+  {
+    "date": "2026-06-14T15:06:35",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_rol_finance_reports_data_model_2026_06_14.md"
+  },
+  {
+    "date": "2026-06-14T15:06:45",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_rol_finance_category_picker_2026_06_13.md"
+  },
+  {
+    "date": "2026-06-14T15:06:54",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_rol_finance_category_picker_2026_06_13.md"
+  },
+  {
+    "date": "2026-06-14T15:07:05",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-14T15:07:14",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-14T15:16:02",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/README.md"
+  },
+  {
+    "date": "2026-06-14T15:16:02",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/README.md"
+  },
+  {
+    "date": "2026-06-14T15:16:06",
+    "type": "Bash",
+    "text": "wc -l dashboard.html && echo \"---\" && ls -la js/abstract js/implementation js/tests"
+  },
+  {
+    "date": "2026-06-14T15:16:12",
+    "type": "Bash",
+    "text": "grep -n '<script\\|</script>\\|<style\\|</style>' dashboard.html"
+  },
+  {
+    "date": "2026-06-14T15:16:18",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
+  },
+  {
+    "date": "2026-06-14T15:16:23",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
+  },
+  {
+    "date": "2026-06-14T15:16:29",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
+  },
+  {
+    "date": "2026-06-14T15:16:34",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
+  },
+  {
+    "date": "2026-06-14T15:16:57",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/index.js"
+  },
+  {
+    "date": "2026-06-14T15:16:57",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
+  },
+  {
+    "date": "2026-06-14T15:18:54",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/fetch-http-client.js"
+  },
+  {
+    "date": "2026-06-14T15:18:54",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/dom-console-view.js"
+  },
+  {
+    "date": "2026-06-14T15:18:55",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/agent-stream-controller.js"
+  },
+  {
+    "date": "2026-06-14T15:18:55",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/active-poller.js"
+  },
+  {
+    "date": "2026-06-14T15:19:02",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/dom-navigation-controller.js"
+  },
+  {
+    "date": "2026-06-14T15:19:03",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/dom-tab-factory.js"
+  },
+  {
+    "date": "2026-06-14T15:19:03",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/browser-speech-synthesizer.js"
+  },
+  {
+    "date": "2026-06-14T15:19:04",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/media-recorder-voice-recorder.js"
+  },
+  {
+    "date": "2026-06-14T15:19:09",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/server-health-monitor.js"
+  },
+  {
+    "date": "2026-06-14T15:19:09",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/server-log-controller.js"
+  },
+  {
+    "date": "2026-06-14T15:19:10",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/server-action-controller.js"
+  },
+  {
+    "date": "2026-06-14T15:19:10",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/abstract/navigation-controller.interface.js"
+  },
+  {
+    "date": "2026-06-14T15:19:16",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/abstract/speech-synthesizer.interface.js"
+  },
+  {
+    "date": "2026-06-14T15:19:17",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/abstract/health-monitor.interface.js"
+  },
+  {
+    "date": "2026-06-14T15:19:17",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/abstract/tab-factory.interface.js"
+  },
+  {
+    "date": "2026-06-14T15:19:17",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/abstract/http-client.interface.js"
+  },
+  {
+    "date": "2026-06-14T15:19:24",
+    "type": "Bash",
+    "text": "bun test js/tests 2>&1 | tail -5"
+  },
+  {
+    "date": "2026-06-14T15:19:54",
+    "type": "Bash",
+    "text": "echo \"=== agent-voice-catalog interface exists? ===\"; ls js/abstract/ | grep -i voice-catalog || echo \"NOT FOUND\"; echo; echo \"=== renderLog / renderChatInterface references in dashboard.html ===\"; gr"
+  },
+  {
+    "date": "2026-06-14T15:22:17",
+    "type": "Write",
+    "text": "/home/adamsl/letta-code/dashboard/clean_up_dashboard_html.md\n\u2192 # Clean up `dashboard.html` \u2014 cut over to the `js/` library  **Audience:** the implementation team taking over the dashboard GoF refactor. **Goal:** shrink `dashboard.html`'s inline `<script>` (curr"
   }
 ]

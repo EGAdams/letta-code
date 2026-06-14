@@ -46,7 +46,7 @@
     <!-- Agent management sub-nav -->
     <nav id="nav-agents" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-agents">Back</button>
-      <button type="button" class="tab active" data-nav="agents" data-target="agents-home" id="btn-agents-home">Agents</button>
+      <button type="button" class="tab active" data-nav="agents" data-target="agents-home">Agents</button>
     </nav>
 
     <!-- Project Plans sub-nav -->
@@ -336,17 +336,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     <!-- ROL Finance report views injected dynamically by RF.init() -->
     <section id="rol-finance-reports-views"></section>
   </main>
-
-  <!-- Code-change restart prompt -->
-  <div id="code-change-modal" class="modal-overlay hidden">
-    <div class="modal-box">
-      <p>Changes in Agents code detected. Restart dashboard-server.service?</p>
-      <div class="modal-actions">
-        <button type="button" class="am-btn" id="code-change-yes">Yes</button>
-        <button type="button" class="am-btn am-copy" id="code-change-no">No</button>
-      </div>
-    </div>
-  </div>
 
   <script>
     const mainContent = document.getElementById('main-content');
@@ -697,22 +686,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
        Mirrors js/abstract/agent-voice-catalog.interface.js (AgentVoiceCatalog,
        Strategy/Registry): each agent gets its own cached voice so Scissari,
        Mazda, Frita, Hailey, and Jeri sound distinct from one another. */
-    const FEMALE_VOICE_RE = /female|\b(zira|aria|jenny|samantha|susan|victoria|karen|moira|tessa|allison|ava|joanna|salli|kendra|kimberly|ivy|emma|olivia|amy|michelle|ashley|ana|cora|elizabeth|sara|nancy|monica|libby|sonia|catherine|fiona|natasha|hazel|maisie|google us english)\b/i;
-    // Used to keep voiceFor()'s fallbacks from ever landing on a male voice
-    // when no agent-specific or generic female voice is available.
-    const MALE_VOICE_RE = /\bmale\b|\b(david|mark|guy|davis|tony|jacob|andrew|brian|christopher|eric|roger|steffan|james|william|daniel|liam|ryan|george|thomas)\b/i;
+    const FEMALE_VOICE_RE = /female|\b(zira|aria|jenny|samantha|susan|victoria|karen|moira|tessa|allison|ava|joanna|salli|kendra|kimberly|ivy|emma|olivia|amy)\b/i;
     const AGENT_VOICE_PREFERENCES = {
       Scissari: [/zira/i],
       Mazda:    [/aria/i],
       Frita:    [/jenny|joanna/i],
       Hailey:   [/samantha|susan/i],
       Jeri:     [/salli|kendra|amy|emma|olivia/i],
-      Cesare:   [/ashley|michelle/i],
-      'Mazda Router':           [/ana/i],
-      'Mazda Parser':           [/cora/i],
-      'Mazda Vendor Identity':  [/elizabeth/i],
-      'Mazda Receipt Linker':   [/sara/i],
-      'Mazda Categorization':   [/nancy|monica/i],
     };
     const Speech = {
       synth: window.speechSynthesis || null,
@@ -731,10 +711,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           voices.find(v => /en[-_]US/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name) && /google|natural|neural/i.test(v.name)) ||
           voices.find(v => /en[-_]US/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
           voices.find(v => /^en/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => FEMALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => /en[-_]US/i.test(v.lang) && /google|natural|neural/i.test(v.name) && !MALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => /en[-_]US/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => /^en/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
+          voices.find(v => /en[-_]US/i.test(v.lang) && /google|natural|neural/i.test(v.name)) ||
           voices.find(v => /en[-_]US/i.test(v.lang)) ||
           voices.find(v => /^en/i.test(v.lang)) ||
           voices[0];
@@ -764,13 +741,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         }
         if (!picked) {
           picked =
-            // Prefer a female voice nobody else is using yet...
             unused(v => /en/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
-            // ...but reusing a female voice beats falling through to a male one.
-            voices.find(v => /en/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
-            // No identifiably-female voice at all: pick anything not identifiably male.
-            unused(v => /en/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
-            voices.find(v => /en/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
+            unused(v => /en/i.test(v.lang)) ||
             this.voice;
         }
         if (picked) this.agentVoices.set(agentName, picked);
@@ -805,6 +777,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         Speech.pickVoice();
         Speech.agentVoices.clear();   // re-derive per-agent voices from the new list
       };
+    }
     }
 
     /* =====================  Agent Manager  ===================== */
@@ -994,14 +967,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           const card = await this.fetchJSON('/api/agent-card?agent=' + encodeURIComponent(this.current.id));
           const responsibilities = (card.responsibilities || []).map(x => '<li>' + esc(x) + '</li>').join('');
           const tools = (card.tools || []).map(x => '<li>' + esc(x) + '</li>').join('');
-          const systemMessage = card.system_message
-            ? '<p><strong>System Message:</strong></p><pre class="agent-system-message">' + esc(card.system_message) + '</pre>'
-            : '';
           c.innerHTML = ''
             + '<div class="am-test-out" style="display:block;max-width:980px">'
             + '<h3 style="margin-top:0">' + esc(card.identity || card.name || 'Agent Card') + '</h3>'
             + '<p><strong>Agent ID:</strong> ' + esc(card.agent_id || '') + '</p>'
-            + systemMessage
             + '<p><strong>Role:</strong> ' + esc(card.role || '') + '</p>'
             + '<p><strong>Core Responsibilities:</strong></p><ul>' + responsibilities + '</ul>'
             + '<p><strong>Key Tools / Capabilities:</strong></p><ul>' + tools + '</ul>'
@@ -1882,32 +1851,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           view.className = 'view';
           if (r.exists) {
             view.innerHTML = '<iframe class="plan-frame" src="' + esc(r.url) + '"></iframe>';
-            const iframe = view.querySelector('iframe');
-            iframe.addEventListener('load', () => this.showOnlyVerifiedTransactions(iframe));
           } else {
             view.innerHTML = '<p>Missing report.html for this report.</p>';
           }
           this.viewsContainer.appendChild(view);
-        }
-      },
-
-      // The report iframes are served same-origin, so we can reach into them on
-      // load and hide every section except the "Verified Transactions" card
-      // (the report.html files are static/regenerated, so we don't edit them).
-      // The category picker (#rol-category-picker, a <div>) is left intact so
-      // recategorizing a row still works.
-      showOnlyVerifiedTransactions(iframe) {
-        let doc;
-        try { doc = iframe.contentDocument; } catch (e) { return; }
-        if (!doc) return;
-        const vt = doc.getElementById('verified-transactions');
-        if (!vt) return;
-        const keep = vt.closest('section');
-        if (!keep || !keep.parentElement) return;
-        for (const child of keep.parentElement.children) {
-          if (child !== keep && child.tagName === 'SECTION') {
-            child.style.display = 'none';
-          }
         }
       },
 
@@ -1938,77 +1885,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       setInterval(poll, 5000);
     })();
 
-    /* =====================  Code-change restart alert  ===================== */
-    (function codeChangeAlert() {
-      const tab = document.getElementById('btn-agents-home');
-      const modal = document.getElementById('code-change-modal');
-      const yesBtn = document.getElementById('code-change-yes');
-      const noBtn = document.getElementById('code-change-no');
-      if (!tab || !modal || !yesBtn || !noBtn) return;
-
-      let dismissedSignature = '';
-
-      function showModal() { modal.classList.remove('hidden'); }
-      function hideModal() { modal.classList.add('hidden'); }
-      function startBlink() { tab.classList.add('tab-alert'); }
-      function stopBlink() { tab.classList.remove('tab-alert'); }
-
-      yesBtn.addEventListener('click', async () => {
-        hideModal();
-        stopBlink();
-        try {
-          await fetch('/api/server-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ server: 'dashboard', action: 'restart' }),
-          });
-        } catch (e) {}
-      });
-
-      noBtn.addEventListener('click', () => {
-        hideModal();
-        stopBlink();
-        dismissedSignature = lastSignature;
-      });
-
-      let lastSignature = '';
-
-      async function poll() {
-        let status;
-        try {
-          status = await fetch('/api/code-status').then(r => r.json());
-        } catch (e) {
-          return;
-        }
-        lastSignature = (status.changed_files || []).join(',');
-        if (status.changed && lastSignature && lastSignature !== dismissedSignature) {
-          startBlink();
-          showModal();
-        } else if (!status.changed) {
-          stopBlink();
-          hideModal();
-          dismissedSignature = '';
-        }
-      }
-      poll();
-      setInterval(poll, 15000);
-    })();
-
     /* =====================  Deep-linking  =====================
-       ?agent=<id>&view=thoughts|messages|tool-calls|chat-interface
-       ?view=rol-finance-reports  -> Project Plans > ROL Finance > Reports  */
+       ?agent=<id>&view=thoughts|messages|tool-calls|chat-interface              */
     (function deepLink() {
       const q = new URLSearchParams(location.search);
       const agent = q.get('agent');
-      if (agent) {
-        AM.openById(agent, q.get('view') || 'thoughts');
-        return;
-      }
-      if (q.get('view') === 'rol-finance-reports') {
-        navMain.classList.add('hidden');
-        navRolFinanceReports.classList.remove('hidden');
-        RF.openReports();
-      }
+      if (!agent) return;
+      AM.openById(agent, q.get('view') || 'thoughts');
     })();
   </script>
 </body>

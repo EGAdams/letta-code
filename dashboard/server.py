@@ -24,6 +24,50 @@ from voice.pipeline import build_pipeline, handle_voice_upload
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
 
+# Time this process started serving — used by /api/code-status to detect source
+# files that changed on disk after the running process loaded them, so the
+# dashboard can prompt for a restart of dashboard-server.service.
+SERVER_START_TIME = time.time()
+
+# Files/dirs whose mtimes are checked by /api/code-status. Only Python source
+# is watched: HTML/CSS/JS are static files served fresh from disk on every
+# request, so editing them takes effect immediately and a restart isn't
+# needed. server.py and the modules it imports (voice/) are loaded into the
+# running process at startup, so they need dashboard-server.service restarted
+# for edits to take effect. Directories are walked recursively for .py files.
+CODE_WATCH_PATHS = [
+    os.path.join(HERE, 'server.py'),
+    os.path.join(HERE, 'voice'),
+]
+
+
+def get_code_status():
+    """Report whether any watched source file changed after this server started."""
+    changed_files = []
+    for watch_path in CODE_WATCH_PATHS:
+        if os.path.isdir(watch_path):
+            for root, _dirs, files in os.walk(watch_path):
+                for fname in files:
+                    if not fname.endswith('.py'):
+                        continue
+                    fpath = os.path.join(root, fname)
+                    try:
+                        if os.path.getmtime(fpath) > SERVER_START_TIME:
+                            changed_files.append(os.path.relpath(fpath, HERE))
+                    except OSError:
+                        continue
+        elif os.path.isfile(watch_path):
+            try:
+                if os.path.getmtime(watch_path) > SERVER_START_TIME:
+                    changed_files.append(os.path.relpath(watch_path, HERE))
+            except OSError:
+                continue
+    return {
+        'changed': len(changed_files) > 0,
+        'changed_files': sorted(changed_files),
+        'server_start': SERVER_START_TIME,
+    }
+
 # ROL Finance project plan lives outside the repo (its own project dir) — served
 # directly under this fixed path since it isn't reachable via HERE/REPO_ROOT.
 ROL_FINANCES_PLAN_PATH = '/rol_finances/tools/plan.html'
@@ -48,6 +92,216 @@ ROL_FINANCE_REPORTS = [
     {'key': 'platinum-year',     'label': 'Platinum Year',      'dir': 'platinum_business_credit_card_for_the_year'},
     {'key': 'diners-club-0587',  'label': 'Diners Club 0587',   'dir': 'diners_club__january_25_statements-MONTHLY-0587'},
 ]
+
+# ── ROL Finance: recategorize a Verified-Transactions row ─────────────────
+# The category-picker dialog injected into each report.html (by
+# rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py)
+# POSTs to /api/recategorize-expense. We reuse the same DB access create_spreadsheet.py
+# uses (app.db.get_connection from the rol_finances receipt_parsing_tools tree), so the
+# next create_spreadsheet run sees the user's correction.
+RECEIPT_PARSING_TOOLS = os.path.expanduser('~/rol_finances/receipt_parsing_tools')
+
+# Reporting-category name → representative categories.id. Mirrors
+# create_spreadsheet.py's REPORTING_CATEGORY_DB_MAP. "Uncategorized" clears category_id.
+REPORTING_CATEGORY_DB_MAP = {
+    'Church Facility': 100,
+    'Church Utilities': 120,
+    'Ministry and Worship': 150,
+    'Office & Administration': 140,
+    'Food & Hospitality': 130,
+    'Gifts & Love Offerings': 190,
+    # "Staff & Benefits" (240) split into Robert (RJ, 242) and Rosemary (RM, 243),
+    # both "Priority Health" leaves under "Senior Pastors" (241).
+    'Robert Benefits and Medical': 242,
+    'Rosemary Benefits & Medical': 243,
+    'Travel & Vehicle': 160,
+    'Insurance, Taxes & Fees': 230,
+    'Housing': 300,
+    'Personal': 3,
+    'Uncategorized': None,
+}
+
+# Reporting-category name → the cat-* CSS class baked into report.html rows.
+# report.html is a STATIC file: its row color comes from this class, NOT from a
+# live DB read, so a category change must rewrite this class on disk to survive a
+# page refresh (the DB write alone is invisible to the static file).
+REPORTING_CATEGORY_CLASS = {
+    'Church Facility': 'cat-church-facility',
+    'Church Utilities': 'cat-church-utilities',
+    'Ministry and Worship': 'cat-ministry-and-worship',
+    'Office & Administration': 'cat-office-and-administration',
+    'Food & Hospitality': 'cat-food-and-hospitality',
+    'Gifts & Love Offerings': 'cat-gifts-and-love-offerings',
+    'Robert Benefits and Medical': 'cat-robert-benefits-and-medical',
+    'Rosemary Benefits & Medical': 'cat-rosemary-benefits-and-medical',
+    'Travel & Vehicle': 'cat-travel-and-vehicle',
+    'Insurance, Taxes & Fees': 'cat-insurance-taxes-and-fees',
+    'Housing': 'cat-housing',
+    'Personal': 'cat-personal',
+    'Uncategorized': 'cat-uncategorized',
+}
+
+
+def _report_file_for_url(report_path):
+    """Map a /rol_finances_reports/<dir>/report.html URL path to its file on disk."""
+    prefix = ROL_FINANCES_REPORTS_URL_PREFIX + '/'
+    if not report_path or not report_path.startswith(prefix):
+        return None
+    rel = report_path[len(prefix):]
+    fp = os.path.abspath(os.path.join(ROL_FINANCES_REPORTS_BASE, rel))
+    base = os.path.abspath(ROL_FINANCES_REPORTS_BASE)
+    if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
+        return fp
+    return None
+
+
+def _update_report_row_color(report_path, vendor_key, date_str, amount_str, new_cls):
+    """Rewrite the cat-* class on the matching Verified-Transactions <tr> on disk.
+
+    Identifies the row by data-vendor-key + the displayed date and amount cells, so
+    the saved color is permanent across page refreshes. Returns True if a row changed.
+    """
+    import re as _re
+    fp = _report_file_for_url(report_path)
+    if not fp:
+        return False
+    with open(fp, encoding='utf-8') as f:
+        html = f.read()
+
+    vk = (vendor_key or '').strip()
+    d = (date_str or '').strip()
+    a = (amount_str or '').strip()
+    if not vk:
+        return False
+
+    def attempt(require_date, require_amount):
+        """Rewrite the first vendor-matching row that also meets the given criteria."""
+        state = {'done': False}
+
+        def repl(m):
+            open_tag, inner = m.group(1), m.group(2)
+            if state['done'] or ('data-vendor-key="%s"' % vk) not in open_tag:
+                return m.group(0)
+            if require_date and d and ('>%s<' % d) not in inner:
+                return m.group(0)
+            if require_amount and a and ('>%s<' % a) not in inner:
+                return m.group(0)
+            new_open = _re.sub(r'\bcat-[a-z0-9-]+\b', new_cls, open_tag, count=1)
+            if new_open == open_tag:  # row had no cat-* class yet
+                if 'class="' in new_open:
+                    new_open = new_open.replace('class="', 'class="%s ' % new_cls, 1)
+                else:
+                    new_open = ' class="%s"%s' % (new_cls, new_open)
+            state['done'] = True
+            return '<tr%s>%s</tr>' % (new_open, inner)
+
+        out = _re.sub(r'<tr([^>]*)>(.*?)</tr>', repl, html, flags=_re.S)
+        return out if state['done'] else None
+
+    # Prefer the tightest match (vendor+date+amount), then loosen — always vendor-gated.
+    for require_date, require_amount in ((True, True), (True, False), (False, True)):
+        out = attempt(require_date, require_amount)
+        if out is not None:
+            with open(fp, 'w', encoding='utf-8') as f:
+                f.write(out)
+            return True
+    return False
+
+
+def _rol_get_connection():
+    """get_connection() from the rol_finances receipt_parsing_tools tree."""
+    import sys as _sys
+    if RECEIPT_PARSING_TOOLS not in _sys.path:
+        _sys.path.insert(0, RECEIPT_PARSING_TOOLS)
+    from app.db import get_connection  # type: ignore
+    return get_connection()
+
+
+def _vendor_prefix(id_light):
+    """Strip the trailing _MM_DD_YY_<amount> from an id_light to get its vendor part."""
+    import re as _re
+    return _re.sub(r'_\d{2}_\d{2}_\d{2}_\d+_\d+$', '', id_light or '')
+
+
+def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category, description='', report_path=''):
+    """Persist a user's category pick for one Verified-Transactions row.
+
+    Matches the row to an expenses row by (expense_date, abs(amount)) — the only
+    reliable join, since report vendor_keys diverge from the DB id_light vendor part
+    (e.g. 'circle_k_09828_cirst' vs 'circle_k_09828'). When that date/amount is shared
+    by several expenses, disambiguates by vendor_key prefix then exact description.
+    """
+    from decimal import Decimal, InvalidOperation
+    if reporting_category not in REPORTING_CATEGORY_DB_MAP:
+        return {'ok': False, 'error': f'Unknown category: {reporting_category}'}
+    target_id = REPORTING_CATEGORY_DB_MAP[reporting_category]
+
+    raw_amt = str(signed_amount or '').replace('$', '').replace(',', '').strip()
+    try:
+        amt = abs(Decimal(raw_amt))
+    except (InvalidOperation, ValueError):
+        return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
+
+    try:
+        with _rol_get_connection() as cnx:
+            with cnx.cursor() as cur:
+                cur.execute(
+                    "SELECT id, id_light, description, category_id "
+                    "FROM expenses WHERE expense_date=%s AND amount=%s",
+                    (date_str, str(amt)),
+                )
+                rows = cur.fetchall()
+                if not rows:
+                    return {'ok': False,
+                            'error': 'No matching expense in DB for that date/amount (bank-only row).'}
+
+                if len(rows) == 1:
+                    chosen = rows[0]
+                else:
+                    chosen = None
+                    vk = (vendor_key or '').strip()
+                    for r in rows:
+                        vp = _vendor_prefix(r.get('id_light'))
+                        if vk and vp and (vk.startswith(vp) or vp.startswith(vk)):
+                            chosen = r
+                            break
+                    if chosen is None and description:
+                        for r in rows:
+                            if (r.get('description') or '').strip() == description.strip():
+                                chosen = r
+                                break
+                    if chosen is None:
+                        return {'ok': False,
+                                'error': f'{len(rows)} expenses share that date/amount; '
+                                         'could not pinpoint which one.'}
+
+                cur.execute("UPDATE expenses SET category_id=%s WHERE id=%s",
+                            (target_id, chosen['id']))
+    except Exception as e:
+        return {'ok': False, 'error': f'DB error: {e}'}
+
+    # Persist the color into the static report.html so it survives a refresh.
+    file_updated = False
+    try:
+        new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
+        if new_cls:
+            # Match the file by the RAW displayed amount the client sent (e.g. "-$150.00",
+            # "+$10.00", "296.41") — NOT the normalized abs value used for the DB lookup,
+            # which would only match plain rows like "10.25".
+            file_updated = _update_report_row_color(
+                report_path, vendor_key, date_str, signed_amount, new_cls)
+    except Exception:
+        file_updated = False
+
+    return {
+        'ok': True,
+        'expense_id': chosen['id'],
+        'previous_category_id': chosen.get('category_id'),
+        'category_id': target_id,
+        'reporting_category': reporting_category,
+        'file_updated': file_updated,
+    }
+
 
 # Letta API base URL — override with LETTA_BASE_URL env var
 LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rstrip('/')
@@ -187,6 +441,12 @@ AGENT_CARDS = {
 }
 
 
+# Per-agent system message files, shown verbatim on the agent's Agent Card tab.
+AGENT_SYSTEM_MESSAGE_FILES = {
+    'Mazda': os.path.expanduser('~/rol_finances/external_agents/mazda/system_message.xml'),
+}
+
+
 def build_agent_card(agent_name, agent_id):
     card = AGENT_CARDS.get(agent_name, {
         'identity': agent_name,
@@ -197,6 +457,13 @@ def build_agent_card(agent_name, agent_id):
     }).copy()
     card['agent_id'] = agent_id
     card['name'] = agent_name
+    system_message_path = AGENT_SYSTEM_MESSAGE_FILES.get(agent_name)
+    if system_message_path:
+        try:
+            with open(system_message_path, 'r') as f:
+                card['system_message'] = f.read()
+        except OSError:
+            pass
     return card
 
 # Claude Code log files (persistent, local)
@@ -1243,6 +1510,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         query = parse_qs(parsed.query)
         agent_id = query.get('agent', [''])[0]
 
+        if path == '/api/code-status':
+            return self.json_response(get_code_status())
+
         if path == '/api/agents':
             return self.json_response(build_agent_list(force_refresh=query.get('refresh', ['0'])[0] == '1'))
 
@@ -1250,7 +1520,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return self.json_response(agent_activity_status())
 
         if path == '/api/agent-card':
-            agent = next((a for a in build_agent_list() if a['id'] == agent_id), None)
+            agent = next((a for a in build_agent_list()
+                          if a['id'] == agent_id or a['name'] == agent_id), None)
             if not agent:
                 return self.json_response({'error': 'agent not found'})
             return self.json_response(build_agent_card(agent['name'], agent['id']))
@@ -1538,6 +1809,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response({'replies': [{'type': 'assistant_message', 'text': f'[stub] {agent_id} got: {text}'}]})
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
+
+        if path == '/api/recategorize-expense':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(recategorize_expense(
+                data.get('date', ''),
+                data.get('signed_amount', ''),
+                data.get('vendor_key', ''),
+                data.get('reporting_category', ''),
+                data.get('description', ''),
+                data.get('report_path', ''),
+            ))
 
         self.send_error(404)
 
