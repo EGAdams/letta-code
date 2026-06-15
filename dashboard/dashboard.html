@@ -336,6 +336,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       InputOptionsRenderer,
       DomTabFactory,
       AgentActivityPoller,
+      DomConsoleView,
+      ServerHealthMonitor,
+      ServerLogController,
+      ServerActionController,
     } from './js/implementation/index.js';
     import { TextUtils } from './js/abstract/text-utils.js';
 
@@ -844,65 +848,44 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     };
 
     /* =====================  Server Manager  ===================== */
+    // Server health is polled by the library's ServerHealthMonitor; two
+    // observers colour the main "Server Management" tab and the per-server tabs.
+    const serverHealth = new ServerHealthMonitor(http);
+    const serverAction = new ServerActionController({ http });
+    serverHealth.subscribe(health => {
+      const tab = document.getElementById('btn-server-mgmt');
+      if (!tab) return;
+      tab.classList.remove('server-up', 'server-down', 'server-starting');
+      const st = ServerHealthMonitor.overallStatus(health);
+      if (st === 'starting') tab.classList.add('server-starting');
+      else if (st === 'down') tab.classList.add('server-down');
+      else if (st === 'up') tab.classList.add('server-up');
+    });
+    serverHealth.subscribe(health => {
+      if (!health) return;
+      const map = {};
+      for (const s of health.servers) map[s.key] = s.status;
+      navServers.querySelectorAll('[data-server-key]').forEach(tab => {
+        const status = map[tab.dataset.serverKey] || 'unknown';
+        tab.classList.remove('server-up', 'server-down', 'server-starting');
+        if (status === 'up') tab.classList.add('server-up');
+        else if (status === 'starting') tab.classList.add('server-starting');
+        else if (status === 'down') tab.classList.add('server-down');
+      });
+    });
+
     const SM = {
-      pollTimer: null,
       healthPollTimer: null,
       current: null,        // { key, name }
       servers: null,
-      health: null,         // last polled health status
+      logController: null,
       served: location.protocol === 'http:' || location.protocol === 'https:',
 
-      stopPoll() {
-        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
-      },
-
+      stopPoll() { if (this.logController) { this.logController.stop(); this.logController = null; } },
       stopHealthPoll() {
         if (this.healthPollTimer) { clearInterval(this.healthPollTimer); this.healthPollTimer = null; }
       },
-
-      updateMainTabColor() {
-        const tab = document.getElementById('btn-server-mgmt');
-        if (!tab) return;
-        tab.classList.remove('server-up', 'server-down', 'server-starting');
-        if (!this.health) return;
-        const anyStarting = this.health.servers.some(s => s.status === 'starting');
-        if (anyStarting) {
-          tab.classList.add('server-starting');
-        } else if (this.health.any_down) {
-          tab.classList.add('server-down');
-        } else {
-          tab.classList.add('server-up');
-        }
-      },
-
-      updateServerTabColors() {
-        if (!this.health) return;
-        const healthMap = {};
-        for (const s of this.health.servers) {
-          healthMap[s.key] = s.status;
-        }
-        navServers.querySelectorAll('[data-server-key]').forEach(tab => {
-          const status = healthMap[tab.dataset.serverKey] || 'unknown';
-          tab.classList.remove('server-up', 'server-down', 'server-starting');
-          if (status === 'up') {
-            tab.classList.add('server-up');
-          } else if (status === 'starting') {
-            tab.classList.add('server-starting');
-          } else if (status === 'down') {
-            tab.classList.add('server-down');
-          }
-        });
-      },
-
-      async pollHealth() {
-        try {
-          this.health = await http.getJSON('/api/server-health');
-          this.updateMainTabColor();
-          this.updateServerTabColors();
-        } catch (e) {
-          // Silent fail
-        }
-      },
+      pollHealth() { return serverHealth.poll(); },
 
       showServersHome() {
         this.stopPoll();
@@ -925,16 +908,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         }
         navServers.querySelectorAll('[data-server-key]').forEach(t => t.remove());
         if (!this.servers) return;
-        for (const s of this.servers) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'tab';
-          btn.dataset.serverKey = s.key;
-          btn.dataset.serverName = s.name;
-          btn.textContent = s.name;
-          navServers.appendChild(btn);
-        }
-        this.updateServerTabColors();
+        for (const s of this.servers) navServers.appendChild(tabFactory.buildServerTab(s));
+        this.pollHealth();   // colour the freshly-built tabs
       },
 
       openServer(key, name) {
@@ -950,99 +925,59 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           + '<div class="srv-status starting" id="srv-status"><span class="srv-led"></span><span id="srv-status-text">checking…</span></div>'
           + '<input class="srv-filter" id="srv-filter" placeholder="Filter log lines (e.g. error)…" />'
           + (startLabels[key] ? '<button class="srv-start-btn" id="srv-start-btn">' + startLabels[key] + '</button>' : '')
-          + '<div class="msi-console" id="srv-console"><span class="msi-inner"></span><span class="msi-cursor">&#9608;</span></div>';
+          + '<div id="srv-console-host"></div>';
         safeActivateView('servers-detail');
 
-        const box = body.querySelector('#srv-console');
-        const inner = box.querySelector('.msi-inner');
         const statusEl = body.querySelector('#srv-status');
         const statusText = body.querySelector('#srv-status-text');
         const filterEl = body.querySelector('#srv-filter');
         const startBtn = body.querySelector('#srv-start-btn');
+        const view = DomConsoleView.mount(body.querySelector('#srv-console-host'), 'srv');
+        const innerEl = body.querySelector('.msi-inner');
 
-        filterEl.addEventListener('input', () => { applyFilter(); });
+        // Log filter: hide non-matching lines; re-apply when new rows arrive.
+        const applyFilter = () => {
+          const q = filterEl.value.trim().toLowerCase();
+          innerEl.querySelectorAll('.msi-entry').forEach(el => {
+            el.style.display = (!q || el.textContent.toLowerCase().includes(q)) ? '' : 'none';
+          });
+        };
+        filterEl.addEventListener('input', applyFilter);
+        new MutationObserver(applyFilter).observe(innerEl, { childList: true });
 
         if (startBtn) {
           startBtn.addEventListener('click', async () => {
             startBtn.disabled = true;
             statusEl.className = 'srv-status starting';
             statusText.textContent = 'STARTING... — launching ' + name.toLowerCase();
-            try {
-              const res = await http.postJSON('/api/server-action', { server: key, action: 'start' });
-              inner.insertAdjacentHTML('beforeend',
-                '<div class="msi-entry"><span class="hdr">start action</span> ' + esc(res.text || 'OK') + '</div>');
-              box.scrollTop = box.scrollHeight;
-            } catch (e) {
-              statusText.textContent = 'START FAILED — ' + esc(e.message);
+            const res = await serverAction.start(key);
+            if (res.ok) {
+              view.writeHtml('<div class="msi-entry"><span class="hdr">start action</span> ' + esc(res.text || 'OK') + '</div>');
+              view.scrollToBottom();
+            } else {
+              statusText.textContent = 'START FAILED — ' + esc(res.text);
               statusEl.className = 'srv-status down';
               startBtn.disabled = false;
             }
           });
         }
 
-        const seen = new Set();
-        let first = true;
-        const applyFilter = () => {
-          const q = filterEl.value.trim().toLowerCase();
-          inner.querySelectorAll('.msi-entry').forEach(el => {
-            el.style.display = (!q || el.textContent.toLowerCase().includes(q)) ? '' : 'none';
-          });
+        // The ServerLogController polls /api/server-logs (3s, dedup by seq) and
+        // reports health via onStatus → the LED + start-button enablement.
+        const onStatus = (st) => {
+          let cls = 'srv-status';
+          if (st.kind === 'up') cls += ' up';
+          else if (st.kind === 'starting') cls += ' starting';
+          else if (st.kind === 'down') cls += ' down';
+          statusEl.className = cls;
+          statusText.textContent = st.label + st.text;
+          if (startBtn) {
+            if (st.kind === 'up' || st.kind === 'starting') startBtn.disabled = true;
+            else if (st.kind === 'down') startBtn.disabled = false;
+          }
         };
-
-        const pull = async () => {
-          if (!this.current || this.current.key !== key) return;
-          let data;
-          try { data = await http.getJSON('/api/server-logs?server=' + encodeURIComponent(key)); }
-          catch (e) {
-            statusEl.className = 'srv-status down';
-            statusText.textContent = e.message;
-            if (startBtn) startBtn.disabled = false;
-            return;
-          }
-          if (data.status) {
-            let statusClass = 'srv-status';
-            let statusLabel = '';
-            const statusText_raw = data.status.text || '';
-            if (data.status.ok) {
-              statusClass += ' up';
-              statusLabel = 'UP — ';
-              if (startBtn) startBtn.disabled = true;
-            } else if (statusText_raw.includes('STARTING')) {
-              statusClass += ' starting';
-              statusLabel = '';
-              if (startBtn) startBtn.disabled = true;
-            } else {
-              statusClass += ' down';
-              statusLabel = 'DOWN — ';
-              if (startBtn) startBtn.disabled = false;
-            }
-            statusEl.className = statusClass;
-            statusText.textContent = statusLabel + statusText_raw;
-          } else {
-            statusEl.className = 'srv-status';
-            statusText.textContent = 'no health check';
-          }
-          const rows = data.rows || [];
-          if (first && !rows.length) {
-            inner.innerHTML = '<div class="msi-entry dim">&mdash; no log lines &mdash;</div>';
-            first = false;
-            return;
-          }
-          if (first) inner.innerHTML = '';
-          const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-          for (const r of rows) {
-            const key2 = 'seq:' + r.seq;
-            if (seen.has(key2)) continue;
-            seen.add(key2);
-            inner.insertAdjacentHTML('beforeend',
-              '<div class="msi-entry">' + esc(String(r.text || '')) + '</div>');
-          }
-          applyFilter();
-          if (atBottom) box.scrollTop = box.scrollHeight;
-          first = false;
-        };
-        pull();
-        this.pollTimer = setInterval(pull, 3000);
+        this.logController = new ServerLogController({ http, view, serverKey: key, onStatus });
+        this.logController.start();
       },
     };
 
