@@ -244,10 +244,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     <section id="agent-detail-tests" class="view"></section>
     <section id="agent-detail-input-options" class="view"></section>
 
-    <section id="scissari" class="view">
-      <iframe id="scissari-frame" src="/monitor_thoughts_plan.html"></iframe>
-    </section>
-
     <!-- Status sub-views -->
     <section id="status-home" class="view">
       <h2>Status</h2>
@@ -372,12 +368,11 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       const view = document.getElementById(next);
       if (view) view.classList.add('active');
-      // Iframe-based views (Scissari chat, Project Plans, ROL Finance Reports)
+      // Iframe-based views (Project Plans, ROL Finance Reports)
       // should fill all available width instead of being capped/padded like
       // text views — otherwise the report column is too skinny, especially on
       // Android. Detect them by the presence of a full-bleed frame.
-      const isFullbleed = next === 'scissari'
-        || (view && view.querySelector('#scissari-frame, .plan-frame') !== null);
+      const isFullbleed = view && view.querySelector('.plan-frame') !== null;
       if (mainContent) mainContent.classList.toggle('fullbleed', !!isFullbleed);
     }
 
@@ -796,8 +791,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       'agent-detail-tests':          (am, id) => am.renderTest(id),
       'agent-detail-input-options':  (am, id) => am.renderInputOptions(id),
     };
-
-    const SCISSARI_AGENT_NAME = 'Scissari';
 
     const AM = {
       current: null,           // { id, name }
