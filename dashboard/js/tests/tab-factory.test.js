@@ -42,4 +42,17 @@ describe("TabFactory (Factory Method)", () => {
       serverName: "Executor",
     });
   });
+
+  test("buildConnectionTab sets class + connection dataset", () => {
+    const el = new FakeFactory().buildConnectionTab({
+      key: "win10",
+      name: "Win10 Host",
+    });
+    expect(el.className).toBe("tab");
+    expect(el.textContent).toBe("Win10 Host");
+    expect(el.dataset).toEqual({
+      connKey: "win10",
+      connName: "Win10 Host",
+    });
+  });
 });

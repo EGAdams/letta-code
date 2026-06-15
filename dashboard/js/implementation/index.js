@@ -15,6 +15,11 @@ export { AgentActivityPoller } from "./agent-activity-poller.js";
 export { AgentStreamController } from "./agent-stream-controller.js";
 export { BrowserSpeechSynthesizer } from "./browser-speech-synthesizer.js";
 export {
+  ConnectionLogController,
+  ConnectionTestController,
+  classifyConnectionStatus,
+} from "./connection-controllers.js";
+export {
   AgentCardRenderer,
   ChatDetailRenderer,
   composeSpokenText,

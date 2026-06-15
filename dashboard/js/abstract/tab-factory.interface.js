@@ -43,4 +43,12 @@ export class TabFactory {
     el.dataset.serverName = server.name;
     return el;
   }
+
+  /** Factory method: a sidebar tab for an SSH connection {key, name}. */
+  buildConnectionTab(conn) {
+    const el = this._baseTab(conn.name);
+    el.dataset.connKey = conn.key;
+    el.dataset.connName = conn.name;
+    return el;
+  }
 }

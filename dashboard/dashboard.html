@@ -340,6 +340,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       ServerHealthMonitor,
       ServerLogController,
       ServerActionController,
+      ConnectionLogController,
+      ConnectionTestController,
     } from './js/implementation/index.js';
     import { TextUtils } from './js/abstract/text-utils.js';
 
@@ -986,55 +988,40 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     SM.healthPollTimer = setInterval(() => SM.pollHealth(), 10000);
 
     /* =====================  SSH Connections  ===================== */
+    // SSH health uses the same ServerHealthMonitor (different endpoint); the
+    // payload has a `connections` array (status only up/down, no "starting").
+    const connHealth = new ServerHealthMonitor(http, '/api/ssh-connection-health');
+    const connTest = new ConnectionTestController({ http });
+    connHealth.subscribe(health => {
+      const tab = document.getElementById('btn-ssh-connections');
+      if (!tab) return;
+      tab.classList.remove('server-up', 'server-down', 'server-starting');
+      if (!health) return;
+      tab.classList.add(health.any_down ? 'server-down' : 'server-up');
+    });
+    connHealth.subscribe(health => {
+      if (!health) return;
+      const map = {};
+      for (const c of health.connections) map[c.key] = c.status;
+      navSSH.querySelectorAll('[data-conn-key]').forEach(tab => {
+        const status = map[tab.dataset.connKey] || 'unknown';
+        tab.classList.remove('server-up', 'server-down', 'server-starting');
+        if (status === 'up') tab.classList.add('server-up');
+        else if (status === 'down') tab.classList.add('server-down');
+      });
+    });
+
     const SSHM = {
-      pollTimer: null,
       healthPollTimer: null,
       current: null,        // { key, name }
       connections: null,
-      health: null,         // last polled health status
+      logController: null,
 
-      stopPoll() {
-        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
-      },
-
+      stopPoll() { if (this.logController) { this.logController.stop(); this.logController = null; } },
       stopHealthPoll() {
         if (this.healthPollTimer) { clearInterval(this.healthPollTimer); this.healthPollTimer = null; }
       },
-
-      updateMainTabColor() {
-        const tab = document.getElementById('btn-ssh-connections');
-        if (!tab) return;
-        tab.classList.remove('server-up', 'server-down', 'server-starting');
-        if (!this.health) return;
-        tab.classList.add(this.health.any_down ? 'server-down' : 'server-up');
-      },
-
-      updateConnectionTabColors() {
-        if (!this.health) return;
-        const healthMap = {};
-        for (const c of this.health.connections) {
-          healthMap[c.key] = c.status;
-        }
-        navSSH.querySelectorAll('[data-conn-key]').forEach(tab => {
-          const status = healthMap[tab.dataset.connKey] || 'unknown';
-          tab.classList.remove('server-up', 'server-down', 'server-starting');
-          if (status === 'up') {
-            tab.classList.add('server-up');
-          } else if (status === 'down') {
-            tab.classList.add('server-down');
-          }
-        });
-      },
-
-      async pollHealth() {
-        try {
-          this.health = await http.getJSON('/api/ssh-connection-health');
-          this.updateMainTabColor();
-          this.updateConnectionTabColors();
-        } catch (e) {
-          // Silent fail
-        }
-      },
+      pollHealth() { return connHealth.poll(); },
 
       showConnectionsHome() {
         this.stopPoll();
@@ -1055,16 +1042,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         }
         navSSH.querySelectorAll('[data-conn-key]').forEach(t => t.remove());
         if (!this.connections) return;
-        for (const c of this.connections) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'tab';
-          btn.dataset.connKey = c.key;
-          btn.dataset.connName = c.name;
-          btn.textContent = c.name;
-          navSSH.appendChild(btn);
-        }
-        this.updateConnectionTabColors();
+        for (const c of this.connections) navSSH.appendChild(tabFactory.buildConnectionTab(c));
+        this.pollHealth();   // colour the freshly-built tabs
       },
 
       openConnection(key, name) {
@@ -1078,85 +1057,55 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           + '<div class="srv-status starting" id="ssh-status"><span class="srv-led"></span><span id="ssh-status-text">checking…</span></div>'
           + '<input class="srv-filter" id="ssh-filter" placeholder="Filter log lines (e.g. timed out)…" />'
           + '<button class="srv-start-btn" id="ssh-test-btn">Test Connection</button>'
-          + '<div class="msi-console" id="ssh-console"><span class="msi-inner"></span><span class="msi-cursor">&#9608;</span></div>';
+          + '<div id="ssh-console-host"></div>';
         safeActivateView('ssh-connection-detail');
 
-        const box = body.querySelector('#ssh-console');
-        const inner = box.querySelector('.msi-inner');
         const statusEl = body.querySelector('#ssh-status');
         const statusText = body.querySelector('#ssh-status-text');
         const filterEl = body.querySelector('#ssh-filter');
         const testBtn = body.querySelector('#ssh-test-btn');
+        const view = DomConsoleView.mount(body.querySelector('#ssh-console-host'), 'ssh');
+        const innerEl = body.querySelector('.msi-inner');
 
-        const seen = new Set();
-        let first = true;
         const applyFilter = () => {
           const q = filterEl.value.trim().toLowerCase();
-          inner.querySelectorAll('.msi-entry').forEach(el => {
+          innerEl.querySelectorAll('.msi-entry').forEach(el => {
             el.style.display = (!q || el.textContent.toLowerCase().includes(q)) ? '' : 'none';
           });
         };
-        filterEl.addEventListener('input', () => { applyFilter(); });
+        filterEl.addEventListener('input', applyFilter);
+        new MutationObserver(applyFilter).observe(innerEl, { childList: true });
 
-        const applyStatus = (status) => {
-          if (status) {
-            statusEl.className = 'srv-status ' + (status.ok ? 'up' : 'down');
-            statusText.textContent = (status.ok ? 'CONNECTED — ' : 'DOWN — ') + (status.text || '');
-          } else {
-            statusEl.className = 'srv-status starting';
-            statusText.textContent = 'checking…';
-          }
+        // onStatus drives the LED from classifyConnectionStatus (CONNECTED/DOWN/checking…).
+        const onStatus = (st) => {
+          let cls = 'srv-status';
+          if (st.kind === 'up') cls += ' up';
+          else if (st.kind === 'down') cls += ' down';
+          else cls += ' starting';
+          statusEl.className = cls;
+          statusText.textContent = st.label + st.text;
         };
-
-        const pull = async () => {
-          if (!this.current || this.current.key !== key) return;
-          let data;
-          try { data = await http.getJSON('/api/ssh-connection-logs?conn=' + encodeURIComponent(key)); }
-          catch (e) {
-            statusEl.className = 'srv-status down';
-            statusText.textContent = e.message;
-            return;
-          }
-          applyStatus(data.status);
-          const rows = data.rows || [];
-          if (first && !rows.length) {
-            inner.innerHTML = '<div class="msi-entry dim">&mdash; no connection tests recorded yet &mdash;</div>';
-            first = false;
-            return;
-          }
-          if (first) inner.innerHTML = '';
-          const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-          for (const r of rows) {
-            const key2 = 'seq:' + r.seq;
-            if (seen.has(key2)) continue;
-            seen.add(key2);
-            inner.insertAdjacentHTML('beforeend',
-              '<div class="msi-entry">' + esc(String(r.text || '')) + '</div>');
-          }
-          applyFilter();
-          if (atBottom) box.scrollTop = box.scrollHeight;
-          first = false;
-        };
+        this.logController = new ConnectionLogController({ http, view, connKey: key, onStatus });
 
         testBtn.addEventListener('click', async () => {
           testBtn.disabled = true;
           statusEl.className = 'srv-status starting';
           statusText.textContent = 'TESTING… — ssh ' + name.toLowerCase();
-          try {
-            const res = await http.getJSON('/api/ssh-connection-test?conn=' + encodeURIComponent(key));
-            applyStatus(res);
-            this.pollHealth();
-          } catch (e) {
+          const res = await connTest.test(key);
+          if (res.failed) {
             statusEl.className = 'srv-status down';
-            statusText.textContent = 'TEST FAILED — ' + esc(e.message);
-          } finally {
-            testBtn.disabled = false;
-            await pull();
+            statusText.textContent = 'TEST FAILED — ' + esc(res.text);
+          } else {
+            onStatus(res.ok
+              ? { kind: 'up', text: res.text, label: 'CONNECTED — ' }
+              : { kind: 'down', text: res.text, label: 'DOWN — ' });
+            this.pollHealth();
           }
+          testBtn.disabled = false;
+          await this.logController.poll();
         });
 
-        pull();
-        this.pollTimer = setInterval(pull, 5000);
+        this.logController.start();
       },
     };
 
