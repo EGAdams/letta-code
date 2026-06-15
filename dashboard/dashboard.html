@@ -343,6 +343,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       ConnectionLogController,
       ConnectionTestController,
       RolFinanceReportsController,
+      CodeChangeAlert,
     } from './js/implementation/index.js';
     import { TextUtils } from './js/abstract/text-utils.js';
 
@@ -1141,60 +1142,9 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     new AgentActivityPoller({ http, setStatus: setAgentTabStatus }).start();
 
     /* =====================  Code-change restart alert  ===================== */
-    (function codeChangeAlert() {
-      const tab = document.getElementById('btn-agents-home');
-      const modal = document.getElementById('code-change-modal');
-      const yesBtn = document.getElementById('code-change-yes');
-      const noBtn = document.getElementById('code-change-no');
-      if (!tab || !modal || !yesBtn || !noBtn) return;
-
-      let dismissedSignature = '';
-
-      function showModal() { modal.classList.remove('hidden'); }
-      function hideModal() { modal.classList.add('hidden'); }
-      function startBlink() { tab.classList.add('tab-alert'); }
-      function stopBlink() { tab.classList.remove('tab-alert'); }
-
-      yesBtn.addEventListener('click', async () => {
-        hideModal();
-        stopBlink();
-        try {
-          await fetch('/api/server-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ server: 'dashboard', action: 'restart' }),
-          });
-        } catch (e) {}
-      });
-
-      noBtn.addEventListener('click', () => {
-        hideModal();
-        stopBlink();
-        dismissedSignature = lastSignature;
-      });
-
-      let lastSignature = '';
-
-      async function poll() {
-        let status;
-        try {
-          status = await fetch('/api/code-status').then(r => r.json());
-        } catch (e) {
-          return;
-        }
-        lastSignature = (status.changed_files || []).join(',');
-        if (status.changed && lastSignature && lastSignature !== dismissedSignature) {
-          startBlink();
-          showModal();
-        } else if (!status.changed) {
-          stopBlink();
-          hideModal();
-          dismissedSignature = '';
-        }
-      }
-      poll();
-      setInterval(poll, 15000);
-    })();
+    // Blink the Agents tab + prompt to restart when the dashboard's own source
+    // changes on disk (polls /api/code-status every 15s).
+    new CodeChangeAlert({ http }).start();
 
     /* =====================  Deep-linking  =====================
        ?agent=<id>&view=thoughts|messages|tool-calls|chat-interface
