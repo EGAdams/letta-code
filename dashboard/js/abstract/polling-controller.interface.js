@@ -21,8 +21,10 @@ export class PollingController {
    */
   constructor({
     intervalMs = 3000,
-    setInterval: setIntervalFn = globalThis.setInterval,
-    clearInterval: clearIntervalFn = globalThis.clearInterval,
+    // Bind to globalThis: browsers throw "Illegal invocation" if window.setInterval
+    // is called without its receiver (tests inject their own fakes regardless).
+    setInterval: setIntervalFn = globalThis.setInterval?.bind(globalThis),
+    clearInterval: clearIntervalFn = globalThis.clearInterval?.bind(globalThis),
   } = {}) {
     this.intervalMs = intervalMs;
     this._setInterval = setIntervalFn;

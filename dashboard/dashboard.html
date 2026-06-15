@@ -325,12 +325,21 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
   <script type="module">
     // Phase 2 of the js/ cutover: shared library primitives now back the page.
-    // See clean_up_dashboard_html.md. Inline esc/sleep/fetchJSON delegate here.
-    import { FetchHttpClient, BrowserSpeechSynthesizer } from './js/implementation/index.js';
+    // See clean_up_dashboard_html.md. Inline esc/fetchJSON delegate here.
+    import {
+      FetchHttpClient,
+      BrowserSpeechSynthesizer,
+      ActivePoller,
+      StreamDetailRenderer,
+    } from './js/implementation/index.js';
     import { TextUtils } from './js/abstract/text-utils.js';
 
     // One shared HttpClient (Adapter over fetch) used by AM / SM / SSHM / RF.
     const http = new FetchHttpClient();
+
+    // One shared ActivePoller: only one agent stream polls at a time, so
+    // switching tabs/agents stops the previous stream before starting a new one.
+    const poller = new ActivePoller();
 
     const mainContent = document.getElementById('main-content');
     const navMain = document.getElementById('nav-main');
@@ -669,7 +678,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
     /* =====================  Utilities  ===================== */
     const esc = TextUtils.esc;       // HTML-escape — now sourced from the library.
-    const sleep = TextUtils.sleep;   // Promise delay — now sourced from the library.
 
     /* =====================  Voice output (Web Speech API)  =====================
        Browser-native text-to-speech. No API key, no server round-trip, free.
@@ -684,11 +692,21 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     Speech.bindVoiceChanges();   // initial pick + re-pick/clear on onvoiceschanged
 
     /* =====================  Agent Manager  ===================== */
+    // The three agent-detail streams (Thoughts / Messages / Tool Calls) are
+    // rendered by the library's StreamDetailRenderer: each mounts a console
+    // view into its container and drives an AgentStreamController through the
+    // shared `poller` (3s polling, dedup, "no X yet" placeholder).
+    const streamRenderers = {
+      'agent-detail-thoughts':   new StreamDetailRenderer({ http, poller, url: '/api/thoughts',  label: 'thoughts' }),
+      'agent-detail-messages':   new StreamDetailRenderer({ http, poller, url: '/api/messages',  label: 'messages' }),
+      'agent-detail-tool-calls': new StreamDetailRenderer({ http, poller, url: '/api/toolcalls', label: 'tool calls' }),
+    };
+
     // Maps an agent-detail view id to how its content is rendered.
     const DETAIL_RENDERERS = {
-      'agent-detail-thoughts':       (am, id) => am.renderStream(id, '/api/thoughts', 'thoughts'),
-      'agent-detail-messages':       (am, id) => am.renderStream(id, '/api/messages', 'messages'),
-      'agent-detail-tool-calls':     (am, id) => am.renderStream(id, '/api/toolcalls', 'tool calls'),
+      'agent-detail-thoughts':       (am, id) => streamRenderers[id].render(id, am.current.id),
+      'agent-detail-messages':       (am, id) => streamRenderers[id].render(id, am.current.id),
+      'agent-detail-tool-calls':     (am, id) => streamRenderers[id].render(id, am.current.id),
       'agent-detail-agent-card':     (am, id) => am.renderAgentCard(id),
       'agent-detail-tests':          (am, id) => am.renderTest(id),
       'agent-detail-input-options':  (am, id) => am.renderInputOptions(id),
@@ -696,14 +714,12 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
     const AM = {
       current: null,           // { id, name }
-      pollTimer: null,
       agents: null,
       agentsLoadedAt: 0,
       served: location.protocol === 'http:' || location.protocol === 'https:',
 
-      stopPoll() {
-        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
-      },
+      // Stop whichever agent stream is currently polling (if any).
+      stopPoll() { poller.stop(); },
 
       // Show the agent-list landing in the sidebar and (re)load the agent tabs.
       showAgentsHome() {
@@ -795,61 +811,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         const fn = DETAIL_RENDERERS[target];
         if (fn) fn(this, target);
       },
-
-      consoleShell(containerId) {
-        const c = document.getElementById(containerId);
-        c.innerHTML = '<div class="msi-console" id="msi-' + containerId + '"><span class="msi-inner"></span>'
-          + '<span class="msi-cursor">&#9608;</span></div>';
-        const box = c.querySelector('.msi-console');
-        return { box, inner: box.querySelector('.msi-inner') };
-      },
-
-      formatStreamRow(r) {
-        const stamp = (r.date || '').replace('T', ' ').slice(0, 19);
-        const type = esc((r.type || '').replace('_message', ''));
-        const text = String(r.text || '');
-        const head = text.match(/^\*\*(.+?)\*\*\s*/);
-        let body;
-        if (head) {
-          body = '<span class="hdr">' + esc(head[1]) + '</span> ' + esc(text.slice(head[0].length).replace(/\*\*/g, ''));
-        } else if (type) {
-          body = '<span class="hdr">' + type + '</span> ' + esc(text.replace(/\*\*/g, ''));
-        } else {
-          body = esc(text.replace(/\*\*/g, ''));
-        }
-        return '<div class="msi-entry"><span class="msi-stamp">[' + stamp + ']</span> ' + body + '</div>';
-      },
-
-      async renderStream(containerId, url, label) {
-        const { box, inner } = this.consoleShell(containerId);
-        const agentId = this.current.id;
-        const seen = new Set();
-        let first = true;
-        const pull = async () => {
-          if (!this.current || this.current.id !== agentId) return;
-          let rows;
-          try { rows = await http.getJSON(url + '?agent=' + encodeURIComponent(agentId)); }
-          catch (e) { inner.insertAdjacentHTML('beforeend', '<div class="msi-line err">! ' + esc(e.message) + '</div>'); return; }
-          if (first && !rows.length) {
-            inner.innerHTML = '<div class="msi-entry dim">&mdash; no ' + label + ' recorded yet &mdash;</div>';
-            first = false;
-            return;
-          }
-          if (first) inner.innerHTML = '';
-          for (const r of rows) {
-            const key = (r.date || '') + '|' + (r.type || '') + '|' + String(r.text || '').slice(0, 120);
-            if (seen.has(key)) continue;
-            seen.add(key);
-            inner.insertAdjacentHTML('beforeend', this.formatStreamRow(r));
-            box.scrollTop = box.scrollHeight;
-            if (!first) await sleep(0); else await sleep(90);
-          }
-          first = false;
-        };
-        await pull();
-        this.pollTimer = setInterval(pull, 3000);
-      },
-
 
       async renderAgentCard(containerId) {
         const c = document.getElementById(containerId);
