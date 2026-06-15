@@ -334,6 +334,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       AgentCardRenderer,
       ChatDetailRenderer,
       InputOptionsRenderer,
+      DomTabFactory,
+      AgentActivityPoller,
     } from './js/implementation/index.js';
     import { TextUtils } from './js/abstract/text-utils.js';
 
@@ -343,6 +345,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     // One shared ActivePoller: only one agent stream polls at a time, so
     // switching tabs/agents stops the previous stream before starting a new one.
     const poller = new ActivePoller();
+
+    // Shared tab factory (builds sidebar agent/server tabs with the right
+    // dataset + classes).
+    const tabFactory = new DomTabFactory();
 
     const mainContent = document.getElementById('main-content');
     const navMain = document.getElementById('nav-main');
@@ -783,14 +789,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           }
 
           for (const a of this.agents) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'tab agent-tab';
-            btn.dataset.nav = 'agents';
-            btn.dataset.agentId = a.id;
-            btn.dataset.agentName = a.name;
-            btn.textContent = a.name;
-            navAgents.appendChild(btn);
+            navAgents.appendChild(tabFactory.buildAgentTab(a));
           }
           const age = this.agentsLoadedAt ? Math.max(0, Math.round((Date.now() - this.agentsLoadedAt) / 1000)) : 0;
           if (status) status.innerHTML = 'Loaded <strong>' + this.agents.length
@@ -1318,18 +1317,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       else if (status === 'error') tab.classList.add('agent-error');
     }
 
-    (function startActivityPoll() {
-      async function poll() {
-        try {
-          const activity = await http.getJSON('/api/agent-activity');
-          for (const [id, status] of Object.entries(activity)) {
-            setAgentTabStatus(id, status);
-          }
-        } catch (e) {}
-      }
-      poll();
-      setInterval(poll, 5000);
-    })();
+    // Colour agent sidebar tabs from /api/agent-activity every 5s.
+    new AgentActivityPoller({ http, setStatus: setAgentTabStatus }).start();
 
     /* =====================  Code-change restart alert  ===================== */
     (function codeChangeAlert() {
