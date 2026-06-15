@@ -84,6 +84,13 @@ Default to using Bun instead of Node.js.
 - `message.ts` — Streams agent responses via Server-Sent Events.
 - `memory.ts` — Defines memory block labels: `persona` and `human` (global blocks). Memory files live at `~/.letta/agents/<agentId>/memory/`.
 - `memoryFilesystem.ts` — Helpers for `~/.letta/` directory structure.
+
+> **Memory authoring policy (self-hosted deployment).** The product code above is
+> unchanged — `memory.ts` still defines block labels. But on this server, agent memory is
+> authored as markdown files committed to the agent's memfs `state.git` (constant facts
+> under `system/`), **not** through raw `POST`/`PATCH /v1/blocks` calls. The server
+> projects `system/**` files into attached blocks, so blocks are a read-only projection of
+> the repository, not a write target. See `notes_plans_handoffs/memory_system_plan.html`.
 - `model.ts` — Model resolution and LLM config updates.
 - `skills.ts` / `skillSources.ts` — Skill loading and injection into agent context.
 - `subagents/` — Parallel subagent support.

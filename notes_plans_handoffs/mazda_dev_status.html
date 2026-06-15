@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mazda Dev Status</title>
+  <style>
+    :root {
+      --bg: #08111f;
+      --bg2: #10223d;
+      --panel: #ffffff;
+      --soft: #f8fafc;
+      --ink: #102033;
+      --muted: #64748b;
+      --line: #dbe4ef;
+      --blue: #2563eb;
+      --green: #16a34a;
+      --orange: #b45309;
+      --red: #dc2626;
+      --purple: #7c3aed;
+      --cyan: #0891b2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: #eaf0f7;
+      line-height: 1.55;
+    }
+    .hero {
+      color: #fff;
+      background: linear-gradient(135deg, #020617 0%, #172554 55%, #0891b2 100%);
+      padding: 44px 30px 34px;
+    }
+    .hero-inner, .page { max-width: 1280px; margin: 0 auto; }
+    .eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; opacity: .85; font-weight: 700; }
+    h1 { margin: 10px 0 12px; font-size: 38px; line-height: 1.1; }
+    .subtitle { max-width: 1000px; font-size: 18px; opacity: .94; }
+    .badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+    .badge { border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.12); padding: 7px 11px; border-radius: 999px; font-size: 13px; }
+    .page { padding: 26px 22px 54px; }
+    .section { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; margin: 18px 0; padding: 24px; box-shadow: 0 12px 30px rgba(15, 23, 42, .08); }
+    .section.dark { background: #0f172a; color: #e5e7eb; border-color: #334155; }
+    .section.dark h2, .section.dark h3, .section.dark h4 { color: #f8fafc; }
+    .section.dark a { color: #93c5fd; }
+    h2 { margin: 0 0 14px; font-size: 25px; color: #0f172a; }
+    h3 { margin: 18px 0 8px; font-size: 18px; color: #1e293b; }
+    h4 { margin: 14px 0 6px; font-size: 15px; color: #334155; }
+    p { margin: 9px 0; }
+    ul, ol { margin-top: 8px; }
+    li { margin: 5px 0; }
+    a { color: #1d4ed8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { font-family: Consolas, "Courier New", monospace; background: #eef4ff; padding: 2px 5px; border-radius: 5px; }
+    pre { margin: 14px 0; border-radius: 14px; overflow-x: auto; background: #0b1220; color: #dbeafe; border: 1px solid #334155; padding: 16px; }
+    pre code { background: transparent; padding: 0; color: #e0f2fe; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+    th, td { text-align: left; vertical-align: top; border: 1px solid var(--line); padding: 10px; }
+    th { background: #f1f5f9; color: #0f172a; }
+    tr:nth-child(even) td { background: #fbfdff; }
+    .grid { display: grid; gap: 14px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: #fff; }
+    .card.soft { background: var(--soft); }
+    .card h3, .card h4 { margin-top: 0; }
+    .callout { border-left: 5px solid var(--blue); background: #eff6ff; padding: 14px 16px; border-radius: 12px; margin: 14px 0; }
+    .warning { border-left-color: var(--orange); background: #fffbeb; }
+    .success { border-left-color: var(--green); background: #f0fdf4; }
+    .danger { border-left-color: var(--red); background: #fef2f2; }
+    .tag { display: inline-block; border-radius: 999px; background: #dbeafe; color: #1e40af; padding: 3px 8px; margin: 2px; font-size: 12px; font-weight: 700; }
+    .tag.green { background:#dcfce7; color:#166534; }
+    .tag.orange { background:#ffedd5; color:#9a3412; }
+    .tag.purple { background:#ede9fe; color:#5b21b6; }
+    .tag.red { background:#fee2e2; color:#991b1b; }
+    .tag.cyan { background:#cffafe; color:#155e75; }
+    .mini { font-size: 13px; color: var(--muted); }
+    .done { color: #15803d; font-weight: 800; }
+    .warn { color: #a16207; font-weight: 800; }
+    .open { color: #991b1b; font-weight: 800; }
+    @media (max-width: 960px) { .grid.two { grid-template-columns: 1fr; } h1 { font-size: 30px; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">Project Plans - Mazda Dev Status</div>
+      <h1>Mazda — Orchestrator Direction (Pivot in Progress)</h1>
+      <p class="subtitle">
+        This page replaces the earlier "self-improvement tools for Mazda" status with the new
+        direction: Mazda is the orchestrator (no longer called "Mazda Orchestrator" — just
+        "Mazda"), and her minions are Letta agents that specialize in driving the Claude Agent
+        SDK (TypeScript). As of 2026-06-15 this is an active pivot, not a finished design.
+      </p>
+      <div class="badges">
+        <span class="badge">Old "tools for Mazda" design: discarded</span>
+        <span class="badge">Mazda = the orchestrator (renamed, was "Mazda Orchestrator")</span>
+        <span class="badge">5 minion Letta agents already exist</span>
+        <span class="badge">Minion role rewrite: in progress</span>
+        <span class="badge">Self-improvement loop (Milestones 0–9): carried forward</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+
+    <section class="section">
+      <h2>1. What Changed</h2>
+      <div class="callout danger">
+        <strong>Discarded:</strong> the "New Letta Tools for Mazda" design from the
+        self-improvement system — the plan to give Mazda herself 7 direct finance tools
+        (<code>verify_statement_totals</code>, <code>check_vendor_key</code>,
+        <code>check_category</code>, <code>check_duplicates</code>, <code>record_trace</code>,
+        <code>propose_improvement</code>, <code>load_wrapper_revision</code>) and have Mazda call
+        them as an "overloaded tool user." That model, and the
+        <code>team_construction_plan.html</code> "Mazda Orchestrator" plan built on top of it
+        (<code>IAgentTeamFactory</code>, <code>StageEnvelope</code>, deterministic service
+        family, etc.), are both <strong>superseded by the direction below</strong>.
+      </div>
+      <div class="callout success">
+        <strong>New direction:</strong>
+        <ul>
+          <li>Mazda <em>is</em> the orchestrator — drop the "Orchestrator" suffix, she's just
+            <strong>Mazda</strong>.</li>
+          <li>Mazda delegates to <strong>minions</strong> — Letta agents whose specialty is
+            driving the <strong>Claude Agent SDK (TypeScript)</strong> to do the actual work,
+            rather than Mazda calling Python finance-tool ports directly.</li>
+          <li>The 5 minion agents already exist on the Letta server and are the starting point
+            for this rebuild (see §2).</li>
+        </ul>
+      </div>
+      <div class="callout">
+        <strong>Carried forward, not discarded:</strong> the self-improvement loop itself
+        (<code>AgentKernel</code>, evidence/trace store, verdicts, proposals, baseline-vs-candidate
+        experiments, gates, activation/rollback, HTML reports — Milestones 0–7 + Hardening
+        Phases 8–9, 145 unit tests) is <strong>finance-blind, generic infrastructure</strong> and
+        stays part of the design. What's discarded is only the specific
+        <em>finance tool wiring</em> (verify_statement_totals, check_vendor_key, etc.) that the
+        old plan attached to it. Under the new direction this same loop wraps
+        <strong>Mazda's orchestration runs and minion delegation</strong> instead — see §3a.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>2. What Already Exists (the work-in-progress starting point)</h2>
+      <p>
+        Mazda (<code>agent-6b536cf4-ec88-4290-b595-fed21d14bd8e</code>) already has a
+        <code>team_agents</code> core-memory block listing 5 minion agents, created for the prior
+        finance-pipeline design:
+      </p>
+      <table>
+        <tr><th>Existing minion agent</th><th>Old role (finance pipeline)</th><th>New role (proposed)</th></tr>
+        <tr><td><code>mazda-router-agent</code></td><td>Classify document type, pick parser strategy</td><td><span class="warn">TBD</span> — re-scope as a Claude Agent SDK task router</td></tr>
+        <tr><td><code>mazda-parser-agent</code></td><td>OCR / structured parsing of statements</td><td><span class="warn">TBD</span></td></tr>
+        <tr><td><code>mazda-vendor-identity-agent</code></td><td>Vendor normalization / id_light</td><td><span class="warn">TBD</span></td></tr>
+        <tr><td><code>mazda-receipt-linker-agent</code></td><td>Link receipts to transactions</td><td><span class="warn">TBD</span></td></tr>
+        <tr><td><code>mazda-categorization-agent</code></td><td>Category resolution</td><td><span class="warn">TBD</span></td></tr>
+      </table>
+      <p class="mini">
+        Source: <code>mazda_team_agents_memory</code> (fixed 2026-06-13) — these 5 agents exist
+        on the Letta server with memfs repos provisioned (empty), and
+        <code>send_letta_message</code> is attached to Mazda for delegating to them.
+      </p>
+      <div class="callout warning">
+        These agents were built and named for the <em>old</em> finance-document pipeline
+        (Router → Parser → Vendor Identity → Duplicate → Receipt Linker → Categorization →
+        Storage). Under the new direction they become (or are replaced by) minions whose job is
+        to operate the Claude Agent SDK. <strong>Whether the existing 5 are repurposed,
+        renamed, or supplemented with new minions is an open question</strong> — see §4.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>3. New Target Shape (high level, still forming)</h2>
+      <div class="diagram" style="background:#0b1220;color:#dbeafe;border-radius:14px;padding:16px;overflow-x:auto;border:1px solid #334155;">
+        <pre style="margin:0;background:transparent;border:none;color:inherit;white-space:pre;">
+Mazda (orchestrator, Letta agent)
+  |
+  +-- delegates work via send_letta_message to --> Minions (Letta agents)
+                                                       |
+                                                       +-- each minion is an expert
+                                                           operator of the Claude Agent
+                                                           SDK (TypeScript) for its
+                                                           assigned slice of work
+        </pre>
+      </div>
+      <p>
+        The core shift: instead of Mazda (or her minions) calling bespoke Python finance-service
+        ports directly, the minions get work done by <strong>driving Claude Agent SDK sessions</strong>
+        — i.e. the same TypeScript SDK that powers Letta Code / Claude Code subagents
+        (<code>@anthropic-ai/claude-agent-sdk</code>-style tooling). Mazda's role stays
+        Facade/Mediator (own run state, delegate, collect results) — that part of the old
+        Mazda Orchestrator plan's §4 "Team Roles" framing still applies to Mazda herself, just
+        not to a separate "Mazda Orchestrator" identity.
+      </p>
+    </section>
+
+    <section class="section dark">
+      <h2>3a. Where the Self-Improvement Loop Fits Now</h2>
+      <p>
+        The self-improvement system built in Milestones 0–7 + Hardening Phases 8–9 was always
+        designed finance-blind: <code>AgentKernel</code> never imports finance code or Mazda
+        directly, and reaches "the agent being improved" only through
+        <code>IAgentPackageFactory</code> / <code>IAgentRunner</code> ports. That boundary is
+        exactly what lets this loop carry over cleanly to the new orchestration design — only the
+        <em>thing being wrapped</em> changes.
+      </p>
+      <table>
+        <tr><th>Self-improvement concept</th><th>Old usage (discarded)</th><th>New usage (this design)</th></tr>
+        <tr><td><code>IAgentRunner</code> / <code>AgentKernel.run_task</code></td>
+            <td>Run Mazda against a finance statement, using the 7 finance tools</td>
+            <td>Run Mazda's orchestration step: delegate to one or more minions and collect their
+                Claude Agent SDK session results</td></tr>
+        <tr><td><code>TraceRepository</code> / evidence store</td>
+            <td>Trace finance tool calls (verify_statement_totals, check_duplicates, ...)</td>
+            <td>Trace Mazda→minion delegation calls and each minion's Claude Agent SDK session
+                (inputs, outputs, tool calls, token usage)</td></tr>
+        <tr><td><code>IEvaluator</code> / <code>FinanceVerdictJudge</code></td>
+            <td>Finance-rule verdicts (totals match, vendor known, category correct, ...)</td>
+            <td>Generalize to an orchestration verdict: did the minion's SDK session complete the
+                delegated task, with what quality/cost — finance-specific verifiers become one
+                pluggable <code>IEvaluator</code> family among others, not the only one</td></tr>
+        <tr><td><code>WrapperRevision</code> / prompt &amp; toolset versioning</td>
+            <td>Versioned prompts/tools for Mazda's finance-tool wrapper</td>
+            <td>Versioned prompts/configs for <strong>Mazda's delegation logic</strong> and for
+                <strong>each minion's Claude Agent SDK task templates</strong> (system prompts,
+                allowed tools, SDK invocation parameters)</td></tr>
+        <tr><td><code>ProposalGenerator</code> / <code>ExperimentRunner</code> / <code>GateChain</code></td>
+            <td>Propose &amp; gate changes to Mazda's finance prompts/tools</td>
+            <td>Propose &amp; gate changes to Mazda's minion-delegation strategy or a minion's SDK
+                task template, A/B'd via baseline-vs-candidate experiments before activation</td></tr>
+        <tr><td><code>ActivationService</code> / <code>RollbackService</code> / snapshots</td>
+            <td>Activate/rollback finance-tool wrapper revisions</td>
+            <td>Activate/rollback Mazda's or a minion's orchestration-prompt/SDK-template
+                revisions — human-approved, rollback-safe, unchanged mechanics</td></tr>
+      </table>
+      <div class="callout">
+        Net effect: <strong>none of the 145 unit tests or the Milestone 0–7 / Phase 8–9
+        implementation needs to be thrown away.</strong> The
+        <code>agent_self_improvement</code> package (contracts + implementations) stays as the
+        control plane. What gets rewritten is the <em>agent package</em> /
+        <em>runner adapter</em> layer that previously targeted "Mazda + 7 finance tools" and now
+        targets "Mazda + minions driving the Claude Agent SDK." The integration-certification
+        backlog (8 test-code fixes → P0 suite, from the prior status) still applies to the core
+        loop and is still the right next step regardless of which agent package sits on top of
+        it.
+      </div>
+    </section>
+
+    <section class="section dark">
+      <h2>4. Open Questions — RESOLVED 2026-06-15</h2>
+      <ol>
+        <li><strong>Repurpose vs. retire the 5 minions → REPURPOSE.</strong> Same agent IDs and
+          <code>team_agents</code>/<code>send_letta_message</code> wiring stay. Each minion's old
+          pipeline stage (route → parse → vendor-identity → receipt-link → categorize) maps onto
+          a generic SDK-task category; only the persona/system prompt changes, from "call Python
+          finance tools" to "receive a task envelope from Mazda, run a Claude Agent SDK session
+          for this specialty, return a structured result."</li>
+        <li><strong>"Claude Agent SDK expert minion" concretely =</strong> each minion gets one
+          new tool, <code>run_claude_agent_sdk_task(task_json)</code>, that launches a Claude
+          Agent SDK TS session (via the local <code>claude-code-sdk-ts</code> fluent API) with a
+          role-specific system prompt + tool allowlist, waits for completion, and returns a
+          structured result (status, output, artifacts, token/cost usage). The minion relays that
+          result back to Mazda via <code>send_letta_message</code>. Contract:
+          <code>IClaudeAgentSdkRunner.run(IMinionTaskRequest) → Promise&lt;IMinionTaskResult&gt;</code>,
+          wrapped by <code>IMinion.handle()</code> (role-checked dispatch) — see §5.</li>
+        <li><strong>Old finance-domain logic → exposed as tools the SDK sessions can call</strong>,
+          via a small Python MCP server wrapping the existing verifier ports already defined in
+          <code>agent_self_improvement/contracts</code> (<code>ITotalsVerifier</code>,
+          <code>IVendorKeyVerifier</code>, <code>ICategoryVerifier</code>,
+          <code>IDuplicateVerifier</code>), reusing <code>VendorCategoryLookup</code> /
+          <code>DuplicateChecker</code> per the §8 reuse map in
+          <code>self_improvement_system.html</code>. Not rebuilt — just given an MCP face.</li>
+        <li><strong>Target repo/location → <code>/home/adamsl/claude-code-sdk-ts/minions/</code></strong>,
+          a new TS package sibling to <code>jeri_agent/</code>, depending on the local SDK build
+          via <code>file:..</code>, following <code>jeris_ts_blueprint.md</code> conventions
+          (interface-first, vitest). The Python-side <code>IAgentRunner</code> adapter that shells
+          out to this minion package lives in
+          <code>rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/agent_runtime/</code>,
+          alongside the existing <code>LettaCommunicationAdapter</code>.</li>
+      </ol>
+    </section>
+
+    <section class="section" id="phase0">
+      <h2>5. Build Progress</h2>
+      <div class="callout success">
+        <strong>Phase 0 — DONE (2026-06-15).</strong> Minion contract defined at
+        <code>/home/adamsl/claude-code-sdk-ts/minions/src/interfaces/minion.ts</code>:
+        <code>MinionRole</code> (the 5 repurposed minions), <code>IMinionTaskRequest</code>,
+        <code>IMinionTaskResult</code>, <code>IClaudeAgentSdkRunner</code> (SDK boundary port —
+        "given a task envelope, run a Claude Agent SDK session, return a structured result"), and
+        <code>IMinion</code> (role-scoped dispatch). <code>DefaultMinion</code>
+        (<code>src/minion.ts</code>) implements <code>IMinion</code> by validating the request's
+        role matches and delegating to the injected runner. TDD: failing test written first
+        (<code>tests/minion.test.ts</code> — 2 cases, runner-not-wired so import failed), then
+        <code>DefaultMinion</code> implemented to green. <code>npx vitest run</code> → 2 passed;
+        <code>npx tsc --noEmit</code> clean. No real Claude Agent SDK session or live Letta agent
+        wired yet — <code>IClaudeAgentSdkRunner</code> has no implementation, only the fake used
+        in the test.
+      </div>
+      <p class="mini">Next: Phase 1 — implement <code>IClaudeAgentSdkRunner</code> against the
+      real <code>claude-code-sdk-ts</code> fluent API (<code>claude().query(...)</code>), then the
+      Python <code>IAgentRunner</code> adapter that shells out to it. Live-agent changes (minion
+      persona rewrites, new <code>run_claude_agent_sdk_task</code> tool) require explicit sign-off
+      per agent before touching Mazda's minions.</p>
+    </section>
+
+    <section class="section">
+      <h2>5. Status Snapshot</h2>
+      <ul>
+        <li><span class="done">DECIDED</span> — Drop "Mazda Orchestrator" naming; the orchestrator
+          is simply <strong>Mazda</strong>.</li>
+        <li><span class="done">DECIDED</span> — Discard the direct-finance-tools-for-Mazda design
+          (the 7-tool plan from the self-improvement system) and the
+          <code>team_construction_plan.html</code> "Mazda Orchestrator" team/service design built
+          on top of it.</li>
+        <li><span class="done">EXISTS</span> — 5 minion Letta agents (router, parser,
+          vendor-identity, receipt-linker, categorization) are created and reachable from Mazda
+          via <code>send_letta_message</code>.</li>
+        <li><span class="open">NOT STARTED</span> — Re-scoping the minions around the Claude
+          Agent SDK (TypeScript); no SDK-driving minion code found yet in
+          <code>/home/adamsl/letta-code</code> history.</li>
+        <li><span class="done">DECIDED</span> — The self-improvement loop (Milestones 0–9, 145
+          unit tests, <code>AgentKernel</code>/evidence-store/activation-rollback) is
+          <strong>carried forward as-is</strong> at the core-loop level; only the agent-package
+          layer on top of it is being rewritten for Mazda + minions (see §3a). The integration
+          backlog (8 test-code fixes → P0 suite) remains the next concrete step for that core
+          loop.</li>
+        <li><span class="warn">OPEN</span> — Fate of the "Self Evolving" / "Mazda Orchestrator"
+          Project Plans <em>tab documents</em> themselves (not the underlying code) — they
+          describe the discarded finance-tool framing and should eventually be retitled or
+          replaced once the new agent-package design is written down.</li>
+      </ul>
+    </section>
+
+    <section class="section">
+      <p class="mini">
+        Updated 2026-06-15 to reflect the new "Mazda + Claude-Agent-SDK minions" orchestration
+        direction, replacing the prior reconciliation of
+        <code>agent_self_improvement_plan.html</code> and <code>team_construction_plan.html</code>,
+        and to confirm the Milestone 0–9 self-improvement loop carries forward as the control
+        plane for this new direction (§3a). This page should be revisited once the remaining
+        open questions in §4 are answered and the new minion code starts landing.
+      </p>
+    </section>
+
+  </main>
+</body>
+</html>

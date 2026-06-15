@@ -11,6 +11,8 @@ This skill helps migrate memory blocks from an existing agent to a new agent, si
 >
 > This workflow is memfs-first. If memfs is enabled, do **not** use the legacy block commands — they can conflict with file-based edits.
 >
+> **Memory write policy (self-hosted server):** author all agent memory as markdown files committed to the agent's memfs `state.git` (constant facts under `system/`); never create or edit memory through `POST`/`PATCH /v1/blocks`. Migrate by copying **files between repos** (below); the block commands in "Legacy Fallback" are a Docker/no-memfs fallback only — attached blocks are a read-only projection of the repository.
+>
 > **To check:** Look for a `memory_filesystem` block in your system prompt. If it shows a tree structure starting with `/memory/` including a `system/` directory, memfs is enabled.
 >
 > **To enable:** Ask the user to run `/memfs enable`, then reload the CLI.

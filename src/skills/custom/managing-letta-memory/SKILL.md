@@ -9,6 +9,12 @@ description: "Manages Letta Code memory workflows including /memfs enable/disabl
 
 Use this skill to set up and troubleshoot filesystem-backed memory (memfs) for Letta Code agents, including local-only mode and sync guidance for multi-machine access.
 
+> **Memory write policy (this server).** Author all agent memory as markdown files
+> committed to the agent's memfs `state.git` (constant facts under `system/`); never
+> create or edit memory through `POST`/`PATCH /v1/blocks` — attached blocks are a
+> read-only projection of the repository. To give an agent new knowledge, commit a
+> file to `memory/system/`; do **not** `POST /v1/blocks`.
+
 **Cost guardrail:** If any action may exceed **$2.00 in LLM credits**, warn and get explicit approval before proceeding.
 
 ## Quick Start (Local-only memfs)

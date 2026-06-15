@@ -5,7 +5,13 @@ description: Manage git-backed memory repos. Load this skill when working with g
 
 # Git-Backed Memory Repos
 
-Agents with the `git-memory-enabled` tag have their memory blocks stored in git repositories accessible via the Letta API. This enables version control, collaboration, and external editing of agent memory.
+Agents with the `git-memory-enabled` tag have their memory stored in git repositories accessible via the Letta API. This enables version control, collaboration, and external editing of agent memory.
+
+> **Blocks are a derived projection.** On this server the git repository is the single
+> source of truth: the server materializes attached memory *blocks* from the `system/**`
+> files in `state.git`. Author memory only as files committed to the repo (constant facts
+> under `system/`); never create or edit memory through `POST`/`PATCH /v1/blocks` — treat
+> attached blocks as read-only output of the repository, not a write target.
 
 **Features:**
 - Stored in cloud (GCS)

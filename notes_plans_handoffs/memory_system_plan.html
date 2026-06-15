@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Memory System — A Design Manual</title>
+<style>
+  :root{
+    --paper:#fbf9f4; --ink:#1c1a17; --muted:#6b6358; --rule:#d9d2c5;
+    --accent:#7a1f1f; --accent2:#1f4e7a; --green:#2f6b35; --gold:#9a7b22;
+    --code-bg:#11151c; --code-ink:#dfe6ef; --sidebar:#f1ece1;
+    --good:#2f6b35; --bad:#a32020; --warn:#9a6a14;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    line-height:1.62; font-size:18px;
+  }
+  .wrap{max-width:980px; margin:0 auto; padding:0 28px;}
+  /* Cover */
+  .cover{
+    background:
+      radial-gradient(circle at 15% 12%, rgba(122,31,31,.10), transparent 40%),
+      radial-gradient(circle at 85% 0%, rgba(31,78,122,.12), transparent 45%),
+      linear-gradient(180deg,#fbf9f4 0%, #f3eee3 100%);
+    border-bottom:3px double var(--rule); padding:70px 0 46px;
+  }
+  .cover .kicker{letter-spacing:.32em; text-transform:uppercase; font-size:13px; color:var(--accent); font-weight:700;}
+  .cover h1{font-size:clamp(2.4rem,6vw,4.1rem); line-height:1.04; margin:.3em 0 .15em; letter-spacing:-.01em;}
+  .cover h1 .sub{display:block; font-style:italic; font-weight:400; font-size:.42em; color:var(--muted); letter-spacing:0; margin-top:.5em;}
+  .cover .byline{margin-top:22px; color:var(--muted); font-size:15px;}
+  .cover .seal{display:inline-block; margin-top:26px; border:1.5px solid var(--accent); color:var(--accent);
+    border-radius:50%; width:108px; height:108px; text-align:center; font-size:11px; letter-spacing:.12em;
+    text-transform:uppercase; padding-top:30px; line-height:1.35; transform:rotate(-6deg);}
+  /* Typography */
+  h2{font-size:1.9rem; margin:2.4em 0 .2em; padding-bottom:.18em; border-bottom:2px solid var(--ink); letter-spacing:-.01em;}
+  h2 .ch{display:block; font-size:.5em; letter-spacing:.28em; text-transform:uppercase; color:var(--accent); font-weight:700; border:0; margin-bottom:.4em;}
+  h3{font-size:1.28rem; margin:1.7em 0 .3em; color:#2a2620;}
+  h4{font-size:1.02rem; margin:1.3em 0 .2em; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);}
+  p{margin:.7em 0;}
+  a{color:var(--accent2); text-decoration:none; border-bottom:1px solid rgba(31,78,122,.35);}
+  .lead::first-letter{
+    float:left; font-size:3.4em; line-height:.78; padding:.06em .12em 0 0; color:var(--accent); font-weight:700;
+  }
+  .abstract{font-size:1.05rem; background:var(--sidebar); border-left:4px solid var(--accent); padding:18px 22px; border-radius:0 10px 10px 0; margin:24px 0;}
+  blockquote{margin:1.2em 0; padding:.4em 1.1em; border-left:3px solid var(--gold); color:#3a352c; font-style:italic;}
+  /* TOC */
+  .toc{columns:2; column-gap:42px; background:#fff; border:1px solid var(--rule); border-radius:12px; padding:20px 26px; margin:26px 0; font-size:.96rem;}
+  .toc ol{margin:0; padding-left:1.3em;}
+  .toc a{border:0;}
+  .toc li{margin:.3em 0; break-inside:avoid;}
+  /* Figures */
+  figure{margin:30px 0; padding:0;}
+  .figbox{background:#fff; border:1px solid var(--rule); border-radius:14px; padding:22px; box-shadow:0 18px 38px rgba(28,26,23,.07); overflow-x:auto;}
+  figcaption{margin-top:12px; font-size:.92rem; color:var(--muted);}
+  figcaption b{color:var(--accent); font-style:normal;}
+  svg{display:block; margin:0 auto; max-width:100%; height:auto;}
+  text{font-family:"Iowan Old Style",Georgia,serif;}
+  .mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;}
+  /* Code */
+  pre{background:var(--code-bg); color:var(--code-ink); border-radius:12px; padding:16px 18px; overflow-x:auto; font-size:14.5px; line-height:1.55; box-shadow:inset 0 0 0 1px #2a3340;}
+  pre.bad{box-shadow:inset 0 0 0 1px #5a2330; border-left:4px solid var(--bad);}
+  pre.good{box-shadow:inset 0 0 0 1px #244a2c; border-left:4px solid var(--good);}
+  code{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:.88em;}
+  p code,li code,td code{background:#efe9dc; color:#5a3120; padding:1px 6px; border-radius:5px;}
+  .tok-c{color:#7c8da0;} .tok-k{color:#e0a3a3;} .tok-s{color:#a9d2a0;} .tok-f{color:#9ec5e8;} .tok-n{color:#d9c08a;}
+  /* Tables */
+  table{width:100%; border-collapse:collapse; margin:18px 0; font-size:.94rem;}
+  th,td{border:1px solid var(--rule); padding:9px 11px; text-align:left; vertical-align:top;}
+  th{background:#efe9dc; letter-spacing:.02em;}
+  tr:nth-child(even) td{background:#fdfcf9;}
+  /* Callouts */
+  .note{border-radius:10px; padding:14px 18px; margin:18px 0; border-left:5px solid var(--accent2); background:#eef3f8;}
+  .note.warn{border-left-color:var(--warn); background:#fbf4e6;}
+  .note.bad{border-left-color:var(--bad); background:#f9ecec;}
+  .note.good{border-left-color:var(--good); background:#ecf4ed;}
+  .note .h{font-weight:700; text-transform:uppercase; letter-spacing:.08em; font-size:.78rem; color:var(--muted); display:block; margin-bottom:4px;}
+  .pill{display:inline-block; font-size:.7rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:2px 8px; border-radius:999px; vertical-align:middle;}
+  .pill.dep{background:#f3d9d9; color:#7a1f1f;}
+  .pill.new{background:#d6ead8; color:#235a2a;}
+  .pill.keep{background:#dfe7f1; color:#234a72;}
+  hr.rule{border:0; border-top:1px solid var(--rule); margin:40px 0;}
+  .foot{margin:50px 0 70px; padding-top:18px; border-top:3px double var(--rule); color:var(--muted); font-size:.9rem; font-style:italic;}
+  .step{counter-reset:none;}
+  ol.big{counter-reset:step; list-style:none; padding-left:0;}
+  ol.big > li{counter-increment:step; position:relative; padding:6px 0 6px 52px; margin:.5em 0; border-bottom:1px dotted var(--rule);}
+  ol.big > li::before{content:counter(step); position:absolute; left:0; top:6px; width:34px; height:34px; background:var(--accent); color:#fff; border-radius:50%; text-align:center; line-height:34px; font-weight:700; font-family:Georgia,serif;}
+</style>
+</head>
+<body>
+
+<!-- ============================================= COVER -->
+<header class="cover">
+  <div class="wrap">
+    <div class="kicker">Letta Code · Internal Engineering Manual · Edition I</div>
+    <h1>The Memory System
+      <span class="sub">A Design Manual for Git-Backed Agent Memory on a Self-Hosted Letta Server</span>
+    </h1>
+    <div class="byline">
+      Prepared 2026&#8209;06&#8209;15 · Self-hosted deployment <span class="mono">localhost:8283</span> ·
+      Supersedes the 2026&#8209;06&#8209;13 &ldquo;memfs is additive&rdquo; handoff note
+    </div>
+    <div class="seal">Single<br>Source of<br>Truth</div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ABSTRACT -->
+  <p class="lead abstract">
+    <b>This manual sets one rule and explains why it holds:</b> agent memory on this server is
+    authored as <em>files in a git repository</em> (MemFS) and never again through raw
+    <span class="mono">POST/PATCH /v1/blocks</span> calls. Memory <em>blocks</em> do not vanish —
+    on this custom Docker deployment they remain the substrate the server projects into the system
+    prompt — but they stop being a thing we <em>write to directly</em>. The git repository becomes
+    the single source of truth; the attached blocks become a read-only projection of it. What
+    follows is the principle, the evidence from Letta&rsquo;s own roadmap, the architecture as it is
+    versus as it must become, the exact write paths (with sequence diagrams), the repository
+    conventions, a worked migration of the Mazda agent, the documentation we must rewrite, and the
+    known hazards that will bite anyone who ignores them.
+  </p>
+
+  <!-- TOC -->
+  <nav class="toc">
+    <ol>
+      <li><a href="#ch1">First Principles: What &ldquo;Memory&rdquo; Means Here</a></li>
+      <li><a href="#ch2">The Official Position (and its Docker caveat)</a></li>
+      <li><a href="#ch3">This Deployment&rsquo;s Reality</a></li>
+      <li><a href="#ch4">The Core Tension &amp; Its Resolution</a></li>
+      <li><a href="#ch5">Architecture: As&#8209;Is vs To&#8209;Be</a></li>
+      <li><a href="#ch6">The Write Paths (Sequence Diagrams)</a></li>
+      <li><a href="#ch7">Repository Layout &amp; File Conventions</a></li>
+      <li><a href="#ch8">Migration: The Mazda Case Study</a></li>
+      <li><a href="#ch9">Fleet Rollout</a></li>
+      <li><a href="#ch10">Documentation &amp; Skill Rewrites</a></li>
+      <li><a href="#ch11">Risks &amp; Known Bugs</a></li>
+      <li><a href="#ch12">Verification &amp; Acceptance</a></li>
+      <li><a href="#appx">Appendix: Command &amp; Bundle Reference</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================= CH1 -->
+  <h2 id="ch1"><span class="ch">Chapter One</span>First Principles: What &ldquo;Memory&rdquo; Means Here</h2>
+  <p class="lead">
+    A Letta agent carries state between sessions. That state is what separates a stateful agent
+    from a stateless chat. Historically that state lived in <strong>memory blocks</strong>: named
+    chunks of text (<span class="mono">persona</span>, <span class="mono">human</span>, and custom
+    labels) stored in the server&rsquo;s database and spliced into the system prompt on every turn.
+    The agent edited them through dedicated server tools (<span class="mono">memory</span>,
+    <span class="mono">core_memory_replace</span>, <span class="mono">memory_apply_patch</span>).
+  </p>
+  <p>
+    <strong>MemFS</strong> (&ldquo;memory filesystem,&rdquo; also called a <em>context
+    repository</em>) reframes that same state as a directory of markdown files under git. The agent
+    edits files with ordinary <span class="mono">bash</span> tools and commits; git history becomes
+    a complete, inspectable changelog of everything the agent has learned. Two categories of file
+    exist, and the distinction is the whole efficiency argument:
+  </p>
+  <table>
+    <thead><tr><th>Category</th><th>Path</th><th>Loading behavior</th><th>Use for</th></tr></thead>
+    <tbody>
+      <tr><td><strong>System files</strong></td><td class="mono">system/**</td><td>Loaded <em>fully</em> into context every turn</td><td>Persona, durable project facts, the team roster — things needed constantly</td></tr>
+      <tr><td><strong>Other files</strong></td><td class="mono">reference/**, notes/**, …</td><td>Only the file tree + <span class="mono">description</span> frontmatter is shown; full text loads on demand</td><td>History, handoffs, deep references — recalled only when relevant</td></tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <span class="h">The mental model</span>
+    Blocks are a <em>database row</em> view of memory. MemFS is a <em>filesystem + git</em> view of
+    the same memory. The argument of this manual is that we should only ever touch the filesystem
+    view, and let the server keep the row view in sync as a derived artifact.
+  </div>
+
+  <!-- ============================================= CH2 -->
+  <h2 id="ch2"><span class="ch">Chapter Two</span>The Official Position (and its Docker caveat)</h2>
+  <p>Letta&rsquo;s own documentation and roadmap are unambiguous about direction:</p>
+  <blockquote>&ldquo;MemFS replaces memory blocks for agents on the Letta API and in Local mode.&rdquo; &mdash; <a href="https://docs.letta.com/letta-code/memfs/">MemFS, Letta Docs</a></blockquote>
+  <blockquote>&ldquo;Legacy server memory tools like <span class="mono">core_memory_replace</span> will be removed in favor of straightforward filesystem operations on git-backed context repositories.&rdquo; &mdash; <a href="https://www.letta.com/blog/context-repositories/">Context Repositories, Letta Blog</a></blockquote>
+  <p>
+    New agents on the API and in Local mode have MemFS on by default;
+    <span class="mono">/memfs enable</span> upgrades an existing agent by detaching the legacy
+    <span class="mono">memory(…)</span> tool and migrating its blocks into the git filesystem. So
+    far, exactly the directive we were given.
+  </p>
+  <div class="note warn">
+    <span class="h">The caveat that makes this deployment special</span>
+    The same docs state: <em>&ldquo;MemFS is not available when using a Docker server — those agents
+    continue using the legacy memory blocks system.&rdquo;</em> We run self-hosted <strong>Docker</strong>.
+    By the stock product, we would be stuck on blocks. We are not — because this deployment ships a
+    <em>custom</em> memfs. Chapter Three explains how, and why that changes what &ldquo;phase out
+    blocks&rdquo; can mean here.
+  </div>
+
+  <!-- ============================================= CH3 -->
+  <h2 id="ch3"><span class="ch">Chapter Three</span>This Deployment&rsquo;s Reality</h2>
+  <p>
+    This server is a hand-built Letta stack. Memfs is implemented by a companion container,
+    <span class="mono">letta-memfs</span>, plus a git-over-HTTP proxy exposed on the main API port:
+  </p>
+  <ul>
+    <li>Each memfs-enabled agent owns a bare repository reachable at
+      <span class="mono">localhost:8283/v1/git/&lt;agent-id&gt;/state.git</span>.</li>
+    <li>Enablement is marked by a <span class="mono">git-memory-enabled</span> row in the Postgres
+      <span class="mono">agents_tags</span> table (in the <span class="mono">letta</span> schema).</li>
+    <li>Bare repos live on the host at <span class="mono">~/.letta/memfs-repos/&lt;agent-id&gt;/state.git</span>,
+      owned <span class="mono">root:root</span> (this matters — see Chapter Eleven).</li>
+  </ul>
+  <p>
+    The decisive implementation detail: on this server, <strong>files committed under
+    <span class="mono">system/</span> are synced by the server into attached memory blocks.</strong>
+    The block is how the text reaches the system prompt; the file is how we author it. That means
+    blocks cannot be &ldquo;removed&rdquo; outright here — they are the projection surface. &ldquo;Phase
+    out blocks&rdquo; therefore cannot mean <em>delete all blocks</em>; it must mean <em>stop writing
+    blocks directly and let memfs own them.</em>
+  </p>
+  <div class="note bad">
+    <span class="h">A contradiction we are deliberately overruling</span>
+    A note committed to Mazda&rsquo;s own repo on 2026&#8209;06&#8209;13
+    (<span class="mono">reference/history/handoff-2026-06-13-mazda-memfs-parity.md</span>) asserts:
+    &ldquo;memory blocks are NOT being phased out here; memfs is an addition, not a replacement.&rdquo;
+    As of <strong>2026&#8209;06&#8209;15</strong> that guidance is <strong>superseded</strong>. Letta&rsquo;s
+    roadmap and this manual both treat blocks as a derived projection, not a write target. The old
+    note is preserved for history but no longer governs.
+  </div>
+
+  <!-- ============================================= CH4 -->
+  <h2 id="ch4"><span class="ch">Chapter Four</span>The Core Tension &amp; Its Resolution</h2>
+  <p>The whole problem reduces to one diagram&rsquo;s worth of tension:</p>
+  <table>
+    <thead><tr><th>Force</th><th>Says</th></tr></thead>
+    <tbody>
+      <tr><td>Letta roadmap</td><td>Blocks are legacy; write memory as git files.</td></tr>
+      <tr><td>Docker caveat</td><td>Docker servers &ldquo;continue using blocks.&rdquo;</td></tr>
+      <tr><td>This deployment</td><td>Custom memfs exists — but it is <em>built on</em> blocks (files project into blocks).</td></tr>
+      <tr><td>Today&rsquo;s directive</td><td>&ldquo;Use memfs for all memory. Do not use blocks. If you see a block, fix it.&rdquo;</td></tr>
+    </tbody>
+  </table>
+  <div class="note good">
+    <span class="h">Resolution (the governing policy)</span>
+    <p style="margin:.3em 0;"><strong>1. Author memory only as MemFS files.</strong> All durable memory content is a markdown
+    file committed to the agent&rsquo;s <span class="mono">state.git</span>. Constant-context facts go in
+    <span class="mono">system/</span>; everything else goes in <span class="mono">reference/</span> et al.</p>
+    <p style="margin:.3em 0;"><strong>2. Never call the block API directly.</strong> No <span class="mono">POST /v1/blocks</span>,
+    no <span class="mono">PATCH …/core-memory/blocks</span> to create or edit memory content. Those
+    calls are the &ldquo;block&rdquo; usage we are eliminating.</p>
+    <p style="margin:.3em 0;"><strong>3. Blocks are a read projection.</strong> Attached system blocks may continue to exist
+    because the server materializes them from <span class="mono">system/</span> files. We treat them
+    as output, not input.</p>
+    <p style="margin:.3em 0;"><strong>4. When you find a hand-made block, reconcile it.</strong> Move its content into the
+    repo (if not already there) and remove the raw block so the file is the only writer.</p>
+  </div>
+
+  <!-- ============================================= CH5 -->
+  <h2 id="ch5"><span class="ch">Chapter Five</span>Architecture: As&#8209;Is vs To&#8209;Be</h2>
+
+  <p>
+    Figure 1 shows today&rsquo;s hazard: <em>two</em> write paths terminate at the same attached
+    blocks, and they can silently disagree. Mazda is living proof — her <span class="mono">team_agents</span>
+    block was created by the raw API while an identical <span class="mono">system/project/agent_team.md</span>
+    sits in her repo. Two writers, one surface, guaranteed drift.
+  </p>
+
+  <figure>
+    <div class="figbox">
+      <svg viewBox="0 0 880 360" role="img" aria-label="As-is architecture with two competing write paths">
+        <!-- actors -->
+        <rect x="20" y="150" width="150" height="60" rx="8" fill="#f1ece1" stroke="#b8ae9c"/>
+        <text x="95" y="176" text-anchor="middle" font-size="15" font-weight="bold">Operator /</text>
+        <text x="95" y="195" text-anchor="middle" font-size="15" font-weight="bold">Agent</text>
+
+        <!-- Path A: raw block API (bad) -->
+        <rect x="300" y="40" width="230" height="78" rx="10" fill="#f9ecec" stroke="#a32020"/>
+        <text x="415" y="66" text-anchor="middle" font-size="14" font-weight="bold" fill="#7a1f1f">Path A — Raw Block API</text>
+        <text x="415" y="88" text-anchor="middle" font-size="12.5" font-family="monospace">POST /v1/blocks</text>
+        <text x="415" y="106" text-anchor="middle" font-size="12.5" font-family="monospace">PATCH …/blocks/attach</text>
+
+        <!-- Path B: memfs (good) -->
+        <rect x="300" y="244" width="230" height="78" rx="10" fill="#ecf4ed" stroke="#2f6b35"/>
+        <text x="415" y="270" text-anchor="middle" font-size="14" font-weight="bold" fill="#235a2a">Path B — MemFS git</text>
+        <text x="415" y="292" text-anchor="middle" font-size="12.5" font-family="monospace">git push state.git</text>
+        <text x="415" y="310" text-anchor="middle" font-size="12.5" font-family="monospace">letta-memfs sync</text>
+
+        <!-- converge -->
+        <rect x="640" y="150" width="200" height="62" rx="10" fill="#eef3f8" stroke="#1f4e7a"/>
+        <text x="740" y="176" text-anchor="middle" font-size="14" font-weight="bold" fill="#234a72">Attached Blocks</text>
+        <text x="740" y="196" text-anchor="middle" font-size="12">(Postgres → system prompt)</text>
+
+        <!-- arrows -->
+        <defs>
+          <marker id="ah" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L8,3 L0,6 Z" fill="#5a5246"/>
+          </marker>
+          <marker id="ahr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L8,3 L0,6 Z" fill="#a32020"/>
+          </marker>
+        </defs>
+        <path d="M170,168 C 230,120 250,90 298,80" fill="none" stroke="#a32020" stroke-width="2.2" marker-end="url(#ahr)"/>
+        <path d="M170,192 C 230,250 250,280 298,283" fill="none" stroke="#2f6b35" stroke-width="2.2" marker-end="url(#ah)"/>
+        <path d="M530,80 C 600,100 600,150 638,168" fill="none" stroke="#a32020" stroke-width="2.2" marker-end="url(#ahr)"/>
+        <path d="M530,283 C 600,260 600,210 638,192" fill="none" stroke="#2f6b35" stroke-width="2.2" marker-end="url(#ah)"/>
+
+        <!-- collision spark -->
+        <text x="740" y="245" text-anchor="middle" font-size="12" fill="#a32020" font-style="italic">⚡ two writers → drift</text>
+      </svg>
+    </div>
+    <figcaption><b>Figure 1.</b> <em>As&#8209;is.</em> The raw block API (Path A) and MemFS (Path B) both
+    terminate at the attached blocks. Nothing reconciles them, so the database and the git repo drift apart.</figcaption>
+  </figure>
+
+  <p>
+    Figure 2 is the target: one writer. The git repository is canonical. The server projects
+    <span class="mono">system/</span> files into blocks as a derived, read-only view. Path A is
+    abolished.
+  </p>
+
+  <figure>
+    <div class="figbox">
+      <svg viewBox="0 0 880 300" role="img" aria-label="To-be architecture single source of truth">
+        <rect x="20" y="120" width="160" height="62" rx="8" fill="#f1ece1" stroke="#b8ae9c"/>
+        <text x="100" y="146" text-anchor="middle" font-size="14.5" font-weight="bold">Operator / Agent</text>
+        <text x="100" y="166" text-anchor="middle" font-size="12">(bash edits + commit)</text>
+
+        <rect x="260" y="108" width="230" height="86" rx="12" fill="#ecf4ed" stroke="#2f6b35" stroke-width="2"/>
+        <text x="375" y="138" text-anchor="middle" font-size="15" font-weight="bold" fill="#235a2a">MemFS Repository</text>
+        <text x="375" y="160" text-anchor="middle" font-size="12.5" font-family="monospace">state.git</text>
+        <text x="375" y="180" text-anchor="middle" font-size="12" font-style="italic">single source of truth</text>
+
+        <rect x="560" y="60" width="280" height="60" rx="10" fill="#eef3f8" stroke="#1f4e7a"/>
+        <text x="700" y="86" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#234a72">Attached Blocks (derived)</text>
+        <text x="700" y="105" text-anchor="middle" font-size="11.5">read-only projection of system/**</text>
+
+        <rect x="560" y="172" width="280" height="60" rx="10" fill="#fbf4e6" stroke="#9a6a14"/>
+        <text x="700" y="198" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#7a5410">git history</text>
+        <text x="700" y="217" text-anchor="middle" font-size="11.5">full changelog of what was learned</text>
+
+        <defs>
+          <marker id="ah2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#2f6b35"/></marker>
+          <marker id="ah3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#5a5246"/></marker>
+        </defs>
+        <path d="M180,151 C 215,151 230,151 258,151" fill="none" stroke="#2f6b35" stroke-width="2.4" marker-end="url(#ah2)"/>
+        <path d="M490,135 C 525,120 525,100 558,92" fill="none" stroke="#5a5246" stroke-width="2.2" marker-end="url(#ah3)"/>
+        <path d="M490,168 C 525,184 525,196 558,200" fill="none" stroke="#5a5246" stroke-width="2.2" marker-end="url(#ah3)"/>
+        <text x="525" y="56" text-anchor="middle" font-size="11" fill="#235a2a" font-style="italic">project &amp; sync (one direction)</text>
+      </svg>
+    </div>
+    <figcaption><b>Figure 2.</b> <em>To&#8209;be.</em> A single writer. The repository is authoritative;
+    blocks and git history are both downstream views of it.</figcaption>
+  </figure>
+
+  <!-- ============================================= CH6 -->
+  <h2 id="ch6"><span class="ch">Chapter Six</span>The Write Paths (Sequence Diagrams)</h2>
+
+  <h3>6.1 The deprecated path <span class="pill dep">do not use</span></h3>
+  <p>
+    This is the anti-pattern we are retiring. It writes a block straight into Postgres and attaches
+    it. It works, briefly — and it leaves the git repo stale, so the next person who reads the repo
+    sees a different reality than the agent does.
+  </p>
+
+  <figure>
+    <div class="figbox">
+      <svg viewBox="0 0 820 300" role="img" aria-label="Deprecated raw block write sequence">
+        <!-- lifelines -->
+        <g font-size="13" font-weight="bold" text-anchor="middle">
+          <rect x="40" y="20" width="150" height="34" rx="6" fill="#f1ece1" stroke="#b8ae9c"/><text x="115" y="42">Operator</text>
+          <rect x="335" y="20" width="150" height="34" rx="6" fill="#f9ecec" stroke="#a32020"/><text x="410" y="42">Letta API</text>
+          <rect x="630" y="20" width="150" height="34" rx="6" fill="#eef3f8" stroke="#1f4e7a"/><text x="705" y="42">Postgres blocks</text>
+        </g>
+        <g stroke="#c9c0b0" stroke-dasharray="4 4">
+          <line x1="115" y1="54" x2="115" y2="280"/>
+          <line x1="410" y1="54" x2="410" y2="280"/>
+          <line x1="705" y1="54" x2="705" y2="280"/>
+        </g>
+        <defs><marker id="sa" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#444"/></marker></defs>
+        <!-- messages -->
+        <g font-size="12.5">
+          <line x1="115" y1="90" x2="405" y2="90" stroke="#a32020" stroke-width="1.8" marker-end="url(#sa)"/>
+          <text x="260" y="84" text-anchor="middle" font-family="monospace" fill="#7a1f1f">POST /v1/blocks {label,value}</text>
+          <line x1="410" y1="125" x2="700" y2="125" stroke="#444" stroke-width="1.8" marker-end="url(#sa)"/>
+          <text x="555" y="119" text-anchor="middle">INSERT block row</text>
+          <line x1="700" y1="158" x2="412" y2="158" stroke="#444" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#sa)"/>
+          <text x="556" y="152" text-anchor="middle">block_id</text>
+          <line x1="115" y1="195" x2="405" y2="195" stroke="#a32020" stroke-width="1.8" marker-end="url(#sa)"/>
+          <text x="260" y="189" text-anchor="middle" font-family="monospace" fill="#7a1f1f">PATCH …/blocks/attach/{id}</text>
+          <line x1="410" y1="228" x2="700" y2="228" stroke="#444" stroke-width="1.8" marker-end="url(#sa)"/>
+          <text x="555" y="222" text-anchor="middle">link block ↔ agent</text>
+        </g>
+        <!-- drift annotation -->
+        <rect x="250" y="252" width="330" height="34" rx="6" fill="#f9ecec" stroke="#a32020"/>
+        <text x="415" y="274" text-anchor="middle" font-size="12.5" fill="#7a1f1f" font-style="italic">state.git never updated → repo is now stale</text>
+      </svg>
+    </div>
+    <figcaption><b>Figure 3.</b> The deprecated raw-block write. Fast, but it bypasses git and leaves
+    the source of truth behind.</figcaption>
+  </figure>
+
+  <pre class="bad"><code><span class="tok-c"># ANTI-PATTERN — the kind of call this manual abolishes</span>
+curl -sL -X POST http://localhost:8283/v1/blocks/ \
+  -H <span class="tok-s">'Content-Type: application/json'</span> \
+  -d <span class="tok-s">'{"label":"team_agents","limit":5000,"value":"...table..."}'</span>
+curl -sL -X PATCH http://localhost:8283/v1/agents/&lt;id&gt;/core-memory/blocks/attach/&lt;block_id&gt;</code></pre>
+
+  <h3>6.2 The MemFS path <span class="pill new">use this</span></h3>
+  <p>
+    Author the same fact as a file, commit it, and let the server project it into a block. The repo
+    stays authoritative; git records why the change happened.
+  </p>
+
+  <figure>
+    <div class="figbox">
+      <svg viewBox="0 0 820 360" role="img" aria-label="MemFS file commit sequence">
+        <g font-size="13" font-weight="bold" text-anchor="middle">
+          <rect x="30" y="20" width="150" height="34" rx="6" fill="#f1ece1" stroke="#b8ae9c"/><text x="105" y="42">Operator</text>
+          <rect x="300" y="20" width="170" height="34" rx="6" fill="#ecf4ed" stroke="#2f6b35"/><text x="385" y="42">state.git (clone)</text>
+          <rect x="560" y="20" width="160" height="34" rx="6" fill="#eef3f8" stroke="#1f4e7a"/><text x="640" y="42">letta-memfs</text>
+        </g>
+        <g stroke="#c9c0b0" stroke-dasharray="4 4">
+          <line x1="105" y1="54" x2="105" y2="340"/>
+          <line x1="385" y1="54" x2="385" y2="340"/>
+          <line x1="640" y1="54" x2="640" y2="340"/>
+        </g>
+        <defs><marker id="sb" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#2f6b35"/></marker></defs>
+        <g font-size="12.5">
+          <line x1="105" y1="86" x2="380" y2="86" stroke="#2f6b35" stroke-width="1.8" marker-end="url(#sb)"/>
+          <text x="240" y="80" text-anchor="middle" font-family="monospace">git clone state.git</text>
+
+          <rect x="60" y="104" width="90" height="26" rx="5" fill="#fff" stroke="#b8ae9c"/>
+          <text x="105" y="122" text-anchor="middle" font-size="11.5">edit file</text>
+          <text x="240" y="122" text-anchor="middle" font-size="11.5" font-style="italic">system/project/agent_team.md</text>
+
+          <line x1="105" y1="150" x2="380" y2="150" stroke="#2f6b35" stroke-width="1.8" marker-end="url(#sb)"/>
+          <text x="240" y="144" text-anchor="middle" font-family="monospace">git commit -m "…"</text>
+
+          <line x1="105" y1="186" x2="380" y2="186" stroke="#2f6b35" stroke-width="1.8" marker-end="url(#sb)"/>
+          <text x="240" y="180" text-anchor="middle" font-family="monospace">git push origin main</text>
+
+          <line x1="385" y1="222" x2="635" y2="222" stroke="#1f4e7a" stroke-width="1.8" marker-end="url(#sb)"/>
+          <text x="510" y="216" text-anchor="middle">receive refs</text>
+
+          <line x1="640" y1="258" x2="640" y2="258"/>
+          <rect x="560" y="248" width="160" height="28" rx="5" fill="#eef3f8" stroke="#1f4e7a"/>
+          <text x="640" y="266" text-anchor="middle" font-size="11.5">sync system/** → blocks</text>
+
+          <line x1="635" y1="300" x2="110" y2="300" stroke="#1f4e7a" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#sb)"/>
+          <text x="370" y="294" text-anchor="middle" font-style="italic">next agent turn: block reflects the file</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>Figure 4.</b> The MemFS write. The file is the input; the block is a side effect
+    the server maintains. Git history captures intent.</figcaption>
+  </figure>
+
+  <pre class="good"><code><span class="tok-c"># THE PATTERN — author memory as a file, let memfs own the block</span>
+git clone http://localhost:8283/v1/git/&lt;agent-id&gt;/state.git mem &amp;&amp; cd mem
+$EDITOR system/project/agent_team.md            <span class="tok-c"># create/update the fact</span>
+git add system/project/agent_team.md
+git commit -m <span class="tok-s">"team: correct minion roster"</span>     <span class="tok-c"># the "why" lives in history</span>
+git push origin main                            <span class="tok-c"># server syncs system/** into the block</span></code></pre>
+
+  <h3>6.3 The ideal path: the agent edits its own memory <span class="pill new">target state</span></h3>
+  <p>
+    The end goal is that the agent never needs an operator for routine memory. It uses its own
+    <span class="mono">bash</span> tools to edit a file and commit — exactly as Letta&rsquo;s roadmap
+    describes (&ldquo;generalized computer-use tools like bash that operate over memory projected into
+    git-backed files&rdquo;).
+  </p>
+  <figure>
+    <div class="figbox">
+      <svg viewBox="0 0 820 210" role="img" aria-label="Agent self-edit sequence">
+        <g font-size="13" font-weight="bold" text-anchor="middle">
+          <rect x="40" y="18" width="150" height="34" rx="6" fill="#f1ece1" stroke="#b8ae9c"/><text x="115" y="40">Agent</text>
+          <rect x="335" y="18" width="150" height="34" rx="6" fill="#11151c" stroke="#11151c"/><text x="410" y="40" fill="#dfe6ef">bash tool</text>
+          <rect x="630" y="18" width="150" height="34" rx="6" fill="#ecf4ed" stroke="#2f6b35"/><text x="705" y="40">local memfs repo</text>
+        </g>
+        <g stroke="#c9c0b0" stroke-dasharray="4 4">
+          <line x1="115" y1="52" x2="115" y2="195"/><line x1="410" y1="52" x2="410" y2="195"/><line x1="705" y1="52" x2="705" y2="195"/>
+        </g>
+        <defs><marker id="sc" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#444"/></marker></defs>
+        <g font-size="12.5">
+          <line x1="115" y1="84" x2="405" y2="84" stroke="#444" stroke-width="1.8" marker-end="url(#sc)"/>
+          <text x="258" y="78" text-anchor="middle">“remember: vendor X = catering”</text>
+          <line x1="410" y1="120" x2="700" y2="120" stroke="#444" stroke-width="1.8" marker-end="url(#sc)"/>
+          <text x="556" y="114" text-anchor="middle" font-family="monospace">echo &gt;&gt; reference/vendors.md</text>
+          <line x1="410" y1="156" x2="700" y2="156" stroke="#444" stroke-width="1.8" marker-end="url(#sc)"/>
+          <text x="556" y="150" text-anchor="middle" font-family="monospace">git commit -am "learned vendor X"</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>Figure 5.</b> The agent maintains its own memory through bash + git. No block tool,
+    no API — and every learning is a commit.</figcaption>
+  </figure>
+
+  <!-- ============================================= CH7 -->
+  <h2 id="ch7"><span class="ch">Chapter Seven</span>Repository Layout &amp; File Conventions</h2>
+  <p>A memfs repository follows a small, predictable shape. Adhere to it so loading behavior is predictable:</p>
+  <pre><code>state.git  (bare, server-side)  ──clone──▶  working copy:
+  <span class="tok-f">system/</span>                        <span class="tok-c"># loaded FULLY every turn</span>
+    persona.md                  <span class="tok-c"># who the agent is</span>
+    project/
+      agent_team.md             <span class="tok-c"># the minion roster (Mazda)</span>
+      decisions/memfs.md        <span class="tok-c"># durable decisions</span>
+  <span class="tok-f">reference/</span>                     <span class="tok-c"># loaded ON DEMAND (tree+description only)</span>
+    history/handoff-*.md
+    vendors.md
+  <span class="tok-f">notes/</span>                         <span class="tok-c"># scratch, on demand</span></code></pre>
+
+  <h4>File format</h4>
+  <p>Every file is markdown with YAML frontmatter. <span class="mono">description</span> is required (it is what the agent sees in the on-demand tree); <span class="mono">limit</span> is optional.</p>
+  <pre><code><span class="tok-k">---</span>
+<span class="tok-n">description</span>: Mazda's helper-agent team (minions) and known Letta agents.
+<span class="tok-n">limit</span>: 5000
+<span class="tok-k">---</span>
+<span class="tok-f"># Mazda Helper Agents (minions)</span>
+
+| Purpose | Agent name | Agent ID |
+|---|---|---|
+| Parse / extract a statement | mazda-parser-agent | agent-a506… |
+| …                            | …                  | …          |</code></pre>
+
+  <div class="note">
+    <span class="h">Rule of thumb</span>
+    If a fact must be in the agent&rsquo;s head on <em>every</em> turn, it belongs in
+    <span class="mono">system/</span>. If it is something to look up <em>when relevant</em>, keep it
+    out of <span class="mono">system/</span> so it does not burn context every turn.
+  </div>
+
+  <!-- ============================================= CH8 -->
+  <h2 id="ch8"><span class="ch">Chapter Eight</span>Migration: The Mazda Case Study</h2>
+  <p>
+    Mazda is the canonical worked example because she exhibits exactly the drift Figure 1 warns
+    about. Her current attached blocks are: <span class="mono">persona</span>,
+    <span class="mono">human</span>, <span class="mono">environment</span>,
+    <span class="mono">db_schema</span>, <span class="mono">verification_procedure</span>, and the
+    offending <span class="mono">team_agents</span> (<span class="mono">block-3b051764…</span>, created
+    via raw API). Her repo <em>already</em> contains the equivalent
+    <span class="mono">system/project/agent_team.md</span>. So the fix is reconciliation, not authoring.
+  </p>
+
+  <figure>
+    <div class="figbox">
+      <svg viewBox="0 0 820 250" role="img" aria-label="Mazda dedup before and after">
+        <!-- before -->
+        <text x="205" y="28" text-anchor="middle" font-size="13" font-weight="bold" fill="#7a1f1f">BEFORE — two writers</text>
+        <rect x="60" y="44" width="130" height="48" rx="8" fill="#f9ecec" stroke="#a32020"/>
+        <text x="125" y="64" text-anchor="middle" font-size="11.5" font-weight="bold">team_agents block</text>
+        <text x="125" y="80" text-anchor="middle" font-size="10.5" font-family="monospace">block-3b051764 (raw)</text>
+        <rect x="230" y="44" width="150" height="48" rx="8" fill="#ecf4ed" stroke="#2f6b35"/>
+        <text x="305" y="64" text-anchor="middle" font-size="11.5" font-weight="bold">agent_team.md</text>
+        <text x="305" y="80" text-anchor="middle" font-size="10.5" font-family="monospace">system/project/ (memfs)</text>
+        <text x="205" y="118" text-anchor="middle" font-size="11.5" fill="#a32020" font-style="italic">identical content, two sources ⚡</text>
+
+        <!-- arrow -->
+        <defs><marker id="sd" markerWidth="11" markerHeight="11" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="#235a2a"/></marker></defs>
+        <line x1="420" y1="90" x2="500" y2="90" stroke="#235a2a" stroke-width="2.4" marker-end="url(#sd)"/>
+        <text x="460" y="80" text-anchor="middle" font-size="11" fill="#235a2a">reconcile</text>
+
+        <!-- after -->
+        <text x="650" y="28" text-anchor="middle" font-size="13" font-weight="bold" fill="#235a2a">AFTER — one writer</text>
+        <rect x="560" y="44" width="180" height="48" rx="8" fill="#ecf4ed" stroke="#2f6b35" stroke-width="2"/>
+        <text x="650" y="64" text-anchor="middle" font-size="11.5" font-weight="bold">agent_team.md</text>
+        <text x="650" y="80" text-anchor="middle" font-size="10.5" font-family="monospace">memfs = source of truth</text>
+        <rect x="560" y="120" width="180" height="44" rx="8" fill="#eef3f8" stroke="#1f4e7a" stroke-dasharray="5 3"/>
+        <text x="650" y="140" text-anchor="middle" font-size="11" fill="#234a72">team_agents block</text>
+        <text x="650" y="156" text-anchor="middle" font-size="10.5" font-style="italic">derived projection (or removed)</text>
+        <line x1="650" y1="92" x2="650" y2="118" stroke="#1f4e7a" stroke-width="1.8" marker-end="url(#sd)"/>
+
+        <text x="410" y="225" text-anchor="middle" font-size="11.5" fill="#6b6358" font-style="italic">
+          Net: the file becomes the only place the roster is edited; the block stops being hand-written.</text>
+      </svg>
+    </div>
+    <figcaption><b>Figure 6.</b> Mazda&rsquo;s dedup. After reconciliation, the roster has exactly one
+    writer — the file — and the block is whatever memfs projects from it.</figcaption>
+  </figure>
+
+  <h4>Procedure (pending your go-ahead — touches a live agent)</h4>
+  <ol class="big">
+    <li><strong>Confirm parity.</strong> Diff the raw block&rsquo;s value against
+      <span class="mono">system/project/agent_team.md</span>. They are reported identical; verify before deleting anything.</li>
+    <li><strong>Make the file canonical.</strong> If the block has any content the file lacks, fold it
+      into the file first, commit, and push so nothing is lost.</li>
+    <li><strong>Detach &amp; delete the raw block.</strong> Remove <span class="mono">block-3b051764…</span>
+      from Mazda so the file is the sole writer. (If the server re-projects a <span class="mono">team_agents</span>
+      block from <span class="mono">system/</span>, that projection is fine — it is derived, not hand-made.)</li>
+    <li><strong>Record the policy flip.</strong> Append a dated entry to
+      <span class="mono">system/project/decisions/memfs.md</span> noting that as of 2026&#8209;06&#8209;15 raw
+      block writes are deprecated in favor of file commits — superseding the 2026&#8209;06&#8209;13 note.</li>
+    <li><strong>Verify.</strong> Re-list Mazda&rsquo;s blocks; confirm no hand-made block remains and the
+      next turn still sees the roster.</li>
+  </ol>
+  <div class="note warn"><span class="h">Guardrail</span>No live-agent mutation happens without your explicit approval, per standing policy on Mazda and her minions.</div>
+  <div class="note bad"><span class="h">Verification outcome — 2026&#8209;06&#8209;15: deletion HELD</span>
+    Step 1 parity passed (the file is a superset of the block). But step 3 cannot proceed safely
+    yet: the <span class="mono">team_agents</span> block appears to be the <strong>sole live carrier</strong>
+    of the roster. It is the only roster-bearing attached block, no separately-projected block exists,
+    and there is no evidence the server injects memfs <span class="mono">system/**</span> into Mazda&rsquo;s
+    <em>server-run</em> runtime context. The <span class="mono">GET /v1/agents/&lt;id&gt;/context</span>
+    endpoint is no help — it reports <span class="mono">num_tokens_core_memory=0</span> and
+    <span class="mono">num_tokens_memory_filesystem=0</span> for <em>every</em> agent in this build (confirmed
+    against Jeri, whose 73k-token context unquestionably carries her roster). The Chapter-8 assumption that
+    &ldquo;the server re-projects <span class="mono">team_agents</span> from <span class="mono">system/</span>&rdquo;
+    is therefore <strong>unproven on this deployment</strong>. Deleting the block now would risk dropping the
+    roster from Mazda&rsquo;s working memory. <strong>Resolution: keep the block</strong> until memfs&rarr;runtime
+    injection for server-run agents is demonstrated (e.g. a memfs-aware session syncs her repo, or the server is
+    shown to render <span class="mono">system/**</span> into context).</div>
+
+  <!-- ============================================= CH9 -->
+  <h2 id="ch9"><span class="ch">Chapter Nine</span>Fleet Rollout</h2>
+  <p>The same reconciliation applies across the fleet. Status as last surveyed:</p>
+  <table>
+    <thead><tr><th>Agent</th><th>memfs tag</th><th>repo</th><th>Action under this policy</th></tr></thead>
+    <tbody>
+      <tr><td>Mazda</td><td>yes</td><td>has commits</td><td>Dedup <span class="mono">team_agents</span> block → file (Ch. 8)</td></tr>
+      <tr><td>Jeri</td><td>yes</td><td>empty</td><td>Roster lives in a hand-made <span class="mono">persona</span> block → migrate into <span class="mono">system/</span> files</td></tr>
+      <tr><td>Scissari</td><td>yes <span class="pill dep">bug</span></td><td>has commits</td><td>Fix duplicate-tag bug (Ch. 11) <em>before</em> further memory work</td></tr>
+      <tr><td>Hailey, Frita</td><td>yes</td><td>empty</td><td>Populate <span class="mono">system/</span> from any hand-made blocks, then stop writing blocks</td></tr>
+      <tr><td>5 Mazda minions</td><td>provisioned</td><td>empty</td><td>Author their new Claude-Agent-SDK personas as memfs files from day one — never as raw blocks</td></tr>
+    </tbody>
+  </table>
+  <p>The minions are the easy win: because their repos are empty, they can adopt the file-only
+  discipline with zero migration debt. Their forthcoming personas (per the orchestration pivot) go
+  straight into <span class="mono">system/persona.md</span>.</p>
+
+  <!-- ============================================= CH10 -->
+  <h2 id="ch10"><span class="ch">Chapter Ten</span>Documentation &amp; Skill Rewrites</h2>
+  <p>Several harness documents still frame blocks as a primary write target. They must be rewritten to the file-only policy:</p>
+  <table>
+    <thead><tr><th>Artifact</th><th>Current framing</th><th>Rewrite to</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">letta-code/CLAUDE.md</td><td>&ldquo;default memory blocks&rdquo;; <span class="mono">memory.ts</span> defines persona/human blocks</td><td>Note product code is unchanged, but on this server memory is authored via memfs files; blocks are a projection <span class="pill keep">scoped: harness note only</span></td></tr>
+      <tr><td class="mono">managing-letta-memory</td><td>memfs enable/sync workflow</td><td>Add explicit rule: <em>give an agent knowledge by committing to <span class="mono">memory/system/</span>; never <span class="mono">POST /v1/blocks</span></em></td></tr>
+      <tr><td class="mono">migrating-memory</td><td>Has a memfs-first guard, but still documents <span class="mono">letta blocks copy/attach</span> as an option</td><td>Demote block commands to a legacy/Docker-fallback footnote; lead with file copy between repos</td></tr>
+      <tr><td class="mono">syncing-memory-filesystem</td><td>Mixes &ldquo;blocks&rdquo; and files freely</td><td>Reframe blocks consistently as the derived projection of <span class="mono">system/**</span></td></tr>
+      <tr><td class="mono">mazda_team_agents_memory.md</td><td>Documents the raw <span class="mono">POST /v1/blocks</span> recipe as the way to add cross-agent knowledge</td><td>Replace recipe with the memfs file-commit recipe; mark the API recipe deprecated</td></tr>
+    </tbody>
+  </table>
+  <div class="note good">
+    <span class="h">One sentence to paste into each skill</span>
+    <em>&ldquo;On this server, author all agent memory as markdown files committed to the agent&rsquo;s
+    memfs <span class="mono">state.git</span> (constant facts under <span class="mono">system/</span>);
+    never create or edit memory through <span class="mono">POST</span>/<span class="mono">PATCH /v1/blocks</span>
+    — attached blocks are a read-only projection of the repository.&rdquo;</em>
+  </div>
+
+  <!-- ============================================= CH11 -->
+  <h2 id="ch11"><span class="ch">Chapter Eleven</span>Risks &amp; Known Bugs</h2>
+
+  <h3>11.1 The <span class="mono">root:root</span> bare-repo trap</h3>
+  <p>
+    The server-side bare repos at <span class="mono">~/.letta/memfs-repos/&lt;id&gt;/state.git</span> are
+    owned by <span class="mono">root</span>. A plain <span class="mono">git push</span> over the HTTP
+    proxy is the normal path, but direct host-side pushes fail on permissions. The proven workaround
+    is the <em>bundle method</em>: clone, edit, <span class="mono">git bundle</span>, copy the bundle
+    into the <span class="mono">letta-memfs</span> container, and <span class="mono">git fetch</span> it
+    as root (Appendix B).
+  </p>
+
+  <h3>11.2 The <span class="mono">agents_tags</span> duplicate-row bug <span class="pill new">resolved 2026-06-15</span></h3>
+  <div class="note good"><span class="h">Status: fixed</span>As of 2026&#8209;06&#8209;15 this bug is
+    resolved. A <span class="mono">unique_agent_tag</span> UNIQUE index on
+    <span class="mono">(agent_id, tag)</span> is in place, the ~19k duplicate rows are gone, and the
+    whole table holds 140 rows with zero duplicates. The history below is retained for context.</div>
+  <p>
+    <span class="mono">agents_tags</span> historically had <strong>no unique constraint</strong>. Scissari had
+    accumulated <strong>~19,000 duplicate</strong> <span class="mono">git-memory-enabled</span> rows
+    from some process inserting the tag unconditionally. This had to be fixed before leaning harder on
+    memfs fleet-wide, or every memfs-enabled agent risked the same unbounded growth.
+  </p>
+  <pre class="bad"><code><span class="tok-c">-- Confirmed bug: no PK/unique index on agents_tags</span>
+<span class="tok-k">SELECT</span> agent_id, tag, count(*) <span class="tok-k">FROM</span> agents_tags
+<span class="tok-k">GROUP BY</span> 1,2 <span class="tok-k">HAVING</span> count(*) &gt; 1 <span class="tok-k">ORDER BY</span> 3 <span class="tok-k">DESC</span>;
+<span class="tok-c">-- Scissari → ~18,992 rows of the same (agent_id, 'git-memory-enabled')</span></code></pre>
+  <pre class="good"><code><span class="tok-c">-- Remediation (sketch): dedupe, then constrain, then fix the insert path</span>
+<span class="tok-k">DELETE FROM</span> agents_tags a <span class="tok-k">USING</span> agents_tags b
+  <span class="tok-k">WHERE</span> a.ctid &lt; b.ctid <span class="tok-k">AND</span> a.agent_id=b.agent_id <span class="tok-k">AND</span> a.tag=b.tag;
+<span class="tok-k">ALTER TABLE</span> agents_tags <span class="tok-k">ADD CONSTRAINT</span> uq_agent_tag <span class="tok-k">UNIQUE</span>(agent_id, tag);
+<span class="tok-c">-- and make the writer use ON CONFLICT DO NOTHING</span></code></pre>
+
+  <h3>11.3 Sync conflicts &amp; headless hangs</h3>
+  <p>
+    Memfs sync can conflict (two writers, or a stale clone) and, in headless contexts, can hang at
+    &ldquo;Checking for pending approvals…&rdquo; — almost always SSH/key auth failing on a remote.
+    The file-only policy <em>reduces</em> conflict surface (one writer), but operators must still use
+    the Tailscale MagicDNS host for WSL remotes and verify <span class="mono">ssh … echo ok</span>
+    before enabling a remote.
+  </p>
+
+  <!-- ============================================= CH12 -->
+  <h2 id="ch12"><span class="ch">Chapter Twelve</span>Verification &amp; Acceptance</h2>
+  <p>The policy is &ldquo;done&rdquo; for a given agent when all of the following hold:</p>
+  <table>
+    <thead><tr><th>#</th><th>Acceptance check</th><th>How to verify</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>No hand-made blocks remain</td><td>List blocks; every attached block corresponds to a <span class="mono">system/</span> file</td></tr>
+      <tr><td>2</td><td>Repo is authoritative</td><td>Clone <span class="mono">state.git</span>; its <span class="mono">system/</span> matches what the agent sees in-context</td></tr>
+      <tr><td>3</td><td>Write path is file-only</td><td>Grep the skills/docs and bot code for <span class="mono">/v1/blocks</span> writes — none for memory content</td></tr>
+      <tr><td>4</td><td>History is meaningful</td><td><span class="mono">git log</span> shows informative commit messages, not opaque dumps</td></tr>
+      <tr><td>5</td><td>No tag bloat</td><td><span class="mono">agents_tags</span> has ≤ a handful of rows per (agent, tag)</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <span class="h">Immediate next actions (awaiting your approval where they touch live agents)</span>
+    <ol style="margin:.3em 0 0;">
+      <li>Execute the Mazda dedup (Chapter 8) — <strong>HELD 2026&#8209;06&#8209;15.</strong> Parity verified, but the
+        <span class="mono">team_agents</span> block is the sole live carrier of the roster and memfs&rarr;runtime
+        projection is unproven for this server-run agent — deleting now would risk a roster regression. Keep the
+        block until projection is demonstrated (see Ch. 8 verification note).</li>
+      <li><s>Rewrite the five documents in Chapter 10</s> — <strong>DONE 2026&#8209;06&#8209;15.</strong>
+        File-only policy banner added to <span class="mono">letta-code/CLAUDE.md</span>,
+        <span class="mono">managing-letta-memory</span>, <span class="mono">migrating-memory</span>,
+        <span class="mono">syncing-memory-filesystem</span> (both the repo <span class="mono">src/skills/</span>
+        copies and the harness <span class="mono">~/.claude/commands/</span> copies), and the raw
+        <span class="mono">POST /v1/blocks</span> recipe in <span class="mono">mazda_team_agents_memory.md</span>
+        replaced with the memfs file-commit recipe + deprecation note.</li>
+      <li><s>File/track the <span class="mono">agents_tags</span> bug fix (Chapter 11.2)</s> — <strong>ALREADY FIXED (verified 2026&#8209;06&#8209;15).</strong>
+        The <span class="mono">unique_agent_tag</span> UNIQUE index on <span class="mono">(agent_id, tag)</span> now exists,
+        zero duplicate rows remain, and the whole table is down to 140 rows. No further DB action needed.</li>
+      <li>Author the five minions&rsquo; new personas as memfs files when their roles land (orchestration pivot).</li>
+    </ol>
+  </div>
+
+  <!-- ============================================= APPENDIX -->
+  <h2 id="appx"><span class="ch">Appendix</span>Command &amp; Bundle Reference</h2>
+
+  <h4>A. Everyday memfs commands</h4>
+  <pre><code><span class="tok-c"># Letta Code slash commands</span>
+/memfs enable            <span class="tok-c"># migrate an agent's blocks into git-backed memfs</span>
+/memfs enable --local    <span class="tok-c"># local-only (self-hosted) memfs</span>
+/memfs status            <span class="tok-c"># show sync state</span>
+/memfs sync              <span class="tok-c"># pull/push latest</span>
+/init                    <span class="tok-c"># build hierarchical memory files after enabling</span></code></pre>
+
+  <h4>B. The bundle method for <span class="mono">root:root</span> bare repos</h4>
+  <pre class="good"><code><span class="tok-c"># When a direct push fails because the bare repo is root-owned:</span>
+git clone http://localhost:8283/v1/git/&lt;id&gt;/state.git mem &amp;&amp; cd mem
+<span class="tok-c"># …edit files under system/ …</span>
+git add -A &amp;&amp; git commit -m <span class="tok-s">"mem: update"</span>
+git bundle create /tmp/mem.bundle main
+docker cp /tmp/mem.bundle letta-memfs:/tmp/mem.bundle
+docker exec -u root letta-memfs sh -c \
+  <span class="tok-s">'cd /repos/&lt;id&gt;/state.git &amp;&amp; git fetch /tmp/mem.bundle main:main'</span></code></pre>
+
+  <h4>C. Key locations</h4>
+  <table>
+    <tbody>
+      <tr><td>Git-HTTP proxy</td><td class="mono">localhost:8283/v1/git/&lt;agent-id&gt;/state.git</td></tr>
+      <tr><td>Server bare repos</td><td class="mono">~/.letta/memfs-repos/&lt;agent-id&gt;/state.git (root:root)</td></tr>
+      <tr><td>Local agent memory</td><td class="mono">~/.letta/agents/&lt;agent-id&gt;/memory/</td></tr>
+      <tr><td>Enablement tag</td><td class="mono">agents_tags · 'git-memory-enabled' (Postgres letta schema)</td></tr>
+      <tr><td>memfs container</td><td class="mono">letta-memfs</td></tr>
+    </tbody>
+  </table>
+
+  <div class="foot">
+    The Memory System — A Design Manual, Edition I. Compiled 2026&#8209;06&#8209;15 for the self-hosted
+    Letta deployment. This document supersedes the 2026&#8209;06&#8209;13 &ldquo;memfs is additive&rdquo;
+    handoff for policy purposes; that note is retained in Mazda&rsquo;s repository for historical record.
+    Sources consulted: Letta Docs (MemFS; Memory), Letta Blog (Context Repositories; Our Next Phase).
+  </div>
+
+</main>
+</body>
+</html>
