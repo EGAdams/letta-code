@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AgentCardRenderer,
   ChatDetailRenderer,
   composeSpokenText,
+  InputOptionsRenderer,
   renderReplyRows,
   StreamDetailRenderer,
 } from "../implementation/detail-renderers.js";
@@ -94,8 +96,10 @@ function chatSetup({ replies = [] } = {}) {
   const speech = {
     supported: true,
     cancel: () => {},
-    speak: (t) => spoken.push(t),
+    speak: (t, name) => spoken.push({ t, name }),
   };
+  const statuses = [];
+  const onStatus = (agentId, status) => statuses.push({ agentId, status });
   const storage = new Map();
   const storagePort = {
     getItem: (k) => (storage.has(k) ? storage.get(k) : null),
@@ -126,6 +130,7 @@ function chatSetup({ replies = [] } = {}) {
     http,
     speech,
     agentName: "Scissari",
+    onStatus,
     doc,
     storage: storagePort,
     recorderFactory,
@@ -136,6 +141,7 @@ function chatSetup({ replies = [] } = {}) {
     container,
     posts,
     spoken,
+    statuses,
     storage,
     api,
     get recorder() {
@@ -165,10 +171,26 @@ describe("ChatDetailRenderer (Strategy)", () => {
     const speakBtn = ctx.container.querySelector(".am-speak");
     speakBtn.click();
     expect(ctx.storage.get("dash-speak-replies")).toBe("1");
-    expect(speakBtn.textContent).toContain("Speaking On");
+    expect(speakBtn.textContent).toBe("🔊 Speak");
 
     await ctx.api.sendText("hi");
-    expect(ctx.spoken).toEqual(["spoken reply"]);
+    // Spoken in the agent's own voice (per-agent voice).
+    expect(ctx.spoken).toEqual([{ t: "spoken reply", name: "Scissari" }]);
+  });
+
+  test("sendText reports active then idle/error via onStatus", async () => {
+    const ok = chatSetup({
+      replies: [{ type: "assistant_message", text: "y" }],
+    });
+    await ok.api.sendText("hi");
+    expect(ok.statuses).toEqual([
+      { agentId: "a1", status: "active" },
+      { agentId: "a1", status: "idle" },
+    ]);
+
+    const bad = chatSetup({ replies: [{ type: "error", text: "boom" }] });
+    await bad.api.sendText("hi");
+    expect(bad.statuses[1]).toEqual({ agentId: "a1", status: "error" });
   });
 
   test("voice capture: start then stop auto-sends the cleaned transcript", async () => {
@@ -183,12 +205,159 @@ describe("ChatDetailRenderer (Strategy)", () => {
     expect(ctx.posts[0].body.text).toBe("Hi.");
   });
 
-  test("mode toggle flips auto/review label", () => {
+  test("mode toggle flips auto/review label and Copy visibility", () => {
     const ctx = chatSetup();
     const modeBtn = ctx.container.querySelector(".am-mode");
+    const copyBtn = ctx.container.querySelector(".am-copy");
     expect(modeBtn.dataset.mode).toBe("auto");
+    expect(copyBtn.style.display).toBe("none"); // hidden while Auto Send
     modeBtn.click();
     expect(modeBtn.dataset.mode).toBe("review");
     expect(modeBtn.textContent).toBe("Review then Send");
+    expect(copyBtn.style.display).toBe(""); // shown while reviewing
+  });
+});
+
+describe("AgentCardRenderer (Strategy)", () => {
+  test("fetches the card and renders identity / system message / lists", async () => {
+    const doc = new FakeDocument();
+    const c = doc.createElement("section");
+    c.id = "agent-detail-agent-card";
+    const http = {
+      getJSON: async (url) => {
+        expect(url).toBe("/api/agent-card?agent=a1");
+        return {
+          identity: "Frita",
+          agent_id: "a1",
+          system_message: "<sys>",
+          role: "helper",
+          responsibilities: ["r1", "r2"],
+          tools: ["t1"],
+          memory_summary: "mem",
+        };
+      },
+    };
+    await new AgentCardRenderer({ http, doc }).render(
+      "agent-detail-agent-card",
+      "a1",
+    );
+    expect(c.innerHTML).toContain("Frita");
+    expect(c.innerHTML).toContain("&lt;sys&gt;"); // escaped system message
+    expect(c.innerHTML).toContain("<li>r1</li>");
+    expect(c.innerHTML).toContain("mem");
+  });
+
+  test("renders an error line when the fetch fails", async () => {
+    const doc = new FakeDocument();
+    const c = doc.createElement("section");
+    c.id = "agent-detail-agent-card";
+    const http = {
+      getJSON: async () => {
+        throw new Error("boom");
+      },
+    };
+    await new AgentCardRenderer({ http, doc }).render(
+      "agent-detail-agent-card",
+      "a1",
+    );
+    expect(c.innerHTML).toContain("msi-line err");
+    expect(c.innerHTML).toContain("boom");
+  });
+});
+
+function inputOptionsSetup({ replies = [] } = {}) {
+  const doc = new FakeDocument();
+  const container = doc.createElement("section");
+  container.id = "io";
+  const posts = [];
+  const http = {
+    postJSON: async (url, body) => {
+      posts.push({ url, body });
+      return { replies };
+    },
+  };
+  const spoken = [];
+  const speech = {
+    supported: true,
+    cancel: () => {},
+    speak: (t, name) => spoken.push({ t, name }),
+  };
+  const statuses = [];
+  let recorder;
+  const recorderFactory = (opts) => {
+    let recording = false;
+    recorder = {
+      opts,
+      get isRecording() {
+        return recording;
+      },
+      start: async () => {
+        recording = true;
+        return true;
+      },
+      stop: async () => {
+        recording = false;
+        return { raw_transcript: "hi", cleaned_text: "Hi." };
+      },
+    };
+    return recorder;
+  };
+  const r = new InputOptionsRenderer({
+    http,
+    speech,
+    agentName: "Mazda",
+    onStatus: (agentId, status) => statuses.push({ agentId, status }),
+    doc,
+    recorderFactory,
+  });
+  const api = r.render("io", "a9");
+  return {
+    container,
+    posts,
+    spoken,
+    statuses,
+    api,
+    get recorder() {
+      return recorder;
+    },
+  };
+}
+
+describe("InputOptionsRenderer (Strategy)", () => {
+  test("Send posts to /api/test and reports status", async () => {
+    const ctx = inputOptionsSetup({
+      replies: [{ type: "assistant_message", text: "ok" }],
+    });
+    ctx.container.querySelector(".am-test-input").value = "hello there";
+    await ctx.api.send();
+    expect(ctx.posts[0]).toEqual({
+      url: "/api/test",
+      body: { agent: "a9", text: "hello there" },
+    });
+    expect(ctx.statuses).toEqual([
+      { agentId: "a9", status: "active" },
+      { agentId: "a9", status: "idle" },
+    ]);
+  });
+
+  test("voice stop fills the textarea; Auto Send off does not send", async () => {
+    const ctx = inputOptionsSetup();
+    const startBtn = ctx.container.querySelector(".voice-btn");
+    const handler = startBtn._listeners.click[0];
+    await handler(); // start
+    expect(ctx.recorder.isRecording).toBe(true);
+    await handler(); // stop -> fills textarea, Auto Send off so no post
+    expect(ctx.posts.length).toBe(0);
+  });
+
+  test("Speak toggle reads replies in the agent's voice on Send", async () => {
+    const ctx = inputOptionsSetup({
+      replies: [{ type: "assistant_message", text: "hello" }],
+    });
+    // Type something to send.
+    ctx.container.querySelector(".am-test-input").value = "hi";
+    ctx.container.querySelectorAll("button")[3].click(); // Speak toggle (4th button)
+    await ctx.api.send();
+    expect(ctx.spoken).toEqual([{ t: "hello", name: "Mazda" }]);
   });
 });

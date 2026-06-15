@@ -14,8 +14,10 @@ export { ActivePoller } from "./active-poller.js";
 export { AgentStreamController } from "./agent-stream-controller.js";
 export { BrowserSpeechSynthesizer } from "./browser-speech-synthesizer.js";
 export {
+  AgentCardRenderer,
   ChatDetailRenderer,
   composeSpokenText,
+  InputOptionsRenderer,
   renderReplyRows,
   StreamDetailRenderer,
 } from "./detail-renderers.js";

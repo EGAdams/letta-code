@@ -44,10 +44,12 @@ export class FakeElement {
     this._doc = doc;
     this.classList = new FakeClassList();
     this.dataset = {};
+    this.style = {};
     this.children = [];
     this.parent = null;
     this.id = "";
     this.type = "";
+    this.value = "";
     this.textContent = "";
     this.placeholder = "";
     this.disabled = false;
