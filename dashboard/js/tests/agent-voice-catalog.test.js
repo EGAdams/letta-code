@@ -30,15 +30,43 @@ describe("AgentVoiceCatalog (Strategy/Registry)", () => {
     expect(second).toBe(first);
   });
 
-  test("falls back to an unused female English voice for unknown agents", () => {
+  test("never falls back to a male voice, reusing a female one instead", () => {
     const catalog = new AgentVoiceCatalog();
     // Claim every preferred voice first.
     for (const name of Object.keys(DEFAULT_AGENT_VOICE_PREFERENCES)) {
       catalog.voiceFor(name, VOICES);
     }
     const picked = catalog.voiceFor("SomeOtherAgent", VOICES);
-    // Only "Microsoft David" (male) is left unclaimed among en-US voices.
-    expect(picked.name).toBe("Microsoft David");
+    // Only "Microsoft David" (male) is left unclaimed among en-US voices, but
+    // the male-avoidance rule (commit b18052fa) reuses a female voice instead.
+    expect(picked.name).not.toBe("Microsoft David");
+    expect(picked.name).toBe("Microsoft Zira");
+  });
+
+  test("assigns the extended roster (Cesare + Mazda stages) its prefs", () => {
+    const voices = [
+      { lang: "en-US", name: "Microsoft Ashley" },
+      { lang: "en-US", name: "Microsoft Ana" },
+      { lang: "en-US", name: "Microsoft Cora" },
+      { lang: "en-US", name: "Microsoft Elizabeth" },
+      { lang: "en-US", name: "Microsoft Sara" },
+      { lang: "en-US", name: "Microsoft Nancy" },
+    ];
+    const catalog = new AgentVoiceCatalog();
+    expect(catalog.voiceFor("Cesare", voices).name).toBe("Microsoft Ashley");
+    expect(catalog.voiceFor("Mazda Router", voices).name).toBe("Microsoft Ana");
+    expect(catalog.voiceFor("Mazda Parser", voices).name).toBe(
+      "Microsoft Cora",
+    );
+    expect(catalog.voiceFor("Mazda Vendor Identity", voices).name).toBe(
+      "Microsoft Elizabeth",
+    );
+    expect(catalog.voiceFor("Mazda Receipt Linker", voices).name).toBe(
+      "Microsoft Sara",
+    );
+    expect(catalog.voiceFor("Mazda Categorization", voices).name).toBe(
+      "Microsoft Nancy",
+    );
   });
 
   test("voiceFor returns the fallback when no voices are available", () => {

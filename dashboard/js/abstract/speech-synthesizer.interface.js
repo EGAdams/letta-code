@@ -1,4 +1,8 @@
-import { AgentVoiceCatalog } from "./agent-voice-catalog.interface.js";
+import {
+  AgentVoiceCatalog,
+  FEMALE_VOICE_RE,
+  MALE_VOICE_RE,
+} from "./agent-voice-catalog.interface.js";
 import { TextUtils } from "./text-utils.js";
 
 /**
@@ -40,31 +44,51 @@ export class SpeechSynthesizer {
 
   /**
    * Choose a sensible English voice from the (async) voice list. Prefers a
-   * female-sounding voice (matches the agents' established voice).
+   * female-sounding voice (matches the agents' established voice) and, failing
+   * that, avoids identifiably-male voices ("never fall back to a male voice",
+   * commit b18052fa). Used as the shared fallback when an agent has none.
    */
   pickVoice() {
     if (!this.supported) return null;
     const voices = this._engine.getVoices() || [];
     if (!voices.length) return null;
-    const FEMALE =
-      /female|\b(zira|aria|jenny|samantha|susan|victoria|karen|moira|tessa|allison|ava|joanna|salli|kendra|kimberly|ivy|emma|olivia|amy)\b/i;
     this.voice =
       voices.find(
         (v) =>
           /en[-_]US/i.test(v.lang) &&
-          FEMALE.test(v.name) &&
+          FEMALE_VOICE_RE.test(v.name) &&
           /google|natural|neural/i.test(v.name),
       ) ||
-      voices.find((v) => /en[-_]US/i.test(v.lang) && FEMALE.test(v.name)) ||
-      voices.find((v) => /^en/i.test(v.lang) && FEMALE.test(v.name)) ||
+      voices.find(
+        (v) => /en[-_]US/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name),
+      ) ||
+      voices.find((v) => /^en/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
+      voices.find((v) => FEMALE_VOICE_RE.test(v.name)) ||
       voices.find(
         (v) =>
-          /en[-_]US/i.test(v.lang) && /google|natural|neural/i.test(v.name),
+          /en[-_]US/i.test(v.lang) &&
+          /google|natural|neural/i.test(v.name) &&
+          !MALE_VOICE_RE.test(v.name),
       ) ||
+      voices.find(
+        (v) => /en[-_]US/i.test(v.lang) && !MALE_VOICE_RE.test(v.name),
+      ) ||
+      voices.find((v) => /^en/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
       voices.find((v) => /en[-_]US/i.test(v.lang)) ||
       voices.find((v) => /^en/i.test(v.lang)) ||
       voices[0];
     return this.voice;
+  }
+
+  /**
+   * Re-derive voices after the async voice list changes: re-pick the shared
+   * voice and forget per-agent assignments so they are re-derived from the new
+   * list. Mirrors the original `onvoiceschanged` handler
+   * (`pickVoice()` + `agentVoices.clear()`).
+   */
+  refreshVoices() {
+    this.pickVoice();
+    this._voiceCatalog.reset();
   }
 
   /** Normalize text for reading aloud (delegates to shared util). */

@@ -48,6 +48,30 @@ describe("SpeechSynthesizer (Facade)", () => {
     expect(s.voice.name).toBe("Microsoft Zira");
   });
 
+  test("pickVoice avoids an identifiably-male voice when no female exists", () => {
+    const engine = fakeEngine([
+      { lang: "en-US", name: "Microsoft David" },
+      { lang: "en-US", name: "Microsoft Plain" },
+    ]);
+    const s = new SpeechSynthesizer(engine);
+    s.pickVoice();
+    // No female voice available, so it skips the male "David" for the neutral one.
+    expect(s.voice.name).toBe("Microsoft Plain");
+  });
+
+  test("refreshVoices re-picks and clears per-agent assignments", () => {
+    const engine = fakeEngine([
+      { lang: "en-US", name: "Microsoft Zira" },
+      { lang: "en-US", name: "Microsoft Aria" },
+    ]);
+    const s = new SpeechSynthesizer(engine);
+    s.speak("hi", "Scissari");
+    s.refreshVoices();
+    expect(s.voice).not.toBeNull();
+    // After a reset Scissari re-derives its preferred voice cleanly.
+    expect(s.speak("hi", "Scissari").voice.name).toBe("Microsoft Zira");
+  });
+
   test("speak cancels in-flight speech first, then speaks cleaned text", () => {
     const engine = fakeEngine([{ lang: "en-US", name: "Plain" }]);
     const s = new SpeechSynthesizer(engine);

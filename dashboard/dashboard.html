@@ -326,7 +326,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
   <script type="module">
     // Phase 2 of the js/ cutover: shared library primitives now back the page.
     // See clean_up_dashboard_html.md. Inline esc/sleep/fetchJSON delegate here.
-    import { FetchHttpClient } from './js/implementation/index.js';
+    import { FetchHttpClient, BrowserSpeechSynthesizer } from './js/implementation/index.js';
     import { TextUtils } from './js/abstract/text-utils.js';
 
     // One shared HttpClient (Adapter over fetch) used by AM / SM / SSHM / RF.
@@ -673,121 +673,15 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
     /* =====================  Voice output (Web Speech API)  =====================
        Browser-native text-to-speech. No API key, no server round-trip, free.
-       Mirrors the Telegram TTS *intent* (speak the agent's reply) but uses the
-       browser's built-in SpeechSynthesis instead of a server-side mp3.
-
-       Mirrors js/abstract/agent-voice-catalog.interface.js (AgentVoiceCatalog,
-       Strategy/Registry): each agent gets its own cached voice so Scissari,
-       Mazda, Frita, Hailey, and Jeri sound distinct from one another. */
-    const FEMALE_VOICE_RE = /female|\b(zira|aria|jenny|samantha|susan|victoria|karen|moira|tessa|allison|ava|joanna|salli|kendra|kimberly|ivy|emma|olivia|amy|michelle|ashley|ana|cora|elizabeth|sara|nancy|monica|libby|sonia|catherine|fiona|natasha|hazel|maisie|google us english)\b/i;
-    // Used to keep voiceFor()'s fallbacks from ever landing on a male voice
-    // when no agent-specific or generic female voice is available.
-    const MALE_VOICE_RE = /\bmale\b|\b(david|mark|guy|davis|tony|jacob|andrew|brian|christopher|eric|roger|steffan|james|william|daniel|liam|ryan|george|thomas)\b/i;
-    const AGENT_VOICE_PREFERENCES = {
-      Scissari: [/zira/i],
-      Mazda:    [/aria/i],
-      Frita:    [/jenny|joanna/i],
-      Hailey:   [/samantha|susan/i],
-      Jeri:     [/salli|kendra|amy|emma|olivia/i],
-      Cesare:   [/ashley|michelle/i],
-      'Mazda Router':           [/ana/i],
-      'Mazda Parser':           [/cora/i],
-      'Mazda Vendor Identity':  [/elizabeth/i],
-      'Mazda Receipt Linker':   [/sara/i],
-      'Mazda Categorization':   [/nancy|monica/i],
-    };
-    const Speech = {
-      synth: window.speechSynthesis || null,
-      voice: null,
-      agentVoices: new Map(),
-      get supported() { return !!this.synth; },
-
-      // Pick a sensible English voice once the (async) voice list is ready.
-      // Prefer a female-sounding voice (matches the agents' established voice).
-      // Used as the shared fallback when an agent has no voice of its own.
-      pickVoice() {
-        if (!this.supported) return;
-        const voices = this.synth.getVoices();
-        if (!voices.length) return;
-        this.voice =
-          voices.find(v => /en[-_]US/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name) && /google|natural|neural/i.test(v.name)) ||
-          voices.find(v => /en[-_]US/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => /^en/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => FEMALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => /en[-_]US/i.test(v.lang) && /google|natural|neural/i.test(v.name) && !MALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => /en[-_]US/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => /^en/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
-          voices.find(v => /en[-_]US/i.test(v.lang)) ||
-          voices.find(v => /^en/i.test(v.lang)) ||
-          voices[0];
-      },
-
-      // Resolve (and cache) a distinct voice for one agent, so each agent in
-      // AGENT_VOICE_PREFERENCES is read aloud in its own voice. Falls back to
-      // the shared `voice` (from pickVoice) for unknown agents or when no
-      // voices are loaded yet.
-      voiceFor(agentName) {
-        if (!this.supported) return null;
-        const voices = this.synth.getVoices();
-        if (!voices.length) return null;
-        if (!this.voice) this.pickVoice();
-        if (!agentName) return this.voice;
-
-        const cached = this.agentVoices.get(agentName);
-        if (cached && voices.includes(cached)) return cached;
-
-        const used = new Set(this.agentVoices.values());
-        const unused = pred => voices.find(v => pred(v) && !used.has(v));
-
-        let picked = null;
-        for (const pattern of AGENT_VOICE_PREFERENCES[agentName] || []) {
-          picked = unused(v => pattern.test(v.name)) || voices.find(v => pattern.test(v.name));
-          if (picked) break;
-        }
-        if (!picked) {
-          picked =
-            // Prefer a female voice nobody else is using yet...
-            unused(v => /en/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
-            // ...but reusing a female voice beats falling through to a male one.
-            voices.find(v => /en/i.test(v.lang) && FEMALE_VOICE_RE.test(v.name)) ||
-            // No identifiably-female voice at all: pick anything not identifiably male.
-            unused(v => /en/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
-            voices.find(v => /en/i.test(v.lang) && !MALE_VOICE_RE.test(v.name)) ||
-            this.voice;
-        }
-        if (picked) this.agentVoices.set(agentName, picked);
-        return picked;
-      },
-
-      // Strip markdown emphasis / leading "**Header**" so it reads cleanly.
-      clean(text) {
-        return String(text || '').replace(/\*\*/g, '').replace(/[`#_>]/g, '').trim();
-      },
-
-      // `agentName` (e.g. "Scissari") picks that agent's own voice via
-      // voiceFor(); omit it to use the shared default voice.
-      speak(text, agentName) {
-        if (!this.supported) return;
-        const say = this.clean(text);
-        if (!say) return;
-        this.synth.cancel();            // never let replies pile up / overlap
-        const voice = this.voiceFor(agentName);
-        const u = new SpeechSynthesisUtterance(say);
-        if (voice) u.voice = voice;
-        u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
-        this.synth.speak(u);
-      },
-
-      cancel() { if (this.supported) this.synth.cancel(); },
-    };
-    if (Speech.supported) {
-      Speech.pickVoice();
-      // Voices populate asynchronously in Chrome — re-pick when they arrive.
-      window.speechSynthesis.onvoiceschanged = () => {
-        Speech.pickVoice();
-        Speech.agentVoices.clear();   // re-derive per-agent voices from the new list
-      };
-    }
+       Now provided by the library's BrowserSpeechSynthesizer (Facade) +
+       AgentVoiceCatalog (Strategy/Registry): each agent gets its own cached
+       voice so Scissari, Mazda, Frita, Hailey, Jeri, Cesare and the Mazda
+       stages sound distinct, never falling back to a male voice. The per-agent
+       voice catalog (FEMALE/MALE patterns, agent preferences, selection +
+       male-avoidance fallbacks) lives in
+       js/abstract/agent-voice-catalog.interface.js. */
+    const Speech = new BrowserSpeechSynthesizer(window);
+    Speech.bindVoiceChanges();   // initial pick + re-pick/clear on onvoiceschanged
 
     /* =====================  Agent Manager  ===================== */
     // Maps an agent-detail view id to how its content is rendered.

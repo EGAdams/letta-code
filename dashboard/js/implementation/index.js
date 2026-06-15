@@ -7,6 +7,8 @@
 export {
   AgentVoiceCatalog,
   DEFAULT_AGENT_VOICE_PREFERENCES,
+  FEMALE_VOICE_RE,
+  MALE_VOICE_RE,
 } from "../abstract/agent-voice-catalog.interface.js";
 export { ActivePoller } from "./active-poller.js";
 export { AgentStreamController } from "./agent-stream-controller.js";

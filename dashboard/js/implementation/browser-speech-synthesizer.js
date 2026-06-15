@@ -23,15 +23,16 @@ export class BrowserSpeechSynthesizer extends SpeechSynthesizer {
   }
 
   /**
-   * Voices populate asynchronously in Chrome — re-pick when they arrive.
-   * Mirrors `window.speechSynthesis.onvoiceschanged = …` from the original code.
-   * Safe no-op when unsupported.
+   * Voices populate asynchronously in Chrome — re-pick when they arrive and
+   * clear cached per-agent assignments so they re-derive from the new list.
+   * Mirrors `speechSynthesis.onvoiceschanged = () => { pickVoice(); agentVoices.clear(); }`
+   * from the original code. Safe no-op when unsupported.
    */
   bindVoiceChanges() {
     if (!this.supported) return;
     this.pickVoice();
     if (this._engine && "onvoiceschanged" in this._engine) {
-      this._engine.onvoiceschanged = () => this.pickVoice();
+      this._engine.onvoiceschanged = () => this.refreshVoices();
     }
   }
 }
