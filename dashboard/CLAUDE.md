@@ -116,6 +116,15 @@ editing it changes runtime behaviour. The nested sub-nav chains (plans → ROL F
 agents → agent-detail) are kept as explicit handlers in the boot file rather than forced through
 `NavigationController`. Run `bun test js/tests` (160 green) after any change.
 
+No build step — `server.py` serves these files as-is, so editing `js/*` + reloading the browser
+is the whole loop. Verify in a real browser (Playwright MCP against `http://localhost:8765/`;
+the only expected console error is a `favicon.ico` 404). **Pre-commit gotcha:** husky/lint-staged
+runs `biome check --write` on staged `.js` files and an unfixable lint **error aborts the commit**
+(reverting your changes) — most often `useIterableCallbackReturn`: write
+`forEach(x => { x.remove(); })`, not `forEach(x => x.remove())`. biome also reformats the whole
+file to 2-space indent. Run `bunx --bun @biomejs/biome@2.2.5 check --write js/<file>.js` before
+committing to catch these.
+
 ### Voice pipeline (`voice/`)
 `browser MediaRecorder → POST /api/voice (raw audio body, X-Filename header) → whisper.cpp →
 transcript-cleanup-agent → fills the message box → POST /api/test sends it`. GoF: Strategy
