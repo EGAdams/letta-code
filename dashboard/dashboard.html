@@ -323,7 +323,15 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    // Phase 2 of the js/ cutover: shared library primitives now back the page.
+    // See clean_up_dashboard_html.md. Inline esc/sleep/fetchJSON delegate here.
+    import { FetchHttpClient } from './js/implementation/index.js';
+    import { TextUtils } from './js/abstract/text-utils.js';
+
+    // One shared HttpClient (Adapter over fetch) used by AM / SM / SSHM / RF.
+    const http = new FetchHttpClient();
+
     const mainContent = document.getElementById('main-content');
     const navMain = document.getElementById('nav-main');
     const navStatus = document.getElementById('nav-status');
@@ -660,8 +668,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     }
 
     /* =====================  Utilities  ===================== */
-    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    const esc = TextUtils.esc;       // HTML-escape — now sourced from the library.
+    const sleep = TextUtils.sleep;   // Promise delay — now sourced from the library.
 
     /* =====================  Voice output (Web Speech API)  =====================
        Browser-native text-to-speech. No API key, no server round-trip, free.
@@ -803,15 +811,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
       },
 
-      async fetchJSON(url, opts) {
-        const r = await fetch(url, opts);
-        if (!r.ok) {
-          let d = ''; try { d = (await r.json()).detail || ''; } catch (e) {}
-          throw new Error('HTTP ' + r.status + (d ? ' — ' + d.slice(0, 120) : ''));
-        }
-        return r.json();
-      },
-
       // Show the agent-list landing in the sidebar and (re)load the agent tabs.
       showAgentsHome() {
         this.stopPoll();
@@ -845,7 +844,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           if (!this.agents) {
             if (status) status.textContent = 'Loading agents…';
             try {
-              this.agents = await this.fetchJSON('/api/agents');
+              this.agents = await http.getJSON('/api/agents');
               this.agentsLoadedAt = Date.now();
             } catch (e) {
               if (status) status.innerHTML = '<span class="am-warn" style="display:block">Failed to load agents: ' + esc(e.message) + '</span>';
@@ -935,7 +934,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         const pull = async () => {
           if (!this.current || this.current.id !== agentId) return;
           let rows;
-          try { rows = await this.fetchJSON(url + '?agent=' + encodeURIComponent(agentId)); }
+          try { rows = await http.getJSON(url + '?agent=' + encodeURIComponent(agentId)); }
           catch (e) { inner.insertAdjacentHTML('beforeend', '<div class="msi-line err">! ' + esc(e.message) + '</div>'); return; }
           if (first && !rows.length) {
             inner.innerHTML = '<div class="msi-entry dim">&mdash; no ' + label + ' recorded yet &mdash;</div>';
@@ -962,7 +961,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         const c = document.getElementById(containerId);
         c.innerHTML = '<div class="msi-console"><span class="msi-inner">loading agent card…</span><span class="msi-cursor">&#9608;</span></div>';
         try {
-          const card = await this.fetchJSON('/api/agent-card?agent=' + encodeURIComponent(this.current.id));
+          const card = await http.getJSON('/api/agent-card?agent=' + encodeURIComponent(this.current.id));
           const responsibilities = (card.responsibilities || []).map(x => '<li>' + esc(x) + '</li>').join('');
           const tools = (card.tools || []).map(x => '<li>' + esc(x) + '</li>').join('');
           const systemMessage = card.system_message
@@ -1035,10 +1034,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           setConsole('<div class="msi-entry dim">sending&hellip;</div>');
           setAgentTabStatus(self.current.id, 'active');
           try {
-            const r = await self.fetchJSON('/api/test', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ agent: self.current.id, text })
-            });
+            const r = await http.postJSON('/api/test', { agent: self.current.id, text });
             const replies = (r.replies || []);
             const hasError = replies.some(x => x.type === 'error');
             setAgentTabStatus(self.current.id, hasError ? 'error' : 'idle');
@@ -1274,10 +1270,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           showStatus('');
           setAgentTabStatus(this.current.id, 'active');
           try {
-            const r = await this.fetchJSON('/api/test', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ agent: this.current.id, text })
-            });
+            const r = await http.postJSON('/api/test', { agent: this.current.id, text });
             const replies = (r.replies || []);
             const hasError = replies.some(x => x.type === 'error');
             setAgentTabStatus(this.current.id, hasError ? 'error' : 'idle');
@@ -1375,7 +1368,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       async openById(id, view) {
         navMain.classList.add('hidden');
         navAgents.classList.remove('hidden');
-        if (!this.agents) { try { this.agents = await this.fetchJSON('/api/agents'); } catch (e) {} }
+        if (!this.agents) { try { this.agents = await http.getJSON('/api/agents'); } catch (e) {} }
         const a = (this.agents || []).find(x => x.id === id);
         this.openAgent(id, a ? a.name : id);
         const target = 'agent-detail-' + (view || 'thoughts');
@@ -1403,15 +1396,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
       stopHealthPoll() {
         if (this.healthPollTimer) { clearInterval(this.healthPollTimer); this.healthPollTimer = null; }
-      },
-
-      async fetchJSON(url, opts) {
-        const r = await fetch(url, opts);
-        if (!r.ok) {
-          let d = ''; try { d = (await r.json()).detail || ''; } catch (e) {}
-          throw new Error('HTTP ' + r.status + (d ? ' — ' + d.slice(0, 120) : ''));
-        }
-        return r.json();
       },
 
       updateMainTabColor() {
@@ -1450,7 +1434,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
       async pollHealth() {
         try {
-          this.health = await this.fetchJSON('/api/server-health');
+          this.health = await http.getJSON('/api/server-health');
           this.updateMainTabColor();
           this.updateServerTabColors();
         } catch (e) {
@@ -1472,7 +1456,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         if (!this.served) return;
         if (!this.servers) {
           try {
-            this.servers = await this.fetchJSON('/api/servers');
+            this.servers = await http.getJSON('/api/servers');
           } catch (e) {
             return;
           }
@@ -1522,11 +1506,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
             statusEl.className = 'srv-status starting';
             statusText.textContent = 'STARTING... — launching ' + name.toLowerCase();
             try {
-              const res = await this.fetchJSON('/api/server-action', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ server: key, action: 'start' })
-              });
+              const res = await http.postJSON('/api/server-action', { server: key, action: 'start' });
               inner.insertAdjacentHTML('beforeend',
                 '<div class="msi-entry"><span class="hdr">start action</span> ' + esc(res.text || 'OK') + '</div>');
               box.scrollTop = box.scrollHeight;
@@ -1550,7 +1530,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         const pull = async () => {
           if (!this.current || this.current.key !== key) return;
           let data;
-          try { data = await this.fetchJSON('/api/server-logs?server=' + encodeURIComponent(key)); }
+          try { data = await http.getJSON('/api/server-logs?server=' + encodeURIComponent(key)); }
           catch (e) {
             statusEl.className = 'srv-status down';
             statusText.textContent = e.message;
@@ -1624,15 +1604,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         if (this.healthPollTimer) { clearInterval(this.healthPollTimer); this.healthPollTimer = null; }
       },
 
-      async fetchJSON(url, opts) {
-        const r = await fetch(url, opts);
-        if (!r.ok) {
-          let d = ''; try { d = (await r.json()).detail || ''; } catch (e) {}
-          throw new Error('HTTP ' + r.status + (d ? ' — ' + d.slice(0, 120) : ''));
-        }
-        return r.json();
-      },
-
       updateMainTabColor() {
         const tab = document.getElementById('btn-ssh-connections');
         if (!tab) return;
@@ -1660,7 +1631,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
       async pollHealth() {
         try {
-          this.health = await this.fetchJSON('/api/ssh-connection-health');
+          this.health = await http.getJSON('/api/ssh-connection-health');
           this.updateMainTabColor();
           this.updateConnectionTabColors();
         } catch (e) {
@@ -1680,7 +1651,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       async loadConnectionTabs() {
         if (!this.connections) {
           try {
-            this.connections = await this.fetchJSON('/api/ssh-connections');
+            this.connections = await http.getJSON('/api/ssh-connections');
           } catch (e) {
             return;
           }
@@ -1743,7 +1714,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         const pull = async () => {
           if (!this.current || this.current.key !== key) return;
           let data;
-          try { data = await this.fetchJSON('/api/ssh-connection-logs?conn=' + encodeURIComponent(key)); }
+          try { data = await http.getJSON('/api/ssh-connection-logs?conn=' + encodeURIComponent(key)); }
           catch (e) {
             statusEl.className = 'srv-status down';
             statusText.textContent = e.message;
@@ -1775,7 +1746,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           statusEl.className = 'srv-status starting';
           statusText.textContent = 'TESTING… — ssh ' + name.toLowerCase();
           try {
-            const res = await this.fetchJSON('/api/ssh-connection-test?conn=' + encodeURIComponent(key));
+            const res = await http.getJSON('/api/ssh-connection-test?conn=' + encodeURIComponent(key));
             applyStatus(res);
             this.pollHealth();
           } catch (e) {
@@ -1810,7 +1781,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       async openReports() {
         if (!this.reports) {
           try {
-            this.reports = await AM.fetchJSON('/api/rol-finance-reports');
+            this.reports = await http.getJSON('/api/rol-finance-reports');
             this.buildTabsAndViews(this.reports);
           } catch (e) {
             navRolFinanceReports.querySelectorAll('.tab[data-report-key]').forEach(t => t.remove());
@@ -1887,7 +1858,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     (function startActivityPoll() {
       async function poll() {
         try {
-          const activity = await AM.fetchJSON('/api/agent-activity');
+          const activity = await http.getJSON('/api/agent-activity');
           for (const [id, status] of Object.entries(activity)) {
             setAgentTabStatus(id, status);
           }
