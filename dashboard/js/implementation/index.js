@@ -32,6 +32,7 @@ export { DomNavigationController } from "./dom-navigation-controller.js";
 export { DomTabFactory } from "./dom-tab-factory.js";
 export { FetchHttpClient } from "./fetch-http-client.js";
 export { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
+export { RolFinanceReportsController } from "./rol-finance-reports-controller.js";
 export {
   buildServerActionRequest,
   ServerActionController,

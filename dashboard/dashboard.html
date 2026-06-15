@@ -342,6 +342,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       ServerActionController,
       ConnectionLogController,
       ConnectionTestController,
+      RolFinanceReportsController,
     } from './js/implementation/index.js';
     import { TextUtils } from './js/abstract/text-utils.js';
 
@@ -1119,78 +1120,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
        /api/rol-finance-reports, which reports whether each report.html
        exists on disk. Missing reports get a red tab and a placeholder view
        instead of an iframe, so the UI never silently fails. */
-    const RF = {
-      reports: null,
+    const RF = new RolFinanceReportsController({
+      http,
+      nav: navRolFinanceReports,
       viewsContainer: document.getElementById('rol-finance-reports-views'),
-
-      // Fetch the report list (once) and build its tabs/views.
-      async openReports() {
-        if (!this.reports) {
-          try {
-            this.reports = await http.getJSON('/api/rol-finance-reports');
-            this.buildTabsAndViews(this.reports);
-          } catch (e) {
-            navRolFinanceReports.querySelectorAll('.tab[data-report-key]').forEach(t => t.remove());
-            this.viewsContainer.innerHTML = '<section id="rol-finance-reports-error" class="view active">'
-              + '<p class="am-warn">Failed to load reports: ' + esc(e.message) + '</p></section>';
-            return;
-          }
-        }
-        const first = this.reports[0];
-        if (!first) return;
-        const firstTab = navRolFinanceReports.querySelector('[data-report-key="' + first.key + '"]');
-        if (firstTab) safeSetActive(navRolFinanceReports, '.tab', firstTab);
-        this.openReport(first.key);
-      },
-
-      // Inject one tab + one view per report (red tab + placeholder if missing).
-      buildTabsAndViews(reports) {
-        for (const r of reports) {
-          const tab = document.createElement('button');
-          tab.type = 'button';
-          tab.className = 'tab' + (r.exists ? '' : ' report-missing');
-          tab.dataset.reportKey = r.key;
-          tab.textContent = r.label;
-          navRolFinanceReports.appendChild(tab);
-
-          const view = document.createElement('section');
-          view.id = 'rol-finance-report-' + r.key;
-          view.className = 'view';
-          if (r.exists) {
-            view.innerHTML = '<iframe class="plan-frame" src="' + esc(r.url) + '"></iframe>';
-            const iframe = view.querySelector('iframe');
-            iframe.addEventListener('load', () => this.showOnlyVerifiedTransactions(iframe));
-          } else {
-            view.innerHTML = '<p>Missing report.html for this report.</p>';
-          }
-          this.viewsContainer.appendChild(view);
-        }
-      },
-
-      // The report iframes are served same-origin, so we can reach into them on
-      // load and hide every section except the "Verified Transactions" card
-      // (the report.html files are static/regenerated, so we don't edit them).
-      // The category picker (#rol-category-picker, a <div>) is left intact so
-      // recategorizing a row still works.
-      showOnlyVerifiedTransactions(iframe) {
-        let doc;
-        try { doc = iframe.contentDocument; } catch (e) { return; }
-        if (!doc) return;
-        const vt = doc.getElementById('verified-transactions');
-        if (!vt) return;
-        const keep = vt.closest('section');
-        if (!keep || !keep.parentElement) return;
-        for (const child of keep.parentElement.children) {
-          if (child !== keep && child.tagName === 'SECTION') {
-            child.style.display = 'none';
-          }
-        }
-      },
-
-      openReport(key) {
-        safeActivateView('rol-finance-report-' + key);
-      },
-    };
+      activateView: safeActivateView,
+      setActiveTab: (tab) => safeSetActive(navRolFinanceReports, '.tab', tab),
+    });
 
     /* =====================  Agent tab status colors  ===================== */
     function setAgentTabStatus(agentId, status) {
