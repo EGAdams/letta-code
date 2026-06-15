@@ -297,27 +297,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <iframe id="mazda-orchestrator-plan-frame" class="plan-frame" src="/team_construction_plan.html"></iframe>
     </section>
 
-    <section id="plans-mazda-orchestrator" class="view">
-      <h2>Mazda Orchestrator — Team Construction Plan</h2>
-      <div class="dc-status">
-        <b>Status (2026-06-06) — F7 deployed to lettabot:</b>
-        <span class="dc-green">F7 fix is committed + built on Win11</span>
-        (commit <code>2ae0d25</code>, tsc clean, markers in <code>dist/core/bot.js</code>) —
-        implemented in <code>src/core/bot.ts</code>: <b>(a)</b> tool-call-aware inactivity timer
-        (<code>TOOL_CALL_DEADLINE_MS</code> while a tool call is in flight) replacing the blind
-        <code>300000ms</code> kill; <b>(b)</b> <code>isTransportDeadError</code> → re-spawn + retry,
-        replacing the <code>Transport not connected (pid=undefined)</code> heartbeat crash.
-        <span class="dc-bad">Pending: restart lettabot</span> (still running old code, pid 1345).
-        Design pinned by <span class="dc-green">29 passing tests</span> in <code>scissari-executor-fix/</code>
-        (16 executor F1–F6 + 13 session F7). A separate <b>F5</b> executor_run HTTP fallback was also
-        committed (<code>44b442d</code>) — HTTP contract unverified, watch logs.
-        <br>Full plan: <a href="/team_construction_plan.html" target="_blank" rel="noopener noreferrer">divide_and_conquer_scissari_fix.html</a>
-        &nbsp;·&nbsp; <a href="/scissari-executor-fix/README.md" target="_blank" rel="noopener noreferrer">README.md</a>
-        &nbsp;·&nbsp; <a href="/scissari-executor-fix/WIRING.md" target="_blank" rel="noopener noreferrer">WIRING.md</a>
-      </div>
-      <iframe id="divide-conquer-frame" src="/team_construction_plan.html" title="Divide and Conquer plan"></iframe>
-    </section>
-
     <!-- ROL Finance views -->
     <section id="rol-finance-current-status" class="view">
       <h2>Current Status</h2>
@@ -813,7 +792,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       'agent-detail-thoughts':       (am, id) => am.renderStream(id, '/api/thoughts', 'thoughts'),
       'agent-detail-messages':       (am, id) => am.renderStream(id, '/api/messages', 'messages'),
       'agent-detail-tool-calls':     (am, id) => am.renderStream(id, '/api/toolcalls', 'tool calls'),
-      'agent-detail-chat-interface': (am, id) => am.renderChatInterface(id),
       'agent-detail-agent-card':     (am, id) => am.renderAgentCard(id),
       'agent-detail-tests':          (am, id) => am.renderTest(id),
       'agent-detail-input-options':  (am, id) => am.renderInputOptions(id),
@@ -1010,20 +988,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         } catch (e) {
           c.innerHTML = '<div class="msi-console"><span class="msi-line err">! ' + esc(e.message) + '</span></div>';
         }
-      },
-
-      async renderLog(containerId, url, label) {
-        const { box, inner } = this.consoleShell(containerId);
-        try {
-          const rows = await this.fetchJSON(url + '?agent=' + encodeURIComponent(this.current.id));
-          if (!rows.length) { inner.innerHTML = '<div class="msi-entry dim">&mdash; no ' + label + ' recorded &mdash;</div>'; return; }
-          inner.innerHTML = rows.map(r => {
-            const stamp = (r.date || '').replace('T', ' ').slice(0, 19);
-            return '<div class="msi-entry"><span class="msi-stamp">[' + stamp + ']</span> '
-              + '<span class="hdr">' + esc((r.type || '').replace('_message', '')) + '</span> ' + esc(r.text) + '</div>';
-          }).join('');
-          box.scrollTop = box.scrollHeight;
-        } catch (e) { inner.innerHTML = '<div class="msi-line err">! ' + esc(e.message) + '</div>'; }
       },
 
       renderTest(containerId) {
