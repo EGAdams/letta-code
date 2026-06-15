@@ -94,25 +94,27 @@ calls come from local JSON files (`claude_messages.json`, `claude_toolcalls.json
 `POST /api/claude-log` / `POST /api/claude-toollog` (a PostToolUse hook + the `dashboard-log`
 skill write to these). `/api/agents` must always return a bare array, never `{"agents": [...]}`.
 
-### Frontend — mid-refactor: CSS/JS extracted but not yet cut over
-`dashboard.html` was a 1300+ line monolith (markup + CSS + ~850 lines of inline JS). It is being
-broken up following the Gang of Four playbook documented in `js/README.md`:
+### Frontend — GoF refactor (cutover complete)
+`dashboard.html` was a ~2000-line monolith (markup + CSS + ~1660 lines of inline JS). It has
+been broken up following the Gang of Four playbook documented in `js/README.md`:
 
-- **CSS** has been fully extracted to `css/dashboard.css`.
+- **CSS** is fully extracted to `css/dashboard.css`.
 - **JS** is split into `js/abstract/` (interfaces / Template-Method skeletons — no DOM, no
   `fetch`, collaborators injected so they're unit-testable in Node) and
   `js/implementation/` (concrete subclasses that wire those interfaces to real browser APIs:
   `FetchHttpClient`, `DomConsoleView`, `ServerHealthMonitor`, `AgentStreamController`,
-  `DomTabFactory`, `MediaRecorderVoiceRecorder`, etc — see the table in
-  `js/implementation/README.md` for the full interface ↔ concrete-class ↔ GoF-pattern mapping).
+  `DomTabFactory`, `MediaRecorderVoiceRecorder`, the detail renderers, the SSH/ROL/code-alert
+  controllers, etc — see the table in `js/implementation/README.md` for the full interface ↔
+  concrete-class ↔ GoF-pattern mapping).
 
-**Important**: `dashboard.html`'s inline `<script>` is still the *live* code — the concrete
-classes in `js/implementation/` are fully built and tested (111+ green) but **not yet imported**.
-The final cutover (replace the inline `AM`/`SM` objects with `import` from
-`./js/implementation/index.js`) is an intentionally separate, reviewable step. Don't assume
-editing `js/implementation/*` changes runtime behavior until that swap happens — check whether
-`dashboard.html` still has the inline script before debugging "why didn't my JS change do
-anything".
+**The cutover is done.** `dashboard.html` is now pure markup (~328 lines); its only script is
+`<script type="module" src="/js/dashboard-boot.js">`. `js/dashboard-boot.js` is the thin entry
+point that constructs the classes above and binds them to the DOM, plus the page-specific
+navigation glue (sidebar tab transitions, `safeActivateView`'s `fullbleed` toggle, the
+`AM`/`SM`/`SSHM`/`RF` facades, deep-linking). **`js/implementation/*` is the live code now** —
+editing it changes runtime behaviour. The nested sub-nav chains (plans → ROL Finance → Reports,
+agents → agent-detail) are kept as explicit handlers in the boot file rather than forced through
+`NavigationController`. Run `bun test js/tests` (160 green) after any change.
 
 ### Voice pipeline (`voice/`)
 `browser MediaRecorder → POST /api/voice (raw audio body, X-Filename header) → whisper.cpp →
