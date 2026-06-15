@@ -1226,8 +1226,8 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
         out_lines = result.stdout.strip().splitlines()
-        if result.returncode == 0 and out_lines and out_lines[0] == 'CONNECTED':
-            host = out_lines[1] if len(out_lines) > 1 else '?'
+        if result.returncode == 0 and out_lines and out_lines[0].strip() == 'CONNECTED':
+            host = out_lines[1].strip() if len(out_lines) > 1 else '?'
             return {'ok': True, 'text': f'CONNECTED — {host}'}
         err_lines = (result.stderr or result.stdout or '').strip().splitlines()
         text = err_lines[-1][:160] if err_lines else f'ssh exited {result.returncode}'
