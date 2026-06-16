@@ -67,11 +67,24 @@ two registries that you must keep in sync with the frontend / other repos when a
     reuses the loaded list while navigating away/back to Agent Management. Use
     `/api/agents?refresh=1` after changing `LETTA_AGENTS` if you need to bypass the cache.
 - **`SERVERS`** (Server Management registry, ~line 61) — each entry describes one piece of
-  infrastructure the dashboard monitors: `log_file` (tailed locally), `health_url` (pinged for
-  up/down), or both. Remote Docker hosts that can't be tailed locally are normally health-checked
-  only — an unreachable health check *is* the "something is wrong" signal. `/api/server-health`
-  only reports servers that have a `health_url`; log-only servers (e.g. `lettabot`) are inspected
-  via `/api/server-logs` instead.
+  infrastructure the dashboard monitors via one of: `log_file` (tailed locally), `health_url`
+  (HTTP pinged for up/down), `tcp_check` `(host, port)` (TCP connect test for non-HTTP servers like
+  MCP proxies), or `check` (name of a custom body-aware probe fn in the `HEALTH_CHECKS` registry —
+  use when "HTTP 200" isn't enough and you must inspect the response). Remote Docker hosts that
+  can't be tailed locally are normally health-checked only — an unreachable health check *is* the
+  "something is wrong" signal. `/api/server-health` reports any server with a `health_url`,
+  `tcp_check`, or `check`; log-only servers (e.g. `lettabot`) are inspected via `/api/server-logs`
+  instead. (`server_health` dispatches to `HEALTH_CHECKS[cfg['check']]` when `check` is set.)
+  - **`frita-executor` uses a `check` (`frita_executor_health`)**, not a plain `health_url`, because
+    of the two-stack mess on the Win10 box (the live Letta fleet runs in an untracked containerd
+    "ghost" stack; see `frita_executor_ghost_container_2026_06_15` + `live_letta_db_topology`
+    memories). The Mazda minions' `run_claude_code_sdk` reaches an SDK-equipped executor via the
+    **host bridge on `:8799`** (the executor's cheap `GET /claude_sdk_status` reports
+    sdk/claude/creds presence + container hostname — no Claude call). The check goes **down/red**
+    when `:8799` isn't SDK-ready ("minions broken"), and appends a `⚠ GHOST on :8797` warning when a
+    stale no-SDK executor is shadowing. Redeploy the good executor via the **"Start" button**
+    (`deploy_frita_executor.sh` on `100.80.49.10`, which mounts the SDK + `rol_finances` + a
+    `frita-claude-home` seeded with mom's token, and publishes `:8799`).
   - **Exception — "Letta Server"**: it *does* have a `log_file` despite running in Docker on the
     remote Win10 box (`100.80.49.10`). A background daemon thread (`_letta_remote_log_pull_loop`,
     started in `__main__`) SSHes there every 30s (key auth + passwordless sudo, both already set

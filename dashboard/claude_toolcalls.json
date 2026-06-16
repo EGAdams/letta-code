@@ -1,45 +1,5 @@
 [
   {
-    "date": "2026-06-16T13:19:46",
-    "type": "Bash",
-    "text": "GHOST=52f2ad7c0b3348bd9770695377d916ca26365a443381835c9a9180e377c6da42\nssh -o ConnectTimeout=20 adamsl@100.80.49.10 \"\nGHOST=$GHOST\necho '=== shim still there? ==='\npgrep -af \\\"containerd-shim.*\\$GHOST"
-  },
-  {
-    "date": "2026-06-16T13:20:41",
-    "type": "Bash",
-    "text": "GHOST=52f2ad7c0b3348bd9770695377d916ca26365a443381835c9a9180e377c6da42\nssh -o ConnectTimeout=20 adamsl@100.80.49.10 \"\nGHOST=$GHOST\necho '=== ctr container info: restart policy / labels ==='\nsudo ctr -"
-  },
-  {
-    "date": "2026-06-16T13:21:20",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/StateMachine/StateMachine.h"
-  },
-  {
-    "date": "2026-06-16T13:21:37",
-    "type": "Bash",
-    "text": "grep -n \"ROTATE_PANELS\\|#define.*21\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/DIGI_V6_15/DIGI_V6_15.h"
-  },
-  {
-    "date": "2026-06-16T13:21:41",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/DIGI_V6_15/DIGI_V6_15.h"
-  },
-  {
-    "date": "2026-06-16T13:21:49",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/DIGI_V6_15/DIGI_V6_15.h"
-  },
-  {
-    "date": "2026-06-16T13:21:53",
-    "type": "Bash",
-    "text": "mkdir -p /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/PanelRotationConfig"
-  },
-  {
-    "date": "2026-06-16T13:21:58",
-    "type": "Write",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/PanelRotationConfig/PanelRotationConfig.h\n\u2192 #ifndef PANEL_ROTATION_CONFIG_H #define PANEL_ROTATION_CONFIG_H  #include <string>  std::string loadPanelRotation(); bool        savePanelRotation(const std::string& rotation); std::string panelRotati"
-  },
-  {
     "date": "2026-06-16T13:22:06",
     "type": "Write",
     "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/PanelRotationConfig/PanelRotationConfig.cpp\n\u2192 #include \"PanelRotationConfig.h\"  #include <fstream> #include <string>  namespace { const char* kRotationFile = \"rotation.txt\";  std::string normalize(const std::string& r) {     if (r == \"right\") ret"
@@ -998,5 +958,45 @@
     "date": "2026-06-16T19:32:24",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-16T19:32:39",
+    "type": "Bash",
+    "text": "curl -s --max-time 20 \"http://localhost:8765/api/server-logs?server=frita-executor\" 2>/dev/null | python3 -c \"\nimport sys,json\nd=json.load(sys.stdin)\nprint('status:', json.dumps(d.get('status')))\n\""
+  },
+  {
+    "date": "2026-06-16T19:33:19",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/frita_executor_ghost_container_2026_06_15.md"
+  },
+  {
+    "date": "2026-06-16T19:50:53",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/live_letta_db_topology.md"
+  },
+  {
+    "date": "2026-06-16T19:51:20",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/live_letta_db_topology.md"
+  },
+  {
+    "date": "2026-06-16T19:51:38",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/CLAUDE.md"
+  },
+  {
+    "date": "2026-06-16T19:51:56",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/CLAUDE.md"
+  },
+  {
+    "date": "2026-06-16T19:52:32",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-16T19:52:48",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   }
 ]
