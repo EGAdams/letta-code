@@ -72,9 +72,64 @@ def test_build_agent_list_force_refresh_bypasses_cache(monkeypatch):
 
 
 def test_every_server_has_a_log_or_health_source():
-    # A server with neither would silently render an empty, useless view.
+    # A server with no monitorable source would silently render an empty,
+    # useless view. Valid sources: a log_file, a health_url, a tcp_check, or a
+    # named 'check' function in HEALTH_CHECKS.
     for cfg in server.SERVERS:
-        assert cfg.get('log_file') or cfg.get('health_url'), cfg['key']
+        assert (cfg.get('log_file') or cfg.get('health_url')
+                or cfg.get('tcp_check') or cfg.get('check')), cfg['key']
+
+
+def test_named_checks_resolve_to_callables():
+    # Any SERVERS entry that uses 'check' must reference a real HEALTH_CHECKS fn.
+    for cfg in server.SERVERS:
+        name = cfg.get('check')
+        if name:
+            assert name in server.HEALTH_CHECKS, name
+            assert callable(server.HEALTH_CHECKS[name])
+
+
+def test_frita_executor_health_flags_missing_sdk(monkeypatch):
+    # Good executor not ready -> down, with a clear "minions broken" message.
+    def fake_probe(url, timeout):
+        if url == server.FRITA_EXEC_GOOD_URL:
+            return {'ready': False, 'sdk_present': False, 'claude_present': True,
+                    'creds_present': True, 'host': 'good1'}
+        return None  # nothing on :8797
+    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
+    h = server.frita_executor_health(timeout=1)
+    assert h['ok'] is False
+    assert 'NOT ready' in h['text']
+    assert 'sdk_present' in h['text']
+
+
+def test_frita_executor_health_detects_ghost(monkeypatch):
+    # Good executor ready, but a different no-SDK executor answers :8797 -> still
+    # "up" (minions work) but the ghost is surfaced in the status text.
+    def fake_probe(url, timeout):
+        if url == server.FRITA_EXEC_GOOD_URL:
+            return {'ready': True, 'sdk_present': True, 'claude_present': True,
+                    'creds_present': True, 'host': 'good1'}
+        if url == server.FRITA_EXEC_GHOST_URL:
+            return {'ready': False, 'sdk_present': False, 'host': 'ghost9'}
+        return None
+    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
+    h = server.frita_executor_health(timeout=1)
+    assert h['ok'] is True
+    assert 'GHOST' in h['text']
+    assert 'ghost9' in h['text']
+
+
+def test_frita_executor_health_clean_when_no_ghost(monkeypatch):
+    def fake_probe(url, timeout):
+        if url == server.FRITA_EXEC_GOOD_URL:
+            return {'ready': True, 'sdk_present': True, 'claude_present': True,
+                    'creds_present': True, 'host': 'good1'}
+        return None  # nothing on :8797 at all
+    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
+    h = server.frita_executor_health(timeout=1)
+    assert h['ok'] is True
+    assert 'GHOST' not in h['text']
 
 
 def test_tail_lines_returns_trailing_lines_with_absolute_start(tmp_path):

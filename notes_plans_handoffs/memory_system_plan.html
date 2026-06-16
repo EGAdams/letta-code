@@ -621,6 +621,32 @@ git push origin main                            <span class="tok-c"># server syn
   discipline with zero migration debt. Their forthcoming personas (per the orchestration pivot) go
   straight into <span class="mono">system/persona.md</span>.</p>
 
+  <div class="note good"><span class="h">Status update — fleet relabel applied 2026&#8209;06&#8209;15</span>
+    The table above describes the <em>aspirational</em> file-only end-state. Before that migration, a more
+    urgent bug had to be cleared: these <span class="mono">git-memory-enabled</span> agents were rendering
+    <strong>zero memory at all</strong> — enabled the manual way (tag + <span class="mono">git init --bare</span>)
+    without relabeling, so <span class="mono">Memory.compile()</span>'s <span class="mono">system/</span> filter
+    dropped every block. <strong>Fixed for 11 agents</strong> (Mazda, Jeri, Hailey, Quinn,
+    scoreboard-controller-expert, China, and all 5 Mazda minions, plus Scissari) by relabeling each
+    <span class="mono">n_agents=1</span> block to <span class="mono">system/&lt;label&gt;</span> and recompiling;
+    Scissari's bot was restarted. <strong>Frita is still open</strong> — her only block is the shared
+    <span class="mono">shared_scratchpad</span> and she has no <span class="mono">persona</span>/<span class="mono">human</span>
+    block of her own, so she needs a <span class="mono">system/persona</span> authored (the file-only path from
+    the table, not a relabel). See <span class="mono">mazda_dev_status.html</span> &sect;0 &amp; memory
+    <span class="mono">memfs_system_prefix_bug.md</span>.</div>
+
+  <div class="note"><span class="h">Projection behavior — now PROVEN on this deployment</span>
+    Chapter 8 flagged &ldquo;memfs&rarr;runtime projection is unproven for server-run agents.&rdquo; The 2026&#8209;06&#8209;15
+    fix resolves it concretely: a <strong>block</strong> labeled <span class="mono">system/X</span> <em>does</em>
+    render into context (as a <span class="mono">&lt;self&gt;</span> / <span class="mono">&lt;memory&gt;</span>
+    projection) — verified by projection count in the in-context system message. But an <strong>orphaned memfs
+    file</strong> with no attached block does <em>not</em> reach context (Frita's repo holds
+    <span class="mono">system/project/agent_team.md</span> etc. that never render). So on this server it is the
+    <span class="mono">system/</span>-labeled <em>block</em> that drives rendering; committing a file alone is not
+    sufficient until it is also projected into an attached block. (Verify gotcha: the
+    <span class="mono">/v1/agents/&lt;id&gt;/context</span> <span class="mono">system_prompt</span> field is stale
+    for dormant agents — check the <span class="mono">&lt;projection&gt;</span> count in <span class="mono">ctx.messages</span>.)</div>
+
   <!-- ============================================= CH10 -->
   <h2 id="ch10"><span class="ch">Chapter Ten</span>Documentation &amp; Skill Rewrites</h2>
   <p>Several harness documents still frame blocks as a primary write target. They must be rewritten to the file-only policy:</p>
@@ -702,10 +728,12 @@ git push origin main                            <span class="tok-c"># server syn
   <div class="note">
     <span class="h">Immediate next actions (awaiting your approval where they touch live agents)</span>
     <ol style="margin:.3em 0 0;">
-      <li>Execute the Mazda dedup (Chapter 8) — <strong>HELD 2026&#8209;06&#8209;15.</strong> Parity verified, but the
-        <span class="mono">team_agents</span> block is the sole live carrier of the roster and memfs&rarr;runtime
-        projection is unproven for this server-run agent — deleting now would risk a roster regression. Keep the
-        block until projection is demonstrated (see Ch. 8 verification note).</li>
+      <li>Execute the Mazda dedup (Chapter 8) — <strong>still HELD, but the blocking unknown is now resolved.</strong>
+        The 2026&#8209;06&#8209;15 fleet relabel demonstrated that a <span class="mono">system/</span>-labeled block
+        <em>does</em> project into context (Ch. 9 status note), so &ldquo;projection is unproven&rdquo; is no longer the
+        blocker — Mazda's roster now renders from her <span class="mono">system/team_agents</span> block. The remaining
+        caution is only about <em>deleting</em> a live roster block before its content is committed as a
+        <span class="mono">system/</span> file; do the file-commit first, then dedup.</li>
       <li><s>Rewrite the five documents in Chapter 10</s> — <strong>DONE 2026&#8209;06&#8209;15.</strong>
         File-only policy banner added to <span class="mono">letta-code/CLAUDE.md</span>,
         <span class="mono">managing-letta-memory</span>, <span class="mono">migrating-memory</span>,

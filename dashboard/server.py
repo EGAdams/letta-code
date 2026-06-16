@@ -609,9 +609,11 @@ SERVERS = [
     {
         'key': 'frita-executor',
         'name': 'Frita Executor (Win10)',
-        'health_url': 'http://100.80.49.10:8797/health',
-        'note': 'Frita\'s win10_run tool backend — Docker container on Win10 box '
-                '(internal :8787, published :8797); restart via "Start" button',
+        'check': 'frita_executor_health',
+        'note': 'Frita\'s win10_run + Claude-SDK runner. Verifies the SDK-capable '
+                'executor on host :8799 (what the Mazda minions reach) AND watches '
+                'for a stale no-SDK "ghost" executor on :8797 (the recurring '
+                'duplicate-stack bug). Restart via "Start" button.',
     },
     {
         'key': 'mazda-tools-mcp',
@@ -1111,11 +1113,87 @@ def get_server(key):
             return s
     return None
 
+# Frita / Claude-SDK executor endpoints. The Mazda minions reach the SDK
+# executor via the host bridge on :8799 (the live letta-server runs in a
+# separate containerd "ghost" stack whose own `frita-executor` DNS points at a
+# stale no-SDK executor — see frita_executor_ghost_container memory). :8797 is
+# where that stale ghost typically surfaces, so we watch it explicitly.
+FRITA_EXEC_GOOD_URL = 'http://100.80.49.10:8799/claude_sdk_status'
+FRITA_EXEC_GHOST_URL = 'http://100.80.49.10:8797/claude_sdk_status'
+
+
+def _probe_sdk_status(url, timeout):
+    """GET a /claude_sdk_status endpoint; return parsed dict or None on failure."""
+    try:
+        req = urllib.request.Request(url, method='GET')
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read(2000).decode('utf-8', errors='replace'))
+    except Exception:
+        return None
+
+
+def frita_executor_health(timeout=None):
+    """Health for the Claude-SDK executor that the Mazda minions actually use.
+
+    GREEN only when the SDK-capable executor answers on :8799 (sdk + claude CLI
+    + mom's-token creds all present). Also probes :8797 and, if a *different*
+    no-SDK executor answers there, flags the recurring "ghost / duplicate stack"
+    condition right in the status text so it never has to be hunted down again."""
+    t = timeout or 6
+    good = _probe_sdk_status(FRITA_EXEC_GOOD_URL, t)
+    ghost = _probe_sdk_status(FRITA_EXEC_GHOST_URL, t)
+
+    # Ghost detection on :8797. Three cases, in order:
+    #  1) it answers the new status endpoint but is NOT SDK-ready, or is a
+    #     different container than the good one on :8799  → confirmed ghost.
+    #  2) status endpoint 404s but the old /health still answers → a stale
+    #     executor running pre-status-endpoint code → also a ghost.
+    #  3) nothing answers :8797 → clean, no ghost.
+    ghost_warn = ''
+    good_host = (good or {}).get('host')
+    if ghost is not None:
+        ghost_host = ghost.get('host')
+        if not ghost.get('ready') or (good_host and ghost_host and ghost_host != good_host):
+            ghost_warn = f' ⚠ GHOST on :8797 (host={ghost_host}, sdk={ghost.get("sdk_present")})'
+    else:
+        ghost_health = _probe_sdk_status('http://100.80.49.10:8797/health', t)
+        if ghost_health is not None:
+            ghost_warn = ' ⚠ GHOST on :8797 (stale executor, no SDK-status endpoint)'
+
+    if good is None:
+        return {'ok': False,
+                'text': 'SDK executor UNREACHABLE on :8799 — Mazda minions cannot run '
+                        'run_claude_code_sdk. Click "Start" to redeploy.' + ghost_warn}
+    if not good.get('ready'):
+        missing = [k for k in ('sdk_present', 'claude_present', 'creds_present')
+                   if not good.get(k)]
+        return {'ok': False,
+                'text': f'SDK executor on :8799 NOT ready (missing: {", ".join(missing)}; '
+                        f'host={good.get("host")}) — minions broken.' + ghost_warn}
+    return {'ok': True,
+            'text': f'SDK OK on :8799 (host={good.get("host")}).' + ghost_warn}
+
+
+# Registry of named check functions usable via a SERVERS entry's 'check' key.
+HEALTH_CHECKS = {
+    'frita_executor_health': frita_executor_health,
+}
+
+
 def server_health(cfg, timeout=None):
     """Ping a server's health_url or tcp_check. Returns {ok, text} (or None if neither set).
 
+    A cfg may instead provide 'check': <name> referencing HEALTH_CHECKS for a
+    custom, body-aware probe (e.g. verifying the SDK executor, not just HTTP up).
+
     tcp_check: (host, port) — used for MCP proxies and other non-HTTP servers that
     only need a TCP connection test (no HTTP response to parse)."""
+    check = cfg.get('check')
+    if check:
+        fn = HEALTH_CHECKS.get(check)
+        if fn is None:
+            return {'ok': False, 'text': f'unknown check: {check}'}
+        return fn(timeout=timeout)
     tcp = cfg.get('tcp_check')
     url = cfg.get('health_url')
     if not url and not tcp:
@@ -1161,7 +1239,7 @@ _health_cache_lock = threading.Lock()
 
 def _poll_all_health_once():
     for cfg in SERVERS:
-        if not (cfg.get('health_url') or cfg.get('tcp_check')):
+        if not (cfg.get('health_url') or cfg.get('tcp_check') or cfg.get('check')):
             continue
         h = server_health(cfg, timeout=HEALTH_CHECK_TIMEOUT)
         with _health_cache_lock:
@@ -1189,7 +1267,7 @@ def cached_server_health(cfg):
     Falls back to a synchronous (slow) probe on first access, before the
     background loop has populated the cache. Returns None for configs with
     neither health_url nor tcp_check, like server_health does."""
-    if not (cfg.get('health_url') or cfg.get('tcp_check')):
+    if not (cfg.get('health_url') or cfg.get('tcp_check') or cfg.get('check')):
         return None
     with _health_cache_lock:
         entry = _health_cache.get(cfg['key'])
@@ -1587,7 +1665,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 'any_down': False,
             }
             for cfg in SERVERS:
-                has_active_check = cfg.get('health_url') or cfg.get('tcp_check')
+                has_active_check = cfg.get('health_url') or cfg.get('tcp_check') or cfg.get('check')
                 status = None
                 if has_active_check:
                     # A real "up" always wins — flip green as soon as the server

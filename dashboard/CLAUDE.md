@@ -170,15 +170,16 @@ So repo-root plan pages are valid dashboard URLs. Current important Project Plan
 | Tab | File | Served URL |
 |---|---|---|
 | Self Evolving | `/home/adamsl/letta-code/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` | `/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` |
-| Mazda Orchestrator | `/home/adamsl/letta-code/team_construction_plan.html` | `/team_construction_plan.html` |
 | Mazda Dev Status | `/home/adamsl/letta-code/notes_plans_handoffs/mazda_dev_status.html` | `/notes_plans_handoffs/mazda_dev_status.html` |
 | Audio Input | `/home/adamsl/letta-code/dashboard/audio_input/audio_plan.html` | `/audio_input/audio_plan.html` |
 
 The old `Tool Fix` tab/document was replaced by `Mazda Orchestrator`; keep
 `/home/adamsl/letta-code/agent_self_improvement/mazda_tool_fix_plan.html` deleted. The
-`Self Evolving` and `Mazda Orchestrator` plan docs describe a discarded "Mazda gets direct
-finance tools" design — **`Mazda Dev Status` is the canonical current-direction doc** (Mazda is
-the orchestrator herself, with minions that drive the Claude Agent SDK; see
+**`Mazda Orchestrator` tab was removed 2026-06-15** — its doc (`team_construction_plan.html`)
+described the discarded "Mazda gets direct finance tools" design and is now kept (with a
+SUPERSEDED banner) as design history only, no longer in the Project Plans tab. The `Self Evolving`
+plan doc is also partly superseded — **`Mazda Dev Status` is the canonical current-direction doc**
+(Mazda is the orchestrator herself, with minions that drive the Claude Agent SDK; see
 [[mazda_orchestration_pivot]] memory). If deployment details are unclear, Frita knows the
 dashboard setup and can be messaged at Letta agent id `agent-881a883f-edd0-4963-bf67-6ef178b8f018`.
 
