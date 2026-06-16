@@ -122,7 +122,11 @@
         result (not just request validation). <strong>Mazda development is unblocked and verified
         running tip-top.</strong> <strong>Frita's memory gap is now CLOSED too</strong> (2026-06-16):
         she renders 2 projections (<code>system/persona</code> + <code>system/human</code>). There are
-        no remaining open memory gaps in the fleet.
+        no remaining open memory gaps in the fleet. <strong>The last build step — wiring
+        <code>finance_mcp</code> into <code>run_claude_code_sdk</code> — is now DONE and verified
+        end-to-end</strong> (2026-06-16): all 5 minions' SDK sessions can call the finance verifier
+        tools over MCP. <strong>There are no open build steps remaining; Mazda is feature-complete.</strong>
+        See §5① for what was built and the assumptions it corrected.
       </div>
 
       <h3>What was checked, and the raw result</h3>
@@ -162,6 +166,11 @@
           <td>End-to-end SDK run</td>
           <td><code>POST …/claude_sdk</code> with <code>Authorization: Bearer frita-win10-exec-…</code> and a real <code>task</code></td>
           <td><span class="done">Works</span> — task <code>"reply PONG"</code> returned <code>{"status":"ok","output":"PONG"}</code>. The runtime doesn't just validate, it <em>executes</em> a Claude SDK session. (Bearer token lives in the <code>run_claude_code_sdk</code> tool source; empty/unauth POST → 401 "Missing/invalid Authorization header".)</td>
+        </tr>
+        <tr>
+          <td><code>finance_mcp</code> tools callable in an SDK session</td>
+          <td><code>POST …/claude_sdk</code> with a task that calls a <code>mcp__finance_verifiers_mcp__*</code> tool</td>
+          <td><span class="done">Works</span> — <code>verify_statement_totals(150 = 50+75+25)</code> → <code>{"matches":true,…}</code>; <code>check_vendor_key("walgreens")</code> → <code>{"recognized":true,…}</code> (both HTTP 200). The SDK session spawns the FastMCP server over stdio and calls the verifiers. <code>check_duplicates</code> returns a structured error (no finance DB creds on this host). See §5①.</td>
         </tr>
       </table>
 
@@ -291,12 +300,15 @@
             <strong>Now dead code</strong> — targets the retired separate-TS-package path (§3a).</p>
         </div>
         <div class="card soft">
-          <h4><span class="tag green">DONE</span> Phase 1c — finance_mcp server</h4>
+          <h4><span class="tag green">DONE</span> Phase 1c — finance_mcp server (built here 2026-06-16)</h4>
           <p class="mini"><code>FastMCP("finance_verifiers_mcp")</code> exposing
             <code>verify_statement_totals</code>, <code>check_vendor_key</code>,
-            <code>check_category</code>, <code>check_duplicates</code> over the existing verifier
-            ports. <code>rol_finances/…/finance_mcp/</code>, commit <code>ead3c34</code>, 6 tests,
-            full suite 410/3/1. <strong>Not yet wired to any minion (§5).</strong></p>
+            <code>check_category</code>, <code>check_duplicates</code> over the existing
+            <code>Concrete*Tool</code> ports.
+            <code>rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/finance_mcp/server.py</code>,
+            commit <code>b94ae5e</code>. <strong>Now WIRED into all 5 minions</strong> via the executor
+            template + verified end-to-end (§5①). NB: the old <code>ead3c34</code> / "6 tests, 410/3/1"
+            claim was never real on this host — this is the actual build.</p>
         </div>
       </div>
 
