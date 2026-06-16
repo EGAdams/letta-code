@@ -39,6 +39,8 @@
     .subtitle { max-width: 1000px; font-size: 18px; opacity: .94; }
     .badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
     .badge { border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.12); padding: 7px 11px; border-radius: 999px; font-size: 13px; }
+    .badge.green { background: rgba(22,163,74,.25); border-color: rgba(134,239,172,.5); }
+    .badge.red { background: rgba(220,38,38,.25); border-color: rgba(252,165,165,.5); }
     .page { padding: 26px 22px 54px; }
     .section { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; margin: 18px 0; padding: 24px; box-shadow: 0 12px 30px rgba(15, 23, 42, .08); }
     .section.dark { background: #0f172a; color: #e5e7eb; border-color: #334155; }
@@ -84,688 +86,416 @@
 <body>
   <header class="hero">
     <div class="hero-inner">
-      <div class="eyebrow">Project Plans - Mazda Dev Status</div>
-      <h1>Mazda — Orchestrator Direction (Pivot in Progress)</h1>
+      <div class="eyebrow">Project Plans · Mazda Dev Status · canonical handoff doc</div>
+      <h1>Mazda — the Self-Improving Letta Agent</h1>
       <p class="subtitle">
-        This page replaces the earlier "self-improvement tools for Mazda" status with the new
-        direction: Mazda is the orchestrator (no longer called "Mazda Orchestrator" — just
-        "Mazda"), and her minions are Letta agents that specialize in driving the Claude Agent
-        SDK (TypeScript). As of 2026-06-15 this is an active pivot, not a finished design.
+        Mazda is the orchestrator. Her 5 minion Letta agents each drive a Claude Agent SDK
+        (TypeScript) session via the <code>run_claude_code_sdk</code> tool. This page is the shared
+        progress status between instances of Claude / other agents — <strong>read §0 first;
+        it is the live, verified snapshot.</strong>
       </p>
       <div class="badges">
-        <span class="badge">✅ Memory system FIXED fleet-wide (2026-06-15) — Phase 1 unblocked</span>
-        <span class="badge">✅ Phase 1a — TS minions/ package exists on Win10 box only (be13ca8); not synced to Linux dev host</span>
-        <span class="badge">✅ Phase 1b — Python minion IAgentRunner adapter (2026-06-15, rol_finances commit 4f7ae86)</span>
-        <span class="badge">✅ Phase 1c — finance verifier MCP server (2026-06-15, code exists, not yet wired to any minion)</span>
-        <span class="badge green">✅ Phase 2 GOAL ALREADY LIVE (2026-06-15) — via simpler run_claude_code_sdk design, not the Phase 0-1c plan</span>
-        <span class="badge">Old "tools for Mazda" design: discarded</span>
-        <span class="badge">Mazda = the orchestrator (renamed, was "Mazda Orchestrator")</span>
-        <span class="badge">5 minion Letta agents — each has run_claude_code_sdk + coordinator persona, live</span>
-        <span class="badge">Next: wire finance_mcp into run_claude_code_sdk sessions — needs sign-off</span>
-        <span class="badge">Self-improvement loop (Milestones 0–9): carried forward</span>
+        <span class="badge green">✅ Memory system VERIFIED live (2026-06-16) — Mazda + 5 minions render their <code>system/</code> blocks into context</span>
+        <span class="badge green">✅ Phase 2 runtime LIVE & verified — executor :8799 up, <code>run_claude_code_sdk</code> attached to all minions</span>
+        <span class="badge">Phase 0 / 1a / 1b / 1c — code DONE (2026-06-15)</span>
+        <span class="badge red">❌ Frita still amnesiac (not a Mazda minion — separate fix)</span>
+        <span class="badge green">✅ finance_mcp BUILT + wired into <code>run_claude_code_sdk</code> + verified end-to-end (2026-06-16)</span>
+        <span class="badge">Self-improvement loop (Milestones 0–9, 145 tests) carried forward as control plane</span>
       </div>
     </div>
   </header>
 
   <main class="page">
 
-    <section class="section">
-      <h2>0. Shift Status — 2026-06-15 (read this first)</h2>
-      <div class="callout success">
-        <strong>2026-06-16 — minion <code>run_claude_code_sdk</code> is now WORKING end-to-end.</strong>
-        The live minions' Claude-Agent-SDK tool was silently broken: the live Letta fleet runs in an
-        untracked containerd "ghost" stack (172.18.x) whose <code>frita-executor</code> pointed at a
-        stale executor with no SDK, while all deploys/fixes were landing on a <em>duplicate</em>
-        dockerd stack (172.19.x). Fixed by publishing the good (SDK-equipped, mom's-token) executor on
-        host port <code>:8799</code> and repointing the tool to
-        <code>http://100.80.49.10:8799/claude_sdk</code> (fallback <code>172.17.0.1:8799</code>),
-        bridging across the two stacks. Verified: <code>mazda-parser-agent</code> →
-        <code>run_claude_code_sdk</code> → real Claude Code SDK response from the
-        <code>rol_finances/.../january</code> workdir. All 5 minions share the one tool, so all are
-        fixed. Full detail + the residual (cosmetic) ghost-stack note in memory
-        <code>frita_executor_ghost_container_2026_06_15.md</code>. <strong>This makes Phase 2's
-        runtime real</strong> — the next concrete build step (wire Phase 1c <code>finance_mcp</code>
-        into these sessions, §0c) now has a working executor to target.
-      </div>
-      <div class="callout success">
-        <strong>Memory system: FIXED fleet-wide.</strong> The blocker the prior handoff named
-        ("fix the memory system, <em>then</em> the self-improvement system") is cleared. The
-        <code>git-memory-enabled</code> agents that were silently rendering <strong>zero memory</strong>
-        now render their persona/human/custom blocks. This <strong>unblocks the Phase 1 work in §5</strong>
-        — the next shift can proceed to <code>IClaudeAgentSdkRunner</code>.
-      </div>
-      <p>What was wrong &amp; what was done (full detail in memory
-        <code>memfs_system_prefix_bug.md</code> + <code>live_letta_db_topology.md</code>):</p>
-      <ul>
-        <li><strong>Bug:</strong> for a <code>git-memory-enabled</code> agent, <code>Memory.compile()</code>
-          renders <em>only</em> blocks whose label starts with <code>system/</code>
-          (letta-src <code>schemas/memory.py:129</code>). Agents enabled the manual way (INSERT tag +
-          <code>git init --bare</code>) were never relabeled → every block filtered out → <strong>no
-          memory in context at all</strong> (likely root cause of past erratic behavior / reset-loops).</li>
-        <li><strong>Fix (proven, reversible):</strong> relabel each block with <code>n_agents=1</code>
-          to <code>system/&lt;label&gt;</code> in <code>block.label</code> + <code>blocks_agents.block_label</code>
-          (transaction, row-count guarded), then <code>POST /v1/agents/&lt;id&gt;/recompile</code>.
-          Rollback = rename back. Backups at <code>~/letta-backups/fleet-*</code>.</li>
-        <li><strong>Done this shift:</strong> Mazda (prior) + <strong>11 agents</strong> relabeled
-          &amp; verified — Jeri, Hailey, Quinn, scoreboard-controller-expert, China, and
-          <strong>all 5 mazda minions</strong> (router / parser / vendor-identity / receipt-linker /
-          categorization), plus Scissari. <strong>35 private blocks</strong> relabeled;
-          <strong>4 shared blocks correctly skipped</strong> (Scissari ×2, Hailey ×1, Frita ×1).
-          Scissari's live Telegram bot (<code>systemctl --user restart lettabot.service</code>) was restarted.</li>
-        <li><span class="tag green">RELEVANT TO §4/§5</span> The 5 mazda minions now render
-          <code>system/persona</code> + <code>system/human</code> again — so the persona-rewrite work
-          in §4/§5 (repurposing minions for the Claude Agent SDK) starts from minions that
-          <em>actually have</em> a persona to rewrite.</li>
-      </ul>
-      <div class="callout danger">
-        <strong>Still OPEN — Frita.</strong> Renders zero memory and <em>cannot</em> be relabel-fixed:
-        her only block is the shared <code>shared_scratchpad</code>, and she has no
-        <code>persona</code>/<code>human</code> block of her own (her memfs repo holds only an orphaned
-        shared template). Fix = <strong>author a <code>system/persona</code> (+<code>system/human</code>)
-        for her</strong> — bespoke, not part of the relabel batch.
-      </div>
-      <div class="callout warning">
-        <strong>Infra — how to reach the LIVE Letta DB (this tripped up the last shift):</strong>
-        <ul>
-          <li><strong>HTTP API</strong> (blocks, core-memory, recompile, reads) works from anywhere:
-            <code>http://100.80.49.10:8283</code>. Prefer it for reads/recompile.</li>
-          <li><strong>Direct DB</strong> = a ghost-container Postgres at <code>172.18.0.4:5432</code>
-            (<strong>2195 agents</strong>), reachable ONLY from the Win10 WSL:
-            <code>ssh adamsl@100.80.49.10</code> → <code>/home/adamsl/.bun/bin/bun</code> →
-            <code>new SQL("postgres://letta:letta@172.18.0.4:5432/letta")</code>. (Win10 bun is v1.3.2 —
-            use <code>... in ${sql(arr)}</code> for IN-lists, not <code>ANY()</code>.)</li>
-          <li><strong>Trap:</strong> the <code>docker</code>-visible <code>letta-postgres</code> container
-            is a <em>stale</em> stack with only <strong>4 agents</strong> — do NOT query it for live data.</li>
-          <li><strong>Verify gotcha:</strong> <code>/v1/agents/&lt;id&gt;/context</code>'s
-            <code>system_prompt</code> field is STALE for dormant agents. Check the
-            <code>&lt;projection&gt;</code> count in the <code>ctx.messages</code> system message (or the
-            <code>POST /recompile</code> response body) instead.</li>
-        </ul>
-      </div>
-      <p class="mini"><strong>Status as of end of 2026-06-15 shift:</strong> Phase 1a, 1b, and 1c
-        are all DONE (see §0a/§0b) — <code>IClaudeAgentSdkRunner</code>, the Python
-        <code>IAgentRunner</code> adapter, and the <code>finance_mcp</code> verifier server are all
-        built and tested. <strong>Next concrete step for the next shift is Phase 2</strong> (§6):
-        minion persona rewrites + new <code>run_claude_agent_sdk_task</code> tool. This touches
-        live agents in the fleet and <strong>needs explicit per-agent sign-off from the user
-        before any change</strong> — don't start it without that.</p>
-    </section>
+    <!-- ============================================================ -->
+    <section class="section" id="verified">
+      <h2>0. Verified Live State — 2026-06-16 (read this first)</h2>
 
-    <section class="section" id="phase1ab">
-      <h2>0a. Phase 1a + 1b — DONE (2026-06-15, same shift)</h2>
       <div class="callout success">
-        <strong>Phase 1a — <code>IClaudeAgentSdkRunner</code>, real implementation.</strong>
-        <code>/home/adamsl/claude-code-sdk-ts/minions/src/implementations/claudeAgentSdkRunner.ts</code>
-        (<code>ClaudeAgentSdkRunner</code>) implements the Phase 0 port against the real
-        <code>claude-code-sdk-ts</code> fluent API: <code>claude().allowTools(...).query(prompt)</code>,
-        then <code>asText()</code> + <code>getUsage()</code> + <code>getSessionId()</code> +
-        <code>getErrors()</code> → <code>IMinionTaskResult</code> (status
-        ok/partial/error). Added <code>src/index.ts</code> with a
-        <code>createMinion(role, options?)</code> factory wiring
-        <code>DefaultMinion</code> to this real runner (was only wired to the test
-        fake before). Also added <code>src/cli.ts</code>
-        (<code>runCli(jsonInput): Promise&lt;string&gt;</code>) — reads an
-        <code>IMinionTaskRequest</code> JSON blob from stdin, runs it through
-        <code>createMinion(...)</code>, writes the <code>IMinionTaskResult</code> JSON to
-        stdout. This is the process-boundary the Phase 1b Python adapter spawns.
-        <strong>Phase 0 was also still uncommitted</strong> (package.json, interfaces,
-        DefaultMinion, original 2 tests) — committed together with 1a as
-        <code>be13ca8</code> on <code>claude-code-sdk-ts</code> (10 files, 323 lines).
-        4 test files / 6 tests pass (incl. 2 real Claude Agent SDK sessions, ~10s each);
-        <code>npx tsc --noEmit</code> clean.
+        <strong>Bottom line:</strong> the memory-system blocker is <strong>CLEARED for the entire
+        Mazda team</strong>. Mazda and all 5 minions now render their <code>system/</code> memory
+        blocks into compiled context — confirmed this shift by recompiling each agent and reading
+        the <code>&lt;projection&gt;</code> lines in the response (the authoritative test; see §6).
+        Phase 2's runtime is real and live: the executor that backs <code>run_claude_code_sdk</code>
+        is up, and the tool is attached to the minions — and a real end-to-end
+        <code>run_claude_code_sdk</code> task now round-trips through the executor and returns a valid
+        result (not just request validation). <strong>Mazda development is unblocked and verified
+        running tip-top.</strong> <strong>Frita's memory gap is now CLOSED too</strong> (2026-06-16):
+        she renders 2 projections (<code>system/persona</code> + <code>system/human</code>). There are
+        no remaining open memory gaps in the fleet.
       </div>
-      <div class="callout success">
-        <strong>Phase 1b — Python <code>IAgentRunner</code> adapter.</strong> In
-        <code>rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/agent_runtime/</code>:
-        <code>minion_adapter.py</code> (<code>MinionCommunicationAdapter</code>, an
-        <code>IGenericAgentAdapter</code>) maps <code>RunRequest</code> →
-        <code>IMinionTaskRequest</code> JSON (<code>taskId</code>=run_id,
-        <code>role</code>, <code>description</code>=input_text,
-        <code>context</code>=task_name/wrapper_revision/arm/metadata) and
-        <code>IMinionTaskResult</code> JSON → <code>RunResult</code>
-        (status ok/partial → <code>succeeded_transport=True</code>; usage
-        inputTokens/outputTokens/totalTokens → <code>TokenUsage</code>; no
-        per-tool-call trace at this boundary). <code>minion_transport.py</code>
-        (<code>minion_cli_transport</code>) spawns <code>npx tsx src/cli.ts</code> in
-        the minions dir with the JSON request on stdin (injectable
-        <code>runner=subprocess.run</code> for tests). New
-        <code>AgentRuntimeKind.MINION</code> enum value. Both exported from
-        <code>implementations/agent_runtime/__init__.py</code>. 7 new tests in
-        <code>tests/test_phase_1b_minion_adapter.py</code> (transport mocked, no live
-        Node/SDK) — all pass; full <code>agent_self_improvement</code> suite still
-        404 passed / 3 skipped / 1 xfailed. Committed as <code>4f7ae86</code> on
-        <code>rol_finances</code> (5 files, 293 lines) — left unrelated
-        in-progress <code>agent_packages/mazda/finance_orchestrator.py</code> work
-        (another live agent's WIP) untouched.
-      </div>
-      <div class="callout warning">
-        <strong>Not done yet (at this point in the shift) / next:</strong> Phase 1c (finance-logic
-        MCP face over
-        <code>ITotalsVerifier</code>/<code>IVendorKeyVerifier</code>/<code>ICategoryVerifier</code>/<code>IDuplicateVerifier</code>)
-        — see §0b, done later same shift —
-        then Phase 2 (minion persona rewrites + <code>run_claude_agent_sdk_task</code> tool —
-        <strong>needs explicit per-agent sign-off</strong>, live agents in the fleet).
-        <code>AdapterAgentRunner</code> + <code>MinionCommunicationAdapter</code> +
-        <code>minion_cli_transport</code> are not yet wired into
-        <code>DefaultAgentPackageFactory</code>/<code>agent_packages.py</code> — that's
-        a data-only addition (one catalog entry per minion role) but wasn't done
-        this shift since it's not required for 1c and the minions aren't live agents
-        yet from the kernel's perspective.
-      </div>
-    </section>
 
-    <section class="section" id="phase1c">
-      <h2>0b. Phase 1c — DONE (2026-06-15, same shift)</h2>
-      <div class="callout success">
-        <strong>Phase 1c — finance verifier MCP server.</strong> New package
-        <code>rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/finance_mcp/</code>
-        (<code>server.py</code> + <code>__init__.py</code>): a <code>FastMCP("finance_verifiers_mcp")</code>
-        server exposing the 4 existing verifier ports as MCP tools —
-        <code>verify_statement_totals</code>, <code>check_vendor_key</code>,
-        <code>check_category</code>, <code>check_duplicates</code> — each a thin wrapper that calls
-        <code>ITotalsVerifier</code>/<code>IVendorKeyVerifier</code>/<code>ICategoryVerifier</code>/<code>IDuplicateVerifier</code>'s
-        <code>.verify(...)</code>
-        and returns <code>result.model_dump(mode="json")</code>. Tool inputs are the existing
-        pydantic models from <code>contracts/tool_inputs.py</code>
-        (<code>VerifyTotalsInput</code>/<code>CheckVendorKeyInput</code>/<code>CheckCategoryInput</code>/<code>CheckDuplicatesInput</code>).
-        <code>create_server(verifiers: Optional[FinanceVerifiers] = None)</code> takes an injectable
-        <code>FinanceVerifiers</code> dataclass bundle so tests run without a live MySQL connection
-        or <code>vendor_category.yaml</code>; <code>build_default_verifiers()</code> lazily imports
-        and wires the real <code>PythonTotalsVerifier</code> +
-        <code>Live{VendorKey,Category,Duplicate}Verifier</code> adapters (the same ones from Phase
-        0). Nothing reimplemented — pure MCP face over Phase 0 verifier code.
-      </div>
-      <div class="callout success">
-        <strong>Tests.</strong> New
-        <code>tests/test_phase_1c_finance_mcp.py</code> (6 tests) builds the server with duck-typed
-        fake verifiers, then drives it via <code>asyncio.run(mcp.list_tools())</code> and
-        <code>asyncio.run(mcp.call_tool(name, {"inp": {...}}))</code>, parsing the
-        <code>TextContent.text</code> JSON to assert on
-        <code>TotalsVerification</code>/<code>VendorKeyCheck</code>/<code>CategoryCheck</code>/<code>DuplicateCheck</code>
-        shapes (matches/mismatch totals, vendor recognition, category match, duplicate detection).
-        All 6 pass; full <code>agent_self_improvement</code> suite: <strong>410 passed, 3 skipped, 1
-        xfailed</strong> (up from 404/3/1 — no regressions). Committed as <code>ead3c34</code> on
-        <code>rol_finances</code> (3 files, 349 lines) — left the same unrelated
-        <code>agent_packages/mazda/finance_orchestrator.py</code> +
-        <code>tests/test_mazda_finance_orchestrator_contracts.py</code> +
-        <code>tests/test_mazda_run_team_cli.py</code> +
-        <code>agent_packages/mazda/__init__.py</code> WIP (another live agent's concurrent work)
-        untouched/uncommitted.
-      </div>
-      <div class="callout warning">
-        <strong>Not done yet / next:</strong> the new <code>finance_mcp</code> server is not yet
-        registered anywhere a minion or Mazda could reach it (no MCP client config, no
-        <code>run_claude_agent_sdk_task</code> tool to invoke it from). That wiring is part of
-        <strong>Phase 2</strong>, which needs explicit per-agent sign-off before touching any live
-        minion persona, tool list, or Mazda's own tools.
-      </div>
-    </section>
-
-    <section class="section dark" id="phase2found">
-      <h2>0c. Phase 2 — FOUND ALREADY DONE via a simpler design (2026-06-15, later shift)</h2>
-      <div class="callout warning">
-        <strong>Phase 1a exists — but only on the Win10 box (<code>100.80.49.10</code>),
-        not on the Linux dev host or mom's machine.</strong> Commit <code>be13ca8</code>
-        (<em>"minions: Phase 0 contract + Phase 1a real ClaudeAgentSdkRunner"</em>) is real
-        and lives in <code>100.80.49.10:/home/adamsl/claude-code-sdk-ts</code> (confirmed via
-        SSH this shift). Files: <code>minions/src/interfaces/minion.ts</code>,
-        <code>minions/src/implementations/claudeAgentSdkRunner.ts</code>,
-        <code>minions/src/index.ts</code>, <code>minions/src/minion.ts</code>,
-        <code>minions/src/cli.ts</code>, 4 test files, <code>package.json</code>,
-        <code>tsconfig.json</code>, <code>vitest.config.ts</code> (323 lines, 10 files).
-        This repo and the Linux dev clone simply don't have it; only the Win10 clone does.
-        Phase 1b/1c (<code>rol_finances</code> commits <code>4f7ae86</code>,
-        <code>ead3c34</code>) are still real and exist in all clones.
-      </div>
-      <div class="callout success">
-        <strong>But Phase 2's actual goal — minions that drive a Claude Agent SDK session —
-        is already live</strong>, via a different, earlier, simpler design from memory
-        <code>mazda_minion_pattern.md</code> (session <code>14fcd25f-...</code>, predates this
-        whole Phase 0-1c plan) and built by
-        <code>/home/adamsl/claude-code-sdk-ts/jeri_agent/setup_mazda_minions.py</code>. Verified
-        live on the server (<code>http://100.80.49.10:8283</code>) this shift — <strong>all 5</strong>
-        <code>mazda-*-agent</code> minions currently have:
-        <ul>
-          <li>A <code>run_claude_code_sdk(task, context, working_dir)</code> Python tool
-            attached — writes an inline TS file using
-            <code>claude().withModel('sonnet').allowTools('Read','Write','Edit','Bash','Glob','Grep').inDirectory(workDir).query(prompt).asText()</code>
-            and runs it via <code>npx tsx &lt;tmpfile&gt;</code> in
-            <code>/home/adamsl/claude-code-sdk-ts</code> (300s timeout).</li>
-          <li>A "lightweight coordinator — delegate to run_claude_code_sdk" system prompt,
-            specialized per minion (router/parser/categorization/receipt-linker/vendor-identity),
-            with hardcoded agent-ID tables for cross-minion reference.</li>
-          <li><code>git-memory-enabled</code> tag, and (confirmed for
-            <code>mazda-parser-agent</code>) memory renders correctly post-§0 fix.</li>
-        </ul>
-        This is functionally the same shape as the spec'd <code>run_claude_agent_sdk_task</code>
-        (task envelope in → Claude Agent SDK session → structured result out), just simpler:
-        one Python tool function per agent instead of a separate TS package + CLI
-        subprocess-of-a-subprocess + Python adapter/transport layer.
-      </div>
-      <div class="callout">
-        <strong>Decision this shift:</strong> adopt the live <code>run_claude_code_sdk</code> +
-        coordinator-persona design as the real Phase 2 implementation. The Phase 0/1a
-        separate-TS-package plan (§0a's <code>IClaudeAgentSdkRunner</code>/<code>DefaultMinion</code>/
-        <code>cli.ts</code>/<code>createMinion()</code>) is <strong>retired, not rebuilt</strong> —
-        it would be a second, competing implementation of something that already works.
-        Phase 1b's <code>MinionCommunicationAdapter</code>/<code>minion_cli_transport</code>
-        (which target the retired design) are likewise not load-bearing for this path; they stay
-        as dead code in <code>rol_finances</code> for now (harmless — 7 tests, mocked transport)
-        rather than being deleted mid-shift.
-      </div>
-      <div class="callout warning">
-        <strong>What's NOT yet connected: Phase 1c's <code>finance_mcp</code> server.</strong>
-        It's real, tested (6 tests, full suite 410/3/1), and exposes
-        <code>verify_statement_totals</code>/<code>check_vendor_key</code>/<code>check_category</code>/<code>check_duplicates</code>
-        via <code>FastMCP("finance_verifiers_mcp")</code> with a working stdio entrypoint
-        (<code>server.py</code> <code>main()</code> → <code>create_server().run()</code>). But
-        no minion's <code>run_claude_code_sdk</code> session can reach it yet — the inline TS
-        script doesn't configure any MCP servers.
-        <p><strong>Concrete wiring plan (next step, needs sign-off — edits a live tool shared by
-        all 5 minions):</strong></p>
-        <ol>
-          <li>In <code>run_claude_code_sdk</code>'s inline TS template, add
-            <code>.withMCP({ command: 'python', args: ['-m', 'agent_self_improvement.implementations.finance_mcp.server'], env: {...} })</code>
-            — <code>claude-code-sdk-ts</code>'s fluent API already supports this
-            (<code>src/fluent.ts:161</code> <code>withMCP(...servers)</code>,
-            <code>MCPServer = { command, args?, env? }</code> in <code>src/types.ts:88</code>).
-            Run via the <code>so</code> venv python (per
-            <code>feedback_so_venv.md</code> — has the deps <code>finance_mcp</code> needs)
-            and <code>cwd</code> = <code>rol_finances/tools/self_improving_agent</code> so the
-            module path resolves.</li>
-          <li>Add the 4 finance_mcp tool names
-            (<code>verify_statement_totals</code>, <code>check_vendor_key</code>,
-            <code>check_category</code>, <code>check_duplicates</code>) to
-            <code>.allowTools(...)</code> alongside <code>Read/Write/Edit/Bash/Glob/Grep</code>.</li>
-          <li>Re-register the updated tool via <code>client.tools.update(...)</code> (same tool
-            ID, all 5 agents share it — one update covers all). Test against one minion
-            (<code>mazda-categorization-agent</code> is the natural fit — categorization is the
-            primary consumer of <code>check_category</code>/<code>check_vendor_key</code>)
-            before assuming it's correct for all 5.</li>
-          <li>Only the <em>categorization/vendor-identity/duplicate-relevant</em> minions
-            actually need all 4 finance tools; the others (router, parser, receipt-linker) may
-            only need a subset or none — but since the tool is shared by ID across all 5 agents
-            (per <code>setup_mazda_minions.py</code>, one <code>sdk_tool.id</code> reused), the
-            MCP server + allowlist additions apply fleet-wide regardless. Acceptable: the finance
-            verifier tools are read-only/idempotent (see <code>annotations</code> in
-            <code>server.py</code>), so granting access to all 5 is low-risk.</li>
-        </ol>
-      </div>
-    </section>
-
-    <section class="section">
-      <h2>1. What Changed</h2>
-      <div class="callout danger">
-        <strong>Discarded:</strong> the "New Letta Tools for Mazda" design from the
-        self-improvement system — the plan to give Mazda herself 7 direct finance tools
-        (<code>verify_statement_totals</code>, <code>check_vendor_key</code>,
-        <code>check_category</code>, <code>check_duplicates</code>, <code>record_trace</code>,
-        <code>propose_improvement</code>, <code>load_wrapper_revision</code>) and have Mazda call
-        them as an "overloaded tool user." That model, and the
-        <code>team_construction_plan.html</code> "Mazda Orchestrator" plan built on top of it
-        (<code>IAgentTeamFactory</code>, <code>StageEnvelope</code>, deterministic service
-        family, etc.), are both <strong>superseded by the direction below</strong>.
-      </div>
-      <div class="callout success">
-        <strong>New direction:</strong>
-        <ul>
-          <li>Mazda <em>is</em> the orchestrator — drop the "Orchestrator" suffix, she's just
-            <strong>Mazda</strong>.</li>
-          <li>Mazda delegates to <strong>minions</strong> — Letta agents whose specialty is
-            driving the <strong>Claude Agent SDK (TypeScript)</strong> to do the actual work,
-            rather than Mazda calling Python finance-tool ports directly.</li>
-          <li>The 5 minion agents already exist on the Letta server and are the starting point
-            for this rebuild (see §2).</li>
-        </ul>
-      </div>
-      <div class="callout">
-        <strong>Carried forward, not discarded:</strong> the self-improvement loop itself
-        (<code>AgentKernel</code>, evidence/trace store, verdicts, proposals, baseline-vs-candidate
-        experiments, gates, activation/rollback, HTML reports — Milestones 0–7 + Hardening
-        Phases 8–9, 145 unit tests) is <strong>finance-blind, generic infrastructure</strong> and
-        stays part of the design. What's discarded is only the specific
-        <em>finance tool wiring</em> (verify_statement_totals, check_vendor_key, etc.) that the
-        old plan attached to it. Under the new direction this same loop wraps
-        <strong>Mazda's orchestration runs and minion delegation</strong> instead — see §3a.
-      </div>
-    </section>
-
-    <section class="section">
-      <h2>2. What Already Exists (the work-in-progress starting point)</h2>
-      <p>
-        Mazda (<code>agent-6b536cf4-ec88-4290-b595-fed21d14bd8e</code>) already has a
-        <code>team_agents</code> core-memory block listing 5 minion agents, created for the prior
-        finance-pipeline design:
-      </p>
+      <h3>What was checked, and the raw result</h3>
       <table>
-        <tr><th>Existing minion agent</th><th>Old role (finance pipeline)</th><th>New role (proposed)</th></tr>
-        <tr><td><code>mazda-router-agent</code></td><td>Classify document type, pick parser strategy</td><td><span class="warn">TBD</span> — re-scope as a Claude Agent SDK task router</td></tr>
-        <tr><td><code>mazda-parser-agent</code></td><td>OCR / structured parsing of statements</td><td><span class="warn">TBD</span></td></tr>
-        <tr><td><code>mazda-vendor-identity-agent</code></td><td>Vendor normalization / id_light</td><td><span class="warn">TBD</span></td></tr>
-        <tr><td><code>mazda-receipt-linker-agent</code></td><td>Link receipts to transactions</td><td><span class="warn">TBD</span></td></tr>
-        <tr><td><code>mazda-categorization-agent</code></td><td>Category resolution</td><td><span class="warn">TBD</span></td></tr>
+        <tr><th>Check</th><th>How</th><th>Result (2026-06-16)</th></tr>
+        <tr>
+          <td>Live DB is the real one</td>
+          <td>Bun.sql <code>select count(*) from agents</code> against <code>172.18.0.4:5432</code></td>
+          <td><span class="done">2195 agents</span> — confirms the ghost-container DB, not the stale 4-agent docker stack</td>
+        </tr>
+        <tr>
+          <td>Mazda renders memory</td>
+          <td><code>POST /v1/agents/&lt;mazda&gt;/recompile</code>, count <code>&lt;projection&gt;</code> lines</td>
+          <td><span class="done">6 blocks project</span>: <code>system/persona</code>, <code>system/human</code>, <code>system/db_schema</code>, <code>system/environment</code>, <code>system/team_agents</code>, <code>system/verification_procedure</code></td>
+        </tr>
+        <tr>
+          <td>Minions render memory</td>
+          <td>Recompile <code>mazda-parser-agent</code> &amp; <code>mazda-categorization-agent</code></td>
+          <td><span class="done">2 blocks each project</span>: <code>system/persona</code> + <code>system/human</code>. (DB shows the same labels on all 5 minions.)</td>
+        </tr>
+        <tr>
+          <td>Frita renders memory</td>
+          <td>Recompile <code>agent-881a883f-…</code></td>
+          <td><span class="done">2 projections</span> — FIXED 2026-06-16: authored + attached <code>system/persona</code> and <code>system/human</code> blocks (she had no persona/human to relabel). She now renders <code>$MEMORY_DIR/system/persona.md</code> + <code>system/human.md</code>.</td>
+        </tr>
+        <tr>
+          <td>Executor (Phase 2 runtime)</td>
+          <td><code>GET http://100.80.49.10:8799/</code> → 405; <code>POST …/claude_sdk</code> (empty) → 422</td>
+          <td><span class="done">Alive &amp; validating</span> — the SDK-equipped, mom's-token executor published on host port <code>:8799</code> is up</td>
+        </tr>
+        <tr>
+          <td><code>run_claude_code_sdk</code> attached</td>
+          <td><code>tools_agents</code> join for <code>mazda-parser-agent</code></td>
+          <td><span class="done">Attached</span> — the shared tool is present on the minion</td>
+        </tr>
+        <tr>
+          <td>End-to-end SDK run</td>
+          <td><code>POST …/claude_sdk</code> with <code>Authorization: Bearer frita-win10-exec-…</code> and a real <code>task</code></td>
+          <td><span class="done">Works</span> — task <code>"reply PONG"</code> returned <code>{"status":"ok","output":"PONG"}</code>. The runtime doesn't just validate, it <em>executes</em> a Claude SDK session. (Bearer token lives in the <code>run_claude_code_sdk</code> tool source; empty/unauth POST → 401 "Missing/invalid Authorization header".)</td>
+        </tr>
       </table>
-      <p class="mini">
-        Source: <code>mazda_team_agents_memory</code> (fixed 2026-06-13) — these 5 agents exist
-        on the Letta server with memfs repos provisioned (empty), and
-        <code>send_letta_message</code> is attached to Mazda for delegating to them.
-      </p>
+
       <div class="callout warning">
-        These agents were built and named for the <em>old</em> finance-document pipeline
-        (Router → Parser → Vendor Identity → Duplicate → Receipt Linker → Categorization →
-        Storage). Under the new direction they become (or are replaced by) minions whose job is
-        to operate the Claude Agent SDK. <strong>Whether the existing 5 are repurposed,
-        renamed, or supplemented with new minions is an open question</strong> — see §4.
+        <strong>Do NOT re-diagnose memory from the <code>agents.system</code> column or from empty
+        memfs repos.</strong> A prior diagnostic mistakenly concluded the fleet was "amnesiac"
+        because (a) the <code>agents.system</code> DB column doesn't contain block text and (b) the
+        minions' memfs repos have 0 commits. Both are red herrings:
+        <ul>
+          <li><code>agents.system</code> is the base prompt template — block content is injected at
+            <em>compile time</em>, never stored there. It will <em>always</em> look "empty" of memory.</li>
+          <li>On this deployment, <strong>the <code>system/</code>-labeled block drives rendering, not
+            the memfs file.</strong> An empty memfs repo is fine as long as the block exists and is
+            labeled <code>system/&lt;label&gt;</code>. (Conversely, an orphaned memfs file with no
+            attached block does <em>not</em> reach context — per <code>memory_system_plan.html</code> Ch.9.)</li>
+        </ul>
+        The only authoritative memory check is the <code>&lt;projection&gt;</code> count from a
+        recompile (or the <code>&lt;projection&gt;</code> entries in the <code>ctx.messages</code>
+        system message). See §6.
+      </div>
+
+      <div class="callout success">
+        <strong>RESOLVED — Frita (2026-06-16).</strong> <code>agent-881a883f-edd0-4963-bf67-6ef178b8f018</code>
+        rendered zero memory because her only block was the shared <code>shared_scratchpad</code> and
+        she had no <code>persona</code>/<code>human</code> block to relabel. Fixed by <em>authoring</em>
+        two new blocks — <code>system/persona</code> (her memory-keeper identity for the Scissari +
+        Claude Code dev box) and <code>system/human</code> — and attaching them. She now renders
+        <strong>2 projections</strong> (verified via recompile). The fleet memory fix is now complete;
+        no agents remain amnesiac. <em>(Note: the recompile reads the freshly-attached blocks on the
+        next call, not the same instant they attach — re-run the §6 grep once if the first returns
+        empty.)</em>
       </div>
     </section>
 
-    <section class="section">
-      <h2>3. New Target Shape (high level, still forming)</h2>
-      <div class="diagram" style="background:#0b1220;color:#dbeafe;border-radius:14px;padding:16px;overflow-x:auto;border:1px solid #334155;">
-        <pre style="margin:0;background:transparent;border:none;color:inherit;white-space:pre;">
-Mazda (orchestrator, Letta agent)
-  |
-  +-- delegates work via send_letta_message to --> Minions (Letta agents)
-                                                       |
-                                                       +-- each minion is an expert
-                                                           operator of the Claude Agent
-                                                           SDK (TypeScript) for its
-                                                           assigned slice of work
-        </pre>
+    <!-- ============================================================ -->
+    <section class="section" id="what">
+      <h2>1. What Mazda Is (current direction)</h2>
+      <div class="callout success">
+        <ul>
+          <li>Mazda <em>is</em> the orchestrator — no "Orchestrator" suffix, just <strong>Mazda</strong>
+            (<code>agent-6b536cf4-ec88-4290-b595-fed21d14bd8e</code>).</li>
+          <li>Mazda delegates to <strong>5 minions</strong> (Letta agents) via
+            <code>send_letta_message</code>. Each minion's specialty is driving a
+            <strong>Claude Agent SDK (TypeScript)</strong> session for its slice of work.</li>
+          <li>Finance domain logic (totals/vendor/category/duplicate verifiers) is exposed to those
+            SDK sessions as MCP tools — <em>not</em> called by Mazda directly.</li>
+        </ul>
       </div>
-      <p>
-        The core shift: instead of Mazda (or her minions) calling bespoke Python finance-service
-        ports directly, the minions get work done by <strong>driving Claude Agent SDK sessions</strong>
-        — i.e. the same TypeScript SDK that powers Letta Code / Claude Code subagents
-        (<code>@anthropic-ai/claude-agent-sdk</code>-style tooling). Mazda's role stays
-        Facade/Mediator (own run state, delegate, collect results) — that part of the old
-        Mazda Orchestrator plan's §4 "Team Roles" framing still applies to Mazda herself, just
-        not to a separate "Mazda Orchestrator" identity.
-      </p>
+      <div class="callout danger">
+        <strong>Discarded (do not implement):</strong> the older "give Mazda 7 direct finance tools"
+        design and the <code>team_construction_plan.html</code> "Mazda Orchestrator"
+        (<code>IAgentTeamFactory</code>/<code>StageEnvelope</code>/deterministic service family).
+        Superseded by the direction above.
+      </div>
+      <div class="callout">
+        <strong>Carried forward (not discarded):</strong> the self-improvement loop
+        (<code>AgentKernel</code>, trace/evidence store, verdicts, proposals, baseline-vs-candidate
+        experiments, gates, activation/rollback, HTML reports — Milestones 0–9, 145 unit tests). It
+        is finance-blind, generic infrastructure and stays as the control plane. Only the
+        <em>agent-package / runner-adapter</em> layer on top changes — see §4.
+      </div>
     </section>
 
-    <section class="section dark">
-      <h2>3a. Where the Self-Improvement Loop Fits Now</h2>
+    <!-- ============================================================ -->
+    <section class="section" id="minions">
+      <h2>2. The 5 Minions (live, verified IDs)</h2>
+      <p>All 5 are <code>git-memory-enabled</code>, render <code>system/persona</code> +
+        <code>system/human</code>, and share one <code>run_claude_code_sdk</code> tool (one tool ID
+        reused across all 5 — one <code>client.tools.update</code> covers them all).</p>
+      <table>
+        <tr><th>Minion</th><th>Agent ID</th><th>Specialty (coordinator persona)</th></tr>
+        <tr><td><code>mazda-router-agent</code></td><td><code>agent-bc561f63-a5bd-4192-806e-58d92593da2b</code></td><td>Task routing</td></tr>
+        <tr><td><code>mazda-parser-agent</code></td><td><code>agent-a5063757-46c7-4054-a07d-2b1263db43a8</code></td><td>Parsing / structured extraction</td></tr>
+        <tr><td><code>mazda-vendor-identity-agent</code></td><td><code>agent-acd624ac-17f2-4a74-aa34-78036cac4d66</code></td><td>Vendor normalization</td></tr>
+        <tr><td><code>mazda-receipt-linker-agent</code></td><td><code>agent-9a14f800-d848-4914-bfd4-53ab62bc177b</code></td><td>Receipt ↔ transaction linking</td></tr>
+        <tr><td><code>mazda-categorization-agent</code></td><td><code>agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874</code></td><td>Category resolution</td></tr>
+      </table>
+      <p class="mini">Each minion's <code>run_claude_code_sdk(task, context, working_dir)</code> writes an
+        inline TS file using
+        <code>claude().withModel('sonnet').allowTools('Read','Write','Edit','Bash','Glob','Grep').inDirectory(workDir).query(prompt).asText()</code>
+        and runs it through the executor at <code>http://100.80.49.10:8799/claude_sdk</code>
+        (fallback <code>172.17.0.1:8799</code>). Built by
+        <code>/home/adamsl/claude-code-sdk-ts/jeri_agent/setup_mazda_minions.py</code>.</p>
+      <div class="callout warning">
+        <strong>Minion memfs repos are empty (0 commits) — this is fine for memory rendering</strong>
+        (blocks drive rendering), but when the §5 finance_mcp wiring or persona changes land, prefer
+        authoring durable persona facts as <code>system/**</code> memfs files per
+        <code>memory_system_plan.html</code>, not raw block edits.
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="section" id="build">
+      <h2>3. Build Progress</h2>
+
+      <div class="callout success">
+        <strong>Phase 2 runtime — LIVE & verified (2026-06-16).</strong> The minions'
+        <code>run_claude_code_sdk</code> tool works end-to-end. The live Letta fleet runs in an
+        untracked containerd "ghost" stack (172.18.x); its <code>frita-executor</code> had pointed at
+        a stale executor with no SDK while fixes were landing on a duplicate dockerd stack (172.19.x).
+        Fixed by publishing the good (SDK-equipped, mom's-token) executor on host port <code>:8799</code>
+        and repointing the tool to <code>http://100.80.49.10:8799/claude_sdk</code>. Verified this
+        shift: <code>:8799</code> responds (405 GET / 422 POST). Full detail in memory
+        <code>frita_executor_ghost_container_2026_06_15.md</code>.
+      </div>
+
+      <div class="grid two">
+        <div class="card soft">
+          <h4><span class="tag green">DONE</span> Phase 0 — Minion contract</h4>
+          <p class="mini"><code>claude-code-sdk-ts/minions/src/interfaces/minion.ts</code>:
+            <code>MinionRole</code>, <code>IMinionTaskRequest</code>, <code>IMinionTaskResult</code>,
+            <code>IClaudeAgentSdkRunner</code>, <code>IMinion</code>; <code>DefaultMinion</code> in
+            <code>minion.ts</code>. TDD, vitest green, <code>tsc</code> clean.</p>
+        </div>
+        <div class="card soft">
+          <h4><span class="tag green">DONE</span> Phase 1a — Real SDK runner</h4>
+          <p class="mini"><code>ClaudeAgentSdkRunner</code> + <code>createMinion()</code> + <code>cli.ts</code>.
+            Commit <code>be13ca8</code> on <code>claude-code-sdk-ts</code> (10 files, 323 lines).
+            <strong>Lives only on the Win10 box</strong> (<code>100.80.49.10:/home/adamsl/claude-code-sdk-ts</code>),
+            not synced to the Linux dev host.</p>
+        </div>
+        <div class="card soft">
+          <h4><span class="tag green">DONE</span> Phase 1b — Python adapter</h4>
+          <p class="mini"><code>MinionCommunicationAdapter</code> + <code>minion_cli_transport</code> +
+            <code>AgentRuntimeKind.MINION</code> in
+            <code>rol_finances/…/agent_runtime/</code>. Commit <code>4f7ae86</code>, 7 tests.
+            <strong>Now dead code</strong> — targets the retired separate-TS-package path (§3a).</p>
+        </div>
+        <div class="card soft">
+          <h4><span class="tag green">DONE</span> Phase 1c — finance_mcp server</h4>
+          <p class="mini"><code>FastMCP("finance_verifiers_mcp")</code> exposing
+            <code>verify_statement_totals</code>, <code>check_vendor_key</code>,
+            <code>check_category</code>, <code>check_duplicates</code> over the existing verifier
+            ports. <code>rol_finances/…/finance_mcp/</code>, commit <code>ead3c34</code>, 6 tests,
+            full suite 410/3/1. <strong>Not yet wired to any minion (§5).</strong></p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <strong>3a. Two competing implementations — which one is canonical.</strong> The live
+        <code>run_claude_code_sdk</code> (one Python tool per agent, inline TS via the
+        <code>:8799</code> executor) is <strong>adopted as the real Phase 2 implementation</strong>.
+        The Phase 0/1a separate-TS-package path (<code>IClaudeAgentSdkRunner</code> /
+        <code>DefaultMinion</code> / <code>cli.ts</code> / <code>createMinion()</code>) and the
+        Phase 1b adapter that targets it are <strong>retired, kept as dead code</strong> — do not
+        rebuild on them. The spec'd <code>run_claude_agent_sdk_task</code> tool name is likewise
+        superseded by the live <code>run_claude_code_sdk</code>.
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="section dark" id="loop">
+      <h2>4. Self-Improvement Loop — how it fits now</h2>
       <p>
-        The self-improvement system built in Milestones 0–7 + Hardening Phases 8–9 was always
-        designed finance-blind: <code>AgentKernel</code> never imports finance code or Mazda
-        directly, and reaches "the agent being improved" only through
-        <code>IAgentPackageFactory</code> / <code>IAgentRunner</code> ports. That boundary is
-        exactly what lets this loop carry over cleanly to the new orchestration design — only the
-        <em>thing being wrapped</em> changes.
+        The Milestone 0–9 loop never imports finance code or Mazda directly — it reaches "the agent
+        being improved" only through <code>IAgentPackageFactory</code> / <code>IAgentRunner</code>
+        ports. That boundary lets it carry over unchanged; only the <em>thing being wrapped</em>
+        changes from "Mazda + 7 finance tools" to "Mazda + minions driving the Claude Agent SDK."
       </p>
       <table>
-        <tr><th>Self-improvement concept</th><th>Old usage (discarded)</th><th>New usage (this design)</th></tr>
+        <tr><th>Loop concept</th><th>New usage (this design)</th></tr>
         <tr><td><code>IAgentRunner</code> / <code>AgentKernel.run_task</code></td>
-            <td>Run Mazda against a finance statement, using the 7 finance tools</td>
-            <td>Run Mazda's orchestration step: delegate to one or more minions and collect their
-                Claude Agent SDK session results</td></tr>
+            <td>Run Mazda's orchestration step: delegate to minions, collect their SDK session results</td></tr>
         <tr><td><code>TraceRepository</code> / evidence store</td>
-            <td>Trace finance tool calls (verify_statement_totals, check_duplicates, ...)</td>
-            <td>Trace Mazda→minion delegation calls and each minion's Claude Agent SDK session
-                (inputs, outputs, tool calls, token usage)</td></tr>
-        <tr><td><code>IEvaluator</code> / <code>FinanceVerdictJudge</code></td>
-            <td>Finance-rule verdicts (totals match, vendor known, category correct, ...)</td>
-            <td>Generalize to an orchestration verdict: did the minion's SDK session complete the
-                delegated task, with what quality/cost — finance-specific verifiers become one
-                pluggable <code>IEvaluator</code> family among others, not the only one</td></tr>
-        <tr><td><code>WrapperRevision</code> / prompt &amp; toolset versioning</td>
-            <td>Versioned prompts/tools for Mazda's finance-tool wrapper</td>
-            <td>Versioned prompts/configs for <strong>Mazda's delegation logic</strong> and for
-                <strong>each minion's Claude Agent SDK task templates</strong> (system prompts,
-                allowed tools, SDK invocation parameters)</td></tr>
-        <tr><td><code>ProposalGenerator</code> / <code>ExperimentRunner</code> / <code>GateChain</code></td>
-            <td>Propose &amp; gate changes to Mazda's finance prompts/tools</td>
-            <td>Propose &amp; gate changes to Mazda's minion-delegation strategy or a minion's SDK
-                task template, A/B'd via baseline-vs-candidate experiments before activation</td></tr>
-        <tr><td><code>ActivationService</code> / <code>RollbackService</code> / snapshots</td>
-            <td>Activate/rollback finance-tool wrapper revisions</td>
-            <td>Activate/rollback Mazda's or a minion's orchestration-prompt/SDK-template
-                revisions — human-approved, rollback-safe, unchanged mechanics</td></tr>
+            <td>Trace Mazda→minion delegations + each minion's SDK session (inputs, outputs, tool calls, tokens)</td></tr>
+        <tr><td><code>IEvaluator</code> family</td>
+            <td>Orchestration verdict (did the session complete, at what quality/cost); finance verifiers become one pluggable evaluator</td></tr>
+        <tr><td><code>WrapperRevision</code></td>
+            <td>Versioned Mazda delegation logic + per-minion SDK task templates (prompts, allowed tools, params)</td></tr>
+        <tr><td><code>Proposal/Experiment/Gate</code> + <code>Activation/Rollback</code></td>
+            <td>Propose, A/B, gate, and human-approve changes to delegation strategy or a minion's SDK template; rollback-safe</td></tr>
       </table>
+      <p class="mini">None of the 145 unit tests are thrown away. The integration backlog ("8 test-code
+        fixes → P0 suite") still applies to the core loop and is a lower-priority next step (§5).</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="section" id="next">
+      <h2>5. Next Steps</h2>
+
+      <div class="callout success">
+        <strong>① Wire <code>finance_mcp</code> into <code>run_claude_code_sdk</code> — DONE &amp; verified end-to-end (2026-06-16).</strong>
+        Several of the original assumptions here were wrong; what actually happened:
+        <ul>
+          <li><strong>Phase 1c was NOT present on this host.</strong> There was no
+            <code>finance_mcp/</code> dir, commit <code>ead3c34</code> existed in no branch, and the
+            <code>so</code>/<code>.venv</code> venvs the old plan named don't exist. So step 1 was to
+            <em>build</em> the server: <code>agent_self_improvement/implementations/finance_mcp/server.py</code>
+            — a <code>FastMCP("finance_verifiers_mcp")</code> over stdio that wires the existing
+            <code>Concrete*Tool</code> impls. <code>verify_statement_totals</code> /
+            <code>check_vendor_key</code> / <code>check_category</code> are <strong>LIVE</strong> (arithmetic +
+            <code>vendor_category.yaml</code>); <code>check_duplicates</code> is <strong>best-effort</strong> —
+            it reaches MySQL via <code>host.docker.internal:3306</code> but returns a structured
+            <code>{"error":…}</code> because the finance creds (<code>NON_PROFIT_USER/PASSWORD</code>) are
+            not on this host. <code>pymysql</code> is vendored at
+            <code>tools/self_improving_agent/.vendor</code> (on the mount, survives container recreate).</li>
+          <li><strong>The wiring is in the executor, NOT a Letta tool.</strong> The inline TS template lives
+            in <code>/home/adamsl/server_tools/executor_server.py</code> (bind-mounted into
+            <code>frita-executor</code>), so <em>no <code>client.tools.update</code> was needed at all</em>.
+            Added <code>.withMCP({ name:'finance_verifiers_mcp', command:'python', args:['-m',
+            'agent_self_improvement.implementations.finance_mcp.server'], env:{PYTHONPATH…, ROL_FINANCES_ROOT,
+            DB_HOST:'host.docker.internal'} })</code> + the four <code>mcp__finance_verifiers_mcp__*</code>
+            names to <code>.allowTools(...)</code>. Covers all 5 minions at once (shared executor template).</li>
+          <li><strong>SDK bug fixed.</strong> <code>claude-code-sdk-ts</code> serialized
+            <code>mcpServers</code> as a JSON <em>array</em>, but the <code>claude</code> CLI's
+            <code>--mcp-config</code> wants an <em>object map keyed by server name</em> — the array form
+            made <code>claude</code> hang. Patched <code>src/_internal/transport/subprocess-cli.ts</code>
+            (+ <code>src/types.ts</code> adds optional <code>name</code>) to emit the object map; rebuilt
+            <code>dist</code> is regenerated from src (the live <code>dist/index.js</code>/<code>.cjs</code>
+            were hot-patched too since <code>dist/</code> is gitignored).</li>
+          <li><strong>Verified:</strong> <code>POST :8799/claude_sdk</code> with a task that calls
+            <code>verify_statement_totals</code> (150.00 = 50+75+25) returned
+            <code>{matches:true,…}</code>; <code>check_vendor_key("walgreens")</code> returned
+            <code>recognized:true</code>. Both HTTP 200 through the exact path the minions use.</li>
+        </ul>
+      </div>
+
+      <div class="callout warning">
+        <strong>Gotcha — single-file bind mounts + IS_SANDBOX.</strong> Editing
+        <code>executor_server.py</code> in place changes its inode, which breaks docker-desktop's
+        <em>single-file</em> bind mount (the old snapshot path vanishes and <code>docker restart</code>
+        fails with "no such file or directory"). Recovery = recreate via
+        <code>server_tools/deploy_frita_executor.sh</code> (idempotent <code>docker rm -f</code> + run,
+        re-binds the current file). Directory mounts (<code>claude-code-sdk-ts</code>,
+        <code>rol_finances</code>) don't have this problem. Also: the executor runs as <strong>root</strong>,
+        so <code>claude --dangerously-skip-permissions</code> is refused unless <code>IS_SANDBOX=1</code>
+        is set — now exported in the SDK subprocess env (<code>executor_server.py</code>) and as a
+        container <code>-e IS_SANDBOX=1</code> (deploy script), so <code>.skipPermissions()</code> works
+        under root.
+      </div>
+
+      <div class="callout success">
+        <strong>② Frita's memory gap — DONE (2026-06-16).</strong> Authored + attached
+        <code>system/persona</code> and <code>system/human</code> blocks for
+        <code>agent-881a883f-edd0-4963-bf67-6ef178b8f018</code>; she now renders 2 projections.
+        See §0.
+      </div>
+
       <div class="callout">
-        Net effect: <strong>none of the 145 unit tests or the Milestone 0–7 / Phase 8–9
-        implementation needs to be thrown away.</strong> The
-        <code>agent_self_improvement</code> package (contracts + implementations) stays as the
-        control plane. What gets rewritten is the <em>agent package</em> /
-        <em>runner adapter</em> layer that previously targeted "Mazda + 7 finance tools" and now
-        targets "Mazda + minions driving the Claude Agent SDK." The integration-certification
-        backlog (8 test-code fixes → P0 suite, from the prior status) still applies to the core
-        loop and is still the right next step regardless of which agent package sits on top of
-        it.
+        <strong>③ Integration backlog (lower priority).</strong> The "8 test-code fixes → P0 suite"
+        for the carried-forward core loop. Pick up once the minion-side work has something real to
+        evaluate.
+      </div>
+
+      <div class="callout">
+        <strong>④ Cleanup (low priority).</strong> Delete or repoint the dead Phase 1b
+        <code>MinionCommunicationAdapter</code> / <code>minion_cli_transport</code> /
+        <code>AgentRuntimeKind.MINION</code> in <code>rol_finances</code> (they target the retired
+        Phase 0/1a path). Not urgent.
       </div>
     </section>
 
-    <section class="section dark">
-      <h2>4. Open Questions — RESOLVED 2026-06-15</h2>
-      <ol>
-        <li><strong>Repurpose vs. retire the 5 minions → REPURPOSE.</strong> Same agent IDs and
-          <code>team_agents</code>/<code>send_letta_message</code> wiring stay. Each minion's old
-          pipeline stage (route → parse → vendor-identity → receipt-link → categorize) maps onto
-          a generic SDK-task category; only the persona/system prompt changes, from "call Python
-          finance tools" to "receive a task envelope from Mazda, run a Claude Agent SDK session
-          for this specialty, return a structured result."</li>
-        <li><strong>"Claude Agent SDK expert minion" concretely =</strong> each minion gets one
-          new tool, <code>run_claude_agent_sdk_task(task_json)</code>, that launches a Claude
-          Agent SDK TS session (via the local <code>claude-code-sdk-ts</code> fluent API) with a
-          role-specific system prompt + tool allowlist, waits for completion, and returns a
-          structured result (status, output, artifacts, token/cost usage). The minion relays that
-          result back to Mazda via <code>send_letta_message</code>. Contract:
-          <code>IClaudeAgentSdkRunner.run(IMinionTaskRequest) → Promise&lt;IMinionTaskResult&gt;</code>,
-          wrapped by <code>IMinion.handle()</code> (role-checked dispatch) — see §5.</li>
-        <li><strong>Old finance-domain logic → exposed as tools the SDK sessions can call</strong>,
-          via a small Python MCP server wrapping the existing verifier ports already defined in
-          <code>agent_self_improvement/contracts</code> (<code>ITotalsVerifier</code>,
-          <code>IVendorKeyVerifier</code>, <code>ICategoryVerifier</code>,
-          <code>IDuplicateVerifier</code>), reusing <code>VendorCategoryLookup</code> /
-          <code>DuplicateChecker</code> per the §8 reuse map in
-          <code>self_improvement_system.html</code>. Not rebuilt — just given an MCP face.</li>
-        <li><strong>Target repo/location → <code>/home/adamsl/claude-code-sdk-ts/minions/</code></strong>,
-          a new TS package sibling to <code>jeri_agent/</code>, depending on the local SDK build
-          via <code>file:..</code>, following <code>jeris_ts_blueprint.md</code> conventions
-          (interface-first, vitest). The Python-side <code>IAgentRunner</code> adapter that shells
-          out to this minion package lives in
-          <code>rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/agent_runtime/</code>,
-          alongside the existing <code>LettaCommunicationAdapter</code>.</li>
-      </ol>
-    </section>
+    <!-- ============================================================ -->
+    <section class="section dark" id="infra">
+      <h2>6. Infra Reference & How to Verify (for the next instance)</h2>
 
-    <section class="section" id="phase0">
-      <h2>5. Build Progress</h2>
-      <div class="callout success">
-        <strong>Phase 0 — DONE (2026-06-15).</strong> Minion contract defined at
-        <code>/home/adamsl/claude-code-sdk-ts/minions/src/interfaces/minion.ts</code>:
-        <code>MinionRole</code> (the 5 repurposed minions), <code>IMinionTaskRequest</code>,
-        <code>IMinionTaskResult</code>, <code>IClaudeAgentSdkRunner</code> (SDK boundary port —
-        "given a task envelope, run a Claude Agent SDK session, return a structured result"), and
-        <code>IMinion</code> (role-scoped dispatch). <code>DefaultMinion</code>
-        (<code>src/minion.ts</code>) implements <code>IMinion</code> by validating the request's
-        role matches and delegating to the injected runner. TDD: failing test written first
-        (<code>tests/minion.test.ts</code> — 2 cases, runner-not-wired so import failed), then
-        <code>DefaultMinion</code> implemented to green. <code>npx vitest run</code> → 2 passed;
-        <code>npx tsc --noEmit</code> clean. No real Claude Agent SDK session or live Letta agent
-        wired yet — <code>IClaudeAgentSdkRunner</code> has no implementation, only the fake used
-        in the test.
-      </div>
-      <div class="callout success">
-        <strong>Phase 1a + 1b — DONE (2026-06-15).</strong> See §0a for full detail.
-        <code>ClaudeAgentSdkRunner</code> (real <code>IClaudeAgentSdkRunner</code>) +
-        <code>createMinion()</code> factory + <code>cli.ts</code> in
-        <code>claude-code-sdk-ts/minions/</code> (commit <code>be13ca8</code>, includes
-        Phase 0 which was previously uncommitted); <code>MinionCommunicationAdapter</code> +
-        <code>minion_cli_transport</code> + <code>AgentRuntimeKind.MINION</code> in
-        <code>agent_self_improvement/implementations/agent_runtime/</code> (commit
-        <code>4f7ae86</code> on <code>rol_finances</code>).
-      </div>
-      <div class="callout success">
-        <strong>Phase 1c — DONE (2026-06-15).</strong> See §0b for full detail.
-        <code>finance_mcp</code> FastMCP server (<code>verify_statement_totals</code>,
-        <code>check_vendor_key</code>, <code>check_category</code>, <code>check_duplicates</code>)
-        in <code>agent_self_improvement/implementations/finance_mcp/</code> (commit
-        <code>ead3c34</code> on <code>rol_finances</code>).
-      </div>
-      <p class="mini">Next: Phase 2 — minion persona rewrites + new
-      <code>run_claude_agent_sdk_task</code> tool — requires explicit sign-off
-      per agent before touching Mazda's live minions.</p>
-    </section>
-
-    <section class="section">
-      <h2>5. Status Snapshot</h2>
+      <h3>Reaching the live Letta server</h3>
       <ul>
-        <li><span class="done">DECIDED</span> — Drop "Mazda Orchestrator" naming; the orchestrator
-          is simply <strong>Mazda</strong>.</li>
-        <li><span class="done">DECIDED</span> — Discard the direct-finance-tools-for-Mazda design
-          (the 7-tool plan from the self-improvement system) and the
-          <code>team_construction_plan.html</code> "Mazda Orchestrator" team/service design built
-          on top of it.</li>
-        <li><span class="done">EXISTS</span> — 5 minion Letta agents (router, parser,
-          vendor-identity, receipt-linker, categorization) are created and reachable from Mazda
-          via <code>send_letta_message</code>.</li>
-        <li><span class="done">DONE</span> — Re-scoping the minions around the Claude
-          Agent SDK (TypeScript) at the code level: Phase 0 contract + Phase 1a
-          <code>ClaudeAgentSdkRunner</code>/<code>createMinion()</code>/<code>cli.ts</code> in
-          <code>/home/adamsl/claude-code-sdk-ts/minions/</code>, plus Phase 1b Python
-          <code>MinionCommunicationAdapter</code>/<code>minion_cli_transport</code> and Phase 1c
-          <code>finance_mcp</code> verifier MCP server in
-          <code>rol_finances</code> (2026-06-15, §0a/§0b). <span class="warn">Still open</span>:
-          wiring this into <code>DefaultAgentPackageFactory</code>, registering
-          <code>finance_mcp</code> somewhere a minion can reach it, and the live-minion
-          persona rewrites (Phase 2, needs sign-off).</li>
-        <li><span class="done">DECIDED</span> — The self-improvement loop (Milestones 0–9, 145
-          unit tests, <code>AgentKernel</code>/evidence-store/activation-rollback) is
-          <strong>carried forward as-is</strong> at the core-loop level; only the agent-package
-          layer on top of it is being rewritten for Mazda + minions (see §3a). The integration
-          backlog (8 test-code fixes → P0 suite) remains the next concrete step for that core
-          loop.</li>
-        <li><span class="warn">OPEN</span> — Fate of the "Self Evolving" / "Mazda Orchestrator"
-          Project Plans <em>tab documents</em> themselves (not the underlying code) — they
-          describe the discarded finance-tool framing and should eventually be retitled or
-          replaced once the new agent-package design is written down.</li>
+        <li><strong>HTTP API</strong> (reads, blocks, recompile) — works from anywhere:
+          <code>http://100.80.49.10:8283</code>. Prefer this.</li>
+        <li><strong>Direct DB</strong> — ghost-container Postgres at <code>172.18.0.4:5432</code>
+          (~2195 agents), creds <code>postgres://letta:letta@172.18.0.4:5432/letta</code>, reachable
+          via <code>/home/adamsl/.bun/bin/bun</code> + <code>new (require('bun').SQL)(...)</code> from
+          this WSL host. <strong>Trap:</strong> the <code>docker</code>-visible
+          <code>letta-postgres</code> container is a STALE 4-agent stack — never query it for live data.</li>
+        <li><strong>Executor</strong> (backs <code>run_claude_code_sdk</code>) —
+          <code>http://100.80.49.10:8799/claude_sdk</code> (fallback <code>172.17.0.1:8799</code>).</li>
       </ul>
-    </section>
 
-    <section class="section" id="next-shift">
-      <h2>6. Next Shift — Required Reading + Step-by-Step Instructions</h2>
-
-      <div class="callout success">
-        <strong>Required reading, in order:</strong>
-        <ol>
-          <li><strong>This document, §0–§5</strong> (<code>mazda_dev_status.html</code>) — canonical,
-            current-direction doc. §0 explains the memory fix that just unblocked everything; §0a
-            covers Phase 1a+1b and §0b covers Phase 1c (all done 2026-06-15); §3a explains what's
-            carried forward from the self-improvement system; §4 has the resolved design
-            decisions; §5/Build Progress has the completed build steps (Phase 0, 1a, 1b, 1c).</li>
-          <li><strong>"Self Evolving" tab</strong> (<code>agent_self_improvement_plan.html</code>) —
-            read <em>only</em> for the carried-forward core loop: Milestones 0–9, the 145-test
-            suite, <code>AgentKernel</code>, <code>TraceRepository</code>, <code>IEvaluator</code>,
-            <code>WrapperRevision</code>, <code>ProposalGenerator</code>/<code>ExperimentRunner</code>/
-            <code>GateChain</code>, <code>ActivationService</code>/<code>RollbackService</code>. Its
-            framing of "Mazda gets 7 direct finance tools" is <strong>superseded</strong> — that
-            part describes the discarded design in <code>team_construction_plan.html</code> (kept
-            only as banner-marked history). Don't implement anything from that framing; just reuse
-            the generic infrastructure it describes.</li>
-        </ol>
+      <h3>The ONLY correct way to verify an agent renders its memory</h3>
+      <pre><code>curl -s -X POST http://100.80.49.10:8283/v1/agents/&lt;AGENT_ID&gt;/recompile \
+  | grep -oE '&lt;projection&gt;[^&lt;]*&lt;/projection&gt;'
+# Each &lt;projection&gt; line = one system/ block rendered into context.
+# Zero lines = amnesiac. (Frita = zero. Mazda = 6. Minions = 2 each.)</code></pre>
+      <div class="callout warning">
+        Do NOT judge memory health from the <code>agents.system</code> DB column (never holds block
+        text) or from memfs commit count (empty repo is fine — the <code>system/</code>-labeled
+        <em>block</em> drives rendering on this deployment). Also note
+        <code>/v1/agents/&lt;id&gt;/context</code>'s <code>system_prompt</code> field is STALE for
+        dormant agents — use the recompile projection count instead.
       </div>
 
-      <p>The work itself — finishing "Mazda, the self-improving Letta Agent" — is the
-        repurposing of the 5 minions into Claude-Agent-SDK drivers, plus reconnecting that to the
-        carried-forward self-improvement loop. Concrete steps, in order:</p>
-
-      <div class="callout danger">
-        <strong>Phase 1a's "DONE" status (§0a) was found to be FALSE this shift, and Phase 2 was
-        found ALREADY DONE via a different design — read §0c first.</strong> The
-        Phase 0/1a TS-package plan and the <code>run_claude_agent_sdk_task</code> tool described
-        below are <strong>retired</strong>. Start at §0c's wiring plan instead.
-      </div>
-
-      <ol start="4">
-        <li>
-          <strong>Wire <code>finance_mcp</code> into <code>run_claude_code_sdk</code> (NEEDS
-          SIGN-OFF — see §0c for the full plan).</strong> Add a <code>.withMCP(...)</code> entry
-          pointing at <code>finance_mcp/server.py</code> (stdio, run via the <code>so</code> venv)
-          plus the 4 verifier tool names to <code>.allowTools(...)</code> in the
-          <code>run_claude_code_sdk</code> tool body, then <code>client.tools.update(...)</code>
-          the single shared tool (covers all 5 minions). Test on
-          <code>mazda-categorization-agent</code> first. <strong>Get explicit sign-off before the
-          live <code>tools.update</code> call</strong> — it's shared by all 5 minions, currently
-          rendering memory correctly post-§0 fix — don't break that.
-        </li>
-        <li>
-          <strong>Parallel/prerequisite — Frita's memory gap.</strong> Independent of the above:
-          Frita (<code>agent-881a883f-edd0-4963-bf67-6ef178b8f018</code>) still renders zero
-          memory (see <code>memfs_system_prefix_bug.md</code>, "Still OPEN" section). Fix is to
-          author a <code>system/persona</code> (+ <code>system/human</code>) block for her —
-          different from the batch relabel fix used for the other 11 agents, since Frita has no
-          existing private blocks to relabel. Low risk, can be done any time.
-        </li>
-        <li>
-          <strong>Integration backlog (lower priority).</strong> §5/Status Snapshot notes "8
-          test-code fixes → P0 suite" as the next concrete step for the carried-forward core
-          self-improvement loop itself (Milestones 0–9). Pick this up once the minion-side work
-          above has something real to evaluate — running the loop against a finance-tool-shaped
-          target before the minions exist would just be testing the old design.
-        </li>
-        <li>
-          <strong>Cleanup (low priority).</strong> Phase 1b's <code>MinionCommunicationAdapter</code>
-          / <code>minion_cli_transport</code> / <code>AgentRuntimeKind.MINION</code> in
-          <code>rol_finances</code> target the retired Phase 0/1a design and are now dead code
-          (7 tests, all mocked). Either delete them or repoint them at the live
-          <code>run_claude_code_sdk</code> design — not urgent, doesn't block §0c.
-        </li>
+      <h3>Required reading, in order</h3>
+      <ol>
+        <li><strong>This doc, §0–§5</strong> — canonical current state.</li>
+        <li><strong><code>memory_system_plan.html</code></strong> — the memory policy (author memory as
+          <code>system/**</code> memfs files; blocks are a read-only projection; never raw
+          <code>POST/PATCH /v1/blocks</code>). Ch.8 Mazda dedup = HELD; Ch.9 fleet relabel = done for
+          11 agents, Frita open; Ch.10 docs = done; Ch.11.2 agents_tags bug = fixed.</li>
+        <li><strong><code>agent_self_improvement_plan.html</code></strong> — read ONLY for the
+          carried-forward core loop (Milestones 0–9, 145 tests). Its "Mazda gets 7 finance tools"
+          framing is SUPERSEDED — don't implement it.</li>
       </ol>
-
-      <p class="mini">Don't make the §0c live <code>tools.update</code> change without sign-off,
-        and don't treat <code>agent_self_improvement_plan.html</code>'s finance-tool framing as
-        current — it's reading material for the carried-forward infrastructure only, not a spec
-        to implement.</p>
     </section>
 
+    <!-- ============================================================ -->
     <section class="section">
-      <p class="mini">
-        Updated 2026-06-15 (Phase 2 reconciliation, later shift) — added §0c: Phase 1a exists
-        but only on the Win10 box (<code>100.80.49.10:/home/adamsl/claude-code-sdk-ts/minions/</code>,
-        commit <code>be13ca8</code>); not synced to the Linux dev host or mom's machine. The live
-        <code>run_claude_code_sdk</code> tool (all 5 live <code>mazda-*-agent</code> minions,
-        verified) is a separate simpler design (inline TS via
-        <code>frita-executor:/claude_sdk</code> HTTP proxy), not the Phase 1a CLI subprocess path
-        — adopted as the canonical Phase 2 implementation. Found that <code>/claude_sdk</code>
-        was broken (executor container missing SDK volume mounts); fixed by adding
-        <code>-v /home/adamsl/claude-code-sdk-ts:...</code>, <code>-v ...claude:...</code>,
-        <code>-v .../.claude:...</code> to <code>deploy_frita_executor.sh</code> and redeploying.
-        New next step: wire Phase 1c's <code>finance_mcp</code> server into
-        <code>run_claude_code_sdk</code> (see §0c concrete plan). Phase 1b adapter now dead code.
-      </p>
-      <p class="mini">
-        Updated 2026-06-15 (Phase 1c, same shift) — added §0b recording Phase 1c (
-        <code>finance_mcp</code> FastMCP server wrapping the 4 finance verifier ports as
-        <code>verify_statement_totals</code>/<code>check_vendor_key</code>/<code>check_category</code>/<code>check_duplicates</code>,
-        6 new tests, full suite 410/3/1, commit <code>ead3c34</code> on <code>rol_finances</code>)
-        as DONE; updated §5 Build Progress/Status Snapshot and §6 — Phase 1a/1b/1c are all done,
-        next concrete step is Phase 2 (minion persona rewrites + <code>run_claude_agent_sdk_task</code>,
-        <strong>needs explicit per-agent sign-off</strong> before any live-agent change).
-      </p>
-      <p class="mini">
-        Updated 2026-06-15 (Phase 1a/1b shift) — added §0a recording Phase 1a
-        (<code>ClaudeAgentSdkRunner</code> + <code>createMinion()</code> + <code>cli.ts</code>,
-        commit <code>be13ca8</code> on <code>claude-code-sdk-ts</code>, also picked up the
-        previously-uncommitted Phase 0) and Phase 1b (<code>MinionCommunicationAdapter</code> +
-        <code>minion_cli_transport</code> + <code>AgentRuntimeKind.MINION</code>, commit
-        <code>4f7ae86</code> on <code>rol_finances</code>) as DONE; updated §5 Build
-        Progress/Status Snapshot and §6 to start the next shift at Phase 1c. Next concrete step:
-        Phase 1c (finance-logic MCP face), then Phase 2 (needs sign-off).
-      </p>
-      <p class="mini">
-        Updated 2026-06-15 (memory-fix shift) — added §0 recording that the memory-system blocker
-        is FIXED fleet-wide (11 agents relabeled + Scissari bot restarted; Frita still open), the
-        live-DB access procedure, and that §5 Phase 1 (<code>IClaudeAgentSdkRunner</code>) is now the
-        next concrete step. Prior 2026-06-15 update reflected the new "Mazda + Claude-Agent-SDK
-        minions" orchestration direction, replacing the reconciliation of
-        <code>agent_self_improvement_plan.html</code> and <code>team_construction_plan.html</code>,
-        and confirmed the Milestone 0–9 self-improvement loop carries forward as the control plane
-        (§3a). Added §6 — required reading + step-by-step next-shift instructions (Phase 1a/1b/1c,
-        Phase 2 sign-off gate, Frita fix, integration backlog). Revisit once the §4 questions are
-        fully settled and the new minion code starts landing.
-      </p>
+      <h2>Changelog</h2>
+      <ul>
+        <li class="mini"><strong>2026-06-16</strong> (latest) — <strong>finance_mcp BUILT + wired +
+          verified.</strong> Discovered Phase 1c was never actually on this host (no dir, no commit
+          <code>ead3c34</code>); built <code>finance_mcp/server.py</code> (FastMCP, 4 verifier tools, 3
+          live + <code>check_duplicates</code> best-effort), vendored <code>pymysql</code>, and wired
+          <code>.withMCP()</code> into the executor's inline TS template
+          (<code>server_tools/executor_server.py</code>) — no <code>client.tools.update</code> needed.
+          Fixed a <code>claude-code-sdk-ts</code> bug (<code>mcpServers</code> serialized as an array vs.
+          the CLI's required object map → <code>claude</code> hung). Added <code>IS_SANDBOX=1</code> so
+          <code>--dangerously-skip-permissions</code> works under root. Verified end-to-end via
+          <code>:8799</code> (verify_statement_totals → <code>matches:true</code>; check_vendor_key →
+          <code>recognized:true</code>). See §5①.</li>
+        <li class="mini"><strong>2026-06-16</strong> — <strong>Frita memory FIXED.</strong>
+          Authored + attached <code>system/persona</code> + <code>system/human</code> blocks (she had
+          no persona/human to relabel); she now renders 2 projections. The fleet memory fix is
+          complete — no agents remain amnesiac. Updated §0, §5②. (Gotcha logged: recompile picks up
+          newly-attached blocks on the <em>next</em> call, so re-run the §6 grep if the first is empty.)</li>
+        <li class="mini"><strong>2026-06-16</strong> (later) — Re-verified the full live state: Mazda
+          6 projections, all 5 minions 2 each, executor <code>:8799</code> alive. Added the missing
+          link: a real <code>run_claude_code_sdk</code> round-trip (<code>task:"reply PONG"</code> →
+          <code>{"status":"ok","output":"PONG"}</code>), proving the executor <em>executes</em> a
+          Claude SDK session, not just validates the request. Mazda is verified running tip-top. Open
+          forward work unchanged: §5① finance_mcp wiring (needs sign-off), §5② Frita memory.</li>
+        <li class="mini"><strong>2026-06-16</strong> — Full rewrite into a clean canonical handoff
+          doc. Verified live state: memory renders for Mazda (6 blocks) + all 5 minions (2 each);
+          Frita still zero; executor <code>:8799</code> alive; <code>run_claude_code_sdk</code>
+          attached. Added §6's "only correct way to verify memory" to prevent the recurring
+          <code>agents.system</code>/empty-memfs misdiagnosis. Condensed prior §0a–§0c shift notes
+          into §3.</li>
+        <li class="mini"><strong>2026-06-15</strong> (multiple shifts) — Phase 2 runtime fixed
+          (executor on <code>:8799</code>); fleet memory relabel (11 agents → <code>system/</code>,
+          Frita open); Phase 1a/1b/1c built (commits <code>be13ca8</code>, <code>4f7ae86</code>,
+          <code>ead3c34</code>); found live <code>run_claude_code_sdk</code> design supersedes the
+          Phase 0/1a TS-package path; established the new "Mazda + Claude-Agent-SDK minions"
+          direction, discarding the 7-finance-tools design.</li>
+      </ul>
     </section>
 
   </main>
