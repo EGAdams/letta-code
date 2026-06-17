@@ -12,6 +12,7 @@ export {
 } from "../abstract/agent-voice-catalog.interface.js";
 export { ActivePoller } from "./active-poller.js";
 export { AgentActivityPoller } from "./agent-activity-poller.js";
+export { AgentHealthPoller } from "./agent-health-poller.js";
 export { AgentStreamController } from "./agent-stream-controller.js";
 export { BrowserSpeechSynthesizer } from "./browser-speech-synthesizer.js";
 export { CodeChangeAlert } from "./code-change-alert.js";

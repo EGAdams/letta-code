@@ -13,6 +13,7 @@ import {
   ActivePoller,
   AgentActivityPoller,
   AgentCardRenderer,
+  AgentHealthPoller,
   BrowserSpeechSynthesizer,
   ChatDetailRenderer,
   CodeChangeAlert,
@@ -1047,6 +1048,16 @@ function setAgentTabStatus(agentId, status) {
 
 // Colour agent sidebar tabs from /api/agent-activity every 5s.
 new AgentActivityPoller({ http, setStatus: setAgentTabStatus }).start();
+
+// Structural health check — polls /api/agent-health every 30s.
+// ok=false adds agent-health-error (red); ok=true clears it.
+// Uses a separate class so it doesn't get wiped by the activity poller.
+function setAgentTabHealth(agentId, ok) {
+  const tab = navAgents.querySelector(`.agent-tab[data-agent-id="${agentId}"]`);
+  if (!tab) return;
+  tab.classList.toggle("agent-health-error", !ok);
+}
+new AgentHealthPoller({ http, setHealth: setAgentTabHealth }).start();
 
 /* =====================  Code-change restart alert  ===================== */
 // Blink the Agents tab + prompt to restart when the dashboard's own source

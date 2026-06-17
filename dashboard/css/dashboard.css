@@ -74,8 +74,9 @@
       background: #444;
     }
 
-    .tab.agent-active { background: #a07800 !important; }
-    .tab.agent-error  { background: #c0392b !important; }
+    .tab.agent-active       { background: #a07800 !important; }
+    .tab.agent-error        { background: #c0392b !important; }
+    .tab.agent-health-error { background: #c0392b !important; }
 
     .content {
       max-width: 1100px;

@@ -97,8 +97,10 @@
       <div class="badges">
         <span class="badge green">✅ Memory system VERIFIED live (2026-06-16) — Mazda + 5 minions render their <code>system/</code> blocks into context</span>
         <span class="badge green">✅ Phase 2 runtime LIVE & verified — executor :8799 up, <code>run_claude_code_sdk</code> attached to all minions</span>
+        <span class="badge green">✅ Timeout cascade FIXED (2026-06-17) — <code>run_claude_code_sdk</code> 180s→320s; Letta sandbox client 60s→600s; <code>letta-memfs</code> push enabled; both images committed</span>
+        <span class="badge green">✅ All 5 minions have 2 memfs projections (persona.md + human.md) — no amnesia</span>
         <span class="badge">Phase 0 / 1a / 1b / 1c — code DONE (2026-06-15)</span>
-        <span class="badge red">❌ Frita still amnesiac (not a Mazda minion — separate fix)</span>
+        <span class="badge green">✅ Frita memory FIXED (2026-06-16) — 2 projections verified; communication working end-to-end</span>
         <span class="badge green">✅ finance_mcp BUILT + wired into <code>run_claude_code_sdk</code> + verified end-to-end (2026-06-16)</span>
         <span class="badge">Self-improvement loop (Milestones 0–9, 145 tests) carried forward as control plane</span>
       </div>
@@ -484,6 +486,23 @@
           <code>--dangerously-skip-permissions</code> works under root. Verified end-to-end via
           <code>:8799</code> (verify_statement_totals → <code>matches:true</code>; check_vendor_key →
           <code>recognized:true</code>). See §5①.</li>
+        <li class="mini"><strong>2026-06-17</strong> — <strong>Minion memfs + letta-memfs push FIXED.</strong>
+          All 5 minion repos initialized with <code>system/persona.md</code> + <code>system/mazda_agents.md</code> via
+          Python plumbing (loose-object copy + HEAD fix); all render 2 projections (persona.md + human.md).
+          Root cause of 403 on git push to memfs: <code>letta-memfs</code> app.py was missing
+          <code>GIT_HTTP_RECEIVE_PACK=true</code> env var — patched and image committed.
+          Also: <code>letta-server</code> sandbox client 60s→600s patch baked into image via <code>docker commit</code>,
+          so both image layer changes survive container recreations.</li>
+        <li class="mini"><strong>2026-06-16</strong> (later) — <strong>Timeout cascade FIXED.</strong>
+          Root cause: <code>run_claude_code_sdk</code> had 180s HTTP timeout (executor subprocess runs up to 300s).
+          Additionally, the Letta sandbox client (used by <code>send_message_to_agent_and_wait_for_reply</code>)
+          had a hard-coded 60s read timeout — any agent chain taking &gt;60s would fail even if the tool itself
+          succeeded. Fixes: (1) Patched <code>run_claude_code_sdk</code> source on Letta to 320s.
+          (2) Patched <code>/app/letta/services/tool_sandbox/base.py</code> sandbox client constructor
+          to use <code>timeout=600.0</code> (600s). (3) Restarted Letta server to pick up the patch;
+          verified API up and patch persists. Claude OAuth rate limit resets 12:40am UTC.
+          Also fixed: <code>setup_mazda_minions.py</code> now registers the 320s HTTP version of the tool
+          so future re-runs don't regress.</li>
         <li class="mini"><strong>2026-06-16</strong> — <strong>Frita memory FIXED.</strong>
           Authored + attached <code>system/persona</code> + <code>system/human</code> blocks (she had
           no persona/human to relabel); she now renders 2 projections. The fleet memory fix is

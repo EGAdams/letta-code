@@ -268,3 +268,57 @@ def test_start_logger_api_uses_self_healing_command(monkeypatch, tmp_path):
     assert captured['cmd'] == server.build_logger_api_start_command()
     assert server.is_server_starting('logger-api')
     _clear_starting()
+
+
+# ── Agent health checks ───────────────────────────────────────────────────────
+
+
+def test_mazda_letta_agents_declare_required_tools():
+    """Every Mazda minion in LETTA_AGENTS must declare required_tools=['run_claude_code_sdk'].
+    FAILS until LETTA_AGENTS is updated with required_tools entries."""
+    minion_names = {
+        'Mazda Router', 'Mazda Parser', 'Mazda Vendor Identity',
+        'Mazda Receipt Linker', 'Mazda Categorization',
+    }
+    for cfg in server.LETTA_AGENTS:
+        if cfg['name'] in minion_names:
+            assert cfg.get('required_tools'), f"{cfg['name']} missing required_tools"
+            assert 'run_claude_code_sdk' in cfg['required_tools'], (
+                f"{cfg['name']} required_tools missing run_claude_code_sdk"
+            )
+
+
+def test_agent_health_check_unresolvable_agent_is_unhealthy(monkeypatch):
+    """Agent not found in Letta → health check returns ok=False.
+    FAILS until agent_health_check is added to server.py."""
+    cfg = {'name': 'Ghost', 'id': None, 'required_tools': []}
+    monkeypatch.setattr(server, 'get_letta_id', lambda c: None)
+    h = server.agent_health_check(cfg)
+    assert h['ok'] is False
+    assert 'not found' in h['text'].lower() or 'ghost' in h['text'].lower()
+
+
+def test_agent_health_check_missing_required_tool_is_unhealthy(monkeypatch):
+    """Mazda minion missing run_claude_code_sdk → health check red.
+    FAILS until agent_health_check is added to server.py."""
+    cfg = {'name': 'Mazda Router', 'id': 'agent-test-123', 'required_tools': ['run_claude_code_sdk']}
+    monkeypatch.setattr(server, 'get_letta_id', lambda c: c['id'])
+    monkeypatch.setattr(server, 'letta_get', lambda path, **kw: [
+        {'name': 'memory_insert'}, {'name': 'memory_replace'},
+    ])
+    h = server.agent_health_check(cfg)
+    assert h['ok'] is False
+    assert 'run_claude_code_sdk' in h['text']
+
+
+def test_agent_health_check_all_tools_present_is_healthy(monkeypatch):
+    """Mazda minion with run_claude_code_sdk → health check green.
+    FAILS until agent_health_check is added to server.py."""
+    cfg = {'name': 'Mazda Router', 'id': 'agent-test-123', 'required_tools': ['run_claude_code_sdk']}
+    monkeypatch.setattr(server, 'get_letta_id', lambda c: c['id'])
+    monkeypatch.setattr(server, 'letta_get', lambda path, **kw: [
+        {'name': 'run_claude_code_sdk'}, {'name': 'memory_insert'},
+    ])
+    h = server.agent_health_check(cfg)
+    assert h['ok'] is True
+    assert 'run_claude_code_sdk' in h['text']

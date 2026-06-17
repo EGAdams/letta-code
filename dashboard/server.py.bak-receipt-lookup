@@ -17,7 +17,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, quote, unquote
+from urllib.parse import urlparse, parse_qs, quote
 
 from voice.pipeline import build_pipeline, handle_voice_upload
 
@@ -303,192 +303,17 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
     }
 
 
-# ── ROL Finance: open the stored receipt for a Verified-Transactions row ──────
-# The "View Receipt" button in the category-picker dialog POSTs to
-# /api/receipt-lookup; we match the same expenses row recategorize_expense does,
-# read its receipt_url, resolve it to a file on disk, and return a dashboard URL
-# (served by the /rol_finances_receipts/ GET route) that the dialog window.open()s.
-READABLE_DOCS_BASE = os.path.expanduser('~/rol_finances/readable_documents')
-RECEIPTS_SUBTREE = os.path.join(READABLE_DOCS_BASE, 'receipts')
-ROL_FINANCES_RECEIPTS_URL_PREFIX = '/rol_finances_receipts'
-
-# Receipt files are named <vendor>_MM_DD_YY_<dollars>_<cents>.<ext> and filed under
-# readable_documents/receipts/** (the tree is kept in sync across the Win11 box and
-# mom's machine, so it is fully present locally). The (date, amount) embedded in the
-# filename is a far more reliable link to a Verified-Transactions row than the DB's
-# receipt_url string (which often differs by extension or vendor spelling). We index
-# the tree by that key (cached briefly); both /api/receipt-lookup and the row-marker
-# endpoint /api/receipts-present resolve receipts through it.
-_RECEIPT_INDEX_CACHE = {'ts': 0.0, 'by_da': None, 'by_stem': None}
-_RECEIPT_INDEX_TTL = 300
-
-
-def _build_receipt_index():
-    import re as _re
-    name_re = _re.compile(r'_(\d{2})_(\d{2})_(\d{2})_(\d+)_(\d{2})\.[A-Za-z0-9]+$')
-    by_da, by_stem = {}, {}
-    for root, _dirs, files in os.walk(RECEIPTS_SUBTREE):
-        for fn in files:
-            fp = os.path.join(root, fn)
-            by_stem.setdefault(os.path.splitext(fn)[0].lower(), []).append(fp)
-            m = name_re.search(fn)
-            if m:
-                mm, dd, yy, dol, cents = m.groups()
-                key = ('20%s-%s-%s' % (yy, mm, dd), '%s.%s' % (dol, cents))
-                by_da.setdefault(key, []).append(fp)
-    return by_da, by_stem
-
-
-def _receipt_index():
-    now = time.time()
-    if (_RECEIPT_INDEX_CACHE['by_da'] is None
-            or now - _RECEIPT_INDEX_CACHE['ts'] > _RECEIPT_INDEX_TTL):
-        by_da, by_stem = _build_receipt_index()
-        _RECEIPT_INDEX_CACHE.update(ts=now, by_da=by_da, by_stem=by_stem)
-    return _RECEIPT_INDEX_CACHE['by_da'], _RECEIPT_INDEX_CACHE['by_stem']
-
-
-def _norm_amount(signed_amount):
-    from decimal import Decimal, InvalidOperation
-    raw = str(signed_amount or '').replace('$', '').replace(',', '').strip()
-    try:
-        return str(abs(Decimal(raw)))
-    except (InvalidOperation, ValueError):
-        return None
-
-
-def _resolve_receipt_path(date_str, amount_str, receipt_url=None):
-    """Find a receipt file for a row. Order: (date, amount) filename match -> receipt_url
-    exact path -> receipt_url stem (any extension) -> receipt_url basename anywhere.
-    Returns an absolute path under READABLE_DOCS_BASE, or None."""
-    import glob as _glob
-    by_da, by_stem = _receipt_index()
-    if date_str and amount_str:
-        hits = by_da.get((date_str, amount_str))
-        if hits:
-            return hits[0]
-    ru = (receipt_url or '').strip().lstrip('/')
-    if ru:
-        base = os.path.abspath(READABLE_DOCS_BASE)
-        direct = os.path.abspath(os.path.join(base, ru))
-        if os.path.commonpath([direct, base]) == base and os.path.isfile(direct):
-            return direct
-        stem = os.path.splitext(os.path.basename(ru))[0].lower()
-        if stem in by_stem:
-            return by_stem[stem][0]
-        g = _glob.glob(os.path.join(RECEIPTS_SUBTREE, '**', os.path.basename(ru)),
-                       recursive=True)
-        if g:
-            return g[0]
-    return None
-
-
-def _receipt_url_for_path(fp):
-    rel = os.path.relpath(fp, os.path.abspath(READABLE_DOCS_BASE))
-    return ROL_FINANCES_RECEIPTS_URL_PREFIX + '/' + '/'.join(
-        quote(part) for part in rel.split(os.sep))
-
-
-def _expense_receipt_url(cur, date_str, amount_str, vendor_key, description):
-    """DB receipt_url for the expense matching a row (same disambiguation as
-    recategorize_expense). Returns the receipt_url string, '' if blank, None if no row."""
-    cur.execute(
-        "SELECT id, id_light, description, receipt_url "
-        "FROM expenses WHERE expense_date=%s AND amount=%s",
-        (date_str, amount_str),
-    )
-    rows = cur.fetchall()
-    if not rows:
-        return None
-    if len(rows) == 1:
-        chosen = rows[0]
-    else:
-        chosen = None
-        vk = (vendor_key or '').strip()
-        for r in rows:
-            vp = _vendor_prefix(r.get('id_light'))
-            if vk and vp and (vk.startswith(vp) or vp.startswith(vk)):
-                chosen = r
-                break
-        if chosen is None and description:
-            for r in rows:
-                if (r.get('description') or '').strip() == description.strip():
-                    chosen = r
-                    break
-        if chosen is None:
-            chosen = rows[0]
-    return (chosen.get('receipt_url') or '').strip()
-
-
-def lookup_receipt(date_str, signed_amount, vendor_key, description=''):
-    """Find + return a dashboard-servable URL for the receipt of one row."""
-    amt = _norm_amount(signed_amount)
-    if amt is None:
-        return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
-    fp = _resolve_receipt_path(date_str, amt, None)
-    if not fp:
-        try:
-            with _rol_get_connection() as cnx:
-                with cnx.cursor() as cur:
-                    ru = _expense_receipt_url(cur, date_str, amt, vendor_key, description)
-        except Exception as e:
-            return {'ok': False, 'error': f'DB error: {e}'}
-        if ru is None:
-            return {'ok': False,
-                    'error': 'No matching expense in DB for that date/amount (bank-only row).'}
-        if not ru:
-            return {'ok': False, 'error': 'No receipt on file for this expense.'}
-        fp = _resolve_receipt_path(date_str, amt, ru)
-        if not fp:
-            return {'ok': False,
-                    'error': f'Receipt recorded ({ru}) but the file was not found on disk.'}
-    return {'ok': True, 'receipt_url': _receipt_url_for_path(fp)}
-
-
-def receipts_present(rows):
-    """Given [{date, signed_amount, vendor_key, description}, ...] return
-    {'ok': True, 'present': [bool, ...]} -- True where a receipt file resolves for the
-    row. Drives the red 'has a receipt' corner marker. One FS index + one DB read total."""
-    by_da, _by_stem = _receipt_index()
-    url_map = {}
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                cur.execute("SELECT expense_date, amount, receipt_url FROM expenses "
-                            "WHERE receipt_url IS NOT NULL AND receipt_url<>''")
-                for r in cur.fetchall():
-                    key = (str(r['expense_date']), str(r['amount']))
-                    if key not in url_map:
-                        url_map[key] = (r['receipt_url'] or '').strip()
-    except Exception:
-        url_map = {}
-    out = []
-    for row in rows or []:
-        amt = _norm_amount(row.get('signed_amount'))
-        date_str = (row.get('date') or '').strip()
-        present = False
-        if amt is not None:
-            if date_str and (date_str, amt) in by_da:
-                present = True
-            else:
-                ru = url_map.get((date_str, amt), '')
-                if ru and _resolve_receipt_path(date_str, amt, ru):
-                    present = True
-        out.append(present)
-    return {'ok': True, 'present': out}
-
-
 # Letta API base URL — override with LETTA_BASE_URL env var
 LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rstrip('/')
 
 # Agents that are wired to the Letta API automatically.
 # Add any new Letta agent here: { 'name': '...', 'id': '<real-letta-agent-id>' }
 # Set 'id' to None to auto-discover by name from the Letta agent list.
-_MINION_TOOLS = ['executor_run']
+_MINION_TOOLS = ['run_claude_code_sdk']
 # relay_message_to_chatgpt is Mazda's custom delegation tool (sends to minion fleet).
 # send_message_to_agent_and_wait_for_reply is a Letta built-in that doesn't appear
 # in /v1/agents/{id}/tools, so we check the custom wrapper instead.
-_MAZDA_TOOLS  = ['send_message_to_agent_and_wait_for_reply']
+_MAZDA_TOOLS  = ['relay_message_to_chatgpt']
 
 LETTA_AGENTS = [
     {'name': 'Scissari', 'id': 'agent-5955b0c2-7922-4ffe-9e43-b116053b80fa'},
@@ -496,12 +321,12 @@ LETTA_AGENTS = [
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
     {'name': 'Cesare',   'id': None},
     {'name': 'Jeri',     'id': None},
-    {'name': 'Mazda',    'id': 'agent-070c201a-8d6d-49ba-a5fd-1489884b3b45', 'required_tools': _MAZDA_TOOLS},
-    {'name': 'Mazda Router',           'id': 'agent-81874131-77b8-4645-8d5f-c0bf20c1ed89', 'required_tools': _MINION_TOOLS},
-    {'name': 'Mazda Parser',           'id': 'agent-c414cb08-8bb5-4002-8d67-2ad0fbce4f06', 'required_tools': _MINION_TOOLS},
-    {'name': 'Mazda Vendor Identity',  'id': 'agent-c1fa4bb4-93a8-4b54-bd54-18fdaa4c0cd6', 'required_tools': _MINION_TOOLS},
-    {'name': 'Mazda Receipt Linker',   'id': 'agent-bfffa859-98bf-4bec-af3e-231b552fec93', 'required_tools': _MINION_TOOLS},
-    {'name': 'Mazda Categorization',   'id': 'agent-c4c9864c-9046-41b8-b0e3-f97698307567', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS},
+    {'name': 'Mazda Router',           'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS},
 ]
 
 # Cache of name→id resolved from the Letta API
@@ -2039,20 +1864,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_error(404)
             return
 
-        if path.startswith(ROL_FINANCES_RECEIPTS_URL_PREFIX + '/'):
-            rel = unquote(path[len(ROL_FINANCES_RECEIPTS_URL_PREFIX) + 1:])
-            base = os.path.abspath(READABLE_DOCS_BASE)
-            fp = os.path.abspath(os.path.join(base, rel))
-            if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
-                ext = fp.rsplit('.', 1)[-1].lower()
-                ctype = {
-                    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
-                    'gif': 'image/gif', 'webp': 'image/webp', 'pdf': 'application/pdf',
-                }.get(ext, 'application/octet-stream')
-                return self.serve_file(fp, ctype)
-            self.send_error(404)
-            return
-
         if path.startswith('/'):
             rel = path.lstrip('/')
             for base in (HERE, REPO_ROOT):
@@ -2203,25 +2014,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('description', ''),
                 data.get('report_path', ''),
             ))
-
-        if path == '/api/receipt-lookup':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(lookup_receipt(
-                data.get('date', ''),
-                data.get('signed_amount', ''),
-                data.get('vendor_key', ''),
-                data.get('description', ''),
-            ))
-
-        if path == '/api/receipts-present':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(receipts_present(data.get('rows', [])))
 
         self.send_error(404)
 

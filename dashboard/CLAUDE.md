@@ -204,6 +204,48 @@ curl -s http://localhost:8765/ | rg 'Mazda Orchestrator|team_construction_plan|T
 .venv/bin/python -m pytest tests/
 ```
 
+### ROL Finance Reports — recategorize + receipts (Project Plans → ROL Finance → Reports)
+
+Each report is a static `report.html` embedded in an iframe (built outside this repo under
+`~/rol_finances/readable_documents/bank_statements/**/report.html`, served by `server.py` via the
+`/rol_finances_reports/` URL prefix → `ROL_FINANCES_REPORTS_BASE`). The injector
+`~/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py`
+rewrites the "Verified Transactions" table: it drops/reorders columns, stamps each `<tr>` with
+`data-vendor-key/description/signed-amount/date`, and appends a marker-delimited
+(`<!-- rol-category-picker:start/end -->`) block holding the **Set Category dialog** (`#rol-category-picker`).
+Re-running the injector is idempotent and *replaces* that block, so JS/CSS changes there propagate:
+`python3 restructure_verified_transactions.py $(find ~/rol_finances -name report.html)`.
+
+The dialog (same-origin in the iframe) calls these `server.py` endpoints — keep them in sync with
+the injector's JS:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/recategorize-expense` | Set a row's category; writes `expenses.category_id` (MySQL via rol_finances `app.db.get_connection`) **and** rewrites the `cat-*` class on the `<tr>` on disk so the color survives refresh. |
+| `POST /api/receipt-lookup` | "View Receipt" button → returns `{ok, receipt_url}` (a `/rol_finances_receipts/` URL the dialog `window.open()`s) or `{ok:false, error}`. |
+| `POST /api/receipts-present` | Batch: `{rows:[…]}` → `{present:[bool,…]}`. Drives the **red top-left corner marker** (`tr.has-receipt td:first-child::before`) on rows that have a receipt on file. |
+| `GET /rol_finances_receipts/<rel>` | Serves a receipt file from `~/rol_finances/readable_documents/` (path-traversal checked; image/pdf content-types). |
+
+**Receipt resolution** (`_resolve_receipt_path`, FS index cached 300s): receipt files are named
+`<vendor>_MM_DD_YY_<dollars>_<cents>.<ext>` under `readable_documents/receipts/**`. Match order:
+**(date, amount) parsed from the filename** → `receipt_url` exact path → stem-flex (any extension)
+→ basename anywhere. The `(date, amount)` key is far more reliable than the DB `expenses.receipt_url`
+string (which often differs by extension or vendor spelling). Rows ↔ expenses join on
+`expense_date` + abs(amount), disambiguated by vendor_key prefix then exact description.
+
+**Receipt files are synced** between this Win11 box and **mom's machine, rosemary46 (Tailscale
+`100.72.34.38`)** — identical trees, so all receipts are present locally; no cross-machine fetch.
+**Known data gap:** ~45 expenses have a `receipt_url` in the DB whose file isn't findable under any
+name — those rows get no marker and View Receipt reports "Receipt recorded but file not found".
+
+**Deploy:** the endpoints in `server.py` and the dialog+marker in the injector live on this live box
+and are **uncommitted** — the WSL repo's checked-in `report.html` files still use the older
+`alert('Vendor Key')` injector. After editing `server.py`:
+`systemctl --user restart dashboard-server.service`. After editing the injector: re-run it on all
+reports (command above). 
+
+**Injector gotchas:** the head `CATEGORY_PICKER_CSS` is injected once and guarded (`if "ROL category picker" not in html`), so it does **not** refresh on re-run -- put dialog CSS *changes* in the marker-block `<style>` (which IS strip+reinjected; body overrides head by source order). And `window.open(url, "_blank", "noopener,noreferrer")` returns **null by spec** when `noopener` is set, so do not treat a null return as "popup blocked".
+
 ## Boot autostart (systemd `--user` services)
 
 The dashboard and its two locally-hosted companion servers autostart on machine boot via
