@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ROL Finance Report Verification — Shift Handoff (2026-06-18)</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; background: #f4f7fb; color: #1f2937; margin: 0; }
+  .page { max-width: 1000px; margin: 0 auto; padding: 28px 20px 60px; }
+  .hero { background: linear-gradient(135deg,#0f172a,#1e3a8a); color: #fff; border-radius: 18px; padding: 28px; margin-bottom: 22px; }
+  .hero h1 { margin: 0 0 8px; }
+  .card { background: #fff; border: 1px solid #d9e1ec; border-radius: 14px; padding: 20px 24px; margin-bottom: 18px; box-shadow: 0 6px 18px rgba(0,0,0,.05); }
+  h2 { color: #0f172a; margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+  th, td { border-bottom: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 0.92rem; }
+  th { background: #eef4ff; }
+  code { background: #eef2ff; color: #3730a3; padding: 2px 5px; border-radius: 4px; font-size: 0.9em; }
+  pre { background: #0f172a; color: #dbeafe; padding: 14px; border-radius: 10px; overflow-x: auto; font-size: 0.85rem; }
+  .pass { color: #15803d; font-weight: 700; }
+  .warn { color: #b45309; font-weight: 700; }
+  .danger { color: #b91c1c; font-weight: 700; }
+  .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 0.82rem; }
+  .pill-pass { background: #dcfce7; color: #15803d; }
+  .pill-warn { background: #fff7ed; color: #b45309; }
+  .pill-danger { background: #fee2e2; color: #b91c1c; }
+  .pill-todo { background: #e0e7ff; color: #3730a3; }
+  ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+</style>
+</head>
+<body>
+<main class="page">
+
+<section class="hero">
+<h1>ROL Finance Report Verification — Shift Handoff</h1>
+<p>Written 2026-06-18, end of shift (session limit hit, resets ~2:40pm America/New_York). User's goal: get all ROL Finance report-writing tooling solid before processing the February statements. Read this whole doc before doing anything else.</p>
+</section>
+
+<section class="card">
+<h2>⚠ First thing to check: unexpected diffs in files nobody was told to touch</h2>
+<p>Running <code>git -C ~/rol_finances status --short readable_documents/bank_statements/january/</code> at end of shift showed <strong>13 modified files</strong>, including <code>business_january_february_6285/report.html</code> — the gold-standard reference file every subagent was explicitly told <strong>not</strong> to edit. Spot-checked it: still well-formed, still has 36/36 <code>data-vendor-key</code> rows, still serves 200 — the diff looks like a harmless idempotent re-run of <code>add_category_picker()</code> (whitespace/attribute-order reformatting only), not data loss. But this was <strong>not verified line-by-line</strong> before shift end. Also note this repo has other autonomous agents (Mazda, etc.) that may touch this same tree independently of this session — not every diff here is necessarily from the subagents below.</p>
+<p><strong>Next shift: run <code>git -C ~/rol_finances diff readable_documents/bank_statements/january/business_january_february_6285/report.html</code> and confirm it's purely cosmetic before trusting it. If anything looks wrong, <code>git checkout</code> just that file.</strong></p>
+</section>
+
+<section class="card">
+<h2>Status board</h2>
+<table>
+<thead><tr><th>Report (dashboard label)</th><th>Directory</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>Jet Blue PDF 2</td><td><code>jet_blue_january_february_01_27_to_02_25_25</code></td><td><span class="pill pill-pass">DONE — verified</span></td></tr>
+<tr><td>Jet Blue PDF 1</td><td><code>jet_blue__december_january_12_26_25_to_01_23_25</code></td><td><span class="pill pill-pass">DONE — verified</span></td></tr>
+<tr><td>Bank 6285 PDF 2</td><td><code>business_january_february_6285</code></td><td><span class="pill pill-warn">Gold-standard reference. Unexpectedly touched (see above) — re-verify, don't re-fix.</span></td></tr>
+<tr><td>Bank 6285 PDF 1</td><td><code>non_profit_rol_Statement_december_january_6285</code></td><td><span class="pill pill-warn">UNKNOWN — subagent ran 13 tool calls, then hit session limit. Resumable: agent id <code>a030eb1ad901aa92a</code></span></td></tr>
+<tr><td>Bank 5938 PDF 1</td><td><code>december_january_personal_bank_statement</code></td><td><span class="pill pill-warn">UNKNOWN — subagent ran 7 tool calls, then hit session limit. Resumable: agent id <code>a77a36874b9d72f02</code></span></td></tr>
+<tr><td>Amex 61006</td><td><code>amex_personal_january_25</code></td><td><span class="pill pill-todo">Barely started (1 tool call). Resumable: agent id <code>a4ecdee3062dfc6e6</code></span></td></tr>
+<tr><td>Amex Personal Year</td><td><code>amex_personal_whole_2025</code></td><td><span class="pill pill-todo">Not started (0 tool calls). Resumable: agent id <code>a12ab009403a6fb20</code></span></td></tr>
+<tr><td>FNBO 4851</td><td><code>january_fnbo_2025_account_4851</code></td><td><span class="pill pill-todo">Not started (0 tool calls). Resumable: agent id <code>ac96fc2955d092a2b</code></span></td></tr>
+<tr><td>Platinum Year</td><td><code>platinum_business_credit_card_for_the_year</code></td><td><span class="pill pill-todo">Not started (0 tool calls). Resumable: agent id <code>ab6717c9db7f0e26f</code></span></td></tr>
+<tr><td>Diners Club 0587</td><td><code>diners_club__january_25_statements-MONTHLY-0587</code></td><td><span class="pill pill-todo">Not started (0 tool calls). Resumable: agent id <code>ac4c8ea9e5d14c513</code></span></td></tr>
+<tr><td>(not in dashboard list)</td><td><code>fifth_third_non_profit_3119</code>, <code>2026/prime_chase_card_january_2026</code></td><td><span class="pill pill-todo">Not started. <code>prime_chase_card_january_2026</code>'s hero said "Processing Report" last I saw it — may be an incomplete stub.</span></td></tr>
+</tbody>
+</table>
+<p><strong>To resume a stuck subagent:</strong> use <code>SendMessage</code> with <code>to: &lt;agent id&gt;</code> — this resumes it with full context (it already read the contract doc, gold-standard reference, etc.), cheaper than starting fresh. Wait for the session-limit reset (~2:40pm America/New_York) first.</p>
+</section>
+
+<section class="card">
+<h2>What's actually wrong with these reports (root causes found so far)</h2>
+<ul>
+<li><strong>Wrong statement copy-pasted wholesale.</strong> Jet Blue PDF 2's entire body (Account Reconciliation, Checks, Daily Balance, MyAdvance, Rewards, JSON) was byte-for-byte the <em>Fifth Third checking account 5938</em> report — wrong bank, wrong account. Only the title and the transactions table were ever correct. Confirmed (by comparing hero/Source-PDF text across all reports) this was a one-off, not a tree-wide pattern — but still worth a quick sanity check on each remaining report.</li>
+<li><strong>Verified Transactions table never restructured.</strong> Jet Blue PDF 1 had all 10 contract sections and correct prose, but its table was never run through <code>restructure_verified_transactions.py</code> — no <code>id="verified-transactions"</code>, no <code>data-vendor-key</code>, no <code>onclick</code>. The Set Category / Ask Mazda dialog markup existed at the bottom of the file but nothing on the page ever called it. <strong>This file was also the "known-good sibling" example cited in <code>REPORT_OUTPUT_CONTRACT.md</code>'s Definition of Done — that reference is wrong and still needs fixing (see Task 11 below, not started).</strong></li>
+<li><strong>Sign-direction bug recurring per-merchant.</strong> A small refund/credit from "RBT BP#9332735" was mislabeled as a positive charge in <em>both</em> JetBlue statements (PDF 1 and PDF 2) — same merchant, same bug, found independently in each. Always verify signs against the statement's own printed Balance Summary math (previous balance ± each line should equal the printed current/ending balance <em>exactly</em>); if it's off, you have a sign or total error.</li>
+<li><strong>Vendor keys were category names, not merchants.</strong> e.g. <code>"travel_vehicle"</code> instead of <code>"mister_car_wash_0465"</code>. Found and fixed in both JetBlue reports.</li>
+<li><strong>Duplicate DB rows are everywhere.</strong> Nearly every transaction we checked across both JetBlue statements had 2–3 rows in <code>expenses</code> at the same (date, amount) — same real-world charge entered multiple times by different processes/agents over time. This matches a pattern already flagged in memory (<code>rol_finances_llm_parser_credit_debit_bug_2026_06_18</code>). <strong>Expect this in every remaining report — budget time for it.</strong></li>
+<li><strong>Stale/wrong <code>receipt_url</code> values are common.</strong> Found multiple DB rows whose stored receipt path either doesn't exist on disk at all, or — worse — is a different transaction's receipt filename reused (e.g. a $33.13 receipt attached to a row claiming $26.83, or the same car-wash receipt reused across 3 different dates). <strong>Always verify a receipt_url with <code>find ~/rol_finances/readable_documents/receipts -iname "&lt;basename&gt;"</code> before trusting it.</strong> Clear bogus ones to NULL; never guess a replacement that doesn't match the row's exact (date, amount).</li>
+<li><strong>Found one fully corrupted DB row</strong> (Jet Blue PDF1, id 809): its <code>id_light</code> implied one date+amount, its actual <code>amount</code> column held a different value, and its <code>receipt_url</code> belonged to an entirely different, already-correctly-recorded transaction. Deleted it after confirming the real transaction it seemed to reference was already fine elsewhere. <strong>If a duplicate/insert collision looks like this, don't assume it's a normal duplicate — check carefully before deleting.</strong></li>
+<li><strong>Missing DB rows.</strong> Jet Blue PDF1 had 2 of its 14 transactions completely absent from <code>expenses</code> — had to be INSERTed.</li>
+</ul>
+</section>
+
+<section class="card">
+<h2>The correct workflow (don't hand-write the picker JS — use the real tool)</h2>
+<p>Early in this session, Jet Blue PDF 2 was fixed by hand-writing ~400 lines of picker boilerplate (it works, verified, but wastes effort). Jet Blue PDF 1 was fixed properly — <strong>use this approach going forward</strong>:</p>
+<ol>
+<li>Read <code>~/rol_finances/tools/python_tasks/verification_lib/REPORT_OUTPUT_CONTRACT.md</code> first, every time.</li>
+<li>Read <code>~/rol_finances/readable_documents/bank_statements/january/business_january_february_6285/report.html</code> in full as the structural model (10 required <code>&lt;h2&gt;</code> sections + an 11th "Verified Transactions" section). <strong>Don't edit this file — reference only.</strong></li>
+<li>Extract real PDF text with <strong>PyPDF2</strong>, not pdfplumber (pdfplumber has misread statement PDFs before — wrong page count, dropped pages).</li>
+<li>Verify the report's own claims against the real PDF — watch for copy-paste-from-wrong-statement bugs.</li>
+<li>For every transaction, query <code>expenses</code> by (date, amount); insert if missing, dedupe if multiple, verify every <code>receipt_url</code> against the filesystem before trusting it.</li>
+<li>Resolve each row's category via <code>REPORTING_CATEGORY_ANCESTOR_MAP</code> in <code>~/rol_finances/receipt_parsing_tools/create_spreadsheet.py</code> (parse with <code>ast.literal_eval</code> — don't <code>import create_spreadsheet</code>, xlsxwriter isn't installed in plain python3; walk <code>categories.parent_id</code> up until an id is in the map).</li>
+<li>Write the Verified Transactions table as a <strong>plain 6-column table</strong> with exact headers <code>Date, Category, Vendor Key, Description, Signed Amount, Status</code> (vendor key wrapped in <code>&lt;code class="inline-code"&gt;</code>), one <code>&lt;tr class="cat-..."&gt;</code> per row. Do NOT add data-* attributes or onclick yourself.</li>
+<li>Run the real injector: <code>python3 ~/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py &lt;report.html&gt;</code> — this auto-adds <code>id="verified-transactions"</code>, the four <code>data-*</code> attributes, <code>onclick</code>, AND injects the entire category-picker dialog/CSS/JS in one idempotent step.</li>
+<li><strong>Gotcha:</strong> if your source table cells contain a literal <code>&amp;</code> written as <code>&amp;amp;</code>, the injector's attribute-escaper double-escapes it into <code>&amp;amp;amp;</code>. Fix after running the script with: <code>sed -i 's/&amp;amp;amp;/\&amp;amp;/g' report.html</code> (i.e. collapse the double-escape back to single), then re-grep to confirm.</li>
+<li>Don't hardcode <code>data-receipt-url</code>/<code>has-receipt</code> — the page already resolves receipts live via <code>/api/receipts-present</code> on load.</li>
+<li>Verify: <code>grep -o 'data-vendor-key=' file | wc -l</code> equals row count (repeat for the other 3 data-* attrs), <code>grep -c 'rol-category-picker:start' file</code> is 1, HTML is well-formed, and <code>curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8765/rol_finances_reports/&lt;dir&gt;/report.html</code> returns 200.</li>
+</ol>
+</section>
+
+<section class="card">
+<h2>DB access pattern (copy-paste ready)</h2>
+<pre>cd ~/rol_finances/receipt_parsing_tools && python3 -c "
+from app.db import get_connection
+with get_connection() as conn:           # context manager - NOT conn = get_connection()
+    cur = conn.cursor()                  # dict rows by default; NO dictionary=True kwarg (not mysql.connector)
+    cur.execute('SELECT * FROM expenses WHERE expense_date=%s AND ABS(amount-%s)&lt;0.01', (date, amount))
+    print(cur.fetchall())
+"</pre>
+<p>autocommit=True, so writes land immediately — no explicit commit needed, but also no undo except another write or DB-level rollback (none here). Be deliberate.</p>
+</section>
+
+<section class="card">
+<h2>Remaining tasks, in order</h2>
+<ol>
+<li>Verify <code>business_january_february_6285/report.html</code>'s unexpected diff is cosmetic-only (see top of doc).</li>
+<li>Resume or redo the 7 stuck/not-started report audits (table above has resumable agent ids).</li>
+<li>Spot-check the 2 non-dashboard reports (<code>fifth_third_non_profit_3119</code>, <code>2026/prime_chase_card_january_2026</code>) — lower priority, not user-facing yet.</li>
+<li><strong>Fix <code>REPORT_OUTPUT_CONTRACT.md</code></strong>'s "Definition of done" checklist item that still points at <code>jet_blue__december_january_12_26_25_to_01_23_25/report.html</code> as the "known-good sibling" — that file <em>used to be broken</em> (now fixed, so technically the reference is valid again!), but point it at <code>business_january_february_6285</code> instead since that's the more complete/canonical example, and document the vendor-key, sign-convention, and double-escape gotchas above directly in that file so the next agent doesn't have to rediscover them.</li>
+<li><strong>Write persistent memory + a skill</strong> capturing this whole audit workflow (per the user's explicit request) so a future agent or Mazda can run it directly against the February statements without rediscovering any of this. Not started — do this even if some report audits are still pending, since the lessons are already fully formed.</li>
+</ol>
+</section>
+
+<section class="card">
+<h2>Reminders</h2>
+<ul>
+<li><code>~/rol_finances</code> is git-tracked — every report.html change this shift is visible via <code>git diff</code>/recoverable via <code>git checkout</code> if something looks wrong. DB changes are not git-tracked and have no undo; be careful with deletes.</li>
+<li>The dashboard (<code>localhost:8765</code>) serves these files live and statically — no restart needed after editing a report.html.</li>
+<li>Use a cheap/fast model (haiku) for simple write-ups (memory/skill docs); use full reasoning for the actual financial verification (math, sign conventions, DB judgment calls) — don't delegate the judgment calls to a cheap model.</li>
+</ul>
+</section>
+
+</main>
+</body>
+</html>

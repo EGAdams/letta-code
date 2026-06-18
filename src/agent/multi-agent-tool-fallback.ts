@@ -20,7 +20,10 @@ const MULTI_AGENT_TOOL_NAMES = new Set([
 
 // Tools the Letta server streams as tool_call_message + end_turn without executing.
 // The client executes these locally and sends results back as a user message.
-const CLIENT_SIDE_FALLBACK_TOOLS = new Set(["executor_run"]);
+const CLIENT_SIDE_FALLBACK_TOOLS = new Set([
+  "executor_run",
+  "run_claude_code_sdk",
+]);
 
 function extractText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -375,6 +378,7 @@ Do not ask the sender to provide another agent ID.
 
 async function executeClientSideTool(
   call: PendingServerToolCall,
+  senderAgentId: string,
 ): Promise<ApprovalResult> {
   const args = parseToolArgs(call.toolArgs) ?? {};
 
@@ -411,6 +415,43 @@ async function executeClientSideTool(
     }
   }
 
+  if (call.toolName === "run_claude_code_sdk") {
+    try {
+      const client = await getClient();
+      const result = await client.agents.tools.run(
+        call.toolName,
+        {
+          agent_id: senderAgentId,
+          args,
+        },
+        {
+          // The attached tool allows a 300-second SDK subprocess. Leave enough
+          // headroom for the tool endpoint to return the subprocess result.
+          timeout: 330_000,
+        },
+      );
+      const toolReturn =
+        typeof result.func_return === "string"
+          ? result.func_return
+          : JSON.stringify(result.func_return ?? null);
+      return {
+        type: "tool",
+        tool_call_id: call.toolCallId,
+        status: result.status,
+        tool_return: toolReturn,
+        stdout: Array.isArray(result.stdout) ? result.stdout : [],
+        stderr: Array.isArray(result.stderr) ? result.stderr : [],
+      };
+    } catch (e) {
+      return {
+        type: "tool",
+        tool_call_id: call.toolCallId,
+        status: "error",
+        tool_return: `run_claude_code_sdk failed: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  }
+
   return {
     type: "tool",
     tool_call_id: call.toolCallId,
@@ -426,7 +467,7 @@ export async function executePendingMultiAgentToolCalls(
   const results: ApprovalResult[] = [];
   for (const call of calls) {
     if (CLIENT_SIDE_FALLBACK_TOOLS.has(call.toolName)) {
-      results.push(await executeClientSideTool(call));
+      results.push(await executeClientSideTool(call, senderAgentId));
     } else {
       results.push(await executeMultiAgentToolCall(call, senderAgentId));
     }

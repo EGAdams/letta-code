@@ -51,12 +51,24 @@ const retrieveAgentMock = mock((agentId: string) =>
   }),
 );
 
+const runAgentToolMock = mock(() =>
+  Promise.resolve({
+    status: "success" as const,
+    func_return: "SDK tool completed",
+    stdout: [],
+    stderr: [],
+  }),
+);
+
 const getClientMock = mock(() =>
   Promise.resolve({
     agents: {
       retrieve: retrieveAgentMock,
       messages: {
         stream: streamMessageMock,
+      },
+      tools: {
+        run: runAgentToolMock,
       },
     },
   }),
@@ -77,7 +89,45 @@ describe("multi-agent tool fallback execution", () => {
   beforeEach(() => {
     streamMessageMock.mockClear();
     retrieveAgentMock.mockClear();
+    runAgentToolMock.mockClear();
     getClientMock.mockClear();
+  });
+
+  test("executes run_claude_code_sdk through the attached-agent tool endpoint", async () => {
+    const results = await executePendingMultiAgentToolCalls(
+      [
+        {
+          toolCallId: "call-sdk",
+          toolName: "run_claude_code_sdk",
+          toolArgs:
+            '{"task":"inspect receipts","context":"test","working_dir":"/home/adamsl/rol_finances"}',
+        },
+      ],
+      "agent-sender",
+    );
+
+    expect(runAgentToolMock).toHaveBeenCalledWith(
+      "run_claude_code_sdk",
+      {
+        agent_id: "agent-sender",
+        args: {
+          task: "inspect receipts",
+          context: "test",
+          working_dir: "/home/adamsl/rol_finances",
+        },
+      },
+      { timeout: 330_000 },
+    );
+    expect(results).toEqual([
+      {
+        type: "tool",
+        tool_call_id: "call-sdk",
+        status: "success",
+        tool_return: "SDK tool completed",
+        stdout: [],
+        stderr: [],
+      },
+    ]);
   });
 
   test("retries with a plain-text direct-answer reminder when first relay returns meta/non-actionable text", async () => {

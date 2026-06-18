@@ -500,6 +500,22 @@ summary {
   color: #000;
 }
 
+/* Month/year grouping tabs above the ROL Finance report list. */
+.tab.month-tab {
+  background: #00695c;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.82rem;
+}
+.tab.month-tab:hover,
+.tab.month-tab:focus-visible {
+  background: #00897b;
+}
+.tab.month-tab.active {
+  background: #009688;
+  font-weight: 700;
+}
+
 /* Report tab whose report.html is missing on disk */
 .tab.report-missing {
   background: #e53935;

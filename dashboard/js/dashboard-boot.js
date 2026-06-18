@@ -190,12 +190,28 @@ if (
       if (target === "project-plans") {
         navMain.classList.add("hidden");
         navPlans.classList.remove("hidden");
-        const rolTab = navPlans.querySelector(
-          '[data-nav="plans"][data-target="plans-rol-finance"]',
+        const firstPlan = navPlans.querySelector(
+          '[data-nav="plans"][data-target="plans-self-evolving"]',
         );
-        if (rolTab)
-          safeSetActive(navPlans, '[data-nav="plans"][data-target]', rolTab);
-        safeActivateView("plans-rol-finance");
+        if (firstPlan)
+          safeSetActive(navPlans, '[data-nav="plans"][data-target]', firstPlan);
+        safeActivateView("plans-self-evolving");
+        return;
+      }
+
+      if (target === "rol-finance") {
+        navMain.classList.add("hidden");
+        navRolFinance.classList.remove("hidden");
+        const planTab = navRolFinance.querySelector(
+          '[data-nav="rol-finance"][data-target="rol-finance-plan"]',
+        );
+        if (planTab)
+          safeSetActive(
+            navRolFinance,
+            '[data-nav="rol-finance"][data-target]',
+            planTab,
+          );
+        safeActivateView("rol-finance-plan");
         return;
       }
 
@@ -229,22 +245,6 @@ if (
     .querySelectorAll('[data-nav="plans"][data-target]')
     .forEach((tab) => {
       tab.addEventListener("click", () => {
-        if (tab.dataset.target === "plans-rol-finance") {
-          safeSetActive(navPlans, '[data-nav="plans"][data-target]', tab);
-          navPlans.classList.add("hidden");
-          navRolFinance.classList.remove("hidden");
-          const statusTab = navRolFinance.querySelector(
-            '[data-nav="rol-finance"][data-target="rol-finance-current-status"]',
-          );
-          if (statusTab)
-            safeSetActive(
-              navRolFinance,
-              '[data-nav="rol-finance"][data-target]',
-              statusTab,
-            );
-          safeActivateView("rol-finance-current-status");
-          return;
-        }
         safeSetActive(navPlans, '[data-nav="plans"][data-target]', tab);
         safeActivateView(tab.dataset.target);
       });
@@ -275,13 +275,19 @@ if (
       });
     });
 
-  // ROL Finance report tabs are injected dynamically, so use event delegation.
+  // ROL Finance month + report tabs are injected dynamically, so use event
+  // delegation. Month tabs switch the document list (Jan/Feb 2025); report tabs
+  // open a single document. The controller manages the active state of each row
+  // independently so the open month and open document stay highlighted.
   navRolFinanceReports.addEventListener("click", (e) => {
     const tab = e.target.closest(".tab");
     if (!tab || tab.id === "btn-back-rol-finance-reports") return;
+    if (tab.dataset.monthKey) {
+      RF.openMonth(tab.dataset.monthKey);
+      return;
+    }
     if (tab.dataset.reportKey) {
-      safeSetActive(navRolFinanceReports, ".tab", tab);
-      RF.openReport(tab.dataset.reportKey);
+      RF.selectReport(tab.dataset.reportKey);
     }
   });
 
@@ -419,18 +425,18 @@ if (
     });
   }
 
-  // Back from the ROL Finance sub-nav -> Project Plans tab view.
+  // Back from the ROL Finance sub-nav -> main nav / Home.
   const backRolFinance = document.getElementById("btn-back-rol-finance");
   if (backRolFinance) {
     backRolFinance.addEventListener("click", () => {
       navRolFinance.classList.add("hidden");
-      navPlans.classList.remove("hidden");
-      const rolTab = navPlans.querySelector(
-        '[data-nav="plans"][data-target="plans-rol-finance"]',
+      navMain.classList.remove("hidden");
+      const homeTab = navMain.querySelector(
+        '[data-nav="main"][data-target="home"]',
       );
-      if (rolTab)
-        safeSetActive(navPlans, '[data-nav="plans"][data-target]', rolTab);
-      safeActivateView("plans-rol-finance");
+      if (homeTab)
+        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
+      safeActivateView("home");
     });
   }
 

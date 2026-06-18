@@ -1,1002 +1,1002 @@
 [
   {
-    "date": "2026-06-17T02:43:53",
-    "type": "Bash",
-    "text": "curl -s -X POST \"http://localhost:8765/api/test\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"agent_id\":\"agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\",\"message\":\"hello\"}' | python3 -m json.tool"
-  },
-  {
-    "date": "2026-06-17T02:44:01",
-    "type": "Bash",
-    "text": "curl -s -X POST \"http://localhost:8765/api/test\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"agent_id\":\"agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\",\"message\":\"what model are you using?\"}' | pyth"
-  },
-  {
-    "date": "2026-06-17T02:44:22",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\" | python3 -c \"\nimport json, sys\nd = json.load(sys.stdin)\nprint('name:', d.get('name'))\nllm = d.get('llm_config',"
-  },
-  {
-    "date": "2026-06-17T02:44:30",
-    "type": "Bash",
-    "text": "tail -50 /tmp/letta_server_remote.log 2>/dev/null | grep -i \"mazda\\|6b536cf4\\|error\\|500\" | tail -30"
-  },
-  {
-    "date": "2026-06-17T02:44:37",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/api/agent-health\" | python3 -c \"\nimport json, sys\nd = json.load(sys.stdin)\nfor aid, h in d.items():\n    if not h.get('ok'):\n        print('UNHEALTHY:', aid, '-', h.get('"
-  },
-  {
-    "date": "2026-06-17T02:44:46",
-    "type": "Bash",
-    "text": "curl -s -X POST \"http://localhost:8765/api/test\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"agent_id\":\"agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\",\"message\":\"Process invoice for office supplies"
-  },
-  {
-    "date": "2026-06-17T02:45:05",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\" | python3 -c \"\nimport json, sys\nd = json.load(sys.stdin)\nsys_msg = d.get('system', '') or d.get('system_prompt',"
-  },
-  {
-    "date": "2026-06-17T02:45:15",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e/messages?limit=5\" | python3 -c \"\nimport json, sys\nmsgs = json.load(sys.stdin)\nif isinstance(msgs, list):\n    for "
-  },
-  {
-    "date": "2026-06-17T02:45:32",
-    "type": "Bash",
-    "text": "grep -n \"record_agent_send_error\\|clear_agent_send_error\\|_agent_send_errors\" /home/adamsl/letta-code/dashboard/server.py | head -20"
-  },
-  {
-    "date": "2026-06-17T02:45:37",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-17T02:45:42",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-17T02:45:55",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-17T02:46:23",
-    "type": "Bash",
-    "text": "curl -s -X POST \"http://localhost:8765/api/test\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"agent\":\"agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\",\"text\":\"hello\"}' \\\n  --max-time 60 | python3 -m j"
-  },
-  {
-    "date": "2026-06-17T02:48:01",
-    "type": "Bash",
-    "text": "curl -s -X POST \"http://localhost:8765/api/test\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"agent\":\"agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\",\"text\":\"Can you analyze the January business bank"
-  },
-  {
-    "date": "2026-06-17T02:50:06",
-    "type": "Bash",
-    "text": "curl -sv -X POST \"http://localhost:8765/api/test\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"agent\":\"agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\",\"text\":\"Can you analyze the January business ban"
-  },
-  {
-    "date": "2026-06-17T02:52:11",
-    "type": "Bash",
-    "text": "curl -s -w \"\\nHTTP_STATUS:%{http_code}\" -X POST \"http://localhost:8765/api/test\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"agent\":\"agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\",\"text\":\"analyze f"
-  },
-  {
-    "date": "2026-06-17T02:52:24",
-    "type": "Bash",
-    "text": "tail -20 /tmp/letta_server_remote.log 2>/dev/null | grep -v \"INFO - Context token estimate\\|INFO - Running final update\""
-  },
-  {
-    "date": "2026-06-17T02:52:40",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/api/agent-health\" | python3 -c \"\nimport json, sys\nd = json.load(sys.stdin)\nfor aid, h in d.items():\n    status = 'OK' if h.get('ok') else 'FAIL'\n    print(f'{status} {h."
-  },
-  {
-    "date": "2026-06-17T02:53:00",
-    "type": "Bash",
-    "text": "grep -n \"api/test\\|setAgentTabHealth\\|agent-health\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -20"
-  },
-  {
-    "date": "2026-06-17T02:53:04",
-    "type": "Bash",
-    "text": "grep -n \"api/test\\|sendTest\\|sendMessage\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -20"
-  },
-  {
-    "date": "2026-06-17T02:53:08",
-    "type": "Bash",
-    "text": "grep -rn \"api/test\" /home/adamsl/letta-code/dashboard/js/ | head -20"
-  },
-  {
-    "date": "2026-06-17T02:53:19",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
-  },
-  {
-    "date": "2026-06-17T02:53:43",
-    "type": "Bash",
-    "text": "tail -100 /tmp/letta_server_remote.log 2>/dev/null | grep -i \"error\\|500\\|exception\\|traceback\" | tail -20"
-  },
-  {
-    "date": "2026-06-17T02:54:19",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/providers\" 2>/dev/null | python3 -c \"\nimport json, sys\nd = json.load(sys.stdin)\nif isinstance(d, list):\n    for p in d:\n        print('name:', p.get('name'), '| ty"
-  },
-  {
-    "date": "2026-06-17T02:54:57",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\" | python3 -c \"\nimport json, sys\nd = json.load(sys.stdin)\nllm = d.get('llm_config', {})\nprint('model:', llm.get('"
-  },
-  {
-    "date": "2026-06-17T02:55:44",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\" | python3 -c \"\nimport json, sys\nd = json.load(sys.stdin)\nprint('keys:', list(d.keys()))\nllm = d.get('llm_config'"
-  },
-  {
-    "date": "2026-06-17T02:56:03",
-    "type": "Bash",
-    "text": "tail -200 /tmp/letta_server_remote.log 2>/dev/null | grep -A2 \"ERROR\\|500\\|exception\" | grep \"6b536cf4\\|mazda\\|chatgpt\" 2>/dev/null | head -20"
-  },
-  {
-    "date": "2026-06-17T02:56:30",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\" | python3 -c \"\nimport json, sys\nd = json.load(sys.stdin)\nprint('last_run_completion:', d.get('last_run_completio"
-  },
-  {
-    "date": "2026-06-17T02:57:04",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e/tools\" | python3 -c \"\nimport json, sys\ntools = json.load(sys.stdin)\nfor t in tools:\n    if 'relay' in t.get('name"
-  },
-  {
-    "date": "2026-06-17T02:57:17",
-    "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/ -v --tb=short 2>&1 | tail -40"
-  },
-  {
-    "date": "2026-06-17T02:57:22",
-    "type": "Bash",
-    "text": "bun test js/tests 2>&1 | tail -15"
-  },
-  {
-    "date": "2026-06-17T02:57:30",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/agent-health | python3 -m json.tool | head -30"
-  },
-  {
-    "date": "2026-06-17T02:57:51",
-    "type": "Bash",
-    "text": "grep -n \"def letta_id_for\\|def get_letta_id\" /home/adamsl/letta-code/dashboard/server.py | head -5"
-  },
-  {
-    "date": "2026-06-17T02:57:56",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-17T02:58:12",
-    "type": "Bash",
-    "text": "grep -n \"data-agent-id\\|agent-tab\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -20"
-  },
-  {
-    "date": "2026-06-17T02:58:16",
-    "type": "Bash",
-    "text": "grep -n \"data-agent-id\\|agent-tab\" /home/adamsl/letta-code/dashboard/js/implementation/dom-tab-factory.js 2>/dev/null | head -20"
-  },
-  {
-    "date": "2026-06-17T02:58:20",
-    "type": "Bash",
-    "text": "grep -rn \"data-agent-id\\|agent-tab\" /home/adamsl/letta-code/dashboard/js/ | grep -v \".test.js\\|README\" | head -20"
-  },
-  {
-    "date": "2026-06-17T02:58:24",
-    "type": "Bash",
-    "text": "grep -n \"data-agent-id\\|agent-tab\\|agentId\\|agent\\.id\" /home/adamsl/letta-code/dashboard/js/abstract/tab-factory.interface.js | head -20"
-  },
-  {
-    "date": "2026-06-17T02:58:30",
-    "type": "Bash",
-    "text": "grep -n \"def build_agent_list\" /home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-17T02:58:35",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-17T02:58:46",
-    "type": "Bash",
-    "text": "grep -n \"def agent_health_status\" /home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-17T02:58:53",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-17T02:59:06",
-    "type": "Bash",
-    "text": "grep -n \"agent-health-error\\|agent-error\\|setAgentTabStatus\\|classList\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -20"
-  },
-  {
-    "date": "2026-06-17T02:59:10",
-    "type": "Bash",
-    "text": "grep -n \"agent-health-error\\|setAgentTabStatus\" /home/adamsl/letta-code/dashboard/js/implementation/agent-activity-poller.js 2>/dev/null | head -10"
-  },
-  {
-    "date": "2026-06-17T02:59:14",
-    "type": "Bash",
-    "text": "grep -n \"agent-error\\|agent-active\\|agent-health\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -30"
-  },
-  {
-    "date": "2026-06-17T02:59:21",
-    "type": "Bash",
-    "text": "grep -n \"agent-health-error\\|agent-error\\|agent-active\" /home/adamsl/letta-code/dashboard/css/dashboard.css"
-  },
-  {
-    "date": "2026-06-17T12:16:42",
-    "type": "Bash",
-    "text": "systemctl --user is-active dashboard-server lettabot thought-bridge 2>&1"
-  },
-  {
-    "date": "2026-06-17T12:16:43",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/server-health 2>/dev/null | python3 -m json.tool | head -40"
-  },
-  {
-    "date": "2026-06-17T12:16:51",
-    "type": "Bash",
-    "text": "curl -s -X POST http://localhost:8765/api/server-action \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"server\":\"executor\",\"action\":\"start\"}' | python3 -m json.tool"
-  },
-  {
-    "date": "2026-06-17T12:17:04",
-    "type": "Bash",
-    "text": "sleep 8 && curl -s http://localhost:8787/health 2>/dev/null && echo \"\" && curl -s http://localhost:8789/health 2>/dev/null"
-  },
-  {
-    "date": "2026-06-17T12:17:10",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/agent-health | python3 -m json.tool"
-  },
-  {
-    "date": "2026-06-17T12:17:19",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/api/server-health\" | python3 -c \"\nimport json, sys\nd = json.load(sys.stdin)\nfor s in d.get('servers', []):\n    status = s.get('status', '?')\n    mark = '\u2705' if status ="
-  },
-  {
-    "date": "2026-06-17T13:36:39",
-    "type": "Bash",
-    "text": "grep -rn \"server\" --include=*.cpp --include=*.h -il /home/adamsl/rpi-rgb-led-matrix/pickle_cpp | grep -iv test | head -50"
-  },
-  {
-    "date": "2026-06-17T13:36:42",
-    "type": "Bash",
-    "text": "grep -rln \"ServerBar\\|server_bar\\|serverBar\\|SERVER_BAR\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp --include=*.cpp --include=*.h"
-  },
-  {
-    "date": "2026-06-17T13:36:45",
-    "type": "Bash",
-    "text": "grep -rln \"rotat\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp --include=*.cpp --include=*.h -i"
-  },
-  {
-    "date": "2026-06-17T13:36:50",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory/panel_rotation_system.md"
-  },
-  {
-    "date": "2026-06-17T13:36:57",
-    "type": "Bash",
-    "text": "git log --oneline -15 && echo --- && grep -rn \"isRotated\\|rotation\\|Rotat\" Drawer/*.cpp Drawer/*.h SetDrawer/*.cpp SetDrawer/*.h 2>/dev/null"
-  },
-  {
-    "date": "2026-06-17T13:37:05",
-    "type": "Bash",
-    "text": "grep -rln \"serve\\|Serve\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Drawer /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer 2>/dev/null; echo ---; find /home/adamsl/rpi-rgb-led-matrix/pickle_cpp -"
-  },
-  {
-    "date": "2026-06-17T13:37:09",
-    "type": "Bash",
-    "text": "grep -n \"serve\\|Serve\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp"
-  },
-  {
-    "date": "2026-06-17T13:37:15",
-    "type": "Bash",
-    "text": "grep -n \"serve\\|Serve\\|SERVE\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Drawer/Drawer.cpp | head -50"
-  },
-  {
-    "date": "2026-06-17T13:37:19",
-    "type": "Bash",
-    "text": "grep -rln \"ServeIndicator\\|ServingIndicator\\|ServerIndicator\\|serve_bar\\|ServeBox\\|serve_box\\|ServeRect\\|servebar\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp 2>/dev/null"
-  },
-  {
-    "date": "2026-06-17T13:37:24",
-    "type": "Bash",
-    "text": "grep -n \"Serve\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/IScoreBoard/IScoreBoard.h /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.h"
-  },
-  {
-    "date": "2026-06-17T13:37:27",
-    "type": "Bash",
-    "text": "grep -n \"drawServeIndicator\\|clearServeIndicators\" -A 40 /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp | head -100"
-  },
-  {
-    "date": "2026-06-17T13:37:31",
-    "type": "Bash",
-    "text": "grep -n \"setTeamAServe\\|setTeamBServe\\|toggleServe\" -A 30 /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp | head -150"
-  },
-  {
-    "date": "2026-06-17T13:37:40",
-    "type": "Bash",
-    "text": "grep -n \"bar\\|Bar\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/FirstServerScreenRenderer/FirstServerScreenRenderer.cpp | head -50"
-  },
-  {
-    "date": "2026-06-17T13:37:44",
-    "type": "Bash",
-    "text": "grep -rln \"Bar\\b\" --include=*.cpp --include=*.h /home/adamsl/rpi-rgb-led-matrix/pickle_cpp | grep -v build/ | grep -v WilsonScoreBoard"
-  },
-  {
-    "date": "2026-06-17T13:37:49",
-    "type": "Bash",
-    "text": "grep -n \"Bar\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.h /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/IScoreB"
-  },
-  {
-    "date": "2026-06-17T13:37:57",
-    "type": "Bash",
-    "text": "find /home/adamsl/rpi-rgb-led-matrix/pickle_cpp -iname \"*bluepipe*\" -o -iname \"*pipedrawer*\""
-  },
-  {
-    "date": "2026-06-17T13:38:01",
-    "type": "Bash",
-    "text": "grep -n \"bluePipeDrawer\\|BluePipe\" -ri /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/*.h /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/*.cpp"
-  },
-  {
-    "date": "2026-06-17T13:38:07",
-    "type": "Bash",
-    "text": "grep -n \"Rect\\|DrawLine\\|SetPixel\\|width\\|WIDTH\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/FirstServerScreenRenderer/FirstServerScreenRenderer.cpp | head -60"
-  },
-  {
-    "date": "2026-06-17T13:38:16",
-    "type": "Bash",
-    "text": "grep -n \"void \\|class \\|Bar\\|bar\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Drawer/Drawer.h"
-  },
-  {
-    "date": "2026-06-17T13:38:21",
-    "type": "Bash",
-    "text": "grep -n \"rotat\\|server\\|Server\\|bar\\|Bar\" -i /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/show_pickleball_layout.cpp | head -80"
-  },
-  {
-    "date": "2026-06-17T13:38:27",
-    "type": "Bash",
-    "text": "git show --stat 8b7eb44d | head -20"
-  },
-  {
-    "date": "2026-06-17T13:38:31",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/rotated_hub_75_cutsoff_big_numbers.jpg"
-  },
-  {
-    "date": "2026-06-17T13:38:37",
-    "type": "Bash",
-    "text": "grep -n \"White\\|WHITE\\|255, 255, 255\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp | head -40"
-  },
-  {
-    "date": "2026-06-17T13:38:48",
-    "type": "Bash",
-    "text": "grep -rn \"Server\\|serve\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/TopPanelController/*.h /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/TopPanelController/*.cpp 2>/dev/null"
-  },
-  {
-    "date": "2026-06-17T13:38:54",
-    "type": "Bash",
-    "text": "grep -rln \"Serve\" --include=*.cpp --include=*.h /home/adamsl/rpi-rgb-led-matrix/pickle_cpp | grep -v build/ | grep -v test | grep -v Test"
-  },
-  {
-    "date": "2026-06-17T13:39:03",
-    "type": "Bash",
-    "text": "grep -rniI \"server bar\\|serverbar\\|serve_bar\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp 2>/dev/null | grep -v build/"
-  },
-  {
-    "date": "2026-06-17T13:39:09",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp"
-  },
-  {
-    "date": "2026-06-17T13:39:23",
-    "type": "Bash",
-    "text": "grep -rn \"for.*col.*< *3\\|width.*3\\b\\|3.*column\\|columns\" --include=*.cpp --include=*.h -i /home/adamsl/rpi-rgb-led-matrix/pickle_cpp | grep -v build/ | grep -v test"
-  },
-  {
-    "date": "2026-06-17T13:43:39",
+    "date": "2026-06-18T15:49:21",
     "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"Which on-screen element is the 'server bar' you want widened from 3 to 4 columns?\",\"header\":\"Server bar ID\",\"options\":[{\"label\":\"Tennis serve pipe (\\\"I\\\" glyph)\",\"description\":\"ScoreBoard::drawPlayerScore() draws a vertical 'I' character via _pipeDrawer (ScoreBoard.cpp:637) next to the serving tennis player's score. Width comes from the big-number font's 'I' glyph, not a literal pixel-count constant.\"},{\"label\":\"Tie-breaker bar\",\"description\":\"ScoreBoard::drawTieBreakerBar() draws an 'I' character via _bluePipeDrawer (ScoreBoard.cpp:950-961), a blue vertical bar shown during tiebreak. Same font-glyph mechanism as the tennis serve pipe.\"},{\"label\":\"Pickleball serve digit highlight\",\"description\":\"drawPlayerScore() draws a small yellow '1' or '2' digit (ScoreBoard.cpp:581-628) indicating which team member is serving \u2014 this is a digit, not currently a drawn bar/rectangle.\"},{\"label\":\"Something else / not yet in code\",\"description\":\"The server bar isn't one of these \u2014 let me describe it directly (e.g. a file/line you know of, or a different visual element from the screenshot).\"}],\"multiSelect\":false}]"
+    "text": "questions: [{\"question\":\"Do you know who/what these 20 missing deposits are, or should I file them as Uncategorized for now (you can set categories later via the dashboard's per-row picker)?\",\"header\":\"Missing deposits\",\"options\":[{\"label\":\"File as Uncategorized for now (Recommended)\",\"description\":\"Add the 5 new vendor patterns (USAA/R Patterson, USAA/V Patterson, generic DEPOSIT, LOUIS ADAMS SENDER, SHS direct deposit) to vendor_category.yaml with no category, insert the 20 rows, and let you recategorize per-row from the dashboard afterward.\"},{\"label\":\"Tell me who they are first\",\"description\":\"You identify R Patterson, V Patterson, Louis Adams, and the SHS direct deposit so I can assign real categories before inserting \u2014 avoids a second pass later.\"},{\"label\":\"Hold off on DB insert entirely\",\"description\":\"Just build the report showing all 57 transactions (using existing DB data for the 37 + the verified statement data for the 20 missing ones), without writing the 20 new rows to the database yet.\"}],\"multiSelect\":false},{\"question\":\"The apparent pre-existing duplicate check entries (e.g. \\\"Check 11016\\\" generic + \\\"Jews for Jesus\\\" categorized, same $44/date) \u2014 found incidentally, unrelated to this report. What should I do?\",\"header\":\"Duplicate checks\",\"options\":[{\"label\":\"Just flag it in the report's Problems Found section (Recommended)\",\"description\":\"Note the suspected double-entries for your awareness; don't modify any existing DB rows. You can investigate/clean up separately.\"},{\"label\":\"Leave it out of the report entirely\",\"description\":\"Don't mention it \u2014 treat it as out of scope for this task.\"}],\"multiSelect\":false}]"
   },
   {
-    "date": "2026-06-17T13:43:46",
+    "date": "2026-06-18T15:50:12",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && python3 - <<'EOF'\nimport json\nfrom db_writer import get_db_connection\n\n# 37 expense (check/withdrawal) transactions, ordered as on statement\nchecks = [\n    (\"11014\",\"01/17\",49.00)"
+  },
+  {
+    "date": "2026-06-18T15:52:13",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && python3 - <<'EOF'\nfrom pathlib import Path\nfrom tools.categorizer.VendorCategoryStore import VendorCategoryStore\nfrom tools.categorizer.vendor_key_fallback_resolver import VendorK"
+  },
+  {
+    "date": "2026-06-18T15:52:49",
+    "type": "Bash",
+    "text": "grep -B2 -A2 '<th' ~/rol_finances/_report_tab_backups_20260617_151535/january__december_january_personal_bank_statement__fifth_third_december_january_personal_bank_statement_report.html | head -20"
+  },
+  {
+    "date": "2026-06-18T15:53:08",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && sed -n '78,170p' tools/python_tasks/verification_lib/restructure_verified_transactions.py"
+  },
+  {
+    "date": "2026-06-18T15:53:17",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && sed -n '1,80p' tools/python_tasks/verification_lib/apply_reporting_category_colors.py"
+  },
+  {
+    "date": "2026-06-18T15:53:24",
     "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Drawer/Drawer.cpp"
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/business_january_february_6285/report.html"
   },
   {
-    "date": "2026-06-17T13:43:59",
+    "date": "2026-06-18T15:53:30",
     "type": "Bash",
-    "text": "grex() { grep -n \"$1\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp; }; grep -n \"_big_number_font\\b\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.h /home/ada"
+    "text": "grep -n \"table\\s*{\\|th\\s*{\\|td\\s*{\\|\\.number\\|inline-code\" ~/rol_finances/readable_documents/bank_statements/january/business_january_february_6285/report.html"
   },
   {
-    "date": "2026-06-17T13:44:08",
+    "date": "2026-06-18T15:53:40",
     "type": "Bash",
-    "text": "grep -rn \"PB_BIG_NUMBER_FONT\" --include=*.h --include=*.cpp /home/adamsl/rpi-rgb-led-matrix/pickle_cpp | grep -v build/"
+    "text": "grep -n \"table\\s*{\\|th\\s*{\\|td\\s*{\\|\\.number\\|inline-code\\|thead\" ~/rol_finances/readable_documents/bank_statements/january/december_january_personal_bank_statement/report.html | head -20"
   },
   {
-    "date": "2026-06-17T13:44:11",
-    "type": "Bash",
-    "text": "awk '/STARTCHAR I$/,/ENDCHAR/' \"/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/pickle_zero_sliced.bdf\""
-  },
-  {
-    "date": "2026-06-17T13:44:14",
-    "type": "Bash",
-    "text": "find /home/adamsl/rpi-rgb-led-matrix/pickle_cpp -iname \"pickle_zero_sliced.bdf\""
-  },
-  {
-    "date": "2026-06-17T13:44:18",
-    "type": "Bash",
-    "text": "grep -n \"^STARTCHAR\\|^ENCODING\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/pickle_zero_sliced.bdf | grep -A1 -i \"^STARTCHAR I$\""
-  },
-  {
-    "date": "2026-06-17T13:44:22",
-    "type": "Bash",
-    "text": "grep -n \"STARTCHAR\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/pickle_zero_sliced.bdf | head -30"
-  },
-  {
-    "date": "2026-06-17T13:44:27",
-    "type": "Bash",
-    "text": "grep -n \"ENCODING 73$\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/pickle_zero_sliced.bdf"
-  },
-  {
-    "date": "2026-06-17T13:44:31",
-    "type": "Bash",
-    "text": "sed -n '2090,2115p;8965,8995p' /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/pickle_zero_sliced.bdf"
-  },
-  {
-    "date": "2026-06-17T13:44:42",
-    "type": "Bash",
-    "text": "sed -n '8965,9015p' /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/pickle_zero_sliced.bdf"
-  },
-  {
-    "date": "2026-06-17T13:45:11",
+    "date": "2026-06-18T15:53:47",
     "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/pickle_zero_sliced.bdf"
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/december_january_personal_bank_statement/report.html"
   },
   {
-    "date": "2026-06-17T13:45:19",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/pickle_zero_sliced.bdf"
+    "date": "2026-06-18T15:55:31",
+    "type": "Write",
+    "text": "/tmp/build_6285_pdf2_report.py\n\u2192 import re from pathlib import Path  REPORT_PATH = Path(\"/home/adamsl/rol_finances/readable_documents/bank_statements/january/business_january_february_6285/report.html\")  # Final, hand-verified row da"
   },
   {
-    "date": "2026-06-17T13:45:31",
+    "date": "2026-06-18T15:55:46",
     "type": "Bash",
-    "text": "grep -n \"^STARTCHAR 073$\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/pickle_zero_sliced.bdf"
+    "text": "grep -o '\"check_[0-9]*\"' /tmp/build_6285_pdf2_report.py | sort -u; echo \"---count---\"; grep -o '\"check_[0-9]*\"' /tmp/build_6285_pdf2_report.py | wc -l"
   },
   {
-    "date": "2026-06-17T13:45:43",
-    "type": "Bash",
-    "text": "find /home/adamsl/rpi-rgb-led-matrix -iname \"bdf-font.cc\" -o -iname \"bdf-font.h\" 2>/dev/null"
-  },
-  {
-    "date": "2026-06-17T13:45:47",
-    "type": "Bash",
-    "text": "grep -n \"CharacterWidth\\|DrawGlyph\\|width_\\|right_extra\\|bbx\\|baseline_\" /home/adamsl/rpi-rgb-led-matrix/lib/bdf-font.cc | head -60"
-  },
-  {
-    "date": "2026-06-17T13:45:57",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/bdf-font.cc"
-  },
-  {
-    "date": "2026-06-17T13:46:14",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/PanelRotationConfig/PanelRotationConfig.h"
-  },
-  {
-    "date": "2026-06-17T13:46:20",
-    "type": "Bash",
-    "text": "grep -n -i \"rotat\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.h"
-  },
-  {
-    "date": "2026-06-17T13:46:33",
-    "type": "Bash",
-    "text": "git show --stat ce841617 b1a0b154 7493d264 5c46a084"
-  },
-  {
-    "date": "2026-06-17T13:46:39",
-    "type": "Bash",
-    "text": "git show 5c46a084 -- pickle_cpp/MenuScreenRenderer/MenuScreenRenderer.cpp | head -150"
-  },
-  {
-    "date": "2026-06-17T13:46:43",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git show 5c46a084 -- pickle_cpp/MenuScreenRenderer/MenuScreenRenderer.cpp | head -200"
-  },
-  {
-    "date": "2026-06-17T13:46:54",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.h"
-  },
-  {
-    "date": "2026-06-17T13:47:12",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/PanelRotationConfig/PanelRotationConfig.cpp"
-  },
-  {
-    "date": "2026-06-17T13:47:28",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp"
-  },
-  {
-    "date": "2026-06-17T13:47:37",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Drawer/Drawer.h"
-  },
-  {
-    "date": "2026-06-17T13:47:47",
-    "type": "Bash",
-    "text": "find /home/adamsl/rpi-rgb-led-matrix -iname \"bdf-font.h\" | head -1 | xargs cat"
-  },
-  {
-    "date": "2026-06-17T13:47:51",
-    "type": "Bash",
-    "text": "find /home/adamsl/rpi-rgb-led-matrix -iname \"*.h\" | xargs grep -l \"class Font\" 2>/dev/null"
-  },
-  {
-    "date": "2026-06-17T13:47:54",
-    "type": "Bash",
-    "text": "grep -n \"class Font\" -A 40 /home/adamsl/rpi-rgb-led-matrix/include/graphics.h | head -60"
-  },
-  {
-    "date": "2026-06-17T13:48:30",
-    "type": "Bash",
-    "text": "grep -n \"font_height_\\|base_line_\\|FONTBOUNDINGBOX\\|y_offset\" /home/adamsl/rpi-rgb-led-matrix/lib/bdf-font.cc | head -40"
-  },
-  {
-    "date": "2026-06-17T13:48:34",
-    "type": "Bash",
-    "text": "grep -n \"FONTBOUNDINGBOX\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/pickle_zero_sliced.bdf"
-  },
-  {
-    "date": "2026-06-17T13:49:09",
-    "type": "Bash",
-    "text": "grep -n \"PanelRotationConfig\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile"
-  },
-  {
-    "date": "2026-06-17T13:49:14",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile"
-  },
-  {
-    "date": "2026-06-17T13:49:24",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp"
-  },
-  {
-    "date": "2026-06-17T13:49:34",
+    "date": "2026-06-18T15:55:52",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp"
+    "text": "/tmp/build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T13:49:40",
+    "date": "2026-06-18T15:55:59",
+    "type": "Bash",
+    "text": "cd /tmp && python3 build_6285_pdf2_report.py"
+  },
+  {
+    "date": "2026-06-18T15:56:04",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && grep -c rol-category-picker tools/python_tasks/verification_lib/restructure_verified_transactions.py\npython3 tools/python_tasks/verification_lib/restructure_verified_transactions."
+  },
+  {
+    "date": "2026-06-18T15:56:10",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && grep -n \"Verified Transactions\\|<table\\|</table>\\|<thead\\|<tr class=\\\"cat\" readable_documents/bank_statements/january/business_january_february_6285/report.html | head -20"
+  },
+  {
+    "date": "2026-06-18T15:56:21",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && F=readable_documents/bank_statements/january/business_january_february_6285/report.html\necho \"verified-transactions id:\"; grep -c 'id=\"verified-transactions\"' $F\necho \"data-vendor"
+  },
+  {
+    "date": "2026-06-18T15:56:27",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && F=readable_documents/bank_statements/january/business_january_february_6285/report.html\nfor s in \"Statement Summary\" \"Transaction Count Verification\" \"Total Amount Verification\" \""
+  },
+  {
+    "date": "2026-06-18T15:56:32",
+    "type": "Bash",
+    "text": "curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8765/rol_finances_reports/business_january_february_6285/report.html\ncurl -s http://localhost:8765/api/rol-finance-reports | python3 -c \"impor"
+  },
+  {
+    "date": "2026-06-18T15:56:36",
+    "type": "ToolSearch",
+    "text": "query: playwright browser navigate snapshot screenshot"
+  },
+  {
+    "date": "2026-06-18T15:57:14",
+    "type": "Bash",
+    "text": "curl -s http://localhost:8765/rol_finances_reports/business_january_february_6285/report.html | grep -o '\\$[0-9,]*\\.[0-9][0-9]' | sort -u | head -20\necho \"---\"\ncurl -s http://localhost:8765/ | grep -o"
+  },
+  {
+    "date": "2026-06-18T16:04:15",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/e_two_e_processing/row_sources/llm_pdf_parser.py"
+  },
+  {
+    "date": "2026-06-18T16:04:21",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && grep -rln \"LlmStatementParser\\|LlmPdfParser\" parsing_router/specialized_parser_factory/ | grep -v __pycache__"
+  },
+  {
+    "date": "2026-06-18T16:04:29",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && find . -iname \"*llm_pdf_parser*test*\" -o -iname \"*test*llm_pdf_parser*\" 2>/dev/null | grep -v \".git/\""
+  },
+  {
+    "date": "2026-06-18T16:04:33",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && grep -rl \"LlmPdfParser\\|llm_pdf_parser\" --include=\"*.py\" . 2>/dev/null | grep -i test | grep -v \".git/\""
+  },
+  {
+    "date": "2026-06-18T16:04:39",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && find . -path \"*/tests/*\" -iname \"*row_sources*\" -o -path \"*e_two_e_processing*test*\" 2>/dev/null | grep -v \".git/\\|__pycache__\" | head -20"
+  },
+  {
+    "date": "2026-06-18T16:04:43",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && find . -path \"*e_two_e_processing*\" -iname \"test_*.py\" -not -path \"*/.git/*\" 2>/dev/null | head -20"
+  },
+  {
+    "date": "2026-06-18T16:04:47",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && ls parsing_router/tests/ 2>/dev/null; echo \"---\"; grep -rl \"RowNormalizer\\|normalizer\" parsing_router/tests/ 2>/dev/null"
+  },
+  {
+    "date": "2026-06-18T16:04:51",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && sed -n '1,60p' parsing_router/tests/test_parser_wrappers.py"
+  },
+  {
+    "date": "2026-06-18T16:05:06",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp"
+    "text": "/home/adamsl/rol_finances/e_two_e_processing/row_sources/llm_pdf_parser.py"
   },
   {
-    "date": "2026-06-17T13:49:45",
+    "date": "2026-06-18T16:05:12",
     "type": "Bash",
-    "text": "make pickle_keyboard 2>&1 | tail -60"
+    "text": "cd ~/rol_finances && sed -n '245,320p' e_two_e_processing/row_sources/llm_pdf_parser.py"
   },
   {
-    "date": "2026-06-17T13:49:50",
+    "date": "2026-06-18T16:06:02",
     "type": "Bash",
-    "text": "make run_wilson 2>&1 | tail -30"
+    "text": "cd ~/rol_finances && python3 - <<'EOF' 2>/tmp/refix_log.txt\nfrom parsing_router.router import DocumentRouter\nfrom parsing_router.classifier import HybridClassifier\nimport json\n\nclassifier = HybridClas"
   },
   {
-    "date": "2026-06-17T13:49:54",
+    "date": "2026-06-18T16:07:00",
     "type": "Bash",
-    "text": "make integration_tests 2>&1 | tail -40"
+    "text": "cd ~/rol_finances && python3 - <<'EOF' 2>&1 | tail -40\nfrom e_two_e_processing.row_sources.llm_pdf_parser import LlmPdfParser\np = LlmPdfParser(engine=\"gemini\")\nrows = list(p.parse_rows(\"readable_docum"
   },
   {
-    "date": "2026-06-17T13:49:58",
+    "date": "2026-06-18T16:07:07",
     "type": "Bash",
-    "text": "git status --short | head -20; ls tests/ | grep game_flow"
+    "text": "cd ~/rol_finances && find . -iname \"normalizer.py\" -path \"*e_two_e*\" -not -path \"*/.git/*\""
   },
   {
-    "date": "2026-06-17T13:50:06",
+    "date": "2026-06-18T16:07:10",
     "type": "Bash",
-    "text": "grep -n \"test_integration_game_flow_basic\" Makefile | head -5"
+    "text": "cd ~/rol_finances && grep -n \"amount\\|abs(\" e_two_e_processing/normalizer.py"
   },
   {
-    "date": "2026-06-17T13:50:11",
+    "date": "2026-06-18T16:07:19",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/e_two_e_processing/normalizer.py"
+  },
+  {
+    "date": "2026-06-18T16:07:29",
     "type": "Bash",
-    "text": "ls tests/ | grep -i \"serve\\|scoreboard\" "
+    "text": "cd ~/rol_finances && grep -n \"class Row\\|amount\\|debit\\|credit\\|sign\" e_two_e_processing/models.py"
   },
   {
-    "date": "2026-06-17T13:50:15",
-    "type": "Bash",
-    "text": "git diff -- ScoreBoard/ScoreBoard.cpp"
+    "date": "2026-06-18T16:07:51",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/parsing_router/specialized_parser_factory/llm_statement_parser.py"
   },
   {
-    "date": "2026-06-17T13:50:24",
-    "type": "Bash",
-    "text": "grep -n \"BIG_NUMBER_HORIZONTAL_OFFSET\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp"
-  },
-  {
-    "date": "2026-06-17T13:50:29",
+    "date": "2026-06-18T16:08:04",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp"
+    "text": "/home/adamsl/rol_finances/parsing_router/specialized_parser_factory/llm_statement_parser.py"
   },
   {
-    "date": "2026-06-17T13:50:35",
+    "date": "2026-06-18T16:08:39",
     "type": "Bash",
-    "text": "make pickle_keyboard 2>&1 | tail -15 && make run_wilson 2>&1 | tail -15"
+    "text": "cd ~/rol_finances && python3 - <<'EOF' 2>/tmp/refix_log2.txt\nfrom parsing_router.router import DocumentRouter\nfrom parsing_router.classifier import HybridClassifier\n\nclassifier = HybridClassifier(engi"
   },
   {
-    "date": "2026-06-17T13:50:42",
+    "date": "2026-06-18T16:08:46",
     "type": "Bash",
-    "text": "git diff -- ScoreBoard/ScoreBoard.cpp"
+    "text": "cd ~/rol_finances && python3 -m pytest parsing_router/tests/ -q 2>&1 | tail -40"
   },
   {
-    "date": "2026-06-17T13:54:10",
+    "date": "2026-06-18T16:08:56",
     "type": "Bash",
-    "text": "grep -n \"pipe_x\\|pipe_y\\|loadPanelRotation\\|serve_bar ==\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp"
+    "text": "cd ~/rol_finances && .venv/bin/python -m pytest parsing_router/tests/ -q 2>&1 | tail -50"
   },
   {
-    "date": "2026-06-17T14:22:58",
+    "date": "2026-06-18T16:09:02",
     "type": "Bash",
-    "text": "grep -rn \"ad_box\\|AdBox\\|ad box\\|clock\" --include=*.cpp --include=*.h -il /home/adamsl/rpi-rgb-led-matrix/pickle_cpp | grep -v build/ | grep -v test -i"
+    "text": "cd ~/rol_finances && .venv/bin/python -m pytest parsing_router/tests/test_parser_wrappers.py parsing_router/tests/test_integration.py -q 2>&1 | tail -50"
   },
   {
-    "date": "2026-06-17T14:23:04",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.h"
-  },
-  {
-    "date": "2026-06-17T14:23:09",
+    "date": "2026-06-18T16:09:09",
     "type": "Bash",
-    "text": "grep -rn \"drawClock\\|drawClockAboveSets\" --include=*.cpp /home/adamsl/rpi-rgb-led-matrix/pickle_cpp | grep -v build/"
+    "text": "cd ~/rol_finances && sed -n '1,40p' parsing_router/tests/test_parser_wrappers.py | grep -n \"class TestFifthThird\" -A 30"
   },
   {
-    "date": "2026-06-17T14:23:15",
+    "date": "2026-06-18T16:09:14",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git show 8d432eb4 --stat && echo --- && git show 8d432eb4"
+    "text": "cd ~/rol_finances && grep -n \"class TestFifthThirdParser\" -A 30 parsing_router/tests/test_parser_wrappers.py"
   },
   {
-    "date": "2026-06-17T14:23:59",
+    "date": "2026-06-18T16:09:29",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/parsing_router/tests/test_llm_statement_parser.py\n\u2192 \"\"\"Regression tests for LlmStatementParser's CREDIT/DEBIT sign handling.  RowNormalizer._parse_amount() returns an unsigned magnitude by design (its contract for other consumers), so LlmStatementParse"
+  },
+  {
+    "date": "2026-06-18T16:09:34",
     "type": "Bash",
-    "text": "grep -rln \"dvertisement\\|AdRenderer\\|TournamentAd\" --include=*.cpp --include=*.h /home/adamsl/rpi-rgb-led-matrix/pickle_cpp | grep -v build/"
+    "text": "cd ~/rol_finances && .venv/bin/python -m pytest parsing_router/tests/test_llm_statement_parser.py -q 2>&1 | tail -30"
   },
   {
-    "date": "2026-06-17T14:24:08",
+    "date": "2026-06-18T16:10:00",
     "type": "Bash",
-    "text": "grep -n \"OffsetCanvas\\|panel\\|Panel\\|clock\\|Clock\\|kPanelSize\\|offset\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/run_wilson.cpp | head -100"
+    "text": "cd ~/rol_finances && python3 - <<'EOF'\nfrom db_writer import get_db_connection\nconn = get_db_connection()\ncur = conn.cursor()\ncur.execute(\"SELECT id, name, parent_id FROM categories WHERE name LIKE '%"
   },
   {
-    "date": "2026-06-17T14:24:34",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp"
-  },
-  {
-    "date": "2026-06-17T14:24:43",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.cpp"
-  },
-  {
-    "date": "2026-06-17T14:26:31",
-    "type": "Skill",
-    "text": "skill: hub75-sim"
-  },
-  {
-    "date": "2026-06-17T14:26:38",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/run_wilson.cpp"
-  },
-  {
-    "date": "2026-06-17T14:27:06",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/rotated_hub_75_cutsoff_big_numbers.jpg"
-  },
-  {
-    "date": "2026-06-17T14:27:34",
+    "date": "2026-06-18T16:10:08",
     "type": "Bash",
-    "text": "grep -n \"ThreeSixtyFour\\|MapVisibleToMatrix\\|SetParameters\\|rotation\" -A 3 /home/adamsl/rpi-rgb-led-matrix/lib/pixel-mapper.cc | head -150"
+    "text": "cd ~/rol_finances && python3 - <<'EOF'\nfrom db_writer import get_db_connection\nconn = get_db_connection()\ncur = conn.cursor()\ncur.execute(\"SELECT id, expense_date, amount, description, category_id FRO"
   },
   {
-    "date": "2026-06-17T14:38:16",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/pixel-mapper.cc"
-  },
-  {
-    "date": "2026-06-17T14:55:51",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/june_17__rotated_left.jpg"
-  },
-  {
-    "date": "2026-06-17T15:04:32",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.cpp"
-  },
-  {
-    "date": "2026-06-17T15:04:45",
+    "date": "2026-06-18T16:10:25",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.h"
+    "text": "/tmp/build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T15:04:56",
+    "date": "2026-06-18T16:10:35",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.h"
+    "text": "/tmp/build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T15:05:01",
+    "date": "2026-06-18T16:10:43",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.cpp"
+    "text": "/tmp/build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T15:05:11",
+    "date": "2026-06-18T16:11:02",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.cpp"
+    "text": "/tmp/build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T15:06:15",
-    "type": "Bash",
-    "text": "make run_wilson 2>&1 | tail -30 && make pickle_keyboard 2>&1 | tail -15"
-  },
-  {
-    "date": "2026-06-17T15:06:20",
-    "type": "Bash",
-    "text": "git diff -- ClockDrawer/ClockDrawer.cpp"
-  },
-  {
-    "date": "2026-06-17T15:18:01",
-    "type": "Bash",
-    "text": "grep -n \"_clockDrawer\\s*=\\|ClockDrawer(\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp"
-  },
-  {
-    "date": "2026-06-17T15:18:08",
-    "type": "Bash",
-    "text": "grep -n \"_setDrawer\\s*=\\|SetDrawer(\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp"
-  },
-  {
-    "date": "2026-06-17T15:18:14",
-    "type": "Bash",
-    "text": "grep -n \"FONTBOUNDINGBOX\\|^SIZE\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/fonts/scoreboard_clock_font.bdf | head -5"
-  },
-  {
-    "date": "2026-06-17T15:18:20",
-    "type": "Bash",
-    "text": "find /home/adamsl/rpi-rgb-led-matrix -iname \"scoreboard_clock_font.bdf\" 2>/dev/null"
-  },
-  {
-    "date": "2026-06-17T15:18:30",
-    "type": "Bash",
-    "text": "grep -n \"FONTBOUNDINGBOX\\|^SIZE\" /home/adamsl/rpi-rgb-led-matrix/fonts/scoreboard_clock_font.bdf"
-  },
-  {
-    "date": "2026-06-17T15:18:37",
-    "type": "Bash",
-    "text": "awk '/STARTCHAR 048/{f=1} f{print} f&&/ENDCHAR/{exit}' /home/adamsl/rpi-rgb-led-matrix/fonts/scoreboard_clock_font.bdf"
-  },
-  {
-    "date": "2026-06-17T15:18:48",
-    "type": "Bash",
-    "text": "awk '/STARTCHAR 058/{f=1} f{print} f&&/ENDCHAR/{exit}' /home/adamsl/rpi-rgb-led-matrix/fonts/scoreboard_clock_font.bdf"
-  },
-  {
-    "date": "2026-06-17T15:20:08",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.cpp"
-  },
-  {
-    "date": "2026-06-17T15:20:23",
+    "date": "2026-06-18T16:11:07",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.cpp"
+    "text": "/tmp/build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T15:20:29",
+    "date": "2026-06-18T16:11:14",
     "type": "Bash",
-    "text": "make run_wilson 2>&1 | tail -15 && make pickle_keyboard 2>&1 | tail -10"
+    "text": "cd /tmp && python3 build_6285_pdf2_report.py && cd ~/rol_finances && python3 tools/python_tasks/verification_lib/restructure_verified_transactions.py \\\n  readable_documents/bank_statements/january/bus"
   },
   {
-    "date": "2026-06-17T15:20:35",
+    "date": "2026-06-18T16:11:19",
     "type": "Bash",
-    "text": "git diff -- ClockDrawer/ClockDrawer.cpp"
+    "text": "curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8765/rol_finances_reports/business_january_february_6285/report.html\ncurl -s http://localhost:8765/rol_finances_reports/business_january_febru"
   },
   {
-    "date": "2026-06-17T15:30:33",
-    "type": "Bash",
-    "text": "grep -n \"_lastBoxX\\s*=\\|_calculateBoxDimensions\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp | head -20"
-  },
-  {
-    "date": "2026-06-17T15:30:39",
-    "type": "Bash",
-    "text": "grep -n \"_drawSetsWithSpacing\" -A 60 /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp | head -90"
-  },
-  {
-    "date": "2026-06-17T15:30:45",
-    "type": "Bash",
-    "text": "grep -n \"_drawSetsWithSpacing\\s*(\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.h"
-  },
-  {
-    "date": "2026-06-17T15:30:50",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp"
-  },
-  {
-    "date": "2026-06-17T15:31:01",
-    "type": "Bash",
-    "text": "grep -n \"_drawPlayerSets\\s*(\" -A 40 /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp | head -60"
-  },
-  {
-    "date": "2026-06-17T15:31:07",
-    "type": "Bash",
-    "text": "grep -rn \"SMALL_BEFORE\\s*=\\|define SMALL_BEFORE\\|FIXED_SET_WIDTH\\s*=\\|SET_SPACING\\s*=\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.h /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDr"
-  },
-  {
-    "date": "2026-06-17T15:36:27",
-    "type": "Bash",
-    "text": "grep -n \"getSetHistoryText\\|splitString\" -A 15 /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetHistoryText/SetHistoryText.cpp | head -60"
-  },
-  {
-    "date": "2026-06-17T15:44:42",
+    "date": "2026-06-18T16:13:36",
     "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"For \\\"left\\\" rotation, the clock can't hit exactly 5 rows from the ad box without overlapping the Set Numbers (they share the same x-territory once rotated). How should I resolve this?\",\"header\":\"Left-rotation fix\",\"options\":[{\"label\":\"Clear Set Numbers, accept bigger ad-gap (Recommended)\",\"description\":\"Position the clock just past wherever the Set Numbers end, so they never collide. The ad-gap for \\\"left\\\" will end up larger than 5 rows, but nothing overlaps.\"},{\"label\":\"Keep tight ad-gap, accept some overlap risk\",\"description\":\"Keep the clock close to the 5-row ad-gap target; only safe if the Set Numbers stay short (few sets). Could re-collide in longer matches.\"},{\"label\":\"Let me see another photo first\",\"description\":\"Hold off on a decision \u2014 you'll send a left-rotation photo after a tweak so I can verify before we lock in the approach.\"}],\"multiSelect\":false}]"
+    "text": "questions: [{\"question\":\"7 check/payment pairs look double-booked in the expenses DB (e.g. \\\"Check 11014\\\" generic + \\\"Chosen People - Gift to Chosen People Ministries\\\" same $49/date). Should I delete the generic duplicate row from each pair?\",\"header\":\"Duplicates\",\"options\":[{\"label\":\"Yes, delete the generic row from each pair (Recommended)\",\"description\":\"Keep the more descriptive/categorized row (e.g. \\\"Chosen People...\\\"), delete the bare \\\"Check NNNNN\\\" row for all 7 pairs. Removes real double-counting from the books.\"},{\"label\":\"No, leave them \u2014 just flagged is enough\",\"description\":\"Don't touch the DB; the Problems Found section already documents this for manual follow-up.\"}],\"multiSelect\":false},{\"question\":\"13 of 36 rows have no category (generic checks like \\\"Check 11026 $175.88\\\" with no memo, and a few online payments like \\\"PRIORITY H\\\", \\\"DINERS CLU\\\"). Do you know what these are, or should they stay Uncategorized for now?\",\"header\":\"Uncategorized\",\"options\":[{\"label\":\"Leave Uncategorized for now (Recommended)\",\"description\":\"I have no memo/payee info for most of these and don't want to guess on real financial records. You can set categories via the dashboard's picker once you know what they were for.\"},{\"label\":\"I can tell you what some of these are\",\"description\":\"You provide what you know (e.g. PRIORITY H = Priority Health insurance for Robert or Rosemary) and I'll categorize those specific ones.\"}],\"multiSelect\":false}]"
   },
   {
-    "date": "2026-06-17T15:44:50",
+    "date": "2026-06-18T16:13:47",
     "type": "Bash",
-    "text": "grep -rn \"MAX_SET\\|SETS_TO_WIN\\|BEST_OF\\|MATCH_FORMAT\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/TennisConstants/TennisConstants.h /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/GameState/GameState.h 2>/"
+    "text": "cd ~/rol_finances && python3 - <<'EOF'\nfrom db_writer import get_db_connection\nconn = get_db_connection()\ncur = conn.cursor()\n\nto_delete = [670, 663, 737, 747, 742, 732, 733]\nto_keep = [487, 478, 523,"
   },
   {
-    "date": "2026-06-17T15:45:29",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.cpp"
+    "date": "2026-06-18T16:13:53",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && python3 - <<'EOF'\nfrom db_writer import get_db_connection\nconn = get_db_connection()\ncur = conn.cursor()\nto_delete = [670, 663, 737, 747, 742, 732, 733]\ncur.execute(\"DELETE FROM e"
   },
   {
-    "date": "2026-06-17T15:45:45",
+    "date": "2026-06-18T16:13:59",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.cpp"
+    "text": "/tmp/build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T15:45:56",
-    "type": "Bash",
-    "text": "make run_wilson 2>&1 | tail -10 && make pickle_keyboard 2>&1 | tail -10"
-  },
-  {
-    "date": "2026-06-17T15:53:17",
-    "type": "Bash",
-    "text": "grep -n \"vertical_offset\\s*=\\|baseline\\s*=\\|drawNumber\\|player->number\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ScoreBoard/ScoreBoard.cpp | sed -n '1,60p'"
-  },
-  {
-    "date": "2026-06-17T15:54:29",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp"
-  },
-  {
-    "date": "2026-06-17T15:54:36",
+    "date": "2026-06-18T16:14:06",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp"
+    "text": "/tmp/build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T15:54:41",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp"
-  },
-  {
-    "date": "2026-06-17T15:55:06",
+    "date": "2026-06-18T16:14:12",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/SetDrawer/SetDrawer.cpp"
+    "text": "/tmp/build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T15:55:12",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.cpp"
-  },
-  {
-    "date": "2026-06-17T15:55:28",
+    "date": "2026-06-18T16:14:19",
     "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ClockDrawer/ClockDrawer.cpp"
+    "text": "/tmp/build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T15:55:36",
+    "date": "2026-06-18T16:14:31",
+    "type": "Edit",
+    "text": "/tmp/build_6285_pdf2_report.py"
+  },
+  {
+    "date": "2026-06-18T16:14:39",
+    "type": "Edit",
+    "text": "/tmp/build_6285_pdf2_report.py"
+  },
+  {
+    "date": "2026-06-18T16:14:49",
+    "type": "Edit",
+    "text": "/tmp/build_6285_pdf2_report.py"
+  },
+  {
+    "date": "2026-06-18T16:14:57",
+    "type": "Edit",
+    "text": "/tmp/build_6285_pdf2_report.py"
+  },
+  {
+    "date": "2026-06-18T16:15:04",
+    "type": "Edit",
+    "text": "/tmp/build_6285_pdf2_report.py"
+  },
+  {
+    "date": "2026-06-18T16:15:12",
     "type": "Bash",
-    "text": "make run_wilson 2>&1 | tail -15 && make pickle_keyboard 2>&1 | tail -10"
+    "text": "cd /tmp && python3 build_6285_pdf2_report.py"
   },
   {
-    "date": "2026-06-17T15:55:40",
+    "date": "2026-06-18T16:15:18",
     "type": "Bash",
-    "text": "make SetDrawer/SetDrawer.o 2>&1 | tail -20"
+    "text": "cd ~/rol_finances && python3 tools/python_tasks/verification_lib/restructure_verified_transactions.py \\\n  readable_documents/bank_statements/january/business_january_february_6285/report.html\nF=readab"
   },
   {
-    "date": "2026-06-17T15:55:46",
+    "date": "2026-06-18T16:15:26",
     "type": "Bash",
-    "text": "git diff -- SetDrawer/SetDrawer.cpp ClockDrawer/ClockDrawer.cpp"
+    "text": "cd ~/rol_finances && python3 - <<'EOF'\nfrom db_writer import get_db_connection\nconn = get_db_connection()\ncur = conn.cursor()\nids = [662,664,665,478,487,671,672,673,674,691,692,694,699,700,713,720,721"
   },
   {
-    "date": "2026-06-17T16:28:31",
+    "date": "2026-06-18T16:19:16",
     "type": "Bash",
-    "text": "grep -rln \"ScorePro\\|Tournament\\|AdRenderer\" --include=\"*.cpp\" --include=\"*.h\" . | sort"
+    "text": "wc -c /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md\nls /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/ | grep -i \"rol_finance\\|report_data_model\\|category_picker"
   },
   {
-    "date": "2026-06-17T16:28:35",
+    "date": "2026-06-18T16:19:21",
     "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/HUB75TournamentAdRenderer/HUB75TournamentAdRenderer.cpp"
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_rol_finance_reports_data_model_2026_06_14.md"
   },
   {
-    "date": "2026-06-17T16:28:36",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/HUB75TournamentAdRenderer/HUB75TournamentAdRenderer.h"
-  },
-  {
-    "date": "2026-06-17T16:28:36",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/ITournamentAdRenderer/ITournamentAdRenderer.h"
-  },
-  {
-    "date": "2026-06-17T16:28:42",
+    "date": "2026-06-18T16:20:14",
     "type": "Bash",
-    "text": "echo \"=== PanelRotationConfig refs in TournamentAd files ===\" \ngrep -rn \"PanelRotationConfig\\|loadPanelRotation\\|rotation\" HUB75TournamentAdRenderer/ ITournamentAdRenderer/ tests/MockTournamentAdRende"
+    "text": "ls /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/ | grep -i \"llm_parser\\|sign_bug\\|fifth_third\""
   },
   {
-    "date": "2026-06-17T16:28:47",
+    "date": "2026-06-18T16:20:39",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/rol_finances_llm_parser_credit_debit_bug_2026_06_18.md\n\u2192 --- name: rol-finances-llm-parser-credit-debit-bug-2026-06-18 description: \"FIXED 2026-06-18: LlmStatementParser mislabeled every bank-statement transaction as a deposit (CREDIT), across ALL vendors ("
+  },
+  {
+    "date": "2026-06-18T16:20:58",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_rol_finance_reports_data_model_2026_06_14.md"
+  },
+  {
+    "date": "2026-06-18T16:21:03",
     "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/run_wilson.cpp"
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   },
   {
-    "date": "2026-06-17T16:28:52",
+    "date": "2026-06-18T16:21:13",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-18T16:21:18",
     "type": "Bash",
-    "text": "find . -iname \"PanelRotationConfig*\" -o -iname \"OffsetCanvas*\" | grep -v \"\\.o$\""
+    "text": "wc -c /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   },
   {
-    "date": "2026-06-17T16:28:57",
+    "date": "2026-06-18T16:21:26",
     "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/run_wilson.cpp"
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   },
   {
-    "date": "2026-06-17T16:28:58",
+    "date": "2026-06-18T16:21:47",
+    "type": "Bash",
+    "text": "ls -la /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/rol_finances_llm_parser_credit_debit_bug_2026_06_18.md\nwc -l /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_"
+  },
+  {
+    "date": "2026-06-18T16:22:38",
     "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/PanelRotationConfig/PanelRotationConfig.h"
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/rol_finances_llm_parser_credit_debit_bug_2026_06_18.md"
   },
   {
-    "date": "2026-06-17T16:28:58",
+    "date": "2026-06-18T16:22:38",
     "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/OffsetCanvas/OffsetCanvas.h"
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_rol_finance_reports_data_model_2026_06_14.md"
   },
   {
-    "date": "2026-06-17T16:29:28",
+    "date": "2026-06-18T16:22:40",
+    "type": "Bash",
+    "text": "find /home/adamsl -maxdepth 6 -iname \"*jet*blue*\" 2>/dev/null; echo \"---\"; find ~/rol_finances -ipath \"*jet*blue*\" 2>/dev/null | head -50"
+  },
+  {
+    "date": "2026-06-18T16:22:49",
+    "type": "Bash",
+    "text": "grep -n \"jet_blue\\|Jet Blue\\|ROL_FINANCE_REPORTS\\|PDF 1\\|PDF 2\" /home/adamsl/letta-code/dashboard/server.py | head -80"
+  },
+  {
+    "date": "2026-06-18T16:22:54",
+    "type": "Bash",
+    "text": "D1=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue__december_january_12_26_25_to_01_23_25\nD2=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue"
+  },
+  {
+    "date": "2026-06-18T16:23:03",
+    "type": "Bash",
+    "text": "D1=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue__december_january_12_26_25_to_01_23_25\nD2=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue"
+  },
+  {
+    "date": "2026-06-18T16:23:11",
+    "type": "Bash",
+    "text": "D1=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue__december_january_12_26_25_to_01_23_25\ngrep -n 'id=\"' \"$D1/report.html\" | head -30\necho \"---h2/h3 with surrounding tabl"
+  },
+  {
+    "date": "2026-06-18T16:23:17",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue__december_january_12_26_25_to_01_23_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:23:55",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:24:12",
+    "type": "Bash",
+    "text": "D5938=/home/adamsl/rol_finances/readable_documents/bank_statements/january/december_january_personal_bank_statement\nls -la \"$D5938\" 2>/dev/null\necho \"---title/hero---\"\ngrep -n \"<title>\\|<h1>\\|Source P"
+  },
+  {
+    "date": "2026-06-18T16:24:26",
+    "type": "Bash",
+    "text": "D2=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25\necho \"=== iterated_rows.md ===\"\ncat \"$D2/iterated_rows.md\""
+  },
+  {
+    "date": "2026-06-18T16:26:26",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"PDF1's own transactions table isn't wired to the interactive category-picker (no clickable rows, no id=\\\"verified-transactions\\\") \u2014 clicking a row does nothing there. PDF2 (the broken one) actually has that wiring working correctly on its 15 real JetBlue rows. How should I fix PDF2?\",\"header\":\"Fix approach\",\"options\":[{\"label\":\"Rebuild with correct data, keep working picker (Recommended)\",\"description\":\"Replace PDF2's wrong Fifth-Third content (Account Reconciliation, Checks, Daily Balance, MyAdvance, Rewards, JSON) with real JetBlue Jan/Feb statement data, using PDF1's visual style/10-section contract \u2014 but keep the working id=\\\"verified-transactions\\\" table + clickable rows that PDF2 already has correctly wired, instead of downgrading to PDF1's non-clickable table.\"},{\"label\":\"Mirror PDF1 exactly, section-for-section\",\"description\":\"Make PDF2 byte-structurally match PDF1's sections (Statement Summary, Vendor Key Verification, etc.) even though that means losing the clickable category-picker rows PDF2 currently has working \u2014 matching PDF1 literally, warts and all.\"},{\"label\":\"Let me look at both reports myself first\",\"description\":\"Pause here \u2014 don't change anything yet. I want to open both in the dashboard and decide once I've seen them.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-18T16:26:46",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\necho \"=== Check for cached/parsed text of the Jan/Feb JetBlue PDF ===\"\nfind . -iname \"*jet_blue_january_february*\" -not -path \"*/readable_documents/*\" 2>/dev/null\nfind /ho"
+  },
+  {
+    "date": "2026-06-18T16:27:14",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nrows = [\n    ('2025-01-27','10.00','MISTER CAR WASH #0465 GRAND RAPIDS MI'),\n    ('2025-01-27','16."
+  },
+  {
+    "date": "2026-06-18T16:27:43",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nids = [113,114,160,162,165,166,167,168,131,134,137,375,377,3]\nwith get_connection() as conn:\n    cu"
+  },
+  {
+    "date": "2026-06-18T16:27:53",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nimport ast\nsrc = open('/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py').read"
+  },
+  {
+    "date": "2026-06-18T16:28:41",
+    "type": "Bash",
+    "text": "D=/home/adamsl/rol_finances/readable_documents/bank_statements/january/business_january_february_6285\ngrep -o '<tr [^>]*data-vendor-key[^>]*>.\\{0,200\\}' \"$D/report.html\" 2>/dev/null | grep -i \"CREDIT\\"
+  },
+  {
+    "date": "2026-06-18T16:29:07",
+    "type": "Bash",
+    "text": "D=/home/adamsl/rol_finances/readable_documents/bank_statements/january/business_january_february_6285\ngrep -n '<h2>Verified Transactions\\|id=\"verified-transactions\"' \"$D/report.html\"\nsed -n '1,5p' <(g"
+  },
+  {
+    "date": "2026-06-18T16:29:16",
+    "type": "Bash",
+    "text": "D=/home/adamsl/rol_finances/readable_documents/bank_statements/january/business_january_february_6285\nwc -l \"$D/report.html\""
+  },
+  {
+    "date": "2026-06-18T16:29:20",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/business_january_february_6285/report.html"
+  },
+  {
+    "date": "2026-06-18T16:30:38",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/business_january_february_6285/report.html"
+  },
+  {
+    "date": "2026-06-18T16:33:06",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html\n\u2192 <!DOCTYPE html>  <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <meta content=\"width=device-width, initial-scale=1.0\" name=\"viewport\"/> <title>JetBlue Business Mastercard \u2014 January/February Verific"
+  },
+  {
+    "date": "2026-06-18T16:33:15",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances && git status --short readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/ 2>&1 | head -20\necho \"=== is this tracked? ===\"\ngit log --one"
+  },
+  {
+    "date": "2026-06-18T16:33:21",
+    "type": "Bash",
+    "text": "curl -s -o /dev/null -w '%{http_code}\\n' \"http://localhost:8765/rol_finances_reports/jet_blue_january_february_01_27_to_02_25_25/report.html\" 2>&1\nsystemctl --user is-active dashboard-server 2>&1"
+  },
+  {
+    "date": "2026-06-18T16:33:25",
+    "type": "ToolSearch",
+    "text": "query: select:mcp__playwright__browser_navigate,mcp__playwright__browser_snapshot,mcp__playwright__browser_click,mcp__playwright__browser_console_messages"
+  },
+  {
+    "date": "2026-06-18T16:33:40",
+    "type": "ToolSearch",
+    "text": "query: select:mcp__playwright__browser_tabs"
+  },
+  {
+    "date": "2026-06-18T16:34:15",
+    "type": "Bash",
+    "text": "F=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html\npython3 -c \"\nfrom html.parser import HTMLParser\nclass P(HTMLParser):\n    "
+  },
+  {
+    "date": "2026-06-18T16:34:31",
+    "type": "Bash",
+    "text": "curl -s -X POST http://localhost:8765/api/receipts-present \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"rows\":[\n    {\"date\":\"2025-01-27\",\"signed_amount\":\"-$10.00\",\"vendor_key\":\"mister_car_wash_04"
+  },
+  {
+    "date": "2026-06-18T16:34:45",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/readable_documents/bank_statements\nfor f in $(find . -name \"report.html\" -o -name \"*_verification_report.html\" -o -name \"*_report.html\" 2>/dev/null); do\n  src=$(grep -o \"S"
+  },
+  {
+    "date": "2026-06-18T16:37:48",
+    "type": "Bash",
+    "text": "sed -n '75,100p' server.py"
+  },
+  {
+    "date": "2026-06-18T16:38:34",
+    "type": "Bash",
+    "text": "wc -l /home/adamsl/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py\ngrep -n \"^def \\|^class \\|CATEGORY_PICKER\\|MARKER\" /home/adamsl/rol_finances/tools/python_tasks/"
+  },
+  {
+    "date": "2026-06-18T16:38:43",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py"
+  },
+  {
+    "date": "2026-06-18T16:39:00",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/python_tasks/verification_lib/REPORT_OUTPUT_CONTRACT.md"
+  },
+  {
+    "date": "2026-06-18T16:39:17",
+    "type": "Bash",
+    "text": "find /home/adamsl/rol_finances -iname \"fix_report_receipt_links.py\" 2>/dev/null\necho \"---\"\ncat /home/adamsl/rol_finances/tools/python_tasks/verification_lib/fix_report_receipt_links.py 2>/dev/null | h"
+  },
+  {
+    "date": "2026-06-18T16:39:25",
+    "type": "ToolSearch",
+    "text": "query: select:TaskCreate,TaskUpdate,TaskList"
+  },
+  {
+    "date": "2026-06-18T16:39:30",
+    "type": "TaskCreate",
+    "text": "subject: Dedupe 8 duplicate-row groups in expenses DB for JetBlue PDF2"
+  },
+  {
+    "date": "2026-06-18T16:39:33",
+    "type": "TaskCreate",
+    "text": "subject: Fix jetblue-pdf1 (jet_blue__december_january_12_26_25_to_01_23_25)"
+  },
+  {
+    "date": "2026-06-18T16:39:36",
+    "type": "TaskCreate",
+    "text": "subject: Audit + fix bank-6285-pdf1 (non_profit_rol_Statement_december_january_6285)"
+  },
+  {
+    "date": "2026-06-18T16:39:38",
+    "type": "TaskCreate",
+    "text": "subject: Audit + fix bank-5938-pdf1 (december_january_personal_bank_statement)"
+  },
+  {
+    "date": "2026-06-18T16:39:40",
+    "type": "TaskCreate",
+    "text": "subject: Audit + fix amex-61006 (amex_personal_january_25)"
+  },
+  {
+    "date": "2026-06-18T16:39:40",
+    "type": "TaskCreate",
+    "text": "subject: Audit + fix amex-personal-year (amex_personal_whole_2025)"
+  },
+  {
+    "date": "2026-06-18T16:39:41",
+    "type": "TaskCreate",
+    "text": "subject: Audit + fix fnbo-4851 (january_fnbo_2025_account_4851)"
+  },
+  {
+    "date": "2026-06-18T16:39:42",
+    "type": "TaskCreate",
+    "text": "subject: Audit + fix platinum-year (platinum_business_credit_card_for_the_year)"
+  },
+  {
+    "date": "2026-06-18T16:39:42",
+    "type": "TaskCreate",
+    "text": "subject: Audit + fix diners-club-0587 (diners_club__january_25_statements-MONTHLY-0587)"
+  },
+  {
+    "date": "2026-06-18T16:39:44",
+    "type": "TaskCreate",
+    "text": "subject: Spot-check non-dashboard reports (fifth_third_non_profit_3119, 2026/prime_chase_card_january_2026)"
+  },
+  {
+    "date": "2026-06-18T16:39:47",
+    "type": "TaskCreate",
+    "text": "subject: Fix REPORT_OUTPUT_CONTRACT.md's broken \"known-good sibling\" reference"
+  },
+  {
+    "date": "2026-06-18T16:39:50",
+    "type": "TaskCreate",
+    "text": "subject: Update memory + create/update skill for report audit-and-fix workflow"
+  },
+  {
+    "date": "2026-06-18T16:40:46",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\nR=readable_documents/receipts\necho \"--- VIOC candidates ---\"\nfind $R -iname \"*valvoline*02_11_25_112_68*\" 2>/dev/null\necho \"--- Mister 02_24 candidates ---\"\nfind $R -iname"
+  },
+  {
+    "date": "2026-06-18T16:40:56",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\necho \"--- any receipt with amount 10_00 in february ---\"\nfind readable_documents/receipts -iname \"*02_24_25*\" 2>/dev/null\necho \"--- broader search for any file named miste"
+  },
+  {
+    "date": "2026-06-18T16:41:11",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\nfor p in \\\n  \"receipts/january/january_27/mister_01_27_25_10_00.jpeg\" \\\n  \"receipts/january/january_27/home_depot_housing_01_27_25_16_94.jpeg\" \\\n  \"receipts/january/januar"
+  },
+  {
+    "date": "2026-06-18T16:41:29",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\n\ndeletes = [566, 704, 567, 705, 568, 709, 571, 711, 735, 575, 740, 579, 761]\nfixes = [\n    (534, 'r"
+  },
+  {
+    "date": "2026-06-18T16:41:34",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:41:53",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:42:29",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:42:36",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:42:41",
+    "type": "Bash",
+    "text": "grep -n \"Final Pass or Fail Status\\|REVIEW NEEDED\\|\u26a0 REVIEW\" /home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:42:46",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:42:57",
+    "type": "Bash",
+    "text": "grep -n \"\\.badge {\" /home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:43:02",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:43:06",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:43:13",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html"
+  },
+  {
+    "date": "2026-06-18T16:43:19",
+    "type": "Bash",
+    "text": "F=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue_january_february_01_27_to_02_25_25/report.html\ngrep -c 'id=\"verified-transactions\"' \"$F\"; grep -o 'data-vendor-key=' \"$F"
+  },
+  {
+    "date": "2026-06-18T16:43:23",
+    "type": "TaskUpdate",
+    "text": "taskId: 1"
+  },
+  {
+    "date": "2026-06-18T16:43:24",
+    "type": "TaskUpdate",
+    "text": "taskId: 2"
+  },
+  {
+    "date": "2026-06-18T16:44:33",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\npython3 -c \"\nimport PyPDF2\np = 'readable_documents/bank_statements/january/jet_blue__december_january_12_26_25_to_01_23_25/jet_blue__december_january_12_26_25_to_01_23_25."
+  },
+  {
+    "date": "2026-06-18T16:45:05",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nrows = [\n    ('2024-12-26','55.81','LEO GAS &QPS GRAND RAPIDS MI'),\n    ('2024-12-31','54.12','LAKE"
+  },
+  {
+    "date": "2026-06-18T16:45:23",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nwith get_connection() as conn:\n    cur = conn.cursor()\n    cur.execute('SELECT * FROM expenses WHER"
+  },
+  {
+    "date": "2026-06-18T16:45:57",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\nfor f in \\\n  \"receipts/mister_car_wash__01_03_25__12_00.jpeg.jpeg\" \\\n  \"receipts/january/january_03/mister_car_wash__01_03_25__12_00.jpeg\" \\\n  \"receipts/january/january_21"
+  },
+  {
+    "date": "2026-06-18T16:46:16",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nimport ast\nsrc = open('/home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py').read"
+  },
+  {
+    "date": "2026-06-18T16:46:44",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nwith get_connection() as conn:\n    cur = conn.cursor()\n    cur.execute(\\\"SELECT * FROM expenses WHE"
+  },
+  {
+    "date": "2026-06-18T16:47:09",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nwith get_connection() as conn:\n    cur = conn.cursor()\n    # row 809 is corrupted: id_light claims "
+  },
+  {
+    "date": "2026-06-18T16:47:18",
+    "type": "Bash",
+    "text": "find /home/adamsl/rol_finances/readable_documents/receipts -iname \"mr_burger_restaurant_02_20_25_33_13.png\" 2>/dev/null\necho \"---\"\nfind /home/adamsl/rol_finances/readable_documents/receipts -iname \"*0"
+  },
+  {
+    "date": "2026-06-18T16:47:23",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nwith get_connection() as conn:\n    cur = conn.cursor()\n    cur.execute('UPDATE expenses SET receipt"
+  },
+  {
+    "date": "2026-06-18T16:48:51",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue__december_january_12_26_25_to_01_23_25/report.html\n\u2192 <!DOCTYPE html>  <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <meta content=\"width=device-width, initial-scale=1.0\" name=\"viewport\"/> <title>JetBlue Business Mastercard \u2014 December/January Verific"
+  },
+  {
+    "date": "2026-06-18T16:48:57",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/tools/python_tasks/verification_lib\npython3 restructure_verified_transactions.py /home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue__december_ja"
+  },
+  {
+    "date": "2026-06-18T16:49:05",
+    "type": "Bash",
+    "text": "F=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue__december_january_12_26_25_to_01_23_25/report.html\ngrep -c 'id=\"verified-transactions\"' \"$F\"\ngrep -o 'data-vendor-key=' "
+  },
+  {
+    "date": "2026-06-18T16:49:34",
+    "type": "Bash",
+    "text": "F=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue__december_january_12_26_25_to_01_23_25/report.html\ngrep -n 'id=\"verified-transactions\"' \"$F\"\necho \"--- amp;amp count ---"
+  },
+  {
+    "date": "2026-06-18T16:49:44",
+    "type": "Bash",
+    "text": "F=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue__december_january_12_26_25_to_01_23_25/report.html\nsed -i 's/&amp;amp;/\\&amp;/g' \"$F\"\ngrep -o '&amp;amp;' \"$F\" | wc -l\ng"
+  },
+  {
+    "date": "2026-06-18T16:49:53",
+    "type": "Bash",
+    "text": "F=/home/adamsl/rol_finances/readable_documents/bank_statements/january/jet_blue__december_january_12_26_25_to_01_23_25/report.html\ngrep -o 'data-vendor-key=' \"$F\" | wc -l\ngrep -o 'data-description=' \""
+  },
+  {
+    "date": "2026-06-18T16:49:58",
+    "type": "TaskUpdate",
+    "text": "taskId: 2"
+  },
+  {
+    "date": "2026-06-18T16:50:37",
+    "type": "TaskUpdate",
+    "text": "taskId: 3"
+  },
+  {
+    "date": "2026-06-18T16:50:38",
+    "type": "TaskUpdate",
+    "text": "taskId: 4"
+  },
+  {
+    "date": "2026-06-18T16:50:39",
+    "type": "TaskUpdate",
+    "text": "taskId: 5"
+  },
+  {
+    "date": "2026-06-18T16:50:39",
+    "type": "TaskUpdate",
+    "text": "taskId: 6"
+  },
+  {
+    "date": "2026-06-18T16:50:39",
+    "type": "TaskUpdate",
+    "text": "taskId: 7"
+  },
+  {
+    "date": "2026-06-18T16:50:40",
+    "type": "TaskUpdate",
+    "text": "taskId: 8"
+  },
+  {
+    "date": "2026-06-18T16:50:40",
+    "type": "TaskUpdate",
+    "text": "taskId: 9"
+  },
+  {
+    "date": "2026-06-18T16:51:21",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/python_tasks/verification_lib/REPORT_OUTPUT_CONTRACT.md"
+  },
+  {
+    "date": "2026-06-18T16:51:21",
+    "type": "Bash",
+    "text": "ls -la \"/home/adamsl/rol_finances/readable_documents/bank_statements/january/non_profit_rol_Statement_december_january_6285/\""
+  },
+  {
+    "date": "2026-06-18T16:51:25",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/business_january_february_6285/report.html"
+  },
+  {
+    "date": "2026-06-18T16:51:26",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/non_profit_rol_Statement_december_january_6285/report.html"
+  },
+  {
+    "date": "2026-06-18T16:51:31",
+    "type": "Bash",
+    "text": "cd \"/home/adamsl/rol_finances/readable_documents/bank_statements/january/non_profit_rol_Statement_december_january_6285\" && python3 -c \"\nimport PyPDF2\nr = PyPDF2.PdfReader('non_profit_rol_Statement_de"
+  },
+  {
+    "date": "2026-06-18T16:51:38",
+    "type": "Bash",
+    "text": "cd \"/home/adamsl/rol_finances/readable_documents/bank_statements/january\" && ls -la && echo \"---\" && grep -l \"3686285\\|6285\" */report.html 2>/dev/null | head -20"
+  },
+  {
+    "date": "2026-06-18T16:51:39",
+    "type": "Bash",
+    "text": "python3 -c \"\nbeg = 36652.72\nchecks = -3878.07\nwd = -8630.41\ndep = 19087.04\nend = beg + checks + wd + dep\nprint('calc end', end)\nprint('stated end', 43231.28)\n\""
+  },
+  {
+    "date": "2026-06-18T16:51:44",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/python_tasks/verification_lib/REPORT_OUTPUT_CONTRACT.md"
+  },
+  {
+    "date": "2026-06-18T16:51:44",
+    "type": "Bash",
+    "text": "ls -la \"/home/adamsl/rol_finances/readable_documents/bank_statements/january/december_january_personal_bank_statement/\""
+  },
+  {
+    "date": "2026-06-18T16:51:47",
+    "type": "Bash",
+    "text": "ls -la \"/home/adamsl/rol_finances/readable_documents/bank_statements/january/december_january_personal_bank_statement/\" && echo \"---catting report---\" && grep -o '\"account_ending\": \"[0-9]*\"' \"/home/ad"
+  },
+  {
+    "date": "2026-06-18T16:51:49",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/business_january_february_6285/report.html"
+  },
+  {
+    "date": "2026-06-18T16:51:49",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances && python3 -c \"import PyPDF2; r=PyPDF2.PdfReader('readable_documents/bank_statements/january/december_january_personal_bank_statement/december_january_personal_bank_statem"
+  },
+  {
+    "date": "2026-06-18T16:51:53",
+    "type": "Bash",
+    "text": "cat \"/home/adamsl/rol_finances/readable_documents/bank_statements/january/non_profit_rol_Statement_december_january_6285/iterated_rows.md\" | head -100"
+  },
+  {
+    "date": "2026-06-18T16:51:53",
+    "type": "Bash",
+    "text": "python3 -c \"\nbeg = 51105.41\nchecks = 814.99\nwd = 4267.85\ndep = 15334.76\nend = beg - checks - wd + dep\nprint(end)\nprint('Expected: 61357.33')\n\""
+  },
+  {
+    "date": "2026-06-18T16:51:54",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nwith get_connection() as conn:\n    cur = conn.cursor()\n    cur.execute('SELECT id FROM categories L"
+  },
+  {
+    "date": "2026-06-18T16:51:58",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/readable_documents/bank_statements/january/december_january_personal_bank_statement/report.html"
+  },
+  {
+    "date": "2026-06-18T16:52:00",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nwith get_connection() as conn:\n    cur = conn.cursor()\n    cur.execute('SELECT id, name, parent_id "
+  },
+  {
+    "date": "2026-06-18T16:52:01",
+    "type": "Bash",
+    "text": "grep -n \"REPORTING_CATEGORY_ANCESTOR_MAP\" -A 30 /home/adamsl/rol_finances/receipt_parsing_tools/create_spreadsheet.py | head -50"
+  },
+  {
+    "date": "2026-06-18T16:52:09",
     "type": "Agent",
-    "text": "Locate ad box border and text rendering code\n\u2192 [   {     \"type\": \"text\",     \"text\": \"I have everything needed. Confirmed: `OffsetCanvas` does a plain coordinate-shift (no rotation logic), `HUB75TournamentAdRenderer` has no rotation awareness, and"
+    "text": "Audit+fix bank-5938-pdf1 report\n\u2192 [   {     \"type\": \"text\",     \"text\": \"You've hit your session limit \u00b7 resets 2:40pm (America/New_York)\"   } ] "
   },
   {
-    "date": "2026-06-17T16:30:35",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/HUB75TournamentAdRenderer/HUB75TournamentAdRenderer.h"
-  },
-  {
-    "date": "2026-06-17T16:30:35",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/HUB75TournamentAdRenderer/HUB75TournamentAdRenderer.cpp"
-  },
-  {
-    "date": "2026-06-17T16:30:47",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/HUB75TournamentAdRenderer/HUB75TournamentAdRenderer.cpp"
-  },
-  {
-    "date": "2026-06-17T16:30:54",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/HUB75TournamentAdRenderer/HUB75TournamentAdRenderer.cpp"
-  },
-  {
-    "date": "2026-06-17T16:31:01",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/HUB75TournamentAdRenderer/HUB75TournamentAdRenderer.cpp"
-  },
-  {
-    "date": "2026-06-17T16:31:09",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/HUB75TournamentAdRenderer/HUB75TournamentAdRenderer.cpp"
-  },
-  {
-    "date": "2026-06-17T16:31:20",
+    "date": "2026-06-18T16:52:12",
     "type": "Bash",
-    "text": "make run_wilson 2>&1 | tail -20"
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 -c \"\nfrom app.db import get_connection\nrows = [\n    ('2024-12-30', 150.00, 'Check 2359'),\n    ('2024-12-23', 28.25, 'Check 11005'),\n    ('"
+  },
+  {
+    "date": "2026-06-18T16:52:12",
+    "type": "Agent",
+    "text": "Audit+fix bank-6285-pdf1 report\n\u2192 [   {     \"type\": \"text\",     \"text\": \"You've hit your session limit \u00b7 resets 2:40pm (America/New_York)\"   } ] "
+  },
+  {
+    "date": "2026-06-18T16:52:16",
+    "type": "Agent",
+    "text": "Audit+fix amex-personal-year report\n\u2192 [   {     \"type\": \"text\",     \"text\": \"You've hit your session limit \u00b7 resets 2:40pm (America/New_York)\"   } ] "
+  },
+  {
+    "date": "2026-06-18T16:52:24",
+    "type": "Agent",
+    "text": "Fix amex_personal_january_25 report.html\n\u2192 [   {     \"type\": \"text\",     \"text\": \"You've hit your session limit \u00b7 resets 2:40pm (America/New_York)\"   } ] "
+  },
+  {
+    "date": "2026-06-18T16:52:24",
+    "type": "Agent",
+    "text": "Audit+fix amex-61006 report\n\u2192 [   {     \"type\": \"text\",     \"text\": \"You've hit your session limit \u00b7 resets 2:40pm (America/New_York)\"   } ] "
+  },
+  {
+    "date": "2026-06-18T16:52:33",
+    "type": "Agent",
+    "text": "Audit+fix fnbo-4851 report\n\u2192 [   {     \"type\": \"text\",     \"text\": \"You've hit your session limit \u00b7 resets 2:40pm (America/New_York)\"   } ] "
+  },
+  {
+    "date": "2026-06-18T16:52:50",
+    "type": "Agent",
+    "text": "Audit+fix platinum-year report\n\u2192 [   {     \"type\": \"text\",     \"text\": \"You've hit your session limit \u00b7 resets 2:40pm (America/New_York)\"   } ] "
+  },
+  {
+    "date": "2026-06-18T16:53:06",
+    "type": "Agent",
+    "text": "Audit+fix diners-club-0587 report\n\u2192 [   {     \"type\": \"text\",     \"text\": \"You've hit your session limit \u00b7 resets 2:40pm (America/New_York)\"   } ] "
+  },
+  {
+    "date": "2026-06-18T17:13:35",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances && git status --short readable_documents/bank_statements/january/ 2>&1\necho \"=== diff stat ===\"\ngit diff --stat readable_documents/bank_statements/january/ 2>&1"
+  },
+  {
+    "date": "2026-06-18T17:13:50",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances && git diff readable_documents/bank_statements/january/business_january_february_6285/report.html 2>&1 | head -60"
+  },
+  {
+    "date": "2026-06-18T17:14:04",
+    "type": "Bash",
+    "text": "F=/home/adamsl/rol_finances/readable_documents/bank_statements/january/business_january_february_6285/report.html\ngrep -c 'id=\"verified-transactions\"' \"$F\"\ngrep -o 'data-vendor-key=' \"$F\" | wc -l\ngrep"
+  },
+  {
+    "date": "2026-06-18T17:14:11",
+    "type": "Bash",
+    "text": "ls -la /home/adamsl/letta-code/notes_plans_handoffs/ 2>&1 | head -20"
+  },
+  {
+    "date": "2026-06-18T17:15:20",
+    "type": "Write",
+    "text": "/home/adamsl/letta-code/notes_plans_handoffs/report_verification.html\n\u2192 <!DOCTYPE html> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"/> <title>ROL Finance Report Verification \u2014 Shift Handoff (2026-0"
   }
 ]

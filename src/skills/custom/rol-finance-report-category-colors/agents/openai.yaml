@@ -1,0 +1,4 @@
+interface:
+  display_name: "ROL Finance Report Category Colors"
+  short_description: "Fix report.html files with missing category-color CSS"
+  default_prompt: "Use $rol-finance-report-category-colors to diagnose and fix a report.html whose Verified Transactions rows show no category colors."
