@@ -2449,39 +2449,10 @@ ${SYSTEM_REMINDER_CLOSE}
 
   // Extract final result from transcript, with sensible fallbacks
   const lines = toLines(buffers);
-  const reversed = [...lines].reverse();
-
-  const lastAssistant = reversed.find(
-    (line) =>
-      line.kind === "assistant" &&
-      "text" in line &&
-      typeof line.text === "string" &&
-      line.text.trim().length > 0,
-  ) as Extract<Line, { kind: "assistant" }> | undefined;
-
-  const lastReasoning = reversed.find(
-    (line) =>
-      line.kind === "reasoning" &&
-      "text" in line &&
-      typeof line.text === "string" &&
-      line.text.trim().length > 0,
-  ) as Extract<Line, { kind: "reasoning" }> | undefined;
-
-  const lastToolResult = reversed.find(
-    (line) =>
-      line.kind === "tool_call" &&
-      "resultText" in line &&
-      typeof (line as Extract<Line, { kind: "tool_call" }>).resultText ===
-        "string" &&
-      ((line as Extract<Line, { kind: "tool_call" }>).resultText ?? "").trim()
-        .length > 0,
-  ) as Extract<Line, { kind: "tool_call" }> | undefined;
-
-  const resultText =
-    lastAssistant?.text ||
-    lastReasoning?.text ||
-    lastToolResult?.resultText ||
-    "No assistant response found";
+  const resultText = selectUserVisibleResultText(
+    lines,
+    "No assistant response found",
+  );
 
   const stats = sessionStats.getSnapshot();
   const usage = {
@@ -3926,36 +3897,7 @@ async function runBidirectionalMode(
         // Emit result
         const durationMs = performance.now() - startTime;
         const lines = toLines(buffers);
-        const reversed = [...lines].reverse();
-        const lastAssistant = reversed.find(
-          (line) =>
-            line.kind === "assistant" &&
-            "text" in line &&
-            typeof line.text === "string" &&
-            line.text.trim().length > 0,
-        ) as Extract<Line, { kind: "assistant" }> | undefined;
-        const lastReasoning = reversed.find(
-          (line) =>
-            line.kind === "reasoning" &&
-            "text" in line &&
-            typeof line.text === "string" &&
-            line.text.trim().length > 0,
-        ) as Extract<Line, { kind: "reasoning" }> | undefined;
-        const lastToolResult = reversed.find(
-          (line) =>
-            line.kind === "tool_call" &&
-            "resultText" in line &&
-            typeof (line as Extract<Line, { kind: "tool_call" }>).resultText ===
-              "string" &&
-            (
-              (line as Extract<Line, { kind: "tool_call" }>).resultText ?? ""
-            ).trim().length > 0,
-        ) as Extract<Line, { kind: "tool_call" }> | undefined;
-        const resultText =
-          lastAssistant?.text ||
-          lastReasoning?.text ||
-          lastToolResult?.resultText ||
-          "";
+        const resultText = selectUserVisibleResultText(lines, "");
 
         // Determine result subtype based on how the turn ended
         const isAborted = currentAbortController?.signal.aborted;

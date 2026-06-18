@@ -210,6 +210,9 @@ if (
       tab.addEventListener("click", () => {
         safeSetActive(navStatus, '[data-nav="status"][data-target]', tab);
         safeActivateView(tab.dataset.target);
+        if (tab.dataset.target === "status-servers") {
+          void loadServersSummary();
+        }
       });
     });
 
@@ -726,6 +729,64 @@ serverHealth.subscribe((health) => {
   });
 });
 
+function renderServerSkills(skills) {
+  if (!Array.isArray(skills) || skills.length === 0) {
+    return '<span class="srv-summary-stamp">-</span>';
+  }
+  return (
+    '<ul class="srv-skills">' +
+    skills.map((skill) => `<li>${esc(skill)}</li>`).join("") +
+    "</ul>"
+  );
+}
+
+async function loadServersSummary() {
+  const list = document.getElementById("servers-list");
+  const stamp = document.getElementById("servers-last-updated");
+  if (!list) return;
+  list.innerHTML = '<p class="am-dim">Checking&hellip;</p>';
+  try {
+    const [servers, health] = await Promise.all([
+      http.getJSON("/api/servers"),
+      http.getJSON("/api/server-health"),
+    ]);
+    const healthByKey = new Map(
+      (health?.servers || []).map((server) => [server.key, server.status]),
+    );
+    if (!servers.length) {
+      list.innerHTML = '<p class="am-dim">No servers registered.</p>';
+      return;
+    }
+    const rows = servers
+      .map((server) => {
+        const status = healthByKey.get(server.key) || "unknown";
+        const badge = `<span class="srv-badge ${status}">${esc(status.toUpperCase())}</span>`;
+        const url = server.url || server.health_url || "";
+        const link = url
+          ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>`
+          : '<span class="srv-summary-stamp">-</span>';
+        return (
+          "<tr>" +
+          `<td>${badge}</td>` +
+          `<td><strong>${esc(server.name)}</strong><br><span class="srv-summary-stamp">${esc(server.note || "")}</span></td>` +
+          `<td>${link}</td>` +
+          `<td>${renderServerSkills(server.skills)}</td>` +
+          "</tr>"
+        );
+      })
+      .join("");
+    list.innerHTML =
+      '<table class="srv-table"><thead><tr>' +
+      "<th>Status</th><th>Server</th><th>URL</th><th>Skills</th>" +
+      `</tr></thead><tbody>${rows}</tbody></table>`;
+    if (stamp) {
+      stamp.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    }
+  } catch (e) {
+    list.innerHTML = `<p class="msi-line err">Error: ${esc(e.message)}</p>`;
+  }
+}
+
 const SM = {
   healthPollTimer: null,
   current: null, // { key, name }
@@ -1022,6 +1083,10 @@ const SSHM = {
 // Initial health poll on page load
 SSHM.pollHealth();
 SSHM.healthPollTimer = setInterval(() => SSHM.pollHealth(), 15000);
+
+document
+  .getElementById("servers-refresh-btn")
+  ?.addEventListener("click", () => void loadServersSummary());
 
 /* =====================  ROL Finance Reports  =====================
        One tab per report directory under ~/rol_finances/readable_documents/

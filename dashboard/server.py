@@ -20,7 +20,6 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 from voice.pipeline import build_pipeline, handle_voice_upload
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
 
@@ -1872,7 +1871,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/code-status':
             return self.json_response(get_code_status())
-
         if path == '/api/agents':
             return self.json_response(build_agent_list(force_refresh=query.get('refresh', ['0'])[0] == '1'))
 
@@ -1918,7 +1916,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/servers':
             return self.json_response([
-                {'key': s['key'], 'name': s['name'], 'note': s.get('note', '')}
+                {
+                    'key': s['key'],
+                    'name': s['name'],
+                    'note': s.get('note', ''),
+                    'url': s.get('health_url'),
+                    'health_url': s.get('health_url'),
+                    'skills': s.get('skills', []),
+                }
                 for s in SERVERS
             ])
 

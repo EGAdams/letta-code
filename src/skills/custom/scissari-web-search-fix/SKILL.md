@@ -57,26 +57,33 @@ local compiled CLI bundle:
 LETTA_CLI_PATH=/home/adamsl/letta-code/letta.js
 ```
 
-Editing `src/headless.ts` is not enough for Telegram. If `letta.js` still contains
-the old fallback:
+**STATUS: FIXED 2026-06-03.** `selectUserVisibleResultText()` is now wired into both
+result-selection call sites in `headless.ts` (non-streaming path ~line 2451,
+streaming path ~line 3926). The two inline blocks that used `lastReasoning?.text`
+were replaced with calls to this function.
+
+Verify the fix is in the compiled bundle:
 
 ```bash
 rg -n "lastReasoning\\?\\.text|selectUserVisibleResultText" /home/adamsl/letta-code/letta.js
 ```
 
-then rebuild and restart:
+Expected after fix:
+- `selectUserVisibleResultText` appears at lines ~85113 (export), ~85192 (definition), ~86590 (call), ~87559 (call)
+- `lastReasoning` only appears in buffer-tracking context (`b.lastReasoning =`, `precedingReasoning`), NOT in result selection
+
+If the bundle is stale, rebuild and restart:
 
 ```bash
 cd /home/adamsl/letta-code
 bun run build
 
 cd /home/adamsl/lettabot
-kill "$(lsof -tiTCP:8091 -sTCP:LISTEN)" 2>/dev/null || true
-nohup ./start_scissari_bot.sh >> lettabot.log 2>&1 &
+tmux kill-session -t scissari 2>/dev/null || true
+tmux new-session -d -s scissari
+tmux send-keys -t scissari "bash start_scissari_bot.sh 2>&1 | tee /tmp/scissari_bot.log" Enter
 ```
 
-After the 2026-05-11 fix, `letta.js` should contain `selectUserVisibleResultText`
-and should not contain a final-result fallback from `lastReasoning?.text`.
 `/new` in Telegram does **not** reload the bot process or rebuild the CLI bundle.
 
 ### Issue 4 — ChatGPT relay tool returns empty via Telegram tool workflow
