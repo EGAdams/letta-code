@@ -315,12 +315,12 @@ LETTA_AGENTS = [
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
     {'name': 'Cesare',   'id': None},
     {'name': 'Jeri',     'id': None},
-    {'name': 'Mazda',    'id': None},
-    {'name': 'Mazda Router', 'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b'},
-    {'name': 'Mazda Parser', 'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8'},
-    {'name': 'Mazda Vendor Identity', 'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66'},
-    {'name': 'Mazda Receipt Linker', 'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b'},
-    {'name': 'Mazda Categorization', 'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874'},
+    {'name': 'Mazda',    'id': 'agent-070c201a-8d6d-49ba-a5fd-1489884b3b45'},
+    {'name': 'Mazda Router',           'id': 'agent-81874131-77b8-4645-8d5f-c0bf20c1ed89'},
+    {'name': 'Mazda Parser',           'id': 'agent-c414cb08-8bb5-4002-8d67-2ad0fbce4f06'},
+    {'name': 'Mazda Vendor Identity',  'id': 'agent-c1fa4bb4-93a8-4b54-bd54-18fdaa4c0cd6'},
+    {'name': 'Mazda Receipt Linker',   'id': 'agent-bfffa859-98bf-4bec-af3e-231b552fec93'},
+    {'name': 'Mazda Categorization',   'id': 'agent-c4c9864c-9046-41b8-b0e3-f97698307567'},
 ]
 
 # Cache of name→id resolved from the Letta API

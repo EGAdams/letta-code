@@ -10,8 +10,8 @@ const SECTIONS = {
   },
   "project-plans": {
     panel: "nav-plans",
-    view: "plans-rol-finance",
-    tab: "plans-rol-finance",
+    view: "plans-self-evolving",
+    tab: "plans-self-evolving",
   },
 };
 

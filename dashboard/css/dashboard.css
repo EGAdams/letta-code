@@ -201,7 +201,16 @@
     .tab.server-starting { background: #f9a825; color: #000; font-weight: 700; }
     .tab.server-starting:hover, .tab.server-starting:focus-visible { background: #f57f17; color: #000; }
 
-    /* Report tab whose report.html is missing on disk */
+    /* Month/year grouping tabs above the ROL Finance report list. Distinct
+       teal so the month-selector row reads as a different level than the
+       document tabs below it; .active still bolds the chosen month. */
+    .tab.month-tab { background: #00695c; text-transform: uppercase; letter-spacing: 0.04em;
+      font-size: 0.82rem; }
+    .tab.month-tab:hover, .tab.month-tab:focus-visible { background: #00897b; }
+    .tab.month-tab.active { background: #009688; font-weight: 700; }
+
+    /* Report tab whose report.html is missing on disk (also used for every
+       document under an unavailable month, e.g. February 2025). */
     .tab.report-missing { background: #e53935; color: #fff; font-weight: 700; }
     .tab.report-missing:hover, .tab.report-missing:focus-visible { background: #c62828; }
 

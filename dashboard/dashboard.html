@@ -13,6 +13,7 @@
     <!-- Main nav -->
     <nav id="nav-main">
       <button type="button" class="tab active" data-nav="main" data-target="home">Home</button>
+      <button type="button" class="tab" data-nav="main" data-target="rol-finance">ROL Finance</button>
       <button type="button" class="tab" data-nav="main" data-target="status">Status</button>
       <button type="button" class="tab" data-nav="main" data-target="instructions">Instructions</button>
       <button type="button" class="tab" data-nav="main" data-target="tool-management">Tool Management</button>
@@ -52,8 +53,7 @@
     <!-- Project Plans sub-nav -->
     <nav id="nav-plans" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-plans">Back</button>
-      <button type="button" class="tab active" data-nav="plans" data-target="plans-rol-finance">ROL Finance</button>
-      <button type="button" class="tab" data-nav="plans" data-target="plans-self-evolving">Self Evolving</button>
+      <button type="button" class="tab active" data-nav="plans" data-target="plans-self-evolving">Self Evolving</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-divide-conquer">Divide Conquer</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-audio-input">Audio Input</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-dev-status">Mazda Dev Status</button>
@@ -62,7 +62,8 @@
     <!-- ROL Finance sub-nav -->
     <nav id="nav-rol-finance" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-rol-finance">Back</button>
-      <button type="button" class="tab active" data-nav="rol-finance" data-target="rol-finance-current-status">Current Status</button>
+      <button type="button" class="tab active" data-nav="rol-finance" data-target="rol-finance-plan">Plan</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-current-status">Current Status</button>
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-taxes">Taxes</button>
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-reports">Reports</button>
     </nav>
@@ -273,10 +274,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </section>
 
     <!-- Project Plans views -->
-    <section id="plans-rol-finance" class="view">
-      <iframe id="rol-finance-plan-frame" class="plan-frame" src="/rol_finances/tools/plan.html"></iframe>
-    </section>
-
     <section id="plans-self-evolving" class="view">
       <iframe id="self-evolving-plan-frame" class="plan-frame" src="/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html"></iframe>
     </section>
@@ -294,6 +291,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </section>
 
     <!-- ROL Finance views -->
+    <section id="rol-finance-plan" class="view">
+      <iframe id="rol-finance-plan-frame" class="plan-frame" src="/rol_finances/tools/plan.html"></iframe>
+    </section>
+
     <section id="rol-finance-current-status" class="view">
       <h2>Current Status</h2>
       <p>Current Status content coming soon.</p>
