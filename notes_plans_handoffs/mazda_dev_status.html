@@ -3,532 +3,902 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Mazda Dev Status</title>
+  <title>Mazda — A Developer's Manual</title>
   <style>
     :root {
-      --bg: #08111f;
-      --bg2: #10223d;
-      --panel: #ffffff;
-      --soft: #f8fafc;
-      --ink: #102033;
-      --muted: #64748b;
-      --line: #dbe4ef;
-      --blue: #2563eb;
-      --green: #16a34a;
-      --orange: #b45309;
-      --red: #dc2626;
-      --purple: #7c3aed;
-      --cyan: #0891b2;
+      --paper:      #fbf8f1;   /* warm parchment            */
+      --paper-deep: #f3ede0;   /* sidebar / figure fill     */
+      --ink:        #1c1a17;   /* near-black text           */
+      --ink-soft:   #5b5447;   /* captions, marginalia      */
+      --rule:       #d8cfba;   /* hairlines                 */
+      --crimson:    #7a1f2b;   /* the one accent            */
+      --crimson-2:  #9b2c39;
+      --navy:       #1f3a5f;
+      --gold:       #9a7b32;
+      --code-bg:    #2b2722;
+      --code-ink:   #ede4d3;
     }
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0;
-      font-family: Arial, Helvetica, sans-serif;
+      background: #e7e0d2;
       color: var(--ink);
-      background: #eaf0f7;
-      line-height: 1.55;
+      font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+      font-size: 18px;
+      line-height: 1.68;
+      -webkit-font-smoothing: antialiased;
     }
-    .hero {
-      color: #fff;
-      background: linear-gradient(135deg, #020617 0%, #172554 55%, #0891b2 100%);
-      padding: 44px 30px 34px;
+    .book { max-width: 1180px; margin: 0 auto; }
+
+    /* ---- running page ---- */
+    .leaf {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 18px 50px rgba(28,26,23,.16);
+      margin: 26px 14px;
+      padding: 64px 78px;
     }
-    .hero-inner, .page { max-width: 1280px; margin: 0 auto; }
-    .eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; opacity: .85; font-weight: 700; }
-    h1 { margin: 10px 0 12px; font-size: 38px; line-height: 1.1; }
-    .subtitle { max-width: 1000px; font-size: 18px; opacity: .94; }
-    .badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-    .badge { border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.12); padding: 7px 11px; border-radius: 999px; font-size: 13px; }
-    .badge.green { background: rgba(22,163,74,.25); border-color: rgba(134,239,172,.5); }
-    .badge.red { background: rgba(220,38,38,.25); border-color: rgba(252,165,165,.5); }
-    .page { padding: 26px 22px 54px; }
-    .section { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; margin: 18px 0; padding: 24px; box-shadow: 0 12px 30px rgba(15, 23, 42, .08); }
-    .section.dark { background: #0f172a; color: #e5e7eb; border-color: #334155; }
-    .section.dark h2, .section.dark h3, .section.dark h4 { color: #f8fafc; }
-    .section.dark a { color: #93c5fd; }
-    h2 { margin: 0 0 14px; font-size: 25px; color: #0f172a; }
-    h3 { margin: 18px 0 8px; font-size: 18px; color: #1e293b; }
-    h4 { margin: 14px 0 6px; font-size: 15px; color: #334155; }
-    p { margin: 9px 0; }
-    ul, ol { margin-top: 8px; }
-    li { margin: 5px 0; }
-    a { color: #1d4ed8; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    code { font-family: Consolas, "Courier New", monospace; background: #eef4ff; padding: 2px 5px; border-radius: 5px; }
-    pre { margin: 14px 0; border-radius: 14px; overflow-x: auto; background: #0b1220; color: #dbeafe; border: 1px solid #334155; padding: 16px; }
-    pre code { background: transparent; padding: 0; color: #e0f2fe; }
-    table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
-    th, td { text-align: left; vertical-align: top; border: 1px solid var(--line); padding: 10px; }
-    th { background: #f1f5f9; color: #0f172a; }
-    tr:nth-child(even) td { background: #fbfdff; }
-    .grid { display: grid; gap: 14px; }
-    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .card { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: #fff; }
-    .card.soft { background: var(--soft); }
-    .card h3, .card h4 { margin-top: 0; }
-    .callout { border-left: 5px solid var(--blue); background: #eff6ff; padding: 14px 16px; border-radius: 12px; margin: 14px 0; }
-    .warning { border-left-color: var(--orange); background: #fffbeb; }
-    .success { border-left-color: var(--green); background: #f0fdf4; }
-    .danger { border-left-color: var(--red); background: #fef2f2; }
-    .tag { display: inline-block; border-radius: 999px; background: #dbeafe; color: #1e40af; padding: 3px 8px; margin: 2px; font-size: 12px; font-weight: 700; }
-    .tag.green { background:#dcfce7; color:#166534; }
-    .tag.orange { background:#ffedd5; color:#9a3412; }
-    .tag.purple { background:#ede9fe; color:#5b21b6; }
-    .tag.red { background:#fee2e2; color:#991b1b; }
-    .tag.cyan { background:#cffafe; color:#155e75; }
-    .mini { font-size: 13px; color: var(--muted); }
-    .done { color: #15803d; font-weight: 800; }
-    .warn { color: #a16207; font-weight: 800; }
-    .open { color: #991b1b; font-weight: 800; }
-    @media (max-width: 960px) { .grid.two { grid-template-columns: 1fr; } h1 { font-size: 30px; } }
+    @media (max-width: 820px){ .leaf{ padding: 38px 26px; } body{ font-size: 17px; } }
+
+    /* ---- title page ---- */
+    .titlepage { text-align: center; padding: 96px 78px 80px; }
+    .titlepage .crest {
+      width: 92px; height: 92px; margin: 0 auto 26px;
+      border: 2.5px solid var(--crimson); border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--crimson); font-size: 38px; font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .titlepage .institution {
+      text-transform: uppercase; letter-spacing: .42em; font-size: 12.5px;
+      color: var(--crimson); font-weight: 700; margin-bottom: 8px;
+    }
+    .titlepage .dept { text-transform: uppercase; letter-spacing: .26em; font-size: 11px; color: var(--ink-soft); }
+    .titlepage h1 {
+      font-size: 56px; line-height: 1.04; margin: 40px 0 10px; font-weight: 700; letter-spacing: -.01em;
+    }
+    .titlepage .sub { font-size: 23px; font-style: italic; color: var(--ink-soft); margin: 6px 0 34px; }
+    .titlepage .byline { font-size: 16px; letter-spacing: .04em; }
+    .titlepage .rule-orn { width: 120px; height: 0; border-top: 1px solid var(--rule); margin: 34px auto; position: relative; }
+    .titlepage .rule-orn::after {
+      content: "❦"; color: var(--gold); position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+      background: var(--paper); padding: 0 12px; font-size: 18px;
+    }
+    .titlepage .edition { font-size: 13.5px; color: var(--ink-soft); letter-spacing: .06em; }
+
+    /* ---- typography ---- */
+    h2.part {
+      text-align: center; text-transform: uppercase; letter-spacing: .34em;
+      font-size: 14px; color: var(--crimson); font-weight: 700;
+      margin: 8px 0 0; padding-bottom: 6px;
+    }
+    h2.part .pno { display:block; font-size: 11px; color: var(--ink-soft); letter-spacing:.3em; margin-bottom:6px; }
+    .chapnum {
+      text-transform: uppercase; letter-spacing: .32em; font-size: 12px;
+      color: var(--crimson); font-weight: 700; margin: 0 0 4px;
+    }
+    h1.chap { font-size: 40px; line-height: 1.1; margin: 0 0 6px; font-weight: 700; letter-spacing: -.01em; }
+    .chap-rule { height: 0; border-top: 2px solid var(--crimson); width: 64px; margin: 14px 0 30px; }
+    h3 { font-size: 24px; margin: 40px 0 8px; font-weight: 700; letter-spacing: -.005em; }
+    h3 .secno { color: var(--crimson); margin-right: 12px; font-variant-numeric: tabular-nums; }
+    h4 { font-size: 18px; margin: 26px 0 4px; font-weight: 700; color: var(--navy); }
+    p { margin: 12px 0; }
+    p.lead { font-size: 20px; }
+    /* drop cap on the first paragraph of a chapter */
+    .opening::first-letter {
+      float: left; font-size: 76px; line-height: .82; padding: 6px 12px 0 0;
+      color: var(--crimson); font-weight: 700;
+    }
+    .smallcaps { font-variant: small-caps; letter-spacing: .04em; }
+    em.term { font-style: italic; color: var(--navy); }
+    a { color: var(--crimson-2); text-decoration: none; border-bottom: 1px solid rgba(122,31,43,.3); }
+    a:hover { border-bottom-color: var(--crimson-2); }
+    ul, ol { margin: 12px 0; padding-left: 26px; }
+    li { margin: 6px 0; }
+    strong { font-weight: 700; }
+    code {
+      font-family: "SF Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
+      font-size: .86em; background: #efe8d8; color: #5a3030; padding: 1px 5px; border-radius: 3px;
+    }
+    pre {
+      background: var(--code-bg); color: var(--code-ink); border-radius: 8px;
+      padding: 18px 20px; overflow-x: auto; margin: 18px 0; font-size: 14.5px; line-height: 1.6;
+      border: 1px solid #4a4036;
+    }
+    pre code { background: transparent; color: var(--code-ink); padding: 0; font-size: inherit; }
+    .filename {
+      font-family: "SF Mono", Consolas, monospace; font-size: 12px; letter-spacing: .04em;
+      color: var(--ink-soft); text-transform: none; margin: 18px 0 -8px; display: block;
+    }
+
+    /* ---- tables ---- */
+    table { width: 100%; border-collapse: collapse; margin: 22px 0; font-size: 15px; }
+    caption { caption-side: top; text-align: left; font-style: italic; color: var(--ink-soft); font-size: 14px; margin-bottom: 8px; }
+    caption .tno { font-style: normal; font-weight: 700; color: var(--crimson); margin-right: 8px; }
+    th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--rule); }
+    thead th { border-bottom: 2px solid var(--ink); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+    tbody tr:last-child td { border-bottom: 2px solid var(--ink); }
+    td code, th code { font-size: .8em; }
+
+    /* ---- boxes: definition / theorem / note / caution ---- */
+    .box { border: 1px solid var(--rule); border-left: 4px solid var(--navy); background: var(--paper-deep); padding: 16px 20px; margin: 22px 0; border-radius: 0 6px 6px 0; }
+    .box .boxhead { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; font-weight: 700; color: var(--navy); margin-bottom: 4px; }
+    .box.def { border-left-color: var(--crimson); }
+    .box.def .boxhead { color: var(--crimson); }
+    .box.thm { border-left-color: var(--gold); background: #f7f1df; }
+    .box.thm .boxhead { color: var(--gold); }
+    .box.caution { border-left-color: var(--crimson-2); background: #f7ebe9; }
+    .box.caution .boxhead { color: var(--crimson-2); }
+    .box p:first-of-type { margin-top: 2px; }
+    .box p:last-child { margin-bottom: 2px; }
+
+    /* ---- margin-note / figure ---- */
+    figure { margin: 26px 0; }
+    figure.fig { background: var(--paper-deep); border: 1px solid var(--rule); border-radius: 8px; padding: 22px; }
+    figcaption { font-size: 13.5px; color: var(--ink-soft); font-style: italic; margin-top: 12px; text-align: center; }
+    figcaption .fno { font-style: normal; font-weight: 700; color: var(--crimson); margin-right: 8px; }
+    .ascii { font-family: "SF Mono", Consolas, monospace; font-size: 12.5px; line-height: 1.45; white-space: pre; color: var(--ink); overflow-x: auto; display: block; }
+
+    /* ---- exercises ---- */
+    .exercises { border-top: 2px solid var(--ink); margin-top: 44px; padding-top: 14px; }
+    .exercises h4 { text-transform: uppercase; letter-spacing: .14em; font-size: 13px; color: var(--crimson); margin: 0 0 6px; }
+    .exercises ol { font-size: 16px; }
+    .exercises li { margin: 9px 0; }
+    .exq { color: var(--ink-soft); font-style: italic; margin-right: 4px; }
+
+    /* ---- table of contents ---- */
+    .toc { font-size: 16.5px; }
+    .toc .part-row { text-transform: uppercase; letter-spacing: .18em; font-size: 13px; color: var(--crimson); font-weight: 700; margin: 26px 0 8px; }
+    .toc-line { display: flex; align-items: baseline; margin: 7px 0; }
+    .toc-line .tt { white-space: nowrap; }
+    .toc-line .num { color: var(--crimson); font-weight: 700; width: 2.6em; flex: 0 0 auto; }
+    .toc-line .dots { flex: 1 1 auto; border-bottom: 1px dotted var(--rule); margin: 0 8px; transform: translateY(-4px); }
+    .toc-line .pg { color: var(--ink-soft); flex: 0 0 auto; }
+    .toc-line a { border: none; color: var(--ink); }
+    .toc-line a:hover { color: var(--crimson); }
+
+    .folio { text-align: center; color: var(--ink-soft); font-size: 13px; letter-spacing: .3em; margin-top: 48px; }
+    .runninghead { display:flex; justify-content:space-between; font-size: 11px; letter-spacing:.18em; text-transform:uppercase; color: var(--ink-soft); border-bottom: 1px solid var(--rule); padding-bottom: 8px; margin-bottom: 28px; }
+    .status-pill { display:inline-block; font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; padding:2px 9px; border-radius:999px; border:1px solid; }
+    .pill-live { color: #166534; border-color:#9bbf9b; background:#eef6ee; }
+    .pill-stub { color: var(--gold); border-color:#cdb87a; background:#f7f1df; }
   </style>
 </head>
 <body>
-  <header class="hero">
-    <div class="hero-inner">
-      <div class="eyebrow">Project Plans · Mazda Dev Status · canonical handoff doc</div>
-      <h1>Mazda — the Self-Improving Letta Agent</h1>
-      <p class="subtitle">
-        Mazda is the orchestrator. Her 5 minion Letta agents each drive a Claude Agent SDK
-        (TypeScript) session via the <code>run_claude_code_sdk</code> tool. This page is the shared
-        progress status between instances of Claude / other agents — <strong>read §0 first;
-        it is the live, verified snapshot.</strong>
-      </p>
-      <div class="badges">
-        <span class="badge green">✅ Memory system VERIFIED live (2026-06-16) — Mazda + 5 minions render their <code>system/</code> blocks into context</span>
-        <span class="badge green">✅ Phase 2 runtime LIVE & verified — executor :8799 up, <code>run_claude_code_sdk</code> attached to all minions</span>
-        <span class="badge green">✅ Timeout cascade FIXED (2026-06-17) — <code>run_claude_code_sdk</code> 180s→320s; Letta sandbox client 60s→600s; <code>letta-memfs</code> push enabled; both images committed</span>
-        <span class="badge green">✅ All 5 minions have 2 memfs projections (persona.md + human.md) — no amnesia</span>
-        <span class="badge">Phase 0 / 1a / 1b / 1c — code DONE (2026-06-15)</span>
-        <span class="badge green">✅ Frita memory FIXED (2026-06-16) — 2 projections verified; communication working end-to-end</span>
-        <span class="badge green">✅ finance_mcp BUILT + wired into <code>run_claude_code_sdk</code> + verified end-to-end (2026-06-16)</span>
-        <span class="badge">Self-improvement loop (Milestones 0–9, 145 tests) carried forward as control plane</span>
-      </div>
+<div class="book">
+
+  <!-- ============================ TITLE PAGE ============================ -->
+  <section class="leaf titlepage">
+    <div class="crest">M</div>
+    <div class="institution">Rol&nbsp;Finances&nbsp;·&nbsp;Autonomous&nbsp;Systems&nbsp;Press</div>
+    <div class="dept">Department of Self-Improving Agents</div>
+    <h1>Mazda</h1>
+    <div class="sub">A Self-Improving Letta Agent</div>
+    <div class="rule-orn"></div>
+    <p class="byline"><strong>A DEVELOPER'S MANUAL</strong></p>
+    <p class="byline" style="color:var(--ink-soft); font-style:italic;">The Interface-First Framework for Improving the Wrapper, Never the Model</p>
+    <div class="rule-orn"></div>
+    <p class="edition">First Edition &nbsp;·&nbsp; Revised through the Nine Factory Families &nbsp;·&nbsp; <span class="smallcaps">Internal&nbsp;circulation</span></p>
+  </section>
+
+  <!-- ============================ PREFACE ============================ -->
+  <section class="leaf">
+    <div class="runninghead"><span>Mazda · A Developer's Manual</span><span>Preface</span></div>
+    <p class="chapnum">Front Matter</p>
+    <h1 class="chap">Preface</h1>
+    <div class="chap-rule"></div>
+
+    <p class="opening">This manual replaces the change-log that previously occupied this page. A change-log answers the question <em>"what happened last?"</em>; a manual answers the more durable question <em>"how is this thing built, and how do I work on it?"</em> The project has matured past the point where a running diary serves it. What follows is organized the way a course text is organized: foundations first, architecture second, daily practice third, reference material last.</p>
+
+    <p>The subject is <strong>Mazda</strong> — a Letta agent that verifies finance data (bank statements and scanned receipts) inside the larger <code>rol_finances</code> project — together with the framework that surrounds her. That framework has a single, unfashionable thesis, stated here once and defended throughout:</p>
+
+    <div class="box thm">
+      <div class="boxhead">The Central Thesis</div>
+      <p>We improve the <strong>wrapper</strong> around a cheap large language model, and we <strong>never</strong> touch the model itself. The wrapper is everything we can version and roll back: system messages, prompt templates, tool descriptions, context strategy, memory notes, and workflows. The model is a fixed, interchangeable engine. All of our engineering effort — tracing, judging, proposing, A/B testing, gating, activating, rolling back — operates on the wrapper.</p>
     </div>
-  </header>
 
-  <main class="page">
+    <p>A reader who internalizes only that paragraph has the core of the design. The rest of the manual explains the machinery that makes the thesis operational and safe.</p>
 
-    <!-- ============================================================ -->
-    <section class="section" id="verified">
-      <h2>0. Verified Live State — 2026-06-16 (read this first)</h2>
+    <h4>How to read this manual</h4>
+    <p>Part&nbsp;I establishes what Mazda is and the live system she runs in. Part&nbsp;II is the heart of the book: the three-layer architecture, the <strong>nine factory families</strong> that compose a runtime, and the self-improvement loop that closes around them. Part&nbsp;III is operational — how to build, test, and run, and how to verify the live fleet. The appendices are reference catalogs.</p>
 
-      <div class="callout success">
-        <strong>Bottom line:</strong> the memory-system blocker is <strong>CLEARED for the entire
-        Mazda team</strong>. Mazda and all 5 minions now render their <code>system/</code> memory
-        blocks into compiled context — confirmed this shift by recompiling each agent and reading
-        the <code>&lt;projection&gt;</code> lines in the response (the authoritative test; see §6).
-        Phase 2's runtime is real and live: the executor that backs <code>run_claude_code_sdk</code>
-        is up, and the tool is attached to the minions — and a real end-to-end
-        <code>run_claude_code_sdk</code> task now round-trips through the executor and returns a valid
-        result (not just request validation). <strong>Mazda development is unblocked and verified
-        running tip-top.</strong> <strong>Frita's memory gap is now CLOSED too</strong> (2026-06-16):
-        she renders 2 projections (<code>system/persona</code> + <code>system/human</code>). There are
-        no remaining open memory gaps in the fleet. <strong>The last build step — wiring
-        <code>finance_mcp</code> into <code>run_claude_code_sdk</code> — is now DONE and verified
-        end-to-end</strong> (2026-06-16): all 5 minions' SDK sessions can call the finance verifier
-        tools over MCP. <strong>There are no open build steps remaining; Mazda is feature-complete.</strong>
-        See §5① for what was built and the assumptions it corrected.
-      </div>
+    <p>Each chapter ends with <em>Exercises</em>. They are not busywork: each one corresponds to a real task a developer on this project will eventually perform. Working them is the fastest way to become productive.</p>
 
-      <h3>What was checked, and the raw result</h3>
-      <table>
-        <tr><th>Check</th><th>How</th><th>Result (2026-06-16)</th></tr>
-        <tr>
-          <td>Live DB is the real one</td>
-          <td>Bun.sql <code>select count(*) from agents</code> against <code>172.18.0.4:5432</code></td>
-          <td><span class="done">2195 agents</span> — confirms the ghost-container DB, not the stale 4-agent docker stack</td>
-        </tr>
-        <tr>
-          <td>Mazda renders memory</td>
-          <td><code>POST /v1/agents/&lt;mazda&gt;/recompile</code>, count <code>&lt;projection&gt;</code> lines</td>
-          <td><span class="done">6 blocks project</span>: <code>system/persona</code>, <code>system/human</code>, <code>system/db_schema</code>, <code>system/environment</code>, <code>system/team_agents</code>, <code>system/verification_procedure</code></td>
-        </tr>
-        <tr>
-          <td>Minions render memory</td>
-          <td>Recompile <code>mazda-parser-agent</code> &amp; <code>mazda-categorization-agent</code></td>
-          <td><span class="done">2 blocks each project</span>: <code>system/persona</code> + <code>system/human</code>. (DB shows the same labels on all 5 minions.)</td>
-        </tr>
-        <tr>
-          <td>Frita renders memory</td>
-          <td>Recompile <code>agent-881a883f-…</code></td>
-          <td><span class="done">2 projections</span> — FIXED 2026-06-16: authored + attached <code>system/persona</code> and <code>system/human</code> blocks (she had no persona/human to relabel). She now renders <code>$MEMORY_DIR/system/persona.md</code> + <code>system/human.md</code>.</td>
-        </tr>
-        <tr>
-          <td>Executor (Phase 2 runtime)</td>
-          <td><code>GET http://100.80.49.10:8799/</code> → 405; <code>POST …/claude_sdk</code> (empty) → 422</td>
-          <td><span class="done">Alive &amp; validating</span> — the SDK-equipped, mom's-token executor published on host port <code>:8799</code> is up</td>
-        </tr>
-        <tr>
-          <td><code>run_claude_code_sdk</code> attached</td>
-          <td><code>tools_agents</code> join for <code>mazda-parser-agent</code></td>
-          <td><span class="done">Attached</span> — the shared tool is present on the minion</td>
-        </tr>
-        <tr>
-          <td>End-to-end SDK run</td>
-          <td><code>POST …/claude_sdk</code> with <code>Authorization: Bearer frita-win10-exec-…</code> and a real <code>task</code></td>
-          <td><span class="done">Works</span> — task <code>"reply PONG"</code> returned <code>{"status":"ok","output":"PONG"}</code>. The runtime doesn't just validate, it <em>executes</em> a Claude SDK session. (Bearer token lives in the <code>run_claude_code_sdk</code> tool source; empty/unauth POST → 401 "Missing/invalid Authorization header".)</td>
-        </tr>
-        <tr>
-          <td><code>finance_mcp</code> tools callable in an SDK session</td>
-          <td><code>POST …/claude_sdk</code> with a task that calls a <code>mcp__finance_verifiers_mcp__*</code> tool</td>
-          <td><span class="done">Works</span> — <code>verify_statement_totals(150 = 50+75+25)</code> → <code>{"matches":true,…}</code>; <code>check_vendor_key("walgreens")</code> → <code>{"recognized":true,…}</code> (both HTTP 200). The SDK session spawns the FastMCP server over stdio and calls the verifiers. <code>check_duplicates</code> returns a structured error (no finance DB creds on this host). See §5①.</td>
-        </tr>
-      </table>
+    <p style="text-align:right; font-style:italic; color:var(--ink-soft); margin-top:30px;">— The maintainers, Autonomous Systems group</p>
 
-      <div class="callout warning">
-        <strong>Do NOT re-diagnose memory from the <code>agents.system</code> column or from empty
-        memfs repos.</strong> A prior diagnostic mistakenly concluded the fleet was "amnesiac"
-        because (a) the <code>agents.system</code> DB column doesn't contain block text and (b) the
-        minions' memfs repos have 0 commits. Both are red herrings:
-        <ul>
-          <li><code>agents.system</code> is the base prompt template — block content is injected at
-            <em>compile time</em>, never stored there. It will <em>always</em> look "empty" of memory.</li>
-          <li>On this deployment, <strong>the <code>system/</code>-labeled block drives rendering, not
-            the memfs file.</strong> An empty memfs repo is fine as long as the block exists and is
-            labeled <code>system/&lt;label&gt;</code>. (Conversely, an orphaned memfs file with no
-            attached block does <em>not</em> reach context — per <code>memory_system_plan.html</code> Ch.9.)</li>
-        </ul>
-        The only authoritative memory check is the <code>&lt;projection&gt;</code> count from a
-        recompile (or the <code>&lt;projection&gt;</code> entries in the <code>ctx.messages</code>
-        system message). See §6.
-      </div>
+    <div class="folio">· vii ·</div>
+  </section>
 
-      <div class="callout success">
-        <strong>RESOLVED — Frita (2026-06-16).</strong> <code>agent-881a883f-edd0-4963-bf67-6ef178b8f018</code>
-        rendered zero memory because her only block was the shared <code>shared_scratchpad</code> and
-        she had no <code>persona</code>/<code>human</code> block to relabel. Fixed by <em>authoring</em>
-        two new blocks — <code>system/persona</code> (her memory-keeper identity for the Scissari +
-        Claude Code dev box) and <code>system/human</code> — and attaching them. She now renders
-        <strong>2 projections</strong> (verified via recompile). The fleet memory fix is now complete;
-        no agents remain amnesiac. <em>(Note: the recompile reads the freshly-attached blocks on the
-        next call, not the same instant they attach — re-run the §6 grep once if the first returns
-        empty.)</em>
-      </div>
-    </section>
+  <!-- ============================ TOC ============================ -->
+  <section class="leaf">
+    <div class="runninghead"><span>Mazda · A Developer's Manual</span><span>Contents</span></div>
+    <p class="chapnum">Front Matter</p>
+    <h1 class="chap">Contents</h1>
+    <div class="chap-rule"></div>
 
-    <!-- ============================================================ -->
-    <section class="section" id="what">
-      <h2>1. What Mazda Is (current direction)</h2>
-      <div class="callout success">
-        <ul>
-          <li>Mazda <em>is</em> the orchestrator — no "Orchestrator" suffix, just <strong>Mazda</strong>
-            (<code>agent-6b536cf4-ec88-4290-b595-fed21d14bd8e</code>).</li>
-          <li>Mazda delegates to <strong>5 minions</strong> (Letta agents) via
-            <code>send_letta_message</code>. Each minion's specialty is driving a
-            <strong>Claude Agent SDK (TypeScript)</strong> session for its slice of work.</li>
-          <li>Finance domain logic (totals/vendor/category/duplicate verifiers) is exposed to those
-            SDK sessions as MCP tools — <em>not</em> called by Mazda directly.</li>
-        </ul>
-      </div>
-      <div class="callout danger">
-        <strong>Discarded (do not implement):</strong> the older "give Mazda 7 direct finance tools"
-        design and the <code>team_construction_plan.html</code> "Mazda Orchestrator"
-        (<code>IAgentTeamFactory</code>/<code>StageEnvelope</code>/deterministic service family).
-        Superseded by the direction above.
-      </div>
-      <div class="callout">
-        <strong>Carried forward (not discarded):</strong> the self-improvement loop
-        (<code>AgentKernel</code>, trace/evidence store, verdicts, proposals, baseline-vs-candidate
-        experiments, gates, activation/rollback, HTML reports — Milestones 0–9, 145 unit tests). It
-        is finance-blind, generic infrastructure and stays as the control plane. Only the
-        <em>agent-package / runner-adapter</em> layer on top changes — see §4.
-      </div>
-    </section>
+    <div class="toc">
+      <div class="part-row">Part I · Foundations</div>
+      <div class="toc-line"><span class="num">1</span><a href="#ch1" class="tt">What Mazda Is</a><span class="dots"></span><span class="pg">3</span></div>
+      <div class="toc-line"><span class="num">2</span><a href="#ch2" class="tt">System Topology: The Live Fleet</a><span class="dots"></span><span class="pg">9</span></div>
 
-    <!-- ============================================================ -->
-    <section class="section" id="minions">
-      <h2>2. The 5 Minions (live, verified IDs)</h2>
-      <p>All 5 are <code>git-memory-enabled</code>, render <code>system/persona</code> +
-        <code>system/human</code>, and share one <code>run_claude_code_sdk</code> tool (one tool ID
-        reused across all 5 — one <code>client.tools.update</code> covers them all).</p>
-      <table>
-        <tr><th>Minion</th><th>Agent ID</th><th>Specialty (coordinator persona)</th></tr>
+      <div class="part-row">Part II · The Architecture</div>
+      <div class="toc-line"><span class="num">3</span><a href="#ch3" class="tt">The Three-Layer Architecture</a><span class="dots"></span><span class="pg">17</span></div>
+      <div class="toc-line"><span class="num">4</span><a href="#ch4" class="tt">The Nine Factory Families</a><span class="dots"></span><span class="pg">25</span></div>
+      <div class="toc-line"><span class="num">5</span><a href="#ch5" class="tt">The Self-Improvement Loop</a><span class="dots"></span><span class="pg">43</span></div>
+
+      <div class="part-row">Part III · Practice</div>
+      <div class="toc-line"><span class="num">6</span><a href="#ch6" class="tt">Building, Testing, and Running</a><span class="dots"></span><span class="pg">55</span></div>
+      <div class="toc-line"><span class="num">7</span><a href="#ch7" class="tt">Operating the Live Fleet</a><span class="dots"></span><span class="pg">63</span></div>
+
+      <div class="part-row">Back Matter</div>
+      <div class="toc-line"><span class="num">A</span><a href="#apxA" class="tt">Appendix A · Interface &amp; Factory Catalog</a><span class="dots"></span><span class="pg">71</span></div>
+      <div class="toc-line"><span class="num">B</span><a href="#apxB" class="tt">Appendix B · Glossary</a><span class="dots"></span><span class="pg">76</span></div>
+    </div>
+
+    <div class="folio">· ix ·</div>
+  </section>
+
+  <!-- ============================ PART I ============================ -->
+  <section class="leaf" style="text-align:center; padding:140px 78px;">
+    <h2 class="part"><span class="pno">Part One</span>Foundations</h2>
+    <div class="rule-orn" style="margin:28px auto;"></div>
+    <p style="font-style:italic; color:var(--ink-soft); max-width:560px; margin:0 auto;">
+      In which we fix the subject — what Mazda is, what she is not, and the live system in which she runs —
+      before any line of architecture is drawn.
+    </p>
+  </section>
+
+  <!-- ---------------- CHAPTER 1 ---------------- -->
+  <section class="leaf" id="ch1">
+    <div class="runninghead"><span>Part I · Foundations</span><span>Ch. 1 · What Mazda Is</span></div>
+    <p class="chapnum">Chapter One</p>
+    <h1 class="chap">What Mazda Is</h1>
+    <div class="chap-rule"></div>
+
+    <p class="lead opening">Mazda is an <em class="term">orchestrator</em>, not a monolith. She is a single Letta agent who delegates the real work to a small team of specialist agents, each of which drives a Claude Agent&nbsp;SDK session for one slice of the finance-verification problem. Understanding this division of labor is the prerequisite for everything else.</p>
+
+    <h3><span class="secno">1.1</span>The two faces of the project</h3>
+    <p>It is easy to conflate two things that share the name "Mazda." Keep them distinct:</p>
+    <ul>
+      <li><strong>Mazda the live agent fleet</strong> — a Letta orchestrator plus five minion agents, running against a live Letta server, calling out to a Claude-SDK executor and a finance MCP server. This is the <em>runtime</em>. Part&nbsp;I and Chapter&nbsp;7 describe it.</li>
+      <li><strong>The self-improvement framework</strong> — an interface-first Python package (<code>agent_self_improvement</code>) that runs an agent, judges it, proposes wrapper changes, A/B tests them, and activates winners with rollback. This is the <em>control plane</em>. Parts&nbsp;II–III describe it. It is finance-blind and agent-blind: it reaches Mazda only through ports.</li>
+    </ul>
+
+    <div class="box def">
+      <div class="boxhead">Definition 1.1 · The Wrapper</div>
+      <p>The <strong>wrapper</strong> is the versioned, roll-back-able envelope around a fixed LLM: its system messages, prompt templates, tool descriptions, context-selection strategy, memory notes, and workflow definitions. The framework improves the wrapper; it never fine-tunes or swaps the model as an act of "improvement."</p>
+    </div>
+
+    <h3><span class="secno">1.2</span>Mazda and her five minions</h3>
+    <p>Mazda <em>is</em> the orchestrator — there is no separate "Orchestrator" agent. She delegates to five minions via Letta's inter-agent messaging. Each minion's specialty is driving a Claude Agent&nbsp;SDK (TypeScript) session for its slice of work. Finance domain logic — totals, vendor key, category, and duplicate verifiers — is exposed to those SDK sessions as MCP tools, <em>not</em> called by Mazda directly.</p>
+
+    <figure class="fig">
+      <span class="ascii">                      ┌──────────────────────────┐
+                      │          MAZDA           │   the orchestrator
+                      │   (Letta agent, router)  │   delegates · collects · reports
+                      └────────────┬─────────────┘
+              send_letta_message   │
+        ┌──────────────┬───────────┼───────────┬──────────────┐
+        ▼              ▼           ▼            ▼              ▼
+   ┌─────────┐  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────┐
+   │ router  │  │ parser   │ │ vendor   │ │ receipt  │ │categorization│
+   │ agent   │  │ agent    │ │ identity │ │ linker   │ │ agent        │
+   └────┬────┘  └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────┬──────┘
+        └────────────┴── run_claude_code_sdk ──┴──────────────┘
+                              │
+                              ▼
+               ┌───────────────────────────────┐
+               │  Claude-SDK executor  :8799    │  spawns a TS Claude session,
+               │  + finance_verifiers_mcp (4)   │  which may call MCP verifiers
+               └───────────────────────────────┘</span>
+      <figcaption><span class="fno">Figure 1.1</span>The delegation topology. One shared <code>run_claude_code_sdk</code> tool fans out to a single executor; the finance verifiers reach the SDK session over MCP.</figcaption>
+    </figure>
+
+    <h3><span class="secno">1.3</span>What Mazda is <em>not</em></h3>
+    <p>Two earlier designs were considered and deliberately discarded. A new developer will find references to them in old commits and should not revive them:</p>
+    <div class="box caution">
+      <div class="boxhead">Caution · Superseded designs</div>
+      <p><strong>(a)</strong> The "give Mazda seven direct finance tools" design, in which the orchestrator called verifiers herself. Superseded by the minion + MCP arrangement above. <strong>(b)</strong> The separate-TypeScript-package minion path (<code>IClaudeAgentSdkRunner</code> / <code>DefaultMinion</code> / <code>cli.ts</code>) and its Python adapter. The live <code>run_claude_code_sdk</code> tool (one Python tool per agent, inline TS through the <code>:8799</code> executor) is the canonical Phase&nbsp;2 implementation; the package path is retired dead code.</p>
+    </div>
+
+    <h3><span class="secno">1.4</span>Why "self-improving"</h3>
+    <p>The adjective is earned by the control plane, not by any single clever prompt. The framework can observe Mazda doing her job, <em>judge whether she actually succeeded</em> (not merely whether she produced output), propose a concrete edit to her wrapper, run that edit against a baseline behind quality gates, and either activate it or discard it — all with a snapshot it can roll back to. Chapter&nbsp;5 develops this loop in full. The thesis of the Preface is what keeps it honest: every "improvement" is a wrapper revision, never a model change.</p>
+
+    <div class="exercises">
+      <h4>Exercises</h4>
+      <ol>
+        <li><span class="exq">(concept)</span> State, in one sentence each, the difference between the <em>runtime</em> fleet and the <em>control-plane</em> framework. Which one imports finance code?</li>
+        <li><span class="exq">(recall)</span> Name the five minions and the slice of work each owns. (Answer in §2.2.)</li>
+        <li><span class="exq">(judgment)</span> A teammate proposes adding a fifth finance tool directly to Mazda. Cite the section that tells you why this is the wrong layer, and say where the tool belongs instead.</li>
+      </ol>
+    </div>
+    <div class="folio">· 3 ·</div>
+  </section>
+
+  <!-- ---------------- CHAPTER 2 ---------------- -->
+  <section class="leaf" id="ch2">
+    <div class="runninghead"><span>Part I · Foundations</span><span>Ch. 2 · System Topology</span></div>
+    <p class="chapnum">Chapter Two</p>
+    <h1 class="chap">System Topology: The Live Fleet</h1>
+    <div class="chap-rule"></div>
+
+    <p class="lead opening">A framework is only as real as the infrastructure it runs against. This chapter is the field guide to the live deployment: the agents and their identifiers, the executor that backs their SDK sessions, and the finance MCP server they call. Treat the identifiers here as authoritative reference, not as prose to be read once.</p>
+
+    <h3><span class="secno">2.1</span>The orchestrator</h3>
+    <p>Mazda is the Letta agent <code>agent-6b536cf4-ec88-4290-b595-fed21d14bd8e</code>. She renders six <code>system/</code> memory blocks into compiled context: <code>persona</code>, <code>human</code>, <code>db_schema</code>, <code>environment</code>, <code>team_agents</code>, and <code>verification_procedure</code>. (How to verify that rendering — the one authoritative method — is §7.2.)</p>
+
+    <h3><span class="secno">2.2</span>The five minions</h3>
+    <p>All five are git-memory-enabled, each renders <code>system/persona</code> + <code>system/human</code>, and all five share a single <code>run_claude_code_sdk</code> tool — one tool identifier reused across the team, so one <code>client.tools.update</code> covers them all.</p>
+
+    <table>
+      <caption><span class="tno">Table 2.1</span>The minion roster — live, verified Letta identifiers.</caption>
+      <thead><tr><th>Minion</th><th>Agent ID</th><th>Specialty</th></tr></thead>
+      <tbody>
         <tr><td><code>mazda-router-agent</code></td><td><code>agent-bc561f63-a5bd-4192-806e-58d92593da2b</code></td><td>Task routing</td></tr>
         <tr><td><code>mazda-parser-agent</code></td><td><code>agent-a5063757-46c7-4054-a07d-2b1263db43a8</code></td><td>Parsing / structured extraction</td></tr>
         <tr><td><code>mazda-vendor-identity-agent</code></td><td><code>agent-acd624ac-17f2-4a74-aa34-78036cac4d66</code></td><td>Vendor normalization</td></tr>
         <tr><td><code>mazda-receipt-linker-agent</code></td><td><code>agent-9a14f800-d848-4914-bfd4-53ab62bc177b</code></td><td>Receipt ↔ transaction linking</td></tr>
         <tr><td><code>mazda-categorization-agent</code></td><td><code>agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874</code></td><td>Category resolution</td></tr>
-      </table>
-      <p class="mini">Each minion's <code>run_claude_code_sdk(task, context, working_dir)</code> writes an
-        inline TS file using
-        <code>claude().withModel('sonnet').allowTools('Read','Write','Edit','Bash','Glob','Grep').inDirectory(workDir).query(prompt).asText()</code>
-        and runs it through the executor at <code>http://100.80.49.10:8799/claude_sdk</code>
-        (fallback <code>172.17.0.1:8799</code>). Built by
-        <code>/home/adamsl/claude-code-sdk-ts/jeri_agent/setup_mazda_minions.py</code>.</p>
-      <div class="callout warning">
-        <strong>Minion memfs repos are empty (0 commits) — this is fine for memory rendering</strong>
-        (blocks drive rendering), but when the §5 finance_mcp wiring or persona changes land, prefer
-        authoring durable persona facts as <code>system/**</code> memfs files per
-        <code>memory_system_plan.html</code>, not raw block edits.
-      </div>
-    </section>
+      </tbody>
+    </table>
 
-    <!-- ============================================================ -->
-    <section class="section" id="build">
-      <h2>3. Build Progress</h2>
+    <p>Each minion's <code>run_claude_code_sdk(task, context, working_dir)</code> writes an inline TypeScript file that calls <code>claude().withModel('sonnet').allowTools('Read','Write','Edit','Bash','Glob','Grep').inDirectory(workDir).query(prompt).asText()</code> and runs it through the executor. The minions are built by <code>setup_mazda_minions.py</code> on the Windows host.</p>
 
-      <div class="callout success">
-        <strong>Phase 2 runtime — LIVE & verified (2026-06-16).</strong> The minions'
-        <code>run_claude_code_sdk</code> tool works end-to-end. The live Letta fleet runs in an
-        untracked containerd "ghost" stack (172.18.x); its <code>frita-executor</code> had pointed at
-        a stale executor with no SDK while fixes were landing on a duplicate dockerd stack (172.19.x).
-        Fixed by publishing the good (SDK-equipped, mom's-token) executor on host port <code>:8799</code>
-        and repointing the tool to <code>http://100.80.49.10:8799/claude_sdk</code>. Verified this
-        shift: <code>:8799</code> responds (405 GET / 422 POST). Full detail in memory
-        <code>frita_executor_ghost_container_2026_06_15.md</code>.
-      </div>
+    <h3><span class="secno">2.3</span>The Claude-SDK executor</h3>
+    <p>The executor is the small HTTP service that actually spawns a Claude SDK session. It is published at <code>http://100.80.49.10:8799/claude_sdk</code> (fallback <code>172.17.0.1:8799</code>). It authenticates with a bearer token carried in the tool source; an unauthenticated <code>POST</code> returns <code>401</code>, an empty body returns <code>422</code>, and a bare <code>GET</code> returns <code>405</code> — the three responses that together prove "alive and validating."</p>
+    <div class="box">
+      <div class="boxhead">Note · The executor executes, it does not merely validate</div>
+      <p>A round-trip with the task <code>"reply PONG"</code> returns <code>{"status":"ok","output":"PONG"}</code>. This is the cheap smoke test that confirms a real Claude SDK session ran end-to-end, not just that the request schema was accepted.</p>
+    </div>
 
-      <div class="grid two">
-        <div class="card soft">
-          <h4><span class="tag green">DONE</span> Phase 0 — Minion contract</h4>
-          <p class="mini"><code>claude-code-sdk-ts/minions/src/interfaces/minion.ts</code>:
-            <code>MinionRole</code>, <code>IMinionTaskRequest</code>, <code>IMinionTaskResult</code>,
-            <code>IClaudeAgentSdkRunner</code>, <code>IMinion</code>; <code>DefaultMinion</code> in
-            <code>minion.ts</code>. TDD, vitest green, <code>tsc</code> clean.</p>
-        </div>
-        <div class="card soft">
-          <h4><span class="tag green">DONE</span> Phase 1a — Real SDK runner</h4>
-          <p class="mini"><code>ClaudeAgentSdkRunner</code> + <code>createMinion()</code> + <code>cli.ts</code>.
-            Commit <code>be13ca8</code> on <code>claude-code-sdk-ts</code> (10 files, 323 lines).
-            <strong>Lives only on the Win10 box</strong> (<code>100.80.49.10:/home/adamsl/claude-code-sdk-ts</code>),
-            not synced to the Linux dev host.</p>
-        </div>
-        <div class="card soft">
-          <h4><span class="tag green">DONE</span> Phase 1b — Python adapter</h4>
-          <p class="mini"><code>MinionCommunicationAdapter</code> + <code>minion_cli_transport</code> +
-            <code>AgentRuntimeKind.MINION</code> in
-            <code>rol_finances/…/agent_runtime/</code>. Commit <code>4f7ae86</code>, 7 tests.
-            <strong>Now dead code</strong> — targets the retired separate-TS-package path (§3a).</p>
-        </div>
-        <div class="card soft">
-          <h4><span class="tag green">DONE</span> Phase 1c — finance_mcp server (built here 2026-06-16)</h4>
-          <p class="mini"><code>FastMCP("finance_verifiers_mcp")</code> exposing
-            <code>verify_statement_totals</code>, <code>check_vendor_key</code>,
-            <code>check_category</code>, <code>check_duplicates</code> over the existing
-            <code>Concrete*Tool</code> ports.
-            <code>rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/finance_mcp/server.py</code>,
-            commit <code>b94ae5e</code>. <strong>Now WIRED into all 5 minions</strong> via the executor
-            template + verified end-to-end (§5①). NB: the old <code>ead3c34</code> / "6 tests, 410/3/1"
-            claim was never real on this host — this is the actual build.</p>
-        </div>
-      </div>
+    <h3><span class="secno">2.4</span>The finance MCP server</h3>
+    <p>Finance domain logic reaches the SDK sessions through a <code>FastMCP("finance_verifiers_mcp")</code> server that exposes four deterministic verifier tools over stdio. It is wired into the executor's inline-TS template via <code>.withMCP(...)</code> — covering all five minions at once — and is deployed as a systemd service via <code>deployment/mazda-tools-mcp.service</code>.</p>
+    <table>
+      <caption><span class="tno">Table 2.2</span>The four finance MCP tools.</caption>
+      <thead><tr><th>Tool</th><th>What it checks</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><code>verify_statement_totals</code></td><td>Line items sum to the stated total</td><td><span class="status-pill pill-live">live</span></td></tr>
+        <tr><td><code>check_vendor_key</code></td><td>Vendor key is recognized (<code>vendor_category.yaml</code>)</td><td><span class="status-pill pill-live">live</span></td></tr>
+        <tr><td><code>check_category</code></td><td>Category name is valid</td><td><span class="status-pill pill-live">live</span></td></tr>
+        <tr><td><code>check_duplicates</code></td><td>Row is not already in the finance DB</td><td><span class="status-pill pill-stub">needs DB creds</span></td></tr>
+      </tbody>
+    </table>
+    <p class="opening" style="font-size:15px;"><code>check_duplicates</code> requires <code>pymysql</code> plus finance MySQL credentials; absent those on a given host it returns a structured <code>{"error": …}</code> rather than crashing. The other three are pure Python and always available.</p>
 
-      <div class="callout">
-        <strong>3a. Two competing implementations — which one is canonical.</strong> The live
-        <code>run_claude_code_sdk</code> (one Python tool per agent, inline TS via the
-        <code>:8799</code> executor) is <strong>adopted as the real Phase 2 implementation</strong>.
-        The Phase 0/1a separate-TS-package path (<code>IClaudeAgentSdkRunner</code> /
-        <code>DefaultMinion</code> / <code>cli.ts</code> / <code>createMinion()</code>) and the
-        Phase 1b adapter that targets it are <strong>retired, kept as dead code</strong> — do not
-        rebuild on them. The spec'd <code>run_claude_agent_sdk_task</code> tool name is likewise
-        superseded by the live <code>run_claude_code_sdk</code>.
-      </div>
-    </section>
-
-    <!-- ============================================================ -->
-    <section class="section dark" id="loop">
-      <h2>4. Self-Improvement Loop — how it fits now</h2>
-      <p>
-        The Milestone 0–9 loop never imports finance code or Mazda directly — it reaches "the agent
-        being improved" only through <code>IAgentPackageFactory</code> / <code>IAgentRunner</code>
-        ports. That boundary lets it carry over unchanged; only the <em>thing being wrapped</em>
-        changes from "Mazda + 7 finance tools" to "Mazda + minions driving the Claude Agent SDK."
-      </p>
-      <table>
-        <tr><th>Loop concept</th><th>New usage (this design)</th></tr>
-        <tr><td><code>IAgentRunner</code> / <code>AgentKernel.run_task</code></td>
-            <td>Run Mazda's orchestration step: delegate to minions, collect their SDK session results</td></tr>
-        <tr><td><code>TraceRepository</code> / evidence store</td>
-            <td>Trace Mazda→minion delegations + each minion's SDK session (inputs, outputs, tool calls, tokens)</td></tr>
-        <tr><td><code>IEvaluator</code> family</td>
-            <td>Orchestration verdict (did the session complete, at what quality/cost); finance verifiers become one pluggable evaluator</td></tr>
-        <tr><td><code>WrapperRevision</code></td>
-            <td>Versioned Mazda delegation logic + per-minion SDK task templates (prompts, allowed tools, params)</td></tr>
-        <tr><td><code>Proposal/Experiment/Gate</code> + <code>Activation/Rollback</code></td>
-            <td>Propose, A/B, gate, and human-approve changes to delegation strategy or a minion's SDK template; rollback-safe</td></tr>
-      </table>
-      <p class="mini">None of the 145 unit tests are thrown away. The integration backlog ("8 test-code
-        fixes → P0 suite") still applies to the core loop and is a lower-priority next step (§5).</p>
-    </section>
-
-    <!-- ============================================================ -->
-    <section class="section" id="next">
-      <h2>5. Next Steps</h2>
-
-      <div class="callout success">
-        <strong>① Wire <code>finance_mcp</code> into <code>run_claude_code_sdk</code> — DONE &amp; verified end-to-end (2026-06-16).</strong>
-        Several of the original assumptions here were wrong; what actually happened:
-        <ul>
-          <li><strong>Phase 1c was NOT present on this host.</strong> There was no
-            <code>finance_mcp/</code> dir, commit <code>ead3c34</code> existed in no branch, and the
-            <code>so</code>/<code>.venv</code> venvs the old plan named don't exist. So step 1 was to
-            <em>build</em> the server: <code>agent_self_improvement/implementations/finance_mcp/server.py</code>
-            — a <code>FastMCP("finance_verifiers_mcp")</code> over stdio that wires the existing
-            <code>Concrete*Tool</code> impls. <code>verify_statement_totals</code> /
-            <code>check_vendor_key</code> / <code>check_category</code> are <strong>LIVE</strong> (arithmetic +
-            <code>vendor_category.yaml</code>); <code>check_duplicates</code> is <strong>best-effort</strong> —
-            it reaches MySQL via <code>host.docker.internal:3306</code> but returns a structured
-            <code>{"error":…}</code> because the finance creds (<code>NON_PROFIT_USER/PASSWORD</code>) are
-            not on this host. <code>pymysql</code> is vendored at
-            <code>tools/self_improving_agent/.vendor</code> (on the mount, survives container recreate).</li>
-          <li><strong>The wiring is in the executor, NOT a Letta tool.</strong> The inline TS template lives
-            in <code>/home/adamsl/server_tools/executor_server.py</code> (bind-mounted into
-            <code>frita-executor</code>), so <em>no <code>client.tools.update</code> was needed at all</em>.
-            Added <code>.withMCP({ name:'finance_verifiers_mcp', command:'python', args:['-m',
-            'agent_self_improvement.implementations.finance_mcp.server'], env:{PYTHONPATH…, ROL_FINANCES_ROOT,
-            DB_HOST:'host.docker.internal'} })</code> + the four <code>mcp__finance_verifiers_mcp__*</code>
-            names to <code>.allowTools(...)</code>. Covers all 5 minions at once (shared executor template).</li>
-          <li><strong>SDK bug fixed.</strong> <code>claude-code-sdk-ts</code> serialized
-            <code>mcpServers</code> as a JSON <em>array</em>, but the <code>claude</code> CLI's
-            <code>--mcp-config</code> wants an <em>object map keyed by server name</em> — the array form
-            made <code>claude</code> hang. Patched <code>src/_internal/transport/subprocess-cli.ts</code>
-            (+ <code>src/types.ts</code> adds optional <code>name</code>) to emit the object map; rebuilt
-            <code>dist</code> is regenerated from src (the live <code>dist/index.js</code>/<code>.cjs</code>
-            were hot-patched too since <code>dist/</code> is gitignored).</li>
-          <li><strong>Verified:</strong> <code>POST :8799/claude_sdk</code> with a task that calls
-            <code>verify_statement_totals</code> (150.00 = 50+75+25) returned
-            <code>{matches:true,…}</code>; <code>check_vendor_key("walgreens")</code> returned
-            <code>recognized:true</code>. Both HTTP 200 through the exact path the minions use.</li>
-        </ul>
-      </div>
-
-      <div class="callout warning">
-        <strong>Gotcha — single-file bind mounts + IS_SANDBOX.</strong> Editing
-        <code>executor_server.py</code> in place changes its inode, which breaks docker-desktop's
-        <em>single-file</em> bind mount (the old snapshot path vanishes and <code>docker restart</code>
-        fails with "no such file or directory"). Recovery = recreate via
-        <code>server_tools/deploy_frita_executor.sh</code> (idempotent <code>docker rm -f</code> + run,
-        re-binds the current file). Directory mounts (<code>claude-code-sdk-ts</code>,
-        <code>rol_finances</code>) don't have this problem. Also: the executor runs as <strong>root</strong>,
-        so <code>claude --dangerously-skip-permissions</code> is refused unless <code>IS_SANDBOX=1</code>
-        is set — now exported in the SDK subprocess env (<code>executor_server.py</code>) and as a
-        container <code>-e IS_SANDBOX=1</code> (deploy script), so <code>.skipPermissions()</code> works
-        under root.
-      </div>
-
-      <div class="callout success">
-        <strong>② Frita's memory gap — DONE (2026-06-16).</strong> Authored + attached
-        <code>system/persona</code> and <code>system/human</code> blocks for
-        <code>agent-881a883f-edd0-4963-bf67-6ef178b8f018</code>; she now renders 2 projections.
-        See §0.
-      </div>
-
-      <div class="callout">
-        <strong>③ Integration backlog (lower priority).</strong> The "8 test-code fixes → P0 suite"
-        for the carried-forward core loop. Pick up once the minion-side work has something real to
-        evaluate.
-      </div>
-
-      <div class="callout">
-        <strong>④ Cleanup (low priority).</strong> Delete or repoint the dead Phase 1b
-        <code>MinionCommunicationAdapter</code> / <code>minion_cli_transport</code> /
-        <code>AgentRuntimeKind.MINION</code> in <code>rol_finances</code> (they target the retired
-        Phase 0/1a path). Not urgent.
-      </div>
-    </section>
-
-    <!-- ============================================================ -->
-    <section class="section dark" id="infra">
-      <h2>6. Infra Reference & How to Verify (for the next instance)</h2>
-
-      <h3>Reaching the live Letta server</h3>
-      <ul>
-        <li><strong>HTTP API</strong> (reads, blocks, recompile) — works from anywhere:
-          <code>http://100.80.49.10:8283</code>. Prefer this.</li>
-        <li><strong>Direct DB</strong> — ghost-container Postgres at <code>172.18.0.4:5432</code>
-          (~2195 agents), creds <code>postgres://letta:letta@172.18.0.4:5432/letta</code>, reachable
-          via <code>/home/adamsl/.bun/bin/bun</code> + <code>new (require('bun').SQL)(...)</code> from
-          this WSL host. <strong>Trap:</strong> the <code>docker</code>-visible
-          <code>letta-postgres</code> container is a STALE 4-agent stack — never query it for live data.</li>
-        <li><strong>Executor</strong> (backs <code>run_claude_code_sdk</code>) —
-          <code>http://100.80.49.10:8799/claude_sdk</code> (fallback <code>172.17.0.1:8799</code>).</li>
-      </ul>
-
-      <h3>The ONLY correct way to verify an agent renders its memory</h3>
-      <pre><code>curl -s -X POST http://100.80.49.10:8283/v1/agents/&lt;AGENT_ID&gt;/recompile \
-  | grep -oE '&lt;projection&gt;[^&lt;]*&lt;/projection&gt;'
-# Each &lt;projection&gt; line = one system/ block rendered into context.
-# Zero lines = amnesiac. (Frita = zero. Mazda = 6. Minions = 2 each.)</code></pre>
-      <div class="callout warning">
-        Do NOT judge memory health from the <code>agents.system</code> DB column (never holds block
-        text) or from memfs commit count (empty repo is fine — the <code>system/</code>-labeled
-        <em>block</em> drives rendering on this deployment). Also note
-        <code>/v1/agents/&lt;id&gt;/context</code>'s <code>system_prompt</code> field is STALE for
-        dormant agents — use the recompile projection count instead.
-      </div>
-
-      <h3>Required reading, in order</h3>
+    <div class="exercises">
+      <h4>Exercises</h4>
       <ol>
-        <li><strong>This doc, §0–§5</strong> — canonical current state.</li>
-        <li><strong><code>memory_system_plan.html</code></strong> — the memory policy (author memory as
-          <code>system/**</code> memfs files; blocks are a read-only projection; never raw
-          <code>POST/PATCH /v1/blocks</code>). Ch.8 Mazda dedup = HELD; Ch.9 fleet relabel = done for
-          11 agents, Frita open; Ch.10 docs = done; Ch.11.2 agents_tags bug = fixed.</li>
-        <li><strong><code>agent_self_improvement_plan.html</code></strong> — read ONLY for the
-          carried-forward core loop (Milestones 0–9, 145 tests). Its "Mazda gets 7 finance tools"
-          framing is SUPERSEDED — don't implement it.</li>
+        <li><span class="exq">(operational)</span> Write the one-line smoke test that proves the executor executes rather than merely validates. What output confirms success?</li>
+        <li><span class="exq">(reasoning)</span> Three of the four MCP tools are pure Python; one is "best effort." Explain why this asymmetry exists and what it implies for testing on a host without finance DB creds.</li>
+        <li><span class="exq">(recall)</span> How many <code>client.tools.update</code> calls does it take to update <code>run_claude_code_sdk</code> across all five minions, and why?</li>
       </ol>
-    </section>
+    </div>
+    <div class="folio">· 9 ·</div>
+  </section>
 
-    <!-- ============================================================ -->
-    <section class="section">
-      <h2>Changelog</h2>
-      <ul>
-        <li class="mini"><strong>2026-06-16</strong> (latest) — <strong>finance_mcp BUILT + wired +
-          verified.</strong> Discovered Phase 1c was never actually on this host (no dir, no commit
-          <code>ead3c34</code>); built <code>finance_mcp/server.py</code> (FastMCP, 4 verifier tools, 3
-          live + <code>check_duplicates</code> best-effort), vendored <code>pymysql</code>, and wired
-          <code>.withMCP()</code> into the executor's inline TS template
-          (<code>server_tools/executor_server.py</code>) — no <code>client.tools.update</code> needed.
-          Fixed a <code>claude-code-sdk-ts</code> bug (<code>mcpServers</code> serialized as an array vs.
-          the CLI's required object map → <code>claude</code> hung). Added <code>IS_SANDBOX=1</code> so
-          <code>--dangerously-skip-permissions</code> works under root. Verified end-to-end via
-          <code>:8799</code> (verify_statement_totals → <code>matches:true</code>; check_vendor_key →
-          <code>recognized:true</code>). See §5①.</li>
-        <li class="mini"><strong>2026-06-17</strong> — <strong>Minion memfs + letta-memfs push FIXED.</strong>
-          All 5 minion repos initialized with <code>system/persona.md</code> + <code>system/mazda_agents.md</code> via
-          Python plumbing (loose-object copy + HEAD fix); all render 2 projections (persona.md + human.md).
-          Root cause of 403 on git push to memfs: <code>letta-memfs</code> app.py was missing
-          <code>GIT_HTTP_RECEIVE_PACK=true</code> env var — patched and image committed.
-          Also: <code>letta-server</code> sandbox client 60s→600s patch baked into image via <code>docker commit</code>,
-          so both image layer changes survive container recreations.</li>
-        <li class="mini"><strong>2026-06-16</strong> (later) — <strong>Timeout cascade FIXED.</strong>
-          Root cause: <code>run_claude_code_sdk</code> had 180s HTTP timeout (executor subprocess runs up to 300s).
-          Additionally, the Letta sandbox client (used by <code>send_message_to_agent_and_wait_for_reply</code>)
-          had a hard-coded 60s read timeout — any agent chain taking &gt;60s would fail even if the tool itself
-          succeeded. Fixes: (1) Patched <code>run_claude_code_sdk</code> source on Letta to 320s.
-          (2) Patched <code>/app/letta/services/tool_sandbox/base.py</code> sandbox client constructor
-          to use <code>timeout=600.0</code> (600s). (3) Restarted Letta server to pick up the patch;
-          verified API up and patch persists. Claude OAuth rate limit resets 12:40am UTC.
-          Also fixed: <code>setup_mazda_minions.py</code> now registers the 320s HTTP version of the tool
-          so future re-runs don't regress.</li>
-        <li class="mini"><strong>2026-06-16</strong> — <strong>Frita memory FIXED.</strong>
-          Authored + attached <code>system/persona</code> + <code>system/human</code> blocks (she had
-          no persona/human to relabel); she now renders 2 projections. The fleet memory fix is
-          complete — no agents remain amnesiac. Updated §0, §5②. (Gotcha logged: recompile picks up
-          newly-attached blocks on the <em>next</em> call, so re-run the §6 grep if the first is empty.)</li>
-        <li class="mini"><strong>2026-06-16</strong> (later) — Re-verified the full live state: Mazda
-          6 projections, all 5 minions 2 each, executor <code>:8799</code> alive. Added the missing
-          link: a real <code>run_claude_code_sdk</code> round-trip (<code>task:"reply PONG"</code> →
-          <code>{"status":"ok","output":"PONG"}</code>), proving the executor <em>executes</em> a
-          Claude SDK session, not just validates the request. Mazda is verified running tip-top. Open
-          forward work unchanged: §5① finance_mcp wiring (needs sign-off), §5② Frita memory.</li>
-        <li class="mini"><strong>2026-06-16</strong> — Full rewrite into a clean canonical handoff
-          doc. Verified live state: memory renders for Mazda (6 blocks) + all 5 minions (2 each);
-          Frita still zero; executor <code>:8799</code> alive; <code>run_claude_code_sdk</code>
-          attached. Added §6's "only correct way to verify memory" to prevent the recurring
-          <code>agents.system</code>/empty-memfs misdiagnosis. Condensed prior §0a–§0c shift notes
-          into §3.</li>
-        <li class="mini"><strong>2026-06-15</strong> (multiple shifts) — Phase 2 runtime fixed
-          (executor on <code>:8799</code>); fleet memory relabel (11 agents → <code>system/</code>,
-          Frita open); Phase 1a/1b/1c built (commits <code>be13ca8</code>, <code>4f7ae86</code>,
-          <code>ead3c34</code>); found live <code>run_claude_code_sdk</code> design supersedes the
-          Phase 0/1a TS-package path; established the new "Mazda + Claude-Agent-SDK minions"
-          direction, discarding the 7-finance-tools design.</li>
-      </ul>
-    </section>
+  <!-- ============================ PART II ============================ -->
+  <section class="leaf" style="text-align:center; padding:140px 78px;">
+    <h2 class="part"><span class="pno">Part Two</span>The Architecture</h2>
+    <div class="rule-orn" style="margin:28px auto;"></div>
+    <p style="font-style:italic; color:var(--ink-soft); max-width:560px; margin:0 auto;">
+      The three layers, the nine factory families that compose a runtime from them, and the
+      self-improvement loop that closes around the whole.
+    </p>
+  </section>
 
-  </main>
+  <!-- ---------------- CHAPTER 3 ---------------- -->
+  <section class="leaf" id="ch3">
+    <div class="runninghead"><span>Part II · The Architecture</span><span>Ch. 3 · Three Layers</span></div>
+    <p class="chapnum">Chapter Three</p>
+    <h1 class="chap">The Three-Layer Architecture</h1>
+    <div class="chap-rule"></div>
+
+    <p class="lead opening">The framework is built in three layers, strictly ordered by the direction in which dependencies are allowed to point. The rule is simple and it is enforced by tests: <em>program against contracts; concrete code lives behind them.</em> Violating the layering does not merely offend taste — it breaks the test suite's <code>sys.path</code> setup.</p>
+
+    <h3><span class="secno">3.1</span>The layers</h3>
+    <table>
+      <caption><span class="tno">Table 3.1</span>The three layers and what each may depend on.</caption>
+      <thead><tr><th>Layer</th><th>Package</th><th>Contents</th><th>May import</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Contracts</strong></td>
+          <td><code>contracts/</code></td>
+          <td>Pydantic value objects + ABC ports. The public surface.</td>
+          <td>Only the standard library + Pydantic. <strong>Never</strong> finance or agent packages.</td>
+        </tr>
+        <tr>
+          <td><strong>Implementations</strong></td>
+          <td><code>implementations/</code></td>
+          <td>Concrete adapters, grouped by milestone: persistence, runtime, evaluation, improvement, MCP, reporting, stubs.</td>
+          <td>Contracts; its own siblings. Finance code only by <em>injection</em>.</td>
+        </tr>
+        <tr>
+          <td><strong>Agent packages</strong></td>
+          <td><code>agent_packages/</code></td>
+          <td>Per-agent glue — Mazda's task ports, models, and the multi-agent finance orchestrator.</td>
+          <td>Contracts + implementations. This is where agent-specific detail is allowed to live.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="box def">
+      <div class="boxhead">Definition 3.1 · Port and Adapter</div>
+      <p>A <strong>port</strong> is an abstract base class in <code>contracts/</code> describing a capability (e.g. <code>ITraceRepository</code>). An <strong>adapter</strong> is a concrete class in <code>implementations/</code> that satisfies a port (e.g. <code>SqliteTraceRepository</code>). Callers depend on the port; the choice of adapter is made in exactly one place — the composition root of Chapter&nbsp;4.</p>
+    </div>
+
+    <h3><span class="secno">3.2</span>The critical boundary</h3>
+    <div class="box caution">
+      <div class="boxhead">Caution · The boundary that must never be crossed</div>
+      <p>The kernel and <code>contracts/</code> must <strong>never</strong> import finance packages or any agent package. Mazda is reached only through the generic <code>IAgentPackageFactory</code> and through finance objects injected as <code>Any</code>-typed constructor arguments. The <code>Live*Verifier</code> classes are the model to follow: they wrap real finance services by dependency injection (a <code>VendorCategoryLookup</code>, a <code>DuplicateChecker</code>), never by import.</p>
+    </div>
+
+    <p>This is why the evaluation layer ships <em>two</em> verifier families: in-memory stubs (<code>KnownVendorKeyVerifier</code> and friends) for unit tests that touch no infrastructure, and <code>Live*Verifier</code> adapters that wrap the real finance services by injection. The contracts never know which is in use.</p>
+
+    <h3><span class="secno">3.3</span>How new behavior enters the system</h3>
+    <p>The convention is invariant across the whole project: <strong>new behavior starts as a contract, then gets a concrete implementation behind it.</strong> A Pydantic model or an ABC goes into <code>contracts/</code> first; the adapter follows in <code>implementations/</code>; commonly used names are re-exported from the relevant <code>__init__.py</code>. This discipline is what makes the factory families of the next chapter possible — you cannot manufacture what you have not first specified.</p>
+
+    <div class="exercises">
+      <h4>Exercises</h4>
+      <ol>
+        <li><span class="exq">(rule)</span> A pull request adds <code>from nonprofit_finance import ...</code> to a file in <code>contracts/</code>. State which rule it breaks and what mechanism will catch it.</li>
+        <li><span class="exq">(design)</span> You must add a new capability "redact PII from a trace." In which layer does the ABC go, in which the adapter, and which file re-exports the name?</li>
+        <li><span class="exq">(recall)</span> Why does the evaluation layer ship two verifier families instead of one?</li>
+      </ol>
+    </div>
+    <div class="folio">· 17 ·</div>
+  </section>
+
+  <!-- ---------------- CHAPTER 4 — THE BIG ONE ---------------- -->
+  <section class="leaf" id="ch4">
+    <div class="runninghead"><span>Part II · The Architecture</span><span>Ch. 4 · Nine Factory Families</span></div>
+    <p class="chapnum">Chapter Four</p>
+    <h1 class="chap">The Nine Factory Families</h1>
+    <div class="chap-rule"></div>
+
+    <p class="lead opening">This is the chapter the architecture is built around. The framework composes a runtime from <em>families of related objects</em> using the Abstract Factory pattern. Nine factories cover the nine subsystems; a tenth — the agent-package factory — joins them inside a single <em class="term">runtime family</em>. A composition root wires the family from a profile, and an agent kernel runs tasks through it. By the end of this chapter you will be able to add a backend, swap a whole family, or trace one task from request to persisted verdict.</p>
+
+    <h3><span class="secno">4.1</span>Why Abstract Factory</h3>
+    <div class="box thm">
+      <div class="boxhead">Motivation 4.1</div>
+      <p>The kernel must create many related objects — a trace repository, a verdict judge, an event bus — without binding to their concrete classes. The Abstract Factory pattern lets us swap a <em>whole compatible family</em> (say, SQLite persistence + a cheap-LLM client + finance evaluation) without the kernel ever changing. The cost is one extra layer of indirection; the benefit is that "which backend" is a decision made in exactly one place.</p>
+    </div>
+
+    <p>Each factory is an ABC in <code>contracts/factories.py</code>; each <code>create_*</code> method returns a port, never a concrete type. The full method-by-method catalog is Appendix&nbsp;A; the families themselves are Table&nbsp;4.1.</p>
+
+    <table>
+      <caption><span class="tno">Table 4.1</span>The nine factory families (plus the agent-package factory), their contracts, and concrete implementations.</caption>
+      <thead><tr><th>#</th><th>Factory (ABC)</th><th>Manufactures</th><th>Concrete implementation</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><code>IPersistenceFactory</code></td><td>schema manager, unit of work, 5 repositories</td><td><code>SqlitePersistenceFactory(db_path)</code> <span class="status-pill pill-live">real</span></td></tr>
+        <tr><td>2</td><td><code>ILlmFactory</code></td><td>client, request builder, parser, token counter, budget guard</td><td><code>StubLlmFactory(model_name)</code> <span class="status-pill pill-stub">stub</span></td></tr>
+        <tr><td>3</td><td><code>IPromptFactory</code></td><td>system-message provider/builder, template provider, composer, validator, diff</td><td><code>StubPromptFactory</code> <span class="status-pill pill-stub">stub</span></td></tr>
+        <tr><td>4</td><td><code>IToolFactory</code></td><td>registry, adapter, permission policy, execution logger</td><td><code>StubToolFactory</code> <span class="status-pill pill-stub">stub</span></td></tr>
+        <tr><td>5</td><td><code>IContextFactory</code></td><td>selector, budgeter, pack builder, memory/note readers + writers, staleness detector</td><td><code>StubContextFactory</code> <span class="status-pill pill-stub">stub</span></td></tr>
+        <tr><td>6</td><td><code>IWorkflowFactory</code></td><td>workflow runner</td><td><code>StubWorkflowFactory</code> <span class="status-pill pill-stub">stub</span></td></tr>
+        <tr><td>7</td><td><code>IEvaluationFactory</code></td><td>evaluator, verdict judge, classifier, regression detector, gate chain, 4 finance verifiers</td><td><code>FinanceEvaluationFactory(...)</code> <span class="status-pill pill-live">real</span></td></tr>
+        <tr><td>8</td><td><code>IImprovementFactory</code></td><td>proposal generator, experiment runner, approval gateway, snapshot store, activation + rollback</td><td><code>DefaultImprovementFactory(...)</code> <span class="status-pill pill-live">real</span></td></tr>
+        <tr><td>9</td><td><code>IReportingFactory</code></td><td>event bus, trace report builder, dashboard builder, regression report builder</td><td><code>DefaultReportingFactory</code> <span class="status-pill pill-live">real</span></td></tr>
+        <tr><td>+</td><td><code>IAgentPackageFactory</code></td><td>Mazda / Scissari / Frita packages by name</td><td><code>DefaultAgentPackageFactory</code> <span class="status-pill pill-live">real</span></td></tr>
+      </tbody>
+    </table>
+
+    <h3><span class="secno">4.2</span>Real families and stub families</h3>
+    <p>Not every subsystem has a production backend yet, and the architecture does not pretend otherwise. Four families — persistence, evaluation, improvement, reporting — have <strong>real</strong> implementations wired to SQLite and the finance verifiers. Five families — LLM, prompt, tool, context, workflow — currently ship <strong>stubs</strong> in <code>implementations/stubs/</code>.</p>
+
+    <div class="box def">
+      <div class="boxhead">Definition 4.2 · Stub vs. Gap-filler</div>
+      <p>A <strong>stub</strong> is a minimal but honest port implementation. Some stubs do real, trivial work (the workflow runner genuinely iterates steps in sequence; the request builder genuinely assembles a request); others raise <code>NotImplementedError</code> for operations that need infrastructure we have not built (an LLM <code>complete()</code>, a memory <code>write()</code>). A <strong>gap-filler</strong> is a stub that stands in for a port the real family hasn't implemented yet — e.g. <code>InMemoryUnitOfWork</code> and <code>InMemoryEvaluationRepository</code>, used by the SQLite persistence factory for its two not-yet-persisted ports.</p>
+    </div>
+
+    <p>This honesty matters at runtime: the kernel <em>expects</em> some ports to raise <code>NotImplementedError</code> and degrades gracefully (§4.6). Stubs are not technical debt to be hidden; they are placeholders with a precise contract, and they make the whole family composable today.</p>
+
+    <h3><span class="secno">4.3</span>The runtime family — bundling ten factories</h3>
+    <p>A single profile uses one factory from each family. The <code>IAgentRuntimeFamily</code> port bundles all ten as read-only properties, so a subsystem can be swapped by swapping one property's factory. The concrete bundle is <code>DefaultAgentRuntimeFamily</code>; it takes the ten factories as keyword arguments and exposes them.</p>
+
+    <span class="filename">contracts/runtime.py — the bundle (abridged)</span>
+<pre><code>class IAgentRuntimeFamily(ABC):
+    """A bundle of compatible factories for one runtime profile."""
+    @property
+    @abstractmethod
+    def persistence_factory(self)  -> IPersistenceFactory: ...
+    @property
+    @abstractmethod
+    def llm_factory(self)          -> ILlmFactory: ...
+    # ... prompt, tool, context, workflow, evaluation,
+    #     improvement, reporting, agent_package ...</code></pre>
+
+    <h3><span class="secno">4.4</span>The composition root — the only place that knows concrete classes</h3>
+    <p>If the kernel must never name a concrete class, <em>something</em> must. That something is the <strong>composition root</strong>. It is the single seam where abstraction is traded for concreteness, and it is deliberately the only such seam in the system.</p>
+
+    <div class="box def">
+      <div class="boxhead">Definition 4.3 · Composition Root</div>
+      <p><code>DefaultCompositionRoot.build_kernel(profile)</code> reads a <code>RuntimeProfile</code> and instantiates every concrete factory, bundles them into a <code>DefaultAgentRuntimeFamily</code>, and returns a <code>DefaultAgentKernel</code>. It is the <em>only</em> file in the framework permitted to import concrete factory classes.</p>
+    </div>
+
+    <p>The wiring order is not arbitrary — it encodes the cross-family dependencies. Persistence is built first (and its schema created) because the improvement factory needs persistence's wrapper-revision and improvement repositories injected into it. Stubs come next, evaluation is configured from <code>profile.extra</code>, then improvement is cross-wired, and reporting last.</p>
+
+    <span class="filename">implementations/runtime/composition_root.py (abridged)</span>
+<pre><code>class DefaultCompositionRoot(ICompositionRoot):
+    def build_kernel(self, profile: RuntimeProfile) -> IAgentKernel:
+        db_path = profile.db_path or "agent_improvement.sqlite3"
+
+        persistence = SqlitePersistenceFactory(db_path=db_path)
+        persistence.create_schema_manager().create_schema()   # schema first
+
+        llm      = StubLlmFactory(model_name=profile.llm)
+        prompt   = StubPromptFactory()
+        tool     = StubToolFactory()
+        context  = StubContextFactory()
+        workflow = StubWorkflowFactory()
+
+        evaluation = FinanceEvaluationFactory(            # configured from the profile
+            known_vendor_keys=set(profile.extra.get("known_vendor_keys", [])),
+            vendor_category_map=profile.extra.get("vendor_category_map", {}),
+            ...)
+
+        agent_package = DefaultAgentPackageFactory()
+
+        improvement = DefaultImprovementFactory(          # cross-wired with persistence
+            db_path=db_path,
+            wrapper_repo=persistence.create_wrapper_revision_repository(),
+            improvement_repo=persistence.create_improvement_repository())
+
+        reporting = DefaultReportingFactory()
+
+        family = DefaultAgentRuntimeFamily(
+            persistence=persistence, llm=llm, prompt=prompt, tool=tool,
+            context=context, workflow=workflow, evaluation=evaluation,
+            improvement=improvement, reporting=reporting,
+            agent_package=agent_package)
+
+        return DefaultAgentKernel(family=family, profile=profile)</code></pre>
+
+    <p>The <code>RuntimeProfile</code> is a pure data record — it <em>names</em> the families ("sqlite", "gemini_flash_lite", "mazda", "finance_rules") and carries an <code>extra</code> dictionary for evaluation configuration and a <code>db_path</code>. The canonical first profile is <code>sqlite_gemini_flash_lite_mazda_default</code>. Selecting a different backend is, by design, an edit to a profile — not to the kernel.</p>
+
+    <h3><span class="secno">4.5</span>The agent kernel — one task, end to end</h3>
+    <p>The kernel depends only on <code>IAgentRuntimeFamily</code>. It never learns whether persistence is SQLite, whether the LLM is one model or another, or who Mazda is. Its <code>run_task</code> is short enough to read in full, and reading it is the best way to see the families cooperate.</p>
+
+    <figure class="fig">
+      <span class="ascii">RunRequest
+    │
+    ▼  agent_package_factory.create_agent_package(name).runner()
+ ┌──────────────┐
+ │  runner.run  │ ─────────────►  RunResult (output, tool_calls, tokens)
+ └──────┬───────┘
+        ▼  assemble
+   TraceRecord ──────►  persistence_factory.create_trace_repository().save_trace()
+        │
+        ▼  evaluation_factory.create_verdict_judge().judge(trace)
+   VerdictRecord ────►  save_verdict()          [degrades on NotImplementedError]
+        │
+        ▼  reporting_factory.create_event_bus().publish(...)
+   RunOutcome(trace, verdict)</span>
+      <figcaption><span class="fno">Figure 4.1</span>One pass of <code>DefaultAgentKernel.run_task</code>. Four of the ten families participate; the verdict and event steps degrade gracefully when a stub raises <code>NotImplementedError</code>.</figcaption>
+    </figure>
+
+    <div class="box">
+      <div class="boxhead">Note · Graceful degradation is a feature</div>
+      <p>The kernel wraps the verdict and event-publishing steps in <code>try / except NotImplementedError</code>. This is what lets a runtime composed of real persistence but stubbed reporting still produce a valid <code>RunOutcome</code>. The trace is always saved; the verdict is saved when an evaluation backend exists. The composition stays whole even while half its families are stubs.</p>
+    </div>
+
+    <h3><span class="secno">4.6</span>The families are additive, not a rewrite</h3>
+    <p>A crucial property for anyone maintaining existing code: the factory layer was added <em>on top of</em> the direct-construction code, not in place of it. Every entry point and every pre-existing test that wires objects by hand continues to work unchanged. The factories are a second, optional path to the same concrete classes — proven by a dedicated test that constructs objects both ways and asserts they are equivalent.</p>
+
+    <h3><span class="secno">4.7</span>Worked example: adding a MySQL persistence family</h3>
+    <p>Suppose the evidence store must move from SQLite to MySQL. The Abstract Factory pattern makes the blast radius precise:</p>
+    <ol>
+      <li>Write <code>MySqlTraceRepository</code> and siblings as adapters behind the existing persistence ports.</li>
+      <li>Write <code>MySqlPersistenceFactory(IPersistenceFactory)</code> returning them.</li>
+      <li>In the composition root, branch on <code>profile.persistence == "mysql"</code> to choose the factory.</li>
+    </ol>
+    <p>The kernel, the runtime family, every evaluator, and every test that depends on the persistence <em>port</em> are untouched. That containment is the entire return on the indirection the pattern costs.</p>
+
+    <div class="exercises">
+      <h4>Exercises</h4>
+      <ol>
+        <li><span class="exq">(trace)</span> Follow a single <code>RunRequest</code> through <code>run_task</code> and list, in order, every factory whose <code>create_*</code> method is called. (Answer: see Figure&nbsp;4.1.)</li>
+        <li><span class="exq">(design)</span> Why must persistence be constructed before improvement in the composition root? Name the two objects that flow from one to the other.</li>
+        <li><span class="exq">(implementation)</span> Sketch the three steps to add a <code>GeminiLlmFactory</code> that replaces the stub. Which existing files change, and which do not?</li>
+        <li><span class="exq">(judgment)</span> The workflow factory's runner is a stub, yet it is "real" enough to use. Reconcile this with Definition&nbsp;4.2.</li>
+        <li><span class="exq">(verification)</span> Explain how the test suite proves the factories are additive rather than a replacement.</li>
+      </ol>
+    </div>
+    <div class="folio">· 25 ·</div>
+  </section>
+
+  <!-- ---------------- CHAPTER 5 ---------------- -->
+  <section class="leaf" id="ch5">
+    <div class="runninghead"><span>Part II · The Architecture</span><span>Ch. 5 · The Loop</span></div>
+    <p class="chapnum">Chapter Five</p>
+    <h1 class="chap">The Self-Improvement Loop</h1>
+    <div class="chap-rule"></div>
+
+    <p class="lead opening">With a runtime composed and a kernel able to run one task, we can close the loop that gives the project its name. The loop runs the agent, judges whether it truly succeeded, proposes a wrapper edit, A/B tests that edit behind gates, and activates the winner with a snapshot it can roll back to. It imports no finance code and names no agent; it reaches the agent only through ports.</p>
+
+    <h3><span class="secno">5.1</span>The six stations</h3>
+    <figure class="fig">
+      <span class="ascii">  ┌──────────┐   ┌──────────┐   ┌────────────┐   ┌────────────┐   ┌────────┐   ┌────────────┐
+  │   RUN    │──►│  JUDGE   │──►│  PROPOSE   │──►│ EXPERIMENT │──►│  GATE  │──►│  ACTIVATE  │
+  │  (trace) │   │ (verdict)│   │  (edit)    │   │ (A vs. B)  │   │ (4×)   │   │ / ROLLBACK │
+  └──────────┘   └──────────┘   └────────────┘   └────────────┘   └────────┘   └────────────┘
+       │              │                                                              │
+       └──────────────┴───────────────  evidence store (SQLite)  ───────────────────┘</span>
+      <figcaption><span class="fno">Figure 5.1</span>The six stations of the loop, all writing to one evidence store.</figcaption>
+    </figure>
+
+    <h4>1 · Run &amp; trace</h4>
+    <p>The kernel runs a task and persists a <code>TraceRecord</code>: inputs, outputs, tool calls, token usage, and the four wrapper revisions in force. This is the raw evidence everything downstream reasons over.</p>
+
+    <h4>2 · Judge</h4>
+    <p>Judging answers <em>"did the agent actually succeed?"</em> — not merely <em>"did it return text?"</em> It is <strong>deterministic-rules-first</strong>: the finance verifiers produce structured evidence, a rule-based evaluator scores it into a <code>ScoreCard</code>, and the verdict judge assigns <span class="smallcaps">pass</span> / <span class="smallcaps">fail</span> / <span class="smallcaps">needs-review</span>. An LLM judge strategy is consulted <strong>only</strong> for genuinely ambiguous cases (an unrecognized vendor, a fuzzy duplicate). A non-passing verdict is then labeled with a finance <code>FailureType</code>.</p>
+
+    <div class="box thm">
+      <div class="boxhead">Principle 5.1 · Determinism before judgment</div>
+      <p>Cheap, deterministic rules decide every case they can. The expensive, non-deterministic LLM judge is a fallback for the residue of ambiguity — never the first resort. This keeps verdicts reproducible and keeps cost down.</p>
+    </div>
+
+    <h4>3 · Propose</h4>
+    <p>From failure patterns, a proposal generator suggests a concrete wrapper edit. Edits are modeled as <em>commands</em>: <code>PromptPatchCommand</code>, <code>ToolDescriptionPatchCommand</code>, <code>MemoryNoteCommand</code>, <code>ContextRulePatchCommand</code>. A command is a reified, inspectable, reversible change — exactly the granularity the gates and rollback need.</p>
+
+    <h4>4 · Experiment</h4>
+    <p>A proposed edit is not trusted on its say-so. A baseline-versus-candidate experiment runs both wrappers and a regression detector compares their scorecards, so an "improvement" that quietly regresses some other case is caught before it ships.</p>
+
+    <h4>5 · Gate</h4>
+    <p>The candidate must clear a <code>GateChain</code> of four independent gates before it is eligible for activation:</p>
+    <table>
+      <caption><span class="tno">Table 5.1</span>The four promotion gates.</caption>
+      <thead><tr><th>Gate</th><th>Question it asks</th></tr></thead>
+      <tbody>
+        <tr><td><code>SafetyGate</code></td><td>Does the change violate a safety invariant?</td></tr>
+        <tr><td><code>CostGate</code></td><td>Does it blow the token / latency budget?</td></tr>
+        <tr><td><code>RegressionGate</code></td><td>Did any previously-passing case regress?</td></tr>
+        <tr><td><code>UsefulnessGate</code></td><td>Is the improvement actually material?</td></tr>
+      </tbody>
+    </table>
+
+    <h4>6 · Activate &amp; roll back</h4>
+    <p>A gated winner is activated through a human approval gateway, with a snapshot taken first. If the change misbehaves in practice, the rollback service restores the known-good wrapper revision by id. Approval and activation records land in the same evidence store as everything else, so the whole history is auditable.</p>
+
+    <h3><span class="secno">5.2</span>Where the loop meets Mazda</h3>
+    <p>The loop is finance-blind infrastructure; only the <em>thing being wrapped</em> is Mazda-specific. The mapping is direct:</p>
+    <table>
+      <caption><span class="tno">Table 5.2</span>How the generic loop applies to the Mazda fleet.</caption>
+      <thead><tr><th>Loop concept</th><th>Mazda usage</th></tr></thead>
+      <tbody>
+        <tr><td><code>IAgentRunner</code> / <code>run_task</code></td><td>Run Mazda's orchestration step; collect each minion's SDK-session result.</td></tr>
+        <tr><td>Trace / evidence store</td><td>Record Mazda→minion delegations and each SDK session (inputs, outputs, tool calls, tokens).</td></tr>
+        <tr><td><code>IEvaluator</code> family</td><td>Orchestration verdict; the finance verifiers become one pluggable evaluator.</td></tr>
+        <tr><td><code>WrapperRevision</code></td><td>Versioned delegation logic + per-minion SDK task templates (prompts, allowed tools, params).</td></tr>
+        <tr><td>Proposal / Experiment / Gate / Rollback</td><td>Propose, A/B, gate, and human-approve a change to delegation strategy or a minion template — rollback-safe.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="exercises">
+      <h4>Exercises</h4>
+      <ol>
+        <li><span class="exq">(principle)</span> State Principle&nbsp;5.1 in your own words and give one reason cost, and one reason reproducibility, both favor it.</li>
+        <li><span class="exq">(design)</span> Why are wrapper edits modeled as command objects rather than as direct mutations? Connect your answer to the gate and rollback stations.</li>
+        <li><span class="exq">(reasoning)</span> A candidate improves the failing case but trips the <code>RegressionGate</code>. What happened, and what does the loop do next?</li>
+        <li><span class="exq">(mapping)</span> Give the Mazda-specific meaning of <code>WrapperRevision</code> in this project.</li>
+      </ol>
+    </div>
+    <div class="folio">· 43 ·</div>
+  </section>
+
+  <!-- ============================ PART III ============================ -->
+  <section class="leaf" style="text-align:center; padding:140px 78px;">
+    <h2 class="part"><span class="pno">Part Three</span>Practice</h2>
+    <div class="rule-orn" style="margin:28px auto;"></div>
+    <p style="font-style:italic; color:var(--ink-soft); max-width:560px; margin:0 auto;">
+      From architecture to the keyboard — how to build, test, and run the framework, and how to
+      verify the live fleet without re-diagnosing solved problems.
+    </p>
+  </section>
+
+  <!-- ---------------- CHAPTER 6 ---------------- -->
+  <section class="leaf" id="ch6">
+    <div class="runninghead"><span>Part III · Practice</span><span>Ch. 6 · Build &amp; Test</span></div>
+    <p class="chapnum">Chapter Six</p>
+    <h1 class="chap">Building, Testing, and Running</h1>
+    <div class="chap-rule"></div>
+
+    <p class="lead opening">This chapter is the lab manual. It assumes you are working in <code>tools/self_improving_agent/</code> and that the virtual environment lives at the repository root in <code>../../.venv</code>, not inside this subdirectory — a detail that trips newcomers and is worth memorizing.</p>
+
+    <h3><span class="secno">6.1</span>Running the tests</h3>
+    <p>Use <code>.venv/bin/python</code> explicitly; the system <code>python</code> may be absent and <code>python3</code> may lack pytest. The <code>conftest.py</code> + <code>pytest.ini</code> pair makes the package importable regardless of which directory you invoke from.</p>
+<pre><code># everything (live integration tests self-skip if env unset)
+../../.venv/bin/python -m pytest
+
+# one file — e.g. the factory-family suite
+../../.venv/bin/python -m pytest agent_self_improvement/tests/test_phase_02b_factory_families.py
+
+# one test by name substring
+../../.venv/bin/python -m pytest -k "vendor_key"
+
+# unit only / certification-blocking integration only
+../../.venv/bin/python -m pytest -m "not integration"
+../../.venv/bin/python -m pytest -m p0</code></pre>
+
+    <div class="box">
+      <div class="boxhead">Note · Two kinds of test</div>
+      <p><strong>Unit tests</strong> (<code>tests/test_phase_NN_*.py</code>) use duck-typed fakes — no MySQL, no Letta, no network — and should always pass. <strong>Integration tests</strong> (<code>tests/integration/p0|p1|p2</code>) are marked and <em>skip themselves</em> unless the right environment variables are set. The severity tiers are <code>p0</code> (blocks certification), <code>p1</code> (blocks multi-agent expansion), and <code>p2</code> (hardening).</p>
+    </div>
+
+    <h3><span class="secno">6.2</span>The test phases as a learning map</h3>
+    <p>The phase-numbered test files double as a curriculum: each maps to a milestone of the architecture. The factory work of Chapter&nbsp;4 lives in its own phase file.</p>
+    <table>
+      <caption><span class="tno">Table 6.1</span>Selected test phases and the chapter each illustrates.</caption>
+      <thead><tr><th>Test file</th><th>Covers</th><th>Chapter</th></tr></thead>
+      <tbody>
+        <tr><td><code>test_phase_00_value_objects.py</code></td><td>Pydantic value objects, typed ids</td><td>3</td></tr>
+        <tr><td><code>test_phase_01_database_contracts.py</code></td><td>SQLite evidence store</td><td>3, 5</td></tr>
+        <tr><td><code>test_phase_02_wrapper_bundle.py</code></td><td>Wrapper revisions + snapshot/rollback</td><td>5</td></tr>
+        <tr><td><strong><code>test_phase_02b_factory_families.py</code></strong></td><td><strong>The nine factories, runtime family, composition root, kernel (18 tests)</strong></td><td><strong>4</strong></td></tr>
+        <tr><td><code>test_phase_03_agent_runner.py</code></td><td>Agent runner port + fakes</td><td>4</td></tr>
+        <tr><td><code>test_phase_04_verdicts.py</code></td><td>Verifiers → scorecard → verdict → failure type</td><td>5</td></tr>
+        <tr><td><code>test_phase_05–07</code></td><td>Proposals, experiments, activation + reports</td><td>5</td></tr>
+        <tr><td><code>test_phase_08–09</code></td><td>Approval audit, concurrency guard</td><td>5</td></tr>
+      </tbody>
+    </table>
+    <p>Across the suite there are over two hundred test functions; the factory-family file alone contributes eighteen, proving that every factory creates its ports, the runtime family bundles them, the composition root builds a kernel, the kernel runs a task with a persisted trace, and direct instantiation still works.</p>
+
+    <h3><span class="secno">6.3</span>Entry points</h3>
+    <h4>Receipt verification demo — <code>mazda_verify_receipt.py</code></h4>
+    <p>Runs Mazda's deterministic verifiers over one parsed receipt JSON, optionally asks the live Letta agent for a narrative, persists a trace + verdict to SQLite, and writes an HTML report to <code>receipt_runs/</code>.</p>
+<pre><code>python3 mazda_verify_receipt.py -f walgreens_2025-01-22.json          # full run
+python3 mazda_verify_receipt.py -f receipt.json --no-letta            # skip live Letta turn
+python3 mazda_verify_receipt.py -f receipt.json --db /tmp/run.sqlite3 --output out.html</code></pre>
+
+    <h4>Team orchestrator — <code>mazda_run_team.py</code></h4>
+<pre><code>../../.venv/bin/python mazda_run_team.py --check-ready                  # verify specialist IDs
+../../.venv/bin/python mazda_run_team.py --dry-run  --source-uri /tmp/test.pdf  # offline workflow
+../../.venv/bin/python mazda_run_team.py --live     --source-uri /tmp/test.pdf  # live specialists</code></pre>
+
+    <h4>Finance MCP server</h4>
+    <p><code>implementations/finance_mcp/server.py</code> exposes the four verifier tools over stdio; it is deployed as a systemd service via <code>deployment/mazda-tools-mcp.service</code> behind <code>mcp-proxy</code> on port&nbsp;8791.</p>
+
+    <div class="exercises">
+      <h4>Exercises</h4>
+      <ol>
+        <li><span class="exq">(setup)</span> From <code>tools/self_improving_agent/</code>, write the exact command to run only the factory-family suite. Why must you spell out the venv path?</li>
+        <li><span class="exq">(operational)</span> You set no integration environment variables and run the full suite. What happens to the <code>p0</code> tests, and why is that correct behavior rather than a failure?</li>
+        <li><span class="exq">(exploration)</span> Run the receipt demo with <code>--no-letta</code>. Which stations of the Chapter&nbsp;5 loop still execute, and which are skipped?</li>
+      </ol>
+    </div>
+    <div class="folio">· 55 ·</div>
+  </section>
+
+  <!-- ---------------- CHAPTER 7 ---------------- -->
+  <section class="leaf" id="ch7">
+    <div class="runninghead"><span>Part III · Practice</span><span>Ch. 7 · Operating the Fleet</span></div>
+    <p class="chapnum">Chapter Seven</p>
+    <h1 class="chap">Operating the Live Fleet</h1>
+    <div class="chap-rule"></div>
+
+    <p class="lead opening">The live fleet has a small number of recurring operational questions and exactly one correct way to answer the most important of them. This chapter records those answers so that a new instance never re-diagnoses a problem the project has already solved.</p>
+
+    <h3><span class="secno">7.1</span>Reaching the live Letta server</h3>
+    <ul>
+      <li><strong>HTTP API</strong> (reads, blocks, recompile) — <code>http://100.80.49.10:8283</code>. Prefer this; it works from anywhere.</li>
+      <li><strong>Direct DB</strong> — the live Postgres holds ~2195 agents. <em>Trap:</em> the <code>docker</code>-visible <code>letta-postgres</code> container is a stale 4-agent stack; never query it for live data.</li>
+      <li><strong>Executor</strong> — <code>http://100.80.49.10:8799/claude_sdk</code> (fallback <code>172.17.0.1:8799</code>).</li>
+    </ul>
+
+    <h3><span class="secno">7.2</span>The one correct way to verify memory</h3>
+    <p>The single authoritative test of whether an agent renders its memory is the <code>&lt;projection&gt;</code> count from a recompile. Everything else is a red herring.</p>
+<pre><code>curl -s -X POST http://100.80.49.10:8283/v1/agents/&lt;AGENT_ID&gt;/recompile \
+  | grep -oE '&lt;projection&gt;[^&lt;]*&lt;/projection&gt;'
+# Each line = one system/ block rendered into context.
+# Mazda = 6 · each minion = 2 · zero = amnesiac.</code></pre>
+
+    <div class="box caution">
+      <div class="boxhead">Caution · Do not re-diagnose memory from the wrong signal</div>
+      <p>The <code>agents.system</code> DB column is the base prompt template — block content is injected at <em>compile time</em> and is never stored there, so it will always look "empty" of memory. An empty memfs repo (zero commits) is likewise fine: on this deployment the <code>system/</code>-labeled <em>block</em> drives rendering. And <code>/v1/agents/&lt;id&gt;/context</code>'s <code>system_prompt</code> field is stale for dormant agents. Trust only the recompile projection count.</p>
+    </div>
+
+    <div class="box">
+      <div class="boxhead">Note · A timing quirk</div>
+      <p>A recompile reads freshly-attached blocks on the <em>next</em> call, not the same instant they attach. If the first projection grep returns empty right after attaching a block, re-run it once.</p>
+    </div>
+
+    <h3><span class="secno">7.3</span>Two operational traps worth memorizing</h3>
+    <h4>Single-file bind mounts</h4>
+    <p>Editing <code>executor_server.py</code> in place changes its inode, which breaks docker-desktop's single-file bind mount and makes <code>docker restart</code> fail with "no such file or directory." Recovery is to recreate via the idempotent <code>deploy_frita_executor.sh</code>. Directory mounts do not have this problem.</p>
+    <h4>Root + <code>IS_SANDBOX</code></h4>
+    <p>The executor runs as root, so <code>claude --dangerously-skip-permissions</code> is refused unless <code>IS_SANDBOX=1</code> is set. It is now exported both in the SDK subprocess environment and as a container variable, so <code>.skipPermissions()</code> works under root.</p>
+
+    <h3><span class="secno">7.4</span>Required reading, in order</h3>
+    <ol>
+      <li><strong>This manual</strong> — Parts I–III for current state and architecture.</li>
+      <li><strong><code>memory_system_plan.html</code></strong> — the memory policy: author memory as <code>system/**</code> memfs files; blocks are a read-only projection; never raw <code>POST/PATCH /v1/blocks</code>.</li>
+      <li><strong><code>agent_self_improvement_plan.html</code></strong> — the design source for the control-plane loop and the nine factory families. (Its older "Mazda gets seven finance tools" framing is superseded; see §1.3.)</li>
+    </ol>
+
+    <div class="exercises">
+      <h4>Exercises</h4>
+      <ol>
+        <li><span class="exq">(operational)</span> An agent appears "amnesiac." List the three wrong signals you must <em>not</em> use to confirm it, and the one right one you must.</li>
+        <li><span class="exq">(recovery)</span> <code>docker restart frita-executor</code> fails with "no such file or directory." What did someone just do, and what is the recovery command?</li>
+        <li><span class="exq">(reasoning)</span> Why does the executor need <code>IS_SANDBOX=1</code>? What would silently fail without it?</li>
+      </ol>
+    </div>
+    <div class="folio">· 63 ·</div>
+  </section>
+
+  <!-- ---------------- APPENDIX A ---------------- -->
+  <section class="leaf" id="apxA">
+    <div class="runninghead"><span>Back Matter</span><span>Appendix A</span></div>
+    <p class="chapnum">Appendix A</p>
+    <h1 class="chap">Interface &amp; Factory Catalog</h1>
+    <div class="chap-rule"></div>
+
+    <p class="opening">A method-by-method reference for the ten factories of Chapter&nbsp;4. Every method returns a port (an ABC), never a concrete class.</p>
+
+    <table>
+      <caption><span class="tno">Table A.1</span><code>contracts/factories.py</code> — the create methods.</caption>
+      <thead><tr><th>Factory</th><th><code>create_*</code> methods</th></tr></thead>
+      <tbody>
+        <tr><td><code>IPersistenceFactory</code></td><td><code>schema_manager · unit_of_work · trace_repository · wrapper_revision_repository · prompt_artifact_repository · tool_artifact_repository · evaluation_repository · improvement_repository</code></td></tr>
+        <tr><td><code>ILlmFactory</code></td><td><code>client · request_builder · response_parser · token_counter · budget_guard</code></td></tr>
+        <tr><td><code>IPromptFactory</code></td><td><code>system_message_provider · system_message_builder · template_provider · composer · validator · diff</code></td></tr>
+        <tr><td><code>IToolFactory</code></td><td><code>registry · adapter · permission_policy · execution_logger</code></td></tr>
+        <tr><td><code>IContextFactory</code></td><td><code>selector · budgeter · pack_builder · memory_reader · memory_writer · note_reader · note_writer · staleness_detector</code></td></tr>
+        <tr><td><code>IWorkflowFactory</code></td><td><code>runner</code></td></tr>
+        <tr><td><code>IEvaluationFactory</code></td><td><code>evaluator · verdict_judge · failure_classifier · regression_detector · gate_chain · totals_verifier · vendor_key_verifier · category_verifier · duplicate_verifier</code></td></tr>
+        <tr><td><code>IImprovementFactory</code></td><td><code>proposal_generator · experiment_runner · approval_gateway · snapshot_store · activation_service · rollback_service</code></td></tr>
+        <tr><td><code>IReportingFactory</code></td><td><code>event_bus · trace_report_builder · dashboard_builder · regression_report_builder</code></td></tr>
+        <tr><td><code>IAgentPackageFactory</code></td><td><code>create_agent_package(name) · supported_agents()</code></td></tr>
+      </tbody>
+    </table>
+
+    <table>
+      <caption><span class="tno">Table A.2</span>The runtime-assembly contracts in <code>contracts/runtime.py</code>.</caption>
+      <thead><tr><th>Contract</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td><code>RuntimeProfile</code></td><td>Data-only record naming each family + <code>db_path</code> + <code>extra</code>.</td></tr>
+        <tr><td><code>IAgentRuntimeFamily</code></td><td>Bundles all ten factories as read-only properties.</td></tr>
+        <tr><td><code>ICompositionRoot</code></td><td><code>build_kernel(profile) → IAgentKernel</code>; only place that names concrete classes.</td></tr>
+        <tr><td><code>IAgentKernel</code></td><td><code>run_task(request) → RunOutcome</code>.</td></tr>
+        <tr><td><code>RunOutcome</code></td><td><code>{ trace, verdict? }</code> — the product of one run.</td></tr>
+        <tr><td><code>IRuntimeFamilyValidator</code> / <code>IFactoryResolver</code> / <code>IRuntimeProfileRepository</code></td><td>Plugin-registry support for later phases.</td></tr>
+      </tbody>
+    </table>
+    <div class="folio">· 71 ·</div>
+  </section>
+
+  <!-- ---------------- APPENDIX B ---------------- -->
+  <section class="leaf" id="apxB">
+    <div class="runninghead"><span>Back Matter</span><span>Appendix B</span></div>
+    <p class="chapnum">Appendix B</p>
+    <h1 class="chap">Glossary</h1>
+    <div class="chap-rule"></div>
+
+    <dl style="margin:0;">
+      <p><strong>Abstract Factory.</strong> A pattern for creating families of related objects without binding to concrete classes; the basis of Chapter&nbsp;4.</p>
+      <p><strong>Adapter.</strong> A concrete class in <code>implementations/</code> satisfying a contract port.</p>
+      <p><strong>Composition root.</strong> The single place that knows every concrete class and wires them from a profile — <code>DefaultCompositionRoot</code>.</p>
+      <p><strong>Evidence store.</strong> The SQLite database of traces, verdicts, wrapper revisions, proposals, snapshots, and approvals — separate from the MySQL finance DB.</p>
+      <p><strong>Gap-filler.</strong> A stub standing in for a port the real family has not yet implemented (e.g. <code>InMemoryUnitOfWork</code>).</p>
+      <p><strong>Minion.</strong> One of Mazda's five specialist Letta agents, each driving a Claude SDK session.</p>
+      <p><strong>Port.</strong> An ABC in <code>contracts/</code> describing a capability.</p>
+      <p><strong>Runtime family.</strong> A bundle of ten compatible factories for one profile — <code>IAgentRuntimeFamily</code>.</p>
+      <p><strong>Stub.</strong> A minimal but honest port implementation; some do trivial real work, some raise <code>NotImplementedError</code>.</p>
+      <p><strong>Verdict.</strong> The <span class="smallcaps">pass</span>/<span class="smallcaps">fail</span>/<span class="smallcaps">needs-review</span> judgment of whether the agent actually succeeded.</p>
+      <p><strong>Wrapper.</strong> The versioned, roll-back-able envelope around a fixed LLM (Definition&nbsp;1.1).</p>
+    </dl>
+
+    <div class="rule-orn" style="margin:46px auto;"></div>
+    <p style="text-align:center; font-style:italic; color:var(--ink-soft);">Colophon</p>
+    <p style="text-align:center; font-size:14px; color:var(--ink-soft); max-width:560px; margin:0 auto;">
+      Set in the Iowan / Palatino old-style family. This edition supersedes the prior change-log
+      presentation of the Mazda development status and is maintained alongside the
+      <code>agent_self_improvement</code> source tree. Identifiers and topology current as of the
+      Nine-Factory-Families revision.
+    </p>
+    <div class="folio">· 76 ·</div>
+  </section>
+
+</div>
 </body>
 </html>

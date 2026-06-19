@@ -52,6 +52,138 @@ const navSSH = document.getElementById("nav-ssh-connections");
 const navPlans = document.getElementById("nav-plans");
 const navRolFinance = document.getElementById("nav-rol-finance");
 const navRolFinanceReports = document.getElementById("nav-rol-finance-reports");
+const startupOverlay = document.getElementById("startup-overlay");
+const startupStatusText = document.getElementById("startup-status-text");
+const startupProgressBar = document.getElementById("startup-progress-bar");
+const startupConsole = document.getElementById("startup-console");
+
+const startupGate = (() => {
+  const FINISH_DELAY_MS = 5000;
+  const FILL_PHASE_MS = 4000;
+  const tasks = [
+    {
+      key: "server-registry",
+      label: "Loading server registry",
+      detail: "Fetching server definitions for Server Management tabs",
+    },
+    {
+      key: "server-health",
+      label: "Checking server health",
+      detail: "Running initial Server Management health check",
+    },
+    {
+      key: "ssh-registry",
+      label: "Loading SSH connections",
+      detail: "Fetching SSH connection definitions",
+    },
+    {
+      key: "ssh-health",
+      label: "Checking SSH connectivity",
+      detail: "Running initial SSH connection health check",
+    },
+  ];
+  const completed = new Set();
+  let released = false;
+  let finishTimer = null;
+  let greenTimer = null;
+
+  function resetBar() {
+    if (!startupProgressBar) return;
+    startupProgressBar.style.transition = "none";
+    startupProgressBar.style.width = "0%";
+    startupProgressBar.offsetHeight;
+    startupProgressBar.style.transition = "";
+  }
+
+  function animateCompletionBar() {
+    if (!startupProgressBar) return;
+    startupProgressBar.style.transition = "none";
+    startupProgressBar.style.width = "0%";
+    startupProgressBar.offsetHeight;
+    startupProgressBar.style.transition = `width ${FILL_PHASE_MS}ms linear`;
+    startupProgressBar.style.width = "100%";
+  }
+
+  function renderProgress(currentLabel) {
+    const pct = Math.round((completed.size / tasks.length) * 100);
+    if (startupProgressBar) {
+      startupProgressBar.style.width = `${pct}%`;
+    }
+    if (startupStatusText) {
+      startupStatusText.textContent =
+        pct >= 100
+          ? "Startup checks complete. Dashboard ready."
+          : `${currentLabel} (${pct}% complete)`;
+    }
+  }
+
+  function log(text, className = "") {
+    if (!startupConsole) return;
+    const line = document.createElement("div");
+    if (className) line.className = className;
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+    startupConsole.appendChild(line);
+    startupConsole.scrollTop = startupConsole.scrollHeight;
+    return line;
+  }
+
+  return {
+    start() {
+      document.body.classList.add("startup-loading");
+      startupOverlay?.classList.remove("startup-complete");
+      if (finishTimer) window.clearTimeout(finishTimer);
+      if (greenTimer) window.clearTimeout(greenTimer);
+      finishTimer = null;
+      greenTimer = null;
+      resetBar();
+      renderProgress("Starting dashboard checks");
+      for (const task of tasks) {
+        log(`${task.label}...`);
+      }
+    },
+    complete(key, text) {
+      if (released || completed.has(key)) return;
+      const task = tasks.find((entry) => entry.key === key);
+      completed.add(key);
+      log(text || `${task?.label || key} complete.`);
+      renderProgress(task?.detail || "Advancing startup checks");
+      if (completed.size === tasks.length) {
+        this.finish();
+      }
+    },
+    fail(key, error) {
+      if (released || completed.has(key)) return;
+      completed.add(key);
+      const task = tasks.find((entry) => entry.key === key);
+      log(
+        `${task?.label || key} failed: ${error?.message || error || "Unknown error"}`,
+      );
+      renderProgress(task?.detail || "Advancing startup checks");
+      if (completed.size === tasks.length) {
+        this.finish();
+      }
+    },
+    async finish() {
+      if (released) return;
+      released = true;
+      renderProgress("Startup checks complete");
+      animateCompletionBar();
+      greenTimer = window.setTimeout(() => {
+        startupOverlay?.classList.add("startup-complete");
+        if (startupStatusText) {
+          startupStatusText.textContent = "Finished system check.";
+        }
+        const finalLine = log("finished system check.", "startup-final-line");
+        finalLine?.classList.add("startup-blink");
+      }, FILL_PHASE_MS);
+      await new Promise((resolve) => {
+        finishTimer = window.setTimeout(resolve, FINISH_DELAY_MS);
+      });
+      document.body.classList.remove("startup-loading");
+      startupOverlay?.classList.add("hidden");
+    },
+  };
+})();
 
 // Leave empty to auto-use the current host/origin.
 // Set this if you need to pin links to a specific public URL.
@@ -891,20 +1023,26 @@ const SM = {
     new MutationObserver(applyFilter).observe(innerEl, { childList: true });
 
     if (startBtn) {
+      const isDashboard = key === "dashboard";
       startBtn.addEventListener("click", async () => {
         startBtn.disabled = true;
         statusEl.className = "srv-status starting";
-        statusText.textContent = `STARTING... — launching ${name.toLowerCase()}`;
-        const res = await serverAction.start(key);
+        const verb = isDashboard ? "RESTARTING" : "STARTING";
+        statusText.textContent = `${verb}... — launching ${name.toLowerCase()}`;
+        const res = isDashboard
+          ? await serverAction.restart(key)
+          : await serverAction.start(key);
         if (res.ok) {
           view.writeHtml(
-            '<div class="msi-entry"><span class="hdr">start action</span> ' +
+            '<div class="msi-entry"><span class="hdr">' +
+              (isDashboard ? "restart" : "start") +
+              " action</span> " +
               esc(res.text || "OK") +
               "</div>",
           );
           view.scrollToBottom();
         } else {
-          statusText.textContent = `START FAILED — ${esc(res.text)}`;
+          statusText.textContent = `${isDashboard ? "RESTART" : "START"} FAILED — ${esc(res.text)}`;
           statusEl.className = "srv-status down";
           startBtn.disabled = false;
         }
@@ -921,9 +1059,13 @@ const SM = {
       statusEl.className = cls;
       statusText.textContent = st.label + st.text;
       if (startBtn) {
-        if (st.kind === "up" || st.kind === "starting")
-          startBtn.disabled = true;
-        else if (st.kind === "down") startBtn.disabled = false;
+        if (key === "dashboard") {
+          startBtn.disabled = st.kind === "starting";
+        } else {
+          if (st.kind === "up" || st.kind === "starting")
+            startBtn.disabled = true;
+          else if (st.kind === "down") startBtn.disabled = false;
+        }
       }
     };
     this.logController = new ServerLogController({
@@ -935,10 +1077,6 @@ const SM = {
     this.logController.start();
   },
 };
-
-// Initial health poll on page load
-SM.pollHealth();
-SM.healthPollTimer = setInterval(() => SM.pollHealth(), 10000);
 
 /* =====================  SSH Connections  ===================== */
 // SSH health uses the same ServerHealthMonitor (different endpoint); the
@@ -1086,9 +1224,114 @@ const SSHM = {
   },
 };
 
-// Initial health poll on page load
-SSHM.pollHealth();
-SSHM.healthPollTimer = setInterval(() => SSHM.pollHealth(), 15000);
+async function preloadStartupChecks() {
+  startupGate.start();
+
+  const runTask = async (key, work, formatSuccess, onError = null) => {
+    try {
+      const result = await work();
+      startupGate.complete(key, formatSuccess(result));
+      return result;
+    } catch (error) {
+      if (typeof onError === "function") onError(error);
+      startupGate.fail(key, error);
+      return null;
+    }
+  };
+
+  const serverRegistryPromise = runTask(
+    "server-registry",
+    async () => {
+      if (SM.servers) return SM.servers;
+      SM.servers = await http.getJSON("/api/servers");
+      return SM.servers;
+    },
+    (servers) =>
+      `Loaded ${servers?.length || 0} server definition${servers?.length === 1 ? "" : "s"}.`,
+  );
+
+  const sshRegistryPromise = runTask(
+    "ssh-registry",
+    async () => {
+      if (SSHM.connections) return SSHM.connections;
+      SSHM.connections = await http.getJSON("/api/ssh-connections");
+      return SSHM.connections;
+    },
+    (connections) =>
+      `Loaded ${connections?.length || 0} SSH connection${connections?.length === 1 ? "" : "s"}.`,
+  );
+
+  const serverHealthPromise = runTask(
+    "server-health",
+    async () => {
+      serverHealth.health = await serverHealth.fetchHealth();
+      serverHealth.notify();
+      return serverHealth.health;
+    },
+    (health) => {
+      const count = health?.servers?.length || 0;
+      const down =
+        health?.servers?.filter((server) => server.status !== "up").length || 0;
+      return `Server health check finished: ${count - down}/${count} up.`;
+    },
+    () => {
+      const tab = document.getElementById("btn-server-mgmt");
+      tab?.classList.remove("server-up", "server-starting");
+      tab?.classList.add("server-down");
+    },
+  );
+
+  const sshHealthPromise = runTask(
+    "ssh-health",
+    async () => {
+      connHealth.health = await connHealth.fetchHealth();
+      connHealth.notify();
+      return connHealth.health;
+    },
+    (health) => {
+      const count = health?.connections?.length || 0;
+      const down =
+        health?.connections?.filter((connection) => connection.status !== "up")
+          .length || 0;
+      return `SSH health check finished: ${count - down}/${count} reachable.`;
+    },
+    () => {
+      const tab = document.getElementById("btn-ssh-connections");
+      tab?.classList.remove("server-up", "server-starting");
+      tab?.classList.add("server-down");
+    },
+  );
+
+  await Promise.all([
+    serverRegistryPromise,
+    sshRegistryPromise,
+    serverHealthPromise,
+    sshHealthPromise,
+  ]);
+
+  if (SM.servers) {
+    navServers.querySelectorAll("[data-server-key]").forEach((tab) => {
+      tab.remove();
+    });
+    for (const server of SM.servers) {
+      navServers.appendChild(tabFactory.buildServerTab(server));
+    }
+    serverHealth.notify();
+  }
+
+  if (SSHM.connections) {
+    navSSH.querySelectorAll("[data-conn-key]").forEach((tab) => {
+      tab.remove();
+    });
+    for (const connection of SSHM.connections) {
+      navSSH.appendChild(tabFactory.buildConnectionTab(connection));
+    }
+    connHealth.notify();
+  }
+
+  SM.healthPollTimer = setInterval(() => SM.pollHealth(), 10000);
+  SSHM.healthPollTimer = setInterval(() => SSHM.pollHealth(), 15000);
+}
 
 document
   .getElementById("servers-refresh-btn")
@@ -1151,3 +1394,5 @@ new CodeChangeAlert({ http }).start();
     RF.openReports();
   }
 })();
+
+void preloadStartupChecks();
