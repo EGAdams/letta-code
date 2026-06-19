@@ -4,9 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard</title>
-  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=20260619d" />
 </head>
-<body>
+<body class="startup-loading">
+  <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
+    <div class="startup-panel">
+      <div class="startup-title">Dashboard Startup Checks</div>
+      <div class="startup-status" id="startup-status-text">Starting dashboard checks…</div>
+      <div class="startup-progress-shell" aria-hidden="true">
+        <div class="startup-progress-bar" id="startup-progress-bar"></div>
+      </div>
+      <div class="startup-console" id="startup-console"></div>
+    </div>
+  </div>
   <aside class="sidebar">
     <h1>Dashboard</h1>
 
@@ -329,6 +339,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=20260619h"></script>
 </body>
 </html>

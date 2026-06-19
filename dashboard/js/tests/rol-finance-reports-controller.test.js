@@ -2,14 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { RolFinanceReportsController } from "../implementation/rol-finance-reports-controller.js";
 import { FakeDocument } from "./_fake-dom.js";
 
-function setup(payload) {
+function setup(payloadOrFn) {
   const doc = new FakeDocument();
   const nav = doc.createElement("div");
   const viewsContainer = doc.createElement("div");
   const activated = [];
   const selected = [];
+  const requestedUrls = [];
   const http = {
-    getJSON: async () => {
+    getJSON: async (url) => {
+      requestedUrls.push(url);
+      const payload =
+        typeof payloadOrFn === "function" ? payloadOrFn(url) : payloadOrFn;
       if (payload instanceof Error) throw payload;
       return payload;
     },
@@ -22,7 +26,7 @@ function setup(payload) {
     activateView: (id) => activated.push(id),
     setActiveTab: (tab) => selected.push(tab),
   });
-  return { rf, nav, viewsContainer, activated, selected, doc };
+  return { rf, nav, viewsContainer, activated, selected, requestedUrls, doc };
 }
 
 describe("RolFinanceReportsController", () => {
@@ -53,15 +57,62 @@ describe("RolFinanceReportsController", () => {
     // First report selected + activated.
     expect(ctx.selected.length).toBe(1);
     expect(ctx.activated).toEqual(["rol-finance-report-jan"]);
+
+    // Default month (jan-2025) requested.
+    expect(ctx.requestedUrls).toEqual([
+      "/api/rol-finance-reports?month=jan-2025",
+    ]);
   });
 
-  test("openReports caches the list (no rebuild on second call)", async () => {
+  test("openReports caches the list (no rebuild / refetch on second call)", async () => {
     const ctx = setup([
       { key: "jan", label: "January", exists: true, url: "/r/jan.html" },
     ]);
     await ctx.rf.openReports();
     await ctx.rf.openReports();
     expect(ctx.nav.querySelectorAll("[data-report-key]").length).toBe(1);
+    expect(ctx.requestedUrls.length).toBe(1);
+  });
+
+  test("openMonth fetches and caches per month, independent existence per document", async () => {
+    const ctx = setup((url) =>
+      url.includes("feb-2025")
+        ? [
+            {
+              key: "platinum-year",
+              label: "Platinum Year",
+              exists: true,
+              url: "/r/feb-platinum.html",
+            },
+          ]
+        : [
+            {
+              key: "platinum-year",
+              label: "Platinum Year",
+              exists: true,
+              url: "/r/jan-platinum.html",
+            },
+          ],
+    );
+    await ctx.rf.openReports(); // opens jan-2025 by default
+    await ctx.rf.openMonth("feb-2025");
+
+    expect(ctx.requestedUrls).toEqual([
+      "/api/rol-finance-reports?month=jan-2025",
+      "/api/rol-finance-reports?month=feb-2025",
+    ]);
+    expect(
+      ctx.viewsContainer.querySelector("#rol-finance-report-platinum-year")
+        .innerHTML,
+    ).toContain("/r/feb-platinum.html");
+
+    // Re-selecting January doesn't refetch.
+    await ctx.rf.openMonth("jan-2025");
+    expect(ctx.requestedUrls.length).toBe(2);
+    expect(
+      ctx.viewsContainer.querySelector("#rol-finance-report-platinum-year")
+        .innerHTML,
+    ).toContain("/r/jan-platinum.html");
   });
 
   test("a fetch failure shows an error section", async () => {

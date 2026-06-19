@@ -2,19 +2,17 @@ import { TextUtils } from "../abstract/text-utils.js";
 
 /**
  * RolFinanceReportsController — builds the Project Plans → ROL Finance →
- * Reports tabs. The reports are now grouped by month/year: a row of "month
- * tabs" (January 2025, February 2025, …) is injected once, and selecting a
- * month (re)builds one report tab + one <section><iframe class="plan-frame">
- * per document below it.
+ * Reports tabs. The reports are grouped by month/year: a row of "month tabs"
+ * (January 2025, February 2025, …) is injected once, and selecting a month
+ * fetches that month's report list (cached per month) and (re)builds one
+ * report tab + one <section><iframe class="plan-frame"> per document below it.
  *
- * A month can be `available` or not. The same document list backs every month
- * (the parsing work is copied forward month by month):
- *   - available month   → each document behaves as before: existing reports get
- *     a normal tab + iframe view (collapsed to the Verified Transactions card),
- *     missing ones get a red tab + placeholder.
- *   - unavailable month → every document tab is forced red/white and its view
- *     says "No report.html file found." This lets us track February progress by
- *     clearing the red as each document is completed.
+ * Each document's existence is resolved by the backend against that month's
+ * own directory, so the same document key (e.g. "platinum-year") can already
+ * have a real report.html for one month while still being missing for
+ * another — there is no month-wide on/off switch, just per-document
+ * `exists`: existing reports get a normal tab + iframe view (collapsed to the
+ * Verified Transactions card), missing ones get a red tab + placeholder.
  *
  * On each iframe's load we reach into the (same-origin) report document to hide
  * every <section> except the "Verified Transactions" card — the report.html
@@ -39,8 +37,8 @@ export class RolFinanceReportsController {
     setActiveTab = () => {},
     endpoint = "/api/rol-finance-reports",
     months = [
-      { key: "jan-2025", label: "January 2025", available: true },
-      { key: "feb-2025", label: "February 2025", available: false },
+      { key: "jan-2025", label: "January 2025" },
+      { key: "feb-2025", label: "February 2025" },
     ],
   }) {
     if (!http || !nav || !viewsContainer) {
@@ -58,33 +56,18 @@ export class RolFinanceReportsController {
     this._months = months;
     this._monthsBuilt = false;
     this._activeMonthKey = null;
+    this._reportsByMonth = new Map();
     this.reports = null;
   }
 
-  /**
-   * Fetch the report list (once), inject the month tabs (once) and open the
-   * first month (rebuilding its document tabs/views each time).
-   */
+  /** Inject the month tabs (once) and open the first month. */
   async openReports() {
-    if (!this.reports) {
-      try {
-        this.reports = await this._http.getJSON(this._endpoint);
-      } catch (e) {
-        this._nav
-          .querySelectorAll(".tab[data-month-key], .tab[data-report-key]")
-          .forEach((t) => {
-            t.remove();
-          });
-        this._viewsContainer.innerHTML = `<section id="rol-finance-reports-error" class="view active"><p class="am-warn">Failed to load reports: ${TextUtils.esc(e.message)}</p></section>`;
-        return;
-      }
-    }
     if (!this._monthsBuilt) {
       this.buildMonthTabs();
       this._monthsBuilt = true;
     }
     const first = this._months[0];
-    if (first) this.openMonth(first.key);
+    if (first) await this.openMonth(first.key);
   }
 
   /** Inject one month tab per configured month (once). */
@@ -99,8 +82,11 @@ export class RolFinanceReportsController {
     }
   }
 
-  /** Select a month: highlight its tab and (re)build its document tabs/views. */
-  openMonth(monthKey) {
+  /**
+   * Select a month: highlight its tab, fetch its report list (cached per
+   * month key), and (re)build its document tabs/views.
+   */
+  async openMonth(monthKey) {
     const month = this._months.find((m) => m.key === monthKey);
     if (!month) return;
     this._activeMonthKey = monthKey;
@@ -111,28 +97,42 @@ export class RolFinanceReportsController {
       t.classList.toggle("active", t.dataset.monthKey === monthKey);
     });
 
+    let reports = this._reportsByMonth.get(monthKey);
+    if (!reports) {
+      try {
+        reports = await this._http.getJSON(
+          `${this._endpoint}?month=${encodeURIComponent(monthKey)}`,
+        );
+        this._reportsByMonth.set(monthKey, reports);
+      } catch (e) {
+        this._nav.querySelectorAll(".tab[data-report-key]").forEach((t) => {
+          t.remove();
+        });
+        this._viewsContainer.innerHTML = `<section id="rol-finance-reports-error" class="view active"><p class="am-warn">Failed to load reports: ${TextUtils.esc(e.message)}</p></section>`;
+        return;
+      }
+    }
+    this.reports = reports;
+
     // Drop the previous month's document tabs + views, then rebuild.
     this._nav.querySelectorAll(".tab[data-report-key]").forEach((t) => {
       t.remove();
     });
     this._viewsContainer.innerHTML = "";
-    this.buildTabsAndViews(this.reports || [], month);
+    this.buildTabsAndViews(reports);
 
-    const first = (this.reports || [])[0];
+    const first = reports[0];
     if (!first) return;
     this.selectReport(first.key);
   }
 
   /**
-   * Inject one tab + one view per report for the given month.
-   *   - unavailable month → every tab red + "No report.html file found." view.
-   *   - available month   → existing report → iframe view; missing → red tab +
-   *     "Missing report.html" placeholder.
+   * Inject one tab + one view per report: existing → iframe view; missing →
+   * red tab + "Missing report.html" placeholder.
    */
-  buildTabsAndViews(reports, month) {
-    const available = month.available;
+  buildTabsAndViews(reports) {
     for (const r of reports) {
-      const missing = !available || !r.exists;
+      const missing = !r.exists;
       const tab = this._doc.createElement("button");
       tab.type = "button";
       tab.className = `tab${missing ? " report-missing" : ""}`;
@@ -143,9 +143,7 @@ export class RolFinanceReportsController {
       const view = this._doc.createElement("section");
       view.id = `rol-finance-report-${r.key}`;
       view.className = "view";
-      if (!available) {
-        view.innerHTML = "<p>No report.html file found.</p>";
-      } else if (r.exists) {
+      if (r.exists) {
         view.innerHTML = `<iframe class="plan-frame" src="${TextUtils.esc(r.url)}"></iframe>`;
         const iframe = view.querySelector("iframe");
         if (iframe) {

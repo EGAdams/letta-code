@@ -52,4 +52,14 @@ export class ServerActionController {
       return { ok: false, text: e.message };
     }
   }
+
+  async restart(serverKey = "dashboard") {
+    const { body } = buildServerActionRequest(serverKey, "restart");
+    try {
+      const res = await this._http.postJSON(this._url, body);
+      return { ok: res.ok !== false, text: res.text || "" };
+    } catch (e) {
+      return { ok: false, text: e.message };
+    }
+  }
 }
