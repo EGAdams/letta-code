@@ -85,6 +85,12 @@ export class FakeElement {
     this.children.push(child);
     return child;
   }
+  remove() {
+    if (this.parent) {
+      this.parent.children = this.parent.children.filter((c) => c !== this);
+      this.parent = null;
+    }
+  }
   append(...kids) {
     for (const k of kids) this.appendChild(k);
   }
@@ -106,6 +112,23 @@ export class FakeElement {
   }
 
   matches(sel) {
+    // Support a comma list (`a, b`) and compound simple selectors
+    // (`.tab[data-report-key]`) by splitting into parts that must all match.
+    for (const group of sel.split(",")) {
+      if (this._matchesCompound(group.trim())) return true;
+    }
+    return false;
+  }
+
+  _matchesCompound(sel) {
+    if (!sel) return false;
+    // Split a compound selector into its `.class` / `#id` / `[attr]` / `tag`
+    // pieces; every piece must match the same element.
+    const parts = sel.match(/(\[[^\]]*\]|[.#]?[\w-]+)/g) || [];
+    return parts.every((p) => this._matchesSimple(p));
+  }
+
+  _matchesSimple(sel) {
     if (sel.startsWith(".")) return this.classList.contains(sel.slice(1));
     if (sel.startsWith("#")) return this.id === sel.slice(1);
     const attr = sel.match(/^\[([\w-]+)(?:="([^"]*)")?\]$/);
