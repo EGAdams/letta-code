@@ -11,9 +11,23 @@ description: Maintains and debugs executor_server.py (Letta executor), including
 - Need to debug `/home/adamsl/server_tools/executor_server.py`
 
 ## Key Files
-- Server: `/home/adamsl/server_tools/executor_server.py`
-- Log (set by EXECUTOR_DEBUG_LOG): `executor_server.log` (often in workspace dir)
-- Codex bridge: `node_executables/codex_coder_bridge.mjs` (relative to workspace root)
+- Startup script: `/home/adamsl/rol_finances/tools/receipt_scanning_tools/server_tools/start_executor_server.sh`
+- Server: `/home/adamsl/rol_finances/tools/receipt_scanning_tools/server_tools/executor_server.py`
+- MCP bridge: `/home/adamsl/rol_finances/tools/receipt_scanning_tools/server_tools/mcp_executor_bridge.py`
+- uvicorn log: `/tmp/executor_8787.log`
+- Codex bridge: `/home/adamsl/rol_finances/tools/receipt_scanning_tools/server_tools/node_executables/codex_coder_bridge.mjs`
+
+## Ports
+| Port | What |
+|------|------|
+| 8787 | uvicorn REST backend |
+| 8789 | mcp-proxy MCP front door (Letta connects here) |
+
+## Python venv
+`/home/adamsl/rol_finances/.venv` — requires `uvicorn`, `fastapi`, `mcp[cli]` (all installed as of 2026-06-09).
+
+## mcp-proxy binary
+`/home/adamsl/.nvm/versions/node/v24.13.0/lib/node_modules/task-master-ai/node_modules/.bin/mcp-proxy`
 
 ## Diagnostics Workflow
 1. **Check server log**
@@ -43,10 +57,29 @@ description: Maintains and debugs executor_server.py (Letta executor), including
 - Validate with: `node -c /home/adamsl/server_tools/node_executables/codex_coder_bridge.mjs`
 
 ## Safe Restart Steps
-1. Stop executor server process.
-2. Restart with correct env vars:
-   - `EXECUTOR_TOKEN`, `EXECUTOR_WORKSPACE_ROOT`, `EXECUTOR_ALLOW_CMDS`
-3. Re-test with a minimal codex request.
+1. Kill existing processes:
+   ```bash
+   pkill -f "uvicorn.*:8787" || true
+   pkill -f "mcp-proxy.*--port 8789" || true
+   pkill -f "mcp_executor_bridge.py" || true
+   ```
+2. Restart via the startup script (handles all env vars):
+   ```bash
+   bash /home/adamsl/rol_finances/tools/receipt_scanning_tools/server_tools/start_executor_server.sh &
+   ```
+3. Verify both ports are up:
+   ```bash
+   ss -tlnp | grep -E "8787|8789"
+   ```
+4. Smoke test:
+   ```bash
+   curl -s http://localhost:8787/run -X POST \
+     -H "Authorization: Bearer 6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8" \
+     -H "Content-Type: application/json" \
+     -d '{"command":"echo ok","cwd":"."}' \
+   | python3 -m json.tool
+   ```
+5. Re-test with a minimal executor_run from the agent.
 
 ## References
 Add detailed procedures in `references/` if needed.

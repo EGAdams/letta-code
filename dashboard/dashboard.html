@@ -266,7 +266,12 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </section>
 
     <section id="status-servers" class="view">
-      <p>Servers</p>
+      <h2>Servers</h2>
+      <div class="srv-summary-toolbar">
+        <button type="button" class="am-btn" id="servers-refresh-btn">Refresh</button>
+        <span id="servers-last-updated" class="srv-summary-stamp"></span>
+      </div>
+      <div id="servers-list"><p class="am-dim">Loading&hellip;</p></div>
     </section>
 
     <section id="status-pc-monitor" class="view">
@@ -324,6 +329,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=20260619"></script>
 </body>
 </html>

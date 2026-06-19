@@ -63,7 +63,15 @@ Open the newest candidate logs first, then inspect around the failure timestamp:
 tail -n 200 <log_path>
 ```
 
-**Executor service location:** `10.0.0.7:8789` (reachable from WSL as of 2026-05-12; returns 404 at `/` which is normal — actual endpoints are `/execute` etc.)
+**Executor service location:** `10.0.0.7:8789` (that's this WSL machine's LAN IP as seen by the Letta server at 100.80.49.10). Returns 404 at `/` which is normal.
+
+**Startup script:** `/home/adamsl/rol_finances/tools/receipt_scanning_tools/server_tools/start_executor_server.sh`
+Starts uvicorn on :8787 (REST backend) and mcp-proxy on :8789 (MCP front door).
+
+**To check if it's running:**
+```bash
+ss -tlnp | grep -E "8787|8789"
+```
 
 **Known allowlist block (2026-03-15):** `/home/adamsl/letta-code/scripts/run-local-in-dir.sh` was blocked.
 `run-local-in-dir.sh` runs the letta binary from a target directory. Add it to `EXECUTOR_ALLOW_CMDS`.
@@ -80,10 +88,12 @@ tail -n 200 <log_path>
 
 1. Retry once with a narrower command.
 2. Apply minimal fixes (allowlist or reload settings) only if needed.
-3. Restart the executor safely with your local service command:
+3. Restart the executor safely:
 
 ```bash
-<restart_command>
+pkill -f "uvicorn.*:8787" || true
+pkill -f "mcp-proxy.*--port 8789" || true
+bash /home/adamsl/rol_finances/tools/receipt_scanning_tools/server_tools/start_executor_server.sh &
 ```
 
 4. Wait for healthy startup logs before sending new `executor_run` calls.

@@ -15,6 +15,14 @@ describe("multi-agent tool fallback", () => {
         [
           "call-2",
           {
+            toolName: "run_claude_code_sdk",
+            toolArgs:
+              '{"task":"inspect receipts","working_dir":"/home/adamsl/rol_finances"}',
+          },
+        ],
+        [
+          "call-3",
+          {
             toolName: "web_search_exa",
             toolArgs: '{"query":"ignored"}',
           },
@@ -27,6 +35,12 @@ describe("multi-agent tool fallback", () => {
         toolCallId: "call-1",
         toolName: "send_message_to_agent_and_wait_for_reply",
         toolArgs: '{"message":"status?","other_agent_id":"agent-target"}',
+      },
+      {
+        toolCallId: "call-2",
+        toolName: "run_claude_code_sdk",
+        toolArgs:
+          '{"task":"inspect receipts","working_dir":"/home/adamsl/rol_finances"}',
       },
     ]);
   });

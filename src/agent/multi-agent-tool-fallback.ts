@@ -20,7 +20,10 @@ const MULTI_AGENT_TOOL_NAMES = new Set([
 
 // Tools the Letta server streams as tool_call_message + end_turn without executing.
 // The client executes these locally and sends results back as a user message.
-const CLIENT_SIDE_FALLBACK_TOOLS = new Set(["executor_run"]);
+const CLIENT_SIDE_FALLBACK_TOOLS = new Set([
+  "executor_run",
+  "run_claude_code_sdk",
+]);
 
 function extractText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -51,6 +54,10 @@ type AssistantReplyResult = {
   runId: string | null;
   stopReason: string | null;
   conversationId: string | null;
+  // True when the reply wasn't captured within AGENT_REPLY_TIMEOUT_MS. The
+  // message was still delivered (the stream had started) — only the reply is
+  // missing — so callers must NOT treat this as a hard failure to retry.
+  timedOut?: boolean;
 };
 
 export function collectPendingMultiAgentToolCalls(
@@ -147,36 +154,46 @@ async function sendMessageToAgentAndCollectReply(
   message: string,
 ): Promise<AssistantReplyResult> {
   const client = await getClient();
-  const conversation = await client.conversations.create({
-    agent_id: otherAgentId,
-  });
-  const stream = await client.conversations.messages.create(conversation.id, {
+  // Send to the target agent's primary message thread instead of a throwaway
+  // conversation. Creating a fresh `conversations.create` per call strips the
+  // target of its memory and working context; with a broken/slow tool it can
+  // then spiral retrying that tool and never emit a reply (stop_reason=
+  // max_steps). The empty reply gets reported back as an error, so the sending
+  // agent retries the whole delegation in a loop. The agent's main thread has
+  // the context it needs to answer directly, usually in a single turn.
+  // A stream-creation failure here propagates (genuine "couldn't reach the
+  // agent"). Once the stream exists, the message has been delivered, so a slow
+  // reply is reported as a timeout sentinel rather than thrown.
+  const stream = await client.agents.messages.stream(otherAgentId, {
     messages: [{ role: "user", content: message }],
-    streaming: true,
     stream_tokens: true,
-    include_pings: true,
-    background: true,
-    max_steps: 6,
-    include_compaction_messages: true,
+    // Targets that answer do so within a couple of steps; ones that spiral on a
+    // broken tool make hundreds. A modest ceiling lets the run end (empty,
+    // stop_reason=max_steps) before the wall-clock timeout, so we return a
+    // graceful "delivered, reply pending" instead of hanging the full 90s.
+    max_steps: 12,
   });
 
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<AssistantReplyResult>((resolve) => {
+    timer = setTimeout(
       () =>
-        reject(
-          new Error(
-            `Agent reply timed out after ${AGENT_REPLY_TIMEOUT_MS / 1000}s`,
-          ),
-        ),
+        resolve({
+          reply: "",
+          runId: null,
+          stopReason: "timeout",
+          conversationId: null,
+          timedOut: true,
+        }),
       AGENT_REPLY_TIMEOUT_MS,
-    ),
-  );
+    );
+  });
 
-  const result = await Promise.race([collectAssistantReply(stream), timeout]);
-  return {
-    ...result,
-    conversationId: result.conversationId ?? conversation.id,
-  };
+  try {
+    return await Promise.race([collectAssistantReply(stream), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function extractMessageText(content: unknown): string {
@@ -274,13 +291,19 @@ Do not ask the sender to provide another agent ID.
   let runId: string | null;
   let stopReason: string | null;
   let conversationId: string | null;
+  let timedOut: boolean;
 
   try {
-    ({ reply, runId, stopReason, conversationId } =
-      await sendMessageToAgentAndCollectReply(
-        otherAgentId,
-        firstAttemptMessage,
-      ));
+    ({
+      reply,
+      runId,
+      stopReason,
+      conversationId,
+      timedOut = false,
+    } = await sendMessageToAgentAndCollectReply(
+      otherAgentId,
+      firstAttemptMessage,
+    ));
   } catch (e) {
     return {
       type: "tool",
@@ -290,9 +313,14 @@ Do not ask the sender to provide another agent ID.
     };
   }
 
+  // Only retry to coax a usable answer out of a meta/echo reply we actually
+  // received. Don't retry on a timeout — the target is already slow/spiraling,
+  // so a second attempt just doubles the wait and never beats the clock.
   const needsRetry =
     call.toolName === "send_message_to_agent_and_wait_for_reply" &&
-    (!reply || isMetaOrEchoReply(reply, message));
+    !timedOut &&
+    Boolean(reply) &&
+    isMetaOrEchoReply(reply, message);
 
   if (needsRetry) {
     try {
@@ -328,11 +356,15 @@ Do not ask the sender to provide another agent ID.
   }
 
   if (!reply) {
+    // The send itself succeeded — only the reply is missing (e.g. the target
+    // hit its step limit before answering). Report this as success, not error,
+    // and tell the sender not to resend. A failure status here makes the
+    // sending agent retry the same delegation in a loop.
     return {
       type: "tool",
       tool_call_id: call.toolCallId,
-      status: "error",
-      tool_return: `Message was sent to ${targetAgent.name} (${otherAgentId}), but no assistant reply was returned. Target run: ${runId ?? "unknown"}, stop_reason: ${stopReason ?? "unknown"}.`,
+      status: "success",
+      tool_return: `Message was delivered to ${targetAgent.name} (${otherAgentId}), but it did not return a final reply (run: ${runId ?? "unknown"}, stop_reason: ${stopReason ?? "unknown"}). Do not resend the same message — it was received. Tell the user the request was delivered and a reply is still pending.`,
     };
   }
 
@@ -346,6 +378,7 @@ Do not ask the sender to provide another agent ID.
 
 async function executeClientSideTool(
   call: PendingServerToolCall,
+  senderAgentId: string,
 ): Promise<ApprovalResult> {
   const args = parseToolArgs(call.toolArgs) ?? {};
 
@@ -382,6 +415,43 @@ async function executeClientSideTool(
     }
   }
 
+  if (call.toolName === "run_claude_code_sdk") {
+    try {
+      const client = await getClient();
+      const result = await client.agents.tools.run(
+        call.toolName,
+        {
+          agent_id: senderAgentId,
+          args,
+        },
+        {
+          // The attached tool allows a 300-second SDK subprocess. Leave enough
+          // headroom for the tool endpoint to return the subprocess result.
+          timeout: 330_000,
+        },
+      );
+      const toolReturn =
+        typeof result.func_return === "string"
+          ? result.func_return
+          : JSON.stringify(result.func_return ?? null);
+      return {
+        type: "tool",
+        tool_call_id: call.toolCallId,
+        status: result.status,
+        tool_return: toolReturn,
+        stdout: Array.isArray(result.stdout) ? result.stdout : [],
+        stderr: Array.isArray(result.stderr) ? result.stderr : [],
+      };
+    } catch (e) {
+      return {
+        type: "tool",
+        tool_call_id: call.toolCallId,
+        status: "error",
+        tool_return: `run_claude_code_sdk failed: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  }
+
   return {
     type: "tool",
     tool_call_id: call.toolCallId,
@@ -397,7 +467,7 @@ export async function executePendingMultiAgentToolCalls(
   const results: ApprovalResult[] = [];
   for (const call of calls) {
     if (CLIENT_SIDE_FALLBACK_TOOLS.has(call.toolName)) {
-      results.push(await executeClientSideTool(call));
+      results.push(await executeClientSideTool(call, senderAgentId));
     } else {
       results.push(await executeMultiAgentToolCall(call, senderAgentId));
     }

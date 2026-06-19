@@ -20,6 +20,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 from voice.pipeline import build_pipeline, handle_voice_upload
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
 
@@ -402,53 +403,30 @@ def _norm_amount(signed_amount):
         return None
 
 
-def _resolve_receipt_url_path(receipt_url):
-    """Resolve one expense's non-empty receipt_url to a local receipt file."""
-    import glob as _glob
-    _by_da, by_stem = _receipt_index()
-    ru = (receipt_url or '').strip().lstrip('/')
-    if not ru:
-        return None
-    base = os.path.abspath(READABLE_DOCS_BASE)
-    direct = os.path.abspath(os.path.join(base, ru))
-    if os.path.commonpath([direct, base]) == base and os.path.isfile(direct):
-        return direct
-    stem = os.path.splitext(os.path.basename(ru))[0].lower()
-    if stem in by_stem:
-        return by_stem[stem][0]
-    g = _glob.glob(os.path.join(RECEIPTS_SUBTREE, '**', os.path.basename(ru)),
-                   recursive=True)
-    if g:
-        return g[0]
-    return None
-
-
 def _resolve_receipt_path(date_str, amount_str, receipt_url=None):
-    """Legacy receipt-file resolver used by non-record-specific maintenance code."""
-    by_da, _by_stem = _receipt_index()
+    """Find a receipt file for a row. Order: (date, amount) filename match -> receipt_url
+    exact path -> receipt_url stem (any extension) -> receipt_url basename anywhere.
+    Returns an absolute path under READABLE_DOCS_BASE, or None."""
+    import glob as _glob
+    by_da, by_stem = _receipt_index()
     if date_str and amount_str:
         hits = by_da.get((date_str, amount_str))
         if hits:
             return hits[0]
-    return _resolve_receipt_url_path(receipt_url)
-
-
-def _resolve_expense_receipt_path(date_str, amount_str, receipt_url):
-    """Resolve a receipt only for an expense that owns a non-empty receipt_url.
-
-    Stored receipt_url values are not always byte-for-byte file paths, so after
-    trying the URL directly we retain the established date/amount filename
-    fallback. The non-empty URL guard is what prevents a receipt from leaking
-    onto a different or receipt-less expense.
-    """
-    if not (receipt_url or '').strip():
-        return None
-    direct = _resolve_receipt_url_path(receipt_url)
-    if direct:
-        return direct
-    by_da, _by_stem = _receipt_index()
-    hits = by_da.get((date_str, amount_str)) if date_str and amount_str else None
-    return hits[0] if hits else None
+    ru = (receipt_url or '').strip().lstrip('/')
+    if ru:
+        base = os.path.abspath(READABLE_DOCS_BASE)
+        direct = os.path.abspath(os.path.join(base, ru))
+        if os.path.commonpath([direct, base]) == base and os.path.isfile(direct):
+            return direct
+        stem = os.path.splitext(os.path.basename(ru))[0].lower()
+        if stem in by_stem:
+            return by_stem[stem][0]
+        g = _glob.glob(os.path.join(RECEIPTS_SUBTREE, '**', os.path.basename(ru)),
+                       recursive=True)
+        if g:
+            return g[0]
+    return None
 
 
 def _receipt_url_for_path(fp):
@@ -457,8 +435,15 @@ def _receipt_url_for_path(fp):
         quote(part) for part in rel.split(os.sep))
 
 
-def _select_matching_expense(rows, vendor_key, description):
-    """Select one expense from same-date/same-amount candidates."""
+def _expense_receipt_url(cur, date_str, amount_str, vendor_key, description):
+    """DB receipt_url for the expense matching a row (same disambiguation as
+    recategorize_expense). Returns the receipt_url string, '' if blank, None if no row."""
+    cur.execute(
+        "SELECT id, id_light, description, receipt_url "
+        "FROM expenses WHERE expense_date=%s AND amount=%s",
+        (date_str, amount_str),
+    )
+    rows = cur.fetchall()
     if not rows:
         return None
     if len(rows) == 1:
@@ -478,124 +463,63 @@ def _select_matching_expense(rows, vendor_key, description):
                     break
         if chosen is None:
             chosen = rows[0]
-    return chosen
+    return (chosen.get('receipt_url') or '').strip()
 
 
-def _matching_expense(cur, date_str, amount_str, vendor_key, description):
-    """Return the expense matching a report row using the recategorization rules."""
-    cur.execute(
-        "SELECT id, id_light, description, receipt_url "
-        "FROM expenses WHERE expense_date=%s AND amount=%s",
-        (date_str, amount_str),
-    )
-    return _select_matching_expense(cur.fetchall(), vendor_key, description)
-
-
-def _source_document_path(report_path, receipt_path=None):
-    """Resolve the original statement document represented by a report URL."""
-    raw = unquote((report_path or '').split('?', 1)[0])
-    report_file = None
-    prefix = ROL_FINANCES_REPORTS_URL_PREFIX + '/'
-    if raw.startswith(prefix):
-        rel = raw[len(prefix):]
-        candidate = os.path.abspath(os.path.join(ROL_FINANCES_REPORTS_BASE, rel))
-        base = os.path.abspath(ROL_FINANCES_REPORTS_BASE)
-        if os.path.commonpath([candidate, base]) == base:
-            report_file = candidate
-    if report_file:
-        directory = os.path.dirname(report_file)
-        preferred = []
-        for name in os.listdir(directory):
-            fp = os.path.join(directory, name)
-            ext = os.path.splitext(name)[1].lower()
-            if os.path.isfile(fp) and ext in ('.pdf', '.xlsx', '.xls', '.csv'):
-                preferred.append(fp)
-        if preferred:
-            priority = {'.pdf': 0, '.xlsx': 1, '.xls': 2, '.csv': 3}
-            preferred.sort(key=lambda fp: (priority[os.path.splitext(fp)[1].lower()],
-                                           os.path.basename(fp).lower()))
-            return preferred[0]
-        if os.path.isfile(report_file):
-            return report_file
-    return receipt_path or ''
-
-
-def _document_machine_origin():
-    import socket
-    hostname = socket.gethostname().lower()
-    return "Mom's machine" if 'rosemary' in hostname else 'Win 11'
-
-
-def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_path=''):
-    """Return receipt and source-document metadata for one report row."""
+def lookup_receipt(date_str, signed_amount, vendor_key, description=''):
+    """Find + return a dashboard-servable URL for the receipt of one row."""
     amt = _norm_amount(signed_amount)
     if amt is None:
         return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
-    chosen = None
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                chosen = _matching_expense(
-                    cur, date_str, amt, vendor_key, description)
-    except Exception as e:
-        return {'ok': False, 'error': f'DB error: {e}'}
-
-    metadata = {
-        'expense_id': chosen['id'] if chosen else '',
-        'receipt_url': '',
-        'receipt_path': '',
-        'machine_origin': _document_machine_origin(),
-        'source_document_path': _source_document_path(report_path),
-    }
-    if chosen is None:
-        return dict(metadata, ok=False,
-                    error='No matching expense in DB for that date/amount (bank-only row).')
-    ru = (chosen.get('receipt_url') or '').strip()
-    if not ru:
-        return dict(metadata, ok=False, error='No receipt on file for this expense.')
-    fp = _resolve_expense_receipt_path(date_str, amt, ru)
+    fp = _resolve_receipt_path(date_str, amt, None)
     if not fp:
-        return dict(metadata, ok=False,
-                    error=f'Receipt recorded ({ru}) but the file was not found on disk.')
-    metadata.update(
-        ok=True,
-        receipt_url=_receipt_url_for_path(fp),
-        receipt_path=fp,
-        source_document_path=_source_document_path(report_path, fp),
-    )
-    return metadata
+        try:
+            with _rol_get_connection() as cnx:
+                with cnx.cursor() as cur:
+                    ru = _expense_receipt_url(cur, date_str, amt, vendor_key, description)
+        except Exception as e:
+            return {'ok': False, 'error': f'DB error: {e}'}
+        if ru is None:
+            return {'ok': False,
+                    'error': 'No matching expense in DB for that date/amount (bank-only row).'}
+        if not ru:
+            return {'ok': False, 'error': 'No receipt on file for this expense.'}
+        fp = _resolve_receipt_path(date_str, amt, ru)
+        if not fp:
+            return {'ok': False,
+                    'error': f'Receipt recorded ({ru}) but the file was not found on disk.'}
+    return {'ok': True, 'receipt_url': _receipt_url_for_path(fp)}
 
 
 def receipts_present(rows):
     """Given [{date, signed_amount, vendor_key, description}, ...] return
     {'ok': True, 'present': [bool, ...]} -- True where a receipt file resolves for the
     row. Drives the red 'has a receipt' corner marker. One FS index + one DB read total."""
-    expense_map = {}
+    by_da, _by_stem = _receipt_index()
+    url_map = {}
     try:
         with _rol_get_connection() as cnx:
             with cnx.cursor() as cur:
-                cur.execute(
-                    "SELECT id, expense_date, amount, id_light, description, receipt_url "
-                    "FROM expenses"
-                )
+                cur.execute("SELECT expense_date, amount, receipt_url FROM expenses "
+                            "WHERE receipt_url IS NOT NULL AND receipt_url<>''")
                 for r in cur.fetchall():
                     key = (str(r['expense_date']), str(r['amount']))
-                    expense_map.setdefault(key, []).append(r)
+                    if key not in url_map:
+                        url_map[key] = (r['receipt_url'] or '').strip()
     except Exception:
-        expense_map = {}
+        url_map = {}
     out = []
     for row in rows or []:
         amt = _norm_amount(row.get('signed_amount'))
         date_str = (row.get('date') or '').strip()
         present = False
         if amt is not None:
-            chosen = _select_matching_expense(
-                expense_map.get((date_str, amt), []),
-                row.get('vendor_key', ''),
-                row.get('description', ''),
-            )
-            ru = (chosen.get('receipt_url') or '').strip() if chosen else ''
-            present = bool(_resolve_expense_receipt_path(date_str, amt, ru))
+            if date_str and (date_str, amt) in by_da:
+                present = True
+            else:
+                ru = url_map.get((date_str, amt), '')
+                if ru and _resolve_receipt_path(date_str, amt, ru):
+                    present = True
         out.append(present)
     return {'ok': True, 'present': out}
 
@@ -604,19 +528,12 @@ def receipts_present(rows):
 # Receipts that are NOT associated with any bank-statement transaction. A receipt is
 # "on a statement" when its expense's (date, abs amount) matches a row in the
 # `transactions` table (the imported bank-statement lines). Receipt-only records are
-# expenses that have no such transactions match — typically cash/other purchases
-# evidenced only by a receipt. They are real `expenses` rows, so the SAME category
-# picker (/api/recategorize-expense) and View Receipt (/api/receipt-lookup) the
-# per-statement reports use work here unchanged. Per the spec these never go into an
-# individual document's report.html (they have no document association); they live
-# only on this synthetic page.
-#
-# Membership requires an ACTUAL receipt file to resolve (via _resolve_receipt_path —
-# the same test that drives the red "has-receipt" corner marker), NOT merely a
-# non-empty expenses.receipt_url: ~48 rows carry a receipt_url whose file is missing
-# on disk (the known data gap) and must be excluded so every row shown has a receipt
-# (and a marker). This also catches rows whose receipt_url is blank but whose receipt
-# file is still found by (date, amount).
+# expenses that carry a receipt_url but have no such transactions match — typically
+# cash/other purchases evidenced only by a receipt. They are real `expenses` rows, so
+# the SAME category picker (/api/recategorize-expense) and View Receipt
+# (/api/receipt-lookup) the per-statement reports use work here unchanged. Per the
+# spec these never go into an individual document's report.html (they have no document
+# association); they live only on this synthetic page.
 def _reporting_category_for_id(category_id, parent_of):
     """Walk a leaf category_id up its parent chain to a reporting-bucket name."""
     seen = set()
@@ -631,10 +548,8 @@ def _reporting_category_for_id(category_id, parent_of):
 
 
 def _fetch_receipt_only_rows():
-    """expenses with no matching bank-statement transaction (same date + abs amount)
-    AND a receipt file that actually resolves on disk, each tagged with its current
-    reporting category. The resolve check keeps the tab in lockstep with the red
-    has-receipt marker so every row shown genuinely has a receipt."""
+    """expenses with a receipt_url but no matching bank-statement transaction
+    (same date + abs(amount)), each tagged with its current reporting category."""
     with _rol_get_connection() as cnx:
         with cnx.cursor() as cur:
             cur.execute('SELECT id, parent_id FROM categories')
@@ -646,7 +561,8 @@ def _fetch_receipt_only_rows():
                 "SELECT e.expense_date, e.amount, e.id_light, e.description, "
                 "       e.category_id, e.receipt_url "
                 "FROM expenses e "
-                "WHERE NOT EXISTS (SELECT 1 FROM transactions t "
+                "WHERE e.receipt_url IS NOT NULL AND e.receipt_url<>'' "
+                "  AND NOT EXISTS (SELECT 1 FROM transactions t "
                 "                  WHERE t.transaction_date=e.expense_date "
                 "                    AND ABS(t.amount)=ABS(e.amount)) "
                 "ORDER BY e.expense_date, e.id"
@@ -654,19 +570,11 @@ def _fetch_receipt_only_rows():
             rows = cur.fetchall()
     out = []
     for r in rows:
-        date_str = str(r['expense_date'])
-        amt = _norm_amount(r['amount'])
-        if amt is None:
-            continue
-        # Only include rows whose receipt file actually exists (same resolution the
-        # has-receipt marker uses). Excludes the receipt_url-but-no-file data gap.
-        if not _resolve_expense_receipt_path(date_str, amt, r.get('receipt_url')):
-            continue
         cid = r.get('category_id')
         rep = _reporting_category_for_id(
             int(cid) if cid is not None else None, parent_of)
         out.append({
-            'date': date_str,
+            'date': str(r['expense_date']),
             'amount': str(r['amount']),
             'vendor_key': (r.get('id_light') or '').strip(),
             'description': (r.get('description') or '').strip(),
@@ -759,22 +667,11 @@ LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rs
 # Agents that are wired to the Letta API automatically.
 # Add any new Letta agent here: { 'name': '...', 'id': '<real-letta-agent-id>' }
 # Set 'id' to None to auto-discover by name from the Letta agent list.
-_MINION_TOOLS = ['run_claude_code_sdk']
+_MINION_TOOLS = ['executor_run']
 # relay_message_to_chatgpt is Mazda's custom delegation tool (sends to minion fleet).
 # send_message_to_agent_and_wait_for_reply is a Letta built-in that doesn't appear
 # in /v1/agents/{id}/tools, so we check the custom wrapper instead.
-_MAZDA_TOOLS = [
-    'send_message_to_agent_and_wait_for_reply',
-    'executor_run',
-]
-
-# Mazda + all 5 minions run on the same chatgpt-plus-pro OAuth account, so a
-# ChatGPT/Codex rate limit (HTTP 429 from chatgpt.com/backend-api/codex/responses)
-# hits all of them simultaneously — see mazda_chatgpt_429_rate_limit_2026_06_18
-# memory. Tagging them lets _poll_chatgpt_provider_once() turn every one of
-# their tabs red from a single canary probe instead of needing a manual Test
-# send against each agent first.
-CHATGPT_PLUS_PRO = 'chatgpt-plus-pro'
+_MAZDA_TOOLS  = ['send_message_to_agent_and_wait_for_reply']
 
 LETTA_AGENTS = [
     {'name': 'Scissari', 'id': 'agent-5955b0c2-7922-4ffe-9e43-b116053b80fa'},
@@ -782,12 +679,12 @@ LETTA_AGENTS = [
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
     {'name': 'Cesare',   'id': None},
     {'name': 'Jeri',     'id': None},
-    {'name': 'Mazda',    'id': 'agent-070c201a-8d6d-49ba-a5fd-1489884b3b45', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Router',           'id': 'agent-81874131-77b8-4645-8d5f-c0bf20c1ed89', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Parser',           'id': 'agent-c414cb08-8bb5-4002-8d67-2ad0fbce4f06', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Vendor Identity',  'id': 'agent-c1fa4bb4-93a8-4b54-bd54-18fdaa4c0cd6', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Receipt Linker',   'id': 'agent-bfffa859-98bf-4bec-af3e-231b552fec93', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Categorization',   'id': 'agent-c4c9864c-9046-41b8-b0e3-f97698307567', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Mazda',    'id': 'agent-070c201a-8d6d-49ba-a5fd-1489884b3b45', 'required_tools': _MAZDA_TOOLS},
+    {'name': 'Mazda Router',           'id': 'agent-81874131-77b8-4645-8d5f-c0bf20c1ed89', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Parser',           'id': 'agent-c414cb08-8bb5-4002-8d67-2ad0fbce4f06', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Vendor Identity',  'id': 'agent-c1fa4bb4-93a8-4b54-bd54-18fdaa4c0cd6', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Receipt Linker',   'id': 'agent-bfffa859-98bf-4bec-af3e-231b552fec93', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Categorization',   'id': 'agent-c4c9864c-9046-41b8-b0e3-f97698307567', 'required_tools': _MINION_TOOLS},
 ]
 
 # Cache of name→id resolved from the Letta API
@@ -2041,84 +1938,6 @@ def clear_agent_send_error(agent_id: str) -> None:
         _agent_health_cache['value'] = None
 
 
-# ── ChatGPT/Codex provider-wide rate-limit probe ────────────────────────────
-#
-# 2026-06-18: messaging Mazda Receipt Linker "timed out" — actually an instant
-# HTTP 429 llm_rate_limit from the shared chatgpt-plus-pro OAuth account, and
-# every other agent tagged with that provider was equally broken (verified by
-# probing Mazda Router too). _agent_send_errors only got populated when a
-# human used the dashboard's Test feature, so the tabs stayed green until
-# someone happened to try. This background loop probes one canary agent on
-# the provider and, like Server Management/SSH Connections, turns every
-# agent sharing that provider red as soon as the probe itself detects it.
-CHATGPT_PROVIDER_POLL_INTERVAL = 90  # seconds; each probe is a real (cheap) LLM call
-
-
-def _provider_agent_ids(provider_name):
-    """Real Letta IDs of every LETTA_AGENTS entry tagged with this llm_provider."""
-    ids = []
-    for cfg in LETTA_AGENTS:
-        if cfg.get('llm_provider') == provider_name:
-            real_id = get_letta_id(cfg)
-            if real_id:
-                ids.append(real_id)
-    return ids
-
-
-def _probe_chatgpt_provider(agent_id, timeout=20):
-    """Send one trivial message to agent_id and report whether the provider
-    rejected it (e.g. 429 rate limit) before reaching the model. Doesn't reset
-    the agent's message history first, unlike /api/test, so it never clobbers
-    a real in-progress conversation — it just appends a tiny ping/reply pair."""
-    payload = json.dumps({
-        'messages': [{'role': 'user', 'content': 'ping'}],
-        'stream': False,
-    }).encode()
-    req = urllib.request.Request(
-        f'{LETTA_BASE_URL}/v1/agents/{agent_id}/messages',
-        data=payload,
-        headers={'Content-Type': 'application/json'},
-        method='POST',
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout):
-            pass
-        return {'ok': True, 'text': ''}
-    except urllib.error.HTTPError as e:
-        try:
-            body = json.loads(e.read().decode())
-            err = body.get('error', {})
-            return {'ok': False, 'text': f"{err.get('type', 'llm_error')}: {err.get('message', str(e))}"}
-        except Exception:
-            return {'ok': False, 'text': f'HTTP {e.code}'}
-    except Exception as e:
-        return {'ok': False, 'text': str(e)}
-
-
-def _poll_chatgpt_provider_once(provider_name=CHATGPT_PLUS_PRO):
-    """One sweep: probe a canary agent on provider_name and propagate ok/error
-    to every agent tagged with it via the existing _agent_send_errors path."""
-    affected = _provider_agent_ids(provider_name)
-    if not affected:
-        return
-    probe = _probe_chatgpt_provider(affected[0])
-    for agent_id in affected:
-        if probe['ok']:
-            clear_agent_send_error(agent_id)
-        else:
-            record_agent_send_error(agent_id, f'{provider_name} rate-limited — {probe["text"]}')
-
-
-def _chatgpt_provider_poll_loop():
-    """Background daemon thread body: keep the chatgpt-plus-pro provider probe fresh."""
-    while True:
-        try:
-            _poll_chatgpt_provider_once()
-        except Exception:
-            pass
-        time.sleep(CHATGPT_PROVIDER_POLL_INTERVAL)
-
-
 def agent_health_check(cfg, timeout=15):
     """Check if an agent is structurally healthy: ID resolvable + required tools attached.
     Also checks _agent_send_errors for functional failures recorded by /api/test.
@@ -2236,6 +2055,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/code-status':
             return self.json_response(get_code_status())
+
         if path == '/api/agents':
             return self.json_response(build_agent_list(force_refresh=query.get('refresh', ['0'])[0] == '1'))
 
@@ -2281,14 +2101,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/servers':
             return self.json_response([
-                {
-                    'key': s['key'],
-                    'name': s['name'],
-                    'note': s.get('note', ''),
-                    'url': s.get('health_url'),
-                    'health_url': s.get('health_url'),
-                    'skills': s.get('skills', []),
-                }
+                {'key': s['key'], 'name': s['name'], 'note': s.get('note', '')}
                 for s in SERVERS
             ])
 
@@ -2607,7 +2420,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('signed_amount', ''),
                 data.get('vendor_key', ''),
                 data.get('description', ''),
-                data.get('report_path', ''),
             ))
 
         if path == '/api/receipts-present':
@@ -2699,9 +2511,6 @@ if __name__ == '__main__':
           f'(timeout={HEALTH_CHECK_TIMEOUT}s, fail-threshold={HEALTH_FAIL_THRESHOLD})')
     threading.Thread(target=_ssh_poll_loop, daemon=True).start()
     print(f'Polling {len(SSH_CONNECTIONS)} SSH connections every {SSH_HEALTH_POLL_INTERVAL}s')
-    threading.Thread(target=_chatgpt_provider_poll_loop, daemon=True).start()
-    print(f'Polling chatgpt-plus-pro provider health every {CHATGPT_PROVIDER_POLL_INTERVAL}s '
-          f'(Mazda + {len(_provider_agent_ids(CHATGPT_PLUS_PRO)) - 1} minions)')
     try:
         server.serve_forever()
     except KeyboardInterrupt:

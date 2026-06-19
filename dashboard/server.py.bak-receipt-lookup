@@ -17,9 +17,10 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, quote, unquote
+from urllib.parse import urlparse, parse_qs, quote
 
 from voice.pipeline import build_pipeline, handle_voice_upload
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
 
@@ -139,46 +140,6 @@ REPORTING_CATEGORY_CLASS = {
     'Personal': 'cat-personal',
     'Uncategorized': 'cat-uncategorized',
 }
-
-# Reporting-category name → (background, font) hex, mirrors create_spreadsheet.py's
-# REPORTING_CATEGORY_STYLES. Used to color the synthetic "Receipt Only" report rows
-# (the static per-statement report.html files carry these as baked-in cat-* CSS).
-REPORTING_CATEGORY_STYLE = {
-    'Church Facility': ('#B8CCE4', '#000000'),
-    'Church Utilities': ('#95B3D7', '#000000'),
-    'Ministry and Worship': ('#DCE6F1', '#000000'),
-    'Office & Administration': ('#4F81BD', '#FFFFFF'),
-    'Food & Hospitality': ('#F4F199', '#000000'),
-    'Gifts & Love Offerings': ('#A9D18E', '#000000'),
-    'Robert Benefits and Medical': ('#CCC0DA', '#000000'),
-    'Rosemary Benefits & Medical': ('#F4B6C2', '#000000'),
-    'Travel & Vehicle': ('#F4B683', '#000000'),
-    'Insurance, Taxes & Fees': ('#FCD5B4', '#000000'),
-    'Housing': ('#DDD9C4', '#000000'),
-    'Personal': ('#948A54', '#FFFFFF'),
-    'Uncategorized': ('#BFBFBF', '#000000'),
-}
-
-# category_id → reporting bucket, walked up the ancestor chain. Duplicated from
-# create_spreadsheet.py's REPORTING_CATEGORY_ANCESTOR_MAP (small + stable; importing
-# create_spreadsheet pulls xlsxwriter which the server's system python lacks).
-REPORTING_CATEGORY_ANCESTOR_MAP = {
-    100: 'Church Facility', 110: 'Church Facility', 120: 'Church Utilities',
-    130: 'Food & Hospitality', 140: 'Office & Administration',
-    150: 'Ministry and Worship', 160: 'Travel & Vehicle',
-    190: 'Gifts & Love Offerings', 230: 'Insurance, Taxes & Fees',
-    240: 'Robert Benefits and Medical', 242: 'Robert Benefits and Medical',
-    243: 'Rosemary Benefits & Medical', 300: 'Housing', 310: 'Housing',
-    320: 'Housing', 330: 'Housing', 340: 'Housing', 350: 'Housing',
-    358: 'Insurance, Taxes & Fees', 364: 'Uncategorized',
-    400: 'Insurance, Taxes & Fees', 1: 'Uncategorized', 2: 'Housing', 3: 'Personal',
-}
-
-# URL of the synthetic "Receipt Only" report page (served by do_GET, listed as a tab
-# by /api/rol-finance-reports). Not a file on disk — the page is built live from the DB.
-RECEIPT_ONLY_REPORT_PATH = '/api/rol-finance-receipt-only-report'
-VERIFICATION_LIB = os.path.expanduser(
-    '~/rol_finances/tools/python_tasks/verification_lib')
 
 
 def _report_file_for_url(report_path):
@@ -321,22 +282,16 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
 
     # Persist the color into the static report.html so it survives a refresh.
     file_updated = False
-    if report_path == RECEIPT_ONLY_REPORT_PATH:
-        # The Receipt Only tab is a dynamic page rebuilt from the DB on every load,
-        # so the new category color is already reflected on reload — there is no
-        # static row to rewrite. Report success so the dialog closes cleanly.
-        file_updated = True
-    else:
-        try:
-            new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
-            if new_cls:
-                # Match the file by the RAW displayed amount the client sent (e.g. "-$150.00",
-                # "+$10.00", "296.41") — NOT the normalized abs value used for the DB lookup,
-                # which would only match plain rows like "10.25".
-                file_updated = _update_report_row_color(
-                    report_path, vendor_key, date_str, signed_amount, new_cls)
-        except Exception:
-            file_updated = False
+    try:
+        new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
+        if new_cls:
+            # Match the file by the RAW displayed amount the client sent (e.g. "-$150.00",
+            # "+$10.00", "296.41") — NOT the normalized abs value used for the DB lookup,
+            # which would only match plain rows like "10.25".
+            file_updated = _update_report_row_color(
+                report_path, vendor_key, date_str, signed_amount, new_cls)
+    except Exception:
+        file_updated = False
 
     return {
         'ok': True,
@@ -346,411 +301,6 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
         'reporting_category': reporting_category,
         'file_updated': file_updated,
     }
-
-
-# ── ROL Finance: open the stored receipt for a Verified-Transactions row ──────
-# The "View Receipt" button in the category-picker dialog POSTs to
-# /api/receipt-lookup; we match the same expenses row recategorize_expense does,
-# read its receipt_url, resolve it to a file on disk, and return a dashboard URL
-# (served by the /rol_finances_receipts/ GET route) that the dialog window.open()s.
-READABLE_DOCS_BASE = os.path.expanduser('~/rol_finances/readable_documents')
-RECEIPTS_SUBTREE = os.path.join(READABLE_DOCS_BASE, 'receipts')
-ROL_FINANCES_RECEIPTS_URL_PREFIX = '/rol_finances_receipts'
-
-# Receipt files are named <vendor>_MM_DD_YY_<dollars>_<cents>.<ext> and filed under
-# readable_documents/receipts/** (the tree is kept in sync across the Win11 box and
-# mom's machine, so it is fully present locally). The (date, amount) embedded in the
-# filename is a far more reliable link to a Verified-Transactions row than the DB's
-# receipt_url string (which often differs by extension or vendor spelling). We index
-# the tree by that key (cached briefly); both /api/receipt-lookup and the row-marker
-# endpoint /api/receipts-present resolve receipts through it.
-_RECEIPT_INDEX_CACHE = {'ts': 0.0, 'by_da': None, 'by_stem': None}
-_RECEIPT_INDEX_TTL = 300
-
-
-def _build_receipt_index():
-    import re as _re
-    name_re = _re.compile(r'_(\d{2})_(\d{2})_(\d{2})_(\d+)_(\d{2})\.[A-Za-z0-9]+$')
-    by_da, by_stem = {}, {}
-    for root, _dirs, files in os.walk(RECEIPTS_SUBTREE):
-        for fn in files:
-            fp = os.path.join(root, fn)
-            by_stem.setdefault(os.path.splitext(fn)[0].lower(), []).append(fp)
-            m = name_re.search(fn)
-            if m:
-                mm, dd, yy, dol, cents = m.groups()
-                key = ('20%s-%s-%s' % (yy, mm, dd), '%s.%s' % (dol, cents))
-                by_da.setdefault(key, []).append(fp)
-    return by_da, by_stem
-
-
-def _receipt_index():
-    now = time.time()
-    if (_RECEIPT_INDEX_CACHE['by_da'] is None
-            or now - _RECEIPT_INDEX_CACHE['ts'] > _RECEIPT_INDEX_TTL):
-        by_da, by_stem = _build_receipt_index()
-        _RECEIPT_INDEX_CACHE.update(ts=now, by_da=by_da, by_stem=by_stem)
-    return _RECEIPT_INDEX_CACHE['by_da'], _RECEIPT_INDEX_CACHE['by_stem']
-
-
-def _norm_amount(signed_amount):
-    from decimal import Decimal, InvalidOperation
-    raw = str(signed_amount or '').replace('$', '').replace(',', '').strip()
-    try:
-        return str(abs(Decimal(raw)))
-    except (InvalidOperation, ValueError):
-        return None
-
-
-def _resolve_receipt_url_path(receipt_url):
-    """Resolve one expense's non-empty receipt_url to a local receipt file."""
-    import glob as _glob
-    _by_da, by_stem = _receipt_index()
-    ru = (receipt_url or '').strip().lstrip('/')
-    if not ru:
-        return None
-    base = os.path.abspath(READABLE_DOCS_BASE)
-    direct = os.path.abspath(os.path.join(base, ru))
-    if os.path.commonpath([direct, base]) == base and os.path.isfile(direct):
-        return direct
-    stem = os.path.splitext(os.path.basename(ru))[0].lower()
-    if stem in by_stem:
-        return by_stem[stem][0]
-    g = _glob.glob(os.path.join(RECEIPTS_SUBTREE, '**', os.path.basename(ru)),
-                   recursive=True)
-    if g:
-        return g[0]
-    return None
-
-
-def _resolve_receipt_path(date_str, amount_str, receipt_url=None):
-    """Legacy receipt-file resolver used by non-record-specific maintenance code."""
-    by_da, _by_stem = _receipt_index()
-    if date_str and amount_str:
-        hits = by_da.get((date_str, amount_str))
-        if hits:
-            return hits[0]
-    return _resolve_receipt_url_path(receipt_url)
-
-
-def _resolve_expense_receipt_path(date_str, amount_str, receipt_url):
-    """Resolve a receipt only for an expense that owns a non-empty receipt_url.
-
-    Stored receipt_url values are not always byte-for-byte file paths, so after
-    trying the URL directly we retain the established date/amount filename
-    fallback. The non-empty URL guard is what prevents a receipt from leaking
-    onto a different or receipt-less expense.
-    """
-    if not (receipt_url or '').strip():
-        return None
-    direct = _resolve_receipt_url_path(receipt_url)
-    if direct:
-        return direct
-    by_da, _by_stem = _receipt_index()
-    hits = by_da.get((date_str, amount_str)) if date_str and amount_str else None
-    return hits[0] if hits else None
-
-
-def _receipt_url_for_path(fp):
-    rel = os.path.relpath(fp, os.path.abspath(READABLE_DOCS_BASE))
-    return ROL_FINANCES_RECEIPTS_URL_PREFIX + '/' + '/'.join(
-        quote(part) for part in rel.split(os.sep))
-
-
-def _select_matching_expense(rows, vendor_key, description):
-    """Select one expense from same-date/same-amount candidates."""
-    if not rows:
-        return None
-    if len(rows) == 1:
-        chosen = rows[0]
-    else:
-        chosen = None
-        vk = (vendor_key or '').strip()
-        for r in rows:
-            vp = _vendor_prefix(r.get('id_light'))
-            if vk and vp and (vk.startswith(vp) or vp.startswith(vk)):
-                chosen = r
-                break
-        if chosen is None and description:
-            for r in rows:
-                if (r.get('description') or '').strip() == description.strip():
-                    chosen = r
-                    break
-        if chosen is None:
-            chosen = rows[0]
-    return chosen
-
-
-def _matching_expense(cur, date_str, amount_str, vendor_key, description):
-    """Return the expense matching a report row using the recategorization rules."""
-    cur.execute(
-        "SELECT id, id_light, description, receipt_url "
-        "FROM expenses WHERE expense_date=%s AND amount=%s",
-        (date_str, amount_str),
-    )
-    return _select_matching_expense(cur.fetchall(), vendor_key, description)
-
-
-def _source_document_path(report_path, receipt_path=None):
-    """Resolve the original statement document represented by a report URL."""
-    raw = unquote((report_path or '').split('?', 1)[0])
-    report_file = None
-    prefix = ROL_FINANCES_REPORTS_URL_PREFIX + '/'
-    if raw.startswith(prefix):
-        rel = raw[len(prefix):]
-        candidate = os.path.abspath(os.path.join(ROL_FINANCES_REPORTS_BASE, rel))
-        base = os.path.abspath(ROL_FINANCES_REPORTS_BASE)
-        if os.path.commonpath([candidate, base]) == base:
-            report_file = candidate
-    if report_file:
-        directory = os.path.dirname(report_file)
-        preferred = []
-        for name in os.listdir(directory):
-            fp = os.path.join(directory, name)
-            ext = os.path.splitext(name)[1].lower()
-            if os.path.isfile(fp) and ext in ('.pdf', '.xlsx', '.xls', '.csv'):
-                preferred.append(fp)
-        if preferred:
-            priority = {'.pdf': 0, '.xlsx': 1, '.xls': 2, '.csv': 3}
-            preferred.sort(key=lambda fp: (priority[os.path.splitext(fp)[1].lower()],
-                                           os.path.basename(fp).lower()))
-            return preferred[0]
-        if os.path.isfile(report_file):
-            return report_file
-    return receipt_path or ''
-
-
-def _document_machine_origin():
-    import socket
-    hostname = socket.gethostname().lower()
-    return "Mom's machine" if 'rosemary' in hostname else 'Win 11'
-
-
-def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_path=''):
-    """Return receipt and source-document metadata for one report row."""
-    amt = _norm_amount(signed_amount)
-    if amt is None:
-        return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
-    chosen = None
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                chosen = _matching_expense(
-                    cur, date_str, amt, vendor_key, description)
-    except Exception as e:
-        return {'ok': False, 'error': f'DB error: {e}'}
-
-    metadata = {
-        'expense_id': chosen['id'] if chosen else '',
-        'receipt_url': '',
-        'receipt_path': '',
-        'machine_origin': _document_machine_origin(),
-        'source_document_path': _source_document_path(report_path),
-    }
-    if chosen is None:
-        return dict(metadata, ok=False,
-                    error='No matching expense in DB for that date/amount (bank-only row).')
-    ru = (chosen.get('receipt_url') or '').strip()
-    if not ru:
-        return dict(metadata, ok=False, error='No receipt on file for this expense.')
-    fp = _resolve_expense_receipt_path(date_str, amt, ru)
-    if not fp:
-        return dict(metadata, ok=False,
-                    error=f'Receipt recorded ({ru}) but the file was not found on disk.')
-    metadata.update(
-        ok=True,
-        receipt_url=_receipt_url_for_path(fp),
-        receipt_path=fp,
-        source_document_path=_source_document_path(report_path, fp),
-    )
-    return metadata
-
-
-def receipts_present(rows):
-    """Given [{date, signed_amount, vendor_key, description}, ...] return
-    {'ok': True, 'present': [bool, ...]} -- True where a receipt file resolves for the
-    row. Drives the red 'has a receipt' corner marker. One FS index + one DB read total."""
-    expense_map = {}
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                cur.execute(
-                    "SELECT id, expense_date, amount, id_light, description, receipt_url "
-                    "FROM expenses"
-                )
-                for r in cur.fetchall():
-                    key = (str(r['expense_date']), str(r['amount']))
-                    expense_map.setdefault(key, []).append(r)
-    except Exception:
-        expense_map = {}
-    out = []
-    for row in rows or []:
-        amt = _norm_amount(row.get('signed_amount'))
-        date_str = (row.get('date') or '').strip()
-        present = False
-        if amt is not None:
-            chosen = _select_matching_expense(
-                expense_map.get((date_str, amt), []),
-                row.get('vendor_key', ''),
-                row.get('description', ''),
-            )
-            ru = (chosen.get('receipt_url') or '').strip() if chosen else ''
-            present = bool(_resolve_expense_receipt_path(date_str, amt, ru))
-        out.append(present)
-    return {'ok': True, 'present': out}
-
-
-# ── ROL Finance: "Receipt Only" tab ───────────────────────────────────────────
-# Receipts that are NOT associated with any bank-statement transaction. A receipt is
-# "on a statement" when its expense's (date, abs amount) matches a row in the
-# `transactions` table (the imported bank-statement lines). Receipt-only records are
-# expenses that have no such transactions match — typically cash/other purchases
-# evidenced only by a receipt. They are real `expenses` rows, so the SAME category
-# picker (/api/recategorize-expense) and View Receipt (/api/receipt-lookup) the
-# per-statement reports use work here unchanged. Per the spec these never go into an
-# individual document's report.html (they have no document association); they live
-# only on this synthetic page.
-#
-# Membership requires an ACTUAL receipt file to resolve (via _resolve_receipt_path —
-# the same test that drives the red "has-receipt" corner marker), NOT merely a
-# non-empty expenses.receipt_url: ~48 rows carry a receipt_url whose file is missing
-# on disk (the known data gap) and must be excluded so every row shown has a receipt
-# (and a marker). This also catches rows whose receipt_url is blank but whose receipt
-# file is still found by (date, amount).
-def _reporting_category_for_id(category_id, parent_of):
-    """Walk a leaf category_id up its parent chain to a reporting-bucket name."""
-    seen = set()
-    cur = category_id
-    while cur is not None and cur not in seen:
-        seen.add(cur)
-        name = REPORTING_CATEGORY_ANCESTOR_MAP.get(cur)
-        if name:
-            return name
-        cur = parent_of.get(cur)
-    return 'Uncategorized'
-
-
-def _fetch_receipt_only_rows():
-    """expenses with no matching bank-statement transaction (same date + abs amount)
-    AND a receipt file that actually resolves on disk, each tagged with its current
-    reporting category. The resolve check keeps the tab in lockstep with the red
-    has-receipt marker so every row shown genuinely has a receipt."""
-    with _rol_get_connection() as cnx:
-        with cnx.cursor() as cur:
-            cur.execute('SELECT id, parent_id FROM categories')
-            parent_of = {
-                int(r['id']): (int(r['parent_id']) if r['parent_id'] is not None else None)
-                for r in cur.fetchall()
-            }
-            cur.execute(
-                "SELECT e.expense_date, e.amount, e.id_light, e.description, "
-                "       e.category_id, e.receipt_url "
-                "FROM expenses e "
-                "WHERE NOT EXISTS (SELECT 1 FROM transactions t "
-                "                  WHERE t.transaction_date=e.expense_date "
-                "                    AND ABS(t.amount)=ABS(e.amount)) "
-                "ORDER BY e.expense_date, e.id"
-            )
-            rows = cur.fetchall()
-    out = []
-    for r in rows:
-        date_str = str(r['expense_date'])
-        amt = _norm_amount(r['amount'])
-        if amt is None:
-            continue
-        # Only include rows whose receipt file actually exists (same resolution the
-        # has-receipt marker uses). Excludes the receipt_url-but-no-file data gap.
-        if not _resolve_expense_receipt_path(date_str, amt, r.get('receipt_url')):
-            continue
-        cid = r.get('category_id')
-        rep = _reporting_category_for_id(
-            int(cid) if cid is not None else None, parent_of)
-        out.append({
-            'date': date_str,
-            'amount': str(r['amount']),
-            'vendor_key': (r.get('id_light') or '').strip(),
-            'description': (r.get('description') or '').strip(),
-            'reporting_category': rep,
-            'cat_class': REPORTING_CATEGORY_CLASS.get(rep, 'cat-uncategorized'),
-        })
-    return out
-
-
-def _receipt_only_picker_assets():
-    """The category-picker dialog markup/CSS reused verbatim from the report.html
-    injector, so the Receipt Only tab behaves identically to Verified Transactions."""
-    import importlib
-    import sys as _sys
-    if VERIFICATION_LIB not in _sys.path:
-        _sys.path.insert(0, VERIFICATION_LIB)
-    rv = importlib.import_module('restructure_verified_transactions')
-    return rv.CATEGORY_PICKER_CSS, rv.CATEGORY_PICKER_HTML, rv.CLICKABLE_ROW_CSS
-
-
-def _receipt_only_cat_css():
-    lines = []
-    for name, cls in REPORTING_CATEGORY_CLASS.items():
-        bg, fg = REPORTING_CATEGORY_STYLE.get(name, ('#BFBFBF', '#000000'))
-        lines.append(
-            '    #verified-transactions tbody tr.%s td { background:%s; color:%s; }'
-            % (cls, bg, fg))
-    return '\n'.join(lines)
-
-
-def build_receipt_only_report_html():
-    """A standalone, same-origin report page for receipt-only records. Mirrors the
-    restructured Verified Transactions table (Description | Amount | Date, clickable
-    rows with data-* attrs) and embeds the identical category picker, so the existing
-    /api/receipts-present marker, /api/recategorize-expense and /api/receipt-lookup
-    all drive it without change."""
-    from html import escape as _esc
-    picker_css, picker_html, click_css = _receipt_only_picker_assets()
-    rows = _fetch_receipt_only_rows()
-    trs = []
-    for r in rows:
-        trs.append(
-            '<tr class="%s" data-vendor-key="%s" data-description="%s" '
-            'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
-            'title="Click row to set category / view receipt">'
-            '<td>%s</td><td class="number">%s</td><td>%s</td></tr>' % (
-                r['cat_class'],
-                _esc(r['vendor_key'], quote=True),
-                _esc(r['description'], quote=True),
-                _esc(r['amount'], quote=True),
-                _esc(r['date'], quote=True),
-                _esc(r['description']), _esc(r['amount']), _esc(r['date']),
-            ))
-    body_rows = '\n'.join(trs) if trs else (
-        '<tr><td colspan="3" class="muted">No receipt-only records.</td></tr>')
-    head = (
-        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        '<title>Receipt Only</title><style>\n'
-        '    body { font-family: Arial, sans-serif; margin:0; padding:20px; '
-        'background:#f1f5f9; color:#0f172a; }\n'
-        '    section.card { background:#fff; border-radius:12px; padding:18px 20px; '
-        'margin:0 auto; max-width:1100px; box-shadow:0 1px 3px rgba(0,0,0,.08); }\n'
-        '    h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:18px 0 8px; }\n'
-        '    table { width:100%; border-collapse:collapse; overflow:hidden; '
-        'border-radius:12px; font-size:0.95rem; }\n'
-        '    th, td { padding:8px 10px; border-bottom:1px solid #e5e7eb; text-align:left; }\n'
-        '    th { background:#0f172a; color:#fff; }\n'
-        '    th.number, td.number { text-align:right; }\n'
-        '    .muted { color:#6b7280; }\n'
-        + _receipt_only_cat_css() + '\n'
-        + click_css + '\n'
-        + picker_css + '\n'
-        '  </style></head><body>\n'
-        '<section class="card">\n'
-        '  <h1>Receipt Only</h1>\n'
-        '  <p class="muted">Receipts not associated with any bank-statement '
-        'transaction. Click a row to set its category or view the receipt.</p>\n'
-        '  <h2>Verified Transactions</h2>\n'
-        '  <table id="verified-transactions"><thead><tr>'
-        '<th>Description</th><th class="number">Amount</th><th>Date</th>'
-        '</tr></thead><tbody>\n'
-    )
-    return head + body_rows + '\n</tbody></table>\n</section>\n' + picker_html + '\n</body></html>'
 
 
 # Letta API base URL — override with LETTA_BASE_URL env var
@@ -763,18 +313,7 @@ _MINION_TOOLS = ['run_claude_code_sdk']
 # relay_message_to_chatgpt is Mazda's custom delegation tool (sends to minion fleet).
 # send_message_to_agent_and_wait_for_reply is a Letta built-in that doesn't appear
 # in /v1/agents/{id}/tools, so we check the custom wrapper instead.
-_MAZDA_TOOLS = [
-    'send_message_to_agent_and_wait_for_reply',
-    'executor_run',
-]
-
-# Mazda + all 5 minions run on the same chatgpt-plus-pro OAuth account, so a
-# ChatGPT/Codex rate limit (HTTP 429 from chatgpt.com/backend-api/codex/responses)
-# hits all of them simultaneously — see mazda_chatgpt_429_rate_limit_2026_06_18
-# memory. Tagging them lets _poll_chatgpt_provider_once() turn every one of
-# their tabs red from a single canary probe instead of needing a manual Test
-# send against each agent first.
-CHATGPT_PLUS_PRO = 'chatgpt-plus-pro'
+_MAZDA_TOOLS  = ['relay_message_to_chatgpt']
 
 LETTA_AGENTS = [
     {'name': 'Scissari', 'id': 'agent-5955b0c2-7922-4ffe-9e43-b116053b80fa'},
@@ -782,12 +321,12 @@ LETTA_AGENTS = [
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
     {'name': 'Cesare',   'id': None},
     {'name': 'Jeri',     'id': None},
-    {'name': 'Mazda',    'id': 'agent-070c201a-8d6d-49ba-a5fd-1489884b3b45', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Router',           'id': 'agent-81874131-77b8-4645-8d5f-c0bf20c1ed89', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Parser',           'id': 'agent-c414cb08-8bb5-4002-8d67-2ad0fbce4f06', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Vendor Identity',  'id': 'agent-c1fa4bb4-93a8-4b54-bd54-18fdaa4c0cd6', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Receipt Linker',   'id': 'agent-bfffa859-98bf-4bec-af3e-231b552fec93', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Categorization',   'id': 'agent-c4c9864c-9046-41b8-b0e3-f97698307567', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS},
+    {'name': 'Mazda Router',           'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS},
+    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS},
 ]
 
 # Cache of name→id resolved from the Letta API
@@ -2041,84 +1580,6 @@ def clear_agent_send_error(agent_id: str) -> None:
         _agent_health_cache['value'] = None
 
 
-# ── ChatGPT/Codex provider-wide rate-limit probe ────────────────────────────
-#
-# 2026-06-18: messaging Mazda Receipt Linker "timed out" — actually an instant
-# HTTP 429 llm_rate_limit from the shared chatgpt-plus-pro OAuth account, and
-# every other agent tagged with that provider was equally broken (verified by
-# probing Mazda Router too). _agent_send_errors only got populated when a
-# human used the dashboard's Test feature, so the tabs stayed green until
-# someone happened to try. This background loop probes one canary agent on
-# the provider and, like Server Management/SSH Connections, turns every
-# agent sharing that provider red as soon as the probe itself detects it.
-CHATGPT_PROVIDER_POLL_INTERVAL = 90  # seconds; each probe is a real (cheap) LLM call
-
-
-def _provider_agent_ids(provider_name):
-    """Real Letta IDs of every LETTA_AGENTS entry tagged with this llm_provider."""
-    ids = []
-    for cfg in LETTA_AGENTS:
-        if cfg.get('llm_provider') == provider_name:
-            real_id = get_letta_id(cfg)
-            if real_id:
-                ids.append(real_id)
-    return ids
-
-
-def _probe_chatgpt_provider(agent_id, timeout=20):
-    """Send one trivial message to agent_id and report whether the provider
-    rejected it (e.g. 429 rate limit) before reaching the model. Doesn't reset
-    the agent's message history first, unlike /api/test, so it never clobbers
-    a real in-progress conversation — it just appends a tiny ping/reply pair."""
-    payload = json.dumps({
-        'messages': [{'role': 'user', 'content': 'ping'}],
-        'stream': False,
-    }).encode()
-    req = urllib.request.Request(
-        f'{LETTA_BASE_URL}/v1/agents/{agent_id}/messages',
-        data=payload,
-        headers={'Content-Type': 'application/json'},
-        method='POST',
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout):
-            pass
-        return {'ok': True, 'text': ''}
-    except urllib.error.HTTPError as e:
-        try:
-            body = json.loads(e.read().decode())
-            err = body.get('error', {})
-            return {'ok': False, 'text': f"{err.get('type', 'llm_error')}: {err.get('message', str(e))}"}
-        except Exception:
-            return {'ok': False, 'text': f'HTTP {e.code}'}
-    except Exception as e:
-        return {'ok': False, 'text': str(e)}
-
-
-def _poll_chatgpt_provider_once(provider_name=CHATGPT_PLUS_PRO):
-    """One sweep: probe a canary agent on provider_name and propagate ok/error
-    to every agent tagged with it via the existing _agent_send_errors path."""
-    affected = _provider_agent_ids(provider_name)
-    if not affected:
-        return
-    probe = _probe_chatgpt_provider(affected[0])
-    for agent_id in affected:
-        if probe['ok']:
-            clear_agent_send_error(agent_id)
-        else:
-            record_agent_send_error(agent_id, f'{provider_name} rate-limited — {probe["text"]}')
-
-
-def _chatgpt_provider_poll_loop():
-    """Background daemon thread body: keep the chatgpt-plus-pro provider probe fresh."""
-    while True:
-        try:
-            _poll_chatgpt_provider_once()
-        except Exception:
-            pass
-        time.sleep(CHATGPT_PROVIDER_POLL_INTERVAL)
-
-
 def agent_health_check(cfg, timeout=15):
     """Check if an agent is structurally healthy: ID resolvable + required tools attached.
     Also checks _agent_send_errors for functional failures recorded by /api/test.
@@ -2236,6 +1697,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/code-status':
             return self.json_response(get_code_status())
+
         if path == '/api/agents':
             return self.json_response(build_agent_list(force_refresh=query.get('refresh', ['0'])[0] == '1'))
 
@@ -2281,14 +1743,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/servers':
             return self.json_response([
-                {
-                    'key': s['key'],
-                    'name': s['name'],
-                    'note': s.get('note', ''),
-                    'url': s.get('health_url'),
-                    'health_url': s.get('health_url'),
-                    'skills': s.get('skills', []),
-                }
+                {'key': s['key'], 'name': s['name'], 'note': s.get('note', '')}
                 for s in SERVERS
             ])
 
@@ -2352,14 +1807,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     'exists': exists,
                     'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{r["dir"]}/report.html' if exists else None,
                 })
-            # Synthetic "Receipt Only" tab: receipts with no bank-statement
-            # transaction. Built live from the DB (no report.html on disk).
-            result.append({
-                'key': 'receipt-only',
-                'label': 'Receipt Only',
-                'exists': True,
-                'url': RECEIPT_ONLY_REPORT_PATH,
-            })
             return self.json_response(result)
 
         if path == '/api/ssh-connections':
@@ -2408,41 +1855,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if path == ROL_FINANCES_PLAN_PATH:
             return self.serve_file(ROL_FINANCES_PLAN_FILE, 'text/html')
 
-        if path == RECEIPT_ONLY_REPORT_PATH:
-            try:
-                body = build_receipt_only_report_html()
-            except Exception as e:
-                from html import escape as _esc
-                body = ('<!doctype html><meta charset="utf-8"><body>'
-                        '<pre>Receipt Only build error: %s</pre>' % _esc(str(e)))
-            data = body.encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Content-Length', str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-            return
-
         if path.startswith(ROL_FINANCES_REPORTS_URL_PREFIX + '/'):
             rel = path[len(ROL_FINANCES_REPORTS_URL_PREFIX) + 1:]
             fp = os.path.abspath(os.path.join(ROL_FINANCES_REPORTS_BASE, rel))
             base = os.path.abspath(ROL_FINANCES_REPORTS_BASE)
             if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
                 return self.serve_file(fp, 'text/html')
-            self.send_error(404)
-            return
-
-        if path.startswith(ROL_FINANCES_RECEIPTS_URL_PREFIX + '/'):
-            rel = unquote(path[len(ROL_FINANCES_RECEIPTS_URL_PREFIX) + 1:])
-            base = os.path.abspath(READABLE_DOCS_BASE)
-            fp = os.path.abspath(os.path.join(base, rel))
-            if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
-                ext = fp.rsplit('.', 1)[-1].lower()
-                ctype = {
-                    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
-                    'gif': 'image/gif', 'webp': 'image/webp', 'pdf': 'application/pdf',
-                }.get(ext, 'application/octet-stream')
-                return self.serve_file(fp, ctype)
             self.send_error(404)
             return
 
@@ -2597,26 +2015,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('report_path', ''),
             ))
 
-        if path == '/api/receipt-lookup':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(lookup_receipt(
-                data.get('date', ''),
-                data.get('signed_amount', ''),
-                data.get('vendor_key', ''),
-                data.get('description', ''),
-                data.get('report_path', ''),
-            ))
-
-        if path == '/api/receipts-present':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(receipts_present(data.get('rows', [])))
-
         self.send_error(404)
 
     def _handle_voice(self, audio_bytes):
@@ -2699,9 +2097,6 @@ if __name__ == '__main__':
           f'(timeout={HEALTH_CHECK_TIMEOUT}s, fail-threshold={HEALTH_FAIL_THRESHOLD})')
     threading.Thread(target=_ssh_poll_loop, daemon=True).start()
     print(f'Polling {len(SSH_CONNECTIONS)} SSH connections every {SSH_HEALTH_POLL_INTERVAL}s')
-    threading.Thread(target=_chatgpt_provider_poll_loop, daemon=True).start()
-    print(f'Polling chatgpt-plus-pro provider health every {CHATGPT_PROVIDER_POLL_INTERVAL}s '
-          f'(Mazda + {len(_provider_agent_ids(CHATGPT_PLUS_PRO)) - 1} minions)')
     try:
         server.serve_forever()
     except KeyboardInterrupt:

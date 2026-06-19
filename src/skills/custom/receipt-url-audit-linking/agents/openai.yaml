@@ -1,0 +1,4 @@
+interface:
+  display_name: "Receipt URL Audit and Linking"
+  short_description: "Audit and safely link missing receipt URLs"
+  default_prompt: "Use $receipt-url-audit-linking to audit empty expense receipt URLs and safely link verified receipt files."

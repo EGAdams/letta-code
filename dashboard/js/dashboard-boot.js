@@ -13,6 +13,7 @@ import {
   ActivePoller,
   AgentActivityPoller,
   AgentCardRenderer,
+  AgentHealthPoller,
   BrowserSpeechSynthesizer,
   ChatDetailRenderer,
   CodeChangeAlert,
@@ -225,6 +226,9 @@ if (
       tab.addEventListener("click", () => {
         safeSetActive(navStatus, '[data-nav="status"][data-target]', tab);
         safeActivateView(tab.dataset.target);
+        if (tab.dataset.target === "status-servers") {
+          void loadServersSummary();
+        }
       });
     });
 
@@ -731,6 +735,64 @@ serverHealth.subscribe((health) => {
   });
 });
 
+function renderServerSkills(skills) {
+  if (!Array.isArray(skills) || skills.length === 0) {
+    return '<span class="srv-summary-stamp">-</span>';
+  }
+  return (
+    '<ul class="srv-skills">' +
+    skills.map((skill) => `<li>${esc(skill)}</li>`).join("") +
+    "</ul>"
+  );
+}
+
+async function loadServersSummary() {
+  const list = document.getElementById("servers-list");
+  const stamp = document.getElementById("servers-last-updated");
+  if (!list) return;
+  list.innerHTML = '<p class="am-dim">Checking&hellip;</p>';
+  try {
+    const [servers, health] = await Promise.all([
+      http.getJSON("/api/servers"),
+      http.getJSON("/api/server-health"),
+    ]);
+    const healthByKey = new Map(
+      (health?.servers || []).map((server) => [server.key, server.status]),
+    );
+    if (!servers.length) {
+      list.innerHTML = '<p class="am-dim">No servers registered.</p>';
+      return;
+    }
+    const rows = servers
+      .map((server) => {
+        const status = healthByKey.get(server.key) || "unknown";
+        const badge = `<span class="srv-badge ${status}">${esc(status.toUpperCase())}</span>`;
+        const url = server.url || server.health_url || "";
+        const link = url
+          ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>`
+          : '<span class="srv-summary-stamp">-</span>';
+        return (
+          "<tr>" +
+          `<td>${badge}</td>` +
+          `<td><strong>${esc(server.name)}</strong><br><span class="srv-summary-stamp">${esc(server.note || "")}</span></td>` +
+          `<td>${link}</td>` +
+          `<td>${renderServerSkills(server.skills)}</td>` +
+          "</tr>"
+        );
+      })
+      .join("");
+    list.innerHTML =
+      '<table class="srv-table"><thead><tr>' +
+      "<th>Status</th><th>Server</th><th>URL</th><th>Skills</th>" +
+      `</tr></thead><tbody>${rows}</tbody></table>`;
+    if (stamp) {
+      stamp.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    }
+  } catch (e) {
+    list.innerHTML = `<p class="msi-line err">Error: ${esc(e.message)}</p>`;
+  }
+}
+
 const SM = {
   healthPollTimer: null,
   current: null, // { key, name }
@@ -829,20 +891,26 @@ const SM = {
     new MutationObserver(applyFilter).observe(innerEl, { childList: true });
 
     if (startBtn) {
+      const isDashboard = key === "dashboard";
       startBtn.addEventListener("click", async () => {
         startBtn.disabled = true;
         statusEl.className = "srv-status starting";
-        statusText.textContent = `STARTING... — launching ${name.toLowerCase()}`;
-        const res = await serverAction.start(key);
+        const verb = isDashboard ? "RESTARTING" : "STARTING";
+        statusText.textContent = `${verb}... — launching ${name.toLowerCase()}`;
+        const res = isDashboard
+          ? await serverAction.restart(key)
+          : await serverAction.start(key);
         if (res.ok) {
           view.writeHtml(
-            '<div class="msi-entry"><span class="hdr">start action</span> ' +
+            '<div class="msi-entry"><span class="hdr">' +
+              (isDashboard ? "restart" : "start") +
+              " action</span> " +
               esc(res.text || "OK") +
               "</div>",
           );
           view.scrollToBottom();
         } else {
-          statusText.textContent = `START FAILED — ${esc(res.text)}`;
+          statusText.textContent = `${isDashboard ? "RESTART" : "START"} FAILED — ${esc(res.text)}`;
           statusEl.className = "srv-status down";
           startBtn.disabled = false;
         }
@@ -859,9 +927,13 @@ const SM = {
       statusEl.className = cls;
       statusText.textContent = st.label + st.text;
       if (startBtn) {
-        if (st.kind === "up" || st.kind === "starting")
-          startBtn.disabled = true;
-        else if (st.kind === "down") startBtn.disabled = false;
+        if (key === "dashboard") {
+          startBtn.disabled = st.kind === "starting";
+        } else {
+          if (st.kind === "up" || st.kind === "starting")
+            startBtn.disabled = true;
+          else if (st.kind === "down") startBtn.disabled = false;
+        }
       }
     };
     this.logController = new ServerLogController({
@@ -1028,6 +1100,10 @@ const SSHM = {
 SSHM.pollHealth();
 SSHM.healthPollTimer = setInterval(() => SSHM.pollHealth(), 15000);
 
+document
+  .getElementById("servers-refresh-btn")
+  ?.addEventListener("click", () => void loadServersSummary());
+
 /* =====================  ROL Finance Reports  =====================
        One tab per report directory under ~/rol_finances/readable_documents/
        bank_statements/january/. Tabs + views are built once from
@@ -1053,6 +1129,16 @@ function setAgentTabStatus(agentId, status) {
 
 // Colour agent sidebar tabs from /api/agent-activity every 5s.
 new AgentActivityPoller({ http, setStatus: setAgentTabStatus }).start();
+
+// Structural health check — polls /api/agent-health every 30s.
+// ok=false adds agent-health-error (red); ok=true clears it.
+// Uses a separate class so it doesn't get wiped by the activity poller.
+function setAgentTabHealth(agentId, ok) {
+  const tab = navAgents.querySelector(`.agent-tab[data-agent-id="${agentId}"]`);
+  if (!tab) return;
+  tab.classList.toggle("agent-health-error", !ok);
+}
+new AgentHealthPoller({ http, setHealth: setAgentTabHealth }).start();
 
 /* =====================  Code-change restart alert  ===================== */
 // Blink the Agents tab + prompt to restart when the dashboard's own source

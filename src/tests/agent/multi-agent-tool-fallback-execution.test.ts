@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const createConversationMock = mock(() =>
-  Promise.resolve({ id: `conv-${createConversationMock.mock.calls.length}` }),
-);
-
-const createMessageMock = mock(
-  (_conversationId: string, body: { messages: Array<{ content: string }> }) => {
+// The fallback now messages the target agent's primary thread via
+// client.agents.messages.stream(agentId, body) instead of creating a throwaway
+// conversation. The first arg is the target agent id; the second is the body.
+const streamMessageMock = mock(
+  (_agentId: string, body: { messages: Array<{ content: string }> }) => {
     const content = body.messages[0]?.content ?? "";
 
     if (
@@ -52,15 +51,24 @@ const retrieveAgentMock = mock((agentId: string) =>
   }),
 );
 
+const runAgentToolMock = mock(() =>
+  Promise.resolve({
+    status: "success" as const,
+    func_return: "SDK tool completed",
+    stdout: [],
+    stderr: [],
+  }),
+);
+
 const getClientMock = mock(() =>
   Promise.resolve({
     agents: {
       retrieve: retrieveAgentMock,
-    },
-    conversations: {
-      create: createConversationMock,
       messages: {
-        create: createMessageMock,
+        stream: streamMessageMock,
+      },
+      tools: {
+        run: runAgentToolMock,
       },
     },
   }),
@@ -79,10 +87,47 @@ const { executePendingMultiAgentToolCalls } = await import(
 
 describe("multi-agent tool fallback execution", () => {
   beforeEach(() => {
-    createConversationMock.mockClear();
-    createMessageMock.mockClear();
+    streamMessageMock.mockClear();
     retrieveAgentMock.mockClear();
+    runAgentToolMock.mockClear();
     getClientMock.mockClear();
+  });
+
+  test("executes run_claude_code_sdk through the attached-agent tool endpoint", async () => {
+    const results = await executePendingMultiAgentToolCalls(
+      [
+        {
+          toolCallId: "call-sdk",
+          toolName: "run_claude_code_sdk",
+          toolArgs:
+            '{"task":"inspect receipts","context":"test","working_dir":"/home/adamsl/rol_finances"}',
+        },
+      ],
+      "agent-sender",
+    );
+
+    expect(runAgentToolMock).toHaveBeenCalledWith(
+      "run_claude_code_sdk",
+      {
+        agent_id: "agent-sender",
+        args: {
+          task: "inspect receipts",
+          context: "test",
+          working_dir: "/home/adamsl/rol_finances",
+        },
+      },
+      { timeout: 330_000 },
+    );
+    expect(results).toEqual([
+      {
+        type: "tool",
+        tool_call_id: "call-sdk",
+        status: "success",
+        tool_return: "SDK tool completed",
+        stdout: [],
+        stderr: [],
+      },
+    ]);
   });
 
   test("retries with a plain-text direct-answer reminder when first relay returns meta/non-actionable text", async () => {
@@ -98,8 +143,11 @@ describe("multi-agent tool fallback execution", () => {
       "agent-sender",
     );
 
-    expect(createMessageMock).toHaveBeenCalledTimes(2);
-    expect(createMessageMock.mock.calls[1]?.[1]).toMatchObject({
+    expect(streamMessageMock).toHaveBeenCalledTimes(2);
+    // Both sends target the same agent's main thread (first arg = agent id).
+    expect(streamMessageMock.mock.calls[0]?.[0]).toBe("agent-target");
+    expect(streamMessageMock.mock.calls[1]?.[0]).toBe("agent-target");
+    expect(streamMessageMock.mock.calls[1]?.[1]).toMatchObject({
       messages: [
         {
           content: expect.stringContaining(
@@ -116,5 +164,44 @@ describe("multi-agent tool fallback execution", () => {
         tool_return: "Hailey replied:\n\nRetry reply from Hailey",
       },
     ]);
+  });
+
+  test("returns a non-retry success (not error) when the target delivers no reply, and does not resend", async () => {
+    // Stream ends with a stop_reason but no assistant_message (target spiraled
+    // on a tool / hit its step limit). The send still succeeded, so we must NOT
+    // report an error — a failure status makes the sender loop on the same call.
+    streamMessageMock.mockImplementationOnce(() =>
+      Promise.resolve({
+        async *[Symbol.asyncIterator]() {
+          yield { message_type: "stop_reason", stop_reason: "max_steps" };
+        },
+      }),
+    );
+
+    const results = await executePendingMultiAgentToolCalls(
+      [
+        {
+          toolCallId: "call-noreply",
+          toolName: "send_message_to_agent_and_wait_for_reply",
+          toolArgs:
+            '{"message":"Publish the dashboard please","other_agent_id":"agent-target"}',
+        },
+      ],
+      "agent-sender",
+    );
+
+    // Exactly one send — no retry storm on a no-reply result.
+    expect(streamMessageMock).toHaveBeenCalledTimes(1);
+    expect(results).toEqual([
+      expect.objectContaining({
+        type: "tool",
+        tool_call_id: "call-noreply",
+        status: "success",
+        tool_return: expect.stringContaining("did not return a final reply"),
+      }),
+    ]);
+    expect((results[0] as { tool_return: string }).tool_return).toContain(
+      "Do not resend",
+    );
   });
 });

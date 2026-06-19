@@ -8,6 +8,37 @@ start/"starting" lifecycle used by the executor Start button.
 import server
 
 
+class _FakeCursor:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, *_args):
+        return None
+
+    def fetchall(self):
+        return self.rows
+
+
+class _FakeConnection:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def cursor(self):
+        return _FakeCursor(self.rows)
+
+
 def _clear_starting():
     """Reset the module-level starting-state between tests."""
     with server._starting_lock:
@@ -25,6 +56,105 @@ def _clear_agent_caches():
 def test_get_server_known_and_unknown():
     assert server.get_server('letta')['name'] == 'Letta Server'
     assert server.get_server('nope') is None
+
+
+def test_lookup_receipt_rejects_date_amount_file_when_matched_expense_url_is_empty(
+        monkeypatch):
+    expense = {
+        'id': 1122,
+        'id_light': 'goodwill_gandy_105_saint_petersb_fl',
+        'description': 'GOODWILL GANDY #105 SAINT PETERSB FL',
+        'receipt_url': '',
+    }
+    monkeypatch.setattr(
+        server, '_rol_get_connection', lambda: _FakeConnection([expense]))
+    monkeypatch.setattr(
+        server, '_resolve_expense_receipt_path',
+        lambda _date, _amount, _receipt_url: '/wrong/receipt.png')
+
+    result = server.lookup_receipt(
+        '2025-01-07',
+        '-14.96',
+        'goodwill_gandy_105_saint_petersb_fl',
+        'GOODWILL GANDY #105 SAINT PETERSB FL',
+    )
+
+    assert result['ok'] is False
+    assert result['expense_id'] == 1122
+    assert result['receipt_url'] == ''
+    assert result['receipt_path'] == ''
+    assert result['error'] == 'No receipt on file for this expense.'
+
+
+def test_receipts_present_is_scoped_to_each_matching_expense(monkeypatch):
+    rows = [
+        {
+            'id': 1122,
+            'expense_date': '2025-01-07',
+            'amount': '14.96',
+            'id_light': 'goodwill_gandy_105_saint_petersb_fl',
+            'description': 'GOODWILL GANDY #105 SAINT PETERSB FL',
+            'receipt_url': '',
+        },
+        {
+            'id': 1123,
+            'expense_date': '2025-01-07',
+            'amount': '14.96',
+            'id_light': 'other_vendor_01_07_25_14_96',
+            'description': 'OTHER VENDOR',
+            'receipt_url': 'receipts/other.png',
+        },
+    ]
+    monkeypatch.setattr(
+        server, '_rol_get_connection', lambda: _FakeConnection(rows))
+    monkeypatch.setattr(
+        server, '_resolve_expense_receipt_path',
+        lambda _date, _amount, receipt_url:
+        '/receipts/other.png' if receipt_url else None)
+
+    result = server.receipts_present([
+        {
+            'date': '2025-01-07',
+            'signed_amount': '-14.96',
+            'vendor_key': 'goodwill_gandy_105_saint_petersb_fl',
+            'description': 'GOODWILL GANDY #105 SAINT PETERSB FL',
+        },
+        {
+            'date': '2025-01-07',
+            'signed_amount': '-14.96',
+            'vendor_key': 'other_vendor',
+            'description': 'OTHER VENDOR',
+        },
+    ])
+
+    assert result == {'ok': True, 'present': [False, True]}
+
+
+def test_expense_receipt_resolution_falls_back_to_date_amount_for_nonempty_url(
+        monkeypatch):
+    monkeypatch.setattr(server, '_resolve_receipt_url_path', lambda _url: None)
+    monkeypatch.setattr(
+        server,
+        '_receipt_index',
+        lambda: ({('2025-02-26', '40.88'): ['/receipts/applebees.jpg']}, {}),
+    )
+
+    assert server._resolve_expense_receipt_path(
+        '2025-02-26',
+        '40.88',
+        'applebees_comstock_park_02_26_25_40_88.jpg',
+    ) == '/receipts/applebees.jpg'
+
+
+def test_expense_receipt_resolution_never_falls_back_for_empty_url(monkeypatch):
+    monkeypatch.setattr(
+        server,
+        '_receipt_index',
+        lambda: ({('2025-01-07', '14.96'): ['/receipts/wrong.png']}, {}),
+    )
+
+    assert server._resolve_expense_receipt_path(
+        '2025-01-07', '14.96', '') is None
 
 
 def test_mazda_stage_agents_are_listed_for_dashboard():
@@ -268,3 +398,125 @@ def test_start_logger_api_uses_self_healing_command(monkeypatch, tmp_path):
     assert captured['cmd'] == server.build_logger_api_start_command()
     assert server.is_server_starting('logger-api')
     _clear_starting()
+
+
+# ── Agent health checks ───────────────────────────────────────────────────────
+
+
+def test_mazda_letta_agents_declare_required_tools():
+    """Every Mazda minion in LETTA_AGENTS must declare required_tools=['run_claude_code_sdk'].
+    FAILS until LETTA_AGENTS is updated with required_tools entries."""
+    minion_names = {
+        'Mazda Router', 'Mazda Parser', 'Mazda Vendor Identity',
+        'Mazda Receipt Linker', 'Mazda Categorization',
+    }
+    for cfg in server.LETTA_AGENTS:
+        if cfg['name'] in minion_names:
+            assert cfg.get('required_tools'), f"{cfg['name']} missing required_tools"
+            assert 'run_claude_code_sdk' in cfg['required_tools'], (
+                f"{cfg['name']} required_tools missing run_claude_code_sdk"
+            )
+
+
+def test_mazda_declares_delegation_and_executor_tools():
+    mazda = next(cfg for cfg in server.LETTA_AGENTS if cfg['name'] == 'Mazda')
+    assert mazda['required_tools'] == [
+        'send_message_to_agent_and_wait_for_reply',
+        'executor_run',
+    ]
+
+
+def test_agent_health_check_unresolvable_agent_is_unhealthy(monkeypatch):
+    """Agent not found in Letta → health check returns ok=False.
+    FAILS until agent_health_check is added to server.py."""
+    cfg = {'name': 'Ghost', 'id': None, 'required_tools': []}
+    monkeypatch.setattr(server, 'get_letta_id', lambda c: None)
+    h = server.agent_health_check(cfg)
+    assert h['ok'] is False
+    assert 'not found' in h['text'].lower() or 'ghost' in h['text'].lower()
+
+
+def test_agent_health_check_missing_required_tool_is_unhealthy(monkeypatch):
+    """Mazda minion missing run_claude_code_sdk → health check red.
+    FAILS until agent_health_check is added to server.py."""
+    cfg = {'name': 'Mazda Router', 'id': 'agent-test-123', 'required_tools': ['run_claude_code_sdk']}
+    monkeypatch.setattr(server, 'get_letta_id', lambda c: c['id'])
+    monkeypatch.setattr(server, 'letta_get', lambda path, **kw: [
+        {'name': 'memory_insert'}, {'name': 'memory_replace'},
+    ])
+    h = server.agent_health_check(cfg)
+    assert h['ok'] is False
+    assert 'run_claude_code_sdk' in h['text']
+
+
+def test_agent_health_check_all_tools_present_is_healthy(monkeypatch):
+    """Mazda minion with run_claude_code_sdk → health check green.
+    FAILS until agent_health_check is added to server.py."""
+    cfg = {'name': 'Mazda Router', 'id': 'agent-test-123', 'required_tools': ['run_claude_code_sdk']}
+    monkeypatch.setattr(server, 'get_letta_id', lambda c: c['id'])
+    monkeypatch.setattr(server, 'letta_get', lambda path, **kw: [
+        {'name': 'run_claude_code_sdk'}, {'name': 'memory_insert'},
+    ])
+    h = server.agent_health_check(cfg)
+    assert h['ok'] is True
+    assert 'run_claude_code_sdk' in h['text']
+
+
+# ── ChatGPT/Codex provider-wide rate-limit probe (2026-06-18) ────────────────
+#
+# Mazda + all 5 minions share one chatgpt-plus-pro OAuth account. A 429 from
+# that provider hits all of them at once, but previously only surfaced once a
+# human happened to use the dashboard's Test feature against one of them. The
+# fix is a background probe (mirrors _health_poll_loop / _ssh_poll_loop) that
+# proactively turns every agent on the provider red.
+
+def test_mazda_and_minions_tagged_with_shared_llm_provider():
+    fleet_names = {
+        'Mazda', 'Mazda Router', 'Mazda Parser', 'Mazda Vendor Identity',
+        'Mazda Receipt Linker', 'Mazda Categorization',
+    }
+    for cfg in server.LETTA_AGENTS:
+        if cfg['name'] in fleet_names:
+            assert cfg.get('llm_provider') == server.CHATGPT_PLUS_PRO, cfg['name']
+
+
+def test_provider_agent_ids_returns_real_ids_for_tagged_agents():
+    ids = server._provider_agent_ids(server.CHATGPT_PLUS_PRO)
+    assert len(ids) == 6
+    mazda = next(cfg for cfg in server.LETTA_AGENTS if cfg['name'] == 'Mazda')
+    assert mazda['id'] in ids
+
+
+def test_poll_chatgpt_provider_once_flags_every_fleet_agent_on_429(monkeypatch):
+    monkeypatch.setattr(server, '_probe_chatgpt_provider',
+                         lambda agent_id, timeout=20: {'ok': False, 'text': 'llm_rate_limit: too many requests'})
+    server._poll_chatgpt_provider_once()
+    for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
+        with server._agent_send_errors_lock:
+            err = server._agent_send_errors.get(agent_id)
+        assert err is not None, agent_id
+        assert 'rate-limited' in err['text']
+    # cleanup so this test doesn't leak state into others
+    for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
+        server.clear_agent_send_error(agent_id)
+
+
+def test_poll_chatgpt_provider_once_clears_every_fleet_agent_on_success(monkeypatch):
+    for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
+        server.record_agent_send_error(agent_id, 'stale error from a previous sweep')
+    monkeypatch.setattr(server, '_probe_chatgpt_provider',
+                         lambda agent_id, timeout=20: {'ok': True, 'text': ''})
+    server._poll_chatgpt_provider_once()
+    for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
+        with server._agent_send_errors_lock:
+            assert server._agent_send_errors.get(agent_id) is None, agent_id
+
+
+def test_poll_chatgpt_provider_once_only_probes_the_canary(monkeypatch):
+    # One probe call must cover the whole fleet, not one call per agent —
+    # that's the whole point (avoid burning quota 6x for one rate-limit check).
+    calls = []
+    monkeypatch.setattr(server, '_probe_chatgpt_provider',
+                         lambda agent_id, timeout=20: (calls.append(agent_id), {'ok': True, 'text': ''})[1])
+    server._poll_chatgpt_provider_once()
+    assert len(calls) == 1
