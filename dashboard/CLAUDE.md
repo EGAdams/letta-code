@@ -238,13 +238,18 @@ string (which often differs by extension or vendor spelling). Rows ↔ expenses 
 **Known data gap:** ~45 expenses have a `receipt_url` in the DB whose file isn't findable under any
 name — those rows get no marker and View Receipt reports "Receipt recorded but file not found".
 
-**Deploy:** the endpoints in `server.py` and the dialog+marker in the injector live on this live box
-and are **uncommitted** — the WSL repo's checked-in `report.html` files still use the older
-`alert('Vendor Key')` injector. After editing `server.py`:
+**Deploy:** all of the above (the endpoints in `server.py`, the dialog+marker in the injector) currently
+live on the **live Win11 box only and are uncommitted** — this repo's checked-in `report.html` files
+still use the older `alert('Vendor Key')` injector. After editing `server.py`:
 `systemctl --user restart dashboard-server.service`. After editing the injector: re-run it on all
-reports (command above). 
+reports (command above). See the `rol_finance_view_receipt_fix` project memory.
 
-**Injector gotchas:** the head `CATEGORY_PICKER_CSS` is injected once and guarded (`if "ROL category picker" not in html`), so it does **not** refresh on re-run -- put dialog CSS *changes* in the marker-block `<style>` (which IS strip+reinjected; body overrides head by source order). And `window.open(url, "_blank", "noopener,noreferrer")` returns **null by spec** when `noopener` is set, so do not treat a null return as "popup blocked".
+**Injector gotchas:** the head `CATEGORY_PICKER_CSS` is injected once and guarded
+(`if "ROL category picker" not in html`), so it does **not** refresh on re-run — put dialog CSS
+*changes* in the marker-block `<style>` (which IS strip+reinjected; body overrides head by source
+order). And `window.open(url, "_blank", "noopener,noreferrer")` returns **`null` by spec** when
+`noopener` is set, so don't treat a null return as "popup blocked" (it caused a false red error
+even though the receipt opened).
 
 ## Boot autostart (systemd `--user` services)
 

@@ -27,8 +27,16 @@ describe("chat pure helpers", () => {
   test("renderReplyRows escapes and labels rows", () => {
     expect(renderReplyRows([])).toContain("no reply content");
     const html = renderReplyRows([{ type: "assistant_message", text: "<b>" }]);
-    expect(html).toContain('<span class="hdr">assistant</span>');
+    expect(html).toContain('<span class="hdr">assistant:</span>');
     expect(html).toContain("&lt;b&gt;");
+  });
+
+  test("renderReplyRows substitutes the agent's name for the assistant label", () => {
+    const html = renderReplyRows(
+      [{ type: "assistant_message", text: "hi" }],
+      "Frita",
+    );
+    expect(html).toContain('<span class="hdr">Frita:</span>');
   });
 });
 
@@ -338,6 +346,19 @@ describe("InputOptionsRenderer (Strategy)", () => {
       { agentId: "a9", status: "active" },
       { agentId: "a9", status: "idle" },
     ]);
+  });
+
+  test("Send clears the input and shows the user message plus the agent's name", async () => {
+    const ctx = inputOptionsSetup({
+      replies: [{ type: "assistant_message", text: "hi there" }],
+    });
+    const input = ctx.container.querySelector(".am-test-input");
+    input.value = "hello there";
+    await ctx.api.send();
+    expect(input.value).toBe("");
+    const out = ctx.container.querySelector(".am-test-out").innerHTML;
+    expect(out).toContain('<span class="hdr">user:</span> hello there');
+    expect(out).toContain('<span class="hdr">Mazda:</span> hi there');
   });
 
   test("voice stop fills the textarea; Auto Send off does not send", async () => {

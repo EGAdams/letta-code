@@ -76,8 +76,20 @@ ROL_FINANCES_PLAN_FILE = os.path.expanduser('~/rol_finances/tools/plan.html')
 # containing a generated report.html. Lives outside the repo, so reports are
 # served under ROL_FINANCES_REPORTS_URL_PREFIX (path-traversal checked below).
 # `check_images/` is intentionally excluded — still waiting on those files.
-ROL_FINANCES_REPORTS_BASE = os.path.expanduser(
-    '~/rol_finances/readable_documents/bank_statements/january')
+# Reports are grouped by month (the frontend's month tabs); the same `dir` name
+# is looked up under each month's own subfolder, so a document is "ready" for a
+# given month independently of the others (e.g. Platinum Year, an annual
+# statement, already has a report.html under both january/ and february/, while
+# month-specific statements like FNBO 4851 only exist under january/ so far).
+ROL_FINANCES_REPORTS_PARENT = os.path.expanduser(
+    '~/rol_finances/readable_documents/bank_statements')
+ROL_FINANCES_REPORTS_MONTHS = {
+    'jan-2025': 'january',
+    'feb-2025': 'february',
+}
+ROL_FINANCES_REPORTS_DEFAULT_MONTH = 'jan-2025'
+ROL_FINANCES_REPORTS_BASE = os.path.join(
+    ROL_FINANCES_REPORTS_PARENT, ROL_FINANCES_REPORTS_MONTHS[ROL_FINANCES_REPORTS_DEFAULT_MONTH])
 ROL_FINANCES_REPORTS_URL_PREFIX = '/rol_finances_reports'
 ROL_FINANCE_REPORTS = [
     {'key': 'amex-61006',        'label': 'Amex 61006',         'dir': 'amex_personal_january_25'},
@@ -181,14 +193,33 @@ VERIFICATION_LIB = os.path.expanduser(
     '~/rol_finances/tools/python_tasks/verification_lib')
 
 
-def _report_file_for_url(report_path):
-    """Map a /rol_finances_reports/<dir>/report.html URL path to its file on disk."""
+def _rol_reports_base_dir(month_key):
+    """Base dir for a month key, e.g. 'feb-2025' -> .../bank_statements/february."""
+    sub = ROL_FINANCES_REPORTS_MONTHS.get(
+        month_key, ROL_FINANCES_REPORTS_MONTHS[ROL_FINANCES_REPORTS_DEFAULT_MONTH])
+    return os.path.join(ROL_FINANCES_REPORTS_PARENT, sub)
+
+
+def _split_report_url(report_path):
+    """Map '/rol_finances_reports/<month>/<rel>' -> (base_dir, rel), or None if
+    malformed or the month key isn't recognized."""
     prefix = ROL_FINANCES_REPORTS_URL_PREFIX + '/'
     if not report_path or not report_path.startswith(prefix):
         return None
-    rel = report_path[len(prefix):]
-    fp = os.path.abspath(os.path.join(ROL_FINANCES_REPORTS_BASE, rel))
-    base = os.path.abspath(ROL_FINANCES_REPORTS_BASE)
+    month_key, sep, rel = report_path[len(prefix):].partition('/')
+    if not sep or month_key not in ROL_FINANCES_REPORTS_MONTHS:
+        return None
+    return _rol_reports_base_dir(month_key), rel
+
+
+def _report_file_for_url(report_path):
+    """Map a /rol_finances_reports/<month>/<dir>/report.html URL path to its file on disk."""
+    split = _split_report_url(report_path)
+    if not split:
+        return None
+    base, rel = split
+    fp = os.path.abspath(os.path.join(base, rel))
+    base = os.path.abspath(base)
     if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
         return fp
     return None
@@ -484,7 +515,7 @@ def _select_matching_expense(rows, vendor_key, description):
 def _matching_expense(cur, date_str, amount_str, vendor_key, description):
     """Return the expense matching a report row using the recategorization rules."""
     cur.execute(
-        "SELECT id, id_light, description, receipt_url "
+        "SELECT id, id_light, description, receipt_url, notes "
         "FROM expenses WHERE expense_date=%s AND amount=%s",
         (date_str, amount_str),
     )
@@ -495,11 +526,11 @@ def _source_document_path(report_path, receipt_path=None):
     """Resolve the original statement document represented by a report URL."""
     raw = unquote((report_path or '').split('?', 1)[0])
     report_file = None
-    prefix = ROL_FINANCES_REPORTS_URL_PREFIX + '/'
-    if raw.startswith(prefix):
-        rel = raw[len(prefix):]
-        candidate = os.path.abspath(os.path.join(ROL_FINANCES_REPORTS_BASE, rel))
-        base = os.path.abspath(ROL_FINANCES_REPORTS_BASE)
+    split = _split_report_url(raw)
+    if split:
+        base, rel = split
+        candidate = os.path.abspath(os.path.join(base, rel))
+        base = os.path.abspath(base)
         if os.path.commonpath([candidate, base]) == base:
             report_file = candidate
     if report_file:
@@ -544,6 +575,7 @@ def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_p
         'expense_id': chosen['id'] if chosen else '',
         'receipt_url': '',
         'receipt_path': '',
+        'notes': (chosen.get('notes') or '') if chosen else '',
         'machine_origin': _document_machine_origin(),
         'source_document_path': _source_document_path(report_path),
     }
@@ -564,6 +596,26 @@ def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_p
         source_document_path=_source_document_path(report_path, fp),
     )
     return metadata
+
+
+# ── ROL Finance: save a free-text note for a Verified-Transactions row ────────
+# The "Set Category" dialog's notes textarea POSTs here on Close. Matches the same
+# expense row recategorize_expense/lookup_receipt use, then writes expenses.notes.
+def save_expense_notes(date_str, signed_amount, vendor_key, description, notes):
+    amt = _norm_amount(signed_amount)
+    if amt is None:
+        return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
+    try:
+        with _rol_get_connection() as cnx:
+            with cnx.cursor() as cur:
+                chosen = _matching_expense(cur, date_str, amt, vendor_key, description)
+                if chosen is None:
+                    return {'ok': False,
+                            'error': 'No matching expense in DB for that date/amount (bank-only row).'}
+                cur.execute("UPDATE expenses SET notes=%s WHERE id=%s", (notes, chosen['id']))
+    except Exception as e:
+        return {'ok': False, 'error': f'DB error: {e}'}
+    return {'ok': True, 'expense_id': chosen['id']}
 
 
 def receipts_present(rows):
@@ -2342,15 +2394,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return self.json_response(result)
 
         if path == '/api/rol-finance-reports':
+            month_key = query.get('month', [ROL_FINANCES_REPORTS_DEFAULT_MONTH])[0]
+            if month_key not in ROL_FINANCES_REPORTS_MONTHS:
+                month_key = ROL_FINANCES_REPORTS_DEFAULT_MONTH
+            base_dir = _rol_reports_base_dir(month_key)
             result = []
             for r in ROL_FINANCE_REPORTS:
-                report_file = os.path.join(ROL_FINANCES_REPORTS_BASE, r['dir'], 'report.html')
+                report_file = os.path.join(base_dir, r['dir'], 'report.html')
                 exists = os.path.isfile(report_file)
                 result.append({
                     'key': r['key'],
                     'label': r['label'],
                     'exists': exists,
-                    'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{r["dir"]}/report.html' if exists else None,
+                    'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html' if exists else None,
                 })
             # Synthetic "Receipt Only" tab: receipts with no bank-statement
             # transaction. Built live from the DB (no report.html on disk).
@@ -2424,10 +2480,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return
 
         if path.startswith(ROL_FINANCES_REPORTS_URL_PREFIX + '/'):
-            rel = path[len(ROL_FINANCES_REPORTS_URL_PREFIX) + 1:]
-            fp = os.path.abspath(os.path.join(ROL_FINANCES_REPORTS_BASE, rel))
-            base = os.path.abspath(ROL_FINANCES_REPORTS_BASE)
-            if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
+            fp = _report_file_for_url(path)
+            if fp:
                 return self.serve_file(fp, 'text/html')
             self.send_error(404)
             return
@@ -2616,6 +2670,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(receipts_present(data.get('rows', [])))
+
+        if path == '/api/save-expense-notes':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(save_expense_notes(
+                data.get('date', ''),
+                data.get('signed_amount', ''),
+                data.get('vendor_key', ''),
+                data.get('description', ''),
+                data.get('notes', ''),
+            ))
 
         self.send_error(404)
 

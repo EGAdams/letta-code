@@ -20,18 +20,24 @@ export function composeSpokenText(replies) {
   return preferred || replies.map((x) => x.text).join(". ");
 }
 
-/** Render an array of {type,text} replies to MSI console HTML. */
-export function renderReplyRows(replies) {
+/**
+ * Render an array of {type,text} replies to MSI console HTML.
+ * When agentName is given, "assistant" rows are labeled with it instead of
+ * the literal "assistant" so the user can see which agent replied.
+ */
+export function renderReplyRows(replies, agentName) {
   if (!replies || !replies.length) {
     return '<div class="msi-entry dim">(no reply content)</div>';
   }
   return replies
-    .map(
-      (x) =>
-        `<div class="msi-entry"><span class="hdr">${TextUtils.esc(
-          (x.type || "").replace("_message", ""),
-        )}</span> ${TextUtils.esc(x.text)}</div>`,
-    )
+    .map((x) => {
+      const typeLabel = (x.type || "").replace("_message", "");
+      const label =
+        typeLabel === "assistant" && agentName ? agentName : typeLabel;
+      return `<div class="msi-entry"><span class="hdr">${TextUtils.esc(
+        label,
+      )}:</span> ${TextUtils.esc(x.text)}</div>`;
+    })
     .join("");
 }
 
@@ -612,8 +618,9 @@ export class InputOptionsRenderer extends DetailRenderer {
         showStatus("Nothing to send.", true);
         return;
       }
-      outEl.innerHTML =
-        '<div class="msi-console"><span class="msi-cursor">&#9608;</span> sending&hellip;</div>';
+      textEl.value = "";
+      const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
+      outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div><span class="msi-cursor">&#9608;</span> sending&hellip;</div>`;
       showStatus("");
       this._onStatus(id, "active");
       try {
@@ -624,14 +631,14 @@ export class InputOptionsRenderer extends DetailRenderer {
         const replies = r.replies || [];
         const hasError = replies.some((x) => x.type === "error");
         this._onStatus(id, hasError ? "error" : "idle");
-        outEl.innerHTML = `<div class="msi-console">${renderReplyRows(replies)}</div>`;
+        outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div>${renderReplyRows(replies, this._agentName)}</div>`;
         if (speakOn && this._speech) {
           const replyText = replies.map((x) => x.text || "").join(" ");
           if (replyText) this._speech.speak(replyText, this._agentName);
         }
       } catch (e) {
         this._onStatus(id, "error");
-        outEl.innerHTML = `<div class="msi-console"><span class="msi-line err">! ${TextUtils.esc(e.message)}</span></div>`;
+        outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div><span class="msi-line err">! ${TextUtils.esc(e.message)}</span></div>`;
       }
     };
     sendBtn.addEventListener("click", send);

@@ -610,9 +610,7 @@ summary {
   color: #000;
 }
 
-/* Month/year grouping tabs above the ROL Finance report list. Distinct
-   teal so the month-selector row reads as a different level than the
-   document tabs below it; .active still bolds the chosen month. */
+/* Month/year grouping tabs above the ROL Finance report list. */
 .tab.month-tab {
   background: #00695c;
   text-transform: uppercase;
@@ -628,8 +626,7 @@ summary {
   font-weight: 700;
 }
 
-/* Report tab whose report.html is missing on disk (also used for every
-   document under an unavailable month, e.g. February 2025). */
+/* Report tab whose report.html is missing on disk */
 .tab.report-missing {
   background: #e53935;
   color: #fff;
