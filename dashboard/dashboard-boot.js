@@ -58,8 +58,10 @@ const startupProgressBar = document.getElementById("startup-progress-bar");
 const startupConsole = document.getElementById("startup-console");
 
 const startupGate = (() => {
-  const FINISH_DELAY_MS = 5000;
-  const FILL_PHASE_MS = 4000;
+  const FILL_PHASE_MS = 2500;
+  const GREEN_PHASE_MS = 3000;
+  const FINISH_DELAY_MS = FILL_PHASE_MS + GREEN_PHASE_MS;
+  const LOG_SPACING_MS = 75;
   const tasks = [
     {
       key: "server-registry",
@@ -86,6 +88,8 @@ const startupGate = (() => {
   let released = false;
   let finishTimer = null;
   let greenTimer = null;
+  let logChain = Promise.resolve();
+  let hasLogged = false;
 
   function resetBar() {
     if (!startupProgressBar) return;
@@ -105,15 +109,8 @@ const startupGate = (() => {
   }
 
   function renderProgress(currentLabel) {
-    const pct = Math.round((completed.size / tasks.length) * 100);
-    if (startupProgressBar) {
-      startupProgressBar.style.width = `${pct}%`;
-    }
     if (startupStatusText) {
-      startupStatusText.textContent =
-        pct >= 100
-          ? "Startup checks complete. Dashboard ready."
-          : `${currentLabel} (${pct}% complete)`;
+      startupStatusText.textContent = currentLabel;
     }
   }
 
@@ -127,6 +124,20 @@ const startupGate = (() => {
     return line;
   }
 
+  function writeLine(text, className = "") {
+    const waitMs = hasLogged ? LOG_SPACING_MS : 0;
+    hasLogged = true;
+    logChain = logChain
+      .then(
+        () =>
+          new Promise((resolve) => {
+            window.setTimeout(resolve, waitMs);
+          }),
+      )
+      .then(() => log(text, className));
+    return logChain;
+  }
+
   return {
     start() {
       document.body.classList.add("startup-loading");
@@ -135,11 +146,11 @@ const startupGate = (() => {
       if (greenTimer) window.clearTimeout(greenTimer);
       finishTimer = null;
       greenTimer = null;
+      logChain = Promise.resolve();
+      hasLogged = false;
       resetBar();
-      renderProgress("Starting dashboard checks");
-      for (const task of tasks) {
-        log(`${task.label}...`);
-      }
+      renderProgress("Running Dashboard checks...");
+      writeLine("Checking server and SSH connections...");
     },
     complete(key, text) {
       if (released || completed.has(key)) return;
@@ -163,10 +174,13 @@ const startupGate = (() => {
         this.finish();
       }
     },
+    writeLine(text, className = "") {
+      return writeLine(text, className);
+    },
     async finish() {
       if (released) return;
       released = true;
-      renderProgress("Startup checks complete");
+      renderProgress("Running Dashboard checks...");
       animateCompletionBar();
       greenTimer = window.setTimeout(() => {
         startupOverlay?.classList.add("startup-complete");
@@ -179,6 +193,139 @@ const startupGate = (() => {
       await new Promise((resolve) => {
         finishTimer = window.setTimeout(resolve, FINISH_DELAY_MS);
       });
+      await logChain;
+      document.body.classList.remove("startup-loading");
+      startupOverlay?.classList.add("hidden");
+    },
+  };
+})();
+
+const agentGate = (() => {
+  const FILL_PHASE_MS = 2500;
+  const GREEN_PHASE_MS = 3000;
+  const FINISH_DELAY_MS = FILL_PHASE_MS + GREEN_PHASE_MS;
+  const LOG_SPACING_MS = 75;
+  const tasks = [
+    {
+      key: "agents",
+      label: "Loading agents",
+      detail: "Fetching agent definitions",
+    },
+  ];
+  const completed = new Set();
+  let released = false;
+  let finishTimer = null;
+  let greenTimer = null;
+  let logChain = Promise.resolve();
+  let hasLogged = false;
+
+  function resetBar() {
+    if (!startupProgressBar) return;
+    startupProgressBar.style.transition = "none";
+    startupProgressBar.style.width = "0%";
+    startupProgressBar.offsetHeight;
+    startupProgressBar.style.transition = "";
+  }
+
+  function animateCompletionBar() {
+    if (!startupProgressBar) return;
+    startupProgressBar.style.transition = "none";
+    startupProgressBar.style.width = "0%";
+    startupProgressBar.offsetHeight;
+    startupProgressBar.style.transition = `width ${FILL_PHASE_MS}ms linear`;
+    startupProgressBar.style.width = "100%";
+  }
+
+  function renderProgress(currentLabel) {
+    if (startupStatusText) {
+      startupStatusText.textContent = currentLabel;
+    }
+  }
+
+  function log(text, className = "") {
+    if (!startupConsole) return;
+    const line = document.createElement("div");
+    if (className) line.className = className;
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+    startupConsole.appendChild(line);
+    startupConsole.scrollTop = startupConsole.scrollHeight;
+    return line;
+  }
+
+  function writeLine(text, className = "") {
+    const waitMs = hasLogged ? LOG_SPACING_MS : 0;
+    hasLogged = true;
+    logChain = logChain
+      .then(
+        () =>
+          new Promise((resolve) => {
+            window.setTimeout(resolve, waitMs);
+          }),
+      )
+      .then(() => log(text, className));
+    return logChain;
+  }
+
+  return {
+    start() {
+      document.body.classList.add("startup-loading");
+      startupOverlay?.classList.remove("hidden");
+      startupOverlay?.classList.remove("startup-complete");
+      if (finishTimer) window.clearTimeout(finishTimer);
+      if (greenTimer) window.clearTimeout(greenTimer);
+      finishTimer = null;
+      greenTimer = null;
+      logChain = Promise.resolve();
+      hasLogged = false;
+      completed.clear();
+      released = false;
+      if (startupConsole) startupConsole.innerHTML = "";
+      resetBar();
+      renderProgress("Running Agent Management checks...");
+      writeLine("Checking agent roster...");
+    },
+    complete(key, text) {
+      if (released || completed.has(key)) return;
+      const task = tasks.find((entry) => entry.key === key);
+      completed.add(key);
+      log(text || `${task?.label || key} complete.`);
+      renderProgress(task?.detail || "Advancing agent checks");
+      if (completed.size === tasks.length) {
+        this.finish();
+      }
+    },
+    fail(key, error) {
+      if (released || completed.has(key)) return;
+      completed.add(key);
+      const task = tasks.find((entry) => entry.key === key);
+      log(
+        `${task?.label || key} failed: ${error?.message || error || "Unknown error"}`,
+      );
+      renderProgress(task?.detail || "Advancing agent checks");
+      if (completed.size === tasks.length) {
+        this.finish();
+      }
+    },
+    writeLine(text, className = "") {
+      return writeLine(text, className);
+    },
+    async finish() {
+      if (released) return;
+      released = true;
+      renderProgress("Running Agent Management checks...");
+      animateCompletionBar();
+      greenTimer = window.setTimeout(() => {
+        startupOverlay?.classList.add("startup-complete");
+        if (startupStatusText) {
+          startupStatusText.textContent = "Finished loading agents.";
+        }
+        const finalLine = log("finished loading agents.", "startup-final-line");
+        finalLine?.classList.add("startup-blink");
+      }, FILL_PHASE_MS);
+      await new Promise((resolve) => {
+        finishTimer = window.setTimeout(resolve, FINISH_DELAY_MS);
+      });
+      await logChain;
       document.body.classList.remove("startup-loading");
       startupOverlay?.classList.add("hidden");
     },
@@ -740,12 +887,16 @@ const AM = {
         return;
       }
 
+      agentGate.start();
+
       if (!this.agents) {
+        agentGate.writeLine("Fetching agent roster...");
         if (status) status.textContent = "Loading agents…";
         try {
           this.agents = await http.getJSON("/api/agents");
           this.agentsLoadedAt = Date.now();
         } catch (e) {
+          agentGate.fail("agents", e);
           if (status)
             status.innerHTML =
               '<span class="am-warn" style="display:block">Failed to load agents: ' +
@@ -756,11 +907,14 @@ const AM = {
       }
 
       if (!this.agents.length) {
+        agentGate.writeLine("No agents found.");
+        agentGate.complete("agents", "Loaded 0 agents.");
         if (status) status.textContent = "No agents found.";
         return;
       }
 
       for (const a of this.agents) {
+        agentGate.writeLine(`Agent ${a.name}`);
         navAgents.appendChild(tabFactory.buildAgentTab(a));
       }
       const age = this.agentsLoadedAt
@@ -774,6 +928,7 @@ const AM = {
           (this.agents.length === 1 ? "" : "s") +
           (age ? ` <span class="dim">(cached ${age}s ago)</span>` : "") +
           ". Pick one from the left to view its Thoughts, Messages, Tool Calls, or Input Options.";
+      agentGate.complete("agents", `Loaded ${this.agents.length} agents.`);
     } finally {
       this._tabsLoading = false;
     }
@@ -1270,8 +1425,16 @@ async function preloadStartupChecks() {
     },
     (health) => {
       const count = health?.servers?.length || 0;
-      const down =
-        health?.servers?.filter((server) => server.status !== "up").length || 0;
+      const rows = health?.servers || [];
+      const nameByKey = new Map(
+        (SM.servers || []).map((server) => [server.key, server.name]),
+      );
+      for (const server of rows) {
+        startupGate.writeLine(
+          `Server ${nameByKey.get(server.key) || server.key}: ${server.status || "unknown"}`,
+        );
+      }
+      const down = rows.filter((server) => server.status !== "up").length || 0;
       return `Server health check finished: ${count - down}/${count} up.`;
     },
     () => {
@@ -1290,9 +1453,17 @@ async function preloadStartupChecks() {
     },
     (health) => {
       const count = health?.connections?.length || 0;
+      const rows = health?.connections || [];
+      const nameByKey = new Map(
+        (SSHM.connections || []).map((conn) => [conn.key, conn.name]),
+      );
+      for (const conn of rows) {
+        startupGate.writeLine(
+          `SSH ${nameByKey.get(conn.key) || conn.key}: ${conn.status || "unknown"}`,
+        );
+      }
       const down =
-        health?.connections?.filter((connection) => connection.status !== "up")
-          .length || 0;
+        rows.filter((connection) => connection.status !== "up").length || 0;
       return `SSH health check finished: ${count - down}/${count} reachable.`;
     },
     () => {
@@ -1310,6 +1481,9 @@ async function preloadStartupChecks() {
   ]);
 
   if (SM.servers) {
+    for (const server of SM.servers) {
+      startupGate.writeLine(`Queueing server check: ${server.name}`);
+    }
     navServers.querySelectorAll("[data-server-key]").forEach((tab) => {
       tab.remove();
     });
@@ -1320,6 +1494,9 @@ async function preloadStartupChecks() {
   }
 
   if (SSHM.connections) {
+    for (const conn of SSHM.connections) {
+      startupGate.writeLine(`Queueing SSH check: ${conn.name}`);
+    }
     navSSH.querySelectorAll("[data-conn-key]").forEach((tab) => {
       tab.remove();
     });

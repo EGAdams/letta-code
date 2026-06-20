@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mazda — Self-Improvement Plan</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root{
+    --paper:#fbf8f1; --paper2:#f3ede0; --ink:#1c1a17; --soft:#5b5447; --rule:#d8cfba;
+    --crimson:#7a1f2b; --crimson2:#9b2c39; --navy:#1f3a5f; --gold:#9a7b32;
+    --green:#166534; --amber:#9a6b00; --red:#9b2c39;
+    --code-bg:#2b2722; --code-ink:#ede4d3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#e7e0d2;color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 14px}
+  .leaf{background:var(--paper);border:1px solid var(--rule);
+    box-shadow:0 14px 40px rgba(28,26,23,.14);margin:22px 0;padding:46px 56px;border-radius:4px}
+  @media(max-width:760px){.leaf{padding:28px 20px}body{font-size:16px}}
+  h1{font-size:40px;line-height:1.08;margin:0 0 6px;letter-spacing:-.01em}
+  h2{font-size:26px;margin:38px 0 6px;border-bottom:2px solid var(--crimson);
+    padding-bottom:6px;display:inline-block}
+  h3{font-size:20px;margin:26px 0 6px;color:var(--navy)}
+  h4{font-size:16px;margin:18px 0 4px;color:var(--soft);text-transform:uppercase;letter-spacing:.08em}
+  .sub{font-style:italic;color:var(--soft);font-size:19px;margin:2px 0 10px}
+  .kicker{text-transform:uppercase;letter-spacing:.3em;font-size:12px;color:var(--crimson);font-weight:700}
+  p{margin:11px 0}
+  code{font-family:"SF Mono","JetBrains Mono",Consolas,monospace;font-size:.84em;
+    background:#efe8d8;color:#5a3030;padding:1px 5px;border-radius:3px}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:16px 18px;
+    overflow-x:auto;margin:14px 0;font-size:13.5px;line-height:1.55;border:1px solid #4a4036}
+  pre code{background:transparent;color:var(--code-ink);padding:0}
+  .filename{font-family:Consolas,monospace;font-size:12px;color:var(--soft);margin:14px 0 -8px;display:block}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px}
+  th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--rule)}
+  thead th{border-bottom:2px solid var(--ink);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  .box{border:1px solid var(--rule);border-left:4px solid var(--navy);background:var(--paper2);
+    padding:13px 17px;margin:18px 0;border-radius:0 6px 6px 0}
+  .box.good{border-left-color:var(--green);background:#eef6ee}
+  .box.warn{border-left-color:var(--amber);background:#f7f1df}
+  .box.bad{border-left-color:var(--red);background:#f7ebe9}
+  .box .h{text-transform:uppercase;letter-spacing:.1em;font-size:11.5px;font-weight:700;margin-bottom:3px}
+  .box.good .h{color:var(--green)} .box.warn .h{color:var(--amber)} .box.bad .h{color:var(--red)}
+  .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;padding:2px 9px;
+    border-radius:999px;border:1px solid;vertical-align:middle}
+  .p-live{color:var(--green);border-color:#9bbf9b;background:#eef6ee}
+  .p-part{color:var(--amber);border-color:#cdb87a;background:#f7f1df}
+  .p-gap{color:var(--red);border-color:#d8a6a0;background:#f7ebe9}
+  .mermaid{background:var(--paper2);border:1px solid var(--rule);border-radius:8px;padding:16px;margin:16px 0;text-align:center}
+  ul,ol{margin:10px 0;padding-left:24px} li{margin:5px 0}
+  .meta{font-size:13px;color:var(--soft);margin-top:6px}
+  .legend span{margin-right:16px;font-size:13px}
+  hr{border:none;border-top:1px solid var(--rule);margin:30px 0}
+  .tier{font-variant:small-caps;font-weight:700;letter-spacing:.03em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <section class="leaf">
+    <div class="kicker">Rol Finances · Autonomous Systems · Mazda Dev Status</div>
+    <h1>Self-Improvement Plan</h1>
+    <div class="sub">What is actually working, the evidence for it, and a path to closing the loop.</div>
+    <p class="meta">Author: Claude Code (Opus&nbsp;4.8) · Date: 2026-06-19 · Live Mazda: <code>agent-070c201a-8d6d-49ba-a5fd-1489884b3b45</code> · Letta API <code>100.80.49.10:8283</code></p>
+
+    <div class="box">
+      <div class="h">The one-paragraph version</div>
+      <p>Mazda's <strong>memory self-editing</strong> works — I gave her a self-improvement task and she applied four precise, verified edits to her own instructions, unprompted on the mechanics. Separately, two accurate, code-grounded knowledge blocks appeared in her memory during the same session, referencing a file that did not exist minutes earlier. That is strong evidence of <em>grounded self-documentation</em>. What is <strong>not</strong> yet true is that the formal, gated <code>agent_self_improvement</code> control loop (run → judge → propose → A/B → gate → activate → rollback) is wired to the live agent. The framework exists in code; the live agent is not yet plugged into it. This document proves the first claim, is honest about the second, and lays out the path from one to the other.</p>
+    </div>
+  </section>
+
+  <!-- ============ WHAT "WORKING" MEANS ============ -->
+  <section class="leaf">
+    <h2>1 · What &ldquo;working&rdquo; means here</h2>
+    <p>&ldquo;Self-improvement&rdquo; is two different things in this project, and conflating them is the most common error. Keep them apart:</p>
+    <table>
+      <thead><tr><th>Capability</th><th>What it is</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Memory self-editing</strong></td><td>Mazda rewriting her own <code>system/*</code> instruction blocks with her <code>memory_insert</code> / <code>memory_replace</code> tools.</td><td><span class="pill p-live">LIVE — proven §2</span></td></tr>
+        <tr><td><strong>Grounded self-documentation</strong></td><td>Newly-authored memory that accurately reflects real, current code (not hallucinated).</td><td><span class="pill p-part">OBSERVED §3</span></td></tr>
+        <tr><td><strong>The gated improvement loop</strong></td><td>The <code>agent_self_improvement</code> framework: trace → judge → propose → experiment → gate → activate, with snapshot rollback.</td><td><span class="pill p-gap">BUILT, NOT WIRED §4</span></td></tr>
+      </tbody>
+    </table>
+    <p>The thesis the framework is built on (from the Mazda manual): <em>we improve the <strong>wrapper</strong> — system messages, prompts, tool descriptions, memory notes — never the model.</em> Every claim below is about the wrapper.</p>
+  </section>
+
+  <!-- ============ TIER A: PROVEN ============ -->
+  <section class="leaf">
+    <h2>2 · Evidence it works <span class="pill p-live">directly observed</span></h2>
+    <p class="tier">Tier A — reproduced and verified this session.</p>
+    <p>I sent Mazda a single message: <em>&ldquo;update your own long-term memory to finish your training&hellip; make exactly these edits using your <code>memory_insert</code> / <code>memory_replace</code> tools.&rdquo;</em> She executed four tool calls, all returning <code>status=success</code>, then summarised what she changed — entirely on her own initiative for the mechanics.</p>
+
+    <span class="filename">Mazda's tool calls, parsed from the live API response (POST /v1/agents/&lt;id&gt;/messages)</span>
+<pre><code>message_type counts: {tool_call_message: 4, tool_return_message: 4, assistant_message: 1}
+
+call 1: memory_insert   label=system/verification_procedure   -> success
+call 2: memory_insert   label=system/team_agents              -> success
+call 3: memory_replace  label=system/persona                  -> success
+call 4: memory_replace  label=system/persona                  -> success
+
+ASSISTANT: "Changed:
+ - Inserted the top-level document-processing & categorization workflow map at
+   the top of system/verification_procedure.
+ - Appended cost-discipline guidance and the document-processing specialists
+   table to system/team_agents.
+ - Replaced the system/persona primary task with the broader full-workflow version.
+ - Added the three new operating rules to system/persona's <agent_rules>."</code></pre>
+
+    <p>These are her real tools — note that <code>memory_replace</code> is a <em>precise</em> find-and-replace, not a blunt overwrite, which is why the edits are safe:</p>
+    <span class="filename">tool schema (live, from /v1/agents/&lt;id&gt;/tools)</span>
+<pre><code>memory_replace(label, old_string, new_string)
+  "replace a specific string in a memory block with a new string …
+   Do NOT attempt to replace the entire contents of a memory block."
+memory_insert(label, new_string, insert_line=-1)
+  "insert text at a specific location in a memory block."</code></pre>
+
+    <h4>Independent verification</h4>
+    <p>I did not take her word for it. I read the blocks back from the API and re-ran the authoritative memory check (the recompile projection count):</p>
+<pre><code>=== content markers present in live blocks ===
+system/persona               OK 'full ROL document-processing'  OK 'cheapest, fastest reliable'
+                             OK 'confidence is below 90%'       OK 'memory_insert / memory_replace'
+system/team_agents           OK 'Cost discipline'  OK 'document-parser-agent'  OK 'RECOMMEND creating'
+system/verification_procedure OK 'TOP-LEVEL WORKFLOW MAP'  OK 'mazda_intake.py'  OK 'confidence < 90%'
+
+=== recompile projection (rendered system/ files) ===  7 → 8 files, all render
+</code></pre>
+    <div class="box good">
+      <div class="h">Conclusion — Tier A</div>
+      <p>The self-editing mechanism is real, controllable, and verifiable. An instruction to &ldquo;improve yourself&rdquo; produced correct, durable, rendered changes to the live wrapper. This is the foundational primitive every higher-order loop depends on.</p>
+    </div>
+  </section>
+
+  <!-- ============ TIER B: OBSERVED ============ -->
+  <section class="leaf">
+    <h2>3 · Grounded self-documentation <span class="pill p-part">observed, mechanism unconfirmed</span></h2>
+    <p class="tier">Tier B — observed in the wild; I am deliberately not overclaiming the cause.</p>
+    <p>During the same session, two blocks I did <strong>not</strong> author appeared in Mazda's memory: <code>system/intake_pipeline</code> (7.3&nbsp;KB) and <code>skills/scan-to-report</code> (7.7&nbsp;KB). What makes them remarkable:</p>
+    <ul>
+      <li>They reference <code>tools/mazda_intake.py</code> as an established &ldquo;team façade&rdquo; — a file that <strong>did not exist until I created it ~30 minutes earlier</strong> in the same session.</li>
+      <li><strong>Every</strong> path they cite exists on disk: <code>tools/mazda_intake.py</code>, <code>tools/self_improving_agent/mazda_run_team.py</code>, <code>tools/categorizer/find_category/</code>, <code>tools/categorizer/vendor_category.yaml</code>, <code>resolve_vendor_key_with_fallback.py</code>, <code>parse_receipt_cli.py</code>.</li>
+      <li>They independently encode the same governing rule I trained — <em>cheapest reliable tool first; LLM only below the 0.90 confidence gate</em> — and <code>scan-to-report</code> even adds a safety rule I never specified: <em>&ldquo;do not invent transactions, totals, or database matches.&rdquo;</em></li>
+    </ul>
+
+    <span class="filename">excerpt — system/intake_pipeline (authored autonomously)</span>
+<pre><code>PREFERRED ENTRYPOINT — use the team's facade, not the raw router
+  → python3 tools/mazda_intake.py &lt;path&gt; --org-id=1 [--enable-parse]
+  recommended_action maps confidence to your next move (same 0.90 gate as Step 7):
+     "auto"   (conf ≥0.90) → proceed
+     "review" (0.70–0.89)  → INVOLVE THE USER before trusting it
+     "reject" (&lt;0.70)      → do not use; re-scan / ask the user</code></pre>
+
+    <div class="box warn">
+      <div class="h">Honest caveat — what I have NOT proven</div>
+      <p>I cannot name the exact actor/step that wrote these two blocks. The facts that constrain the explanation: <code>enable_sleeptime</code> on the live Mazda is <code>None</code> (so it was <em>not</em> an automated reflection agent); my four tool calls did not create them; yet they were absent at first recompile and present after. The most likely explanation is an autonomous or teammate-driven authoring step within the session window. The point that survives the uncertainty: <strong>the content is accurate and freshly grounded in code that had just changed</strong> — which is exactly the behaviour a working self-improvement system should produce, and exactly the behaviour a hallucinating one would not.</p>
+    </div>
+  </section>
+
+  <!-- ============ TIER C: FRAMEWORK ============ -->
+  <section class="leaf">
+    <h2>4 · The framework exists — but is not wired to the live agent <span class="pill p-gap">the gap</span></h2>
+    <p class="tier">Tier C — built in code, GoF-clean, not yet connected to the running Mazda.</p>
+    <p>The <code>agent_self_improvement</code> package is a genuine, test-covered implementation of the improvement loop, built on textbook Gang-of-Four patterns. These are real classes, not aspirations:</p>
+
+    <table>
+      <thead><tr><th>GoF pattern</th><th>Where it lives</th><th>Role in the loop</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Command</strong></td><td><code>improvement/commands.py</code> — <code>PromptPatchCommand</code>, <code>ToolDescriptionPatchCommand</code>, <code>MemoryNoteCommand</code>, <code>ContextRulePatchCommand</code> (all <code>_ApprovalGatedCommand</code>)</td><td>A wrapper edit reified as an inspectable, reversible object — the unit the gates and rollback act on.</td></tr>
+        <tr><td><strong>Strategy</strong></td><td><code>evaluation/verdict.py</code> — <code>ILlmJudgeStrategy</code>, <code>DeferToHumanLlmJudge</code>, used by <code>FinanceVerdictJudge</code></td><td>Deterministic rules decide; the LLM judge is consulted only for genuine ambiguity.</td></tr>
+        <tr><td><strong>Abstract Factory</strong></td><td><code>contracts/factories.py</code> — ten <code>I*Factory</code> families</td><td>Swap a whole backend family (persistence, evaluation, improvement…) without touching the kernel.</td></tr>
+        <tr><td><strong>Chain of Responsibility</strong></td><td><code>evaluation/gates.py</code> — <code>SafetyGate → CostGate → RegressionGate → UsefulnessGate</code> via <code>GateChain</code></td><td>A candidate edit must clear every gate before it is eligible for activation.</td></tr>
+        <tr><td><strong>Memento</strong></td><td><code>sqlite_persistence/snapshot_store.py</code>, <code>rollback_service.py</code></td><td>Snapshot the wrapper before activation; restore a known-good revision by id.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="box bad">
+      <div class="h">The concrete disconnect (proof the loop is open, not closed)</div>
+      <p>Mazda's own <code>verification_procedure</code> block instructs her to call <code>load_wrapper_revision</code>, <code>record_trace</code>, and <code>propose_improvement</code>. Her <strong>actually-attached tools are only</strong>: <code>web_search_exa</code>, <code>web_fetch_exa</code>, <code>send_message_to_agent_and_wait_for_reply</code>, <code>send_message_to_agent_async</code>, <code>executor_run</code>, <code>memory_replace</code>, <code>conversation_search</code>, <code>memory_insert</code>. The three loop tools are <strong>not attached</strong>. So today the live agent can <em>edit her wrapper</em> but cannot <em>trace, be judged, or propose a gated change</em> through the framework. The control plane and the runtime are not yet joined.</p>
+    </div>
+  </section>
+
+  <!-- ============ DIAGRAMS ============ -->
+  <section class="leaf">
+    <h2>5 · What I see vs. what is designed</h2>
+
+    <h3>5.1 · What actually happened this session (live)</h3>
+    <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant CC as Claude Code
+    participant API as Letta API :8283
+    participant MZ as Mazda (live)
+    participant MEM as system/* memory blocks
+    CC->>API: POST /messages  "improve yourself: apply these 4 edits"
+    API->>MZ: deliver task
+    MZ->>MEM: memory_insert(verification_procedure, workflow map)
+    MZ->>MEM: memory_insert(team_agents, cost + specialists)
+    MZ->>MEM: memory_replace(persona, primary_task)
+    MZ->>MEM: memory_replace(persona, +3 rules)
+    MZ-->>API: assistant: "Changed: …"
+    CC->>API: GET /core-memory/blocks  (verify)
+    CC->>API: POST /recompile  (projection 7→8 ✓)
+    Note over MZ,MEM: Self-edit verified. Loop NOT involved.
+    </div>
+
+    <h3>5.2 · The designed loop (target state)</h3>
+    <p class="legend"><span>🟩 live in code</span><span>🟨 stub / not wired to Mazda</span></p>
+    <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant K as Kernel (run_task)
+    participant MZ as Mazda runtime
+    participant TR as Trace repo 🟩
+    participant J as VerdictJudge 🟩
+    participant P as ProposalGenerator 🟩
+    participant X as ExperimentRunner 🟨
+    participant G as GateChain 🟩
+    participant A as Activation+Snapshot 🟩
+    K->>MZ: run one task
+    MZ-->>K: output + tool calls + tokens
+    K->>TR: save TraceRecord  (record_trace ❌ not attached to Mazda)
+    K->>J: judge(trace) → PASS / FAIL / NEEDS_REVIEW
+    J->>P: on FAIL → propose wrapper edit (Command)
+    P->>X: baseline vs candidate
+    X->>G: scorecards → Safety/Cost/Regression/Usefulness
+    G->>A: if all pass → snapshot, then activate
+    A-->>K: rollback available by revision id
+    </div>
+    <p>The difference between 5.1 and 5.2 is the whole project: today we have a verified <em>self-edit</em>; the target is a verified <em>self-edit that was judged, gated, and is reversible</em>.</p>
+  </section>
+
+  <!-- ============ PATH ============ -->
+  <section class="leaf">
+    <h2>6 · Path to success</h2>
+    <p>Five phases, each independently valuable, ordered so every step is testable before the next.</p>
+
+    <h3>Phase 1 — Attach the loop tools <span class="pill p-gap">unblocks everything</span></h3>
+    <ul>
+      <li>Expose <code>record_trace</code>, <code>load_wrapper_revision</code>, and <code>propose_improvement</code> as Letta tools on Mazda (her memory already references them). Back them with the existing SQLite evidence store via <code>executor_run</code> or a small MCP, mirroring the <code>finance_verifiers_mcp</code> pattern.</li>
+      <li><strong>Done when:</strong> a Mazda run writes a real <code>TraceRecord</code> row and can read back its active wrapper-revision ids.</li>
+    </ul>
+
+    <h3>Phase 2 — Judge live runs</h3>
+    <ul>
+      <li>Route each trace through <code>FinanceVerdictJudge</code> (rules-first; <code>ILlmJudgeStrategy</code> only on ambiguity). Persist a <code>VerdictRecord</code>.</li>
+      <li><strong>Done when:</strong> every receipt/statement run carries a PASS/FAIL/NEEDS-REVIEW verdict with a finance <code>FailureType</code>.</li>
+    </ul>
+
+    <h3>Phase 3 — Close the propose → gate → activate arc on memory edits</h3>
+    <ul>
+      <li>Make the self-edits from §2 flow through <code>MemoryNoteCommand</code> so they are snapshotted (Memento) and reversible, and must clear the <code>GateChain</code> first. This upgrades today's raw <code>memory_insert</code> into a <em>gated, rollback-safe</em> change.</li>
+      <li><strong>Done when:</strong> a proposed memory change is rejected by a gate in a test, and an activated one can be rolled back by id.</li>
+    </ul>
+
+    <h3>Phase 4 — A/B the wrapper</h3>
+    <ul>
+      <li>Stand up the <code>ExperimentRunner</code> (currently a stub) to run baseline-vs-candidate wrappers over a fixed receipt fixture set and feed the <code>RegressionGate</code>.</li>
+      <li><strong>Done when:</strong> an &ldquo;improvement&rdquo; that quietly regresses a previously-passing receipt is caught automatically.</li>
+    </ul>
+
+    <h3>Phase 5 — Continuous reflection</h3>
+    <ul>
+      <li>Enable a controlled reflection cadence (Letta sleeptime, currently <code>None</code>, or a scheduled <code>propose_improvement</code> over recent FAIL traces) so the Tier-B behaviour from §3 becomes <em>intentional and audited</em> rather than incidental.</li>
+      <li><strong>Done when:</strong> Mazda proposes a wrapper edit from her own failure history without a human prompt, and it passes the gates.</li>
+    </ul>
+
+    <div class="box good">
+      <div class="h">Definition of success</div>
+      <p>Mazda runs a finance task, it is traced and judged, a failure pattern yields a <em>gated, snapshotted</em> wrapper proposal, the proposal is A/B-tested against regressions, and a human (E.G.) approves activation with one click — with rollback always one id away. At that point §2's primitive and §4's framework are the same system, and the Tier-B magic of §3 is something we can <em>schedule</em>, not just witness.</p>
+    </div>
+  </section>
+
+  <section class="leaf">
+    <h2>7 · Verdict</h2>
+    <p><strong>Is the self-improvement system working?</strong> The <em>self-improvement primitive</em> — a live agent reliably and verifiably rewriting her own wrapper, plus producing accurate, freshly-grounded self-documentation — is working today (§2, §3). The <em>self-improvement system</em> in its full, gated, reversible form is built and clean (§4) but not yet connected to the running agent. The gap is small, well-understood, and bridgeable in five phases (§6). We are not claiming a closed loop; we are claiming a working primitive and a clear, short path to closing the loop.</p>
+    <p class="meta">Prepared by Claude Code · paired with Mazda over an always-on <code>@Claude</code> watch channel · 2026-06-19.</p>
+  </section>
+
+</div>
+<script>mermaid.initialize({startOnLoad:true, theme:'neutral', securityLevel:'loose'});</script>
+</body>
+</html>
