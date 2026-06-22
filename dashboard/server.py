@@ -7,6 +7,7 @@ Then open: http://localhost:8765/
 """
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -192,6 +193,30 @@ REPORTING_CATEGORY_ANCESTOR_MAP = {
 RECEIPT_ONLY_REPORT_PATH = '/api/rol-finance-receipt-only-report'
 VERIFICATION_LIB = os.path.expanduser(
     '~/rol_finances/tools/python_tasks/verification_lib')
+
+
+def _classify_report_status(report_file):
+    """Classify a report.html's overall verification status from its hero
+    badge text: 'pass' (green, finished), 'review' (yellow, work in progress
+    — e.g. "REVIEW NEEDED"), or 'fail' (red — explicit failure). Falls back to
+    'review' when the badge can't be found/parsed, since an unparseable
+    report still needs a human look rather than being silently green."""
+    try:
+        with open(report_file, 'r', encoding='utf-8', errors='replace') as f:
+            html = f.read()
+    except OSError:
+        return 'fail'
+    m = re.search(r'<div class="badge[^"]*">(.*?)</div>', html, re.S)
+    if not m:
+        return 'review'
+    text = re.sub(r'<[^>]+>', '', m.group(1)).upper()
+    if 'REVIEW NEEDED' in text or 'WIP' in text:
+        return 'review'
+    if 'FAIL' in text:
+        return 'fail'
+    if 'PASS' in text:
+        return 'pass'
+    return 'review'
 
 
 def _rol_reports_base_dir(month_key):
@@ -3145,14 +3170,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     'key': r['key'],
                     'label': r['label'],
                     'exists': exists,
+                    'status': _classify_report_status(report_file) if exists else 'missing',
                     'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html' if exists else None,
                 })
             # Synthetic "Receipt Only" tab: receipts with no bank-statement
-            # transaction. Built live from the DB (no report.html on disk).
+            # transaction. Built live from the DB (no report.html on disk), so
+            # it isn't a verification target — status: None excludes it from
+            # the month overview's pass/review/fail breakdown.
             result.append({
                 'key': 'receipt-only',
                 'label': 'Receipt Only',
                 'exists': True,
+                'status': None,
                 'url': RECEIPT_ONLY_REPORT_PATH,
             })
             return self.json_response(result)

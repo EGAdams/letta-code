@@ -14,6 +14,13 @@ import { TextUtils } from "../abstract/text-utils.js";
  * `exists`: existing reports get a normal tab + iframe view (collapsed to the
  * Verified Transactions card), missing ones get a red tab + placeholder.
  *
+ * Opening a month does NOT jump straight into a document's report — it lands
+ * on an overview view listing every document for that month, color-coded by
+ * the `status` the backend derives from each report.html's hero badge: pass
+ * (green, finished), review (yellow, "REVIEW NEEDED"/work in progress), or
+ * fail (red, includes `missing`). Clicking a row opens that document's tab,
+ * same as clicking the tab directly.
+ *
  * On each iframe's load we reach into the (same-origin) report document to hide
  * every <section> except the "Verified Transactions" card — the report.html
  * files are static/regenerated, so we never edit them, just collapse the view.
@@ -114,16 +121,74 @@ export class RolFinanceReportsController {
     }
     this.reports = reports;
 
-    // Drop the previous month's document tabs + views, then rebuild.
+    // Drop the previous month's document tabs + views, then rebuild. The
+    // overview lands first — no document tab is "active" until the user
+    // picks one (from the overview or the tab row).
     this._nav.querySelectorAll(".tab[data-report-key]").forEach((t) => {
       t.remove();
     });
     this._viewsContainer.innerHTML = "";
+    this.buildOverview(reports, month);
     this.buildTabsAndViews(reports);
+    this.openOverview();
+  }
 
-    const first = reports[0];
-    if (!first) return;
-    this.selectReport(first.key);
+  /** Map a report's status to a CSS class + human label for the overview row. */
+  static statusInfo(status) {
+    switch (status) {
+      case "pass":
+        return { cls: "rol-status-pass", label: "Finished" };
+      case "review":
+        return { cls: "rol-status-review", label: "In progress" };
+      case "missing":
+        return { cls: "rol-status-fail", label: "Not started" };
+      case "fail":
+        return { cls: "rol-status-fail", label: "Failed" };
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Build the month-level landing view: one color-coded row per document
+   * (skips reports with no `status`, e.g. the synthetic Receipt Only tab,
+   * which isn't a verification target). Clicking a row opens that document.
+   */
+  buildOverview(reports, month) {
+    const view = this._doc.createElement("section");
+    view.id = "rol-finance-reports-overview";
+    view.className = "view";
+
+    const rows = reports
+      .map((r) => ({
+        r,
+        info: RolFinanceReportsController.statusInfo(r.status),
+      }))
+      .filter(({ info }) => info)
+      .map(
+        ({ r, info }) =>
+          `<tr class="${info.cls}" data-report-key="${TextUtils.esc(r.key)}"><td>${TextUtils.esc(r.label)}</td><td>${TextUtils.esc(info.label)}</td></tr>`,
+      )
+      .join("");
+
+    view.innerHTML = `
+      <h2>${TextUtils.esc(month.label)} — Document Status</h2>
+      <table class="rol-overview-table">
+        <thead><tr><th>Document</th><th>Status</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+
+    view.querySelectorAll("tr[data-report-key]").forEach((row) => {
+      row.addEventListener("click", () =>
+        this.selectReport(row.dataset.reportKey),
+      );
+    });
+
+    this._viewsContainer.appendChild(view);
+  }
+
+  openOverview() {
+    this._activateView("rol-finance-reports-overview");
   }
 
   /**

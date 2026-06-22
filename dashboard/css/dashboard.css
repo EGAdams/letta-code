@@ -694,6 +694,42 @@ summary {
   background: #c62828;
 }
 
+/* Month overview landing page (Project Plans → ROL Finance → Reports →
+   <month>) — one color-coded row per document instead of jumping straight
+   into the first document's report. */
+.rol-overview-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+.rol-overview-table th,
+.rol-overview-table td {
+  text-align: left;
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.rol-overview-table tbody tr {
+  cursor: pointer;
+}
+.rol-overview-table tr.rol-status-pass {
+  background: rgba(46, 125, 50, 0.35);
+}
+.rol-overview-table tr.rol-status-pass:hover {
+  background: rgba(46, 125, 50, 0.5);
+}
+.rol-overview-table tr.rol-status-review {
+  background: rgba(245, 178, 8, 0.3);
+}
+.rol-overview-table tr.rol-status-review:hover {
+  background: rgba(245, 178, 8, 0.45);
+}
+.rol-overview-table tr.rol-status-fail {
+  background: rgba(198, 40, 40, 0.35);
+}
+.rol-overview-table tr.rol-status-fail:hover {
+  background: rgba(198, 40, 40, 0.5);
+}
+
 .srv-status {
   display: flex;
   align-items: center;

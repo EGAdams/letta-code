@@ -34,10 +34,22 @@ describe("RolFinanceReportsController", () => {
     expect(() => new RolFinanceReportsController({})).toThrow();
   });
 
-  test("openReports builds a tab + view per report and opens the first", async () => {
+  test("openReports builds a tab + view per report and lands on the overview (not a document)", async () => {
     const ctx = setup([
-      { key: "jan", label: "January", exists: true, url: "/r/jan.html" },
-      { key: "feb", label: "February", exists: false, url: "/r/feb.html" },
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
+      {
+        key: "feb",
+        label: "February",
+        exists: false,
+        status: "missing",
+        url: "/r/feb.html",
+      },
     ]);
     await ctx.rf.openReports();
 
@@ -49,14 +61,18 @@ describe("RolFinanceReportsController", () => {
     expect(tabs[1].className).toBe("tab report-missing");
 
     const views = ctx.viewsContainer.querySelectorAll("section");
-    expect(views.length).toBe(2);
-    expect(views[0].id).toBe("rol-finance-report-jan");
-    expect(views[0].innerHTML).toContain("/r/jan.html");
-    expect(views[1].innerHTML).toContain("Missing report.html");
+    // overview + 2 document views.
+    expect(views.length).toBe(3);
+    const docViews = views.filter(
+      (v) => v.id !== "rol-finance-reports-overview",
+    );
+    expect(docViews[0].id).toBe("rol-finance-report-jan");
+    expect(docViews[0].innerHTML).toContain("/r/jan.html");
+    expect(docViews[1].innerHTML).toContain("Missing report.html");
 
-    // First report selected + activated.
-    expect(ctx.selected.length).toBe(1);
-    expect(ctx.activated).toEqual(["rol-finance-report-jan"]);
+    // No document tab selected — the month overview is shown instead.
+    expect(ctx.selected.length).toBe(0);
+    expect(ctx.activated).toEqual(["rol-finance-reports-overview"]);
 
     // Default month (jan-2025) requested.
     expect(ctx.requestedUrls).toEqual([
@@ -64,9 +80,73 @@ describe("RolFinanceReportsController", () => {
     ]);
   });
 
+  test("overview shows a color-coded row per document, skipping reports with no status", async () => {
+    const ctx = setup([
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
+      {
+        key: "wip",
+        label: "Work In Progress",
+        exists: true,
+        status: "review",
+        url: "/r/wip.html",
+      },
+      {
+        key: "broken",
+        label: "Broken",
+        exists: true,
+        status: "fail",
+        url: "/r/broken.html",
+      },
+      {
+        key: "feb",
+        label: "February",
+        exists: false,
+        status: "missing",
+        url: "/r/feb.html",
+      },
+      {
+        key: "receipt-only",
+        label: "Receipt Only",
+        exists: true,
+        status: null,
+        url: "/r/receipt.html",
+      },
+    ]);
+    await ctx.rf.openReports();
+
+    const overview = ctx.viewsContainer
+      .querySelectorAll("section")
+      .find((v) => v.id === "rol-finance-reports-overview");
+    expect(overview.innerHTML).toContain('class="rol-status-pass"');
+    expect(overview.innerHTML).toContain('class="rol-status-review"');
+    // Both the explicit "fail" and "missing" statuses render as the fail row class.
+    expect(
+      [...overview.innerHTML.matchAll(/class="rol-status-fail"/g)].length,
+    ).toBe(2);
+    expect(overview.innerHTML).toContain("January");
+    expect(overview.innerHTML).toContain("Finished");
+    expect(overview.innerHTML).toContain("In progress");
+    expect(overview.innerHTML).toContain("Failed");
+    expect(overview.innerHTML).toContain("Not started");
+    // Receipt Only isn't a verification target — not listed in the overview.
+    expect(overview.innerHTML).not.toContain("Receipt Only");
+  });
+
   test("openReports caches the list (no rebuild / refetch on second call)", async () => {
     const ctx = setup([
-      { key: "jan", label: "January", exists: true, url: "/r/jan.html" },
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
     ]);
     await ctx.rf.openReports();
     await ctx.rf.openReports();
@@ -82,6 +162,7 @@ describe("RolFinanceReportsController", () => {
               key: "platinum-year",
               label: "Platinum Year",
               exists: true,
+              status: "pass",
               url: "/r/feb-platinum.html",
             },
           ]
@@ -90,6 +171,7 @@ describe("RolFinanceReportsController", () => {
               key: "platinum-year",
               label: "Platinum Year",
               exists: true,
+              status: "pass",
               url: "/r/jan-platinum.html",
             },
           ],
@@ -113,6 +195,29 @@ describe("RolFinanceReportsController", () => {
       ctx.viewsContainer.querySelector("#rol-finance-report-platinum-year")
         .innerHTML,
     ).toContain("/r/jan-platinum.html");
+  });
+
+  test("selecting a report from the overview/tab highlights its tab and opens its view", async () => {
+    const ctx = setup([
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
+    ]);
+    await ctx.rf.openReports();
+    ctx.activated.length = 0;
+    ctx.selected.length = 0;
+
+    ctx.rf.selectReport("jan");
+    expect(ctx.activated).toEqual(["rol-finance-report-jan"]);
+    expect(
+      ctx.nav
+        .querySelector('[data-report-key="jan"]')
+        .classList.contains("active"),
+    ).toBe(true);
   });
 
   test("a fetch failure shows an error section", async () => {

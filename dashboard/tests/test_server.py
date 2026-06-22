@@ -764,3 +764,32 @@ def test_poll_chatgpt_provider_once_only_probes_the_canary(monkeypatch):
                          lambda agent_id, timeout=20: (calls.append(agent_id), {'ok': True, 'text': ''})[1])
     server._poll_chatgpt_provider_once()
     assert len(calls) == 1
+
+
+def _write_badge(tmp_path, badge_text):
+    p = tmp_path / 'report.html'
+    p.write_text(f'<section class="hero"><div class="badge badge-pass">{badge_text}</div></section>')
+    return str(p)
+
+
+def test_classify_report_status_pass(tmp_path):
+    assert server._classify_report_status(_write_badge(tmp_path, 'PASS - all good')) == 'pass'
+
+
+def test_classify_report_status_review_needed(tmp_path):
+    path = _write_badge(tmp_path, '⚠️ REVIEW NEEDED — uncategorized rows remain')
+    assert server._classify_report_status(path) == 'review'
+
+
+def test_classify_report_status_fail(tmp_path):
+    assert server._classify_report_status(_write_badge(tmp_path, 'FAIL - totals do not reconcile')) == 'fail'
+
+
+def test_classify_report_status_missing_file(tmp_path):
+    assert server._classify_report_status(str(tmp_path / 'absent.html')) == 'fail'
+
+
+def test_classify_report_status_unparseable_badge_defaults_to_review(tmp_path):
+    p = tmp_path / 'report.html'
+    p.write_text('<html><body>no badge here</body></html>')
+    assert server._classify_report_status(str(p)) == 'review'

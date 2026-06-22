@@ -821,8 +821,16 @@ function renderModelStats(d) {
 }
 
 const MS = {
+  pollTimer: null,
+  stopPoll() {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  },
   open() {
     if (!navModelStats) return;
+    this.stopPoll();
     const first = navModelStats.querySelector("[data-source]");
     if (first) {
       safeSetActive(
@@ -833,6 +841,10 @@ const MS = {
       this.show(first.dataset.source);
     }
     this.pollColors();
+    this.pollTimer = setInterval(() => {
+      if (this.current) this.show(this.current);
+      this.pollColors();
+    }, 30000);
   },
   async show(key) {
     const body = document.getElementById("model-stats-body");
@@ -886,6 +898,7 @@ if (navModelStats) {
   const backMS = document.getElementById("btn-back-model-stats");
   if (backMS) {
     backMS.addEventListener("click", () => {
+      MS.stopPoll();
       navModelStats.classList.add("hidden");
       navMain.classList.remove("hidden");
       const homeTab = navMain.querySelector(
