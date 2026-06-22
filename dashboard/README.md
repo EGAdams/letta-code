@@ -144,6 +144,11 @@ Other Project Plans notes:
   the separate `DESKTOP-2OBSQMC` WSL box at `100.72.158.63`, which has its own
   `/home/adamsl/letta-code/dashboard` checkout. If that live URL looks stale, deploy the changed
   dashboard files to that machine too.
+- Startup overlay behavior: during boot, the console should show the server and SSH connection names
+  plus their live status checks, and the console area is intentionally taller so that output stays
+  visible.
+- Agent Management now uses the same startup-style loading overlay and log pacing when the Agents tab
+  is opened.
 - `server.py` serves static files from both `dashboard/` and the repo root.
 - **Project Plans → Mazda Dev Status** (`/notes_plans_handoffs/mazda_dev_status.html`) is the
   canonical current-direction doc. The former **Mazda Orchestrator** tab was removed 2026-06-15;
