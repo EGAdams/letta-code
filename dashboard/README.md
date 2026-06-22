@@ -151,6 +151,7 @@ Other Project Plans notes:
   is opened.
 - `server.py` serves static files from both `dashboard/` and the repo root.
 - **Project Plans → Mazda Dev Status** (`/notes_plans_handoffs/mazda_dev_status.html`) is the
+- **Project Plans → Verification Tracker** (`/notes_plans_handoffs/verification_tracker.html`) mirrors the January statement verification tracker markdown as a dashboard-readable HTML page.
   canonical current-direction doc. The former **Mazda Orchestrator** tab was removed 2026-06-15;
   its doc `/team_construction_plan.html` is kept (with a SUPERSEDED banner) as design history only.
 - The old Tool Fix plan was removed; `/agent_self_improvement/mazda_tool_fix_plan.html`
