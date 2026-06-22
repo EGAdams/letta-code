@@ -1,365 +1,5 @@
 [
   {
-    "date": "2026-06-22T15:08:10",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T15:08:30",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; systemctl --user restart dashboard-server.service && sleep 3 && curl -s --max-time 10 -X POST http://localhost:8765/api/server-action -H 'Content-Type: applicatio"
-  },
-  {
-    "date": "2026-06-22T15:08:44",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-22T15:09:09",
-    "type": "mcp__playwright__browser_evaluate",
-    "text": "function: async () => {\n  await new Promise(r => setTimeout(r, 6000)); // startup gate\n  document.querySelector('button[data-target=\"model-stats\"]').click();\n  await new Promise(r => setTimeout(r, 400));\n  // click W11 Codex OAuth\n  document.querySelector('#nav-model-stats [data-source=\"w11-codex\"]').click();\n  await new Promise(r => setTimeout(r, 1500)); // fetch + render + color poll\n  const body = document.getElementById('model-stats-body');\n  const tabColors = [...document.querySelectorAll('#nav-model-stats [data-source]')].map(t => ({\n    src: t.dataset.source,\n    cls: [...t.classList].filter(c => c.startsWith('server-')).join(',') || '(none)'\n  }));\n  const bars = [...body.querySelectorAll('.ms-bar-fill')].map(b => b.style.width + ' / ' + b.style.background);\n  return {\n    heading: body.querySelector('h3')?.textContent,\n    model: body.querySelector('code')?.textContent,\n    windowHeads: [...body.querySelectorAll('.ms-window-head')].map(h => h.textContent),\n    bars,\n    tabColors,\n  };\n}"
-  },
-  {
-    "date": "2026-06-22T15:09:36",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T15:09:46",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; bunx --bun @biomejs/biome@2.2.5 check --write js/dashboard-boot.js 2>&1 | tail -2; systemctl --user restart dashboard-server.service && sleep 3 && curl -s --max-t"
-  },
-  {
-    "date": "2026-06-22T15:09:52",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-22T15:10:08",
-    "type": "mcp__playwright__browser_evaluate",
-    "text": "function: async () => {\n  await new Promise(r => setTimeout(r, 6000));\n  document.querySelector('button[data-target=\"model-stats\"]').click();\n  await new Promise(r => setTimeout(r, 500));\n  document.querySelector('#nav-model-stats [data-source=\"w11-codex\"]').click();\n  await new Promise(r => setTimeout(r, 2500));\n  const body = document.getElementById('model-stats-body');\n  return {\n    heading: body.querySelector('h3')?.textContent,\n    model: body.querySelector('code')?.textContent,\n    windowHeads: [...body.querySelectorAll('.ms-window-head')].map(h => h.textContent),\n    bars: [...body.querySelectorAll('.ms-bar-fill')].map(b => b.style.width + ' / ' + b.style.background),\n  };\n}"
-  },
-  {
-    "date": "2026-06-22T15:10:26",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; echo \"=== py ===\"; .venv/bin/python -m pytest tests/test_server.py -q 2>&1 | tail -2; echo \"=== js ===\"; bun test js/tests 2>&1 | tail -3"
-  },
-  {
-    "date": "2026-06-22T15:10:58",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T15:11:05",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T15:11:16",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T15:11:30",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; grep -n \"blocked by\\|down_for_seconds\\|tab.title\\|const bits\" js/dashboard-boot.js | head"
-  },
-  {
-    "date": "2026-06-22T15:11:36",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T15:11:47",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-06-22T15:11:54",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; echo \"=== py ===\"; .venv/bin/python -m pytest tests/test_server.py -q 2>&1 | tail -3; echo \"=== js + biome ===\"; bun test js/tests 2>&1 | tail -3; bunx --bun @bio"
-  },
-  {
-    "date": "2026-06-22T15:12:11",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; systemctl --user restart dashboard-server.service && sleep 3 && curl -s --max-time 10 -X POST http://localhost:8765/api/server-action -H 'Content-Type: applicatio"
-  },
-  {
-    "date": "2026-06-22T16:40:05",
-    "type": "ToolSearch",
-    "text": "query: select:WebSearch,WebFetch"
-  },
-  {
-    "date": "2026-06-22T16:40:22",
-    "type": "WebSearch",
-    "text": "claude code CLI check usage weekly limit remaining command /usage 2026"
-  },
-  {
-    "date": "2026-06-22T16:40:23",
-    "type": "WebSearch",
-    "text": "codex CLI ChatGPT plan rate limit usage percent /usage command resets_at"
-  },
-  {
-    "date": "2026-06-22T16:41:01",
-    "type": "WebFetch",
-    "text": "https://gist.github.com/omachala/5ea5af4bfa0b194a1d48d6f2eedd6274\n\u2192 # Claude Code Usage Script Analysis  ## API Endpoint & Authentication  The script queries Anthropic's OAuth usage endpoint:  **URL:** `https://api.anthropic.com/api/oauth/usage`  **Auth Token Source:*"
-  },
-  {
-    "date": "2026-06-22T16:41:03",
-    "type": "WebSearch",
-    "text": "chatgpt backend-api codex usage endpoint rate_limits access_token GET json"
-  },
-  {
-    "date": "2026-06-22T16:41:35",
-    "type": "Bash",
-    "text": "cd /home/adamsl\necho \"=== CODEX live usage (chatgpt wham/usage) ===\"\npython3 -c \"\nimport json,urllib.request\nd=json.load(open('/home/adamsl/.codex/auth.json'))\nt=d['tokens']; at=t['access_token']; acc"
-  },
-  {
-    "date": "2026-06-22T16:42:26",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\necho \"=== W11 codex token exp ===\"; python3 -c \"\nimport json,base64,time\nd=json.load(open('/home/adamsl/.codex/auth.json'))\nat=d['tokens']['access_token']; p=at.split('.')[1"
-  },
-  {
-    "date": "2026-06-22T16:42:41",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; grep -n \"clientId\\|refreshToken\\|grant_type.*refresh\\|async function refresh\\|export async function refresh\" src/auth/openai-oauth.ts | head; echo \"=== refresh fn body ===\""
-  },
-  {
-    "date": "2026-06-22T16:42:51",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/src/auth/openai-oauth.ts"
-  },
-  {
-    "date": "2026-06-22T16:43:04",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; grep -n \"refresh\" src/auth/openai-oauth.ts | head; echo \"===\"; sed -n '/refreshAccessToken\\|grant_type: .refresh/,+18p' src/auth/openai-oauth.ts | head -30"
-  },
-  {
-    "date": "2026-06-22T16:43:30",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; python3 -c \"\nimport json,urllib.request,urllib.parse,base64,time\np='/home/adamsl/.codex/auth.json'\nd=json.load(open(p)); t=d['tokens']\nbody=urllib.parse.urlencode({\n  'gran"
-  },
-  {
-    "date": "2026-06-22T16:44:03",
-    "type": "Bash",
-    "text": "timeout 30 ssh -o ConnectTimeout=10 -o BatchMode=yes adamsl@100.72.34.38 'python3 - ' <<'PY' 2>&1 | head -30\nimport json,urllib.request,urllib.error,os\nd=json.load(open(os.path.expanduser(\"~/.codex/au"
-  },
-  {
-    "date": "2026-06-22T16:44:53",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T16:45:13",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T16:45:32",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T16:46:11",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T16:46:38",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-06-22T16:46:51",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; .venv/bin/python -m pytest tests/test_server.py -q 2>&1 | tail -4"
-  },
-  {
-    "date": "2026-06-22T16:47:21",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; systemctl --user restart dashboard-server.service && sleep 3 && curl -s --max-time 10 -X POST http://localhost:8765/api/server-action -H 'Content-Type: applicatio"
-  },
-  {
-    "date": "2026-06-22T16:47:53",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-22T16:48:22",
-    "type": "mcp__playwright__browser_evaluate",
-    "text": "function: async () => {\n  await new Promise(r => setTimeout(r, 6000));\n  document.querySelector('button[data-target=\"model-stats\"]').click();\n  await new Promise(r => setTimeout(r, 2500)); // let color poll finish\n  const tabColors = [...document.querySelectorAll('#nav-model-stats [data-source]')].map(t => ({\n    src: t.dataset.source,\n    color: [...t.classList].filter(c => c.startsWith('server-')).join(',') || '(none)'\n  }));\n  // open R46 Codex (mom, green with bars)\n  document.querySelector('#nav-model-stats [data-source=\"r46-codex\"]').click();\n  await new Promise(r => setTimeout(r, 2500));\n  const body = document.getElementById('model-stats-body');\n  return {\n    tabColors,\n    r46codex: {\n      heading: body.querySelector('h3')?.textContent,\n      model: body.querySelector('code')?.textContent,\n      windows: [...body.querySelectorAll('.ms-window-head')].map(h => h.textContent),\n      bars: [...body.querySelectorAll('.ms-bar-fill')].map(b => b.style.width),\n    }\n  };\n}"
-  },
-  {
-    "date": "2026-06-22T16:48:52",
-    "type": "mcp__playwright__browser_evaluate",
-    "text": "function: async () => {\n  document.querySelector('#nav-model-stats [data-source=\"r46-codex\"]').click();\n  await new Promise(r => setTimeout(r, 7000)); // SSH + HTTPS round-trip\n  const body = document.getElementById('model-stats-body');\n  const r46codexTab = document.querySelector('#nav-model-stats [data-source=\"r46-codex\"]');\n  return {\n    heading: body.querySelector('h3')?.textContent,\n    model: body.querySelector('code')?.textContent,\n    windows: [...body.querySelectorAll('.ms-window-head')].map(h => h.textContent),\n    bars: [...body.querySelectorAll('.ms-bar-fill')].map(b => b.style.width + ' ' + b.style.background),\n    tabColor: [...r46codexTab.classList].filter(c => c.startsWith('server-')).join(','),\n  };\n}"
-  },
-  {
-    "date": "2026-06-22T16:49:31",
-    "type": "Write",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_model_stats_2026_06_22.md\n\u2192 --- name: dashboard-model-stats-2026-06-22 description: \"Dashboard 'Model Stats' tab \u2014 live per-OAuth session token usage (Codex/Claude 5h+weekly %, reset, red at 100%). The WORKING live usage API e"
-  },
-  {
-    "date": "2026-06-22T16:49:43",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-06-22T16:50:32",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; curl -s --max-time 30 \"http://localhost:8765/api/model-stats?source=w11-codex\" | python3 -c \"\nimport sys,json\nd=json.load(sys.stdin)\nprint('status:', d.get('statu"
-  },
-  {
-    "date": "2026-06-22T16:50:56",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T16:51:11",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T16:51:25",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; bunx --bun @biomejs/biome@2.2.5 check --write js/dashboard-boot.js 2>&1 | tail -2; bun test js/tests 2>&1 | tail -3; systemctl --user restart dashboard-server.ser"
-  },
-  {
-    "date": "2026-06-22T16:51:36",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-22T16:52:05",
-    "type": "mcp__playwright__browser_evaluate",
-    "text": "function: async () => {\n  await new Promise(r => setTimeout(r, 6000));\n  document.querySelector('button[data-target=\"model-stats\"]').click();\n  await new Promise(r => setTimeout(r, 2500));\n  document.querySelector('#nav-model-stats [data-source=\"w11-codex\"]').click();\n  await new Promise(r => setTimeout(r, 2000));\n  const body = document.getElementById('model-stats-body');\n  const tab = document.querySelector('#nav-model-stats [data-source=\"w11-codex\"]');\n  return {\n    tabColor: [...tab.classList].filter(c => c.startsWith('server-')).join(','),\n    windows: [...body.querySelectorAll('.ms-window-head')].map(h => h.textContent),\n    bars: [...body.querySelectorAll('.ms-bar-fill')].map(b => b.style.width + ' ' + b.style.background),\n    maxedMsg: body.querySelector('.am-warn')?.textContent,\n  };\n}"
-  },
-  {
-    "date": "2026-06-22T16:58:29",
-    "type": "Bash",
-    "text": "timeout 30 ssh -o ConnectTimeout=10 -o BatchMode=yes adamsl@100.72.34.38 'python3 - ' <<'PY' 2>&1 | head -30\nimport json, os, time, base64, urllib.request, urllib.error\np = os.path.expanduser(\"~/.clau"
-  },
-  {
-    "date": "2026-06-22T17:01:13",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; grep -nE \"clientId|client_id|tokenUrl|oauth/token|grant_type|console.anthropic|refresh\" src/auth/oauth.ts 2>/dev/null | head -25"
-  },
-  {
-    "date": "2026-06-22T17:01:30",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; grep -nE \"authBaseUrl|claude.ai|anthropic.com|console.anthropic\" src/auth/oauth.ts | head"
-  },
-  {
-    "date": "2026-06-22T17:01:51",
-    "type": "WebSearch",
-    "text": "claude code oauth refresh token endpoint client_id console.anthropic.com/v1/oauth/token 9d1c250a"
-  },
-  {
-    "date": "2026-06-22T17:02:41",
-    "type": "Bash",
-    "text": "timeout 35 ssh -o ConnectTimeout=10 -o BatchMode=yes adamsl@100.72.34.38 'python3 - ' <<'PY' 2>&1 | head -20\nimport json, os, time, urllib.request, urllib.error\np = os.path.expanduser(\"~/.claude/.cred"
-  },
-  {
-    "date": "2026-06-22T17:03:06",
-    "type": "WebFetch",
-    "text": "https://gist.github.com/cedws/3a24b2c7569bb610e24aa90dd217d9f2\n\u2192 # Claude Code OAuth Token Refresh Request  **HTTP Method:** POST  **URL:** `https://console.anthropic.com/v1/oauth/token`  **Headers:** ``` Content-Type: application/json User-Agent: anthropic ```  **"
-  },
-  {
-    "date": "2026-06-22T17:03:46",
-    "type": "Bash",
-    "text": "cd /home/adamsl; CLI=$(readlink -f ~/.local/bin/claude 2>/dev/null || which claude); echo \"cli: $CLI\"; DIR=$(dirname \"$CLI\"); \necho \"=== oauth/token endpoints referenced ===\"; grep -rhoE \"https://[a-z"
-  },
-  {
-    "date": "2026-06-22T17:04:10",
-    "type": "Bash",
-    "text": "BIN=/home/adamsl/.local/share/claude/versions/2.1.185; file \"$BIN\" 2>/dev/null; echo \"=== oauth/token + client_id strings in binary ===\"; grep -aoE \"https://[a-zA-Z0-9./_-]+oauth/token|/v1/oauth/token"
-  },
-  {
-    "date": "2026-06-22T17:04:30",
-    "type": "Bash",
-    "text": "timeout 35 ssh -o ConnectTimeout=10 -o BatchMode=yes adamsl@100.72.34.38 'python3 - ' <<'PY' 2>&1 | head -20\nimport json, os, time, urllib.request, urllib.error\np = os.path.expanduser(\"~/.claude/.cred"
-  },
-  {
-    "date": "2026-06-22T17:05:51",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T17:06:14",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T17:06:35",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; sed -i \"s/d = _run_extractor(_CODEX_EXTRACT_PY, src\\['host'\\])/d = _run_extractor(_CODEX_EXTRACT_PY, src['host'], timeout=35)/; s/d = _run_extractor(_CLAUDE_EXTRA"
-  },
-  {
-    "date": "2026-06-22T17:06:51",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; .venv/bin/python -c \"import server; print('import OK')\" && .venv/bin/python -m pytest tests/test_server.py -q 2>&1 | tail -3"
-  },
-  {
-    "date": "2026-06-22T17:07:17",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; systemctl --user restart dashboard-server.service && sleep 3 && curl -s --max-time 10 -X POST http://localhost:8765/api/server-action -H 'Content-Type: applicatio"
-  },
-  {
-    "date": "2026-06-22T17:08:08",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; echo \"waiting 300s for the refresh rate-limit to clear, then testing self-heal...\"; sleep 300; curl -s --max-time 50 \"http://localhost:8765/api/model-stats?source"
-  },
-  {
-    "date": "2026-06-22T17:08:36",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; for src in w11-codex w11-claude; do\ncurl -s --max-time 40 \"http://localhost:8765/api/model-stats?source=$src\" | python3 -c \"\nimport sys,json\nd=json.load(sys.stdin"
-  },
-  {
-    "date": "2026-06-22T17:13:23",
-    "type": "Read",
-    "text": "/tmp/claude-1000/-home-adamsl-letta-code/57a4e1bc-b191-4746-9530-fec4bce76e37/tasks/bfuovbdj9.output"
-  },
-  {
-    "date": "2026-06-22T17:14:13",
-    "type": "Bash",
-    "text": "timeout 25 ssh -o ConnectTimeout=10 -o BatchMode=yes adamsl@100.72.34.38 'claude --help 2>&1 | grep -iE \"refresh|auth|login|token|whoami|setup-token|doctor\" | head; echo \"=== subcommands ===\"; claude "
-  },
-  {
-    "date": "2026-06-22T17:15:00",
-    "type": "Bash",
-    "text": "timeout 60 ssh -o ConnectTimeout=10 -o BatchMode=yes adamsl@100.72.34.38 'cd ~ && timeout 45 claude -p \"reply with the single word ok\" --dangerously-skip-permissions 2>&1 | head -5; echo \"=== token st"
-  },
-  {
-    "date": "2026-06-22T17:15:31",
-    "type": "Bash",
-    "text": "timeout 70 ssh -o ConnectTimeout=10 -o BatchMode=yes adamsl@100.72.34.38 'bash -lc \"command -v claude; timeout 50 claude -p \\\"reply with ok\\\" --dangerously-skip-permissions 2>&1 | head -3\"; python3 -c"
-  },
-  {
-    "date": "2026-06-22T17:15:53",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; curl -s --max-time 50 \"http://localhost:8765/api/model-stats?source=r46-claude\" | python3 -c \"\nimport sys,json\nd=json.load(sys.stdin)\nprint('status:',d.get('statu"
-  },
-  {
-    "date": "2026-06-22T17:16:27",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_model_stats_2026_06_22.md"
-  },
-  {
-    "date": "2026-06-22T17:17:39",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; git status --short | head -40; echo \"=== branch ===\"; git branch --show-current"
-  },
-  {
-    "date": "2026-06-22T17:18:13",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; grep -n \"^## \\|^### \\|frita-executor uses a \\`check\\`\\|Boot autostart\" CLAUDE.md | head -30"
-  },
-  {
-    "date": "2026-06-22T17:18:29",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/CLAUDE.md"
-  },
-  {
     "date": "2026-06-22T17:19:06",
     "type": "Edit",
     "text": "/home/adamsl/letta-code/dashboard/CLAUDE.md"
@@ -998,5 +638,365 @@
     "date": "2026-06-22T19:35:19",
     "type": "mcp__playwright__browser_close",
     "text": "null: null"
+  },
+  {
+    "date": "2026-06-22T21:56:43",
+    "type": "Bash",
+    "text": "curl -s http://localhost:8765/api/server-health 2>&1 | python3 -m json.tool 2>&1 | head -150"
+  },
+  {
+    "date": "2026-06-22T21:56:50",
+    "type": "Bash",
+    "text": "systemctl --user is-active dashboard-server lettabot thought-bridge thought-bridge-monitor dashboard-browser 2>&1; echo \"---git status---\"; cd /home/adamsl/letta-code && git status 2>&1 | head -30; ec"
+  },
+  {
+    "date": "2026-06-22T21:56:59",
+    "type": "ToolSearch",
+    "text": "query: playwright browser navigate snapshot console"
+  },
+  {
+    "date": "2026-06-22T21:57:05",
+    "type": "mcp__playwright__browser_navigate",
+    "text": "url: http://localhost:8765/"
+  },
+  {
+    "date": "2026-06-22T21:57:08",
+    "type": "mcp__playwright__browser_console_messages",
+    "text": "level: error"
+  },
+  {
+    "date": "2026-06-22T21:57:13",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/.playwright-mcp/page-2026-06-22T21-57-05-149Z.yml"
+  },
+  {
+    "date": "2026-06-22T21:57:19",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-22T21:57:35",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-22T21:57:44",
+    "type": "mcp__playwright__browser_console_messages",
+    "text": "level: error"
+  },
+  {
+    "date": "2026-06-22T21:57:51",
+    "type": "mcp__playwright__browser_run_code_unsafe",
+    "text": "code: async (page) => {\n  const html = await page.evaluate(() => document.querySelector('main')?.outerHTML?.slice(0, 500));\n  const bodyClasses = await page.evaluate(() => document.body.className);\n  return { html, bodyClasses };\n}"
+  },
+  {
+    "date": "2026-06-22T21:58:12",
+    "type": "mcp__playwright__browser_run_code_unsafe",
+    "text": "code: async (page) => {\n  await page.locator('nav button', { hasText: 'SSH Connections' }).click();\n  await page.waitForTimeout(2000);\n  const text = await page.evaluate(() => document.querySelector('#ssh-connections')?.innerText?.slice(0, 2000));\n  return text;\n}"
+  },
+  {
+    "date": "2026-06-22T21:58:16",
+    "type": "Bash",
+    "text": "curl -s http://localhost:8765/api/ssh-connection-health 2>&1 | python3 -m json.tool"
+  },
+  {
+    "date": "2026-06-22T21:58:40",
+    "type": "Bash",
+    "text": "timeout 15 ssh -o ConnectTimeout=10 -o BatchMode=yes adamsl@100.80.49.10 \"echo ok\" 2>&1; echo \"exit=$?\""
+  },
+  {
+    "date": "2026-06-22T21:59:16",
+    "type": "Bash",
+    "text": "timeout 30 ssh -v -o ConnectTimeout=20 -o BatchMode=yes adamsl@100.80.49.10 \"echo ok\" 2>&1 | tail -40; echo \"exit=$?\""
+  },
+  {
+    "date": "2026-06-22T21:59:25",
+    "type": "Bash",
+    "text": "grep -n \"win10-wsl-letta\\|SSH_CONNECTIONS\" server.py | head -20"
+  },
+  {
+    "date": "2026-06-22T21:59:30",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T21:59:38",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_tailscale_derp_relay_100_80_49_10.md"
+  },
+  {
+    "date": "2026-06-22T21:59:45",
+    "type": "Bash",
+    "text": "grep -n \"def connection_test\\|def tailscale_test\\|SSH_CONNECT_TIMEOUT\" server.py"
+  },
+  {
+    "date": "2026-06-22T21:59:50",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:00:57",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"How do you want to fix the false-positive 'down' status on the Win10 WSL SSH connection?\",\"header\":\"SSH fix\",\"options\":[{\"label\":\"Bump timeout only\",\"description\":\"Raise SSH_CONNECT_TIMEOUT from 6s to ~12s for this connection (or globally). Simple, matches the documented '>=10s' rule, but a single slow probe can still flip the LED red intermittently.\"},{\"label\":\"Bump timeout + add fail-threshold debounce (Recommended)\",\"description\":\"Raise the timeout AND require 2 consecutive failures before marking down (mirrors the existing HEALTH_FAIL_THRESHOLD fix already used for the HTTP server-health checks). Fixes both the timeout and the flapping.\"},{\"label\":\"Just tell me, don't fix it\",\"description\":\"You only wanted a diagnosis. I'll leave server.py untouched.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-22T22:01:02",
+    "type": "Bash",
+    "text": "grep -n \"HEALTH_FAIL_THRESHOLD\\|HEALTH_CHECK_TIMEOUT\\|_health_fail_count\\|fail_count\" server.py | head -40"
+  },
+  {
+    "date": "2026-06-22T22:01:06",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:01:12",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:01:18",
+    "type": "Bash",
+    "text": "grep -n \"_ssh_health_cache\\|cached_ssh_health\\b\" server.py"
+  },
+  {
+    "date": "2026-06-22T22:01:22",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:01:43",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:01:47",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:01:59",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:02:03",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:02:07",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:02:15",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:02:20",
+    "type": "Bash",
+    "text": "grep -n \"_ssh_health_cache\\|SSH_HEALTH_POLL_INTERVAL\\|SSH_CONNECT_TIMEOUT\" server.py"
+  },
+  {
+    "date": "2026-06-22T22:02:25",
+    "type": "Bash",
+    "text": "grep -n \"ssh_health\\|SSH_CONNECT\\|_ssh_health_cache\\|cached_ssh_health\\|_poll_all_ssh_once\" tests/test_server.py | head -40"
+  },
+  {
+    "date": "2026-06-22T22:02:31",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -30"
+  },
+  {
+    "date": "2026-06-22T22:02:35",
+    "type": "Bash",
+    "text": "grep -n \"^import\\|^from\\|^def test_server_health\\|HEALTH_FAIL_THRESHOLD\" tests/test_server.py | head -20"
+  },
+  {
+    "date": "2026-06-22T22:02:41",
+    "type": "Bash",
+    "text": "grep -n \"def test.*ssh\\|class.*Ssh\\|class.*SSH\" tests/test_server.py"
+  },
+  {
+    "date": "2026-06-22T22:02:48",
+    "type": "Bash",
+    "text": "grep -n \"_poll_all_health_once\\|fail_threshold\\|FAIL_THRESHOLD\\|_health_cache\" tests/test_server.py"
+  },
+  {
+    "date": "2026-06-22T22:02:56",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-06-22T22:03:03",
+    "type": "Bash",
+    "text": "tail -50 tests/test_server.py"
+  },
+  {
+    "date": "2026-06-22T22:03:17",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-06-22T22:03:25",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-06-22T22:03:30",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -q 2>&1 | tail -30"
+  },
+  {
+    "date": "2026-06-22T22:03:37",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-06-22T22:03:47",
+    "type": "Bash",
+    "text": "systemctl --user restart dashboard-server.service && sleep 1 && systemctl --user is-active dashboard-server.service && curl -s http://localhost:8765/api/server-health >/dev/null && echo \"dashboard up\""
+  },
+  {
+    "date": "2026-06-22T22:03:53",
+    "type": "Bash",
+    "text": "curl -s http://127.0.0.1:8787/health 2>&1; echo; curl -s http://localhost:8765/api/server-health | python3 -c \"import json,sys; d=json.load(sys.stdin); print([s for s in d['servers'] if s['key']=='exe"
+  },
+  {
+    "date": "2026-06-22T22:04:03",
+    "type": "Bash",
+    "text": "sleep 3; curl -s http://localhost:8765/api/ssh-connection-health | python3 -m json.tool"
+  },
+  {
+    "date": "2026-06-22T22:04:08",
+    "type": "mcp__playwright__browser_navigate",
+    "text": "url: http://localhost:8765/"
+  },
+  {
+    "date": "2026-06-22T22:04:13",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/.playwright-mcp/page-2026-06-22T22-04-08-927Z.yml"
+  },
+  {
+    "date": "2026-06-22T22:04:19",
+    "type": "Bash",
+    "text": "curl -s http://localhost:8765/api/ssh-connection-health | python3 -m json.tool"
+  },
+  {
+    "date": "2026-06-22T22:04:46",
+    "type": "Bash",
+    "text": "time .venv/bin/python -c \"\nimport server\ncfg = server.get_ssh_connection('win10-wsl-letta')\nprint(server.ssh_test(cfg, timeout=12))\n\""
+  },
+  {
+    "date": "2026-06-22T22:05:16",
+    "type": "Bash",
+    "text": "time .venv/bin/python -c \"\nimport server\ncfg = server.get_ssh_connection('win10-wsl-letta')\nprint(server.ssh_test(cfg, timeout=20))\n\""
+  },
+  {
+    "date": "2026-06-22T22:05:48",
+    "type": "Bash",
+    "text": "time timeout 35 ssh -o ConnectTimeout=30 -o BatchMode=yes adamsl@100.80.49.10 \"echo CONNECTED && hostname\" 2>&1; echo \"exit=$?\""
+  },
+  {
+    "date": "2026-06-22T22:06:31",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:06:40",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:06:48",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:06:52",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:07:02",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:07:07",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:07:13",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-22T22:07:18",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -20"
+  },
+  {
+    "date": "2026-06-22T22:07:25",
+    "type": "Bash",
+    "text": "systemctl --user restart dashboard-server.service && sleep 1 && systemctl --user is-active dashboard-server.service"
+  },
+  {
+    "date": "2026-06-22T22:07:30",
+    "type": "Bash",
+    "text": "curl -s http://127.0.0.1:8787/health 2>&1; echo"
+  },
+  {
+    "date": "2026-06-22T22:07:45",
+    "type": "ScheduleWakeup",
+    "text": "delaySeconds: 60"
+  },
+  {
+    "date": "2026-06-22T22:07:51",
+    "type": "Bash",
+    "text": "curl -s http://localhost:8765/api/ssh-connection-health | python3 -m json.tool"
+  },
+  {
+    "date": "2026-06-22T22:08:33",
+    "type": "Bash",
+    "text": "for i in 1 2 3; do curl -s http://localhost:8765/api/ssh-connection-health | python3 -c \"import json,sys; d=json.load(sys.stdin); print([c['status'] for c in d['connections'] if c['key']=='win10-wsl-l"
+  },
+  {
+    "date": "2026-06-22T22:08:39",
+    "type": "mcp__playwright__browser_navigate",
+    "text": "url: http://localhost:8765/"
+  },
+  {
+    "date": "2026-06-22T22:08:44",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/.playwright-mcp/page-2026-06-22T22-08-39-681Z.yml"
+  },
+  {
+    "date": "2026-06-22T22:08:49",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-22T22:09:10",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_ssh_health_false_down_2026_06_22.md\n\u2192 --- name: dashboard-ssh-health-false-down-2026-06-22 description: SSH Connections tab falsely showed win10-wsl-letta (100.80.49.10) as down due to too-short timeout on a DERP-relayed link; fixed with "
+  },
+  {
+    "date": "2026-06-22T22:09:16",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-22T22:09:25",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-22T22:09:46",
+    "type": "Bash",
+    "text": "curl -s http://localhost:8765/api/ssh-connection-health | python3 -m json.tool"
   }
 ]

@@ -793,3 +793,40 @@ def test_classify_report_status_unparseable_badge_defaults_to_review(tmp_path):
     p = tmp_path / 'report.html'
     p.write_text('<html><body>no badge here</body></html>')
     assert server._classify_report_status(str(p)) == 'review'
+
+
+def _ssh_cfg():
+    return {'key': '__test_ssh_conn', 'name': 'Test Conn', 'host': '0.0.0.0', 'user': 'nobody'}
+
+
+def test_ssh_health_one_slow_probe_does_not_flip_to_down(monkeypatch):
+    # A single failed/slow DERP-relayed probe shouldn't flash the connection
+    # red — it must survive SSH_HEALTH_FAIL_THRESHOLD consecutive failures.
+    cfg = _ssh_cfg()
+    server._ssh_health_cache.pop(cfg['key'], None)
+    monkeypatch.setattr(server, 'connection_test', lambda cfg, timeout=None: {'ok': True, 'text': 'CONNECTED'})
+    monkeypatch.setattr(server, 'SSH_CONNECTIONS', [cfg])
+    server._poll_all_ssh_once()
+    assert server.cached_ssh_health(cfg)['ok'] is True
+
+    monkeypatch.setattr(server, 'connection_test', lambda cfg, timeout=None: {'ok': False, 'text': 'timed out'})
+    server._poll_all_ssh_once()
+    assert server.cached_ssh_health(cfg)['ok'] is True, 'one failure must not flip a healthy connection to down'
+
+    server._poll_all_ssh_once()
+    assert server.cached_ssh_health(cfg)['ok'] is False, 'second consecutive failure should flip to down'
+
+
+def test_ssh_health_recovers_immediately_on_success(monkeypatch):
+    cfg = _ssh_cfg()
+    server._ssh_health_cache.pop(cfg['key'], None)
+    monkeypatch.setattr(server, 'SSH_CONNECTIONS', [cfg])
+
+    monkeypatch.setattr(server, 'connection_test', lambda cfg, timeout=None: {'ok': False, 'text': 'timed out'})
+    server._poll_all_ssh_once()
+    server._poll_all_ssh_once()
+    assert server.cached_ssh_health(cfg)['ok'] is False
+
+    monkeypatch.setattr(server, 'connection_test', lambda cfg, timeout=None: {'ok': True, 'text': 'CONNECTED'})
+    server._poll_all_ssh_once()
+    assert server.cached_ssh_health(cfg)['ok'] is True, 'a single success must clear the fail count immediately'

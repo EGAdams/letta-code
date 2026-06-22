@@ -1207,6 +1207,11 @@ SSH_CONNECTIONS = [
         'name': 'Win10 WSL (Letta Docker Host)',
         'host': '100.80.49.10',
         'user': 'adamsl',
+        # Reachable only via Tailscale DERP(ord) relay — observed RTT ranges from
+        # 1.8s up to a real 25s+ round trip (see reference_tailscale_derp_relay_
+        # 100_80_49_10 memory), far past every other connection here. Give it its
+        # own generous timeout rather than penalizing fast hosts' down-detection.
+        'timeout': 30,
         'note': 'WSL side of the Win10 box — actual LETTA_DOCKER_HOST used for Letta server, '
                 'Logger API, and Frita executor admin (100.80.49.10)',
     },
@@ -1236,8 +1241,11 @@ SSH_CONNECTIONS = [
     },
 ]
 
-SSH_CONNECT_TIMEOUT = 6          # seconds given to `ssh` to connect + run the check command
+SSH_CONNECT_TIMEOUT = 8          # default seconds given to `ssh` to connect + run the check
+                                 # command; individual SSH_CONNECTIONS entries may override
+                                 # via a 'timeout' key for known-slow paths (DERP relays etc).
 SSH_HEALTH_POLL_INTERVAL = 30    # background poll cadence
+SSH_HEALTH_FAIL_THRESHOLD = 2    # consecutive failures required before flipping to "down"
 SSH_LOG_TAIL = 50                # how many past connection-test results to keep per connection
 
 SERVER_LOG_TAIL = 300   # how many trailing log lines to expose
@@ -2276,8 +2284,12 @@ def tailscale_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
         return {'ok': False, 'text': f'tailscale status failed: {e}'}
 
 
-def connection_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
-    """Dispatch to the right health check based on cfg['check'] (default 'ssh')."""
+def connection_test(cfg, timeout=None):
+    """Dispatch to the right health check based on cfg['check'] (default 'ssh').
+
+    Uses cfg['timeout'] when set (for known-slow paths like DERP relays),
+    falling back to SSH_CONNECT_TIMEOUT."""
+    timeout = timeout if timeout is not None else cfg.get('timeout', SSH_CONNECT_TIMEOUT)
     if cfg.get('check') == 'tailscale':
         return tailscale_test(cfg, timeout=timeout)
     return ssh_test(cfg, timeout=timeout)
@@ -2295,7 +2307,15 @@ def _poll_all_ssh_once():
     for cfg in SSH_CONNECTIONS:
         h = connection_test(cfg)
         with _ssh_health_lock:
-            _ssh_health_cache[cfg['key']] = h
+            entry = _ssh_health_cache.get(cfg['key'], {'fails': 0, 'result': None})
+            if h.get('ok'):
+                entry['fails'] = 0
+                entry['result'] = h
+            else:
+                entry['fails'] += 1
+                if entry['result'] is None or entry['fails'] >= SSH_HEALTH_FAIL_THRESHOLD:
+                    entry['result'] = h
+            _ssh_health_cache[cfg['key']] = entry
         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         _record_ssh_log(cfg['key'], f"[{ts}] {'OK' if h['ok'] else 'FAIL'} — {h['text']}")
 
@@ -2308,17 +2328,19 @@ def _ssh_poll_loop():
 
 
 def cached_ssh_health(cfg):
-    """Debounced SSH health result for cfg from the background poll loop.
+    """Debounced SSH health result for cfg from the background poll loop —
+    requires SSH_HEALTH_FAIL_THRESHOLD consecutive failures before reporting
+    down, since a single slow DERP-relayed probe isn't a real outage.
 
     Falls back to a synchronous (slow) probe on first access, before the
     background loop has populated the cache."""
     with _ssh_health_lock:
-        h = _ssh_health_cache.get(cfg['key'])
-    if h is not None:
-        return h
+        entry = _ssh_health_cache.get(cfg['key'])
+    if entry is not None:
+        return entry['result']
     h = connection_test(cfg)
     with _ssh_health_lock:
-        _ssh_health_cache[cfg['key']] = h
+        _ssh_health_cache[cfg['key']] = {'fails': 0 if h.get('ok') else 1, 'result': h}
     return h
 
 # How recently a log-only server (no health_url) must have written to its log
@@ -3219,9 +3241,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             cfg = get_ssh_connection(key)
             if not cfg:
                 return self.json_response({'ok': False, 'text': 'unknown connection'})
-            h = connection_test(cfg, timeout=8)
+            h = connection_test(cfg)
             with _ssh_health_lock:
-                _ssh_health_cache[key] = h
+                _ssh_health_cache[key] = {'fails': 0 if h.get('ok') else 1, 'result': h}
             ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             _record_ssh_log(key, f"[{ts}] {'OK' if h['ok'] else 'FAIL'} — {h['text']} (manual test)")
             return self.json_response(h)
