@@ -27,10 +27,21 @@
       <button type="button" class="tab" data-nav="main" data-target="status">Status</button>
       <button type="button" class="tab" data-nav="main" data-target="instructions">Instructions</button>
       <button type="button" class="tab" data-nav="main" data-target="tool-management">Tool Management</button>
-      <button type="button" class="tab" data-nav="main" data-target="agent-management">Agent Management</button>
+      <button type="button" class="tab" data-nav="main" data-target="agent-management" id="btn-agent-mgmt">Agent Management</button>
       <button type="button" class="tab" data-nav="main" data-target="server-management" id="btn-server-mgmt">Server Management</button>
       <button type="button" class="tab" data-nav="main" data-target="ssh-connections" id="btn-ssh-connections">SSH Connections</button>
       <button type="button" class="tab" data-nav="main" data-target="project-plans">Project Plans</button>
+      <button type="button" class="tab" data-nav="main" data-target="model-stats" id="btn-model-stats">Model Stats</button>
+    </nav>
+
+    <!-- Model Stats sub-nav -->
+    <nav id="nav-model-stats" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-model-stats">Back</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="r46-claude">R46 Claude OAuth</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="r46-codex">R46 Codex OAuth</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="w11-claude">W11 Claude OAuth</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="w11-codex">W11 Codex OAuth</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="gemini">Gemini CLI</button>
     </nav>
 
     <!-- Status sub-nav -->
@@ -202,6 +213,12 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </section>
 
 
+
+    <section id="model-stats" class="view">
+      <h2>Model Stats</h2>
+      <p class="srv-note">Pick a provider/account on the left to see current session token usage and limits. Red = maxed out (with reset time). W11 = this machine, R46 = mom's machine.</p>
+      <div id="model-stats-body"><p class="am-dim">Select a source…</p></div>
+    </section>
 
     <section id="tool-management" class="view">
       <h2>Tool Management</h2>

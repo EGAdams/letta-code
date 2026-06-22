@@ -251,6 +251,49 @@ order). And `window.open(url, "_blank", "noopener,noreferrer")` returns **`null`
 `noopener` is set, so don't treat a null return as "popup blocked" (it caused a false red error
 even though the receipt opened).
 
+## Server health indicators, Restart-all & Model Stats (2026-06-22)
+
+Three things were added to `server.py` + the frontend (see memories
+`dashboard-server-restart-and-concern-2026-06-22`, `dashboard-model-stats-2026-06-22`,
+`win10-node-offline-letta-recovery-2026-06-22`):
+
+- **4-state server status** via `compute_server_status()` / `server_status_kind(cfg, health)` —
+  `up`/`concern`(yellow)/`starting`/`down`. **Both** `/api/server-health` (sidebar tab) and
+  `/api/server-logs`→`server_log_rows` (detail panel) call `server_status_kind` so they never
+  disagree. Yellow `concern` = reachable-but-degraded (health `concern` flag, e.g. frita ghost),
+  dependency-down, down-but-restartable, or recently-restarted. `/api/server-health` also emits
+  per-server `restartable`, `down_for_seconds`, `stale`, `blocked_by`, `failure_class`,
+  `container_status`. CSS: `.tab.server-concern` (amber), `.tab.server-stale` (blink).
+- **Win10 node root-cause tile** — SERVERS key `win10-node` (`win10_node_health`, TCP :22 probe).
+  `letta`/`logger-api`/`frita-executor`/`dashboard-proxy` carry `depends_on: 'win10-node'` and read
+  `blocked_by: win10-node` when it's unhealthy (collapses many reds into one cause). Its **Restart**
+  button revives the WSL node by restarting `tailscaled` via the **Windows host**
+  (`restart_win10_node` → `ssh NewUser@100.69.80.89 'wsl.exe -d Ubuntu-24.04 -u root -- bash -lc
+  "systemctl restart tailscaled"'`). NOTE: if the node *flaps* (up then dies in ~1min), the WSL VM
+  itself is cycling → fix is a `wsl --compact`/reset on the Windows side, not repeated tailscaled
+  restarts. `classify_failure()` gives accurate labels (404/auth/rate_limit/timeout) instead of the
+  old "rate-limited"-for-everything.
+- **Restart-any-server** — `RESTART_HANDLERS`/`restart_server(key)` covers ALL servers; every detail
+  panel has an always-enabled **Restart** button (`/api/server-action` `action:restart`). Local =
+  `systemctl --user restart <unit>` (lettabot/thought-bridge/mazda-tools-mcp); executor/mcp-proxy =
+  `start_executor_server`; remote = SSH/redeploy; frita-executor first runs `ensure_win10_docker`
+  (rm stale `/var/run/docker.pid` + start docker — the recurring `:8799`-down cause).
+- **Model Stats tab** — `/api/model-stats?source=` (+ `-sources`), `MODEL_STAT_SOURCES`,
+  `model_stats(key)`. Sub-nav: R46/W11 × Claude/Codex + Gemini (W11=this box local, R46=mom's via
+  SSH). **LIVE usage APIs** (the local rollout/stats-cache files are stale/bogus — do NOT use them):
+  Codex `GET https://chatgpt.com/backend-api/wham/usage` (token `~/.codex/auth.json`); Claude
+  `GET https://api.anthropic.com/api/oauth/usage` (token `~/.claude/.credentials.json`
+  `claudeAiOauth.accessToken`). Shows 5h + weekly used%, reset, model; **red at 100%** with reset.
+  Extractors SELF-HEAL on 401/expiry (refresh: Claude `platform.claude.com/v1/oauth/token`
+  client `9d1c250a-…`; Codex `auth.openai.com/oauth/token` client `app_EMoamEEZ…`). **Headless WAF
+  gotcha**: raw refresh from a headless box can 429 — the real `claude`/`codex` CLI refresh passes
+  the WAF, so `ssh <box> bash -lc 'claude -p "ok"'` is the reliable manual fix. Extractors run via
+  `_run_extractor` (local `python3 -` / SSH `python3 -` with source on STDIN, NOT `-c`).
+
+Tests: `tests/test_server.py` (64) for all of the above; `bun test js/tests` for the JS reducers/
+controllers. After editing `server.py`: `systemctl --user restart dashboard-server.service` (then
+re-Start the Executor — the restart kills it).
+
 ## Boot autostart (systemd `--user` services)
 
 The dashboard and its two locally-hosted companion servers autostart on machine boot via

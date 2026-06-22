@@ -52,6 +52,7 @@ const navSSH = document.getElementById("nav-ssh-connections");
 const navPlans = document.getElementById("nav-plans");
 const navRolFinance = document.getElementById("nav-rol-finance");
 const navRolFinanceReports = document.getElementById("nav-rol-finance-reports");
+const navModelStats = document.getElementById("nav-model-stats");
 const startupOverlay = document.getElementById("startup-overlay");
 const startupStatusText = document.getElementById("startup-status-text");
 const startupProgressBar = document.getElementById("startup-progress-bar");
@@ -466,6 +467,14 @@ if (
         return;
       }
 
+      if (target === "model-stats" && navModelStats) {
+        navMain.classList.add("hidden");
+        navModelStats.classList.remove("hidden");
+        safeActivateView("model-stats");
+        MS.open();
+        return;
+      }
+
       if (target === "project-plans") {
         navMain.classList.add("hidden");
         navPlans.classList.remove("hidden");
@@ -768,6 +777,128 @@ if (
 /* =====================  Utilities  ===================== */
 const esc = TextUtils.esc; // HTML-escape — now sourced from the library.
 
+/* =====================  Model Stats  =====================
+       Per-OAuth/CLI session token usage. Sub-nav tab per source; each shows
+       usage windows as progress bars (red at 100% with reset time). Tab colors
+       reflect status so an exhausted account is caught at a glance. */
+function renderModelStats(d) {
+  if (!d || d.ok === false) {
+    return `<p class="am-warn">${esc((d && d.error) || "no data")}</p>`;
+  }
+  const dot =
+    d.status === "down"
+      ? "#e53935"
+      : d.status === "concern"
+        ? "#f9a825"
+        : "#43a047";
+  let h = '<div class="ms-card">';
+  h += `<h3>${esc(d.label)} <span style="color:${dot}">●</span></h3>`;
+  if (d.model) h += `<p><b>Model:</b> <code>${esc(d.model)}</code></p>`;
+  if (d.detail) h += `<p class="am-dim">${esc(d.detail)}</p>`;
+  for (const w of d.windows || []) {
+    const pct = Math.max(0, Math.min(100, w.used_percent || 0));
+    const bar = pct >= 100 ? "#e53935" : pct >= 80 ? "#f9a825" : "#43a047";
+    const resets = w.resets_in ? ` · resets ${esc(w.resets_in)}` : "";
+    h += `<div class="ms-window"><div class="ms-window-head"><span>${esc(w.label)}</span><span>${pct}%${resets}</span></div>`;
+    h += `<div class="ms-bar"><div class="ms-bar-fill" style="width:${pct}%;background:${bar}"></div></div></div>`;
+  }
+  if (d.status === "down") {
+    // Show the reset of the window that's actually maxed (highest used %), not
+    // just the first one — e.g. weekly at 100% while the 5-hour just reset.
+    const maxed = (d.windows || [])
+      .filter((w) => w.resets_in)
+      .sort((a, b) => (b.used_percent || 0) - (a.used_percent || 0))[0];
+    h += `<p class="am-warn">MAXED OUT${maxed ? ` — ${esc(maxed.label)} resets ${esc(maxed.resets_in)}` : ""}</p>`;
+  }
+  if (typeof d.tokens_used === "number") {
+    h += `<p><b>Tokens used:</b> ${d.tokens_used.toLocaleString()}${d.cost_usd ? ` · $${d.cost_usd}` : ""}</p>`;
+  }
+  if (d.as_of) {
+    h += `<p class="am-dim">as of ${new Date(d.as_of * 1000).toLocaleString()}</p>`;
+  }
+  h += "</div>";
+  return h;
+}
+
+const MS = {
+  open() {
+    if (!navModelStats) return;
+    const first = navModelStats.querySelector("[data-source]");
+    if (first) {
+      safeSetActive(
+        navModelStats,
+        '[data-nav="model-stats"][data-source]',
+        first,
+      );
+      this.show(first.dataset.source);
+    }
+    this.pollColors();
+  },
+  async show(key) {
+    const body = document.getElementById("model-stats-body");
+    if (!body) return;
+    this.current = key;
+    body.innerHTML = '<p class="am-dim">Loading…</p>';
+    try {
+      const d = await http.getJSON(
+        `/api/model-stats?source=${encodeURIComponent(key)}`,
+      );
+      if (this.current !== key) return; // a newer selection won the race
+      body.innerHTML = renderModelStats(d);
+    } catch (e) {
+      if (this.current !== key) return;
+      body.innerHTML = `<p class="am-warn">Failed to load: ${esc(e.message)}</p>`;
+    }
+  },
+  async pollColors() {
+    if (!navModelStats) return;
+    const tabs = [...navModelStats.querySelectorAll("[data-source]")];
+    await Promise.all(
+      tabs.map(async (t) => {
+        try {
+          const d = await http.getJSON(
+            `/api/model-stats?source=${encodeURIComponent(t.dataset.source)}`,
+          );
+          t.classList.remove("server-up", "server-concern", "server-down");
+          if (d.status === "down") t.classList.add("server-down");
+          else if (d.status === "concern") t.classList.add("server-concern");
+          else t.classList.add("server-up");
+        } catch {
+          /* leave tab uncolored on transient error */
+        }
+      }),
+    );
+  },
+};
+
+if (navModelStats) {
+  navModelStats.querySelectorAll("[data-source]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      safeSetActive(
+        navModelStats,
+        '[data-nav="model-stats"][data-source]',
+        tab,
+      );
+      safeActivateView("model-stats");
+      MS.show(tab.dataset.source);
+    });
+  });
+  const backMS = document.getElementById("btn-back-model-stats");
+  if (backMS) {
+    backMS.addEventListener("click", () => {
+      navModelStats.classList.add("hidden");
+      navMain.classList.remove("hidden");
+      const homeTab = navMain.querySelector(
+        '[data-nav="main"][data-target="home"]',
+      );
+      if (homeTab) {
+        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
+      }
+      safeActivateView("home");
+    });
+  }
+}
+
 /* =====================  Voice output (Web Speech API)  =====================
        Browser-native text-to-speech. No API key, no server round-trip, free.
        Now provided by the library's BrowserSpeechSynthesizer (Facade) +
@@ -1003,24 +1134,54 @@ const serverAction = new ServerActionController({ http });
 serverHealth.subscribe((health) => {
   const tab = document.getElementById("btn-server-mgmt");
   if (!tab) return;
-  tab.classList.remove("server-up", "server-down", "server-starting");
+  tab.classList.remove(
+    "server-up",
+    "server-down",
+    "server-starting",
+    "server-concern",
+  );
   const st = ServerHealthMonitor.overallStatus(health);
   if (st === "starting") tab.classList.add("server-starting");
+  else if (st === "concern") tab.classList.add("server-concern");
   else if (st === "down") tab.classList.add("server-down");
   else if (st === "up") tab.classList.add("server-up");
 });
 serverHealth.subscribe((health) => {
   if (!health) return;
-  const map = {};
-  for (const s of health.servers) map[s.key] = s.status;
+  const byKey = {};
+  for (const s of health.servers) byKey[s.key] = s;
   navServers.querySelectorAll("[data-server-key]").forEach((tab) => {
-    const status = map[tab.dataset.serverKey] || "unknown";
-    tab.classList.remove("server-up", "server-down", "server-starting");
+    const s = byKey[tab.dataset.serverKey] || {};
+    const status = s.status || "unknown";
+    tab.classList.remove(
+      "server-up",
+      "server-down",
+      "server-starting",
+      "server-concern",
+      "server-stale",
+    );
     if (status === "up") tab.classList.add("server-up");
     else if (status === "starting") tab.classList.add("server-starting");
+    else if (status === "concern") tab.classList.add("server-concern");
     else if (status === "down") tab.classList.add("server-down");
+    // Indicator #3: stale outages blink to draw the eye; tooltip shows how long
+    // it's been down and whether it's just a symptom of a down dependency (#1).
+    if (s.stale) tab.classList.add("server-stale");
+    const bits = [];
+    if (s.blocked_by) bits.push(`blocked by ${s.blocked_by}`);
+    if (s.down_for_seconds)
+      bits.push(`down for ${fmtDownFor(s.down_for_seconds)}`);
+    if (s.container_status) bits.push(s.container_status);
+    tab.title = bits.join(" · ");
   });
 });
+
+// Compact "down for" duration: 45s / 12m / 3h 4m.
+function fmtDownFor(sec) {
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
+  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+}
 
 function renderServerSkills(skills) {
   if (!Array.isArray(skills) || skills.length === 0) {
@@ -1138,28 +1299,21 @@ const SM = {
     document.getElementById("servers-detail-title").textContent = name;
     const body = document.getElementById("servers-detail-body");
     const meta = (this.servers || []).find((s) => s.key === key) || {};
-    const startLabels = {
-      executor: "Start Executor Server",
-      "logger-api": "Start Logger API",
-      "frita-executor": "Start Frita Executor",
-      dashboard: "Re-start Dashboard Server",
-    };
+    // Every server gets a Restart button, always enabled, so the user never has
+    // to drop to the command line. The backend (/api/server-action action:restart)
+    // dispatches to a per-server handler (systemd --user, SSH, or redeploy).
     body.innerHTML =
       (meta.note ? `<p class="srv-note">${esc(meta.note)}</p>` : "") +
       '<div class="srv-status starting" id="srv-status"><span class="srv-led"></span><span id="srv-status-text">checking…</span></div>' +
       '<input class="srv-filter" id="srv-filter" placeholder="Filter log lines (e.g. error)…" />' +
-      (startLabels[key]
-        ? '<button class="srv-start-btn" id="srv-start-btn">' +
-          startLabels[key] +
-          "</button>"
-        : "") +
+      `<button class="srv-start-btn" id="srv-restart-btn">Restart ${esc(name)}</button>` +
       '<div id="srv-console-host"></div>';
     safeActivateView("servers-detail");
 
     const statusEl = body.querySelector("#srv-status");
     const statusText = body.querySelector("#srv-status-text");
     const filterEl = body.querySelector("#srv-filter");
-    const startBtn = body.querySelector("#srv-start-btn");
+    const restartBtn = body.querySelector("#srv-restart-btn");
     const view = DomConsoleView.mount(
       body.querySelector("#srv-console-host"),
       "srv",
@@ -1177,51 +1331,36 @@ const SM = {
     filterEl.addEventListener("input", applyFilter);
     new MutationObserver(applyFilter).observe(innerEl, { childList: true });
 
-    if (startBtn) {
-      const isDashboard = key === "dashboard";
-      startBtn.addEventListener("click", async () => {
-        startBtn.disabled = true;
-        statusEl.className = "srv-status starting";
-        const verb = isDashboard ? "RESTARTING" : "STARTING";
-        statusText.textContent = `${verb}... — launching ${name.toLowerCase()}`;
-        const res = isDashboard
-          ? await serverAction.restart(key)
-          : await serverAction.start(key);
-        if (res.ok) {
-          view.writeHtml(
-            '<div class="msi-entry"><span class="hdr">' +
-              (isDashboard ? "restart" : "start") +
-              " action</span> " +
-              esc(res.text || "OK") +
-              "</div>",
-          );
-          view.scrollToBottom();
-        } else {
-          statusText.textContent = `${isDashboard ? "RESTART" : "START"} FAILED — ${esc(res.text)}`;
-          statusEl.className = "srv-status down";
-          startBtn.disabled = false;
-        }
-      });
-    }
+    restartBtn.addEventListener("click", async () => {
+      restartBtn.disabled = true;
+      statusEl.className = "srv-status starting";
+      statusText.textContent = `RESTARTING... — ${name.toLowerCase()}`;
+      const res = await serverAction.restart(key);
+      if (res.ok) {
+        view.writeHtml(
+          '<div class="msi-entry"><span class="hdr">restart action</span> ' +
+            esc(res.text || "OK") +
+            "</div>",
+        );
+        view.scrollToBottom();
+      } else {
+        statusText.textContent = `RESTART FAILED — ${esc(res.text)}`;
+        statusEl.className = "srv-status down";
+      }
+      restartBtn.disabled = false;
+    });
 
     // The ServerLogController polls /api/server-logs (3s, dedup by seq) and
-    // reports health via onStatus → the LED + start-button enablement.
+    // reports health via onStatus → the detail-panel LED. The Restart button
+    // stays enabled regardless of status (the user can always restart).
     const onStatus = (st) => {
       let cls = "srv-status";
       if (st.kind === "up") cls += " up";
       else if (st.kind === "starting") cls += " starting";
+      else if (st.kind === "concern") cls += " concern";
       else if (st.kind === "down") cls += " down";
       statusEl.className = cls;
       statusText.textContent = st.label + st.text;
-      if (startBtn) {
-        if (key === "dashboard") {
-          startBtn.disabled = st.kind === "starting";
-        } else {
-          if (st.kind === "up" || st.kind === "starting")
-            startBtn.disabled = true;
-          else if (st.kind === "down") startBtn.disabled = false;
-        }
-      }
     };
     this.logController = new ServerLogController({
       http,
@@ -1543,10 +1682,22 @@ new AgentActivityPoller({ http, setStatus: setAgentTabStatus }).start();
 // Structural health check — polls /api/agent-health every 30s.
 // ok=false adds agent-health-error (red); ok=true clears it.
 // Uses a separate class so it doesn't get wiped by the activity poller.
+// Unhealthy agents also bubble up to the parent "Agent Management" sidebar
+// button (mirrors how Server Management goes red when any server is down) — so
+// a Claude-SDK 404 lights up both Frita's tab AND her parent.
+const _unhealthyAgents = new Set();
+const agentMgmtBtn = document.getElementById("btn-agent-mgmt");
 function setAgentTabHealth(agentId, ok) {
   const tab = navAgents.querySelector(`.agent-tab[data-agent-id="${agentId}"]`);
-  if (!tab) return;
-  tab.classList.toggle("agent-health-error", !ok);
+  if (tab) tab.classList.toggle("agent-health-error", !ok);
+  if (ok) _unhealthyAgents.delete(agentId);
+  else _unhealthyAgents.add(agentId);
+  if (agentMgmtBtn) {
+    agentMgmtBtn.classList.toggle(
+      "agent-health-error",
+      _unhealthyAgents.size > 0,
+    );
+  }
 }
 new AgentHealthPoller({ http, setHealth: setAgentTabHealth }).start();
 

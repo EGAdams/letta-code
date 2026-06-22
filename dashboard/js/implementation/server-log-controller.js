@@ -12,8 +12,18 @@ export function classifyServerStatus(status) {
   if (!status)
     return { kind: "none", ok: false, text: "no health check", label: "" };
   const text = status.text || "";
+  // Honor the backend's explicit 4-state `kind` when present, so the detail
+  // panel agrees with the sidebar tab (e.g. yellow "concern" for a
+  // down-but-restartable server instead of a bare red "Down").
+  if (status.kind === "concern")
+    return {
+      kind: "concern",
+      ok: !!status.ok,
+      text,
+      label: "NEEDS ATTENTION — ",
+    };
   if (status.ok) return { kind: "up", ok: true, text, label: "UP — " };
-  if (text.includes("STARTING"))
+  if (status.kind === "starting" || text.includes("STARTING"))
     return { kind: "starting", ok: false, text, label: "" };
   return { kind: "down", ok: false, text, label: "DOWN — " };
 }
