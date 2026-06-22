@@ -151,4 +151,30 @@ if 'error' in d: print('ERROR:', d)
 
 - The Codex CLI (`/usr/local/bin/codex`) automatically refreshes `~/.codex/auth.json` tokens. If the access_token in that file is also expired, run Codex CLI briefly to trigger a refresh before running Step 1.
 - After updating the DB, no restart of letta-server is needed — it reads credentials fresh per call.
+## Related — live OAuth usage APIs & Claude refresh (2026-06-22)
+
+For reading *session token usage* (5h + weekly used% + reset) and refreshing tokens directly
+(used by the dashboard's Model Stats tab — see memory `dashboard-model-stats-2026-06-22`):
+
+- **Codex usage**: `GET https://chatgpt.com/backend-api/wham/usage` — headers `Authorization: Bearer
+  <~/.codex/auth.json tokens.access_token>`, `ChatGPT-Account-Id: <account_id>`, `OpenAI-Beta:
+  codex-1`, `originator: codex_cli_rs`. Returns `rate_limit.primary_window`(5h)/`secondary_window`
+  (weekly) `.used_percent`/`.reset_at` + `limit_reached`.
+- **Codex token refresh**: `POST https://auth.openai.com/oauth/token` JSON `{grant_type:
+  refresh_token, client_id: app_EMoamEEZ73f0CkXaXp7hrann, refresh_token, scope:"openid profile
+  email"}`. (A reused refresh_token → `refresh_token_reused`; the codex CLI rotates it, so run
+  `codex login` if desynced.)
+- **Claude usage**: `GET https://api.anthropic.com/api/oauth/usage` — headers `Authorization: Bearer
+  <~/.claude/.credentials.json claudeAiOauth.accessToken>`, `anthropic-beta: oauth-2025-04-20`,
+  `User-Agent: claude-code/2.0.32`. Returns `five_hour`/`seven_day` `.utilization`/`.resets_at`.
+- **Claude token refresh**: `POST https://platform.claude.com/v1/oauth/token` (NOT console.anthropic.com
+  → 404) JSON `{grant_type: refresh_token, refresh_token, client_id:
+  9d1c250a-e61b-44d9-88ed-5944d1962f5e}`, UA `anthropic`; write back accessToken/refreshToken/
+  expiresAt(ms). Claude tokens expire ~12h and only auto-refresh WHEN the CLI runs.
+- **Headless WAF gotcha**: raw refresh from a headless box can return `429 rate_limit_error`. The
+  real `claude`/`codex` CLI refresh passes the WAF — reliable manual fix:
+  `ssh <box> bash -lc 'claude -p "ok"'` (login-shell PATH needed for ~/.local/bin).
+
+## Notes
+
 - lettabot reads `baseUrl` from `/home/adamsl/lettabot/lettabot.yaml`. **Updated 2026-05-29:** the live letta-server is reachable directly on `100.80.49.10:8283` (verified HTTP 200, ADE-confirmed). The `letta-bridge` nginx proxy on `18283` is down/retired — `18283` refuses connections. Use `8283`. If you find a `lettabot.yaml` still pointing at `18283`, update it. (The old guidance that `8283` was "an orphan container, do NOT use" no longer holds — the infrastructure changed.)

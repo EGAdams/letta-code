@@ -262,6 +262,250 @@ def test_frita_executor_health_clean_when_no_ghost(monkeypatch):
     assert 'GHOST' not in h['text']
 
 
+def test_compute_server_status_up_and_degraded_concern():
+    assert server.compute_server_status({'ok': True}) == 'up'
+    # reachable but degraded (e.g. frita ghost) -> yellow
+    assert server.compute_server_status({'ok': True, 'concern': True}) == 'concern'
+
+
+def test_compute_server_status_down_but_restartable_is_concern():
+    # local restartable server that's down -> yellow (fixable from the dashboard)
+    assert server.compute_server_status(
+        {'ok': False, 'text': 'HTTP 503'}, restartable=True) == 'concern'
+
+
+def test_compute_server_status_recently_restarted_is_starting():
+    assert server.compute_server_status(
+        {'ok': False, 'text': 'HTTP 000'}, starting=True, restartable=True) == 'starting'
+
+
+def test_compute_server_status_dependency_down_is_concern():
+    # Win10 dockerd down -> yellow even for a not-otherwise-restartable check
+    assert server.compute_server_status(
+        {'ok': False, 'text': 'unreachable: refused'},
+        dependency_down=True) == 'concern'
+
+
+def test_compute_server_status_red_when_host_unreachable():
+    # remote box we can't even reach to restart -> red (truly stuck)
+    assert server.compute_server_status(
+        {'ok': False, 'text': 'unreachable: timed out'},
+        restartable=True, host_unreachable=True) == 'down'
+
+
+def test_compute_server_status_red_when_not_restartable():
+    assert server.compute_server_status({'ok': False, 'text': 'HTTP 500'}) == 'down'
+
+
+def test_every_server_is_restartable():
+    # "the user never needs the command line": every SERVERS entry has a handler.
+    for cfg in server.SERVERS:
+        assert cfg['key'] in server.RESTARTABLE_KEYS, f"{cfg['key']} not restartable"
+
+
+def test_restart_server_unknown_key_is_error():
+    r = server.restart_server('does-not-exist')
+    assert r['ok'] is False
+
+
+def test_restart_server_dispatches_to_handler(monkeypatch):
+    called = {}
+
+    def fake_handler():
+        called['hit'] = True
+        return {'ok': True, 'text': 'ok'}
+
+    monkeypatch.setitem(server.RESTART_HANDLERS, 'executor', fake_handler)
+    r = server.restart_server('executor')
+    assert r['ok'] is True and called.get('hit') is True
+
+
+def test_frita_executor_health_concern_flag_set_on_ghost(monkeypatch):
+    def fake_probe(url, timeout):
+        if url == server.FRITA_EXEC_GOOD_URL:
+            return {'ready': True, 'sdk_present': True, 'claude_present': True,
+                    'creds_present': True, 'host': 'good1'}
+        if url == server.FRITA_EXEC_GHOST_URL:
+            return {'ready': False, 'sdk_present': False, 'host': 'ghost9'}
+        return None
+    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
+    h = server.frita_executor_health(timeout=1)
+    assert h['ok'] is True and h.get('concern') is True
+
+
+def test_container_status_for_summarizes_docker_state():
+    states = {'letta-server': 'Exited (139) 54 minutes ago',
+              'letta-memfs': 'Up 2 minutes (healthy)'}
+    s = server.container_status_for('letta', states)
+    assert 'letta-server: Exited (139) 54 minutes ago' in s
+    # non-docker server key → empty
+    assert server.container_status_for('dashboard', states) == ''
+    # no states (probe failed) → empty
+    assert server.container_status_for('letta', {}) == ''
+
+
+def test_win10_container_states_parses_docker_ps(monkeypatch):
+    class _R:
+        stdout = 'letta-server|Up 3 minutes\nfrita-executor|Restarting (1) 2 seconds ago\n'
+        stderr = ''
+    monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _R())
+    server._win10_containers_cache['value'] = None
+    server._win10_containers_cache['ts'] = 0.0
+    states = server.win10_container_states()
+    assert states['letta-server'] == 'Up 3 minutes'
+    assert states['frita-executor'] == 'Restarting (1) 2 seconds ago'
+
+
+def test_model_stats_sources_cover_w11_r46_gemini():
+    keys = set(server.MODEL_STAT_SOURCES)
+    assert {'w11-codex', 'r46-codex', 'w11-claude', 'r46-claude', 'gemini'} <= keys
+
+
+def _codex_usage(primary, secondary=0, reached=False):
+    return {'model': 'gpt-5.5', 'as_of': 1.0, 'usage': {
+        'plan_type': 'plus',
+        'rate_limit': {'limit_reached': reached,
+                       'primary_window': {'used_percent': primary, 'reset_at': 9999999999},
+                       'secondary_window': {'used_percent': secondary, 'reset_at': 9999999999}}}}
+
+
+def test_model_stats_codex_red_at_100_percent(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(100.0, 64.0))
+    d = server.model_stats('w11-codex')
+    assert d['status'] == 'down'              # maxed → red
+    assert len(d['windows']) == 2
+    assert d['windows'][0]['used_percent'] == 100.0
+    assert d['windows'][0]['resets_in']      # reset shown
+
+
+def test_model_stats_codex_red_when_limit_reached_flag(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(20.0, reached=True))
+    assert server.model_stats('w11-codex')['status'] == 'down'
+
+
+def test_model_stats_codex_concern_when_high(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(85.0))
+    assert server.model_stats('w11-codex')['status'] == 'concern'
+
+
+def test_model_stats_codex_green_when_low(monkeypatch):
+    # mom's machine ~90% left == ~10% used → green
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(10.0, 11.0))
+    assert server.model_stats('r46-codex')['status'] == 'up'
+
+
+def test_model_stats_codex_token_expired_is_concern_with_hint(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {'model': 'gpt-5.5', 'error': 'token_expired'})
+    d = server.model_stats('w11-codex')
+    assert d['status'] == 'concern' and 'codex login' in d['detail']
+
+
+def test_model_stats_claude_live_windows(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'recent_model': 'claude-opus-4-8', 'as_of': 1.0,
+        'usage': {'five_hour': {'utilization': 19.0, 'resets_at': '2026-06-22T21:30:00+00:00'},
+                  'seven_day': {'utilization': 12.0, 'resets_at': '2026-06-29T08:00:00+00:00'},
+                  'extra_usage': {'is_enabled': False}}})
+    d = server.model_stats('w11-claude')
+    assert d['status'] == 'up'
+    assert d['model'] == 'claude-opus-4-8'
+    assert [w['used_percent'] for w in d['windows']] == [19.0, 12.0]
+
+
+def test_model_stats_unknown_source():
+    assert server.model_stats('nope')['ok'] is False
+
+
+def test_classify_failure_distinguishes_classes():
+    assert server.classify_failure('llm_error: HTTP Error 404: Not Found')[0] == 'not_found'
+    assert server.classify_failure('HTTP 429 too many requests')[0] == 'rate_limit'
+    assert server.classify_failure('urlopen error timed out')[0] == 'timeout'
+    assert server.classify_failure('connection refused')[0] == 'refused'
+    assert server.classify_failure('HTTP 401 Unauthorized')[0] == 'auth'
+    # the bug we fixed: a 404 must NOT be labelled rate-limited
+    assert server.classify_failure('HTTP Error 404')[1] != 'rate-limited'
+
+
+def test_track_down_duration_clears_on_up_and_accumulates(monkeypatch):
+    server._server_down_since.pop('dur-test', None)
+    t = [1000.0]
+    monkeypatch.setattr(server.time, 'time', lambda: t[0])
+    assert server.track_down_duration('dur-test', 'down') == (0, False)
+    t[0] = 1000.0 + 30
+    dur, stale = server.track_down_duration('dur-test', 'down')
+    assert dur == 30 and stale is False
+    t[0] = 1000.0 + server.SERVER_STALE_DOWN_SECONDS + 1
+    dur, stale = server.track_down_duration('dur-test', 'concern')
+    assert stale is True
+    assert server.track_down_duration('dur-test', 'up') == (0, False)
+
+
+def test_win10_node_is_registered_check_and_restartable():
+    keys = {s['key'] for s in server.SERVERS}
+    assert 'win10-node' in keys
+    assert 'win10_node_health' in server.HEALTH_CHECKS
+    assert 'win10-node' in server.RESTARTABLE_KEYS
+
+
+def test_win10_hosted_servers_depend_on_node():
+    dep = {s['key']: s.get('depends_on') for s in server.SERVERS}
+    for k in ('letta', 'logger-api', 'frita-executor', 'dashboard-proxy'):
+        assert dep.get(k) == 'win10-node', f'{k} should depend on win10-node'
+
+
+def _frita_cfg():
+    return next(c for c in server.LETTA_AGENTS if c['name'] == 'Frita')
+
+
+def test_frita_is_flagged_as_claude_sdk_user():
+    # Frita drives the Claude SDK executor, so her tab must be eligible for the
+    # /claude_sdk work-endpoint health check (she has no required_tools).
+    assert _frita_cfg().get('uses_claude_sdk') is True
+
+
+def test_agent_health_red_when_claude_sdk_endpoint_404(monkeypatch):
+    # The work endpoint Frita's tool POSTs to (/claude_sdk) returns 404 -> her
+    # tab must go RED with a clear message (this is the exact "HTTP Error 404"
+    # failure the dashboard previously could not see).
+    monkeypatch.setattr(server, 'get_letta_id', lambda cfg: cfg.get('id') or 'agent-x')
+    h = server.agent_health_check(_frita_cfg(), timeout=1, sdk_status='not_found')
+    assert h['ok'] is False
+    assert '404' in h['text']
+
+
+def test_agent_health_red_when_claude_sdk_endpoint_unreachable(monkeypatch):
+    monkeypatch.setattr(server, 'get_letta_id', lambda cfg: cfg.get('id') or 'agent-x')
+    h = server.agent_health_check(_frita_cfg(), timeout=1, sdk_status='unreachable')
+    assert h['ok'] is False
+
+
+def test_agent_health_ok_when_claude_sdk_endpoint_present(monkeypatch):
+    monkeypatch.setattr(server, 'get_letta_id', lambda cfg: cfg.get('id') or 'agent-x')
+    h = server.agent_health_check(_frita_cfg(), timeout=1, sdk_status='ok')
+    assert h['ok'] is True
+
+
+def test_probe_claude_sdk_endpoint_maps_404_to_not_found(monkeypatch):
+    import urllib.error
+
+    def boom(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 404, 'Not Found', {}, None)
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', boom)
+    assert server._probe_claude_sdk_endpoint('http://x/claude_sdk', 1) == 'not_found'
+
+
+def test_probe_claude_sdk_endpoint_405_means_route_exists(monkeypatch):
+    # The work route only accepts POST; a GET/HEAD 405 proves it exists -> ok.
+    import urllib.error
+
+    def boom(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 405, 'Method Not Allowed', {}, None)
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', boom)
+    assert server._probe_claude_sdk_endpoint('http://x/claude_sdk', 1) == 'ok'
+
+
 def test_tail_lines_returns_trailing_lines_with_absolute_start(tmp_path):
     p = tmp_path / 'app.log'
     p.write_text('\n'.join(f'line {i}' for i in range(10)) + '\n')
@@ -418,12 +662,12 @@ def test_mazda_letta_agents_declare_required_tools():
             )
 
 
-def test_mazda_declares_delegation_and_executor_tools():
+def test_mazda_declares_delegation_tool():
+    # The live Mazda orchestrator (agent-6b536cf4) delegates via relay_message_to_chatgpt;
+    # that's the tool whose presence signals it's wired up (the old
+    # send_message_to_agent_and_wait_for_reply/executor_run set was a prior incarnation).
     mazda = next(cfg for cfg in server.LETTA_AGENTS if cfg['name'] == 'Mazda')
-    assert mazda['required_tools'] == [
-        'send_message_to_agent_and_wait_for_reply',
-        'executor_run',
-    ]
+    assert mazda['required_tools'] == ['relay_message_to_chatgpt']
 
 
 def test_agent_health_check_unresolvable_agent_is_unhealthy(monkeypatch):
@@ -444,7 +688,7 @@ def test_agent_health_check_missing_required_tool_is_unhealthy(monkeypatch):
     monkeypatch.setattr(server, 'letta_get', lambda path, **kw: [
         {'name': 'memory_insert'}, {'name': 'memory_replace'},
     ])
-    h = server.agent_health_check(cfg)
+    h = server.agent_health_check(cfg, sdk_status='ok')
     assert h['ok'] is False
     assert 'run_claude_code_sdk' in h['text']
 
@@ -457,7 +701,7 @@ def test_agent_health_check_all_tools_present_is_healthy(monkeypatch):
     monkeypatch.setattr(server, 'letta_get', lambda path, **kw: [
         {'name': 'run_claude_code_sdk'}, {'name': 'memory_insert'},
     ])
-    h = server.agent_health_check(cfg)
+    h = server.agent_health_check(cfg, sdk_status='ok')
     assert h['ok'] is True
     assert 'run_claude_code_sdk' in h['text']
 

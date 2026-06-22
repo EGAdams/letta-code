@@ -41,6 +41,21 @@ describe("classifyServerStatus", () => {
     });
     expect(classifyServerStatus(null).kind).toBe("none");
   });
+  test("honors explicit kind:concern (down-but-restartable reads yellow)", () => {
+    const r = classifyServerStatus({
+      ok: false,
+      kind: "concern",
+      text: "unreachable: connection refused",
+    });
+    expect(r.kind).toBe("concern");
+    expect(r.label).toBe("NEEDS ATTENTION — ");
+  });
+  test("kind:starting is honored even without STARTING text", () => {
+    expect(
+      classifyServerStatus({ ok: false, kind: "starting", text: "booting" })
+        .kind,
+    ).toBe("starting");
+  });
 });
 
 describe("ServerLogController (concrete PollingController)", () => {

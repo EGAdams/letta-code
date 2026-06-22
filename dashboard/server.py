@@ -9,6 +9,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -812,12 +813,13 @@ LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rs
 # Add any new Letta agent here: { 'name': '...', 'id': '<real-letta-agent-id>' }
 # Set 'id' to None to auto-discover by name from the Letta agent list.
 _MINION_TOOLS = ['run_claude_code_sdk']
-# relay_message_to_chatgpt is Mazda's custom delegation tool (sends to minion fleet).
-# send_message_to_agent_and_wait_for_reply is a Letta built-in that doesn't appear
-# in /v1/agents/{id}/tools, so we check the custom wrapper instead.
+# The Mazda orchestrator (agent-6b536cf4) delegates to the minion fleet via its
+# custom tool relay_message_to_chatgpt — that's the capability whose presence
+# signals it's wired up. (The old list checked send_message_to_agent_and_wait_for_reply
+# + executor_run, which this incarnation of Mazda doesn't carry — see its actual
+# 10-tool set: relay_message_to_chatgpt, check_*, verify_statement_totals, …)
 _MAZDA_TOOLS = [
-    'send_message_to_agent_and_wait_for_reply',
-    'executor_run',
+    'relay_message_to_chatgpt',
 ]
 
 # Mazda + all 5 minions run on the same chatgpt-plus-pro OAuth account, so a
@@ -830,16 +832,16 @@ CHATGPT_PLUS_PRO = 'chatgpt-plus-pro'
 
 LETTA_AGENTS = [
     {'name': 'Scissari', 'id': 'agent-5955b0c2-7922-4ffe-9e43-b116053b80fa'},
-    {'name': 'Frita',    'id': 'agent-881a883f-edd0-4963-bf67-6ef178b8f018'},
+    {'name': 'Frita',    'id': 'agent-881a883f-edd0-4963-bf67-6ef178b8f018', 'uses_claude_sdk': True},
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
     {'name': 'Cesare',   'id': None},
     {'name': 'Jeri',     'id': None},
-    {'name': 'Mazda',    'id': 'agent-070c201a-8d6d-49ba-a5fd-1489884b3b45', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Router',           'id': 'agent-81874131-77b8-4645-8d5f-c0bf20c1ed89', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Parser',           'id': 'agent-c414cb08-8bb5-4002-8d67-2ad0fbce4f06', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Vendor Identity',  'id': 'agent-c1fa4bb4-93a8-4b54-bd54-18fdaa4c0cd6', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Receipt Linker',   'id': 'agent-bfffa859-98bf-4bec-af3e-231b552fec93', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Categorization',   'id': 'agent-c4c9864c-9046-41b8-b0e3-f97698307567', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Mazda Router',           'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
 ]
 
 # Cache of name→id resolved from the Letta API
@@ -1060,10 +1062,22 @@ LETTA_REMOTE_LOG_CACHE_MAX_LINES = 4000  # trim threshold so /tmp doesn't grow u
 # for the ones we can't.
 SERVERS = [
     {
+        'key': 'win10-node',
+        'name': 'Win10 WSL Node',
+        'check': 'win10_node_health',
+        'remote': True,
+        'note': 'The Win10 WSL host (100.80.49.10) that runs Letta, the Frita SDK executor, '
+                'and the Logger API. ROOT CAUSE indicator: if this is red, those are all '
+                'symptoms — fix the node first (Restart revives tailscaled via the Windows host).',
+    },
+    {
         'key': 'letta',
         'name': 'Letta Server',
         'health_url': f'{LETTA_BASE_URL}/v1/health/',
         'log_file': LETTA_REMOTE_LOG_CACHE,
+        'remote': True,
+        'win10_docker': True,
+        'depends_on': 'win10-node',
         'note': f'Letta API ({LETTA_BASE_URL}) — logs pulled periodically over SSH from '
                 f'{LETTA_DOCKER_HOST} (Docker container on the Win10 box)',
     },
@@ -1092,6 +1106,8 @@ SERVERS = [
         'key': 'dashboard-proxy',
         'name': 'Dashboard Proxy (Win10)',
         'health_url': 'http://100.80.49.10:8765/',
+        'remote': True,
+        'depends_on': 'win10-node',
         'note': 'WSL TCP proxy on the Win10 box (100.80.49.10:8765) that relays to '
                 'this dashboard so the Win10-side browser can reach it via '
                 'http://localhost:8765 without the (offline) Win10 Tailscale node. '
@@ -1107,6 +1123,9 @@ SERVERS = [
         # [[reference_logger_api_ops]] uses) — 200 means the whole stack works.
         'health_url': 'http://100.80.49.10:8284/libraries/local-php-api/object/select?object_view_id=OrchestratorAgent_2026',
         'log_file': LOGGER_API_STARTUP_LOG,
+        'remote': True,
+        'win10_docker': True,
+        'depends_on': 'win10-node',
         'note': 'Docker logger API (live agent log viewer) — mysql + php-api containers '
                 'on the Win10 box, started over SSH (see Start button)',
     },
@@ -1129,6 +1148,9 @@ SERVERS = [
         'key': 'frita-executor',
         'name': 'Frita Executor (Win10)',
         'check': 'frita_executor_health',
+        'remote': True,
+        'win10_docker': True,
+        'depends_on': 'win10-node',
         'note': 'Frita\'s win10_run + Claude-SDK runner. Verifies the SDK-capable '
                 'executor on host :8799 (what the Mazda minions reach) AND watches '
                 'for a stale no-SDK "ghost" executor on :8797 (the recurring '
@@ -1198,6 +1220,31 @@ SERVER_LOG_TAIL = 300   # how many trailing log lines to expose
 # Track servers that are currently starting (for a limited time).
 _starting_servers = {}  # { key: timestamp_when_started }
 _starting_lock = threading.Lock()
+
+# Track how long each server has been non-healthy, so the UI can show
+# "down for 54m" and escalate a stale outage (today Letta was dead 54 min before
+# anyone looked). down_for_seconds + stale are emitted per server.
+_server_down_since = {}  # { key: epoch_when_first_seen_non_up }
+_server_down_lock = threading.Lock()
+SERVER_STALE_DOWN_SECONDS = 600  # 10 min non-healthy → "stale" (escalate)
+
+
+def track_down_duration(key, status):
+    """Update/return how long `key` has been non-healthy. 'up' clears the clock;
+    'starting' (transient) doesn't start one. Returns (down_for_seconds, stale)."""
+    with _server_down_lock:
+        now = time.time()
+        if status in ('up', 'starting'):
+            if status == 'up':
+                _server_down_since.pop(key, None)
+            since = _server_down_since.get(key)
+            return ((int(now - since), (now - since) >= SERVER_STALE_DOWN_SECONDS)
+                    if since else (0, False))
+        since = _server_down_since.get(key)
+        if since is None:
+            _server_down_since[key] = since = now
+        dur = now - since
+        return (int(dur), dur >= SERVER_STALE_DOWN_SECONDS)
 
 
 def mark_server_starting(key):
@@ -1348,6 +1395,256 @@ def start_logger_api():
         return {'ok': True, 'text': f'Launched {os.path.basename(LOGGER_API_START_SCRIPT)} on {LETTA_DOCKER_HOST} — tailing {LOGGER_API_STARTUP_LOG}'}
     except Exception as e:
         return {'ok': False, 'text': str(e)}
+
+
+# ── Win10 WSL node reachability (root-cause indicator) ────────────────────────
+# The Win10 WSL node hosts Letta, the Frita SDK executor, and the Logger API. When
+# IT goes offline (today: a stuck Tailscale session), all of those go red as
+# SYMPTOMS. This single check is the root cause, and the dependents are grouped
+# under it (blocked_by) so six reds collapse into one actionable signal.
+WIN10_NODE_HOST = LETTA_DOCKER_HOST.split('@')[-1] if '@' in LETTA_DOCKER_HOST else '100.80.49.10'
+# The Windows side of the same box (online even when the WSL node drops) — used to
+# revive the WSL node by restarting tailscaled inside the distro.
+WIN10_WINDOWS_HOST = os.environ.get('WIN10_WINDOWS_HOST', 'NewUser@100.69.80.89')
+WIN10_WSL_DISTRO = os.environ.get('WIN10_WSL_DISTRO', 'Ubuntu-24.04')
+_win10_node_cache = {'value': None, 'ts': 0.0}
+_win10_node_lock = threading.Lock()
+WIN10_NODE_CACHE_TTL = 20
+
+
+def win10_node_health(timeout=None):
+    """Is the Win10 WSL node reachable at all? TCP-connect to its SSH port — cheap
+    and independent of any one service. Cached so it doesn't probe every poll."""
+    with _win10_node_lock:
+        now = time.time()
+        if _win10_node_cache['value'] is not None and now - _win10_node_cache['ts'] < WIN10_NODE_CACHE_TTL:
+            return _win10_node_cache['value']
+    t = timeout or 5
+    try:
+        s = socket.create_connection((WIN10_NODE_HOST, 22), timeout=t)
+        s.close()
+        res = {'ok': True, 'text': f'Win10 WSL node {WIN10_NODE_HOST} reachable (ssh:22).'}
+    except Exception as e:
+        res = {'ok': False,
+               'text': f'Win10 WSL node {WIN10_NODE_HOST} OFFLINE — Letta, Frita SDK and '
+                       f'Logger API are all blocked by this. Click Restart to revive the '
+                       f'WSL node (restarts tailscaled via the Windows host). ({e})'}
+    with _win10_node_lock:
+        _win10_node_cache['value'] = res
+        _win10_node_cache['ts'] = time.time()
+    return res
+
+
+def restart_win10_node():
+    """Revive the Win10 WSL node by restarting tailscaled inside the distro from the
+    (still-online) Windows host — today's manual recovery, as a button."""
+    cmd = f'wsl.exe -d {WIN10_WSL_DISTRO} -u root -- bash -lc "systemctl restart tailscaled"'
+    _log_restart(f'win10-node: ssh {WIN10_WINDOWS_HOST} {cmd}')
+    try:
+        with open(RESTART_LOG, 'a') as logf:
+            subprocess.Popen(
+                ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes', WIN10_WINDOWS_HOST, cmd],
+                stdout=logf, stderr=subprocess.STDOUT, start_new_session=True)
+        mark_server_starting('win10-node')
+        with _win10_node_lock:  # force a fresh probe next poll
+            _win10_node_cache['ts'] = 0.0
+        return {'ok': True, 'text': f'Restarting tailscaled in WSL via {WIN10_WINDOWS_HOST} — '
+                                    'node should reappear within ~15s.'}
+    except Exception as e:
+        return {'ok': False, 'text': f'win10-node restart error: {e}'}
+
+
+# Indicator #2: surface Docker container exit-code / restart-count for the
+# Win10-hosted servers — "Exited (139) 54m ago" / "Restarting (3×)" tells you it
+# crashed (139=OOM/segfault) or is crash-looping, not just "down".
+WIN10_CONTAINERS = {
+    'letta': ['letta-server', 'letta-memfs'],
+    'logger-api': ['logger-api-php', 'logger-api-mysql'],
+    'frita-executor': ['frita-executor'],
+}
+_win10_containers_cache = {'value': None, 'ts': 0.0}
+_win10_containers_lock = threading.Lock()
+WIN10_CONTAINERS_CACHE_TTL = 20
+
+
+def win10_container_states(timeout=10):
+    """One cached `docker ps -a` on the box → {container_name: status_string}.
+    The status string already carries exit code + restart count from Docker."""
+    with _win10_containers_lock:
+        now = time.time()
+        if (_win10_containers_cache['value'] is not None
+                and now - _win10_containers_cache['ts'] < WIN10_CONTAINERS_CACHE_TTL):
+            return _win10_containers_cache['value']
+    states = {}
+    try:
+        r = subprocess.run(
+            ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', LETTA_DOCKER_HOST,
+             'docker', 'ps', '-a', '--format', '{{.Names}}|{{.Status}}'],
+            capture_output=True, text=True, timeout=timeout)
+        for line in (r.stdout or '').splitlines():
+            if '|' in line:
+                name, status = line.split('|', 1)
+                states[name.strip()] = status.strip()
+    except Exception:
+        states = {}
+    with _win10_containers_lock:
+        _win10_containers_cache['value'] = states
+        _win10_containers_cache['ts'] = time.time()
+    return states
+
+
+def container_status_for(key, states):
+    """Human container-status summary for a server key, or '' if not a Docker server
+    or the probe failed. e.g. 'letta-server: Exited (139) 54 minutes ago'."""
+    names = WIN10_CONTAINERS.get(key)
+    if not names or not states:
+        return ''
+    parts = [f'{n}: {states[n]}' for n in names if n in states]
+    return ' · '.join(parts)
+
+
+# ── Generic restart dispatch (every Server Management tab gets a Restart button) ──
+# Goal: a dashboard user never needs the command line. Each server key maps to a
+# restart handler returning {ok, text}; handlers call mark_server_starting() so
+# the tab shows the yellow "recently restarted / verifying" state until the next
+# health check confirms green.
+RESTART_LOG = '/tmp/dashboard_restarts.log'
+
+
+def _log_restart(line):
+    try:
+        with open(RESTART_LOG, 'a') as f:
+            f.write(f'[{datetime.now().isoformat(timespec="seconds")}] {line}\n')
+    except Exception:
+        pass
+
+
+def ensure_win10_docker(timeout=45):
+    """Recover the Win10 box's native dockerd when it dies on a stale pid file —
+    the recurring failure behind "Frita HTTP 404 / :8799 down" (see
+    frita_executor_ghost_container memory, 2026-06-22): remove the stale
+    /var/run/docker.pid, reset the failed unit, start it. Idempotent + safe to
+    call before any Win10-docker restart. Returns {ok, text}."""
+    cmd = ('sudo -n rm -f /var/run/docker.pid; '
+           'sudo -n systemctl reset-failed docker.service 2>/dev/null; '
+           'sudo -n systemctl start docker.service 2>&1; '
+           'sleep 2; systemctl is-active docker.service')
+    try:
+        r = subprocess.run(
+            ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes',
+             LETTA_DOCKER_HOST, 'bash', '-lc', cmd],
+            capture_output=True, text=True, timeout=timeout)
+        out = ((r.stdout or '') + (r.stderr or '')).strip()
+        last = (r.stdout or '').strip().splitlines()[-1].strip() if (r.stdout or '').strip() else ''
+        return {'ok': last == 'active', 'text': out[-200:] or 'no output'}
+    except Exception as e:
+        return {'ok': False, 'text': f'ensure docker error: {e}'}
+
+
+# Cached probe of the Win10 dockerd, for the "dependency needs a reboot" yellow
+# state on the Win10-docker-backed servers (letta / logger-api / frita-executor).
+_win10_docker_cache = {'value': None, 'ts': 0.0}
+_win10_docker_lock = threading.Lock()
+WIN10_DOCKER_CACHE_TTL = 30
+
+
+def win10_docker_ok(timeout=8):
+    """Return True (active) / False (down) / None (unknown) for the Win10 dockerd.
+    Cached for WIN10_DOCKER_CACHE_TTL so it doesn't SSH on every health poll."""
+    with _win10_docker_lock:
+        now = time.time()
+        if (_win10_docker_cache['value'] is not None
+                and now - _win10_docker_cache['ts'] < WIN10_DOCKER_CACHE_TTL):
+            return _win10_docker_cache['value']
+    val = None
+    try:
+        r = subprocess.run(
+            ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
+             LETTA_DOCKER_HOST, 'systemctl', 'is-active', 'docker.service'],
+            capture_output=True, text=True, timeout=timeout)
+        val = (r.stdout.strip() == 'active')
+    except Exception:
+        val = None
+    with _win10_docker_lock:
+        _win10_docker_cache['value'] = val
+        _win10_docker_cache['ts'] = time.time()
+    return val
+
+
+def _restart_user_unit(key, unit, timeout=25):
+    """Restart a local systemd --user unit (lettabot / thought-bridge / mazda-tools-mcp)."""
+    _log_restart(f'{key}: systemctl --user restart {unit}')
+    try:
+        r = subprocess.run(['systemctl', '--user', 'restart', unit],
+                           capture_output=True, text=True, timeout=timeout)
+        mark_server_starting(key)
+        if r.returncode == 0:
+            return {'ok': True, 'text': f'Restarted {unit} (systemd --user).'}
+        return {'ok': False, 'text': f'systemctl restart {unit} failed: {(r.stderr or r.stdout).strip()[:200]}'}
+    except Exception as e:
+        return {'ok': False, 'text': f'restart {unit} error: {e}'}
+
+
+def _restart_remote(key, remote_cmd):
+    """Run a restart command on LETTA_DOCKER_HOST over SSH, detached + logged.
+    SSH+Docker is slow over the DERP relay, so launch detached and let the health
+    check confirm recovery; mark the server 'starting' (yellow) meanwhile."""
+    _log_restart(f'{key}: ssh {LETTA_DOCKER_HOST} {remote_cmd[:120]}')
+    try:
+        with open(RESTART_LOG, 'a') as logf:
+            subprocess.Popen(
+                ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes', LETTA_DOCKER_HOST,
+                 'bash', '-lc', remote_cmd],
+                stdout=logf, stderr=subprocess.STDOUT, start_new_session=True)
+        mark_server_starting(key)
+        return {'ok': True, 'text': f'Launched {key} restart on {LETTA_DOCKER_HOST} — tailing {RESTART_LOG}'}
+    except Exception as e:
+        return {'ok': False, 'text': f'ssh restart error: {e}'}
+
+
+def restart_frita_executor():
+    """Restart Frita's SDK executor: ensure the Win10 dockerd is up first (the
+    recurring stale-pid failure), then run the idempotent deploy."""
+    docker = ensure_win10_docker()
+    res = start_frita_executor()
+    if not docker['ok']:
+        res['text'] = f'{res.get("text", "")} (docker recovery: {docker["text"][:80]})'
+    return res
+
+
+# server key → restart handler (returns {ok, text}). Covers ALL SERVERS so every
+# Server Management tab can be restarted from the UI.
+RESTART_HANDLERS = {
+    'win10-node': restart_win10_node,          # revive WSL node via the Windows host
+    'executor': start_executor_server,        # script frees the port + relaunches
+    'mcp-proxy': start_executor_server,        # mcp-proxy :8789 is part of that script
+    'dashboard': restart_dashboard_server,
+    'logger-api': start_logger_api,            # idempotent self-healing compose up
+    'frita-executor': restart_frita_executor,  # docker recovery + idempotent deploy
+    'lettabot': lambda: _restart_user_unit('lettabot', 'lettabot.service'),
+    'thought-bridge': lambda: _restart_user_unit('thought-bridge', 'thought-bridge.service'),
+    'mazda-tools-mcp': lambda: _restart_user_unit('mazda-tools-mcp', 'mazda-tools-mcp.service'),
+    'letta': lambda: _restart_remote(
+        'letta',
+        'docker restart letta-server 2>&1 | tail -3 || '
+        '(cd ~/letta-src && docker compose restart 2>&1 | tail -3)'),
+    'dashboard-proxy': lambda: _restart_remote(
+        'dashboard-proxy',
+        'systemctl --user restart dashboard-proxy.service 2>&1 | tail -3 || '
+        'echo "no dashboard-proxy.service — start mechanism unknown, please configure"'),
+}
+RESTARTABLE_KEYS = set(RESTART_HANDLERS)
+
+
+def restart_server(key):
+    """Dispatch a restart for any Server Management entry. Returns {ok, text}."""
+    handler = RESTART_HANDLERS.get(key)
+    if handler is None:
+        return {'ok': False, 'text': f'No restart handler for "{key}".'}
+    try:
+        return handler()
+    except Exception as e:
+        return {'ok': False, 'text': f'restart {key} error: {e}'}
 
 
 # ── Remote Letta server log pulling (SSH) ─────────────────────────────────────
@@ -1639,6 +1936,33 @@ def get_server(key):
 # where that stale ghost typically surfaces, so we watch it explicitly.
 FRITA_EXEC_GOOD_URL = 'http://100.80.49.10:8799/claude_sdk_status'
 FRITA_EXEC_GHOST_URL = 'http://100.80.49.10:8797/claude_sdk_status'
+# The actual WORK endpoint the minions' run_claude_code_sdk tool POSTs to. The
+# status endpoint above can be perfectly healthy while THIS route 404s — which
+# is exactly the "HTTP Error 404: Not Found" Frita hit. We probe it cheaply so
+# the affected agents' tabs go red. See agent_health_check / uses_claude_sdk.
+FRITA_EXEC_WORK_URL = 'http://100.80.49.10:8799/claude_sdk'
+
+
+def _probe_claude_sdk_endpoint(url, timeout):
+    """Cheap reachability probe of the /claude_sdk WORK route. Returns one of:
+
+      'ok'          — the route exists (any non-404 response, including a 405
+                      'method not allowed' for our GET against a POST-only route,
+                      or even a 4xx/5xx — the point is the path is mounted).
+      'not_found'   — HTTP 404: the route the tool POSTs to is missing. This is
+                      Frita's exact failure; the affected tabs must go red.
+      'unreachable' — connection refused / timeout / DNS — executor is down.
+
+    Deliberately does NOT POST a real job (that would launch an SDK run on every
+    health sweep); a GET is enough to tell 'route missing' from 'route present'."""
+    try:
+        req = urllib.request.Request(url, method='GET')
+        urllib.request.urlopen(req, timeout=timeout)
+        return 'ok'
+    except urllib.error.HTTPError as e:
+        return 'not_found' if e.code == 404 else 'ok'
+    except Exception:
+        return 'unreachable'
 
 
 def _probe_sdk_status(url, timeout):
@@ -1690,12 +2014,14 @@ def frita_executor_health(timeout=None):
                 'text': f'SDK executor on :8799 NOT ready (missing: {", ".join(missing)}; '
                         f'host={good.get("host")}) — minions broken.' + ghost_warn}
     return {'ok': True,
+            'concern': bool(ghost_warn),  # up, but a shadowing ghost → yellow, not green
             'text': f'SDK OK on :8799 (host={good.get("host")}).' + ghost_warn}
 
 
 # Registry of named check functions usable via a SERVERS entry's 'check' key.
 HEALTH_CHECKS = {
     'frita_executor_health': frita_executor_health,
+    'win10_node_health': win10_node_health,
 }
 
 
@@ -1736,6 +2062,76 @@ def server_health(cfg, timeout=None):
         return {'ok': False, 'text': f'HTTP {e.code} {e.reason}'}
     except Exception as e:
         return {'ok': False, 'text': f'unreachable: {e}'}
+
+
+def compute_server_status(health, *, starting=False, restartable=False,
+                          host_unreachable=False, dependency_down=False):
+    """Reduce a health result to a tab status: 'up' | 'concern' | 'starting' | 'down'.
+
+    Yellow ('concern') is the "needs attention, but you can fix it here" state and
+    covers the four cases the dashboard surfaces:
+      1. reachable-but-degraded  — health ok but with a `concern` flag (e.g. the
+         Frita executor is up on :8799 but a ghost shadows :8797);
+      2. dependency needs a reboot — e.g. the Win10 dockerd is down;
+      3. down-but-restartable-here — a restart handler exists and the host is
+         reachable, so a Restart button can recover it;
+      4. recently-restarted — the 'starting' grace window after a Restart.
+    Red ('down') is reserved for genuinely-stuck servers: down with no restart
+    path, or a remote whose host we can't even reach (host_unreachable) to attempt
+    a fix. host_unreachable is derived from an actual host probe (e.g. the SSH/
+    docker check), not from guessing at the health-text wording."""
+    if health is not None and health.get('ok'):
+        return 'concern' if health.get('concern') else 'up'
+    if starting:
+        return 'starting'
+    if dependency_down:
+        return 'concern'
+    if restartable and not host_unreachable:
+        return 'concern'
+    return 'down'
+
+
+def classify_failure(text):
+    """Map a raw error string to (class, human_label) so the dashboard reports the
+    REAL failure mode instead of a generic/misleading one (today the ChatGPT
+    provider canary labelled a 404 as 'rate-limited', which sent diagnosis down
+    the wrong path). Used for provider + server errors."""
+    t = (text or '').lower()
+    if '429' in t or 'rate limit' in t or 'rate-limit' in t or 'too many requests' in t or 'quota' in t:
+        return ('rate_limit', 'rate-limited')
+    if '401' in t or '403' in t or 'unauth' in t or 'forbidden' in t or 'invalid_api_key' in t or 'authentication' in t:
+        return ('auth', 'auth error')
+    if '404' in t or 'not found' in t:
+        return ('not_found', 'provider error (404)')
+    if 'timed out' in t or 'timeout' in t:
+        return ('timeout', 'timeout')
+    if 'connection refused' in t or 'refused' in t:
+        return ('refused', 'connection refused')
+    if 'unreachable' in t or 'no route' in t or 'name or service not known' in t:
+        return ('unreachable', 'unreachable')
+    return ('error', 'error')
+
+
+def server_status_kind(cfg, health):
+    """Shared 4-state classification ('up'|'concern'|'starting'|'down', or None
+    when there's nothing to check) used by BOTH the sidebar tab
+    (/api/server-health) and the detail panel (/api/server-logs) so the two never
+    disagree. dependency_down/host_unreachable come from the cached Win10 docker
+    probe for win10_docker servers."""
+    if health is None:
+        return None
+    key = cfg['key']
+    dependency_down = host_unreachable = False
+    if cfg.get('win10_docker') and not health.get('ok'):
+        d = win10_docker_ok()
+        dependency_down = (d is False)
+        host_unreachable = (d is None)
+    return compute_server_status(
+        health,
+        starting=is_server_starting(key),
+        restartable=key in RESTARTABLE_KEYS,
+        host_unreachable=host_unreachable,
+        dependency_down=dependency_down)
 
 
 # ── Health-check caching ─────────────────────────────────────────────────────
@@ -1957,19 +2353,26 @@ def server_log_rows(cfg, q=''):
 
     # A real "up" health check always wins — flip green the moment the server
     # actually answers, rather than waiting out the "starting" window below.
+    # The detail panel's status must agree with the sidebar tab — both go through
+    # server_status_kind so a down-but-restartable server reads the same yellow
+    # "concern" in the panel as on the tab (not a bare red "Down").
     health = cached_server_health(cfg)
     if health is not None and health.get('ok'):
         clear_server_starting(cfg['key'])
-        out['status'] = health
+        out['status'] = dict(health)
+        out['status']['kind'] = server_status_kind(cfg, health)
     elif is_server_starting(cfg['key']):
-        out['status'] = {'ok': False, 'text': 'STARTING... — server startup in progress'}
+        out['status'] = {'ok': False, 'kind': 'starting',
+                         'text': 'STARTING... — server startup in progress'}
     elif health is not None:
-        out['status'] = health
+        out['status'] = dict(health)
+        out['status']['kind'] = server_status_kind(cfg, health)
     else:
         # No health_url to ping — fall back to "is it still writing logs?".
         log_health = log_activity_health(cfg)
         if log_health is not None:
-            out['status'] = log_health
+            out['status'] = dict(log_health)
+            out['status']['kind'] = server_status_kind(cfg, log_health)
 
     log_file = cfg.get('log_file')
     if log_file:
@@ -2158,7 +2561,8 @@ def _poll_chatgpt_provider_once(provider_name=CHATGPT_PLUS_PRO):
         if probe['ok']:
             clear_agent_send_error(agent_id)
         else:
-            record_agent_send_error(agent_id, f'{provider_name} rate-limited — {probe["text"]}')
+            _cls, label = classify_failure(probe['text'])
+            record_agent_send_error(agent_id, f'{provider_name} {label} — {probe["text"]}')
 
 
 def _chatgpt_provider_poll_loop():
@@ -2171,13 +2575,24 @@ def _chatgpt_provider_poll_loop():
         time.sleep(CHATGPT_PROVIDER_POLL_INTERVAL)
 
 
-def agent_health_check(cfg, timeout=15):
+def _uses_claude_sdk(cfg):
+    """True for agents whose tool calls hit the /claude_sdk WORK endpoint — either
+    flagged explicitly (Frita, who has no required_tools) or via run_claude_code_sdk
+    in required_tools (the Mazda minions)."""
+    return bool(cfg.get('uses_claude_sdk')) or 'run_claude_code_sdk' in cfg.get('required_tools', [])
+
+
+def agent_health_check(cfg, timeout=15, sdk_status=None):
     """Check if an agent is structurally healthy: ID resolvable + required tools attached.
-    Also checks _agent_send_errors for functional failures recorded by /api/test.
+    Also checks _agent_send_errors for functional failures recorded by /api/test, and
+    (for Claude-SDK agents) that the /claude_sdk work endpoint isn't 404ing.
 
     Returns {ok, text, name} — ok=False turns the agent's tab red in the dashboard.
     Uses a longer timeout than letta_get's default (6s) because the /tools endpoint
-    returns verbose JSON for agents with many tools over the DERP relay."""
+    returns verbose JSON for agents with many tools over the DERP relay.
+
+    sdk_status, when provided, is a pre-computed _probe_claude_sdk_endpoint() result
+    shared across a health sweep so the work endpoint is probed once, not per-agent."""
     name = cfg.get('name', '?')
     real_id = get_letta_id(cfg)
     if not real_id:
@@ -2190,6 +2605,22 @@ def agent_health_check(cfg, timeout=15):
         return {'ok': False,
                 'text': f'{name}: last send failed — {send_err["text"][:80]}',
                 'name': name}
+
+    # Claude-SDK work endpoint reachable? The dashboard's Frita-Executor LED only
+    # watches /claude_sdk_status; this catches a 404 on /claude_sdk itself — the
+    # route the tool actually POSTs to (Frita's "HTTP Error 404: Not Found").
+    if _uses_claude_sdk(cfg):
+        st = sdk_status if sdk_status is not None else _probe_claude_sdk_endpoint(FRITA_EXEC_WORK_URL, timeout)
+        if st == 'not_found':
+            return {'ok': False,
+                    'text': f'{name}: Claude SDK endpoint /claude_sdk returns 404 — '
+                            f'run_claude_code_sdk tool calls will fail',
+                    'name': name}
+        if st == 'unreachable':
+            return {'ok': False,
+                    'text': f'{name}: Claude SDK executor unreachable on :8799 — '
+                            f'run_claude_code_sdk tool calls will fail',
+                    'name': name}
 
     required = cfg.get('required_tools', [])
     if not required:
@@ -2221,10 +2652,16 @@ def agent_health_status():
         if cached is not None and now_ts - _agent_health_cache.get('ts', 0.0) < AGENT_HEALTH_CACHE_TTL:
             return cached
 
-        checked = [cfg for cfg in LETTA_AGENTS if cfg.get('required_tools')]
+        checked = [cfg for cfg in LETTA_AGENTS
+                   if cfg.get('required_tools') or _uses_claude_sdk(cfg)]
+        # Probe the shared /claude_sdk work endpoint ONCE for the whole sweep — a
+        # 404/outage there is infrastructure-wide, so every SDK agent reflects the
+        # same result (mirrors the chatgpt-provider canary turning the fleet red).
+        sdk_status = (_probe_claude_sdk_endpoint(FRITA_EXEC_WORK_URL, 6)
+                      if any(_uses_claude_sdk(c) for c in checked) else None)
         results = {}
         with ThreadPoolExecutor(max_workers=max(1, len(checked))) as pool:
-            for result in pool.map(lambda c: agent_health_check(c, timeout=15), checked):
+            for result in pool.map(lambda c: agent_health_check(c, timeout=15, sdk_status=sdk_status), checked):
                 name = result['name']
                 # Find the agent's real ID to use as the map key
                 cfg = next((c for c in checked if c['name'] == name), None)
@@ -2276,6 +2713,265 @@ def letta_id_for(agent_id):
     return None
 
 
+# ── Model Stats (per-OAuth/CLI session token usage) ───────────────────────────
+# Catch token-exhaustion early: each source reports current session usage % +
+# reset date. Codex (ChatGPT OAuth) exposes a rich `rate_limits` block (5h +
+# weekly used_percent + resets_at) in its session rollouts; Claude exposes
+# cumulative tokens/cost per model in ~/.claude/stats-cache.json (no weekly
+# limit %); Gemini has no machine-readable limit, so it's account-only.
+# W11 = this box (local); R46 = mom's machine (rosemary46) over SSH.
+R46_SSH_HOST = os.environ.get('R46_SSH_HOST', 'adamsl@100.72.34.38')
+
+MODEL_STAT_SOURCES = {
+    'w11-codex':  {'label': 'W11 Codex OAuth',  'kind': 'codex',  'host': None},
+    'r46-codex':  {'label': 'R46 Codex OAuth',  'kind': 'codex',  'host': R46_SSH_HOST},
+    'w11-claude': {'label': 'W11 Claude OAuth', 'kind': 'claude', 'host': None},
+    'r46-claude': {'label': 'R46 Claude OAuth', 'kind': 'claude', 'host': R46_SSH_HOST},
+    'gemini':     {'label': 'Gemini CLI',       'kind': 'gemini', 'host': None},
+}
+
+# Extractors run on the target machine (locally or piped over SSH). Each prints a
+# single JSON line so the dashboard parses one stdout blob regardless of host.
+_CODEX_EXTRACT_PY = r'''
+import json, os, time, urllib.request, urllib.error
+home = os.path.expanduser("~")
+model = None
+try:
+    for line in open(os.path.join(home, ".codex", "config.toml")):
+        s = line.strip()
+        if s.startswith("model") and "=" in s and "reasoning" not in s and "provider" not in s:
+            model = s.split("=", 1)[1].strip().strip("\"'"); break
+except Exception:
+    pass
+AUTH = os.path.join(home, ".codex", "auth.json")
+def _usage(t):
+    req = urllib.request.Request("https://chatgpt.com/backend-api/wham/usage",
+        headers={"Authorization": "Bearer " + t["access_token"],
+                 "ChatGPT-Account-Id": t.get("account_id", ""),
+                 "OpenAI-Beta": "codex-1", "originator": "codex_cli_rs", "User-Agent": "codex"})
+    return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+def _refresh(d):
+    t = d["tokens"]
+    body = json.dumps({"grant_type": "refresh_token", "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+                       "refresh_token": t["refresh_token"], "scope": "openid profile email"}).encode()
+    req = urllib.request.Request("https://auth.openai.com/oauth/token", data=body,
+        headers={"Content-Type": "application/json"})
+    r = json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
+    for k in ("access_token", "refresh_token", "id_token"):
+        if r.get(k): t[k] = r[k]
+    d["last_refresh"] = time.strftime("%Y-%m-%dT%H:%M:%S.000000Z", time.gmtime())
+    json.dump(d, open(AUTH, "w"))
+    return t
+out = {"model": model, "as_of": time.time()}
+# LIVE usage with SELF-HEAL on 401 (refresh via the codex refresh_token + persist).
+try:
+    d = json.load(open(AUTH)); t = d["tokens"]
+    try:
+        out["usage"] = _usage(t)
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            out["usage"] = _usage(_refresh(d)); out["refreshed"] = True
+        else:
+            raise
+except urllib.error.HTTPError as e:
+    code = None
+    try:
+        code = (json.loads(e.read().decode()).get("error") or {}).get("code")
+    except Exception:
+        pass
+    out["error"] = code or ("HTTP %d" % e.code)
+except Exception as e:
+    out["error"] = str(e)[:140]
+print(json.dumps(out))
+'''
+
+_CLAUDE_EXTRACT_PY = r'''
+import json, os, time, urllib.request, urllib.error
+home = os.path.expanduser("~")
+CRED = os.path.join(home, ".claude", ".credentials.json")
+def _usage(at):
+    req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage",
+        headers={"Authorization": "Bearer " + at,
+                 "anthropic-beta": "oauth-2025-04-20", "User-Agent": "claude-code/2.0.32"})
+    return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+def _refresh(d):
+    o = d["claudeAiOauth"]
+    body = json.dumps({"grant_type": "refresh_token", "refresh_token": o["refreshToken"],
+                       "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e"}).encode()
+    req = urllib.request.Request("https://platform.claude.com/v1/oauth/token", data=body,
+        headers={"Content-Type": "application/json", "User-Agent": "anthropic"})
+    r = json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
+    o["accessToken"] = r["access_token"]
+    if r.get("refresh_token"): o["refreshToken"] = r["refresh_token"]
+    if r.get("expires_in"): o["expiresAt"] = int((time.time() + r["expires_in"]) * 1000)
+    json.dump(d, open(CRED, "w"))
+    return o["accessToken"]
+out = {"as_of": time.time()}
+# LIVE usage with SELF-HEAL: refresh the token (and persist it) when it's expired
+# or the API returns 401 — so idle machines don't show "unavailable".
+try:
+    d = json.load(open(CRED)); o = d["claudeAiOauth"]
+    expired = bool(o.get("expiresAt")) and o["expiresAt"] / 1000 < time.time() + 60
+    try:
+        if expired:
+            out["usage"] = _usage(_refresh(d)); out["refreshed"] = True
+        else:
+            out["usage"] = _usage(o["accessToken"])
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            out["usage"] = _usage(_refresh(d)); out["refreshed"] = True
+        else:
+            raise
+except urllib.error.HTTPError as e:
+    out["error"] = "HTTP %d" % e.code
+except Exception as e:
+    out["error"] = str(e)[:140]
+try:
+    sc = json.load(open(os.path.join(home, ".claude", "stats-cache.json")))
+    days = sc.get("dailyModelTokens") or []
+    if days:
+        tbm = (days[-1].get("tokensByModel") or {})
+        if tbm:
+            out["recent_model"] = max(tbm, key=lambda k: sum(tbm[k].values()) if isinstance(tbm[k], dict) else tbm[k])
+except Exception:
+    pass
+print(json.dumps(out))
+'''
+
+_GEMINI_EXTRACT_PY = r'''
+import json, os
+out = {"account": None}
+try:
+    out["account"] = json.load(open(os.path.expanduser("~/.gemini/google_accounts.json")))
+except Exception:
+    pass
+print(json.dumps(out))
+'''
+
+
+def _run_extractor(py_src, host, timeout=18):
+    """Run an extractor on a machine (local if host is None, else over SSH) and
+    return its parsed JSON, or {'error': ...}."""
+    try:
+        if host:
+            # Feed the script over stdin (`python3 -`) so the remote shell can't
+            # mangle a multi-line `-c` argument.
+            cmd = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', host, 'python3', '-']
+        else:
+            cmd = [sys.executable, '-']
+        r = subprocess.run(cmd, input=py_src, capture_output=True, text=True, timeout=timeout)
+        line = (r.stdout or '').strip().splitlines()[-1] if (r.stdout or '').strip() else ''
+        return json.loads(line) if line else {'error': (r.stderr or 'no output')[:200]}
+    except Exception as e:
+        return {'error': str(e)}
+
+
+def _human_reset(when):
+    """'in 3h 12m' / 'in 5d 2h' from a reset time (Unix epoch OR ISO-8601 string)."""
+    if not when:
+        return None
+    if isinstance(when, str):
+        try:
+            from datetime import datetime
+            when = datetime.fromisoformat(when.replace('Z', '+00:00')).timestamp()
+        except Exception:
+            return None
+    secs = int(when - time.time())
+    if secs <= 0:
+        return 'now'
+    d, rem = divmod(secs, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    if d:
+        return f'in {d}d {h}h'
+    if h:
+        return f'in {h}h {m}m'
+    return f'in {m}m'
+
+
+def model_stats(source_key):
+    """Build the Model Stats payload for one source: provider/model, usage windows
+    (used_percent + reset), a tokens summary, and a status (up/concern/down) so the
+    tab can go red at 100%."""
+    src = MODEL_STAT_SOURCES.get(source_key)
+    if not src:
+        return {'ok': False, 'error': f'unknown source {source_key}'}
+    out = {'ok': True, 'key': source_key, 'label': src['label'], 'kind': src['kind'],
+           'windows': [], 'status': 'up', 'detail': ''}
+
+    if src['kind'] == 'codex':
+        d = _run_extractor(_CODEX_EXTRACT_PY, src['host'], timeout=35)
+        out['model'] = d.get('model')
+        out['as_of'] = d.get('as_of')
+        u = d.get('usage') or {}
+        if d.get('error') or not u:
+            out['status'] = 'concern'
+            err = d.get('error', 'no data')
+            hint = ' — run `codex login`' if 'expired' in str(err) or 'token' in str(err) else ''
+            out['detail'] = f'usage unavailable: {err}{hint}'
+            return out
+        rl = u.get('rate_limit') or {}
+        out['detail'] = f'plan: {u.get("plan_type", "?")}'
+        worst = 0.0
+        for wkey, wlabel in (('primary_window', '5-hour'), ('secondary_window', 'weekly')):
+            w = rl.get(wkey)
+            if not isinstance(w, dict):
+                continue
+            up = float(w.get('used_percent') or 0)
+            worst = max(worst, up)
+            out['windows'].append({
+                'label': wlabel,
+                'used_percent': round(up, 1),
+                'resets_at': w.get('reset_at'),
+                'resets_in': _human_reset(w.get('reset_at')),
+            })
+        if rl.get('limit_reached') or worst >= 100:
+            out['status'] = 'down'        # maxed → red, with reset shown
+        elif worst >= 80:
+            out['status'] = 'concern'     # getting close → yellow
+        return out
+
+    if src['kind'] == 'claude':
+        d = _run_extractor(_CLAUDE_EXTRACT_PY, src['host'], timeout=35)
+        out['as_of'] = d.get('as_of')
+        out['model'] = d.get('recent_model') or 'Claude subscription'
+        u = d.get('usage') or {}
+        if d.get('error') or not u:
+            out['status'] = 'concern'
+            out['detail'] = f'usage unavailable: {d.get("error", "no data")}'
+            return out
+        worst = 0.0
+        for key, label in (('five_hour', '5-hour'), ('seven_day', 'weekly')):
+            w = u.get(key) or {}
+            up = float(w.get('utilization') or 0)
+            worst = max(worst, up)
+            out['windows'].append({
+                'label': label,
+                'used_percent': round(up, 1),
+                'resets_at': w.get('resets_at'),
+                'resets_in': _human_reset(w.get('resets_at')),
+            })
+        eu = u.get('extra_usage') or {}
+        if eu.get('is_enabled'):
+            out['detail'] = f'extra usage {round(eu.get("utilization", 0))}% of ${eu.get("monthly_limit")}'
+        else:
+            out['detail'] = 'subscription (5h + weekly)'
+        if worst >= 100:
+            out['status'] = 'down'
+        elif worst >= 80:
+            out['status'] = 'concern'
+        return out
+
+    if src['kind'] == 'gemini':
+        d = _run_extractor(_GEMINI_EXTRACT_PY, src['host'])
+        acct = (d.get('account') or {})
+        out['model'] = 'gemini'
+        out['detail'] = f'account: {acct.get("active") or acct.get("email") or "?"} — usage not exposed by CLI'
+        return out
+
+    return out
+
+
 # ── HTTP Handler ──────────────────────────────────────────────────────────────
 
 class DashboardHandler(SimpleHTTPRequestHandler):
@@ -2296,6 +2992,16 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/agent-health':
             return self.json_response(agent_health_status())
+
+        if path == '/api/model-stats-sources':
+            return self.json_response([
+                {'key': k, 'label': v['label'], 'kind': v['kind']}
+                for k, v in MODEL_STAT_SOURCES.items()
+            ])
+
+        if path == '/api/model-stats':
+            src = query.get('source', [''])[0]
+            return self.json_response(model_stats(src))
 
         if path == '/api/agent-card':
             agent = next((a for a in build_agent_list()
@@ -2363,34 +3069,67 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 'servers': [],
                 'all_up': True,
                 'any_down': False,
+                'any_concern': False,
+                'any_stale': False,
             }
+            status_by_key = {}
+            container_states = [None]  # lazily probed once per build if needed
             for cfg in SERVERS:
                 has_active_check = cfg.get('health_url') or cfg.get('tcp_check') or cfg.get('check')
-                status = None
+                key = cfg['key']
+                restartable = key in RESTARTABLE_KEYS
+                health = None
                 if has_active_check:
-                    # A real "up" always wins — flip green as soon as the server
-                    # actually answers, rather than waiting out the "starting" window.
-                    h = cached_server_health(cfg)
-                    if h.get('ok'):
-                        clear_server_starting(cfg['key'])
-                        status = 'up'
-                    elif is_server_starting(cfg['key']):
-                        status = 'starting'
-                    else:
-                        status = 'down'
+                    health = cached_server_health(cfg)
                 elif cfg.get('log_file'):
-                    log_health = log_activity_health(cfg)
-                    status = 'up' if (log_health and log_health.get('ok')) else 'down'
+                    health = log_activity_health(cfg)
 
-                if status is not None:
-                    result['servers'].append({
-                        'key': cfg['key'],
-                        'name': cfg['name'],
-                        'status': status,
-                    })
-                    if status == 'down':
-                        result['any_down'] = True
-                        result['all_up'] = False
+                if health is not None and health.get('ok'):
+                    # A real "up" always wins — flip out of the starting window.
+                    clear_server_starting(key)
+                # Same classifier the detail panel uses (server_status_kind) so the
+                # tab and the opened page never disagree.
+                status = server_status_kind(cfg, health)
+                if status is None:
+                    continue
+                status_by_key[key] = status
+
+                # Root-cause grouping: if this server depends on a node that's not
+                # healthy, mark it blocked_by so it reads as a symptom, not its own
+                # failure (the node is restartable, so it reads 'concern' not 'down').
+                dep = cfg.get('depends_on')
+                blocked_by = dep if (dep and status_by_key.get(dep) not in (None, 'up')) else None
+
+                down_for, stale = track_down_duration(key, status)
+                _fc = classify_failure((health or {}).get('text', '')) if status != 'up' else None
+                entry = {
+                    'key': key,
+                    'name': cfg['name'],
+                    'status': status,
+                    'restartable': restartable,
+                    'down_for_seconds': down_for,
+                    'stale': stale,
+                }
+                if blocked_by:
+                    entry['blocked_by'] = blocked_by
+                if _fc:
+                    entry['failure_class'] = _fc[0]
+                # Indicator #2: attach the Docker container status (exit code /
+                # restart count) for Win10-hosted servers when they're not up.
+                if key in WIN10_CONTAINERS and status != 'up':
+                    if container_states[0] is None:
+                        container_states[0] = win10_container_states()
+                    cs = container_status_for(key, container_states[0])
+                    if cs:
+                        entry['container_status'] = cs
+                result['servers'].append(entry)
+                if status == 'down':
+                    result['any_down'] = True
+                    result['all_up'] = False
+                elif status in ('concern', 'starting'):
+                    result['any_concern'] = True
+                if stale:
+                    result['any_stale'] = True
             return self.json_response(result)
 
         if path == '/api/rol-finance-reports':
@@ -2566,6 +3305,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 if action in ('start', 'restart') and server == 'dashboard':
                     result = restart_dashboard_server()
                     return self.json_response(result)
+
+                # Generic restart — every Server Management entry is restartable
+                # from the UI so the user never needs the command line.
+                if action == 'restart':
+                    return self.json_response(restart_server(server))
 
                 return self.json_response({'ok': False, 'text': f'Unknown action: {action} for {server}'})
             except json.JSONDecodeError:

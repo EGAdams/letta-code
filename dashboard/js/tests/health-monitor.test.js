@@ -40,6 +40,24 @@ describe("HealthMonitor.overallStatus", () => {
       }),
     ).toBe("up");
   });
+  test("concern (no down/starting) => concern", () => {
+    expect(
+      HealthMonitor.overallStatus({
+        any_down: false,
+        any_concern: true,
+        servers: [{ status: "up" }, { status: "concern" }],
+      }),
+    ).toBe("concern");
+  });
+  test("down beats concern", () => {
+    expect(
+      HealthMonitor.overallStatus({
+        any_down: true,
+        any_concern: true,
+        servers: [{ status: "down" }, { status: "concern" }],
+      }),
+    ).toBe("down");
+  });
   test("null => unknown", () => {
     expect(HealthMonitor.overallStatus(null)).toBe("unknown");
   });

@@ -114,7 +114,10 @@ body.startup-loading .sidebar {
   border: 1px solid #3b4654;
   background: #000;
   color: #ffe761;
-  font: 13px/1.45 Consolas, Menlo, monospace;
+  font:
+    13px / 1.45 Consolas,
+    Menlo,
+    monospace;
   white-space: pre-wrap;
 }
 
@@ -609,6 +612,57 @@ summary {
   background: #f57f17;
   color: #000;
 }
+/* Yellow "concern" — reachable-but-degraded, dependency-down, down-but-
+   restartable-here, or recently-restarted. A heads-up the user can act on,
+   distinct from a hard red "down". Same amber family as "starting". */
+.tab.server-concern {
+  background: #f9a825;
+  color: #000;
+  font-weight: 700;
+}
+.tab.server-concern:hover,
+.tab.server-concern:focus-visible {
+  background: #f57f17;
+  color: #000;
+}
+/* ---- Model Stats ---- */
+.ms-card {
+  max-width: 560px;
+}
+.ms-card h3 {
+  margin: 0 0 8px;
+}
+.ms-window {
+  margin: 12px 0;
+}
+.ms-window-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.88rem;
+  margin-bottom: 4px;
+}
+.ms-bar {
+  height: 16px;
+  background: #e6e6e6;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ms-bar-fill {
+  height: 100%;
+  border-radius: 8px;
+  transition: width 300ms ease;
+}
+
+/* Stale outage (down past the threshold) blinks to escalate — passive red went
+   unnoticed for 54 min today. */
+.tab.server-stale {
+  animation: server-stale-blink 1.1s steps(1, end) infinite;
+}
+@keyframes server-stale-blink {
+  50% {
+    opacity: 0.45;
+  }
+}
 
 /* Month/year grouping tabs above the ROL Finance report list. Distinct
    teal so the month-selector row reads as a different level than the
@@ -679,6 +733,14 @@ summary {
   background: #f9a825;
   box-shadow: 0 0 6px #f9a825;
   animation: pulse-yellow 1s ease-in-out infinite;
+}
+/* Detail-panel "concern" pill — yellow, matching the sidebar tab. */
+.srv-status.concern {
+  background: #fff8e1;
+}
+.srv-status.concern .srv-led {
+  background: #f9a825;
+  box-shadow: 0 0 6px #f9a825;
 }
 @keyframes pulse-yellow {
   0%,
