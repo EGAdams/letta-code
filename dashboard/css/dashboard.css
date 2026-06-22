@@ -82,11 +82,11 @@ body.startup-loading .sidebar {
 }
 
 .startup-progress-shell {
-  width: 2.6in;
-  max-width: 100%;
-  height: 0.52in;
+  width: 100%;
+  max-width: none;
+  height: 0.442in;
   margin: 14px auto 12px;
-  padding: 0.06in;
+  padding: 0.05in;
   border-radius: 8px;
   border: 2px solid rgba(255, 255, 255, 0.22);
   background: rgba(10, 16, 24, 0.8);
@@ -102,12 +102,12 @@ body.startup-loading .sidebar {
   transition: width 220ms ease;
 }
 
-.startup-panel.startup-complete .startup-progress-bar {
+.startup-overlay.startup-complete .startup-progress-bar {
   background: #2f9d3a;
 }
 
 .startup-console {
-  height: 146px;
+  height: 292px;
   overflow-y: auto;
   padding: 12px 14px;
   border-radius: 8px;

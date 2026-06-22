@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DietPi Remote Agent Prototype - Team Prompt and Interface Design</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --ink: #1f2937;
+      --muted: #5b6472;
+      --line: #d9e0ea;
+      --accent: #174ea6;
+      --accent-soft: #e8f0fe;
+      --green: #1b7f4c;
+      --yellow: #9a6a00;
+      --red: #b42318;
+      --code-bg: #0f172a;
+      --code-ink: #e5e7eb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+
+    header {
+      background: linear-gradient(135deg, #123b7a, #1f6feb);
+      color: white;
+      padding: 38px 42px;
+    }
+
+    header h1 {
+      margin: 0 0 8px 0;
+      font-size: 2rem;
+      letter-spacing: -0.02em;
+    }
+
+    header p {
+      margin: 0;
+      max-width: 980px;
+      opacity: 0.94;
+      font-size: 1.05rem;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 24px;
+      margin-bottom: 22px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+    }
+
+    h2 {
+      margin-top: 0;
+      color: #102a56;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+      font-size: 1.35rem;
+    }
+
+    h3 {
+      margin-top: 22px;
+      color: #193b6a;
+      font-size: 1.08rem;
+    }
+
+    p { margin: 10px 0; }
+
+    ul, ol { padding-left: 24px; }
+
+    li { margin: 7px 0; }
+
+    .note {
+      border-left: 5px solid var(--accent);
+      background: var(--accent-soft);
+      padding: 14px 16px;
+      border-radius: 10px;
+      margin: 14px 0;
+    }
+
+    .warning {
+      border-left: 5px solid var(--yellow);
+      background: #fff8e6;
+      padding: 14px 16px;
+      border-radius: 10px;
+      margin: 14px 0;
+    }
+
+    .danger {
+      border-left: 5px solid var(--red);
+      background: #fff1f0;
+      padding: 14px 16px;
+      border-radius: 10px;
+      margin: 14px 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+
+    .small-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: #fbfdff;
+    }
+
+    .small-card h3 {
+      margin-top: 0;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #e8f0fe;
+      color: #174ea6;
+      font-size: 0.78rem;
+      font-weight: 700;
+      margin-right: 6px;
+    }
+
+    pre {
+      background: var(--code-bg);
+      color: var(--code-ink);
+      padding: 18px;
+      border-radius: 12px;
+      overflow-x: auto;
+      line-height: 1.45;
+      font-size: 0.9rem;
+      border: 1px solid #263244;
+    }
+
+    code {
+      font-family: Consolas, Monaco, 'Courier New', monospace;
+      font-size: 0.95em;
+    }
+
+    :not(pre) > code {
+      background: #edf2f7;
+      color: #102a56;
+      padding: 2px 5px;
+      border-radius: 5px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 0.95rem;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      vertical-align: top;
+    }
+
+    th {
+      background: #eef4ff;
+      text-align: left;
+      color: #102a56;
+    }
+
+    .footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding: 24px 0 10px;
+    }
+
+    @media print {
+      body { background: white; }
+      main { max-width: none; padding: 0; }
+      section { box-shadow: none; page-break-inside: avoid; }
+      header { border-radius: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>DietPi Remote Agent Prototype</h1>
+    <p>Team-ready implementation prompt, directory guidance, command-file contract, and GoF-inspired Pydantic interface design for a one-way command polling prototype.</p>
+  </header>
+
+  <main>
+    <section>
+      <h2>1. Clean Team Prompt</h2>
+      <p>Use this as the main prompt for the implementation agent.</p>
+
+      <pre><code>You are the implementation agent for the DietPi Remote Agent prototype.
+
+Goal:
+Build a Python-based agent that runs on the remote DietPi system in Florida. For this prototype, do not use SSH. The central Agent Orchestrator will publish command files to the public website path:
+
+  americansjewelry.com/public_html/commands/dietpi/
+
+The DietPi agent must poll the corresponding web URL for new command files, decide whether each command is recent enough to execute, and then execute only approved local actions.
+
+Important prototype constraints:
+1. This is a one-way command channel.
+2. The DietPi agent should not require an SSH connection.
+3. The DietPi agent cannot rely on sending a reply back to the orchestrator.
+4. The agent must ignore stale command files.
+5. The agent must not execute arbitrary shell commands from the website.
+6. Only allowlisted commands may run.
+7. All important decisions must be logged locally on the DietPi machine.
+
+Command file naming format:
+Each command is represented by a text file. The command name must be snake_case and must include the suggested execution time in the filename.
+
+Example:
+  make_run_12_00_00_PM.txt
+
+Meaning:
+  Command name: make_run
+  Suggested execution time: 12:00:00 PM
+
+Freshness rule:
+The DietPi agent must only execute commands that are still recent when discovered.
+
+Example:
+If the current DietPi system time is 12:00:01 PM and the queue contains:
+
+  make_run_12_00_00_PM.txt
+
+then the agent must treat that command as stale and ignore it. The agent must assume that commands are intended for their exact suggested execution time, not for later execution.
+
+Implementation expectation:
+Python is already installed on the DietPi machine. Build the prototype in Python.
+
+Polling source:
+Use the web directory listing or an index file served from:
+
+  https://americansjewelry.com/commands/dietpi/
+
+If HTTPS is not available in the prototype environment, document that limitation and make the base URL configurable. Do not hard-code the URL inside business logic.
+
+Required behavior:
+1. Poll the command source on a configurable interval.
+2. Discover command files ending in .txt.
+3. Parse command filenames into a structured command object.
+4. Validate command name, scheduled time, and freshness.
+5. Ignore stale, malformed, duplicate, or unknown commands.
+6. Execute only approved commands through command handler classes.
+7. Log every discovered command and every decision: executed, ignored, stale, malformed, duplicate, unknown, or failed.
+8. Keep local state so the same command file is not executed more than once during the agent process lifetime.
+9. Provide a clean directory structure with interfaces separated from implementations.
+10. Include unit tests for parsing, freshness detection, allowlist validation, duplicate detection, and command dispatch.
+
+Prototype command handlers:
+Start with these allowlisted command handlers:
+
+  make_run
+    Build and run the configured local C++ project.
+
+  health_check
+    Write a local health-check log entry proving the agent is alive.
+
+Do not implement broad remote shell execution. Add new command handlers only through explicit allowlist registration.
+
+Directory guidance:
+Place the solution in a dedicated project directory on the DietPi system. Use a clean, testable structure similar to this:
+
+  dietpi_remote_agent/
+    README.md
+    pyproject.toml
+    .env.example
+    src/
+      dietpi_agent/
+        __init__.py
+        main.py
+        config.py
+        models.py
+        interfaces.py
+        parser.py
+        freshness.py
+        registry.py
+        poller.py
+        dispatcher.py
+        state.py
+        logging_config.py
+        handlers/
+          __init__.py
+          make_run.py
+          health_check.py
+        infrastructure/
+          __init__.py
+          http_command_source.py
+          local_state_store.py
+          subprocess_runner.py
+    tests/
+      test_command_filename_parser.py
+      test_freshness_policy.py
+      test_command_registry.py
+      test_dispatcher.py
+      test_duplicate_detection.py
+      test_http_command_source.py
+
+Keep source code under src/dietpi_agent. Keep tests under tests. Keep environment-specific paths in .env or config.py. Do not scatter scripts across unrelated folders.
+
+Configuration must include:
+- command_source_url
+- poll_interval_seconds
+- freshness_window_seconds
+- local_project_directory
+- make_command
+- run_command
+- log_file_path
+- state_file_path
+
+Design principles:
+- Use GoF Command Pattern for executable command handlers.
+- Use Strategy Pattern for freshness validation.
+- Use Factory or Registry Pattern for command handler lookup.
+- Use Repository Pattern for local command state.
+- Use Adapter Pattern for the HTTP command source.
+- Program to interfaces, not concrete implementations.
+- Keep parsing, validation, polling, dispatching, and execution separated.
+
+Acceptance criteria:
+1. The agent starts from a single entry point: python -m dietpi_agent.main
+2. The agent polls the configured URL.
+3. It parses filenames like make_run_12_00_00_PM.txt correctly.
+4. It ignores stale commands.
+5. It refuses unknown commands.
+6. It refuses malformed filenames.
+7. It does not run the same command twice.
+8. It can execute make_run through an allowlisted handler.
+9. Unit tests cover all critical behavior.
+10. README.md explains installation, configuration, running, and testing.</code></pre>
+    </section>
+
+    <section>
+      <h2>2. Important Clarifications for the Team</h2>
+      <div class="grid">
+        <div class="small-card">
+          <h3>Do Not Build a Remote Shell</h3>
+          <p>The website command files should select approved actions. They should not contain arbitrary shell text that gets executed directly.</p>
+        </div>
+        <div class="small-card">
+          <h3>Filename Is the Command Envelope</h3>
+          <p>For the prototype, the command name and scheduled time are parsed from the filename. The text file body may be empty or reserved for future metadata.</p>
+        </div>
+        <div class="small-card">
+          <h3>Freshness Is Strict</h3>
+          <p>The safest prototype behavior is to execute only commands whose scheduled time matches the current polling moment within a tiny configured window.</p>
+        </div>
+        <div class="small-card">
+          <h3>Everything Must Be Logged Locally</h3>
+          <p>Because the DietPi agent cannot reply, local logs are the primary audit trail.</p>
+        </div>
+      </div>
+
+      <div class="warning">
+        <strong>Recommended prototype setting:</strong> start with <code>freshness_window_seconds = 0</code> or <code>1</code>. A larger window is easier to test, but it increases the chance that old commands run later than intended.
+      </div>
+    </section>
+
+    <section>
+      <h2>3. Proposed Directory Structure</h2>
+      <p>The implementation agent should be allowed to choose final paths, but the project should stay organized around clear boundaries.</p>
+
+      <pre><code>dietpi_remote_agent/
+  README.md
+  pyproject.toml
+  .env.example
+  src/
+    dietpi_agent/
+      __init__.py
+      main.py
+      config.py
+      models.py
+      interfaces.py
+      parser.py
+      freshness.py
+      registry.py
+      poller.py
+      dispatcher.py
+      state.py
+      logging_config.py
+      handlers/
+        __init__.py
+        make_run.py
+        health_check.py
+      infrastructure/
+        __init__.py
+        http_command_source.py
+        local_state_store.py
+        subprocess_runner.py
+  tests/
+    test_command_filename_parser.py
+    test_freshness_policy.py
+    test_command_registry.py
+    test_dispatcher.py
+    test_duplicate_detection.py
+    test_http_command_source.py</code></pre>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Path</th>
+            <th>Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>models.py</code></td>
+            <td>Pydantic data contracts: command file, parsed command, execution result, agent settings.</td>
+          </tr>
+          <tr>
+            <td><code>interfaces.py</code></td>
+            <td>Protocols and abstract contracts for source, parser, freshness policy, registry, state store, dispatcher, and handlers.</td>
+          </tr>
+          <tr>
+            <td><code>parser.py</code></td>
+            <td>Converts filenames such as <code>make_run_12_00_00_PM.txt</code> into structured commands.</td>
+          </tr>
+          <tr>
+            <td><code>freshness.py</code></td>
+            <td>Decides whether a parsed command is recent enough to execute.</td>
+          </tr>
+          <tr>
+            <td><code>registry.py</code></td>
+            <td>Maps allowlisted command names to command handler implementations.</td>
+          </tr>
+          <tr>
+            <td><code>poller.py</code></td>
+            <td>Main polling loop. Should orchestrate dependencies but avoid embedding business logic.</td>
+          </tr>
+          <tr>
+            <td><code>dispatcher.py</code></td>
+            <td>Validates command status and routes valid commands to the correct handler.</td>
+          </tr>
+          <tr>
+            <td><code>state.py</code></td>
+            <td>Tracks command IDs already seen or executed to prevent duplicates.</td>
+          </tr>
+          <tr>
+            <td><code>infrastructure/</code></td>
+            <td>Adapters for HTTP polling, local state persistence, and subprocess execution.</td>
+          </tr>
+          <tr>
+            <td><code>handlers/</code></td>
+            <td>One class per approved command. Do not place arbitrary shell execution here.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>4. Command File Contract</h2>
+      <p>The filename is treated as a command envelope.</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Example Filename</th>
+            <th>Command Name</th>
+            <th>Suggested Execution Time</th>
+            <th>Decision at 12:00:01 PM</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>make_run_12_00_00_PM.txt</code></td>
+            <td><code>make_run</code></td>
+            <td>12:00:00 PM</td>
+            <td>Ignore as stale</td>
+          </tr>
+          <tr>
+            <td><code>health_check_12_00_01_PM.txt</code></td>
+            <td><code>health_check</code></td>
+            <td>12:00:01 PM</td>
+            <td>Execute if discovered at that moment and not already executed</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="note">
+        <strong>Future improvement:</strong> The filename-only design is fine for a prototype. A later version should use JSON command envelopes with command ID, timestamp, signature, payload, and checksum.
+      </div>
+    </section>
+
+    <section>
+      <h2>5. GoF Design Pattern Mapping</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Pattern</th>
+            <th>Where It Applies</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Command</td>
+            <td><code>ICommandHandler</code>, <code>MakeRunHandler</code>, <code>HealthCheckHandler</code></td>
+            <td>Each allowed remote action becomes an object with a single execution contract.</td>
+          </tr>
+          <tr>
+            <td>Strategy</td>
+            <td><code>IFreshnessPolicy</code></td>
+            <td>The staleness rule can change without rewriting the poller or dispatcher.</td>
+          </tr>
+          <tr>
+            <td>Factory / Registry</td>
+            <td><code>ICommandRegistry</code></td>
+            <td>Command names are mapped to handlers without hard-coding dispatch branches everywhere.</td>
+          </tr>
+          <tr>
+            <td>Adapter</td>
+            <td><code>ICommandSource</code>, <code>HttpCommandSource</code></td>
+            <td>The agent can poll an HTTP directory now and another source later.</td>
+          </tr>
+          <tr>
+            <td>Repository</td>
+            <td><code>ICommandStateStore</code></td>
+            <td>Duplicate detection and execution history are isolated from the rest of the system.</td>
+          </tr>
+          <tr>
+            <td>Template Method</td>
+            <td>Optional base class for command handlers</td>
+            <td>Handlers can share validate/log/execute steps while customizing the actual action.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>6. Pydantic Models and Interface Contracts</h2>
+      <p>These contracts are intended to guide implementation. They keep the system modular, testable, and easy to extend.</p>
+
+      <pre><code>from __future__ import annotations
+
+from datetime import datetime, time
+from enum import Enum
+from pathlib import Path
+from typing import Iterable, Optional, Protocol, Sequence
+
+from pydantic import AnyHttpUrl, BaseModel, Field, PositiveInt, field_validator
+
+
+class CommandDecision(str, Enum):
+    EXECUTE = "execute"
+    IGNORE_STALE = "ignore_stale"
+    IGNORE_DUPLICATE = "ignore_duplicate"
+    IGNORE_MALFORMED = "ignore_malformed"
+    IGNORE_UNKNOWN = "ignore_unknown"
+    FAILED = "failed"
+
+
+class ExecutionStatus(str, Enum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class AgentSettings(BaseModel):
+    command_source_url: AnyHttpUrl
+    poll_interval_seconds: PositiveInt = 1
+    freshness_window_seconds: int = Field(default=0, ge=0, le=60)
+    local_project_directory: Path
+    make_command: Sequence[str] = Field(default_factory=lambda: ["make"])
+    run_command: Sequence[str] = Field(default_factory=lambda: ["./main"])
+    log_file_path: Path
+    state_file_path: Path
+
+    @field_validator("local_project_directory", "log_file_path", "state_file_path")
+    @classmethod
+    def expand_paths(cls, value: Path) -> Path:
+        return value.expanduser().resolve()
+
+
+class RemoteCommandFile(BaseModel):
+    filename: str
+    url: Optional[AnyHttpUrl] = None
+    discovered_at: datetime
+
+    @field_validator("filename")
+    @classmethod
+    def require_txt_file(cls, value: str) -> str:
+        if not value.endswith(".txt"):
+            raise ValueError("Command files must end with .txt")
+        return value
+
+
+class ParsedCommand(BaseModel):
+    command_id: str
+    command_name: str
+    scheduled_time: time
+    source_filename: str
+    discovered_at: datetime
+
+    @field_validator("command_name")
+    @classmethod
+    def require_snake_case(cls, value: str) -> str:
+        if not value.replace("_", "").islower() or "__" in value:
+            raise ValueError("Command name must be snake_case")
+        return value
+
+
+class CommandValidationResult(BaseModel):
+    command: Optional[ParsedCommand] = None
+    decision: CommandDecision
+    reason: str
+
+
+class CommandExecutionRequest(BaseModel):
+    command: ParsedCommand
+    settings: AgentSettings
+
+
+class CommandExecutionResult(BaseModel):
+    command_id: str
+    command_name: str
+    status: ExecutionStatus
+    decision: CommandDecision
+    started_at: datetime
+    finished_at: datetime
+    message: str = ""
+    exit_code: Optional[int] = None
+
+
+class ICommandSource(Protocol):
+    def list_command_files(self) -> Iterable[RemoteCommandFile]:
+        """Return command files currently visible from the remote command source."""
+
+
+class ICommandFilenameParser(Protocol):
+    def parse(self, command_file: RemoteCommandFile) -> CommandValidationResult:
+        """Parse one remote command filename into a structured command."""
+
+
+class IFreshnessPolicy(Protocol):
+    def evaluate(self, command: ParsedCommand, now: datetime) -> CommandValidationResult:
+        """Return EXECUTE only when the command is recent enough to run."""
+
+
+class ICommandStateStore(Protocol):
+    def has_seen(self, command_id: str) -> bool:
+        """Return True if this command was already seen or executed."""
+
+    def mark_seen(self, command_id: str) -> None:
+        """Record that the command was seen."""
+
+    def mark_executed(self, result: CommandExecutionResult) -> None:
+        """Record the final execution result."""
+
+
+class ICommandHandler(Protocol):
+    command_name: str
+
+    def execute(self, request: CommandExecutionRequest) -> CommandExecutionResult:
+        """Execute one approved command."""
+
+
+class ICommandRegistry(Protocol):
+    def get_handler(self, command_name: str) -> Optional[ICommandHandler]:
+        """Return the handler for an allowlisted command name, or None."""
+
+    def registered_commands(self) -> Sequence[str]:
+        """Return the names of all allowlisted commands."""
+
+
+class ICommandDispatcher(Protocol):
+    def dispatch(self, command: ParsedCommand) -> CommandExecutionResult:
+        """Route a valid parsed command to the correct handler."""
+
+
+class IProcessRunner(Protocol):
+    def run(self, args: Sequence[str], cwd: Path) -> tuple[int, str, str]:
+        """Run a local allowlisted process and return exit_code, stdout, stderr."""
+
+
+class IAgentLogger(Protocol):
+    def info(self, message: str, **context: object) -> None:
+        """Write informational audit details."""
+
+    def warning(self, message: str, **context: object) -> None:
+        """Write warning audit details."""
+
+    def error(self, message: str, **context: object) -> None:
+        """Write error audit details."""</code></pre>
+    </section>
+
+    <section>
+      <h2>7. Example Handler Shape</h2>
+      <p>The implementation should use small handler classes instead of a giant if/else block.</p>
+
+      <pre><code>class MakeRunHandler:
+    command_name = "make_run"
+
+    def __init__(self, process_runner: IProcessRunner):
+        self.process_runner = process_runner
+
+    def execute(self, request: CommandExecutionRequest) -> CommandExecutionResult:
+        started_at = datetime.now()
+
+        make_exit, make_stdout, make_stderr = self.process_runner.run(
+            request.settings.make_command,
+            cwd=request.settings.local_project_directory,
+        )
+
+        if make_exit != 0:
+            finished_at = datetime.now()
+            return CommandExecutionResult(
+                command_id=request.command.command_id,
+                command_name=request.command.command_name,
+                status=ExecutionStatus.FAILED,
+                decision=CommandDecision.FAILED,
+                started_at=started_at,
+                finished_at=finished_at,
+                message=make_stderr or make_stdout,
+                exit_code=make_exit,
+            )
+
+        run_exit, run_stdout, run_stderr = self.process_runner.run(
+            request.settings.run_command,
+            cwd=request.settings.local_project_directory,
+        )
+
+        finished_at = datetime.now()
+        return CommandExecutionResult(
+            command_id=request.command.command_id,
+            command_name=request.command.command_name,
+            status=ExecutionStatus.SUCCEEDED if run_exit == 0 else ExecutionStatus.FAILED,
+            decision=CommandDecision.EXECUTE if run_exit == 0 else CommandDecision.FAILED,
+            started_at=started_at,
+            finished_at=finished_at,
+            message=run_stdout if run_exit == 0 else run_stderr,
+            exit_code=run_exit,
+        )</code></pre>
+    </section>
+
+    <section>
+      <h2>8. Unit Test Checklist</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Test Area</th>
+            <th>Required Coverage</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Filename parsing</td>
+            <td>Valid filenames, missing time, bad extension, non-snake-case command names, invalid AM/PM marker.</td>
+          </tr>
+          <tr>
+            <td>Freshness policy</td>
+            <td>Exact time match, one second late, future command, configurable freshness window.</td>
+          </tr>
+          <tr>
+            <td>Registry</td>
+            <td>Known command returns handler; unknown command returns None.</td>
+          </tr>
+          <tr>
+            <td>Duplicate detection</td>
+            <td>Same command ID is not executed twice.</td>
+          </tr>
+          <tr>
+            <td>Dispatcher</td>
+            <td>Executes approved command, skips unknown command, records failed handler results.</td>
+          </tr>
+          <tr>
+            <td>HTTP source adapter</td>
+            <td>Discovers .txt links and ignores unrelated files.</td>
+          </tr>
+          <tr>
+            <td>Make/run handler</td>
+            <td>Make failure prevents run step; run failure is logged; success returns succeeded result.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>9. Security and Reliability Guardrails</h2>
+      <div class="danger">
+        <strong>Do not execute arbitrary command text from the remote website.</strong> Treat the public command directory as an untrusted input source. Only allowlisted command names should trigger local behavior.
+      </div>
+
+      <ul>
+        <li>Use HTTPS when possible.</li>
+        <li>Keep the base URL configurable.</li>
+        <li>Use an allowlist command registry.</li>
+        <li>Do not pass remote file contents directly to <code>subprocess</code>.</li>
+        <li>Log malformed and unknown command files instead of failing silently.</li>
+        <li>Store local execution history to prevent duplicate runs.</li>
+        <li>Consider adding signed JSON command files in the next version.</li>
+        <li>Consider adding a separate status upload/reporting channel later, but do not block this prototype on it.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>10. Recommended Milestones</h2>
+      <ol>
+        <li><strong>Milestone 1:</strong> Create project structure, config model, and Pydantic contracts.</li>
+        <li><strong>Milestone 2:</strong> Implement filename parser and freshness policy with unit tests.</li>
+        <li><strong>Milestone 3:</strong> Implement HTTP command source adapter and local state store.</li>
+        <li><strong>Milestone 4:</strong> Implement command registry, dispatcher, and health_check handler.</li>
+        <li><strong>Milestone 5:</strong> Implement make_run handler with safe subprocess runner.</li>
+        <li><strong>Milestone 6:</strong> Add README, .env.example, installation notes, and systemd service notes.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>11. Final Instruction to the Implementation Agent</h2>
+      <pre><code>Build this prototype cleanly and test-first. Keep the design modular. Do not create a remote shell. Treat the website command folder as an untrusted queue of command requests. Only parse, validate, and dispatch known command names through registered handler classes. Put files in the project structure described above unless the existing system already has a better established location. If a different location is chosen, document the reason in README.md.</code></pre>
+    </section>
+
+    <div class="footer">
+      DietPi Remote Agent Prototype &mdash; Team Handoff Document
+    </div>
+  </main>
+</body>
+</html>

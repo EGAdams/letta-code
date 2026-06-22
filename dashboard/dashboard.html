@@ -4,13 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard</title>
-  <link rel="stylesheet" href="/css/dashboard.css?v=20260619d" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=20260619g" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
     <div class="startup-panel">
       <div class="startup-title">Dashboard Startup Checks</div>
-      <div class="startup-status" id="startup-status-text">Starting dashboard checks…</div>
+      <div class="startup-status" id="startup-status-text">Running Dashboard checks...</div>
       <div class="startup-progress-shell" aria-hidden="true">
         <div class="startup-progress-bar" id="startup-progress-bar"></div>
       </div>
@@ -67,6 +67,9 @@
       <button type="button" class="tab" data-nav="plans" data-target="plans-divide-conquer">Divide Conquer</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-audio-input">Audio Input</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-dev-status">Mazda Dev Status</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-verification-tracker">Verification Tracker</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-self-improvement">Self Improvement Plan</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-diet-pi-comm">Diet Pi Comm</button>
     </nav>
 
     <!-- ROL Finance sub-nav -->
@@ -305,6 +308,18 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <iframe id="mazda-dev-status-plan-frame" class="plan-frame" src="/notes_plans_handoffs/mazda_dev_status.html"></iframe>
     </section>
 
+    <section id="plans-verification-tracker" class="view">
+      <iframe id="verification-tracker-plan-frame" class="plan-frame" src="/notes_plans_handoffs/verification_tracker.html"></iframe>
+    </section>
+
+    <section id="plans-self-improvement" class="view">
+      <iframe id="self-improvement-plan-frame" class="plan-frame" src="/notes_plans_handoffs/mazda_self_improvement_plan.html"></iframe>
+    </section>
+
+    <section id="plans-diet-pi-comm" class="view">
+      <iframe id="diet-pi-comm-plan-frame" class="plan-frame" src="/notes_plans_handoffs/diet_pi_communicator.html"></iframe>
+    </section>
+
     <!-- ROL Finance views -->
     <section id="rol-finance-plan" class="view">
       <iframe id="rol-finance-plan-frame" class="plan-frame" src="/rol_finances/tools/plan.html"></iframe>
@@ -339,6 +354,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20260619h"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=20260619s"></script>
 </body>
 </html>
