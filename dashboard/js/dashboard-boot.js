@@ -52,6 +52,7 @@ const navSSH = document.getElementById("nav-ssh-connections");
 const navPlans = document.getElementById("nav-plans");
 const navRolFinance = document.getElementById("nav-rol-finance");
 const navRolFinanceReports = document.getElementById("nav-rol-finance-reports");
+const navScanners = document.getElementById("nav-scanners");
 const navModelStats = document.getElementById("nav-model-stats");
 const startupOverlay = document.getElementById("startup-overlay");
 const startupStatusText = document.getElementById("startup-status-text");
@@ -554,6 +555,27 @@ if (
           RF.openReports();
           return;
         }
+        if (tab.dataset.target === "rol-finance-scanners") {
+          safeSetActive(
+            navRolFinance,
+            '[data-nav="rol-finance"][data-target]',
+            tab,
+          );
+          navRolFinance.classList.add("hidden");
+          navScanners.classList.remove("hidden");
+          const freezerTab = navScanners.querySelector(
+            '[data-nav="scanners"][data-target="scanners-freezer"]',
+          );
+          if (freezerTab)
+            safeSetActive(
+              navScanners,
+              '[data-nav="scanners"][data-target]',
+              freezerTab,
+            );
+          safeActivateView("scanners-freezer");
+          scannerControllers.freezer?.startMonitor();
+          return;
+        }
         safeSetActive(
           navRolFinance,
           '[data-nav="rol-finance"][data-target]',
@@ -578,6 +600,21 @@ if (
       RF.selectReport(tab.dataset.reportKey);
     }
   });
+
+  // ROL Finance Scanners sub-nav (Freezer Scanner / Window Scanner).
+  navScanners
+    .querySelectorAll('[data-nav="scanners"][data-target]')
+    .forEach((tab) => {
+      tab.addEventListener("click", () => {
+        safeSetActive(navScanners, '[data-nav="scanners"][data-target]', tab);
+        safeActivateView(tab.dataset.target);
+        // Only poll the scanner whose tab is showing.
+        stopAllScannerMonitors();
+        if (tab.dataset.target === "scanners-freezer") {
+          scannerControllers.freezer?.startMonitor();
+        }
+      });
+    });
 
   // Agent tabs are injected dynamically, so use event delegation.
   navAgents.addEventListener("click", (e) => {
@@ -749,6 +786,26 @@ if (
     });
   }
 
+  // Back from the ROL Finance Scanners sub-nav -> ROL Finance sub-nav.
+  const backScanners = document.getElementById("btn-back-scanners");
+  if (backScanners) {
+    backScanners.addEventListener("click", () => {
+      stopAllScannerMonitors();
+      navScanners.classList.add("hidden");
+      navRolFinance.classList.remove("hidden");
+      const planTab = navRolFinance.querySelector(
+        '[data-nav="rol-finance"][data-target="rol-finance-plan"]',
+      );
+      if (planTab)
+        safeSetActive(
+          navRolFinance,
+          '[data-nav="rol-finance"][data-target]',
+          planTab,
+        );
+      safeActivateView("rol-finance-plan");
+    });
+  }
+
   const backAgents = document.getElementById("btn-back-agents");
   if (backAgents) {
     backAgents.addEventListener("click", () => {
@@ -844,7 +901,7 @@ const MS = {
     this.pollTimer = setInterval(() => {
       if (this.current) this.show(this.current);
       this.pollColors();
-    }, 30000);
+    }, 120000);
   },
   async show(key) {
     const body = document.getElementById("model-stats-body");
@@ -1031,9 +1088,9 @@ const AM = {
         return;
       }
 
-      agentGate.start();
-
-      if (!this.agents) {
+      const alreadyCached = !!this.agents;
+      if (!alreadyCached) {
+        agentGate.start();
         agentGate.writeLine("Fetching agent roster...");
         if (status) status.textContent = "Loading agents…";
         try {
@@ -1051,14 +1108,16 @@ const AM = {
       }
 
       if (!this.agents.length) {
-        agentGate.writeLine("No agents found.");
-        agentGate.complete("agents", "Loaded 0 agents.");
+        if (!alreadyCached) {
+          agentGate.writeLine("No agents found.");
+          agentGate.complete("agents", "Loaded 0 agents.");
+        }
         if (status) status.textContent = "No agents found.";
         return;
       }
 
       for (const a of this.agents) {
-        agentGate.writeLine(`Agent ${a.name}`);
+        if (!alreadyCached) agentGate.writeLine(`Agent ${a.name}`);
         navAgents.appendChild(tabFactory.buildAgentTab(a));
       }
       const age = this.agentsLoadedAt
@@ -1072,7 +1131,8 @@ const AM = {
           (this.agents.length === 1 ? "" : "s") +
           (age ? ` <span class="dim">(cached ${age}s ago)</span>` : "") +
           ". Pick one from the left to view its Thoughts, Messages, Tool Calls, or Input Options.";
-      agentGate.complete("agents", `Loaded ${this.agents.length} agents.`);
+      if (!alreadyCached)
+        agentGate.complete("agents", `Loaded ${this.agents.length} agents.`);
     } finally {
       this._tabsLoading = false;
     }
@@ -1718,6 +1778,194 @@ new AgentHealthPoller({ http, setHealth: setAgentTabHealth }).start();
 // Blink the Agents tab + prompt to restart when the dashboard's own source
 // changes on disk (polls /api/code-status every 15s).
 new CodeChangeAlert({ http }).start();
+
+/* =====================  Scanners  =====================
+   ROL Finance > Scanners > {Window,Freezer} Scanner. Each `.scanner-dialog`
+   reuses the startup-panel look inline (no overlay). Start Scan kicks off the
+   backend scan AND a ~10s yellow progress fill; when the scan returns the bar
+   snaps green + "Scan Finished" and the image opens automatically. The image
+   is dismissable (× / re-opened with "Show Image"). */
+// The Freezer Scanner (non-default HP063E28) is notorious for "WIA device is
+// busy" until power-cycled. While its tab is showing we poll /api/scanner-status
+// every ~5s: on `busy`/`offline` the bar turns RED and a blinking red "Restart
+// the Scanner Please" shows; the moment the device recovers, that same poll's
+// transfer succeeds and the scanned image appears.
+const SCANNER_POLL_MS = 5000;
+const MONITORED_SCANNERS = new Set(["freezer"]);
+
+function setupScanners() {
+  const controllers = {};
+  document.querySelectorAll(".scanner-dialog").forEach((dialog) => {
+    const scanner = dialog.dataset.scanner;
+    const panel = dialog.querySelector(".scanner-panel");
+    const bar = dialog.querySelector(".scanner-bar");
+    const state = dialog.querySelector(".scanner-state");
+    const startBtn = dialog.querySelector(".scanner-start");
+    const showBtn = dialog.querySelector(".scanner-show");
+    const imageBox = dialog.querySelector(".scanner-image-box");
+    const img = dialog.querySelector(".scanner-image");
+    const closeBtn = dialog.querySelector(".scanner-image-close");
+    const monitored = MONITORED_SCANNERS.has(scanner);
+    let lastImageUrl = null;
+    let scanning = false;
+    let progressTimer = null;
+    let pollTimer = null;
+    let monitorActive = false;
+    let inFlight = false;
+
+    const setBar = (pct) => {
+      bar.style.width = `${pct}%`;
+    };
+    const clearBlink = () => state.classList.remove("scanner-blink");
+    const showImage = () => {
+      if (!lastImageUrl) return;
+      img.src = lastImageUrl;
+      imageBox.classList.remove("hidden");
+    };
+    const hideImage = () => imageBox.classList.add("hidden");
+
+    const setBusy = (msg) => {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+      setBar(100);
+      panel.classList.remove("scan-complete", "scan-error");
+      panel.classList.add("scan-busy");
+      state.textContent = msg;
+      state.classList.add("scanner-blink");
+      // Device needs a power-cycle — block Start Scan until it recovers.
+      startBtn.disabled = true;
+    };
+    const setReady = (imageUrl) => {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+      clearBlink();
+      setBar(100);
+      panel.classList.remove("scan-busy", "scan-error");
+      panel.classList.add("scan-complete");
+      state.textContent = "Scan Finished";
+      startBtn.disabled = false;
+      if (imageUrl) {
+        lastImageUrl = imageUrl;
+        showBtn.disabled = false;
+        showImage();
+      }
+    };
+    const setFailed = (msg) => {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+      clearBlink();
+      setBar(100);
+      panel.classList.remove("scan-busy", "scan-complete");
+      panel.classList.add("scan-error");
+      state.textContent = msg;
+      startBtn.disabled = false;
+    };
+
+    // Map a /api/scanner-status or /api/scanner-scan result onto the dialog.
+    const applyResult = (data) => {
+      const status = data.status || (data.ok ? "ready" : "error");
+      if (status === "ready") {
+        setReady(data.image_url);
+      } else if (status === "busy" || status === "offline") {
+        setBusy("Restart the Scanner Please");
+      } else {
+        setFailed(`Scan failed: ${data.error || "unknown error"}`);
+      }
+      return status;
+    };
+
+    const stopMonitor = () => {
+      monitorActive = false;
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const pollOnce = async () => {
+      if (!monitorActive || inFlight) return;
+      inFlight = true;
+      try {
+        const res = await fetch(`/api/scanner-status?scanner=${scanner}`);
+        const data = await res.json();
+        inFlight = false;
+        if (!monitorActive) return;
+        // On recovery the status poll's transfer succeeds -> stop polling.
+        if (applyResult(data) === "ready") {
+          stopMonitor();
+          return;
+        }
+      } catch {
+        inFlight = false;
+        if (monitorActive) setBusy("Restart the Scanner Please");
+      }
+      if (monitorActive) pollTimer = setTimeout(pollOnce, SCANNER_POLL_MS);
+    };
+
+    const startMonitor = () => {
+      if (!monitored || monitorActive) return;
+      monitorActive = true;
+      void pollOnce();
+    };
+
+    // One-shot manual scan with the yellow ~10s fill (used by the Start button).
+    const runManualScan = async () => {
+      if (scanning) return;
+      scanning = true;
+      stopMonitor();
+      startBtn.disabled = true;
+      showBtn.disabled = true;
+      hideImage();
+      clearBlink();
+      panel.classList.remove("scan-complete", "scan-error", "scan-busy");
+      state.textContent = "Scanning…";
+      setBar(4);
+      const startedAt = Date.now();
+      progressTimer = setInterval(() => {
+        const t = Math.min((Date.now() - startedAt) / 10000, 1);
+        setBar(4 + t * 88);
+      }, 120);
+      try {
+        const res = await fetch("/api/scanner-scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scanner }),
+        });
+        const data = await res.json();
+        const status = applyResult(data);
+        // A monitored scanner that came back busy/offline: resume polling so it
+        // auto-recovers once power-cycled.
+        if (monitored && (status === "busy" || status === "offline")) {
+          startMonitor();
+        }
+      } catch (err) {
+        setFailed(`Scan failed: ${err.message}`);
+      } finally {
+        // startBtn.disabled is now owned by setBusy/setReady/setFailed above —
+        // don't unconditionally re-enable here, or a busy/offline result would
+        // leave Start Scan clickable while the device still needs a restart.
+        scanning = false;
+      }
+    };
+
+    closeBtn.addEventListener("click", hideImage);
+    showBtn.addEventListener("click", showImage);
+    startBtn.addEventListener("click", runManualScan);
+
+    controllers[scanner] = { startMonitor, stopMonitor };
+  });
+  return controllers;
+}
+const scannerControllers = setupScanners();
+function stopAllScannerMonitors() {
+  for (const c of Object.values(scannerControllers)) c.stopMonitor();
+}
 
 /* =====================  Deep-linking  =====================
        ?agent=<id>&view=thoughts|messages|tool-calls|chat-interface
