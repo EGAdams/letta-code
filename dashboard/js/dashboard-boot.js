@@ -844,7 +844,7 @@ const MS = {
     this.pollTimer = setInterval(() => {
       if (this.current) this.show(this.current);
       this.pollColors();
-    }, 30000);
+    }, 120000);
   },
   async show(key) {
     const body = document.getElementById("model-stats-body");
@@ -1031,9 +1031,9 @@ const AM = {
         return;
       }
 
-      agentGate.start();
-
-      if (!this.agents) {
+      const alreadyCached = !!this.agents;
+      if (!alreadyCached) {
+        agentGate.start();
         agentGate.writeLine("Fetching agent roster...");
         if (status) status.textContent = "Loading agents…";
         try {
@@ -1051,14 +1051,16 @@ const AM = {
       }
 
       if (!this.agents.length) {
-        agentGate.writeLine("No agents found.");
-        agentGate.complete("agents", "Loaded 0 agents.");
+        if (!alreadyCached) {
+          agentGate.writeLine("No agents found.");
+          agentGate.complete("agents", "Loaded 0 agents.");
+        }
         if (status) status.textContent = "No agents found.";
         return;
       }
 
       for (const a of this.agents) {
-        agentGate.writeLine(`Agent ${a.name}`);
+        if (!alreadyCached) agentGate.writeLine(`Agent ${a.name}`);
         navAgents.appendChild(tabFactory.buildAgentTab(a));
       }
       const age = this.agentsLoadedAt
@@ -1072,7 +1074,8 @@ const AM = {
           (this.agents.length === 1 ? "" : "s") +
           (age ? ` <span class="dim">(cached ${age}s ago)</span>` : "") +
           ". Pick one from the left to view its Thoughts, Messages, Tool Calls, or Input Options.";
-      agentGate.complete("agents", `Loaded ${this.agents.length} agents.`);
+      if (!alreadyCached)
+        agentGate.complete("agents", `Loaded ${this.agents.length} agents.`);
     } finally {
       this._tabsLoading = false;
     }

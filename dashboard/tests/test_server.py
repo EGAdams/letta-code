@@ -5,7 +5,13 @@ registry lookup, file tailing with stable line keys, log-row filtering,
 the down-status path for an unreachable health check, and the
 start/"starting" lifecycle used by the executor Start button.
 """
+import pytest
 import server
+
+
+@pytest.fixture(autouse=True)
+def _clear_model_stats_cache():
+    server._model_stats_cache.clear()
 
 
 class _FakeCursor:
