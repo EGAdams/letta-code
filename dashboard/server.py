@@ -2833,7 +2833,7 @@ print(json.dumps(out))
 '''
 
 _CLAUDE_EXTRACT_PY = r'''
-import json, os, time, urllib.request, urllib.error
+import json, os, time, subprocess, urllib.request, urllib.error
 home = os.path.expanduser("~")
 CRED = os.path.join(home, ".claude", ".credentials.json")
 def _usage(at):
@@ -2847,15 +2847,22 @@ def _refresh(d):
                        "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e"}).encode()
     req = urllib.request.Request("https://platform.claude.com/v1/oauth/token", data=body,
         headers={"Content-Type": "application/json", "User-Agent": "anthropic"})
-    r = json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
+    try:
+        r = json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            return _cli_refresh()
+        raise
     o["accessToken"] = r["access_token"]
     if r.get("refresh_token"): o["refreshToken"] = r["refresh_token"]
     if r.get("expires_in"): o["expiresAt"] = int((time.time() + r["expires_in"]) * 1000)
     json.dump(d, open(CRED, "w"))
     return o["accessToken"]
+def _cli_refresh():
+    subprocess.run(["bash", "-lc", 'claude -p "ok"'], capture_output=True, timeout=30)
+    d2 = json.load(open(CRED))
+    return d2["claudeAiOauth"]["accessToken"]
 out = {"as_of": time.time()}
-# LIVE usage with SELF-HEAL: refresh the token (and persist it) when it's expired
-# or the API returns 401 — so idle machines don't show "unavailable".
 try:
     d = json.load(open(CRED)); o = d["claudeAiOauth"]
     expired = bool(o.get("expiresAt")) and o["expiresAt"] / 1000 < time.time() + 60
@@ -2865,7 +2872,7 @@ try:
         else:
             out["usage"] = _usage(o["accessToken"])
     except urllib.error.HTTPError as e:
-        if e.code == 401:
+        if e.code in (401, 429):
             out["usage"] = _usage(_refresh(d)); out["refreshed"] = True
         else:
             raise
@@ -2936,13 +2943,25 @@ def _human_reset(when):
     return f'in {m}m'
 
 
+_model_stats_cache = {}   # key → (timestamp, result)
+MODEL_STATS_CACHE_TTL = 120  # seconds – prevent 429s from rapid polling
+
 def model_stats(source_key):
     """Build the Model Stats payload for one source: provider/model, usage windows
     (used_percent + reset), a tokens summary, and a status (up/concern/down) so the
     tab can go red at 100%."""
+    cached = _model_stats_cache.get(source_key)
+    if cached and time.time() - cached[0] < MODEL_STATS_CACHE_TTL:
+        return cached[1]
     src = MODEL_STAT_SOURCES.get(source_key)
     if not src:
         return {'ok': False, 'error': f'unknown source {source_key}'}
+    out = _model_stats_uncached(source_key, src)
+    _model_stats_cache[source_key] = (time.time(), out)
+    return out
+
+
+def _model_stats_uncached(source_key, src):
     out = {'ok': True, 'key': source_key, 'label': src['label'], 'kind': src['kind'],
            'windows': [], 'status': 'up', 'detail': ''}
 
