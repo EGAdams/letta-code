@@ -1,6 +1,7 @@
 # Mazda — Document Intake & Self-Improvement Loop (Handoff)
 
-**Last updated:** 2026-06-25 (evening — loop recovery + gating + Phase 5; previous: 2026-06-19)
+**Last updated:** 2026-06-25 (late evening — Scanners page wired to the intake
+pipeline / training step #2 shipped; previous: loop recovery + gating + Phase 5)
 **Agent:** Mazda `agent-6b536cf4-ec88-4290-b595-fed21d14bd8e` (live @ http://100.80.49.10:8283)
 **MCP service:** `mazda-tools-mcp.service` on port 8791 — **on Win10 `DESKTOP-SHDBATI` (100.80.49.10)**
 
@@ -29,27 +30,48 @@
 
 ---
 
-## 🎯 Next shift — receipt intake training
+## 🎯 Next shift — make Mazda auto-process every scan end-to-end
 
-The next shift retrains Mazda on the **receipt intake process**. Pre-flight before training:
+The Scanners page is now wired to the intake pipeline (training step #2 — shipped
+2026-06-25, commit `95186f0b` on `origin/main`). **Today, the instant a scan finishes the
+dashboard auto-fires `POST /api/process-document`:** the deterministic facade
+(`mazda_intake.py`: classify + parse) renders inline within seconds, AND Mazda is dispatched
+**fire-and-forget** (one Letta message, no polling) to run investigate → categorize → store.
+See "Scanner → Mazda event pipeline is live" below for the exact mechanics.
 
-1. **Confirm tools are healthy** (they were verified 2026-06-25 evening): on Win10, direct MCP
-   `tools/list` against `localhost:8791/sse` should show **13** tools. If a recent restart
-   reverted anything, re-run the registry (above). The intake-relevant ones are
-   `check_vendor_key`, `check_category`, `check_duplicates`, `verify_statement_totals`,
-   `record_trace`, `propose_improvement`, `load_wrapper_revision`.
-2. **The intake pipeline + training memory are current** — see "Intake training" and "How to
-   use the intake facade" below. Governing rule still holds: **cheapest reliable tool first;
-   LLM only when confidence < 0.90.**
-3. **Every training run should leave evidence**: have Mazda `load_wrapper_revision` →
-   classify/parse → verify → `record_trace`, and `propose_improvement` on failure. Those FAIL
-   traces now feed the Phase 5 hourly reflection job automatically, which files gated proposals
-   — so good trace hygiene during training directly fuels self-improvement.
-4. **Mazda's memory is editable only via the gated `propose_memory_note`** (and even that is
-   record-only until the memfs-commit applier is built — see Memory edit gating below). Don't
-   expect training to mutate her `system/*` blocks yet.
-5. If you change any tool code, deploy to **Win10** and re-register (topology section above) —
-   editing the Linux dev box does nothing for live Mazda.
+**The goal for this shift: turn that fire-and-forget dispatch into a reliable, observable
+end-to-end run.** Right now the dispatch *sends* — but nothing verifies Mazda actually drove
+her full pipeline, and her result never lands back on the dashboard (by design — option "Fast
+facade + async Mazda", no polling). Pick up here:
+
+1. **Confirm tools are healthy** (verified 2026-06-25): on Win10, direct MCP `tools/list`
+   against `localhost:8791/sse` should show **13** tools. Re-run the registry if a restart
+   reverted anything. Intake-relevant: `check_vendor_key`, `check_category`,
+   `check_duplicates`, `verify_statement_totals`, `record_trace`, `propose_improvement`,
+   `load_wrapper_revision`.
+2. **Do a live scan and watch Mazda actually process it.** Scan a real receipt on the
+   dashboard (Scanners → Window/Freezer → Start Scan). The dashboard auto-runs the facade
+   (inline card) and messages Mazda. Then **open Mazda's transcript** (dashboard Agent card,
+   or Letta API for `agent-6b536cf4`) and confirm she ran the procedure in order:
+   `load_wrapper_revision` → classify/parse → vendor_key → category → dedup → store →
+   `record_trace` (and `propose_improvement` on failure). Governing rule still holds:
+   **cheapest reliable tool first; LLM only when confidence < 0.90.**
+3. **Decide how Mazda's deeper-stage result gets surfaced.** The inline card currently shows
+   investigate/categorize/store as `delegated` and stops (no polling — EG's explicit
+   constraint). If the next shift wants the *outcome* visible, the no-poll options are: (a)
+   Mazda writes a per-scan result file the dashboard reads on next view, or (b) a
+   server-side callback Mazda hits when done. **Do NOT add polling** without asking EG.
+4. **Every run should leave evidence**: the `record_trace` / `propose_improvement` hygiene
+   feeds the Phase 5 hourly reflection job (`mazda-reflect.timer` on Win10), which files gated
+   proposals automatically — so good trace hygiene during these live scans directly fuels
+   self-improvement.
+5. **Mazda's memory is editable only via the gated `propose_memory_note`** (record-only until
+   the memfs-commit applier is built — see Memory edit gating below). Don't expect a scan to
+   mutate her `system/*` blocks yet.
+6. If you change any tool code, deploy to **Win10** and re-register (topology section above) —
+   editing the Linux dev box does nothing for live Mazda. **But the scanner→pipeline wiring is
+   dashboard code on this box** (`DESKTOP-2OBSQMC`); after editing `dashboard/server.py` run
+   `systemctl --user restart dashboard-server.service` then re-Start the Executor.
 
 ---
 
@@ -84,17 +106,39 @@ All verified end-to-end on 2026-06-24:
 - `activate_wrapper` → snapshot taken, wrapper activated
 - `rollback_wrapper` → restored to known-good revision
 
-### Scanner → Mazda event pipeline is live
+### Scanner → Mazda event pipeline is live (rewired 2026-06-25, training step #2)
 
-When a scan completes successfully on the dashboard (Window or Freezer scanner),
-`run_scanner()` in `server.py` fires `_notify_mazda_of_scan()` in a background
-thread. Mazda receives a Letta message with:
-- The scan image path
-- Instructions to run load_wrapper_revision → classify/parse → record_trace →
-  propose_improvement on failure
+When a scan finishes on the dashboard (Window or Freezer scanner), the frontend
+(`dashboard-boot.js` `setReady()` — fired the instant the image is ready) auto-calls
+**`POST /api/process-document {scanner}`**. The single dispatch point is now
+`process_scanned_document()` in `dashboard/server.py`, which:
 
-This is deployed on the **live dashboard** (DESKTOP-2OBSQMC, 100.72.158.63) via
-surgical SSH patch. Backup at `server.py.bak` on that box.
+1. Runs the deterministic facade `run_intake_facade()` (`mazda_intake.py` classify + parse,
+   ~1–5s) → returns a structured 5-stage result rendered inline on the Scanners page
+   (classify/parse `done|skipped|error`; investigate/categorize/store `delegated` to Mazda).
+2. Fires `_notify_mazda_of_scan()` in a background thread (fire-and-forget, **no polling**) —
+   Mazda gets one Letta message with the scan image path + instructions to run
+   `load_wrapper_revision` → classify/parse → `record_trace` → `propose_improvement` on
+   failure.
+
+**Important change:** the Mazda dispatch was **moved out of `run_scanner()`** into
+`process_scanned_document()` so it fires **exactly once per finished scan** (the old code
+double-pathed it). A scan via the raw `POST /api/scanner-scan` no longer notifies Mazda —
+only `/api/process-document` does (which the UI auto-fires).
+
+**Bug fixed in this commit:** module-level `_notify_mazda_of_scan()` called bare
+`log_message(...)`, but `log_message` only exists as a *handler method*
+(`DashboardHandler.log_message`) — so every notify thread silently died with `NameError`
+(the Letta message still sent, only logging crashed). Module scope in `server.py` uses
+`print(...)`; both calls fixed. Verify a clean dispatch with
+`grep 'scan→mazda' /tmp/dashboard_8765.log` → should read
+`Mazda notified of scan (Window Scanner): HTTP 200`.
+
+GoF frontend: `DocumentPipelineController` (Command) + `DomDocumentPipelineView` (Strategy) +
+`DocumentPipelineView` interface — both injected, unit-tested (194 JS + 101 Python tests
+pass). This is **checked-in dashboard code on this box** (DESKTOP-2OBSQMC), not a surgical SSH
+patch — the diverged `server.py.bak` note below applies to the older ROL Finance/receipt
+endpoints, not this wiring.
 
 ### Intake training (from 2026-06-19, still current)
 
