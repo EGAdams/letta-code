@@ -1,8 +1,55 @@
 # Mazda — Document Intake & Self-Improvement Loop (Handoff)
 
-**Last updated:** 2026-06-25 (previous: 2026-06-19)
+**Last updated:** 2026-06-25 (evening — loop recovery + gating + Phase 5; previous: 2026-06-19)
 **Agent:** Mazda `agent-6b536cf4-ec88-4290-b595-fed21d14bd8e` (live @ http://100.80.49.10:8283)
-**MCP service:** `mazda-tools-mcp.service` on port 8791 (this box, DESKTOP-SHDBATI)
+**MCP service:** `mazda-tools-mcp.service` on port 8791 — **on Win10 `DESKTOP-SHDBATI` (100.80.49.10)**
+
+---
+
+## ⚠️ READ FIRST — topology (the thing that bites you)
+
+**Letta AND the MCP server Mazda actually uses both live on Win10 `DESKTOP-SHDBATI`
+(100.80.49.10).** Letta runs in Docker there and reaches Mazda's tools via the registered URL
+`http://172.17.0.1:8791/sse` = Win10's own docker bridge → the Win10 host's
+`mazda-tools-mcp.service`.
+
+- The Linux dev box (`DESKTOP-2OBSQMC`) has its **own** copy of the repo and its **own**
+  `mazda-tools-mcp.service` on 8791, but **Letta does NOT use it.** Editing/restarting the dev
+  box's MCP server does nothing for live Mazda.
+- **To change live Mazda's tools you must deploy to Win10:** `ssh adamsl@100.80.49.10`, update
+  `~/rol_finances` (git pull), `systemctl --user restart mazda-tools-mcp.service`, then re-run
+  the registry (below).
+- Win10's venv is at `~/rol_finances/tools/self_improving_agent/.venv`. The dev box's venv is
+  at `~/rol_finances/.venv`. (The handoff's old `tools/self_improving_agent/.venv` path was
+  right for Win10, wrong for the dev box.)
+- Verify what the live server actually serves with a direct MCP `tools/list` against
+  `localhost:8791/sse` **on Win10** — NOT the `/v1/agents/<id>/tools` REST endpoint, which
+  pages at ~10 and misleads (that's the origin of the old "10 not 12 tools" scare; nothing was
+  ever missing).
+
+---
+
+## 🎯 Next shift — receipt intake training
+
+The next shift retrains Mazda on the **receipt intake process**. Pre-flight before training:
+
+1. **Confirm tools are healthy** (they were verified 2026-06-25 evening): on Win10, direct MCP
+   `tools/list` against `localhost:8791/sse` should show **13** tools. If a recent restart
+   reverted anything, re-run the registry (above). The intake-relevant ones are
+   `check_vendor_key`, `check_category`, `check_duplicates`, `verify_statement_totals`,
+   `record_trace`, `propose_improvement`, `load_wrapper_revision`.
+2. **The intake pipeline + training memory are current** — see "Intake training" and "How to
+   use the intake facade" below. Governing rule still holds: **cheapest reliable tool first;
+   LLM only when confidence < 0.90.**
+3. **Every training run should leave evidence**: have Mazda `load_wrapper_revision` →
+   classify/parse → verify → `record_trace`, and `propose_improvement` on failure. Those FAIL
+   traces now feed the Phase 5 hourly reflection job automatically, which files gated proposals
+   — so good trace hygiene during training directly fuels self-improvement.
+4. **Mazda's memory is editable only via the gated `propose_memory_note`** (and even that is
+   record-only until the memfs-commit applier is built — see Memory edit gating below). Don't
+   expect training to mutate her `system/*` blocks yet.
+5. If you change any tool code, deploy to **Win10** and re-register (topology section above) —
+   editing the Linux dev box does nothing for live Mazda.
 
 ---
 
@@ -10,8 +57,8 @@
 
 ### The self-improvement loop is live (Phases 1–4 closed)
 
-As of 2026-06-25, Mazda has **12 MCP tools** attached — the full self-improvement
-loop including A/B experimentation:
+As of 2026-06-25 (evening), Mazda has **13 MCP tools** attached — the full self-improvement
+loop including A/B experimentation and gated memory editing:
 
 | Tool | Phase | Purpose |
 |------|-------|---------|
@@ -23,6 +70,7 @@ loop including A/B experimentation:
 | `activate_wrapper` | 3 | Snapshot current wrapper, activate a new revision |
 | `rollback_wrapper` | 3 | Restore last known-good wrapper from snapshot |
 | `run_experiment` | 4 | Baseline-vs-candidate A/B over Minion CLI runs; scores both arms, returns regressions/improvements/cost + promote/block recommendation |
+| `propose_memory_note` | 5 | **Gated** memory edit — files a MEMORY_NOTE proposal, runs the gate chain, applies only if it passes (or a human approved). The ONLY sanctioned way for Mazda to edit her own memory. |
 | `verify_statement_totals` | — | Deterministic total verification (pure arithmetic) |
 | `check_vendor_key` | — | Vendor key lookup against finance map |
 | `check_category` | — | Category verification |
@@ -71,7 +119,8 @@ systemctl --user status mazda-tools-mcp.service
 # Restart (after code changes)
 systemctl --user restart mazda-tools-mcp.service
 
-# Re-register tools with Letta (after adding/removing tools)
+# Re-register tools with Letta (after adding/removing tools).
+# Run this ON WIN10 (where Letta is reachable at localhost:8283):
 cd /home/adamsl/rol_finances/tools/self_improving_agent
 PYTHONPATH=.:/home/adamsl/rol_finances \
 LETTA_BASE_URL=http://localhost:8283 \
@@ -79,6 +128,14 @@ MAZDA_TEST_AGENT_ID=agent-6b536cf4-ec88-4290-b595-fed21d14bd8e \
 MAZDA_TOOLS_MCP_URL=http://172.17.0.1:8791/sse \
 .venv/bin/python -m agent_self_improvement.implementations.letta_tools.registry
 ```
+
+> Running the registry FROM THE LINUX DEV BOX instead: use
+> `LETTA_BASE_URL=http://100.80.49.10:8283` (localhost:8283 is dead on the dev box) and the
+> dev-box venv `/home/adamsl/rol_finances/.venv/bin/python`. Keep
+> `MAZDA_TOOLS_MCP_URL=http://172.17.0.1:8791/sse` (that's how Letta-in-Docker reaches the
+> Win10 MCP host — do not change it to a tailnet IP). The registry's `EXPECTED_TOOL_NAMES`
+> derives from `LETTA_TOOL_FUNCTIONS` (now 13); it attaches all of them. Verify with the SDK
+> `client.agents.tools.list(agent_id)` deduped by `tool.id`, not the REST `/tools` page.
 
 Key paths:
 - **Venv:** `/home/adamsl/rol_finances/tools/self_improving_agent/.venv`
@@ -179,25 +236,56 @@ try/except → `{"ok":false,"ran":0,"message":"Experiment failed: RuntimeError: 
 The key invariant holds: **no exception ever reaches Letta** — every path returns a
 structured dict.
 
-(Minor: the live Mazda agent currently lists **10** attached tools, not 12 —
-`check_vendor_key` and `check_category` are not attached. Re-run the registry if they
-are needed.)
+(Correction: the old "live Mazda lists **10** tools, not 12 / check_vendor_key +
+check_category missing" note was a **REST pagination artifact** — `/v1/agents/<id>/tools`
+returns ~10 per page. All tools were attached the whole time. Verify by deduping the SDK
+`client.agents.tools.list(agent_id)` by `tool.id`.)
 
-### Phase 5 — Continuous reflection (NOT started)
+**Loop-code recovery (2026-06-25 evening):** the Phase 2–4 loop tools (run_experiment,
+gate_check, judge_trace, activate_wrapper, rollback_wrapper) had never been committed on the
+Linux dev box and were missing from its working tree (the dev box's local MCP server served
+only 7 tools — which briefly looked like the live tools were "dead stubs"; they were not, Win10
+served all of them). The intact code was on Win10, committed as `a52357f`; it is now on
+`origin/main` and present on both boxes. Lesson: **always commit the `letta_tools` layer; never
+leave it working-tree-only.**
 
-Mazda's `enable_sleeptime` is `None`. No scheduled reflection. Two options:
-1. Enable Letta sleeptime so Mazda periodically reviews her FAIL traces.
-2. Add a cron/scheduled agent that calls `propose_improvement` over recent failures.
+### Phase 5 — Continuous reflection (DONE 2026-06-25 evening)
 
-Either way, the goal: Mazda proposes a wrapper edit from her own failure history
-without a human prompt, and it passes the gates.
+Native Letta sleeptime is **inert** on this server version: `agents.update(enable_sleeptime=
+True)` sets the flag but creates no sleeptime agent / `multi_agent_group`, and there's no
+`client.groups` resource. So the flag was reverted to `False` and Phase 5 was delivered via a
+**scheduled reflection job** (the cron-style option):
 
-### Memory edit gating (architectural gap)
+- `implementations/improvement/reflection.py` — `FailureReflectionService`: scans FAIL verdicts
+  in the evidence store and files a gated `propose_improvement` per new FAIL (dedup'd against
+  already-proposed traces → idempotent), then runs the gate chain. No human prompt.
+- `implementations/letta_tools/reflect_main.py` — live entrypoint.
+- Live on **Win10** via `systemd --user`: `mazda-reflect.timer` (OnUnitActiveSec=1h,
+  Persistent) → `mazda-reflect.service` (oneshot). Check:
+  `ssh adamsl@100.80.49.10 'systemctl --user list-timers mazda-reflect.timer'` and
+  `journalctl --user -u mazda-reflect.service`.
+- Verified live: reviewed 3, 2 FAILs → proposals 9,10 (gate=allow); re-run skipped both.
+- Tests: `tests/test_phase_12_reflection.py` (3 pass). Committed `0446938` on origin/main.
 
-`MemoryNoteCommand` + the gate chain exist as code, but there is **no middleware**
-that intercepts Mazda's `memory_insert()` / `memory_replace()` calls and routes
-them through the gate chain. Today, memory edits are ungated. Closing this gap
-means wrapping the memory tools with a check against approved proposals.
+The proposals it files are PROPOSED/gated — they are NOT auto-activated. A human (or a future
+auto-promotion guarded by `run_experiment` + `gate_check`) still drives `activate_wrapper`.
+
+### Memory edit gating (DONE 2026-06-25 evening — one follow-up left)
+
+Note: Mazda has **no** `memory_insert`/`memory_replace` tools attached (block-edit tools are
+detached under the memfs model), so there was never a raw memory write to intercept. Instead, a
+**single gated entry point** was added so any future memory edit must pass the gates:
+
+- `propose_memory_note` (tool #13): records a MEMORY_NOTE proposal → runs the gate chain →
+  applies only on ALLOW (or recorded human approval); high-risk → block/needs-human. Built to
+  interfaces (`IMemoryNoteApplier` Strategy). Committed `2f7b6ba`, deployed to Win10, attached.
+- Tests: `tests/test_phase_11_memory_note_gating.py` (5 pass).
+- **Follow-up (NOT done):** the live applier is `NullMemoryNoteApplier` — it records the
+  approved note but does **not** write live memory (the server treats blocks as a read-only
+  projection of memfs). To make approved notes actually land in memory, implement a
+  **memfs-commit applier** (write markdown under `system/**`, commit to the agent's memfs
+  `state.git`) and inject it in `startup.py` in place of `NullMemoryNoteApplier`. Until then,
+  `applied=false` in the tool's output is expected and correct.
 
 ### Other pending items
 
@@ -227,7 +315,7 @@ See the `dashboard_deployment_topology` memory for the SSH deploy workflow.
 
 ### Two Mazda agent IDs in the wild
 
-- `agent-6b536cf4-ec88-4290-b595-fed21d14bd8e` — **current live Mazda** (10 tools, active wrapper)
+- `agent-6b536cf4-ec88-4290-b595-fed21d14bd8e` — **current live Mazda** (13 tools, active wrapper)
 - `agent-070c201a-8d6d-49ba-a5fd-1489884b3b45` — **old ID** from pre-pivot training (referenced in older docs)
 
 Always use the `6b536cf4` ID. The `070c201a` ID may still have the trained memory
