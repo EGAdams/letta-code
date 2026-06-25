@@ -45,6 +45,18 @@ LETTA_RUN_TOOL_ATTACH_TEST=1 bun test src/integration-tests/tool-attach.integrat
 
 **Live agents**: Two letta.js processes run in `--yolo` mode and write to the working tree concurrently. Run `git status` before assuming the tree is clean.
 
+**Rosemary46 WSL Tailscale access**: Mom's PC has Windows node `rosemary46-11`
+at `100.106.176.58` with SSH user `rbarn`, and WSL Ubuntu node
+`rosemary46-24` at `100.72.34.38` with SSH user `adamsl`. If the Linux node is
+offline but Windows is reachable, SSH to Windows and check `wsl -l -v` plus
+`wsl -e sh -lc "tailscale status"`. Known fix from 2026-06-25: `Ubuntu-24.04`
+was stopping after one-shot WSL commands, so `tailscaled` disappeared again. A
+Windows scheduled task named `Rosemary46 WSL Tailscale Keepalive` runs
+`C:\Users\rbarn\start-rosemary46-wsl-tailscale.ps1`, which keeps
+`Ubuntu-24.04` alive with a harmless `tailscale ip` loop. Verify with
+`Get-ScheduledTask -TaskName 'Rosemary46 WSL Tailscale Keepalive'` and direct
+`ssh adamsl@100.72.34.38 "echo LINUX_AUTH_OK && systemctl is-active tailscaled && tailscale ip -4"`.
+
 ## Runtime
 
 Default to using Bun instead of Node.js.

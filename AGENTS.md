@@ -74,6 +74,19 @@
   - Letta API base URL default: `http://100.80.49.10:8283`
   - Logger API base URL used by reset helpers: `http://100.80.49.10:8284/libraries/local-php-api`
 
+## Agent Memory: Rosemary46 WSL Tailscale Access
+- Windows node: `rosemary46-11` at `100.106.176.58`; known SSH user: `rbarn`.
+- WSL Ubuntu 24 node: `rosemary46-24` at `100.72.34.38`; known SSH user: `adamsl`; WSL distro name: `Ubuntu-24.04`.
+- If `rosemary46-24` is offline but `rosemary46-11` is reachable, SSH to Windows first, then run WSL checks:
+  - `ssh -o BatchMode=yes rbarn@100.106.176.58 "wsl -e sh -lc \"echo WSL_OK; uname -a; whoami; tailscale status\""`
+  - `ssh -o BatchMode=yes adamsl@100.72.34.38 "echo LINUX_AUTH_OK && systemctl is-active tailscaled && tailscale ip -4"`
+- Known fix from 2026-06-25: WSL started during diagnostics, then stopped after the command exited, which made direct SSH to `100.72.34.38` time out again. A Windows scheduled task now keeps WSL alive:
+  - Task: `Rosemary46 WSL Tailscale Keepalive`
+  - Script: `C:\Users\rbarn\start-rosemary46-wsl-tailscale.ps1`
+  - Loop: `wsl.exe -d Ubuntu-24.04 --exec /bin/sh -lc 'while true; do /usr/bin/tailscale ip -4 >/dev/null 2>&1 || true; sleep 300; done'`
+- Verify the keepalive from Windows with:
+  - `ssh rbarn@100.106.176.58 "powershell -NoProfile -Command \"Get-ScheduledTask -TaskName 'Rosemary46 WSL Tailscale Keepalive' | Select-Object TaskName,State; wsl -l -v\""`
+
 ## Agent Memory: Dashboard Project Plans Deployment
 - The live Windows 10 dashboard is served from the WSL repo at `/home/adamsl/letta-code`, not `/var/www/html`.
 - Dashboard shell: `dashboard/dashboard.html`; server: `dashboard/server.py`; default URL: `http://localhost:8765/`.
