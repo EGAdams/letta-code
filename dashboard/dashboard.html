@@ -104,6 +104,7 @@
       <button type="button" class="tab back-tab" id="btn-back-scanners">Back</button>
       <button type="button" class="tab active" data-nav="scanners" data-target="scanners-freezer">Freezer Scanner</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-window">Window Scanner</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-pdf">Process PDF</button>
     </nav>
 
     <!-- Agent detail sub-nav -->
@@ -415,6 +416,24 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           <button type="button" class="scanner-image-close" aria-label="Close image">&times;</button>
           <img class="scanner-image" alt="Scanned document" />
         </div>
+      </div>
+    </section>
+    <section id="scanners-pdf" class="view">
+      <div class="startup-panel scanner-panel pdf-process-panel">
+        <div class="startup-title">Process PDF Document</div>
+        <div class="startup-status">Run the intake pipeline on an existing PDF file. Mazda will investigate, categorize, and store the result.</div>
+        <div class="pdf-path-row">
+          <label for="pdf-file-path" class="pdf-path-label">File Path</label>
+          <input type="text" id="pdf-file-path" class="pdf-path-input" placeholder="/home/adamsl/rol_finances/readable_documents/..." spellcheck="false" />
+        </div>
+        <div class="pdf-path-row">
+          <label for="pdf-doc-label" class="pdf-path-label">Label</label>
+          <input type="text" id="pdf-doc-label" class="pdf-path-input" placeholder="e.g. Bank 5938 PDF 1 — February 2025" />
+        </div>
+        <div class="scanner-actions">
+          <button type="button" class="am-btn pdf-process-btn">Process Document</button>
+        </div>
+        <div class="scanner-result hidden" aria-live="polite"></div>
       </div>
     </section>
   </main>

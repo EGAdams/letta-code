@@ -15,6 +15,7 @@ import {
   AgentCardRenderer,
   AgentHealthPoller,
   BrowserSpeechSynthesizer,
+  buildProcessPdfRequest,
   ChatDetailRenderer,
   CodeChangeAlert,
   ConnectionLogController,
@@ -2232,6 +2233,29 @@ const scannerControllers = setupScanners();
 function stopAllScannerMonitors() {
   for (const c of Object.values(scannerControllers)) c.stopMonitor();
 }
+
+/* Process PDF — ROL Finance > Scanners > Process PDF.
+   Runs the intake pipeline (classify → parse inline, Mazda dispatched for
+   investigate → categorize → store) on an existing PDF file on the server. */
+(function setupPdfProcessor() {
+  const section = document.getElementById("scanners-pdf");
+  if (!section) return;
+  const pathInput = section.querySelector("#pdf-file-path");
+  const labelInput = section.querySelector("#pdf-doc-label");
+  const processBtn = section.querySelector(".pdf-process-btn");
+  const resultBox = section.querySelector(".scanner-result");
+  if (!pathInput || !processBtn || !resultBox) return;
+
+  const pipelineView = new DomDocumentPipelineView(resultBox);
+  const pipeline = new DocumentPipelineController({ http, view: pipelineView });
+
+  processBtn.addEventListener("click", () => {
+    const filePath = pathInput.value.trim();
+    if (!filePath) return;
+    const label = labelInput ? labelInput.value.trim() : "";
+    void pipeline.processFile(filePath, label || undefined);
+  });
+})();
 
 /* =====================  Deep-linking  =====================
        ?agent=<id>&view=thoughts|messages|tool-calls|chat-interface

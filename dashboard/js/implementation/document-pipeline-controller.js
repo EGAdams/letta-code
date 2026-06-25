@@ -71,6 +71,21 @@ export function describePipelineStage(stage) {
   return { name, status, summary };
 }
 
+/**
+ * Build the request for the Process PDF action.
+ * @param {string} filePath  absolute path to the PDF file on the server
+ * @param {string} [label]   optional human-readable label for Mazda
+ * @returns {{url:string, body:{file_path:string, label?:string}}}
+ */
+export function buildProcessPdfRequest(filePath, label) {
+  if (!filePath) {
+    throw new Error("buildProcessPdfRequest requires { filePath }");
+  }
+  const body = { file_path: filePath };
+  if (label) body.label = label;
+  return { url: "/api/process-pdf", body };
+}
+
 export class DocumentPipelineController {
   /**
    * @param {{ http: import("../abstract/http-client.interface.js").HttpClient,
@@ -105,6 +120,29 @@ export class DocumentPipelineController {
     this._view.setBusy();
     try {
       const result = await this._http.postJSON(this._url, body);
+      this._view.render(result);
+      return result;
+    } catch (e) {
+      this._view.renderError(e.message);
+      return { ok: false, error: e.message };
+    } finally {
+      this._inFlight = false;
+    }
+  }
+
+  /**
+   * Process an existing PDF file on the server through the intake pipeline.
+   * @param {string} filePath  absolute path to the PDF
+   * @param {string} [label]   optional human-readable name (sent to Mazda)
+   * @returns {Promise<object>}
+   */
+  async processFile(filePath, label) {
+    if (this._inFlight) return { ok: false, error: "already processing" };
+    const { url, body } = buildProcessPdfRequest(filePath, label);
+    this._inFlight = true;
+    this._view.setBusy();
+    try {
+      const result = await this._http.postJSON(url, body);
       this._view.render(result);
       return result;
     } catch (e) {

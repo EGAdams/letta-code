@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildProcessDocumentRequest,
+  buildProcessPdfRequest,
   DocumentPipelineController,
   describePipelineStage,
   summarizeParsed,
@@ -30,6 +31,34 @@ const fakeView = () => {
     clear: () => events.push({ type: "clear" }),
   };
 };
+
+describe("buildProcessPdfRequest", () => {
+  test("builds the /api/process-pdf payload with path", () => {
+    expect(buildProcessPdfRequest("/home/adamsl/rol_finances/foo.pdf")).toEqual(
+      {
+        url: "/api/process-pdf",
+        body: { file_path: "/home/adamsl/rol_finances/foo.pdf" },
+      },
+    );
+  });
+
+  test("includes label when provided", () => {
+    const req = buildProcessPdfRequest("/path/to/file.pdf", "Bank 5938 PDF 1");
+    expect(req.body).toEqual({
+      file_path: "/path/to/file.pdf",
+      label: "Bank 5938 PDF 1",
+    });
+  });
+
+  test("omits label key when label is falsy", () => {
+    const req = buildProcessPdfRequest("/path/to/file.pdf");
+    expect(req.body.label).toBeUndefined();
+  });
+
+  test("requires a filePath", () => {
+    expect(() => buildProcessPdfRequest("")).toThrow(/requires/);
+  });
+});
 
 describe("buildProcessDocumentRequest", () => {
   test("builds the /api/process-document payload", () => {
@@ -171,6 +200,64 @@ describe("DocumentPipelineController (Command)", () => {
 
     const first = c.process("window");
     const second = await c.process("window"); // rejected while first in flight
+    expect(second).toEqual({ ok: false, error: "already processing" });
+    release();
+    await first;
+    expect(http.calls.length).toBe(1);
+  });
+
+  test("processFile() posts to /api/process-pdf and renders the result", async () => {
+    const http = fakeHttp({ ok: true, stages: [], mazda_dispatched: true });
+    const view = fakeView();
+    const c = new DocumentPipelineController({ http, view });
+
+    const res = await c.processFile(
+      "/home/adamsl/rol_finances/foo.pdf",
+      "Bank 5938 PDF 1",
+    );
+
+    expect(http.calls).toEqual([
+      {
+        url: "/api/process-pdf",
+        body: {
+          file_path: "/home/adamsl/rol_finances/foo.pdf",
+          label: "Bank 5938 PDF 1",
+        },
+      },
+    ]);
+    expect(view.events.map((e) => e.type)).toEqual(["busy", "render"]);
+    expect(res.ok).toBe(true);
+  });
+
+  test("processFile() routes transport error to view without throwing", async () => {
+    const http = fakeHttp(new Error("HTTP 500"));
+    const view = fakeView();
+    const c = new DocumentPipelineController({ http, view });
+
+    const res = await c.processFile("/path/to/file.pdf");
+
+    expect(view.events.map((e) => e.type)).toEqual(["busy", "error"]);
+    expect(res).toEqual({ ok: false, error: "HTTP 500" });
+  });
+
+  test("processFile() ignores concurrent calls while one is in flight", async () => {
+    let release;
+    const gate = new Promise((r) => {
+      release = r;
+    });
+    const http = {
+      calls: [],
+      postJSON: async (url, body) => {
+        http.calls.push({ url, body });
+        await gate;
+        return { ok: true, stages: [] };
+      },
+    };
+    const view = fakeView();
+    const c = new DocumentPipelineController({ http, view });
+
+    const first = c.processFile("/path/a.pdf");
+    const second = await c.processFile("/path/b.pdf"); // rejected while first in flight
     expect(second).toEqual({ ok: false, error: "already processing" });
     release();
     await first;

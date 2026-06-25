@@ -657,6 +657,35 @@ def _notify_mazda_of_scan(scan_image_path, scanner_name):
         print(f'[scan→mazda] Failed to notify Mazda: {exc}')
 
 
+def _notify_mazda_of_pdf(file_path, label=None):
+    """Background: send a PDF document to Mazda for intake processing."""
+    try:
+        label_str = f' "{label}"' if label else ''
+        msg = (
+            f'A PDF document{label_str} is ready for processing.\n'
+            f'The file is at: {file_path}\n\n'
+            f'Please process this document through your intake pipeline:\n'
+            f'1. Call load_wrapper_revision to load your active wrapper.\n'
+            f'2. Classify and parse the document (cheapest reliable tool first).\n'
+            f'3. Call record_trace when done to log this run.\n'
+            f'4. If anything fails, call propose_improvement with the failure details.'
+        )
+        payload = json.dumps({
+            'messages': [{'role': 'user', 'content': msg}],
+            'stream': False,
+        }).encode()
+        req = urllib.request.Request(
+            f'{LETTA_BASE_URL}/v1/agents/{MAZDA_AGENT_ID}/messages',
+            data=payload,
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            print(f'[pdf→mazda] Mazda notified of PDF{label_str}: HTTP {resp.status}')
+    except Exception as exc:
+        print(f'[pdf→mazda] Failed to notify Mazda: {exc}')
+
+
 def run_scanner(key):
     """Manual scan (POST /api/scanner-scan). Adds back-compat `ok` to the status.
 
@@ -720,6 +749,12 @@ def run_intake_facade(image_path, org_id=1, engine='gemini'):
     except Exception as exc:
         return {'ok': False, 'error': f'Failed to run intake facade: {exc}'}
     out = (proc.stdout or '').strip()
+    # Sub-modules (e.g. LlmPdfParser) may print progress lines to stdout before
+    # the final JSON object.  Find the first '{' so those stray lines don't
+    # poison json.loads.
+    json_start = out.find('{')
+    if json_start > 0:
+        out = out[json_start:]
     try:
         return json.loads(out)
     except json.JSONDecodeError:
@@ -792,6 +827,36 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
     result = build_pipeline_result(facade, mazda_dispatched)
     result['scanner'] = key
     result['image_path'] = image_path
+    return result
+
+
+def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
+    """Orchestrate the Process Document action for an existing PDF file.
+
+    Mirrors process_scanned_document but accepts an absolute file path instead
+    of a scanner key. The path must resolve inside ROL_FINANCES_DIR.
+    """
+    try:
+        real = os.path.realpath(os.path.expanduser(file_path))
+        base = os.path.realpath(ROL_FINANCES_DIR)
+        if not (real.startswith(base + os.sep) or real == base):
+            return {'ok': False,
+                    'error': 'File path must be inside the ROL finances directory.',
+                    'stages': []}
+    except Exception as exc:
+        return {'ok': False, 'error': f'Invalid path: {exc}', 'stages': []}
+    if not os.path.isfile(real):
+        return {'ok': False, 'error': f'File not found: {file_path}', 'stages': []}
+    facade = run_intake_facade(real, org_id=org_id, engine=engine)
+    doc_label = label or os.path.basename(real)
+    threading.Thread(
+        target=_notify_mazda_of_pdf,
+        args=(real, doc_label),
+        daemon=True,
+    ).start()
+    result = build_pipeline_result(facade, mazda_dispatched=True)
+    result['file_path'] = real
+    result['label'] = doc_label
     return result
 
 
@@ -3783,6 +3848,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(process_scanned_document(
                 data.get('scanner', ''),
+                org_id=data.get('org_id', 1),
+                engine=data.get('engine', 'gemini'),
+            ))
+
+        if path == '/api/process-pdf':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(process_pdf_document(
+                data.get('file_path', ''),
+                label=data.get('label'),
                 org_id=data.get('org_id', 1),
                 engine=data.get('engine', 'gemini'),
             ))

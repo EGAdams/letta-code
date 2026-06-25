@@ -31,6 +31,7 @@ export {
 } from "./detail-renderers.js";
 export {
   buildProcessDocumentRequest,
+  buildProcessPdfRequest,
   DocumentPipelineController,
   describePipelineStage,
   summarizeParsed,
