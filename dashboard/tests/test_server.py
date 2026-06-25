@@ -432,6 +432,34 @@ def test_classify_failure_distinguishes_classes():
     assert server.classify_failure('HTTP Error 404')[1] != 'rate-limited'
 
 
+def test_classify_scan_result_busy():
+    # The Freezer's notorious failure — reported FAST so the 5s poll stays cheap.
+    r = server.classify_scan_result(6, 'SCANNER_BUSY\nScan failed: The WIA device is busy.', False)
+    assert r['status'] == 'busy'
+    # Also recognised from the raw COM message even without our marker.
+    assert server.classify_scan_result(4, 'The WIA device is busy.', False)['status'] == 'busy'
+
+
+def test_classify_scan_result_offline():
+    r = server.classify_scan_result(5, "SCANNER_OFFLINE\nScanner not found matching 'HP063E28'", False)
+    assert r['status'] == 'offline'
+
+
+def test_classify_scan_result_ready_and_error():
+    assert server.classify_scan_result(0, 'Saved: /x/scan.png', True)['status'] == 'ready'
+    # exit 0 but no image on disk is NOT ready.
+    assert server.classify_scan_result(0, 'Saved: /x/scan.png', False)['status'] == 'error'
+    assert server.classify_scan_result(1, 'some other failure', False)['status'] == 'error'
+
+
+def test_scanner_registry_selects_by_name_not_first_device():
+    # Both scanners must target a named device script (the busy Freezer enumerates
+    # first, so "first device" would grab the wrong scanner).
+    assert server.SCANNERS['freezer']['script'] == 'run_scan_freezer.sh'
+    assert server.SCANNERS['window']['script'] == 'run_scan_window.sh'
+    assert server.SCANNERS['freezer']['output'] != server.SCANNERS['window']['output']
+
+
 def test_track_down_duration_clears_on_up_and_accumulates(monkeypatch):
     server._server_down_since.pop('dur-test', None)
     t = [1000.0]

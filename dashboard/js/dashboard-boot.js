@@ -1822,10 +1822,24 @@ function setupScanners() {
     const clearBlink = () => state.classList.remove("scanner-blink");
     const showImage = () => {
       if (!lastImageUrl) return;
-      img.src = lastImageUrl;
+      // Repeated scans reuse the same filename, so cache-bust to avoid the
+      // browser serving a stale/blank copy (the "shows sometimes, blank
+      // sometimes" symptom). Reset src first so onload always refires.
+      const bust = `${lastImageUrl}${lastImageUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+      imageBox.classList.remove("scanner-image-error");
+      imageBox.classList.add("scanner-image-loading");
+      img.src = "";
+      img.src = bust;
       imageBox.classList.remove("hidden");
     };
     const hideImage = () => imageBox.classList.add("hidden");
+    img.addEventListener("load", () => {
+      imageBox.classList.remove("scanner-image-loading", "scanner-image-error");
+    });
+    img.addEventListener("error", () => {
+      imageBox.classList.remove("scanner-image-loading");
+      imageBox.classList.add("scanner-image-error");
+    });
 
     const setBusy = (msg) => {
       if (progressTimer) {
@@ -1948,11 +1962,15 @@ function setupScanners() {
       state.textContent = "Scanning…";
       setBar(4);
       const startedAt = Date.now();
-      // A real flatbed scan takes ~30s; fill over that, capping at 92% until the
-      // actual result snaps it to 100%.
+      // A real flatbed scan takes ~30s; fill over that until the actual result
+      // snaps the bar green. The Window Scanner fills ~30% faster (~23s) and runs
+      // all the way to 100% yellow, then sits there until the scan-complete event
+      // turns it green.
+      const fillMs = scanner === "window" ? 23000 : 30000;
+      const fillTo = scanner === "window" ? 96 : 88;
       progressTimer = setInterval(() => {
-        const t = Math.min((Date.now() - startedAt) / 30000, 1);
-        setBar(4 + t * 88);
+        const t = Math.min((Date.now() - startedAt) / fillMs, 1);
+        setBar(4 + t * fillTo);
       }, 150);
       try {
         const res = await fetch("/api/scanner-scan", {
@@ -1978,6 +1996,14 @@ function setupScanners() {
     closeBtn.addEventListener("click", hideImage);
     showBtn.addEventListener("click", showImage);
     startBtn.addEventListener("click", runManualScan);
+    // Click the dark backdrop (outside the image frame) to close the modal.
+    imageBox.addEventListener("click", (e) => {
+      if (e.target === imageBox) hideImage();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !imageBox.classList.contains("hidden"))
+        hideImage();
+    });
 
     controllers[scanner] = { startMonitor, stopMonitor };
   });

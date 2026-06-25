@@ -559,7 +559,7 @@ def _invoke_scanner(key):
     """Run a scanner's script and classify the outcome.
 
     Returns {status, ...} where status is one of:
-      ready          — transfer succeeded, scan.png written (includes image_url)
+      ready          — transfer succeeded, scan image written (includes image_url)
       busy           — WIA device busy (needs power-cycle); reported FAST (no scan)
       offline        — named device not enumerated (powered off / disconnected)
       not_configured — no script wired for this scanner
@@ -651,10 +651,10 @@ def _notify_mazda_of_scan(scan_image_path, scanner_name):
             method='POST',
         )
         with urllib.request.urlopen(req, timeout=120) as resp:
-            log_message(f'[scan\u2192mazda] Mazda notified of scan ({scanner_name}): '
+            log_message(f'[scan→mazda] Mazda notified of scan ({scanner_name}): '
                         f'HTTP {resp.status}')
     except Exception as exc:
-        log_message(f'[scan\u2192mazda] Failed to notify Mazda: {exc}')
+        log_message(f'[scan→mazda] Failed to notify Mazda: {exc}')
 
 
 def run_scanner(key):
@@ -3556,7 +3556,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if cfg:
                 fp = os.path.join(SCAN_TOOLS_DIR, cfg['output'])
                 if os.path.isfile(fp):
-                    return self.serve_file(fp, 'image/png')
+                    ctype = 'image/jpeg' if fp.endswith(('.jpg', '.jpeg')) else 'image/png'
+                    return self.serve_file(fp, ctype)
             self.send_error(404)
             return
 

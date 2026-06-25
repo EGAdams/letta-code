@@ -258,21 +258,34 @@ Two HP scanners attached to the live Win11 box: **Window** = HPI297BEA (HP Offic
 `scanner_scripts/scan_device.ps1` (in this repo; **deployed to**
 `~/planner/nonprofit_finance_db/receipt_scanning_tools/`) which selects the device **BY NAME**
 (`-NameLike`), NOT "first device" — WIA enumeration order is unstable (the busy Freezer often
-enumerates first). Wrappers `run_scan_window.sh` (→`scan.png`) / `run_scan_freezer.sh`
-(→`scan_freezer.png`). `SCANNERS` registry + `_invoke_scanner()`/`classify_scan_result()` live in
+enumerates first). Wrappers `run_scan_window.sh` (→`scan.jpg`) / `run_scan_freezer.sh`
+(→`scan_freezer.jpg`). `SCANNERS` registry + `_invoke_scanner()`/`classify_scan_result()` live in
 `server.py`.
+
+**Output is JPEG (not PNG).** A raw 300dpi WIA transfer to PNG is **~26MB** and loads painfully
+slow in the browser. `scan_device.ps1` transfers to a temp BMP then re-encodes to **JPEG quality
+85** (`-JpegQuality 85`) → **~1MB** (~24× smaller); `SCANNERS[*]['output']` = `scan.jpg`/
+`scan_freezer.jpg`. If scanned images "take forever to load" again, verify the **live** box's
+`scan_device.ps1`/`server.py` actually have the jpg version (`grep JpegQuality`) — this fix sat
+undeployed for weeks while the live box kept emitting 26MB PNGs.
 
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/scanner-scan` `{scanner}` | One-shot manual scan → `{status, ok, image_url\|error}` |
 | `GET /api/scanner-status?scanner=` | Lightweight probe (Freezer's poll) → same `{status}` |
-| `GET /api/scanner-image?scanner=` | Serves the scanned PNG |
+| `GET /api/scanner-image?scanner=` | Serves the scanned JPEG (`image/jpeg`) |
 
 `status` ∈ ready/busy/offline/error. Frontend (`dashboard-boot.js` `setupScanners`): Start Scan +
-Show Image + dismissable image preview. The **Freezer auto-polls** while its tab shows — first
-check immediate (yellow probe-timing bar), then **every 15s**; `busy`/`offline` → red bar +
-blinking "Restart the Scanner Please" (`.scan-busy`/`.scanner-blink`); `ready` → green + image,
-polling stops. Tests: `tests/test_server.py -k scan` + `classify_scan_result`.
+Show Image + dismissable image preview. **Auto-poll is gated by `MONITORED_SCANNERS` (a `Set` near
+the top of `setupScanners`).** As of 2026-06-25 it is **empty** — neither scanner auto-polls; both
+sit **idle until "Start Scan"** is pressed (the user did not want the Freezer scanning on its own).
+The old behavior (Freezer in the set → immediate check then every 15s; `busy`/`offline` → red
+blinking "Restart the Scanner Please" `.scan-busy`/`.scanner-blink`; `ready` → green + image, stop)
+still triggers for any key listed in `MONITORED_SCANNERS`, and the `startMonitor()` calls in the
+sub-nav are harmless no-ops when the set doesn't list that scanner. **Constant Freezer auto-polling
+was itself a cause of the Window scanner reporting "busy"** — each probe is a real WIA call, and
+pile-ups wedge the shared stisvc (see gotcha 2). Tests: `tests/test_server.py -k scan` +
+`classify_scan_result`.
 
 **Three gotchas that wasted hours (all in [[dashboard-scanner-wsl-interop]] memory):**
 1. **WSL interop** — the systemd `--user` dashboard service has no `WSL_INTEROP`, so it can't
@@ -282,8 +295,12 @@ polling stops. Tests: `tests/test_server.py -k scan` + `classify_scan_result`.
 2. **stisvc wedge** — a hung scan leaks the Windows `powershell.exe` (Python kills only the bash
    wrapper); pile-ups wedge the Windows Image Acquisition service so EVERY scan hangs at
    `New-Object WIA.DeviceManager`. `_reap_stale_scans()` (`reap_scans.ps1`) runs under `_SCAN_LOCK`
-   before each scan + after timeout. Recover a wedge: elevated `ssh NewUser@100.118.122.75` →
-   `sc queryex stisvc` PID → `taskkill /f /pid <PID>` (auto-restarts).
+   before each scan + after timeout. Recover a fully-wedged stisvc (StopPending, won't stop):
+   elevated `ssh NewUser@100.118.122.75` → `sc queryex stisvc` PID → `taskkill /f /pid <PID>`
+   (auto-restarts). **Milder case (2026-06-25):** the device reported "busy" with stisvc still
+   RUNNING and *no* leaked powershell — just contention from the Freezer's 15s auto-poll. A plain
+   `ssh NewUser@100.118.122.75 'net stop stisvc & net start stisvc'` cleared the stuck device
+   state and the Window scan succeeded. (Root cause was the auto-poll itself — now disabled.)
 3. **"busy" power-cycle won't clear** = often an **open ink door/cover** (HP reports WIA busy) or
    driver/connectivity, not a held handle. Real scan ≈ 33s (OfficeJet 300dpi), not 10s.
 
