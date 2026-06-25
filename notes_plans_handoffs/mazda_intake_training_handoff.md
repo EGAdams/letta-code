@@ -148,14 +148,40 @@ the previously working-tree-only Phase 1–3 loop tools (judge/gate/activate/rol
 the `seed_mazda` seeder, and the live `mazda-tools-mcp.service` unit. Before this,
 the entire `letta_tools` self-improvement layer was running live but uncommitted.
 
-**NOT verified — pick up here:** a *real* minion run end-to-end. The plumbing is
-proven only with a fake/synthetic transport; no live Claude Agent SDK minion was
-spawned (each arm is a paid ~300s session). Next shift: kick a real
-`run_experiment` with 1–2 inputs against `/home/adamsl/claude-code-sdk-ts/minions`
-and confirm the minion CLI returns the expected `IMinionTaskResult` JSON shape and
-that the evaluator scores it. Watch for: the minion CLI needs `npx tsx` on PATH and
-the SDK executor reachable; a missing/garbled stdout raises and the tool returns
-`{"ok": false, ...}` (by design — it never throws into Letta).
+**VERIFIED LIVE 2026-06-25** — a *real* minion run end-to-end. Confirmed on this
+box (DESKTOP-SHDBATI): `npx tsx` works (tsx 4.22.4 / node 22.18.0), local `claude`
+binary 2.1.191 present, SDK executor bridge `:8799` SDK-ready.
+
+- **Minion CLI smoke test** (direct `echo '{...}' | npx tsx src/cli.ts`): returned
+  a valid `IMinionTaskResult` → `{"status":"ok","output":"OK","sessionId":...,"usage":{...}}`.
+- **Full `run_experiment`** via live `wire_live_ports()` with 1 input (= 2 real
+  minion sessions, baseline + candidate, role `categorization`): returned
+  `{"ok":true,"ran":1,"baseline_failures":1,"candidate_failures":1,"regressions":[],
+  "improvements":[],"recommendation":"NEUTRAL — no measurable difference..."}`. Both
+  arms ran as real Claude Agent SDK sessions, the `RuleBasedFinanceEvaluator` scored
+  each (1 failure/arm is correct — a plain categorization reply has no finance
+  totals/vendor evidence, so it fails the parseability checks), and the NEUTRAL
+  recommendation is correct since baseline == candidate revision.
+- **`run_experiment` attached to live Mazda** (`agent-6b536cf4`) — confirmed via
+  `/v1/agents/.../tools`.
+
+**Failure-path correction to the old note above:** the claim that "a missing/garbled
+stdout raises and the tool returns `{"ok": false}`" is **imprecise**.
+`AdapterAgentRunner.run` *absorbs* every transport exception (bad `MINIONS_DIR`,
+empty/garbled stdout → `minion_cli_transport` raises) into a failed
+`RunResult(succeeded_transport=False, output_text="")`. So a broken arm is scored as
+a **failure**, and the experiment still returns `ok:true` (that arm just counts toward
+`*_failures`). `run_experiment` returns `{"ok": false}` only when (a) `task_inputs`
+is empty, or (b) an exception escapes `exp_runner.run()` (e.g. evaluator/detector
+fault). Both confirmed: empty inputs → `{"ok":false,"ran":0,"message":"task_inputs
+is empty..."}`; a runner that raises → caught by `ConcreteRunExperimentTool.execute`'s
+try/except → `{"ok":false,"ran":0,"message":"Experiment failed: RuntimeError: ..."}`.
+The key invariant holds: **no exception ever reaches Letta** — every path returns a
+structured dict.
+
+(Minor: the live Mazda agent currently lists **10** attached tools, not 12 —
+`check_vendor_key` and `check_category` are not attached. Re-run the registry if they
+are needed.)
 
 ### Phase 5 — Continuous reflection (NOT started)
 
