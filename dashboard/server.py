@@ -425,6 +425,258 @@ _RECEIPT_INDEX_CACHE = {'ts': 0.0, 'by_da': None, 'by_stem': None}
 _RECEIPT_INDEX_TTL = 300
 
 
+# ── Physical document scanners ──────────────────────────────────────────────
+# Two HP scanners attached to this (Win11) box. Both are driven by the shared,
+# parameterized scan_device.ps1, which selects the target by NAME (`-NameLike`) —
+# NOT "first device found". That distinction matters: WIA enumeration order is
+# unstable (the busy Freezer often enumerates first), so the old first-device
+# script kept grabbing the wrong scanner. The Freezer (HP063E28) is the non-default
+# device and is notorious for "WIA device is busy" until power-cycled.
+SCAN_TOOLS_DIR = os.path.expanduser(
+    '~/planner/nonprofit_finance_db/receipt_scanning_tools')
+SCANNER_IMAGE_URL_PREFIX = '/api/scanner-image'
+SCANNERS = {
+    'window': {
+        'name': 'Window Scanner',
+        'device': 'HPI297BEA (HP OfficeJet 8120e series)',
+        'script': 'run_scan_window.sh',   # selects HPI297BEA by name
+        'output': 'scan.jpg',
+    },
+    'freezer': {
+        'name': 'Freezer Scanner',
+        'device': 'HP063E28 (HP DeskJet 4100 series)',
+        'script': 'run_scan_freezer.sh',  # selects HP063E28 by name (non-default)
+        'output': 'scan_freezer.jpg',
+    },
+}
+# Serialize all device access: two concurrent WIA transfers self-induce the very
+# "device is busy" error we are trying to detect. Both the manual scan and the
+# Freezer's 5s status poll go through this lock.
+_SCAN_LOCK = threading.Lock()
+# A real flatbed scan (OfficeJet, 300dpi) takes ~33s; allow headroom but cap it
+# so a hung WIA call doesn't tie up the lock indefinitely.
+SCAN_TIMEOUT_SEC = 90
+
+
+def _reap_stale_scans(scan_env):
+    """Kill leaked scan_device.ps1 Windows processes (see _invoke_scanner)."""
+    reaper = os.path.join(SCAN_TOOLS_DIR, 'reap_scans.ps1')
+    if not os.path.isfile(reaper):
+        return
+    try:
+        subprocess.run(
+            ['/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
+             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', './reap_scans.ps1'],
+            cwd=SCAN_TOOLS_DIR, capture_output=True, text=True, timeout=20,
+            env=scan_env,
+        )
+    except Exception:  # noqa: BLE001 — reaping is best-effort
+        pass
+
+
+_INTEROP_CACHE = {'sock': None}
+_WIN_CMD_EXE = '/mnt/c/Windows/System32/cmd.exe'
+
+
+def _interop_works(sock):
+    """True if WSL_INTEROP=sock can actually launch a Windows .exe.
+
+    The /init binfmt interpreter fails with "Invalid argument" (non-zero exit)
+    when the socket doesn't relay to the Windows side, so a trivial `cmd.exe /c
+    exit` is a reliable, fast probe.
+    """
+    try:
+        r = subprocess.run(
+            [_WIN_CMD_EXE, '/c', 'exit'],
+            env={'PATH': '/usr/bin:/bin', 'WSL_INTEROP': sock},
+            capture_output=True, timeout=8,
+        )
+        return r.returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _wsl_interop_socket():
+    """Return a working WSL_INTEROP socket path, or None.
+
+    The scan script launches Windows `powershell.exe`, which needs a live
+    `WSL_INTEROP` relay socket. The dashboard runs as a systemd --user service
+    started at boot and inherits no such socket, so powershell.exe fails with
+    "Invalid argument". Crucially the /init socket (1_interop/2_interop) does NOT
+    relay to Windows — only the per-interactive-session `<pid>_interop` sockets
+    do — so we probe candidates (newest first) and cache the first that works.
+    Limitation: at least one interactive WSL session must be alive to provide a
+    relay; with none open there is no socket the service can borrow.
+    """
+    cached = _INTEROP_CACHE.get('sock')
+    if cached and os.path.exists(cached) and _interop_works(cached):
+        return cached
+    wsl_run = '/run/WSL'
+    cands = []
+    try:
+        for name in os.listdir(wsl_run):
+            if not name.endswith('_interop'):
+                continue
+            fp = os.path.join(wsl_run, name)
+            # Skip the 1_interop symlink and the init socket — they don't relay.
+            if os.path.islink(fp) or not os.path.exists(fp):
+                continue
+            try:
+                cands.append((os.path.getmtime(fp), fp))
+            except OSError:
+                continue
+    except OSError:
+        return None
+    cands.sort(reverse=True)
+    for _, fp in cands:
+        if _interop_works(fp):
+            _INTEROP_CACHE['sock'] = fp
+            return fp
+    return None
+
+
+def classify_scan_result(returncode, log, image_exists):
+    """Pure classifier for a scan script's outcome → {status, error?, log}.
+
+    Markers emitted by scan_device.ps1: SCANNER_BUSY (also "device is busy"),
+    SCANNER_OFFLINE (also "not found"). A clean exit with the image on disk is
+    `ready`. Kept pure (no I/O) so it's unit-testable.
+    """
+    low = (log or '').lower()
+    if returncode == 0 and image_exists:
+        return {'status': 'ready', 'log': log}
+    if 'scanner_busy' in low or 'device is busy' in low:
+        return {'status': 'busy', 'error': 'The WIA device is busy.', 'log': log}
+    if 'scanner_offline' in low or 'not found' in low:
+        return {'status': 'offline',
+                'error': 'Scanner not found (powered off or disconnected).',
+                'log': log}
+    return {'status': 'error',
+            'error': log or f'Scan failed (exit {returncode})', 'log': log}
+
+
+def _invoke_scanner(key):
+    """Run a scanner's script and classify the outcome.
+
+    Returns {status, ...} where status is one of:
+      ready          — transfer succeeded, scan image written (includes image_url)
+      busy           — WIA device busy (needs power-cycle); reported FAST (no scan)
+      offline        — named device not enumerated (powered off / disconnected)
+      not_configured — no script wired for this scanner
+      error          — anything else (interop missing, timeout, script error)
+
+    The same call backs both the manual scan (POST /api/scanner-scan) and the
+    Freezer's 5s status poll (GET /api/scanner-status). Because "busy" errors at
+    Transfer return immediately, polling does NOT repeatedly run the scanner — a
+    real scan (~33s on the OfficeJet at 300dpi) only happens on the one poll where
+    the device has recovered. Blocking; ReusableHTTPServer is threaded so the
+    dashboard's other pollers are unaffected, and `_SCAN_LOCK` keeps two transfers
+    from colliding (concurrent transfers self-induce the "busy" error).
+
+    Critically, every scan is preceded by `_reap_stale_scans()`: on a Python
+    timeout we can only kill the bash wrapper, not the Windows powershell.exe it
+    launched via interop, so a hung scan leaks a Windows process that keeps the
+    device busy and — if they pile up — wedges the whole WIA service (stisvc).
+    Reaping under the lock (where no scan of ours is legitimately running) caps
+    leaks at zero before each attempt.
+    """
+    cfg = SCANNERS.get(key)
+    if not cfg:
+        return {'status': 'error', 'error': f'Unknown scanner: {key}'}
+    if not cfg.get('script'):
+        return {'status': 'not_configured',
+                'error': f"{cfg['name']} ({cfg['device']}) is not wired up yet."}
+    script_path = os.path.join(SCAN_TOOLS_DIR, cfg['script'])
+    if not os.path.isfile(script_path):
+        return {'status': 'error',
+                'error': f'Scanner script not found: {script_path}'}
+    interop = _wsl_interop_socket()
+    if not interop:
+        return {'status': 'error',
+                'error': 'No usable WSL interop socket — open a WSL session so the '
+                         'service can launch the scanner.'}
+    scan_env = os.environ.copy()
+    scan_env['WSL_INTEROP'] = interop
+    with _SCAN_LOCK:
+        _reap_stale_scans(scan_env)
+        try:
+            proc = subprocess.run(
+                ['bash', cfg['script']],
+                cwd=SCAN_TOOLS_DIR,
+                capture_output=True, text=True, timeout=SCAN_TIMEOUT_SEC,
+                env=scan_env,
+            )
+        except subprocess.TimeoutExpired:
+            # The bash wrapper is dead, but the Windows powershell.exe is not —
+            # reap it so its WIA handle can't wedge the device/service.
+            _reap_stale_scans(scan_env)
+            return {'status': 'error',
+                    'error': f'Scan timed out after {SCAN_TIMEOUT_SEC}s '
+                             '(scanner not responding).'}
+        except Exception as exc:  # noqa: BLE001 — surface launch failures to the UI
+            return {'status': 'error', 'error': f'Failed to start scan: {exc}'}
+    log = ((proc.stdout or '') + (proc.stderr or '')).strip()
+    img = os.path.join(SCAN_TOOLS_DIR, cfg['output'])
+    result = classify_scan_result(proc.returncode, log, os.path.isfile(img))
+    if result['status'] == 'ready':
+        # Cache-bust so the browser reloads the freshly scanned image each time.
+        result['image_url'] = (
+            f'{SCANNER_IMAGE_URL_PREFIX}?scanner={key}&t={int(time.time())}')
+    return result
+
+
+MAZDA_AGENT_ID = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
+
+
+def _notify_mazda_of_scan(scan_image_path, scanner_name):
+    """Background: send the scanned document to Mazda for intake processing."""
+    try:
+        msg = (
+            f'A document was just scanned on the {scanner_name}. '
+            f'The scanned image is at: {scan_image_path}\n\n'
+            f'Please process this document through your intake pipeline:\n'
+            f'1. Call load_wrapper_revision to load your active wrapper.\n'
+            f'2. Classify and parse the document (cheapest reliable tool first).\n'
+            f'3. Call record_trace when done to log this run.\n'
+            f'4. If anything fails, call propose_improvement with the failure details.'
+        )
+        payload = json.dumps({
+            'messages': [{'role': 'user', 'content': msg}],
+            'stream': False,
+        }).encode()
+        req = urllib.request.Request(
+            f'{LETTA_BASE_URL}/v1/agents/{MAZDA_AGENT_ID}/messages',
+            data=payload,
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            log_message(f'[scan→mazda] Mazda notified of scan ({scanner_name}): '
+                        f'HTTP {resp.status}')
+    except Exception as exc:
+        log_message(f'[scan→mazda] Failed to notify Mazda: {exc}')
+
+
+def run_scanner(key):
+    """Manual scan (POST /api/scanner-scan). Adds back-compat `ok` to the status."""
+    result = _invoke_scanner(key)
+    result['ok'] = (result.get('status') == 'ready')
+    if result['ok']:
+        cfg = SCANNERS.get(key, {})
+        img_path = os.path.join(SCAN_TOOLS_DIR, cfg.get('output', ''))
+        threading.Thread(
+            target=_notify_mazda_of_scan,
+            args=(img_path, cfg.get('name', key)),
+            daemon=True,
+        ).start()
+    return result
+
+
+def scanner_status(key):
+    """Lightweight status probe (GET /api/scanner-status) for the Freezer's poll."""
+    return _invoke_scanner(key)
+
+
 def _build_receipt_index():
     import re as _re
     name_re = _re.compile(r'_(\d{2})_(\d{2})_(\d{2})_(\d+)_(\d{2})\.[A-Za-z0-9]+$')
@@ -3295,6 +3547,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_error(404)
             return
 
+        if path == '/api/scanner-status':
+            return self.json_response(scanner_status(query.get('scanner', [''])[0]))
+
+        if path == SCANNER_IMAGE_URL_PREFIX:
+            key = query.get('scanner', [''])[0]
+            cfg = SCANNERS.get(key)
+            if cfg:
+                fp = os.path.join(SCAN_TOOLS_DIR, cfg['output'])
+                if os.path.isfile(fp):
+                    ctype = 'image/jpeg' if fp.endswith(('.jpg', '.jpeg')) else 'image/png'
+                    return self.serve_file(fp, ctype)
+            self.send_error(404)
+            return
+
         if path.startswith(ROL_FINANCES_RECEIPTS_URL_PREFIX + '/'):
             rel = unquote(path[len(ROL_FINANCES_RECEIPTS_URL_PREFIX) + 1:])
             base = os.path.abspath(READABLE_DOCS_BASE)
@@ -3384,6 +3650,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response({'ok': False, 'text': f'Unknown action: {action} for {server}'})
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
+
+        if path == '/api/scanner-scan':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(run_scanner(data.get('scanner', '')))
 
         if path == '/api/test':
             try:

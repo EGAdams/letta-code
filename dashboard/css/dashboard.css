@@ -131,6 +131,129 @@ body.startup-loading .sidebar {
   }
 }
 
+/* Scanner dialog — reuses the startup-panel look, but lives inline in the main
+   SPA area (no full-screen overlay/darkening) and gains Start Scan / Show Image
+   actions plus a dismissable scanned-image preview. */
+.scanner-dialog {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 8px 0;
+}
+
+.scanner-panel {
+  margin: 0;
+}
+
+.scanner-state {
+  margin-top: 6px;
+  color: #ffe761;
+  font-size: 0.95rem;
+}
+
+.scanner-panel.scan-complete .scanner-bar {
+  background: #2f9d3a;
+}
+
+.scanner-panel.scan-error .scanner-bar {
+  background: #d9534f;
+}
+
+/* Freezer "WIA device is busy" — red bar + blinking red "Restart the Scanner
+   Please" while the 5s status poll keeps reporting busy/offline. */
+.scanner-panel.scan-busy .scanner-bar {
+  background: #d9534f;
+}
+
+.scanner-state.scanner-blink {
+  color: #ff4d4d;
+  font-weight: 700;
+  animation: startup-blink 0.8s steps(1, end) infinite;
+}
+
+.scanner-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.scanner-actions .am-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Full-screen modal overlay — the scanned image pops open large and centered
+   over a dark backdrop (click backdrop, ×, or Esc to close). Was previously an
+   inline flex sibling of the panel, which could collapse to an empty short box
+   "behind" the dialog. */
+.scanner-image-box {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: rgba(6, 10, 16, 0.82);
+  backdrop-filter: blur(2px);
+}
+
+.scanner-image-box.hidden {
+  display: none;
+}
+
+.scanner-image {
+  display: block;
+  max-width: min(92vw, 1100px);
+  max-height: 90vh;
+  width: auto;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: #fff;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
+/* While loading or on error, give the frame a visible size so the modal never
+   appears as a blank/zero-height box. */
+.scanner-image-box.scanner-image-loading .scanner-image,
+.scanner-image-box.scanner-image-error .scanner-image {
+  min-width: min(60vw, 480px);
+  min-height: 320px;
+}
+
+.scanner-image-box.scanner-image-error::after {
+  content: "Scanned image failed to load. Close and try Show Image again.";
+  position: absolute;
+  color: #ffb4b4;
+  font-size: 1rem;
+  text-align: center;
+  max-width: 360px;
+  pointer-events: none;
+}
+
+.scanner-image-close {
+  position: fixed;
+  top: 18px;
+  right: 24px;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: #d9534f;
+  color: #fff;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  z-index: 1001;
+}
+
+.scanner-image-close:hover {
+  background: #c9302c;
+}
+
 .sidebar {
   position: fixed;
   top: 30px;

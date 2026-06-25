@@ -52,6 +52,7 @@ const navSSH = document.getElementById("nav-ssh-connections");
 const navPlans = document.getElementById("nav-plans");
 const navRolFinance = document.getElementById("nav-rol-finance");
 const navRolFinanceReports = document.getElementById("nav-rol-finance-reports");
+const navScanners = document.getElementById("nav-scanners");
 const navModelStats = document.getElementById("nav-model-stats");
 const startupOverlay = document.getElementById("startup-overlay");
 const startupStatusText = document.getElementById("startup-status-text");
@@ -554,6 +555,27 @@ if (
           RF.openReports();
           return;
         }
+        if (tab.dataset.target === "rol-finance-scanners") {
+          safeSetActive(
+            navRolFinance,
+            '[data-nav="rol-finance"][data-target]',
+            tab,
+          );
+          navRolFinance.classList.add("hidden");
+          navScanners.classList.remove("hidden");
+          const freezerTab = navScanners.querySelector(
+            '[data-nav="scanners"][data-target="scanners-freezer"]',
+          );
+          if (freezerTab)
+            safeSetActive(
+              navScanners,
+              '[data-nav="scanners"][data-target]',
+              freezerTab,
+            );
+          safeActivateView("scanners-freezer");
+          scannerControllers.freezer?.startMonitor();
+          return;
+        }
         safeSetActive(
           navRolFinance,
           '[data-nav="rol-finance"][data-target]',
@@ -578,6 +600,21 @@ if (
       RF.selectReport(tab.dataset.reportKey);
     }
   });
+
+  // ROL Finance Scanners sub-nav (Freezer Scanner / Window Scanner).
+  navScanners
+    .querySelectorAll('[data-nav="scanners"][data-target]')
+    .forEach((tab) => {
+      tab.addEventListener("click", () => {
+        safeSetActive(navScanners, '[data-nav="scanners"][data-target]', tab);
+        safeActivateView(tab.dataset.target);
+        // Only poll the scanner whose tab is showing.
+        stopAllScannerMonitors();
+        if (tab.dataset.target === "scanners-freezer") {
+          scannerControllers.freezer?.startMonitor();
+        }
+      });
+    });
 
   // Agent tabs are injected dynamically, so use event delegation.
   navAgents.addEventListener("click", (e) => {
@@ -746,6 +783,26 @@ if (
           reportsTab,
         );
       safeActivateView("rol-finance-reports");
+    });
+  }
+
+  // Back from the ROL Finance Scanners sub-nav -> ROL Finance sub-nav.
+  const backScanners = document.getElementById("btn-back-scanners");
+  if (backScanners) {
+    backScanners.addEventListener("click", () => {
+      stopAllScannerMonitors();
+      navScanners.classList.add("hidden");
+      navRolFinance.classList.remove("hidden");
+      const planTab = navRolFinance.querySelector(
+        '[data-nav="rol-finance"][data-target="rol-finance-plan"]',
+      );
+      if (planTab)
+        safeSetActive(
+          navRolFinance,
+          '[data-nav="rol-finance"][data-target]',
+          planTab,
+        );
+      safeActivateView("rol-finance-plan");
     });
   }
 
@@ -1721,6 +1778,241 @@ new AgentHealthPoller({ http, setHealth: setAgentTabHealth }).start();
 // Blink the Agents tab + prompt to restart when the dashboard's own source
 // changes on disk (polls /api/code-status every 15s).
 new CodeChangeAlert({ http }).start();
+
+/* =====================  Scanners  =====================
+   ROL Finance > Scanners > {Window,Freezer} Scanner. Each `.scanner-dialog`
+   reuses the startup-panel look inline (no overlay). Start Scan kicks off the
+   backend scan AND a ~10s yellow progress fill; when the scan returns the bar
+   snaps green + "Scan Finished" and the image opens automatically. The image
+   is dismissable (× / re-opened with "Show Image"). */
+// The Freezer Scanner (non-default HP063E28) is notorious for "WIA device is
+// busy" until power-cycled. While its tab is showing we probe /api/scanner-status:
+// the FIRST check fires immediately, then we back off to every 15s (each probe
+// runs a real WIA call, so polling harder stresses stisvc). Each probe shows a
+// yellow progress fill reflecting its timing (busy fails in ~3s; a recovery scan
+// takes ~33s). On `busy`/`offline` the bar turns RED with a blinking red "Restart
+// the Scanner Please"; the moment the device recovers, that same probe's transfer
+// succeeds and the scanned image appears.
+const SCANNER_POLL_MS = 15000;
+const MONITORED_SCANNERS = new Set();
+
+function setupScanners() {
+  const controllers = {};
+  document.querySelectorAll(".scanner-dialog").forEach((dialog) => {
+    const scanner = dialog.dataset.scanner;
+    const panel = dialog.querySelector(".scanner-panel");
+    const bar = dialog.querySelector(".scanner-bar");
+    const state = dialog.querySelector(".scanner-state");
+    const startBtn = dialog.querySelector(".scanner-start");
+    const showBtn = dialog.querySelector(".scanner-show");
+    const imageBox = dialog.querySelector(".scanner-image-box");
+    const img = dialog.querySelector(".scanner-image");
+    const closeBtn = dialog.querySelector(".scanner-image-close");
+    const monitored = MONITORED_SCANNERS.has(scanner);
+    let lastImageUrl = null;
+    let scanning = false;
+    let progressTimer = null;
+    let pollTimer = null;
+    let monitorActive = false;
+    let inFlight = false;
+
+    const setBar = (pct) => {
+      bar.style.width = `${pct}%`;
+    };
+    const clearBlink = () => state.classList.remove("scanner-blink");
+    const showImage = () => {
+      if (!lastImageUrl) return;
+      // Repeated scans reuse the same filename, so cache-bust to avoid the
+      // browser serving a stale/blank copy (the "shows sometimes, blank
+      // sometimes" symptom). Reset src first so onload always refires.
+      const bust = `${lastImageUrl}${lastImageUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+      imageBox.classList.remove("scanner-image-error");
+      imageBox.classList.add("scanner-image-loading");
+      img.src = "";
+      img.src = bust;
+      imageBox.classList.remove("hidden");
+    };
+    const hideImage = () => imageBox.classList.add("hidden");
+    img.addEventListener("load", () => {
+      imageBox.classList.remove("scanner-image-loading", "scanner-image-error");
+    });
+    img.addEventListener("error", () => {
+      imageBox.classList.remove("scanner-image-loading");
+      imageBox.classList.add("scanner-image-error");
+    });
+
+    const setBusy = (msg) => {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+      setBar(100);
+      panel.classList.remove("scan-complete", "scan-error");
+      panel.classList.add("scan-busy");
+      state.textContent = msg;
+      state.classList.add("scanner-blink");
+    };
+    const setReady = (imageUrl) => {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+      clearBlink();
+      setBar(100);
+      panel.classList.remove("scan-busy", "scan-error");
+      panel.classList.add("scan-complete");
+      state.textContent = "Scan Finished";
+      if (imageUrl) {
+        lastImageUrl = imageUrl;
+        showBtn.disabled = false;
+        showImage();
+      }
+    };
+    const setFailed = (msg) => {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+      clearBlink();
+      setBar(100);
+      panel.classList.remove("scan-busy", "scan-complete");
+      panel.classList.add("scan-error");
+      state.textContent = msg;
+    };
+
+    // Map a /api/scanner-status or /api/scanner-scan result onto the dialog.
+    const applyResult = (data) => {
+      const status = data.status || (data.ok ? "ready" : "error");
+      if (status === "ready") {
+        setReady(data.image_url);
+      } else if (status === "busy" || status === "offline") {
+        setBusy("Restart the Scanner Please");
+      } else {
+        setFailed(`Scan failed: ${data.error || "unknown error"}`);
+      }
+      return status;
+    };
+
+    const stopMonitor = () => {
+      monitorActive = false;
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+    };
+
+    const pollOnce = async () => {
+      if (!monitorActive || inFlight) return;
+      inFlight = true;
+      // Animate a yellow fill while the probe runs so its timing is visible.
+      // applyResult()/stopMonitor() clear progressTimer when the probe returns.
+      clearBlink();
+      panel.classList.remove("scan-busy", "scan-complete", "scan-error");
+      state.textContent = "Checking scanner…";
+      setBar(4);
+      const probeStart = Date.now();
+      if (progressTimer) clearInterval(progressTimer);
+      progressTimer = setInterval(() => {
+        const t = Math.min((Date.now() - probeStart) / 30000, 1);
+        setBar(4 + t * 88);
+      }, 150);
+      try {
+        const res = await fetch(`/api/scanner-status?scanner=${scanner}`);
+        const data = await res.json();
+        inFlight = false;
+        if (!monitorActive) {
+          if (progressTimer) {
+            clearInterval(progressTimer);
+            progressTimer = null;
+          }
+          return;
+        }
+        // On recovery the status probe's transfer succeeds -> stop polling.
+        if (applyResult(data) === "ready") {
+          stopMonitor();
+          return;
+        }
+      } catch {
+        inFlight = false;
+        if (monitorActive) setBusy("Restart the Scanner Please");
+      }
+      if (monitorActive) pollTimer = setTimeout(pollOnce, SCANNER_POLL_MS);
+    };
+
+    const startMonitor = () => {
+      if (!monitored || monitorActive) return;
+      monitorActive = true;
+      void pollOnce();
+    };
+
+    // One-shot manual scan with the yellow ~10s fill (used by the Start button).
+    const runManualScan = async () => {
+      if (scanning) return;
+      scanning = true;
+      stopMonitor();
+      startBtn.disabled = true;
+      showBtn.disabled = true;
+      hideImage();
+      clearBlink();
+      panel.classList.remove("scan-complete", "scan-error", "scan-busy");
+      state.textContent = "Scanning…";
+      setBar(4);
+      const startedAt = Date.now();
+      // A real flatbed scan takes ~30s; fill over that until the actual result
+      // snaps the bar green. The Window Scanner fills ~30% faster (~23s) and runs
+      // all the way to 100% yellow, then sits there until the scan-complete event
+      // turns it green.
+      const fillMs = scanner === "window" ? 23000 : 30000;
+      const fillTo = scanner === "window" ? 96 : 88;
+      progressTimer = setInterval(() => {
+        const t = Math.min((Date.now() - startedAt) / fillMs, 1);
+        setBar(4 + t * fillTo);
+      }, 150);
+      try {
+        const res = await fetch("/api/scanner-scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scanner }),
+        });
+        const data = await res.json();
+        const status = applyResult(data);
+        // A monitored scanner that came back busy/offline: resume polling so it
+        // auto-recovers once power-cycled.
+        if (monitored && (status === "busy" || status === "offline")) {
+          startMonitor();
+        }
+      } catch (err) {
+        setFailed(`Scan failed: ${err.message}`);
+      } finally {
+        scanning = false;
+        startBtn.disabled = false;
+      }
+    };
+
+    closeBtn.addEventListener("click", hideImage);
+    showBtn.addEventListener("click", showImage);
+    startBtn.addEventListener("click", runManualScan);
+    // Click the dark backdrop (outside the image frame) to close the modal.
+    imageBox.addEventListener("click", (e) => {
+      if (e.target === imageBox) hideImage();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !imageBox.classList.contains("hidden"))
+        hideImage();
+    });
+
+    controllers[scanner] = { startMonitor, stopMonitor };
+  });
+  return controllers;
+}
+const scannerControllers = setupScanners();
+function stopAllScannerMonitors() {
+  for (const c of Object.values(scannerControllers)) c.stopMonitor();
+}
 
 /* =====================  Deep-linking  =====================
        ?agent=<id>&view=thoughts|messages|tool-calls|chat-interface
