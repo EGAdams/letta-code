@@ -1851,6 +1851,8 @@ function setupScanners() {
       panel.classList.add("scan-busy");
       state.textContent = msg;
       state.classList.add("scanner-blink");
+      // Device needs a power-cycle — block Start Scan until it recovers.
+      startBtn.disabled = true;
     };
     const setReady = (imageUrl) => {
       if (progressTimer) {
@@ -1862,6 +1864,7 @@ function setupScanners() {
       panel.classList.remove("scan-busy", "scan-error");
       panel.classList.add("scan-complete");
       state.textContent = "Scan Finished";
+      startBtn.disabled = false;
       if (imageUrl) {
         lastImageUrl = imageUrl;
         showBtn.disabled = false;
@@ -1878,6 +1881,7 @@ function setupScanners() {
       panel.classList.remove("scan-busy", "scan-complete");
       panel.classList.add("scan-error");
       state.textContent = msg;
+      startBtn.disabled = false;
     };
 
     // Map a /api/scanner-status or /api/scanner-scan result onto the dialog.
@@ -1988,8 +1992,10 @@ function setupScanners() {
       } catch (err) {
         setFailed(`Scan failed: ${err.message}`);
       } finally {
+        // startBtn.disabled is now owned by setBusy/setReady/setFailed above —
+        // don't unconditionally re-enable here, or a busy/offline result would
+        // leave Start Scan clickable while the device still needs a restart.
         scanning = false;
-        startBtn.disabled = false;
       }
     };
 
