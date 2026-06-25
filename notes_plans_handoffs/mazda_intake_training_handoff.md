@@ -1,7 +1,39 @@
 # Mazda — Document Intake & Self-Improvement Loop (Handoff)
 
-**Last updated:** 2026-06-25 (late evening — Scanners page wired to the intake
-pipeline / training step #2 shipped; previous: loop recovery + gating + Phase 5)
+**Last updated:** 2026-06-25 (night — found + FIXED the live classify failure: Mazda's
+executor env lacked the Gemini key, so every `document-intake` scan failed at
+`classify_scan.py`. Now resolves from gitignored `~/rol_finances/.env` (`rol_finances@320bfe3`,
+pushed). Dashboard observability surface DROPPED per EG. Previous: Scanners wired / step #2)
+
+> **⚠️ Status of "make Mazda's deep stages observable":** EG explicitly **dropped** the
+> dashboard read-back ("we do not need to show scan results in the scanner dashboard" +
+> "you can add polling if you have to"). So step #3's surfacing work was NOT built. The
+> real blocker this shift turned out to be that **every live `document-intake` run was
+> FAILING at classify** — Mazda's executor environment (SDK-executor container / systemd
+> services) does not inherit Win10's interactive `~/.bashrc GEMINI_API_KEY`, so
+> `tools/classify_scan.py` raised "No GEMINI_API_KEY ... found in environment" on every
+> scan (evidence: `agent_run_trace` rows #4–8). **Fixed** by giving `classify_scan.py` a
+> zero-dependency `.env` fallback (keyed off `__file__` → `rol_finances/.env`) and writing
+> the key into the gitignored `~/rol_finances/.env` (600). Committed + pushed
+> `rol_finances@320bfe3`.
+>
+> **⚠️ TOPOLOGY CORRECTION (cost me a wrong-box detour):** Mazda's `executor_run` is served
+> by **THIS DEV BOX (DESKTOP-2OBSQMC)** — `executor_server.py` on `:8787`
+> (`workspace_root: /home/adamsl`) behind the `:8789` mcp-proxy — **NOT** the Win10
+> SDK-executor (`:8799`, workspace `/var/www:/work`, which rejects `/home/adamsl/...`). So
+> `classify_scan.py` runs on the dev box. The fix was applied on the dev box via
+> `git checkout origin/main -- tools/classify_scan.py` + a local `~/rol_finances/.env`
+> (Win10 got the same, harmlessly).
+>
+> **✅ VERIFIED end-to-end through live Mazda** (mom's token back): she ran
+> `executor_run python3 tools/classify_scan.py <walgreens.jpg>` → `rc 0`,
+> `{"doc_type":"receipt","confidence":0.9}`; the parse step (`parse_and_categorize.py`,
+> also Gemini) → `rc 0` with real structured data. The exact command that failed pre-fix
+> now succeeds. **Mazda's intake pipeline is unblocked.**
+>
+> Gotcha for next shift: `record_trace` is idempotent on `input_text`, so re-sending the
+> same scan message re-saves the OLD trace id (the failed #24) instead of a new success
+> row — judge success by the `executor_run` return, not by a fresh trace row.
 **Agent:** Mazda `agent-6b536cf4-ec88-4290-b595-fed21d14bd8e` (live @ http://100.80.49.10:8283)
 **MCP service:** `mazda-tools-mcp.service` on port 8791 — **on Win10 `DESKTOP-SHDBATI` (100.80.49.10)**
 
