@@ -251,6 +251,45 @@ order). And `window.open(url, "_blank", "noopener,noreferrer")` returns **`null`
 `noopener` is set, so don't treat a null return as "popup blocked" (it caused a false red error
 even though the receipt opened).
 
+### Scanners — physical document scanners (Project Plans → ROL Finance → Scanners)
+
+Two HP scanners attached to the live Win11 box: **Window** = HPI297BEA (HP OfficeJet 8120e),
+**Freezer** = HP063E28 (HP DeskJet 4100, non-default, flaky). Driven by
+`scanner_scripts/scan_device.ps1` (in this repo; **deployed to**
+`~/planner/nonprofit_finance_db/receipt_scanning_tools/`) which selects the device **BY NAME**
+(`-NameLike`), NOT "first device" — WIA enumeration order is unstable (the busy Freezer often
+enumerates first). Wrappers `run_scan_window.sh` (→`scan.png`) / `run_scan_freezer.sh`
+(→`scan_freezer.png`). `SCANNERS` registry + `_invoke_scanner()`/`classify_scan_result()` live in
+`server.py`.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/scanner-scan` `{scanner}` | One-shot manual scan → `{status, ok, image_url\|error}` |
+| `GET /api/scanner-status?scanner=` | Lightweight probe (Freezer's poll) → same `{status}` |
+| `GET /api/scanner-image?scanner=` | Serves the scanned PNG |
+
+`status` ∈ ready/busy/offline/error. Frontend (`dashboard-boot.js` `setupScanners`): Start Scan +
+Show Image + dismissable image preview. The **Freezer auto-polls** while its tab shows — first
+check immediate (yellow probe-timing bar), then **every 15s**; `busy`/`offline` → red bar +
+blinking "Restart the Scanner Please" (`.scan-busy`/`.scanner-blink`); `ready` → green + image,
+polling stops. Tests: `tests/test_server.py -k scan` + `classify_scan_result`.
+
+**Three gotchas that wasted hours (all in [[dashboard-scanner-wsl-interop]] memory):**
+1. **WSL interop** — the systemd `--user` dashboard service has no `WSL_INTEROP`, so it can't
+   launch Windows `powershell.exe` ("Invalid argument"). `_wsl_interop_socket()` borrows a working
+   `/run/WSL/<pid>_interop` (the init `1/2_interop` does NOT relay). Needs ≥1 interactive WSL
+   session alive.
+2. **stisvc wedge** — a hung scan leaks the Windows `powershell.exe` (Python kills only the bash
+   wrapper); pile-ups wedge the Windows Image Acquisition service so EVERY scan hangs at
+   `New-Object WIA.DeviceManager`. `_reap_stale_scans()` (`reap_scans.ps1`) runs under `_SCAN_LOCK`
+   before each scan + after timeout. Recover a wedge: elevated `ssh NewUser@100.118.122.75` →
+   `sc queryex stisvc` PID → `taskkill /f /pid <PID>` (auto-restarts).
+3. **"busy" power-cycle won't clear** = often an **open ink door/cover** (HP reports WIA busy) or
+   driver/connectivity, not a held handle. Real scan ≈ 33s (OfficeJet 300dpi), not 10s.
+
+Deploy: scp `scanner_scripts/*` → the scan-tools dir; scp dashboard files; `systemctl --user
+restart dashboard-server.service`.
+
 ## Server health indicators, Restart-all & Model Stats (2026-06-22)
 
 Three things were added to `server.py` + the frontend (see memories

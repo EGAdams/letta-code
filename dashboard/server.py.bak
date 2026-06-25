@@ -440,13 +440,13 @@ SCANNERS = {
         'name': 'Window Scanner',
         'device': 'HPI297BEA (HP OfficeJet 8120e series)',
         'script': 'run_scan_window.sh',   # selects HPI297BEA by name
-        'output': 'scan.jpg',
+        'output': 'scan.png',
     },
     'freezer': {
         'name': 'Freezer Scanner',
         'device': 'HP063E28 (HP DeskJet 4100 series)',
         'script': 'run_scan_freezer.sh',  # selects HP063E28 by name (non-default)
-        'output': 'scan_freezer.jpg',
+        'output': 'scan_freezer.png',
     },
 }
 # Serialize all device access: two concurrent WIA transfers self-induce the very
@@ -625,50 +625,10 @@ def _invoke_scanner(key):
     return result
 
 
-MAZDA_AGENT_ID = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
-
-
-def _notify_mazda_of_scan(scan_image_path, scanner_name):
-    """Background: send the scanned document to Mazda for intake processing."""
-    try:
-        msg = (
-            f'A document was just scanned on the {scanner_name}. '
-            f'The scanned image is at: {scan_image_path}\n\n'
-            f'Please process this document through your intake pipeline:\n'
-            f'1. Call load_wrapper_revision to load your active wrapper.\n'
-            f'2. Classify and parse the document (cheapest reliable tool first).\n'
-            f'3. Call record_trace when done to log this run.\n'
-            f'4. If anything fails, call propose_improvement with the failure details.'
-        )
-        payload = json.dumps({
-            'messages': [{'role': 'user', 'content': msg}],
-            'stream': False,
-        }).encode()
-        req = urllib.request.Request(
-            f'{LETTA_BASE_URL}/v1/agents/{MAZDA_AGENT_ID}/messages',
-            data=payload,
-            headers={'Content-Type': 'application/json'},
-            method='POST',
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            log_message(f'[scan\u2192mazda] Mazda notified of scan ({scanner_name}): '
-                        f'HTTP {resp.status}')
-    except Exception as exc:
-        log_message(f'[scan\u2192mazda] Failed to notify Mazda: {exc}')
-
-
 def run_scanner(key):
     """Manual scan (POST /api/scanner-scan). Adds back-compat `ok` to the status."""
     result = _invoke_scanner(key)
     result['ok'] = (result.get('status') == 'ready')
-    if result['ok']:
-        cfg = SCANNERS.get(key, {})
-        img_path = os.path.join(SCAN_TOOLS_DIR, cfg.get('output', ''))
-        threading.Thread(
-            target=_notify_mazda_of_scan,
-            args=(img_path, cfg.get('name', key)),
-            daemon=True,
-        ).start()
     return result
 
 

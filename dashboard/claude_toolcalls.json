@@ -1,1002 +1,1002 @@
 [
   {
-    "date": "2026-06-22T17:19:06",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/CLAUDE.md"
+    "date": "2026-06-24T20:08:32",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"When item-level investigation finds strong evidence (e.g. printer+ink, confidence 0.95+) that conflicts with the vendor's default category (Walmart \u2192 'Personal'), what should Mazda do?\",\"header\":\"Category conflict\",\"options\":[{\"label\":\"Override with high-confidence item hint (recommended)\",\"description\":\"If item-level confidence is high (e.g. \u22650.85) and a matching category exists in the tree, use the item-derived category (Office > Supplies) instead of the vendor default, and note in the report why it was overridden.\"},{\"label\":\"Always defer to vendor default, just flag the conflict\",\"description\":\"Keep using the vendor_key\u2192category mapping as-is (Personal), but add a 'Problems Found' note flagging the mismatch for a human to fix manually later.\"},{\"label\":\"Always ask a human before overriding\",\"description\":\"Never auto-override silently \u2014 store the suggestion but require explicit human confirmation (e.g. via the category picker) before the expense is saved with the item-derived category.\"}],\"multiSelect\":false}]"
   },
   {
-    "date": "2026-06-22T17:19:32",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/src/skills/custom/refresh-chatgpt-oauth-token/SKILL.md"
-  },
-  {
-    "date": "2026-06-22T17:20:01",
+    "date": "2026-06-24T20:08:45",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard; echo \"=== py ===\"; .venv/bin/python -m pytest tests/test_server.py -q 2>&1 | tail -2; echo \"=== js ===\"; bun test js/tests 2>&1 | tail -3"
+    "text": "cat /home/adamsl/rol_finances/tools/categorizer/resolve_vendor_key_with_fallback.py 2>/dev/null | head -100"
   },
   {
-    "date": "2026-06-22T17:20:26",
+    "date": "2026-06-24T20:09:06",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; git status --short"
+    "text": "grep -n \"class VendorCategoryStore\\|path\" /home/adamsl/rol_finances/tools/categorizer/VendorCategoryStore.py | head -20"
   },
   {
-    "date": "2026-06-22T17:22:13",
+    "date": "2026-06-24T20:09:14",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; git stash -- dashboard/claude_toolcalls.json 2>&1 | tail -1; git pull --rebase 2>&1 | tail -8"
+    "text": "cd /home/adamsl/rol_finances && python3 - <<'EOF'\nimport sys\nfrom pathlib import Path\nsys.path.insert(0, \".\")\nfrom tools.categorizer.VendorCategoryStore import VendorCategoryStore\nfrom tools.categoriz"
   },
   {
-    "date": "2026-06-22T17:22:31",
+    "date": "2026-06-24T20:10:22",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; git push origin main 2>&1 | tail -6; echo \"=== result ===\"; git log --oneline -3"
+    "text": "grep -n \"def resolve_vendor_key\" -A 40 /home/adamsl/rol_finances/tools/categorizer/VendorCategoryStore.py | head -60"
   },
   {
-    "date": "2026-06-22T17:22:45",
+    "date": "2026-06-24T20:10:39",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; git stash pop 2>&1 | tail -3; git status --short | head"
+    "text": "cd /home/adamsl/rol_finances && python3 - <<'EOF'\nimport re, sys\nfrom pathlib import Path\nsys.path.insert(0, \".\")\nfrom tools.categorizer.VendorCategoryStore import VendorCategoryStore\nfrom tools.categ"
   },
   {
-    "date": "2026-06-22T17:22:55",
+    "date": "2026-06-24T20:11:04",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code; git stash drop 2>&1 | tail -1; git log --oneline origin/main -1"
+    "text": "grep -n \"class ReceiptPartyInfo\" -A 15 /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/models/receipt_models.py 2>/dev/null\necho \"---\"\ngrep -n \"merchant_city\\|merchant_s"
   },
   {
-    "date": "2026-06-22T17:54:20",
+    "date": "2026-06-24T20:11:25",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"How should we get city/state out of the merchant address for vendor-key resolution?\",\"header\":\"Address parsing\",\"options\":[{\"label\":\"Cheap Gemini call, contained to this step (recommended)\",\"description\":\"Add a tiny helper that asks Gemini to extract just city+state from the address string (same low-risk pattern as the item investigation step). Zero changes to the shared ReceiptPartyInfo schema or the live receipt_scanner app.\"},{\"label\":\"Extend the shared schema now\",\"description\":\"Add merchant_city/merchant_state fields to ReceiptPartyInfo and update the Gemini parsing prompt in receipt_engine.py, so every consumer (FastAPI app, DB save, CLI tools) gets clean fields going forward. More correct long-term, but touches live shared code used outside this new pipeline.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-24T20:11:34",
     "type": "Bash",
-    "text": "grep -rln \"rol-finance\\|ROL Finance\\|rolFinance\\|RF\\.\" js/ --include=*.js | grep -v tests | sort"
+    "text": "grep -n \"_get_prompt\" -A 60 /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py | head -90"
   },
   {
-    "date": "2026-06-22T17:54:25",
+    "date": "2026-06-24T20:11:44",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/rol-finance-reports-controller.js"
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/models/receipt_models.py"
   },
   {
-    "date": "2026-06-22T17:54:34",
+    "date": "2026-06-24T20:11:45",
     "type": "Bash",
-    "text": "grep -n \"RolFinanceReports\\|rol-finance\\|report-key\\|month-key\\|openMonth\\|openReports\\|selectReport\" js/dashboard-boot.js"
+    "text": "grep -rn \"merchant_address\\|merchant_phone\\|ReceiptPartyInfo(\" /home/adamsl/rol_finances --include=\"*.py\" 2>/dev/null | grep -v __pycache__ | grep -v \"receipt_models.py:\""
   },
   {
-    "date": "2026-06-22T17:54:40",
+    "date": "2026-06-24T20:12:06",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
+  },
+  {
+    "date": "2026-06-24T20:12:14",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
+  },
+  {
+    "date": "2026-06-24T20:12:22",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/models/receipt_models.py"
+  },
+  {
+    "date": "2026-06-24T20:12:49",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
+  },
+  {
+    "date": "2026-06-24T20:13:00",
+    "type": "Bash",
+    "text": "grep -n \"class GeminiReceiptEngine\\|_get_prompt\\|merchant_address\\|merchant_phone\\|import.*receipt_engine\\|from.*receipt_engine\" /home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-06-24T20:13:09",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 parse_and_categorize.py --file /home/adamsl/rol_finances/tools/scan.jpg --json --no-pick 2>&1 | tail -100"
+  },
+  {
+    "date": "2026-06-24T20:13:19",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/bmaaqhynd.output"
+  },
+  {
+    "date": "2026-06-24T20:13:27",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/bmaaqhynd.output"
+  },
+  {
+    "date": "2026-06-24T20:16:12",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/bmaaqhynd.output"
+  },
+  {
+    "date": "2026-06-24T20:16:27",
+    "type": "Bash",
+    "text": "grep -n \"def to_primitive\" -A 30 /home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-06-24T20:16:42",
+    "type": "Bash",
+    "text": "find /home/adamsl/rol_finances -iname \"receipt_models.py\" -o -iname \"receipt_engine.py\" 2>/dev/null | grep -v __pycache__"
+  },
+  {
+    "date": "2026-06-24T20:17:05",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/receipt_parsing_tools/_path_bootstrap.py 2>/dev/null\necho \"--- find app/models dirs that could shadow 'models' package ---\"\nfind /home/adamsl/rol_finances -maxdepth 4 -ty"
+  },
+  {
+    "date": "2026-06-24T20:17:23",
+    "type": "Bash",
+    "text": "ls -la /home/adamsl/planner/nonprofit_finance_db/ 2>/dev/null\necho \"--- receipt_scanning_tools under legacy root ---\"\nfind /home/adamsl/planner/nonprofit_finance_db -maxdepth 5 -iname \"receipt_engine."
+  },
+  {
+    "date": "2026-06-24T20:17:48",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 - <<'EOF'\ntry:\n    from receipt_parsing_tools._path_bootstrap import bootstrap_receipt_paths\nexcept Exception:\n    from _path_bootstrap im"
+  },
+  {
+    "date": "2026-06-24T20:20:25",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"There are two parallel copies of the receipt engine/models code (rol_finances and /home/adamsl/planner/nonprofit_finance_db), and the bootstrap deliberately loads the planner one. Which one is the real, currently-maintained backend I should edit going forward?\",\"header\":\"Which copy is real\",\"options\":[{\"label\":\"/home/adamsl/planner/nonprofit_finance_db is canonical\",\"description\":\"That's the actively maintained backend; the rol_finances copy under tools/receipt_scanning_tools is a stale fork/leftover that the bootstrap correctly bypasses. I should make schema/prompt edits there instead, and not bother fixing the unused rol_finances copy.\"},{\"label\":\"rol_finances should be canonical, the bootstrap is the bug\",\"description\":\"rol_finances is where Mazda's pipeline and this work actually live; the legacy planner path-shadowing was an accident or stale leftover from a migration. I should fix _path_bootstrap.py to stop pulling in the legacy directory, and treat rol_finances as the one true copy.\"},{\"label\":\"Not sure \u2014 let's investigate further before deciding\",\"description\":\"Check git history / last-modified content diffs between the two copies first so the decision is based on which one actually has the latest real fixes, rather than guessing from directory mtimes alone.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-24T20:20:37",
+    "type": "Bash",
+    "text": "echo \"=== Is /home/adamsl/planner/nonprofit_finance_db a git repo? ===\"\ngit -C /home/adamsl/planner/nonprofit_finance_db rev-parse --is-inside-work-tree 2>&1\necho; echo \"=== last commits touching rece"
+  },
+  {
+    "date": "2026-06-24T20:20:50",
+    "type": "Bash",
+    "text": "echo \"=== planner repo root ===\"\ngit -C /home/adamsl/planner/nonprofit_finance_db rev-parse --show-toplevel\necho \"=== git status for that file ===\"\ngit -C /home/adamsl/planner/nonprofit_finance_db sta"
+  },
+  {
+    "date": "2026-06-24T20:21:13",
+    "type": "Read",
+    "text": "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_scanner/backend/models/receipt_models.py"
+  },
+  {
+    "date": "2026-06-24T20:21:21",
+    "type": "Edit",
+    "text": "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_scanner/backend/models/receipt_models.py"
+  },
+  {
+    "date": "2026-06-24T20:21:29",
+    "type": "Read",
+    "text": "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
+  },
+  {
+    "date": "2026-06-24T20:21:44",
+    "type": "Edit",
+    "text": "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
+  },
+  {
+    "date": "2026-06-24T20:21:54",
+    "type": "Bash",
+    "text": "diff /home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/"
+  },
+  {
+    "date": "2026-06-24T20:22:03",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 parse_and_categorize.py --file /home/adamsl/rol_finances/tools/scan.jpg --json --no-pick 2>&1 | tail -100"
+  },
+  {
+    "date": "2026-06-24T20:22:11",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/b9we778ix.output"
+  },
+  {
+    "date": "2026-06-24T20:24:31",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/b9we778ix.output"
+  },
+  {
+    "date": "2026-06-24T20:24:41",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances && python3 - <<'EOF'\nimport sys\nfrom pathlib import Path\nsys.path.insert(0, \".\")\nfrom tools.categorizer.VendorCategoryStore import VendorCategoryStore\nfrom tools.categoriz"
+  },
+  {
+    "date": "2026-06-24T20:24:53",
+    "type": "Bash",
+    "text": "grep -n -i \"electronic\\|computer\\|printer\" /home/adamsl/rol_finances/tools/categorizer/categories_tree.txt"
+  },
+  {
+    "date": "2026-06-24T20:35:46",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"Should I actually run the final save now (real INSERT into the live nonprofit_finance database + moving scan.jpg into permanent receipt storage), or stop the live walkthrough here and treat the save step as confirmed-by-design without executing it?\",\"header\":\"Final DB save\",\"options\":[{\"label\":\"Yes, run the real save now\",\"description\":\"Call save_receipt_non_interactive() with vendor_key walmart_comstock_park, category_id 141 (Office > Supplies), org_id 1. This creates a real expense row and moves scan.jpg into permanent storage \u2014 not easily undone.\"},{\"label\":\"No, stop here \u2014 don't write to the DB\",\"description\":\"We've confirmed every step works end-to-end through categorization. Skip the actual database write for this walkthrough; treat the procedure as validated and move on to encoding it into Mazda's training.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-24T20:36:06",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/receipt_parsing_tools && python3 - <<'EOF'\nimport sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path.cwd()))\nfrom parse_and_categorize import _parse_receipt, to_prim"
+  },
+  {
+    "date": "2026-06-24T20:36:10",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/b2876gs8l.output"
+  },
+  {
+    "date": "2026-06-24T20:36:52",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/b2876gs8l.output"
+  },
+  {
+    "date": "2026-06-24T20:51:18",
+    "type": "Bash",
+    "text": "grep -rln \"scan\" /home/adamsl/letta-code/dashboard --include=\"*.html\" --include=\"*.js\" --include=\"*.py\" -i 2>/dev/null | grep -v node_modules | grep -v test_\necho \"--- routes in server.py mentioning s"
+  },
+  {
+    "date": "2026-06-24T20:51:20",
+    "type": "Bash",
+    "text": "grep -n \"executor_run\\|run_claude_code_sdk\" /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/letta_tools/functions.py 2>/dev/null\necho \"---\"\nfind /home/adams"
+  },
+  {
+    "date": "2026-06-24T20:51:32",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-24T20:51:54",
+    "type": "Bash",
+    "text": "echo \"=== files in dashboard's SCAN_TOOLS_DIR ===\"\nls -la ~/planner/nonprofit_finance_db/receipt_scanning_tools/*.sh ~/planner/nonprofit_finance_db/receipt_scanning_tools/*.ps1 2>/dev/null\necho; echo "
+  },
+  {
+    "date": "2026-06-24T20:51:55",
+    "type": "Bash",
+    "text": "grep -n \"scanner\\|/api/scan\\|run_scanner\" /home/adamsl/letta-code/dashboard/server.py | grep -v \"^428:\\|^429:\\|^430:\\|^431:\\|^432:\\|^433:\\|^434:\\|^435:\\|^436:\\|^437:\" "
+  },
+  {
+    "date": "2026-06-24T20:52:17",
+    "type": "Bash",
+    "text": "grep -n \"scanner\\|Scan\" /home/adamsl/letta-code/dashboard/dashboard.html -i | head -40"
+  },
+  {
+    "date": "2026-06-24T20:52:18",
+    "type": "Bash",
+    "text": "grep -n \"scanner\\|Scan\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js -i | head -60"
+  },
+  {
+    "date": "2026-06-24T20:52:42",
+    "type": "ToolSearch",
+    "text": "query: select:mcp__playwright__browser_navigate,mcp__playwright__browser_click,mcp__playwright__browser_snapshot"
+  },
+  {
+    "date": "2026-06-24T20:52:42",
+    "type": "Bash",
+    "text": "curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8765/"
+  },
+  {
+    "date": "2026-06-24T20:52:54",
+    "type": "mcp__playwright__browser_navigate",
+    "text": "url: http://localhost:8765/"
+  },
+  {
+    "date": "2026-06-24T20:53:02",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-24T20:53:10",
+    "type": "mcp__playwright__browser_click",
+    "text": "element: ROL Finance nav button"
+  },
+  {
+    "date": "2026-06-24T20:53:17",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-24T20:53:25",
+    "type": "mcp__playwright__browser_click",
+    "text": "element: Scanners sub-nav button"
+  },
+  {
+    "date": "2026-06-24T20:53:35",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-24T20:53:43",
+    "type": "mcp__playwright__browser_click",
+    "text": "element: Window Scanner sub-nav button"
+  },
+  {
+    "date": "2026-06-24T20:53:49",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-24T20:54:02",
+    "type": "mcp__playwright__browser_click",
+    "text": "element: Start Scan button"
+  },
+  {
+    "date": "2026-06-24T20:54:10",
+    "type": "ToolSearch",
+    "text": "query: select:mcp__playwright__browser_wait_for"
+  },
+  {
+    "date": "2026-06-24T20:55:13",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-24T20:56:24",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-24T20:56:43",
+    "type": "Bash",
+    "text": "tail -n 40 /tmp/dashboard_8765.log 2>/dev/null\necho \"--- /run/WSL interop sockets ---\"\nls -la /run/WSL/ 2>/dev/null\necho \"--- systemd service status ---\"\nsystemctl --user is-active dashboard-server 2>"
+  },
+  {
+    "date": "2026-06-24T20:56:55",
+    "type": "Bash",
+    "text": "grep -n \"scanner\" /tmp/dashboard_8765.log | tail -20\necho \"--- test interop relay with newest socket ---\"\n/mnt/c/Windows/System32/cmd.exe /c exit 2>&1; echo \"default env exit code: $?\"\nWSL_INTEROP=/ru"
+  },
+  {
+    "date": "2026-06-24T21:16:11",
+    "type": "Bash",
+    "text": "grep -n \"scanner-status\\|Restart the Scanner\\|scanner_status\" /home/adamsl/letta-code/dashboard/server.py /home/adamsl/letta-code/dashboard/js/dashboard-boot.js /home/adamsl/letta-code/dashboard/dashb"
+  },
+  {
+    "date": "2026-06-24T21:16:25",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
   },
   {
-    "date": "2026-06-22T17:54:54",
+    "date": "2026-06-24T21:16:25",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-24T21:16:48",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
   },
   {
-    "date": "2026-06-22T17:55:19",
-    "type": "Bash",
-    "text": "grep -n \"rol-finance-reports\\|ROL_FINANCE_DOCS\\|def.*rol_finance_reports\\|readable_documents/bank_statements\" server.py | head -50"
+    "date": "2026-06-24T21:17:21",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
   },
   {
-    "date": "2026-06-22T17:55:24",
+    "date": "2026-06-24T21:17:33",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
+  },
+  {
+    "date": "2026-06-24T21:17:44",
+    "type": "Bash",
+    "text": "grep -n \"scannerControllers\\|startMonitor(\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
+  },
+  {
+    "date": "2026-06-24T21:17:55",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard && bun test js/tests 2>&1 | tail -40"
+  },
+  {
+    "date": "2026-06-24T21:18:04",
+    "type": "Bash",
+    "text": "bunx --bun @biomejs/biome@2.2.5 check --write js/dashboard-boot.js 2>&1 | tail -20"
+  },
+  {
+    "date": "2026-06-24T21:18:13",
+    "type": "mcp__playwright__browser_navigate",
+    "text": "url: http://localhost:8765/"
+  },
+  {
+    "date": "2026-06-24T21:18:25",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-24T21:18:32",
+    "type": "mcp__playwright__browser_click",
+    "text": "element: ROL Finance nav button"
+  },
+  {
+    "date": "2026-06-24T21:18:43",
+    "type": "mcp__playwright__browser_click",
+    "text": "element: Scanners sub-nav button"
+  },
+  {
+    "date": "2026-06-24T21:19:02",
+    "type": "mcp__playwright__browser_wait_for",
+    "text": "text: Restart the Scanner Please"
+  },
+  {
+    "date": "2026-06-24T21:19:10",
+    "type": "mcp__playwright__browser_snapshot",
+    "text": "null: null"
+  },
+  {
+    "date": "2026-06-24T21:33:19",
+    "type": "Bash",
+    "text": "echo \"=== letta-code ===\"; git -C /home/adamsl/letta-code status --porcelain\necho; echo \"=== rol_finances ===\"; git -C /home/adamsl/rol_finances status --porcelain\necho; echo \"=== planner ===\"; git -C"
+  },
+  {
+    "date": "2026-06-24T21:34:06",
+    "type": "Bash",
+    "text": "for repo in /home/adamsl/letta-code /home/adamsl/rol_finances /home/adamsl/planner; do\n  echo \"=== $repo ===\"\n  git -C \"$repo\" branch --show-current\n  git -C \"$repo\" status -sb | head -1\n  git -C \"$re"
+  },
+  {
+    "date": "2026-06-24T21:35:02",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git add dashboard/js/dashboard-boot.js && git status -sb"
+  },
+  {
+    "date": "2026-06-24T21:35:26",
+    "type": "Bash",
+    "text": "git commit -m \"$(cat <<'EOF'\nDisable Start Scan while the Freezer scanner needs a power-cycle\n\nsetBusy() never touched startBtn.disabled, and runManualScan's finally\nblock unconditionally re-enabled i"
+  },
+  {
+    "date": "2026-06-24T21:36:01",
+    "type": "Bash",
+    "text": "git stash push -u -m \"concurrent-agent-wip-before-pull-$(date +%s)\" && git pull && echo \"--- pull done, restoring stash ---\" && git stash pop"
+  },
+  {
+    "date": "2026-06-24T21:36:16",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard && bun test js/tests 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-06-24T21:36:25",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git push && git log --oneline -5"
+  },
+  {
+    "date": "2026-06-24T21:36:32",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances && git add tools/receipt_scanning_tools/receipt_scanner/backend/models/receipt_models.py tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py re"
+  },
+  {
+    "date": "2026-06-24T21:36:41",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances && git commit -m \"$(cat <<'EOF'\nAdd merchant_city/merchant_state to receipt schema; add cheap doc-type\nclassifier and grounded item investigator\n\nReceiptPartyInfo only sto"
+  },
+  {
+    "date": "2026-06-24T21:36:51",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances && git pull --no-edit && git push"
+  },
+  {
+    "date": "2026-06-24T21:37:00",
+    "type": "Bash",
+    "text": "cd /home/adamsl/planner && git add nonprofit_finance_db/receipt_scanning_tools/receipt_scanner/backend/models/receipt_models.py nonprofit_finance_db/receipt_scanning_tools/receipt_scanner/backend/serv"
+  },
+  {
+    "date": "2026-06-24T21:37:07",
+    "type": "Bash",
+    "text": "cd /home/adamsl/planner && git diff --cached --stat"
+  },
+  {
+    "date": "2026-06-24T21:37:19",
+    "type": "Bash",
+    "text": "cd /home/adamsl/planner && git commit -m \"$(cat <<'EOF'\nnonprofit_finance_db/receipt_scanning_tools: add merchant_city/merchant_state to receipt schema\n\nMirrors the same fix in rol_finances/tools/rece"
+  },
+  {
+    "date": "2026-06-24T21:37:36",
+    "type": "Bash",
+    "text": "cd /home/adamsl/planner && git pull --no-edit 2>&1 | tail -20"
+  },
+  {
+    "date": "2026-06-24T21:37:47",
+    "type": "Bash",
+    "text": "cd /home/adamsl/planner && git push"
+  },
+  {
+    "date": "2026-06-24T22:15:07",
+    "type": "Bash",
+    "text": "find / -path /proc -prune -o -iname \"*deploy-mazda-tool-changes*\" -print 2>/dev/null | grep -v node_modules\necho \"---\"\ncurl -s http://100.80.49.10:8283/v1/agents/agent-6b536cf4-ec88-4290-b595-fed21d14"
+  },
+  {
+    "date": "2026-06-24T22:15:15",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/brv8btc8z.output"
   },
   {
-    "date": "2026-06-22T17:55:30",
-    "type": "Bash",
-    "text": "grep -n \"ROL_FINANCES_REPORT_DOCS\\|REPORT_DOCS\\|'overall'\\|\\\"overall\\\"\\|amex-61006\\|Amex 61006\\|amex_61006\" server.py"
-  },
-  {
-    "date": "2026-06-22T17:55:36",
+    "date": "2026-06-24T22:15:23",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/brv8btc8z.output"
   },
   {
-    "date": "2026-06-22T17:55:50",
+    "date": "2026-06-24T22:15:35",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/brv8btc8z.output"
   },
   {
-    "date": "2026-06-22T17:56:06",
+    "date": "2026-06-24T22:15:56",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/brv8btc8z.output"
+  },
+  {
+    "date": "2026-06-24T22:15:56",
+    "type": "Skill",
+    "text": "skill: letta-memory-blocks-vs-memfs"
+  },
+  {
+    "date": "2026-06-24T22:16:17",
     "type": "Bash",
-    "text": "grep -rn \"Overall Verification\\|overall verification\\|overall-verification\" --include=*.py --include=*.js --include=*.html /home/adamsl/letta-code/dashboard ~/rol_finances 2>/dev/null | grep -v node_m"
+    "text": "ls -la /home/adamsl/.letta/agents/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e/memory/ 2>/dev/null\necho \"--- system/ subfolder ---\"\nls -la /home/adamsl/.letta/agents/agent-6b536cf4-ec88-4290-b595-fed21d"
   },
   {
-    "date": "2026-06-22T17:56:27",
+    "date": "2026-06-24T22:16:28",
     "type": "Bash",
-    "text": "grep -n \"rol-finance-reports\\|rol-finance-plan\\|nav-rol-finance\" dashboard.html | head -60"
+    "text": "python3 -c \"\nimport re\nwith open('/home/adamsl/letta-code/notes_plans_handoffs/memory_system_plan.html') as f:\n    html = f.read()\ntext = re.sub(r'<[^>]+>', ' ', html)\ntext = re.sub(r'\\s+', ' ', text)"
   },
   {
-    "date": "2026-06-22T17:56:35",
+    "date": "2026-06-24T22:16:41",
+    "type": "Bash",
+    "text": "python3 -c \"\nimport re\nwith open('/home/adamsl/letta-code/notes_plans_handoffs/memory_system_plan.html') as f:\n    html = f.read()\ntext = re.sub(r'<[^>]+>', ' ', html)\ntext = re.sub(r'\\s+', ' ', text)"
+  },
+  {
+    "date": "2026-06-24T22:16:53",
+    "type": "Bash",
+    "text": "python3 -c \"\nimport re\nwith open('/home/adamsl/letta-code/notes_plans_handoffs/memory_system_plan.html') as f:\n    html = f.read()\ntext = re.sub(r'<style[^>]*>.*?</style>', ' ', html, flags=re.S)\ntext"
+  },
+  {
+    "date": "2026-06-24T22:17:10",
+    "type": "Bash",
+    "text": "sed -n '480,545p' /tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/scratchpad/memory_plan.txt"
+  },
+  {
+    "date": "2026-06-24T22:17:35",
+    "type": "Bash",
+    "text": "env | grep -i LETTA\necho \"---\"\nsed -n '300,345p' /tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/scratchpad/memory_plan.txt"
+  },
+  {
+    "date": "2026-06-24T22:17:53",
+    "type": "Bash",
+    "text": "cd /tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/scratchpad && git clone \"http://letta:${LETTA_API_KEY}@100.80.49.10:8283/v1/git/agent-6b536cf4-ec88-4290-b595-fed21d14b"
+  },
+  {
+    "date": "2026-06-24T22:18:19",
+    "type": "Bash",
+    "text": "curl -s -u \"letta:${LETTA_API_KEY}\" \"http://100.80.49.10:8283/v1/git/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e/state.git/info/refs?service=git-upload-pack\" -D - -o /dev/null\necho \"---\"\ncurl -s -u \"le"
+  },
+  {
+    "date": "2026-06-24T22:18:42",
+    "type": "Bash",
+    "text": "echo \"--- test Frita's state.git (known git-memory-enabled agent) ---\"\ncurl -s -u \"letta:${LETTA_API_KEY}\" \"http://100.80.49.10:8283/v1/git/agent-881a883f-edd0-4963-bf67-6ef178b8f018/state.git/info/re"
+  },
+  {
+    "date": "2026-06-24T22:19:22",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker ps --filter name=letta-memfs --format '{{.Names}}\\t{{.Status}}\\t{{.Ports}}'; echo '---logs---'; docker logs letta-memfs --tail 40 2>&1\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:21:42",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker ps --filter name=letta-server --format '{{.Names}}\\t{{.Status}}'; echo '---'; docker logs letta-server --since 5m 2>&1 | grep -i -A 20 'git\\|traceba"
+  },
+  {
+    "date": "2026-06-24T22:21:50",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/tasks/bu0zo7w95.output"
+  },
+  {
+    "date": "2026-06-24T22:22:02",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"ls ~/server_tools/pull_letta_server_logs.sh 2>/dev/null && echo EXISTS\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:24:56",
+    "type": "Bash",
+    "text": "SINCE_TS=$(($(date +%s) - 900))\ntimeout 30 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"timeout 15 ~/server_tools/pull_letta_server_logs.sh $SINCE_TS\" > /tmp/claude-1000/-home-adamsl-letta-code/e5a8a3"
+  },
+  {
+    "date": "2026-06-24T22:25:09",
+    "type": "Bash",
+    "text": "tail -5 /tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/scratchpad/letta_logs.txt\necho \"---\"\ngrep -c \"2026-06-24\" /tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4"
+  },
+  {
+    "date": "2026-06-24T22:25:38",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker logs --tail 300 letta-server 2>&1\" > /tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/scratchpad/letta_logs_"
+  },
+  {
+    "date": "2026-06-24T22:25:56",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"sudo ss -tlnp | grep 8283; echo '---containers---'; docker ps -a --format '{{.ID}}\\t{{.Names}}\\t{{.Status}}\\t{{.CreatedAt}}'\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:26:15",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server ps aux 2>&1 | head -30\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:26:27",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker top letta-server\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:26:55",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server sed -n '1,90p' /app/letta/services/block_manager_git.py\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:34:20",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"How do you want to handle Mazda's live in-context memory given the memfs git endpoint is broken server-wide?\",\"header\":\"Memfs outage\",\"options\":[{\"label\":\"Keep debugging the live server now\",\"description\":\"I continue tracing/patching the letta-server container's git-memory code until the real fix lands \u2014 same kind of live patch as past fixes (e.g. the 600s sandbox timeout, GIT_HTTP_RECEIVE_PACK patches), but touches code every agent's memfs depends on.\"},{\"label\":\"Temporary raw-block workaround for Mazda only (recommended)\",\"description\":\"POST a new block (the one write that still works per the known block-write bug) with the receipt-intake procedure, attach it to Mazda. This violates the documented \\\"file-commit only\\\" policy temporarily, but unblocks her training today; revisit/migrate to a proper memfs file once the git endpoint is fixed.\"},{\"label\":\"Defer live memory, write docs only for now\",\"description\":\"I update system_message.xml (the human-readable canonical doc, unaffected by this outage) now, and hold off on her actual in-context memory until the memfs git endpoint is fixed separately.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-24T22:35:04",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server sed -n '350,430p' /app/letta/services/block_manager_git.py\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:35:24",
+    "type": "Bash",
+    "text": "grep -n \"2026-06-05T19:48:0[2-5]\" /tmp/claude-1000/-home-adamsl-letta-code/e5a8a392-d220-4585-9633-c304d4e08e1c/scratchpad/letta_logs.txt | head -3\nsed -n '32690,32905p' /tmp/claude-1000/-home-adamsl-"
+  },
+  {
+    "date": "2026-06-24T22:35:46",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-postgres psql -U letta -d letta -c \\\"SELECT agent_id, tag, COUNT(*) FROM agents_tags WHERE tag='git-memory-enabled' GROUP BY a"
+  },
+  {
+    "date": "2026-06-24T22:36:04",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server env | grep -i 'PG\\|DATABASE\\|POSTGRES' 2>&1\""
+  },
+  {
+    "date": "2026-06-24T22:36:20",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server psql -U letta -d letta -c \\\"SELECT agent_id, tag, COUNT(*) FROM agents_tags WHERE tag='git-memory-enabled' GROUP BY age"
+  },
+  {
+    "date": "2026-06-24T22:37:12",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server psql -U letta -d letta -c \\\"SELECT * FROM agents_tags WHERE agent_id IN ('agent-6b536cf4-ec88-4290-b595-fed21d14bd8e','"
+  },
+  {
+    "date": "2026-06-24T22:37:35",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server grep -rln 'state.git\\|git-upload-pack\\|info/refs' /app/letta/server/ 2>/dev/null\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:37:52",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server cat /app/letta/server/rest_api/routers/v1/git_http.py\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:38:21",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server env | grep -i MEMFS\" 2>&1\necho \"---connectivity test from inside letta-server---\"\ntimeout 20 ssh -o ConnectTimeout=8 ad"
+  },
+  {
+    "date": "2026-06-24T22:38:44",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server python3 -c \\\"\nimport httpx\nr = httpx.get('http://memfs:8285/git/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e/state.git/in"
+  },
+  {
+    "date": "2026-06-24T22:39:13",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server cat /app/letta/server/rest_api/dependencies.py\" 2>&1 | head -80"
+  },
+  {
+    "date": "2026-06-24T22:39:42",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server grep -rn 'def get_actor_or_default_async' /app/letta/\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:40:08",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server sed -n '100,150p' /app/letta/services/user_manager.py\" 2>&1"
+  },
+  {
+    "date": "2026-06-24T22:40:29",
+    "type": "Bash",
+    "text": "grep -n \"user_id\\|extraHeader\\|Authorization\\|Basic\\|fetch\\|headers\" /home/adamsl/letta-code/src/agent/memoryGit.ts | head -40"
+  },
+  {
+    "date": "2026-06-24T22:41:46",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"docker exec letta-server python3 -c \\\"\nfrom letta.services.user_manager import UserManager\nprint('DEFAULT_USER_ID:', UserManager.DEFAULT_USER_ID"
+  },
+  {
+    "date": "2026-06-24T22:42:09",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_letta_server_docker_architecture.md"
+  },
+  {
+    "date": "2026-06-24T22:44:55",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"================ 1. docker-proxy for :8283 ================\"\nsudo ss -tlnp | grep -E ':8283|:18283' \necho\necho \"===="
+  },
+  {
+    "date": "2026-06-24T22:45:55",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"================ A. cgroup of live server PID 1611 ================\"\nsudo cat /proc/1611/cgroup 2>/dev/null\necho\nech"
+  },
+  {
+    "date": "2026-06-24T22:47:18",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"================ 1. GHOST (bcb52ddd) mounts \u2014 where is its PGDATA? ================\"\nsudo cat /proc/1611/mountinfo"
+  },
+  {
+    "date": "2026-06-24T22:49:31",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"================ 1. native dockerd socket(s) ================\"\nsudo ss -xlnp 2>/dev/null | grep -iE 'docker' | head"
+  },
+  {
+    "date": "2026-06-24T22:50:27",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"================ Native daemon: list its containers properly ================\"\nsudo docker -H unix:///run/docker.soc"
+  },
+  {
+    "date": "2026-06-24T22:51:47",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"================ 1. LIVE orphan agent count (via :8283 external) ================\"\ncurl -s -m 10 \"http://127.0.0.1:8"
+  },
+  {
+    "date": "2026-06-24T22:59:14",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"This is a production data migration on the live agent fleet. How do you want to proceed?\",\"header\":\"Ghost fix plan\",\"options\":[{\"label\":\"Backup now, then full plan\",\"description\":\"I immediately take a zero-downtime pg_dump of the orphan's live 2.6GB DB (+ memfs repos) to a safe location so a reboot can't lose it, THEN write you a detailed step-by-step cutover runbook to review before any destructive step. Safest start.\"},{\"label\":\"Backup + execute full cutover now\",\"description\":\"I back up first, then proceed through the whole migration + orphan kill + reboot-hardening in this session, accepting a short live-fleet outage during cutover. Faster but riskier; do only if now is an OK maintenance window.\"},{\"label\":\"Investigate/plan only, no changes\",\"description\":\"Don't even take a backup yet \u2014 just hand me the complete written diagnosis + runbook and I'll decide later.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-24T23:02:57",
+    "type": "Bash",
+    "text": "timeout 40 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\nmkdir -p /home/adamsl/ghost_migration\ncd /home/adamsl/ghost_migration\nSTAMP=$(date +%Y%m%d_%H%M%S)\necho \"STAMP=$STAMP\" > l"
+  },
+  {
+    "date": "2026-06-24T23:05:23",
+    "type": "Bash",
+    "text": "timeout 25 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'cd /home/adamsl/ghost_migration; DPID=$(cat dump.pid); STAMP=$(cut -d= -f2 last_stamp.txt); sudo kill -0 \"$DPID\" 2>/dev/null && echo \"RUNNING\" |"
+  },
+  {
+    "date": "2026-06-24T23:14:51",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\ncd /home/adamsl/ghost_migration\nDPID=$(cat dump.pid); STAMP=$(cut -d= -f2 last_stamp.txt)\nfor i in $(seq 1 170); do\n  sudo kill -0 \"$"
+  },
+  {
+    "date": "2026-06-24T23:16:00",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"================ 1. Desktop docker: volume 138ee72 mountpoint ================\"\ndocker volume inspect 138ee72024d60c"
+  },
+  {
+    "date": "2026-06-24T23:17:58",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"================ 1. What launches letta at boot? ================\"\necho \"--- systemd units mentioning letta/compose/"
+  },
+  {
+    "date": "2026-06-24T23:19:17",
+    "type": "Bash",
+    "text": "timeout 50 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== Is the managed letta-server (host PID 519) visible in THIS distro's PID ns? ===\"\nsudo stat -c '%i %n' /proc/519/"
+  },
+  {
+    "date": "2026-06-24T23:22:18",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"The root cause is two parallel Docker engines (native dockerd on /dev/sdd holding the live orphaned stack, + Docker Desktop running a stale duplicate). To fix it permanently we must consolidate onto one. Which should survive?\",\"header\":\"Target engine\",\"options\":[{\"label\":\"Keep native docker, drop Desktop\",\"description\":\"Re-adopt the live stack as proper native-docker containers (mount the orphan's existing /dev/sdd volume + ~/.letta/memfs, correct network, publish :8283), kill the orphan task, and stop Docker Desktop from running the duplicate Letta stack. No data move \u2014 live data stays where it is. Best if native docker is the 'real' intended host.\"},{\"label\":\"Keep Desktop, drop native\",\"description\":\"Restore the 1.2GB dump into the Desktop stack, route :8283 there, kill the orphan + native duplicate, disable native docker.service. Moves live data into the Desktop VM. Cleaner CLI story but a real data migration + bigger downtime.\"},{\"label\":\"Pause \u2014 I'll confirm the intended setup first\",\"description\":\"Backup is secured; stop here. You want to check how this box is supposed to be configured (or ask Frita/whoever set it up) before choosing which engine is authoritative, so we don't re-introduce the split.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-24T23:23:56",
+    "type": "Bash",
+    "text": "timeout 70 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"================ 1. The 3 NATIVE containerd tasks (moby ns) \u2014 identify each ================\"\nfor id in bcb52ddd2e"
+  },
+  {
+    "date": "2026-06-24T23:24:58",
+    "type": "Bash",
+    "text": "timeout 40 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== orphan env var NAMES (values hidden) \u2014 confirm encryption key + provider secrets present ===\"\nsudo cat /proc/1"
+  },
+  {
+    "date": "2026-06-24T23:25:52",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"Backup is secured and the plan is staged. How should we execute the consolidation onto native docker?\",\"header\":\"Execution\",\"options\":[{\"label\":\"Do Stage 1 now (re-adopt letta-server + fix memfs)\",\"description\":\"I re-adopt the live letta-server as a managed native container on the same volume, kill the orphan, and verify :8283 + memfs git all work. This alone fixes today's memfs blocker and de-orphans the server. Brief (~1-2 min) :8283 blip. Stages 2-4 follow after.\"},{\"label\":\"Write the full runbook first\",\"description\":\"I write the complete step-by-step runbook for all 4 stages (incl. exact commands, the Windows-side Desktop steps, and the reboot test) for you to review before I execute anything destructive.\"},{\"label\":\"I'll disable Desktop first, then you execute\",\"description\":\"You turn off Docker Desktop WSL integration + autostart on the Windows side now; then I do the native re-adoption with Desktop already out of the way (cleaner, fewer moving parts during cutover).\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-24T23:26:55",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== native dockerd (PID 663) launch flags + sockets ===\"\nsudo cat /proc/663/cmdline 2>/dev/null | tr '\\0' ' '; echo"
+  },
+  {
+    "date": "2026-06-24T23:29:14",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"Stage 1 is blocked until Docker Desktop stops hijacking the docker socket. How do you want to disable Desktop?\",\"header\":\"Disable Desktop\",\"options\":[{\"label\":\"You disable it in the GUI now\",\"description\":\"You open Docker Desktop on Windows \u2192 Settings \u2192 Resources \u2192 WSL Integration: uncheck Ubuntu-24.04; Settings \u2192 General: uncheck 'Start when you log in'; then Quit Docker Desktop. Tell me when done and I'll verify the CLI now reaches native dockerd and continue.\"},{\"label\":\"I try stopping it via Windows SSH\",\"description\":\"I attempt to stop the Docker Desktop process from WSL via a Windows-side command (e.g. ssh to the Windows host + taskkill/Stop-Process). Gets us unblocked now, but you'll still need the GUI setting later so it doesn't auto-restart on next login.\"},{\"label\":\"Pause here for now\",\"description\":\"Stop the operation at this point with the backup secured and the diagnosis complete; resume the Desktop-disable + cutover in a dedicated maintenance window later.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-06-24T23:30:24",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== native memfs (PID 1594 / 4e762cf6) IP ===\"\nMEMFS_IP=$(sudo nsenter -t 1594 -n -- hostname -I 2>/dev/null | awk '"
+  },
+  {
+    "date": "2026-06-24T23:30:58",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== native memfs (PID 1594) IP via host ip binary in its net ns ===\"\nsudo nsenter -t 1594 -n -- ip -o -4 addr show 2"
+  },
+  {
+    "date": "2026-06-25T01:15:22",
+    "type": "Bash",
+    "text": "timeout 30 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'cd /home/adamsl/ghost_migration && ls -la logger_mysql_all_*.sql 2>&1 | tail -2; echo \"--- err ---\"; cat logger_dump_err.log 2>/dev/null | head "
+  },
+  {
+    "date": "2026-06-25T01:15:49",
+    "type": "Bash",
+    "text": "timeout 40 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== 1. LIVE FLEET still up? (:8283 native + Mazda) ===\"\ncurl -s -m 8 http://127.0.0.1:8283/v1/health/ 2>&1; echo \" <"
+  },
+  {
+    "date": "2026-06-25T01:16:24",
+    "type": "Bash",
+    "text": "timeout 40 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== any dockerd / docker-desktop processes alive? ===\"\npgrep -fa 'dockerd' 2>&1 | head\necho \"--- desktop ---\"; pgrep"
+  },
+  {
+    "date": "2026-06-25T01:17:48",
+    "type": "Bash",
+    "text": "timeout 50 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== before: fleet health ===\"\ncurl -s -m 6 http://127.0.0.1:8283/v1/health/ 2>&1; echo\necho\necho \"=== restart docker"
+  },
+  {
+    "date": "2026-06-25T01:18:45",
+    "type": "Bash",
+    "text": "timeout 50 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== orphan bcb52ddd still running alongside? ===\"\nsudo ctr -n moby task ls 2>/dev/null | grep -E 'bcb52ddd|f350|RUNN"
+  },
+  {
+    "date": "2026-06-25T01:20:22",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== wait for letta-server healthy (up to ~3min) ===\"\nfor i in $(seq 1 60); do\n  st=$(docker inspect letta-server --format '{{.S"
+  },
+  {
+    "date": "2026-06-25T01:20:54",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\nKEY=6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8\necho \"=== 2. MEMFS GIT (the original blocker) \u2014 should be 200 now ===\"\ncurl -s -m 10 -u \"letta:"
+  },
+  {
+    "date": "2026-06-25T01:21:18",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== networks: letta-server vs letta-memfs ===\"\necho \"letta-server nets:\"; docker inspect letta-server --format '{{range $n,$v :"
+  },
+  {
+    "date": "2026-06-25T01:22:00",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== connect letta-memfs to the stack network with both aliases ===\"\ndocker network connect --alias memfs --alias letta-memfs le"
+  },
+  {
+    "date": "2026-06-25T01:22:29",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\nKEY=6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8\necho \"=== REAL git clone of Mazda memfs (end-to-end) ===\"\nrm -rf /tmp/mazda_clone_test\ngit clone "
+  },
+  {
+    "date": "2026-06-25T01:23:01",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_logger_api_ops.md"
+  },
+  {
+    "date": "2026-06-25T01:23:26",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== reinject Apache vhost (AllowOverride All) ===\"\ndocker exec logger-api-php bash -c \"cat > /etc/apache2/sites-available/000-d"
+  },
+  {
+    "date": "2026-06-25T01:24:14",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== FINAL STATUS: single-engine native stack ===\"\ndocker info --format 'engine={{.Name}} containers={{.Containers}}' 2>&1 | hea"
+  },
+  {
+    "date": "2026-06-25T01:25:08",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/ghost_container_root_cause_docker_desktop_2026_06_24.md\n\u2192 --- name: ghost-container-root-cause-docker-desktop-2026-06-24 description: \"The recurring Letta 'ghost container' / docker-proxy-mismatch on 100.80.49.10 was Docker Desktop running a parallel engine "
+  },
+  {
+    "date": "2026-06-25T01:25:12",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-25T01:25:19",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-06-25T01:36:47",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== (a) flip logger-api containers to auto-start ===\"\ndocker update --restart unless-stopped logger-api-php logger-api-mysql 2>"
+  },
+  {
+    "date": "2026-06-25T01:37:17",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== path->block-label mapping function ===\"\ndocker exec letta-server cat /app/letta/services/memory_repo/path_mapping.py 2>&1 |"
+  },
+  {
+    "date": "2026-06-25T01:38:13",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'SSHEOF' 2>&1\ncd /tmp/mazda_mem || exit 1\nmkdir -p system\ncat > system/receipt_intake_procedure.md <<'MD'\n# Receipt / Document Intake Procedure"
+  },
+  {
+    "date": "2026-06-25T01:38:37",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\necho \"=== locate Mazda bare repo in memfs container ===\"\ndocker exec letta-memfs sh -c 'ls -d /repos/agent-6b536cf4* 2>/dev/null; ls "
+  },
+  {
+    "date": "2026-06-25T01:38:53",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\ncd /tmp/mazda_mem\necho \"=== retry push ===\"\ngit push origin HEAD:main 2>&1 | tail -8\necho\necho \"=== verify server received it: latest"
+  },
+  {
+    "date": "2026-06-25T01:39:12",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\nKEY=6c9f1e4b5a2d8f7c0b3e9a4d7f2c1e8\necho \"=== Mazda attached blocks now (labels) ===\"\ncurl -s -m 10 -H \"user_id: user-00000000-0000-4"
+  },
+  {
+    "date": "2026-06-25T01:42:22",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\npython3 - <<'PY'\nimport json, urllib.request\nbase='http://127.0.0.1:8283'\naid='agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'\nhdr={'Cont"
+  },
+  {
+    "date": "2026-06-25T01:42:45",
+    "type": "Bash",
+    "text": "ssh -o ConnectTimeout=8 adamsl@100.80.49.10 'bash -s' <<'EOF' 2>&1\nH='user_id: user-00000000-0000-4000-8000-000000000000'\necho \"=== does Mazda's compiled context include the procedure? ===\"\ncurl -s -m"
+  },
+  {
+    "date": "2026-06-25T01:55:50",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard\necho \"=== nav-plans block in dashboard.html ===\"\ngrep -n \"nav-plans\\|data-target=\\\"plans\\|Mazda Dev Status\\|Self Evolving\\|Audio Input\\|mazda_dev_status\\|agent_sel"
+  },
+  {
+    "date": "2026-06-25T01:55:56",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
   },
   {
-    "date": "2026-06-22T17:56:51",
-    "type": "Bash",
-    "text": "find ~/rol_finances -iname \"*verification*report*\" -o -iname \"*overall*\" 2>/dev/null | grep -v node_modules | head -50"
-  },
-  {
-    "date": "2026-06-22T17:57:51",
-    "type": "Bash",
-    "text": "curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8765/ ; systemctl --user is-active dashboard-server"
-  },
-  {
-    "date": "2026-06-22T17:57:59",
-    "type": "ToolSearch",
-    "text": "query: select:mcp__playwright__browser_navigate,mcp__playwright__browser_click,mcp__playwright__browser_snapshot,mcp__playwright__browser_console_messages"
-  },
-  {
-    "date": "2026-06-22T17:58:07",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-22T17:58:11",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T17:58:16",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: dialog close/dismiss (try pressing outside or escape)"
-  },
-  {
-    "date": "2026-06-22T17:58:20",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T17:58:25",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: ROL Finance nav button"
-  },
-  {
-    "date": "2026-06-22T17:58:28",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T17:58:34",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Reports tab"
-  },
-  {
-    "date": "2026-06-22T17:58:39",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T17:58:46",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: January 2025 month tab"
-  },
-  {
-    "date": "2026-06-22T17:58:50",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T17:58:59",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/rol_finances_reports/jan-2025/amex_personal_january_25/report.html\" | grep -n \"<h1\\|<h2\\|class=\\\"notice\\|id=\\\"verified-transactions\\|<title\" | head -40"
-  },
-  {
-    "date": "2026-06-22T18:09:37",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/rol_finances_reports/jan-2025/amex_personal_january_25/report.html\" | sed -n '80,100p'"
-  },
-  {
-    "date": "2026-06-22T18:09:47",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/readable_documents/bank_statements/january\nfor d in */; do\n  f=\"$d/report.html\"\n  if [ -f \"$f\" ]; then\n    badge=$(grep -o 'badge badge-[a-z]*\"[^<]*<[^>]*>[A-Z]*[^<]*' \"$f\" | head -1"
-  },
-  {
-    "date": "2026-06-22T18:09:55",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/readable_documents/bank_statements\nfor month in january february; do\n  echo \"##### $month #####\"\n  for d in \"$month\"/*/; do\n    f=\"${d}report.html\"\n    if [ -f \"$f\" ]; then\n      ech"
-  },
-  {
-    "date": "2026-06-22T18:10:04",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/readable_documents/bank_statements\ngrep -rliE \"badge[^>]*>.*FAIL\" january february 2>/dev/null\necho \"---\"\ngrep -rliE \"FAIL\" january/*/report.html february/*/report.html 2>/dev/null"
-  },
-  {
-    "date": "2026-06-22T18:10:11",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/readable_documents/bank_statements\ngrep -o 'class=\"badge[a-z -]*\"' january/*/report.html february/*/report.html | sort -u\necho \"---css---\"\ngrep -o '\\.badge[a-z-]*\\s*{[^}]*}' january/"
-  },
-  {
-    "date": "2026-06-22T18:10:32",
-    "type": "Bash",
-    "text": "find js/tests -iname \"*rol-finance*\"; echo ---; grep -n \"rol-finance-reports\\|rol_finance_reports\\|ROL_FINANCE_REPORTS\" tests/test_server.py | head -30"
-  },
-  {
-    "date": "2026-06-22T18:10:38",
+    "date": "2026-06-25T01:55:57",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/rol-finance-reports-controller.test.js"
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
   },
   {
-    "date": "2026-06-22T18:11:10",
+    "date": "2026-06-25T01:56:09",
     "type": "Bash",
-    "text": "grep -n \"report-missing\\|rol-finance-report\\|plan-frame\\|month-tab\" css/dashboard.css | head -30"
+    "text": "cd /home/adamsl/letta-code/dashboard\necho \"=== how plans tabs are wired in dashboard-boot.js ===\"\ngrep -n 'data-nav=\"plans\"\\|nav-plans\\|plans-self-evolving\\|navPlans\\|\"plans\"' js/dashboard-boot.js | h"
   },
   {
-    "date": "2026-06-22T18:11:15",
+    "date": "2026-06-25T01:56:13",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
+    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
   },
   {
-    "date": "2026-06-22T18:11:25",
-    "type": "Bash",
-    "text": "grep -n \"^import re\\|^import\\|^from\" server.py | head -20"
-  },
-  {
-    "date": "2026-06-22T18:11:43",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/abstract/text-utils.js"
-  },
-  {
-    "date": "2026-06-22T18:11:50",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T18:11:56",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T18:12:05",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T18:12:16",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T18:12:23",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport server\nprint(server._classify_report_status('/home/adamsl/rol_finances/readable_documents/bank_statements/january/amex_personal_january_25/report.html'))\nprint(server._classify_rep"
-  },
-  {
-    "date": "2026-06-22T18:12:34",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/rol-finance-reports-controller.js"
-  },
-  {
-    "date": "2026-06-22T18:12:47",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/rol-finance-reports-controller.js"
-  },
-  {
-    "date": "2026-06-22T18:12:52",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/rol-finance-reports-controller.js"
-  },
-  {
-    "date": "2026-06-22T18:12:58",
-    "type": "Bash",
-    "text": "cat js/tests/_fake-dom.js"
-  },
-  {
-    "date": "2026-06-22T18:13:18",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/rol-finance-reports-controller.test.js"
-  },
-  {
-    "date": "2026-06-22T18:13:43",
+    "date": "2026-06-25T01:57:26",
     "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/rol-finance-reports-controller.test.js\n\u2192 import { describe, expect, test } from \"bun:test\"; import { RolFinanceReportsController } from \"../implementation/rol-finance-reports-controller.js\"; import { FakeDocument } from \"./_fake-dom.js\";  fu"
+    "text": "/home/adamsl/letta-code/notes_plans_handoffs/mazdas_training_process.html\n\u2192 <!DOCTYPE html> <html lang=\"en\"> <head> <meta charset=\"UTF-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"> <title>Mazda's Training Process</title> <style>   :root{     --pap"
   },
   {
-    "date": "2026-06-22T18:13:56",
-    "type": "Bash",
-    "text": "bun test js/tests/rol-finance-reports-controller.test.js 2>&1 | tail -60"
-  },
-  {
-    "date": "2026-06-22T18:14:04",
-    "type": "Bash",
-    "text": "bun test js/tests 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-06-22T18:14:14",
+    "date": "2026-06-25T01:57:33",
     "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
   },
   {
-    "date": "2026-06-22T18:14:22",
+    "date": "2026-06-25T01:57:40",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
+  },
+  {
+    "date": "2026-06-25T01:57:51",
     "type": "Bash",
-    "text": "grep -n \"^def test_\\|^class \\|rol.finance\\|rol_finance\" tests/test_server.py | grep -i rol"
+    "text": "echo \"=== doc serves? ===\"\ncurl -s -o /dev/null -w 'mazdas_training_process.html: HTTP %{http_code}\\n' http://localhost:8765/notes_plans_handoffs/mazdas_training_process.html\necho \"=== dashboard.html "
   },
   {
-    "date": "2026-06-22T18:14:28",
-    "type": "Bash",
-    "text": "sed -n '1,40p' tests/test_server.py"
-  },
-  {
-    "date": "2026-06-22T18:14:34",
-    "type": "Bash",
-    "text": "grep -n \"^import pytest\\|tmp_path\\|def test_.*tmp\" tests/test_server.py | head -10; echo ---; wc -l tests/test_server.py; tail -40 tests/test_server.py"
-  },
-  {
-    "date": "2026-06-22T18:14:47",
-    "type": "Bash",
-    "text": "cat >> tests/test_server.py << 'EOF'\n\n\ndef _write_badge(tmp_path, badge_text):\n    p = tmp_path / 'report.html'\n    p.write_text(f'<section class=\"hero\"><div class=\"badge badge-pass\">{badge_text}</div"
-  },
-  {
-    "date": "2026-06-22T18:14:54",
-    "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/test_server.py -k classify_report_status -v 2>&1 | tail -30"
-  },
-  {
-    "date": "2026-06-22T18:14:59",
-    "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/ 2>&1 | tail -15"
-  },
-  {
-    "date": "2026-06-22T18:15:09",
-    "type": "Bash",
-    "text": "bunx --bun @biomejs/biome@2.2.5 check --write js/implementation/rol-finance-reports-controller.js js/tests/rol-finance-reports-controller.test.js 2>&1 | tail -30"
-  },
-  {
-    "date": "2026-06-22T18:15:17",
-    "type": "Bash",
-    "text": "bun test js/tests 2>&1 | tail -10 && git diff --stat js/implementation/rol-finance-reports-controller.js"
-  },
-  {
-    "date": "2026-06-22T18:15:23",
-    "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 1 && curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-22T18:15:30",
+    "date": "2026-06-25T01:57:56",
     "type": "mcp__playwright__browser_navigate",
     "text": "url: http://localhost:8765/"
   },
   {
-    "date": "2026-06-22T18:15:36",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: body to dismiss startup dialog"
-  },
-  {
-    "date": "2026-06-22T18:15:41",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: ROL Finance nav button"
-  },
-  {
-    "date": "2026-06-22T18:15:46",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Reports tab"
-  },
-  {
-    "date": "2026-06-22T18:15:52",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: January 2025 month tab"
-  },
-  {
-    "date": "2026-06-22T18:15:57",
+    "date": "2026-06-25T01:58:04",
     "type": "mcp__playwright__browser_snapshot",
     "text": "null: null"
   },
   {
-    "date": "2026-06-22T18:16:04",
-    "type": "ToolSearch",
-    "text": "query: select:mcp__playwright__browser_take_screenshot"
+    "date": "2026-06-25T01:58:10",
+    "type": "mcp__playwright__browser_click",
+    "text": "element: Project Plans nav button"
   },
   {
-    "date": "2026-06-22T18:16:08",
+    "date": "2026-06-25T01:58:16",
+    "type": "mcp__playwright__browser_click",
+    "text": "element: Mazda Training tab"
+  },
+  {
+    "date": "2026-06-25T01:58:22",
     "type": "mcp__playwright__browser_take_screenshot",
-    "text": "type: png"
+    "text": "filename: mazda-training-tab.png"
   },
   {
-    "date": "2026-06-22T18:16:15",
+    "date": "2026-06-25T01:58:33",
+    "type": "Bash",
+    "text": "find /home/adamsl/letta-code -name 'mazda-training-tab.png' 2>/dev/null; find /home/adamsl -maxdepth 3 -name 'mazda-training-tab.png' 2>/dev/null | head"
+  },
+  {
+    "date": "2026-06-25T01:58:37",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/rol-finance-jan-2025-overview.png"
+    "text": "/home/adamsl/letta-code/mazda-training-tab.png"
   },
   {
-    "date": "2026-06-22T18:16:31",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Bank 6285 PDF 2 row (In progress)"
-  },
-  {
-    "date": "2026-06-22T18:16:38",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T18:16:45",
-    "type": "mcp__playwright__browser_console_messages",
-    "text": "level: error"
-  },
-  {
-    "date": "2026-06-22T18:17:05",
+    "date": "2026-06-25T01:58:49",
     "type": "Bash",
-    "text": "grep -n \"function safeActivateView\\|function activateView\\b\" -A 25 js/dashboard-boot.js | head -60"
-  },
-  {
-    "date": "2026-06-22T18:17:13",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Bank 6285 PDF 2 tab in nav"
-  },
-  {
-    "date": "2026-06-22T18:17:18",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T18:17:27",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/js/implementation/rol-finance-reports-controller.js | sed -n '150,200p'"
-  },
-  {
-    "date": "2026-06-22T18:17:40",
-    "type": "ToolSearch",
-    "text": "query: select:mcp__playwright__browser_evaluate"
-  },
-  {
-    "date": "2026-06-22T18:17:46",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: January 2025 month tab"
-  },
-  {
-    "date": "2026-06-22T18:17:53",
-    "type": "mcp__playwright__browser_evaluate",
-    "text": "function: () => {\n  const tr = document.querySelector('#rol-finance-reports-overview tr[data-report-key=\"bank-6285-pdf2\"]');\n  return tr ? { found: true, key: tr.dataset.reportKey, html: tr.outerHTML } : { found: false };\n}"
-  },
-  {
-    "date": "2026-06-22T18:18:02",
-    "type": "mcp__playwright__browser_evaluate",
-    "text": "function: () => {\n  const tr = document.querySelector('#rol-finance-reports-overview tr[data-report-key=\"bank-6285-pdf2\"]');\n  tr.click();\n  const overview = document.getElementById('rol-finance-reports-overview');\n  const target = document.getElementById('rol-finance-report-bank-6285-pdf2');\n  return {\n    overviewActive: overview.classList.contains('active'),\n    targetExists: !!target,\n    targetActive: target ? target.classList.contains('active') : null,\n  };\n}"
-  },
-  {
-    "date": "2026-06-22T18:18:28",
-    "type": "mcp__playwright__browser_console_messages",
-    "text": "level: error"
-  },
-  {
-    "date": "2026-06-22T18:18:38",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/rol_finances_reports/jan-2025/non_profit_rol_Statement_december_january_6285/report.html\" | grep -n '<script' "
-  },
-  {
-    "date": "2026-06-22T18:18:56",
-    "type": "Bash",
-    "text": "rm -f rol-finance-jan-2025-overview.png && rm -rf .playwright-mcp && git status --porcelain"
-  },
-  {
-    "date": "2026-06-22T18:19:02",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && git checkout -- dashboard/.playwright-mcp/page-2026-06-08T15-30-13-594Z.png && git status --porcelain dashboard/.playwright-mcp/"
-  },
-  {
-    "date": "2026-06-22T18:19:11",
-    "type": "Bash",
-    "text": "git status --porcelain && echo --- && git diff --stat"
-  },
-  {
-    "date": "2026-06-22T18:19:29",
-    "type": "Bash",
-    "text": "pwd && bun test js/tests 2>&1 | tail -8 && .venv/bin/python -m pytest tests/ 2>&1 | tail -8"
-  },
-  {
-    "date": "2026-06-22T19:26:26",
-    "type": "Write",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_rol_finance_reports_month_overview_2026_06_22.md\n\u2192 --- name: dashboard-rol-finance-reports-month-overview description: \"ROL Finance > Reports > <Month> now lands on a color-coded document-status overview instead of auto-opening the first document's re"
-  },
-  {
-    "date": "2026-06-22T19:26:46",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-06-22T19:26:53",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-06-22T19:31:31",
-    "type": "Bash",
-    "text": "cat /home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_model_stats_2026_06_22.md 2>/dev/null"
-  },
-  {
-    "date": "2026-06-22T19:31:32",
-    "type": "Bash",
-    "text": "grep -n \"MODEL_STAT_SOURCES\\|model_stats\\|claude.*usage\\|api.anthropic.com\" server.py | head -80"
-  },
-  {
-    "date": "2026-06-22T19:31:37",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/api/model-stats?source=w11-claude\" | python3 -m json.tool"
-  },
-  {
-    "date": "2026-06-22T19:31:44",
-    "type": "Bash",
-    "text": "grep -rn \"ms-bar\\|renderModelStats\\|model-stats\\|class MS\\|nav-model-stats\" /home/adamsl/letta-code/dashboard/js/ | grep -v test | head -60"
-  },
-  {
-    "date": "2026-06-22T19:31:49",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T19:32:05",
-    "type": "Bash",
-    "text": "grep -n \"ms-card\\|ms-window\\|ms-bar\\|server-concern\\|server-up\\|server-down\\|setInterval.*MS\\|MS\\.pollColors\\|MS\\.open\" -r /home/adamsl/letta-code/dashboard/css/dashboard.css /home/adamsl/letta-code/d"
-  },
-  {
-    "date": "2026-06-22T19:32:28",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T19:32:47",
-    "type": "Bash",
-    "text": "grep -n \"setInterval\\|setTimeout\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -40\necho ---\ncurl -s \"http://localhost:8765/api/model-stats?source=w11-claude\" | python3 -m json.tool\nec"
-  },
-  {
-    "date": "2026-06-22T19:33:08",
-    "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"Backend confirms it's healthy now (status \\\"up\\\", 5h 61%, weekly 16%) \u2014 the stale yellow tab just hasn't re-polled since you opened it. Want me to also add periodic auto-refresh to the Model Stats tab so this doesn't require a manual re-click in the future?\",\"header\":\"Auto-refresh fix\",\"options\":[{\"label\":\"Yes, add auto-refresh\",\"description\":\"Add a setInterval (like the Server Health tabs use) so Model Stats tabs/colors refresh periodically instead of only on click.\"},{\"label\":\"No, just confirm and move on\",\"description\":\"This was a one-off stale view; re-clicking the tab is enough, no code change needed.\"}],\"multiSelect\":false}]"
-  },
-  {
-    "date": "2026-06-22T19:33:13",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T19:33:19",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T19:33:28",
-    "type": "Bash",
-    "text": "grep -n \"stopPoll\\|healthPollTimer\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T19:33:33",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T19:33:37",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T19:33:44",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T19:33:51",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-22T19:33:57",
-    "type": "Bash",
-    "text": "bunx --bun @biomejs/biome@2.2.5 check js/dashboard-boot.js 2>&1 | tail -30"
-  },
-  {
-    "date": "2026-06-22T19:34:02",
-    "type": "Bash",
-    "text": "bun test js/tests 2>&1 | tail -25"
-  },
-  {
-    "date": "2026-06-22T19:34:05",
-    "type": "ToolSearch",
-    "text": "query: playwright browser navigate snapshot evaluate"
-  },
-  {
-    "date": "2026-06-22T19:34:17",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-22T19:34:20",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T19:34:25",
-    "type": "mcp__playwright__browser_evaluate",
-    "text": "function: () => { const dlg = document.querySelector('dialog'); if (dlg && dlg.close) dlg.close(); document.querySelectorAll('dialog').forEach(d => d.remove()); return 'closed'; }"
-  },
-  {
-    "date": "2026-06-22T19:34:30",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T19:34:40",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Model Stats nav button"
-  },
-  {
-    "date": "2026-06-22T19:34:44",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T19:34:52",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: W11 Claude OAuth tab"
-  },
-  {
-    "date": "2026-06-22T19:34:56",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T19:35:07",
-    "type": "mcp__playwright__browser_evaluate",
-    "text": "function: () => {\n  const dot = document.querySelector('#model-stats-body h3 span');\n  const tab = document.querySelector('[data-nav=\"model-stats\"][data-source=\"w11-claude\"]');\n  return {\n    dotColor: dot ? dot.style.color : null,\n    tabClasses: tab ? tab.className : null,\n  };\n}"
-  },
-  {
-    "date": "2026-06-22T19:35:13",
-    "type": "mcp__playwright__browser_evaluate",
-    "text": "function: () => window.MS ? 'MS exposed globally' : 'MS not global (module-scoped, expected)'"
-  },
-  {
-    "date": "2026-06-22T19:35:19",
-    "type": "mcp__playwright__browser_close",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T21:56:43",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/server-health 2>&1 | python3 -m json.tool 2>&1 | head -150"
-  },
-  {
-    "date": "2026-06-22T21:56:50",
-    "type": "Bash",
-    "text": "systemctl --user is-active dashboard-server lettabot thought-bridge thought-bridge-monitor dashboard-browser 2>&1; echo \"---git status---\"; cd /home/adamsl/letta-code && git status 2>&1 | head -30; ec"
-  },
-  {
-    "date": "2026-06-22T21:56:59",
-    "type": "ToolSearch",
-    "text": "query: playwright browser navigate snapshot console"
-  },
-  {
-    "date": "2026-06-22T21:57:05",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-22T21:57:08",
-    "type": "mcp__playwright__browser_console_messages",
-    "text": "level: error"
-  },
-  {
-    "date": "2026-06-22T21:57:13",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/.playwright-mcp/page-2026-06-22T21-57-05-149Z.yml"
-  },
-  {
-    "date": "2026-06-22T21:57:19",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T21:57:35",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T21:57:44",
-    "type": "mcp__playwright__browser_console_messages",
-    "text": "level: error"
-  },
-  {
-    "date": "2026-06-22T21:57:51",
-    "type": "mcp__playwright__browser_run_code_unsafe",
-    "text": "code: async (page) => {\n  const html = await page.evaluate(() => document.querySelector('main')?.outerHTML?.slice(0, 500));\n  const bodyClasses = await page.evaluate(() => document.body.className);\n  return { html, bodyClasses };\n}"
-  },
-  {
-    "date": "2026-06-22T21:58:12",
-    "type": "mcp__playwright__browser_run_code_unsafe",
-    "text": "code: async (page) => {\n  await page.locator('nav button', { hasText: 'SSH Connections' }).click();\n  await page.waitForTimeout(2000);\n  const text = await page.evaluate(() => document.querySelector('#ssh-connections')?.innerText?.slice(0, 2000));\n  return text;\n}"
-  },
-  {
-    "date": "2026-06-22T21:58:16",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/ssh-connection-health 2>&1 | python3 -m json.tool"
-  },
-  {
-    "date": "2026-06-22T21:58:40",
-    "type": "Bash",
-    "text": "timeout 15 ssh -o ConnectTimeout=10 -o BatchMode=yes adamsl@100.80.49.10 \"echo ok\" 2>&1; echo \"exit=$?\""
-  },
-  {
-    "date": "2026-06-22T21:59:16",
-    "type": "Bash",
-    "text": "timeout 30 ssh -v -o ConnectTimeout=20 -o BatchMode=yes adamsl@100.80.49.10 \"echo ok\" 2>&1 | tail -40; echo \"exit=$?\""
-  },
-  {
-    "date": "2026-06-22T21:59:25",
-    "type": "Bash",
-    "text": "grep -n \"win10-wsl-letta\\|SSH_CONNECTIONS\" server.py | head -20"
-  },
-  {
-    "date": "2026-06-22T21:59:30",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T21:59:38",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_tailscale_derp_relay_100_80_49_10.md"
-  },
-  {
-    "date": "2026-06-22T21:59:45",
-    "type": "Bash",
-    "text": "grep -n \"def connection_test\\|def tailscale_test\\|SSH_CONNECT_TIMEOUT\" server.py"
-  },
-  {
-    "date": "2026-06-22T21:59:50",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:00:57",
-    "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"How do you want to fix the false-positive 'down' status on the Win10 WSL SSH connection?\",\"header\":\"SSH fix\",\"options\":[{\"label\":\"Bump timeout only\",\"description\":\"Raise SSH_CONNECT_TIMEOUT from 6s to ~12s for this connection (or globally). Simple, matches the documented '>=10s' rule, but a single slow probe can still flip the LED red intermittently.\"},{\"label\":\"Bump timeout + add fail-threshold debounce (Recommended)\",\"description\":\"Raise the timeout AND require 2 consecutive failures before marking down (mirrors the existing HEALTH_FAIL_THRESHOLD fix already used for the HTTP server-health checks). Fixes both the timeout and the flapping.\"},{\"label\":\"Just tell me, don't fix it\",\"description\":\"You only wanted a diagnosis. I'll leave server.py untouched.\"}],\"multiSelect\":false}]"
-  },
-  {
-    "date": "2026-06-22T22:01:02",
-    "type": "Bash",
-    "text": "grep -n \"HEALTH_FAIL_THRESHOLD\\|HEALTH_CHECK_TIMEOUT\\|_health_fail_count\\|fail_count\" server.py | head -40"
-  },
-  {
-    "date": "2026-06-22T22:01:06",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:01:12",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:01:18",
-    "type": "Bash",
-    "text": "grep -n \"_ssh_health_cache\\|cached_ssh_health\\b\" server.py"
-  },
-  {
-    "date": "2026-06-22T22:01:22",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:01:43",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:01:47",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:01:59",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:02:03",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:02:07",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:02:15",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:02:20",
-    "type": "Bash",
-    "text": "grep -n \"_ssh_health_cache\\|SSH_HEALTH_POLL_INTERVAL\\|SSH_CONNECT_TIMEOUT\" server.py"
-  },
-  {
-    "date": "2026-06-22T22:02:25",
-    "type": "Bash",
-    "text": "grep -n \"ssh_health\\|SSH_CONNECT\\|_ssh_health_cache\\|cached_ssh_health\\|_poll_all_ssh_once\" tests/test_server.py | head -40"
-  },
-  {
-    "date": "2026-06-22T22:02:31",
-    "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -30"
-  },
-  {
-    "date": "2026-06-22T22:02:35",
-    "type": "Bash",
-    "text": "grep -n \"^import\\|^from\\|^def test_server_health\\|HEALTH_FAIL_THRESHOLD\" tests/test_server.py | head -20"
-  },
-  {
-    "date": "2026-06-22T22:02:41",
-    "type": "Bash",
-    "text": "grep -n \"def test.*ssh\\|class.*Ssh\\|class.*SSH\" tests/test_server.py"
-  },
-  {
-    "date": "2026-06-22T22:02:48",
-    "type": "Bash",
-    "text": "grep -n \"_poll_all_health_once\\|fail_threshold\\|FAIL_THRESHOLD\\|_health_cache\" tests/test_server.py"
-  },
-  {
-    "date": "2026-06-22T22:02:56",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-06-22T22:03:03",
-    "type": "Bash",
-    "text": "tail -50 tests/test_server.py"
-  },
-  {
-    "date": "2026-06-22T22:03:17",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-06-22T22:03:25",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-06-22T22:03:30",
-    "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/test_server.py -q 2>&1 | tail -30"
-  },
-  {
-    "date": "2026-06-22T22:03:37",
-    "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -10"
-  },
-  {
-    "date": "2026-06-22T22:03:47",
-    "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 1 && systemctl --user is-active dashboard-server.service && curl -s http://localhost:8765/api/server-health >/dev/null && echo \"dashboard up\""
-  },
-  {
-    "date": "2026-06-22T22:03:53",
-    "type": "Bash",
-    "text": "curl -s http://127.0.0.1:8787/health 2>&1; echo; curl -s http://localhost:8765/api/server-health | python3 -c \"import json,sys; d=json.load(sys.stdin); print([s for s in d['servers'] if s['key']=='exe"
-  },
-  {
-    "date": "2026-06-22T22:04:03",
-    "type": "Bash",
-    "text": "sleep 3; curl -s http://localhost:8765/api/ssh-connection-health | python3 -m json.tool"
-  },
-  {
-    "date": "2026-06-22T22:04:08",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-22T22:04:13",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/.playwright-mcp/page-2026-06-22T22-04-08-927Z.yml"
-  },
-  {
-    "date": "2026-06-22T22:04:19",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/ssh-connection-health | python3 -m json.tool"
-  },
-  {
-    "date": "2026-06-22T22:04:46",
-    "type": "Bash",
-    "text": "time .venv/bin/python -c \"\nimport server\ncfg = server.get_ssh_connection('win10-wsl-letta')\nprint(server.ssh_test(cfg, timeout=12))\n\""
-  },
-  {
-    "date": "2026-06-22T22:05:16",
-    "type": "Bash",
-    "text": "time .venv/bin/python -c \"\nimport server\ncfg = server.get_ssh_connection('win10-wsl-letta')\nprint(server.ssh_test(cfg, timeout=20))\n\""
-  },
-  {
-    "date": "2026-06-22T22:05:48",
-    "type": "Bash",
-    "text": "time timeout 35 ssh -o ConnectTimeout=30 -o BatchMode=yes adamsl@100.80.49.10 \"echo CONNECTED && hostname\" 2>&1; echo \"exit=$?\""
-  },
-  {
-    "date": "2026-06-22T22:06:31",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:06:40",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:06:48",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:06:52",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:07:02",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:07:07",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:07:13",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-22T22:07:18",
-    "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-06-22T22:07:25",
-    "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 1 && systemctl --user is-active dashboard-server.service"
-  },
-  {
-    "date": "2026-06-22T22:07:30",
-    "type": "Bash",
-    "text": "curl -s http://127.0.0.1:8787/health 2>&1; echo"
-  },
-  {
-    "date": "2026-06-22T22:07:45",
-    "type": "ScheduleWakeup",
-    "text": "delaySeconds: 60"
-  },
-  {
-    "date": "2026-06-22T22:07:51",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/ssh-connection-health | python3 -m json.tool"
-  },
-  {
-    "date": "2026-06-22T22:08:33",
-    "type": "Bash",
-    "text": "for i in 1 2 3; do curl -s http://localhost:8765/api/ssh-connection-health | python3 -c \"import json,sys; d=json.load(sys.stdin); print([c['status'] for c in d['connections'] if c['key']=='win10-wsl-l"
-  },
-  {
-    "date": "2026-06-22T22:08:39",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-22T22:08:44",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/.playwright-mcp/page-2026-06-22T22-08-39-681Z.yml"
-  },
-  {
-    "date": "2026-06-22T22:08:49",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-06-22T22:09:10",
-    "type": "Write",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_ssh_health_false_down_2026_06_22.md\n\u2192 --- name: dashboard-ssh-health-false-down-2026-06-22 description: SSH Connections tab falsely showed win10-wsl-letta (100.80.49.10) as down due to too-short timeout on a DERP-relayed link; fixed with "
-  },
-  {
-    "date": "2026-06-22T22:09:16",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-06-22T22:09:25",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-06-22T22:09:46",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/ssh-connection-health | python3 -m json.tool"
+    "text": "rm -f /home/adamsl/letta-code/mazda-training-tab.png && echo \"cleaned up screenshot\""
   }
 ]

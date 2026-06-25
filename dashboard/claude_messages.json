@@ -1,12 +1,1 @@
-[
-  {
-    "date": "2026-06-01T22:02:03.649943",
-    "type": "user_message",
-    "text": "Is the skill wired up?"
-  },
-  {
-    "date": "2026-06-01T22:02:03.664268",
-    "type": "assistant_message",
-    "text": "Yes \u2014 Claude messages are now wired into the dashboard terminal. Open Agent Management \u2192 Claude \u2192 Messages to see them."
-  }
-]
+[]

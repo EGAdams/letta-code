@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mazda's Training Process</title>
+<style>
+  :root{
+    --paper:#fbf9f4; --ink:#1c1a17; --muted:#6b6358; --rule:#d9d2c5;
+    --accent:#7a1f1f; --accent2:#1f4e7a; --good:#2f6b35; --gold:#9a7b22;
+    --code-bg:#11151c; --code-ink:#dfe6ef; --next:#1f4e7a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    line-height:1.6;font-size:17px;}
+  .wrap{max-width:920px;margin:0 auto;padding:0 26px 80px;}
+  header.cover{background:linear-gradient(180deg,#fbf9f4,#f3eee3);
+    border-bottom:3px double var(--rule);padding:44px 0 30px;}
+  .kicker{letter-spacing:.3em;text-transform:uppercase;font-size:12px;
+    color:var(--accent);font-weight:700;}
+  h1{font-size:2.6rem;margin:.2em 0 .1em;letter-spacing:-.01em;}
+  h1 .sub{display:block;font-style:italic;font-weight:400;font-size:.4em;
+    color:var(--muted);margin-top:.5em;}
+  .byline{color:var(--muted);font-size:14px;margin-top:14px;}
+  h2{font-size:1.6rem;margin:1.8em 0 .3em;padding-bottom:.15em;
+    border-bottom:2px solid var(--ink);}
+  h3{font-size:1.15rem;margin:1.3em 0 .3em;color:#2a2620;}
+  p{margin:.6em 0;}
+  code{font-family:"SFMono-Regular",Consolas,monospace;font-size:.86em;
+    background:#efe9dc;color:#5a3120;padding:1px 6px;border-radius:5px;}
+  .pill{display:inline-block;font-size:.66rem;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;padding:2px 9px;border-radius:999px;vertical-align:middle;
+    margin-right:6px;}
+  .pill.done{background:#d6ead8;color:#235a2a;}
+  .pill.next{background:#dfe7f1;color:#234a72;}
+  .pill.partial{background:#f7eccf;color:#7a5a12;}
+  .abstract{background:#f1ece1;border-left:4px solid var(--accent);
+    padding:16px 20px;border-radius:0 10px 10px 0;margin:22px 0;font-size:1.02rem;}
+  ol.steps{counter-reset:s;list-style:none;padding-left:0;}
+  ol.steps>li{counter-increment:s;position:relative;padding:8px 0 8px 46px;
+    margin:.3em 0;border-bottom:1px dotted var(--rule);}
+  ol.steps>li::before{content:counter(s);position:absolute;left:0;top:8px;
+    width:30px;height:30px;background:var(--accent);color:#fff;border-radius:50%;
+    text-align:center;line-height:30px;font-weight:700;font-family:Georgia,serif;
+    font-size:.9rem;}
+  ul.next{list-style:none;padding-left:0;}
+  ul.next>li{padding:10px 0 10px 16px;border-left:3px solid var(--next);
+    background:#eef3f8;margin:10px 0;border-radius:0 8px 8px 0;padding-right:14px;}
+  ul.next>li b{color:var(--accent2);}
+  .tools{background:#fff;border:1px solid var(--rule);border-radius:10px;
+    padding:6px 18px;margin:14px 0;}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.92rem;}
+  th,td{border:1px solid var(--rule);padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:#efe9dc;}
+  .foot{margin-top:50px;padding-top:16px;border-top:3px double var(--rule);
+    color:var(--muted);font-size:.85rem;font-style:italic;}
+  .note{border-left:5px solid var(--gold);background:#fbf4e6;padding:12px 16px;
+    border-radius:0 8px 8px 0;margin:16px 0;font-size:.95rem;}
+</style>
+</head>
+<body>
+<header class="cover">
+  <div class="wrap">
+    <div class="kicker">ROL Finance &middot; Agent Training</div>
+    <h1>Mazda's Training Process
+      <span class="sub">Receipt &amp; Document Intake &mdash; what's done, what's next</span></h1>
+    <div class="byline">Self-hosted Letta deployment &middot; Agent
+      <code>agent-6b536cf4-&hellip;</code> &middot; Last updated 2026-06-25</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="abstract">
+    Mazda has been trained on the company's <b>receipt / document intake operating
+    procedure</b>. The full 8-step pipeline was validated end-to-end on a real
+    Walmart receipt, the supporting tools were built or extended, and the procedure
+    is now authored into Mazda's memory (memfs file <code>system/receipt_intake_procedure.md</code>
+    + attached block) and confirmed live in her context.
+  </div>
+
+  <h2>What has been accomplished</h2>
+
+  <h3><span class="pill done">Done</span>The operating procedure, validated live</h3>
+  <p>Every step below was run for real on a scanned Walmart receipt (an HP OfficeJet
+     8122e printer + HP 923 ink), not just designed on paper:</p>
+  <ol class="steps">
+    <li><b>Scan</b> &mdash; dashboard <i>ROL Finance &rarr; Scanners</i> or
+        <code>tools/run_scan_image.sh</code> (WIA 300dpi &rarr; <code>scan.jpg</code>).</li>
+    <li><b>Show for review</b> &mdash; <code>tools/open_scan_jpg.sh</code> /
+        dashboard "Show Image" so EG confirms the correct document.</li>
+    <li><b>Cheap classify + route</b> &mdash; <code>classify_scan.py</code> (Gemini
+        Flash) returns receipt / bank_statement / tax_document / other.</li>
+    <li><b>Parse</b> into an expense record &mdash; <code>parse_and_categorize.py</code>,
+        now extracting <code>merchant_city</code> / <code>merchant_state</code> as
+        separate fields.</li>
+    <li><b>Investigate cryptic items only</b> &mdash; <code>investigate_item.py</code>
+        uses Gemini <code>google_search</code> grounding to identify SKU-like
+        descriptions (e.g. <code>4KOT3LN</code> &rarr; HP 923 ink) with sources.</li>
+    <li><b>Resolve <code>vendor_key</code></b> &mdash; via <code>VendorCategoryStore</code>;
+        <b>No Vendor Key = failure</b> (red-tab in report.html, exit).</li>
+    <li><b>Categorize</b> &mdash; with the high-confidence (&ge;0.85) item-override
+        rule (printer+ink &rarr; Office&gt;Supplies, overriding Walmart's "Personal" default).</li>
+    <li><b>Store</b> &mdash; only after vendor_key resolves and zero failures.</li>
+  </ol>
+
+  <h3><span class="pill done">Done</span>Tooling built or extended</h3>
+  <div class="tools">
+  <table>
+    <tr><th>Artifact</th><th>What it does</th><th>Status</th></tr>
+    <tr><td><code>tools/classify_scan.py</code></td><td>Cheap Gemini-Flash document-type classifier (route before parsing)</td><td>New</td></tr>
+    <tr><td><code>receipt_parsing_tools/investigate_item.py</code></td><td>Gemini Google-Search grounding to resolve cryptic/OCR-garbled line items + category hint</td><td>New</td></tr>
+    <tr><td><code>receipt_engine.py</code> + models</td><td>Added <code>merchant_city</code>/<code>merchant_state</code> to the receipt schema &amp; parsing prompt</td><td>Extended</td></tr>
+    <tr><td>Dashboard Scanners "Start Scan"</td><td>Greys out while the scanner needs a power-cycle ("Restart the Scanner Please")</td><td>Fixed</td></tr>
+  </table>
+  </div>
+
+  <h3><span class="pill done">Done</span>Encoded into Mazda's memory</h3>
+  <p>Authored the proper file-first way and verified live:</p>
+  <ul>
+    <li><b>memfs (source of truth):</b> committed + pushed
+        <code>system/receipt_intake_procedure.md</code> to Mazda's <code>state.git</code>.</li>
+    <li><b>Attached block:</b> <code>system/receipt_intake_procedure</code>
+        (~2,900 chars) attached to Mazda.</li>
+    <li><b>Confirmed rendering:</b> her compiled <code>/context</code> now contains the
+        procedure, the "No Vendor Key" rule, and <code>classify_scan</code>.</li>
+  </ul>
+
+  <h3><span class="pill done">Done</span>Infrastructure enabler &mdash; the "ghost container"</h3>
+  <p>memfs authoring had been blocked by a recurring Docker "ghost": <b>two Docker
+     engines</b> (native <code>dockerd</code> + Docker Desktop) ran in parallel, and
+     Desktop hijacked the docker socket so the live fleet was invisible to the CLI and
+     <code>letta-memfs</code> lost its network. This was diagnosed and resolved to a
+     <b>single native engine</b> with all services healthy (letta, memfs git, bridge,
+     logger php+mysql, executor); the live DB was backed up first
+     (<code>~/ghost_migration/</code>). See memory
+     <code>ghost-container-root-cause-docker-desktop-2026-06-24</code>.</p>
+  <div class="note">
+    <b>One open infra item:</b> disable Docker Desktop's WSL integration + autostart on
+    the Windows side so the two-engine split can't return on next login. Quick post-reboot
+    check: <code>docker info --format '{{.Name}}'</code> should read <code>DESKTOP-SHDBATI</code>,
+    not <code>docker-desktop</code>.
+  </div>
+
+  <h2>Next suggested training steps</h2>
+  <ul class="next">
+    <li><span class="pill next">1</span><b>Live dry-run with Mazda driving.</b> Scan a
+        fresh document and have Mazda execute the procedure from memory (not us running
+        the scripts), to confirm she follows steps 1&ndash;8 in order and honors the
+        No-Vendor-Key and override rules.</li>
+    <li><span class="pill partial">2</span><b>Wire the Scanners page to the pipeline.</b>
+        The dashboard currently stops at "Show Image"; add a "Process Document" action
+        that runs classify &rarr; parse &rarr; investigate &rarr; categorize &rarr; store
+        and shows the result inline.</li>
+    <li><span class="pill next">3</span><b>Build the per-receipt failure surface.</b>
+        The "No Vendor Key" red-tab report.html for a single scanned document (step&nbsp;6
+        failure path) is specified but not yet built.</li>
+    <li><span class="pill next">4</span><b>Route the other document types.</b> Teach the
+        bank_statement and tax_document branches from the classifier (today only
+        <code>receipt</code> is fully wired).</li>
+    <li><span class="pill next">5</span><b>Duplicate detection &amp; receipt&harr;statement
+        linking.</b> Fold the ROL Finance dedup/link rules into the intake flow so a
+        scanned receipt links to an existing statement row instead of creating a
+        duplicate expense.</li>
+    <li><span class="pill next">6</span><b>Investigation learning loop.</b> When
+        <code>investigate_item.py</code> resolves a cryptic SKU, persist the mapping
+        (vendor-key learning log) so repeat items skip the web-search cost.</li>
+    <li><span class="pill next">7</span><b>Update the Agent Card.</b> Reference this intake
+        procedure in Mazda's <code>system_message.xml</code> so the dashboard Agent Card
+        reflects her current role.</li>
+    <li><span class="pill next">8</span><b>Make the single-engine fix permanent</b> (the
+        Windows-side Docker Desktop disable above) so memfs authoring stays reliable
+        across reboots.</li>
+  </ul>
+
+  <div class="foot">
+    Generated for the ROL Finance project &middot; Mazda receipt-intake training.
+    Companion memory: <code>ghost-container-root-cause-docker-desktop-2026-06-24</code>,
+    procedure source of truth: memfs <code>system/receipt_intake_procedure.md</code>.
+  </div>
+</div>
+</body>
+</html>

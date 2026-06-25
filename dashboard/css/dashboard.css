@@ -131,6 +131,99 @@ body.startup-loading .sidebar {
   }
 }
 
+/* Scanner dialog — reuses the startup-panel look, but lives inline in the main
+   SPA area (no full-screen overlay/darkening) and gains Start Scan / Show Image
+   actions plus a dismissable scanned-image preview. */
+.scanner-dialog {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 8px 0;
+}
+
+.scanner-panel {
+  margin: 0;
+}
+
+.scanner-state {
+  margin-top: 6px;
+  color: #ffe761;
+  font-size: 0.95rem;
+}
+
+.scanner-panel.scan-complete .scanner-bar {
+  background: #2f9d3a;
+}
+
+.scanner-panel.scan-error .scanner-bar {
+  background: #d9534f;
+}
+
+/* Freezer "WIA device is busy" — red bar + blinking red "Restart the Scanner
+   Please" while the 5s status poll keeps reporting busy/offline. */
+.scanner-panel.scan-busy .scanner-bar {
+  background: #d9534f;
+}
+
+.scanner-state.scanner-blink {
+  color: #ff4d4d;
+  font-weight: 700;
+  animation: startup-blink 0.8s steps(1, end) infinite;
+}
+
+.scanner-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.scanner-actions .am-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.scanner-image-box {
+  position: relative;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, #243244 0%, #182230 100%);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+}
+
+.scanner-image-box.hidden {
+  display: none;
+}
+
+.scanner-image {
+  display: block;
+  max-width: min(70vw, 640px);
+  max-height: 78vh;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.scanner-image-close {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: #d9534f;
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.scanner-image-close:hover {
+  background: #c9302c;
+}
+
 .sidebar {
   position: fixed;
   top: 30px;

@@ -1786,12 +1786,15 @@ new CodeChangeAlert({ http }).start();
    snaps green + "Scan Finished" and the image opens automatically. The image
    is dismissable (× / re-opened with "Show Image"). */
 // The Freezer Scanner (non-default HP063E28) is notorious for "WIA device is
-// busy" until power-cycled. While its tab is showing we poll /api/scanner-status
-// every ~5s: on `busy`/`offline` the bar turns RED and a blinking red "Restart
-// the Scanner Please" shows; the moment the device recovers, that same poll's
-// transfer succeeds and the scanned image appears.
-const SCANNER_POLL_MS = 5000;
-const MONITORED_SCANNERS = new Set(["freezer"]);
+// busy" until power-cycled. While its tab is showing we probe /api/scanner-status:
+// the FIRST check fires immediately, then we back off to every 15s (each probe
+// runs a real WIA call, so polling harder stresses stisvc). Each probe shows a
+// yellow progress fill reflecting its timing (busy fails in ~3s; a recovery scan
+// takes ~33s). On `busy`/`offline` the bar turns RED with a blinking red "Restart
+// the Scanner Please"; the moment the device recovers, that same probe's transfer
+// succeeds and the scanned image appears.
+const SCANNER_POLL_MS = 15000;
+const MONITORED_SCANNERS = new Set();
 
 function setupScanners() {
   const controllers = {};
@@ -1834,8 +1837,6 @@ function setupScanners() {
       panel.classList.add("scan-busy");
       state.textContent = msg;
       state.classList.add("scanner-blink");
-      // Device needs a power-cycle — block Start Scan until it recovers.
-      startBtn.disabled = true;
     };
     const setReady = (imageUrl) => {
       if (progressTimer) {
@@ -1847,7 +1848,6 @@ function setupScanners() {
       panel.classList.remove("scan-busy", "scan-error");
       panel.classList.add("scan-complete");
       state.textContent = "Scan Finished";
-      startBtn.disabled = false;
       if (imageUrl) {
         lastImageUrl = imageUrl;
         showBtn.disabled = false;
@@ -1864,7 +1864,6 @@ function setupScanners() {
       panel.classList.remove("scan-busy", "scan-complete");
       panel.classList.add("scan-error");
       state.textContent = msg;
-      startBtn.disabled = false;
     };
 
     // Map a /api/scanner-status or /api/scanner-scan result onto the dialog.
@@ -1886,17 +1885,39 @@ function setupScanners() {
         clearTimeout(pollTimer);
         pollTimer = null;
       }
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
     };
 
     const pollOnce = async () => {
       if (!monitorActive || inFlight) return;
       inFlight = true;
+      // Animate a yellow fill while the probe runs so its timing is visible.
+      // applyResult()/stopMonitor() clear progressTimer when the probe returns.
+      clearBlink();
+      panel.classList.remove("scan-busy", "scan-complete", "scan-error");
+      state.textContent = "Checking scanner…";
+      setBar(4);
+      const probeStart = Date.now();
+      if (progressTimer) clearInterval(progressTimer);
+      progressTimer = setInterval(() => {
+        const t = Math.min((Date.now() - probeStart) / 30000, 1);
+        setBar(4 + t * 88);
+      }, 150);
       try {
         const res = await fetch(`/api/scanner-status?scanner=${scanner}`);
         const data = await res.json();
         inFlight = false;
-        if (!monitorActive) return;
-        // On recovery the status poll's transfer succeeds -> stop polling.
+        if (!monitorActive) {
+          if (progressTimer) {
+            clearInterval(progressTimer);
+            progressTimer = null;
+          }
+          return;
+        }
+        // On recovery the status probe's transfer succeeds -> stop polling.
         if (applyResult(data) === "ready") {
           stopMonitor();
           return;
@@ -1927,10 +1948,12 @@ function setupScanners() {
       state.textContent = "Scanning…";
       setBar(4);
       const startedAt = Date.now();
+      // A real flatbed scan takes ~30s; fill over that, capping at 92% until the
+      // actual result snaps it to 100%.
       progressTimer = setInterval(() => {
-        const t = Math.min((Date.now() - startedAt) / 10000, 1);
+        const t = Math.min((Date.now() - startedAt) / 30000, 1);
         setBar(4 + t * 88);
-      }, 120);
+      }, 150);
       try {
         const res = await fetch("/api/scanner-scan", {
           method: "POST",
@@ -1947,10 +1970,8 @@ function setupScanners() {
       } catch (err) {
         setFailed(`Scan failed: ${err.message}`);
       } finally {
-        // startBtn.disabled is now owned by setBusy/setReady/setFailed above —
-        // don't unconditionally re-enable here, or a busy/offline result would
-        // leave Start Scan clickable while the device still needs a restart.
         scanning = false;
+        startBtn.disabled = false;
       }
     };
 
