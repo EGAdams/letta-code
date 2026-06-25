@@ -19,7 +19,9 @@ import {
   CodeChangeAlert,
   ConnectionLogController,
   ConnectionTestController,
+  DocumentPipelineController,
   DomConsoleView,
+  DomDocumentPipelineView,
   DomTabFactory,
   FetchHttpClient,
   InputOptionsRenderer,
@@ -1795,6 +1797,16 @@ new CodeChangeAlert({ http }).start();
 // succeeds and the scanned image appears.
 const SCANNER_POLL_MS = 15000;
 const MONITORED_SCANNERS = new Set();
+const SCANNER_IMAGE_MIN_ZOOM = 0.25;
+const SCANNER_IMAGE_MAX_ZOOM = 6;
+const SCANNER_IMAGE_ZOOM_STEP = 1.12;
+
+function clampScannerImageZoom(value) {
+  return Math.min(
+    SCANNER_IMAGE_MAX_ZOOM,
+    Math.max(SCANNER_IMAGE_MIN_ZOOM, value),
+  );
+}
 
 function setupScanners() {
   const controllers = {};
@@ -1805,6 +1817,8 @@ function setupScanners() {
     const state = dialog.querySelector(".scanner-state");
     const startBtn = dialog.querySelector(".scanner-start");
     const showBtn = dialog.querySelector(".scanner-show");
+    const processBtn = dialog.querySelector(".scanner-process");
+    const resultBox = dialog.querySelector(".scanner-result");
     const imageBox = dialog.querySelector(".scanner-image-box");
     const img = dialog.querySelector(".scanner-image");
     const closeBtn = dialog.querySelector(".scanner-image-close");
@@ -1815,31 +1829,186 @@ function setupScanners() {
     let pollTimer = null;
     let monitorActive = false;
     let inFlight = false;
+    let imageZoom = 1;
+    let imageBaseWidth = 0;
+    let imageBaseHeight = 0;
+    let imageDragging = false;
+    let imageDragPointerId = null;
+    let imageDragStartX = 0;
+    let imageDragStartY = 0;
+    let imageDragStartScrollLeft = 0;
+    let imageDragStartScrollTop = 0;
 
     const setBar = (pct) => {
       bar.style.width = `${pct}%`;
     };
     const clearBlink = () => state.classList.remove("scanner-blink");
+    const imageCanZoom = () =>
+      !imageBox.classList.contains("hidden") &&
+      !imageBox.classList.contains("scanner-image-loading") &&
+      !imageBox.classList.contains("scanner-image-error") &&
+      img.complete &&
+      img.naturalWidth > 0 &&
+      img.naturalHeight > 0;
+    const imageCanPan = () =>
+      imageCanZoom() &&
+      (imageBox.scrollWidth > imageBox.clientWidth ||
+        imageBox.scrollHeight > imageBox.clientHeight);
+    const calculateImageBaseSize = () => {
+      if (!img.naturalWidth || !img.naturalHeight) return;
+      const availableWidth = Math.max(
+        1,
+        Math.min(imageBox.clientWidth * 0.92, 1100),
+      );
+      const availableHeight = Math.max(1, imageBox.clientHeight * 0.9);
+      const fitScale = Math.min(
+        availableWidth / img.naturalWidth,
+        availableHeight / img.naturalHeight,
+        1,
+      );
+      imageBaseWidth = Math.max(1, Math.round(img.naturalWidth * fitScale));
+      imageBaseHeight = Math.max(1, Math.round(img.naturalHeight * fitScale));
+    };
+    const updateImageScrollMode = () => {
+      const renderedWidth = imageBaseWidth * imageZoom;
+      const renderedHeight = imageBaseHeight * imageZoom;
+      const needsScroll =
+        renderedWidth > imageBox.clientWidth - 80 ||
+        renderedHeight > imageBox.clientHeight - 80;
+      imageBox.classList.toggle("scanner-image-scrollable", needsScroll);
+    };
+    const setImageZoom = (nextZoom, anchorEvent = null) => {
+      if (!imageCanZoom()) return;
+      if (!imageBaseWidth || !imageBaseHeight) calculateImageBaseSize();
+
+      const boxRect = imageBox.getBoundingClientRect();
+      const previousRect = img.getBoundingClientRect();
+      const anchorClientX =
+        anchorEvent?.clientX ?? boxRect.left + imageBox.clientWidth / 2;
+      const anchorClientY =
+        anchorEvent?.clientY ?? boxRect.top + imageBox.clientHeight / 2;
+      const relativeX =
+        previousRect.width > 0
+          ? Math.min(
+              1,
+              Math.max(
+                0,
+                (anchorClientX - previousRect.left) / previousRect.width,
+              ),
+            )
+          : 0.5;
+      const relativeY =
+        previousRect.height > 0
+          ? Math.min(
+              1,
+              Math.max(
+                0,
+                (anchorClientY - previousRect.top) / previousRect.height,
+              ),
+            )
+          : 0.5;
+
+      imageZoom = clampScannerImageZoom(nextZoom);
+      img.style.width = `${Math.round(imageBaseWidth * imageZoom)}px`;
+      img.style.height = `${Math.round(imageBaseHeight * imageZoom)}px`;
+      updateImageScrollMode();
+
+      requestAnimationFrame(() => {
+        const nextRect = img.getBoundingClientRect();
+        const imageContentLeft =
+          nextRect.left - boxRect.left + imageBox.scrollLeft;
+        const imageContentTop = nextRect.top - boxRect.top + imageBox.scrollTop;
+        imageBox.scrollLeft =
+          imageContentLeft +
+          relativeX * nextRect.width -
+          (anchorClientX - boxRect.left);
+        imageBox.scrollTop =
+          imageContentTop +
+          relativeY * nextRect.height -
+          (anchorClientY - boxRect.top);
+      });
+    };
+    const resetImageZoom = () => {
+      imageZoom = 1;
+      imageBaseWidth = 0;
+      imageBaseHeight = 0;
+      imageBox.classList.remove(
+        "scanner-image-ready",
+        "scanner-image-scrollable",
+        "scanner-image-dragging",
+      );
+      img.style.width = "";
+      img.style.height = "";
+      imageBox.scrollLeft = 0;
+      imageBox.scrollTop = 0;
+    };
+    const stopImageDrag = (e) => {
+      if (
+        !imageDragging ||
+        (imageDragPointerId !== null &&
+          e?.pointerId !== undefined &&
+          e.pointerId !== imageDragPointerId)
+      ) {
+        return;
+      }
+      imageDragging = false;
+      imageDragPointerId = null;
+      imageBox.classList.remove("scanner-image-dragging");
+      if (e?.pointerId !== undefined && img.hasPointerCapture?.(e.pointerId)) {
+        try {
+          img.releasePointerCapture(e.pointerId);
+        } catch {
+          // Pointer capture may already be gone after cancel/lostcapture.
+        }
+      }
+    };
     const showImage = () => {
       if (!lastImageUrl) return;
       // Repeated scans reuse the same filename, so cache-bust to avoid the
       // browser serving a stale/blank copy (the "shows sometimes, blank
       // sometimes" symptom). Reset src first so onload always refires.
       const bust = `${lastImageUrl}${lastImageUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+      resetImageZoom();
       imageBox.classList.remove("scanner-image-error");
       imageBox.classList.add("scanner-image-loading");
       img.src = "";
       img.src = bust;
       imageBox.classList.remove("hidden");
     };
-    const hideImage = () => imageBox.classList.add("hidden");
+    const hideImage = () => {
+      stopImageDrag();
+      imageBox.classList.add("hidden");
+    };
     img.addEventListener("load", () => {
       imageBox.classList.remove("scanner-image-loading", "scanner-image-error");
+      imageBox.classList.add("scanner-image-ready");
+      calculateImageBaseSize();
+      setImageZoom(1);
     });
     img.addEventListener("error", () => {
       imageBox.classList.remove("scanner-image-loading");
       imageBox.classList.add("scanner-image-error");
+      imageBox.classList.remove(
+        "scanner-image-ready",
+        "scanner-image-scrollable",
+        "scanner-image-dragging",
+      );
     });
+
+    // Process Document — the intake pipeline (classify → parse inline, then
+    // investigate → categorize → store dispatched to Mazda). Built from the GoF
+    // controller + DOM view so the wiring here stays a thin binding.
+    const pipelineView =
+      processBtn && resultBox ? new DomDocumentPipelineView(resultBox) : null;
+    const pipeline = pipelineView
+      ? new DocumentPipelineController({ http, view: pipelineView })
+      : null;
+    const runPipeline = () => {
+      if (!pipeline) return;
+      // Fire-and-forget: the controller drives the inline view itself; no
+      // polling, and a scan never waits on the pipeline.
+      void pipeline.process(scanner);
+    };
 
     const setBusy = (msg) => {
       if (progressTimer) {
@@ -1867,6 +2036,10 @@ function setupScanners() {
         showBtn.disabled = false;
         showImage();
       }
+      // Auto-run the intake pipeline the instant the scan finishes and the image
+      // is ready for the first step — exactly the moment the document is ready.
+      if (processBtn) processBtn.disabled = false;
+      runPipeline();
     };
     const setFailed = (msg) => {
       if (progressTimer) {
@@ -1956,6 +2129,8 @@ function setupScanners() {
       stopMonitor();
       startBtn.disabled = true;
       showBtn.disabled = true;
+      if (processBtn) processBtn.disabled = true;
+      if (pipelineView) pipelineView.clear();
       hideImage();
       clearBlink();
       panel.classList.remove("scan-complete", "scan-error", "scan-busy");
@@ -1996,9 +2171,53 @@ function setupScanners() {
     closeBtn.addEventListener("click", hideImage);
     showBtn.addEventListener("click", showImage);
     startBtn.addEventListener("click", runManualScan);
+    if (processBtn) processBtn.addEventListener("click", runPipeline);
     // Click the dark backdrop (outside the image frame) to close the modal.
     imageBox.addEventListener("click", (e) => {
       if (e.target === imageBox) hideImage();
+    });
+    img.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || !imageCanPan()) return;
+      e.preventDefault();
+      imageDragging = true;
+      imageDragPointerId = e.pointerId;
+      imageDragStartX = e.clientX;
+      imageDragStartY = e.clientY;
+      imageDragStartScrollLeft = imageBox.scrollLeft;
+      imageDragStartScrollTop = imageBox.scrollTop;
+      imageBox.classList.add("scanner-image-dragging");
+      try {
+        img.setPointerCapture?.(e.pointerId);
+      } catch {
+        // Synthetic pointer events may not be eligible for capture.
+      }
+    });
+    img.addEventListener("pointermove", (e) => {
+      if (!imageDragging || e.pointerId !== imageDragPointerId) return;
+      e.preventDefault();
+      imageBox.scrollLeft =
+        imageDragStartScrollLeft - (e.clientX - imageDragStartX);
+      imageBox.scrollTop =
+        imageDragStartScrollTop - (e.clientY - imageDragStartY);
+    });
+    img.addEventListener("pointerup", stopImageDrag);
+    img.addEventListener("pointercancel", stopImageDrag);
+    img.addEventListener("lostpointercapture", stopImageDrag);
+    imageBox.addEventListener(
+      "wheel",
+      (e) => {
+        if (!imageCanZoom()) return;
+        e.preventDefault();
+        const factor =
+          e.deltaY < 0 ? SCANNER_IMAGE_ZOOM_STEP : 1 / SCANNER_IMAGE_ZOOM_STEP;
+        setImageZoom(imageZoom * factor, e);
+      },
+      { passive: false },
+    );
+    window.addEventListener("resize", () => {
+      if (!imageCanZoom()) return;
+      calculateImageBaseSize();
+      setImageZoom(imageZoom);
     });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !imageBox.classList.contains("hidden"))

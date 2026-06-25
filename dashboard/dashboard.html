@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard</title>
-  <link rel="stylesheet" href="/css/dashboard.css?v=20260619g" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=20260625b" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -384,7 +384,9 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           <div class="scanner-actions">
             <button type="button" class="am-btn scanner-start">Start Scan</button>
             <button type="button" class="am-btn am-copy scanner-show" disabled>Show Image</button>
+            <button type="button" class="am-btn scanner-process" disabled>Process Document</button>
           </div>
+          <div class="scanner-result hidden" aria-live="polite"></div>
         </div>
         <div class="scanner-image-box hidden">
           <button type="button" class="scanner-image-close" aria-label="Close image">&times;</button>
@@ -405,7 +407,9 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           <div class="scanner-actions">
             <button type="button" class="am-btn scanner-start">Start Scan</button>
             <button type="button" class="am-btn am-copy scanner-show" disabled>Show Image</button>
+            <button type="button" class="am-btn scanner-process" disabled>Process Document</button>
           </div>
+          <div class="scanner-result hidden" aria-live="polite"></div>
         </div>
         <div class="scanner-image-box hidden">
           <button type="button" class="scanner-image-close" aria-label="Close image">&times;</button>
@@ -426,6 +430,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20260619s"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=20260625b"></script>
 </body>
 </html>

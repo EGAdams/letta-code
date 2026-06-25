@@ -651,30 +651,148 @@ def _notify_mazda_of_scan(scan_image_path, scanner_name):
             method='POST',
         )
         with urllib.request.urlopen(req, timeout=120) as resp:
-            log_message(f'[scan→mazda] Mazda notified of scan ({scanner_name}): '
-                        f'HTTP {resp.status}')
+            print(f'[scan→mazda] Mazda notified of scan ({scanner_name}): '
+                  f'HTTP {resp.status}')
     except Exception as exc:
-        log_message(f'[scan→mazda] Failed to notify Mazda: {exc}')
+        print(f'[scan→mazda] Failed to notify Mazda: {exc}')
 
 
 def run_scanner(key):
-    """Manual scan (POST /api/scanner-scan). Adds back-compat `ok` to the status."""
+    """Manual scan (POST /api/scanner-scan). Adds back-compat `ok` to the status.
+
+    NOTE: this no longer notifies Mazda directly. The intake pipeline (both the
+    deterministic inline result AND the agentic Mazda dispatch) is now driven by
+    POST /api/process-document, which the dashboard auto-fires the instant a scan
+    finishes (see process_scanned_document). That keeps a single dispatch point
+    so Mazda is notified exactly once per finished scan.
+    """
     result = _invoke_scanner(key)
     result['ok'] = (result.get('status') == 'ready')
-    if result['ok']:
-        cfg = SCANNERS.get(key, {})
-        img_path = os.path.join(SCAN_TOOLS_DIR, cfg.get('output', ''))
-        threading.Thread(
-            target=_notify_mazda_of_scan,
-            args=(img_path, cfg.get('name', key)),
-            daemon=True,
-        ).start()
     return result
 
 
 def scanner_status(key):
     """Lightweight status probe (GET /api/scanner-status) for the Freezer's poll."""
     return _invoke_scanner(key)
+
+
+# ── Document intake pipeline (the "Process Document" action) ────────────────
+# When a scan finishes, the dashboard fires POST /api/process-document. The
+# cheapest reliable tool runs FIRST — the deterministic intake facade
+# (mazda_intake.py: classify + parse) — and its result is rendered inline within
+# seconds. The deeper, agentic stages (investigate → categorize → store) are
+# Mazda's job; they are dispatched fire-and-forget (NO polling) via the existing
+# _notify_mazda_of_scan thread. Governing rule: cheapest reliable tool first;
+# LLM only when confidence < 0.90 (the facade enforces that threshold itself).
+ROL_FINANCES_DIR = os.path.expanduser('~/rol_finances')
+MAZDA_INTAKE_FACADE = os.path.join(ROL_FINANCES_DIR, 'tools', 'mazda_intake.py')
+MAZDA_INTAKE_PYTHON = os.path.join(ROL_FINANCES_DIR, '.venv', 'bin', 'python3')
+INTAKE_FACADE_TIMEOUT_SEC = 120
+
+# The pipeline stages the deterministic facade does NOT run — delegated to Mazda.
+MAZDA_DELEGATED_STAGES = ('investigate', 'categorize', 'store')
+
+
+def run_intake_facade(image_path, org_id=1, engine='gemini'):
+    """Run the deterministic intake facade (classify + parse) on one document.
+
+    Returns the facade's structured JSON dict (always carrying an `ok` key).
+    Never raises — a missing facade, bad exit, or unparseable stdout becomes
+    {'ok': False, 'error': ...} so the caller can always render something inline.
+    """
+    if not os.path.isfile(image_path):
+        return {'ok': False, 'error': f'Scanned image not found: {image_path}'}
+    if not os.path.isfile(MAZDA_INTAKE_FACADE):
+        return {'ok': False,
+                'error': f'Intake facade not found: {MAZDA_INTAKE_FACADE}'}
+    python = MAZDA_INTAKE_PYTHON if os.path.isfile(MAZDA_INTAKE_PYTHON) else 'python3'
+    try:
+        proc = subprocess.run(
+            [python, MAZDA_INTAKE_FACADE, image_path,
+             f'--org-id={org_id}', '--enable-parse', f'--engine={engine}'],
+            cwd=ROL_FINANCES_DIR,
+            capture_output=True, text=True,
+            timeout=INTAKE_FACADE_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired:
+        return {'ok': False,
+                'error': f'Intake facade timed out after {INTAKE_FACADE_TIMEOUT_SEC}s'}
+    except Exception as exc:
+        return {'ok': False, 'error': f'Failed to run intake facade: {exc}'}
+    out = (proc.stdout or '').strip()
+    try:
+        return json.loads(out)
+    except json.JSONDecodeError:
+        err = (proc.stderr or '').strip() or out or f'exit {proc.returncode}'
+        return {'ok': False, 'error': f'Intake facade returned no JSON: {err[:300]}'}
+
+
+def build_pipeline_result(facade, mazda_dispatched):
+    """Pure shaper: facade dict + dispatch flag → the inline pipeline result.
+
+    Mirrors classify_scan_result — pure, no I/O, unit-tested. Produces an
+    ordered `stages` list so the UI can render the full classify → parse →
+    investigate → categorize → store pipeline, with the deterministic front half
+    filled in and the agentic back half marked delegated (Mazda) or pending.
+    """
+    facade = facade or {}
+    ok = bool(facade.get('ok'))
+    classify = {
+        'name': 'classify',
+        'status': 'done' if ok else 'error',
+        'doc_kind': facade.get('doc_kind'),
+        'routing_key': facade.get('routing_key'),
+        'vendor': facade.get('vendor'),
+        'confidence': facade.get('confidence'),
+        'method': facade.get('classification_method'),
+        'recommended_action': facade.get('recommended_action'),
+    }
+    parsed = facade.get('parsed')
+    parse = {
+        'name': 'parse',
+        'status': 'done' if (ok and parsed) else ('skipped' if ok else 'error'),
+        'parsed': parsed,
+    }
+    delegated = [
+        {'name': stage,
+         'status': 'delegated' if mazda_dispatched else 'pending',
+         'owner': 'mazda' if mazda_dispatched else None}
+        for stage in MAZDA_DELEGATED_STAGES
+    ]
+    return {
+        'ok': ok,
+        'error': facade.get('error'),
+        'mazda_dispatched': bool(mazda_dispatched),
+        'stages': [classify, parse, *delegated],
+    }
+
+
+def process_scanned_document(key, org_id=1, engine='gemini'):
+    """Orchestrate the Process Document action for one scanner's latest image.
+
+    1. Resolve the scanner's output image.
+    2. Run the deterministic facade (classify + parse) for the inline result.
+    3. Dispatch Mazda fire-and-forget for investigate → categorize → store.
+    No polling: the deeper stages run in Mazda's own time and surface in her
+    own agent transcript, not here.
+    """
+    cfg = SCANNERS.get(key)
+    if not cfg:
+        return {'ok': False, 'error': f'Unknown scanner: {key}', 'stages': []}
+    image_path = os.path.join(SCAN_TOOLS_DIR, cfg.get('output', ''))
+    facade = run_intake_facade(image_path, org_id=org_id, engine=engine)
+    mazda_dispatched = False
+    if os.path.isfile(image_path):
+        threading.Thread(
+            target=_notify_mazda_of_scan,
+            args=(image_path, cfg.get('name', key)),
+            daemon=True,
+        ).start()
+        mazda_dispatched = True
+    result = build_pipeline_result(facade, mazda_dispatched)
+    result['scanner'] = key
+    result['image_path'] = image_path
+    return result
 
 
 def _build_receipt_index():
@@ -3657,6 +3775,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(run_scanner(data.get('scanner', '')))
+
+        if path == '/api/process-document':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(process_scanned_document(
+                data.get('scanner', ''),
+                org_id=data.get('org_id', 1),
+                engine=data.get('engine', 'gemini'),
+            ))
 
         if path == '/api/test':
             try:

@@ -460,6 +460,66 @@ def test_scanner_registry_selects_by_name_not_first_device():
     assert server.SCANNERS['freezer']['output'] != server.SCANNERS['window']['output']
 
 
+def test_build_pipeline_result_success_shapes_all_five_stages():
+    facade = {
+        'ok': True,
+        'doc_kind': 'receipt',
+        'routing_key': 'receipt.costco',
+        'vendor': 'costco',
+        'confidence': 0.94,
+        'classification_method': 'rule_based',
+        'recommended_action': 'auto',
+        'parsed': {'vendor': 'costco', 'total': '84.12'},
+        'error': None,
+    }
+    result = server.build_pipeline_result(facade, mazda_dispatched=True)
+    assert result['ok'] is True
+    assert result['mazda_dispatched'] is True
+    names = [s['name'] for s in result['stages']]
+    assert names == ['classify', 'parse', 'investigate', 'categorize', 'store']
+    classify, parse = result['stages'][0], result['stages'][1]
+    assert classify['status'] == 'done'
+    assert classify['vendor'] == 'costco'
+    assert parse['status'] == 'done' and parse['parsed']['total'] == '84.12'
+    # The agentic back half is delegated to Mazda when she was dispatched.
+    for stage in result['stages'][2:]:
+        assert stage['status'] == 'delegated'
+        assert stage['owner'] == 'mazda'
+
+
+def test_build_pipeline_result_failure_marks_classify_error_and_pending_tail():
+    facade = {'ok': False, 'error': 'file not found: /x.jpg'}
+    result = server.build_pipeline_result(facade, mazda_dispatched=False)
+    assert result['ok'] is False
+    assert result['error'] == 'file not found: /x.jpg'
+    assert result['mazda_dispatched'] is False
+    assert result['stages'][0]['status'] == 'error'
+    # Parse is an error too (no facade success), tail stages are pending.
+    assert result['stages'][1]['status'] == 'error'
+    for stage in result['stages'][2:]:
+        assert stage['status'] == 'pending'
+        assert stage['owner'] is None
+
+
+def test_build_pipeline_result_ok_but_no_parse_is_skipped():
+    facade = {'ok': True, 'doc_kind': 'receipt', 'parsed': None}
+    result = server.build_pipeline_result(facade, mazda_dispatched=True)
+    assert result['stages'][1]['status'] == 'skipped'
+
+
+def test_run_intake_facade_missing_image_returns_structured_error():
+    r = server.run_intake_facade('/nope/does-not-exist.jpg')
+    assert r['ok'] is False
+    assert 'not found' in r['error']
+
+
+def test_process_scanned_document_unknown_scanner():
+    r = server.process_scanned_document('bogus')
+    assert r['ok'] is False
+    assert 'Unknown scanner' in r['error']
+    assert r['stages'] == []
+
+
 def test_track_down_duration_clears_on_up_and_accumulates(monkeypatch):
     server._server_down_since.pop('dur-test', None)
     t = [1000.0]

@@ -149,10 +149,13 @@
         fresh document and have Mazda execute the procedure from memory (not us running
         the scripts), to confirm she follows steps 1&ndash;8 in order and honors the
         No-Vendor-Key and override rules.</li>
-    <li><span class="pill partial">2</span><b>Wire the Scanners page to the pipeline.</b>
-        The dashboard currently stops at "Show Image"; add a "Process Document" action
-        that runs classify &rarr; parse &rarr; investigate &rarr; categorize &rarr; store
-        and shows the result inline.</li>
+    <li><span class="pill done">2</span><b>Wire the Scanners page to the pipeline.</b>
+        Scan finish auto-fires <code>POST /api/process-document</code>: the deterministic
+        facade (classify &rarr; parse) renders inline within seconds; Mazda is dispatched
+        fire-and-forget for investigate &rarr; categorize &rarr; store. No polling.
+        GoF: <code>DocumentPipelineController</code> (Command) + <code>DomDocumentPipelineView</code>
+        (Strategy), both injected so unit-testable. 194 JS + 101 Python tests pass.
+        Done 2026-06-25.</li>
     <li><span class="pill next">3</span><b>Build the per-receipt failure surface.</b>
         The "No Vendor Key" red-tab report.html for a single scanned document (step&nbsp;6
         failure path) is specified but not yet built.</li>
