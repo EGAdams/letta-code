@@ -1337,18 +1337,13 @@ LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rs
 # Add any new Letta agent here: { 'name': '...', 'id': '<real-letta-agent-id>' }
 # Set 'id' to None to auto-discover by name from the Letta agent list.
 _MINION_TOOLS = ['run_claude_code_sdk']
-# Mazda's health is signalled by her self-improvement MCP tools (served by
-# mazda-tools-mcp.service on :8791) — they attach/detach together, so requiring a
-# few core ones cleanly flags an unprovisioned Mazda (e.g. the MCP server down)
-# without flapping. NOTE: do NOT require relay_message_to_chatgpt — that's a
-# browser-relay tool from a discarded design; this incarnation of Mazda does not
-# carry it (verified live: her tools are record_trace/propose_improvement/
-# run_experiment/judge_trace/gate_check/activate_wrapper/rollback_wrapper/
-# load_wrapper_revision/propose_memory_note/verify_statement_totals).
+# The Mazda orchestrator (agent-6b536cf4) delegates to the minion fleet via its
+# custom tool relay_message_to_chatgpt — that's the capability whose presence
+# signals it's wired up. (The old list checked send_message_to_agent_and_wait_for_reply
+# + executor_run, which this incarnation of Mazda doesn't carry — see its actual
+# 10-tool set: relay_message_to_chatgpt, check_*, verify_statement_totals, …)
 _MAZDA_TOOLS = [
-    'record_trace',
-    'propose_improvement',
-    'run_experiment',
+    'relay_message_to_chatgpt',
 ]
 
 # Mazda + all 5 minions run on the same chatgpt-plus-pro OAuth account, so a
@@ -1365,12 +1360,12 @@ LETTA_AGENTS = [
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
     {'name': 'Cesare',   'id': None},
     {'name': 'Jeri',     'id': None},
-    {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'orchestrator': True},
+    {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Router',           'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'provider_canary': True},
+    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
 ]
 
 # Cache of name→id resolved from the Letta API
@@ -3106,31 +3101,6 @@ def _provider_agent_ids(provider_name):
     return ids
 
 
-def _provider_canary_id(provider_name):
-    """Pick the agent to probe as the provider's health canary.
-
-    Must NOT be an orchestrator (e.g. Mazda): a real 'ping' to an orchestrator
-    triggers heavy reasoning/delegation that blows past the probe timeout AND
-    pollutes its conversation history — which used to mark the whole
-    chatgpt-plus-pro fleet falsely red. Prefer an entry explicitly flagged
-    `provider_canary`, else a lightweight minion (one whose tool calls go to the
-    Claude SDK worker), else fall back to the first tagged agent.
-    """
-    tagged = [cfg for cfg in LETTA_AGENTS if cfg.get('llm_provider') == provider_name]
-    flagged = [c for c in tagged if c.get('provider_canary') and get_letta_id(c)]
-    if flagged:
-        return get_letta_id(flagged[0])
-    minions = [c for c in tagged
-               if not c.get('orchestrator') and _uses_claude_sdk(c) and get_letta_id(c)]
-    if minions:
-        return get_letta_id(minions[0])
-    for c in tagged:
-        rid = get_letta_id(c)
-        if rid:
-            return rid
-    return None
-
-
 def _probe_chatgpt_provider(agent_id, timeout=20):
     """Send one trivial message to agent_id and report whether the provider
     rejected it (e.g. 429 rate limit) before reaching the model. Doesn't reset
@@ -3167,8 +3137,7 @@ def _poll_chatgpt_provider_once(provider_name=CHATGPT_PLUS_PRO):
     affected = _provider_agent_ids(provider_name)
     if not affected:
         return
-    canary = _provider_canary_id(provider_name) or affected[0]
-    probe = _probe_chatgpt_provider(canary)
+    probe = _probe_chatgpt_provider(affected[0])
     for agent_id in affected:
         if probe['ok']:
             clear_agent_send_error(agent_id)

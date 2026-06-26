@@ -1,6 +1,7 @@
 # Mazda — Document Intake & Self-Improvement Loop (Handoff)
 
-**Last updated:** 2026-06-25 (night — found + FIXED the live classify failure: Mazda's
+**Last updated:** 2026-06-25 (late night — supervised annual-summary run found a new
+zero-row parser failure + live Letta access was blocked. Previous: night — found + FIXED the live classify failure: Mazda's
 executor env lacked the Gemini key, so every `document-intake` scan failed at
 `classify_scan.py`. Now resolves from gitignored `~/rol_finances/.env` (`rol_finances@320bfe3`,
 pushed). Dashboard observability surface DROPPED per EG. Previous: Scanners wired / step #2)
@@ -34,6 +35,24 @@ pushed). Dashboard observability surface DROPPED per EG. Previous: Scanners wire
 > Gotcha for next shift: `record_trace` is idempotent on `input_text`, so re-sending the
 > same scan message re-saves the OLD trace id (the failed #24) instead of a new success
 > row — judge success by the `executor_run` return, not by a fresh trace row.
+>
+> **2026-06-25 late-night supervised run:** User asked Mazda to process
+> `/home/adamsl/rol_finances/readable_documents/bank_statements/january/diners_0587_whole_year_2025/diners_0587_year_2025.pdf`.
+> The dashboard `/api/process-pdf` path classified it correctly as
+> `statement.diners_club` with confidence `0.95`, but the facade returned parse
+> `success` with `transaction_count: 0`. Manual PyPDF2 text extraction showed this was
+> false: the annual summary has 48 itemized rows on pages 4-5. A supervised report was
+> written to `.../diners_0587_whole_year_2025/report.html` and the January tracker was
+> updated as FAIL / IN_PROGRESS. Treat annual-summary zero-row parses as a bug: if the
+> text contains `Transaction Detail`, category totals, and dated rows, Mazda must not
+> accept a green zero-row parse.
+>
+> Live Mazda dispatch could not be confirmed during this run. From the dev box,
+> `100.80.49.10` was offline/unreachable on Tailscale and `100.80.49.10:8283` timed
+> out; active `desktop-shdbati-1` at `100.69.80.89` reset Letta API requests on `:8283`
+> and rejected available SSH keys. Local Mazda MCP/executor services were running, but
+> the Letta agent container/API plane was not reachable, so no `record_trace` or
+> `propose_improvement` could be verified through live Mazda.
 **Agent:** Mazda `agent-6b536cf4-ec88-4290-b595-fed21d14bd8e` (live @ http://100.80.49.10:8283)
 **MCP service:** `mazda-tools-mcp.service` on port 8791 — **on Win10 `DESKTOP-SHDBATI` (100.80.49.10)**
 

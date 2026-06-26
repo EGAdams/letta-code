@@ -1,1002 +1,1002 @@
 [
   {
-    "date": "2026-06-25T19:09:32",
+    "date": "2026-06-26T00:28:48",
     "type": "Bash",
-    "text": "timeout 30 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 '\npython3 -c \"import ast,sys; ast.parse(open(\\\"/home/adamsl/rol_finances/tools/classify_scan.py\\\").read()); print(\\\"AST OK \u2014 v"
+    "text": "curl -s -X POST http://localhost:8765/api/receipt-lookup \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"date\":\"2025-01-22\",\"signed_amount\":\"-225.00\",\"vendor_key\":\"trinity_health\",\"description\":\"TRI"
   },
   {
-    "date": "2026-06-25T19:09:49",
+    "date": "2026-06-26T00:37:00",
     "type": "Bash",
-    "text": "timeout 30 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 '\ncd ~/rol_finances\ngit commit -o tools/classify_scan.py -m \"fix(intake): resolve Gemini key from rol_finances/.env fallback\n\ncl"
+    "text": "grep -n \"recategorize_expense\\|recategorize-expense\\|def recategorize\" /home/adamsl/letta-code/dashboard/server.py | head -20"
   },
   {
-    "date": "2026-06-25T19:10:24",
-    "type": "Bash",
-    "text": "timeout 40 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 '\ncd ~/rol_finances\necho \"=== remote? ===\"; git remote -v 2>&1 | head -2\necho \"=== ahead/behind ===\"; git status -sb 2>&1 | head"
-  },
-  {
-    "date": "2026-06-25T19:10:50",
-    "type": "Bash",
-    "text": "timeout 50 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 '\nfor v in ~/so/bin/python ~/so/bin/python3 ~/.venv/bin/python3 ~/rol_finances/tools/self_improving_agent/.venv/bin/python /usr/"
-  },
-  {
-    "date": "2026-06-25T19:11:48",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/mazda_scan_classify_fails_duplicate_work_2026_06_25.md"
-  },
-  {
-    "date": "2026-06-25T19:12:04",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-06-25T19:12:21",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/notes_plans_handoffs/mazda_intake_training_handoff.md"
-  },
-  {
-    "date": "2026-06-25T20:06:11",
-    "type": "Bash",
-    "text": "timeout 50 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 '\necho \"=== candidate scan images / receipts ===\"\nls -la ~/planner/nonprofit_finance_db/receipt_scanning_tools/scan*.jpg 2>/dev/"
-  },
-  {
-    "date": "2026-06-25T20:06:55",
-    "type": "Bash",
-    "text": "cat > /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/send_mazda.py <<'PYEOF'\nimport urllib.request, json, time\nAID = \"agent-6b536cf4-ec88-4290-b595-fed21d14bd"
-  },
-  {
-    "date": "2026-06-25T20:07:19",
-    "type": "Bash",
-    "text": "cat > /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/check_new_trace.py <<'PYEOF'\nimport sqlite3\nc = sqlite3.connect(\"/home/adamsl/.mazda/self_improvement.sql"
-  },
-  {
-    "date": "2026-06-25T20:07:35",
-    "type": "Bash",
-    "text": "cat > /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/tail_mazda.py <<'PYEOF'\nimport urllib.request, json\nAID = \"agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\"\nur"
-  },
-  {
-    "date": "2026-06-25T20:08:17",
-    "type": "Bash",
-    "text": "timeout 50 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 '\necho \"=== (1) host file HAS my patch? ===\"\ngrep -c \"or rol_finances/.env\\|_resolve_api_key\" ~/rol_finances/tools/classify_scan"
-  },
-  {
-    "date": "2026-06-25T20:09:04",
-    "type": "Bash",
-    "text": "timeout 30 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 '\necho \"=== executor run endpoint(s) ===\"; grep -nE \"@app\\.(post|get)|def (run|exec|claude|health)|EXECUTOR_TOKEN|Authorization|"
-  },
-  {
-    "date": "2026-06-25T20:09:28",
-    "type": "Bash",
-    "text": "cat > /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/diag_container.py <<'PYEOF'\nimport urllib.request, json\nTOKEN = \"frita-win10-exec-7b3c1f9a8d2e4f60\"\ncmd ="
-  },
-  {
-    "date": "2026-06-25T20:09:40",
-    "type": "Bash",
-    "text": "timeout 25 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 '\necho \"=== RunRequest model ===\"; grep -n \"class RunRequest\\|class RunResponse\" ~/server_tools/executor_server.py\nsed -n \"/clas"
-  },
-  {
-    "date": "2026-06-25T20:10:44",
-    "type": "Bash",
-    "text": "cat > /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/diag2.py <<'PYEOF'\nimport urllib.request, json\nTOKEN = \"frita-win10-exec-7b3c1f9a8d2e4f60\"\npy = (\n  \"impo"
-  },
-  {
-    "date": "2026-06-25T20:11:24",
-    "type": "Bash",
-    "text": "echo \"=== local executor on THIS (dev) box? ===\"; curl -s -m4 http://localhost:8787/health 2>&1 | head -c 200; echo\nss -ltnp 2>/dev/null | grep -E \":8787|:8789\" | head\necho \"=== executor_run tool targ"
-  },
-  {
-    "date": "2026-06-25T20:11:51",
-    "type": "Bash",
-    "text": "echo \"=== dev box classify_scan.py: patched? .env present? ===\"\ngrep -c \"or rol_finances/.env\\|_resolve_api_key\" ~/rol_finances/tools/classify_scan.py 2>&1\nls -la ~/rol_finances/.env 2>&1 | head -1\nec"
-  },
-  {
-    "date": "2026-06-25T20:12:19",
-    "type": "Bash",
-    "text": "cd ~/rol_finances\necho \"=== fetch + checkout patched classify_scan.py from origin (320bfe3) ===\"\ngit fetch origin --quiet 2>&1 | head\ngit checkout origin/main -- tools/classify_scan.py 2>&1 | head\nech"
-  },
-  {
-    "date": "2026-06-25T20:12:41",
-    "type": "Bash",
-    "text": "cd ~/rol_finances\nIMG=\"readable_documents/receipts/march/march_31/walgreens_03_31_25_6_53.jpg\"\necho \"=== image present on dev box? ===\"; ls -la \"$IMG\" 2>&1 | head -1\necho \"=== which python has genai? "
-  },
-  {
-    "date": "2026-06-25T20:13:06",
-    "type": "Bash",
-    "text": "cd ~/rol_finances && timeout 90 env -i PATH=/usr/bin:/bin HOME=/home/adamsl /usr/bin/python3 tools/classify_scan.py readable_documents/receipts/march/march_31/walgreens_03_31_25_6_53.jpg 2>&1 | head -"
-  },
-  {
-    "date": "2026-06-25T20:13:38",
-    "type": "Bash",
-    "text": "timeout 200 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 -' < /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/send_mazda.py 2>&1 | hea"
-  },
-  {
-    "date": "2026-06-25T20:13:56",
-    "type": "Bash",
-    "text": "timeout 30 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 -' < /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/tail_mazda.py 2>&1 | tail"
-  },
-  {
-    "date": "2026-06-25T20:14:57",
-    "type": "Bash",
-    "text": "cat > /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/nudge.py <<'PYEOF'\nimport urllib.request, json, sys\nAID = \"agent-6b536cf4-ec88-4290-b595-fed21d14bd8e\"\ntx"
-  },
-  {
-    "date": "2026-06-25T20:15:45",
-    "type": "Bash",
-    "text": "echo \"### nudge -> finish + record_trace ###\"\ntimeout 200 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 - \"Good, parse succeeded. Now call record_trace with the successful outc"
-  },
-  {
-    "date": "2026-06-25T20:16:32",
-    "type": "Bash",
-    "text": "echo \"### Mazda runs classify step explicitly ###\"\ntimeout 200 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 - \"Run ONLY this command via executor_run and show me the raw resul"
-  },
-  {
-    "date": "2026-06-25T20:17:04",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/mazda_scan_classify_fails_duplicate_work_2026_06_25.md"
-  },
-  {
-    "date": "2026-06-25T20:17:17",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-06-25T20:17:36",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/notes_plans_handoffs/mazda_intake_training_handoff.md"
-  },
-  {
-    "date": "2026-06-25T20:20:05",
-    "type": "Bash",
-    "text": "echo \"########## letta-code (this repo) ##########\"\ncd ~/letta-code\ngit remote -v | head -1\ngit status -sb | head -20\necho \"--- diff stat of the pre-existing tracked mods ---\"\ngit diff --stat AGENTS.m"
-  },
-  {
-    "date": "2026-06-25T20:21:06",
-    "type": "Bash",
-    "text": "cd ~/letta-code\necho \"===== AGENTS.md diff =====\"; git diff AGENTS.md | head -30\necho \"===== CLAUDE.md diff =====\"; git diff CLAUDE.md | head -30"
-  },
-  {
-    "date": "2026-06-25T20:21:59",
-    "type": "Bash",
-    "text": "cd ~/letta-code\necho \"===== letta-code: commit my handoff doc =====\"\ngit commit -o notes_plans_handoffs/mazda_intake_training_handoff.md -m \"docs(mazda): handoff \u2014 Gemini key fix verified; executor "
-  },
-  {
-    "date": "2026-06-25T20:22:12",
-    "type": "Bash",
-    "text": "cd ~/letta-code\necho \"=== current HEAD + status ===\"\ngit log --oneline -2 | head\ngit status -sb | head -10\necho \"=== any leftover lint-staged stash? ===\"\ngit stash list | head"
-  },
-  {
-    "date": "2026-06-25T20:22:42",
-    "type": "Bash",
-    "text": "cd ~/letta-code\necho \"=== working tree changes intact? (should show Rosemary46 additions) ===\"\ngit diff AGENTS.md | grep -c \"Rosemary46 WSL Tailscale\"\ngit diff CLAUDE.md | grep -c \"Rosemary46 WSL Tail"
-  },
-  {
-    "date": "2026-06-25T20:23:13",
-    "type": "Bash",
-    "text": "cd ~/letta-code\ngit stash drop stash@{0} 2>&1 | head -1\necho \"=== re-commit the 3 files (full hook output) ===\"\ngit add AGENTS.md CLAUDE.md dashboard/claude_toolcalls.json\ngit commit -m \"chore: sync w"
-  },
-  {
-    "date": "2026-06-25T20:23:30",
-    "type": "Bash",
-    "text": "cd ~/letta-code\necho \"=== push letta-code ===\"\ngit push origin main 2>&1 | tail -2\ngit stash list | head -2 || true\necho\necho \"=== rol_finances (dev box): fast-forward HEAD to origin/main (my classify"
-  },
-  {
-    "date": "2026-06-25T20:23:52",
-    "type": "Bash",
-    "text": "echo \"=== letta-code: leftover stash? working tree ===\"\ngit -C ~/letta-code stash list | head -2 ; echo \"(empty above = clean)\"\ngit -C ~/letta-code status -sb | head -3\necho\necho \"=== Win10 rol_financ"
-  },
-  {
-    "date": "2026-06-25T20:26:05",
-    "type": "Bash",
-    "text": "echo \"=== dashboard log baseline (byte offset to read from after you scan) ===\"\nBASE=$(wc -c < /tmp/dashboard_8765.log 2>/dev/null || echo 0); echo \"DASHBOARD_LOG_BYTES=$BASE\"\necho \"$BASE\" > /tmp/clau"
-  },
-  {
-    "date": "2026-06-25T20:37:34",
-    "type": "Bash",
-    "text": "BASE=$(cat /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/dash_base.txt)\necho \"=== NEW dashboard log lines since baseline (byte $BASE) ===\"\ntail -c +$((BASE+1"
-  },
-  {
-    "date": "2026-06-25T20:38:02",
-    "type": "Bash",
-    "text": "echo \"=== Mazda recent transcript (did she get the scan + run classify?) ===\"\ntimeout 30 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 -' < /tmp/claude-1000/-home-adamsl-letta-"
-  },
-  {
-    "date": "2026-06-25T20:40:08",
-    "type": "Bash",
-    "text": "ls /home/adamsl/letta-code/dashboard/"
-  },
-  {
-    "date": "2026-06-25T20:40:08",
-    "type": "Bash",
-    "text": "ls /home/adamsl/rol_finances/readable_documents/bank_statements/ | head -30"
-  },
-  {
-    "date": "2026-06-25T20:40:15",
-    "type": "Bash",
-    "text": "ls /home/adamsl/rol_finances/readable_documents/bank_statements/essential_checking_5938/ 2>/dev/null || echo \"Directory not found or empty\""
-  },
-  {
-    "date": "2026-06-25T20:40:15",
-    "type": "Bash",
-    "text": "ls /home/adamsl/letta-code/dashboard/scanner_scripts/ 2>/dev/null"
-  },
-  {
-    "date": "2026-06-25T20:40:24",
-    "type": "Bash",
-    "text": "grep -n \"process-document\\|process_document\\|scanner\\|Scanner\\|scan\" /home/adamsl/letta-code/dashboard/server.py | head -50"
-  },
-  {
-    "date": "2026-06-25T20:40:25",
-    "type": "Bash",
-    "text": "grep -n \"Scanner\\|scan\\|process.document\\|PDF 1\\|Bank 5938\" /home/adamsl/letta-code/dashboard/js/implementation/*.js 2>/dev/null | head -40"
-  },
-  {
-    "date": "2026-06-25T20:40:33",
-    "type": "Bash",
-    "text": "grep -n \"process.document\\|process_document\" /home/adamsl/letta-code/dashboard/server.py | head -30"
-  },
-  {
-    "date": "2026-06-25T20:40:37",
+    "date": "2026-06-26T00:37:03",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-06-25T20:40:37",
+    "date": "2026-06-26T00:37:11",
+    "type": "Bash",
+    "text": "grep -n \"_update_report_row_color\" /home/adamsl/letta-code/dashboard/server.py | head -5"
+  },
+  {
+    "date": "2026-06-26T00:37:13",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-06-25T20:40:51",
-    "type": "Bash",
-    "text": "ls /home/adamsl/rol_finances/tools/"
-  },
-  {
-    "date": "2026-06-25T20:40:51",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-25T20:41:00",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/mazda_intake.py"
-  },
-  {
-    "date": "2026-06-25T20:41:23",
-    "type": "Bash",
-    "text": "grep -n \"pdf\\|PDF\\|file.*path\\|process.*file\" /home/adamsl/letta-code/dashboard/js/implementation/*.js 2>/dev/null | grep -v \"\\.js.map\" | head -40"
-  },
-  {
-    "date": "2026-06-25T20:41:24",
-    "type": "Bash",
-    "text": "grep -n \"Bank 5938\\|bank.5938\\|5938\\|february\\|February\\|month.*bank\\|bank.*month\" /home/adamsl/letta-code/dashboard/dashboard.html 2>/dev/null | head -20"
-  },
-  {
-    "date": "2026-06-25T20:41:27",
-    "type": "Bash",
-    "text": "grep -rn \"Bank 5938\\|bank.5938\\|5938\\|ROL Finance\\|rol_finance\" /home/adamsl/letta-code/dashboard/dashboard.html 2>/dev/null | head -20"
-  },
-  {
-    "date": "2026-06-25T20:41:28",
-    "type": "Bash",
-    "text": "grep -n \"Scanners\\|scanner\\|scan\" /home/adamsl/letta-code/dashboard/dashboard.html | head -30"
-  },
-  {
-    "date": "2026-06-25T20:41:49",
-    "type": "Bash",
-    "text": "grep -n \"_notify_mazda_of_scan\\|notify_mazda\\|MAZDA\" /home/adamsl/letta-code/dashboard/server.py | head -30"
-  },
-  {
-    "date": "2026-06-25T20:41:53",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-25T20:42:41",
-    "type": "Bash",
-    "text": "grep -n \"setupScanners\\|scanner\\|process-document\\|DocumentPipeline\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -40"
-  },
-  {
-    "date": "2026-06-25T20:42:41",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/document-pipeline-controller.js"
-  },
-  {
-    "date": "2026-06-25T20:43:27",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-25T20:43:28",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-25T20:43:34",
-    "type": "Bash",
-    "text": "grep -n \"pipelineCtrl\\|DomDocumentPipelineView\\|DocumentPipelineController\\|processBtn\\|process\\b\\|setReady\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -40"
-  },
-  {
-    "date": "2026-06-25T20:43:37",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-25T20:43:46",
-    "type": "Bash",
-    "text": "ls /home/adamsl/letta-code/dashboard/js/tests/ | grep -i \"pipeline\\|pdf\\|document\""
-  },
-  {
-    "date": "2026-06-25T20:43:46",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/dom-document-pipeline-view.js"
-  },
-  {
-    "date": "2026-06-25T20:43:51",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/document-pipeline-controller.test.js"
-  },
-  {
-    "date": "2026-06-25T20:44:27",
-    "type": "Bash",
-    "text": "grep -n \"startup-panel\\|scanner-panel\\|pdf-path\\|am-btn\\|scanner-result\" /home/adamsl/letta-code/dashboard/css/dashboard.css | head -30"
-  },
-  {
-    "date": "2026-06-25T20:44:31",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
-  },
-  {
-    "date": "2026-06-25T20:44:36",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
-  },
-  {
-    "date": "2026-06-25T20:44:57",
-    "type": "Bash",
-    "text": "grep -n \"setupScanners\\|stopAllScanner\\|DOMContentLoaded\\|window.addEventListener\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | tail -20"
-  },
-  {
-    "date": "2026-06-25T20:44:57",
-    "type": "Bash",
-    "text": "tail -60 /home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-25T20:45:21",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-06-25T20:45:22",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-25T20:45:26",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-25T20:45:52",
+    "date": "2026-06-26T00:37:33",
     "type": "Edit",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-06-25T20:46:01",
+    "date": "2026-06-26T00:37:37",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -x -q 2>&1 | tail -5"
+  },
+  {
+    "date": "2026-06-26T00:37:44",
+    "type": "Bash",
+    "text": "systemctl --user restart dashboard-server.service && sleep 1 && curl -s -X POST http://localhost:8765/api/recategorize-expense \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"date\":\"2025-01-22\",\"sig"
+  },
+  {
+    "date": "2026-06-26T00:38:11",
+    "type": "Bash",
+    "text": "grep -n \"REPORTING_CATEGORY_CLASS\\|REPORTING_CATEGORY_DB_MAP\\|cat-robert\\|cat-rosemary\\|staff-benefits\" /home/adamsl/letta-code/dashboard/server.py | head -40"
+  },
+  {
+    "date": "2026-06-26T00:38:17",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T00:38:29",
+    "type": "Bash",
+    "text": "grep -n \"_report_file_for_url\\|_split_report_url\\|ROL_FINANCES_REPORTS_BASE\" /home/adamsl/letta-code/dashboard/server.py | head -20"
+  },
+  {
+    "date": "2026-06-26T00:38:33",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T00:38:36",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T00:38:45",
+    "type": "Bash",
+    "text": "grep -n \"ROL_FINANCES_REPORTS_MONTHS\\|ROL_FINANCES_REPORTS_PARENT\\|_rol_reports_base_dir\" /home/adamsl/letta-code/dashboard/server.py | head -20"
+  },
+  {
+    "date": "2026-06-26T00:38:48",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T00:39:04",
+    "type": "Bash",
+    "text": "grep -n \"rol_finances_reports\\|rol-finance-report\\|openMonth\\|iframe\" /home/adamsl/letta-code/dashboard/js/implementation/RolFinanceController.js 2>/dev/null | head -30; find /home/adamsl/letta-code/d"
+  },
+  {
+    "date": "2026-06-26T00:39:08",
+    "type": "Bash",
+    "text": "grep -n \"rol_finances_reports\\|iframe\\|openMonth\\|month_key\\|jan-2025\\|january\" /home/adamsl/letta-code/dashboard/js/implementation/rol-finance-reports-controller.js | head -30"
+  },
+  {
+    "date": "2026-06-26T00:39:13",
+    "type": "Bash",
+    "text": "grep -n \"url\\|r\\.url\\|month\\|/rol_finances_reports\" /home/adamsl/letta-code/dashboard/js/implementation/rol-finance-reports-controller.js | head -30"
+  },
+  {
+    "date": "2026-06-26T00:39:18",
+    "type": "Bash",
+    "text": "grep -n \"\\/rol_finances_reports\\|r\\.url\\|report\\.url\\|url:\" /home/adamsl/letta-code/dashboard/js/implementation/rol-finance-reports-controller.js | head -20"
+  },
+  {
+    "date": "2026-06-26T00:39:21",
+    "type": "Bash",
+    "text": "grep -n \"url\\|rol_finances_reports\" /home/adamsl/letta-code/dashboard/server.py | grep -i \"report_url\\|'/rol_finances_reports\\|url.*rol_finances\\|r\\[.url.\\]\" | head -20"
+  },
+  {
+    "date": "2026-06-26T00:39:29",
+    "type": "Bash",
+    "text": "grep -n \"rol_finances_reports\\|/rol_finances_reports\" /home/adamsl/letta-code/dashboard/server.py | grep -v \"^[0-9]*:.*#\\|ROL_FINANCES_REPORTS_URL_PREFIX\\|ROL_FINANCES_REPORTS_BASE\\|ROL_FINANCES_REPOR"
+  },
+  {
+    "date": "2026-06-26T00:39:33",
+    "type": "Bash",
+    "text": "grep -n \"ROL_FINANCES_REPORTS_URL_PREFIX\\|'/rol_finances_reports'\" /home/adamsl/letta-code/dashboard/server.py | grep -v \"^[0-9]*:.*#\" | head -15"
+  },
+  {
+    "date": "2026-06-26T00:39:36",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T00:39:46",
+    "type": "Bash",
+    "text": "curl -s -X POST http://localhost:8765/api/recategorize-expense \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"date\":\"2025-01-22\",\"signed_amount\":\"-225.00\",\"vendor_key\":\"trinity_health\",\"description"
+  },
+  {
+    "date": "2026-06-26T00:39:54",
+    "type": "Bash",
+    "text": "grep \"trinity_health.*01-22\\|2025-01-22.*trinity\" /home/adamsl/rol_finances/readable_documents/bank_statements/january/diners_0587_whole_year_2025/report.html | head -3"
+  },
+  {
+    "date": "2026-06-26T00:50:42",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T00:50:49",
     "type": "Edit",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-06-25T20:46:08",
+    "date": "2026-06-26T00:50:54",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -x -q 2>&1 | tail -5"
+  },
+  {
+    "date": "2026-06-26T00:51:05",
+    "type": "Bash",
+    "text": "systemctl --user restart dashboard-server.service && sleep 1 && curl -s -X POST http://localhost:8765/api/recategorize-expense \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"date\":\"2025-04-04\",\"sig"
+  },
+  {
+    "date": "2026-06-26T00:51:08",
+    "type": "Bash",
+    "text": "grep \"APPLEBEES\\|2025-04-04\" /home/adamsl/rol_finances/readable_documents/bank_statements/january/diners_0587_whole_year_2025/report.html | head -2"
+  },
+  {
+    "date": "2026-06-26T00:52:02",
+    "type": "Bash",
+    "text": "grep 'data-vendor-key=\"unresolved\".*APPLEBEES\\|APPLEBEES.*data-vendor-key' /home/adamsl/rol_finances/readable_documents/bank_statements/january/diners_0587_whole_year_2025/report.html"
+  },
+  {
+    "date": "2026-06-26T00:53:21",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T00:53:29",
     "type": "Edit",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-06-25T20:46:16",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/document-pipeline-controller.js"
-  },
-  {
-    "date": "2026-06-25T20:46:25",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/document-pipeline-controller.js"
-  },
-  {
-    "date": "2026-06-25T20:46:35",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-25T20:46:44",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-06-25T20:46:50",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
-  },
-  {
-    "date": "2026-06-25T20:46:58",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
-  },
-  {
-    "date": "2026-06-25T20:47:02",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-25T20:47:06",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-25T20:47:12",
+    "date": "2026-06-26T00:53:34",
     "type": "Bash",
-    "text": "grep -n \"buildProcess\\|document-pipeline\" /home/adamsl/letta-code/dashboard/js/implementation/index.js"
+    "text": ".venv/bin/python -m pytest tests/test_server.py -x -q 2>&1 | tail -5"
   },
   {
-    "date": "2026-06-25T20:47:19",
+    "date": "2026-06-26T00:53:42",
+    "type": "Bash",
+    "text": "systemctl --user restart dashboard-server.service && sleep 1 && curl -s -X POST http://localhost:8765/api/recategorize-expense \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"date\":\"2025-12-22\",\"sig"
+  },
+  {
+    "date": "2026-06-26T00:53:45",
+    "type": "Bash",
+    "text": "grep \"BESTSIDE\\|APPLEBEES\" /home/adamsl/rol_finances/readable_documents/bank_statements/january/diners_0587_whole_year_2025/report.html | grep \"data-vendor-key\""
+  },
+  {
+    "date": "2026-06-26T00:54:13",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T00:54:20",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -x -q 2>&1 | tail -5"
+  },
+  {
+    "date": "2026-06-26T00:54:32",
+    "type": "Bash",
+    "text": "python3 - <<'EOF'\nimport re\n\nfp = '/home/adamsl/rol_finances/readable_documents/bank_statements/january/diners_0587_whole_year_2025/report.html'\nhtml = open(fp, encoding='utf-8').read()\n\n# Fix 1: remo"
+  },
+  {
+    "date": "2026-06-26T00:54:36",
+    "type": "Bash",
+    "text": "grep \"BESTSIDE\\|APPLEBEES\" /home/adamsl/rol_finances/readable_documents/bank_statements/january/diners_0587_whole_year_2025/report.html | grep \"data-vendor-key\""
+  },
+  {
+    "date": "2026-06-26T00:54:45",
+    "type": "Bash",
+    "text": "systemctl --user restart dashboard-server.service && sleep 1 && curl -s -X POST http://localhost:8765/api/recategorize-expense \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"date\":\"2025-12-26\",\"sig"
+  },
+  {
+    "date": "2026-06-26T00:54:50",
+    "type": "Bash",
+    "text": "grep \"DENNY\" /home/adamsl/rol_finances/readable_documents/bank_statements/january/diners_0587_whole_year_2025/report.html | grep \"data-vendor-key\""
+  },
+  {
+    "date": "2026-06-26T14:00:42",
+    "type": "Bash",
+    "text": "grep -n \"def test.*recategorize\\|def test.*report_row\\|def test.*update_report\\|def test.*category\" /home/adamsl/letta-code/dashboard/tests/test_server.py | head -20"
+  },
+  {
+    "date": "2026-06-26T14:00:42",
+    "type": "Bash",
+    "text": "grep -n \"^class \\|^def test_\" /home/adamsl/letta-code/dashboard/tests/test_server.py | head -50"
+  },
+  {
+    "date": "2026-06-26T14:02:49",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/index.js"
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
   },
   {
-    "date": "2026-06-25T20:47:32",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/index.js"
+    "date": "2026-06-26T14:02:50",
+    "type": "Bash",
+    "text": "grep -n \"_update_report_row_color\\|recategorize_expense\\|receipts_present\\|_matching_expense\" /home/adamsl/letta-code/dashboard/server.py | head -30"
   },
   {
-    "date": "2026-06-25T20:47:41",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-06-25T20:47:53",
+    "date": "2026-06-26T14:02:54",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-06-25T20:48:02",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
+    "date": "2026-06-26T14:03:00",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
   },
   {
-    "date": "2026-06-25T20:48:09",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/document-pipeline-controller.test.js"
+    "date": "2026-06-26T14:03:00",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-06-25T20:48:18",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/document-pipeline-controller.test.js"
-  },
-  {
-    "date": "2026-06-25T20:48:38",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/document-pipeline-controller.test.js"
-  },
-  {
-    "date": "2026-06-25T20:48:45",
+    "date": "2026-06-26T14:03:07",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && bun test js/tests/document-pipeline-controller.test.js 2>&1"
+    "text": "grep -n \"REPORTING_CATEGORY_CLASS\\|REPORTING_CATEGORY_DB_MAP\\|RECEIPT_ONLY_REPORT_PATH\\|_report_file_for_url\\|ROL_FINANCES_REPORTS_MONTHS\" /home/adamsl/letta-code/dashboard/server.py | head -20"
   },
   {
-    "date": "2026-06-25T20:48:49",
+    "date": "2026-06-26T14:03:12",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T14:03:17",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T14:04:26",
     "type": "Bash",
-    "text": "bun test js/tests 2>&1 | tail -10"
+    "text": "grep -n \"_norm_amount\\|def _select_matching_expense\" /home/adamsl/letta-code/dashboard/server.py | head -10"
   },
   {
-    "date": "2026-06-25T20:48:51",
+    "date": "2026-06-26T14:04:30",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-06-26T14:05:29",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-06-26T14:05:32",
     "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/test_server.py -x -q 2>&1 | tail -15"
+    "text": "wc -l /home/adamsl/letta-code/dashboard/tests/test_server.py"
   },
   {
-    "date": "2026-06-25T20:48:57",
+    "date": "2026-06-26T14:05:36",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-06-26T14:06:09",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-06-26T14:06:13",
     "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 2 && systemctl --user is-active dashboard-server.service"
+    "text": "python -m pytest tests/test_server.py -k \"update_report_row_color or bank_only or posting_date_offset\" -v 2>&1 | tail -30"
   },
   {
-    "date": "2026-06-25T20:49:02",
+    "date": "2026-06-26T14:06:17",
+    "type": "Bash",
+    "text": "python3 -m pytest tests/test_server.py -k \"update_report_row_color or bank_only or posting_date_offset\" -v 2>&1 | tail -35"
+  },
+  {
+    "date": "2026-06-26T14:06:21",
+    "type": "Bash",
+    "text": "bun run -e 'import {execSync} from \"child_process\"; execSync(\"python3 -m pytest\", {stdio:\"inherit\"})' 2>&1 | head -5; ls tests/; which pytest 2>/dev/null || which py.test 2>/dev/null || pip3 show pyte"
+  },
+  {
+    "date": "2026-06-26T14:06:25",
+    "type": "Bash",
+    "text": "python3 -c \"import sys; sys.path.insert(0, '.'); import pytest\" 2>&1; ls /home/adamsl/letta-code/dashboard/"
+  },
+  {
+    "date": "2026-06-26T14:06:28",
+    "type": "Bash",
+    "text": "cat /home/adamsl/letta-code/dashboard/requirements-dev.txt"
+  },
+  {
+    "date": "2026-06-26T14:06:34",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -k \"update_report_row_color or bank_only or posting_date_offset\" -v 2>&1"
+  },
+  {
+    "date": "2026-06-26T14:06:38",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -q 2>&1 | tail -5"
+  },
+  {
+    "date": "2026-06-26T14:06:57",
+    "type": "Bash",
+    "text": "find /home/adamsl/rpi-rgb-led-matrix -type f -name \"*.cpp\" -o -name \"*.h\" | grep -E \"(run_wilson|rotation)\" | head -20"
+  },
+  {
+    "date": "2026-06-26T14:07:00",
+    "type": "Bash",
+    "text": "grep -r \"rotation\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp --include=\"*.cpp\" --include=\"*.h\" -l | head -15"
+  },
+  {
+    "date": "2026-06-26T14:07:03",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/run_wilson.cpp"
+  },
+  {
+    "date": "2026-06-26T14:07:10",
+    "type": "Bash",
+    "text": "ls -la /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/PanelRotationConfig/"
+  },
+  {
+    "date": "2026-06-26T14:07:13",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/PanelRotationConfig/PanelRotationConfig.h"
+  },
+  {
+    "date": "2026-06-26T14:07:16",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/PanelRotationConfig/PanelRotationConfig.cpp"
+  },
+  {
+    "date": "2026-06-26T14:07:23",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/RotatePanelsScreenState/RotatePanelsScreenState.cpp"
+  },
+  {
+    "date": "2026-06-26T14:07:27",
+    "type": "Bash",
+    "text": "find /home/adamsl/rpi-rgb-led-matrix -type f -name \"pixel-mapper.cc\" | head -1"
+  },
+  {
+    "date": "2026-06-26T14:07:31",
+    "type": "Bash",
+    "text": "grep -A 30 \"364-Mapper\" /home/adamsl/rpi-rgb-led-matrix/lib/pixel-mapper.cc | head -50"
+  },
+  {
+    "date": "2026-06-26T14:08:32",
+    "type": "Write",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/screen_rotation_logic.html\n\u2192 <!DOCTYPE html> <html lang=\"en\"> <head>     <meta charset=\"UTF-8\">     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">     <title>run_wilson 90\u00b0 Screen Rotation Logic</title>  "
+  },
+  {
+    "date": "2026-06-26T14:35:16",
+    "type": "Read",
+    "text": "/home/adamsl/start_suzuki/largo_garage/wilson_rotations/fix_non_rotation_errors_and_tests/instructions.txt"
+  },
+  {
+    "date": "2026-06-26T14:35:16",
+    "type": "Read",
+    "text": "/home/adamsl/start_suzuki/largo_garage/wilson_rotations/fix_non_rotation_errors_and_tests/image_context/best_of_3_vertical.jpg"
+  },
+  {
+    "date": "2026-06-26T14:37:29",
+    "type": "Read",
+    "text": "/home/adamsl/start_suzuki/largo_garage/wilson_rotations/fix_non_rotation_errors_and_tests/image_context/first_server_vertical.jpg"
+  },
+  {
+    "date": "2026-06-26T14:37:29",
+    "type": "Read",
+    "text": "/home/adamsl/start_suzuki/largo_garage/wilson_rotations/fix_non_rotation_errors_and_tests/image_context/pickleball_doubles_or_singles_vertical.jpg"
+  },
+  {
+    "date": "2026-06-26T14:37:30",
+    "type": "Read",
+    "text": "/home/adamsl/start_suzuki/largo_garage/wilson_rotations/screen_rotation_logic.html"
+  },
+  {
+    "date": "2026-06-26T14:37:42",
+    "type": "Bash",
+    "text": "ls /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/tests/ | grep -E \"renderer|menu|first_server\" | head -30"
+  },
+  {
+    "date": "2026-06-26T14:37:43",
+    "type": "Bash",
+    "text": "grep -n \"run_menu_screen_renderer_tests\\|run_first_server_screen_renderer_tests\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile | head -30"
+  },
+  {
+    "date": "2026-06-26T14:37:49",
+    "type": "Bash",
+    "text": "grep -n \"MENU_SCREEN_RENDERER_TEST_SRCS\\|FIRST_SERVER_SCREEN_RENDERER_TEST_SRCS\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile | head -20"
+  },
+  {
+    "date": "2026-06-26T14:37:50",
+    "type": "Bash",
+    "text": "ls /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/tests/ | grep -E \"menu|first_server|renderer\" | head -20"
+  },
+  {
+    "date": "2026-06-26T14:37:54",
+    "type": "Bash",
+    "text": "ls /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/MenuScreenRenderer/ && ls /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/FirstServerScreenRenderer/"
+  },
+  {
+    "date": "2026-06-26T14:38:00",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/MenuScreenRenderer/MenuScreenRenderer.h"
+  },
+  {
+    "date": "2026-06-26T14:38:00",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/MenuScreenRenderer/MenuScreenRendererTest.cpp"
+  },
+  {
+    "date": "2026-06-26T14:38:14",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/FirstServerScreenRenderer/FirstServerScreenRendererTest.cpp"
+  },
+  {
+    "date": "2026-06-26T14:38:16",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/run_menu_screen_renderer_tests 2>/dev/null | head -5 || echo \"script file, checking...\"\nfile /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/run_menu_screen_r"
+  },
+  {
+    "date": "2026-06-26T14:38:27",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/MenuScreenRenderer/MenuScreenRenderer.cpp"
+  },
+  {
+    "date": "2026-06-26T14:39:50",
+    "type": "Bash",
+    "text": "git log --oneline -15"
+  },
+  {
+    "date": "2026-06-26T14:39:51",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/FirstServerScreenRenderer/FirstServerScreenRenderer.cpp"
+  },
+  {
+    "date": "2026-06-26T14:41:49",
+    "type": "Bash",
+    "text": "git log --oneline --follow FirstServerScreenRenderer/FirstServerScreenRenderer.cpp | head -10"
+  },
+  {
+    "date": "2026-06-26T14:41:49",
+    "type": "Bash",
+    "text": "git show 9d5944d5 --stat | head -20"
+  },
+  {
+    "date": "2026-06-26T14:41:55",
+    "type": "Bash",
+    "text": "git diff HEAD~4 HEAD -- FirstServerScreenRenderer/FirstServerScreenRenderer.cpp | head -100"
+  },
+  {
+    "date": "2026-06-26T14:41:56",
+    "type": "Bash",
+    "text": "git show 9d5944d5 -- FirstServerScreenRenderer/FirstServerScreenRenderer.cpp | grep \"^[-+]\" | head -60"
+  },
+  {
+    "date": "2026-06-26T14:43:10",
+    "type": "Bash",
+    "text": "git diff HEAD~6 HEAD -- MenuScreenRenderer/MenuScreenRenderer.cpp | grep \"^[-+]\" | grep -v \"^---\\|^+++\" | head -60"
+  },
+  {
+    "date": "2026-06-26T14:47:10",
+    "type": "Bash",
+    "text": "git diff HEAD~6 HEAD -- MenuScreenRenderer/MenuScreenRenderer.cpp | grep \"^[-+]\" | grep -v \"^---\\|^+++\" | tail -80"
+  },
+  {
+    "date": "2026-06-26T14:47:11",
+    "type": "Bash",
+    "text": "ls /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/tests/ | head -30"
+  },
+  {
+    "date": "2026-06-26T14:48:41",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile"
+  },
+  {
+    "date": "2026-06-26T14:49:34",
+    "type": "Bash",
+    "text": "mkdir -p /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/tests/golden"
+  },
+  {
+    "date": "2026-06-26T14:49:46",
+    "type": "Write",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/tests/PixelSnapshot.h\n\u2192 #pragma once // tests/PixelSnapshot.h // // Utility for pixel-snapshot (golden-file) testing of HUB75 screen layouts. // // Usage in tests: //   SimCanvas canvas(64, 128); //   // ... render to canvas"
+  },
+  {
+    "date": "2026-06-26T14:50:00",
+    "type": "Write",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/tests/PixelSnapshot.cpp\n\u2192 // tests/PixelSnapshot.cpp #include \"PixelSnapshot.h\"  #include <cstdlib> #include <cstring> #include <fstream> #include <iostream> #include <vector>  namespace PixelSnapshot {  bool matchesGolden(con"
+  },
+  {
+    "date": "2026-06-26T14:50:26",
+    "type": "Write",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/tests/test_vertical_snapshot.cpp\n\u2192 // tests/test_vertical_snapshot.cpp // // Pixel snapshot (golden-file) regression tests for each HUB75 menu screen // in vertical (non-rotated) display mode. // // Each test renders a screen to a 64\u00d7"
+  },
+  {
+    "date": "2026-06-26T14:50:45",
+    "type": "Edit",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/FirstServerScreenRenderer/FirstServerScreenRendererTest.cpp"
+  },
+  {
+    "date": "2026-06-26T14:51:02",
+    "type": "Edit",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/MenuScreenRenderer/MenuScreenRendererTest.cpp"
+  },
+  {
+    "date": "2026-06-26T14:51:12",
+    "type": "Bash",
+    "text": "make run_menu_screen_renderer_tests 2>&1 | tail -25"
+  },
+  {
+    "date": "2026-06-26T14:51:15",
+    "type": "Bash",
+    "text": "make run_first_server_screen_renderer_tests 2>&1 | tail -25"
+  },
+  {
+    "date": "2026-06-26T14:51:45",
+    "type": "Edit",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/MenuScreenRenderer/MenuScreenRenderer.cpp"
+  },
+  {
+    "date": "2026-06-26T14:52:13",
+    "type": "Edit",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/FirstServerScreenRenderer/FirstServerScreenRenderer.cpp"
+  },
+  {
+    "date": "2026-06-26T14:52:22",
+    "type": "Bash",
+    "text": "make run_menu_screen_renderer_tests 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-06-26T14:52:24",
+    "type": "Bash",
+    "text": "make run_first_server_screen_renderer_tests 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-06-26T14:52:33",
+    "type": "Read",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile"
+  },
+  {
+    "date": "2026-06-26T14:52:44",
+    "type": "Edit",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile"
+  },
+  {
+    "date": "2026-06-26T14:52:52",
+    "type": "Bash",
+    "text": "grep -n \"run_first_server_screen_renderer_tests\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile | grep \"rm -f\""
+  },
+  {
+    "date": "2026-06-26T14:52:59",
+    "type": "Edit",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile"
+  },
+  {
+    "date": "2026-06-26T14:53:10",
+    "type": "Bash",
+    "text": "grep -n \"run_first_server_screen_renderer_tests\" /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile | grep \"PHONY\""
+  },
+  {
+    "date": "2026-06-26T14:53:17",
+    "type": "Edit",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/Makefile"
+  },
+  {
+    "date": "2026-06-26T14:53:28",
+    "type": "Bash",
+    "text": "make run_vertical_snapshot_tests GOLDEN_UPDATE=1 2>&1 | tail -25"
+  },
+  {
+    "date": "2026-06-26T14:53:36",
+    "type": "Bash",
+    "text": "make run_vertical_snapshot_tests 2>&1 | tail -20"
+  },
+  {
+    "date": "2026-06-26T14:53:42",
+    "type": "Bash",
+    "text": "ls -la /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/tests/golden/"
+  },
+  {
+    "date": "2026-06-26T14:53:49",
+    "type": "Bash",
+    "text": "make run_menu_screen_renderer_tests run_first_server_screen_renderer_tests 2>&1 | grep -E \"PASSED|FAILED\""
+  },
+  {
+    "date": "2026-06-26T19:33:37",
+    "type": "Bash",
+    "text": "pwd"
+  },
+  {
+    "date": "2026-06-26T19:36:09",
+    "type": "Bash",
+    "text": "find /home/adamsl -type d -name \"mazda*\" 2>/dev/null | head -20"
+  },
+  {
+    "date": "2026-06-26T19:36:23",
+    "type": "Bash",
+    "text": "find /home/adamsl -type f -name \"*.py\" | xargs grep -l \"mazda\\|Mazda\" 2>/dev/null | head -30"
+  },
+  {
+    "date": "2026-06-26T19:36:28",
+    "type": "Bash",
+    "text": "find /home/adamsl/rol_finances/tools/self_improving_agent -type f | sort"
+  },
+  {
+    "date": "2026-06-26T19:36:28",
+    "type": "Bash",
+    "text": "ls /home/adamsl/start_suzuki/ 2>/dev/null"
+  },
+  {
+    "date": "2026-06-26T19:36:32",
+    "type": "Bash",
+    "text": "ls /home/adamsl/start_suzuki/suzuki_garage/ 2>/dev/null"
+  },
+  {
+    "date": "2026-06-26T19:36:34",
+    "type": "Bash",
+    "text": "cat /tmp/claude-1000/-home-adamsl-letta-code/da1e7760-7338-42b4-af1a-25d3e0c1d03f/tool-results/b312nx04k.txt | grep -v \"__pycache__\\|\\.pyc\\|\\.pytest_cache\\|\\.gitignore\\|CACHEDIR\\|README\\|lastfailed\\|n"
+  },
+  {
+    "date": "2026-06-26T19:36:39",
+    "type": "Bash",
+    "text": "find /home/adamsl/rol_finances/tools/self_improving_agent -type f -name \"*.py\" | grep -v __pycache__ | sort"
+  },
+  {
+    "date": "2026-06-26T19:36:47",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/factories.py"
+  },
+  {
+    "date": "2026-06-26T19:36:48",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/models.py"
+  },
+  {
+    "date": "2026-06-26T19:36:54",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/mazda/contracts.py"
+  },
+  {
+    "date": "2026-06-26T19:36:54",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/runtime/runtime_family.py"
+  },
+  {
+    "date": "2026-06-26T19:36:59",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/runtime/composition_root.py"
+  },
+  {
+    "date": "2026-06-26T19:36:59",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/mazda/finance_orchestrator.py"
+  },
+  {
+    "date": "2026-06-26T19:37:06",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/external_agents/create_mazda_agent.py"
+  },
+  {
+    "date": "2026-06-26T19:37:07",
+    "type": "Bash",
+    "text": "ls /home/adamsl/rol_finances/external_agents/mazda/ | head -30"
+  },
+  {
+    "date": "2026-06-26T19:37:10",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/external_agents/create_mazda_stage_agents.py | head -80"
+  },
+  {
+    "date": "2026-06-26T19:37:11",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/external_agents/mazda/system_message.xml | head -80"
+  },
+  {
+    "date": "2026-06-26T19:38:14",
+    "type": "Bash",
+    "text": "find /home/adamsl/start_suzuki -type f | sort; cat /home/adamsl/rol_finances/tools/self_improving_agent/CLAUDE.md 2>/dev/null | head -80"
+  },
+  {
+    "date": "2026-06-26T19:38:15",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/evaluation.py"
+  },
+  {
+    "date": "2026-06-26T19:38:34",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/mazda_run_team.py"
+  },
+  {
+    "date": "2026-06-26T19:38:35",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/external_agents/letta_server.py 2>/dev/null || cat /home/adamsl/rol_finances/external_agents/letta_server.py 2>/dev/null"
+  },
+  {
+    "date": "2026-06-26T19:38:40",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/mazda/__init__.py"
+  },
+  {
+    "date": "2026-06-26T19:39:21",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/external_agents/AGENT_REGISTRY.json | head -40"
+  },
+  {
+    "date": "2026-06-26T19:39:21",
+    "type": "Bash",
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/factory.py | head -60"
+  },
+  {
+    "date": "2026-06-26T19:39:55",
     "type": "ToolSearch",
-    "text": "query: select:mcp__playwright__browser_navigate,mcp__playwright__browser_snapshot,mcp__playwright__browser_click,mcp__playwright__browser_fill_form,mcp__playwright__browser_take_screenshot"
+    "text": "query: select:TaskCreate"
   },
   {
-    "date": "2026-06-25T20:49:10",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
+    "date": "2026-06-26T19:40:06",
+    "type": "TaskCreate",
+    "text": "subject: Extract generic stage protocol to shared contracts module"
   },
   {
-    "date": "2026-06-25T20:49:16",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: button[data-target=\"rol-finance\"]"
+    "date": "2026-06-26T19:40:12",
+    "type": "TaskCreate",
+    "text": "subject: Build Suzuki agent package (contracts + debug_orchestrator)"
   },
   {
-    "date": "2026-06-25T20:49:21",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: button[data-target=\"rol-finance-scanners\"]"
+    "date": "2026-06-26T19:40:17",
+    "type": "TaskCreate",
+    "text": "subject: Build debug evaluation implementation + Suzuki composition root"
   },
   {
-    "date": "2026-06-25T20:49:29",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: button[data-target=\"scanners-pdf\"]"
+    "date": "2026-06-26T19:40:23",
+    "type": "TaskCreate",
+    "text": "subject: Create Suzuki Letta agent scripts + system message"
   },
   {
-    "date": "2026-06-25T20:49:32",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "target: #scanners-pdf"
+    "date": "2026-06-26T19:40:30",
+    "type": "TaskCreate",
+    "text": "subject: Run tests and verify nothing is broken"
   },
   {
-    "date": "2026-06-25T20:49:41",
-    "type": "mcp__playwright__browser_fill_form",
-    "text": "fields: [{\"target\":\"#pdf-file-path\",\"name\":\"File Path\",\"type\":\"textbox\",\"value\":\"/home/adamsl/rol_finances/readable_documents/bank_statements/essential_checking_5938/53 Essential Checking X5938 - 2025-02-21.pdf\"},{\"target\":\"#pdf-doc-label\",\"name\":\"Label\",\"type\":\"textbox\",\"value\":\"Bank 5938 PDF 1 \u2014 February 2025\"}]"
+    "date": "2026-06-26T19:40:33",
+    "type": "ToolSearch",
+    "text": "query: select:TaskUpdate"
   },
   {
-    "date": "2026-06-25T20:49:52",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: button.pdf-process-btn"
+    "date": "2026-06-26T19:40:39",
+    "type": "TaskUpdate",
+    "text": "taskId: 1"
   },
   {
-    "date": "2026-06-25T20:49:58",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "target: #scanners-pdf"
+    "date": "2026-06-26T19:40:53",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/stage_protocol.py\n\u2192 \"\"\"Generic stage-envelope protocol shared by all Mazda-type agent orchestrators.  Nothing in this module is finance- or debug-specific. The StageName enum, canonical stage order, and workflow runner a"
   },
   {
-    "date": "2026-06-25T20:50:29",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && .venv/bin/python3 tools/mazda_intake.py \"readable_documents/bank_statements/essential_checking_5938/53 Essential Checking X5938 - 2025-02-21.pdf\" --enable-parse 2>/dev/"
-  },
-  {
-    "date": "2026-06-25T20:50:46",
+    "date": "2026-06-26T19:41:00",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/mazda/finance_orchestrator.py"
   },
   {
-    "date": "2026-06-25T20:50:53",
+    "date": "2026-06-26T19:41:06",
     "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/mazda/finance_orchestrator.py"
   },
   {
-    "date": "2026-06-25T20:51:00",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && .venv/bin/python -m pytest tests/test_server.py -x -q 2>&1 | tail -5"
+    "date": "2026-06-26T19:41:13",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/mazda/finance_orchestrator.py"
   },
   {
-    "date": "2026-06-25T20:51:07",
-    "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 2 && systemctl --user is-active dashboard-server.service"
-  },
-  {
-    "date": "2026-06-25T20:51:13",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-06-25T20:51:21",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: button[data-target=\"rol-finance\"]"
-  },
-  {
-    "date": "2026-06-25T20:51:29",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: button[data-target=\"rol-finance-scanners\"]"
-  },
-  {
-    "date": "2026-06-25T20:51:35",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: button[data-target=\"scanners-pdf\"]"
-  },
-  {
-    "date": "2026-06-25T20:51:43",
-    "type": "mcp__playwright__browser_fill_form",
-    "text": "fields: [{\"target\":\"#pdf-file-path\",\"name\":\"File Path\",\"type\":\"textbox\",\"value\":\"/home/adamsl/rol_finances/readable_documents/bank_statements/essential_checking_5938/53 Essential Checking X5938 - 2025-02-21.pdf\"},{\"target\":\"#pdf-doc-label\",\"name\":\"Label\",\"type\":\"textbox\",\"value\":\"Bank 5938 PDF 1 \u2014 February 2025\"}]"
-  },
-  {
-    "date": "2026-06-25T20:51:50",
-    "type": "mcp__playwright__browser_click",
-    "text": "target: button.pdf-process-btn"
-  },
-  {
-    "date": "2026-06-25T20:52:14",
-    "type": "Bash",
-    "text": "curl -s -X POST http://localhost:8765/api/process-pdf \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"file_path\": \"/home/adamsl/rol_finances/readable_documents/bank_statements/essential_checking_593"
-  },
-  {
-    "date": "2026-06-25T20:52:32",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "target: #scanners-pdf .scanner-result"
-  },
-  {
-    "date": "2026-06-25T21:05:06",
-    "type": "Bash",
-    "text": "echo \"### nudge: resolve vendor_key ###\"\ntimeout 200 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 - \"Continue the intake for the Goodwill receipt you just classified and parse"
-  },
-  {
-    "date": "2026-06-25T21:05:44",
-    "type": "Bash",
-    "text": "echo \"### nudge: how does she handle no-vendor-key? ###\"\ntimeout 200 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 - \"The vendor_key lookup returned no match for the parsed mer"
-  },
-  {
-    "date": "2026-06-25T21:05:59",
-    "type": "Bash",
-    "text": "cat > /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/last_assistant.py <<'PYEOF'\nimport urllib.request, json\nAID = \"agent-6b536cf4-ec88-4290-b595-fed21d14bd8e"
-  },
-  {
-    "date": "2026-06-25T21:06:22",
-    "type": "Bash",
-    "text": "echo \"=== is Goodwill in the vendor map? ===\"\ngrep -rin \"goodwill\\|goodwil\" ~/rol_finances/tools/categorizer/vendor_category.yaml 2>/dev/null | head\necho \"--- broader search across vendor/category con"
-  },
-  {
-    "date": "2026-06-25T21:08:56",
-    "type": "Bash",
-    "text": "echo \"=== VendorCategoryLookup: where + how it matches ===\"\ngrep -rln \"class VendorCategoryLookup\" ~/rol_finances 2>/dev/null | head\nF=$(grep -rln \"class VendorCategoryLookup\" ~/rol_finances 2>/dev/nu"
-  },
-  {
-    "date": "2026-06-25T21:09:40",
-    "type": "Bash",
-    "text": "F=~/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/letta_tools/concrete.py\necho \"=== ConcreteCheckVendorKeyTool ===\"\ngrep -n \"class ConcreteCheckVendorKeyTool\" \"$F\"\nawk"
-  },
-  {
-    "date": "2026-06-25T21:09:48",
+    "date": "2026-06-26T19:41:18",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/letta_tools/concrete.py"
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/mazda/finance_orchestrator.py"
   },
   {
-    "date": "2026-06-25T21:09:58",
-    "type": "Bash",
-    "text": "F=$(grep -rln \"class LiveVendorKeyVerifier\" ~/rol_finances 2>/dev/null | head -1); echo \"FILE: $F\"\ngrep -n \"class LiveVendorKeyVerifier\" \"$F\"\nawk 'NR>=1{n=NR} /class LiveVendorKeyVerifier/{f=1} f{prin"
+    "date": "2026-06-26T19:41:23",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/mazda/finance_orchestrator.py"
   },
   {
-    "date": "2026-06-25T21:12:50",
-    "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"How should Mazda gain the ability to turn a receipt merchant (\\\"Goodwill\\\") into the right vendor key (goodwill_cascade)?\",\"header\":\"Approach\",\"options\":[{\"label\":\"Upgrade check_vendor_key to also find\",\"description\":\"Make her existing check_vendor_key smarter: when she gives it a merchant name and no key, it searches the vendor list and returns the best match (handling typos like Goodwiil\u2192goodwill). This makes her CURRENT behavior start working with one tool change + a procedure update. Fewer moving parts.\"},{\"label\":\"Add a separate find_vendor_key tool\",\"description\":\"Build a new dedicated 'find the vendor key from a merchant name' tool alongside check_vendor_key (cleaner separation: one finds, one confirms). More setup \u2014 new tool, registration, deploy \u2014 and she must be taught the new two-step flow.\"}],\"multiSelect\":false}]"
-  },
-  {
-    "date": "2026-06-25T21:13:50",
+    "date": "2026-06-26T19:41:28",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/live_finance_verifiers.py"
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/mazda/finance_orchestrator.py"
   },
   {
-    "date": "2026-06-25T21:14:03",
+    "date": "2026-06-26T19:41:33",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/mazda/finance_orchestrator.py"
+  },
+  {
+    "date": "2026-06-26T19:41:41",
     "type": "Bash",
-    "text": "D=~/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts\necho \"=== VendorKeyCheck model ===\"\ngrep -n \"class VendorKeyCheck\" \"$D/models.py\"\nawk '/class VendorKeyCheck/{f=1} f{print "
+    "text": "cd /home/adamsl/rol_finances/tools/self_improving_agent && ../../.venv/bin/python -m pytest agent_self_improvement/tests/test_mazda_finance_orchestrator_contracts.py -q 2>&1 | tail -20"
   },
   {
-    "date": "2026-06-25T21:14:52",
+    "date": "2026-06-26T19:41:41",
+    "type": "TaskUpdate",
+    "text": "taskId: 2"
+  },
+  {
+    "date": "2026-06-26T19:41:46",
+    "type": "TaskUpdate",
+    "text": "taskId: 1"
+  },
+  {
+    "date": "2026-06-26T19:41:51",
     "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\necho \"=== tests touching LiveVendorKeyVerifier / check_vendor_key / VendorKeyCheck ===\"\ngrep -rln \"LiveVendorKeyVerifier\\|check_vendor_key\\|VendorKeyCheck\\"
+    "text": "mkdir -p /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/suzuki && mkdir -p /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/imple"
   },
   {
-    "date": "2026-06-25T21:15:03",
+    "date": "2026-06-26T19:51:30",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/suzuki/contracts.py\n\u2192 \"\"\"Suzuki-specific value objects and task ports.  These live in the Suzuki package so the shared core never imports debugging concepts. The core reaches Suzuki only through the generic IAgentPackageFa"
+  },
+  {
+    "date": "2026-06-26T19:52:45",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/suzuki/debug_orchestrator.py\n\u2192 \"\"\"Suzuki debug orchestrator \u2014 mirrors Mazda's finance_orchestrator pattern.  Shared infrastructure (StageStatus, ArtifactRef, EvidenceItem, ValidationResult, StageTransport) is imported from agent_"
+  },
+  {
+    "date": "2026-06-26T19:52:55",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/agent_packages/suzuki/__init__.py\n\u2192 \"\"\"Suzuki debug agent package.\"\"\"  from __future__ import annotations  from .contracts import (  # noqa: F401     BugReport,     CommandResult,     DebugScoreCard,     FailureSignature,     ICommandEx"
+  },
+  {
+    "date": "2026-06-26T19:52:59",
+    "type": "TaskUpdate",
+    "text": "taskId: 2"
+  },
+  {
+    "date": "2026-06-26T19:52:59",
+    "type": "TaskUpdate",
+    "text": "taskId: 3"
+  },
+  {
+    "date": "2026-06-26T19:53:03",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/debug_evaluation/__init__.py\n\u2192 \"\"\"Debug evaluation implementations for Suzuki.\"\"\" "
+  },
+  {
+    "date": "2026-06-26T19:53:22",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/debug_evaluation/debug_evaluator.py\n\u2192 \"\"\"Concrete debug evaluator, verdict judge, and failure classifier for Suzuki.  Follows Principle 5.1 from the manual: executable evidence (tests passing/ failing) is the first verdict source; LLM jud"
+  },
+  {
+    "date": "2026-06-26T19:53:25",
     "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\necho \"=== test_live_verifier_adapters.py \u2014 vendor key portions ===\"\ngrep -n \"vendor\\|VendorKey\\|present\\|recognized\\|verify\\|description\\|_FakeLookup\\|ve"
+    "text": "grep -n \"FailureType\\.\" /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/enums.py | head -20"
   },
   {
-    "date": "2026-06-25T21:15:20",
+    "date": "2026-06-26T19:53:28",
     "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\nsed -n '95,145p' agent_self_improvement/tests/test_live_verifier_adapters.py"
+    "text": "cat /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/enums.py"
   },
   {
-    "date": "2026-06-25T21:15:54",
+    "date": "2026-06-26T19:53:41",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/enums.py"
+  },
+  {
+    "date": "2026-06-26T19:53:57",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/debug_evaluation/factory.py\n\u2192 \"\"\"Concrete IEvaluationFactory for Suzuki's debug verification rules.\"\"\"  from __future__ import annotations  from decimal import Decimal from typing import Optional  from ...contracts.evaluation impo"
+  },
+  {
+    "date": "2026-06-26T19:54:09",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/runtime/suzuki_composition_root.py\n\u2192 \"\"\"Suzuki composition root \u2014 wires debug evaluation into the shared kernel.\"\"\"  from __future__ import annotations  from ...contracts.runtime import IAgentKernel, ICompositionRoot, RuntimeProfile fr"
+  },
+  {
+    "date": "2026-06-26T19:54:12",
+    "type": "TaskUpdate",
+    "text": "taskId: 3"
+  },
+  {
+    "date": "2026-06-26T19:54:12",
+    "type": "TaskUpdate",
+    "text": "taskId: 4"
+  },
+  {
+    "date": "2026-06-26T19:55:01",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/external_agents/suzuki/system_message.xml\n\u2192 <?xml version=\"1.0\" encoding=\"UTF-8\"?> <system_message>   <agent_identity>     <name>Suzuki</name>     <pronunciation>Pronounced like the car.</pronunciation>     <agent_id>TBD</agent_id>     <role>So"
+  },
+  {
+    "date": "2026-06-26T19:55:20",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/external_agents/create_suzuki_agent.py\n\u2192 #!/usr/bin/env python3 \"\"\"Create Letta agent 'Suzuki' from XML system message and Scissari toolset.\"\"\"  from __future__ import annotations  import sys import xml.etree.ElementTree as ET from pathlib i"
+  },
+  {
+    "date": "2026-06-26T19:55:51",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/external_agents/create_suzuki_stage_agents.py\n\u2192 #!/usr/bin/env python3 \"\"\"Create or reuse Suzuki stage specialist Letta agents.\"\"\"  from __future__ import annotations  import json import sys from pathlib import Path  from letta_client import Letta "
+  },
+  {
+    "date": "2026-06-26T19:56:33",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/suzuki_run_bug_hunt.py\n\u2192 #!/usr/bin/env python3 \"\"\"Run Suzuki's debug workflow against a bug report.  Default mode is a dry run: uses the live agent registry but keeps all stage execution offline with fake agents. Use --live "
+  },
+  {
+    "date": "2026-06-26T19:56:36",
+    "type": "TaskUpdate",
+    "text": "taskId: 4"
+  },
+  {
+    "date": "2026-06-26T19:56:37",
+    "type": "TaskUpdate",
+    "text": "taskId: 5"
+  },
+  {
+    "date": "2026-06-26T19:58:42",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/tools/self_improving_agent && ../../.venv/bin/python -m pytest agent_self_improvement/tests/ -q --tb=short 2>&1 | tail -30"
+  },
+  {
+    "date": "2026-06-26T19:58:55",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/tools/self_improving_agent && ../../.venv/bin/python -c \"\nfrom agent_self_improvement.agent_packages.suzuki import (\n    BugHuntRequest, SuzukiTeamFactory, SuzukiDebugWork"
+  },
+  {
+    "date": "2026-06-26T19:59:01",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/evaluation.py"
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/da1e7760-7338-42b4-af1a-25d3e0c1d03f/tasks/bcb2gwcur.output"
   },
   {
-    "date": "2026-06-25T21:16:07",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/evaluation.py"
-  },
-  {
-    "date": "2026-06-25T21:16:27",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/live_finance_verifiers.py"
-  },
-  {
-    "date": "2026-06-25T21:16:42",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/live_finance_verifiers.py"
-  },
-  {
-    "date": "2026-06-25T21:16:50",
+    "date": "2026-06-26T20:18:12",
     "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\nsed -n '1,40p' agent_self_improvement/tests/test_live_verifier_adapters.py"
+    "text": "cd /home/adamsl/rol_finances/tools/self_improving_agent && ../../.venv/bin/python -m pytest agent_self_improvement/tests/ -q --tb=short 2>&1 | tail -20"
   },
   {
-    "date": "2026-06-25T21:16:59",
+    "date": "2026-06-26T20:19:03",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_suzuki_debug_orchestrator_contracts.py\n\u2192 \"\"\"Contract tests for Suzuki's debug orchestrator (mirrors Mazda pattern).  These are pure offline tests \u2014 no Letta server, no filesystem, no database. They prove the stage envelope, team factory, w"
+  },
+  {
+    "date": "2026-06-26T20:19:09",
     "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\necho \"=== evaluation __init__ exports ===\"\ngrep -n \"Live\\|Fuzzy\\|import\\|__all__\\|Resolver\" agent_self_improvement/implementations/evaluation/__init__.py |"
+    "text": "cd /home/adamsl/rol_finances/tools/self_improving_agent && ../../.venv/bin/python -m pytest agent_self_improvement/tests/test_suzuki_debug_orchestrator_contracts.py -v 2>&1 | tail -40"
   },
   {
-    "date": "2026-06-25T21:17:05",
+    "date": "2026-06-26T20:21:16",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances/tools/self_improving_agent && ../../.venv/bin/python -m pytest agent_self_improvement/tests/ -q --tb=short 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-06-26T20:21:23",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/__init__.py"
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/da1e7760-7338-42b4-af1a-25d3e0c1d03f/tasks/bnpkj9lwr.output"
   },
   {
-    "date": "2026-06-25T21:17:16",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/__init__.py"
+    "date": "2026-06-26T20:21:30",
+    "type": "TaskUpdate",
+    "text": "taskId: 5"
   },
   {
-    "date": "2026-06-25T21:17:24",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/__init__.py"
-  },
-  {
-    "date": "2026-06-25T21:17:45",
+    "date": "2026-06-26T20:24:13",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_live_verifier_adapters.py"
+    "text": "/tmp/claude-1000/-home-adamsl-letta-code/da1e7760-7338-42b4-af1a-25d3e0c1d03f/tasks/bd8h2e54q.output"
   },
   {
-    "date": "2026-06-25T21:17:53",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_live_verifier_adapters.py"
+    "date": "2026-06-26T20:24:35",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/project_suzuki_debug_agent_2026_06_26.md\n\u2192 --- name: project-suzuki-debug-agent-2026-06-26 description: \"Suzuki self-improving debug agent built 2026-06-26 \u2014 shared core, harness locations, how to provision, and entry point\" metadata:    nod"
   },
   {
-    "date": "2026-06-25T21:18:15",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_live_verifier_adapters.py"
-  },
-  {
-    "date": "2026-06-25T21:18:22",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\nPYTHONPATH=.:/home/adamsl/rol_finances .venv/bin/python -m pytest agent_self_improvement/tests/test_live_verifier_adapters.py agent_self_improvement/tests/"
-  },
-  {
-    "date": "2026-06-25T21:18:45",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\nPYTHONPATH=.:/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python -m pytest agent_self_improvement/tests/test_live_verifier_adapters.py -q "
-  },
-  {
-    "date": "2026-06-25T21:20:54",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\nPYTHONPATH=.:/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python -m pytest agent_self_improvement/tests/ -q 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-06-25T21:21:23",
-    "type": "Bash",
-    "text": "sleep 20; tail -8 /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/tasks/bp5rh0mnj.output 2>/dev/null"
-  },
-  {
-    "date": "2026-06-25T21:21:28",
+    "date": "2026-06-26T20:24:39",
     "type": "Read",
-    "text": "/tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/tasks/bp5rh0mnj.output"
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   },
   {
-    "date": "2026-06-25T21:21:49",
-    "type": "Bash",
-    "text": "tail -15 /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/tasks/bp5rh0mnj.output 2>/dev/null; echo \"--- bytes: $(wc -c < /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-"
-  },
-  {
-    "date": "2026-06-25T21:22:20",
-    "type": "Read",
-    "text": "/tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/tasks/bp5rh0mnj.output"
-  },
-  {
-    "date": "2026-06-25T21:22:46",
-    "type": "Bash",
-    "text": "cd ~/rol_finances\ngit add agent_self_improvement/contracts/evaluation.py \\\n        agent_self_improvement/implementations/evaluation/live_finance_verifiers.py \\\n        agent_self_improvement/implemen"
-  },
-  {
-    "date": "2026-06-25T21:22:59",
-    "type": "Bash",
-    "text": "cd ~/rol_finances\ngit reset -q  # unstage everything (keeps working tree)\nB=tools/self_improving_agent/agent_self_improvement\ngit add \"$B/contracts/evaluation.py\" \\\n        \"$B/implementations/evaluat"
-  },
-  {
-    "date": "2026-06-25T21:23:14",
-    "type": "Bash",
-    "text": "cd ~/rol_finances\ngit commit -m \"feat(intake): check_vendor_key resolves a vendor_key from the merchant name\n\nA scanned receipt only carries a merchant name ('Goodwill'), but the vendor map\nis keyed o"
-  },
-  {
-    "date": "2026-06-25T21:23:41",
-    "type": "Bash",
-    "text": "timeout 60 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 '\ncd ~/rol_finances\nB=tools/self_improving_agent/agent_self_improvement\ngit fetch origin --quiet 2>&1 | head -1\ngit checkout ori"
-  },
-  {
-    "date": "2026-06-25T21:24:04",
-    "type": "Bash",
-    "text": "cat > /tmp/claude-1000/-home-adamsl-letta-code/1b3d7174-d712-472d-adfd-3de174ef3426/scratchpad/verify_real_resolve.py <<'PYEOF'\nimport sys\nsys.path.insert(0, \"/home/adamsl/rol_finances\")\nsys.path.inse"
-  },
-  {
-    "date": "2026-06-25T21:24:44",
-    "type": "Bash",
-    "text": "echo \"### Mazda: re-run check_vendor_key (now upgraded) for the Goodwill receipt ###\"\ntimeout 200 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 - \"Good news: your check_vendor_"
-  },
-  {
-    "date": "2026-06-25T21:25:22",
-    "type": "Bash",
-    "text": "echo \"### nudge: categorize \u2192 dedup \u2192 store ###\"\ntimeout 200 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 - \"The vendor_key resolved to goodwill_cascade (recognized). Now "
-  },
-  {
-    "date": "2026-06-25T21:25:44",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/live_finance_verifiers.py"
-  },
-  {
-    "date": "2026-06-25T21:26:04",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/live_finance_verifiers.py"
-  },
-  {
-    "date": "2026-06-25T21:26:27",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\nawk '/class TestLiveCategoryVerifier/{f=1} f{print NR\": \"$0} f&&/class TestLiveDuplicateVerifier/{exit}' agent_self_improvement/tests/test_live_verifier_ad"
-  },
-  {
-    "date": "2026-06-25T21:50:21",
-    "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"Apply the same 'also find' upgrade to check_category so Mazda can get the category from the vendor key (goodwill_cascade \u2192 its category)?\",\"header\":\"Category step\",\"options\":[{\"label\":\"Yes \u2014 add it (safe/additive)\",\"description\":\"check_category keeps its current pass/fail rule, but ALSO returns the expected category for the vendor key as an extra field. Mazda reads it and proceeds. Non-breaking; same spirit as the vendor-key fix. Needs a small deploy + restart on Win10.\"},{\"label\":\"Not yet \u2014 stop here\",\"description\":\"Leave check_category as-is. We've proven the vendor-key fix; hold off on the category step until you decide.\"}],\"multiSelect\":false},{\"question\":\"The 'store' step writes this Goodwill receipt into the live finance database. How far should Mazda go?\",\"header\":\"Store to DB\",\"options\":[{\"label\":\"Stop before writing to the DB\",\"description\":\"Run the full pipeline up to the point of storing, show what WOULD be written (vendor key, category, amount, date), but do not insert into the real nonprofit_finance database.\"},{\"label\":\"Go ahead and store it\",\"description\":\"Let Mazda actually insert this Goodwill expense into the live finance DB. Real write; could create a duplicate row if it was already entered.\"}],\"multiSelect\":false}]"
-  },
-  {
-    "date": "2026-06-25T21:50:35",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\necho \"=== CategoryCheck model ===\"\nawk '/class CategoryCheck/{f=1} f{print NR\": \"$0} f&&/^class [A-Z]/&&!/CategoryCheck/{exit}' agent_self_improvement/cont"
-  },
-  {
-    "date": "2026-06-25T21:50:46",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/integration/p0/test_integration_tool_contract_schemas.py"
-  },
-  {
-    "date": "2026-06-25T21:50:56",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/models.py"
-  },
-  {
-    "date": "2026-06-25T21:51:11",
+    "date": "2026-06-26T20:24:48",
     "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/models.py"
-  },
-  {
-    "date": "2026-06-25T21:51:25",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/live_finance_verifiers.py"
-  },
-  {
-    "date": "2026-06-25T21:51:40",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/live_finance_verifiers.py"
-  },
-  {
-    "date": "2026-06-25T21:51:51",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/live_finance_verifiers.py"
-  },
-  {
-    "date": "2026-06-25T21:52:05",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_live_verifier_adapters.py"
-  },
-  {
-    "date": "2026-06-25T21:52:14",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/tools/self_improving_agent\nPYTHONPATH=.:/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python -m pytest \\\n  agent_self_improvement/tests/test_live_verifier_adapters.py"
-  },
-  {
-    "date": "2026-06-25T21:52:32",
-    "type": "Bash",
-    "text": "cd ~/rol_finances\ngit reset -q\nB=tools/self_improving_agent/agent_self_improvement\ngit add \"$B/contracts/models.py\" \\\n        \"$B/implementations/evaluation/live_finance_verifiers.py\" \\\n        \"$B/te"
-  },
-  {
-    "date": "2026-06-25T21:52:47",
-    "type": "Bash",
-    "text": "timeout 60 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 '\ncd ~/rol_finances\nB=tools/self_improving_agent/agent_self_improvement\ngit fetch origin --quiet 2>&1 | head -1\ngit checkout ori"
-  },
-  {
-    "date": "2026-06-25T21:53:31",
-    "type": "Bash",
-    "text": "echo \"### Mazda: re-run check_category (now reports expected category) ###\"\ntimeout 200 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 - \"check_category was just upgraded: it no"
-  },
-  {
-    "date": "2026-06-25T21:54:05",
-    "type": "Bash",
-    "text": "echo \"### nudge: dedup + store ###\"\ntimeout 220 ssh -o ConnectTimeout=8 -o BatchMode=yes adamsl@100.80.49.10 'python3 - \"The expected category is 3. Adopt category_id 3 for this Goodwill expense. Now "
-  },
-  {
-    "date": "2026-06-25T21:54:33",
-    "type": "Bash",
-    "text": "echo \"=== how rol_finances connects to MySQL (get_connection) ===\"\ngrep -rn \"def get_connection\\|MYSQL\\|DB_HOST\\|DB_USER\\|DB_PASS\\|database=\\|getenv\\|os.environ\" ~/rol_finances/app/db.py 2>/dev/null |"
-  },
-  {
-    "date": "2026-06-25T21:55:30",
-    "type": "Bash",
-    "text": "echo \"=== dev box executor (:8787) process \u2014 has FINANCE_DB creds? ===\"\nfor pid in $(pgrep -f \"executor_server\\|:8787\" 2>/dev/null | head -3); do\n  echo \"pid $pid:\"; tr '\\0' '\\n' < /proc/$pid/enviro"
-  },
-  {
-    "date": "2026-06-25T22:19:48",
-    "type": "Bash",
-    "text": "echo \"=== db_writer.py: connection + FINANCE_DB + store fn ===\"\ngrep -nE \"FINANCE_DB|getenv|environ|load_dotenv|dotenv|def connect|def get_conn|connect\\(|host=|password=|database=|def .*store|def .*in"
-  },
-  {
-    "date": "2026-06-25T22:20:14",
-    "type": "Bash",
-    "text": "echo \"=== NON_PROFIT_* creds present in candidate .env / bashrc? ===\"\nfor f in ~/.env ~/planner/.env ~/rol_finances/.env ~/.bashrc; do\n  echo \"--- $f ---\"; grep -hE \"NON_PROFIT_USER|NON_PROFIT_PASSWOR"
-  },
-  {
-    "date": "2026-06-25T22:20:46",
-    "type": "Bash",
-    "text": "echo \"=== manual_entry.py: interactive or arg-driven? ===\"\ngrep -nE \"argparse|add_argument|input\\(|sys.argv|def main|--\" ~/rol_finances/tools/receipt_scanning_tools/manual_entry.py 2>/dev/null | head "
-  },
-  {
-    "date": "2026-06-25T22:21:11",
-    "type": "Bash",
-    "text": "echo \"=== parse_and_categorize.py options (store/persist/db flag?) ===\"\ngrep -rnE \"add_argument|--|def main|store|persist|db_writer|write_transaction|insert|save\" ~/rol_finances/tools/receipt_scanning"
-  },
-  {
-    "date": "2026-06-25T22:21:24",
-    "type": "Bash",
-    "text": "cd ~/rol_finances\necho \"=== parse_and_categorize.py argparse options ===\"\ngrep -nE \"add_argument|ArgumentParser\" tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py | head -30"
-  },
-  {
-    "date": "2026-06-25T22:21:29",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-06-25T22:21:41",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-06-25T22:22:22",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-06-25T22:22:33",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-06-25T22:23:04",
-    "type": "Bash",
-    "text": "echo \"=== app/db.py connection + dotenv ===\"\nsed -n '1,70p' ~/rol_finances/app/db.py | grep -nE \"import|load_dotenv|dotenv|getenv|environ|def get_connection|NON_PROFIT|DB_HOST|password|host|connect|se"
-  },
-  {
-    "date": "2026-06-25T22:23:15",
-    "type": "Bash",
-    "text": "echo \"=== find app/db.py and ExpenseRepository ===\"\nfind ~/rol_finances -path \"*/app/db.py\" 2>/dev/null | head\nfind ~/rol_finances -name \"*.py\" 2>/dev/null | xargs grep -l \"class ExpenseRepository\" 2>"
-  },
-  {
-    "date": "2026-06-25T22:23:28",
-    "type": "Bash",
-    "text": "F=~/rol_finances/tools/receipt_scanning_tools/app/db.py\necho \"=== $F ===\"\ngrep -nE \"import|load_dotenv|dotenv|getenv|environ|def get_connection|NON_PROFIT|DB_HOST|password|host=|connect|settings|plann"
-  },
-  {
-    "date": "2026-06-25T22:23:34",
-    "type": "Bash",
-    "text": "echo \"=== locate the app package parse_and_categorize actually imports ===\"\nls -la ~/rol_finances/tools/receipt_scanning_tools/app/db.py ~/rol_finances/tools/receipt_scanning_tools/app/config.py 2>&1 "
-  },
-  {
-    "date": "2026-06-25T22:24:14",
-    "type": "Bash",
-    "text": "A=~/rol_finances/tools/receipt_scanning_tools/app\necho \"=== app/db/ contents ===\"; ls \"$A/db/\" 2>/dev/null\necho \"=== base repository connection ===\"\ngrep -nE \"import|get_connection|connect|def .*conn|"
-  },
-  {
-    "date": "2026-06-25T22:24:41",
-    "type": "Bash",
-    "text": "echo \"=== does parse_and_categorize / parse_receipt_cli load a .env? which? ===\"\ngrep -rnE \"load_dotenv|dotenv|\\.env|planner\" \\\n  ~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/pars"
-  },
-  {
-    "date": "2026-06-25T22:25:27",
-    "type": "Bash",
-    "text": "grep -nE \"^def main|^def [a-z_]+\\(|^if __name__\" ~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py | tail -8"
-  },
-  {
-    "date": "2026-06-25T22:25:32",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-06-25T22:25:44",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-06-25T22:26:19",
-    "type": "Bash",
-    "text": "cd ~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools\necho \"=== syntax check ===\"\n/usr/bin/python3 -c \"import ast; ast.parse(open('parse_and_categorize.py').read()); print('AST OK')\"\nec"
-  },
-  {
-    "date": "2026-06-25T22:26:43",
-    "type": "Bash",
-    "text": "cd ~/rol_finances\ngit reset -q\ngit add tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py\necho \"=== staged ===\"; git diff --cached --stat\ngit commit -m \"feat(intake): non-inter"
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   }
 ]

@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Suzuki — A Developer's Manual</title>
+  <style>
+    :root {
+      --paper:      #fbf8f1;   /* warm parchment            */
+      --paper-deep: #f3ede0;   /* sidebar / figure fill     */
+      --ink:        #1c1a17;   /* near-black text           */
+      --ink-soft:   #5b5447;   /* captions, marginalia      */
+      --rule:       #d8cfba;   /* hairlines                 */
+      --crimson:    #7a1f2b;   /* the one accent            */
+      --crimson-2:  #9b2c39;
+      --navy:       #1f3a5f;
+      --gold:       #9a7b32;
+      --code-bg:    #2b2722;
+      --code-ink:   #ede4d3;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: #e7e0d2;
+      color: var(--ink);
+      font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+      font-size: 18px;
+      line-height: 1.68;
+      -webkit-font-smoothing: antialiased;
+    }
+    .book { max-width: 1180px; margin: 0 auto; }
+
+    /* ---- running page ---- */
+    .leaf {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      box-shadow: 0 18px 50px rgba(28,26,23,.16);
+      margin: 26px 14px;
+      padding: 64px 78px;
+    }
+    @media (max-width: 820px){ .leaf{ padding: 38px 26px; } body{ font-size: 17px; } }
+
+    /* ---- title page ---- */
+    .titlepage { text-align: center; padding: 96px 78px 80px; }
+    .titlepage .crest {
+      width: 92px; height: 92px; margin: 0 auto 26px;
+      border: 2.5px solid var(--crimson); border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--crimson); font-size: 38px; font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .titlepage .institution {
+      text-transform: uppercase; letter-spacing: .42em; font-size: 12.5px;
+      color: var(--crimson); font-weight: 700; margin-bottom: 8px;
+    }
+    .titlepage .dept { text-transform: uppercase; letter-spacing: .26em; font-size: 11px; color: var(--ink-soft); }
+    .titlepage h1 {
+      font-size: 56px; line-height: 1.04; margin: 40px 0 10px; font-weight: 700; letter-spacing: -.01em;
+    }
+    .titlepage .sub { font-size: 23px; font-style: italic; color: var(--ink-soft); margin: 6px 0 34px; }
+    .titlepage .byline { font-size: 16px; letter-spacing: .04em; }
+    .titlepage .rule-orn { width: 120px; height: 0; border-top: 1px solid var(--rule); margin: 34px auto; position: relative; }
+    .titlepage .rule-orn::after {
+      content: "❦"; color: var(--gold); position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+      background: var(--paper); padding: 0 12px; font-size: 18px;
+    }
+    .titlepage .edition { font-size: 13.5px; color: var(--ink-soft); letter-spacing: .06em; }
+
+    /* ---- typography ---- */
+    h2.part {
+      text-align: center; text-transform: uppercase; letter-spacing: .34em;
+      font-size: 14px; color: var(--crimson); font-weight: 700;
+      margin: 8px 0 0; padding-bottom: 6px;
+    }
+    h2.part .pno { display:block; font-size: 11px; color: var(--ink-soft); letter-spacing:.3em; margin-bottom:6px; }
+    .chapnum {
+      text-transform: uppercase; letter-spacing: .32em; font-size: 12px;
+      color: var(--crimson); font-weight: 700; margin: 0 0 4px;
+    }
+    h1.chap { font-size: 40px; line-height: 1.1; margin: 0 0 6px; font-weight: 700; letter-spacing: -.01em; }
+    .chap-rule { height: 0; border-top: 2px solid var(--crimson); width: 64px; margin: 14px 0 30px; }
+    h3 { font-size: 24px; margin: 40px 0 8px; font-weight: 700; letter-spacing: -.005em; }
+    h3 .secno { color: var(--crimson); margin-right: 12px; font-variant-numeric: tabular-nums; }
+    h4 { font-size: 18px; margin: 26px 0 4px; font-weight: 700; color: var(--navy); }
+    p { margin: 12px 0; }
+    p.lead { font-size: 20px; }
+    /* drop cap on the first paragraph of a chapter */
+    .opening::first-letter {
+      float: left; font-size: 76px; line-height: .82; padding: 6px 12px 0 0;
+      color: var(--crimson); font-weight: 700;
+    }
+    .smallcaps { font-variant: small-caps; letter-spacing: .04em; }
+    em.term { font-style: italic; color: var(--navy); }
+    a { color: var(--crimson-2); text-decoration: none; border-bottom: 1px solid rgba(122,31,43,.3); }
+    a:hover { border-bottom-color: var(--crimson-2); }
+    ul, ol { margin: 12px 0; padding-left: 26px; }
+    li { margin: 6px 0; }
+    strong { font-weight: 700; }
+    code {
+      font-family: "SF Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
+      font-size: .86em; background: #efe8d8; color: #5a3030; padding: 1px 5px; border-radius: 3px;
+    }
+    pre {
+      background: var(--code-bg); color: var(--code-ink); border-radius: 8px;
+      padding: 18px 20px; overflow-x: auto; margin: 18px 0; font-size: 14.5px; line-height: 1.6;
+      border: 1px solid #4a4036;
+    }
+    pre code { background: transparent; color: var(--code-ink); padding: 0; font-size: inherit; }
+    .filename {
+      font-family: "SF Mono", Consolas, monospace; font-size: 12px; letter-spacing: .04em;
+      color: var(--ink-soft); text-transform: none; margin: 18px 0 -8px; display: block;
+    }
+
+    /* ---- tables ---- */
+    table { width: 100%; border-collapse: collapse; margin: 22px 0; font-size: 15px; }
+    caption { caption-side: top; text-align: left; font-style: italic; color: var(--ink-soft); font-size: 14px; margin-bottom: 8px; }
+    caption .tno { font-style: normal; font-weight: 700; color: var(--crimson); margin-right: 8px; }
+    th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--rule); }
+    thead th { border-bottom: 2px solid var(--ink); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+    tbody tr:last-child td { border-bottom: 2px solid var(--ink); }
+    td code, th code { font-size: .8em; }
+
+    /* ---- boxes: definition / theorem / note / caution ---- */
+    .box { border: 1px solid var(--rule); border-left: 4px solid var(--navy); background: var(--paper-deep); padding: 16px 20px; margin: 22px 0; border-radius: 0 6px 6px 0; }
+    .box .boxhead { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; font-weight: 700; color: var(--navy); margin-bottom: 4px; }
+    .box.def { border-left-color: var(--crimson); }
+    .box.def .boxhead { color: var(--crimson); }
+    .box.thm { border-left-color: var(--gold); background: #f7f1df; }
+    .box.thm .boxhead { color: var(--gold); }
+    .box.caution { border-left-color: var(--crimson-2); background: #f7ebe9; }
+    .box.caution .boxhead { color: var(--crimson-2); }
+    .box p:first-of-type { margin-top: 2px; }
+    .box p:last-child { margin-bottom: 2px; }
+
+    /* ---- margin-note / figure ---- */
+    figure { margin: 26px 0; }
+    figure.fig { background: var(--paper-deep); border: 1px solid var(--rule); border-radius: 8px; padding: 22px; }
+    figcaption { font-size: 13.5px; color: var(--ink-soft); font-style: italic; margin-top: 12px; text-align: center; }
+    figcaption .fno { font-style: normal; font-weight: 700; color: var(--crimson); margin-right: 8px; }
+    .ascii { font-family: "SF Mono", Consolas, monospace; font-size: 12.5px; line-height: 1.45; white-space: pre; color: var(--ink); overflow-x: auto; display: block; }
+
+    /* ---- exercises ---- */
+    .exercises { border-top: 2px solid var(--ink); margin-top: 44px; padding-top: 14px; }
+    .exercises h4 { text-transform: uppercase; letter-spacing: .14em; font-size: 13px; color: var(--crimson); margin: 0 0 6px; }
+    .exercises ol { font-size: 16px; }
+    .exercises li { margin: 9px 0; }
+    .exq { color: var(--ink-soft); font-style: italic; margin-right: 4px; }
+
+    /* ---- table of contents ---- */
+    .toc { font-size: 16.5px; }
+    .toc .part-row { text-transform: uppercase; letter-spacing: .18em; font-size: 13px; color: var(--crimson); font-weight: 700; margin: 26px 0 8px; }
+    .toc-line { display: flex; align-items: baseline; margin: 7px 0; }
+    .toc-line .tt { white-space: nowrap; }
+    .toc-line .num { color: var(--crimson); font-weight: 700; width: 2.6em; flex: 0 0 auto; }
+    .toc-line .dots { flex: 1 1 auto; border-bottom: 1px dotted var(--rule); margin: 0 8px; transform: translateY(-4px); }
+    .toc-line .pg { color: var(--ink-soft); flex: 0 0 auto; }
+    .toc-line a { border: none; color: var(--ink); }
+    .toc-line a:hover { color: var(--crimson); }
+
+    .folio { text-align: center; color: var(--ink-soft); font-size: 13px; letter-spacing: .3em; margin-top: 48px; }
+    .runninghead { display:flex; justify-content:space-between; font-size: 11px; letter-spacing:.18em; text-transform:uppercase; color: var(--ink-soft); border-bottom: 1px solid var(--rule); padding-bottom: 8px; margin-bottom: 28px; }
+    .status-pill { display:inline-block; font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; padding:2px 9px; border-radius:999px; border:1px solid; }
+    .pill-live { color: #166534; border-color:#9bbf9b; background:#eef6ee; }
+    .pill-stub { color: var(--gold); border-color:#cdb87a; background:#f7f1df; }
+  </style>
+</head>
+<body>
+<div class="book">
+
+  <section class="leaf titlepage">
+    <div class="crest">S</div>
+    <div class="institution">Autonomous&nbsp;Systems&nbsp;Press</div>
+    <div class="dept">Department of Self-Improving Agents</div>
+    <h1>Suzuki</h1>
+    <div class="sub">A Self-Improving Letta Agent for Finding Bugs Faster</div>
+    <div class="rule-orn"></div>
+    <p class="byline"><strong>A DEVELOPER'S MANUAL</strong></p>
+    <p class="byline" style="color:var(--ink-soft); font-style:italic;">The Shared-Core, Harness-Swappable Framework for Debugging Agents</p>
+    <div class="rule-orn"></div>
+    <p class="edition">First Suzuki Edition &nbsp;·&nbsp; Rewritten from the Mazda Manual &nbsp;·&nbsp; <span class="smallcaps">Internal&nbsp;circulation</span></p>
+  </section>
+
+  <section class="leaf">
+    <div class="runninghead"><span>Suzuki · A Developer's Manual</span><span>Preface</span></div>
+    <p class="chapnum">Front Matter</p>
+    <h1 class="chap">Preface</h1>
+    <div class="chap-rule"></div>
+    <p class="opening">This manual rewrites the Mazda developer document for <strong>Suzuki</strong>, a new Mazda-type Letta agent whose domain is software debugging instead of finance verification. Mazda proved the pattern: orchestrator, specialist minions, deterministic verifiers, wrapper revisions, experiments, gates, activation, and rollback. Suzuki keeps that machinery and swaps the domain harness from receipts and statements to repositories, failing tests, stack traces, patches, and regression checks.</p>
+    <div class="box thm">
+      <div class="boxhead">The Central Thesis</div>
+      <p>All Mazda-type agents must share one <strong>self-improvement core</strong>. A new agent changes only the harness: task models, tools, evaluators, workflows, gates, reports, and minion templates. The kernel, evidence store, wrapper revision system, experiment runner, activation service, and rollback service stay common.</p>
+    </div>
+    <p>The practical goal is simple: Suzuki should find bugs faster and more reliably each time she debugs. Every run should leave evidence and a lesson: the failing command, the reproduction path, the diagnosis, the patch, the verification result, the regression result, and any approved wrapper improvement that will help the next run.</p>
+    <h4>How to read this manual</h4>
+    <p>Part&nbsp;I defines Suzuki and the proposed bug-hunting fleet. Part&nbsp;II describes the shared core, the harness boundary, the new debugging interfaces, and the self-improvement loop. Part&nbsp;III gives the migration plan and operating checklist.</p>
+    <div class="folio">· vii ·</div>
+  </section>
+
+  <section class="leaf">
+    <div class="runninghead"><span>Suzuki · A Developer's Manual</span><span>Contents</span></div>
+    <p class="chapnum">Front Matter</p>
+    <h1 class="chap">Contents</h1>
+    <div class="chap-rule"></div>
+    <div class="toc">
+      <div class="part-row">Part I · Foundations</div>
+      <div class="toc-line"><span class="num">1</span><a href="#ch1" class="tt">What Suzuki Is</a><span class="dots"></span><span class="pg">3</span></div>
+      <div class="toc-line"><span class="num">2</span><a href="#ch2" class="tt">System Topology: The Bug-Hunting Fleet</a><span class="dots"></span><span class="pg">9</span></div>
+      <div class="part-row">Part II · The Architecture</div>
+      <div class="toc-line"><span class="num">3</span><a href="#ch3" class="tt">Shared Core and Domain Harnesses</a><span class="dots"></span><span class="pg">17</span></div>
+      <div class="toc-line"><span class="num">4</span><a href="#ch4" class="tt">Factories, GoF Seams, and Debugging Interfaces</a><span class="dots"></span><span class="pg">27</span></div>
+      <div class="toc-line"><span class="num">5</span><a href="#ch5" class="tt">The Bug-Finding Self-Improvement Loop</a><span class="dots"></span><span class="pg">43</span></div>
+      <div class="part-row">Part III · Practice</div>
+      <div class="toc-line"><span class="num">6</span><a href="#ch6" class="tt">Migration Plan: Mazda Core to Suzuki Harness</a><span class="dots"></span><span class="pg">55</span></div>
+      <div class="toc-line"><span class="num">7</span><a href="#ch7" class="tt">Building, Testing, and Operating</a><span class="dots"></span><span class="pg">65</span></div>
+      <div class="part-row">Back Matter</div>
+      <div class="toc-line"><span class="num">A</span><a href="#apxA" class="tt">Appendix A · Interface &amp; Factory Catalog</a><span class="dots"></span><span class="pg">73</span></div>
+      <div class="toc-line"><span class="num">B</span><a href="#apxB" class="tt">Appendix B · Glossary</a><span class="dots"></span><span class="pg">80</span></div>
+    </div>
+    <div class="folio">· ix ·</div>
+  </section>
+
+  <section class="leaf" style="text-align:center; padding:140px 78px;">
+    <h2 class="part"><span class="pno">Part One</span>Foundations</h2>
+    <div class="rule-orn" style="margin:28px auto;"></div>
+    <p style="font-style:italic; color:var(--ink-soft); max-width:560px; margin:0 auto;">In which we define Suzuki, separate the shared core from the debugging harness, and name the bug-hunting fleet.</p>
+  </section>
+
+  <section class="leaf" id="ch1">
+    <div class="runninghead"><span>Part I · Foundations</span><span>Ch. 1 · What Suzuki Is</span></div>
+    <p class="chapnum">Chapter One</p>
+    <h1 class="chap">What Suzuki Is</h1>
+    <div class="chap-rule"></div>
+    <p class="lead opening">Suzuki is a self-improving debugging orchestrator. She receives a bug report, delegates bounded work to specialist minions, gathers executable evidence, proposes or applies minimal patches, verifies the fix, checks for regressions, and records wrapper lessons for future bug hunts.</p>
+    <h3><span class="secno">1.1</span>The two faces of the project</h3>
+    <ul>
+      <li><strong>Suzuki the live fleet</strong> — one Letta orchestrator plus debugging minions that reproduce, inspect, test, patch, and verify.</li>
+      <li><strong>The shared self-improvement core</strong> — the Mazda-style control plane that traces runs, judges results, proposes wrapper edits, A/B tests, gates, activates, and rolls back.</li>
+    </ul>
+    <div class="box def"><div class="boxhead">Definition 1.1 · Debugging Harness</div><p>A <strong>debugging harness</strong> is the replaceable domain layer that teaches the shared core how to work on code. It supplies repository adapters, command policies, test runners, static analyzers, failure-signature extractors, patch planners, regression verifiers, and debug evaluators.</p></div>
+    <h3><span class="secno">1.2</span>Siblings, not forks</h3>
+    <p>Suzuki must not become a copied Mazda framework with finance words replaced by code words. Mazda and Suzuki should be two profiles over one kernel. The core stays domain-blind; finance and debugging are harnesses.</p>
+    <figure class="fig"><span class="ascii">                     ┌─────────────────────────────────┐
+                     │   self_improving_agent_core    │
+                     │   kernel · traces · wrappers    │
+                     │   experiments · gates · rollback│
+                     └───────────────┬─────────────────┘
+                                     │
+                 ┌───────────────────┴───────────────────┐
+                 ▼                                       ▼
+       ┌──────────────────────┐              ┌──────────────────────┐
+       │ mazda_finance        │              │ suzuki_debug         │
+       │ receipts · statements│              │ repos · tests · diffs│
+       │ finance evaluators   │              │ debug evaluators     │
+       └──────────────────────┘              └──────────────────────┘</span><figcaption><span class="fno">Figure 1.1</span>The shared-core architecture. The harness swaps; the core remains.</figcaption></figure>
+    <h3><span class="secno">1.3</span>What Suzuki optimizes</h3>
+    <table><caption><span class="tno">Table 1.1</span>Debugging outcomes Suzuki should improve over time.</caption><thead><tr><th>Outcome</th><th>Meaning</th><th>Evidence</th></tr></thead><tbody>
+      <tr><td>Reproduced</td><td>The bug can be triggered on demand.</td><td>Failing command, failing test, stack trace, log excerpt.</td></tr>
+      <tr><td>Localized</td><td>The likely file/function/component is narrowed.</td><td>Code references, call path, grep/blame/log evidence.</td></tr>
+      <tr><td>Patched</td><td>A minimal candidate fix exists.</td><td>Git diff, rationale, changed tests.</td></tr>
+      <tr><td>Verified</td><td>The original failure is gone.</td><td>Targeted test passes after failing before.</td></tr>
+      <tr><td>Regression-safe</td><td>The fix did not break nearby behavior.</td><td>Relevant broader tests, lint, typecheck, smoke test.</td></tr>
+      <tr><td>Learned</td><td>The wrapper improves for the next case.</td><td>Approved prompt, memory, workflow, or tool-description patch.</td></tr>
+    </tbody></table>
+    <div class="box caution"><div class="boxhead">Caution · No domain leakage into core</div><p>The common kernel must not import repository-specific, language-specific, Mazda-finance-specific, or Suzuki-debug-specific code. If a debugging concept is needed by the core, define a port. If it is Suzuki-specific, keep it behind the Suzuki harness factory.</p></div>
+    <div class="exercises"><h4>Exercises</h4><ol><li><span class="exq">(concept)</span> Explain why Suzuki should be a harness swap rather than a framework fork.</li><li><span class="exq">(design)</span> Name three things that belong in the shared core and three that belong in <code>suzuki_debug</code>.</li><li><span class="exq">(judgment)</span> A teammate adds <code>pytest</code> imports to the kernel. Which boundary is broken?</li></ol></div>
+    <div class="folio">· 3 ·</div>
+  </section>
+
+  <section class="leaf" id="ch2">
+    <div class="runninghead"><span>Part I · Foundations</span><span>Ch. 2 · System Topology</span></div>
+    <p class="chapnum">Chapter Two</p><h1 class="chap">System Topology: The Bug-Hunting Fleet</h1><div class="chap-rule"></div>
+    <p class="lead opening">Suzuki follows Mazda's orchestrator-and-minion topology. The orchestrator owns the debugging plan and final report. Minions own narrow, repeatable slices of work through a shared Claude SDK executor and a debugging MCP/tool layer.</p>
+    <h3><span class="secno">2.1</span>The orchestrator memory blocks</h3>
+    <p>The Suzuki orchestrator should render at least these <code>system/</code> memory blocks: <code>persona</code>, <code>human</code>, <code>debugging_procedure</code>, <code>tool_policy</code>, <code>team_agents</code>, and <code>repository_context</code>.</p>
+    <h3><span class="secno">2.2</span>The proposed minion roster</h3>
+    <table><caption><span class="tno">Table 2.1</span>The Suzuki minions. Agent IDs remain <code>TBD</code> until the Letta fleet is created.</caption><thead><tr><th>Minion</th><th>Agent ID</th><th>Specialty</th></tr></thead><tbody>
+      <tr><td><code>suzuki-router-agent</code></td><td><code>TBD</code></td><td>Triage the bug report, choose workflow, assign minions.</td></tr>
+      <tr><td><code>suzuki-reproducer-agent</code></td><td><code>TBD</code></td><td>Find or create a repeatable failing command/test.</td></tr>
+      <tr><td><code>suzuki-static-analysis-agent</code></td><td><code>TBD</code></td><td>Inspect code paths, logs, imports, and likely fault zones.</td></tr>
+      <tr><td><code>suzuki-test-runner-agent</code></td><td><code>TBD</code></td><td>Run targeted tests, type checks, linters, and smoke tests.</td></tr>
+      <tr><td><code>suzuki-patch-agent</code></td><td><code>TBD</code></td><td>Prepare minimal candidate fixes and explain the diff.</td></tr>
+      <tr><td><code>suzuki-regression-agent</code></td><td><code>TBD</code></td><td>Verify the patch against nearby/broader regressions and record lessons.</td></tr>
+    </tbody></table>
+    <figure class="fig"><span class="ascii">                         ┌──────────────────────────┐
+                         │          SUZUKI          │
+                         │  Letta orchestrator      │
+                         │  plans · delegates · learns│
+                         └────────────┬─────────────┘
+        ┌──────────────┬──────────────┼──────────────┬──────────────┬──────────────┐
+        ▼              ▼              ▼              ▼              ▼              ▼
+   ┌─────────┐  ┌──────────┐  ┌────────────┐  ┌──────────┐  ┌─────────┐  ┌────────────┐
+   │ router  │  │reproducer│  │static scan │  │test run  │  │ patch   │  │ regression │
+   └────┬────┘  └────┬─────┘  └─────┬──────┘  └────┬─────┘  └────┬────┘  └─────┬──────┘
+        └────────────┴──── run_claude_code_sdk ────┴─────────────┴─────────────┘
+                                  │
+                                  ▼
+              ┌────────────────────────────────────────────┐
+              │ Claude-SDK executor + debugging MCP/tools  │
+              │ Read · Grep · Bash · Edit · tests · git    │
+              └────────────────────────────────────────────┘</span><figcaption><span class="fno">Figure 2.1</span>The Suzuki delegation topology.</figcaption></figure>
+    <h3><span class="secno">2.3</span>The debugging tool layer</h3>
+    <table><caption><span class="tno">Table 2.2</span>Candidate debugging tools.</caption><thead><tr><th>Tool</th><th>What it returns</th><th>Status</th></tr></thead><tbody>
+      <tr><td><code>run_command_safely</code></td><td>Exit code, stdout/stderr tail, elapsed time, policy decision.</td><td><span class="status-pill pill-live">needed</span></td></tr>
+      <tr><td><code>run_targeted_tests</code></td><td>Pass/fail, failing tests, stack traces, duration.</td><td><span class="status-pill pill-live">needed</span></td></tr>
+      <tr><td><code>run_static_checks</code></td><td>Type/lint findings grouped by file and severity.</td><td><span class="status-pill pill-live">needed</span></td></tr>
+      <tr><td><code>summarize_git_diff</code></td><td>Files changed, risk areas, test impact.</td><td><span class="status-pill pill-live">needed</span></td></tr>
+      <tr><td><code>detect_regressions</code></td><td>Baseline-vs-candidate test deltas and changed failure signatures.</td><td><span class="status-pill pill-live">needed</span></td></tr>
+      <tr><td><code>persist_bug_lesson</code></td><td>Approved wrapper lesson extracted from the run.</td><td><span class="status-pill pill-stub">gated</span></td></tr>
+    </tbody></table>
+    <div class="box caution"><div class="boxhead">Caution · Shell output is not the interface</div><p>Minions may use shell commands, but the harness should expose typed command results through ports. A raw terminal transcript is evidence; it is not a stable evaluator contract.</p></div>
+    <div class="folio">· 9 ·</div>
+  </section>
+
+  <section class="leaf" style="text-align:center; padding:140px 78px;"><h2 class="part"><span class="pno">Part Two</span>The Architecture</h2><div class="rule-orn" style="margin:28px auto;"></div><p style="font-style:italic; color:var(--ink-soft); max-width:560px; margin:0 auto;">The shared core, the harness boundary, and the factories that make Suzuki a swap instead of a rewrite.</p></section>
+
+  <section class="leaf" id="ch3">
+    <div class="runninghead"><span>Part II · The Architecture</span><span>Ch. 3 · Shared Core</span></div>
+    <p class="chapnum">Chapter Three</p><h1 class="chap">Shared Core and Domain Harnesses</h1><div class="chap-rule"></div>
+    <p class="lead opening">The central task is to extract a Mazda-type self-improvement core, then hang domain harnesses off of it. This lets Suzuki inherit the hard parts: traces, wrapper revisions, experiments, gates, activation, and rollback.</p>
+    <h3><span class="secno">3.1</span>Target package boundary</h3>
+<pre><code>agent_self_improvement/
+  core/
+    contracts/              # generic value objects and ports
+    implementations/         # persistence, runtime, improvement, reporting
+    runtime/                 # composition root, kernel, profile loading
+    tests/                   # no finance, no debugging assumptions
+  harnesses/
+    mazda_finance/           # receipts, statements, finance evaluators
+    suzuki_debug/            # repos, tests, stack traces, patches, regressions
+  agent_packages/
+    mazda/
+    suzuki/</code></pre>
+    <h3><span class="secno">3.2</span>What stays in the core</h3>
+    <table><caption><span class="tno">Table 3.1</span>Shared-core responsibilities.</caption><thead><tr><th>Core area</th><th>Domain-blind responsibility</th></tr></thead><tbody>
+      <tr><td>Value objects</td><td>Run requests, traces, wrapper revisions, verdicts, scorecards, experiments.</td></tr>
+      <tr><td>Factories</td><td>Abstract factories returning ports, not concrete finance/debug classes.</td></tr>
+      <tr><td>Kernel</td><td>Run task → persistrace → judge verdict → publish event.</td></tr>
+      <tr><td>Persistence</td><td>Evidence store for traces, verdicts, wrappers, experiments, approvals.</td></tr>
+      <tr><td>Improvement</td><td>Proposal commands, experiment runner, activation, rollback.</td></tr>
+      <tr><td>Reporting</td><td>Generic run reports and dashboard primitives.</td></tr>
+    </tbody></table>
+    <h3><span class="secno">3.3</span>What moves into Suzuki</h3>
+    <table><caption><span class="tno">Table 3.2</span>Suzuki-spec responsibilities.</caption><thead><tr><th>Area</th><th>Examples</th></tr></thead><tbody>
+      <tr><td>Bug models</td><td><code>BugReport</code>, <code>ReproductionCase</code>, <code>FailureSignature</code>, <code>PatchCandidate</code>.</td></tr>
+      <tr><td>Repository adapters</td><td>Git status, diff summary, branch policy, file allow/deny lists.</td></tr>
+      <tr><td>Test adapters</td><td>Pytest, npm, tsx, cargo, go test, project smoke tests.</td></tr>
+      <tr><td>Static-analysis adapters</td><td>Typecheckers, linters, dead-code scans, import-boundary checks.</td></tr>
+      <tr><td>Debug evaluators</td><td>Reproduction score, localization score, patch score, regression score.</td></tr>
+      <tr><td>Minion templates</td><td>Delegation prompts and allowed tools for Suzuki specialists.</td></tr>
+    </tbody></table>
+    <h3><span class="secno">3.4</span>Interfaces to add before implementation</h3>
+    <p>Keep the GoF hat on. If behavior varies by repository, language, test runner, execution environment, safety policy, or debugging strategy, make it a port before making it clever.</p>
+<pre><code>class IRepositoryWorkspace(ABC): ...
+class ISourceControlAdapter(ABC): ...
+class ICommandPolicy(ABC): ...
+class ICommandExecutor(ABC): ...
+class ITestRunner(ABC): ...
+class IStaticAnalyzer(ABC): ...
+class IFailureSignatureExtractor(ABC): ...
+class IReproductionStrategy(ABC): ...
+class IPatchPlanner(ABC): ...
+class IPatchApplier(ABC): ...
+class IRegressionVerifier(ABC): ...
+class IDebugRunEvaluator(ABC): ...
+class IDebugHarnessFactory(ABC): ...</code></pre>
+    <div class="box thm"><div class="boxhead">Rule 3.1 · Interfaces before cleverness</div><p>Do not place a concrete debugging class directly in the kernel. First name the capability as a port, then write the adapter. This makes the first implementation slightly slower and every later harness swap much faster.</p></div>
+    <div class="folio">· 17 ·</div>
+  </section>
+
+  <section class="leaf" id="ch4">
+    <div class="runninghead"><span>Part II · The Architre</span><span>Ch. 4 · Factories</span></div>
+    <p class="chapnum">Chapter Four</p><h1 class="chap">Factories, GoF Seams, and Debugging Interfaces</h1><div class="chap-rule"></div>
+    <p class="lead opening">Suzuki should use Abstract Factory everywhere a family of related debugging objects must be swapped together. The common core factories remain. Suzuki supplies debugging concrete implementations behind the same contracts plus one debugging harness factory.</p>
+    <h3><span class="secno">4.1</span>Fctory-family mapping</h3>
+    <table><caption><span class="tno">Table 4.1</span>Mazda-to-Suzuki factory mapping.</caption><thead><tr><th>Factory</th><th>Mazda</th><th>Suzuki</th></tr></thead><tbody>
+      <tr><td><code>IPersistenceFactory</code></td><td>SQLite evidence store</td><td>Same shared store</td></tr>
+      <tr><td><code>ILlmFactory</code></td><td>Cheap/fast model wrapper</td><td>Same, profile-selected</td></tr>
+      <tr><td><code>IPromptFactory</code></td><td>Finance templates</td><td>Debugging templates</td></tr>
+      <tr><td><code>IToolFactory</code></td><td>Finance MCP tools</td><td>Debug MCP/test/git/static tools</td></tr>
+      <tr><td><code>IContextFactory</code></td><td>Receipt/statement context</td><td>Repo/stacktrace/failing-test context</td></tr>
+      <tr><td><code>IWorkflowFactory</code></td><td>Finance verification workflow</td><td>Reproduce → localize → patch → verify workflow</td></tr>
+      <tr><td><code>IEvaluationFactory</code></td><td>Finance evaluator</td><td>Debug evaluad></tr>
+      <tr><td><code>IImprovementFactory</code></td><td>Wrapper-improvement machinery</td><td>Same machinery</td></tr>
+      <tr><td><code>IReportingFactory</code></td><td>Generic reports</td><td>Generic reports + debug extensions</td></tr>
+      <tr><td><code>IAgentPackageFactory</code></td><td>Mazda package</td><td>Suzuki package</td></tr>
+    </tbody></table>
+    <h3><span class="secno">4.2</span>The debugging harness factory</h3>
+<pre><code>class IDebugHarnessFactory(ABC):
+    def create_workspace(self) -&gt; IRepositoryWorkspace: ...
+    def create_source_control(self) -&gt; ISourceControlAdapter: ...
+    def create_command_policy(self) -&gt; ICommandPolicy: ...
+    def create_command_executor(self) -&gt; ICommandExecutor: ...
+    def create_test_runner(self) -&gt; ITestRunner: ...
+    def create_static_analyzer(self) -&gt; IStaticAnalyzer: ...
+    def create_failure_signature_extractor(self) -&gt; IFailureSignatureExtractor: ...
+    def create_reproduction_strategy(self) -&gt; IReproductionStrategy: ...
+    def create_patch_planner(self) -&gt; IPatchPlanner: ...
+    def create_patch_applier(self) -&gt; IPatchApplier: ...
+    def create_regression_verifier(self) -&gt; IRegressionVerifier: ...</code></pre>
+    <h3><span class="secno">4.3</span>GoF patterns to apply</h3>
+    <table><caption><span class="tno">Table 4.2</span>Patterns and seams.</caption><thead><tr><th>Pattern</th><th>Use in Suzuki</th><th>Reason</th></tr></thead><tbody>
+      <tr><td>Abstract Factory</td><td>Runtime families, harness families, tool bundles.</td><td>Swap finance/debug harnesses cleanly.</td></tr>
+      <tr><td>Strategy</td><td>Reproduction, test selection, failure classification.</td><td>Different repos/languages need different behavior.</td></tr>
+      <tr><td>Adapter</td><td>Pytest, npm, cargo, git, static analyzers.</td><td>Normalize tool-specific output.</td></tr>
+      <tr><td>Command</td><td>Wrapper edits, patch attempts, approved shell commands.</td><td>Make actions inspectable, reversible, auditable.</td></tr>
+      <tr><td>Chain of Responsibility</td><td>Promotion gates and command safety checks.</td><td>Independent checks can accept, reject, or escalate.</td></tr>
+      <tr><td>Template Method</td><td>Debug workflow skeleton.</td><td>Keep reproduce/localize/patch/verify order stable while allowing overrides.</td></tr>
+    </tbody></table>
+    <h3><span class="secno">4.4</span>Runtime profile example</h3>
+<pre><code>RuntimeProfile(
+    name="sqlite_gpt5mini_suzuki_debug_default",
+    persistence="sqlite",
+    llm="gpt5-mini",
+    prompt="suzuki_debug_prompts",
+    tool="suzuki_debug_tools",
+    context="repo_stacktrace_context",
+    workflow="debug_reproduce_patch_verify",
+    evaluation="debug_rules_first",
+    improvement="default_wrapper_improvement",
+    reporting="default_debug_reports",
+    agent_package="suzuki",
+    extra={
+        "repo_root": "/path/to/project",
+        "default_test_command": "../../.venv/bin/python -m pytest",
+        "allowed_write_roots": ["src", "tests"],
+        "dangerous_commands_require_approval": True,
+    },
+)</code></pre>
+    <div class="box caution"><div class="boxhead">Caution · Concrete classes belong in one place</div><p>The composition root may import <code>SuzukiDebugHarnessFactory</code>, <code>PytestRunner</code>, or <code>GitSourceControlAdapter</code>. The kernel may not. The profile chooses the family; the kernel runs the ports.</p></div>
+    <div class="folio">· 27 ·</div>
+  </section>
+
+  <section class="leaf" id="ch5">
+    <div class="runninghead"><span>Part II · Architecture</span><span>Ch. 5 · The Loop</span></div>
+    <p class="chapnum">Chapter Five</p><h1 class="chap">The Bug-Finding Self-Improvement Loop</h1><div class="chap-rule"></div>
+    <p class="lead opening">Suzuki's loop is Mazda's loop with a new evaluator and workflow. The stations remain run, judge, propose, experiment, gate, activate, and roll back. The evidence changes from receipts and totals to failing tests, stack traces, diffs, and regression checks.</p>
+    <figure class="fig"><span class="asii">BUG REPORT
+    │
+    ▼
+REPRODUCE ──► LOCALIZE ──► PATCH ──► VERIFY ──► SCORE ──► LEARN
+    │             │           │          │          │          │
+    └─────────────┴───────────┴──────────┴──────────┴──────────┘
+                  persisted trace + wrapper evidence store</span><figcaption><span class="fno">Figure 5.1</span>The Suzuki iment loop.</figcaption></figure>
+    <h3><span class="secno">5.1</span>Trace fields</h3>
+    <ul><li>Bug report, repo, branch, and environment.</li><li>Commands run, exit codes, stdout/stderr tails, elapsed time.</li><li>Failure signatures: exception, stack frames, failing tests, log markers.</li><li>Files read/edited and git diff summary.</li><li>Targeted and broad test results before/after patch.</li><li>Minion delegation records and tool-call cost.</li></ul>
+    <h3><span class="secno">5.2</span>Judge with deterministic evidence first</h3>
+    <div class="box thm"><div class="boxhead">Principle 5.1 · Tests before taste</div><p>The first verdict source is executable evidence: failing test before, passing test after, and no new relevant regressions. LLM judgment may explain or classify; it does not overrule deterministic test evidence.</p></div>
+    <table><caption><span class="tno">Table 5.1</span>Suzuki scorecard dimensions.</caption><thead><tr><th>Dimension</th><th>Good evidence</th><th>Bad evidence</th><tr></thead><tbody>
+      <tr><td>Reproduction</td><td>Known failing command/test fails before patch.</td><td>Vague diagnosis only.</td></tr>
+      <tr><td>Localization</td><td>Specific file/function tied to trace.</td><td>Random broad guesswork.</td></tr>
+      <tr><td>Patch minimality</td><td>Small diff targeting the fault.</td><td>Large unrelated rewrite.</td></tr>
+      <tr><td>Fix verification</td><td>Original failing test passes after patch.</td><td>Patch applied without rerun.</td></tr>
+      <tr><td>Regression safety</td><td>Relevant broader tests still pass.</td><td>New failures or skipped checks.</td></tr>
+      <tr><td>Efficiency</td><td>Fewer wasted commands/tokens over similar cases.</td><td>Long trace with no evidence gain.</td></tr>
+    </tbody></table>
+    <h3><span class="secno">5.3</span>Wrapper edits as commands</h3>
+<pre><code>DebugPromptPatchCommand(
+    target="suzuki-reproducer-agent/system/persona",
+    reason="The agent inspected code before finding a failing command.",
+    patch="Require a failing command or explicit non-reproducible verdict before localization."
+)
+
+DebugWorkflowPatchCommand(
+    target="debug_reproduce_patch_verify",
+    reason="Typecheck was skipped after TypeScript edits.",
+    patch="After editing .ts/.tsx files, run npm typecheck when package.json exposes it."
+)</code></pre>
+    <h3><span class="secno">5.4</span>Gates</h3>
+    <table><caption><span class="tno">Table 5.2</span>Suzuki promotion gates.</caption><thead><tr><th>Gate</th><th>Question</th></tr></thead><tbody>
+      <tr><td><code>CommandSafetyGate</code></td><td>Does the wrapper encourage dangerous commands, broad deletes, or secret exposure?</td></tr>
+      <tr><td><code>ReproductionGate</code></td><td>Does it preserve or improve finding a failing command first?</td></tr>
+      <tr><td><code>RegressionGate</code></td><td>Did any previously solved bug task regress?</td></tr>
+      <tr><td><code>PatchQualityGate</code></td><td>Does it reduce patch bloat and unrelated changes?</td></tr>
+      <tr><td><code>CostGate</code></td><td>Does it stay within token/latency/tool-call budget?</td></tr>
+      <tr><td><code>UsefulnessGate</code></td><td>Is the improvement material enough to activate?</td></tr>
+    </tbody></table>
+    <div class="folio">· 43 ·</div>
+  </section>
+
+  <section class="leaf" style="text-align:center; padding:140px 78px;"><h2 class="part"><span class="pno">Part Three</span>Practice</h2><div class="rule-orn" style="margin:28px auto;"></div><p style="font-style:italic; color:var(--ink-soft); max-wih:560px; margin:0 auto;">How to migrate from Mazda-specific finance implementation to a shared core with Suzuki debugging implementations.</p></section>
+
+  <section class="leaf" id="ch6">
+    <div class="runninghead"><span>Part III · Practice</span><span>Ch. 6 · Migration</span></div>
+    <p class="chapnum">Chapter Six</p><h1 class="chap">Migration Plan: Mazda Core to Suzuki Harness</h1><div class="chap-rule"></div>
+    <p class="lead opening">Do the migration by extraction, not rewrite. First prove what  generic. Then move finance code behind a finance harness. Then build Suzuki's debugging harness against the same contracts. At each step, tests prove Mazda still works.</p>
+    <h3><span class="secno">6.1</span>Carve out the shared core</h3><ol><li>Create <code>agent_self_improvement/core</code> and move generic contracts, runtime, persistence, improvement, and reporting there.</li><li>Add import-boundary tests proving core imports no harness packages.</li><li>Keep compatibility shims for old import paths until callers move.</li><li>Run existing tests after each move.</li></ol>
+    <h3><span class="secno">6.2</span>Move finance behind a harness</h3>
+<pre><code>harnesses/mazda_finance/
+  contracts/
+    finance_models.py
+    finance_ports.py
+    finance_factory.py
+  implementations/
+    verifiers.py
+    mcp_tools.py
+    finance_evaluation_factory.py
+  agent_package/
+    mazda_package.py</code></pre>
+    <h3><span class="secno">6.3</span>Create Suzuki in slices</h3>
+    <table><caption><span class="tno">Table 6.1</span>Recommended implementation slices.</caption><thead><tr><th>Slice</th><th>Goal</th><th>Done when</th></tr></thead><tbody>
+      <tr><td>0</td><td>Profile builds</td><td><code>suzuki_debug_default</code> builds a kernel with stub adapters.</td></tr>
+      <tr><td>1</td><td>Read-only triage</td><td>Suzuki inspects files and summarizes likely fault zones without writing.</td></tr>
+      <tr><td>2</td><td>Reproduction</td><td>A failing command/test is captured as structured evidence.</td></tr>
+      <tr><td>3</td><td>Patch candidate</td><td>A minimal diff is produced behind write-root policy.</td></tr>
+      <tr><td>4</td><td>Verification</td><td>Targeted test passes and relevant regression check runs.</td></tr>
+      <tr><td>5</td><td>Self-improvement</td><td>A wrapper edit is proposed, A/B tested, gated, approved, and activated.</td></tr>
+    </tbody></table>
+    <h3><span class="secno">6.4</span>Tests to add early</h3>
+<pre><code>test_core_import_boundaries.py       # core imports no harnesses
+test_runtime_profiles.py             # Mazda and Suzuki profiles build via one composition root
+test_debug_harness_factory.py        # factory creates workspace, source control, command policy, test runner
+test_command_policy.py               # dangerous commands blocked or escalated
+test_reproduction_evaluator.py       # failing command before patch scores higher than vague diagnosis
+test_patch_quality_gate.py           # broad unrelated diffs fail the gate
+test_regression_gate.py              # new failures block activation</code></pre>
+    <div class="box thm"><div class="boxhead">Migration principle</div><p>Do not remove a Mazda finance implementation until a test proves the same core behavior still exists behind a harness boundary. The migration is complete when Mazda and Suzuki are two profiles over the same kernel.</p></div>
+    <div class="folio">· 55 ·</div>
+  </section>
+
+  <section class="leaf" id="ch7">
+    <div class="runninghead"><span>Part III · Practice</span><span>Ch. 7 · Build &amp; Operate</spaniv>
+    <p class="chapnum">Chapter Seven</p><h1 class="chap">Building, Testing, and Operating</h1><div class="chap-rule"></div>
+    <p class="lead opening">Suzuki should be easy to run locally because debugging is local by nature. Her first useful environment is a checked-out repository, a safe command policy, a known test command, and a writable branch.</p>
+    <h3><span class="secno">7.1</span>Local commands</h3>
+<pre><code># all tests
+../../.venv/bin/python -m pytest
+
+# core only
+../../.venv/bin/python -m pytest agent_self_improvement/core/tests
+
+# Suzuki harness only
+../../.venv/bin/python -m pytest agent_self_improvement/harnesses/suzuki_debug/tests
+
+# read-only bug hunt
+../../.venv/bin/python suzuki_run_bug_hunt.py   --repo /path/to/project   --bug-report bug_report.md   --mode read-only
+
+# patch mode with approved write roots
+../../.venv/bin/python suzuki_run_bug_hunt.py   --repo /path/to/project   --bug-report bug_report.md   --mode patch   --allowed-write-root src   --allowed-write-root tests</code></pre>
+    <h3><span class="secno">7.2</span>Command policy defaults</h3>
+    <table><caption><span class="tno">Table 7.1</span>Default safety policy.</caption><thead><tr><th>Command class</th><th>Default behavior</th></tr></thead><tbody>
+      <tr><td>Read-only inspection: <code>ls</code>, <code>cat</code>, <code>grep</code>, <code>git status</code></td><td>Allowed in repo root.</td></tr>
+      <tr><td>Test commands: <code>pytest</code>, <code>npm test</code>, <code>cargo test</code></td><td>Allowed when configured in profile.</td></tr>
+      <tr><td>Package installs or network calls</td><td>Require approval unless sandbox profile allows them.</td></tr>
+      <tr><td>Destructive commands: <code>rm -rf</code>, reset/clean, broad chmod/chown</td><td>Blocked or require explicit approval.</td></tr>
+      <tr><td>Secret-reading commands: env dumps, credential files, SSH keys</td><td>Blocked by default.</td></tr>
+    </tbody></table>
+    <h3><span class="secno">7.3</span>Operating the live fleet</h3>
+<pre><code>curl -s -X POST http://&lt;LETTA_HOST&gt;/v1/agents/&lt;SUZUKI_AGENT_ID&gt;/recompile   | grep -oE '&lt;projection&gt;[^&lt;]*&lt;/projection&gt;'
+# Expected Suzuki orchestrator count: 6 blocks.
+# Expected minion count: 2 or more, depending on shared + specialty memory.</code></pre>
+    <div class="box caution"><div class="boxhead">Caution · Do not trust a green report without reproduction</div><p>A debugging agent can look successful by writing a plausible explanation. Suzuki succeeds only when the trace conains executable evidence: a failing signal before the fix, a passing signal after the fix, and an appropriate regression check.</p></div>
+    <h3><span class="secno">7.4</span>Definition of done for Phase 1</h3>
+    <ol><li>Core extracted and import-boundary tests passing.</li><li>Mazda finance harness still runs through the shared core.</li><li>Suzuki profile builds a kernel through the same composition root.</li><li>Debug harness can run read-only bug triage and persist a trace.</li><li>Reproduction evaluator scores at least one failing command/test.</li><li>Command policy blocks destructive and secret-reading commands.</li><li>HTML report shows bug report, reproduction, diagnosis, patch status, and next action.</li></ol>
+    <div class="folio">· 65 ·</div>
+  </section>
+
+  <section class="leaf" id="apxA">
+    <div class="runninghead"><span>Back Matter</span><span>Appendix A</span></div><p class="chapnum">Appendix A</p><h1 class="chap">Interface &amp; Factory Catalog</h1><div class="chap-rule"></div>
+    <class="opening">This catalog lists the interfaces Suzuki should reuse from the shared core and add in the debugging harness. Every factory method returns a port, never a concrete class.</p>
+    <table><caption><span class="tno">Table A.1</span>Shared core factories.</caption><thead><tr><th>Factory</th><th>Purpose</th></tr></thead><tbody>
+      <tr><td><code>IPersistenceFactory</code></td><td>Evidence-store repositories and schema manager.</td></tr>
+      <tr><td><code>ILlmFactory</code></td><td>Model client, request builder, response parser, token counter, budget guard.</td></tr>
+      <tr><td><code>IPromptFactory</code></td><td>System-message provider, templates, composer, validator, diff builder.</td></tr>
+      <tr><td><code>IToolFactory</code></td><td>Tool registry, adapter, permission policy, execution logger.</td></tr>
+      <tr><td><code>IContextFactory</code></td><td>Context selector, budgeter, pack builder, memory/note readers and writers.</td></tr>
+      <tr><td><code>IWorkflowFactory</code></td><td>Workflow runner.</td></tr>
+      <tr><td><code>IEvaluationFactory</code></td><td>Evaluator, verdict judge, classifier, regression detector, gate chain.</td></tr>
+      <tr><td><code>IImprovementFactory</code></td><td>Proposal generator, experiment runner, approval gateway, snapshot, activation, rollback.</td></tr>
+      <tr><td><code>IReportingFactory</code></td><td>Event bus, trace report, dashboard, regression report.</td></tr>
+      <tr><td><code>IAgentPackageFactory</code></td><td>Create Mazda, Suzuki, or future Mazda-type agent packages by name.</td></tr>
+    </tbody></table>
+    <table><caption><span class="tno">Table A.2</span>Suzuki debugging ports.</caption><thead><tr><th>Port</th><th>Role</th></tr></thead><tbody>
+      <tr><td><code>IRepositoryWorkspace</code></td><td>Checked-out repo, root path, write roots, environment metadata.</td></tr>
+      <tr><td><code>ISourceControlAdapter</code></td><td>Branch, status, diff, blame, commit metadata.</td></tr>
+      <tr><td><code>ICommandPolicy</code></td><td>Approve, reject, or escalate commands before execution.</td></tr>
+      <tr><td><code>ICommandExecutor</code></td><td>Run approved commands and return structured command results.</td></tr>
+      <tr><td><code>ITestRunner</code></td><td>Run targeted/broad tests and return structured test results.</td></tr>
+      <tr><td><code>IStaticAnalyzer</code></td><td>Run lint/type/static checks and normalize findings.</td></tr>
+      <tr><td><code>IFailureSignatureExtractor</code></td><td>Turn command/test output into comparable failure signatures.</td></tr>
+      <tr><td><code>IReproductionStrategy</code></td><td>Choose how to find/create a repeatable failing case.</td></tr>
+      <tr><td><code>IPatchPlanner</code></td><td>Create a minimal patch plan from evidence.</td></tr>
+      <tr><td><code>IPatchApplier</code></td><td>Apply candidate patch inside allowed write roots.</td></tr>
+      <tr><td><code>IRegressionVerifier</code></td><td>Compare baseline and candidate behavior.</td></tr>
+      <tr><td><code>IDebugRunEvaluator</code></td><td>Score reproduction, localization, patch, verification, regression, efficiency.</td></tr>
+      <tr><td><code>IDebugHarnessFactory</code></td><td>Abstract Factory for all debugging-domain services.</td></tr>
+    </tbody></table>
+    <table><caption><span class="tno">Table A.3</span>Suzuki value objects.</caption><thead><tr><th>Value object</th><th>Important fields</th></tr></thead><tbody>
+      <tr><td><code>BugReport</code></td><td>title, description, observed behavior, expected behavior, environment, attachments.</td></tr>
+      <tr><td><code>CommandResult</code></td><td>command, exit_code, stdout_tail, stderr_tail, elapsed_ms, policy_decision.</td></tr>
+      <tr><td><code>TestRunResult</code></td><td>runner, selected_tests, passed, failed_tests, failure_signatures, duration.</td></tr>
+      <tr><td><code>FailureSignature</code></td><td>kind, message, stack_frames, file_refs, normalized_hash.</td></tr>
+      <tr><td><code>PatchCandidate</code></td><td>diff, files_changed, rationale, risk_notes, verification_plan.</td></tr>
+      <tr><td><code>DebugScoreCard</code></td><td>reproduction, localization, patch_quality, fix_verification, regression_safety, efficiency.</td></tr>
+    </tbody></table>
+    <div class="folio">· 73 ·</div>
+  </section>
+
+  <section class="leaf" id="apxB">
+    <div class="runninghead"><span>Back Matter</span><span>Appendix B</span></div><p class="chapnum">Appendix B</p><h1 class="chap">Glossary</h1><div class="chap-rule"></div>
+    <dl style="margin:0;">
+      <p><rong>Adapter.</strong> A concrete class satisfying a port while hiding a tool-specific API such as pytest, git, npm, or a linter.</p>
+      <p><strong>Bug-hunting fleet.</strong> Suzuki plus her specialist Letta minions.</p>
+      <p><strong>Command policy.</strong> The safety layer that decides whether a command is allowed, blocked, or requires approval.</p>
+      <p><strong>Debugging harness.</strong> Suzuki's domain package: repositories, commands, tests, static analysis, patches, and regression verification.</p>
+      <p><strong>Evidence store.</strong> The shared database of traces, verdicts, wrapper revisions, experiments, gates, approvals, and snapshots.</p>
+      <p><strong>Failure signature.</strong> A normalized representation of a failure built from test names, exception text, stack frames, or log markers.</p>
+      <p><strong>Harness swap.</strong> Replacing a domain implementation family while keeping the common self-improvement core intact.</p>
+      <p><strong>Mazda-type agent.</strong> Any Letta agent built on the shared self-improvement framework: Mazda for finance, Suzuki for debugging, and future siblings.</p>
+      <p><strong>Port.</strong> An abstract interface that callers use instead of a concrete implementation.</p>
+      <p><strong>Regression verification.</strong> Comparing baseline and candidate behavior to ensure a patch did not introduce new failures.</p>
+      <p><strong>Wrapper.</strong> The versioned, roll-back-able envelope around a fixed LLM: prompts, memory, tool descriptions, context rules, workflow steps, and minion templates.</p>
+    </dl>
+    <div class="rule-orn" style="margin:46px auto;"></div>
+    <p style="text-align:center; font-style:italic; color:var(--ink-soft);">Colophon</p>
+    <p style="text-align:center; font-size:14px; color:var(--ink-soft); max-width:560px; margin:0 auto;">Set in the Iowan / Palatino old-style family. This edition rewrites the Mazda developer manual for Suzuki, preserving the interface-first self-improvement architecture while replacing the finance harness with a code-debugging harness. Live Suzuki identifiers are intentionally marked <code>TBD</code> until the Letta fleet is created.</p>
+    <div class="folio">· 80 ·</div>
+  </section>
+
+</div>
+</body>
+</html>
+
