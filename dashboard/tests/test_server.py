@@ -835,9 +835,12 @@ def test_mazda_and_minions_tagged_with_shared_llm_provider():
 
 def test_provider_agent_ids_returns_real_ids_for_tagged_agents():
     ids = server._provider_agent_ids(server.CHATGPT_PLUS_PRO)
-    assert len(ids) == 6
+    # Mazda fleet (6) + Suzuki fleet (7) = 13 tagged agents
+    assert len(ids) == 13
     mazda = next(cfg for cfg in server.LETTA_AGENTS if cfg['name'] == 'Mazda')
     assert mazda['id'] in ids
+    suzuki = next(cfg for cfg in server.LETTA_AGENTS if cfg['name'] == 'Suzuki')
+    assert suzuki['id'] in ids
 
 
 def test_poll_chatgpt_provider_once_flags_every_fleet_agent_on_429(monkeypatch):

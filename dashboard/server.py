@@ -1371,6 +1371,13 @@ LETTA_AGENTS = [
     {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'provider_canary': True},
+    {'name': 'Suzuki',                     'id': 'agent-c4e58e29-8c06-4ca9-a18d-b8536442af13', 'llm_provider': CHATGPT_PLUS_PRO, 'orchestrator': True},
+    {'name': 'Suzuki Router',              'id': 'agent-df4deb48-3a46-4fe4-887a-6aeb95ddc6d6', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Reproducer',          'id': 'agent-ad0c3e39-bd14-4f79-af95-140e4cf21325', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Static Analysis',     'id': 'agent-a820e191-bc39-413c-bb0c-6344d5b37643', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Patcher',             'id': 'agent-2c585993-1193-42d8-9bf5-1805b426a0da', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Test Runner',         'id': 'agent-a90f1413-6599-4750-b7e0-ee5634984162', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Regression',          'id': 'agent-8af8fec4-5114-40b3-99ab-173edd35ebd2', 'llm_provider': CHATGPT_PLUS_PRO},
 ]
 
 # Cache of name→id resolved from the Letta API
@@ -1487,6 +1494,21 @@ AGENT_CARDS = {
             'shared dashboard visibility',
         ],
         'memory_summary': 'Not a Letta-backed agent here, but included as a visible collaborator in the dashboard ecosystem.',
+    },
+    'Suzuki': {
+        'identity': 'Suzuki',
+        'role': 'Self-improving software debugging orchestrator — triages bugs, delegates to specialist minions, verifies patches, and learns across runs.',
+        'responsibilities': [
+            'Receive bug reports and run the 12-stage debug workflow',
+            'Delegate triage, reproduction, static analysis, patching, test execution, and regression checking to specialist minions',
+            'Record traces and propose wrapper improvements after each run',
+        ],
+        'tools': [
+            'DebugStageEnvelope handoff contract',
+            'executor_run / host command execution',
+            'self-improvement MCP tools (record_trace, propose_improvement, run_experiment)',
+        ],
+        'memory_summary': 'Accumulates debugging lessons across runs via the shared self-improvement kernel inherited from Mazda.',
     },
 }
 
