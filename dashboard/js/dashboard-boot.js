@@ -15,7 +15,6 @@ import {
   AgentCardRenderer,
   AgentHealthPoller,
   BrowserSpeechSynthesizer,
-  buildProcessPdfRequest,
   ChatDetailRenderer,
   CodeChangeAlert,
   ConnectionLogController,
@@ -843,7 +842,7 @@ const esc = TextUtils.esc; // HTML-escape — now sourced from the library.
        reflect status so an exhausted account is caught at a glance. */
 function renderModelStats(d) {
   if (!d || d.ok === false) {
-    return `<p class="am-warn">${esc((d && d.error) || "no data")}</p>`;
+    return `<p class="am-warn">${esc(d?.error || "no data")}</p>`;
   }
   const dot =
     d.status === "down"
@@ -1741,6 +1740,8 @@ const RF = new RolFinanceReportsController({
   viewsContainer: document.getElementById("rol-finance-reports-views"),
   activateView: safeActivateView,
   setActiveTab: (tab) => safeSetActive(navRolFinanceReports, ".tab", tab),
+  setInterval: globalThis.setInterval.bind(globalThis),
+  clearInterval: globalThis.clearInterval.bind(globalThis),
 });
 
 /* =====================  Agent tab status colors  ===================== */

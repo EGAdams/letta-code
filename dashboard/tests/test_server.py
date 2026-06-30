@@ -5,6 +5,8 @@ registry lookup, file tailing with stable line keys, log-row filtering,
 the down-status path for an unreachable health check, and the
 start/"starting" lifecycle used by the executor Start button.
 """
+import json
+
 import pytest
 import server
 
@@ -172,6 +174,101 @@ def test_expense_receipt_resolution_never_falls_back_for_empty_url(monkeypatch):
 
     assert server._resolve_expense_receipt_path(
         '2025-01-07', '14.96', '') is None
+
+
+def test_receipt_index_walks_every_mount(monkeypatch, tmp_path):
+    """A receipt living only in an EXTERNAL store (e.g. the live-pipeline Windows
+    destination) must be indexed, not just readable_documents/receipts — otherwise
+    freshly-stored receipts never get a marker. Regression for Bug 1."""
+    canonical = tmp_path / 'readable' / 'receipts'
+    external = tmp_path / 'winstore'
+    (canonical / 'january').mkdir(parents=True)
+    external.mkdir(parents=True)
+    (canonical / 'january' / 'acme_01_05_25_10_00.jpg').write_bytes(b'x')
+    (external / 'walmart_03_17_25_350_95.jpg').write_bytes(b'y')
+
+    monkeypatch.setattr(server, 'RECEIPT_MOUNTS', [
+        ('/rol_finances_receipts', str(tmp_path / 'readable'), str(canonical)),
+        ('/rol_finances_receipts_ext', str(external), str(external)),
+    ])
+    by_da, by_stem = server._build_receipt_index()
+    assert ('2025-01-05', '10.00') in by_da          # canonical store
+    assert ('2025-03-17', '350.95') in by_da          # external store — the fix
+    # URL for the external receipt uses the external mount's prefix.
+    ext_fp = by_da[('2025-03-17', '350.95')][0]
+    assert server._receipt_url_for_path(ext_fp) == (
+        '/rol_finances_receipts_ext/walmart_03_17_25_350_95.jpg')
+
+
+def test_receipt_url_for_path_canonical_includes_receipts_segment(monkeypatch, tmp_path):
+    """Regression: canonical receipt URL must include the 'receipts/' path segment.
+
+    _receipt_url_for_path computes rel from serve_base (readable_documents), not from
+    the subtree (readable_documents/receipts). So a receipt at
+    readable_documents/receipts/jan/acme.jpg → rel = receipts/jan/acme.jpg →
+    URL = /rol_finances_receipts/receipts/jan/acme.jpg.
+
+    Before the parallel baker fix, the baker used subtree-relative paths and
+    produced /rol_finances_receipts/jan/acme.jpg (missing 'receipts/'), causing 404s.
+    This test pins the correct server-side URL format so baker and server stay in sync.
+    """
+    canonical_docs = tmp_path / 'readable'
+    (canonical_docs / 'receipts' / 'jan').mkdir(parents=True)
+    receipt = canonical_docs / 'receipts' / 'jan' / 'acme_01_15_25_10_00.jpg'
+    receipt.write_bytes(b'x')
+    ext = tmp_path / 'ext'
+    ext.mkdir()
+
+    monkeypatch.setattr(server, 'RECEIPT_MOUNTS', [
+        ('/rol_finances_receipts', str(canonical_docs), str(canonical_docs / 'receipts')),
+        ('/rol_finances_receipts_ext', str(ext), str(ext)),
+    ])
+
+    url = server._receipt_url_for_path(str(receipt))
+    assert url.startswith('/rol_finances_receipts/receipts/'), \
+        f"Canonical URL missing 'receipts/' segment: {url}"
+    assert 'jan/acme_01_15_25_10_00.jpg' in url
+
+
+def test_receipt_url_for_path_external_gets_ext_prefix(monkeypatch, tmp_path):
+    """External receipts (live-pipeline Windows store) must use /rol_finances_receipts_ext/."""
+    canonical_docs = tmp_path / 'readable'
+    (canonical_docs / 'receipts').mkdir(parents=True)
+    ext = tmp_path / 'ext'
+    ext.mkdir()
+    ext_receipt = ext / 'walmart_03_17_25_350_95.jpg'
+    ext_receipt.write_bytes(b'x')
+
+    monkeypatch.setattr(server, 'RECEIPT_MOUNTS', [
+        ('/rol_finances_receipts', str(canonical_docs), str(canonical_docs / 'receipts')),
+        ('/rol_finances_receipts_ext', str(ext), str(ext)),
+    ])
+
+    url = server._receipt_url_for_path(str(ext_receipt))
+    assert url == '/rol_finances_receipts_ext/walmart_03_17_25_350_95.jpg', \
+        f"External receipt got wrong URL: {url}"
+
+
+def test_record_stored_expense_busts_index_and_tags_event():
+    """Storing an expense must invalidate the receipt-index cache (so the new
+    receipt shows on the next view reload, no 300s wait) and carry kind/report_path
+    so the frontend can target the right views."""
+    server._RECEIPT_INDEX_CACHE.update(ts=9_999_999_999.0, by_da={}, by_stem={})
+    out = server.record_stored_expense({
+        'expense_id': 1169, 'kind': 'receipt', 'expense_date': '2025-03-17',
+        'amount': '350.95', 'report_path': '/r/jan.html',
+    })
+    assert out == {'ok': True}
+    assert server._RECEIPT_INDEX_CACHE['ts'] == 0.0   # cache busted
+    ev = server.get_stored_expense_events(0)[-1]
+    assert ev['kind'] == 'receipt'
+    assert ev['report_path'] == '/r/jan.html'
+    assert ev['expense_id'] == 1169
+
+
+def test_record_stored_expense_defaults_kind_to_receipt():
+    server.record_stored_expense({'expense_id': 7})
+    assert server.get_stored_expense_events(0)[-1]['kind'] == 'receipt'
 
 
 def test_mazda_stage_agents_are_listed_for_dashboard():
@@ -1151,3 +1248,293 @@ def test_recategorize_expense_credit_card_posting_date_offset(monkeypatch):
 
     assert result['ok'] is True
     assert result['expense_id'] == 555
+
+
+# ── Mazda scan-intake notification (regression: 2026-06-28 intake run) ───────
+# Three bugs were caught the first time a real receipt was scanned and handed to
+# Mazda. These tests pin the pure builder so they cannot silently return:
+#   1. The JPEG facade exits 0 with doc_kind=unknown/confidence=0; treating that
+#      as "classified" sent Mazda into investigate/categorize with empty data.
+#   2. The categorizer/store commands were handed to Mazda as bare `python3`,
+#      which dies with ModuleNotFoundError: No module named 'tools'.
+#   3. Mazda recorded a trace but never judged it, so the autonomous reflection
+#      loop (which keys on FAIL *verdicts*) could never see the failure.
+
+# A facade result that genuinely identified a document.
+_FACADE_IDENTIFIED = {
+    'ok': True,
+    'doc_kind': 'receipt',
+    'routing_key': 'receipt.costco',
+    'vendor': 'costco',
+    'confidence': 0.94,
+    'recommended_action': 'auto',
+    'parsed': {'merchant_name': 'Costco', 'transaction_date': '2025-01-22',
+               'total_amount': '84.12'},
+}
+
+# What the text-extraction facade actually returns for a JPEG scan: it ran fine
+# (ok=True) but classified nothing.
+_FACADE_JPEG_UNKNOWN = {
+    'ok': True,
+    'doc_kind': 'unknown',
+    'routing_key': 'unknown',
+    'vendor': 'unknown',
+    'confidence': 0.0,
+    'recommended_action': 'reject',
+    'parsed': None,
+    'error': None,
+}
+
+
+def test_facade_identified_true_only_for_real_classification():
+    assert server.mazda_facade_identified(_FACADE_IDENTIFIED) is True
+
+
+@pytest.mark.parametrize('facade', [
+    _FACADE_JPEG_UNKNOWN,                                   # the live JPEG bug
+    {'ok': False, 'error': 'file not found'},               # facade crashed
+    {'ok': True, 'doc_kind': 'unknown', 'confidence': 0.9}, # unknown kind
+    {'ok': True, 'doc_kind': 'receipt', 'confidence': 0.0}, # zero confidence
+    {'ok': True, 'doc_kind': 'receipt', 'confidence': 0.9,
+     'recommended_action': 'reject'},                       # rejected
+    {},                                                     # nothing ran
+    None,                                                   # no facade at all
+])
+def test_facade_identified_false_for_unusable_results(facade):
+    assert server.mazda_facade_identified(facade) is False
+
+
+def test_facade_identified_survives_non_numeric_confidence():
+    # A garbled confidence must not raise — it should read as "not identified".
+    assert server.mazda_facade_identified(
+        {'ok': True, 'doc_kind': 'receipt', 'confidence': 'NaN-ish'}
+    ) is False
+
+
+def test_scan_message_jpeg_unknown_tells_mazda_to_classify_herself():
+    """Bug 1: a doc_kind=unknown facade must NOT be sold to Mazda as classified."""
+    msg = server.build_mazda_scan_message(
+        '/scans/scan_freezer.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN)
+    # It must not claim the facade identified the document.
+    assert 'IDENTIFIED this document' not in msg
+    # It must route her to the vision classifier + parser herself.
+    assert 'tools/classify_scan.py /scans/scan_freezer.jpg' in msg
+    assert 'parse_and_categorize.py -f /scans/scan_freezer.jpg --json' in msg
+    # And it must explain why (so a future reader understands the JPEG quirk).
+    assert 'text extraction' in msg
+
+
+def test_scan_message_identified_facade_skips_reclassify():
+    """When the facade really classified, Mazda should reuse it, not redo it."""
+    msg = server.build_mazda_scan_message(
+        '/scans/x.jpg', 'Window Scanner', _FACADE_IDENTIFIED)
+    assert 'IDENTIFIED this document' in msg
+    assert 'Do NOT re-run classify or parse' in msg
+    # No self-classify fallback block when the facade already did the work.
+    assert 'tools/classify_scan.py' not in msg
+    assert 'costco' in msg  # the vendor flows through
+
+
+@pytest.mark.parametrize('facade', [_FACADE_IDENTIFIED, _FACADE_JPEG_UNKNOWN, {}, None])
+def test_scan_message_commands_always_carry_pythonpath_and_venv(facade):
+    """Bugs 2 + 3: every rol_finances command must use the venv python AND carry
+    PYTHONPATH, or it dies with ModuleNotFoundError: No module named 'tools'.
+
+    PYTHONPATH must travel via executor_run's ``env`` argument, NOT as an inline
+    ``PYTHONPATH=...`` command prefix — the executor allowlist rejects a bare
+    command whose first token is an env-assignment ("Command not in allowlist:
+    PYTHONPATH=...", live trace 53, 2026-06-29)."""
+    import re
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', facade)
+    # PYTHONPATH is carried via the env argument (JSON object form).
+    assert '{"PYTHONPATH": "/home/adamsl/rol_finances"}' in msg
+    assert '/home/adamsl/rol_finances/.venv/bin/python3' in msg
+    # The inline prefix form `PYTHONPATH=/path <cmd>` must NEVER be handed over —
+    # that is the exact form the executor allowlist rejected on the bare command.
+    assert not re.search(r'PYTHONPATH=/home/adamsl/rol_finances\s', msg)
+    # A *bare* `python3 tools/...` (not the venv path, which ends in /python3)
+    # must never be handed over — that is exactly the ModuleNotFoundError form.
+    assert not re.search(r'(?<!/)python3 tools/', msg)
+    # The store step uses the venv interpreter too.
+    assert ('/home/adamsl/rol_finances/.venv/bin/python3 '
+            'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py') in msg
+
+
+def test_scan_message_passes_pythonpath_via_executor_env_not_inline(facade=_FACADE_JPEG_UNKNOWN):
+    """Pin the 2026-06-29 fix: executor_run steps instruct an env= argument and
+    the prominent EXECUTOR RULE warns against the inline PYTHONPATH= prefix."""
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', facade)
+    assert 'EXECUTOR RULE' in msg
+    assert 'env={"PYTHONPATH": "/home/adamsl/rol_finances"}' in msg
+    # The rule must explicitly forbid the inline prefix so future edits don't regress.
+    assert 'Do NOT prefix' in msg
+
+
+def test_scan_message_always_includes_judge_trace_step():
+    """Bug 3: without judge_trace there is no verdict, so the autonomous
+    reflection loop can never act on the failure."""
+    for facade in (_FACADE_IDENTIFIED, _FACADE_JPEG_UNKNOWN, None):
+        msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', facade)
+        assert 'judge_trace(trace_id)' in msg
+        assert 'record_trace(' in msg
+        # judge must come after record in the instructions.
+        assert msg.index('record_trace(') < msg.index('judge_trace(trace_id)')
+
+
+def test_scan_message_never_passes_unknown_as_vendor_key():
+    """The categorizer input must not carry the literal 'unknown' — that produced
+    a guaranteed check_vendor_key miss + a wasted (Node-18-crashing) LLM call.
+
+    Regression 2026-06-29: the JPEG path prefilled the categorizer JSON with
+    description="unknown" because the facade had no parse, but by STEP 3 Mazda
+    already has the REAL merchant from her own STEP 0 parse. The message must tell
+    her to build the input from STEP 0, never feed her the literal placeholder."""
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', _FACADE_JPEG_UNKNOWN)
+    assert '"vendor_key": "unknown"' not in msg
+    # No literal placeholder categorizer input in the unidentified path.
+    assert '"description": "unknown"' not in msg
+    # Instead she is told to source the input from her STEP 0 parse results.
+    assert 'from STEP 0' in msg
+
+
+def test_scan_message_instructs_structured_intake_evidence():
+    """STEP 5 must tell Mazda to record the structured IntakeVerificationEvidence
+    JSON under task_name="document-intake" — that is what the intake verdict
+    rubric reads to judge success vs failure. Pin the field contract so the
+    dashboard message and the rol_finances rubric cannot silently drift apart."""
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', _FACADE_IDENTIFIED)
+    assert 'task_name="document-intake"' in msg
+    # Every field the IntakeVerificationEvidence model / judge depends on.
+    for field in ('doc_kind', 'classification_confidence', 'vendor_key',
+                  'vendor_key_recognized', 'category_id', 'duplicate_checked',
+                  'is_duplicate', 'stored', 'expense_id', 'problems'):
+        assert f'"{field}"' in msg, f'evidence field {field!r} missing from message'
+
+
+def test_scan_message_judges_every_run_not_only_failures():
+    """Once the intake rubric exists, a clean success must also be judged (it
+    correctly PASSes), so the instruction is ALWAYS judge_trace — not the old
+    'only on failure' guard that left successes unverified."""
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', _FACADE_IDENTIFIED)
+    assert 'judge_trace(trace_id) — ALWAYS' in msg
+    assert 'ONLY IF THE INTAKE FAILED' not in msg
+
+
+def test_scan_message_round_trips_through_notify(monkeypatch):
+    """_notify_mazda_of_scan must POST exactly the built message to Mazda."""
+    captured = {}
+
+    class _Resp:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def _fake_urlopen(req, timeout=0):
+        captured['url'] = req.full_url
+        captured['body'] = json.loads(req.data.decode())
+        return _Resp()
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', _fake_urlopen)
+    server._notify_mazda_of_scan('/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN)
+
+    expected = server.build_mazda_scan_message(
+        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN)
+    assert captured['body']['messages'][0]['content'] == expected
+    assert server.MAZDA_AGENT_ID in captured['url']
+
+
+# ── Scan message STEP 8 ───────────────────────────────────────────────────────
+
+def test_scan_message_includes_dashboard_callback_step():
+    """STEP 8 in the scan message instructs Mazda to POST /api/expense-stored."""
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Window Scanner')
+    assert 'STEP 8' in msg
+    assert '/api/expense-stored' in msg
+    assert 'fire-and-forget' in msg.lower() or 'Ignore errors' in msg
+
+
+# ── reprocess_report ──────────────────────────────────────────────────────────
+
+def test_reprocess_report_empty_url():
+    result = server.reprocess_report('')
+    assert result['ok'] is False
+    assert 'report_url' in result['error']
+
+
+def test_reprocess_report_unrecognised_url():
+    result = server.reprocess_report('/not/a/report/url')
+    assert result['ok'] is False
+
+
+def test_reprocess_report_no_source_doc(tmp_path, monkeypatch):
+    """A valid report URL whose directory has no PDF/xlsx returns an error."""
+    # Fake _source_document_path to return '' (no source doc found)
+    monkeypatch.setattr(server, '_source_document_path', lambda _url: '')
+    result = server.reprocess_report('/rol_finances_reports/jan-2025/stub/report.html')
+    assert result['ok'] is False
+    assert 'source document' in result['error'].lower()
+
+
+def test_reprocess_report_delegates_to_process_pdf(tmp_path, monkeypatch):
+    """When a source doc is found, reprocess_report calls process_pdf_document."""
+    fake_pdf = str(tmp_path / 'statement.pdf')
+    open(fake_pdf, 'w').close()
+
+    called_with = {}
+
+    def _fake_process_pdf(file_path, label=None, org_id=1, engine='gemini'):
+        called_with['file_path'] = file_path
+        called_with['label'] = label
+        return {'ok': True, 'stages': [], 'file_path': file_path}
+
+    monkeypatch.setattr(server, '_source_document_path', lambda _url: fake_pdf)
+    monkeypatch.setattr(server, 'process_pdf_document', _fake_process_pdf)
+
+    result = server.reprocess_report('/rol_finances_reports/jan-2025/stub/report.html')
+
+    assert result['ok'] is True
+    assert called_with['file_path'] == fake_pdf
+    assert result['report_url'] == '/rol_finances_reports/jan-2025/stub/report.html'
+
+
+# ── expense-stored event bus ──────────────────────────────────────────────────
+
+def _clear_expense_events():
+    with server._stored_expense_lock:
+        server._stored_expense_events.clear()
+
+
+def test_record_stored_expense_appends_event():
+    _clear_expense_events()
+    result = server.record_stored_expense({
+        'expense_id': 42,
+        'expense_date': '2025-01-07',
+        'amount': '14.96',
+        'vendor_key': 'goodwill_cascade',
+        'description': 'Goodwill Cascade',
+        'receipt_url': '/scans/scan.jpg',
+    })
+    assert result == {'ok': True}
+
+    events = server.get_stored_expense_events(0.0)
+    assert len(events) == 1
+    assert events[0]['expense_id'] == 42
+    assert events[0]['vendor_key'] == 'goodwill_cascade'
+    assert 'stored_at' in events[0]
+    _clear_expense_events()
+
+
+def test_get_stored_expense_events_filters_by_since():
+    _clear_expense_events()
+    import time as _time
+    server.record_stored_expense({'expense_id': 1})
+    cutoff = _time.time()
+    server.record_stored_expense({'expense_id': 2})
+
+    all_events = server.get_stored_expense_events(0.0)
+    assert len(all_events) == 2
+
+    after = server.get_stored_expense_events(cutoff)
+    assert len(after) == 1
+    assert after[0]['expense_id'] == 2
+    _clear_expense_events()

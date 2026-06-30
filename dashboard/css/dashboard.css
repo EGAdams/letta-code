@@ -521,6 +521,44 @@ a:hover {
   display: block;
 }
 
+.reprocess-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: #1a1a2e;
+  border-bottom: 1px solid #333;
+}
+
+.reprocess-btn {
+  padding: 4px 14px;
+  background: #2a4a7f;
+  color: #e0e8ff;
+  border: 1px solid #3a6abf;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.reprocess-btn:hover:not(:disabled) {
+  background: #3a5a9f;
+}
+
+.reprocess-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.reprocess-status {
+  font-size: 0.8em;
+  color: #aaa;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 pre {
   background: #1e1e1e;
   color: #e6e6e6;
