@@ -3803,12 +3803,36 @@ print(json.dumps(out))
 '''
 
 _GEMINI_EXTRACT_PY = r'''
-import json, os
-out = {"account": None}
+import json, os, subprocess
+out = {"account": None, "auth_method": None, "preview_features": False,
+       "cli_version": None, "cli_ok": False, "cli_error": None}
 try:
     out["account"] = json.load(open(os.path.expanduser("~/.gemini/google_accounts.json")))
 except Exception:
     pass
+try:
+    s = json.load(open(os.path.expanduser("~/.gemini/settings.json")))
+    # settings.json uses either "authMethod" or nested "auth.method" key style
+    out["auth_method"] = (s.get("authMethod") or s.get("auth", {}).get("method")
+                          or s.get("auth.method") or "oauth")
+    out["preview_features"] = bool(s.get("previewFeatures") or s.get("preview_features"))
+except Exception:
+    pass
+# Health check: same PATH fix as gemini_provider.py — /usr/local/bin/node is v22,
+# system node is v18 which lacks the /v regex flag required by string-width dep.
+try:
+    env = os.environ.copy()
+    env["PATH"] = "/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
+    r = subprocess.run(["gemini", "--version"], env=env, capture_output=True,
+                       text=True, timeout=12)
+    if r.returncode == 0:
+        out["cli_ok"] = True
+        out["cli_version"] = (r.stdout or r.stderr or "").strip().splitlines()[0]
+    else:
+        out["cli_error"] = ((r.stderr or r.stdout or "").strip()
+                            or f"exit {r.returncode}")[:150]
+except Exception as e:
+    out["cli_error"] = str(e)[:150]
 print(json.dumps(out))
 '''
 
@@ -3941,8 +3965,26 @@ def _model_stats_uncached(source_key, src):
     if src['kind'] == 'gemini':
         d = _run_extractor(_GEMINI_EXTRACT_PY, src['host'])
         acct = (d.get('account') or {})
-        out['model'] = 'gemini'
-        out['detail'] = f'account: {acct.get("active") or acct.get("email") or "?"} — usage not exposed by CLI'
+        email = acct.get('active') or acct.get('email') or '?'
+        auth = d.get('auth_method') or 'oauth'
+        preview = d.get('preview_features', False)
+        cli_ok = d.get('cli_ok', False)
+        cli_ver = (d.get('cli_version') or '').strip()
+        cli_err = (d.get('cli_error') or '').strip()
+        # gemini_provider.py always uses gemini-2.5-flash as DEFAULT_MODEL
+        out['model'] = 'gemini-2.5-flash'
+        parts = [email, f'auth: {auth}']
+        if preview:
+            parts.append('preview features on')
+        if cli_ver:
+            parts.append(cli_ver)
+        if not cli_ok:
+            parts.append(f'CLI error: {cli_err[:80]}' if cli_err else 'CLI unreachable')
+            out['status'] = 'concern'
+        out['detail'] = ' — '.join(parts)
+        if d.get('error'):
+            out['status'] = 'concern'
+            out['detail'] = f'extractor error: {d["error"]}'
         return out
 
     return out
