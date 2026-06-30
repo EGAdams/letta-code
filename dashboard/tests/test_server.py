@@ -200,6 +200,55 @@ def test_receipt_index_walks_every_mount(monkeypatch, tmp_path):
         '/rol_finances_receipts_ext/walmart_03_17_25_350_95.jpg')
 
 
+def test_receipt_url_for_path_canonical_includes_receipts_segment(monkeypatch, tmp_path):
+    """Regression: canonical receipt URL must include the 'receipts/' path segment.
+
+    _receipt_url_for_path computes rel from serve_base (readable_documents), not from
+    the subtree (readable_documents/receipts). So a receipt at
+    readable_documents/receipts/jan/acme.jpg → rel = receipts/jan/acme.jpg →
+    URL = /rol_finances_receipts/receipts/jan/acme.jpg.
+
+    Before the parallel baker fix, the baker used subtree-relative paths and
+    produced /rol_finances_receipts/jan/acme.jpg (missing 'receipts/'), causing 404s.
+    This test pins the correct server-side URL format so baker and server stay in sync.
+    """
+    canonical_docs = tmp_path / 'readable'
+    (canonical_docs / 'receipts' / 'jan').mkdir(parents=True)
+    receipt = canonical_docs / 'receipts' / 'jan' / 'acme_01_15_25_10_00.jpg'
+    receipt.write_bytes(b'x')
+    ext = tmp_path / 'ext'
+    ext.mkdir()
+
+    monkeypatch.setattr(server, 'RECEIPT_MOUNTS', [
+        ('/rol_finances_receipts', str(canonical_docs), str(canonical_docs / 'receipts')),
+        ('/rol_finances_receipts_ext', str(ext), str(ext)),
+    ])
+
+    url = server._receipt_url_for_path(str(receipt))
+    assert url.startswith('/rol_finances_receipts/receipts/'), \
+        f"Canonical URL missing 'receipts/' segment: {url}"
+    assert 'jan/acme_01_15_25_10_00.jpg' in url
+
+
+def test_receipt_url_for_path_external_gets_ext_prefix(monkeypatch, tmp_path):
+    """External receipts (live-pipeline Windows store) must use /rol_finances_receipts_ext/."""
+    canonical_docs = tmp_path / 'readable'
+    (canonical_docs / 'receipts').mkdir(parents=True)
+    ext = tmp_path / 'ext'
+    ext.mkdir()
+    ext_receipt = ext / 'walmart_03_17_25_350_95.jpg'
+    ext_receipt.write_bytes(b'x')
+
+    monkeypatch.setattr(server, 'RECEIPT_MOUNTS', [
+        ('/rol_finances_receipts', str(canonical_docs), str(canonical_docs / 'receipts')),
+        ('/rol_finances_receipts_ext', str(ext), str(ext)),
+    ])
+
+    url = server._receipt_url_for_path(str(ext_receipt))
+    assert url == '/rol_finances_receipts_ext/walmart_03_17_25_350_95.jpg', \
+        f"External receipt got wrong URL: {url}"
+
+
 def test_record_stored_expense_busts_index_and_tags_event():
     """Storing an expense must invalidate the receipt-index cache (so the new
     receipt shows on the next view reload, no 300s wait) and carry kind/report_path
