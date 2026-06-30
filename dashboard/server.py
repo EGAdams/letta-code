@@ -449,6 +449,42 @@ READABLE_DOCS_BASE = os.path.expanduser('~/rol_finances/readable_documents')
 RECEIPTS_SUBTREE = os.path.join(READABLE_DOCS_BASE, 'receipts')
 ROL_FINANCES_RECEIPTS_URL_PREFIX = '/rol_finances_receipts'
 
+# Receipt files live in MORE THAN ONE tree. The historical tree is
+# readable_documents/receipts, but the live intake pipeline
+# (receipt_parsing_tools/parse_and_categorize.py save_receipt_non_interactive)
+# moves freshly-stored receipts to a separate Windows-side store
+# (RECEIPT_STORAGE_ROOT there). If we only index readable_documents, every receipt
+# the live pipeline stores is invisible to /api/receipts-present (no red marker)
+# and to View Receipt. So we index a LIST of roots and serve from a LIST of mounts.
+#
+# Each mount is (url_prefix, serve_base, index_subtree):
+#   - url_prefix   : the dashboard URL namespace the file is served under
+#   - serve_base   : path-traversal root for the GET handler
+#   - index_subtree: the directory _build_receipt_index walks for receipt files
+# For the canonical mount serve_base (readable_documents) differs from the subtree
+# (readable_documents/receipts) because baked URLs are relative to readable_documents
+# and therefore carry a leading 'receipts/' segment. For the external store the two
+# are the same directory. Override/extend the external root with ROL_RECEIPTS_EXTRA_ROOT.
+ROL_FINANCES_RECEIPTS_EXT_URL_PREFIX = '/rol_finances_receipts_ext'
+ROL_RECEIPTS_EXTRA_ROOT = os.environ.get(
+    'ROL_RECEIPTS_EXTRA_ROOT',
+    '/mnt/c/Users/NewUser/Documents/rol_finances/receipts')
+
+
+def _build_receipt_mounts():
+    mounts = [(ROL_FINANCES_RECEIPTS_URL_PREFIX, READABLE_DOCS_BASE, RECEIPTS_SUBTREE)]
+    extra = os.path.abspath(ROL_RECEIPTS_EXTRA_ROOT)
+    # Only add the external store if it exists AND is not already inside the
+    # canonical tree (avoids double-indexing when both point at the same place).
+    if (os.path.isdir(extra)
+            and os.path.commonpath([extra, os.path.abspath(RECEIPTS_SUBTREE)])
+            != os.path.abspath(RECEIPTS_SUBTREE)):
+        mounts.append((ROL_FINANCES_RECEIPTS_EXT_URL_PREFIX, extra, extra))
+    return mounts
+
+
+RECEIPT_MOUNTS = _build_receipt_mounts()
+
 # Receipt files are named <vendor>_MM_DD_YY_<dollars>_<cents>.<ext> and filed under
 # readable_documents/receipts/** (the tree is kept in sync across the Win11 box and
 # mom's machine, so it is fully present locally). The (date, amount) embedded in the
@@ -458,6 +494,13 @@ ROL_FINANCES_RECEIPTS_URL_PREFIX = '/rol_finances_receipts'
 # endpoint /api/receipts-present resolve receipts through it.
 _RECEIPT_INDEX_CACHE = {'ts': 0.0, 'by_da': None, 'by_stem': None}
 _RECEIPT_INDEX_TTL = 300
+
+
+def _invalidate_receipt_index():
+    """Force the next _receipt_index() to rebuild from disk. Called after an intake
+    stores a new receipt so its marker/Receipt-Only row appears immediately instead
+    of after the 300s TTL — the crux of 'update visible views without a manual refresh'."""
+    _RECEIPT_INDEX_CACHE.update(ts=0.0, by_da=None, by_stem=None)
 
 
 # ── Physical document scanners ──────────────────────────────────────────────
@@ -663,18 +706,194 @@ def _invoke_scanner(key):
 MAZDA_AGENT_ID = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
 
 
-def _notify_mazda_of_scan(scan_image_path, scanner_name):
+# Venv python + PYTHONPATH for rol_finances scripts.
+#
+# Two regressions, two rules, both mandatory on every command we hand Mazda:
+#  1. ModuleNotFoundError: No module named 'tools' — Python does not add the cwd
+#     to sys.path for a `script.py` invocation, so rol_finances scripts that do
+#     `import tools...` need PYTHONPATH=/home/adamsl/rol_finances. (2026-06-28)
+#  2. "Command not in allowlist: PYTHONPATH=..." — the executor only strips an
+#     inline `PYTHONPATH=...` prefix when the command also contains a shell
+#     operator (&&, |, >). A *bare* command (STEP 0 classify) goes straight to
+#     the allowlist check with `PYTHONPATH=...` as cmd[0] and is rejected.
+#     (2026-06-29 intake run, trace 53.)
+# Fix for BOTH: never inline the prefix. Use the full venv python path as the
+# executable (it is in the executor allowlist) and pass PYTHONPATH through
+# executor_run's own `env` argument, which is applied to the child regardless of
+# whether the command takes the shell path. Verified live against pid 1041:8787.
+MAZDA_RF_VENV_PY = '/home/adamsl/rol_finances/.venv/bin/python3'
+MAZDA_RF_ENV_JSON = '{"PYTHONPATH": "/home/adamsl/rol_finances"}'
+
+
+def mazda_facade_identified(facade_result):
+    """Pure predicate: did the deterministic facade actually identify the doc?
+
+    A facade run that merely exits 0 is NOT enough — for JPEG scans the
+    text-extraction router returns ``ok: true`` but ``doc_kind: unknown``,
+    ``confidence: 0``, ``recommended_action: reject``. Treating that as success
+    is the bug that sent Mazda into investigate/categorize with empty data.
+    Only return True when the facade produced a usable classification.
+    """
+    fr = facade_result or {}
+    try:
+        confidence = float(fr.get('confidence') or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return bool(
+        fr.get('ok')
+        and (fr.get('doc_kind') or 'unknown') != 'unknown'
+        and fr.get('recommended_action') != 'reject'
+        and confidence > 0
+    )
+
+
+def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
+    """Pure builder for the intake instruction Mazda receives after a scan.
+
+    No I/O — returns the message string so it can be unit-tested. Encodes the
+    full investigate → categorize → store → record → judge → propose pipeline,
+    and adapts the front half to whether the facade actually identified the
+    document (see mazda_facade_identified).
+    """
+    fr = facade_result or {}
+    doc_kind = fr.get('doc_kind', 'unknown')
+    vendor = fr.get('vendor') or 'unknown'
+    parsed = fr.get('parsed') or {}
+    confidence = fr.get('confidence') or 0.0
+    identified = mazda_facade_identified(fr)
+
+    # Summarise the most useful parsed fields so the message stays readable.
+    parsed_summary = json.dumps(
+        {k: parsed[k] for k in ('transaction_date', 'total_amount', 'merchant_name',
+                                 'description', 'payment_method') if k in parsed},
+        default=str,
+    )
+    if identified:
+        facade_block = (
+            f'\n\nThe deterministic facade (classify + parse) ran and IDENTIFIED this document. '
+            f'Do NOT re-run classify or parse — use these results directly:\n'
+            f'  doc_kind: {doc_kind}\n'
+            f'  vendor_key: {vendor}\n'
+            f'  routing_key: {fr.get("routing_key")}\n'
+            f'  confidence: {confidence} '
+            f'(recommended_action: {fr.get("recommended_action")})\n'
+            f'  parsed: {parsed_summary}'
+        )
+        fallback_block = ''
+    else:
+        # Facade did not identify the doc (doc_kind=unknown, confidence=0, or crashed).
+        # This is NORMAL for JPEG receipt scans — the facade uses text extraction which
+        # fails for images. Tell Mazda to use the vision-capable tools directly.
+        err = fr.get('error', '') if fr else ''
+        note = (f'error: {err}' if err
+                else f'returned doc_kind={doc_kind!r}, confidence={confidence}')
+        facade_block = (
+            f'\n\nThe facade could not identify this document ({note}). '
+            f'This is expected for JPEG scans — the facade uses text extraction, not vision.'
+        )
+        fallback_block = (
+            f'\nSTEP 0 — CLASSIFY + PARSE YOURSELF (facade returned doc_kind=unknown). '
+            f'executor_run, cwd=/home/adamsl/rol_finances, env={MAZDA_RF_ENV_JSON}:\n'
+            f'  a. Classify (Gemini vision):\n'
+            f'     {MAZDA_RF_VENV_PY} tools/classify_scan.py '
+            f'{scan_image_path}\n'
+            f'     → {{"doc_type": "receipt"|"statement", "confidence": 0-1, "reason": "..."}}\n'
+            f'  b. Parse (receipt only):\n'
+            f'     {MAZDA_RF_VENV_PY} '
+            f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
+            f'-f {scan_image_path} --json --engine=gemini\n'
+            f'     → JSON with merchant_name, transaction_date, total_amount, etc.\n'
+            f'  Derive vendor_key from merchant_name: lowercase, underscores '
+            f'(e.g. "Goodwill Cascade" → "goodwill_cascade").\n\n'
+        )
+
+    if identified:
+        # Facade gave us the real merchant + vendor_key — prefill the categorizer input.
+        categorizer_input = json.dumps(
+            {'id_light': '', 'description': parsed.get('merchant_name') or vendor,
+             'vendor_key': vendor if vendor != 'unknown' else None},
+            default=str,
+        )
+        categorizer_input_line = (
+            f"  printf '%s' '{categorizer_input}' > /tmp/mazda_cat_input.json && "
+        )
+    else:
+        # Facade did NOT identify — by STEP 3 Mazda has REAL parsed data from STEP 0.
+        # Do NOT hand her the literal placeholder {"description":"unknown"}; that
+        # guarantees a categorizer miss (and pushes it onto the LLM-research path).
+        categorizer_input_line = (
+            '  Build the input JSON from your STEP 0 results — NOT the literal word '
+            '"unknown": write {"id_light": "", "description": "<merchant_name from '
+            'STEP 0 parse>", "vendor_key": "<vendor_key you derived in STEP 0>"} to '
+            '/tmp/mazda_cat_input.json (e.g. via executor_write or printf), then run:\n'
+        )
+    return (
+        f'A document was just scanned on the {scanner_name}. '
+        f'The scanned image is at: {scan_image_path}{facade_block}\n\n'
+        f'Complete the AGENTIC back half of the intake pipeline '
+        f'(investigate → categorize → store → judge):\n\n'
+        f'EXECUTOR RULE (read first): every executor_run call below MUST pass '
+        f'env={MAZDA_RF_ENV_JSON}. Do NOT prefix any command with "PYTHONPATH=..." — '
+        f'the executor allowlist rejects an inline env-assignment as an unknown command '
+        f'("Command not in allowlist: PYTHONPATH=..."). Always use the full venv python '
+        f'path shown ({MAZDA_RF_VENV_PY}) and carry PYTHONPATH via the env argument.\n\n'
+        f'STEP 1 — load_wrapper_revision(agent_name="Mazda") to log the active wrapper.\n\n'
+        f'{fallback_block}'
+        f'STEP 2 — INVESTIGATE (only with REAL parsed data — never pass "unknown"):\n'
+        f'  a. check_vendor_key(id_light="scan", description=<merchant>, '
+        f'vendor_key=<vendor_key from facade or derived above>)\n'
+        f'  b. check_duplicates(id_light="scan", expense_date=<YYYY-MM-DD>, '
+        f'amount=<decimal string>, description=<merchant>)\n'
+        f'  If duplicate → skip store; still record_trace + judge_trace, then stop.\n\n'
+        f'STEP 3 — CATEGORIZE (executor_run, cwd=/home/adamsl/rol_finances, '
+        f'env={MAZDA_RF_ENV_JSON}):\n'
+        f'{categorizer_input_line}'
+        f'  {MAZDA_RF_VENV_PY} tools/categorizer/categorizer_main.py '
+        f'-i /tmp/mazda_cat_input.json --provider=gemini\n'
+        f'  → {{"vendor_key": "...", "category_id": <int>}} '
+        f'(null means vendor unknown — record FAIL + propose_improvement and stop)\n\n'
+        f'STEP 4 — STORE (executor_run, cwd=/home/adamsl/rol_finances, '
+        f'env={MAZDA_RF_ENV_JSON}). '
+        f'Write permission is granted for this intake task:\n'
+        f'  {MAZDA_RF_VENV_PY} '
+        f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
+        f'-f {scan_image_path} --save --category-id=<id from step 3> --engine=gemini\n'
+        f'  → {{"success": true, "expense_id": <int>, ...}}\n\n'
+        f'STEP 5 — record_trace(agent_name="Mazda", task_name="document-intake", '
+        f'input_text=<scan path>, agent_output=<the intake-evidence JSON below>). '
+        f'The task_name MUST be exactly "document-intake" so it is judged by the intake '
+        f'rubric (not the statement rubric). agent_output MUST be this JSON object recording '
+        f'what actually happened — the judge reads these fields:\n'
+        f'  {{"document_path": "{scan_image_path}", "doc_kind": "receipt"|"statement"|"unknown", '
+        f'"classification_confidence": <0-1>, "vendor_key": "<resolved or null>", '
+        f'"vendor_key_recognized": <true|false>, "category_id": <int or null>, '
+        f'"duplicate_checked": <true|false>, "is_duplicate": <true|false>, '
+        f'"stored": <true|false>, "expense_id": <int or null>, "problems": [<strings>]}}\n'
+        f'  Keep the returned trace_id.\n\n'
+        f'STEP 6 — judge_trace(trace_id) — ALWAYS, on success or failure. The intake rubric '
+        f'now scores intake correctly: a clean store is PASS, a correctly-detected duplicate '
+        f'is PASS, and a broken stage is FAIL. The verdict is what the autonomous reflection '
+        f'loop reads, so judging every run is what lets the system heal failures without a '
+        f'human.\n\n'
+        f'STEP 7 — If the verdict is FAIL, also call propose_improvement with the trace_id '
+        f'and the verdict\'s failure_type (e.g. missed_vendor_key, wrong_category, '
+        f'unsupported_document) so the fix can be reviewed and gated.\n\n'
+        f'STEP 8 — NOTIFY DASHBOARD (fire-and-forget; only when STEP 4 stored successfully). '
+        f'Post the stored expense to the dashboard so the Reports tab auto-refreshes receipts. '
+        f'executor_run, no special cwd/env needed:\n'
+        f'  curl -s -X POST http://localhost:8765/api/expense-stored '
+        f'-H "Content-Type: application/json" '
+        f'-d \'{{"expense_id":<id from STEP 4>,"expense_date":"<YYYY-MM-DD>",'
+        f'"amount":"<decimal string>","vendor_key":"<vendor_key>",'
+        f'"description":"<merchant_name>","receipt_url":"<scan_image_path>"}}\'\n'
+        f'Ignore errors — the dashboard degrades gracefully if unreachable.\n'
+    )
+
+
+def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None):
     """Background: send the scanned document to Mazda for intake processing."""
     try:
-        msg = (
-            f'A document was just scanned on the {scanner_name}. '
-            f'The scanned image is at: {scan_image_path}\n\n'
-            f'Please process this document through your intake pipeline:\n'
-            f'1. Call load_wrapper_revision to load your active wrapper.\n'
-            f'2. Classify and parse the document (cheapest reliable tool first).\n'
-            f'3. Call record_trace when done to log this run.\n'
-            f'4. If anything fails, call propose_improvement with the failure details.'
-        )
+        msg = build_mazda_scan_message(scan_image_path, scanner_name, facade_result)
         payload = json.dumps({
             'messages': [{'role': 'user', 'content': msg}],
             'stream': False,
@@ -855,7 +1074,7 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
     if os.path.isfile(image_path):
         threading.Thread(
             target=_notify_mazda_of_scan,
-            args=(image_path, cfg.get('name', key)),
+            args=(image_path, cfg.get('name', key), facade),
             daemon=True,
         ).start()
         mazda_dispatched = True
@@ -895,19 +1114,112 @@ def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
     return result
 
 
+def reprocess_report(report_url):
+    """Re-run the full intake pipeline (facade + Mazda) for a report's source document.
+
+    Accepts the iframe URL of a report.html (e.g.
+    /rol_finances_reports/jan-2025/fifth_third_non_profit_3119/report.html),
+    resolves the source PDF/xlsx in the same directory, and delegates to
+    process_pdf_document — which runs the deterministic facade inline and
+    dispatches Mazda fire-and-forget for categorize→store→judge.
+    """
+    if not report_url:
+        return {'ok': False, 'error': 'report_url is required.', 'stages': []}
+    source_path = _source_document_path(report_url)
+    if not source_path:
+        return {
+            'ok': False,
+            'error': 'Could not resolve a source document (PDF/xlsx) for that report URL.',
+            'stages': [],
+        }
+    if not os.path.isfile(source_path):
+        return {
+            'ok': False,
+            'error': f'Source document not found on disk: {source_path}',
+            'stages': [],
+        }
+    label = os.path.basename(os.path.dirname(source_path))
+    # A reprocess can add/move receipt files; drop the index so the very next
+    # receipts-present / Receipt-Only fetch reflects them without the 300s TTL wait.
+    _invalidate_receipt_index()
+    result = process_pdf_document(source_path, label=label)
+    result['report_url'] = report_url
+    return result
+
+
+# ── Expense-stored event bus ─────────────────────────────────────────────────
+# Mazda calls POST /api/expense-stored after a successful store (STEP 8 in the
+# scan message). The dashboard accumulates these lightweight events so the
+# Reports tab can poll GET /api/expense-stored-events?since=<unix_ts> and
+# reload any open report iframe to pick up newly-linked receipt markers.
+
+_stored_expense_events = deque(maxlen=200)
+_stored_expense_lock = threading.Lock()
+
+
+def record_stored_expense(data):
+    """Append one document-intake event (called from POST /api/expense-stored).
+
+    Also drops the receipt-index cache so a receipt stored by this same intake is
+    visible to the NEXT /api/receipts-present / Receipt-Only fetch the frontend makes
+    when it reloads — no waiting out the 300s TTL, no manual refresh.
+
+    `kind` distinguishes what changed so the frontend can refresh the right views:
+      receipt   — a receipt was stored (default; row marker + Receipt-Only tab)
+      statement — a bank statement was imported (transaction rows changed)
+      reprocess — a document was re-run end to end
+    `report_path`, when present, names the specific report.html that changed so the
+    frontend can target just that view instead of reloading every open iframe.
+    """
+    _invalidate_receipt_index()
+    event = {
+        'stored_at': time.time(),
+        'kind': (data.get('kind') or 'receipt'),
+        'expense_id': data.get('expense_id'),
+        'expense_date': data.get('expense_date', ''),
+        'amount': data.get('amount', ''),
+        'vendor_key': data.get('vendor_key', ''),
+        'description': data.get('description', ''),
+        'receipt_url': data.get('receipt_url', ''),
+        'report_path': data.get('report_path', ''),
+    }
+    with _stored_expense_lock:
+        _stored_expense_events.append(event)
+    return {'ok': True}
+
+
+def get_stored_expense_events(since_ts=0.0):
+    """Return events stored after since_ts (unix float). Zero → return all."""
+    with _stored_expense_lock:
+        events = list(_stored_expense_events)
+    return [e for e in events if e['stored_at'] > since_ts]
+
+
 def _build_receipt_index():
     import re as _re
     name_re = _re.compile(r'_(\d{2})_(\d{2})_(\d{2})_(\d+)_(\d{2})\.[A-Za-z0-9]+$')
     by_da, by_stem = {}, {}
-    for root, _dirs, files in os.walk(RECEIPTS_SUBTREE):
-        for fn in files:
-            fp = os.path.join(root, fn)
-            by_stem.setdefault(os.path.splitext(fn)[0].lower(), []).append(fp)
-            m = name_re.search(fn)
-            if m:
-                mm, dd, yy, dol, cents = m.groups()
-                key = ('20%s-%s-%s' % (yy, mm, dd), '%s.%s' % (dol, cents))
-                by_da.setdefault(key, []).append(fp)
+    seen = set()
+    # Walk every receipt index subtree (canonical readable_documents/receipts plus
+    # any external store such as the Windows-side live-pipeline destination). The
+    # canonical tree is walked first, so a file present in both keeps its canonical
+    # path (and dedupe below prevents the external copy from being added twice).
+    for _prefix, _base, subtree in RECEIPT_MOUNTS:
+        if not os.path.isdir(subtree):
+            continue
+        for root, _dirs, files in os.walk(subtree):
+            for fn in files:
+                fp = os.path.join(root, fn)
+                rp = os.path.realpath(fp)
+                if rp in seen:
+                    continue
+                seen.add(rp)
+                by_stem.setdefault(os.path.splitext(fn)[0].lower(), []).append(fp)
+                m = name_re.search(fn)
+                if m:
+                    mm, dd, yy, dol, cents = m.groups()
+                    key = ('20%s-%s-%s' % (yy, mm, dd), '%s.%s' % (dol, cents))
+                    by_da.setdefault(key, []).append(fp)
     return by_da, by_stem
 
 
@@ -930,23 +1242,32 @@ def _norm_amount(signed_amount):
 
 
 def _resolve_receipt_url_path(receipt_url):
-    """Resolve one expense's non-empty receipt_url to a local receipt file."""
+    """Resolve one expense's non-empty receipt_url to a local receipt file.
+
+    Searches every receipt mount (canonical readable_documents store + any external
+    store such as the live-pipeline Windows destination), so a receipt_url that
+    names a file in either tree resolves.
+    """
     import glob as _glob
     _by_da, by_stem = _receipt_index()
     ru = (receipt_url or '').strip().lstrip('/')
     if not ru:
         return None
-    base = os.path.abspath(READABLE_DOCS_BASE)
-    direct = os.path.abspath(os.path.join(base, ru))
-    if os.path.commonpath([direct, base]) == base and os.path.isfile(direct):
-        return direct
+    # Direct path under any serve base (path-traversal guarded).
+    for _prefix, serve_base, _subtree in RECEIPT_MOUNTS:
+        base = os.path.abspath(serve_base)
+        direct = os.path.abspath(os.path.join(base, ru))
+        if os.path.commonpath([direct, base]) == base and os.path.isfile(direct):
+            return direct
     stem = os.path.splitext(os.path.basename(ru))[0].lower()
     if stem in by_stem:
         return by_stem[stem][0]
-    g = _glob.glob(os.path.join(RECEIPTS_SUBTREE, '**', os.path.basename(ru)),
-                   recursive=True)
-    if g:
-        return g[0]
+    # Basename anywhere under any index subtree.
+    for _prefix, _base, subtree in RECEIPT_MOUNTS:
+        g = _glob.glob(os.path.join(subtree, '**', os.path.basename(ru)),
+                       recursive=True)
+        if g:
+            return g[0]
     return None
 
 
@@ -979,7 +1300,16 @@ def _resolve_expense_receipt_path(date_str, amount_str, receipt_url):
 
 
 def _receipt_url_for_path(fp):
-    rel = os.path.relpath(fp, os.path.abspath(READABLE_DOCS_BASE))
+    """Build the dashboard URL that serves a receipt file, choosing the mount whose
+    serve_base contains the file so external-store receipts get the right prefix."""
+    ap = os.path.abspath(fp)
+    for prefix, serve_base, _subtree in RECEIPT_MOUNTS:
+        base = os.path.abspath(serve_base)
+        if os.path.commonpath([ap, base]) == base:
+            rel = os.path.relpath(ap, base)
+            return prefix + '/' + '/'.join(quote(part) for part in rel.split(os.sep))
+    # Fallback: canonical mount (preserves prior behaviour for unexpected paths).
+    rel = os.path.relpath(ap, os.path.abspath(READABLE_DOCS_BASE))
     return ROL_FINANCES_RECEIPTS_URL_PREFIX + '/' + '/'.join(
         quote(part) for part in rel.split(os.sep))
 
@@ -1367,10 +1697,10 @@ LETTA_AGENTS = [
     {'name': 'Jeri',     'id': None},
     {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'orchestrator': True},
     {'name': 'Mazda Router',           'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'provider_canary': True},
     {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'provider_canary': True},
+    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Suzuki',                     'id': 'agent-c4e58e29-8c06-4ca9-a18d-b8536442af13', 'llm_provider': CHATGPT_PLUS_PRO, 'orchestrator': True},
     {'name': 'Suzuki Router',              'id': 'agent-df4deb48-3a46-4fe4-887a-6aeb95ddc6d6', 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Suzuki Reproducer',          'id': 'agent-ad0c3e39-bd14-4f79-af95-140e4cf21325', 'llm_provider': CHATGPT_PLUS_PRO},
@@ -3814,6 +4144,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             })
             return self.json_response(result)
 
+        if path == '/api/expense-stored-events':
+            try:
+                since_ts = float(query.get('since', ['0'])[0])
+            except (ValueError, TypeError):
+                since_ts = 0.0
+            return self.json_response(get_stored_expense_events(since_ts))
+
         if path == '/api/ssh-connections':
             return self.json_response([
                 {'key': c['key'], 'name': c['name'], 'note': c.get('note', '')}
@@ -3896,19 +4233,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_error(404)
             return
 
-        if path.startswith(ROL_FINANCES_RECEIPTS_URL_PREFIX + '/'):
-            rel = unquote(path[len(ROL_FINANCES_RECEIPTS_URL_PREFIX) + 1:])
-            base = os.path.abspath(READABLE_DOCS_BASE)
-            fp = os.path.abspath(os.path.join(base, rel))
-            if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
-                ext = fp.rsplit('.', 1)[-1].lower()
-                ctype = {
-                    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
-                    'gif': 'image/gif', 'webp': 'image/webp', 'pdf': 'application/pdf',
-                }.get(ext, 'application/octet-stream')
-                return self.serve_file(fp, ctype)
-            self.send_error(404)
-            return
+        for _prefix, _serve_base, _subtree in RECEIPT_MOUNTS:
+            if path.startswith(_prefix + '/'):
+                rel = unquote(path[len(_prefix) + 1:])
+                base = os.path.abspath(_serve_base)
+                fp = os.path.abspath(os.path.join(base, rel))
+                if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
+                    ext = fp.rsplit('.', 1)[-1].lower()
+                    ctype = {
+                        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+                        'gif': 'image/gif', 'webp': 'image/webp', 'pdf': 'application/pdf',
+                    }.get(ext, 'application/octet-stream')
+                    return self.serve_file(fp, ctype)
+                self.send_error(404)
+                return
 
         if path.startswith('/'):
             rel = path.lstrip('/')
@@ -4015,6 +4353,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 org_id=data.get('org_id', 1),
                 engine=data.get('engine', 'gemini'),
             ))
+
+        if path == '/api/reprocess-report':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(reprocess_report(data.get('report_url', '')))
+
+        if path == '/api/expense-stored':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(record_stored_expense(data))
 
         if path == '/api/test':
             try:

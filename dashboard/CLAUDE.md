@@ -307,6 +307,35 @@ pile-ups wedge the shared stisvc (see gotcha 2). Tests: `tests/test_server.py -k
 Deploy: scp `scanner_scripts/*` → the scan-tools dir; scp dashboard files; `systemctl --user
 restart dashboard-server.service`.
 
+### Scan → Mazda intake pipeline (the message Mazda receives) — 2026-06-28
+
+When a scan finishes, `process_scanned_document` runs the deterministic facade inline, then
+dispatches Mazda fire-and-forget via `_notify_mazda_of_scan`. The instruction Mazda gets is
+built by the **pure** function `build_mazda_scan_message(scan_image_path, scanner_name,
+facade_result)` (and predicate `mazda_facade_identified()`) — pure so they're unit-tested in
+`tests/test_server.py` (no network). Three things this encodes, each a fix for a live failure:
+
+1. **The text-extraction facade (`mazda_intake.py`) returns `ok:true` but `doc_kind:unknown,
+   confidence:0` for JPEG scans** (no extractable text). `mazda_facade_identified` therefore
+   requires `doc_kind!=unknown AND confidence>0 AND action!=reject` — NOT just `ok`. On unknown
+   it routes Mazda to classify the image herself with `classify_scan.py` (Gemini **vision**) +
+   `parse_and_categorize.py --json`.
+2. **Every rol_finances command uses `PYTHONPATH=/home/adamsl/rol_finances` +
+   `/home/adamsl/rol_finances/.venv/bin/python3`** (constants `MAZDA_RF_PYPATH`/`MAZDA_RF_VENV_PY`).
+   Bare `python3 tools/...` dies with `ModuleNotFoundError: No module named 'tools'`. These run via
+   Mazda's `executor_run`, which is served by **this same dev box** (Letta sees it at
+   `10.0.0.7:8789` — `10.0.0.7` is this machine's *Windows-host* LAN IP forwarded to WSL — so the
+   hardcoded venv path resolves here).
+3. **STEP 5 makes Mazda record the trace as `IntakeVerificationEvidence` JSON** under
+   `task_name="document-intake"`, and **STEP 6 judges every run** (`judge_trace`). The verdict feeds
+   the autonomous self-improvement loop. The judge that reads this is the **intake rubric** in
+   `rol_finances/tools/self_improving_agent` (routed by task_name) — it is served by **Win10's**
+   `mazda-tools-mcp.service` (`172.17.0.1:8791`), a *different machine* from the dashboard/executor,
+   so deploying a rubric change means SSH to `100.80.49.10`. The message and that model share a
+   field contract; `test_scan_message_instructs_structured_intake_evidence` pins it so the two
+   repos can't drift. Full pipeline + topology: the `mazda-intake-tests-and-verdict-rubric-gap-2026-06-28`
+   memory.
+
 ## Server health indicators, Restart-all & Model Stats (2026-06-22)
 
 Three things were added to `server.py` + the frontend (see memories

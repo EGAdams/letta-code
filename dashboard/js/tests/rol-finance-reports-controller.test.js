@@ -2,13 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { RolFinanceReportsController } from "../implementation/rol-finance-reports-controller.js";
 import { FakeDocument } from "./_fake-dom.js";
 
-function setup(payloadOrFn) {
+function setup(payloadOrFn, { postPayload } = {}) {
   const doc = new FakeDocument();
   const nav = doc.createElement("div");
   const viewsContainer = doc.createElement("div");
   const activated = [];
   const selected = [];
   const requestedUrls = [];
+  const postedRequests = [];
   const http = {
     getJSON: async (url) => {
       requestedUrls.push(url);
@@ -16,6 +17,11 @@ function setup(payloadOrFn) {
         typeof payloadOrFn === "function" ? payloadOrFn(url) : payloadOrFn;
       if (payload instanceof Error) throw payload;
       return payload;
+    },
+    postJSON: async (url, body) => {
+      postedRequests.push({ url, body });
+      if (postPayload instanceof Error) throw postPayload;
+      return postPayload ?? { ok: true, stages: [] };
     },
   };
   const rf = new RolFinanceReportsController({
@@ -26,7 +32,16 @@ function setup(payloadOrFn) {
     activateView: (id) => activated.push(id),
     setActiveTab: (tab) => selected.push(tab),
   });
-  return { rf, nav, viewsContainer, activated, selected, requestedUrls, doc };
+  return {
+    rf,
+    nav,
+    viewsContainer,
+    activated,
+    selected,
+    requestedUrls,
+    postedRequests,
+    doc,
+  };
 }
 
 describe("RolFinanceReportsController", () => {
@@ -231,5 +246,167 @@ describe("RolFinanceReportsController", () => {
     const ctx = setup([]);
     ctx.rf.openReport("march");
     expect(ctx.activated).toEqual(["rol-finance-report-march"]);
+  });
+
+  // ── Reprocess Document button ─────────────────────────────────────────────
+
+  test("existing report view has a reprocess bar; missing report view does not", async () => {
+    const ctx = setup([
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
+      {
+        key: "feb",
+        label: "February",
+        exists: false,
+        status: "missing",
+        url: null,
+      },
+    ]);
+    await ctx.rf.openReports();
+
+    const janView = ctx.viewsContainer.querySelector("#rol-finance-report-jan");
+    expect(janView.querySelector(".reprocess-bar")).not.toBeNull();
+    expect(janView.querySelector(".reprocess-btn")).not.toBeNull();
+    expect(janView.querySelector(".reprocess-status")).not.toBeNull();
+
+    const febView = ctx.viewsContainer.querySelector("#rol-finance-report-feb");
+    expect(febView.querySelector(".reprocess-bar")).toBeNull();
+  });
+
+  test("clicking Reprocess Document POSTs to the reprocess endpoint with the report URL", async () => {
+    const ctx = setup([
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
+    ]);
+    await ctx.rf.openReports();
+
+    const btn = ctx.viewsContainer.querySelector(".reprocess-btn");
+    btn.click();
+    // postJSON is async; let the microtask queue drain
+    await Promise.resolve();
+
+    expect(ctx.postedRequests).toEqual([
+      { url: "/api/reprocess-report", body: { report_url: "/r/jan.html" } },
+    ]);
+  });
+
+  test("successful reprocess renders stage summary in the status span", async () => {
+    const pipelineResult = {
+      ok: true,
+      stages: [
+        {
+          name: "classify",
+          status: "done",
+          doc_kind: "receipt",
+          confidence: 0.95,
+        },
+        {
+          name: "parse",
+          status: "done",
+          parsed: { merchant_name: "Goodwill" },
+        },
+        { name: "investigate", status: "delegated" },
+        { name: "categorize", status: "delegated" },
+        { name: "store", status: "delegated" },
+      ],
+    };
+    const ctx = setup(
+      [
+        {
+          key: "jan",
+          label: "January",
+          exists: true,
+          status: "pass",
+          url: "/r/jan.html",
+        },
+      ],
+      { postPayload: pipelineResult },
+    );
+    await ctx.rf.openReports();
+
+    const btn = ctx.viewsContainer.querySelector(".reprocess-btn");
+    const statusEl = ctx.viewsContainer.querySelector(".reprocess-status");
+    btn.click();
+    await Promise.resolve();
+    await Promise.resolve(); // second tick for async/await inside reprocessDocument
+
+    expect(statusEl.textContent).toContain("classify");
+    expect(statusEl.textContent).toContain("done");
+    expect(statusEl.textContent).toContain("delegated");
+  });
+
+  test("failed reprocess renders the error message in the status span", async () => {
+    const ctx = setup(
+      [
+        {
+          key: "jan",
+          label: "January",
+          exists: true,
+          status: "pass",
+          url: "/r/jan.html",
+        },
+      ],
+      { postPayload: new Error("source doc not found") },
+    );
+    await ctx.rf.openReports();
+
+    const btn = ctx.viewsContainer.querySelector(".reprocess-btn");
+    const statusEl = ctx.viewsContainer.querySelector(".reprocess-status");
+    btn.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(statusEl.textContent).toContain("source doc not found");
+  });
+
+  // ── Polling ───────────────────────────────────────────────────────────────
+
+  test("startPolling is a no-op when setInterval is not injected", async () => {
+    // Default constructor has no setInterval — calling startPolling must not throw
+    const ctx = setup([]);
+    expect(() => ctx.rf.startPolling()).not.toThrow();
+    expect(ctx.rf._pollTimer).toBeNull();
+  });
+
+  test("startPolling / stopPolling use injected timer functions", () => {
+    const timers = [];
+    const _setInterval = (fn, ms) => {
+      timers.push({ fn, ms });
+      return timers.length;
+    };
+    const cleared = [];
+    const _clearInterval = (id) => cleared.push(id);
+
+    const doc = new FakeDocument();
+    const rf = new RolFinanceReportsController({
+      http: { getJSON: async () => [], postJSON: async () => ({}) },
+      nav: doc.createElement("div"),
+      viewsContainer: doc.createElement("div"),
+      doc,
+      setInterval: _setInterval,
+      clearInterval: _clearInterval,
+    });
+
+    rf.startPolling();
+    expect(timers.length).toBe(1);
+    expect(timers[0].ms).toBe(15_000);
+
+    // Idempotent: second call does not start another timer.
+    rf.startPolling();
+    expect(timers.length).toBe(1);
+
+    rf.stopPolling();
+    expect(cleared).toEqual([1]);
+    expect(rf._pollTimer).toBeNull();
   });
 });

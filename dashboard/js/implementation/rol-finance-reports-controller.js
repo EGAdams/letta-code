@@ -1,38 +1,29 @@
 import { TextUtils } from "../abstract/text-utils.js";
+import { describePipelineStage } from "./document-pipeline-controller.js";
 
 /**
  * RolFinanceReportsController — builds the Project Plans → ROL Finance →
  * Reports tabs. The reports are grouped by month/year: a row of "month tabs"
  * (January 2025, February 2025, …) is injected once, and selecting a month
  * fetches that month's report list (cached per month) and (re)builds one
- * report tab + one <section><iframe class="plan-frame"> per document below it.
+ * report tab + one <section> per document below it.
  *
- * Each document's existence is resolved by the backend against that month's
- * own directory, so the same document key (e.g. "platinum-year") can already
- * have a real report.html for one month while still being missing for
- * another — there is no month-wide on/off switch, just per-document
- * `exists`: existing reports get a normal tab + iframe view (collapsed to the
- * Verified Transactions card), missing ones get a red tab + placeholder.
+ * Each document section contains:
+ *   1. A reprocess bar (button + inline status) so the user can re-run the
+ *      full Mazda intake pipeline on the underlying source document at any time.
+ *   2. An iframe loading the report.html, collapsed to the Verified Transactions
+ *      card via showOnlyVerifiedTransactions on load.
  *
- * Opening a month does NOT jump straight into a document's report — it lands
- * on an overview view listing every document for that month, color-coded by
- * the `status` the backend derives from each report.html's hero badge: pass
- * (green, finished), review (yellow, "REVIEW NEEDED"/work in progress), or
- * fail (red, includes `missing`). Clicking a row opens that document's tab,
- * same as clicking the tab directly.
+ * The controller polls GET /api/expense-stored-events every 15 s (when polling
+ * is enabled by injecting setInterval / clearInterval). When Mazda stores a new
+ * expense after a scan, she POSTs /api/expense-stored (STEP 8 in the scan
+ * message); any open report iframe is reloaded so receipt markers auto-refresh.
  *
- * On each iframe's load we reach into the (same-origin) report document to hide
- * every <section> except the "Verified Transactions" card — the report.html
- * files are static/regenerated, so we never edit them, just collapse the view.
- *
- * Same-origin assumption: the iframe reach only works because reports are
- * served from this origin. If a report ever moves cross-origin,
- * `iframe.contentDocument` throws/returns null and the hide step silently
- * no-ops (preserved behaviour — it must not throw).
- *
- * The nav/views elements and the activate action are injected so the
- * page-specific navigation glue stays in the boot file and the controller is
- * unit-testable with a DOM double.
+ * Programs to interfaces, not implementations:
+ *   - HttpClient (http) — all network calls go through http.getJSON / postJSON.
+ *   - Timer strategy (setInterval / clearInterval) — injected; null disables polling.
+ *   - Document factory (doc) — all DOM creation goes through doc.createElement.
+ *   - View callbacks (activateView, setActiveTab) — injected by the boot file.
  */
 export class RolFinanceReportsController {
   constructor({
@@ -43,10 +34,14 @@ export class RolFinanceReportsController {
     activateView = () => {},
     setActiveTab = () => {},
     endpoint = "/api/rol-finance-reports",
+    reprocessEndpoint = "/api/reprocess-report",
+    expenseEventsEndpoint = "/api/expense-stored-events",
     months = [
       { key: "jan-2025", label: "January 2025" },
       { key: "feb-2025", label: "February 2025" },
     ],
+    setInterval: _setInterval = null,
+    clearInterval: _clearInterval = null,
   }) {
     if (!http || !nav || !viewsContainer) {
       throw new Error(
@@ -60,11 +55,17 @@ export class RolFinanceReportsController {
     this._activateView = activateView;
     this._setActiveTab = setActiveTab;
     this._endpoint = endpoint;
+    this._reprocessEndpoint = reprocessEndpoint;
+    this._expenseEventsEndpoint = expenseEventsEndpoint;
     this._months = months;
+    this._setInterval = _setInterval;
+    this._clearInterval = _clearInterval;
     this._monthsBuilt = false;
     this._activeMonthKey = null;
     this._reportsByMonth = new Map();
     this.reports = null;
+    this._pollTimer = null;
+    this._lastEventTs = 0;
   }
 
   /** Inject the month tabs (once) and open the first month. */
@@ -75,6 +76,7 @@ export class RolFinanceReportsController {
     }
     const first = this._months[0];
     if (first) await this.openMonth(first.key);
+    this.startPolling();
   }
 
   /** Inject one month tab per configured month (once). */
@@ -98,8 +100,6 @@ export class RolFinanceReportsController {
     if (!month) return;
     this._activeMonthKey = monthKey;
 
-    // Highlight the active month tab (kept independent of the report-tab
-    // active state so both the month and the open document stay highlighted).
     this._nav.querySelectorAll(".tab[data-month-key]").forEach((t) => {
       t.classList.toggle("active", t.dataset.monthKey === monthKey);
     });
@@ -121,9 +121,6 @@ export class RolFinanceReportsController {
     }
     this.reports = reports;
 
-    // Drop the previous month's document tabs + views, then rebuild. The
-    // overview lands first — no document tab is "active" until the user
-    // picks one (from the overview or the tab row).
     this._nav.querySelectorAll(".tab[data-report-key]").forEach((t) => {
       t.remove();
     });
@@ -150,9 +147,8 @@ export class RolFinanceReportsController {
   }
 
   /**
-   * Build the month-level landing view: one color-coded row per document
-   * (skips reports with no `status`, e.g. the synthetic Receipt Only tab,
-   * which isn't a verification target). Clicking a row opens that document.
+   * Build the month-level landing view: one color-coded row per document.
+   * Skips reports with no `status` (e.g. the synthetic Receipt Only tab).
    */
   buildOverview(reports, month) {
     const view = this._doc.createElement("section");
@@ -192,8 +188,9 @@ export class RolFinanceReportsController {
   }
 
   /**
-   * Inject one tab + one view per report: existing → iframe view; missing →
-   * red tab + "Missing report.html" placeholder.
+   * Inject one tab + one view per report.
+   * Existing reports get a reprocess bar above the iframe.
+   * Missing reports get a red tab + placeholder.
    */
   buildTabsAndViews(reports) {
     for (const r of reports) {
@@ -209,7 +206,15 @@ export class RolFinanceReportsController {
       view.id = `rol-finance-report-${r.key}`;
       view.className = "view";
       if (r.exists) {
-        view.innerHTML = `<iframe class="plan-frame" src="${TextUtils.esc(r.url)}"></iframe>`;
+        const bar = this.buildReprocessBar(r);
+        view.appendChild(bar);
+        // Keep the iframe in innerHTML so querySelectorAll on the view
+        // can find it in the real DOM while the bar stays queryable via
+        // the children tree (the FakeElement pattern this codebase uses).
+        view.insertAdjacentHTML(
+          "beforeend",
+          `<iframe class="plan-frame" src="${TextUtils.esc(r.url)}"></iframe>`,
+        );
         const iframe = view.querySelector("iframe");
         if (iframe) {
           iframe.addEventListener("load", () =>
@@ -224,15 +229,83 @@ export class RolFinanceReportsController {
   }
 
   /**
-   * Reach into a same-origin report iframe and hide every <section> except the
-   * one containing #verified-transactions (the category picker stays intact).
+   * Build the reprocess action bar for one report. Returns a <div> containing
+   * a "Reprocess Document" button and an inline status span. The button click
+   * delegates to reprocessDocument (Command pattern over HttpClient).
+   */
+  buildReprocessBar(r) {
+    const bar = this._doc.createElement("div");
+    bar.className = "reprocess-bar";
+
+    const btn = this._doc.createElement("button");
+    btn.type = "button";
+    btn.className = "reprocess-btn";
+    btn.textContent = "Reprocess Document";
+
+    const status = this._doc.createElement("span");
+    status.className = "reprocess-status";
+
+    bar.appendChild(btn);
+    bar.appendChild(status);
+
+    btn.addEventListener("click", () =>
+      this.reprocessDocument(r.key, r.url, btn, status),
+    );
+
+    return bar;
+  }
+
+  /**
+   * Re-run the full intake pipeline (facade + Mazda) for this report's source
+   * document. Programs to HttpClient (postJSON) and renders the inline result
+   * via renderReprocessResult (a pure view method).
+   */
+  async reprocessDocument(_key, url, buttonEl, statusEl) {
+    if (buttonEl) buttonEl.disabled = true;
+    if (statusEl) statusEl.textContent = "Reprocessing…";
+    try {
+      const result = await this._http.postJSON(this._reprocessEndpoint, {
+        report_url: url,
+      });
+      this.renderReprocessResult(statusEl, result);
+    } catch (e) {
+      if (statusEl) statusEl.textContent = `Error: ${TextUtils.esc(e.message)}`;
+    } finally {
+      if (buttonEl) buttonEl.disabled = false;
+    }
+  }
+
+  /**
+   * Pure view update: render a pipeline result into the status span.
+   * Reuses describePipelineStage from DocumentPipelineController so the
+   * stage-formatting logic is not duplicated.
+   */
+  renderReprocessResult(statusEl, result) {
+    if (!statusEl) return;
+    if (!result.ok && result.error) {
+      statusEl.textContent = `Failed: ${result.error}`;
+      return;
+    }
+    const stages = (result.stages || []).map(describePipelineStage);
+    const parts = stages.map((s) =>
+      s.summary
+        ? `${s.name}: ${s.status} (${s.summary})`
+        : `${s.name}: ${s.status}`,
+    );
+    statusEl.textContent =
+      parts.join(" · ") || (result.ok ? "Dispatched to Mazda" : "Error");
+  }
+
+  /**
+   * Reach into a same-origin report iframe and hide every <section> except
+   * the one containing #verified-transactions.
    */
   showOnlyVerifiedTransactions(iframe) {
     let doc;
     try {
       doc = iframe.contentDocument;
     } catch {
-      return; // cross-origin — silently no-op
+      return;
     }
     if (!doc) return;
     const vt = doc.getElementById("verified-transactions");
@@ -259,5 +332,62 @@ export class RolFinanceReportsController {
 
   openReport(key) {
     this._activateView(`rol-finance-report-${key}`);
+  }
+
+  // ── Expense-stored polling ─────────────────────────────────────────────────
+
+  /**
+   * Start polling /api/expense-stored-events every 15 s. No-op if setInterval
+   * was not injected (polling is disabled by default in tests).
+   * Idempotent: calling more than once does not start additional timers.
+   */
+  startPolling() {
+    if (!this._setInterval || this._pollTimer != null) return;
+    this._pollTimer = this._setInterval(
+      () => this._pollStoredExpenses(),
+      15_000,
+    );
+  }
+
+  /** Stop the expense-stored poll (e.g. on teardown). */
+  stopPolling() {
+    if (this._pollTimer == null) return;
+    this._clearInterval(this._pollTimer);
+    this._pollTimer = null;
+  }
+
+  async _pollStoredExpenses() {
+    try {
+      const events = await this._http.getJSON(
+        `${this._expenseEventsEndpoint}?since=${this._lastEventTs}`,
+      );
+      if (Array.isArray(events) && events.length > 0) {
+        this._lastEventTs = Math.max(...events.map((e) => e.stored_at));
+        this._reloadOpenIframes();
+      }
+    } catch {
+      // Network error — silently ignore; retry on the next tick.
+    }
+  }
+
+  /**
+   * Reload any open (accessible) report iframes so the receipt-present markers
+   * re-run after Mazda stores a new expense + receipt.
+   */
+  _reloadOpenIframes() {
+    this._viewsContainer
+      .querySelectorAll("iframe.plan-frame")
+      .forEach((iframe) => {
+        let accessible = false;
+        try {
+          accessible = iframe.contentDocument != null;
+        } catch {
+          /* cross-origin — skip */
+        }
+        if (accessible) {
+          // biome-ignore lint/correctness/noSelfAssign: triggers iframe reload
+          iframe.src = iframe.src;
+        }
+      });
   }
 }
