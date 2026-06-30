@@ -276,7 +276,8 @@ export class ChatDetailRenderer extends DetailRenderer {
 
     // ── Send text to the agent through /api/test ───────────────────────────
     const sendText = async (text) => {
-      if (!text || !text.trim()) return;
+      if (!text || !text.trim() || sendBtn.disabled) return;
+      sendBtn.disabled = true;
       setConsole('<div class="msi-entry dim">sending&hellip;</div>');
       this._onStatus(id, "active");
       try {
@@ -297,6 +298,8 @@ export class ChatDetailRenderer extends DetailRenderer {
         setConsole(
           `<div class="msi-line err">! ${TextUtils.esc(e.message)}</div>`,
         );
+      } finally {
+        sendBtn.disabled = false;
       }
     };
     sendBtn.addEventListener("click", () => sendText(textEl.value));
@@ -613,11 +616,13 @@ export class InputOptionsRenderer extends DetailRenderer {
 
     // ── Send to the agent through /api/test ────────────────────────────────
     const send = async () => {
+      if (sendBtn.disabled) return;
       const text = textEl.value;
       if (!text.trim()) {
         showStatus("Nothing to send.", true);
         return;
       }
+      sendBtn.disabled = true;
       textEl.value = "";
       const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
       outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div><span class="msi-cursor">&#9608;</span> sending&hellip;</div>`;
@@ -639,6 +644,8 @@ export class InputOptionsRenderer extends DetailRenderer {
       } catch (e) {
         this._onStatus(id, "error");
         outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div><span class="msi-line err">! ${TextUtils.esc(e.message)}</span></div>`;
+      } finally {
+        sendBtn.disabled = false;
       }
     };
     sendBtn.addEventListener("click", send);

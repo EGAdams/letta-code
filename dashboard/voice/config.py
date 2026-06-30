@@ -46,6 +46,13 @@ KNOWN_AGENT_NAMES = [
     "Mazda Vendor Identity",
     "Mazda Receipt Linker",
     "Mazda Categorization",
+    "Suzuki",
+    "Suzuki Router",
+    "Suzuki Reproducer",
+    "Suzuki Static Analysis",
+    "Suzuki Patcher",
+    "Suzuki Test Runner",
+    "Suzuki Regression",
 ]
 
 # Initial prompt that biases whisper.cpp toward the real agent names, so e.g.

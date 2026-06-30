@@ -74,6 +74,19 @@
   - Letta API base URL default: `http://100.80.49.10:8283`
   - Logger API base URL used by reset helpers: `http://100.80.49.10:8284/libraries/local-php-api`
 
+## Agent Memory: Rosemary46 WSL Tailscale Access
+- Windows node: `rosemary46-11` at `100.106.176.58`; known SSH user: `rbarn`.
+- WSL Ubuntu 24 node: `rosemary46-24` at `100.72.34.38`; known SSH user: `adamsl`; WSL distro name: `Ubuntu-24.04`.
+- If `rosemary46-24` is offline but `rosemary46-11` is reachable, SSH to Windows first, then run WSL checks:
+  - `ssh -o BatchMode=yes rbarn@100.106.176.58 "wsl -e sh -lc \"echo WSL_OK; uname -a; whoami; tailscale status\""`
+  - `ssh -o BatchMode=yes adamsl@100.72.34.38 "echo LINUX_AUTH_OK && systemctl is-active tailscaled && tailscale ip -4"`
+- Known fix from 2026-06-25: WSL started during diagnostics, then stopped after the command exited, which made direct SSH to `100.72.34.38` time out again. A Windows scheduled task now keeps WSL alive:
+  - Task: `Rosemary46 WSL Tailscale Keepalive`
+  - Script: `C:\Users\rbarn\start-rosemary46-wsl-tailscale.ps1`
+  - Loop: `wsl.exe -d Ubuntu-24.04 --exec /bin/sh -lc 'while true; do /usr/bin/tailscale ip -4 >/dev/null 2>&1 || true; sleep 300; done'`
+- Verify the keepalive from Windows with:
+  - `ssh rbarn@100.106.176.58 "powershell -NoProfile -Command \"Get-ScheduledTask -TaskName 'Rosemary46 WSL Tailscale Keepalive' | Select-Object TaskName,State; wsl -l -v\""`
+
 ## Agent Memory: Dashboard Project Plans Deployment
 - The live Windows 10 dashboard is served from the WSL repo at `/home/adamsl/letta-code`, not `/var/www/html`.
 - Dashboard shell: `dashboard/dashboard.html`; server: `dashboard/server.py`; default URL: `http://localhost:8765/`.
@@ -85,3 +98,27 @@
   - `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8765/team_construction_plan.html`
   - `curl -s http://localhost:8765/ | rg 'Mazda Orchestrator|team_construction_plan|Tool Fix|mazda_tool_fix'`
   - `cd dashboard && .venv/bin/python -m pytest tests/`
+
+## Agent Memory: Dashboard Red Health Recovery
+- If the dashboard startup modal shows `SSH win10-wsl-letta: down`, first verify the Windows side is reachable at `NewUser@100.69.80.89`, then start/check WSL:
+  - `ssh -o BatchMode=yes NewUser@100.69.80.89 "wsl -l -v"`
+  - `ssh -o BatchMode=yes NewUser@100.69.80.89 "wsl.exe -d Ubuntu-24.04 --exec /bin/sh -lc 'systemctl is-active tailscaled; tailscale ip -4'"`
+  - `ssh -o BatchMode=yes adamsl@100.80.49.10 "echo LINUX_AUTH_OK && systemctl is-active tailscaled && tailscale ip -4"`
+- Known fix from 2026-06-25: `DESKTOP-SHDBATI` WSL stopped after one-shot diagnostics, taking `100.80.49.10` offline. A Windows scheduled task now keeps it alive:
+  - Task: `Letta WSL Tailscale Keepalive`
+  - Windows user: `DESKTOP-SHDBATI\NewUser`
+  - Script: `C:\Users\NewUser\start-letta-wsl-tailscale.ps1`
+  - Loop: `wsl.exe -d Ubuntu-24.04 --exec /bin/sh -lc 'while true; do /usr/bin/tailscale ip -4 >/dev/null 2>&1 || true; sleep 300; done'`
+  - Verify with: `ssh NewUser@100.69.80.89 "powershell -NoProfile -Command \"Get-ScheduledTask -TaskName 'Letta WSL Tailscale Keepalive' | Select-Object TaskName,State; wsl -l -v\""`
+- Letta Docker services run on the WSL node `adamsl@100.80.49.10`; important ports are Letta API `8283`, logger API `8284`, memfs `8285`, Frita executor `8799`, and dashboard proxy `8765`.
+- After WSL comes back, Letta may briefly show dashboard `concern` while PostgreSQL recovery and migrations finish. Check:
+  - `ssh adamsl@100.80.49.10 "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"`
+  - `curl -sS -i --max-time 10 http://100.80.49.10:8283/v1/health/`
+  - Wait one Docker healthcheck interval if manual `/v1/health/` is `200 OK` but `docker ps` still says `unhealthy`.
+- Android phone health in `dashboard/server.py` uses a Tailscale-layer check, not SSH. `tailscale status` can report `samsung-sm-s156v` / `100.111.161.7` as stale `offline` even when DERP ping succeeds; `tailscale_test()` now falls back to `tailscale ping --c=1 --until-direct=false`.
+- Dashboard red/green verification commands:
+  - `curl -s http://localhost:8765/api/server-health | python3 -m json.tool`
+  - `curl -s http://localhost:8765/api/ssh-connection-health | python3 -m json.tool`
+  - Browser URL: `http://localhost:8765/?view=rol-finance-reports`
+  - Focused tests: `cd dashboard && .venv/bin/python -m pytest tests/test_server.py -q`
+- ROL finance report URLs are dashboard aliases, not raw filesystem paths. Example: `/home/adamsl/rol_finances/readable_documents/bank_statements/january/diners_0587_whole_year_2025/report.html` is served as `/rol_finances_reports/jan-2025/diners_0587_whole_year_2025/report.html`. Add new report directories to `ROL_FINANCE_REPORTS` in `dashboard/server.py` or the dashboard list will say the report is missing.

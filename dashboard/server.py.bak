@@ -104,7 +104,6 @@ ROL_FINANCE_REPORTS = [
     {'key': 'jetblue-pdf2',      'label': 'Jet Blue PDF 2',     'dir': 'jet_blue_january_february_01_27_to_02_25_25'},
     {'key': 'platinum-year',     'label': 'Platinum Year',      'dir': 'platinum_business_credit_card_for_the_year'},
     {'key': 'diners-club-0587',  'label': 'Diners Club 0587',   'dir': 'diners_club__january_25_statements-MONTHLY-0587'},
-    {'key': 'diners-0587-year',  'label': 'Diners 0587 Year',   'dir': 'diners_0587_whole_year_2025'},
 ]
 
 # ── ROL Finance: recategorize a Verified-Transactions row ─────────────────
@@ -283,17 +282,12 @@ def _update_report_row_color(report_path, vendor_key, date_str, amount_str, new_
                 return m.group(0)
             if require_amount and a and ('>%s<' % a) not in inner:
                 return m.group(0)
-            # Replace ALL cat-* classes in the class attribute so re-categorizing
-            # a row doesn't leave stale old classes behind (or double-add when the
-            # same category is picked twice).
-            def _swap_cls(cm):
-                parts = [p for p in cm.group(1).split()
-                         if not _re.match(r'^cat-[a-z0-9-]+$', p)]
-                return 'class="%s"' % ' '.join([new_cls] + parts)
-            has_class_attr = 'class="' in open_tag
-            new_open = _re.sub(r'class="([^"]*)"', _swap_cls, open_tag, count=1)
-            if not has_class_attr:  # row had no class attribute at all
-                new_open = open_tag + ' class="%s"' % new_cls
+            new_open = _re.sub(r'\bcat-[a-z0-9-]+\b', new_cls, open_tag, count=1)
+            if new_open == open_tag:  # row had no cat-* class yet
+                if 'class="' in new_open:
+                    new_open = new_open.replace('class="', 'class="%s ' % new_cls, 1)
+                else:
+                    new_open = ' class="%s"%s' % (new_cls, new_open)
             state['done'] = True
             return '<tr%s>%s</tr>' % (new_open, inner)
 
@@ -347,44 +341,15 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
     try:
         with _rol_get_connection() as cnx:
             with cnx.cursor() as cur:
-                def _find_expense(d):
-                    cur.execute(
-                        "SELECT id, id_light, description, category_id "
-                        "FROM expenses WHERE expense_date=%s AND amount=%s",
-                        (d, str(amt)),
-                    )
-                    return cur.fetchall()
-
-                rows = _find_expense(date_str)
-                # Credit-card posting dates are often 1-3 days after the purchase
-                # date stored in the DB. Try nearby dates when exact lookup fails.
+                cur.execute(
+                    "SELECT id, id_light, description, category_id "
+                    "FROM expenses WHERE expense_date=%s AND amount=%s",
+                    (date_str, str(amt)),
+                )
+                rows = cur.fetchall()
                 if not rows:
-                    try:
-                        base = datetime.strptime(date_str, '%Y-%m-%d').date()
-                        for delta in (-1, 1, -2, 2, -3, 3):
-                            alt = (base + timedelta(days=delta)).isoformat()
-                            rows = _find_expense(alt)
-                            if rows:
-                                break
-                    except (ValueError, AttributeError):
-                        pass
-                if not rows:
-                    # Transaction not in DB (e.g. annual summary never imported).
-                    # Still persist the color in the HTML file so the pick survives
-                    # a page refresh, and return ok so the dialog closes cleanly.
-                    file_updated = False
-                    if report_path and report_path != RECEIPT_ONLY_REPORT_PATH:
-                        try:
-                            new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
-                            if new_cls:
-                                file_updated = _update_report_row_color(
-                                    report_path, vendor_key, date_str,
-                                    signed_amount, new_cls)
-                        except Exception:
-                            pass
-                    return {'ok': True, 'expense_id': None,
-                            'file_updated': file_updated,
-                            'warning': 'Transaction not in DB — color saved to report only.'}
+                    return {'ok': False,
+                            'error': 'No matching expense in DB for that date/amount (bank-only row).'}
 
                 if len(rows) == 1:
                     chosen = rows[0]
@@ -475,13 +440,13 @@ SCANNERS = {
         'name': 'Window Scanner',
         'device': 'HPI297BEA (HP OfficeJet 8120e series)',
         'script': 'run_scan_window.sh',   # selects HPI297BEA by name
-        'output': 'scan.jpg',
+        'output': 'scan.png',
     },
     'freezer': {
         'name': 'Freezer Scanner',
         'device': 'HP063E28 (HP DeskJet 4100 series)',
         'script': 'run_scan_freezer.sh',  # selects HP063E28 by name (non-default)
-        'output': 'scan_freezer.jpg',
+        'output': 'scan_freezer.png',
     },
 }
 # Serialize all device access: two concurrent WIA transfers self-induce the very
@@ -594,7 +559,7 @@ def _invoke_scanner(key):
     """Run a scanner's script and classify the outcome.
 
     Returns {status, ...} where status is one of:
-      ready          — transfer succeeded, scan image written (includes image_url)
+      ready          — transfer succeeded, scan.png written (includes image_url)
       busy           — WIA device busy (needs power-cycle); reported FAST (no scan)
       offline        — named device not enumerated (powered off / disconnected)
       not_configured — no script wired for this scanner
@@ -660,76 +625,8 @@ def _invoke_scanner(key):
     return result
 
 
-MAZDA_AGENT_ID = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
-
-
-def _notify_mazda_of_scan(scan_image_path, scanner_name):
-    """Background: send the scanned document to Mazda for intake processing."""
-    try:
-        msg = (
-            f'A document was just scanned on the {scanner_name}. '
-            f'The scanned image is at: {scan_image_path}\n\n'
-            f'Please process this document through your intake pipeline:\n'
-            f'1. Call load_wrapper_revision to load your active wrapper.\n'
-            f'2. Classify and parse the document (cheapest reliable tool first).\n'
-            f'3. Call record_trace when done to log this run.\n'
-            f'4. If anything fails, call propose_improvement with the failure details.'
-        )
-        payload = json.dumps({
-            'messages': [{'role': 'user', 'content': msg}],
-            'stream': False,
-        }).encode()
-        req = urllib.request.Request(
-            f'{LETTA_BASE_URL}/v1/agents/{MAZDA_AGENT_ID}/messages',
-            data=payload,
-            headers={'Content-Type': 'application/json'},
-            method='POST',
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            print(f'[scan→mazda] Mazda notified of scan ({scanner_name}): '
-                  f'HTTP {resp.status}')
-    except Exception as exc:
-        print(f'[scan→mazda] Failed to notify Mazda: {exc}')
-
-
-def _notify_mazda_of_pdf(file_path, label=None):
-    """Background: send a PDF document to Mazda for intake processing."""
-    try:
-        label_str = f' "{label}"' if label else ''
-        msg = (
-            f'A PDF document{label_str} is ready for processing.\n'
-            f'The file is at: {file_path}\n\n'
-            f'Please process this document through your intake pipeline:\n'
-            f'1. Call load_wrapper_revision to load your active wrapper.\n'
-            f'2. Classify and parse the document (cheapest reliable tool first).\n'
-            f'3. Call record_trace when done to log this run.\n'
-            f'4. If anything fails, call propose_improvement with the failure details.'
-        )
-        payload = json.dumps({
-            'messages': [{'role': 'user', 'content': msg}],
-            'stream': False,
-        }).encode()
-        req = urllib.request.Request(
-            f'{LETTA_BASE_URL}/v1/agents/{MAZDA_AGENT_ID}/messages',
-            data=payload,
-            headers={'Content-Type': 'application/json'},
-            method='POST',
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            print(f'[pdf→mazda] Mazda notified of PDF{label_str}: HTTP {resp.status}')
-    except Exception as exc:
-        print(f'[pdf→mazda] Failed to notify Mazda: {exc}')
-
-
 def run_scanner(key):
-    """Manual scan (POST /api/scanner-scan). Adds back-compat `ok` to the status.
-
-    NOTE: this no longer notifies Mazda directly. The intake pipeline (both the
-    deterministic inline result AND the agentic Mazda dispatch) is now driven by
-    POST /api/process-document, which the dashboard auto-fires the instant a scan
-    finishes (see process_scanned_document). That keeps a single dispatch point
-    so Mazda is notified exactly once per finished scan.
-    """
+    """Manual scan (POST /api/scanner-scan). Adds back-compat `ok` to the status."""
     result = _invoke_scanner(key)
     result['ok'] = (result.get('status') == 'ready')
     return result
@@ -738,161 +635,6 @@ def run_scanner(key):
 def scanner_status(key):
     """Lightweight status probe (GET /api/scanner-status) for the Freezer's poll."""
     return _invoke_scanner(key)
-
-
-# ── Document intake pipeline (the "Process Document" action) ────────────────
-# When a scan finishes, the dashboard fires POST /api/process-document. The
-# cheapest reliable tool runs FIRST — the deterministic intake facade
-# (mazda_intake.py: classify + parse) — and its result is rendered inline within
-# seconds. The deeper, agentic stages (investigate → categorize → store) are
-# Mazda's job; they are dispatched fire-and-forget (NO polling) via the existing
-# _notify_mazda_of_scan thread. Governing rule: cheapest reliable tool first;
-# LLM only when confidence < 0.90 (the facade enforces that threshold itself).
-ROL_FINANCES_DIR = os.path.expanduser('~/rol_finances')
-MAZDA_INTAKE_FACADE = os.path.join(ROL_FINANCES_DIR, 'tools', 'mazda_intake.py')
-MAZDA_INTAKE_PYTHON = os.path.join(ROL_FINANCES_DIR, '.venv', 'bin', 'python3')
-INTAKE_FACADE_TIMEOUT_SEC = 120
-
-# The pipeline stages the deterministic facade does NOT run — delegated to Mazda.
-MAZDA_DELEGATED_STAGES = ('investigate', 'categorize', 'store')
-
-
-def run_intake_facade(image_path, org_id=1, engine='gemini'):
-    """Run the deterministic intake facade (classify + parse) on one document.
-
-    Returns the facade's structured JSON dict (always carrying an `ok` key).
-    Never raises — a missing facade, bad exit, or unparseable stdout becomes
-    {'ok': False, 'error': ...} so the caller can always render something inline.
-    """
-    if not os.path.isfile(image_path):
-        return {'ok': False, 'error': f'Scanned image not found: {image_path}'}
-    if not os.path.isfile(MAZDA_INTAKE_FACADE):
-        return {'ok': False,
-                'error': f'Intake facade not found: {MAZDA_INTAKE_FACADE}'}
-    python = MAZDA_INTAKE_PYTHON if os.path.isfile(MAZDA_INTAKE_PYTHON) else 'python3'
-    try:
-        proc = subprocess.run(
-            [python, MAZDA_INTAKE_FACADE, image_path,
-             f'--org-id={org_id}', '--enable-parse', f'--engine={engine}'],
-            cwd=ROL_FINANCES_DIR,
-            capture_output=True, text=True,
-            timeout=INTAKE_FACADE_TIMEOUT_SEC,
-        )
-    except subprocess.TimeoutExpired:
-        return {'ok': False,
-                'error': f'Intake facade timed out after {INTAKE_FACADE_TIMEOUT_SEC}s'}
-    except Exception as exc:
-        return {'ok': False, 'error': f'Failed to run intake facade: {exc}'}
-    out = (proc.stdout or '').strip()
-    # Sub-modules (e.g. LlmPdfParser) may print progress lines to stdout before
-    # the final JSON object.  Find the first '{' so those stray lines don't
-    # poison json.loads.
-    json_start = out.find('{')
-    if json_start > 0:
-        out = out[json_start:]
-    try:
-        return json.loads(out)
-    except json.JSONDecodeError:
-        err = (proc.stderr or '').strip() or out or f'exit {proc.returncode}'
-        return {'ok': False, 'error': f'Intake facade returned no JSON: {err[:300]}'}
-
-
-def build_pipeline_result(facade, mazda_dispatched):
-    """Pure shaper: facade dict + dispatch flag → the inline pipeline result.
-
-    Mirrors classify_scan_result — pure, no I/O, unit-tested. Produces an
-    ordered `stages` list so the UI can render the full classify → parse →
-    investigate → categorize → store pipeline, with the deterministic front half
-    filled in and the agentic back half marked delegated (Mazda) or pending.
-    """
-    facade = facade or {}
-    ok = bool(facade.get('ok'))
-    classify = {
-        'name': 'classify',
-        'status': 'done' if ok else 'error',
-        'doc_kind': facade.get('doc_kind'),
-        'routing_key': facade.get('routing_key'),
-        'vendor': facade.get('vendor'),
-        'confidence': facade.get('confidence'),
-        'method': facade.get('classification_method'),
-        'recommended_action': facade.get('recommended_action'),
-    }
-    parsed = facade.get('parsed')
-    parse = {
-        'name': 'parse',
-        'status': 'done' if (ok and parsed) else ('skipped' if ok else 'error'),
-        'parsed': parsed,
-    }
-    delegated = [
-        {'name': stage,
-         'status': 'delegated' if mazda_dispatched else 'pending',
-         'owner': 'mazda' if mazda_dispatched else None}
-        for stage in MAZDA_DELEGATED_STAGES
-    ]
-    return {
-        'ok': ok,
-        'error': facade.get('error'),
-        'mazda_dispatched': bool(mazda_dispatched),
-        'stages': [classify, parse, *delegated],
-    }
-
-
-def process_scanned_document(key, org_id=1, engine='gemini'):
-    """Orchestrate the Process Document action for one scanner's latest image.
-
-    1. Resolve the scanner's output image.
-    2. Run the deterministic facade (classify + parse) for the inline result.
-    3. Dispatch Mazda fire-and-forget for investigate → categorize → store.
-    No polling: the deeper stages run in Mazda's own time and surface in her
-    own agent transcript, not here.
-    """
-    cfg = SCANNERS.get(key)
-    if not cfg:
-        return {'ok': False, 'error': f'Unknown scanner: {key}', 'stages': []}
-    image_path = os.path.join(SCAN_TOOLS_DIR, cfg.get('output', ''))
-    facade = run_intake_facade(image_path, org_id=org_id, engine=engine)
-    mazda_dispatched = False
-    if os.path.isfile(image_path):
-        threading.Thread(
-            target=_notify_mazda_of_scan,
-            args=(image_path, cfg.get('name', key)),
-            daemon=True,
-        ).start()
-        mazda_dispatched = True
-    result = build_pipeline_result(facade, mazda_dispatched)
-    result['scanner'] = key
-    result['image_path'] = image_path
-    return result
-
-
-def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
-    """Orchestrate the Process Document action for an existing PDF file.
-
-    Mirrors process_scanned_document but accepts an absolute file path instead
-    of a scanner key. The path must resolve inside ROL_FINANCES_DIR.
-    """
-    try:
-        real = os.path.realpath(os.path.expanduser(file_path))
-        base = os.path.realpath(ROL_FINANCES_DIR)
-        if not (real.startswith(base + os.sep) or real == base):
-            return {'ok': False,
-                    'error': 'File path must be inside the ROL finances directory.',
-                    'stages': []}
-    except Exception as exc:
-        return {'ok': False, 'error': f'Invalid path: {exc}', 'stages': []}
-    if not os.path.isfile(real):
-        return {'ok': False, 'error': f'File not found: {file_path}', 'stages': []}
-    facade = run_intake_facade(real, org_id=org_id, engine=engine)
-    doc_label = label or os.path.basename(real)
-    threading.Thread(
-        target=_notify_mazda_of_pdf,
-        args=(real, doc_label),
-        daemon=True,
-    ).start()
-    result = build_pipeline_result(facade, mazda_dispatched=True)
-    result['file_path'] = real
-    result['label'] = doc_label
-    return result
 
 
 def _build_receipt_index():
@@ -1059,23 +801,11 @@ def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_p
     if amt is None:
         return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
     chosen = None
-    resolve_date = date_str
     try:
         with _rol_get_connection() as cnx:
             with cnx.cursor() as cur:
-                chosen = _matching_expense(cur, date_str, amt, vendor_key, description)
-                if chosen is None and date_str:
-                    try:
-                        base = datetime.strptime(date_str, '%Y-%m-%d').date()
-                        for delta in (-1, 1, -2, 2, -3, 3):
-                            alt = (base + timedelta(days=delta)).isoformat()
-                            c = _matching_expense(cur, alt, amt, vendor_key, description)
-                            if c:
-                                chosen = c
-                                resolve_date = alt
-                                break
-                    except (ValueError, AttributeError):
-                        pass
+                chosen = _matching_expense(
+                    cur, date_str, amt, vendor_key, description)
     except Exception as e:
         return {'ok': False, 'error': f'DB error: {e}'}
 
@@ -1093,7 +823,7 @@ def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_p
     ru = (chosen.get('receipt_url') or '').strip()
     if not ru:
         return dict(metadata, ok=False, error='No receipt on file for this expense.')
-    fp = _resolve_expense_receipt_path(resolve_date, amt, ru)
+    fp = _resolve_expense_receipt_path(date_str, amt, ru)
     if not fp:
         return dict(metadata, ok=False,
                     error=f'Receipt recorded ({ru}) but the file was not found on disk.')
@@ -1149,30 +879,13 @@ def receipts_present(rows):
         date_str = (row.get('date') or '').strip()
         present = False
         if amt is not None:
-            vk = row.get('vendor_key', '')
-            desc = row.get('description', '')
             chosen = _select_matching_expense(
-                expense_map.get((date_str, amt), []), vk, desc)
-            resolve_date = date_str
-            # Credit-card posting dates are often 1-3 days after the purchase date
-            # stored in the DB (from the actual receipt). Try nearby dates when exact
-            # lookup finds nothing.
-            if chosen is None and date_str:
-                try:
-                    base = datetime.strptime(date_str, '%Y-%m-%d').date()
-                    for delta in (-1, 1, -2, 2, -3, 3):
-                        alt = (base + timedelta(days=delta)).isoformat()
-                        candidates = expense_map.get((alt, amt), [])
-                        if candidates:
-                            c = _select_matching_expense(candidates, vk, desc)
-                            if c:
-                                chosen = c
-                                resolve_date = alt
-                                break
-                except (ValueError, AttributeError):
-                    pass
+                expense_map.get((date_str, amt), []),
+                row.get('vendor_key', ''),
+                row.get('description', ''),
+            )
             ru = (chosen.get('receipt_url') or '').strip() if chosen else ''
-            present = bool(_resolve_expense_receipt_path(resolve_date, amt, ru))
+            present = bool(_resolve_expense_receipt_path(date_str, amt, ru))
         out.append(present)
     return {'ok': True, 'present': out}
 
@@ -1337,18 +1050,13 @@ LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rs
 # Add any new Letta agent here: { 'name': '...', 'id': '<real-letta-agent-id>' }
 # Set 'id' to None to auto-discover by name from the Letta agent list.
 _MINION_TOOLS = ['run_claude_code_sdk']
-# Mazda's health is signalled by her self-improvement MCP tools (served by
-# mazda-tools-mcp.service on :8791) — they attach/detach together, so requiring a
-# few core ones cleanly flags an unprovisioned Mazda (e.g. the MCP server down)
-# without flapping. NOTE: do NOT require relay_message_to_chatgpt — that's a
-# browser-relay tool from a discarded design; this incarnation of Mazda does not
-# carry it (verified live: her tools are record_trace/propose_improvement/
-# run_experiment/judge_trace/gate_check/activate_wrapper/rollback_wrapper/
-# load_wrapper_revision/propose_memory_note/verify_statement_totals).
+# The Mazda orchestrator (agent-6b536cf4) delegates to the minion fleet via its
+# custom tool relay_message_to_chatgpt — that's the capability whose presence
+# signals it's wired up. (The old list checked send_message_to_agent_and_wait_for_reply
+# + executor_run, which this incarnation of Mazda doesn't carry — see its actual
+# 10-tool set: relay_message_to_chatgpt, check_*, verify_statement_totals, …)
 _MAZDA_TOOLS = [
-    'record_trace',
-    'propose_improvement',
-    'run_experiment',
+    'relay_message_to_chatgpt',
 ]
 
 # Mazda + all 5 minions run on the same chatgpt-plus-pro OAuth account, so a
@@ -1365,12 +1073,12 @@ LETTA_AGENTS = [
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
     {'name': 'Cesare',   'id': None},
     {'name': 'Jeri',     'id': None},
-    {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'orchestrator': True},
+    {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Router',           'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'provider_canary': True},
+    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
 ]
 
 # Cache of name→id resolved from the Letta API
@@ -1487,21 +1195,6 @@ AGENT_CARDS = {
             'shared dashboard visibility',
         ],
         'memory_summary': 'Not a Letta-backed agent here, but included as a visible collaborator in the dashboard ecosystem.',
-    },
-    'Suzuki': {
-        'identity': 'Suzuki',
-        'role': 'Self-improving software debugging orchestrator — triages bugs, delegates to specialist minions, verifies patches, and learns across runs.',
-        'responsibilities': [
-            'Receive bug reports and run the 12-stage debug workflow',
-            'Delegate triage, reproduction, static analysis, patching, test execution, and regression checking to specialist minions',
-            'Record traces and propose wrapper improvements after each run',
-        ],
-        'tools': [
-            'DebugStageEnvelope handoff contract',
-            'executor_run / host command execution',
-            'self-improvement MCP tools (record_trace, propose_improvement, run_experiment)',
-        ],
-        'memory_summary': 'Accumulates debugging lessons across runs via the shared self-improvement kernel inherited from Mazda.',
     },
 }
 
@@ -2783,59 +2476,24 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
         return {'ok': False, 'text': f'ssh to {target} failed: {e}'}
 
 
-def _tailscale_ping_test(host, timeout):
-    ping_timeout = f'{timeout}s' if isinstance(timeout, int) else str(timeout)
-    cmd = [
-        'tailscale', 'ping',
-        '--c=1',
-        '--until-direct=false',
-        f'--timeout={ping_timeout}',
-        host,
-    ]
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout + 2,
-        )
-    except subprocess.TimeoutExpired:
-        return {'ok': False, 'text': f'tailscale ping timed out after {timeout}s'}
-    except Exception as e:
-        return {'ok': False, 'text': f'tailscale ping failed: {e}'}
-
-    out = (result.stdout or result.stderr or '').strip()
-    first_line = out.splitlines()[0][:160] if out else f'tailscale ping exited {result.returncode}'
-    return {'ok': result.returncode == 0, 'text': first_line}
-
-
 def tailscale_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
-    """Check whether a Tailscale peer is actually reachable.
+    """Check a Tailscale peer's online status by scanning `tailscale status`.
 
-    `tailscale status` can briefly report mobile peers as offline even when a
-    DERP ping succeeds, so fall back to a single Tailscale-layer ping before
-    showing the dashboard red.
-    """
-    status_text = None
+    For devices with no sshd (e.g. phones) — "down" here means the device
+    isn't connected to the tailnet, so any tailnet-only URL is unreachable
+    from it."""
     try:
         result = subprocess.run(['tailscale', 'status'], capture_output=True, text=True, timeout=timeout)
         for line in result.stdout.splitlines():
             if line.split()[:1] == [cfg['host']]:
-                status_text = line.strip()
                 if 'offline' in line:
-                    break
-                return {'ok': True, 'text': status_text}
-        if status_text is None:
-            status_text = f"{cfg['host']} not found in tailscale status"
+                    return {'ok': False, 'text': line.strip()}
+                return {'ok': True, 'text': line.strip()}
+        return {'ok': False, 'text': f"{cfg['host']} not found in tailscale status"}
     except subprocess.TimeoutExpired:
         return {'ok': False, 'text': f'tailscale status timed out after {timeout}s'}
     except Exception as e:
         return {'ok': False, 'text': f'tailscale status failed: {e}'}
-
-    ping = _tailscale_ping_test(cfg['host'], timeout)
-    if ping.get('ok'):
-        return {'ok': True, 'text': f"reachable by tailscale ping — {ping['text']}"}
-    return {'ok': False, 'text': f"{status_text}; {ping['text']}"}
 
 
 def connection_test(cfg, timeout=None):
@@ -3121,31 +2779,6 @@ def _provider_agent_ids(provider_name):
     return ids
 
 
-def _provider_canary_id(provider_name):
-    """Pick the agent to probe as the provider's health canary.
-
-    Must NOT be an orchestrator (e.g. Mazda): a real 'ping' to an orchestrator
-    triggers heavy reasoning/delegation that blows past the probe timeout AND
-    pollutes its conversation history — which used to mark the whole
-    chatgpt-plus-pro fleet falsely red. Prefer an entry explicitly flagged
-    `provider_canary`, else a lightweight minion (one whose tool calls go to the
-    Claude SDK worker), else fall back to the first tagged agent.
-    """
-    tagged = [cfg for cfg in LETTA_AGENTS if cfg.get('llm_provider') == provider_name]
-    flagged = [c for c in tagged if c.get('provider_canary') and get_letta_id(c)]
-    if flagged:
-        return get_letta_id(flagged[0])
-    minions = [c for c in tagged
-               if not c.get('orchestrator') and _uses_claude_sdk(c) and get_letta_id(c)]
-    if minions:
-        return get_letta_id(minions[0])
-    for c in tagged:
-        rid = get_letta_id(c)
-        if rid:
-            return rid
-    return None
-
-
 def _probe_chatgpt_provider(agent_id, timeout=20):
     """Send one trivial message to agent_id and report whether the provider
     rejected it (e.g. 429 rate limit) before reaching the model. Doesn't reset
@@ -3182,8 +2815,7 @@ def _poll_chatgpt_provider_once(provider_name=CHATGPT_PLUS_PRO):
     affected = _provider_agent_ids(provider_name)
     if not affected:
         return
-    canary = _provider_canary_id(provider_name) or affected[0]
-    probe = _probe_chatgpt_provider(canary)
+    probe = _probe_chatgpt_provider(affected[0])
     for agent_id in affected:
         if probe['ok']:
             clear_agent_send_error(agent_id)
@@ -3884,8 +3516,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if cfg:
                 fp = os.path.join(SCAN_TOOLS_DIR, cfg['output'])
                 if os.path.isfile(fp):
-                    ctype = 'image/jpeg' if fp.endswith(('.jpg', '.jpeg')) else 'image/png'
-                    return self.serve_file(fp, ctype)
+                    return self.serve_file(fp, 'image/png')
             self.send_error(404)
             return
 
@@ -3985,29 +3616,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(run_scanner(data.get('scanner', '')))
-
-        if path == '/api/process-document':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(process_scanned_document(
-                data.get('scanner', ''),
-                org_id=data.get('org_id', 1),
-                engine=data.get('engine', 'gemini'),
-            ))
-
-        if path == '/api/process-pdf':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(process_pdf_document(
-                data.get('file_path', ''),
-                label=data.get('label'),
-                org_id=data.get('org_id', 1),
-                engine=data.get('engine', 'gemini'),
-            ))
 
         if path == '/api/test':
             try:

@@ -29,7 +29,15 @@ export {
   renderReplyRows,
   StreamDetailRenderer,
 } from "./detail-renderers.js";
+export {
+  buildProcessDocumentRequest,
+  buildProcessPdfRequest,
+  DocumentPipelineController,
+  describePipelineStage,
+  summarizeParsed,
+} from "./document-pipeline-controller.js";
 export { DomConsoleView } from "./dom-console-view.js";
+export { DomDocumentPipelineView } from "./dom-document-pipeline-view.js";
 export { DomNavigationController } from "./dom-navigation-controller.js";
 export { DomTabFactory } from "./dom-tab-factory.js";
 export { FetchHttpClient } from "./fetch-http-client.js";

@@ -64,6 +64,17 @@ def test_get_server_known_and_unknown():
     assert server.get_server('nope') is None
 
 
+def test_rol_finance_reports_include_diners_annual_summary():
+    report = next(
+        (r for r in server.ROL_FINANCE_REPORTS
+         if r['dir'] == 'diners_0587_whole_year_2025'),
+        None,
+    )
+    assert report is not None
+    assert report['key'] == 'diners-0587-year'
+    assert report['label'] == 'Diners 0587 Year'
+
+
 def test_lookup_receipt_rejects_date_amount_file_when_matched_expense_url_is_empty(
         monkeypatch):
     expense = {
@@ -460,6 +471,66 @@ def test_scanner_registry_selects_by_name_not_first_device():
     assert server.SCANNERS['freezer']['output'] != server.SCANNERS['window']['output']
 
 
+def test_build_pipeline_result_success_shapes_all_five_stages():
+    facade = {
+        'ok': True,
+        'doc_kind': 'receipt',
+        'routing_key': 'receipt.costco',
+        'vendor': 'costco',
+        'confidence': 0.94,
+        'classification_method': 'rule_based',
+        'recommended_action': 'auto',
+        'parsed': {'vendor': 'costco', 'total': '84.12'},
+        'error': None,
+    }
+    result = server.build_pipeline_result(facade, mazda_dispatched=True)
+    assert result['ok'] is True
+    assert result['mazda_dispatched'] is True
+    names = [s['name'] for s in result['stages']]
+    assert names == ['classify', 'parse', 'investigate', 'categorize', 'store']
+    classify, parse = result['stages'][0], result['stages'][1]
+    assert classify['status'] == 'done'
+    assert classify['vendor'] == 'costco'
+    assert parse['status'] == 'done' and parse['parsed']['total'] == '84.12'
+    # The agentic back half is delegated to Mazda when she was dispatched.
+    for stage in result['stages'][2:]:
+        assert stage['status'] == 'delegated'
+        assert stage['owner'] == 'mazda'
+
+
+def test_build_pipeline_result_failure_marks_classify_error_and_pending_tail():
+    facade = {'ok': False, 'error': 'file not found: /x.jpg'}
+    result = server.build_pipeline_result(facade, mazda_dispatched=False)
+    assert result['ok'] is False
+    assert result['error'] == 'file not found: /x.jpg'
+    assert result['mazda_dispatched'] is False
+    assert result['stages'][0]['status'] == 'error'
+    # Parse is an error too (no facade success), tail stages are pending.
+    assert result['stages'][1]['status'] == 'error'
+    for stage in result['stages'][2:]:
+        assert stage['status'] == 'pending'
+        assert stage['owner'] is None
+
+
+def test_build_pipeline_result_ok_but_no_parse_is_skipped():
+    facade = {'ok': True, 'doc_kind': 'receipt', 'parsed': None}
+    result = server.build_pipeline_result(facade, mazda_dispatched=True)
+    assert result['stages'][1]['status'] == 'skipped'
+
+
+def test_run_intake_facade_missing_image_returns_structured_error():
+    r = server.run_intake_facade('/nope/does-not-exist.jpg')
+    assert r['ok'] is False
+    assert 'not found' in r['error']
+
+
+def test_process_scanned_document_unknown_scanner():
+    r = server.process_scanned_document('bogus')
+    assert r['ok'] is False
+    assert 'Unknown scanner' in r['error']
+    assert r['stages'] == []
+
+
 def test_track_down_duration_clears_on_up_and_accumulates(monkeypatch):
     server._server_down_since.pop('dur-test', None)
     t = [1000.0]
@@ -696,12 +767,16 @@ def test_mazda_letta_agents_declare_required_tools():
             )
 
 
-def test_mazda_declares_delegation_tool():
-    # The live Mazda orchestrator (agent-6b536cf4) delegates via relay_message_to_chatgpt;
-    # that's the tool whose presence signals it's wired up (the old
-    # send_message_to_agent_and_wait_for_reply/executor_run set was a prior incarnation).
+def test_mazda_declares_self_improvement_tools():
+    # The live Mazda orchestrator is healthy when its core self-improvement MCP
+    # tools are attached. relay_message_to_chatgpt belonged to an older design.
     mazda = next(cfg for cfg in server.LETTA_AGENTS if cfg['name'] == 'Mazda')
-    assert mazda['required_tools'] == ['relay_message_to_chatgpt']
+    assert mazda['required_tools'] == [
+        'record_trace',
+        'propose_improvement',
+        'run_experiment',
+    ]
+    assert mazda.get('orchestrator') is True
 
 
 def test_agent_health_check_unresolvable_agent_is_unhealthy(monkeypatch):
@@ -760,9 +835,12 @@ def test_mazda_and_minions_tagged_with_shared_llm_provider():
 
 def test_provider_agent_ids_returns_real_ids_for_tagged_agents():
     ids = server._provider_agent_ids(server.CHATGPT_PLUS_PRO)
-    assert len(ids) == 6
+    # Mazda fleet (6) + Suzuki fleet (7) = 13 tagged agents
+    assert len(ids) == 13
     mazda = next(cfg for cfg in server.LETTA_AGENTS if cfg['name'] == 'Mazda')
     assert mazda['id'] in ids
+    suzuki = next(cfg for cfg in server.LETTA_AGENTS if cfg['name'] == 'Suzuki')
+    assert suzuki['id'] in ids
 
 
 def test_poll_chatgpt_provider_once_flags_every_fleet_agent_on_429(monkeypatch):
@@ -833,6 +911,55 @@ def _ssh_cfg():
     return {'key': '__test_ssh_conn', 'name': 'Test Conn', 'host': '0.0.0.0', 'user': 'nobody'}
 
 
+def test_tailscale_test_accepts_ping_when_status_is_stale_offline(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        if cmd[:2] == ['tailscale', 'status']:
+            return type('Result', (), {
+                'returncode': 0,
+                'stdout': '100.111.161.7 samsung-sm-s156v eg1972@ android offline, last seen 4m ago\n',
+                'stderr': '',
+            })()
+        return type('Result', (), {
+            'returncode': 0,
+            'stdout': 'pong from samsung-sm-s156v (100.111.161.7) via DERP(ord) in 90ms\n',
+            'stderr': '',
+        })()
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+
+    result = server.tailscale_test({'host': '100.111.161.7'}, timeout=5)
+
+    assert result['ok'] is True
+    assert result['text'].startswith('reachable by tailscale ping')
+    assert any(cmd[:2] == ['tailscale', 'ping'] for cmd in calls)
+
+
+def test_tailscale_test_reports_down_when_status_and_ping_fail(monkeypatch):
+    def fake_run(cmd, **_kwargs):
+        if cmd[:2] == ['tailscale', 'status']:
+            return type('Result', (), {
+                'returncode': 0,
+                'stdout': '100.111.161.7 samsung-sm-s156v eg1972@ android offline, last seen 4m ago\n',
+                'stderr': '',
+            })()
+        return type('Result', (), {
+            'returncode': 1,
+            'stdout': '',
+            'stderr': 'timed out waiting for pong\n',
+        })()
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+
+    result = server.tailscale_test({'host': '100.111.161.7'}, timeout=5)
+
+    assert result['ok'] is False
+    assert 'offline' in result['text']
+    assert 'timed out waiting for pong' in result['text']
+
+
 def test_ssh_health_one_slow_probe_does_not_flip_to_down(monkeypatch):
     # A single failed/slow DERP-relayed probe shouldn't flash the connection
     # red — it must survive SSH_HEALTH_FAIL_THRESHOLD consecutive failures.
@@ -864,3 +991,163 @@ def test_ssh_health_recovers_immediately_on_success(monkeypatch):
     monkeypatch.setattr(server, 'connection_test', lambda cfg, timeout=None: {'ok': True, 'text': 'CONNECTED'})
     server._poll_all_ssh_once()
     assert server.cached_ssh_health(cfg)['ok'] is True, 'a single success must clear the fail count immediately'
+
+
+# ── ROL Finance: category persistence regression tests ─────────────────────
+# These tests catch the three bugs fixed during the Diners 0587 Year session:
+#  1. _update_report_row_color doubled cat-* when the same category was picked twice
+#  2. _update_report_row_color left stale cat-* classes when changing categories
+#  3. recategorize_expense returned ok:False for bank-only rows not in the DB
+#  4. receipts_present returned False for rows whose DB date differs by 1-3 days
+#     (credit-card posting date vs. purchase date)
+
+_DINERS_ROW_HTML = """\
+<table><tbody>
+<tr class="{cls}" data-vendor-key="trinity_church" onclick="openCategoryPicker(this)">
+<td>2025-01-17</td><td>-50.00</td><td>TRINITY CHURCH</td>
+</tr>
+</tbody></table>
+"""
+
+
+def _write_report(tmp_path, cls):
+    p = tmp_path / 'report.html'
+    p.write_text(_DINERS_ROW_HTML.format(cls=cls), encoding='utf-8')
+    return p
+
+
+def test_update_report_row_color_same_category_no_duplicate_class(tmp_path, monkeypatch):
+    """Picking the same category a second time must not produce 'cat-x cat-x'."""
+    p = _write_report(tmp_path, 'cat-food-and-hospitality')
+    monkeypatch.setattr(server, '_report_file_for_url', lambda _: str(p))
+
+    result = server._update_report_row_color(
+        'fake/path', 'trinity_church', '2025-01-17', '-50.00',
+        'cat-food-and-hospitality',
+    )
+
+    assert result is True
+    html = p.read_text(encoding='utf-8')
+    assert 'cat-food-and-hospitality cat-food-and-hospitality' not in html
+    assert 'cat-food-and-hospitality' in html
+
+
+def test_update_report_row_color_replaces_stale_cat_class(tmp_path, monkeypatch):
+    """Changing category must strip the old cat-* class entirely, not append."""
+    p = _write_report(tmp_path, 'cat-food-and-hospitality')
+    monkeypatch.setattr(server, '_report_file_for_url', lambda _: str(p))
+
+    server._update_report_row_color(
+        'fake/path', 'trinity_church', '2025-01-17', '-50.00',
+        'cat-personal',
+    )
+
+    html = p.read_text(encoding='utf-8')
+    assert 'cat-personal' in html
+    assert 'cat-food-and-hospitality' not in html
+
+
+class _DateSelectCursor:
+    """Cursor that returns expense rows only when the queried date matches."""
+    def __init__(self, match_date, rows_for_match):
+        self._match = match_date
+        self._rows = rows_for_match
+        self._last_date = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def execute(self, _sql, params=None):
+        self._last_date = params[0] if params else None
+
+    def fetchall(self):
+        if self._last_date == self._match:
+            return self._rows
+        return []
+
+
+class _DateSelectConnection:
+    def __init__(self, match_date, rows_for_match):
+        self._cursor = _DateSelectCursor(match_date, rows_for_match)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def cursor(self):
+        return self._cursor
+
+
+def test_recategorize_expense_bank_only_row_returns_ok_with_warning(monkeypatch):
+    """Rows not in the DB (annual-summary bank-only) must return ok:True + warning."""
+    monkeypatch.setattr(
+        server, '_rol_get_connection',
+        lambda: _FakeConnection([]),  # empty DB
+    )
+    monkeypatch.setattr(server, '_update_report_row_color', lambda *_a, **_kw: True)
+
+    result = server.recategorize_expense(
+        '2025-01-17', '-50.00', 'trinity_church',
+        'Food & Hospitality',
+        report_path='/rol_finances_reports/jan-2025/diners_0587_whole_year_2025/report.html',
+    )
+
+    assert result['ok'] is True
+    assert result['expense_id'] is None
+    assert 'warning' in result
+
+
+def test_receipts_present_credit_card_posting_date_offset(monkeypatch):
+    """A DB expense dated 1 day before the report row must still resolve as present."""
+    expense = {
+        'id': 555,
+        'expense_date': '2025-01-16',   # purchase date in DB
+        'amount': '50.00',
+        'id_light': 'trinity_church_01_16_25_50_00',
+        'description': 'TRINITY CHURCH',
+        'receipt_url': 'receipts/trinity_01_16_25_50_00.jpg',
+    }
+    monkeypatch.setattr(
+        server, '_rol_get_connection', lambda: _FakeConnection([expense]))
+    monkeypatch.setattr(
+        server, '_resolve_expense_receipt_path',
+        lambda _date, _amt, ru: '/receipts/trinity.jpg' if ru else None,
+    )
+
+    result = server.receipts_present([{
+        'date': '2025-01-17',           # posting date on Diners statement (+1 day)
+        'signed_amount': '-50.00',
+        'vendor_key': 'trinity_church',
+        'description': 'TRINITY CHURCH',
+    }])
+
+    assert result == {'ok': True, 'present': [True]}
+
+
+def test_recategorize_expense_credit_card_posting_date_offset(monkeypatch):
+    """recategorize_expense must match the DB row when dates differ by ±1-3 days."""
+    expense = {
+        'id': 555,
+        'id_light': 'trinity_church_01_16_25_50_00',
+        'description': 'TRINITY CHURCH',
+        'category_id': None,
+    }
+    monkeypatch.setattr(
+        server, '_rol_get_connection',
+        lambda: _DateSelectConnection('2025-01-16', [expense]),
+    )
+    monkeypatch.setattr(server, '_update_report_row_color', lambda *_a, **_kw: True)
+
+    result = server.recategorize_expense(
+        '2025-01-17', '-50.00', 'trinity_church',
+        'Food & Hospitality',
+        report_path='/rol_finances_reports/jan-2025/diners_0587_whole_year_2025/report.html',
+    )
+
+    assert result['ok'] is True
+    assert result['expense_id'] == 555
