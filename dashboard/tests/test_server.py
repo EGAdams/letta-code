@@ -1617,3 +1617,170 @@ def test_get_stored_expense_events_filters_by_since():
     assert len(after) == 1
     assert after[0]['expense_id'] == 2
     _clear_expense_events()
+
+
+# ── ROL Finance: recently-scanned queue + green/yellow month status ──────────
+# A query-aware DB double: fetchall/fetchone dispatch on the executed SQL/params
+# so one connection can serve the SELECT + COUNT (+ per-month) queries these
+# helpers run.
+class _RoutingCursor:
+    def __init__(self, router):
+        self._router = router
+        self._sql = ''
+        self._params = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, sql, params=None):
+        self._sql = sql
+        self._params = params
+
+    def fetchall(self):
+        return self._router(self._sql, self._params)
+
+    def fetchone(self):
+        return self._router(self._sql, self._params)
+
+
+class _RoutingConnection:
+    def __init__(self, router):
+        self._router = router
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def cursor(self):
+        return _RoutingCursor(self._router)
+
+
+def test_is_uncategorized_flags_null_and_legacy_ids():
+    assert server._is_uncategorized(None) is True
+    assert server._is_uncategorized(1) is True
+    assert server._is_uncategorized(364) is True
+    # A real reporting bucket is finished, not "work to do".
+    assert server._is_uncategorized(100) is False
+    assert server._is_uncategorized(190) is False
+
+
+def test_fetch_recent_scans_returns_uncategorized_newest_first_with_total(monkeypatch):
+    rows = [
+        {'id': 42, 'id_light': 'meijer_01_22_25_18_40', 'description': 'MEIJER',
+         'expense_date': '2025-01-22', 'amount': '18.40', 'category_id': None,
+         'receipt_url': '', 'created_at': '2025-01-22 10:00:00'},
+        {'id': 41, 'id_light': 'circle_k_09828_01_21_25_5_00', 'description': 'CIRCLE K',
+         'expense_date': '2025-01-21', 'amount': '5.00', 'category_id': 364,
+         'receipt_url': '', 'created_at': '2025-01-21 09:00:00'},
+    ]
+
+    def router(sql, _params):
+        return {'n': 7} if 'COUNT(' in sql else rows
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+    monkeypatch.setattr(server, '_resolve_expense_receipt_path',
+                        lambda *_a: None)
+
+    out = server._fetch_recent_scans(5)
+    assert out['queue_total'] == 7
+    assert out['limit'] == 5
+    assert [r['id'] for r in out['rows']] == [42, 41]
+    assert out['rows'][0]['vendor_key'] == 'meijer'
+    assert out['rows'][0]['reporting_category'] == 'Uncategorized'
+    assert out['rows'][0]['receipt_present'] is False
+    # Every row carries a human-readable reason it landed in New Records.
+    assert 'reason' in out['rows'][0] and out['rows'][0]['reason']
+
+
+def test_fetch_recent_scans_reason_prefers_expense_notes(monkeypatch):
+    rows = [
+        {'id': 9, 'id_light': 'x_01_01_25_1_00', 'description': 'X',
+         'expense_date': '2025-01-01', 'amount': '1.00', 'category_id': None,
+         'receipt_url': '', 'created_at': '2025-01-01 00:00:00',
+         'notes': 'Vendor not in the map — needs a manual rule'},
+    ]
+
+    def router(sql, _params):
+        return {'n': 1} if 'COUNT(' in sql else rows
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+    monkeypatch.setattr(server, '_resolve_expense_receipt_path', lambda *_a: None)
+    out = server._fetch_recent_scans(5)
+    assert out['rows'][0]['reason'] == 'Vendor not in the map — needs a manual rule'
+
+
+def test_fetch_recent_scans_clamps_limit(monkeypatch):
+    # Guards the ORDER BY ... LIMIT %s bind against absurd input (1..50).
+    seen = {}
+
+    def router(sql, params):
+        if 'COUNT(' in sql:
+            return {'n': 0}
+        seen['limit'] = params[-1]  # trailing LIMIT bind
+        return []
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+    server._fetch_recent_scans(9999)
+    assert seen['limit'] == 50
+    server._fetch_recent_scans(-3)
+    assert seen['limit'] == 1
+
+
+def test_fetch_month_status_yellow_when_newest_scan_uncategorized(monkeypatch):
+    # jan's newest scan is categorized (green); feb's newest is uncategorized (yellow).
+    newest = {
+        'jan-2025': {'id': 10, 'id_light': 'x_01_02_25_1_00', 'description': 'X',
+                     'expense_date': '2025-01-02', 'amount': '1.00',
+                     'category_id': 100, 'created_at': '2025-01-02 00:00:00'},
+        'feb-2025': {'id': 20, 'id_light': 'y_02_02_25_2_00', 'description': 'Y',
+                     'expense_date': '2025-02-02', 'amount': '2.00',
+                     'category_id': None, 'created_at': '2025-02-02 00:00:00'},
+    }
+
+    def router(sql, params):
+        month = 'jan-2025' if str(params[0]).startswith('2025-01') else 'feb-2025'
+        if 'COUNT(' in sql:
+            return {'n': 0 if month == 'jan-2025' else 4}
+        return newest[month]
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+
+    by = {m['month_key']: m for m in server._fetch_month_status()}
+    assert by['jan-2025']['status'] == 'green'
+    assert by['jan-2025']['uncategorized_count'] == 0
+    assert by['feb-2025']['status'] == 'yellow'
+    assert by['feb-2025']['uncategorized_count'] == 4
+    assert by['feb-2025']['most_recent_unfinished']['uncategorized'] is True
+    assert by['feb-2025']['most_recent_unfinished']['vendor_key'] == 'y'
+
+
+def test_rol_finance_categories_match_recategorize_targets():
+    cats = server._rol_finance_categories()
+    names = [c['name'] for c in cats]
+    # Every offered category must be a valid /api/recategorize-expense target,
+    # and carry colors, so the dialog can't offer something the writer rejects.
+    assert names, 'expected a non-empty category palette'
+    assert 'Uncategorized' in names
+    for c in cats:
+        assert c['name'] in server.REPORTING_CATEGORY_DB_MAP
+        assert c['cls'] and c['bg'] and c['fg']
+
+
+def test_fetch_month_status_green_when_no_expenses(monkeypatch):
+    def router(sql, _params):
+        return {'n': 0} if 'COUNT(' in sql else None
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+    for m in server._fetch_month_status():
+        assert m['status'] == 'green'
+        assert m['most_recent_unfinished'] is None

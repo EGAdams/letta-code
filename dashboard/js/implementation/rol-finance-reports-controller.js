@@ -36,7 +36,13 @@ export class RolFinanceReportsController {
     endpoint = "/api/rol-finance-reports",
     reprocessEndpoint = "/api/reprocess-report",
     expenseEventsEndpoint = "/api/expense-stored-events",
-    recentReportsEndpoint = "/api/rol-finance-recent-reports",
+    monthStatusEndpoint = "/api/rol-finance-month-status",
+    recentScansEndpoint = "/api/rol-finance-recent-scans",
+    categoriesEndpoint = "/api/rol-finance-categories",
+    recategorizeEndpoint = "/api/recategorize-expense",
+    receiptLookupEndpoint = "/api/receipt-lookup",
+    recentScansLimit = 5,
+    mazdaAgentId = "agent-070c201a-8d6d-49ba-a5fd-1489884b3b45",
     months = [
       { key: "jan-2025", label: "January 2025" },
       { key: "feb-2025", label: "February 2025" },
@@ -59,7 +65,13 @@ export class RolFinanceReportsController {
     this._endpoint = endpoint;
     this._reprocessEndpoint = reprocessEndpoint;
     this._expenseEventsEndpoint = expenseEventsEndpoint;
-    this._recentReportsEndpoint = recentReportsEndpoint;
+    this._monthStatusEndpoint = monthStatusEndpoint;
+    this._recentScansEndpoint = recentScansEndpoint;
+    this._categoriesEndpoint = categoriesEndpoint;
+    this._recategorizeEndpoint = recategorizeEndpoint;
+    this._receiptLookupEndpoint = receiptLookupEndpoint;
+    this._recentScansLimit = recentScansLimit;
+    this._mazdaAgentId = mazdaAgentId;
     this._openUrl = openUrl;
     this._months = months;
     this._setInterval = _setInterval;
@@ -67,6 +79,10 @@ export class RolFinanceReportsController {
     this._monthsBuilt = false;
     this._activeMonthKey = null;
     this._reportsByMonth = new Map();
+    this._recentPanel = null;
+    this._pickerDialog = null;
+    this._categories = null;
+    this._activeCard = null;
     this.reports = null;
     this._pollTimer = null;
     this._lastEventTs = 0;
@@ -81,6 +97,371 @@ export class RolFinanceReportsController {
     const first = this._months[0];
     if (first) await this.openMonth(first.key);
     this.startPolling();
+  }
+
+  /**
+   * Refresh the two live signals that sit on top of the static reports:
+   *  - month-tab green/yellow completion status, and
+   *  - the "recently scanned" viewing area (up to N still-uncategorized rows).
+   * Safe to call on a poll: each half fails closed (leaves the last state) so a
+   * transient DB/endpoint hiccup never blanks the UI.
+   */
+  async refreshStatus() {
+    await Promise.all([this._refreshMonthStatus(), this._refreshRecentScans()]);
+  }
+
+  /**
+   * Color each month tab green (caught up) or yellow (its most-recently-scanned
+   * expense is still uncategorized), from /api/rol-finance-month-status.
+   */
+  async _refreshMonthStatus() {
+    let data;
+    try {
+      data = await this._http.getJSON(this._monthStatusEndpoint);
+    } catch {
+      return; // keep prior colors on a transient failure
+    }
+    // The endpoint fails soft (HTTP 200 + {error}) on a DB hiccup, so a throw is
+    // not the only failure signal — treat a missing/error payload as "keep prior
+    // colors" too, rather than stripping every tab's status.
+    if (!data || data.error || !Array.isArray(data.months)) return;
+    const byKey = new Map(data.months.map((m) => [m.month_key, m]));
+    this._nav.querySelectorAll(".tab.month-tab").forEach((t) => {
+      const m = byKey.get(t.dataset.monthKey);
+      t.classList.remove("status-green", "status-yellow");
+      if (!m) return;
+      t.classList.add(m.status === "yellow" ? "status-yellow" : "status-green");
+      t.title =
+        m.status === "yellow"
+          ? `${m.uncategorized_count || 0} expense(s) need a category`
+          : "All scanned expenses categorized";
+    });
+  }
+
+  /**
+   * Render the "New Records" viewing area from /api/rol-finance-recent-scans.
+   * The endpoint returns only up to N still-uncategorized rows (newest first),
+   * so as each is categorized it drops out and the next backfills. Each card
+   * carries the data the Set Category dialog needs and opens that dialog on
+   * click (NOT a full report page) — see _openPicker.
+   */
+  async _refreshRecentScans() {
+    const panel = this._ensureRecentPanel();
+    let data;
+    try {
+      data = await this._http.getJSON(
+        `${this._recentScansEndpoint}?limit=${this._recentScansLimit}`,
+      );
+    } catch {
+      return; // keep prior contents on a transient failure
+    }
+    // Fail soft like month-status: a missing/error payload keeps the prior
+    // cards rather than falsely rendering "all caught up" on a DB hiccup.
+    if (!data || data.error || !Array.isArray(data.rows)) return;
+    const rows = data.rows;
+    const total = data.queue_total || 0;
+    const cards = rows.length
+      ? rows
+          .map(
+            (r) =>
+              `<div class="rol-recent-card cat-uncategorized" role="button" tabindex="0"` +
+              ` title="Click to set a category or ask Mazda"` +
+              ` data-expense-id="${TextUtils.esc(String(r.id))}"` +
+              ` data-vendor-key="${TextUtils.esc(r.vendor_key || "")}"` +
+              ` data-description="${TextUtils.esc(r.description || r.vendor_key || r.id_light || "—")}"` +
+              ` data-signed-amount="${TextUtils.esc(r.amount || "")}"` +
+              ` data-date="${TextUtils.esc(r.expense_date || "")}"` +
+              ` data-reason="${TextUtils.esc(r.reason || "")}"` +
+              ` data-receipt-present="${r.receipt_present ? "1" : "0"}">` +
+              `<span class="rol-recent-date">${TextUtils.esc(r.expense_date || "")}</span>` +
+              `<span class="rol-recent-vendor">${TextUtils.esc(r.vendor_key || r.id_light || "—")}</span>` +
+              `<span class="rol-recent-amount">${TextUtils.esc(r.amount || "")}</span>` +
+              `<span class="rol-recent-badge">Uncategorized</span>` +
+              `</div>`,
+          )
+          .join("")
+      : `<p class="rol-recent-empty">Nothing waiting — all scanned receipts are categorized.</p>`;
+    panel.innerHTML =
+      `<h3 class="rol-recent-title">New Records${total ? ` — ${total} waiting` : ""}</h3>` +
+      `<div class="rol-recent-list">${cards}</div>`;
+  }
+
+  /**
+   * Create the New Records panel once, as a sibling ABOVE the views container
+   * (so openMonth's `viewsContainer.innerHTML = ""` never wipes it). One
+   * delegated click/Enter handler opens the Set Category dialog for a card.
+   */
+  _ensureRecentPanel() {
+    if (this._recentPanel) return this._recentPanel;
+    const panel = this._doc.createElement("section");
+    panel.id = "rol-finance-recent-scans";
+    panel.className = "rol-recent-scans";
+    const onActivate = (e) => {
+      const card = e.target.closest?.(".rol-recent-card");
+      if (!card) return;
+      if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+      this._openPicker(card);
+    };
+    panel.addEventListener("click", onActivate);
+    panel.addEventListener("keydown", onActivate);
+    const parent = this._viewsContainer.parentElement;
+    if (parent?.insertBefore) parent.insertBefore(panel, this._viewsContainer);
+    else this._viewsContainer.appendChild(panel);
+    this._recentPanel = panel;
+    return panel;
+  }
+
+  /** Fetch the reporting-category list (name + colors) once and cache it. */
+  async _loadCategories() {
+    if (this._categories) return this._categories;
+    const data = await this._http.getJSON(this._categoriesEndpoint);
+    this._categories = data?.categories || [];
+    return this._categories;
+  }
+
+  /**
+   * Build the New Records "Set Category" dialog once. It mirrors the Verified
+   * Transactions row dialog (target line → category grid → footer buttons) and
+   * reuses the same `/api/recategorize-expense` endpoint, but adds a "reason it
+   * needs attention" block between the target line and the category grid, and
+   * lives natively in the dashboard (no report iframe / full page).
+   */
+  _ensurePickerDialog() {
+    if (this._pickerDialog) return this._pickerDialog;
+    const mk = (tag, cls, text) => {
+      const e = this._doc.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    };
+    const modal = mk("div", "cp-modal");
+    modal.id = "rol-newrec-picker";
+    const panel = mk("div", "cp-panel");
+    const head = mk("div", "cp-head");
+    const target = mk("p", "cp-target");
+    head.appendChild(mk("h3", null, "Set Category"));
+    head.appendChild(target);
+    const reason = mk("div", "cp-reason");
+    const list = mk("div", "cp-list");
+    const foot = mk("div", "cp-foot");
+    const msg = mk("span", "cp-msg");
+    const actions = mk("div", "cp-actions");
+    const askMazdaBtn = mk("button", "cp-ask-mazda", "Ask Mazda");
+    const viewReceiptBtn = mk("button", "cp-view-receipt", "View Receipt");
+    const closeBtn = mk("button", "cp-close", "Close");
+    askMazdaBtn.type = "button";
+    viewReceiptBtn.type = "button";
+    closeBtn.type = "button";
+    actions.appendChild(askMazdaBtn);
+    actions.appendChild(viewReceiptBtn);
+    actions.appendChild(closeBtn);
+    foot.appendChild(msg);
+    foot.appendChild(actions);
+    panel.appendChild(head);
+    panel.appendChild(reason);
+    panel.appendChild(list);
+    panel.appendChild(foot);
+    modal.appendChild(panel);
+
+    closeBtn.addEventListener("click", () => this._closePicker());
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) this._closePicker();
+    });
+    viewReceiptBtn.addEventListener("click", () => this._viewReceipt());
+    askMazdaBtn.addEventListener("click", () => this._askMazda());
+
+    const parent = this._viewsContainer.parentElement || this._viewsContainer;
+    (parent.appendChild ? parent : this._viewsContainer).appendChild(modal);
+    this._pickerDialog = {
+      modal,
+      target,
+      reason,
+      list,
+      msg,
+      viewReceiptBtn,
+      askMazdaBtn,
+    };
+    return this._pickerDialog;
+  }
+
+  /** Open the Set Category dialog for one New Records card. */
+  async _openPicker(card) {
+    const d = card.dataset;
+    this._activeCard = card;
+    const pk = this._ensurePickerDialog();
+    pk.msg.textContent = "";
+    pk.msg.style.color = "";
+    pk.target.textContent = `${d.description || ""}  •  ${d.signedAmount || ""}  •  ${d.date || ""}`;
+    // The reason this record failed to auto-process — shown so mom can fix it
+    // here or tell Mazda what to do.
+    pk.reason.textContent = d.reason
+      ? `Why it needs attention: ${d.reason}`
+      : "";
+    pk.reason.style.display = d.reason ? "" : "none";
+    pk.viewReceiptBtn.style.display = d.receiptPresent === "1" ? "" : "none";
+    pk.modal.classList.add("open");
+
+    let cats;
+    try {
+      cats = await this._loadCategories();
+    } catch {
+      pk.msg.style.color = "#b91c1c";
+      pk.msg.textContent = "Could not load categories.";
+      return;
+    }
+    pk.list.innerHTML = "";
+    for (const c of cats) {
+      const sq = this._doc.createElement("div");
+      sq.className = `cp-square${c.cls === "cat-uncategorized" ? " current" : ""}`;
+      sq.style.background = c.bg;
+      sq.style.color = c.fg;
+      sq.textContent = c.name;
+      sq.addEventListener("click", () => this._pickCategory(c.name));
+      pk.list.appendChild(sq);
+    }
+  }
+
+  _closePicker() {
+    if (this._pickerDialog) this._pickerDialog.modal.classList.remove("open");
+    this._activeCard = null;
+  }
+
+  /** Write the chosen category, then close + refresh so the card backfills. */
+  async _pickCategory(categoryName) {
+    const card = this._activeCard;
+    const pk = this._pickerDialog;
+    if (!card || !pk) return;
+    const d = card.dataset;
+    pk.msg.style.color = "#6b7280";
+    pk.msg.textContent = "Saving…";
+    let res;
+    try {
+      res = await this._http.postJSON(this._recategorizeEndpoint, {
+        vendor_key: d.vendorKey || "",
+        description: d.description || "",
+        signed_amount: d.signedAmount || "",
+        date: d.date || "",
+        reporting_category: categoryName,
+        // No report_path → the server writes the DB only (these records have no
+        // static report.html row to recolor).
+      });
+    } catch (err) {
+      pk.msg.style.color = "#b91c1c";
+      pk.msg.textContent = `Save failed: ${err.message}`;
+      return;
+    }
+    if (!res || res.ok === false) {
+      pk.msg.style.color = "#b91c1c";
+      pk.msg.textContent = res?.error || "Save failed.";
+      return;
+    }
+    this._closePicker();
+    await this.refreshStatus();
+  }
+
+  /** Reuse /api/receipt-lookup to open the stored receipt (if any). */
+  async _viewReceipt() {
+    const card = this._activeCard;
+    const pk = this._pickerDialog;
+    if (!card || !pk) return;
+    const d = card.dataset;
+    pk.msg.style.color = "#6b7280";
+    pk.msg.textContent = "Finding receipt…";
+    let res;
+    try {
+      res = await this._http.postJSON(this._receiptLookupEndpoint, {
+        vendor_key: d.vendorKey || "",
+        description: d.description || "",
+        signed_amount: d.signedAmount || "",
+        date: d.date || "",
+      });
+    } catch (err) {
+      pk.msg.style.color = "#b91c1c";
+      pk.msg.textContent = `Receipt lookup failed: ${err.message}`;
+      return;
+    }
+    if (res?.ok && res.receipt_url) {
+      pk.msg.textContent = "";
+      globalThis.open?.(res.receipt_url, "_blank", "noopener,noreferrer");
+    } else {
+      pk.msg.style.color = "#b91c1c";
+      pk.msg.textContent = res?.error || "No receipt on file.";
+    }
+  }
+
+  /**
+   * "Ask Mazda" — reuse the dashboard's InputOptionsRenderer (the same module
+   * the Agents tab uses) to hand Mazda this record + its failure reason so mom
+   * can tell her how to fix it. Best-effort: degrades to a message on failure.
+   */
+  async _askMazda() {
+    const card = this._activeCard;
+    const pk = this._pickerDialog;
+    if (!card || !pk) return;
+    const d = card.dataset;
+    pk.msg.style.color = "#6b7280";
+    pk.msg.textContent = "Opening Mazda…";
+    try {
+      const mod = await import("/js/implementation/index.js");
+      const box = this._ensureMazdaBox();
+      const http = new mod.FetchHttpClient();
+      const speech = new mod.BrowserSpeechSynthesizer(globalThis);
+      new mod.InputOptionsRenderer({
+        http,
+        speech,
+        agentName: "Mazda",
+        agentId: this._mazdaAgentId,
+        onStatus: () => {},
+      }).render(box.id, this._mazdaAgentId);
+      const ta = box.querySelector?.("textarea");
+      if (ta) {
+        ta.value =
+          `# Goal\nFix this New Record so it categorizes\n\n# Record\n${d.description || ""} • ${d.signedAmount || ""} • ${d.date || ""}\n\n` +
+          `# Expense id\n${d.expenseId || ""}\n\n# Why it failed\n${d.reason || "(uncategorized)"}\n\n# What to do\n`;
+      }
+      pk.msg.textContent = "";
+      this._mazdaDialog.classList.add("open");
+    } catch (err) {
+      pk.msg.style.color = "#b91c1c";
+      pk.msg.textContent = `Could not open Mazda: ${err.message}`;
+    }
+  }
+
+  /** Lazily build the Ask Mazda sub-dialog that hosts the InputOptions box. */
+  _ensureMazdaBox() {
+    if (this._mazdaBox) return this._mazdaBox;
+    const mk = (tag, cls, text) => {
+      const e = this._doc.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    };
+    const modal = mk("div", "mz-modal");
+    modal.id = "rol-newrec-mazda";
+    const panel = mk("div", "mz-panel");
+    const head = mk("div", "mz-head");
+    head.appendChild(mk("h3", null, "Ask Mazda"));
+    const body = mk("div", "mz-body");
+    const box = mk("div", null);
+    box.id = "rol-newrec-mazda-box";
+    body.appendChild(box);
+    const foot = mk("div", "mz-foot");
+    const back = mk("button", "mz-back", "Back");
+    back.type = "button";
+    back.addEventListener("click", () => modal.classList.remove("open"));
+    foot.appendChild(back);
+    panel.appendChild(head);
+    panel.appendChild(body);
+    panel.appendChild(foot);
+    modal.appendChild(panel);
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) modal.classList.remove("open");
+    });
+    const parent = this._viewsContainer.parentElement || this._viewsContainer;
+    (parent.appendChild ? parent : this._viewsContainer).appendChild(modal);
+    this._mazdaDialog = modal;
+    this._mazdaBox = box;
+    return box;
   }
 
   /** Inject one month tab per configured month (once). */

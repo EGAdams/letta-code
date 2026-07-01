@@ -5,7 +5,12 @@ import { FakeDocument } from "./_fake-dom.js";
 function setup(payloadOrFn, { postPayload } = {}) {
   const doc = new FakeDocument();
   const nav = doc.createElement("div");
+  // Wrap the views container so the recently-scanned panel has a real parent to
+  // be inserted before (mirrors the live dashboard where #rol-finance-reports-
+  // views sits inside a wrapper).
+  const viewsParent = doc.createElement("div");
   const viewsContainer = doc.createElement("div");
+  viewsParent.appendChild(viewsContainer);
   const activated = [];
   const selected = [];
   const requestedUrls = [];
@@ -14,12 +19,22 @@ function setup(payloadOrFn, { postPayload } = {}) {
     getJSON: async (url) => {
       requestedUrls.push(url);
       const payload =
-        typeof payloadOrFn === "function" ? payloadOrFn(url) : payloadOrFn;
+        typeof payloadOrFn === "function"
+          ? payloadOrFn(url, { method: "GET" })
+          : payloadOrFn;
       if (payload instanceof Error) throw payload;
       return payload;
     },
     postJSON: async (url, body) => {
       postedRequests.push({ url, body });
+      // Router-based POST payload (New Records "set category" tests branch on
+      // opts.method); falls back to the postPayload option (reprocess tests).
+      const routed =
+        typeof payloadOrFn === "function"
+          ? payloadOrFn(url, { method: "POST", body })
+          : undefined;
+      if (routed instanceof Error) throw routed;
+      if (routed !== undefined) return routed;
       if (postPayload instanceof Error) throw postPayload;
       return postPayload ?? { ok: true, stages: [] };
     },
@@ -36,6 +51,7 @@ function setup(payloadOrFn, { postPayload } = {}) {
     rf,
     nav,
     viewsContainer,
+    viewsParent,
     activated,
     selected,
     requestedUrls,
@@ -550,5 +566,261 @@ describe("RolFinanceReportsController", () => {
     rf.stopPolling();
     expect(cleared).toEqual([1]);
     expect(rf._pollTimer).toBeNull();
+  });
+
+  test("refreshStatus colors month tabs green (done) / yellow (work to do)", async () => {
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-month-status")) {
+        return {
+          months: [
+            { month_key: "jan-2025", status: "green", uncategorized_count: 0 },
+            { month_key: "feb-2025", status: "yellow", uncategorized_count: 3 },
+          ],
+        };
+      }
+      if (url.startsWith("/api/rol-finance-recent-scans")) {
+        return { rows: [], queue_total: 0, limit: 5 };
+      }
+      return []; // report list
+    });
+    await ctx.rf.openReports();
+    await ctx.rf.refreshStatus();
+
+    const jan = ctx.nav.querySelector('[data-month-key="jan-2025"]');
+    const feb = ctx.nav.querySelector('[data-month-key="feb-2025"]');
+    expect(jan.classList.contains("status-green")).toBe(true);
+    expect(jan.classList.contains("status-yellow")).toBe(false);
+    expect(feb.classList.contains("status-yellow")).toBe(true);
+    expect(feb.title).toContain("3");
+  });
+
+  test("refreshStatus renders the recently-scanned viewing area (≤5, newest first)", async () => {
+    let rows = [
+      {
+        id: 42,
+        vendor_key: "meijer",
+        expense_date: "2025-01-22",
+        amount: "18.40",
+      },
+      {
+        id: 41,
+        vendor_key: "circle_k",
+        expense_date: "2025-01-21",
+        amount: "5.00",
+      },
+    ];
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-recent-scans")) {
+        return { rows, queue_total: rows.length, limit: 5 };
+      }
+      if (url.startsWith("/api/rol-finance-month-status"))
+        return { months: [] };
+      return [];
+    });
+    await ctx.rf.openReports();
+    await ctx.rf.refreshStatus();
+
+    const panel = ctx.doc.getElementById("rol-finance-recent-scans");
+    expect(panel).not.toBe(null);
+    expect(panel.innerHTML).toContain("New Records");
+    expect(panel.innerHTML).toContain("meijer");
+    expect(panel.innerHTML).toContain("2 waiting");
+
+    // Categorizing one elsewhere → it drops out; the panel backfills on refresh
+    // and reuses the same panel element (no duplicate).
+    rows = [
+      {
+        id: 41,
+        vendor_key: "circle_k",
+        expense_date: "2025-01-21",
+        amount: "5.00",
+      },
+    ];
+    await ctx.rf.refreshStatus();
+    const panels = ctx.doc.querySelectorAll("#rol-finance-recent-scans");
+    expect(panels.length).toBe(1);
+    expect(panels[0].innerHTML).not.toContain("meijer");
+    expect(panels[0].innerHTML).toContain("circle_k");
+  });
+
+  test("refreshStatus keeps prior state when an endpoint fails", async () => {
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-month-status"))
+        throw new Error("db down");
+      if (url.startsWith("/api/rol-finance-recent-scans"))
+        throw new Error("db down");
+      return [];
+    });
+    await ctx.rf.openReports();
+    // Must not throw even though both status endpoints fail.
+    await ctx.rf.refreshStatus();
+    const jan = ctx.nav.querySelector('[data-month-key="jan-2025"]');
+    expect(jan.classList.contains("status-green")).toBe(false);
+    expect(jan.classList.contains("status-yellow")).toBe(false);
+  });
+
+  test("month-status keeps prior colors on a 200+error payload (fail soft)", async () => {
+    let payload = {
+      months: [
+        { month_key: "jan-2025", status: "yellow", uncategorized_count: 2 },
+        { month_key: "feb-2025", status: "green" },
+      ],
+    };
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-month-status")) return payload;
+      if (url.startsWith("/api/rol-finance-recent-scans"))
+        return { rows: [], queue_total: 0 };
+      return [];
+    });
+    await ctx.rf.openReports();
+    await ctx.rf.refreshStatus();
+    const jan = ctx.nav.querySelector('[data-month-key="jan-2025"]');
+    expect(jan.classList.contains("status-yellow")).toBe(true);
+
+    // DB hiccup: endpoint returns HTTP 200 with {error}. Colors must persist.
+    payload = { months: [], error: "db down" };
+    await ctx.rf.refreshStatus();
+    expect(jan.classList.contains("status-yellow")).toBe(true);
+  });
+
+  test("recent-scans keeps prior cards on a 200+error payload (no false all-clear)", async () => {
+    let payload = {
+      rows: [
+        {
+          id: 42,
+          vendor_key: "meijer",
+          expense_date: "2025-01-22",
+          amount: "18.40",
+        },
+      ],
+      queue_total: 1,
+    };
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-recent-scans")) return payload;
+      if (url.startsWith("/api/rol-finance-month-status"))
+        return { months: [] };
+      return [];
+    });
+    await ctx.rf.openReports();
+    await ctx.rf.refreshStatus();
+    const panel = ctx.doc.getElementById("rol-finance-recent-scans");
+    expect(panel.innerHTML).toContain("meijer");
+
+    payload = { rows: [], error: "db down" };
+    await ctx.rf.refreshStatus();
+    expect(panel.innerHTML).toContain("meijer");
+    expect(panel.innerHTML).not.toContain("Nothing waiting");
+  });
+
+  test("clicking a New Records card opens the Set Category dialog with reason + categories", async () => {
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-categories")) {
+        return {
+          categories: [
+            {
+              name: "Travel & Vehicle",
+              cls: "cat-travel-and-vehicle",
+              bg: "#F4B683",
+              fg: "#000000",
+            },
+            {
+              name: "Uncategorized",
+              cls: "cat-uncategorized",
+              bg: "#BFBFBF",
+              fg: "#000000",
+            },
+          ],
+        };
+      }
+      return [];
+    });
+    const card = ctx.doc.createElement("div");
+    card.className = "rol-recent-card cat-uncategorized";
+    card.dataset = {
+      expenseId: "42",
+      vendorKey: "meijer",
+      description: "MEIJER",
+      signedAmount: "18.40",
+      date: "2025-01-22",
+      reason: "Categorization incomplete — no reporting category was assigned.",
+      receiptPresent: "1",
+    };
+    await ctx.rf._openPicker(card);
+
+    const dialog = ctx.doc.getElementById("rol-newrec-picker");
+    expect(dialog).not.toBe(null);
+    expect(dialog.classList.contains("open")).toBe(true);
+    expect(dialog.querySelector(".cp-target").textContent).toContain("MEIJER");
+    expect(dialog.querySelector(".cp-reason").textContent).toContain(
+      "Categorization incomplete",
+    );
+    const squares = dialog.querySelectorAll(".cp-square");
+    expect(squares.length).toBe(2);
+    // The uncategorized square is marked as the current selection.
+    expect(squares[1].classList.contains("current")).toBe(true);
+  });
+
+  test("picking a category posts a DB-only recategorize, closes, and backfills", async () => {
+    let recentRows = [
+      {
+        id: 42,
+        vendor_key: "meijer",
+        expense_date: "2025-01-22",
+        amount: "18.40",
+        description: "MEIJER",
+      },
+    ];
+    const ctx = setup((url, opts) => {
+      if (
+        opts.method === "POST" &&
+        url.startsWith("/api/recategorize-expense")
+      ) {
+        recentRows = []; // categorized → drops out of New Records
+        return { ok: true };
+      }
+      if (url.startsWith("/api/rol-finance-categories")) {
+        return {
+          categories: [
+            {
+              name: "Travel & Vehicle",
+              cls: "cat-travel-and-vehicle",
+              bg: "#F4B683",
+              fg: "#000000",
+            },
+          ],
+        };
+      }
+      if (url.startsWith("/api/rol-finance-recent-scans"))
+        return { rows: recentRows, queue_total: recentRows.length };
+      if (url.startsWith("/api/rol-finance-month-status"))
+        return { months: [] };
+      return [];
+    });
+    const card = ctx.doc.createElement("div");
+    card.className = "rol-recent-card cat-uncategorized";
+    card.dataset = {
+      expenseId: "42",
+      vendorKey: "meijer",
+      description: "MEIJER",
+      signedAmount: "18.40",
+      date: "2025-01-22",
+      reason: "x",
+      receiptPresent: "0",
+    };
+    await ctx.rf._openPicker(card);
+    await ctx.rf._pickCategory("Travel & Vehicle");
+
+    const post = ctx.postedRequests.find((p) =>
+      p.url.startsWith("/api/recategorize-expense"),
+    );
+    expect(post).not.toBe(undefined);
+    expect(post.body.reporting_category).toBe("Travel & Vehicle");
+    // DB-only: no report_path (these records have no static report.html row).
+    expect("report_path" in post.body).toBe(false);
+
+    const dialog = ctx.doc.getElementById("rol-newrec-picker");
+    expect(dialog.classList.contains("open")).toBe(false);
+    const panel = ctx.doc.getElementById("rol-finance-recent-scans");
+    expect(panel.innerHTML).toContain("Nothing waiting");
   });
 });
