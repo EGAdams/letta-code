@@ -540,15 +540,6 @@ export class RolFinanceReportsController {
     view.id = "rol-finance-reports-overview";
     view.className = "view";
 
-    // A real createElement'd child (not innerHTML markup) so refreshRecentReports
-    // can find it via querySelector once populated — see the FakeElement DOM
-    // pattern note in showOnlyVerifiedTransactions/buildTabsAndViews.
-    const recent = this._doc.createElement("div");
-    recent.id = "rol-finance-recent-reports";
-    recent.className = "rol-recent-reports";
-    recent.innerHTML = "<p>Loading New Records…</p>";
-    view.appendChild(recent);
-
     const rows = reports
       .map((r) => ({
         r,
