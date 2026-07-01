@@ -227,6 +227,40 @@ def _rol_reports_base_dir(month_key):
     return os.path.join(ROL_FINANCES_REPORTS_PARENT, sub)
 
 
+def _rol_finance_recent_reports(limit=5):
+    """Gather every existing report.html across all months, newest-first, with
+    the most recently processed shown as 'latest' and the top `limit` entries
+    (needs-attention reports — status 'review'/'fail' — sorted ahead of clean
+    'pass' ones, each bucket newest-first) returned as 'items'. Backs the
+    dashboard's "New Records" section so a human sees the documents most
+    likely to need a look first, not just whatever was touched most recently."""
+    candidates = []
+    for month_key in ROL_FINANCES_REPORTS_MONTHS:
+        base_dir = _rol_reports_base_dir(month_key)
+        for r in ROL_FINANCE_REPORTS:
+            report_file = os.path.join(base_dir, r['dir'], 'report.html')
+            try:
+                mtime = os.path.getmtime(report_file)
+            except OSError:
+                continue
+            status = _classify_report_status(report_file)
+            candidates.append({
+                'key': r['key'],
+                'label': r['label'],
+                'month_key': month_key,
+                'status': status,
+                'needs_attention': status in ('review', 'fail'),
+                'mtime': mtime,
+                'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html',
+            })
+    latest = max(candidates, key=lambda c: c['mtime']) if candidates else None
+    items = sorted(
+        candidates,
+        key=lambda c: (0 if c['needs_attention'] else 1, -c['mtime']),
+    )[:limit]
+    return {'latest': latest, 'items': items}
+
+
 def _split_report_url(report_path):
     """Map '/rol_finances_reports/<month>/<rel>' -> (base_dir, rel), or None if
     malformed or the month key isn't recognized."""
@@ -1700,14 +1734,7 @@ LETTA_AGENTS = [
     {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'provider_canary': True},
     {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki',                     'id': 'agent-c4e58e29-8c06-4ca9-a18d-b8536442af13', 'llm_provider': CHATGPT_PLUS_PRO, 'orchestrator': True},
-    {'name': 'Suzuki Router',              'id': 'agent-df4deb48-3a46-4fe4-887a-6aeb95ddc6d6', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Reproducer',          'id': 'agent-ad0c3e39-bd14-4f79-af95-140e4cf21325', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Static Analysis',     'id': 'agent-a820e191-bc39-413c-bb0c-6344d5b37643', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Patcher',             'id': 'agent-2c585993-1193-42d8-9bf5-1805b426a0da', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Test Runner',         'id': 'agent-a90f1413-6599-4750-b7e0-ee5634984162', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Regression',          'id': 'agent-8af8fec4-5114-40b3-99ab-173edd35ebd2', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'provider_canary': True},
 ]
 
 # Cache of name→id resolved from the Letta API
@@ -3810,12 +3837,36 @@ print(json.dumps(out))
 '''
 
 _GEMINI_EXTRACT_PY = r'''
-import json, os
-out = {"account": None}
+import json, os, subprocess
+out = {"account": None, "auth_method": None, "preview_features": False,
+       "cli_version": None, "cli_ok": False, "cli_error": None}
 try:
     out["account"] = json.load(open(os.path.expanduser("~/.gemini/google_accounts.json")))
 except Exception:
     pass
+try:
+    s = json.load(open(os.path.expanduser("~/.gemini/settings.json")))
+    # settings.json uses either "authMethod" or nested "auth.method" key style
+    out["auth_method"] = (s.get("authMethod") or s.get("auth", {}).get("method")
+                          or s.get("auth.method") or "oauth")
+    out["preview_features"] = bool(s.get("previewFeatures") or s.get("preview_features"))
+except Exception:
+    pass
+# Health check: same PATH fix as gemini_provider.py — /usr/local/bin/node is v22,
+# system node is v18 which lacks the /v regex flag required by string-width dep.
+try:
+    env = os.environ.copy()
+    env["PATH"] = "/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
+    r = subprocess.run(["gemini", "--version"], env=env, capture_output=True,
+                       text=True, timeout=12)
+    if r.returncode == 0:
+        out["cli_ok"] = True
+        out["cli_version"] = (r.stdout or r.stderr or "").strip().splitlines()[0]
+    else:
+        out["cli_error"] = ((r.stderr or r.stdout or "").strip()
+                            or f"exit {r.returncode}")[:150]
+except Exception as e:
+    out["cli_error"] = str(e)[:150]
 print(json.dumps(out))
 '''
 
@@ -3948,8 +3999,26 @@ def _model_stats_uncached(source_key, src):
     if src['kind'] == 'gemini':
         d = _run_extractor(_GEMINI_EXTRACT_PY, src['host'])
         acct = (d.get('account') or {})
-        out['model'] = 'gemini'
-        out['detail'] = f'account: {acct.get("active") or acct.get("email") or "?"} — usage not exposed by CLI'
+        email = acct.get('active') or acct.get('email') or '?'
+        auth = d.get('auth_method') or 'oauth'
+        preview = d.get('preview_features', False)
+        cli_ok = d.get('cli_ok', False)
+        cli_ver = (d.get('cli_version') or '').strip()
+        cli_err = (d.get('cli_error') or '').strip()
+        # gemini_provider.py always uses gemini-2.5-flash as DEFAULT_MODEL
+        out['model'] = 'gemini-2.5-flash'
+        parts = [email, f'auth: {auth}']
+        if preview:
+            parts.append('preview features on')
+        if cli_ver:
+            parts.append(cli_ver)
+        if not cli_ok:
+            parts.append(f'CLI error: {cli_err[:80]}' if cli_err else 'CLI unreachable')
+            out['status'] = 'concern'
+        out['detail'] = ' — '.join(parts)
+        if d.get('error'):
+            out['status'] = 'concern'
+            out['detail'] = f'extractor error: {d["error"]}'
         return out
 
     return out
@@ -4143,6 +4212,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 'url': RECEIPT_ONLY_REPORT_PATH,
             })
             return self.json_response(result)
+
+        if path == '/api/rol-finance-recent-reports':
+            try:
+                limit = int(query.get('limit', ['5'])[0])
+            except (ValueError, TypeError):
+                limit = 5
+            return self.json_response(_rol_finance_recent_reports(limit))
 
         if path == '/api/expense-stored-events':
             try:

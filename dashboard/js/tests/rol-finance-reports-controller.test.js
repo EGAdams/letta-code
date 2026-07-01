@@ -378,6 +378,148 @@ describe("RolFinanceReportsController", () => {
     expect(ctx.rf._pollTimer).toBeNull();
   });
 
+  // ── New Records ──────────────────────────────────────────────────────────
+
+  test("buildOverview injects the New Records placeholder before Document Status", async () => {
+    const ctx = setup([
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
+    ]);
+    await ctx.rf.openReports();
+
+    const overview = ctx.viewsContainer.querySelector(
+      "#rol-finance-reports-overview",
+    );
+    expect(overview.children[0].id).toBe("rol-finance-recent-reports");
+    expect(overview.innerHTML).toContain("Document Status");
+  });
+
+  test("renderRecentReportsHtml shows the latest report even when it's not in items, capped at 5 rows", () => {
+    const ctx = setup([]);
+    const latest = {
+      key: "jan",
+      label: "January",
+      month_key: "jan-2025",
+      status: "pass",
+      needs_attention: false,
+      url: "/r/jan.html",
+    };
+    const items = Array.from({ length: 5 }, (_, i) => ({
+      key: `r${i}`,
+      label: `Report ${i}`,
+      month_key: "feb-2025",
+      status: "review",
+      needs_attention: true,
+      url: `/r/${i}.html`,
+    }));
+    const html = ctx.rf.renderRecentReportsHtml({ latest, items });
+
+    expect(html).toContain("New Records");
+    expect(html).toContain("/r/jan.html");
+    expect((html.match(/<tr/g) || []).length).toBe(5);
+    // Latest (pass) bumped one item out of the queue to stay at 5 total.
+    expect(html).not.toContain("/r/4.html");
+  });
+
+  test("renderRecentReportsHtml dedupes the latest report against items", () => {
+    const ctx = setup([]);
+    const shared = {
+      key: "jan",
+      label: "January",
+      month_key: "jan-2025",
+      status: "review",
+      needs_attention: true,
+      url: "/r/jan.html",
+    };
+    const html = ctx.rf.renderRecentReportsHtml({
+      latest: shared,
+      items: [shared],
+    });
+    expect((html.match(/<tr/g) || []).length).toBe(1);
+  });
+
+  test("renderRecentReportsHtml marks needs-attention rows and reports empty state", () => {
+    const ctx = setup([]);
+    const needsAttention = ctx.rf.renderRecentReportsHtml({
+      latest: null,
+      items: [
+        {
+          key: "r1",
+          label: "Report 1",
+          month_key: "jan-2025",
+          status: "fail",
+          needs_attention: true,
+          url: "/r/1.html",
+        },
+      ],
+    });
+    expect(needsAttention).toContain("rol-recent-needs-attention");
+
+    const empty = ctx.rf.renderRecentReportsHtml({ latest: null, items: [] });
+    expect(empty).toContain("No records processed yet.");
+  });
+
+  test("refreshRecentReports fetches and fills the placeholder", async () => {
+    const ctx = setup([
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
+    ]);
+    await ctx.rf.openReports();
+    ctx.requestedUrls.length = 0;
+
+    await ctx.rf.refreshRecentReports();
+
+    expect(ctx.requestedUrls).toEqual(["/api/rol-finance-recent-reports"]);
+    const container = ctx.viewsContainer.querySelector(
+      "#rol-finance-recent-reports",
+    );
+    expect(container.innerHTML).toContain("No records processed yet.");
+  });
+
+  test("refreshRecentReports renders a failure message on fetch error without throwing", async () => {
+    const doc = new FakeDocument();
+    const nav = doc.createElement("div");
+    const viewsContainer = doc.createElement("div");
+    let call = 0;
+    const http = {
+      getJSON: async () => {
+        call += 1;
+        if (call === 1) return [];
+        throw new Error("boom");
+      },
+    };
+    const rf = new RolFinanceReportsController({
+      http,
+      nav,
+      viewsContainer,
+      doc,
+    });
+    await rf.openReports();
+
+    await rf.refreshRecentReports();
+
+    const container = viewsContainer.querySelector(
+      "#rol-finance-recent-reports",
+    );
+    expect(container.innerHTML).toContain("Failed to load New Records");
+    expect(container.innerHTML).toContain("boom");
+  });
+
+  test("refreshRecentReports is a no-op when the placeholder isn't in the DOM", async () => {
+    const ctx = setup([]);
+    await expect(ctx.rf.refreshRecentReports()).resolves.toBeUndefined();
+  });
+
   test("startPolling / stopPolling use injected timer functions", () => {
     const timers = [];
     const _setInterval = (fn, ms) => {

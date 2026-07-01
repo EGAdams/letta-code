@@ -6,6 +6,7 @@ the down-status path for an unreachable health check, and the
 start/"starting" lifecycle used by the executor Start button.
 """
 import json
+import os
 
 import pytest
 import server
@@ -1002,6 +1003,84 @@ def test_classify_report_status_unparseable_badge_defaults_to_review(tmp_path):
     p = tmp_path / 'report.html'
     p.write_text('<html><body>no badge here</body></html>')
     assert server._classify_report_status(str(p)) == 'review'
+
+
+def _setup_recent_reports_fixture(tmp_path, monkeypatch, reports):
+    """reports: list of (month_key, report_key, label, dir_name, badge_text, mtime)."""
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_PARENT', str(tmp_path))
+    months = {}
+    by_key = {}
+    for month_key, report_key, label, dir_name, badge_text, mtime in reports:
+        months[month_key] = month_key  # sub-dir name == month_key for simplicity
+        by_key[(month_key, report_key)] = (label, dir_name)
+        report_dir = tmp_path / month_key / dir_name
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_file = report_dir / 'report.html'
+        report_file.write_text(
+            f'<section class="hero"><div class="badge">{badge_text}</div></section>')
+        if mtime is not None:
+            os.utime(report_file, (mtime, mtime))
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_MONTHS', months)
+    seen_dirs = set()
+    flat_reports = []
+    for (month_key, report_key), (label, dir_name) in by_key.items():
+        if dir_name in seen_dirs:
+            continue
+        seen_dirs.add(dir_name)
+        flat_reports.append({'key': report_key, 'label': label, 'dir': dir_name})
+    monkeypatch.setattr(server, 'ROL_FINANCE_REPORTS', flat_reports)
+
+
+def test_recent_reports_prioritizes_needs_attention_over_recency(tmp_path, monkeypatch):
+    _setup_recent_reports_fixture(tmp_path, monkeypatch, [
+        ('jan-2025', 'old-fail', 'Old Fail', 'old-fail-dir', 'FAIL - bad', 100),
+        ('jan-2025', 'new-pass', 'New Pass', 'new-pass-dir', 'PASS - good', 200),
+    ])
+    result = server._rol_finance_recent_reports(limit=5)
+    assert [item['key'] for item in result['items']] == ['old-fail', 'new-pass']
+    # Latest by recency regardless of status.
+    assert result['latest']['key'] == 'new-pass'
+
+
+def test_recent_reports_within_a_tier_sorts_by_recency(tmp_path, monkeypatch):
+    _setup_recent_reports_fixture(tmp_path, monkeypatch, [
+        ('jan-2025', 'older-review', 'Older Review', 'older-review-dir', 'REVIEW NEEDED', 100),
+        ('jan-2025', 'newer-review', 'Newer Review', 'newer-review-dir', 'REVIEW NEEDED', 200),
+    ])
+    result = server._rol_finance_recent_reports(limit=5)
+    assert [item['key'] for item in result['items']] == ['newer-review', 'older-review']
+
+
+def test_recent_reports_respects_limit(tmp_path, monkeypatch):
+    _setup_recent_reports_fixture(tmp_path, monkeypatch, [
+        ('jan-2025', f'r{i}', f'Report {i}', f'r{i}-dir', 'PASS - good', float(i))
+        for i in range(8)
+    ])
+    result = server._rol_finance_recent_reports(limit=5)
+    assert len(result['items']) == 5
+    # Newest-first among equal-priority (all 'pass') candidates.
+    assert [item['key'] for item in result['items']] == ['r7', 'r6', 'r5', 'r4', 'r3']
+
+
+def test_recent_reports_skips_reports_with_no_file_on_disk(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_PARENT', str(tmp_path))
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_MONTHS', {'jan-2025': 'jan-2025'})
+    monkeypatch.setattr(server, 'ROL_FINANCE_REPORTS', [
+        {'key': 'missing', 'label': 'Missing', 'dir': 'missing-dir'},
+    ])
+    result = server._rol_finance_recent_reports(limit=5)
+    assert result == {'latest': None, 'items': []}
+
+
+def test_recent_reports_needs_attention_flag_matches_status(tmp_path, monkeypatch):
+    _setup_recent_reports_fixture(tmp_path, monkeypatch, [
+        ('jan-2025', 'pass-doc', 'Pass Doc', 'pass-doc-dir', 'PASS - good', 100),
+        ('jan-2025', 'review-doc', 'Review Doc', 'review-doc-dir', 'REVIEW NEEDED', 200),
+    ])
+    result = server._rol_finance_recent_reports(limit=5)
+    by_key = {item['key']: item for item in result['items']}
+    assert by_key['pass-doc']['needs_attention'] is False
+    assert by_key['review-doc']['needs_attention'] is True
 
 
 def _ssh_cfg():

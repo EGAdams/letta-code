@@ -1042,6 +1042,37 @@ summary {
   background: rgba(198, 40, 40, 0.5);
 }
 
+/* New Records (Project Plans → ROL Finance → Reports → <month>, above
+   Document Status) — same clickable color-coded-row pattern as the
+   Verified Transactions table inside each report.html, including its
+   red top-left corner marker, so a human scans both the same way. */
+.rol-recent-reports h3 {
+  margin: 0 0 6px;
+}
+.rol-recent-table {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+.rol-recent-table tbody tr td:first-child {
+  position: relative;
+}
+.rol-recent-table tbody tr.rol-recent-needs-attention td:first-child::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 9px 9px 0 0;
+  border-color: #dc2626 transparent transparent transparent;
+  pointer-events: none;
+}
+.rol-recent-empty {
+  opacity: 0.7;
+  margin: 0 0 18px;
+}
+
 .srv-status {
   display: flex;
   align-items: center;

@@ -36,12 +36,14 @@ export class RolFinanceReportsController {
     endpoint = "/api/rol-finance-reports",
     reprocessEndpoint = "/api/reprocess-report",
     expenseEventsEndpoint = "/api/expense-stored-events",
+    recentReportsEndpoint = "/api/rol-finance-recent-reports",
     months = [
       { key: "jan-2025", label: "January 2025" },
       { key: "feb-2025", label: "February 2025" },
     ],
     setInterval: _setInterval = null,
     clearInterval: _clearInterval = null,
+    openUrl = (url) => globalThis.open?.(url, "_blank", "noopener,noreferrer"),
   }) {
     if (!http || !nav || !viewsContainer) {
       throw new Error(
@@ -57,6 +59,8 @@ export class RolFinanceReportsController {
     this._endpoint = endpoint;
     this._reprocessEndpoint = reprocessEndpoint;
     this._expenseEventsEndpoint = expenseEventsEndpoint;
+    this._recentReportsEndpoint = recentReportsEndpoint;
+    this._openUrl = openUrl;
     this._months = months;
     this._setInterval = _setInterval;
     this._clearInterval = _clearInterval;
@@ -155,6 +159,15 @@ export class RolFinanceReportsController {
     view.id = "rol-finance-reports-overview";
     view.className = "view";
 
+    // A real createElement'd child (not innerHTML markup) so refreshRecentReports
+    // can find it via querySelector once populated — see the FakeElement DOM
+    // pattern note in showOnlyVerifiedTransactions/buildTabsAndViews.
+    const recent = this._doc.createElement("div");
+    recent.id = "rol-finance-recent-reports";
+    recent.className = "rol-recent-reports";
+    recent.innerHTML = "<p>Loading New Records…</p>";
+    view.appendChild(recent);
+
     const rows = reports
       .map((r) => ({
         r,
@@ -167,12 +180,14 @@ export class RolFinanceReportsController {
       )
       .join("");
 
-    view.innerHTML = `
-      <h2>${TextUtils.esc(month.label)} — Document Status</h2>
+    view.insertAdjacentHTML(
+      "beforeend",
+      `<h2>${TextUtils.esc(month.label)} — Document Status</h2>
       <table class="rol-overview-table">
         <thead><tr><th>Document</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>`;
+      </table>`,
+    );
 
     view.querySelectorAll("tr[data-report-key]").forEach((row) => {
       row.addEventListener("click", () =>
@@ -185,6 +200,83 @@ export class RolFinanceReportsController {
 
   openOverview() {
     this._activateView("rol-finance-reports-overview");
+  }
+
+  /**
+   * Pure view method: render the "New Records" markup from a
+   * GET /api/rol-finance-recent-reports payload ({ latest, items }).
+   * The latest-processed report is always shown (prepended ahead of
+   * `items` if not already present), then the rest of `items` fills the
+   * remaining slots — `items` is already sorted needs-attention-first by
+   * the server, so a verified (now-passing) report naturally drops toward
+   * the end and the next queued report takes its place. Capped at 5 rows
+   * total so "up to 5 rows show at all times" holds regardless of how many
+   * candidates exist. Rows are styled/behave like Verified Transactions
+   * rows (whole row clickable, color-coded by status) rather than as
+   * plain text links, so a human can scan/verify faster.
+   */
+  renderRecentReportsHtml({ latest, items = [] } = {}) {
+    const dedupeKey = (r) => `${r.key}__${r.month_key}`;
+    const seen = new Set();
+    const combined = [];
+    for (const r of latest ? [latest, ...items] : items) {
+      const k = dedupeKey(r);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      combined.push(r);
+    }
+
+    const rows = combined
+      .slice(0, 5)
+      .map((r) => {
+        const info = RolFinanceReportsController.statusInfo(r.status) || {
+          cls: "",
+          label: "",
+        };
+        const monthLabel =
+          this._months.find((m) => m.key === r.month_key)?.label || r.month_key;
+        const attentionCls = r.needs_attention
+          ? " rol-recent-needs-attention"
+          : "";
+        return `<tr class="${info.cls}${attentionCls}" data-recent-url="${TextUtils.esc(r.url)}" title="Click to open report.html"><td>${TextUtils.esc(r.label)} — ${TextUtils.esc(monthLabel)}</td><td>${TextUtils.esc(info.label)}</td></tr>`;
+      })
+      .join("");
+
+    if (!rows) {
+      return `<h3>New Records</h3><p class="rol-recent-empty">No records processed yet.</p>`;
+    }
+    return `
+      <h3>New Records</h3>
+      <table class="rol-overview-table rol-recent-table">
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  /**
+   * Fetch /api/rol-finance-recent-reports and (re)render the "New Records"
+   * placeholder injected by buildOverview, if it's currently in the DOM.
+   * Wires each row's click to open that report.html via the injected
+   * openUrl strategy (Command pattern over a same convention as the rest
+   * of this controller's DOM event wiring).
+   */
+  async refreshRecentReports() {
+    const container = this._viewsContainer.querySelector(
+      "#rol-finance-recent-reports",
+    );
+    if (!container) return;
+    let data;
+    try {
+      data = await this._http.getJSON(this._recentReportsEndpoint);
+    } catch (e) {
+      container.innerHTML = `<h3>New Records</h3><p class="am-warn">Failed to load New Records: ${TextUtils.esc(e.message)}</p>`;
+      return;
+    }
+    container.innerHTML = this.renderRecentReportsHtml(data);
+    container.querySelectorAll("tr[data-recent-url]").forEach((row) => {
+      row.addEventListener("click", () => {
+        this._openUrl(row.dataset.recentUrl);
+      });
+    });
   }
 
   /**
@@ -368,6 +460,11 @@ export class RolFinanceReportsController {
     } catch {
       // Network error — silently ignore; retry on the next tick.
     }
+    // Refresh every tick (not just when an expense-stored event fires): a
+    // report can flip from review/fail to pass via the verification workflow
+    // alone, with no expense-stored event, and New Records must still drop
+    // it + pull the next queued document up within one poll interval.
+    this.refreshRecentReports();
   }
 
   /**
