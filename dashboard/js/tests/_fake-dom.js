@@ -80,10 +80,21 @@ export class FakeElement {
     else this._innerHTML = html + this._innerHTML;
   }
 
+  get parentElement() {
+    return this.parent;
+  }
+
   appendChild(child) {
     child.parent = this;
     this.children.push(child);
     return child;
+  }
+  insertBefore(newNode, refNode) {
+    newNode.parent = this;
+    const i = this.children.indexOf(refNode);
+    if (i === -1) this.children.push(newNode);
+    else this.children.splice(i, 0, newNode);
+    return newNode;
   }
   remove() {
     if (this.parent) {
@@ -153,6 +164,14 @@ export class FakeElement {
   }
   querySelector(sel) {
     return this.querySelectorAll(sel)[0] || null;
+  }
+  closest(sel) {
+    let el = this;
+    while (el) {
+      if (el.matches?.(sel)) return el;
+      el = el.parent;
+    }
+    return null;
   }
 }
 

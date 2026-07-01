@@ -89,6 +89,14 @@ ROL_FINANCES_REPORTS_MONTHS = {
     'jan-2025': 'january',
     'feb-2025': 'february',
 }
+# Calendar date range (inclusive) each month tab covers. Used by
+# /api/rol-finance-month-status to find that month's most-recently-scanned
+# expense. Statements straddle month boundaries, but the tabs group by the
+# calendar month they're filed under, so we key the range off that month.
+ROL_FINANCES_MONTH_RANGES = {
+    'jan-2025': ('2025-01-01', '2025-01-31'),
+    'feb-2025': ('2025-02-01', '2025-02-28'),
+}
 ROL_FINANCES_REPORTS_DEFAULT_MONTH = 'jan-2025'
 ROL_FINANCES_REPORTS_BASE = os.path.join(
     ROL_FINANCES_REPORTS_PARENT, ROL_FINANCES_REPORTS_MONTHS[ROL_FINANCES_REPORTS_DEFAULT_MONTH])
@@ -413,10 +421,11 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
 
     # Persist the color into the static report.html so it survives a refresh.
     file_updated = False
-    if report_path == RECEIPT_ONLY_REPORT_PATH:
-        # The Receipt Only tab is a dynamic page rebuilt from the DB on every load,
-        # so the new category color is already reflected on reload — there is no
-        # static row to rewrite. Report success so the dialog closes cleanly.
+    if report_path == RECEIPT_ONLY_REPORT_PATH or not report_path:
+        # No static report row to rewrite: either the Receipt Only tab (dynamic
+        # page rebuilt from the DB on every load) or the dashboard's "New Records"
+        # dialog (report_path omitted → DB-only). The DB write above is the whole
+        # change; report success so the dialog closes cleanly.
         file_updated = True
     else:
         try:
@@ -1581,6 +1590,133 @@ def _fetch_receipt_only_rows():
             'cat_class': REPORTING_CATEGORY_CLASS.get(rep, 'cat-uncategorized'),
         })
     return out
+
+
+# ── ROL Finance: recently-scanned queue + green/yellow month status ──────────
+# A scanned receipt becomes an `expenses` row (created_at auto-set on INSERT), so
+# "recently scanned, newest first" is just ORDER BY created_at DESC — no separate
+# queue store is needed. An expense has "unfinished business" while it is still
+# uncategorized; setting its category (via /api/recategorize-expense) resolves it.
+# Uncategorized == category_id NULL, or 1/364 which both resolve to 'Uncategorized'
+# in REPORTING_CATEGORY_ANCESTOR_MAP (the same buckets the picker's "Uncategorized"
+# choice writes back, i.e. category_id -> None).
+_UNCATEGORIZED_CATEGORY_IDS = (1, 364)
+
+
+def _is_uncategorized(category_id):
+    """True when an expense row still needs a category (the 'unfinished' state)."""
+    return category_id is None or int(category_id) in _UNCATEGORIZED_CATEGORY_IDS
+
+
+def _rol_finance_categories():
+    """The reporting-category palette (name/cls/bg/fg) in display order for the
+    New Records 'Set Category' dialog. Built from the same maps
+    /api/recategorize-expense validates against, so the picker never offers a
+    category the writer would reject."""
+    cats = []
+    for name, cls in REPORTING_CATEGORY_CLASS.items():
+        bg, fg = REPORTING_CATEGORY_STYLE.get(name, ('#BFBFBF', '#000000'))
+        cats.append({'name': name, 'cls': cls, 'bg': bg, 'fg': fg})
+    return cats
+
+
+def _fetch_recent_scans(limit=5):
+    """The most-recently-scanned expenses that are still uncategorized, newest
+    first — the 'recently scanned viewing area'. Returning only up to `limit`
+    unfinished rows IS the 'keep the view at <=5, backfill the next one' rule:
+    as each row gets categorized it drops out and the next surfaces. Also returns
+    queue_total = how many uncategorized rows are waiting overall."""
+    limit = max(1, min(int(limit or 5), 50))
+    with _rol_get_connection() as cnx:
+        with cnx.cursor() as cur:
+            cur.execute(
+                "SELECT id, id_light, description, expense_date, amount, "
+                "       category_id, receipt_url, created_at, notes "
+                "FROM expenses "
+                "WHERE category_id IS NULL OR category_id IN (%s, %s) "
+                "ORDER BY created_at DESC, id DESC LIMIT %s",
+                (*_UNCATEGORIZED_CATEGORY_IDS, limit),
+            )
+            rows = cur.fetchall()
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM expenses "
+                "WHERE category_id IS NULL OR category_id IN (%s, %s)",
+                _UNCATEGORIZED_CATEGORY_IDS,
+            )
+            total = int(cur.fetchone()['n'])
+    out = []
+    for r in rows:
+        date_str = str(r['expense_date'])
+        amt = _norm_amount(r['amount'])
+        # Why this record is in "New Records": prefer a specific note written by
+        # the intake pipeline / Mazda (expenses.notes); otherwise the generic
+        # reason it lands here — categorization never completed.
+        notes = (r.get('notes') or '').strip()
+        reason = notes or (
+            'Categorization incomplete — no reporting category was assigned. '
+            'Pick one, or ask Mazda how to resolve it.')
+        out.append({
+            'id': int(r['id']),
+            'vendor_key': _vendor_prefix(r.get('id_light')),
+            'id_light': (r.get('id_light') or '').strip(),
+            'description': (r.get('description') or '').strip(),
+            'expense_date': date_str,
+            'amount': str(r['amount']),
+            'created_at': str(r.get('created_at') or ''),
+            'reporting_category': 'Uncategorized',
+            'reason': reason,
+            'receipt_present': bool(
+                _resolve_expense_receipt_path(date_str, amt, r.get('receipt_url'))
+                if amt is not None else False),
+        })
+    return {'rows': out, 'queue_total': total, 'limit': limit}
+
+
+def _fetch_month_status():
+    """Per-month green/yellow status for the report month tabs. A month is
+    'yellow' (work to do) when its most-recently-scanned expense is still
+    uncategorized, else 'green'. Keys off the most-recent scan to match the
+    spec: the tab reacts to the newest document's unfinished business."""
+    result = []
+    with _rol_get_connection() as cnx:
+        with cnx.cursor() as cur:
+            for month_key, (start, end) in ROL_FINANCES_MONTH_RANGES.items():
+                cur.execute(
+                    "SELECT id, id_light, description, expense_date, amount, "
+                    "       category_id, created_at "
+                    "FROM expenses WHERE expense_date BETWEEN %s AND %s "
+                    "ORDER BY created_at DESC, id DESC LIMIT 1",
+                    (start, end),
+                )
+                newest = cur.fetchone()
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM expenses "
+                    "WHERE expense_date BETWEEN %s AND %s "
+                    "AND (category_id IS NULL OR category_id IN (%s, %s))",
+                    (start, end, *_UNCATEGORIZED_CATEGORY_IDS),
+                )
+                uncat = int(cur.fetchone()['n'])
+                if newest is None:
+                    status = 'green'
+                    most_recent = None
+                else:
+                    unfinished = _is_uncategorized(newest.get('category_id'))
+                    status = 'yellow' if unfinished else 'green'
+                    most_recent = {
+                        'id': int(newest['id']),
+                        'vendor_key': _vendor_prefix(newest.get('id_light')),
+                        'description': (newest.get('description') or '').strip(),
+                        'expense_date': str(newest['expense_date']),
+                        'amount': str(newest['amount']),
+                        'uncategorized': unfinished,
+                    }
+                result.append({
+                    'month_key': month_key,
+                    'status': status,
+                    'uncategorized_count': uncat,
+                    'most_recent_unfinished': most_recent,
+                })
+    return result
 
 
 def _receipt_only_picker_assets():
@@ -4185,6 +4321,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except (ValueError, TypeError):
                 since_ts = 0.0
             return self.json_response(get_stored_expense_events(since_ts))
+
+        if path == '/api/rol-finance-recent-scans':
+            try:
+                limit = int(query.get('limit', ['5'])[0])
+            except (TypeError, ValueError):
+                limit = 5
+            try:
+                return self.json_response(_fetch_recent_scans(limit))
+            except Exception as e:
+                return self.json_response(
+                    {'rows': [], 'queue_total': 0, 'limit': 5, 'error': str(e)})
+
+        if path == '/api/rol-finance-month-status':
+            try:
+                return self.json_response({'months': _fetch_month_status()})
+            except Exception as e:
+                return self.json_response({'months': [], 'error': str(e)})
+
+        if path == '/api/rol-finance-categories':
+            return self.json_response({'categories': _rol_finance_categories()})
 
         if path == '/api/ssh-connections':
             return self.json_response([
