@@ -160,11 +160,25 @@ export class RolFinanceReportsController {
     if (!data || data.error || !Array.isArray(data.rows)) return;
     const rows = data.rows;
     const total = data.queue_total || 0;
-    const cards = rows.length
+    const catClass = (cat) => {
+      if (!cat) return "cat-uncategorized";
+      return (
+        "cat-" +
+        cat
+          .toLowerCase()
+          .replace(/,\s*/g, "-")
+          .replace(/[\s/]+/g, "-")
+          .replace(/[^a-z0-9-]/g, "")
+      );
+    };
+    const body = rows.length
       ? rows
-          .map(
-            (r) =>
-              `<div class="rol-recent-card cat-uncategorized" role="button" tabindex="0"` +
+          .map((r) => {
+            const cls =
+              catClass(r.reporting_category) +
+              (r.receipt_present ? " has-receipt" : "");
+            return (
+              `<tr class="${cls}" role="button" tabindex="0"` +
               ` title="Click to set a category or ask Mazda"` +
               ` data-expense-id="${TextUtils.esc(String(r.id))}"` +
               ` data-vendor-key="${TextUtils.esc(r.vendor_key || "")}"` +
@@ -173,17 +187,22 @@ export class RolFinanceReportsController {
               ` data-date="${TextUtils.esc(r.expense_date || "")}"` +
               ` data-reason="${TextUtils.esc(r.reason || "")}"` +
               ` data-receipt-present="${r.receipt_present ? "1" : "0"}">` +
-              `<span class="rol-recent-date">${TextUtils.esc(r.expense_date || "")}</span>` +
-              `<span class="rol-recent-vendor">${TextUtils.esc(r.vendor_key || r.id_light || "—")}</span>` +
-              `<span class="rol-recent-amount">${TextUtils.esc(r.amount || "")}</span>` +
-              `<span class="rol-recent-badge">Uncategorized</span>` +
-              `</div>`,
-          )
+              `<td>${TextUtils.esc(r.expense_date || "")}</td>` +
+              `<td>${TextUtils.esc(r.description || r.vendor_key || r.id_light || "—")}</td>` +
+              `<td style="text-align:right">$${TextUtils.esc(r.amount || "")}</td>` +
+              `<td>${TextUtils.esc(r.reporting_category || "Uncategorized")}</td>` +
+              `</tr>`
+            );
+          })
           .join("")
-      : `<p class="rol-recent-empty">Nothing waiting — all scanned receipts are categorized.</p>`;
+      : "";
     panel.innerHTML =
       `<h3 class="rol-recent-title">New Records${total ? ` — ${total} waiting` : ""}</h3>` +
-      `<div class="rol-recent-list">${cards}</div>`;
+      (rows.length
+        ? `<table class="rol-recent-table"><thead><tr>` +
+          `<th>Date</th><th>Description</th><th>Amount</th><th>Category</th>` +
+          `</tr></thead><tbody>${body}</tbody></table>`
+        : `<p class="rol-recent-empty">Nothing waiting — all scanned receipts are categorized.</p>`);
   }
 
   /**
@@ -197,7 +216,7 @@ export class RolFinanceReportsController {
     panel.id = "rol-finance-recent-scans";
     panel.className = "rol-recent-scans";
     const onActivate = (e) => {
-      const card = e.target.closest?.(".rol-recent-card");
+      const card = e.target.closest?.("tr[data-expense-id]");
       if (!card) return;
       if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
       this._openPicker(card);

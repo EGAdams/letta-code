@@ -1027,6 +1027,21 @@ summary {
 .rol-recent-scans {
   margin: 0 0 14px;
 }
+/* Category row colors for New Records table — mirrors the report.html inline palette */
+.cat-church-facility { background: #b8cce4; color: #000; }
+.cat-church-utilities { background: #95b3d7; color: #000; }
+.cat-ministry-and-worship { background: #dce6f1; color: #000; }
+.cat-office-and-administration { background: #4f81bd; color: #fff; }
+.cat-food-and-hospitality { background: #f4f199; color: #000; }
+.cat-gifts-and-love-offerings { background: #a9d18e; color: #000; }
+.cat-robert-benefits-and-medical { background: #ccc0da; color: #000; }
+.cat-rosemary-benefits-and-medical { background: #f4b6c2; color: #000; }
+.cat-staff-benefits-and-medical { background: #ccc0da; color: #000; }
+.cat-travel-and-vehicle { background: #f4b683; color: #000; }
+.cat-insurance-taxes-and-fees { background: #fcd5b4; color: #000; }
+.cat-housing { background: #ddd9c4; color: #000; }
+.cat-personal { background: #948a54; color: #fff; }
+.cat-uncategorized { background: #bfbfbf; color: #000; }
 .rol-recent-title {
   margin: 0 0 8px;
   font-size: 0.95rem;
@@ -1286,7 +1301,8 @@ summary {
 .rol-recent-table tbody tr td:first-child {
   position: relative;
 }
-.rol-recent-table tbody tr.rol-recent-needs-attention td:first-child::before {
+.rol-recent-table tbody tr.rol-recent-needs-attention td:first-child::before,
+.rol-recent-table tbody tr.has-receipt td:first-child::before {
   content: "";
   position: absolute;
   top: 0;
@@ -1297,6 +1313,12 @@ summary {
   border-width: 9px 9px 0 0;
   border-color: #dc2626 transparent transparent transparent;
   pointer-events: none;
+}
+.rol-recent-table tbody tr {
+  cursor: pointer;
+}
+.rol-recent-table tbody tr:hover {
+  filter: brightness(0.93);
 }
 .rol-recent-empty {
   opacity: 0.7;
