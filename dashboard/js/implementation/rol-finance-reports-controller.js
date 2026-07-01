@@ -149,8 +149,11 @@ export class RolFinanceReportsController {
     const panel = this._ensureRecentPanel();
     let data;
     try {
+      const month = this._activeMonthKey
+        ? `&month=${encodeURIComponent(this._activeMonthKey)}`
+        : "";
       data = await this._http.getJSON(
-        `${this._recentScansEndpoint}?limit=${this._recentScansLimit}`,
+        `${this._recentScansEndpoint}?limit=${this._recentScansLimit}${month}`,
       );
     } catch {
       return; // keep prior contents on a transient failure

@@ -1661,28 +1661,36 @@ def _rol_finance_categories():
     return cats
 
 
-def _fetch_recent_scans(limit=5):
+def _fetch_recent_scans(limit=5, month_key=None):
     """The most-recently-scanned expenses that are still uncategorized, newest
     first — the 'recently scanned viewing area'. Returning only up to `limit`
     unfinished rows IS the 'keep the view at <=5, backfill the next one' rule:
     as each row gets categorized it drops out and the next surfaces. Also returns
     queue_total = how many uncategorized rows are waiting overall."""
     limit = max(1, min(int(limit or 5), 50))
+    month_range = ROL_FINANCES_MONTH_RANGES.get(month_key)
+    where_suffix = ''
+    where_params = ()
+    if month_range:
+        where_suffix = ' AND expense_date BETWEEN %s AND %s'
+        where_params = month_range
     with _rol_get_connection() as cnx:
         with cnx.cursor() as cur:
             cur.execute(
                 "SELECT id, id_light, description, expense_date, amount, "
                 "       category_id, receipt_url, created_at, notes "
                 "FROM expenses "
-                "WHERE category_id IS NULL OR category_id IN (%s, %s) "
+                "WHERE (category_id IS NULL OR category_id IN (%s, %s))"
+                f"{where_suffix} "
                 "ORDER BY created_at DESC, id DESC LIMIT %s",
-                (*_UNCATEGORIZED_CATEGORY_IDS, limit),
+                (*_UNCATEGORIZED_CATEGORY_IDS, *where_params, limit),
             )
             rows = cur.fetchall()
             cur.execute(
                 "SELECT COUNT(*) AS n FROM expenses "
-                "WHERE category_id IS NULL OR category_id IN (%s, %s)",
-                _UNCATEGORIZED_CATEGORY_IDS,
+                "WHERE (category_id IS NULL OR category_id IN (%s, %s))"
+                f"{where_suffix}",
+                (*_UNCATEGORIZED_CATEGORY_IDS, *where_params),
             )
             total = int(cur.fetchone()['n'])
     out = []
@@ -1710,7 +1718,7 @@ def _fetch_recent_scans(limit=5):
                 _resolve_expense_receipt_path(date_str, amt, r.get('receipt_url'))
                 if amt is not None else False),
         })
-    return {'rows': out, 'queue_total': total, 'limit': limit}
+    return {'rows': out, 'queue_total': total, 'limit': limit, 'month_key': month_key}
 
 
 def _fetch_month_status():
@@ -4423,8 +4431,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 limit = int(query.get('limit', ['5'])[0])
             except (TypeError, ValueError):
                 limit = 5
+            month = (query.get('month', [''])[0] or '').strip() or None
             try:
-                return self.json_response(_fetch_recent_scans(limit))
+                return self.json_response(_fetch_recent_scans(limit, month))
             except Exception as e:
                 return self.json_response(
                     {'rows': [], 'queue_total': 0, 'limit': 5, 'error': str(e)})
