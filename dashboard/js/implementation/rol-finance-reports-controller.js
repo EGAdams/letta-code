@@ -634,33 +634,6 @@ export class RolFinanceReportsController {
   }
 
   /**
-   * Fetch /api/rol-finance-recent-reports and (re)render the "New Records"
-   * placeholder injected by buildOverview, if it's currently in the DOM.
-   * Wires each row's click to open that report.html via the injected
-   * openUrl strategy (Command pattern over a same convention as the rest
-   * of this controller's DOM event wiring).
-   */
-  async refreshRecentReports() {
-    const container = this._viewsContainer.querySelector(
-      "#rol-finance-recent-reports",
-    );
-    if (!container) return;
-    let data;
-    try {
-      data = await this._http.getJSON(this._recentReportsEndpoint);
-    } catch (e) {
-      container.innerHTML = `<h3>New Records</h3><p class="am-warn">Failed to load New Records: ${TextUtils.esc(e.message)}</p>`;
-      return;
-    }
-    container.innerHTML = this.renderRecentReportsHtml(data);
-    container.querySelectorAll("tr[data-recent-url]").forEach((row) => {
-      row.addEventListener("click", () => {
-        this._openUrl(row.dataset.recentUrl);
-      });
-    });
-  }
-
-  /**
    * Inject one tab + one view per report.
    * Existing reports get a reprocess bar above the iframe.
    * Missing reports get a red tab + placeholder.
@@ -845,7 +818,7 @@ export class RolFinanceReportsController {
     // report can flip from review/fail to pass via the verification workflow
     // alone, with no expense-stored event, and New Records must still drop
     // it + pull the next queued document up within one poll interval.
-    this.refreshRecentReports();
+    this.refreshStatus();
   }
 
   /**

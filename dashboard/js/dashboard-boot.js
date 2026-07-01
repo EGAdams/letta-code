@@ -595,7 +595,7 @@ if (
     const tab = e.target.closest(".tab");
     if (!tab || tab.id === "btn-back-rol-finance-reports") return;
     if (tab.dataset.monthKey) {
-      RF.openMonth(tab.dataset.monthKey).then(() => RF.refreshRecentReports());
+      RF.openMonth(tab.dataset.monthKey).then(() => RF.refreshStatus());
       return;
     }
     if (tab.dataset.reportKey) {
@@ -2282,7 +2282,7 @@ function stopAllScannerMonitors() {
   if (q.get("view") === "rol-finance-reports") {
     navMain.classList.add("hidden");
     navRolFinanceReports.classList.remove("hidden");
-    RF.openReports().then(() => RF.refreshRecentReports());
+    RF.openReports().then(() => RF.refreshStatus());
   }
 })();
 
