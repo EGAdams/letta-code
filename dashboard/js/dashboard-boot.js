@@ -385,6 +385,11 @@ function safeActivateView(id, fallbackId = "home") {
   // Android. Detect them by the presence of a full-bleed frame.
   const isFullbleed = view && view.querySelector(".plan-frame") !== null;
   if (mainContent) mainContent.classList.toggle("fullbleed", !!isFullbleed);
+  // New Records panel lives outside the .view hierarchy (sibling of
+  // #rol-finance-reports-views); show it only when a ROL Finance view is active.
+  const recentScansPanel = document.getElementById("rol-finance-recent-scans");
+  if (recentScansPanel)
+    recentScansPanel.hidden = !next.startsWith("rol-finance");
 }
 
 function safeSetActive(navEl, selector, target) {

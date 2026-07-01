@@ -204,18 +204,12 @@ export class RolFinanceReportsController {
     };
     panel.addEventListener("click", onActivate);
     panel.addEventListener("keydown", onActivate);
-    // Insert into #rol-finance-reports (.view sibling of viewsContainer) so the
-    // panel is hidden by CSS when not on the ROL Finance page. viewsContainer
-    // (#rol-finance-reports-views) is a root-level element outside any .view, so
-    // inserting before it would make the panel always visible on every page.
-    const reportsSection = this._doc.getElementById("rol-finance-reports");
-    if (reportsSection) reportsSection.appendChild(panel);
-    else {
-      const parent = this._viewsContainer.parentElement;
-      if (parent?.insertBefore)
-        parent.insertBefore(panel, this._viewsContainer);
-      else this._viewsContainer.appendChild(panel);
-    }
+    // Insert as a sibling ABOVE viewsContainer so openMonth's innerHTML="" never
+    // wipes it. safeActivateView() in dashboard-boot.js toggles panel.hidden
+    // to keep it visible only on ROL Finance views.
+    const parent = this._viewsContainer.parentElement;
+    if (parent?.insertBefore) parent.insertBefore(panel, this._viewsContainer);
+    else this._viewsContainer.appendChild(panel);
     this._recentPanel = panel;
     return panel;
   }
