@@ -364,8 +364,11 @@ Three things were added to `server.py` + the frontend (see memories
   `start_executor_server`; remote = SSH/redeploy; frita-executor first runs `ensure_win10_docker`
   (rm stale `/var/run/docker.pid` + start docker — the recurring `:8799`-down cause).
 - **Model Stats tab** — `/api/model-stats?source=` (+ `-sources`), `MODEL_STAT_SOURCES`,
-  `model_stats(key)`. Sub-nav: R46/W11 × Claude/Codex + Gemini (W11=this box local, R46=mom's via
-  SSH). **LIVE usage APIs** (the local rollout/stats-cache files are stale/bogus — do NOT use them):
+  `model_stats(key)`. Sub-nav: R46/W11 × Claude/Codex + Antigravity CLI (ex-Gemini CLI, retired
+  2026-06-18; source key stays `gemini`) (W11=this box local, R46=mom's via
+  SSH). Antigravity has no quota API for free accounts, so its "daily requests" window is derived:
+  cap from `loadCodeAssist` tier (free=1000/paid=1500) vs today's `streamGenerateContent` count in
+  `~/.gemini/antigravity-cli/log/`; no 401 self-heal — an expired token needs a manual `agy` re-auth. **LIVE usage APIs** (the local rollout/stats-cache files are stale/bogus — do NOT use them):
   Codex `GET https://chatgpt.com/backend-api/wham/usage` (token `~/.codex/auth.json`); Claude
   `GET https://api.anthropic.com/api/oauth/usage` (token `~/.claude/.credentials.json`
   `claudeAiOauth.accessToken`). Shows 5h + weekly used%, reset, model; **red at 100%** with reset.

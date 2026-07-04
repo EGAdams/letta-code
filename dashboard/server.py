@@ -885,6 +885,10 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'STEP 2 — INVESTIGATE (only with REAL parsed data — never pass "unknown"):\n'
         f'  a. check_vendor_key(id_light="scan", description=<merchant>, '
         f'vendor_key=<vendor_key from facade or derived above>)\n'
+        f'     IMPORTANT: if the result contains a normalized/recognized vendor_key that '
+        f'differs from what you supplied, USE THE NORMALIZED KEY in every later step '
+        f'(categorizer input, evidence JSON) — the vendor store and its category mapping '
+        f'are keyed on the normalized form.\n'
         f'  b. check_duplicates(id_light="scan", expense_date=<YYYY-MM-DD>, '
         f'amount=<decimal string>, description=<merchant>)\n'
         f'  If duplicate → skip store; still record_trace + judge_trace, then stop.\n\n'
@@ -894,10 +898,13 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'  {MAZDA_RF_VENV_PY} tools/categorizer/categorizer_main.py '
         f'-i /tmp/mazda_cat_input.json --provider=gemini\n'
         f'  → {{"vendor_key": "...", "category_id": <int>}} '
-        f'(null means vendor unknown — record FAIL + propose_improvement and stop)\n\n'
+        f'(a null category_id means the categorizer could not resolve one — do NOT stop: '
+        f'continue to STEP 4 and store the expense UNCATEGORIZED so it enters the '
+        f'dashboard\'s New Records queue for a human to categorize)\n\n'
         f'STEP 4 — STORE (executor_run, cwd=/home/adamsl/rol_finances, '
         f'env={MAZDA_RF_ENV_JSON}). '
-        f'Write permission is granted for this intake task:\n'
+        f'Write permission is granted for this intake task. Store EVEN IF category_id '
+        f'is null (omit the --category-id flag in that case):\n'
         f'  {MAZDA_RF_VENV_PY} '
         f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
         f'-f {scan_image_path} --save --category-id=<id from step 3> --engine=gemini\n'
@@ -3861,7 +3868,7 @@ MODEL_STAT_SOURCES = {
     'r46-codex':  {'label': 'R46 Codex OAuth',  'kind': 'codex',  'host': R46_SSH_HOST},
     'w11-claude': {'label': 'W11 Claude OAuth', 'kind': 'claude', 'host': None},
     'r46-claude': {'label': 'R46 Claude OAuth', 'kind': 'claude', 'host': R46_SSH_HOST},
-    'gemini':     {'label': 'Gemini CLI',       'kind': 'gemini', 'host': None},
+    'gemini':     {'label': 'Antigravity CLI',  'kind': 'gemini', 'host': None},
 }
 
 # Extractors run on the target machine (locally or piped over SSH). Each prints a
@@ -3979,37 +3986,70 @@ except Exception:
 print(json.dumps(out))
 '''
 
-_GEMINI_EXTRACT_PY = r'''
-import json, os, subprocess
-out = {"account": None, "auth_method": None, "preview_features": False,
-       "cli_version": None, "cli_ok": False, "cli_error": None}
+# Gemini CLI was shut off for individual accounts on 2026-06-18 and replaced by
+# Google's Antigravity CLI (`agy`). Antigravity has no dedicated real-time quota
+# API for free consumer accounts, so we derive a daily-requests window: the tier's
+# daily request cap (loadCodeAssist) as the limit, and today's count of
+# `streamGenerateContent` calls in agy's session logs as "used".
+_ANTIGRAVITY_EXTRACT_PY = r'''
+import json, os, glob, datetime, urllib.request, urllib.error
+HOME = os.path.expanduser("~")
+AG = os.path.join(HOME, ".gemini", "antigravity-cli")
+out = {"account": None, "tier": None, "tier_id": None, "limit": None,
+       "used": None, "resets_at": None, "logged_in": False, "error": None}
+TOKEN = os.path.join(AG, "antigravity-oauth-token")
 try:
-    out["account"] = json.load(open(os.path.expanduser("~/.gemini/google_accounts.json")))
-except Exception:
-    pass
-try:
-    s = json.load(open(os.path.expanduser("~/.gemini/settings.json")))
-    # settings.json uses either "authMethod" or nested "auth.method" key style
-    out["auth_method"] = (s.get("authMethod") or s.get("auth", {}).get("method")
-                          or s.get("auth.method") or "oauth")
-    out["preview_features"] = bool(s.get("previewFeatures") or s.get("preview_features"))
-except Exception:
-    pass
-# Health check: same PATH fix as gemini_provider.py — /usr/local/bin/node is v22,
-# system node is v18 which lacks the /v regex flag required by string-width dep.
-try:
-    env = os.environ.copy()
-    env["PATH"] = "/usr/local/bin:" + env.get("PATH", "/usr/bin:/bin")
-    r = subprocess.run(["gemini", "--version"], env=env, capture_output=True,
-                       text=True, timeout=12)
-    if r.returncode == 0:
-        out["cli_ok"] = True
-        out["cli_version"] = (r.stdout or r.stderr or "").strip().splitlines()[0]
-    else:
-        out["cli_error"] = ((r.stderr or r.stdout or "").strip()
-                            or f"exit {r.returncode}")[:150]
+    at = json.load(open(TOKEN))["token"]["access_token"]
+    out["logged_in"] = True
+    # Tier + daily request cap.
+    req = urllib.request.Request(
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        data=json.dumps({"metadata": {"ideType": "IDE_UNSPECIFIED",
+            "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"}}).encode(),
+        headers={"Authorization": "Bearer " + at, "Content-Type": "application/json"})
+    d = json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+    ct = d.get("currentTier") or {}
+    out["tier"] = ct.get("name"); out["tier_id"] = ct.get("id")
+    # Free Code Assist for individuals = 1000 req/day; paid tiers = 1500 req/day.
+    # Missing/unknown tier id defaults to the free cap so a shape change in
+    # loadCodeAssist can't silently overstate the limit (green while maxed).
+    out["limit"] = 1500 if ct.get("id") and ct.get("id") != "free-tier" else 1000
+    # Account email (best-effort).
+    try:
+        ureq = urllib.request.Request("https://www.googleapis.com/oauth2/v1/userinfo",
+            headers={"Authorization": "Bearer " + at})
+        out["account"] = json.loads(urllib.request.urlopen(ureq, timeout=15).read().decode()).get("email")
+    except Exception:
+        pass
+    # Used today = streamGenerateContent calls across today's session logs.
+    today = datetime.date.today().strftime("%Y%m%d")
+    used = 0
+    logs = glob.glob(os.path.join(AG, "log", "cli-%s_*.log" % today))
+    for f in logs:
+        try:
+            with open(f, errors="ignore") as fh:
+                used += sum(1 for ln in fh if "streamGenerateContent" in ln)
+        except Exception:
+            pass
+    out["used"] = used
+    # Surfaced so the dashboard can tell "0 used" from "no logs found" (agy
+    # moving/renaming its log dir would otherwise read as a silent 0/limit).
+    out["log_files"] = len(logs)
+    # Google quota resets at midnight Pacific.
+    try:
+        from zoneinfo import ZoneInfo
+        pt = ZoneInfo("America/Los_Angeles")
+        now = datetime.datetime.now(pt)
+        nxt = (now + datetime.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        out["resets_at"] = nxt.astimezone(datetime.timezone.utc).isoformat()
+    except Exception:
+        pass
+except FileNotFoundError:
+    out["error"] = "not logged in (run `agy` and sign in)"
+except urllib.error.HTTPError as e:
+    out["error"] = ("HTTP %d %s" % (e.code, getattr(e, "reason", "") or "")).strip()
 except Exception as e:
-    out["cli_error"] = str(e)[:150]
+    out["error"] = str(e)[:160]
 print(json.dumps(out))
 '''
 
@@ -4140,28 +4180,36 @@ def _model_stats_uncached(source_key, src):
         return out
 
     if src['kind'] == 'gemini':
-        d = _run_extractor(_GEMINI_EXTRACT_PY, src['host'])
-        acct = (d.get('account') or {})
-        email = acct.get('active') or acct.get('email') or '?'
-        auth = d.get('auth_method') or 'oauth'
-        preview = d.get('preview_features', False)
-        cli_ok = d.get('cli_ok', False)
-        cli_ver = (d.get('cli_version') or '').strip()
-        cli_err = (d.get('cli_error') or '').strip()
-        # gemini_provider.py always uses gemini-2.5-flash as DEFAULT_MODEL
-        out['model'] = 'gemini-2.5-flash'
-        parts = [email, f'auth: {auth}']
-        if preview:
-            parts.append('preview features on')
-        if cli_ver:
-            parts.append(cli_ver)
-        if not cli_ok:
-            parts.append(f'CLI error: {cli_err[:80]}' if cli_err else 'CLI unreachable')
+        # Gemini CLI is retired; this reads Google's Antigravity CLI (`agy`).
+        d = _run_extractor(_ANTIGRAVITY_EXTRACT_PY, src['host'], timeout=45)
+        out['model'] = 'Antigravity (Code Assist)'
+        if d.get('error') or not d.get('logged_in'):
             out['status'] = 'concern'
-        out['detail'] = ' — '.join(parts)
-        if d.get('error'):
+            err = d.get('error', 'no data')
+            # agy has no token-refresh self-heal (unlike the claude/codex
+            # extractors), so an expired access token needs a manual re-auth.
+            hint = (' — run `agy` and sign in to refresh the token'
+                    if '401' in str(err) or '403' in str(err) else '')
+            out['detail'] = f'usage unavailable: {err}{hint}'
+            return out
+        limit = d.get('limit') or 1000
+        used = d.get('used') or 0
+        up = (100.0 * used / limit) if limit else 0.0
+        out['windows'].append({
+            'label': 'daily requests',
+            'used_percent': round(up, 1),
+            'resets_at': d.get('resets_at'),
+            'resets_in': _human_reset(d.get('resets_at')),
+        })
+        acct = d.get('account') or '?'
+        tier = d.get('tier') or '?'
+        out['detail'] = f'{acct} — {tier} — {used}/{limit} requests today'
+        if d.get('log_files') == 0:
+            out['detail'] += ' (no agy session logs found today)'
+        if up >= 100:
+            out['status'] = 'down'
+        elif up >= 80:
             out['status'] = 'concern'
-            out['detail'] = f'extractor error: {d["error"]}'
         return out
 
     return out
