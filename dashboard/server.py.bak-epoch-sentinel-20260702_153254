@@ -113,8 +113,6 @@ ROL_FINANCE_REPORTS = [
     {'key': 'platinum-year',     'label': 'Platinum Year',      'dir': 'platinum_business_credit_card_for_the_year'},
     {'key': 'diners-club-0587',  'label': 'Diners Club 0587',   'dir': 'diners_club__january_25_statements-MONTHLY-0587'},
     {'key': 'diners-0587-year',  'label': 'Diners 0587 Year',   'dir': 'diners_0587_whole_year_2025'},
-    {'key': 'bank-3119-pdf',     'label': 'Bank 3119 PDF',      'dir': 'fifth_third_non_profit_3119'},
-    {'key': 'choice-7580-year',  'label': 'Choice 7580 Year',   'dir': 'choice_7580_year'},
 ]
 
 # ── ROL Finance: recategorize a Verified-Transactions row ─────────────────
@@ -296,65 +294,6 @@ def _report_file_for_url(report_path):
     return None
 
 
-def _iter_existing_report_files():
-    """Yield (url, file_path, label) for every report.html that actually exists on
-    disk, across every month x report-dir combination. Mirrors the nested loop in
-    _rol_finance_recent_reports but returns file paths instead of status info."""
-    for month_key in ROL_FINANCES_REPORTS_MONTHS:
-        base_dir = _rol_reports_base_dir(month_key)
-        for r in ROL_FINANCE_REPORTS:
-            report_file = os.path.join(base_dir, r['dir'], 'report.html')
-            if os.path.isfile(report_file):
-                url = f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html'
-                yield url, report_file, r['label']
-
-
-def _find_matching_report_row(date_str, amount_str, vendor_key=''):
-    """Search every existing report.html's Verified-Transactions rows for the one
-    matching (date, amount) — used by recategorize_expense when it is called with
-    no report_path (the New Records dialog's case: it only knows the DB row, not
-    which static report.html — if any — already carries a <tr> for the same
-    transaction). Report-file vendor_keys are parsed from the bank statement and
-    often diverge from the DB's id_light-derived vendor_key (e.g. 'kum_go_2608r'
-    vs 'kum_go_2608r_walker'), so vendor_key is NOT required to match — only used
-    to disambiguate when more than one row shares the same date+amount.
-
-    Returns {'report_path', 'label', 'row_vendor_key'} for exactly one match, or
-    None when zero or unresolvably-many rows matched (leaves report files alone
-    in the ambiguous case rather than guessing wrong).
-    """
-    d = (date_str or '').strip()
-    a = (amount_str or '').strip()
-    if not d or not a:
-        return None
-    matches = []
-    for url, file_path, label in _iter_existing_report_files():
-        try:
-            with open(file_path, encoding='utf-8', errors='replace') as f:
-                html = f.read()
-        except OSError:
-            continue
-        for m in re.finditer(r'<tr([^>]*)>(.*?)</tr>', html, re.S):
-            open_tag, inner = m.group(1), m.group(2)
-            vk_m = re.search(r'data-vendor-key="([^"]*)"', open_tag)
-            if not vk_m:
-                continue  # not a Verified-Transactions row (e.g. a summary table)
-            if ('>%s<' % d) not in inner or ('>%s<' % a) not in inner:
-                continue
-            matches.append({
-                'report_path': url, 'label': label, 'row_vendor_key': vk_m.group(1),
-            })
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1 and vendor_key:
-        vk = vendor_key.strip()
-        narrowed = [mch for mch in matches if mch['row_vendor_key'] and (
-            vk.startswith(mch['row_vendor_key']) or mch['row_vendor_key'].startswith(vk))]
-        if len(narrowed) == 1:
-            return narrowed[0]
-    return None
-
-
 def _update_report_row_color(report_path, vendor_key, date_str, amount_str, new_cls):
     """Rewrite the cat-* class on the matching Verified-Transactions <tr> on disk.
 
@@ -516,31 +455,12 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
 
     # Persist the color into the static report.html so it survives a refresh.
     file_updated = False
-    matched_report = None
-    if report_path == RECEIPT_ONLY_REPORT_PATH:
-        # The Receipt Only tab is a dynamic page rebuilt from the DB on every
-        # load — the DB write above is the whole change.
+    if report_path == RECEIPT_ONLY_REPORT_PATH or not report_path:
+        # No static report row to rewrite: either the Receipt Only tab (dynamic
+        # page rebuilt from the DB on every load) or the dashboard's "New Records"
+        # dialog (report_path omitted → DB-only). The DB write above is the whole
+        # change; report success so the dialog closes cleanly.
         file_updated = True
-    elif not report_path:
-        # The New Records dialog doesn't know which report.html (if any) this
-        # transaction lives in — search for it instead of assuming there is none
-        # (see _find_matching_report_row: DB vs. bank-statement vendor_key spelling
-        # often diverges, so a plain report_path lookup can't be done client-side).
-        try:
-            new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
-            found = _find_matching_report_row(date_str, signed_amount, vendor_key) if new_cls else None
-            if found:
-                if _update_report_row_color(
-                        found['report_path'], found['row_vendor_key'],
-                        date_str, signed_amount, new_cls):
-                    file_updated = True
-                    matched_report = {'report_path': found['report_path'], 'label': found['label']}
-        except Exception:
-            pass
-        if not matched_report:
-            # Genuinely no static row anywhere (e.g. a standalone receipt with no
-            # matching bank transaction) — the DB write above is the whole change.
-            file_updated = True
     else:
         try:
             new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
@@ -560,7 +480,6 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
         'category_id': target_id,
         'reporting_category': reporting_category,
         'file_updated': file_updated,
-        'matched_report': matched_report,
     }
 
 
@@ -970,17 +889,7 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'differs from what you supplied, USE THE NORMALIZED KEY in every later step '
         f'(categorizer input, evidence JSON) — the vendor store and its category mapping '
         f'are keyed on the normalized form.\n'
-        f'  MISSING DATE RULE: if STEP 0/facade could not extract a transaction_date '
-        f'(null, unreadable, or no date printed on the receipt), do NOT stop or treat '
-        f'it as a blocker — use the placeholder "1970-01-01" as expense_date in '
-        f'check_duplicates below and in the STEP 5 evidence JSON. '
-        f'parse_and_categorize.py --save already substitutes this same placeholder '
-        f'automatically when transaction_date is missing, so STEP 4 needs no special '
-        f'handling. This way the receipt still lands in the dashboard\'s New Records '
-        f'queue (uncategorized) for a human to fill in the real date, instead of the '
-        f'receipt being lost entirely.\n'
-        f'  b. check_duplicates(id_light="scan", expense_date=<YYYY-MM-DD, or '
-        f'"1970-01-01" if no date was extracted>, '
+        f'  b. check_duplicates(id_light="scan", expense_date=<YYYY-MM-DD>, '
         f'amount=<decimal string>, description=<merchant>)\n'
         f'  If duplicate → skip store; still record_trace + judge_trace, then stop.\n\n'
         f'STEP 3 — CATEGORIZE (executor_run, cwd=/home/adamsl/rol_finances, '

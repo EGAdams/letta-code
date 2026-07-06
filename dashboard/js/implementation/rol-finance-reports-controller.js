@@ -42,7 +42,7 @@ export class RolFinanceReportsController {
     recategorizeEndpoint = "/api/recategorize-expense",
     receiptLookupEndpoint = "/api/receipt-lookup",
     recentScansLimit = 5,
-    mazdaAgentId = "agent-070c201a-8d6d-49ba-a5fd-1489884b3b45",
+    mazdaAgentId = "agent-6b536cf4-ec88-4290-b595-fed21d14bd8e",
     months = [
       { key: "jan-2025", label: "January 2025" },
       { key: "feb-2025", label: "February 2025" },
@@ -367,8 +367,9 @@ export class RolFinanceReportsController {
         signed_amount: d.signedAmount || "",
         date: d.date || "",
         reporting_category: categoryName,
-        // No report_path → the server writes the DB only (these records have no
-        // static report.html row to recolor).
+        // No report_path → the server searches every report.html for the matching
+        // row itself (report vendor_keys often diverge from the DB's) and recolors
+        // it there too when found; DB-only when the record has no static row at all.
       });
     } catch (err) {
       pk.msg.style.color = "#b91c1c";
