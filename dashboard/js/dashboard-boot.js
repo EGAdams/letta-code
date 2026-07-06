@@ -1602,8 +1602,17 @@ async function preloadStartupChecks() {
   startupGate.start();
 
   const runTask = async (key, work, formatSuccess, onError = null) => {
+    const TASK_TIMEOUT = 10000; // 10-second timeout per task
     try {
-      const result = await work();
+      const result = await Promise.race([
+        work(),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Task timeout after ${TASK_TIMEOUT}ms`)),
+            TASK_TIMEOUT,
+          ),
+        ),
+      ]);
       startupGate.complete(key, formatSuccess(result));
       return result;
     } catch (error) {
@@ -1638,7 +1647,9 @@ async function preloadStartupChecks() {
   const serverHealthPromise = runTask(
     "server-health",
     async () => {
+      startupGate.writeLine("Calling /api/server-health...");
       serverHealth.health = await serverHealth.fetchHealth();
+      startupGate.writeLine("Got response from /api/server-health");
       serverHealth.notify();
       return serverHealth.health;
     },
@@ -1666,7 +1677,9 @@ async function preloadStartupChecks() {
   const sshHealthPromise = runTask(
     "ssh-health",
     async () => {
+      startupGate.writeLine("Calling /api/ssh-connection-health...");
       connHealth.health = await connHealth.fetchHealth();
+      startupGate.writeLine("Got response from /api/ssh-connection-health");
       connHealth.notify();
       return connHealth.health;
     },
