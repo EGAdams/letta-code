@@ -16,10 +16,20 @@ export class FetchHttpClient extends HttpClient {
       throw new Error("FetchHttpClient requires a fetch implementation");
     }
     this._fetch = fetchFn;
+    this._timeout = 8000; // 8-second timeout per fetch request
   }
 
-  /** @override transport: delegate straight to fetch. */
-  async request(url, opts) {
-    return this._fetch(url, opts);
+  /** @override transport: delegate straight to fetch with timeout. */
+  async request(url, opts = {}) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this._timeout);
+    try {
+      return await this._fetch(url, {
+        ...opts,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 }
