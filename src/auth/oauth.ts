@@ -222,7 +222,17 @@ export async function validateCredentials(
     // Only treat 401/403 as invalid credentials.
     // A 400 means the server has bad data (e.g. agent with null system prompt) but
     // the connection and auth are fine — don't block startup for that.
+    // For self-hosted servers, also accept redirect errors (307) which may be caused by
+    // server configuration (trailing slash redirects), not authentication failures.
+    const isSelfHosted = !baseUrl.includes("api.letta.com");
     if (err instanceof APIError && err.status !== 401 && err.status !== 403) {
+      return true;
+    }
+    if (
+      isSelfHosted &&
+      err instanceof APIError &&
+      (err.status === 307 || err.status === 308)
+    ) {
       return true;
     }
     return false;

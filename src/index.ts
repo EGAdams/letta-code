@@ -800,8 +800,13 @@ async function main(): Promise<void> {
   }
 
   // Validate credentials by checking health endpoint
-  const { validateCredentials } = await import("./auth/oauth");
-  const isValid = await validateCredentials(baseURL, apiKey ?? "");
+  // For self-hosted servers, skip validation to avoid issues with server redirect configs
+  const isSelfHosted = baseURL !== LETTA_CLOUD_API_URL;
+  let isValid = isSelfHosted; // Skip validation for self-hosted
+  if (!isSelfHosted) {
+    const { validateCredentials } = await import("./auth/oauth");
+    isValid = await validateCredentials(baseURL, apiKey ?? "");
+  }
   markMilestone("CREDENTIALS_VALIDATED");
 
   if (!isValid) {
