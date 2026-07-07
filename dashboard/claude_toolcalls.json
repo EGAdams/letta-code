@@ -1,70 +1,5 @@
 [
   {
-    "date": "2026-07-03T00:20:08",
-    "type": "Bash",
-    "text": "git diff dashboard/server.py | grep -n \"bank-3119\" "
-  },
-  {
-    "date": "2026-07-03T00:20:31",
-    "type": "Bash",
-    "text": "echo \"=== report.html exists + row content ===\"\ngrep -n \"Check 7036\\|COMMRCL LN\" /home/adamsl/rol_finances/readable_documents/bank_statements/january/fifth_third_non_profit_3119/report.html\necho \"=== "
-  },
-  {
-    "date": "2026-07-03T00:21:08",
-    "type": "Read",
-    "text": "/tmp/claude-1000/-home-adamsl-letta-code/5ac1ffe8-7051-4f11-9c6a-aad9d6cc965f/tasks/bnqf6r2z0.output"
-  },
-  {
-    "date": "2026-07-03T00:21:20",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/agents/agent-6b536cf4-ec88-4290-b595-fed21d14bd8e/messages?limit=10\" | python3 -c \"\nimport json,sys\ndata = json.load(sys.stdin)\nmsgs = data if isinstance(data, lis"
-  },
-  {
-    "date": "2026-07-03T00:26:27",
-    "type": "Bash",
-    "text": "ls -la /home/adamsl/rol_finances/readable_documents/bank_statements/january/choice_7580_year.xlsx 2>&1\necho \"---existing choice-related files---\"\nfind /home/adamsl/rol_finances/readable_documents/bank"
-  },
-  {
-    "date": "2026-07-03T00:26:36",
-    "type": "Bash",
-    "text": "grep -n \"choice\\|Choice\\|7580\" /home/adamsl/letta-code/dashboard/server.py | head -20\necho \"---search all report.html for 7580 or choice---\"\ngrep -rl \"7580\\|Choice\" /home/adamsl/rol_finances/readable_"
-  },
-  {
-    "date": "2026-07-03T00:26:46",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport openpyxl\nwb = openpyxl.load_workbook('/home/adamsl/rol_finances/readable_documents/bank_statements/january/choice_7580_year.xlsx', data_only=True)\nprint('sheets:', wb.sheetnames)\nf"
-  },
-  {
-    "date": "2026-07-03T00:27:04",
-    "type": "Bash",
-    "text": "ls -la /home/adamsl/rol_finances/readable_documents/bank_statements/january/platinum_business_credit_card_for_the_year/\necho \"---\"\nls -la /home/adamsl/rol_finances/readable_documents/bank_statements/j"
-  },
-  {
-    "date": "2026-07-03T00:27:16",
-    "type": "Bash",
-    "text": "wc -l /home/adamsl/rol_finances/readable_documents/bank_statements/january/platinum_business_credit_card_for_the_year/report.html\nsed -n '1,50p' /home/adamsl/rol_finances/readable_documents/bank_state"
-  },
-  {
-    "date": "2026-07-03T00:27:30",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/readable_documents/bank_statements/january && \\\nmkdir -p choice_7580_year && \\\nmv -v choice_7580_year.xlsx choice_7580_year/ && \\\nls -la choice_7580_year/"
-  },
-  {
-    "date": "2026-07-03T00:27:33",
-    "type": "Bash",
-    "text": "git diff dashboard/server.py | grep -n \"^@@\""
-  },
-  {
-    "date": "2026-07-03T00:27:39",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-03T00:27:46",
-    "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 2 && curl -s http://localhost:8765/api/rol-finance-reports | python3 -c \"\nimport json,sys\ndata = json.load(sys.stdin)\ndef find(obj):\n    if i"
-  },
-  {
     "date": "2026-07-03T00:28:33",
     "type": "Write",
     "text": "/tmp/claude-1000/-home-adamsl-letta-code/5ac1ffe8-7051-4f11-9c6a-aad9d6cc965f/scratchpad/notify_mazda_choice7580.py\n\u2192 import json import urllib.request  MSG = \"\"\"New document for intake: \"Choice 7580 Year\" -- a full annual credit card statement export (Choice card, account ending 7580), already in its own directory: "
@@ -998,5 +933,70 @@
     "date": "2026-07-06T22:00:43",
     "type": "Bash",
     "text": "tailscale serve status"
+  },
+  {
+    "date": "2026-07-06T22:46:46",
+    "type": "Bash",
+    "text": "ps aux | grep -E \"python.*server.py\" | grep -v grep; echo \"---\"; tailscale serve status; echo \"---\"; curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8765/"
+  },
+  {
+    "date": "2026-07-06T22:47:24",
+    "type": "Bash",
+    "text": "curl -s http://localhost:8765/api/server-health | python3 -m json.tool"
+  },
+  {
+    "date": "2026-07-06T22:47:45",
+    "type": "Bash",
+    "text": "timeout 15 ssh -o ConnectTimeout=10 -o BatchMode=yes adamsl@100.80.49.10 'echo WSL_OK' 2>&1; echo \"exit=$?\""
+  },
+  {
+    "date": "2026-07-06T22:47:56",
+    "type": "Bash",
+    "text": "timeout 15 ssh -o ConnectTimeout=10 -o BatchMode=yes NewUser@100.69.80.89 'echo WIN_OK' 2>&1; echo \"exit=$?\""
+  },
+  {
+    "date": "2026-07-06T22:48:06",
+    "type": "Bash",
+    "text": "tailscale status | grep -iE \"win10|100.80.49.10|100.69.80.89|shdbati\""
+  },
+  {
+    "date": "2026-07-06T22:48:39",
+    "type": "Bash",
+    "text": "tailscale ping -c 3 100.69.80.89 2>&1; echo \"---\"; timeout 25 ssh -o ConnectTimeout=20 -o BatchMode=yes NewUser@100.69.80.89 'echo WIN_OK && wsl.exe -l -v' 2>&1; echo \"exit=$?\""
+  },
+  {
+    "date": "2026-07-06T22:49:09",
+    "type": "Bash",
+    "text": "grep -n \"server-action\" /home/adamsl/letta-code/dashboard/server.py | head -5; grep -n \"No restart handler\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-06T22:49:14",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-06T22:49:59",
+    "type": "Bash",
+    "text": "sleep 15; curl -s http://127.0.0.1:8787/health; echo; systemctl --user is-active mazda-tools-mcp; echo \"---\"; timeout 10 bash -c 'echo > /dev/tcp/100.69.80.89/22' 2>&1 && echo \"WIN SSH PORT OPEN\" || e"
+  },
+  {
+    "date": "2026-07-06T22:50:06",
+    "type": "Bash",
+    "text": "tail -20 /tmp/executor_startup.log 2>/dev/null; echo \"===\"; systemctl --user status mazda-tools-mcp --no-pager -n 5 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-07-06T22:50:15",
+    "type": "Bash",
+    "text": "ls /home/adamsl/node_modules/.bin/ 2>&1 | head; echo \"---\"; ls -la /home/adamsl/package.json 2>&1; grep -A5 dependencies /home/adamsl/package.json 2>/dev/null"
+  },
+  {
+    "date": "2026-07-06T22:50:39",
+    "type": "Bash",
+    "text": "which mcp-proxy 2>&1; npm ls -g --depth=0 2>/dev/null | grep -i mcp; ls ~/.bun/install/global/node_modules/.bin/ 2>/dev/null | grep -i mcp; echo \"done\""
+  },
+  {
+    "date": "2026-07-07T00:21:17",
+    "type": "Bash",
+    "text": "cd /home/adamsl && npm install mcp-proxy 2>&1 | tail -5"
   }
 ]
