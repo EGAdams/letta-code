@@ -1295,8 +1295,19 @@ summary {
   margin: 0 0 6px;
 }
 .rol-recent-table {
+  border-collapse: collapse;
+  width: 100%;
   margin-top: 0;
   margin-bottom: 18px;
+}
+.rol-recent-table th,
+.rol-recent-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+.rol-recent-table th {
+  background-color: #f2f2f2;
 }
 .rol-recent-table tbody tr td:first-child {
   position: relative;

@@ -27,6 +27,12 @@ export function isAutoModelHandle(handle?: string | null): boolean {
   return handle === AUTO_MODEL_HANDLE || handle === AUTO_FAST_MODEL_HANDLE;
 }
 
+export const FREE_TIER_MODEL_HANDLE = "letta/letta-free";
+
+export function isFreeTierModelHandle(handle?: string | null): boolean {
+  return handle === FREE_TIER_MODEL_HANDLE;
+}
+
 export function selectDefaultAgentModel(params: {
   preferredModel?: string;
   fallbackModel?: string;
@@ -67,6 +73,16 @@ export function selectDefaultAgentModel(params: {
   if (handles && handles.length > 0) {
     if (canUse(resolvedPreferred) && handles.includes(resolvedPreferred)) {
       return resolvedPreferred;
+    }
+
+    // letta/letta-free is a last resort: on self-hosted servers it is backed
+    // by whatever OPENAI_API_KEY the server happens to have, which may be
+    // missing or stale, so real provider handles are always preferred.
+    const firstNonAutoNonFreeHandle = handles.find(
+      (handle) => !isAutoModelHandle(handle) && !isFreeTierModelHandle(handle),
+    );
+    if (firstNonAutoNonFreeHandle) {
+      return firstNonAutoNonFreeHandle;
     }
 
     const firstNonAutoHandle = handles.find(

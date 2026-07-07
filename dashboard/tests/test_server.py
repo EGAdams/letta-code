@@ -1329,6 +1329,143 @@ def test_recategorize_expense_credit_card_posting_date_offset(monkeypatch):
     assert result['expense_id'] == 555
 
 
+# ── ROL Finance: New Records -> matching report.html row search ────────────
+# The New Records dialog has no report_path (it only knows the DB row), and the
+# report.html's own vendor_key (parsed from the bank statement) commonly diverges
+# from the DB's id_light-derived vendor_key. _find_matching_report_row searches
+# every report.html by (date, amount) instead of requiring an exact vendor_key,
+# so categorizing a New Record can still land in the report it belongs to.
+
+def _write_verified_row(report_dir, vendor_key, date_str, amount_str, cls='cat-uncategorized'):
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / 'report.html').write_text(
+        f'<table><tbody>\n'
+        f'<tr class="{cls}" data-vendor-key="{vendor_key}" onclick="openCategoryPicker(this)">'
+        f'<td>DESC</td><td class="number">{amount_str}</td><td>{date_str}</td></tr>\n'
+        f'</tbody></table>',
+        encoding='utf-8',
+    )
+
+
+def test_find_matching_report_row_ignores_vendor_key_mismatch(tmp_path, monkeypatch):
+    """The report's own vendor_key ('..._walker') need not match the DB's
+    ('kum_go_2608r') — date+amount alone must be enough to find the row."""
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_PARENT', str(tmp_path))
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_MONTHS', {'feb-2025': 'february'})
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_DEFAULT_MONTH', 'feb-2025')
+    monkeypatch.setattr(server, 'ROL_FINANCE_REPORTS', [
+        {'key': 'platinum-year', 'label': 'Platinum Year', 'dir': 'platinum_year'},
+    ])
+    _write_verified_row(tmp_path / 'february' / 'platinum_year', 'kum_go_2608r_walker',
+                         '2025-04-03', '28.10')
+
+    found = server._find_matching_report_row('2025-04-03', '28.10', 'kum_go_2608r')
+
+    assert found is not None
+    assert found['label'] == 'Platinum Year'
+    assert found['row_vendor_key'] == 'kum_go_2608r_walker'
+    assert found['report_path'] == '/rol_finances_reports/feb-2025/platinum_year/report.html'
+
+
+def test_find_matching_report_row_returns_none_when_no_row_matches(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_PARENT', str(tmp_path))
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_MONTHS', {'feb-2025': 'february'})
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_DEFAULT_MONTH', 'feb-2025')
+    monkeypatch.setattr(server, 'ROL_FINANCE_REPORTS', [
+        {'key': 'platinum-year', 'label': 'Platinum Year', 'dir': 'platinum_year'},
+    ])
+    _write_verified_row(tmp_path / 'february' / 'platinum_year', 'someone_else',
+                         '2025-04-03', '28.10')
+
+    found = server._find_matching_report_row('2025-01-01', '999.00', 'kum_go_2608r')
+    assert found is None
+
+
+def test_find_matching_report_row_ambiguous_without_vendor_hint_returns_none(tmp_path, monkeypatch):
+    """Same date+amount in two different reports, and vendor_key doesn't narrow it
+    down — must not guess which report to patch."""
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_PARENT', str(tmp_path))
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_MONTHS', {'feb-2025': 'february'})
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_DEFAULT_MONTH', 'feb-2025')
+    monkeypatch.setattr(server, 'ROL_FINANCE_REPORTS', [
+        {'key': 'a', 'label': 'Report A', 'dir': 'report_a'},
+        {'key': 'b', 'label': 'Report B', 'dir': 'report_b'},
+    ])
+    _write_verified_row(tmp_path / 'february' / 'report_a', 'vendor_a', '2025-04-03', '28.10')
+    _write_verified_row(tmp_path / 'february' / 'report_b', 'vendor_b', '2025-04-03', '28.10')
+
+    found = server._find_matching_report_row('2025-04-03', '28.10', 'unrelated_vendor')
+    assert found is None
+
+
+def test_find_matching_report_row_disambiguates_via_vendor_key_prefix(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_PARENT', str(tmp_path))
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_MONTHS', {'feb-2025': 'february'})
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_DEFAULT_MONTH', 'feb-2025')
+    monkeypatch.setattr(server, 'ROL_FINANCE_REPORTS', [
+        {'key': 'a', 'label': 'Report A', 'dir': 'report_a'},
+        {'key': 'b', 'label': 'Report B', 'dir': 'report_b'},
+    ])
+    _write_verified_row(tmp_path / 'february' / 'report_a', 'kum_go_2608r_walker', '2025-04-03', '28.10')
+    _write_verified_row(tmp_path / 'february' / 'report_b', 'someone_unrelated', '2025-04-03', '28.10')
+
+    found = server._find_matching_report_row('2025-04-03', '28.10', 'kum_go_2608r')
+    assert found is not None
+    assert found['label'] == 'Report A'
+
+
+def test_recategorize_expense_no_report_path_finds_and_patches_matching_report(tmp_path, monkeypatch):
+    """The core New Records ask: categorizing with no report_path must still land
+    the color in the report.html the transaction actually belongs to, when found."""
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_PARENT', str(tmp_path))
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_MONTHS', {'feb-2025': 'february'})
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_DEFAULT_MONTH', 'feb-2025')
+    monkeypatch.setattr(server, 'ROL_FINANCE_REPORTS', [
+        {'key': 'platinum-year', 'label': 'Platinum Year', 'dir': 'platinum_year'},
+    ])
+    report_dir = tmp_path / 'february' / 'platinum_year'
+    _write_verified_row(report_dir, 'kum_go_2608r_walker', '2025-04-03', '28.10')
+
+    expense = {'id': 990, 'id_light': 'kum_go_2608r_04_03_25_28_10',
+               'description': 'KUM&GO', 'category_id': None}
+    monkeypatch.setattr(server, '_rol_get_connection', lambda: _FakeConnection([expense]))
+
+    result = server.recategorize_expense(
+        '2025-04-03', '28.10', 'kum_go_2608r', 'Travel & Vehicle',
+    )
+
+    assert result['ok'] is True
+    assert result['file_updated'] is True
+    assert result['matched_report'] == {
+        'report_path': '/rol_finances_reports/feb-2025/platinum_year/report.html',
+        'label': 'Platinum Year',
+    }
+    html = (report_dir / 'report.html').read_text(encoding='utf-8')
+    assert 'cat-travel-and-vehicle' in html
+    assert 'cat-uncategorized' not in html
+
+
+def test_recategorize_expense_no_report_path_no_match_stays_db_only(tmp_path, monkeypatch):
+    """A record with no static report.html row anywhere (a standalone receipt) must
+    still succeed, DB-only, with matched_report left None."""
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_PARENT', str(tmp_path))
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_MONTHS', {'feb-2025': 'february'})
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_DEFAULT_MONTH', 'feb-2025')
+    monkeypatch.setattr(server, 'ROL_FINANCE_REPORTS', [])
+
+    expense = {'id': 42, 'id_light': 'meijer_01_22_25_18_40',
+               'description': 'MEIJER', 'category_id': None}
+    monkeypatch.setattr(server, '_rol_get_connection', lambda: _FakeConnection([expense]))
+
+    result = server.recategorize_expense(
+        '2025-01-22', '18.40', 'meijer', 'Travel & Vehicle',
+    )
+
+    assert result['ok'] is True
+    assert result['file_updated'] is True
+    assert result['matched_report'] is None
+
+
 # ── Mazda scan-intake notification (regression: 2026-06-28 intake run) ───────
 # Three bugs were caught the first time a real receipt was scanned and handed to
 # Mazda. These tests pin the pure builder so they cannot silently return:
