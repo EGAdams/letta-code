@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard</title>
-  <link rel="stylesheet" href="/css/dashboard.css?v=20260625b" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=20260708a" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -32,6 +32,15 @@
       <button type="button" class="tab" data-nav="main" data-target="ssh-connections" id="btn-ssh-connections">SSH Connections</button>
       <button type="button" class="tab" data-nav="main" data-target="project-plans">Project Plans</button>
       <button type="button" class="tab" data-nav="main" data-target="model-stats" id="btn-model-stats">Model Stats</button>
+      <button type="button" class="tab" data-nav="main" data-target="pc-monitor" id="btn-pc-monitor">PC Monitor</button>
+    </nav>
+
+    <!-- PC Monitor sub-nav -->
+    <nav id="nav-pc-monitor" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-pc-monitor">Back</button>
+      <button type="button" class="tab" data-nav="pc-monitor" data-pc="win11">Windows 11</button>
+      <button type="button" class="tab" data-nav="pc-monitor" data-pc="win10">Windows 10</button>
+      <button type="button" class="tab" data-nav="pc-monitor" data-pc="moms46">Moms 46</button>
     </nav>
 
     <!-- Model Stats sub-nav -->
@@ -228,6 +237,12 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <h2>Model Stats</h2>
       <p class="srv-note">Pick a provider/account on the left to see current session token usage and limits. Red = maxed out (with reset time). W11 = this machine, R46 = mom's machine.</p>
       <div id="model-stats-body"><p class="am-dim">Select a source…</p></div>
+    </section>
+
+    <section id="pc-monitor" class="view">
+      <h2>PC Monitor</h2>
+      <p class="srv-note">RAM, hard-drive, and network usage per machine. A tab blinking yellow means one of that PC's metrics crossed its alert threshold.</p>
+      <div id="pc-monitor-body"><p class="am-dim">Select a PC&hellip;</p></div>
     </section>
 
     <section id="tool-management" class="view">
@@ -449,6 +464,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20260625b"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=20260708a"></script>
 </body>
 </html>

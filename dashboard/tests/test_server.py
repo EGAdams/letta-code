@@ -13,8 +13,13 @@ import server
 
 
 @pytest.fixture(autouse=True)
-def _clear_model_stats_cache():
+def _clear_model_stats_cache(tmp_path, monkeypatch):
     server._model_stats_cache.clear()
+    # Isolate the usage-history store: model_stats() records rate-of-change /
+    # leak-detector snapshots, and tests must never write fake percentages into
+    # the real MODEL_USAGE_HISTORY_FILE (it would poison the live leak detector).
+    monkeypatch.setattr(server, 'MODEL_USAGE_HISTORY_FILE', str(tmp_path / 'usage_history.json'))
+    monkeypatch.setattr(server, '_usage_history', {})
 
 
 class _FakeCursor:
@@ -941,9 +946,20 @@ def test_provider_agent_ids_returns_real_ids_for_tagged_agents():
     assert suzuki['id'] in ids
 
 
+def _patch_provider_probe(monkeypatch, probe_result, calls=None):
+    """Route the poll at a fake provider token + probe (no network, no LLM)."""
+    monkeypatch.setattr(server, '_fetch_provider_oauth_creds',
+                        lambda name: ({'access_token': 't', 'account_id': 'a'}, 'chatgpt_oauth'))
+
+    def fake_probe(creds, timeout=20):
+        if calls is not None:
+            calls.append(creds)
+        return probe_result
+    monkeypatch.setitem(server.PROVIDER_USAGE_PROBES, 'chatgpt_oauth', fake_probe)
+
+
 def test_poll_chatgpt_provider_once_flags_every_fleet_agent_on_429(monkeypatch):
-    monkeypatch.setattr(server, '_probe_chatgpt_provider',
-                         lambda agent_id, timeout=20: {'ok': False, 'text': 'llm_rate_limit: too many requests'})
+    _patch_provider_probe(monkeypatch, {'ok': False, 'text': 'llm_rate_limit: too many requests'})
     server._poll_chatgpt_provider_once()
     for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
         with server._agent_send_errors_lock:
@@ -958,22 +974,72 @@ def test_poll_chatgpt_provider_once_flags_every_fleet_agent_on_429(monkeypatch):
 def test_poll_chatgpt_provider_once_clears_every_fleet_agent_on_success(monkeypatch):
     for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
         server.record_agent_send_error(agent_id, 'stale error from a previous sweep')
-    monkeypatch.setattr(server, '_probe_chatgpt_provider',
-                         lambda agent_id, timeout=20: {'ok': True, 'text': ''})
+    _patch_provider_probe(monkeypatch, {'ok': True, 'text': '5h 37% / weekly 44%'})
     server._poll_chatgpt_provider_once()
     for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
         with server._agent_send_errors_lock:
             assert server._agent_send_errors.get(agent_id) is None, agent_id
 
 
-def test_poll_chatgpt_provider_once_only_probes_the_canary(monkeypatch):
-    # One probe call must cover the whole fleet, not one call per agent —
-    # that's the whole point (avoid burning quota 6x for one rate-limit check).
+def test_poll_chatgpt_provider_once_makes_one_usage_call_and_no_llm_calls(monkeypatch):
+    # One usage-API call covers the whole fleet. The probe must NEVER message an
+    # agent — the old 'ping' canary burned ~40 full-context LLM calls per hour
+    # against the very quota it was watching (2026-07-07).
     calls = []
-    monkeypatch.setattr(server, '_probe_chatgpt_provider',
-                         lambda agent_id, timeout=20: (calls.append(agent_id), {'ok': True, 'text': ''})[1])
+    _patch_provider_probe(monkeypatch, {'ok': True, 'text': ''}, calls=calls)
+
+    def _no_llm(*a, **k):
+        raise AssertionError('probe must not POST to any agent')
+    monkeypatch.setattr(server.urllib.request, 'urlopen', _no_llm)
     server._poll_chatgpt_provider_once()
     assert len(calls) == 1
+
+
+def test_poll_skips_sweep_when_letta_api_unreachable(monkeypatch):
+    # Letta down ≠ quota exhausted: leave agent state alone (Server Management
+    # owns the server-down signal), and definitely don't crash the loop.
+    def _boom(name):
+        raise OSError('connection refused')
+    monkeypatch.setattr(server, '_fetch_provider_oauth_creds', _boom)
+    server.record_agent_send_error('agent-keep', 'pre-existing error')
+    server._poll_chatgpt_provider_once()
+    with server._agent_send_errors_lock:
+        assert server._agent_send_errors.get('agent-keep') is not None
+    server.clear_agent_send_error('agent-keep')
+
+
+def test_classify_codex_usage_ok_under_limit():
+    usage = {'rate_limit': {'allowed': True, 'limit_reached': False,
+                            'primary_window': {'used_percent': 37, 'reset_at': 4102444800},
+                            'secondary_window': {'used_percent': 44, 'reset_at': 4102444800}}}
+    r = server._classify_codex_usage(usage)
+    assert r['ok'] is True
+    assert '5h 37%' in r['text'] and 'weekly 44%' in r['text']
+
+
+def test_classify_codex_usage_flags_maxed_window_as_rate_limit():
+    usage = {'rate_limit': {'allowed': True, 'limit_reached': False,
+                            'primary_window': {'used_percent': 100, 'reset_at': 4102444800}}}
+    r = server._classify_codex_usage(usage)
+    assert r['ok'] is False
+    assert r['text'].startswith('llm_rate_limit:')
+    assert server.classify_failure(r['text'])[1] == 'rate-limited'
+
+
+def test_classify_codex_usage_respects_limit_reached_flag():
+    usage = {'rate_limit': {'allowed': False, 'limit_reached': True,
+                            'primary_window': {'used_percent': 63, 'reset_at': 4102444800}}}
+    r = server._classify_codex_usage(usage)
+    assert r['ok'] is False and 'llm_rate_limit' in r['text']
+
+
+def test_classify_claude_usage_contract():
+    ok = server._classify_claude_usage({'five_hour': {'utilization': 12, 'resets_at': None},
+                                        'seven_day': {'utilization': 80, 'resets_at': None}})
+    assert ok['ok'] is True
+    maxed = server._classify_claude_usage({'five_hour': {'utilization': 100, 'resets_at': None},
+                                           'seven_day': {'utilization': 55, 'resets_at': None}})
+    assert maxed['ok'] is False and maxed['text'].startswith('llm_rate_limit:')
 
 
 def _write_badge(tmp_path, badge_text):
@@ -1921,3 +1987,273 @@ def test_fetch_month_status_green_when_no_expenses(monkeypatch):
     for m in server._fetch_month_status():
         assert m['status'] == 'green'
         assert m['most_recent_unfinished'] is None
+
+
+# ── Web terminal (Input Options → letta-code terminal) ────────────────────────
+
+def test_ws_accept_key_matches_rfc6455_example():
+    # The canonical example from RFC 6455 §1.3.
+    assert server.ws_accept_key('dGhlIHNhbXBsZSBub25jZQ==') == \
+        's3pPLMBiTxaQ9kYGzzhZRbK+xOo='
+
+
+def test_ws_frame_roundtrip_unmasks_client_data():
+    import io
+    payload = b'{"t":"i","d":"ls\\n"}'
+    mask = bytes([0x11, 0x22, 0x33, 0x44])
+    masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+    frame = bytes([0x81, 0x80 | len(payload)]) + mask + masked  # FIN+text, masked
+    opcode, data = server.ws_read_frame(io.BytesIO(frame))
+    assert opcode == 0x1
+    assert data == payload
+
+
+def test_ws_encode_frame_sets_fin_and_binary_opcode():
+    out = server.ws_encode_frame(b'hello')
+    assert out[0] == 0x82          # FIN + binary opcode
+    assert out[1] == 5             # unmasked, len 5
+    assert out[2:] == b'hello'
+
+
+# ── Model usage: rate-of-change + slow-leak detector ─────────────────────────
+# The rate is %-points of the primary quota window consumed per hour, expressed
+# as a burn multiple of the window's replenish pace (100/window_hours per hour)
+# — see the "Model usage" section comment in server.py. All thresholds are
+# passed explicitly here so the tests don't depend on env-var config.
+
+def _samples(pairs):
+    """[(minutes_ago, pct), ...] → [(ts, pct), ...] anchored at t=10_000_000."""
+    now = 10_000_000
+    return now, [(now - m * 60, p) for m, p in sorted(pairs, reverse=True)]
+
+
+def test_compute_usage_rate_needs_enough_history():
+    now, s = _samples([(0, 50.0)])                     # single snapshot
+    r = server.compute_usage_rate(s, 5.0, now=now)
+    assert r['available'] is False and 'gathering' in r['reason']
+
+
+def test_compute_usage_rate_burn_math_5h_window():
+    # +10 %-points in 30 min = 20 %/hr; a 5h window replenishes at 20 %/hr,
+    # so that's exactly burn 1.0× — sustainable, and right AT the default warn.
+    now, s = _samples([(30, 50.0), (15, 55.0), (0, 60.0)])
+    r = server.compute_usage_rate(s, 5.0, now=now, window_minutes=30,
+                                  warn_multiple=1.0, full_scale=2.0)
+    assert r['available'] is True
+    assert r['pct_per_hour'] == 20.0
+    assert r['burn_multiple'] == 1.0
+    assert r['bar_percent'] == 50          # half bar == sustainable pace
+    assert r['warn'] is True               # >= warn threshold → blink
+
+
+def test_compute_usage_rate_under_threshold_no_warn():
+    now, s = _samples([(30, 50.0), (0, 52.0)])         # 4 %/hr on a 5h window
+    r = server.compute_usage_rate(s, 5.0, now=now, warn_multiple=1.0)
+    assert r['warn'] is False and r['burn_multiple'] == 0.2
+
+
+def test_compute_usage_rate_clamps_rolling_window_decay():
+    # used_percent falling (old usage aging out of the rolling window) is not
+    # negative spending — the rate clamps to 0 and must not warn.
+    now, s = _samples([(30, 60.0), (0, 40.0)])
+    r = server.compute_usage_rate(s, 5.0, now=now)
+    assert r['pct_per_hour'] == 0.0 and r['warn'] is False
+
+
+def test_detect_slow_leak_flags_steady_climb():
+    # +1.5 %-points every 30-min bucket for 2h — the ping-loop signature.
+    now, s = _samples([(m, 40.0 + (120 - m) * 0.05) for m in range(120, -1, -5)])
+    leak = server.detect_slow_leak(s, now=now, bucket_minutes=30, lookback_minutes=120,
+                                   min_rise_pct=0.5, min_rising_buckets=3)
+    assert leak['suspected'] is True
+    assert leak['consecutive_rising'] >= 3
+    assert 'Slow token drain' in leak['text']
+
+
+def test_detect_slow_leak_ignores_flat_usage():
+    now, s = _samples([(m, 47.0) for m in range(120, -1, -5)])
+    leak = server.detect_slow_leak(s, now=now, bucket_minutes=30, lookback_minutes=120,
+                                   min_rise_pct=0.5, min_rising_buckets=3)
+    assert leak['suspected'] is False and leak['text'] == ''
+
+
+def test_detect_slow_leak_ignores_single_burst():
+    # One busy half-hour (a real task) then flat — NOT a leak.
+    now, s = _samples([(m, 40.0 if m > 30 else 55.0) for m in range(120, -1, -5)])
+    leak = server.detect_slow_leak(s, now=now, bucket_minutes=30, lookback_minutes=120,
+                                   min_rise_pct=0.5, min_rising_buckets=3)
+    assert leak['suspected'] is False
+
+
+def test_detect_slow_leak_data_gap_breaks_consecutive_run():
+    # Two rising buckets, a gap with no samples, then one more rising bucket:
+    # longest CONSECUTIVE run is 2 < 3 → not suspected.
+    pairs = [(m, 40.0 + (120 - m) * 0.05) for m in range(120, -1, -5)
+             if not (30 <= m < 60)]
+    now, s = _samples(pairs)
+    leak = server.detect_slow_leak(s, now=now, bucket_minutes=30, lookback_minutes=120,
+                                   min_rise_pct=0.5, min_rising_buckets=3)
+    assert leak['suspected'] is False
+
+
+def test_model_stats_payload_carries_rate_and_leak(monkeypatch):
+    # Seed 30 min of history rising fast (40 %/hr = burn 2.0× on the 5h window),
+    # then one live fetch: the payload must expose rate + leak and escalate a
+    # green source to 'concern' so the tab goes yellow.
+    now = server.time.time()
+    for minutes_ago, pct in ((30, 10.0), (15, 20.0)):
+        server._record_usage_sample('w11-codex', pct, now=now - minutes_ago * 60)
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(30.0, 11.0))
+    d = server.model_stats('w11-codex')
+    assert d['rate']['available'] is True
+    assert d['rate']['warn'] is True
+    assert d['rate']['window_label'] == '5-hour'
+    assert d['leak']['suspected'] is False
+    assert d['status'] == 'concern'        # early warning colors the tab
+
+
+def test_model_stats_rate_gathering_when_no_history(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(10.0, 11.0))
+    d = server.model_stats('w11-codex')
+    assert d['rate']['available'] is False
+    assert d['leak']['suspected'] is False
+    assert d['status'] == 'up'             # no history → no false alarms
+
+
+def test_usage_history_persists_and_prunes(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'MODEL_USAGE_HISTORY_FILE', str(tmp_path / 'h.json'))
+    monkeypatch.setattr(server, '_usage_history', None)   # force a disk load
+    now = 10_000_000
+    old = now - (server.MODEL_USAGE_HISTORY_KEEP_MINUTES + 5) * 60
+    server._record_usage_sample('w11-codex', 5.0, now=old)
+    kept = server._record_usage_sample('w11-codex', 6.0, now=now)
+    assert [p for _, p in kept] == [6.0]                  # stale sample pruned
+    monkeypatch.setattr(server, '_usage_history', None)   # reload from disk
+    again = server._record_usage_sample('w11-codex', 7.0, now=now + 60)
+    assert [p for _, p in again] == [6.0, 7.0]            # survived "restart"
+
+
+# ── PC Monitor (parse + metric builder + endpoint payload) ────────────────────
+
+_PC_COLLECTOR_SAMPLE = """===MEM===
+MemTotal:       16384000 kB
+MemAvailable:    4096000 kB
+===DISK===
+Filesystem     1024-blocks      Used Available Capacity Mounted on
+/dev/sdc         500000000 400000000 100000000      80% /
+===NET===
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 999999999    1000    0    0    0     0          0         0 999999999    1000    0    0    0     0       0          0
+  eth0: 1000000    2000    0    0    0     0          0         0 2000000    3000    0    0    0     0       0          0
+  eth1:  500000    100    0    0    0     0          0         0  500000    200    0    0    0     0       0          0
+"""
+
+
+def test_parse_pc_metrics_output_reads_all_three_sections():
+    parsed = server.parse_pc_metrics_output(_PC_COLLECTOR_SAMPLE)
+    assert parsed['mem_total_kb'] == 16384000
+    assert parsed['mem_avail_kb'] == 4096000
+    assert parsed['disk_total_kb'] == 500000000
+    assert parsed['disk_used_kb'] == 400000000
+    # loopback excluded; eth0 + eth1 summed
+    assert parsed['net_rx_bytes'] == 1500000
+    assert parsed['net_tx_bytes'] == 2500000
+
+
+_PC_TEST_THRESHOLDS = {'ram': 90.0, 'disk': 90.0, 'net': 80.0}
+
+
+def test_build_pc_metrics_percentages_and_no_alert_under_threshold():
+    parsed = server.parse_pc_metrics_output(_PC_COLLECTOR_SAMPLE)
+    metrics, sample = server.build_pc_metrics(
+        parsed, None, now=1000.0, thresholds=_PC_TEST_THRESHOLDS, net_capacity_mbps=100.0)
+    by_key = {m['key']: m for m in metrics}
+    assert by_key['ram']['percent'] == 75.0       # (16384000-4096000)/16384000
+    assert by_key['disk']['percent'] == 80.0
+    assert not by_key['ram']['alert'] and not by_key['disk']['alert']
+    # First sample: no rate yet, but the new cumulative sample is returned.
+    assert by_key['net']['percent'] == 0 and not by_key['net']['alert']
+    assert sample == (1000.0, 4000000)
+
+
+def test_build_pc_metrics_ram_alert_over_threshold():
+    parsed = server.parse_pc_metrics_output(_PC_COLLECTOR_SAMPLE)
+    parsed['mem_avail_kb'] = 819200               # 95% used
+    metrics, _ = server.build_pc_metrics(
+        parsed, None, now=1000.0, thresholds=_PC_TEST_THRESHOLDS, net_capacity_mbps=100.0)
+    ram = next(m for m in metrics if m['key'] == 'ram')
+    assert ram['percent'] == 95.0 and ram['alert'] is True
+    assert ram['alert_at'] == 90.0
+
+
+def test_build_pc_metrics_network_rate_from_two_samples():
+    parsed = server.parse_pc_metrics_output(_PC_COLLECTOR_SAMPLE)
+    # 10s earlier the counters were 10 Mbit lower: 10e6 bits / 10s = 1 Mbit/s.
+    prev = (990.0, 4000000 - 1250000)
+    metrics, _ = server.build_pc_metrics(
+        parsed, prev, now=1000.0, thresholds=_PC_TEST_THRESHOLDS, net_capacity_mbps=100.0)
+    net = next(m for m in metrics if m['key'] == 'net')
+    assert net['percent'] == 1.0                  # 1 of 100 Mbit/s
+    assert not net['alert']
+    assert 'Mbit/s' in net['text']
+
+
+def test_build_pc_metrics_network_alert_and_percent_clamped():
+    parsed = server.parse_pc_metrics_output(_PC_COLLECTOR_SAMPLE)
+    # 200 Mbit in 1s on a 100 Mbit/s scale → clamp at 100%, alert at ≥80%.
+    prev = (999.0, 4000000 - 25000000)
+    metrics, _ = server.build_pc_metrics(
+        parsed, prev, now=1000.0, thresholds=_PC_TEST_THRESHOLDS, net_capacity_mbps=100.0)
+    net = next(m for m in metrics if m['key'] == 'net')
+    assert net['percent'] == 100.0 and net['alert'] is True
+
+
+def test_build_pc_metrics_counter_reset_falls_back_to_measuring():
+    parsed = server.parse_pc_metrics_output(_PC_COLLECTOR_SAMPLE)
+    # Reboot: cumulative counters went BACKWARDS — no bogus negative rate.
+    prev = (990.0, 4000000 + 999999)
+    metrics, _ = server.build_pc_metrics(
+        parsed, prev, now=1000.0, thresholds=_PC_TEST_THRESHOLDS, net_capacity_mbps=100.0)
+    net = next(m for m in metrics if m['key'] == 'net')
+    assert net['percent'] == 0 and net['text'] == 'measuring…'
+
+
+def test_pc_metrics_unknown_key():
+    out = server.pc_metrics('atari-2600')
+    assert out['ok'] is False and out['alert'] is False
+
+
+def test_pc_metrics_payload_and_alert_rollup(monkeypatch):
+    server._pc_metrics_cache.clear()
+    server._pc_net_last.clear()
+
+    class _R:
+        returncode = 0
+        stdout = _PC_COLLECTOR_SAMPLE
+        stderr = ''
+
+    monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _R())
+    monkeypatch.setattr(server, 'PC_ALERT_THRESHOLDS', {'ram': 70.0, 'disk': 90.0, 'net': 80.0})
+    out = server.pc_metrics('win11')
+    assert out['ok'] is True and out['label'] == 'Windows 11'
+    assert [m['key'] for m in out['metrics']] == ['ram', 'disk', 'net']
+    assert out['alert'] is True                   # ram 75% ≥ lowered 70% threshold
+    # Cached: a second call must not re-run the collector.
+    monkeypatch.setattr(server.subprocess, 'run',
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError('collector re-ran')))
+    assert server.pc_metrics('win11') is out
+
+
+def test_pc_metrics_collector_failure_is_reported(monkeypatch):
+    server._pc_metrics_cache.clear()
+
+    class _R:
+        returncode = 255
+        stdout = ''
+        stderr = 'ssh: connect to host timed out'
+
+    monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _R())
+    out = server.pc_metrics('moms46')
+    assert out['ok'] is False and out['alert'] is False
+    assert 'timed out' in out['error']

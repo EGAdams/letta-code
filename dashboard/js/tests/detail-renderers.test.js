@@ -273,15 +273,17 @@ describe("AgentCardRenderer (Strategy)", () => {
   });
 });
 
-function inputOptionsSetup({ replies = [] } = {}) {
+function inputOptionsSetup() {
   const doc = new FakeDocument();
   const container = doc.createElement("section");
   container.id = "io";
+  // The raw /api/test HTTP path must never be hit anymore — text only
+  // reaches the agent through the letta-code terminal session.
   const posts = [];
   const http = {
     postJSON: async (url, body) => {
       posts.push({ url, body });
-      return { replies };
+      return { replies: [] };
     },
   };
   const spoken = [];
@@ -310,6 +312,14 @@ function inputOptionsSetup({ replies = [] } = {}) {
     };
     return recorder;
   };
+  const sentLines = [];
+  let terminalDisposed = false;
+  const terminalFactory = () => ({
+    dispose: () => {
+      terminalDisposed = true;
+    },
+    sendLine: (text) => sentLines.push(text),
+  });
   const r = new InputOptionsRenderer({
     http,
     speech,
@@ -317,6 +327,7 @@ function inputOptionsSetup({ replies = [] } = {}) {
     onStatus: (agentId, status) => statuses.push({ agentId, status }),
     doc,
     recorderFactory,
+    terminalFactory,
   });
   const api = r.render("io", "a9");
   return {
@@ -324,41 +335,35 @@ function inputOptionsSetup({ replies = [] } = {}) {
     posts,
     spoken,
     statuses,
+    sentLines,
     api,
     get recorder() {
       return recorder;
+    },
+    get terminalDisposed() {
+      return terminalDisposed;
     },
   };
 }
 
 describe("InputOptionsRenderer (Strategy)", () => {
-  test("Send posts to /api/test and reports status", async () => {
-    const ctx = inputOptionsSetup({
-      replies: [{ type: "assistant_message", text: "ok" }],
-    });
+  test("Send forwards text to the letta-code terminal session, never /api/test", async () => {
+    const ctx = inputOptionsSetup();
     ctx.container.querySelector(".am-test-input").value = "hello there";
     await ctx.api.send();
-    expect(ctx.posts[0]).toEqual({
-      url: "/api/test",
-      body: { agent: "a9", text: "hello there" },
-    });
-    expect(ctx.statuses).toEqual([
-      { agentId: "a9", status: "active" },
-      { agentId: "a9", status: "idle" },
-    ]);
+    expect(ctx.sentLines).toEqual(["hello there"]);
+    expect(ctx.posts.length).toBe(0);
+    expect(ctx.statuses).toEqual([{ agentId: "a9", status: "active" }]);
   });
 
-  test("Send clears the input and shows the user message plus the agent's name", async () => {
-    const ctx = inputOptionsSetup({
-      replies: [{ type: "assistant_message", text: "hi there" }],
-    });
+  test("Send clears the input and echoes the user message", async () => {
+    const ctx = inputOptionsSetup();
     const input = ctx.container.querySelector(".am-test-input");
     input.value = "hello there";
     await ctx.api.send();
     expect(input.value).toBe("");
     const out = ctx.container.querySelector(".am-test-out").innerHTML;
     expect(out).toContain('<span class="hdr">user:</span> hello there');
-    expect(out).toContain('<span class="hdr">Mazda:</span> hi there');
   });
 
   test("voice stop fills the textarea; Auto Send off does not send", async () => {
@@ -367,18 +372,15 @@ describe("InputOptionsRenderer (Strategy)", () => {
     const handler = startBtn._listeners.click[0];
     await handler(); // start
     expect(ctx.recorder.isRecording).toBe(true);
-    await handler(); // stop -> fills textarea, Auto Send off so no post
-    expect(ctx.posts.length).toBe(0);
+    await handler(); // stop -> fills textarea, Auto Send off so no send
+    expect(ctx.sentLines.length).toBe(0);
   });
 
-  test("Speak toggle reads replies in the agent's voice on Send", async () => {
-    const ctx = inputOptionsSetup({
-      replies: [{ type: "assistant_message", text: "hello" }],
-    });
-    // Type something to send.
+  test("render() wires a background terminal session for the Send button", async () => {
+    const ctx = inputOptionsSetup();
     ctx.container.querySelector(".am-test-input").value = "hi";
-    ctx.container.querySelectorAll("button")[3].click(); // Speak toggle (4th button)
     await ctx.api.send();
-    expect(ctx.spoken).toEqual([{ t: "hello", name: "Mazda" }]);
+    expect(ctx.sentLines).toEqual(["hi"]);
+    expect(ctx.terminalDisposed).toBe(false);
   });
 });

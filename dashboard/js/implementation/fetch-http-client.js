@@ -16,13 +16,22 @@ export class FetchHttpClient extends HttpClient {
       throw new Error("FetchHttpClient requires a fetch implementation");
     }
     this._fetch = fetchFn;
-    this._timeout = 8000; // 8-second timeout per fetch request
+    // Guard against hung requests, but leave headroom for slow endpoints —
+    // a cold /api/agents can block >10s on the Letta roster fetch.
+    this._timeout = 30000;
   }
 
   /** @override transport: delegate straight to fetch with timeout. */
   async request(url, opts = {}) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this._timeout);
+    const timeoutId = setTimeout(() => {
+      controller.abort(
+        new DOMException(
+          `Request timed out after ${this._timeout / 1000}s: ${url}`,
+          "TimeoutError",
+        ),
+      );
+    }, this._timeout);
     try {
       return await this._fetch(url, {
         ...opts,

@@ -6,6 +6,151 @@ import { DomConsoleView } from "./dom-console-view.js";
 import { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
 
 /**
+ * Lazy-load the vendored xterm.js UMD bundle + fit addon + stylesheet (served
+ * locally from /vendor/xterm — the live box is firewalled, so no CDN). Resolves
+ * to the global `Terminal`/`FitAddon` constructors. Cached so repeated opens
+ * don't re-inject the tags.
+ */
+let _xtermLoad = null;
+export function loadXterm(doc = globalThis.document) {
+  if (_xtermLoad) return _xtermLoad;
+  const win = doc.defaultView || globalThis;
+  const injectScript = (src) =>
+    new Promise((resolve, reject) => {
+      const s = doc.createElement("script");
+      s.src = src;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error(`failed to load ${src}`));
+      doc.head.appendChild(s);
+    });
+  _xtermLoad = (async () => {
+    if (!doc.querySelector("link[data-xterm-css]")) {
+      const link = doc.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "/vendor/xterm/xterm.css";
+      link.setAttribute("data-xterm-css", "1");
+      doc.head.appendChild(link);
+    }
+    if (!win.Terminal) await injectScript("/vendor/xterm/xterm.js");
+    if (!win.FitAddon) await injectScript("/vendor/xterm/addon-fit.js");
+    const Term = win.Terminal;
+    const Fit = win.FitAddon && (win.FitAddon.FitAddon || win.FitAddon);
+    if (!Term || !Fit) throw new Error("xterm failed to initialize");
+    return { Term, Fit };
+  })().catch((e) => {
+    _xtermLoad = null; // allow a retry on next open
+    throw e;
+  });
+  return _xtermLoad;
+}
+
+/**
+ * Open a full login-shell terminal in `hostEl`, bridged to the server's
+ * /api/terminal WebSocket. When `agentId` is a Letta id the shell boots into
+ * `letta --agent <id>` so the terminal lands in a letta-code session for that
+ * agent.
+ *
+ * This is display-only: local keystrokes are NOT forwarded (no cursor blink,
+ * `disableStdin`, no `onData` wiring). The old design let the user type
+ * directly into the xterm, which meant every keystroke round-tripped through
+ * the pty's readline/Ink redraw — that's what caused the visible jitter.
+ * Input now only reaches the session through `sendLine()`, called by the
+ * Input Options textarea's Send button, so a whole message goes in at once.
+ *
+ * Returns `{ dispose, sendLine }` — `dispose()` tears down the socket +
+ * terminal; `sendLine(text)` writes `text` + a newline into the pty.
+ */
+export async function mountTerminal({
+  hostEl,
+  agentId = null,
+  onStatus = () => {},
+  doc = globalThis.document,
+}) {
+  const { Term, Fit } = await loadXterm(doc);
+  const win = doc.defaultView || globalThis;
+  const term = new Term({
+    cursorBlink: false,
+    disableStdin: true,
+    fontSize: 13,
+    fontFamily:
+      'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
+    theme: { background: "#0b0e14", foreground: "#d3d7de" },
+  });
+  const fit = new Fit();
+  term.loadAddon(fit);
+  term.open(hostEl);
+  try {
+    fit.fit();
+  } catch {
+    /* host not yet laid out — resize handler will catch up */
+  }
+
+  const proto = win.location.protocol === "https:" ? "wss" : "ws";
+  const params = new URLSearchParams({
+    cols: String(term.cols),
+    rows: String(term.rows),
+  });
+  if (agentId) params.set("agent", agentId);
+  const ws = new win.WebSocket(
+    `${proto}://${win.location.host}/api/terminal?${params.toString()}`,
+  );
+  ws.binaryType = "arraybuffer";
+
+  const decoder = new TextDecoder();
+  let closed = false;
+  const send = (obj) => {
+    if (ws.readyState === win.WebSocket.OPEN) ws.send(JSON.stringify(obj));
+  };
+
+  ws.onopen = () => {
+    onStatus("Connected.");
+    send({ t: "r", c: term.cols, r: term.rows });
+  };
+  ws.onmessage = (ev) => {
+    term.write(
+      typeof ev.data === "string"
+        ? ev.data
+        : decoder.decode(new Uint8Array(ev.data)),
+    );
+  };
+  ws.onclose = () => {
+    if (!closed) term.write("\r\n\x1b[38;5;244m[session ended]\x1b[0m\r\n");
+    onStatus("Disconnected.");
+  };
+  ws.onerror = () => onStatus("Connection error.", true);
+
+  const onResize = () => {
+    try {
+      fit.fit();
+      send({ t: "r", c: term.cols, r: term.rows });
+    } catch {
+      /* ignore transient layout errors */
+    }
+  };
+  win.addEventListener("resize", onResize);
+  term.onResize(({ cols, rows }) => send({ t: "r", c: cols, r: rows }));
+
+  const dispose = () => {
+    closed = true;
+    win.removeEventListener("resize", onResize);
+    try {
+      ws.close();
+    } catch {
+      /* already closed */
+    }
+    try {
+      term.dispose();
+    } catch {
+      /* already disposed */
+    }
+  };
+  const sendLine = (text) => {
+    if (!closed) send({ t: "i", d: `${text}\n` });
+  };
+  return { dispose, sendLine };
+}
+
+/**
  * Pure helpers extracted from AM.renderChatInterface so they can be tested
  * without a DOM. ───────────────────────────────────────────────────────────
  */
@@ -439,6 +584,87 @@ export class ChatDetailRenderer extends DetailRenderer {
 }
 
 /**
+ * Start a letta-code session in the background and render its output into
+ * `container`. The pty shell (`letta --agent <id>`) is spawned as soon as
+ * this is called — there's no Open/Close click gesture anymore, since the
+ * session's whole point is to sit there streaming messages/thinking/tool
+ * calls while the Input Options textarea feeds it text. A "Restart Session"
+ * button recovers a session that exited. Returns `{ dispose, sendLine }`
+ * (`sendLine` is a no-op once disposed or before the session connects).
+ */
+export function attachTerminalPanel({
+  container,
+  agentId = null,
+  agentName = "the agent",
+  doc = globalThis.document,
+  bs = "",
+}) {
+  const el = (tag, props = {}) => Object.assign(doc.createElement(tag), props);
+
+  const wrap = el("div");
+  wrap.style.cssText = "margin-top:14px;max-width:100%;";
+  const heading = el("p");
+  heading.innerHTML = `letta-code session for <strong>${TextUtils.esc(agentName)}</strong>:`;
+  const restartBtn = el("button", { textContent: "Restart Session" });
+  restartBtn.style.cssText = `${bs || "padding:10px 14px;border:0;border-radius:4px;cursor:pointer;color:#fff;"}background:#0b7285;max-width:320px;`;
+  const status = el("div");
+  status.style.cssText =
+    "min-height:1.3em;font-size:0.85rem;color:#777;margin:6px 0;";
+  const host = el("div");
+  host.style.cssText =
+    "height:420px;max-width:100%;background:#0b0e14;border-radius:6px;padding:6px;overflow:hidden;";
+
+  wrap.append(heading, restartBtn, status, host);
+  container.append(wrap);
+
+  let session = null; // { dispose, sendLine }
+  const showStatus = (msg, isError) => {
+    status.style.color = isError ? "#c0392b" : "#777";
+    status.textContent = msg;
+  };
+
+  const stop = () => {
+    if (session) {
+      try {
+        session.dispose();
+      } catch {
+        /* ignore */
+      }
+      session = null;
+    }
+    host.innerHTML = "";
+  };
+
+  const start = async () => {
+    stop();
+    restartBtn.disabled = true;
+    showStatus("Starting session…");
+    try {
+      session = await mountTerminal({
+        hostEl: host,
+        agentId,
+        onStatus: showStatus,
+        doc,
+      });
+    } catch (e) {
+      showStatus(e.message || "Failed to start terminal.", true);
+    } finally {
+      restartBtn.disabled = false;
+    }
+  };
+
+  restartBtn.addEventListener("click", start);
+  start();
+
+  return {
+    dispose: stop,
+    sendLine: (text) => {
+      if (session) session.sendLine(text);
+    },
+  };
+}
+
+/**
  * InputOptionsRenderer — Strategy for the "Input Options" tab.
  *
  * Same voice/http/speech pipeline as the chat tab but a different, vertically
@@ -455,7 +681,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     onStatus = () => {},
     doc = globalThis.document,
     recorderFactory = (opts) => new MediaRecorderVoiceRecorder(opts),
-    endpoint = "/api/test",
+    terminalFactory = (opts) => attachTerminalPanel(opts),
   }) {
     super();
     if (!http) throw new Error("InputOptionsRenderer requires an HttpClient");
@@ -466,7 +692,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     this._onStatus = onStatus;
     this._doc = doc;
     this._recorderFactory = recorderFactory;
-    this._endpoint = endpoint;
+    this._terminalFactory = terminalFactory;
   }
 
   _el(tag, props = {}) {
@@ -520,9 +746,6 @@ export class InputOptionsRenderer extends DetailRenderer {
 
     const autoSendBtn = this._el("button", { textContent: "Auto Send" });
     autoSendBtn.style.cssText = `${bs}background:#6c757d;`;
-    const speakBtn = this._el("button");
-    speakBtn.innerHTML = "&#128266; Speak";
-    speakBtn.style.cssText = `${bs}background:#6c757d;`;
     const copyBtn = this._el("button", { textContent: "Copy to Clipboard" });
     copyBtn.style.cssText = `${bs}background:#6c757d;`;
     const statusEl = this._el("div");
@@ -534,7 +757,6 @@ export class InputOptionsRenderer extends DetailRenderer {
       sendBtn,
       voiceRow,
       autoSendBtn,
-      speakBtn,
       copyBtn,
       statusEl,
       outEl,
@@ -542,7 +764,6 @@ export class InputOptionsRenderer extends DetailRenderer {
     container.append(heading, col);
 
     let autoSendOn = false;
-    let speakOn = false;
 
     const showStatus = (msg, isError) => {
       statusEl.style.color = isError ? "#c0392b" : "#555";
@@ -553,11 +774,6 @@ export class InputOptionsRenderer extends DetailRenderer {
       autoSendOn = !autoSendOn;
       autoSendBtn.style.background = autoSendOn ? "#2f55e7" : "#6c757d";
       autoSendBtn.style.fontWeight = autoSendOn ? "700" : "";
-    });
-    speakBtn.addEventListener("click", () => {
-      speakOn = !speakOn;
-      speakBtn.style.background = speakOn ? "#2f55e7" : "#6c757d";
-      speakBtn.style.fontWeight = speakOn ? "700" : "";
     });
 
     // ── Copy to Clipboard ──────────────────────────────────────────────────
@@ -614,7 +830,17 @@ export class InputOptionsRenderer extends DetailRenderer {
       }
     });
 
-    // ── Send to the agent through /api/test ────────────────────────────────
+    // ── letta-code session (background pty running `letta --agent <id>`) ──
+    // This is the ONLY path text is sent to the agent through — see `send()`.
+    const terminal = this._terminalFactory({
+      container,
+      agentId: id,
+      agentName: this._agentName,
+      doc: this._doc,
+      bs,
+    });
+
+    // ── Send: forwards text into the letta-code session above ──────────────
     const send = async () => {
       if (sendBtn.disabled) return;
       const text = textEl.value;
@@ -625,22 +851,15 @@ export class InputOptionsRenderer extends DetailRenderer {
       sendBtn.disabled = true;
       textEl.value = "";
       const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
-      outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div><span class="msi-cursor">&#9608;</span> sending&hellip;</div>`;
-      showStatus("");
       this._onStatus(id, "active");
       try {
-        const r = await this._http.postJSON(this._endpoint, {
-          agent: id,
-          text,
-        });
-        const replies = r.replies || [];
-        const hasError = replies.some((x) => x.type === "error");
-        this._onStatus(id, hasError ? "error" : "idle");
-        outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div>${renderReplyRows(replies, this._agentName)}</div>`;
-        if (speakOn && this._speech) {
-          const replyText = replies.map((x) => x.text || "").join(" ");
-          if (replyText) this._speech.speak(replyText, this._agentName);
-        }
+        // We only reach agents through a real letta-code session (the
+        // terminal below), never the raw Letta HTTP API directly — that
+        // used to be a second, parallel path into the agent:
+        //   const r = await this._http.postJSON("/api/test", { agent: id, text });
+        terminal.sendLine(text);
+        outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div><span class="msi-line">sent — see the terminal below for the reply</span></div>`;
+        showStatus("Sent to the letta-code session.");
       } catch (e) {
         this._onStatus(id, "error");
         outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div><span class="msi-line err">! ${TextUtils.esc(e.message)}</span></div>`;
@@ -700,6 +919,6 @@ export class InputOptionsRenderer extends DetailRenderer {
       }
     });
 
-    return { send, recorder };
+    return { send, recorder, terminal };
   }
 }

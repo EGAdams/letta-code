@@ -43,9 +43,8 @@ describe("AgentVoiceCatalog (Strategy/Registry)", () => {
     expect(picked.name).toBe("Microsoft Zira");
   });
 
-  test("assigns the extended roster (Cesare + Mazda stages) its prefs", () => {
+  test("assigns the extended roster (Mazda stages) its prefs", () => {
     const voices = [
-      { lang: "en-US", name: "Microsoft Ashley" },
       { lang: "en-US", name: "Microsoft Ana" },
       { lang: "en-US", name: "Microsoft Cora" },
       { lang: "en-US", name: "Microsoft Elizabeth" },
@@ -53,7 +52,6 @@ describe("AgentVoiceCatalog (Strategy/Registry)", () => {
       { lang: "en-US", name: "Microsoft Nancy" },
     ];
     const catalog = new AgentVoiceCatalog();
-    expect(catalog.voiceFor("Cesare", voices).name).toBe("Microsoft Ashley");
     expect(catalog.voiceFor("Mazda Router", voices).name).toBe("Microsoft Ana");
     expect(catalog.voiceFor("Mazda Parser", voices).name).toBe(
       "Microsoft Cora",
@@ -84,7 +82,7 @@ describe("AgentVoiceCatalog (Strategy/Registry)", () => {
   });
 
   test("custom preferences can be injected", () => {
-    const catalog = new AgentVoiceCatalog({ Cesare: [/david/i] });
-    expect(catalog.voiceFor("Cesare", VOICES).name).toBe("Microsoft David");
+    const catalog = new AgentVoiceCatalog({ SomeAgent: [/david/i] });
+    expect(catalog.voiceFor("SomeAgent", VOICES).name).toBe("Microsoft David");
   });
 });

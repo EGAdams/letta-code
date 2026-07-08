@@ -56,6 +56,7 @@ const navRolFinance = document.getElementById("nav-rol-finance");
 const navRolFinanceReports = document.getElementById("nav-rol-finance-reports");
 const navScanners = document.getElementById("nav-scanners");
 const navModelStats = document.getElementById("nav-model-stats");
+const navPcMonitor = document.getElementById("nav-pc-monitor");
 const startupOverlay = document.getElementById("startup-overlay");
 const startupStatusText = document.getElementById("startup-status-text");
 const startupProgressBar = document.getElementById("startup-progress-bar");
@@ -483,6 +484,14 @@ if (
         return;
       }
 
+      if (target === "pc-monitor" && navPcMonitor) {
+        navMain.classList.add("hidden");
+        navPcMonitor.classList.remove("hidden");
+        safeActivateView("pc-monitor");
+        PCM.open();
+        return;
+      }
+
       if (target === "project-plans") {
         navMain.classList.add("hidden");
         navPlans.classList.remove("hidden");
@@ -843,8 +852,37 @@ const esc = TextUtils.esc; // HTML-escape — now sourced from the library.
 
 /* =====================  Model Stats  =====================
        Per-OAuth/CLI session token usage. Sub-nav tab per source; each shows
-       usage windows as progress bars (red at 100% with reset time). Tab colors
+       usage windows as progress bars (red at 100% with reset time), plus a
+       Rate of Change bar (burn rate) and a slow-leak badge. Tab colors
        reflect status so an exhausted account is caught at a glance. */
+
+/* The Rate of Change row. `rate` comes straight from /api/model-stats:
+   pct_per_hour (raw %-points/hour), burn_multiple (vs the window's replenish
+   pace — 1.0× is sustainable forever), bar_percent (pre-scaled so 50% width
+   = 1.0×), warn (burn ≥ server threshold → blink). While history is still
+   too short the server sends {available:false, reason} and we show that
+   instead of a misleading empty bar. */
+function renderRateOfChange(rate) {
+  if (!rate) return "";
+  const tip =
+    `Consumed ${rate.pct_per_hour ?? "?"}% of the ${rate.window_label || "quota"} limit per hour ` +
+    `over the last ${rate.window_minutes || 30} min. 1.0× pace means the window refills as fast as ` +
+    `you spend; sustained use above 1.0× eventually maxes out. Blinks yellow at ${rate.warn_at_multiple}×.`;
+  let h = `<div class="ms-window" title="${esc(tip)}"><div class="ms-window-head"><span>Rate of change</span>`;
+  if (!rate.available) {
+    h += `<span class="am-dim">${esc(rate.reason || "gathering data…")}</span></div>`;
+    h +=
+      '<div class="ms-bar"><div class="ms-bar-fill" style="width:0%"></div></div></div>';
+    return h;
+  }
+  const rp = Math.max(0, Math.min(100, rate.bar_percent || 0));
+  const fill = rate.warn ? "#f9a825" : "#43a047";
+  const blink = rate.warn ? " ms-blink-warn" : "";
+  h += `<span>${rate.pct_per_hour}%/hr · ${rate.burn_multiple}× pace${rate.warn ? " ⚠" : ""}</span></div>`;
+  h += `<div class="ms-bar"><div class="ms-bar-fill${blink}" style="width:${rp}%;background:${fill}"></div></div></div>`;
+  return h;
+}
+
 function renderModelStats(d) {
   if (!d || d.ok === false) {
     return `<p class="am-warn">${esc(d?.error || "no data")}</p>`;
@@ -865,6 +903,15 @@ function renderModelStats(d) {
     const resets = w.resets_in ? ` · resets ${esc(w.resets_in)}` : "";
     h += `<div class="ms-window"><div class="ms-window-head"><span>${esc(w.label)}</span><span>${pct}%${resets}</span></div>`;
     h += `<div class="ms-bar"><div class="ms-bar-fill" style="width:${pct}%;background:${bar}"></div></div></div>`;
+  }
+  /* Rate of Change — server-computed burn rate of the primary quota window
+     (%-points/hour vs the window's replenish pace; see server.py's
+     "Model usage" section for the math). Half a bar = sustainable 1.0× pace;
+     the fill blinks yellow when burn ≥ the server's warn threshold
+     (MODEL_RATE_WARN_BURN_MULTIPLE). */
+  h += renderRateOfChange(d.rate);
+  if (d.leak?.suspected) {
+    h += `<p class="ms-leak" title="Usage kept climbing across several consecutive time buckets even though the short-term rate looks calm — the signature of a background drip (leaked poller, stuck loop) rather than a normal work burst.">⚠ ${esc(d.leak.text || "Slow token drain")}</p>`;
   }
   if (d.status === "down") {
     // Show the reset of the window that's actually maxed (highest used %), not
@@ -976,11 +1023,130 @@ if (navModelStats) {
   }
 }
 
+/* =====================  PC Monitor  =====================
+       One sub-nav tab per machine (Windows 11 / Windows 10 / Moms 46), each
+       showing RAM / Hard Drive / Network progress bars from /api/pc-metrics.
+       Issue detection: while any of a PC's metrics is over its server-side
+       alert threshold the payload carries alert:true and that PC's tab blinks
+       yellow (the existing .tab-alert animation). Thresholds live in server.py
+       (PC_ALERT_THRESHOLDS, env-tunable) so tuning needs no frontend change. */
+function renderPcMetrics(d) {
+  if (!d || d.ok === false) {
+    return `<p class="am-warn">${esc(d?.error || "no data")}</p>`;
+  }
+  let h = '<div class="ms-card">';
+  h += `<h3>${esc(d.label)}${d.alert ? ' <span class="pcm-alert-flag">⚠ needs attention</span>' : ""}</h3>`;
+  if (d.note) h += `<p class="am-dim">${esc(d.note)}</p>`;
+  for (const m of d.metrics || []) {
+    const pct = Math.max(0, Math.min(100, m.percent || 0));
+    const fill = m.alert ? "#f9a825" : pct >= 75 ? "#fb8c00" : "#43a047";
+    const blink = m.alert ? " ms-blink-warn" : "";
+    const tip = `Alerts at ${m.alert_at}%`;
+    h += `<div class="ms-window" title="${esc(tip)}"><div class="ms-window-head"><span>${esc(m.label)}</span><span>${esc(m.text || "")} · ${pct}%${m.alert ? " ⚠" : ""}</span></div>`;
+    h += `<div class="ms-bar"><div class="ms-bar-fill${blink}" style="width:${pct}%;background:${fill}"></div></div></div>`;
+  }
+  if (d.as_of) {
+    h += `<p class="am-dim">as of ${new Date(d.as_of * 1000).toLocaleTimeString()}</p>`;
+  }
+  h += "</div>";
+  return h;
+}
+
+const PCM = {
+  pollTimer: null,
+  current: null,
+  stopPoll() {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  },
+  open() {
+    if (!navPcMonitor) return;
+    this.stopPoll();
+    // Windows 11 is the default tab on open.
+    const first =
+      navPcMonitor.querySelector('[data-pc="win11"]') ||
+      navPcMonitor.querySelector("[data-pc]");
+    if (first) {
+      safeSetActive(navPcMonitor, '[data-nav="pc-monitor"][data-pc]', first);
+      this.show(first.dataset.pc);
+    }
+    this.pollTabs();
+    this.pollTimer = setInterval(() => {
+      if (this.current) this.show(this.current);
+      this.pollTabs();
+    }, 15000);
+  },
+  async show(key) {
+    const body = document.getElementById("pc-monitor-body");
+    if (!body) return;
+    this.current = key;
+    // Only show the placeholder on first paint — refreshes swap in place so
+    // the bars don't flash every poll tick.
+    if (!body.querySelector(".ms-card")) {
+      body.innerHTML = '<p class="am-dim">Loading…</p>';
+    }
+    try {
+      const d = await http.getJSON(
+        `/api/pc-metrics?pc=${encodeURIComponent(key)}`,
+      );
+      if (this.current !== key) return; // a newer selection won the race
+      body.innerHTML = renderPcMetrics(d);
+    } catch (e) {
+      if (this.current !== key) return;
+      body.innerHTML = `<p class="am-warn">Failed to load: ${esc(e.message)}</p>`;
+    }
+  },
+  // Issue detection: blink a PC's tab yellow while any metric is over threshold.
+  async pollTabs() {
+    if (!navPcMonitor) return;
+    const tabs = [...navPcMonitor.querySelectorAll("[data-pc]")];
+    await Promise.all(
+      tabs.map(async (t) => {
+        try {
+          const d = await http.getJSON(
+            `/api/pc-metrics?pc=${encodeURIComponent(t.dataset.pc)}`,
+          );
+          t.classList.toggle("tab-alert", !!d.alert);
+        } catch {
+          /* leave the tab unflagged on transient error */
+        }
+      }),
+    );
+  },
+};
+
+if (navPcMonitor) {
+  navPcMonitor.querySelectorAll("[data-pc]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      safeSetActive(navPcMonitor, '[data-nav="pc-monitor"][data-pc]', tab);
+      safeActivateView("pc-monitor");
+      PCM.show(tab.dataset.pc);
+    });
+  });
+  const backPcMonitor = document.getElementById("btn-back-pc-monitor");
+  if (backPcMonitor) {
+    backPcMonitor.addEventListener("click", () => {
+      PCM.stopPoll();
+      navPcMonitor.classList.add("hidden");
+      navMain.classList.remove("hidden");
+      const homeTab = navMain.querySelector(
+        '[data-nav="main"][data-target="home"]',
+      );
+      if (homeTab) {
+        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
+      }
+      safeActivateView("home");
+    });
+  }
+}
+
 /* =====================  Voice output (Web Speech API)  =====================
        Browser-native text-to-speech. No API key, no server round-trip, free.
        Now provided by the library's BrowserSpeechSynthesizer (Facade) +
        AgentVoiceCatalog (Strategy/Registry): each agent gets its own cached
-       voice so Scissari, Mazda, Frita, Hailey, Jeri, Cesare and the Mazda
+       voice so Scissari, Mazda, Frita, Hailey, Jeri and the Mazda
        stages sound distinct, never falling back to a male voice. The per-agent
        voice catalog (FEMALE/MALE patterns, agent preferences, selection +
        male-avoidance fallbacks) lives in
@@ -1025,14 +1191,30 @@ const renderChat = (am, target) =>
     agentId: am.current.id,
     onStatus: setAgentTabStatus,
   }).render(target, am.current.id);
-const renderInputOptions = (am, target) =>
-  new InputOptionsRenderer({
+// The Input Options panel auto-starts a background letta-code pty session
+// (see attachTerminalPanel), so its previous session must be torn down
+// before rebuilding — otherwise every reopen of the tab leaks another
+// bash+letta process/websocket.
+let activeInputOptionsTerminal = null;
+const renderInputOptions = (am, target) => {
+  if (activeInputOptionsTerminal) {
+    try {
+      activeInputOptionsTerminal.dispose();
+    } catch {
+      /* already gone */
+    }
+    activeInputOptionsTerminal = null;
+  }
+  const api = new InputOptionsRenderer({
     http,
     speech: Speech,
     agentName: am.current.name,
     agentId: am.current.id,
     onStatus: setAgentTabStatus,
   }).render(target, am.current.id);
+  if (api) activeInputOptionsTerminal = api.terminal;
+  return api;
+};
 
 // Maps an agent-detail view id to how its content is rendered.
 const DETAIL_RENDERERS = {

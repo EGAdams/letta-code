@@ -38,7 +38,6 @@ KNOWN_AGENT_NAMES = [
     "Scissari",
     "Frita",
     "Hailey",
-    "Cesare",
     "Jeri",
     "Mazda",
     "Mazda Router",

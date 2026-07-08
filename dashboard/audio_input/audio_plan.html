@@ -78,7 +78,7 @@
 <li><span class="ok">✓</span> <strong>Android verified:</strong> Tailscale Serve HTTPS (Let's Encrypt) gives a secure context, so the phone mic is allowed and the end-to-end flow works from <code>samsung-sm-s156v</code>.</li>
 <li><span class="ok">✓</span> <strong>Associate/agent name mixup — fix applied at both stages</strong> (a teammate's Claude agent recently strengthened this; treat as <em>likely resolved, pending a final spoken-name spot check</em>):
   <ul>
-  <li>Transcription stage — whisper is now primed with <code>--prompt "Agent names: Scissari, Frita, Hailey, Cesare, Jeri, Mazda."</code> so a name is heard correctly in the first place (e.g. "Mazda" no longer becomes "Melissa"). See <code>voice/config.py</code> &amp; <code>voice/transcription.py</code>.</li>
+  <li>Transcription stage — whisper is now primed with <code>--prompt "Agent names: Scissari, Frita, Hailey, Jeri, Mazda."</code> so a name is heard correctly in the first place (e.g. "Mazda" no longer becomes "Melissa"). See <code>voice/config.py</code> &amp; <code>voice/transcription.py</code>.</li>
   <li>Cleanup stage — the <code>transcript-cleanup-agent</code> is instructed to "correct agent names to the closest known agent," with the same name list (<code>voice/cleanup.py</code>).</li>
   </ul>
   <span class="warn">▷</span> If any mishear remains, <code>voice_transcripts.json</code> logs raw-vs-cleaned for diagnosis; next lever would be a deterministic fuzzy name-match as a final pass.</li>
@@ -98,7 +98,7 @@
 <tr><td>Model</td><td><code>~/whisper.cpp/models/ggml-base.en.bin</code> (148&nbsp;MB)</td><td class="ok">Present</td></tr>
 <tr><td>ffmpeg (audio &rarr; 16k mono wav)</td><td><code>lettabot/.venv_ffmpeg/.../imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2</code></td><td class="ok">Present (no system ffmpeg)</td></tr>
 <tr><td>Dashboard server + agent send (<code>/api/test</code>)</td><td><code>dashboard/server.py</code></td><td class="ok">Working — we reuse it for delivery</td></tr>
-<tr><td>Known agent names (for name correction)</td><td><code>LETTA_AGENTS</code> in <code>server.py</code></td><td class="ok"><code>Scissari, Frita, Hailey, Cesare, Jeri, Mazda</code></td></tr>
+<tr><td>Known agent names (for name correction)</td><td><code>LETTA_AGENTS</code> in <code>server.py</code></td><td class="ok"><code>Scissari, Frita, Hailey, Jeri, Mazda</code></td></tr>
 </table>
 
 <h2>2. The pipeline</h2>
@@ -232,7 +232,7 @@ whisper-cli -m ggml-base.en.bin -f input.wav -l auto -of transcript -otxt -nt
 
 <div class="q">
 <h3>Q6 — English-only model vs multilingual</h3>
-<p><code>ggml-base.en.bin</code> is English-only and fast. Agent names like <em>Cesare</em>, <em>Frita</em>, <em>Scissari</em> may be mis-heard — but that's exactly what the cleanup step fixes. Stay on <code>base.en</code> + cleanup, or download a multilingual model? <strong>Recommendation:</strong> stay on <code>base.en</code>.</p>
+<p><code>ggml-base.en.bin</code> is English-only and fast. Agent names like <em>Frita</em>, <em>Scissari</em> may be mis-heard — but that's exactly what the cleanup step fixes. Stay on <code>base.en</code> + cleanup, or download a multilingual model? <strong>Recommendation:</strong> stay on <code>base.en</code>.</p>
 </div>
 
 <div class="q">

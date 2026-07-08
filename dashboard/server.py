@@ -1969,7 +1969,6 @@ LETTA_AGENTS = [
     {'name': 'Scissari', 'id': 'agent-5955b0c2-7922-4ffe-9e43-b116053b80fa'},
     {'name': 'Frita',    'id': 'agent-881a883f-edd0-4963-bf67-6ef178b8f018', 'uses_claude_sdk': True},
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
-    {'name': 'Cesare',   'id': None},
     {'name': 'Jeri',     'id': None},
     {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'orchestrator': True},
     {'name': 'Mazda Router',           'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
@@ -1977,18 +1976,23 @@ LETTA_AGENTS = [
     {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'provider_canary': True},
-    {'name': 'Suzuki',                 'id': 'agent-c4e58e29-8c06-4ca9-a18d-b8536442af13', 'orchestrator': True},
-    {'name': 'Suzuki Router',          'id': 'agent-df4deb48-3a46-4fe4-887a-6aeb95ddc6d6'},
-    {'name': 'Suzuki Reproducer',      'id': 'agent-ad0c3e39-bd14-4f79-af95-140e4cf21325'},
-    {'name': 'Suzuki Static Analysis', 'id': 'agent-a820e191-bc39-413c-bb0c-6344d5b37643'},
-    {'name': 'Suzuki Patch',           'id': 'agent-2c585993-1193-42d8-9bf5-1805b426a0da'},
-    {'name': 'Suzuki Test Runner',     'id': 'agent-a90f1413-6599-4750-b7e0-ee55634984162'},
-    {'name': 'Suzuki Regression',      'id': 'agent-8af8fec4-5114-40b3-99ab-173edd35ebd2'},
+    {'name': 'Suzuki',                 'id': 'agent-c4e58e29-8c06-4ca9-a18d-b8536442af13', 'orchestrator': True, 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Router',          'id': 'agent-df4deb48-3a46-4fe4-887a-6aeb95ddc6d6', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Reproducer',      'id': 'agent-ad0c3e39-bd14-4f79-af95-140e4cf21325', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Static Analysis', 'id': 'agent-a820e191-bc39-413c-bb0c-6344d5b37643', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Patch',           'id': 'agent-2c585993-1193-42d8-9bf5-1805b426a0da', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Test Runner',     'id': 'agent-a90f1413-6599-4750-b7e0-ee55634984162', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Regression',      'id': 'agent-8af8fec4-5114-40b3-99ab-173edd35ebd2', 'llm_provider': CHATGPT_PLUS_PRO},
 ]
 
 # Cache of name→id resolved from the Letta API
 _letta_id_cache = {}
 _letta_id_cache_lock = threading.Lock()
+# When the full roster was last fetched. A registry name absent from the server
+# (e.g. a renamed/deleted agent) must not re-trigger the ~12s roster fetch on
+# every lookup — within this window a cache miss is answered None without I/O.
+_letta_roster_fetched_at = 0.0
+LETTA_ROSTER_NEG_TTL = 300
 _agent_list_cache = {'value': None, 'ts': 0.0}
 _agent_list_cache_lock = threading.Lock()
 AGENT_LIST_CACHE_TTL = 300
@@ -2045,18 +2049,6 @@ AGENT_CARDS = {
             'Letta messaging and standard agent workflows',
         ],
         'memory_summary': 'Participates in the shared agent ecosystem with retained project context when available.',
-    },
-    'Cesare': {
-        'identity': 'Cesare',
-        'role': 'Specialized collaborative agent used in the broader multi-agent workflow.',
-        'responsibilities': [
-            'Handle assigned subtasks in coordinated agent workflows',
-            'Contribute focused execution where routed',
-        ],
-        'tools': [
-            'Agent messaging and task execution flows',
-        ],
-        'memory_summary': 'Operates as part of the shared agent network with context continuity when connected.',
     },
     'Jeri': {
         'identity': 'Jeri',
@@ -2887,16 +2879,20 @@ def letta_get(path, timeout=6):
 
 def _resolve_letta_id(name):
     """Look up agent ID by name from the Letta API (cached per server run)."""
+    global _letta_roster_fetched_at
     with _letta_id_cache_lock:
         if name in _letta_id_cache:
             return _letta_id_cache[name]
-    data = letta_get('/v1/agents')
+        if time.time() - _letta_roster_fetched_at < LETTA_ROSTER_NEG_TTL:
+            return None  # roster is fresh; the name genuinely isn't on the server
+    data = letta_get('/v1/agents', timeout=30)
     if not data:
         return None
     agents = data if isinstance(data, list) else data.get('agents', [])
     with _letta_id_cache_lock:
         for a in agents:
             _letta_id_cache[a['name']] = a['id']
+        _letta_roster_fetched_at = time.time()
         return _letta_id_cache.get(name)
 
 def get_letta_id(agent_cfg):
@@ -3262,7 +3258,7 @@ def classify_failure(text):
     provider canary labelled a 404 as 'rate-limited', which sent diagnosis down
     the wrong path). Used for provider + server errors."""
     t = (text or '').lower()
-    if '429' in t or 'rate limit' in t or 'rate-limit' in t or 'too many requests' in t or 'quota' in t:
+    if '429' in t or 'rate limit' in t or 'rate-limit' in t or 'rate_limit' in t or 'too many requests' in t or 'quota' in t:
         return ('rate_limit', 'rate-limited')
     if '401' in t or '403' in t or 'unauth' in t or 'forbidden' in t or 'invalid_api_key' in t or 'authentication' in t:
         return ('auth', 'auth error')
@@ -3717,10 +3713,21 @@ def clear_agent_send_error(agent_id: str) -> None:
 # every other agent tagged with that provider was equally broken (verified by
 # probing Mazda Router too). _agent_send_errors only got populated when a
 # human used the dashboard's Test feature, so the tabs stayed green until
-# someone happened to try. This background loop probes one canary agent on
-# the provider and, like Server Management/SSH Connections, turns every
-# agent sharing that provider red as soon as the probe itself detects it.
-CHATGPT_PROVIDER_POLL_INTERVAL = 90  # seconds; each probe is a real (cheap) LLM call
+# someone happened to try. This background loop probes the provider and, like
+# Server Management/SSH Connections, turns every agent sharing it red as soon
+# as the probe itself detects a problem.
+#
+# 2026-07-07: the probe used to SEND A REAL LLM MESSAGE ("ping") to a canary
+# agent every sweep — ~40 full-context gpt-5.4-mini calls per awake-hour, and
+# the canary's history grew with every ping/reply pair, so each probe got more
+# expensive AND burned the very quota it was watching. Replaced with a
+# ZERO-TOKEN probe: read the provider's own OAuth token from the Letta API
+# (on this self-hosted server /v1/providers/ returns api_key_enc as plaintext
+# token JSON) and ask the account's usage endpoint directly — the same
+# endpoint Model Stats uses, but with the PROVIDER's token, so it still works
+# after an Adam↔mom token swap. Extend PROVIDER_USAGE_PROBES to cover new
+# provider types; no agent is ever messaged.
+CHATGPT_PROVIDER_POLL_INTERVAL = 90  # seconds; each probe is a free usage-API call (zero LLM tokens)
 
 
 def _provider_agent_ids(provider_name):
@@ -3734,69 +3741,130 @@ def _provider_agent_ids(provider_name):
     return ids
 
 
-def _provider_canary_id(provider_name):
-    """Pick the agent to probe as the provider's health canary.
+def _fetch_provider_oauth_creds(provider_name):
+    """Return (creds_dict, provider_type) for a Letta provider, or (None, type).
 
-    Must NOT be an orchestrator (e.g. Mazda): a real 'ping' to an orchestrator
-    triggers heavy reasoning/delegation that blows past the probe timeout AND
-    pollutes its conversation history — which used to mark the whole
-    chatgpt-plus-pro fleet falsely red. Prefer an entry explicitly flagged
-    `provider_canary`, else a lightweight minion (one whose tool calls go to the
-    Claude SDK worker), else fall back to the first tagged agent.
-    """
-    tagged = [cfg for cfg in LETTA_AGENTS if cfg.get('llm_provider') == provider_name]
-    flagged = [c for c in tagged if c.get('provider_canary') and get_letta_id(c)]
-    if flagged:
-        return get_letta_id(flagged[0])
-    minions = [c for c in tagged
-               if not c.get('orchestrator') and _uses_claude_sdk(c) and get_letta_id(c)]
-    if minions:
-        return get_letta_id(minions[0])
-    for c in tagged:
-        rid = get_letta_id(c)
-        if rid:
-            return rid
-    return None
-
-
-def _probe_chatgpt_provider(agent_id, timeout=20):
-    """Send one trivial message to agent_id and report whether the provider
-    rejected it (e.g. 429 rate limit) before reaching the model. Doesn't reset
-    the agent's message history first, unlike /api/test, so it never clobbers
-    a real in-progress conversation — it just appends a tiny ping/reply pair."""
-    payload = json.dumps({
-        'messages': [{'role': 'user', 'content': 'ping'}],
-        'stream': False,
-    }).encode()
-    req = urllib.request.Request(
-        f'{LETTA_BASE_URL}/v1/agents/{agent_id}/messages',
-        data=payload,
-        headers={'Content-Type': 'application/json'},
-        method='POST',
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout):
-            pass
-        return {'ok': True, 'text': ''}
-    except urllib.error.HTTPError as e:
+    On this self-hosted server /v1/providers/ returns api_key_enc as plaintext
+    JSON holding the OAuth bundle ({'access_token', 'account_id', ...}) — the
+    same token the Letta server spends when an agent talks to the model, so a
+    probe using it always watches the account the fleet is actually on."""
+    with urllib.request.urlopen(f'{LETTA_BASE_URL}/v1/providers/', timeout=10) as resp:
+        providers = json.loads(resp.read().decode())
+    for p in providers:
+        if p.get('name') != provider_name:
+            continue
+        raw = p.get('api_key_enc') or p.get('api_key')
+        if not raw:
+            return None, p.get('provider_type')
         try:
-            body = json.loads(e.read().decode())
-            err = body.get('error', {})
-            return {'ok': False, 'text': f"{err.get('type', 'llm_error')}: {err.get('message', str(e))}"}
-        except Exception:
-            return {'ok': False, 'text': f'HTTP {e.code}'}
+            creds = json.loads(raw)
+        except ValueError:
+            creds = {'access_token': raw}
+        return creds, p.get('provider_type')
+    return None, None
+
+
+def _classify_codex_usage(usage):
+    """Pure: map a chatgpt.com/backend-api/wham/usage payload to the probe's
+    {'ok', 'text'} contract. Error text starts with 'llm_rate_limit:' so
+    classify_failure() labels it 'rate-limited' like the old LLM probe did."""
+    rl = usage.get('rate_limit') or {}
+    windows = []
+    for wkey, wlabel in (('primary_window', '5h'), ('secondary_window', 'weekly')):
+        w = rl.get(wkey)
+        if isinstance(w, dict):
+            pct = float(w.get('used_percent') or 0)
+            windows.append((wlabel, pct, _human_reset(w.get('reset_at')) or '?'))
+    maxed = [f'{lbl} window {pct:.0f}% used, resets {reset}'
+             for lbl, pct, reset in windows if pct >= 100]
+    if rl.get('limit_reached') or maxed or not rl.get('allowed', True):
+        return {'ok': False, 'text': f"llm_rate_limit: {'; '.join(maxed) or 'limit reached'}"}
+    return {'ok': True, 'text': ' / '.join(f'{lbl} {pct:.0f}%' for lbl, pct, _ in windows)}
+
+
+def _classify_claude_usage(usage):
+    """Pure: map an api.anthropic.com/api/oauth/usage payload (same field
+    contract as the Model Stats extractor: five_hour/seven_day utilization)
+    to the probe's {'ok', 'text'} contract."""
+    windows = []
+    for key, label in (('five_hour', '5h'), ('seven_day', 'weekly')):
+        w = usage.get(key) or {}
+        pct = float(w.get('utilization') or 0)
+        windows.append((label, pct, _human_reset(w.get('resets_at')) or '?'))
+    maxed = [f'{lbl} window {pct:.0f}% used, resets {reset}'
+             for lbl, pct, reset in windows if pct >= 100]
+    if maxed:
+        return {'ok': False, 'text': f"llm_rate_limit: {'; '.join(maxed)}"}
+    return {'ok': True, 'text': ' / '.join(f'{lbl} {pct:.0f}%' for lbl, pct, _ in windows)}
+
+
+def _probe_usage_endpoint(url, headers, classify, timeout=20):
+    """Shared fetch half of the zero-token probes: GET a usage endpoint with the
+    provider's token and classify the payload. 401 → auth error (the provider's
+    token is what Letta itself would fail with); 429 → the account is already
+    being throttled at the door."""
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return classify(json.loads(resp.read().decode()))
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {'ok': False, 'text': 'provider OAuth token rejected (HTTP 401)'}
+        if e.code == 429:
+            return {'ok': False, 'text': 'llm_rate_limit: usage API returned HTTP 429'}
+        return {'ok': False, 'text': f'HTTP {e.code}'}
     except Exception as e:
         return {'ok': False, 'text': str(e)}
 
 
+def _probe_codex_usage(creds, timeout=20):
+    """Zero-token ChatGPT/Codex quota check via the wham/usage endpoint (the
+    same one Model Stats reads, but with the PROVIDER's token, not ~/.codex)."""
+    return _probe_usage_endpoint(
+        'https://chatgpt.com/backend-api/wham/usage',
+        {'Authorization': 'Bearer ' + (creds.get('access_token') or ''),
+         'ChatGPT-Account-Id': creds.get('account_id', ''),
+         'OpenAI-Beta': 'codex-1', 'originator': 'codex_cli_rs', 'User-Agent': 'codex'},
+        _classify_codex_usage, timeout)
+
+
+def _probe_claude_usage(creds, timeout=20):
+    """Zero-token Anthropic quota check. No Letta provider is Claude-backed
+    today, but registering it means any future one gets the same free probe."""
+    token = (creds.get('access_token')
+             or (creds.get('claudeAiOauth') or {}).get('accessToken') or '')
+    return _probe_usage_endpoint(
+        'https://api.anthropic.com/api/oauth/usage',
+        {'Authorization': 'Bearer ' + token,
+         'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'claude-code/2.0.32'},
+        _classify_claude_usage, timeout)
+
+
+# provider_type (from /v1/providers/) → zero-token usage probe. Add entries here
+# to cover new provider types; a type with no entry is silently skipped rather
+# than pinged with an LLM call.
+PROVIDER_USAGE_PROBES = {
+    'chatgpt_oauth': _probe_codex_usage,
+    'anthropic': _probe_claude_usage,
+    'anthropic_oauth': _probe_claude_usage,
+}
+
+
 def _poll_chatgpt_provider_once(provider_name=CHATGPT_PLUS_PRO):
-    """One sweep: probe a canary agent on provider_name and propagate ok/error
-    to every agent tagged with it via the existing _agent_send_errors path."""
+    """One sweep: read the provider's OAuth token from the Letta API, ask the
+    account's usage endpoint whether it's rate-limited (zero LLM tokens), and
+    propagate ok/error to every tagged agent via _agent_send_errors."""
     affected = _provider_agent_ids(provider_name)
     if not affected:
         return
-    canary = _provider_canary_id(provider_name) or affected[0]
-    probe = _probe_chatgpt_provider(canary)
+    try:
+        creds, provider_type = _fetch_provider_oauth_creds(provider_name)
+    except Exception:
+        return  # Letta API unreachable — that's Server Management's signal, not a quota fact
+    probe_fn = PROVIDER_USAGE_PROBES.get(provider_type)
+    if not creds or not probe_fn:
+        return  # no token / unprobeable provider type — leave agent state alone
+    probe = probe_fn(creds)
     for agent_id in affected:
         if probe['ok']:
             clear_agent_send_error(agent_id)
@@ -3914,13 +3982,30 @@ def agent_health_status():
         return results
 
 
+def _refresh_agent_list_bg():
+    """Background stale-while-revalidate refresh for build_agent_list."""
+    try:
+        build_agent_list(force_refresh=True)
+    finally:
+        with _agent_list_cache_lock:
+            _agent_list_cache['refreshing'] = False
+
+
 def build_agent_list(force_refresh=False):
     """Return the agent list for /api/agents, combining Letta agents + Claude."""
     now = time.time()
     if not force_refresh:
         with _agent_list_cache_lock:
             cached = _agent_list_cache.get('value')
-            if cached is not None and now - _agent_list_cache.get('ts', 0.0) < AGENT_LIST_CACHE_TTL:
+            if cached is not None:
+                if now - _agent_list_cache.get('ts', 0.0) < AGENT_LIST_CACHE_TTL:
+                    return cached
+                # Stale: serve it immediately and refresh in the background —
+                # a cold rebuild can block >10s on the Letta roster fetch,
+                # which trips the browser's fetch timeout.
+                if not _agent_list_cache.get('refreshing'):
+                    _agent_list_cache['refreshing'] = True
+                    threading.Thread(target=_refresh_agent_list_bg, daemon=True).start()
                 return cached
 
     agents = []
@@ -4201,6 +4286,10 @@ def model_stats(source_key):
     if not src:
         return {'ok': False, 'error': f'unknown source {source_key}'}
     out = _model_stats_uncached(source_key, src)
+    try:
+        _attach_usage_metrics(source_key, out)   # rate-of-change bar + leak detector
+    except Exception as e:
+        print(f'[model-usage] {source_key} attach failed: {e}')
     _model_stats_cache[source_key] = (time.time(), out)
     return out
 
@@ -4301,6 +4390,534 @@ def _model_stats_uncached(source_key, src):
     return out
 
 
+# ── Model usage: rate-of-change bar + slow-leak detector ─────────────────────
+#
+# Rate metric (first version, deliberately simple): percentage-POINTS of the
+# source's PRIMARY quota window (windows[0]: the 5-hour window for Codex and
+# Claude, the daily request count for Antigravity) consumed per hour, measured
+# over the last RATE_WINDOW_MINUTES of snapshots. This borrows the SRE
+# "error-budget burn rate" idea (sre.google/workbook/alerting-on-slos): a quota
+# window spanning H hours replenishes at 100/H %-points per hour, so
+#
+#     burn_multiple = observed %-points/hour ÷ (100 / window_hours)
+#
+# burn 1.0x = spending exactly as fast as the window refills — sustainable
+# forever; anything above 1.0x will eventually max the account out. That makes
+# the numbers comparable across providers with different window sizes, and it
+# gives the thresholds real meaning instead of magic numbers:
+#
+#   RATE_WARN_BURN_MULTIPLE (default 1.0)  — the bar blinks yellow when the
+#       last half-hour burned faster than the window replenishes. Interactive
+#       coding legitimately bursts past 1.0x, so expect blinks during heavy
+#       use; the point is "on pace to hit the cap", not "something is broken".
+#       Raise it (e.g. 1.5–2.0) if it blinks too often in practice.
+#   RATE_BAR_FULL_SCALE_MULTIPLE (default 2.0) — the bar renders 100% wide at
+#       this burn multiple, so HALF a bar always means "sustainable pace".
+#
+# Leak detector (slow drain): the rate bar only sees the last 30 minutes, so a
+# slow drip can hide under bursty-but-legit use — the 2026-07-07 provider-probe
+# ping loop burned ~1.1x sustainable for HOURS and never looked dramatic in
+# any 30-minute slice. Following the SRE multiwindow pattern (short window
+# catches fast burns, long window catches slow ones), we also look back
+# LEAK_LOOKBACK_MINUTES, split the history into LEAK_BUCKET_MINUTES buckets,
+# and flag "slow token drain" when usage rose at least LEAK_MIN_RISE_PCT
+# %-points in LEAK_MIN_RISING_BUCKETS CONSECUTIVE buckets. A single burst
+# (one busy bucket, flat elsewhere) does NOT flag. This first version cannot
+# know whether a task *should* be running, so a genuine 2-hour work session
+# will also flag — acceptable for an early-warning light; tune below.
+#
+# History comes from two feeds through the same recording point
+# (_attach_usage_metrics, called on every model-stats cache miss): the UI's
+# 120s poll while the tab is open, plus _model_usage_sample_loop in the
+# background so the 2h lookback exists even when nobody is watching. Snapshots
+# persist to MODEL_USAGE_HISTORY_FILE so a dashboard restart doesn't blind the
+# leak detector. Known first-version quirks (documented, not bugs): a rolling
+# window's used_percent can FALL as old usage ages out — negative deltas clamp
+# to 0; an Adam<->mom token swap jumps the percentage discontinuously and may
+# cause one false warning cycle.
+
+def _env_float(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+MODEL_USAGE_SAMPLE_INTERVAL = _env_int('MODEL_USAGE_SAMPLE_INTERVAL', 300)         # s between background snapshots
+RATE_WINDOW_MINUTES = _env_int('MODEL_RATE_WINDOW_MINUTES', 30)                    # rate looks at the last N minutes
+RATE_MIN_SPAN_MINUTES = _env_int('MODEL_RATE_MIN_SPAN_MINUTES', 5)                 # need >= this span before showing a rate
+RATE_WARN_BURN_MULTIPLE = _env_float('MODEL_RATE_WARN_BURN_MULTIPLE', 1.0)         # blink yellow above this burn multiple
+RATE_BAR_FULL_SCALE_MULTIPLE = _env_float('MODEL_RATE_BAR_FULL_SCALE', 2.0)        # bar is 100% wide at this burn multiple
+LEAK_BUCKET_MINUTES = _env_int('MODEL_LEAK_BUCKET_MINUTES', 30)
+LEAK_LOOKBACK_MINUTES = _env_int('MODEL_LEAK_LOOKBACK_MINUTES', 120)
+LEAK_MIN_RISE_PCT = _env_float('MODEL_LEAK_MIN_RISE_PCT', 0.5)                     # a bucket "rises" if it gains >= this
+LEAK_MIN_RISING_BUCKETS = _env_int('MODEL_LEAK_MIN_RISING_BUCKETS', 3)             # consecutive rising buckets => leak
+MODEL_USAGE_HISTORY_FILE = os.environ.get('MODEL_USAGE_HISTORY_FILE', '/tmp/model_usage_history.json')
+MODEL_USAGE_HISTORY_KEEP_MINUTES = LEAK_LOOKBACK_MINUTES + 60                      # prune margin past the lookback
+
+# windows[0] label → hours that quota window spans (drives the replenish rate).
+# Unknown labels fall back to 5h, the most common primary window.
+_WINDOW_HOURS = {'5-hour': 5.0, 'weekly': 168.0, 'daily requests': 24.0}
+_DEFAULT_WINDOW_HOURS = 5.0
+
+_usage_history_lock = threading.Lock()
+_usage_history = None   # source_key → [[ts, pct], ...]; lazy-loaded from disk
+
+
+def _load_usage_history():
+    try:
+        with open(MODEL_USAGE_HISTORY_FILE) as f:
+            data = json.load(f)
+        return {k: [list(map(float, s)) for s in v] for k, v in data.items()}
+    except Exception:
+        return {}
+
+
+def _record_usage_sample(source_key, pct, now=None):
+    """Append one (timestamp, used_percent) snapshot for a source, prune history
+    older than the leak lookback (+margin), persist best-effort, and return a
+    copy of the source's samples for the pure calculators below."""
+    global _usage_history
+    now = now if now is not None else time.time()
+    with _usage_history_lock:
+        if _usage_history is None:
+            _usage_history = _load_usage_history()
+        samples = _usage_history.setdefault(source_key, [])
+        samples.append([now, float(pct)])
+        cutoff = now - MODEL_USAGE_HISTORY_KEEP_MINUTES * 60
+        while samples and samples[0][0] < cutoff:
+            samples.pop(0)
+        try:
+            with open(MODEL_USAGE_HISTORY_FILE, 'w') as f:
+                json.dump(_usage_history, f)
+        except Exception:
+            pass   # persistence is a nicety; in-memory history still works
+        return [tuple(s) for s in samples]
+
+
+def compute_usage_rate(samples, window_hours, now=None,
+                       window_minutes=None, warn_multiple=None, full_scale=None):
+    """Pure: %-points/hour consumed over the last window_minutes of samples,
+    plus the burn multiple vs the window's replenish rate (see section comment
+    for the math). Thresholds are parameters so tests don't depend on env."""
+    now = now if now is not None else time.time()
+    window_minutes = window_minutes if window_minutes is not None else RATE_WINDOW_MINUTES
+    warn_multiple = warn_multiple if warn_multiple is not None else RATE_WARN_BURN_MULTIPLE
+    full_scale = full_scale if full_scale is not None else RATE_BAR_FULL_SCALE_MULTIPLE
+    recent = [s for s in samples if s[0] >= now - window_minutes * 60]
+    if len(recent) < 2 or recent[-1][0] - recent[0][0] < RATE_MIN_SPAN_MINUTES * 60:
+        return {'available': False,
+                'reason': f'gathering data (need ≥{RATE_MIN_SPAN_MINUTES} min of snapshots)'}
+    span_hours = (recent[-1][0] - recent[0][0]) / 3600.0
+    # Rolling windows decay: used_percent can drop as old usage ages out, which
+    # is not "negative spending" — clamp to 0 instead of showing it.
+    pct_per_hour = max(0.0, recent[-1][1] - recent[0][1]) / span_hours
+    sustainable = 100.0 / window_hours          # replenish rate of this window
+    burn = pct_per_hour / sustainable
+    return {
+        'available': True,
+        'pct_per_hour': round(pct_per_hour, 1),
+        'burn_multiple': round(burn, 2),
+        'sustainable_pct_per_hour': round(sustainable, 1),
+        'bar_percent': round(min(100.0, 100.0 * burn / full_scale)),
+        'warn': burn >= warn_multiple,
+        'warn_at_multiple': warn_multiple,
+        'window_minutes': window_minutes,
+    }
+
+
+def detect_slow_leak(samples, now=None, bucket_minutes=None, lookback_minutes=None,
+                     min_rise_pct=None, min_rising_buckets=None):
+    """Pure: flag a slow, steady token drain — usage rising in several
+    CONSECUTIVE buckets across the long lookback, the pattern a background
+    drip leaves and a single legitimate burst does not (see section comment)."""
+    now = now if now is not None else time.time()
+    bucket_minutes = bucket_minutes if bucket_minutes is not None else LEAK_BUCKET_MINUTES
+    lookback_minutes = lookback_minutes if lookback_minutes is not None else LEAK_LOOKBACK_MINUTES
+    min_rise_pct = min_rise_pct if min_rise_pct is not None else LEAK_MIN_RISE_PCT
+    min_rising_buckets = min_rising_buckets if min_rising_buckets is not None else LEAK_MIN_RISING_BUCKETS
+    n_buckets = max(1, lookback_minutes // bucket_minutes)
+    longest_run = run = 0
+    rising = evaluated = 0
+    for i in range(n_buckets):                      # oldest bucket first
+        end = now - (n_buckets - 1 - i) * bucket_minutes * 60
+        start = end - bucket_minutes * 60
+        inside = [s for s in samples if start <= s[0] < end]
+        if len(inside) < 2:
+            run = 0                                 # a data gap breaks "consecutive"
+            continue
+        evaluated += 1
+        if inside[-1][1] - inside[0][1] >= min_rise_pct:
+            rising += 1
+            run += 1
+            longest_run = max(longest_run, run)
+        else:
+            run = 0
+    suspected = longest_run >= min_rising_buckets
+    in_window = [s for s in samples if s[0] >= now - lookback_minutes * 60]
+    total_rise = round(in_window[-1][1] - in_window[0][1], 1) if len(in_window) >= 2 else 0.0
+    hours = lookback_minutes / 60
+    return {
+        'suspected': suspected,
+        'rising_buckets': rising,
+        'consecutive_rising': longest_run,
+        'buckets_evaluated': evaluated,
+        'needed_consecutive': min_rising_buckets,
+        'total_rise_pct': total_rise,
+        'text': (f'Slow token drain — +{total_rise}% over last {hours:g}h '
+                 f'({longest_run} consecutive rising {bucket_minutes}-min windows)')
+                if suspected else '',
+    }
+
+
+def _attach_usage_metrics(source_key, out):
+    """Record a snapshot and attach 'rate' + 'leak' to a model-stats payload.
+    Runs on every cache-miss fetch (UI poll or background sampler — the 120s
+    stats cache dedupes). Also logs one debug line per fetch with the raw
+    value, computed rate, thresholds, and leak verdict so the math can be
+    checked against /tmp/dashboard_8765.log."""
+    windows = out.get('windows') or []
+    if out.get('ok') is False or not windows:
+        return
+    primary = windows[0]
+    pct = primary.get('used_percent')
+    if pct is None:
+        return
+    now = time.time()
+    samples = _record_usage_sample(source_key, float(pct), now)
+    window_hours = _WINDOW_HOURS.get(primary.get('label'), _DEFAULT_WINDOW_HOURS)
+    rate = compute_usage_rate(samples, window_hours, now)
+    rate['window_label'] = primary.get('label')
+    leak = detect_slow_leak(samples, now)
+    out['rate'] = rate
+    out['leak'] = leak
+    # Early warning propagates to the sub-nav tab color (yellow), never
+    # overriding a real 'down'/'concern' from the quota itself.
+    if (rate.get('warn') or leak['suspected']) and out.get('status') == 'up':
+        out['status'] = 'concern'
+    print(f"[model-usage] {source_key} pct={pct} samples={len(samples)} "
+          f"rate={rate.get('pct_per_hour')}%/hr burn={rate.get('burn_multiple')}x "
+          f"(warn≥{RATE_WARN_BURN_MULTIPLE}x → {rate.get('warn')}) "
+          f"leak: {leak['consecutive_rising']}/{leak['needed_consecutive']} consecutive rising, "
+          f"+{leak['total_rise_pct']}% over {LEAK_LOOKBACK_MINUTES}m → {leak['suspected']}")
+
+
+def _model_usage_sample_loop():
+    """Background snapshotter: fetch every source on a fixed cadence so usage
+    history keeps flowing while nobody has the Model Stats tab open — without
+    it the leak detector would only have data from moments someone watched.
+    model_stats() itself records the snapshot; its cache dedupes with the UI."""
+    while True:
+        for key in MODEL_STAT_SOURCES:
+            try:
+                model_stats(key)
+            except Exception:
+                pass
+        time.sleep(MODEL_USAGE_SAMPLE_INTERVAL)
+
+
+# ── Web Terminal (Input Options → Terminal) ──────────────────────────────────
+# A browser xterm.js panel connects to GET /api/terminal (WebSocket) and gets a
+# full login shell in a pty on this box; when ?agent=<letta-id> is present the
+# shell is primed with `letta --agent <id>` so the terminal opens inside a
+# letta-code session for that agent (exiting letta drops back to bash).
+#
+# The server must stay stdlib-only, so the RFC 6455 handshake + framing are
+# implemented here rather than pulling in `websockets`. ThreadingHTTPServer
+# already gives each connection its own thread, so the handler thread simply
+# stays alive for the socket's lifetime: a reader thread pulls frames off the
+# browser socket (keystrokes, resizes, pings) while the handler thread pumps
+# pty output back as binary frames.
+#
+# Wire protocol: client→server text frames carry JSON {"t":"i","d":<keys>} for
+# input and {"t":"r","c":cols,"r":rows} for resize; server→client frames are
+# binary raw pty bytes (binary, not text, because a pty read can split a UTF-8
+# sequence mid-character and browsers kill the socket on invalid text frames).
+
+import base64
+import fcntl
+import hashlib
+import pty
+import signal
+import struct
+import termios
+
+_WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+_TERMINAL_ID_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+
+
+def ws_accept_key(sec_websocket_key):
+    """Sec-WebSocket-Accept value for a client's Sec-WebSocket-Key (RFC 6455 §4.2.2)."""
+    digest = hashlib.sha1((sec_websocket_key + _WS_GUID).encode('ascii')).digest()
+    return base64.b64encode(digest).decode('ascii')
+
+
+def ws_encode_frame(payload, opcode=0x2):
+    """Encode one unmasked (server→client) WebSocket frame, FIN set."""
+    head = bytes([0x80 | opcode])
+    n = len(payload)
+    if n < 126:
+        head += bytes([n])
+    elif n < 65536:
+        head += bytes([126]) + struct.pack('!H', n)
+    else:
+        head += bytes([127]) + struct.pack('!Q', n)
+    return head + payload
+
+
+def ws_read_frame(rfile):
+    """Read one client→server frame from a blocking file object.
+
+    Returns (opcode, payload:bytes) with client masking removed and fragmented
+    messages reassembled. Raises ConnectionError on EOF/protocol violation.
+    """
+    opcode = None
+    payload = b''
+    while True:
+        head = rfile.read(2)
+        if len(head) < 2:
+            raise ConnectionError('websocket closed')
+        fin = head[0] & 0x80
+        op = head[0] & 0x0F
+        masked = head[1] & 0x80
+        n = head[1] & 0x7F
+        if n == 126:
+            n = struct.unpack('!H', rfile.read(2))[0]
+        elif n == 127:
+            n = struct.unpack('!Q', rfile.read(8))[0]
+        if n > 1 << 20:
+            raise ConnectionError('websocket frame too large')
+        mask = rfile.read(4) if masked else b''
+        data = rfile.read(n)
+        if len(data) < n:
+            raise ConnectionError('websocket closed mid-frame')
+        if masked:
+            data = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
+        if op != 0:               # first (or only) fragment carries the opcode
+            opcode = op
+        payload += data
+        if fin:
+            return opcode, payload
+
+
+def _terminal_spawn_shell(cols, rows, letta_agent_id):
+    """pty.fork() a login shell sized cols×rows; returns (child_pid, master_fd).
+
+    When letta_agent_id is set the command to open that agent is typed into the
+    pty so it shows up in the terminal and runs as soon as bash is up.
+    """
+    pid, master_fd = pty.fork()
+    if pid == 0:  # child
+        env = dict(os.environ)
+        env['TERM'] = 'xterm-256color'
+        env['COLORTERM'] = 'truecolor'
+        os.chdir(os.path.expanduser('~'))
+        os.execvpe('bash', ['bash', '-l'], env)
+    fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack('!HHHH', rows, cols, 0, 0))
+    if letta_agent_id:
+        os.write(master_fd, f'letta --agent {letta_agent_id}\n'.encode())
+    return pid, master_fd
+
+
+def _session_pids(sid):
+    """PIDs whose session id == sid (read from /proc/<pid>/stat field 6).
+
+    letta-code detaches into its own process group and reparents to init, so a
+    process-group kill misses it — but it can't leave the pty's *session*
+    without setsid(), which it doesn't call. Reaping by session catches it.
+    """
+    pids = []
+    for entry in os.listdir('/proc'):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f'/proc/{entry}/stat', 'rb') as f:
+                fields = f.read().rsplit(b')', 1)[1].split()
+            # after the ')' the fields are: state ppid pgrp session ...
+            if int(fields[3]) == sid:
+                pids.append(int(entry))
+        except (OSError, ValueError, IndexError):
+            continue
+    return pids
+
+
+def _terminal_reap(pid):
+    """Tear down the shell and every process in its pty session.
+
+    pty.fork() made `pid` the session leader (sid == pid). We SIGHUP the whole
+    session, then SIGKILL any survivor, so detached children (bun/letta) die too.
+    """
+    for sig, grace in ((signal.SIGHUP, 1.0), (signal.SIGKILL, 0.5)):
+        for target in _session_pids(pid) or [pid]:
+            try:
+                os.kill(target, sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+        deadline = time.time() + grace
+        while time.time() < deadline:
+            try:
+                done, _status = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                done = pid  # already reaped by someone else
+            if done:
+                break
+            time.sleep(0.05)
+
+
+# ── PC Monitor (per-machine RAM / disk / network) ─────────────────────────────
+# One tab per PC. Each PC reports three metrics as 0-100 percentages so the
+# frontend can draw progress bars and blink the tab yellow when any metric
+# crosses its alert threshold. Collection runs a tiny POSIX-shell snippet on
+# the target (locally for this box, over the existing key-auth SSH for the
+# others) and parses the /proc + df output here, so the remote machines need
+# nothing installed. Caveat: the Windows boxes are sampled through their WSL
+# distro, so RAM reflects the WSL VM, disk the / mount, network the VM's NICs.
+#
+# Tuning: thresholds and the network bar's full-scale capacity are env vars —
+# override in dashboard-server.service, no code change needed.
+PC_MONITORS = {
+    'win11': {'label': 'Windows 11', 'host': None,
+              'note': 'This machine — the live dashboard box, sampled via its WSL distro.'},
+    'win10': {'label': 'Windows 10', 'host': LETTA_DOCKER_HOST,
+              'note': 'The Letta box (100.80.49.10), sampled via its WSL distro.'},
+    'moms46': {'label': 'Moms 46', 'host': R46_SSH_HOST,
+               'note': "Mom's Rosemary46 Linux box (100.72.34.38)."},
+}
+
+PC_ALERT_THRESHOLDS = {
+    'ram': float(os.environ.get('PC_ALERT_RAM_PERCENT', '90')),
+    'disk': float(os.environ.get('PC_ALERT_DISK_PERCENT', '90')),
+    'net': float(os.environ.get('PC_ALERT_NET_PERCENT', '80')),
+}
+# Full scale for the Network Traffic bar: 100% = this many Mbit/s of rx+tx.
+PC_NET_CAPACITY_MBPS = float(os.environ.get('PC_NET_CAPACITY_MBPS', '100'))
+
+_PC_METRICS_SH = (
+    "echo ===MEM===; grep -E 'MemTotal|MemAvailable' /proc/meminfo; "
+    "echo ===DISK===; df -kP /; "
+    "echo ===NET===; cat /proc/net/dev"
+)
+
+
+def parse_pc_metrics_output(text):
+    """Parse the ===MEM===/===DISK===/===NET=== collector output into raw
+    numbers: memory kB, root-filesystem 1K blocks, and cumulative rx/tx bytes
+    summed over every interface except loopback. Pure — unit-tested."""
+    out = {'mem_total_kb': None, 'mem_avail_kb': None,
+           'disk_total_kb': None, 'disk_used_kb': None,
+           'net_rx_bytes': 0, 'net_tx_bytes': 0}
+    section = None
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith('===') and s.endswith('===') and len(s) > 6:
+            section = s.strip('=')
+            continue
+        if section == 'MEM':
+            if s.startswith('MemTotal:'):
+                out['mem_total_kb'] = int(s.split()[1])
+            elif s.startswith('MemAvailable:'):
+                out['mem_avail_kb'] = int(s.split()[1])
+        elif section == 'DISK':
+            parts = s.split()
+            if len(parts) >= 6 and parts[-1] == '/' and parts[1].isdigit():
+                out['disk_total_kb'] = int(parts[1])
+                out['disk_used_kb'] = int(parts[2])
+        elif section == 'NET' and ':' in s:
+            name, _, rest = s.partition(':')
+            fields = rest.split()
+            # /proc/net/dev: rx bytes is field 0, tx bytes is field 8.
+            if name.strip() != 'lo' and len(fields) >= 9:
+                out['net_rx_bytes'] += int(fields[0])
+                out['net_tx_bytes'] += int(fields[8])
+    return out
+
+
+def _pc_gb(kb):
+    return kb / (1024.0 * 1024.0)
+
+
+def build_pc_metrics(parsed, prev_net, now, thresholds=None, net_capacity_mbps=None):
+    """Pure: parsed collector numbers + the previous network sample →
+    (metric rows, new network sample). Each row carries percent / human text /
+    alert flag so the frontend only has to draw bars. Network traffic is a
+    rate, so it needs two samples — the first request shows 'measuring…'."""
+    th = thresholds or PC_ALERT_THRESHOLDS
+    cap_mbps = net_capacity_mbps or PC_NET_CAPACITY_MBPS
+    metrics = []
+
+    mem_total = parsed.get('mem_total_kb')
+    if mem_total:
+        used = mem_total - (parsed.get('mem_avail_kb') or 0)
+        pct = round(100.0 * used / mem_total, 1)
+        metrics.append({'key': 'ram', 'label': 'RAM Usage', 'percent': pct,
+                        'text': f'{_pc_gb(used):.1f} / {_pc_gb(mem_total):.1f} GB',
+                        'alert': pct >= th['ram'], 'alert_at': th['ram']})
+
+    disk_total = parsed.get('disk_total_kb')
+    if disk_total:
+        used = parsed.get('disk_used_kb') or 0
+        pct = round(100.0 * used / disk_total, 1)
+        metrics.append({'key': 'disk', 'label': 'Hard Drive Usage', 'percent': pct,
+                        'text': f'{_pc_gb(used):.0f} / {_pc_gb(disk_total):.0f} GB',
+                        'alert': pct >= th['disk'], 'alert_at': th['disk']})
+
+    total_bytes = parsed.get('net_rx_bytes', 0) + parsed.get('net_tx_bytes', 0)
+    new_sample = (now, total_bytes)
+    if prev_net and now > prev_net[0] and total_bytes >= prev_net[1]:
+        rate_mbps = (total_bytes - prev_net[1]) * 8.0 / (now - prev_net[0]) / 1e6
+        pct = round(min(100.0, 100.0 * rate_mbps / cap_mbps), 1)
+        metrics.append({'key': 'net', 'label': 'Network Traffic', 'percent': pct,
+                        'text': f'{rate_mbps:.2f} Mbit/s (bar full at {cap_mbps:.0f})',
+                        'alert': pct >= th['net'], 'alert_at': th['net']})
+    else:
+        metrics.append({'key': 'net', 'label': 'Network Traffic', 'percent': 0,
+                        'text': 'measuring…', 'alert': False, 'alert_at': th['net']})
+    return metrics, new_sample
+
+
+_pc_metrics_cache = {}    # key → (timestamp, payload)
+_pc_net_last = {}         # key → (timestamp, cumulative rx+tx bytes)
+PC_METRICS_CACHE_TTL = 10  # seconds — also the effective network-rate window
+
+
+def pc_metrics(key):
+    """Payload for one PC: run the collector (local or SSH), derive the three
+    metric bars, and cache briefly so the frontend's tab-colour polling doesn't
+    trigger an SSH per tab per tick."""
+    cfg = PC_MONITORS.get(key)
+    if not cfg:
+        return {'ok': False, 'error': f'unknown pc {key}', 'alert': False}
+    cached = _pc_metrics_cache.get(key)
+    if cached and time.time() - cached[0] < PC_METRICS_CACHE_TTL:
+        return cached[1]
+    host = cfg.get('host')
+    if host:
+        cmd = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', host, _PC_METRICS_SH]
+    else:
+        cmd = ['sh', '-c', _PC_METRICS_SH]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if not (r.stdout or '').strip():
+            raise RuntimeError((r.stderr or 'collector produced no output').strip()[:200])
+        parsed = parse_pc_metrics_output(r.stdout)
+        now = time.time()
+        metrics, sample = build_pc_metrics(parsed, _pc_net_last.get(key), now)
+        _pc_net_last[key] = sample
+        out = {'ok': True, 'key': key, 'label': cfg['label'], 'note': cfg.get('note', ''),
+               'metrics': metrics, 'alert': any(m['alert'] for m in metrics), 'as_of': now}
+    except Exception as e:
+        out = {'ok': False, 'key': key, 'label': cfg['label'], 'error': str(e), 'alert': False}
+    _pc_metrics_cache[key] = (time.time(), out)
+    return out
+
+
 # ── HTTP Handler ──────────────────────────────────────────────────────────────
 
 class DashboardHandler(SimpleHTTPRequestHandler):
@@ -4310,6 +4927,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         path = parsed.path
         query = parse_qs(parsed.query)
         agent_id = query.get('agent', [''])[0]
+
+        if path == '/api/terminal':
+            return self.handle_terminal_ws(query)
 
         if path == '/api/code-status':
             return self.json_response(get_code_status())
@@ -4331,6 +4951,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if path == '/api/model-stats':
             src = query.get('source', [''])[0]
             return self.json_response(model_stats(src))
+
+        if path == '/api/pc-monitors':
+            return self.json_response([
+                {'key': k, 'label': v['label'], 'note': v.get('note', '')}
+                for k, v in PC_MONITORS.items()
+            ])
+
+        if path == '/api/pc-metrics':
+            return self.json_response(pc_metrics(query.get('pc', [''])[0]))
 
         if path == '/api/agent-card':
             agent = next((a for a in build_agent_list()
@@ -4896,6 +5525,110 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         except FileNotFoundError:
             self.send_error(404)
 
+    def handle_terminal_ws(self, query):
+        """Upgrade GET /api/terminal to a WebSocket and bridge it to a pty shell."""
+        key = self.headers.get('Sec-WebSocket-Key')
+        upgrade = (self.headers.get('Upgrade') or '').lower()
+        if not key or upgrade != 'websocket':
+            return self.error_response('expected a websocket upgrade', 400)
+
+        letta_agent_id = ''
+        raw_agent = query.get('agent', [''])[0]
+        if raw_agent:
+            lid = letta_id_for(raw_agent)
+            # letta_id_for returns the id as-is for Letta agents; guard the exec.
+            if lid and _TERMINAL_ID_RE.match(lid):
+                letta_agent_id = lid
+        try:
+            cols = max(20, min(500, int(query.get('cols', ['80'])[0])))
+            rows = max(5, min(200, int(query.get('rows', ['24'])[0])))
+        except ValueError:
+            cols, rows = 80, 24
+
+        # Write the 101 by hand: a WebSocket upgrade must be HTTP/1.1, but this
+        # handler's protocol_version is HTTP/1.0 (send_response would emit the
+        # wrong status line and browsers would reject the upgrade). We also skip
+        # the default Server/Date headers to keep the handshake minimal.
+        handshake = (
+            'HTTP/1.1 101 Switching Protocols\r\n'
+            'Upgrade: websocket\r\n'
+            'Connection: Upgrade\r\n'
+            f'Sec-WebSocket-Accept: {ws_accept_key(key)}\r\n\r\n'
+        )
+        try:
+            self.wfile.write(handshake.encode('ascii'))
+            self.wfile.flush()
+        except OSError:
+            return
+
+        sock = self.connection
+        pid, master_fd = _terminal_spawn_shell(cols, rows, letta_agent_id)
+        alive = threading.Event()
+        alive.set()
+
+        def pump_browser_to_pty():
+            """Reader thread: browser frames → pty (input, resize, close)."""
+            try:
+                while alive.is_set():
+                    opcode, data = ws_read_frame(self.rfile)
+                    if opcode == 0x8:              # close
+                        break
+                    if opcode == 0x9:              # ping → pong
+                        try:
+                            sock.sendall(ws_encode_frame(data, opcode=0xA))
+                        except OSError:
+                            break
+                        continue
+                    if opcode not in (0x1, 0x2):   # ignore pong/other
+                        continue
+                    try:
+                        msg = json.loads(data.decode('utf-8', 'ignore'))
+                    except ValueError:
+                        continue
+                    if msg.get('t') == 'i':
+                        os.write(master_fd, str(msg.get('d', '')).encode('utf-8'))
+                    elif msg.get('t') == 'r':
+                        c = max(20, min(500, int(msg.get('c', cols))))
+                        r = max(5, min(200, int(msg.get('r', rows))))
+                        fcntl.ioctl(master_fd, termios.TIOCSWINSZ,
+                                    struct.pack('!HHHH', r, c, 0, 0))
+            except (ConnectionError, OSError, ValueError):
+                pass
+            finally:
+                alive.clear()
+
+        reader = threading.Thread(target=pump_browser_to_pty, daemon=True)
+        reader.start()
+
+        # Handler thread: pty output → browser, until either side closes.
+        import select as _select
+        try:
+            while alive.is_set():
+                ready, _w, _e = _select.select([master_fd], [], [], 0.25)
+                if not ready:
+                    continue
+                try:
+                    chunk = os.read(master_fd, 65536)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                try:
+                    sock.sendall(ws_encode_frame(chunk, opcode=0x2))
+                except OSError:
+                    break
+        finally:
+            alive.clear()
+            try:
+                sock.sendall(ws_encode_frame(b'', opcode=0x8))
+            except OSError:
+                pass
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+            _terminal_reap(pid)
+
     def json_response(self, data):
         body = json.dumps(data, indent=2).encode('utf-8')
         self.send_response(200)
@@ -4932,6 +5665,10 @@ if __name__ == '__main__':
     threading.Thread(target=_letta_remote_log_pull_loop, daemon=True).start()
     print(f'Pulling Letta server logs over SSH from {LETTA_DOCKER_HOST} every '
           f'{LETTA_REMOTE_LOG_PULL_INTERVAL}s -> {LETTA_REMOTE_LOG_CACHE}')
+    # Pre-warm the agent-list cache so the first /api/agents after a restart
+    # doesn't block the browser on the slow (~12-30s) Letta roster fetch.
+    threading.Thread(target=build_agent_list, daemon=True).start()
+    print('Pre-warming /api/agents cache in the background')
     threading.Thread(target=_health_poll_loop, daemon=True).start()
     print(f'Polling server health every {HEALTH_POLL_INTERVAL}s '
           f'(timeout={HEALTH_CHECK_TIMEOUT}s, fail-threshold={HEALTH_FAIL_THRESHOLD})')
@@ -4940,6 +5677,10 @@ if __name__ == '__main__':
     threading.Thread(target=_chatgpt_provider_poll_loop, daemon=True).start()
     print(f'Polling chatgpt-plus-pro provider health every {CHATGPT_PROVIDER_POLL_INTERVAL}s '
           f'(Mazda + {len(_provider_agent_ids(CHATGPT_PLUS_PRO)) - 1} minions)')
+    threading.Thread(target=_model_usage_sample_loop, daemon=True).start()
+    print(f'Sampling model usage every {MODEL_USAGE_SAMPLE_INTERVAL}s '
+          f'(rate warn ≥{RATE_WARN_BURN_MULTIPLE}x sustainable; leak: '
+          f'{LEAK_MIN_RISING_BUCKETS}×{LEAK_BUCKET_MINUTES}m rising of {LEAK_LOOKBACK_MINUTES}m)')
     try:
         server.serve_forever()
     except KeyboardInterrupt:

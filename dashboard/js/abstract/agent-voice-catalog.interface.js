@@ -38,7 +38,6 @@ export const DEFAULT_AGENT_VOICE_PREFERENCES = {
   Frita: [/jenny|joanna/i],
   Hailey: [/samantha|susan/i],
   Jeri: [/salli|kendra|amy|emma|olivia/i],
-  Cesare: [/ashley|michelle/i],
   "Mazda Router": [/ana/i],
   "Mazda Parser": [/cora/i],
   "Mazda Vendor Identity": [/elizabeth/i],

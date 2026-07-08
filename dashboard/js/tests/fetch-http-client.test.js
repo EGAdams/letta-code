@@ -16,7 +16,7 @@ describe("FetchHttpClient (concrete HttpClient)", () => {
     });
     expect(await client.getJSON("/api/x")).toEqual({ a: 1 });
     expect(calls[0].url).toBe("/api/x");
-    expect(calls[0].opts).toBeUndefined();
+    expect(calls[0].opts.signal).toBeInstanceOf(AbortSignal);
   });
 
   test("postJSON builds a POST through the base policy", async () => {

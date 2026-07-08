@@ -964,6 +964,32 @@ summary {
   border-radius: 8px;
   transition: width 300ms ease;
 }
+/* Rate-of-change warning: the fill is already yellow (inline style) when the
+   burn multiple crosses the server's warn threshold; this makes it BLINK so
+   it can't be missed at a glance. */
+.ms-bar-fill.ms-blink-warn {
+  animation: ms-warn-blink 1s steps(1, end) infinite;
+}
+@keyframes ms-warn-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+/* Slow-leak badge under the bars ("Slow token drain — +X% over last 2h"). */
+.ms-leak {
+  color: #f9a825;
+  font-weight: 600;
+  margin: 8px 0 0;
+}
+
+/* ---- PC Monitor ---- */
+/* The metric bars reuse the Model Stats .ms-* pieces and the sidebar tab
+   reuses .tab-alert (yellow blink); only the header badge is new. */
+.pcm-alert-flag {
+  color: #f9a825;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
 
 /* Stale outage (down past the threshold) blinks to escalate — passive red went
    unnoticed for 54 min today. */
