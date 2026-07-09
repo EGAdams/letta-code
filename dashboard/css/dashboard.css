@@ -984,11 +984,31 @@ summary {
 
 /* ---- PC Monitor ---- */
 /* The metric bars reuse the Model Stats .ms-* pieces and the sidebar tab
-   reuses .tab-alert (yellow blink); only the header badge is new. */
+   reuses .tab-alert (yellow blink) for warn; crit gets a red blink. */
 .pcm-alert-flag {
   color: #f9a825;
   font-size: 0.8rem;
   font-weight: 600;
+}
+.pcm-crit-flag {
+  color: #e53935;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+@keyframes tab-alert-blink-red {
+  0%,
+  49% {
+    background: #e53935;
+    color: #fff;
+  }
+  50%,
+  100% {
+    background: var(--tab);
+    color: #fff;
+  }
+}
+.tab.tab-alert-red {
+  animation: tab-alert-blink-red 1s step-end infinite;
 }
 
 /* Stale outage (down past the threshold) blinks to escalate — passive red went

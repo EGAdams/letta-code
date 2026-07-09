@@ -273,16 +273,24 @@ describe("AgentCardRenderer (Strategy)", () => {
   });
 });
 
-function inputOptionsSetup() {
+function inputOptionsSetup({ modelInfo } = {}) {
   const doc = new FakeDocument();
   const container = doc.createElement("section");
   container.id = "io";
   // The raw /api/test HTTP path must never be hit anymore — text only
   // reaches the agent through the letta-code terminal session.
   const posts = [];
+  const gets = [];
   const http = {
+    getJSON: async (url) => {
+      gets.push(url);
+      // /api/agent-model — the model dropdown loader. Default mimics a
+      // non-Letta tab (dropdown hides) unless the test passes modelInfo.
+      return modelInfo ?? { ok: false, options: [] };
+    },
     postJSON: async (url, body) => {
       posts.push({ url, body });
+      if (url === "/api/agent-model") return { ok: true, model: body.model };
       return { replies: [] };
     },
   };
@@ -333,6 +341,7 @@ function inputOptionsSetup() {
   return {
     container,
     posts,
+    gets,
     spoken,
     statuses,
     sentLines,
@@ -382,5 +391,55 @@ describe("InputOptionsRenderer (Strategy)", () => {
     await ctx.api.send();
     expect(ctx.sentLines).toEqual(["hi"]);
     expect(ctx.terminalDisposed).toBe(false);
+  });
+
+  test("model dropdown loads options from /api/agent-model and shows current", async () => {
+    const ctx = inputOptionsSetup({
+      modelInfo: {
+        ok: true,
+        current: "chatgpt-plus-pro/gpt-5.4-mini",
+        options: [
+          "chatgpt-plus-pro/gpt-5.5",
+          "chatgpt-plus-pro/gpt-5.4",
+          "chatgpt-plus-pro/gpt-5.4-mini",
+        ],
+      },
+    });
+    await Promise.resolve(); // let the getJSON .then() settle
+    expect(ctx.gets).toEqual(["/api/agent-model?agent=a9"]);
+    const sel = ctx.container.querySelector(".io-model-select");
+    expect(sel.children.length).toBe(3);
+    expect(sel.value).toBe("chatgpt-plus-pro/gpt-5.4-mini");
+    expect(sel.disabled).toBe(false);
+  });
+
+  test("model dropdown change POSTs /api/agent-model with the new handle", async () => {
+    const ctx = inputOptionsSetup({
+      modelInfo: {
+        ok: true,
+        current: "chatgpt-plus-pro/gpt-5.4",
+        options: ["chatgpt-plus-pro/gpt-5.4", "chatgpt-plus-pro/gpt-5.4-mini"],
+      },
+    });
+    await Promise.resolve();
+    const sel = ctx.container.querySelector(".io-model-select");
+    sel.value = "chatgpt-plus-pro/gpt-5.4-mini";
+    sel.dispatch("change", {});
+    await Promise.resolve();
+    await Promise.resolve();
+    const modelPosts = ctx.posts.filter((p) => p.url === "/api/agent-model");
+    expect(modelPosts).toEqual([
+      {
+        url: "/api/agent-model",
+        body: { agent: "a9", model: "chatgpt-plus-pro/gpt-5.4-mini" },
+      },
+    ]);
+  });
+
+  test("model dropdown hides when the tab has no Letta agent", async () => {
+    const ctx = inputOptionsSetup(); // default mock: { ok: false, options: [] }
+    await Promise.resolve();
+    const sel = ctx.container.querySelector(".io-model-select");
+    expect(sel.parent.style.display).toBe("none");
   });
 });

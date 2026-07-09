@@ -196,10 +196,99 @@
 <body>
   <header>
     <h1>DietPi Remote Agent Prototype</h1>
-    <p>Team-ready implementation prompt, directory guidance, command-file contract, and GoF-inspired Pydantic interface design for a one-way command polling prototype.</p>
+    <p>Team-ready implementation prompt, directory guidance, command-file contract, and GoF-inspired Pydantic interface design for a one-way command polling prototype. <strong>Status: implemented and deployed &mdash; see Section 0.</strong></p>
   </header>
 
   <main>
+    <section>
+      <h2>0. Implementation Status (updated 2026-07-08)</h2>
+      <p>
+        <span class="badge" style="background:#e6f6ec;color:#1b7f4c;">COMPLETE &amp; DEPLOYED</span>
+        This design has been implemented. Sections 1&ndash;11 below are the original handoff design, kept as reference.
+        The authoritative usage documentation is now the project's own <code>README.md</code>.
+      </p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Current State</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Project location</td>
+            <td><code>/home/adamsl/dietpi_remote_agent</code> on <code>DESKTOP-SHDBATI</code> (WSL), not yet on the Florida DietPi.</td>
+          </tr>
+          <tr>
+            <td>Service</td>
+            <td>systemd <strong>user</strong> service <code>dietpi-agent.service</code> (<code>systemctl --user status dietpi-agent</code>), enabled and running since 2026-07-06.</td>
+          </tr>
+          <tr>
+            <td>Tests</td>
+            <td>30/30 passing (<code>.venv/bin/pytest tests/ -q</code>). Last verified 2026-07-08, including a live end-to-end <code>health_check</code> through the running service.</td>
+          </tr>
+          <tr>
+            <td>Documentation</td>
+            <td><code>README.md</code> in the project root: install, configuration, usage, service management, layout.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Deltas from this design</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Design said</th>
+            <th>Implementation does</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Poll the website URL (<code>HttpCommandSource</code>) only.</td>
+            <td>A second source, <code>LocalCommandSource</code>, was added. If <code>command_directory</code> is set in <code>config.json</code> it <strong>wins</strong> over <code>command_source_url</code>. The current deployment watches the local <code>commands/</code> folder; remove that key to switch to HTTP polling of <code>https://americansjewelry.com/commands/dietpi/</code>.</td>
+          </tr>
+          <tr>
+            <td>Two handlers: <code>make_run</code>, <code>health_check</code>.</td>
+            <td>A third allowlisted handler exists: <code>claude_sdk_run</code> &mdash; sends the command file's body as a prompt to the Frita Letta agent (<code>http://100.80.49.10:8283</code>, agent ID hard-coded in <code>handlers/claude_sdk_run.py</code>) and records her reply in the state file.</td>
+          </tr>
+          <tr>
+            <td>File body empty / reserved for future metadata.</td>
+            <td>The body is parsed as an optional <code>payload</code> string on the command model; <code>claude_sdk_run</code> uses it as the prompt.</td>
+          </tr>
+          <tr>
+            <td><code>freshness_window_seconds = 0</code> or <code>1</code> recommended.</td>
+            <td>Deployed with <code>30</code>. Works well with the 5-second poll interval; tighten it if commands must not run late.</td>
+          </tr>
+          <tr>
+            <td>Time format shown as <code>12_00_00_PM</code>.</td>
+            <td>Hours are <em>not</em> zero-padded: <code>8_41_10_AM</code>, produced by <code>date +"%-I_%M_%S_%p"</code>. The parser accepts both.</td>
+          </tr>
+          <tr>
+            <td>No publishing tool specified.</td>
+            <td><code>publish_command.sh</code> in the project root creates correctly named command files: default drops into the local <code>commands/</code> dir; <code>--remote</code> scps to HostGator (<code>tinman72@americansjewelry.com:~/public_html/commands/dietpi/</code>).</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Quick usage</h3>
+      <pre><code>cd ~/dietpi_remote_agent
+./publish_command.sh health_check                                  # prove it's alive
+./publish_command.sh claude_sdk_run "Check disk usage on this box" # ask Frita
+./publish_command.sh make_run                                      # make + run configured C++ project
+./publish_command.sh --remote health_check                         # publish to the website instead
+
+tail -f logs/agent.log                                             # audit trail (no reply channel)
+python3 -m json.tool data/agent_state.json                         # execution history
+systemctl --user restart dietpi-agent                              # after config/code changes</code></pre>
+
+      <div class="note">
+        <strong>Remaining work for the next team:</strong> deploy an instance on the actual Florida DietPi in HTTP-polling mode
+        (install per README, omit <code>command_directory</code>), and consider the Section 4 follow-up: signed JSON command
+        envelopes instead of filename-only parsing.
+      </div>
+    </section>
+
     <section>
       <h2>1. Clean Team Prompt</h2>
       <p>Use this as the main prompt for the implementation agent.</p>

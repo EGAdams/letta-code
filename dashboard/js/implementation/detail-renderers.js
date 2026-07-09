@@ -770,6 +770,71 @@ export class InputOptionsRenderer extends DetailRenderer {
       statusEl.textContent = msg;
     };
 
+    // ── Model selector — which LLM handle this agent runs on ──────────────
+    // Options come from /api/agent-model (the probed-working Codex OAuth
+    // handles); changing it PATCHes the agent's llm_config through server.py.
+    const modelRow = this._el("div");
+    modelRow.style.cssText = "display:flex;align-items:center;gap:8px;";
+    const modelLbl = this._el("span", { textContent: "Model:" });
+    modelLbl.style.cssText = "font-size:0.9rem;color:#555;white-space:nowrap;";
+    const modelSel = this._el("select", {
+      className: "io-model-select",
+      disabled: true,
+    });
+    modelSel.style.cssText =
+      "flex:1;min-width:0;padding:6px;border-radius:4px;border:1px solid #bbb;";
+    modelRow.append(modelLbl, modelSel);
+    col.prepend(modelRow);
+
+    let modelCurrent = "";
+    this._http
+      .getJSON(`/api/agent-model?agent=${encodeURIComponent(id)}`)
+      .then((d) => {
+        if (!d || !d.ok || !Array.isArray(d.options) || !d.options.length) {
+          modelRow.style.display = "none";
+          return;
+        }
+        modelSel.innerHTML = "";
+        for (const h of d.options) {
+          const opt = this._el("option", {
+            value: h,
+            textContent: h.split("/").pop(),
+            title: h,
+          });
+          modelSel.appendChild(opt);
+        }
+        modelCurrent = d.current || d.options[0];
+        modelSel.value = modelCurrent;
+        modelSel.disabled = false;
+      })
+      .catch(() => {
+        modelRow.style.display = "none";
+      });
+
+    modelSel.addEventListener("change", async () => {
+      const next = modelSel.value;
+      modelSel.disabled = true;
+      showStatus(`Switching model to ${next.split("/").pop()}…`);
+      try {
+        const r = await this._http.postJSON("/api/agent-model", {
+          agent: id,
+          model: next,
+        });
+        if (r?.ok) {
+          modelCurrent = r.model || next;
+          showStatus(`Model set to ${modelCurrent.split("/").pop()}.`);
+        } else {
+          modelSel.value = modelCurrent;
+          showStatus(r?.error || "Model change failed.", true);
+        }
+      } catch (e) {
+        modelSel.value = modelCurrent;
+        showStatus(`Model change failed: ${e.message}`, true);
+      } finally {
+        modelSel.disabled = false;
+      }
+    });
+
     autoSendBtn.addEventListener("click", () => {
       autoSendOn = !autoSendOn;
       autoSendBtn.style.background = autoSendOn ? "#2f55e7" : "#6c757d";

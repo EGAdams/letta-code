@@ -1031,8 +1031,51 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
     )
 
 
+# Mazda's executor_run/run_claude_code_sdk tools execute inside a Docker
+# container on a DIFFERENT physical machine (the Win10/Letta box, 100.80.49.10)
+# from this dashboard (the Win11 box). That container only has
+# /home/adamsl/rol_finances mounted in — not this box's scan output directory
+# (~/planner/nonprofit_finance_db/receipt_scanning_tools). So a scanned image's
+# local path is meaningless to Mazda's tools; it must be copied across first.
+# Reuses the same SSH target (key auth already set up) as LETTA_DOCKER_HOST.
+SCAN_STAGING_HOST = os.environ.get('LETTA_DOCKER_HOST', 'adamsl@100.80.49.10')
+SCAN_STAGING_REMOTE_DIR = (
+    '/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans')
+
+
+def _stage_scan_for_mazda(local_image_path):
+    """Copy a scanned image to where Mazda's executor tools can actually read it.
+
+    Returns the remote path on success, or None on failure (caller must not
+    hand Mazda a path she can't reach — that's the bug this fixes).
+    """
+    if not os.path.isfile(local_image_path):
+        return None
+    remote_name = os.path.basename(local_image_path)
+    remote_path = f'{SCAN_STAGING_REMOTE_DIR}/{remote_name}'
+    try:
+        subprocess.run(
+            ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes',
+             SCAN_STAGING_HOST, 'mkdir', '-p', SCAN_STAGING_REMOTE_DIR],
+            capture_output=True, text=True, timeout=15, check=True,
+        )
+        subprocess.run(
+            ['scp', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes',
+             local_image_path, f'{SCAN_STAGING_HOST}:{remote_path}'],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+        return remote_path
+    except Exception as exc:
+        print(f'[scan→mazda] Failed to stage scan for executor: {exc}')
+        return None
+
+
 def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None):
-    """Background: send the scanned document to Mazda for intake processing."""
+    """Background: send the scanned document to Mazda for intake processing.
+
+    scan_image_path must already be reachable from Mazda's executor tools
+    (see _stage_scan_for_mazda) — this function does no staging itself.
+    """
     try:
         msg = build_mazda_scan_message(scan_image_path, scanner_name, facade_result)
         payload = json.dumps({
@@ -1212,14 +1255,22 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
     image_path = os.path.join(SCAN_TOOLS_DIR, cfg.get('output', ''))
     facade = run_intake_facade(image_path, org_id=org_id, engine=engine)
     mazda_dispatched = False
+    stage_error = None
     if os.path.isfile(image_path):
-        threading.Thread(
-            target=_notify_mazda_of_scan,
-            args=(image_path, cfg.get('name', key), facade),
-            daemon=True,
-        ).start()
-        mazda_dispatched = True
+        remote_image_path = _stage_scan_for_mazda(image_path)
+        if remote_image_path:
+            threading.Thread(
+                target=_notify_mazda_of_scan,
+                args=(remote_image_path, cfg.get('name', key), facade),
+                daemon=True,
+            ).start()
+            mazda_dispatched = True
+        else:
+            stage_error = ('Could not copy the scan to where Mazda can read it '
+                            '(SSH/copy to the executor machine failed) — Mazda was not notified.')
     result = build_pipeline_result(facade, mazda_dispatched)
+    if stage_error:
+        result['stage_error'] = stage_error
     result['scanner'] = key
     result['image_path'] = image_path
     return result
@@ -1939,6 +1990,26 @@ def build_receipt_only_report_html():
 # Letta API base URL — override with LETTA_BASE_URL env var
 LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rstrip('/')
 
+# Model handles selectable per-agent from Input Options. These are the ONLY
+# handles the chatgpt-plus-pro (Codex OAuth) provider accepts — verified
+# 2026-07-08 by probing chatgpt.com/backend-api/codex/responses directly:
+# every other handle (gpt-5.3, gpt-5.2, all *-codex variants) returns
+# "model is not supported when using Codex with a ChatGPT account".
+AGENT_MODEL_OPTIONS = [
+    'chatgpt-plus-pro/gpt-5.5',
+    'chatgpt-plus-pro/gpt-5.4',
+    'chatgpt-plus-pro/gpt-5.4-mini',
+]
+
+def agent_model_options(current_handle):
+    """Dropdown options for an agent: the vetted Codex handles, plus the
+    agent's own handle at the top when it's on another provider (lc-gemini,
+    etc.) so the dropdown never lies about the current state."""
+    options = list(AGENT_MODEL_OPTIONS)
+    if current_handle and current_handle not in options:
+        options.insert(0, current_handle)
+    return options
+
 # Agents that are wired to the Letta API automatically.
 # Add any new Letta agent here: { 'name': '...', 'id': '<real-letta-agent-id>' }
 # Set 'id' to None to auto-discover by name from the Letta agent list.
@@ -2332,10 +2403,12 @@ SSH_CONNECTIONS = [
         'host': '100.80.49.10',
         'user': 'adamsl',
         # Reachable only via Tailscale DERP(ord) relay — observed RTT ranges from
-        # 1.8s up to a real 25s+ round trip (see reference_tailscale_derp_relay_
-        # 100_80_49_10 memory), far past every other connection here. Give it its
-        # own generous timeout rather than penalizing fast hosts' down-detection.
-        'timeout': 30,
+        # 1.8s up to a real 43s+ round trip (see reference_tailscale_derp_relay_
+        # 100_80_49_10 memory; re-measured 2026-07-09 at 43.1s worst case), far past
+        # every other connection here. 30s previously caused false "down" flips —
+        # give it its own generous timeout rather than penalizing fast hosts'
+        # down-detection.
+        'timeout': 55,
         'note': 'WSL side of the Win10 box — actual LETTA_DOCKER_HOST used for Letta server, '
                 'Logger API, and Frita executor admin (100.80.49.10)',
     },
@@ -2362,6 +2435,15 @@ SSH_CONNECTIONS = [
         'note': 'Samsung phone — checked via `tailscale status` (no sshd). Must show '
                 '"online" here for the tailnet-only live dashboard URL '
                 '(desktop-2obsqmc-24.tailb8fc54.ts.net) to be reachable from it.',
+    },
+    {
+        'key': 'chromebook-a13',
+        'name': 'ChromeBook A13',
+        'host': '100.82.55.63',
+        'user': None,
+        'check': 'tailscale',
+        'note': 'Chromebook (tailnet device "octopus", eg1972@gmail.com, Android 13, '
+                'Tailscale 1.96.4) — checked via `tailscale status` (no sshd).',
     },
 ]
 
@@ -2902,8 +2984,17 @@ def get_letta_id(agent_cfg):
     return _resolve_letta_id(agent_cfg['name'])
 
 def letta_messages(agent_id, limit=200):
-    """Fetch all message types for an agent from the Letta API."""
-    data = letta_get(f'/v1/agents/{agent_id}/messages?limit={limit}')
+    """Fetch all message types for an agent from the Letta API.
+
+    Backs the Messages/Thoughts/Tool Calls tabs. Uses a longer-than-default
+    timeout because the Letta box is currently only reachable over a Tailscale
+    DERP relay (no direct connection to this box), which regularly takes
+    10-20s round trip — the 6s default was cutting the request off before the
+    reply arrived, so these tabs showed empty ("no messages recorded yet")
+    even though the agent had messages. 25s keeps this under the browser's
+    30s fetch abort while giving the slow relay path room to finish.
+    """
+    data = letta_get(f'/v1/agents/{agent_id}/messages?limit={limit}', timeout=25)
     if not data:
         return []
     return data if isinstance(data, list) else data.get('messages', data.get('results', []))
@@ -3378,7 +3469,7 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
     cmd = ['ssh', '-o', f'ConnectTimeout={timeout}', '-o', 'BatchMode=yes',
            '-o', 'StrictHostKeyChecking=accept-new', target, 'echo CONNECTED && hostname']
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
         out_lines = result.stdout.strip().splitlines()
         if result.returncode == 0 and out_lines and out_lines[0].strip() == 'CONNECTED':
             host = out_lines[1].strip() if len(out_lines) > 1 else '?'
@@ -3850,6 +3941,88 @@ PROVIDER_USAGE_PROBES = {
 }
 
 
+# ── ChatGPT provider auto-failover ────────────────────────────────────────────
+# Two ChatGPT Plus accounts exist; the provider row holds one token and the
+# other is parked in a standby file on the Letta box. When the ACTIVE account
+# exhausts a rate window but the STANDBY probe shows headroom, swap the row
+# (the swap script also parks the displaced token as the new standby), so the
+# fleet degrades to "other account" instead of "dead until reset".
+CHATGPT_FAILOVER_HOST = 'adamsl@100.80.49.10'
+CHATGPT_FAILOVER_STANDBY_FILE = '/home/adamsl/letta-backups/chatgpt_standby_token.json'
+CHATGPT_FAILOVER_SWAP_CMD = '/home/adamsl/server_tools/swap_chatgpt_provider_token.sh'
+CHATGPT_FAILOVER_MIN_INTERVAL = int(os.environ.get('CHATGPT_FAILOVER_MIN_INTERVAL', '1800'))
+_chatgpt_failover = {'last_swap_ts': 0.0, 'last_note': ''}
+
+
+def failover_should_trigger(probe_text, now_ts, last_swap_ts,
+                            min_interval=None):
+    """Pure gate: only a genuine rate-limit triggers failover (auth/network
+    errors would just install a token with the same problem), and swaps are
+    spaced at least min_interval apart so two capped accounts can't ping-pong."""
+    if min_interval is None:
+        min_interval = CHATGPT_FAILOVER_MIN_INTERVAL
+    if not str(probe_text).startswith('llm_rate_limit'):
+        return False
+    return (now_ts - last_swap_ts) >= min_interval
+
+
+def _standby_has_headroom():
+    """Read the standby token off the Letta box and probe its usage API.
+    Returns (ok, note); ok=True only when the standby is NOT rate-limited."""
+    try:
+        r = subprocess.run(['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
+                            CHATGPT_FAILOVER_HOST, f'cat {CHATGPT_FAILOVER_STANDBY_FILE}'],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode != 0 or not r.stdout.strip():
+            return False, 'standby token file missing/unreadable'
+        creds = json.loads(r.stdout.strip())
+    except Exception as e:
+        return False, f'standby read failed: {e}'
+    probe = _probe_codex_usage(creds)
+    if probe['ok']:
+        return True, f"standby has headroom ({probe['text']})"
+    return False, f"standby also limited ({probe['text'][:80]})"
+
+
+def _run_chatgpt_failover_swap():
+    """Execute the swap script on the Letta box. Returns (ok, note)."""
+    try:
+        r = subprocess.run(['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
+                            CHATGPT_FAILOVER_HOST, CHATGPT_FAILOVER_SWAP_CMD],
+                           capture_output=True, text=True, timeout=60)
+        out = ((r.stdout or '') + (r.stderr or '')).strip()
+        return ('SWAP_OK' in out), (out[-200:] or f'swap exited {r.returncode}')
+    except Exception as e:
+        return False, f'swap failed: {e}'
+
+
+def _maybe_chatgpt_failover(probe, provider_name):
+    """Called when the active account's probe failed. On a successful swap,
+    returns a fresh probe of the newly-installed token; otherwise None."""
+    now = time.time()
+    if not failover_should_trigger(probe.get('text', ''), now,
+                                   _chatgpt_failover['last_swap_ts']):
+        return None
+    ok, note = _standby_has_headroom()
+    if not ok:
+        _chatgpt_failover['last_note'] = note
+        return None
+    _chatgpt_failover['last_swap_ts'] = now  # even a failed attempt starts the cooldown
+    swapped, snote = _run_chatgpt_failover_swap()
+    _chatgpt_failover['last_note'] = snote
+    if not swapped:
+        print(f'[chatgpt-failover] swap FAILED: {snote}', flush=True)
+        return None
+    print(f'[chatgpt-failover] provider token swapped to standby account — {note}', flush=True)
+    try:
+        creds, _ptype = _fetch_provider_oauth_creds(provider_name)
+        if creds:
+            return _probe_codex_usage(creds)
+    except Exception:
+        pass
+    return None
+
+
 def _poll_chatgpt_provider_once(provider_name=CHATGPT_PLUS_PRO):
     """One sweep: read the provider's OAuth token from the Letta API, ask the
     account's usage endpoint whether it's rate-limited (zero LLM tokens), and
@@ -3865,6 +4038,10 @@ def _poll_chatgpt_provider_once(provider_name=CHATGPT_PLUS_PRO):
     if not creds or not probe_fn:
         return  # no token / unprobeable provider type — leave agent state alone
     probe = probe_fn(creds)
+    if not probe['ok'] and provider_type == 'chatgpt_oauth':
+        fresh = _maybe_chatgpt_failover(probe, provider_name)
+        if fresh is not None and fresh['ok']:
+            probe = fresh
     for agent_id in affected:
         if probe['ok']:
             clear_agent_send_error(agent_id)
@@ -4778,7 +4955,9 @@ def _terminal_reap(pid):
 # the target (locally for this box, over the existing key-auth SSH for the
 # others) and parses the /proc + df output here, so the remote machines need
 # nothing installed. Caveat: the Windows boxes are sampled through their WSL
-# distro, so RAM reflects the WSL VM, disk the / mount, network the VM's NICs.
+# distro, so RAM reflects the WSL VM and network the VM's NICs. Disk samples
+# the real Windows C: drive via the /mnt/c drvfs mount (falling back to / on
+# a box without one) — the WSL VHD's sparse 1TB root was misleading.
 #
 # Tuning: thresholds and the network bar's full-scale capacity are env vars —
 # override in dashboard-server.service, no code change needed.
@@ -4793,7 +4972,10 @@ PC_MONITORS = {
 
 PC_ALERT_THRESHOLDS = {
     'ram': float(os.environ.get('PC_ALERT_RAM_PERCENT', '90')),
-    'disk': float(os.environ.get('PC_ALERT_DISK_PERCENT', '90')),
+    # Disk alerts on FREE space, not percent: yellow under warn GB free,
+    # red (critical) at crit GB free or less.
+    'disk_free_warn_gb': float(os.environ.get('PC_ALERT_DISK_FREE_WARN_GB', '5')),
+    'disk_free_crit_gb': float(os.environ.get('PC_ALERT_DISK_FREE_CRIT_GB', '2')),
     'net': float(os.environ.get('PC_ALERT_NET_PERCENT', '80')),
 }
 # Full scale for the Network Traffic bar: 100% = this many Mbit/s of rx+tx.
@@ -4801,17 +4983,19 @@ PC_NET_CAPACITY_MBPS = float(os.environ.get('PC_NET_CAPACITY_MBPS', '100'))
 
 _PC_METRICS_SH = (
     "echo ===MEM===; grep -E 'MemTotal|MemAvailable' /proc/meminfo; "
-    "echo ===DISK===; df -kP /; "
+    "echo ===DISK===; df -kP /mnt/c 2>/dev/null || df -kP /; "
     "echo ===NET===; cat /proc/net/dev"
 )
 
 
 def parse_pc_metrics_output(text):
     """Parse the ===MEM===/===DISK===/===NET=== collector output into raw
-    numbers: memory kB, root-filesystem 1K blocks, and cumulative rx/tx bytes
-    summed over every interface except loopback. Pure — unit-tested."""
+    numbers: memory kB, disk 1K blocks (the Windows C: drive via /mnt/c, or /
+    on a non-WSL box), and cumulative rx/tx bytes summed over every interface
+    except loopback. Pure — unit-tested."""
     out = {'mem_total_kb': None, 'mem_avail_kb': None,
-           'disk_total_kb': None, 'disk_used_kb': None,
+           'disk_total_kb': None, 'disk_used_kb': None, 'disk_avail_kb': None,
+           'disk_mount': None,
            'net_rx_bytes': 0, 'net_tx_bytes': 0}
     section = None
     for line in text.splitlines():
@@ -4826,9 +5010,11 @@ def parse_pc_metrics_output(text):
                 out['mem_avail_kb'] = int(s.split()[1])
         elif section == 'DISK':
             parts = s.split()
-            if len(parts) >= 6 and parts[-1] == '/' and parts[1].isdigit():
+            if len(parts) >= 6 and parts[-1] in ('/mnt/c', '/') and parts[1].isdigit():
                 out['disk_total_kb'] = int(parts[1])
                 out['disk_used_kb'] = int(parts[2])
+                out['disk_avail_kb'] = int(parts[3])
+                out['disk_mount'] = parts[-1]
         elif section == 'NET' and ':' in s:
             name, _, rest = s.partition(':')
             fields = rest.split()
@@ -4846,8 +5032,10 @@ def _pc_gb(kb):
 def build_pc_metrics(parsed, prev_net, now, thresholds=None, net_capacity_mbps=None):
     """Pure: parsed collector numbers + the previous network sample →
     (metric rows, new network sample). Each row carries percent / human text /
-    alert flag so the frontend only has to draw bars. Network traffic is a
-    rate, so it needs two samples — the first request shows 'measuring…'."""
+    level ('ok'|'warn'|'crit') so the frontend only has to draw bars. Disk
+    alerts on GB free (warn under 5, crit at 2 or less by default); RAM and
+    network alert on percent. Network traffic is a rate, so it needs two
+    samples — the first request shows 'measuring…'."""
     th = thresholds or PC_ALERT_THRESHOLDS
     cap_mbps = net_capacity_mbps or PC_NET_CAPACITY_MBPS
     metrics = []
@@ -4856,41 +5044,57 @@ def build_pc_metrics(parsed, prev_net, now, thresholds=None, net_capacity_mbps=N
     if mem_total:
         used = mem_total - (parsed.get('mem_avail_kb') or 0)
         pct = round(100.0 * used / mem_total, 1)
+        level = 'warn' if pct >= th['ram'] else 'ok'
         metrics.append({'key': 'ram', 'label': 'RAM Usage', 'percent': pct,
                         'text': f'{_pc_gb(used):.1f} / {_pc_gb(mem_total):.1f} GB',
-                        'alert': pct >= th['ram'], 'alert_at': th['ram']})
+                        'level': level, 'alert': level != 'ok',
+                        'tip': f"Alerts at {th['ram']:.0f}%"})
 
     disk_total = parsed.get('disk_total_kb')
     if disk_total:
         used = parsed.get('disk_used_kb') or 0
+        free_gb = _pc_gb(parsed.get('disk_avail_kb') or 0)
+        warn_gb = th.get('disk_free_warn_gb', 5.0)
+        crit_gb = th.get('disk_free_crit_gb', 2.0)
+        level = 'crit' if free_gb <= crit_gb else ('warn' if free_gb < warn_gb else 'ok')
         pct = round(100.0 * used / disk_total, 1)
+        drive = 'C: ' if parsed.get('disk_mount') == '/mnt/c' else ''
         metrics.append({'key': 'disk', 'label': 'Hard Drive Usage', 'percent': pct,
-                        'text': f'{_pc_gb(used):.0f} / {_pc_gb(disk_total):.0f} GB',
-                        'alert': pct >= th['disk'], 'alert_at': th['disk']})
+                        'text': f'{drive}{_pc_gb(used):.0f} / {_pc_gb(disk_total):.0f} GB'
+                                f' ({free_gb:.1f} GB free)',
+                        'level': level, 'alert': level != 'ok',
+                        'tip': f'Yellow under {warn_gb:.0f} GB free, '
+                               f'red at {crit_gb:.0f} GB free or less'})
 
     total_bytes = parsed.get('net_rx_bytes', 0) + parsed.get('net_tx_bytes', 0)
     new_sample = (now, total_bytes)
     if prev_net and now > prev_net[0] and total_bytes >= prev_net[1]:
         rate_mbps = (total_bytes - prev_net[1]) * 8.0 / (now - prev_net[0]) / 1e6
         pct = round(min(100.0, 100.0 * rate_mbps / cap_mbps), 1)
+        level = 'warn' if pct >= th['net'] else 'ok'
         metrics.append({'key': 'net', 'label': 'Network Traffic', 'percent': pct,
                         'text': f'{rate_mbps:.2f} Mbit/s (bar full at {cap_mbps:.0f})',
-                        'alert': pct >= th['net'], 'alert_at': th['net']})
+                        'level': level, 'alert': level != 'ok',
+                        'tip': f"Alerts at {th['net']:.0f}%"})
     else:
         metrics.append({'key': 'net', 'label': 'Network Traffic', 'percent': 0,
-                        'text': 'measuring…', 'alert': False, 'alert_at': th['net']})
+                        'text': 'measuring…', 'level': 'ok', 'alert': False,
+                        'tip': f"Alerts at {th['net']:.0f}%"})
     return metrics, new_sample
 
 
 _pc_metrics_cache = {}    # key → (timestamp, payload)
 _pc_net_last = {}         # key → (timestamp, cumulative rx+tx bytes)
+_pc_last_good = {}        # key → last ok payload, served (marked stale) on a failed sample
 PC_METRICS_CACHE_TTL = 10  # seconds — also the effective network-rate window
 
 
 def pc_metrics(key):
     """Payload for one PC: run the collector (local or SSH), derive the three
     metric bars, and cache briefly so the frontend's tab-colour polling doesn't
-    trigger an SSH per tab per tick."""
+    trigger an SSH per tab per tick. A failed sample (the cross-box Tailscale
+    path stalls now and then, esp. on the first attempt after idle) serves the
+    last good reading marked stale instead of an error — the next poll retries."""
     cfg = PC_MONITORS.get(key)
     if not cfg:
         return {'ok': False, 'error': f'unknown pc {key}', 'alert': False}
@@ -4899,21 +5103,33 @@ def pc_metrics(key):
         return cached[1]
     host = cfg.get('host')
     if host:
-        cmd = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', host, _PC_METRICS_SH]
+        cmd = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
+               '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2',
+               host, _PC_METRICS_SH]
     else:
         cmd = ['sh', '-c', _PC_METRICS_SH]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
         if not (r.stdout or '').strip():
             raise RuntimeError((r.stderr or 'collector produced no output').strip()[:200])
         parsed = parse_pc_metrics_output(r.stdout)
         now = time.time()
         metrics, sample = build_pc_metrics(parsed, _pc_net_last.get(key), now)
         _pc_net_last[key] = sample
+        levels = [m.get('level', 'ok') for m in metrics]
+        level = 'crit' if 'crit' in levels else ('warn' if 'warn' in levels else 'ok')
         out = {'ok': True, 'key': key, 'label': cfg['label'], 'note': cfg.get('note', ''),
-               'metrics': metrics, 'alert': any(m['alert'] for m in metrics), 'as_of': now}
+               'metrics': metrics, 'alert': level != 'ok', 'level': level, 'as_of': now}
+        _pc_last_good[key] = out
     except Exception as e:
-        out = {'ok': False, 'key': key, 'label': cfg['label'], 'error': str(e), 'alert': False}
+        good = _pc_last_good.get(key)
+        if good:
+            out = dict(good)
+            out['stale'] = True
+            out['stale_error'] = str(e)
+        else:
+            out = {'ok': False, 'key': key, 'label': cfg['label'], 'error': str(e),
+                   'alert': False, 'level': 'ok'}
     _pc_metrics_cache[key] = (time.time(), out)
     return out
 
@@ -4935,6 +5151,16 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return self.json_response(get_code_status())
         if path == '/api/agents':
             return self.json_response(build_agent_list(force_refresh=query.get('refresh', ['0'])[0] == '1'))
+
+        if path == '/api/agent-model':
+            lid = letta_id_for(agent_id)
+            if not lid:
+                return self.json_response({'ok': False, 'error': 'not a Letta agent', 'options': []})
+            data = letta_get(f'/v1/agents/{lid}', timeout=15) or {}
+            llm = data.get('llm_config') or {}
+            handle = llm.get('handle') or llm.get('model') or ''
+            return self.json_response({'ok': True, 'current': handle,
+                                        'options': agent_model_options(handle)})
 
         if path == '/api/agent-activity':
             return self.json_response(agent_activity_status())
@@ -5370,6 +5596,32 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(record_stored_expense(data))
+
+        if path == '/api/agent-model':
+            try:
+                data = json.loads(body)
+                lid = letta_id_for(data.get('agent', ''))
+                model = data.get('model', '')
+                if not lid:
+                    return self.json_response({'ok': False, 'error': 'not a Letta agent'})
+                cur = letta_get(f'/v1/agents/{lid}', timeout=15) or {}
+                cur_handle = (cur.get('llm_config') or {}).get('handle') or ''
+                if model not in agent_model_options(cur_handle):
+                    return self.json_response({'ok': False, 'error': f'model {model!r} is not in the allowed list'})
+                req = urllib.request.Request(
+                    f'{LETTA_BASE_URL}/v1/agents/{lid}',
+                    data=json.dumps({'model': model}).encode(),
+                    headers={'Content-Type': 'application/json'},
+                    method='PATCH',
+                )
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    resp = json.loads(r.read().decode())
+                new_handle = (resp.get('llm_config') or {}).get('handle') or model
+                return self.json_response({'ok': True, 'model': new_handle})
+            except urllib.error.HTTPError as e:
+                return self.json_response({'ok': False, 'error': f'letta {e.code}: {e.read().decode()[:200]}'})
+            except Exception as e:
+                return self.json_response({'ok': False, 'error': str(e)})
 
         if path == '/api/test':
             try:

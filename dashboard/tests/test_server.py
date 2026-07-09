@@ -634,6 +634,108 @@ def test_process_scanned_document_unknown_scanner():
     assert r['stages'] == []
 
 
+def test_stage_scan_for_mazda_missing_local_file_returns_none():
+    assert server._stage_scan_for_mazda('/nope/does-not-exist.jpg') is None
+
+
+def test_stage_scan_for_mazda_copies_to_remote_and_returns_remote_path(
+        tmp_path, monkeypatch):
+    """Mazda's executor tools run on a different machine than the scanner, so
+    the scanned image must be copied there before Mazda is told about it —
+    otherwise her classify_scan.py call gets 'Image not found'."""
+    local = tmp_path / 'scan_freezer.jpg'
+    local.write_bytes(b'fake-jpeg')
+    calls = []
+
+    def _fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        class _R:
+            returncode = 0
+        return _R()
+
+    monkeypatch.setattr(server.subprocess, 'run', _fake_run)
+    remote_path = server._stage_scan_for_mazda(str(local))
+    assert remote_path == f'{server.SCAN_STAGING_REMOTE_DIR}/scan_freezer.jpg'
+    assert calls[0][:2] == ['ssh', '-o']
+    assert 'mkdir' in calls[0]
+    assert calls[1][0] == 'scp'
+    assert str(local) in calls[1]
+    assert f'{server.SCAN_STAGING_HOST}:{remote_path}' in calls[1]
+
+
+def test_stage_scan_for_mazda_returns_none_on_ssh_failure(tmp_path, monkeypatch):
+    local = tmp_path / 'scan.jpg'
+    local.write_bytes(b'fake-jpeg')
+
+    def _fake_run(cmd, **kwargs):
+        raise server.subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(server.subprocess, 'run', _fake_run)
+    assert server._stage_scan_for_mazda(str(local)) is None
+
+
+def test_process_scanned_document_dispatches_mazda_with_staged_remote_path(
+        tmp_path, monkeypatch):
+    """The message Mazda receives must reference the REMOTE (staged) path, not
+    the local scan path her executor tools can't reach."""
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'script': 'run_scan_window.sh',
+                   'output': 'scan.jpg'},
+    })
+    monkeypatch.setattr(server, 'run_intake_facade',
+                         lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
+    monkeypatch.setattr(server, '_stage_scan_for_mazda',
+                         lambda local_path: '/home/adamsl/rol_finances/tools/'
+                                             'receipt_scanning_tools/incoming_scans/scan.jpg')
+    captured = {}
+
+    def _fake_thread(target, args, daemon):
+        captured['args'] = args
+        return _NoopThread()
+
+    monkeypatch.setattr(server.threading, 'Thread', _fake_thread)
+
+    result = server.process_scanned_document('window')
+    assert result['mazda_dispatched'] is True
+    assert captured['args'][0] == (
+        '/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/scan.jpg')
+    assert 'stage_error' not in result
+
+
+def test_process_scanned_document_reports_stage_error_and_skips_mazda(
+        tmp_path, monkeypatch):
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'script': 'run_scan_window.sh',
+                   'output': 'scan.jpg'},
+    })
+    monkeypatch.setattr(server, 'run_intake_facade',
+                         lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda local_path: None)
+    threads_started = []
+    monkeypatch.setattr(
+        server.threading, 'Thread',
+        lambda target, args, daemon: threads_started.append(args))
+
+    result = server.process_scanned_document('window')
+    assert result['mazda_dispatched'] is False
+    assert threads_started == []
+    assert 'stage_error' in result
+    assert 'Mazda' in result['stage_error']
+
+
+class _NoopThread:
+    def start(self):
+        pass
+
+
 def test_track_down_duration_clears_on_up_and_accumulates(monkeypatch):
     server._server_down_since.pop('dur-test', None)
     t = [1000.0]
@@ -2140,7 +2242,7 @@ MemTotal:       16384000 kB
 MemAvailable:    4096000 kB
 ===DISK===
 Filesystem     1024-blocks      Used Available Capacity Mounted on
-/dev/sdc         500000000 400000000 100000000      80% /
+C:\\             500000000 400000000 100000000      80% /mnt/c
 ===NET===
 Inter-|   Receive                                                |  Transmit
  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
@@ -2156,12 +2258,26 @@ def test_parse_pc_metrics_output_reads_all_three_sections():
     assert parsed['mem_avail_kb'] == 4096000
     assert parsed['disk_total_kb'] == 500000000
     assert parsed['disk_used_kb'] == 400000000
+    assert parsed['disk_avail_kb'] == 100000000
+    assert parsed['disk_mount'] == '/mnt/c'
     # loopback excluded; eth0 + eth1 summed
     assert parsed['net_rx_bytes'] == 1500000
     assert parsed['net_tx_bytes'] == 2500000
 
 
-_PC_TEST_THRESHOLDS = {'ram': 90.0, 'disk': 90.0, 'net': 80.0}
+def test_parse_pc_metrics_output_falls_back_to_root_mount():
+    # A box without /mnt/c (plain Linux): the collector's fallback df / row.
+    sample = _PC_COLLECTOR_SAMPLE.replace(
+        'C:\\             500000000 400000000 100000000      80% /mnt/c',
+        '/dev/sdc         500000000 400000000 100000000      80% /')
+    parsed = server.parse_pc_metrics_output(sample)
+    assert parsed['disk_total_kb'] == 500000000
+    assert parsed['disk_mount'] == '/'
+
+
+_PC_TEST_THRESHOLDS = {'ram': 90.0, 'disk_free_warn_gb': 5.0,
+                       'disk_free_crit_gb': 2.0, 'net': 80.0}
+_GB_KB = 1024 * 1024
 
 
 def test_build_pc_metrics_percentages_and_no_alert_under_threshold():
@@ -2171,9 +2287,11 @@ def test_build_pc_metrics_percentages_and_no_alert_under_threshold():
     by_key = {m['key']: m for m in metrics}
     assert by_key['ram']['percent'] == 75.0       # (16384000-4096000)/16384000
     assert by_key['disk']['percent'] == 80.0
-    assert not by_key['ram']['alert'] and not by_key['disk']['alert']
+    assert by_key['disk']['text'].startswith('C: ')       # labelled as the C: drive
+    assert 'GB free' in by_key['disk']['text']            # ~95 GB free → ok
+    assert all(m['level'] == 'ok' and not m['alert'] for m in metrics)
     # First sample: no rate yet, but the new cumulative sample is returned.
-    assert by_key['net']['percent'] == 0 and not by_key['net']['alert']
+    assert by_key['net']['percent'] == 0
     assert sample == (1000.0, 4000000)
 
 
@@ -2184,7 +2302,36 @@ def test_build_pc_metrics_ram_alert_over_threshold():
         parsed, None, now=1000.0, thresholds=_PC_TEST_THRESHOLDS, net_capacity_mbps=100.0)
     ram = next(m for m in metrics if m['key'] == 'ram')
     assert ram['percent'] == 95.0 and ram['alert'] is True
-    assert ram['alert_at'] == 90.0
+    assert ram['level'] == 'warn'
+
+
+def test_build_pc_metrics_disk_warn_under_5gb_free():
+    parsed = server.parse_pc_metrics_output(_PC_COLLECTOR_SAMPLE)
+    parsed['disk_avail_kb'] = 4 * _GB_KB          # 4 GB free → yellow
+    metrics, _ = server.build_pc_metrics(
+        parsed, None, now=1000.0, thresholds=_PC_TEST_THRESHOLDS, net_capacity_mbps=100.0)
+    disk = next(m for m in metrics if m['key'] == 'disk')
+    assert disk['level'] == 'warn' and disk['alert'] is True
+    assert '4.0 GB free' in disk['text']
+
+
+def test_build_pc_metrics_disk_crit_at_2gb_free_or_less():
+    parsed = server.parse_pc_metrics_output(_PC_COLLECTOR_SAMPLE)
+    parsed['disk_avail_kb'] = 2 * _GB_KB          # exactly 2 GB free → red
+    metrics, _ = server.build_pc_metrics(
+        parsed, None, now=1000.0, thresholds=_PC_TEST_THRESHOLDS, net_capacity_mbps=100.0)
+    disk = next(m for m in metrics if m['key'] == 'disk')
+    assert disk['level'] == 'crit' and disk['alert'] is True
+
+
+def test_build_pc_metrics_disk_ok_at_exactly_5gb_free():
+    # Boundary: "under 5 GB" is exclusive — exactly 5 GB free stays green.
+    parsed = server.parse_pc_metrics_output(_PC_COLLECTOR_SAMPLE)
+    parsed['disk_avail_kb'] = 5 * _GB_KB
+    metrics, _ = server.build_pc_metrics(
+        parsed, None, now=1000.0, thresholds=_PC_TEST_THRESHOLDS, net_capacity_mbps=100.0)
+    disk = next(m for m in metrics if m['key'] == 'disk')
+    assert disk['level'] == 'ok' and disk['alert'] is False
 
 
 def test_build_pc_metrics_network_rate_from_two_samples():
@@ -2234,19 +2381,43 @@ def test_pc_metrics_payload_and_alert_rollup(monkeypatch):
         stderr = ''
 
     monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _R())
-    monkeypatch.setattr(server, 'PC_ALERT_THRESHOLDS', {'ram': 70.0, 'disk': 90.0, 'net': 80.0})
+    monkeypatch.setattr(server, 'PC_ALERT_THRESHOLDS',
+                        {'ram': 70.0, 'disk_free_warn_gb': 5.0,
+                         'disk_free_crit_gb': 2.0, 'net': 80.0})
     out = server.pc_metrics('win11')
     assert out['ok'] is True and out['label'] == 'Windows 11'
     assert [m['key'] for m in out['metrics']] == ['ram', 'disk', 'net']
     assert out['alert'] is True                   # ram 75% ≥ lowered 70% threshold
+    assert out['level'] == 'warn'
     # Cached: a second call must not re-run the collector.
     monkeypatch.setattr(server.subprocess, 'run',
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError('collector re-ran')))
     assert server.pc_metrics('win11') is out
 
 
+def test_pc_metrics_crit_disk_rolls_up_red(monkeypatch):
+    server._pc_metrics_cache.clear()
+    server._pc_net_last.clear()
+    # 1 GB free on C: → the whole PC payload escalates to level 'crit'.
+    low_disk = _PC_COLLECTOR_SAMPLE.replace(
+        'C:\\             500000000 400000000 100000000      80% /mnt/c',
+        'C:\\             500000000 498951424   1048576      99% /mnt/c')
+
+    class _R:
+        returncode = 0
+        stdout = low_disk
+        stderr = ''
+
+    monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _R())
+    out = server.pc_metrics('win11')
+    assert out['ok'] is True and out['level'] == 'crit' and out['alert'] is True
+    disk = next(m for m in out['metrics'] if m['key'] == 'disk')
+    assert disk['level'] == 'crit'
+
+
 def test_pc_metrics_collector_failure_is_reported(monkeypatch):
     server._pc_metrics_cache.clear()
+    server._pc_last_good.clear()
 
     class _R:
         returncode = 255
@@ -2257,3 +2428,82 @@ def test_pc_metrics_collector_failure_is_reported(monkeypatch):
     out = server.pc_metrics('moms46')
     assert out['ok'] is False and out['alert'] is False
     assert 'timed out' in out['error']
+
+
+def test_pc_metrics_failure_after_success_serves_stale_last_good(monkeypatch):
+    # Transient SSH stall (the Tailscale path drops the first attempt after
+    # idle): the endpoint must serve the last good reading marked stale, not
+    # a raw error page.
+    server._pc_metrics_cache.clear()
+    server._pc_net_last.clear()
+    server._pc_last_good.clear()
+
+    class _Good:
+        returncode = 0
+        stdout = _PC_COLLECTOR_SAMPLE
+        stderr = ''
+
+    monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _Good())
+    good = server.pc_metrics('win10')
+    assert good['ok'] is True and 'stale' not in good
+
+    server._pc_metrics_cache.clear()          # expire the cache, keep last-good
+
+    def _boom(*a, **k):
+        raise server.subprocess.TimeoutExpired(cmd='ssh', timeout=25)
+
+    monkeypatch.setattr(server.subprocess, 'run', _boom)
+    out = server.pc_metrics('win10')
+    assert out['ok'] is True and out['stale'] is True
+    assert 'timed out' in out['stale_error'] or 'timeout' in out['stale_error'].lower()
+    assert [m['key'] for m in out['metrics']] == ['ram', 'disk', 'net']
+    assert good.get('stale') is None           # the cached good payload wasn't mutated
+
+
+# ── /api/agent-model dropdown options ─────────────────────────────────────────
+
+def test_agent_model_options_default_list():
+    opts = server.agent_model_options('chatgpt-plus-pro/gpt-5.4')
+    assert opts == server.AGENT_MODEL_OPTIONS
+    assert 'chatgpt-plus-pro/gpt-5.4-mini' in opts
+
+
+def test_agent_model_options_foreign_handle_prepended():
+    opts = server.agent_model_options('lc-gemini/gemini-2.5-flash-lite')
+    assert opts[0] == 'lc-gemini/gemini-2.5-flash-lite'
+    assert opts[1:] == server.AGENT_MODEL_OPTIONS
+
+
+def test_agent_model_options_empty_handle():
+    assert server.agent_model_options('') == server.AGENT_MODEL_OPTIONS
+
+
+def test_agent_model_options_only_vetted_codex_handles():
+    # Guards the probe result of 2026-07-08: gpt-5.3 / *-codex handles are
+    # rejected by the ChatGPT-account codex backend and must never be offered.
+    for handle in server.AGENT_MODEL_OPTIONS:
+        assert handle.startswith('chatgpt-plus-pro/')
+        model = handle.split('/', 1)[1]
+        assert model in ('gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini')
+
+
+# ── ChatGPT provider auto-failover gate ───────────────────────────────────────
+
+def test_failover_triggers_on_rate_limit_after_cooldown():
+    assert server.failover_should_trigger(
+        'llm_rate_limit: 5h window 100% used, resets in 1h',
+        now_ts=10_000, last_swap_ts=0, min_interval=1800)
+
+
+def test_failover_respects_cooldown():
+    assert not server.failover_should_trigger(
+        'llm_rate_limit: 5h window 100% used, resets in 1h',
+        now_ts=1000, last_swap_ts=0, min_interval=1800)
+
+
+def test_failover_ignores_non_rate_limit_errors():
+    # Auth/network failures must NOT trigger a swap — the standby token would
+    # inherit the same problem and the swap burns the cooldown window.
+    for text in ('HTTP 401: unauthorized', 'probe timed out', ''):
+        assert not server.failover_should_trigger(
+            text, now_ts=10_000, last_swap_ts=0, min_interval=1800)

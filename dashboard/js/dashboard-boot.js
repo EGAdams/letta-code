@@ -1026,23 +1026,39 @@ if (navModelStats) {
 /* =====================  PC Monitor  =====================
        One sub-nav tab per machine (Windows 11 / Windows 10 / Moms 46), each
        showing RAM / Hard Drive / Network progress bars from /api/pc-metrics.
-       Issue detection: while any of a PC's metrics is over its server-side
-       alert threshold the payload carries alert:true and that PC's tab blinks
-       yellow (the existing .tab-alert animation). Thresholds live in server.py
-       (PC_ALERT_THRESHOLDS, env-tunable) so tuning needs no frontend change. */
+       Issue detection: each metric carries level ok|warn|crit — warn blinks
+       the PC's tab yellow (the existing .tab-alert animation), crit blinks it
+       red (.tab-alert-red). Disk levels come from GB free on the Windows C:
+       drive (yellow under 5 GB, red at 2 GB or less). Thresholds live in
+       server.py (PC_ALERT_THRESHOLDS, env-tunable) — no frontend change. */
 function renderPcMetrics(d) {
   if (!d || d.ok === false) {
     return `<p class="am-warn">${esc(d?.error || "no data")}</p>`;
   }
   let h = '<div class="ms-card">';
-  h += `<h3>${esc(d.label)}${d.alert ? ' <span class="pcm-alert-flag">⚠ needs attention</span>' : ""}</h3>`;
+  const flag =
+    d.level === "crit"
+      ? ' <span class="pcm-crit-flag">⚠ critical</span>'
+      : d.alert
+        ? ' <span class="pcm-alert-flag">⚠ needs attention</span>'
+        : "";
+  h += `<h3>${esc(d.label)}${flag}</h3>`;
   if (d.note) h += `<p class="am-dim">${esc(d.note)}</p>`;
+  if (d.stale) {
+    h += `<p class="am-warn">⚠ live sample failed — showing last good reading (${esc(d.stale_error || "")})</p>`;
+  }
   for (const m of d.metrics || []) {
     const pct = Math.max(0, Math.min(100, m.percent || 0));
-    const fill = m.alert ? "#f9a825" : pct >= 75 ? "#fb8c00" : "#43a047";
+    const fill =
+      m.level === "crit"
+        ? "#e53935"
+        : m.alert
+          ? "#f9a825"
+          : pct >= 75
+            ? "#fb8c00"
+            : "#43a047";
     const blink = m.alert ? " ms-blink-warn" : "";
-    const tip = `Alerts at ${m.alert_at}%`;
-    h += `<div class="ms-window" title="${esc(tip)}"><div class="ms-window-head"><span>${esc(m.label)}</span><span>${esc(m.text || "")} · ${pct}%${m.alert ? " ⚠" : ""}</span></div>`;
+    h += `<div class="ms-window" title="${esc(m.tip || "")}"><div class="ms-window-head"><span>${esc(m.label)}</span><span>${esc(m.text || "")} · ${pct}%${m.alert ? " ⚠" : ""}</span></div>`;
     h += `<div class="ms-bar"><div class="ms-bar-fill${blink}" style="width:${pct}%;background:${fill}"></div></div></div>`;
   }
   if (d.as_of) {
@@ -1098,7 +1114,7 @@ const PCM = {
       body.innerHTML = `<p class="am-warn">Failed to load: ${esc(e.message)}</p>`;
     }
   },
-  // Issue detection: blink a PC's tab yellow while any metric is over threshold.
+  // Issue detection: blink a PC's tab yellow on warn, red on crit.
   async pollTabs() {
     if (!navPcMonitor) return;
     const tabs = [...navPcMonitor.querySelectorAll("[data-pc]")];
@@ -1108,7 +1124,9 @@ const PCM = {
           const d = await http.getJSON(
             `/api/pc-metrics?pc=${encodeURIComponent(t.dataset.pc)}`,
           );
-          t.classList.toggle("tab-alert", !!d.alert);
+          const level = d.level || (d.alert ? "warn" : "ok");
+          t.classList.toggle("tab-alert", level === "warn");
+          t.classList.toggle("tab-alert-red", level === "crit");
         } catch {
           /* leave the tab unflagged on transient error */
         }
