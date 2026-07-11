@@ -4147,7 +4147,9 @@ def agent_health_check(cfg, timeout=15, sdk_status=None):
     if not required:
         return {'ok': True, 'text': f'{name}: agent found', 'name': name}
 
-    tools_data = letta_get(f'/v1/agents/{real_id}/tools', timeout=timeout)
+    # Letta paginates this endpoint at 10 by default; agents with more tools
+    # would falsely report required tools as missing without an explicit limit.
+    tools_data = letta_get(f'/v1/agents/{real_id}/tools?limit=100', timeout=timeout)
     if tools_data is None:
         return {'ok': False, 'text': f'{name}: could not fetch tool list from Letta', 'name': name}
 
