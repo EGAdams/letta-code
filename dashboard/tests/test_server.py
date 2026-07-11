@@ -1795,6 +1795,32 @@ def test_scan_message_instructs_structured_intake_evidence():
         assert f'"{field}"' in msg, f'evidence field {field!r} missing from message'
 
 
+def test_scan_message_routes_statements_to_statement_pipeline():
+    """Statements can never complete the receipt STEPS 2-4 (three identical
+    stall-after-classification runs on 2026-07-10 proved it), so the message
+    must carry an explicit statement branch: vision parse → dedupe+store,
+    then the STATEMENT evidence contract the statement rubric judges."""
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', _FACADE_IDENTIFIED)
+    assert 'STATEMENT BRANCH' in msg
+    assert 'tools/receipt_scanning_tools/parse_statement_scan.py' in msg
+    assert 'tools/receipt_scanning_tools/store_statement_transactions.py' in msg
+    # Statement evidence fields the statement-aware intake rubric reads.
+    for field in ('transactions_parsed', 'transactions_stored',
+                  'transactions_duplicate', 'transactions_skipped_credits'):
+        assert f'"{field}"' in msg, f'statement field {field!r} missing from message'
+
+
+def test_scan_message_closes_the_improvement_loop():
+    """STEP 1 must deliver the learned rules (load_wrapper_revision
+    `instructions`) and STEP 7 must chain propose_improvement →
+    apply_proposal — without both halves, proposals pile up in PROPOSED and
+    the wrapper never leaves its baseline, so nothing is ever learned."""
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', _FACADE_IDENTIFIED)
+    assert 'LEARNED RULES' in msg
+    assert 'apply_proposal(proposal_id=' in msg
+    assert 'instruction_note=' in msg
+
+
 def test_scan_message_judges_every_run_not_only_failures():
     """Once the intake rubric exists, a clean success must also be judged (it
     correctly PASSes), so the instruction is ALWAYS judge_trace — not the old
