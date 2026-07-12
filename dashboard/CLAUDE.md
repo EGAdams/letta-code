@@ -329,12 +329,36 @@ facade_result)` (and predicate `mazda_facade_identified()`) — pure so they're 
 3. **STEP 5 makes Mazda record the trace as `IntakeVerificationEvidence` JSON** under
    `task_name="document-intake"`, and **STEP 6 judges every run** (`judge_trace`). The verdict feeds
    the autonomous self-improvement loop. The judge that reads this is the **intake rubric** in
-   `rol_finances/tools/self_improving_agent` (routed by task_name) — it is served by **Win10's**
-   `mazda-tools-mcp.service` (`172.17.0.1:8791`), a *different machine* from the dashboard/executor,
-   so deploying a rubric change means SSH to `100.80.49.10`. The message and that model share a
-   field contract; `test_scan_message_instructs_structured_intake_evidence` pins it so the two
-   repos can't drift. Full pipeline + topology: the `mazda-intake-tests-and-verdict-rubric-gap-2026-06-28`
-   memory.
+   `rol_finances/tools/self_improving_agent` (routed by task_name) — served by **this box's**
+   `mazda-tools-mcp.service` (registered with Letta as `http://10.0.0.7:8791/sse`; an older note
+   claiming it lives on Win10 was disproven 2026-07-10 when a local restart changed live tool
+   behavior). Deploy a rubric/tool change with `systemctl --user restart mazda-tools-mcp`. The
+   message and that model share a field contract;
+   `test_scan_message_instructs_structured_intake_evidence` pins it so the two repos can't drift.
+   Full pipeline + topology: the `mazda-intake-tests-and-verdict-rubric-gap-2026-06-28` and
+   `mazda-intake-outage-chain-2026-07-10` memories.
+
+### Scan → Trainer (Mazda's watcher) — 2026-07-10
+
+Every intake dispatch (scanner scan AND PDF/reprocess) also spawns a **Trainer** — a Claude
+agent built per-run with `/home/adamsl/claude-code-sdk-ts` that watches Mazda's transcript,
+verifies the STEP 1–8 contract with successful tool returns (not her prose claims), coaches
+her via a corrective Letta message on failure, and always writes a report to
+`trainer/reports/<UTC ts>_<scanner>.md`. Wiring: `_notify_trainer_of_scan` (fire-and-forget
+detached Popen; a broken Trainer never blocks intake) called from both
+`process_scanned_document` and `process_pdf_document`; pure `build_trainer_command` is
+unit-tested. Files: `trainer/mazda_trainer_instructions.md` (system instructions) +
+`trainer/run_mazda_trainer.mjs` (bun runner; appends the tag-stripped
+`notes_plans_handoffs/mazda_dev_status.html` manual to the system message; `--dry-run`
+verifies prompt assembly for free). Logs: `/tmp/mazda_trainer_<ts>.log`. Env:
+`MAZDA_TRAINER_ENABLED=0` kill switch, `TRAINER_MODEL` (default sonnet),
+`TRAINER_TIMEOUT_MS` (default 25 min). Three non-obvious invariants (details + debugging
+order in the `mazda-trainer-ops` skill and `mazda-trainer-agent-2026-07-10` memory): the
+trainer session dies if it ends its turn to "wait" (instructions mandate Bash `sleep`
+loops + report-before-finish); the .mjs strips `ANTHROPIC_API_KEY`/`CLAUDECODE`/
+`CLAUDE_CODE_ENTRYPOINT` so an inherited API key can't outrank the OAuth login; the
+dashboard service's PATH lacks bun/claude so the Popen prepends `~/.bun/bin:~/.local/bin`.
+Tests: `tests/test_server.py -k trainer`.
 
 ## Server health indicators, Restart-all & Model Stats (2026-06-22)
 

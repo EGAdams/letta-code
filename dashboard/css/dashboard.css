@@ -1641,3 +1641,11 @@ summary {
   gap: 10px;
   margin-top: 16px;
 }
+#vision-halted-modal .modal-box {
+  max-width: 480px;
+}
+.vision-halted-detail {
+  font-size: 0.85em;
+  color: #666;
+  margin-top: 8px;
+}

@@ -464,6 +464,21 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20260708c"></script>
+  <!-- Document-vision-down halt notice -->
+  <div id="vision-halted-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <p><strong>Scanning halted.</strong> All document-vision tiers (Gemini,
+      ChatGPT-OAuth/Codex CLI, and OpenAI key) are down — Mazda has no way to
+      classify or read a scanned document right now, so new scans will not be
+      dispatched to her.</p>
+      <p id="vision-halted-detail" class="vision-halted-detail"></p>
+      <div class="modal-actions">
+        <button type="button" class="am-btn" id="vision-halted-retry">Retry Now</button>
+        <button type="button" class="am-btn am-copy" id="vision-halted-dismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/js/dashboard-boot.js?v=20260710a"></script>
 </body>
 </html>

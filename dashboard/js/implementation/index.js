@@ -52,3 +52,4 @@ export {
   classifyServerStatus,
   ServerLogController,
 } from "./server-log-controller.js";
+export { VisionHaltAlert } from "./vision-halt-alert.js";

@@ -8,6 +8,7 @@ Then open: http://localhost:8765/
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -956,7 +957,10 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'The scanned image is at: {scan_image_path}{facade_block}\n\n'
         f'Complete the AGENTIC back half of the intake pipeline '
         f'(investigate → categorize → store → judge):\n\n'
-        f'EXECUTOR RULE (read first): every executor_run call below MUST pass '
+        f'EXECUTOR RULE (read first): run every command below via executor_run — '
+        f'NEVER via run_claude_code_sdk. run_claude_code_sdk executes on a different '
+        f'machine where the rol_finances venv does not work; substituting it for '
+        f'executor_run is a guaranteed failure. Every executor_run call MUST pass '
         f'env={MAZDA_RF_ENV_JSON}. Do NOT prefix any command with "PYTHONPATH=..." — '
         f'the executor allowlist rejects an inline env-assignment as an unknown command '
         f'("Command not in allowlist: PYTHONPATH=..."). Always use the full venv python '
@@ -1067,13 +1071,17 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
     )
 
 
-# Mazda's executor_run/run_claude_code_sdk tools execute inside a Docker
-# container on a DIFFERENT physical machine (the Win10/Letta box, 100.80.49.10)
-# from this dashboard (the Win11 box). That container only has
-# /home/adamsl/rol_finances mounted in — not this box's scan output directory
-# (~/planner/nonprofit_finance_db/receipt_scanning_tools). So a scanned image's
-# local path is meaningless to Mazda's tools; it must be copied across first.
-# Reuses the same SSH target (key auth already set up) as LETTA_DOCKER_HOST.
+# Where a scan must live so Mazda's tools can read it. Mazda has TWO executors:
+#   - executor_run → THIS box (Letta MCP "executor_server" at 10.0.0.7:8789).
+#     This is the PRIMARY intake path — the rol_finances venv and MySQL live
+#     here, so the dispatch message routes every rol_finances command to it.
+#   - run_claude_code_sdk → the frita-executor container on the Win10 box
+#     (:8799). Its mounted rol_finances venv is a broken symlink inside the
+#     container (host /usr/local/bin/python3 doesn't exist there), so
+#     rol_finances scripts CANNOT run in it — 2026-07-10 incident.
+# The scan is therefore staged LOCALLY first (authoritative), and mirrored to
+# the Win10 box best-effort so the identical path also resolves for any SDK
+# session that merely needs to look at the image.
 SCAN_STAGING_HOST = os.environ.get('LETTA_DOCKER_HOST', 'adamsl@100.80.49.10')
 SCAN_STAGING_REMOTE_DIR = (
     '/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans')
@@ -1082,13 +1090,22 @@ SCAN_STAGING_REMOTE_DIR = (
 def _stage_scan_for_mazda(local_image_path):
     """Copy a scanned image to where Mazda's executor tools can actually read it.
 
-    Returns the remote path on success, or None on failure (caller must not
-    hand Mazda a path she can't reach — that's the bug this fixes).
+    Copies into this box's rol_finances incoming_scans (executor_run's view —
+    required) and mirrors to the Win10 box (run_claude_code_sdk's view —
+    best-effort). Returns the staged path (identical on both boxes) or None
+    when even the local copy failed — the caller must not hand Mazda a path
+    she can't reach.
     """
     if not os.path.isfile(local_image_path):
         return None
-    remote_name = os.path.basename(local_image_path)
-    remote_path = f'{SCAN_STAGING_REMOTE_DIR}/{remote_name}'
+    staged_name = os.path.basename(local_image_path)
+    staged_path = f'{SCAN_STAGING_REMOTE_DIR}/{staged_name}'
+    try:
+        os.makedirs(SCAN_STAGING_REMOTE_DIR, exist_ok=True)
+        shutil.copyfile(local_image_path, staged_path)
+    except Exception as exc:
+        print(f'[scan→mazda] Failed to stage scan locally for executor: {exc}')
+        return None
     try:
         subprocess.run(
             ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes',
@@ -1097,13 +1114,13 @@ def _stage_scan_for_mazda(local_image_path):
         )
         subprocess.run(
             ['scp', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes',
-             local_image_path, f'{SCAN_STAGING_HOST}:{remote_path}'],
+             local_image_path, f'{SCAN_STAGING_HOST}:{staged_path}'],
             capture_output=True, text=True, timeout=30, check=True,
         )
-        return remote_path
     except Exception as exc:
-        print(f'[scan→mazda] Failed to stage scan for executor: {exc}')
-        return None
+        print(f'[scan→mazda] Win10 mirror of scan failed (non-fatal — '
+              f'executor_run reads the local copy): {exc}')
+    return staged_path
 
 
 def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None):
@@ -1129,6 +1146,69 @@ def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None):
                   f'HTTP {resp.status}')
     except Exception as exc:
         print(f'[scan→mazda] Failed to notify Mazda: {exc}')
+
+
+# ── Mazda Trainer ────────────────────────────────────────────────────────────
+# Every scan dispatched to Mazda also spawns a Trainer agent (Claude, via the
+# claude-code-sdk-ts library) that watches the run, verifies the document was
+# processed correctly, and coaches Mazda on failures. Mazda runs on a cheap mini
+# model while her self-improvement harness is validated — the Trainer is the
+# safety net that makes that acceptable. Fire-and-forget, like the Mazda
+# dispatch itself: a broken/missing trainer must never block intake.
+TRAINER_SCRIPT = os.path.join(HERE, 'trainer', 'run_mazda_trainer.mjs')
+TRAINER_RUNNER = os.environ.get(
+    'MAZDA_TRAINER_RUNNER', os.path.expanduser('~/.bun/bin/bun'))
+TRAINER_ENABLED = os.environ.get(
+    'MAZDA_TRAINER_ENABLED', '1').lower() not in ('0', 'false', 'no')
+
+
+def build_trainer_command(scan_image_path, scanner_name, facade_result=None,
+                          dispatched_at=None):
+    """Pure builder for the Trainer launch argv — no I/O, unit-tested."""
+    cmd = [
+        TRAINER_RUNNER, TRAINER_SCRIPT,
+        '--scan-path', scan_image_path,
+        '--scanner', scanner_name,
+        '--facade', json.dumps(facade_result or {}, default=str),
+    ]
+    if dispatched_at is not None:
+        cmd += ['--dispatched-at', str(int(dispatched_at))]
+    return cmd
+
+
+def _notify_trainer_of_scan(scan_image_path, scanner_name, facade_result=None):
+    """Fire-and-forget: launch the Trainer agent to watch this Mazda run.
+
+    Returns True when the trainer process was spawned. Never raises — the
+    trainer is an observer; intake must proceed identically without it.
+    """
+    if not TRAINER_ENABLED:
+        return False
+    if not os.path.isfile(TRAINER_SCRIPT):
+        print(f'[scan→trainer] Trainer script missing: {TRAINER_SCRIPT}')
+        return False
+    dispatched_at = int(time.time())
+    log_path = f'/tmp/mazda_trainer_{dispatched_at}.log'
+    cmd = build_trainer_command(
+        scan_image_path, scanner_name, facade_result, dispatched_at)
+    env = dict(os.environ)
+    # The systemd --user service's PATH lacks bun/claude; the SDK spawns the
+    # `claude` CLI, so both bins must be reachable from the child.
+    env['PATH'] = ':'.join([
+        os.path.expanduser('~/.bun/bin'), os.path.expanduser('~/.local/bin'),
+        env.get('PATH', '/usr/bin:/bin'),
+    ])
+    try:
+        with open(log_path, 'ab') as log:
+            subprocess.Popen(
+                cmd, stdout=log, stderr=log, env=env,
+                cwd=os.path.dirname(TRAINER_SCRIPT), start_new_session=True)
+        print(f'[scan→trainer] Trainer watching {scanner_name} scan; '
+              f'log: {log_path}')
+        return True
+    except Exception as exc:
+        print(f'[scan→trainer] Failed to launch trainer: {exc}')
+        return False
 
 
 def _notify_mazda_of_pdf(file_path, label=None):
@@ -1291,7 +1371,23 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
     image_path = os.path.join(SCAN_TOOLS_DIR, cfg.get('output', ''))
     facade = run_intake_facade(image_path, org_id=org_id, engine=engine)
     mazda_dispatched = False
+    trainer_dispatched = False
     stage_error = None
+    vision_health = document_vision_health()
+    if not vision_health.get('ok'):
+        # All 3 classify_scan.py vision tiers are down — dispatching Mazda would
+        # just strand her mid-trace with nothing that can read the image (see
+        # DOCUMENT_VISION_HALT_MESSAGE). Halt here instead: /api/server-health
+        # already reports 'document-vision' red for the same reason, and the
+        # frontend's VisionHaltAlert modal/tab-red state is driven by that,
+        # not by this response.
+        result = build_pipeline_result(facade, mazda_dispatched=False)
+        result['trainer_dispatched'] = False
+        result['vision_halted'] = True
+        result['stage_error'] = DOCUMENT_VISION_HALT_MESSAGE
+        result['scanner'] = key
+        result['image_path'] = image_path
+        return result
     if os.path.isfile(image_path):
         remote_image_path = _stage_scan_for_mazda(image_path)
         if remote_image_path:
@@ -1301,10 +1397,13 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
                 daemon=True,
             ).start()
             mazda_dispatched = True
+            trainer_dispatched = _notify_trainer_of_scan(
+                remote_image_path, cfg.get('name', key), facade)
         else:
             stage_error = ('Could not copy the scan to where Mazda can read it '
                             '(SSH/copy to the executor machine failed) — Mazda was not notified.')
     result = build_pipeline_result(facade, mazda_dispatched)
+    result['trainer_dispatched'] = trainer_dispatched
     if stage_error:
         result['stage_error'] = stage_error
     result['scanner'] = key
@@ -1331,12 +1430,27 @@ def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
         return {'ok': False, 'error': f'File not found: {file_path}', 'stages': []}
     facade = run_intake_facade(real, org_id=org_id, engine=engine)
     doc_label = label or os.path.basename(real)
+    vision_health = document_vision_health()
+    if not vision_health.get('ok'):
+        result = build_pipeline_result(facade, mazda_dispatched=False)
+        result['trainer_dispatched'] = False
+        result['vision_halted'] = True
+        result['stage_error'] = DOCUMENT_VISION_HALT_MESSAGE
+        result['file_path'] = real
+        result['label'] = doc_label
+        return result
     threading.Thread(
         target=_notify_mazda_of_pdf,
         args=(real, doc_label),
         daemon=True,
     ).start()
+    # PDFs already live inside ROL_FINANCES_DIR (enforced above), so no staging
+    # is needed — executor_run on this box reads them directly. This also
+    # covers reprocess_report, which delegates here.
+    trainer_dispatched = _notify_trainer_of_scan(
+        real, f'PDF intake ({doc_label})', facade)
     result = build_pipeline_result(facade, mazda_dispatched=True)
+    result['trainer_dispatched'] = trainer_dispatched
     result['file_path'] = real
     result['label'] = doc_label
     return result
@@ -2419,6 +2533,15 @@ SERVERS = [
         'note': 'mcp-proxy for Mazda\'s Letta tools (mazda-tools-mcp.service, :8791) — '
                 'if down, Mazda\'s tool calls silently fail',
     },
+    {
+        'key': 'document-vision',
+        'name': 'Document Vision (Scan Classify)',
+        'check': 'document_vision_health',
+        'note': 'classify_scan.py\'s 3-tier fallback (Gemini -> ChatGPT-OAuth/Codex CLI -> '
+                'OpenAI key) that lets Mazda classify/read a scanned document. RED here '
+                '(all 3 tiers down) means process_scanned_document() refuses to dispatch '
+                'Mazda at all — see DOCUMENT_VISION_HALT_MESSAGE.',
+    },
 ]
 
 # SSH connections this dashboard can reach for remote administration. Each
@@ -2887,6 +3010,48 @@ def restart_frita_executor():
     return res
 
 
+def restart_document_vision():
+    """"Restart" for Document Vision: there's no service to bounce — of the 3
+    classify_scan.py tiers, only the ChatGPT-OAuth/Codex-CLI one is a token
+    that can self-heal via refresh (same client_id the Model Stats Codex
+    extractor uses). Gemini/OpenAI are static keys in rol_finances/.env with
+    nothing to restart; if those are what's down this just reports the
+    breakdown so the user knows what needs a manual key rotation."""
+    auth_path = os.path.expanduser('~/.codex/auth.json')
+    try:
+        auth = json.load(open(auth_path))
+        tokens = auth.get('tokens', {})
+        refresh_token = tokens.get('refresh_token')
+        if not refresh_token:
+            health = document_vision_health()
+            return {'ok': health['ok'], 'text': f'No Codex refresh_token found. {health["text"]}'}
+        body = json.dumps({
+            'grant_type': 'refresh_token',
+            'client_id': 'app_EMoamEEZ73f0CkXaXp7hrann',
+            'refresh_token': refresh_token,
+            'scope': 'openid profile email',
+        }).encode()
+        req = urllib.request.Request(
+            'https://auth.openai.com/oauth/token', data=body,
+            headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            new_tokens = json.loads(r.read().decode())
+        tokens['access_token'] = new_tokens.get('access_token', tokens.get('access_token'))
+        tokens['id_token'] = new_tokens.get('id_token', tokens.get('id_token'))
+        tokens['refresh_token'] = new_tokens.get('refresh_token', refresh_token)
+        auth['tokens'] = tokens
+        auth['last_refresh'] = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        with open(auth_path, 'w') as f:
+            json.dump(auth, f)
+        health = document_vision_health()
+        return {'ok': health['ok'], 'text': f'Refreshed Codex OAuth token. {health["text"]}'}
+    except Exception as exc:
+        health = document_vision_health()
+        return {'ok': health['ok'],
+                'text': f'Codex refresh failed ({exc}). {health["text"]} '
+                        f'Gemini/OpenAI keys must be fixed by hand in rol_finances/.env.'}
+
+
 # server key → restart handler (returns {ok, text}). Covers ALL SERVERS so every
 # Server Management tab can be restarted from the UI.
 RESTART_HANDLERS = {
@@ -2907,6 +3072,7 @@ RESTART_HANDLERS = {
         'dashboard-proxy',
         'systemctl --user restart dashboard-proxy.service 2>&1 | tail -3 || '
         'echo "no dashboard-proxy.service — start mechanism unknown, please configure"'),
+    'document-vision': restart_document_vision,
 }
 RESTARTABLE_KEYS = set(RESTART_HANDLERS)
 
@@ -3306,10 +3472,109 @@ def frita_executor_health(timeout=None):
             'text': f'SDK OK on :8799 (host={good.get("host")}).' + ghost_warn}
 
 
+# ── Document Vision health (classify_scan.py's 3-tier fallback) ─────────────
+# tools/classify_scan.py falls back Gemini Flash -> ChatGPT-OAuth vision (reuses
+# the Codex CLI's ~/.codex/auth.json session) -> a standalone OpenAI key. This
+# check mirrors that exact chain so the dashboard can tell, cheaply (no paid API
+# calls — just key/token presence and expiry, same signal classify_scan.py's own
+# key-resolution would find), whether a scan dispatched right now has anything
+# that can actually read it. GREEN needs 2+ tiers so single-tier flakiness (e.g.
+# a Codex token that hasn't refreshed yet) doesn't cry wolf; YELLOW at exactly 1
+# tier (one more outage away from a real halt); RED only when ALL THREE are
+# unavailable — that's the signal process_scanned_document() gates on before
+# dispatching Mazda at all (see DOCUMENT_VISION_HALT_MESSAGE).
+ROL_FINANCES_ENV_PATH = os.path.join(ROL_FINANCES_DIR, '.env')
+
+
+def _read_env_var(name, env_path=None):
+    """Look up name in os.environ, falling back to a simple KEY=VALUE .env file.
+
+    env_path defaults to the CURRENT value of ROL_FINANCES_ENV_PATH, read at
+    call time (not as a mutable-default-arg frozen at def time), so tests can
+    monkeypatch server.ROL_FINANCES_ENV_PATH and have it take effect."""
+    val = os.environ.get(name)
+    if val:
+        return val
+    if env_path is None:
+        env_path = ROL_FINANCES_ENV_PATH
+    try:
+        for line in open(env_path):
+            line = line.strip()
+            if line.startswith(f'{name}='):
+                return line.split('=', 1)[1].strip().strip('"').strip("'") or None
+    except OSError:
+        pass
+    return None
+
+
+def _jwt_claims(token):
+    """Best-effort decode of a JWT's payload (no signature check — we only need exp)."""
+    import base64
+    try:
+        payload = token.split('.')[1]
+        payload += '=' * (-len(payload) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload))
+    except Exception:
+        return {}
+
+
+def document_vision_health(timeout=None):
+    """Health of the receipt/statement scan-classification vision chain.
+
+    Checks the SAME three tiers classify_scan.py tries, in order, without
+    spending any API budget: Gemini key present, Codex CLI OAuth access_token
+    present and unexpired, standalone OpenAI key present."""
+    tiers_up = []
+    tiers_down = []
+
+    gemini_key = _read_env_var('GEMINI_API_KEY') or _read_env_var('GOOGLE_API_KEY')
+    if gemini_key:
+        tiers_up.append('Gemini')
+    else:
+        tiers_down.append('Gemini (no GEMINI_API_KEY/GOOGLE_API_KEY)')
+
+    codex_auth_path = os.path.expanduser('~/.codex/auth.json')
+    try:
+        auth = json.load(open(codex_auth_path))
+        access_token = auth.get('tokens', {}).get('access_token', '')
+        exp = _jwt_claims(access_token).get('exp', 0)
+        if access_token and exp > time.time():
+            tiers_up.append('ChatGPT-OAuth (Codex CLI)')
+        else:
+            tiers_down.append('ChatGPT-OAuth (Codex CLI token expired)')
+    except (OSError, json.JSONDecodeError, AttributeError):
+        tiers_down.append('ChatGPT-OAuth (no ~/.codex/auth.json)')
+
+    if _read_env_var('OPENAI_API_KEY'):
+        tiers_up.append('OpenAI key')
+    else:
+        tiers_down.append('OpenAI key (not configured)')
+
+    n_up = len(tiers_up)
+    text = f'{n_up}/3 vision tiers available: {", ".join(tiers_up) or "none"}.'
+    if tiers_down:
+        text += f' Down: {", ".join(tiers_down)}.'
+
+    if n_up == 0:
+        return {'ok': False,
+                'text': 'ALL vision tiers down — Mazda cannot classify or read '
+                        'scanned documents. ' + text}
+    return {'ok': True, 'concern': n_up == 1, 'text': text}
+
+
+DOCUMENT_VISION_HALT_MESSAGE = (
+    'Scan NOT dispatched to Mazda: all document-vision tiers are down '
+    '(Gemini key, ChatGPT-OAuth/Codex CLI, and OpenAI key all unavailable) — '
+    'she has no way to classify or read the scanned image right now. '
+    'Fix at least one vision tier, then use "Process Document" to retry.'
+)
+
+
 # Registry of named check functions usable via a SERVERS entry's 'check' key.
 HEALTH_CHECKS = {
     'frita_executor_health': frita_executor_health,
     'win10_node_health': win10_node_health,
+    'document_vision_health': document_vision_health,
 }
 
 

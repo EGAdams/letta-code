@@ -7,6 +7,7 @@ start/"starting" lifecycle used by the executor Start button.
 """
 import json
 import os
+import time
 
 import pytest
 import server
@@ -638,11 +639,13 @@ def test_stage_scan_for_mazda_missing_local_file_returns_none():
     assert server._stage_scan_for_mazda('/nope/does-not-exist.jpg') is None
 
 
-def test_stage_scan_for_mazda_copies_to_remote_and_returns_remote_path(
+def test_stage_scan_for_mazda_copies_locally_and_mirrors_to_win10(
         tmp_path, monkeypatch):
-    """Mazda's executor tools run on a different machine than the scanner, so
-    the scanned image must be copied there before Mazda is told about it —
-    otherwise her classify_scan.py call gets 'Image not found'."""
+    """executor_run (Mazda's primary intake tool) runs on THIS box, so the scan
+    must land in the local rol_finances incoming_scans; the Win10 copy is only
+    a best-effort mirror for run_claude_code_sdk sessions."""
+    staging_dir = tmp_path / 'incoming_scans'
+    monkeypatch.setattr(server, 'SCAN_STAGING_REMOTE_DIR', str(staging_dir))
     local = tmp_path / 'scan_freezer.jpg'
     local.write_bytes(b'fake-jpeg')
     calls = []
@@ -654,16 +657,21 @@ def test_stage_scan_for_mazda_copies_to_remote_and_returns_remote_path(
         return _R()
 
     monkeypatch.setattr(server.subprocess, 'run', _fake_run)
-    remote_path = server._stage_scan_for_mazda(str(local))
-    assert remote_path == f'{server.SCAN_STAGING_REMOTE_DIR}/scan_freezer.jpg'
+    staged_path = server._stage_scan_for_mazda(str(local))
+    assert staged_path == f'{staging_dir}/scan_freezer.jpg'
+    assert (staging_dir / 'scan_freezer.jpg').read_bytes() == b'fake-jpeg'
     assert calls[0][:2] == ['ssh', '-o']
     assert 'mkdir' in calls[0]
     assert calls[1][0] == 'scp'
     assert str(local) in calls[1]
-    assert f'{server.SCAN_STAGING_HOST}:{remote_path}' in calls[1]
+    assert f'{server.SCAN_STAGING_HOST}:{staged_path}' in calls[1]
 
 
-def test_stage_scan_for_mazda_returns_none_on_ssh_failure(tmp_path, monkeypatch):
+def test_stage_scan_for_mazda_ssh_failure_is_nonfatal(tmp_path, monkeypatch):
+    """A dead Win10 box must not block intake — executor_run reads the local
+    copy, so staging succeeds as long as the local copy lands."""
+    staging_dir = tmp_path / 'incoming_scans'
+    monkeypatch.setattr(server, 'SCAN_STAGING_REMOTE_DIR', str(staging_dir))
     local = tmp_path / 'scan.jpg'
     local.write_bytes(b'fake-jpeg')
 
@@ -671,6 +679,22 @@ def test_stage_scan_for_mazda_returns_none_on_ssh_failure(tmp_path, monkeypatch)
         raise server.subprocess.CalledProcessError(1, cmd)
 
     monkeypatch.setattr(server.subprocess, 'run', _fake_run)
+    staged_path = server._stage_scan_for_mazda(str(local))
+    assert staged_path == f'{staging_dir}/scan.jpg'
+    assert (staging_dir / 'scan.jpg').exists()
+
+
+def test_stage_scan_for_mazda_returns_none_when_local_copy_fails(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'SCAN_STAGING_REMOTE_DIR',
+                        str(tmp_path / 'staged'))
+    local = tmp_path / 'scan.jpg'
+    local.write_bytes(b'fake-jpeg')
+
+    def _boom(src, dst):
+        raise OSError('disk full')
+
+    monkeypatch.setattr(server.shutil, 'copyfile', _boom)
     assert server._stage_scan_for_mazda(str(local)) is None
 
 
@@ -688,6 +712,7 @@ def test_process_scanned_document_dispatches_mazda_with_staged_remote_path(
     })
     monkeypatch.setattr(server, 'run_intake_facade',
                          lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
+    monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
     monkeypatch.setattr(server, '_stage_scan_for_mazda',
                          lambda local_path: '/home/adamsl/rol_finances/tools/'
                                              'receipt_scanning_tools/incoming_scans/scan.jpg')
@@ -718,6 +743,7 @@ def test_process_scanned_document_reports_stage_error_and_skips_mazda(
     })
     monkeypatch.setattr(server, 'run_intake_facade',
                          lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
+    monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
     monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda local_path: None)
     threads_started = []
     monkeypatch.setattr(
@@ -729,6 +755,89 @@ def test_process_scanned_document_reports_stage_error_and_skips_mazda(
     assert threads_started == []
     assert 'stage_error' in result
     assert 'Mazda' in result['stage_error']
+
+
+def test_process_scanned_document_halts_when_vision_all_down(tmp_path, monkeypatch):
+    """RED document-vision (all 3 classify_scan.py tiers down) must skip Mazda
+    entirely, not just fail deep inside her trace."""
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'script': 'run_scan_window.sh',
+                   'output': 'scan.jpg'},
+    })
+    monkeypatch.setattr(server, 'run_intake_facade',
+                         lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
+    monkeypatch.setattr(server, 'document_vision_health',
+                         lambda *a, **kw: {'ok': False, 'text': 'ALL vision tiers down'})
+    staged = []
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: staged.append(p))
+    threads_started = []
+    monkeypatch.setattr(
+        server.threading, 'Thread',
+        lambda target, args, daemon: threads_started.append(args))
+
+    result = server.process_scanned_document('window')
+    assert result['mazda_dispatched'] is False
+    assert result['vision_halted'] is True
+    assert threads_started == []
+    assert staged == []  # never even attempted to stage/dispatch
+    assert 'Mazda' in result['stage_error']
+
+
+def test_document_vision_health_all_tiers_down(monkeypatch, tmp_path):
+    missing_env = tmp_path / '.env'
+    missing_env.write_text('')
+    monkeypatch.setattr(server, 'ROL_FINANCES_ENV_PATH', str(missing_env))
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    monkeypatch.delenv('GOOGLE_API_KEY', raising=False)
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    monkeypatch.setattr(server.os.path, 'expanduser',
+                         lambda p: str(tmp_path / 'no-such-auth.json') if p == '~/.codex/auth.json' else p)
+
+    health = server.document_vision_health()
+    assert health['ok'] is False
+    assert 'ALL vision tiers down' in health['text']
+
+
+def test_document_vision_health_two_tiers_up_is_green_not_concern(monkeypatch, tmp_path):
+    env_file = tmp_path / '.env'
+    env_file.write_text('GEMINI_API_KEY=AQ.fake\n')
+    monkeypatch.setattr(server, 'ROL_FINANCES_ENV_PATH', str(env_file))
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    monkeypatch.delenv('GOOGLE_API_KEY', raising=False)
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+
+    import base64
+    future_exp = int(time.time()) + 3600
+    payload = base64.urlsafe_b64encode(
+        json.dumps({'exp': future_exp}).encode()).decode().rstrip('=')
+    fake_jwt = f'h.{payload}.s'
+    auth_path = tmp_path / 'auth.json'
+    auth_path.write_text(json.dumps({'tokens': {'access_token': fake_jwt}}))
+    monkeypatch.setattr(server.os.path, 'expanduser',
+                         lambda p: str(auth_path) if p == '~/.codex/auth.json' else p)
+
+    health = server.document_vision_health()
+    assert health['ok'] is True
+    assert not health.get('concern')
+
+
+def test_document_vision_health_one_tier_up_is_concern(monkeypatch, tmp_path):
+    env_file = tmp_path / '.env'
+    env_file.write_text('GEMINI_API_KEY=AQ.fake\n')
+    monkeypatch.setattr(server, 'ROL_FINANCES_ENV_PATH', str(env_file))
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    monkeypatch.delenv('GOOGLE_API_KEY', raising=False)
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    monkeypatch.setattr(server.os.path, 'expanduser',
+                         lambda p: str(tmp_path / 'no-such-auth.json') if p == '~/.codex/auth.json' else p)
+
+    health = server.document_vision_health()
+    assert health['ok'] is True
+    assert health.get('concern') is True
 
 
 class _NoopThread:
@@ -2533,3 +2642,97 @@ def test_failover_ignores_non_rate_limit_errors():
     for text in ('HTTP 401: unauthorized', 'probe timed out', ''):
         assert not server.failover_should_trigger(
             text, now_ts=10_000, last_swap_ts=0, min_interval=1800)
+
+
+# ── Mazda Trainer dispatch (scan → trainer agent) ────────────────────────────
+
+def test_build_trainer_command_carries_scan_context():
+    cmd = server.build_trainer_command(
+        '/remote/incoming_scans/scan.jpg', 'Window Scanner',
+        {'ok': True, 'doc_kind': 'receipt'}, dispatched_at=1752170000)
+    assert cmd[0] == server.TRAINER_RUNNER
+    assert cmd[1] == server.TRAINER_SCRIPT
+    assert cmd[cmd.index('--scan-path') + 1] == '/remote/incoming_scans/scan.jpg'
+    assert cmd[cmd.index('--scanner') + 1] == 'Window Scanner'
+    assert json.loads(cmd[cmd.index('--facade') + 1]) == {
+        'ok': True, 'doc_kind': 'receipt'}
+    assert cmd[cmd.index('--dispatched-at') + 1] == '1752170000'
+
+
+def test_build_trainer_command_defaults_empty_facade_no_timestamp():
+    cmd = server.build_trainer_command('/tmp/scan.jpg', 'Freezer')
+    assert json.loads(cmd[cmd.index('--facade') + 1]) == {}
+    assert '--dispatched-at' not in cmd
+
+
+def test_notify_trainer_disabled_is_noop(monkeypatch):
+    monkeypatch.setattr(server, 'TRAINER_ENABLED', False)
+    calls = []
+    monkeypatch.setattr(server.subprocess, 'Popen',
+                        lambda *a, **k: calls.append(a))
+    assert server._notify_trainer_of_scan('/tmp/scan.jpg', 'Window Scanner') is False
+    assert calls == []
+
+
+def test_notify_trainer_missing_script_is_graceful(monkeypatch):
+    monkeypatch.setattr(server, 'TRAINER_ENABLED', True)
+    monkeypatch.setattr(server, 'TRAINER_SCRIPT', '/nonexistent/trainer.mjs')
+    assert server._notify_trainer_of_scan('/tmp/scan.jpg', 'Window Scanner') is False
+
+
+def test_notify_trainer_spawns_detached_with_path(monkeypatch, tmp_path):
+    script = tmp_path / 'run_mazda_trainer.mjs'
+    script.write_text('// stub')
+    monkeypatch.setattr(server, 'TRAINER_ENABLED', True)
+    monkeypatch.setattr(server, 'TRAINER_SCRIPT', str(script))
+    spawned = {}
+
+    def fake_popen(cmd, **kwargs):
+        spawned['cmd'] = cmd
+        spawned['kwargs'] = kwargs
+
+    monkeypatch.setattr(server.subprocess, 'Popen', fake_popen)
+    assert server._notify_trainer_of_scan(
+        '/remote/scan.jpg', 'Window Scanner', {'ok': True}) is True
+    assert spawned['cmd'][1] == str(script)
+    assert spawned['kwargs']['start_new_session'] is True
+    assert '.bun/bin' in spawned['kwargs']['env']['PATH']
+
+
+def test_notify_trainer_popen_failure_never_raises(monkeypatch, tmp_path):
+    script = tmp_path / 'run_mazda_trainer.mjs'
+    script.write_text('// stub')
+    monkeypatch.setattr(server, 'TRAINER_ENABLED', True)
+    monkeypatch.setattr(server, 'TRAINER_SCRIPT', str(script))
+
+    def boom(*a, **k):
+        raise OSError('bun not found')
+
+    monkeypatch.setattr(server.subprocess, 'Popen', boom)
+    assert server._notify_trainer_of_scan('/tmp/scan.jpg', 'Freezer') is False
+
+
+def test_process_pdf_document_dispatches_trainer(monkeypatch, tmp_path):
+    """The PDF/reprocess intake path must spawn the Trainer too, not just scans."""
+    pdf_dir = tmp_path / 'rol'
+    pdf_dir.mkdir()
+    pdf = pdf_dir / 'statement.pdf'
+    pdf.write_bytes(b'%PDF-fake')
+    monkeypatch.setattr(server, 'ROL_FINANCES_DIR', str(pdf_dir))
+    monkeypatch.setattr(server, 'run_intake_facade',
+                        lambda path, org_id=1, engine='gemini': {'ok': True})
+    monkeypatch.setattr(server.threading, 'Thread',
+                        lambda *a, **k: type('T', (), {'start': lambda s: None})())
+    seen = {}
+
+    def fake_trainer(path, name, facade):
+        seen['args'] = (path, name, facade)
+        return True
+
+    monkeypatch.setattr(server, '_notify_trainer_of_scan', fake_trainer)
+    result = server.process_pdf_document(str(pdf), label='Jan Statement')
+    assert result['trainer_dispatched'] is True
+    path, name, facade = seen['args']
+    assert path == str(pdf)
+    assert 'Jan Statement' in name
+    assert facade == {'ok': True}

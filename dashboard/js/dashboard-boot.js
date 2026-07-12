@@ -30,6 +30,7 @@ import {
   ServerHealthMonitor,
   ServerLogController,
   StreamDetailRenderer,
+  VisionHaltAlert,
 } from "./implementation/index.js";
 
 // One shared HttpClient (Adapter over fetch) used by AM / SM / SSHM / RF.
@@ -2011,6 +2012,13 @@ new AgentHealthPoller({ http, setHealth: setAgentTabHealth }).start();
 // Blink the Agents tab + prompt to restart when the dashboard's own source
 // changes on disk (polls /api/code-status every 15s).
 new CodeChangeAlert({ http }).start();
+
+/* =====================  Document-vision halt alert  ===================== */
+// Full-screen modal + red Window/Freezer scanner tabs when classify_scan.py's
+// 3-tier vision fallback (Gemini -> ChatGPT-OAuth/Codex CLI -> OpenAI key) is
+// ALL down (polls /api/server-health's 'document-vision' entry every 20s).
+// Mirrors the server-side halt in process_scanned_document().
+new VisionHaltAlert({ http }).start();
 
 /* =====================  Scanners  =====================
    ROL Finance > Scanners > {Window,Freezer} Scanner. Each `.scanner-dialog`
