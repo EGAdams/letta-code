@@ -609,6 +609,10 @@ if (
   navRolFinanceReports.addEventListener("click", (e) => {
     const tab = e.target.closest(".tab");
     if (!tab || tab.id === "btn-back-rol-finance-reports") return;
+    if (tab.dataset.recentReport) {
+      RF.openRecentReport();
+      return;
+    }
     if (tab.dataset.monthKey) {
       RF.openMonth(tab.dataset.monthKey).then(() => RF.refreshStatus());
       return;
@@ -899,6 +903,10 @@ function renderModelStats(d) {
   if (d.model) h += `<p><b>Model:</b> <code>${esc(d.model)}</code></p>`;
   if (d.detail) h += `<p class="am-dim">${esc(d.detail)}</p>`;
   for (const w of d.windows || []) {
+    if (w.unavailable) {
+      h += `<div class="ms-window"><div class="ms-window-head"><span>${esc(w.label)}</span><span class="am-dim">${esc(w.note || "not reported")}</span></div></div>`;
+      continue;
+    }
     const pct = Math.max(0, Math.min(100, w.used_percent || 0));
     const bar = pct >= 100 ? "#e53935" : pct >= 80 ? "#f9a825" : "#43a047";
     const resets = w.resets_in ? ` · resets ${esc(w.resets_in)}` : "";

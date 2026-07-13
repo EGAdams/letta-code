@@ -65,7 +65,7 @@ describe("RolFinanceReportsController", () => {
     expect(() => new RolFinanceReportsController({})).toThrow();
   });
 
-  test("openReports builds a tab + view per report and lands on the overview (not a document)", async () => {
+  test("openReports builds a tab + view per report and lands on the Recent Report view", async () => {
     const ctx = setup([
       {
         key: "jan",
@@ -92,23 +92,70 @@ describe("RolFinanceReportsController", () => {
     expect(tabs[1].className).toBe("tab report-missing");
 
     const views = ctx.viewsContainer.querySelectorAll("section");
-    // overview + 2 document views.
-    expect(views.length).toBe(3);
+    // overview + 2 document views + the Recent Report view.
+    expect(views.length).toBe(4);
     const docViews = views.filter(
-      (v) => v.id !== "rol-finance-reports-overview",
+      (v) =>
+        v.id !== "rol-finance-reports-overview" &&
+        v.id !== "rol-finance-report-recent",
     );
     expect(docViews[0].id).toBe("rol-finance-report-jan");
     expect(docViews[0].innerHTML).toContain("/r/jan.html");
     expect(docViews[1].innerHTML).toContain("Missing report.html");
 
-    // No document tab selected — the month overview is shown instead.
+    // No document tab selected — the Recent Report view is shown by default.
     expect(ctx.selected.length).toBe(0);
-    expect(ctx.activated).toEqual(["rol-finance-reports-overview"]);
+    expect(ctx.activated).toEqual([
+      "rol-finance-reports-overview",
+      "rol-finance-report-recent",
+    ]);
+    const recentView = views.find((v) => v.id === "rol-finance-report-recent");
+    expect(recentView.innerHTML).toContain("/recent_report.html");
+    const recentTab = ctx.nav.querySelector(".tab[data-recent-report]");
+    expect(recentTab.textContent).toBe("Recent Report");
+    expect(recentTab.classList.contains("active")).toBe(true);
 
     // Default month (jan-2025) requested.
     expect(ctx.requestedUrls).toEqual([
       "/api/rol-finance-reports?month=jan-2025",
     ]);
+  });
+
+  test("month/report tabs clear the Recent Report highlight; reopening rebuilds the view", async () => {
+    const ctx = setup([
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
+    ]);
+    await ctx.rf.openReports();
+    const recentTab = ctx.nav.querySelector(".tab[data-recent-report]");
+    expect(recentTab.classList.contains("active")).toBe(true);
+
+    // Opening a month wipes the recent view and drops its tab highlight.
+    await ctx.rf.openMonth("jan-2025");
+    expect(recentTab.classList.contains("active")).toBe(false);
+    expect(ctx.viewsContainer.querySelector("#rol-finance-report-recent")).toBe(
+      null,
+    );
+
+    // Selecting a document also keeps the recent tab inactive.
+    ctx.rf.selectReport("jan");
+    expect(recentTab.classList.contains("active")).toBe(false);
+
+    // Reopening rebuilds a fresh iframe view (server re-resolves "most recent").
+    ctx.rf.openRecentReport();
+    expect(recentTab.classList.contains("active")).toBe(true);
+    const docTab = ctx.nav.querySelector('[data-report-key="jan"]');
+    expect(docTab.classList.contains("active")).toBe(false);
+    const view = ctx.viewsContainer.querySelector("#rol-finance-report-recent");
+    expect(view.innerHTML).toContain("/recent_report.html");
+    expect(ctx.activated[ctx.activated.length - 1]).toBe(
+      "rol-finance-report-recent",
+    );
   });
 
   test("overview shows a color-coded row per document, skipping reports with no status", async () => {

@@ -42,6 +42,7 @@ export class RolFinanceReportsController {
     recategorizeEndpoint = "/api/recategorize-expense",
     receiptLookupEndpoint = "/api/receipt-lookup",
     recentScansLimit = 5,
+    recentReportUrl = "/recent_report.html",
     mazdaAgentId = "agent-6b536cf4-ec88-4290-b595-fed21d14bd8e",
     months = [
       { key: "jan-2025", label: "January 2025" },
@@ -71,6 +72,7 @@ export class RolFinanceReportsController {
     this._recategorizeEndpoint = recategorizeEndpoint;
     this._receiptLookupEndpoint = receiptLookupEndpoint;
     this._recentScansLimit = recentScansLimit;
+    this._recentReportUrl = recentReportUrl;
     this._mazdaAgentId = mazdaAgentId;
     this._openUrl = openUrl;
     this._months = months;
@@ -88,15 +90,71 @@ export class RolFinanceReportsController {
     this._lastEventTs = 0;
   }
 
-  /** Inject the month tabs (once) and open the first month. */
+  /**
+   * Inject the Recent Report + month tabs (once), preload the first month's
+   * document tabs, then land on the Recent Report view — the Verified
+   * Transactions of the most recently processed document.
+   */
   async openReports() {
     if (!this._monthsBuilt) {
+      this.buildRecentReportTab();
       this.buildMonthTabs();
       this._monthsBuilt = true;
     }
     const first = this._months[0];
     if (first) await this.openMonth(first.key);
+    this.openRecentReport();
     this.startPolling();
+  }
+
+  /** Inject the "Recent Report" tab (once), ahead of the month tabs. */
+  buildRecentReportTab() {
+    const tab = this._doc.createElement("button");
+    tab.type = "button";
+    tab.className = "tab recent-report-tab";
+    tab.dataset.recentReport = "1";
+    tab.textContent = "Recent Report";
+    this._nav.appendChild(tab);
+  }
+
+  /**
+   * Open the Recent Report view: an iframe over /recent_report.html — the
+   * server dynamically serves whichever report.html belongs to the most
+   * recently processed document — collapsed to its Verified Transactions card
+   * on load. The report's own Set Category dialog rides along (same-origin
+   * iframe), so recategorizing works exactly as on a month's document tab.
+   * The view is rebuilt on every open: openMonth wipes the views container,
+   * and a fresh iframe makes the server re-resolve "most recent".
+   */
+  openRecentReport() {
+    this._nav
+      .querySelectorAll(".tab[data-month-key], .tab[data-report-key]")
+      .forEach((t) => {
+        t.classList.remove("active");
+      });
+    this._nav.querySelectorAll(".tab[data-recent-report]").forEach((t) => {
+      t.classList.add("active");
+    });
+
+    const stale = this._viewsContainer.querySelector(
+      "#rol-finance-report-recent",
+    );
+    if (stale) stale.remove();
+    const view = this._doc.createElement("section");
+    view.id = "rol-finance-report-recent";
+    view.className = "view";
+    view.insertAdjacentHTML(
+      "beforeend",
+      `<iframe class="plan-frame" src="${TextUtils.esc(this._recentReportUrl)}"></iframe>`,
+    );
+    const iframe = view.querySelector("iframe");
+    if (iframe) {
+      iframe.addEventListener("load", () =>
+        this.showOnlyVerifiedTransactions(iframe),
+      );
+    }
+    this._viewsContainer.appendChild(view);
+    this._activateView("rol-finance-report-recent");
   }
 
   /**
@@ -514,6 +572,9 @@ export class RolFinanceReportsController {
     this._nav.querySelectorAll(".tab[data-month-key]").forEach((t) => {
       t.classList.toggle("active", t.dataset.monthKey === monthKey);
     });
+    this._nav.querySelectorAll(".tab[data-recent-report]").forEach((t) => {
+      t.classList.remove("active");
+    });
 
     let reports = this._reportsByMonth.get(monthKey);
     if (!reports) {
@@ -788,6 +849,9 @@ export class RolFinanceReportsController {
     if (tab) {
       this._nav.querySelectorAll(".tab[data-report-key]").forEach((t) => {
         t.classList.toggle("active", t === tab);
+      });
+      this._nav.querySelectorAll(".tab[data-recent-report]").forEach((t) => {
+        t.classList.remove("active");
       });
     }
     this.openReport(key);

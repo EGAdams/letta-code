@@ -2697,6 +2697,7 @@ def test_notify_trainer_spawns_detached_with_path(monkeypatch, tmp_path):
     assert spawned['cmd'][1] == str(script)
     assert spawned['kwargs']['start_new_session'] is True
     assert '.bun/bin' in spawned['kwargs']['env']['PATH']
+    assert '.npm-global/bin' in spawned['kwargs']['env']['PATH']
 
 
 def test_notify_trainer_popen_failure_never_raises(monkeypatch, tmp_path):
@@ -2736,3 +2737,423 @@ def test_process_pdf_document_dispatches_trainer(monkeypatch, tmp_path):
     assert path == str(pdf)
     assert 'Jan Statement' in name
     assert facade == {'ok': True}
+
+
+# ── Recent Report (/recent_report.html) ─────────────────────────────────────
+
+
+def _recent_report_env(tmp_path, monkeypatch, docs=('doc_a', 'doc_b')):
+    """Point the ROL report registry at a tmp tree with the given report dirs
+    (report.html written for each), and isolate the recent-report pointer."""
+    parent = tmp_path / 'reports'
+    for d in docs:
+        (parent / 'january' / d).mkdir(parents=True)
+        (parent / 'january' / d / 'report.html').write_text(
+            f'<html><head><title>{d}</title></head>'
+            f'<body><h1>{d}</h1></body></html>')
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_PARENT', str(parent))
+    monkeypatch.setattr(server, 'ROL_FINANCES_REPORTS_MONTHS', {'jan-2025': 'january'})
+    monkeypatch.setattr(server, 'ROL_FINANCE_REPORTS', [
+        {'key': d, 'label': d, 'dir': d} for d in docs])
+    monkeypatch.setattr(server, 'RECENT_REPORT_POINTER_FILE',
+                        str(tmp_path / 'recent_report.json'))
+    return parent
+
+
+def test_recent_report_pointer_roundtrip(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch)
+    url = '/rol_finances_reports/jan-2025/doc_a/report.html'
+    assert server.set_recent_report_pointer(url) is True
+    assert server._load_recent_report_pointer()['report_path'] == url
+    # A URL that doesn't resolve to a real report is rejected and not stored.
+    assert server.set_recent_report_pointer(
+        '/rol_finances_reports/jan-2025/nope/report.html') is False
+    assert server._load_recent_report_pointer()['report_path'] == url
+
+
+def test_resolve_recent_report_prefers_newer_of_pointer_and_mtime(
+        tmp_path, monkeypatch):
+    parent = _recent_report_env(tmp_path, monkeypatch)
+    a_url = '/rol_finances_reports/jan-2025/doc_a/report.html'
+    server.set_recent_report_pointer(a_url)
+    # Pointer is newest → doc_a wins even if doc_b's file exists.
+    old = time.time() - 3600
+    os.utime(parent / 'january' / 'doc_b' / 'report.html', (old, old))
+    assert server.resolve_recent_report()['url'] == a_url
+    # Mazda rewrites doc_b on disk (mtime in the future of the pointer) →
+    # doc_b becomes the most recently processed document, no callback needed.
+    new = time.time() + 3600
+    os.utime(parent / 'january' / 'doc_b' / 'report.html', (new, new))
+    resolved = server.resolve_recent_report()
+    assert resolved['url'] == '/rol_finances_reports/jan-2025/doc_b/report.html'
+    assert resolved['file'].endswith('doc_b/report.html')
+
+
+def test_build_recent_report_html_injects_base_href(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch)
+    server.set_recent_report_pointer(
+        '/rol_finances_reports/jan-2025/doc_a/report.html')
+    html = server.build_recent_report_html()
+    assert '<base href="/rol_finances_reports/jan-2025/doc_a/">' in html
+    assert '<h1>doc_a</h1>' in html
+    # <base> must land inside <head> so it applies to the whole document.
+    assert html.index('<head>') < html.index('<base href=')
+
+
+def test_build_recent_report_html_placeholder_when_nothing_processed(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    html = server.build_recent_report_html()
+    assert 'No document has been processed yet' in html
+
+
+def test_record_stored_expense_updates_recent_report_pointer(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch)
+    url = '/rol_finances_reports/jan-2025/doc_b/report.html'
+    server.record_stored_expense({
+        'kind': 'receipt', 'expense_id': 7, 'expense_date': '2025-01-05',
+        'amount': '12.34', 'report_path': url,
+    })
+    assert server._load_recent_report_pointer()['report_path'] == url
+
+
+def test_record_stored_expense_matches_report_when_no_report_path(
+        tmp_path, monkeypatch):
+    parent = _recent_report_env(tmp_path, monkeypatch)
+    # Give doc_a a Verified-Transactions row matching the stored expense.
+    (parent / 'january' / 'doc_a' / 'report.html').write_text(
+        '<html><head></head><body><table><tr data-vendor-key="kum_go">'
+        '<td>2025-01-05</td><td>Kum & Go</td><td>12.34</td></tr>'
+        '</table></body></html>')
+    server.record_stored_expense({
+        'kind': 'receipt', 'expense_id': 8, 'expense_date': '2025-01-05',
+        'amount': '12.34', 'vendor_key': 'kum_go',
+    })
+    ptr = server._load_recent_report_pointer()
+    assert ptr['report_path'] == '/rol_finances_reports/jan-2025/doc_a/report.html'
+
+
+def test_resolve_report_path_alias_translates_recent_report(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch)
+    url = '/rol_finances_reports/jan-2025/doc_a/report.html'
+    server.set_recent_report_pointer(url)
+    # The picker inside /recent_report.html posts location.pathname — translate.
+    assert server._resolve_report_path_alias('/recent_report.html') == url
+    # Real report paths and blanks pass through untouched.
+    assert server._resolve_report_path_alias(url) == url
+    assert server._resolve_report_path_alias('') == ''
+
+
+# ── Recent Report: intake mode (documents with no report.html) ──────────────
+
+
+def test_process_scanned_document_records_recent_intake(tmp_path, monkeypatch):
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'scan.jpg'},
+    })
+    monkeypatch.setattr(server, 'run_intake_facade',
+                        lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
+    monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
+    staged = '/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/scan.jpg'
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: staged)
+    monkeypatch.setattr(server.threading, 'Thread',
+                        lambda *a, **k: type('T', (), {'start': lambda s: None})())
+
+    result = server.process_scanned_document('window')
+    assert result['mazda_dispatched'] is True
+    intake = server._read_recent_pointer_file().get('intake')
+    assert intake['document'] == 'scan.jpg'
+    assert intake['image_path'] == staged
+    assert intake['label'] == 'Window Scanner'
+    assert intake['kind'] == 'scan'
+    # The intake (no report.html for a scan) is what /recent_report.html shows.
+    resolved = server.resolve_recent_report()
+    assert resolved['mode'] == 'intake'
+    assert resolved['intake']['document'] == 'scan.jpg'
+
+
+def test_process_scanned_document_second_call_does_not_redispatch(
+        tmp_path, monkeypatch):
+    """Server auto-dispatch + the frontend's process-document POST both land in
+    process_scanned_document; the second must not send Mazda the same image."""
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'scan.jpg'},
+    })
+    monkeypatch.setattr(server, 'run_intake_facade',
+                        lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
+    monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: '/staged/scan.jpg')
+    dispatches = []
+
+    def _fake_thread(target, args, daemon):
+        dispatches.append(args)
+        return type('T', (), {'start': lambda s: None})()
+
+    monkeypatch.setattr(server.threading, 'Thread', _fake_thread)
+
+    first = server.process_scanned_document('window')
+    second = server.process_scanned_document('window')
+    assert first['mazda_dispatched'] is True
+    assert 'already_dispatched' not in first
+    assert len(dispatches) == 1
+    assert second['already_dispatched'] is True
+    assert second['mazda_dispatched'] is True  # frontend still renders delegated stages
+
+
+def test_failed_staging_releases_the_dispatch_claim(tmp_path, monkeypatch):
+    """A staging failure must not burn the claim — the retry has to dispatch."""
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'scan.jpg'},
+    })
+    monkeypatch.setattr(server, 'run_intake_facade',
+                        lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
+    monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
+    monkeypatch.setattr(server.threading, 'Thread',
+                        lambda *a, **k: type('T', (), {'start': lambda s: None})())
+
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: None)
+    failed = server.process_scanned_document('window')
+    assert failed['mazda_dispatched'] is False
+
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: '/staged/scan.jpg')
+    retried = server.process_scanned_document('window')
+    assert retried['mazda_dispatched'] is True
+    assert 'already_dispatched' not in retried
+
+
+def test_run_scanner_auto_dispatches_intake_when_ready(monkeypatch):
+    """The SERVER fires intake after a ready scan — a closed browser can no
+    longer lose the document (2026-07-12 lesson)."""
+    monkeypatch.setattr(server, '_invoke_scanner', lambda key: {'status': 'ready'})
+    spawned = []
+
+    def _fake_thread(target, args, daemon):
+        spawned.append((target, args))
+        return type('T', (), {'start': lambda s: None})()
+
+    monkeypatch.setattr(server.threading, 'Thread', _fake_thread)
+    result = server.run_scanner('window')
+    assert result['ok'] is True
+    assert spawned == [(server.process_scanned_document, ('window',))]
+
+
+def test_run_scanner_does_not_dispatch_on_busy(monkeypatch):
+    monkeypatch.setattr(server, '_invoke_scanner', lambda key: {'status': 'busy'})
+    spawned = []
+    monkeypatch.setattr(server.threading, 'Thread',
+                        lambda *a, **k: spawned.append(a) or type('T', (), {'start': lambda s: None})())
+    result = server.run_scanner('window')
+    assert result['ok'] is False
+    assert spawned == []
+
+
+def test_merge_recent_intake_event_folds_ids_and_counts(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.record_stored_expense({
+        'kind': 'statement', 'expense_id': 101, 'expense_ids': [101, 102],
+        'parsed': 10, 'stored': 2,
+        'expense_date': '2025-06-01', 'amount': '12.34',
+    })
+    intake = server._read_recent_pointer_file()['intake']
+    assert intake['expense_ids'] == [101, 102]
+    assert intake['parsed'] == 10
+    assert intake['stored'] == 2
+    assert intake['reported_at'] > 0
+
+
+def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({'expense_ids': [7], 'parsed': 1, 'stored': 1})
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
+        'date': '2025-06-01', 'amount': '-12.34', 'vendor_key': 'kum_go',
+        'description': 'Kum & Go', 'reporting_category': 'Travel & Vehicle',
+        'cat_class': 'cat-travel-and-vehicle',
+    }])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('/*css*/', '<div id="rol-category-picker"></div>', '/*rowcss*/'))
+    html = server.build_recent_report_html()
+    assert 'scan_freezer.jpg' in html
+    assert 'verified-transactions' in html
+    assert 'data-vendor-key="kum_go"' in html
+    assert 'rol-category-picker' in html
+    assert 'openCategoryPicker' in html
+
+
+def test_recent_intake_html_duplicates_note_when_nothing_stored(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({'expense_ids': [], 'parsed': 10, 'stored': 0})
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '', ''))
+    html = server.build_recent_report_html()
+    assert 'already in the' in html and 'duplicates' in html
+    # No transaction table (the id appears in the shared CSS regardless).
+    assert '<table id="verified-transactions"' not in html
+
+
+def test_recent_intake_html_pending_refreshes(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '', ''))
+    html = server.build_recent_report_html()
+    assert 'Dispatched to Mazda' in html
+    assert 'http-equiv="refresh"' in html
+
+
+def test_document_type_label():
+    assert server._document_type_label('statement', 'chase') == 'Chase Bank Statement'
+    assert server._document_type_label('receipt', 'kum_go') == 'Kum Go Receipt'
+    assert server._document_type_label('unknown', None) == 'Unknown'
+    assert server._document_type_label(None, 'chase') == 'Chase'
+
+
+def test_format_month_range():
+    rows = [{'date': '2025-06-23'}, {'date': '2025-05-30'}]
+    assert server._format_month_range(rows) == 'May 30, 2025 >>---> June 23, 2025'
+    assert server._format_month_range([{'date': '2025-06-01'}]) == 'June 1, 2025'
+    assert server._format_month_range([]) == '--'
+
+
+def test_associated_source_paths_finds_pdf_and_receipt(monkeypatch):
+    monkeypatch.setattr(server, '_find_matching_report_row', lambda d, a, v: (
+        {'report_path': '/rol_finances_reports/jan-2025/doc_a/report.html'}
+        if d == '2025-06-01' else None))
+    monkeypatch.setattr(server, '_source_document_path',
+                        lambda rp: '/home/adamsl/rol_finances/readable_documents/'
+                                    'bank_statements/january/doc_a/doc_a.pdf')
+    monkeypatch.setattr(server, '_resolve_expense_receipt_path',
+                        lambda d, a, ru: '/receipts/kum_go_06_01_25_12_34.jpg' if ru else None)
+    rows = [{'date': '2025-06-01', 'amount': '12.34', 'vendor_key': 'kum_go',
+             'receipt_url': 'kum_go_06_01_25_12_34.jpg'}]
+    pdf_path, receipt_path = server._associated_source_paths(rows)
+    assert pdf_path.endswith('doc_a.pdf')
+    assert receipt_path.endswith('.jpg')
+
+
+def test_associated_source_paths_none_found(monkeypatch):
+    monkeypatch.setattr(server, '_find_matching_report_row', lambda d, a, v: None)
+    rows = [{'date': '2025-06-01', 'amount': '12.34', 'vendor_key': 'kum_go', 'receipt_url': ''}]
+    pdf_path, receipt_path = server._associated_source_paths(rows)
+    assert pdf_path == '' and receipt_path == ''
+
+
+def test_recent_intake_html_shows_document_metadata(tmp_path, monkeypatch):
+    """The Most Recent Document page shows Document Type / Month Range /
+    Associated PDF / Associated Receipt above the status paragraph."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'duplicate_expense_ids': [7], 'parsed': 10, 'stored': 0,
+        'doc_kind': 'statement', 'vendor': 'chase',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [
+        {'date': '2025-05-30', 'amount': '-12.34', 'vendor_key': 'kum_go',
+         'description': 'Kum & Go', 'reporting_category': 'Travel & Vehicle',
+         'cat_class': 'cat-travel-and-vehicle', 'receipt_url': ''},
+        {'date': '2025-06-23', 'amount': '-9.00', 'vendor_key': 'amazon_com',
+         'description': 'AMAZON.COM', 'reporting_category': 'Uncategorized',
+         'cat_class': 'cat-uncategorized', 'receipt_url': ''},
+    ])
+    monkeypatch.setattr(server, '_find_matching_report_row', lambda d, a, v: None)
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    html = server.build_recent_report_html()
+    assert 'Document Type: Chase Bank Statement' in html
+    assert 'Month Range: May 30, 2025 &gt;&gt;---&gt; June 23, 2025' in html
+    assert 'Associated PDF: --' in html
+    assert 'Associated Receipt: --' in html
+
+
+def test_recent_intake_html_pdf_shows_this(tmp_path, monkeypatch):
+    """Rule 2: when the currently-processed document is itself a PDF, the
+    Associated PDF field reads 'this.' rather than searching report rows."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/pdf/statement.pdf', 'PDF intake', kind='pdf')
+    server.merge_recent_intake_event({'expense_ids': [7], 'parsed': 1, 'stored': 1})
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
+        'date': '2025-06-01', 'amount': '-12.34', 'vendor_key': 'kum_go',
+        'description': 'Kum & Go', 'reporting_category': 'Travel & Vehicle',
+        'cat_class': 'cat-travel-and-vehicle', 'receipt_url': '',
+    }])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    html = server.build_recent_report_html()
+    assert 'Associated PDF: <b>this.</b>' in html
+
+
+def test_report_pointer_newer_than_intake_wins(tmp_path, monkeypatch):
+    """Reprocess sets the report pointer AFTER the intake record — report mode
+    must win so a reprocessed document shows its real report.html."""
+    _recent_report_env(tmp_path, monkeypatch)
+    server.record_recent_intake('/pdf/statement.pdf', 'PDF intake', kind='pdf')
+    url = '/rol_finances_reports/jan-2025/doc_a/report.html'
+    server.set_recent_report_pointer(url)
+    resolved = server.resolve_recent_report()
+    assert resolved['mode'] == 'report'
+    assert resolved['url'] == url
+
+
+def test_alias_returns_empty_in_intake_mode(tmp_path, monkeypatch):
+    """In intake mode the picker's location.pathname must translate to '' so
+    recategorize takes the search-all-reports / DB-only path."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    assert server._resolve_report_path_alias('/recent_report.html') == ''
+
+
+def test_merge_recent_intake_event_includes_duplicate_ids(tmp_path, monkeypatch):
+    """A duplicates-only re-scan still lists its rows: duplicate_expense_ids
+    from STEP 8 fold into the intake exactly like newly-stored ids."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.record_stored_expense({
+        'kind': 'statement', 'expense_ids': [],
+        'duplicate_expense_ids': [1490, 1491, 1492],
+        'parsed': 10, 'stored': 0,
+    })
+    intake = server._read_recent_pointer_file()['intake']
+    assert intake['expense_ids'] == [1490, 1491, 1492]
+
+
+def test_recent_intake_html_duplicates_run_still_lists_rows(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'duplicate_expense_ids': [1490], 'parsed': 10, 'stored': 0})
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
+        'date': '2025-05-30', 'amount': '26.32', 'vendor_key': 'amazon_com',
+        'description': 'AMAZON.COM', 'reporting_category': 'Uncategorized',
+        'cat_class': 'cat-uncategorized',
+    }])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    html = server.build_recent_report_html()
+    assert '<table id="verified-transactions"' in html
+    assert 'data-vendor-key="amazon_com"' in html
+    assert 'already in the' in html and 'shown below' in html
+
+
+def test_compute_server_status_hard_failure_stays_red():
+    """A health result flagged hard:True (e.g. dead provider OAuth token) must be
+    red even when a restart handler exists — a restart click can't fix it alone."""
+    from server import compute_server_status
+    assert compute_server_status({'ok': False, 'hard': True}, restartable=True) == 'down'
+    assert compute_server_status({'ok': False}, restartable=True) == 'concern'
+    assert compute_server_status({'ok': True}, restartable=True) == 'up'
