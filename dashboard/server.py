@@ -3965,6 +3965,73 @@ def letta_toolcalls(agent_id):
     return rows
 
 
+def run_letta_headless(agent_id, prompt_text):
+    """Run letta in headless mode with JSON output (no terminal UI).
+
+    This bypasses the letta CLI's Ink spinner/interactive output, returning
+    clean JSON instead. Used by the "Ask Mazda" dialog to get readable output.
+
+    Returns: {'ok': bool, 'output': str, 'error': str}
+    """
+    try:
+        # Resolve the agent ID through our cache
+        lid = letta_id_for(agent_id)
+        if not lid:
+            return {'ok': False, 'error': f'Agent not found: {agent_id}'}
+
+        # Run letta with -p (headless) and --output-format json
+        # The JSON output includes a 'messages' array; we'll extract the reply
+        cmd = [
+            'bun', 'run', 'dev',
+            '--agent', lid,
+            '-p', prompt_text,
+            '--output-format', 'json',
+        ]
+
+        result = subprocess.run(
+            cmd,
+            cwd=os.path.dirname(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        if result.returncode != 0:
+            error = result.stderr.strip() or result.stdout.strip()
+            return {'ok': False, 'error': error or 'letta exited with error'}
+
+        # Parse the JSON output and extract the last assistant message
+        try:
+            output_data = json.loads(result.stdout)
+            # The output has a 'messages' key with message objects
+            messages = output_data.get('messages', [])
+
+            # Find the last assistant message or fallback to any message
+            reply = ''
+            for msg in reversed(messages):
+                if msg.get('type') == 'assistant_message' or not msg.get('type'):
+                    text = msg.get('text', '') or msg.get('content', '')
+                    if text:
+                        reply = text
+                        break
+
+            if not reply and messages:
+                # Fallback: join all text content
+                reply = '\n'.join(
+                    msg.get('text') or msg.get('content') or ''
+                    for msg in messages
+                    if msg.get('text') or msg.get('content')
+                ).strip()
+
+            return {'ok': True, 'output': reply or '(no reply)'}
+        except json.JSONDecodeError as je:
+            return {'ok': False, 'error': f'Failed to parse JSON output: {str(je)}'}
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'error': 'letta command timed out (60s)'}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+
 # ── Claude Code local log helpers ────────────────────────────────────────────
 
 def _load_json(path):
@@ -6794,6 +6861,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.error_response('Mazda took too long to answer', 504)
             except Exception as e:
                 return self.error_response(str(e), 502)
+        if path == '/api/headless-prompt':
+            # Headless mode: run letta -p with JSON output (no terminal UI noise)
+            # Used by "Ask Mazda" to get clean, readable output without ANSI codes
+            try:
+                data = json.loads(body)
+                agent_id = data.get('agent', '')
+                prompt_text = data.get('prompt', '')
+                if not prompt_text.strip():
+                    return self.json_response({'ok': False, 'error': 'prompt is required'})
+                return self.json_response(run_letta_headless(agent_id, prompt_text))
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
 
         if path == '/api/recategorize-expense':
             try:
@@ -6873,6 +6952,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 content_type = {
                     'html': 'text/html', 'js': 'application/javascript',
                     'css': 'text/css', 'json': 'application/json',
+                    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+                    'pdf': 'application/pdf',
                 }.get(ext, 'application/octet-stream')
             self.send_response(200)
             self.send_header('Content-Type', content_type)
