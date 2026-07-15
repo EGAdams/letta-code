@@ -102,6 +102,9 @@ ROL_FINANCES_REPORTS_DEFAULT_MONTH = 'jan-2025'
 ROL_FINANCES_REPORTS_BASE = os.path.join(
     ROL_FINANCES_REPORTS_PARENT, ROL_FINANCES_REPORTS_MONTHS[ROL_FINANCES_REPORTS_DEFAULT_MONTH])
 ROL_FINANCES_REPORTS_URL_PREFIX = '/rol_finances_reports'
+RECENT_REPORT_PATH = '/recent_report.html'
+RECENT_REPORT_IMAGE_PATH = '/recent_report_document'
+RECENT_REPORT_POINTER_FILE = os.path.join(HERE, 'recent_report.json')
 ROL_FINANCE_REPORTS = [
     {'key': 'amex-61006',        'label': 'Amex 61006',         'dir': 'amex_personal_january_25'},
     {'key': 'fnbo-4851',         'label': 'FNBO 4851',          'dir': 'january_fnbo_2025_account_4851'},
@@ -264,12 +267,86 @@ def _rol_finance_recent_reports(limit=5):
                 'mtime': mtime,
                 'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html',
             })
+    # Unit fixtures replace the reports root; their synthetic report universe
+    # must not be contaminated by this machine's persisted live intake pointer.
+    live_reports_root = os.path.realpath(os.path.expanduser(
+        '~/rol_finances/readable_documents/bank_statements'))
+    intake = (load_recent_intake()
+              if os.path.realpath(ROL_FINANCES_REPORTS_PARENT) == live_reports_root
+              else None)
+    if intake and os.path.isfile(intake.get('document', '')):
+        candidates.append({
+            'key': 'recent-intake',
+            'label': intake.get('label') or os.path.basename(intake['document']),
+            'month_key': '',
+            'status': 'pass' if intake.get('stored_at') else 'review',
+            'needs_attention': not bool(intake.get('stored_at')),
+            'mtime': float(intake.get('stored_at') or intake.get('dispatched_at') or 0),
+            'url': RECENT_REPORT_PATH,
+        })
     latest = max(candidates, key=lambda c: c['mtime']) if candidates else None
     items = sorted(
         candidates,
         key=lambda c: (0 if c['needs_attention'] else 1, -c['mtime']),
     )[:limit]
     return {'latest': latest, 'items': items}
+
+
+def load_recent_intake():
+    try:
+        with open(RECENT_REPORT_POINTER_FILE, encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def record_recent_intake(document, label, kind, facade=None):
+    """Persist the last successfully dispatched document across server restarts."""
+    data = {
+        'document': os.path.realpath(document),
+        'label': label or os.path.basename(document),
+        'kind': kind,
+        'dispatched_at': time.time(),
+        'doc_kind': (facade or {}).get('doc_kind'),
+        'vendor': (facade or {}).get('vendor'),
+    }
+    tmp = RECENT_REPORT_POINTER_FILE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+    os.replace(tmp, RECENT_REPORT_POINTER_FILE)
+    return data
+
+
+def mark_recent_intake_stored(event):
+    data = load_recent_intake()
+    if not data:
+        return
+    data['stored_at'] = time.time()
+    data['last_event'] = event
+    tmp = RECENT_REPORT_POINTER_FILE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+    os.replace(tmp, RECENT_REPORT_POINTER_FILE)
+
+
+def build_recent_intake_html(data):
+    import html
+    label = html.escape(data.get('label') or os.path.basename(data.get('document', '')))
+    doc_kind = html.escape(data.get('doc_kind') or 'Unknown')
+    state = 'Stored by Mazda' if data.get('stored_at') else 'Processing dispatched to Mazda'
+    preview = (f'<img src="{RECENT_REPORT_IMAGE_PATH}" alt="{label}" '
+               'style="max-width:100%;max-height:70vh;object-fit:contain">')
+    if data.get('kind') == 'pdf':
+        preview = f'<p><a href="{RECENT_REPORT_IMAGE_PATH}">Open PDF</a></p>'
+    return ('<!doctype html><html><head><meta charset="utf-8"><title>Recent Report</title>'
+            '<style>body{font:16px Georgia,serif;max-width:960px;margin:2rem auto;padding:0 1rem;'
+            'color:#24211d;background:#faf7ef}h1{border-bottom:3px solid #ba4b2f;padding-bottom:.5rem}'
+            '.meta{color:#665f55}</style></head><body><h1>Recent Report</h1>'
+            f'<h2>{label}</h2><p class="meta">{html.escape(state)} · Document type: {doc_kind}</p>'
+            f'{preview}</body></html>')
 
 
 def _split_report_url(report_path):
@@ -1397,6 +1474,7 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
                 daemon=True,
             ).start()
             mazda_dispatched = True
+            record_recent_intake(image_path, cfg.get('name', key), 'scan', facade)
             trainer_dispatched = _notify_trainer_of_scan(
                 remote_image_path, cfg.get('name', key), facade)
         else:
@@ -1444,6 +1522,7 @@ def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
         args=(real, doc_label),
         daemon=True,
     ).start()
+    record_recent_intake(real, doc_label, 'pdf', facade)
     # PDFs already live inside ROL_FINANCES_DIR (enforced above), so no staging
     # is needed — executor_run on this box reads them directly. This also
     # covers reprocess_report, which delegates here.
@@ -1527,6 +1606,7 @@ def record_stored_expense(data):
     }
     with _stored_expense_lock:
         _stored_expense_events.append(event)
+    mark_recent_intake_stored(event)
     return {'ok': True}
 
 
@@ -3344,6 +3424,73 @@ def letta_toolcalls(agent_id):
             'text': text[:300],
         })
     return rows
+
+
+def run_letta_headless(agent_id, prompt_text):
+    """Run letta in headless mode with JSON output (no terminal UI).
+
+    This bypasses the letta CLI's Ink spinner/interactive output, returning
+    clean JSON instead. Used by the "Ask Mazda" dialog to get readable output.
+
+    Returns: {'ok': bool, 'output': str, 'error': str}
+    """
+    try:
+        # Resolve the agent ID through our cache
+        lid = letta_id_for(agent_id)
+        if not lid:
+            return {'ok': False, 'error': f'Agent not found: {agent_id}'}
+
+        # Run letta with -p (headless) and --output-format json
+        # The JSON output includes a 'messages' array; we'll extract the reply
+        cmd = [
+            'bun', 'run', 'dev',
+            '--agent', lid,
+            '-p', prompt_text,
+            '--output-format', 'json',
+        ]
+
+        result = subprocess.run(
+            cmd,
+            cwd=os.path.dirname(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        if result.returncode != 0:
+            error = result.stderr.strip() or result.stdout.strip()
+            return {'ok': False, 'error': error or 'letta exited with error'}
+
+        # Parse the JSON output and extract the last assistant message
+        try:
+            output_data = json.loads(result.stdout)
+            # The output has a 'messages' key with message objects
+            messages = output_data.get('messages', [])
+
+            # Find the last assistant message or fallback to any message
+            reply = ''
+            for msg in reversed(messages):
+                if msg.get('type') == 'assistant_message' or not msg.get('type'):
+                    text = msg.get('text', '') or msg.get('content', '')
+                    if text:
+                        reply = text
+                        break
+
+            if not reply and messages:
+                # Fallback: join all text content
+                reply = '\n'.join(
+                    msg.get('text') or msg.get('content') or ''
+                    for msg in messages
+                    if msg.get('text') or msg.get('content')
+                ).strip()
+
+            return {'ok': True, 'output': reply or '(no reply)'}
+        except json.JSONDecodeError as je:
+            return {'ok': False, 'error': f'Failed to parse JSON output: {str(je)}'}
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'error': 'letta command timed out (60s)'}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
 
 
 # ── Claude Code local log helpers ────────────────────────────────────────────
@@ -5450,6 +5597,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if path == '/api/terminal':
             return self.handle_terminal_ws(query)
 
+        if path == RECENT_REPORT_PATH:
+            intake = load_recent_intake()
+            if not intake:
+                return self.send_error(404)
+            content = build_recent_intake_html(intake).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', len(content))
+            self._send_no_cache_headers()
+            self.end_headers()
+            return self.wfile.write(content)
+
+        if path == RECENT_REPORT_IMAGE_PATH:
+            intake = load_recent_intake()
+            document = (intake or {}).get('document', '')
+            allowed = os.path.realpath(document).startswith(os.path.realpath(ROL_FINANCES_DIR) + os.sep)
+            if not allowed or not os.path.isfile(document):
+                return self.send_error(404)
+            return self.serve_file(document)
+
         if path == '/api/code-status':
             return self.json_response(get_code_status())
         if path == '/api/agents':
@@ -5992,6 +6159,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
 
+        if path == '/api/headless-prompt':
+            # Headless mode: run letta -p with JSON output (no terminal UI noise)
+            # Used by "Ask Mazda" to get clean, readable output without ANSI codes
+            try:
+                data = json.loads(body)
+                agent_id = data.get('agent', '')
+                prompt_text = data.get('prompt', '')
+                if not prompt_text.strip():
+                    return self.json_response({'ok': False, 'error': 'prompt is required'})
+                return self.json_response(run_letta_headless(agent_id, prompt_text))
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+
         if path == '/api/recategorize-expense':
             try:
                 data = json.loads(body)
@@ -6070,6 +6250,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 content_type = {
                     'html': 'text/html', 'js': 'application/javascript',
                     'css': 'text/css', 'json': 'application/json',
+                    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+                    'pdf': 'application/pdf',
                 }.get(ext, 'application/octet-stream')
             self.send_response(200)
             self.send_header('Content-Type', content_type)

@@ -11,7 +11,7 @@
 // The agent's system message = mazda_trainer_instructions.md + the text of
 // notes_plans_handoffs/mazda_dev_status.html (Mazda's developer manual).
 
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claude } from '/home/adamsl/claude-code-sdk-ts/dist/index.js';
@@ -34,7 +34,12 @@ const LETTA_BASE_URL = process.env.LETTA_BASE_URL || 'http://100.80.49.10:8283';
 const MAZDA_AGENT_ID =
   process.env.MAZDA_AGENT_ID || 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e';
 const TRAINER_MODEL = process.env.TRAINER_MODEL || 'sonnet';
-const TRAINER_TIMEOUT_MS = Number(process.env.TRAINER_TIMEOUT_MS || 25 * 60 * 1000);
+const TRAINER_TIMEOUT_MS = Number(process.env.TRAINER_TIMEOUT_MS || 35 * 60 * 1000);
+// Cap any single session below the overall budget so a session that dies at the
+// buzzer (e.g. timing out mid-Write, seen 2026-07-13) still leaves the watchdog
+// room to relaunch and salvage the report.
+const TRAINER_ATTEMPT_TIMEOUT_MS =
+  Number(process.env.TRAINER_ATTEMPT_TIMEOUT_MS || 20 * 60 * 1000);
 
 function parseArgs(argv) {
   const args = { facade: '{}' };
@@ -112,20 +117,83 @@ async function main() {
     return;
   }
 
-  const summary = await claude()
-    .withModel(TRAINER_MODEL)
-    .allowTools('Bash', 'Read', 'Write')
-    .skipPermissions()
-    .inDirectory(HERE)
-    .withTimeout(TRAINER_TIMEOUT_MS)
-    .withEnv({ LETTA_BASE_URL, MAZDA_AGENT_ID })
-    .onToolUse((tool) => {
-      console.log(`[trainer] tool: ${tool.name} ${JSON.stringify(tool.input).slice(0, 300)}`);
-    })
-    .query(prompt)
-    .asText();
+  // Tools that "wait" by ending the assistant turn. In -p mode nothing ever
+  // resumes the session, so any of these kills the watch with no report — the
+  // exact failure observed on 2026-07-13 (twice). allowTools() alone does NOT
+  // remove them: it's a permission whitelist, and skipPermissions() makes it
+  // moot. denyTools() → --disallowedTools actually strips them. ToolSearch is
+  // first because it's the gateway that loads the rest mid-session.
+  const DENIED_TOOLS = [
+    'ToolSearch', 'ScheduleWakeup', 'Monitor', 'Agent', 'Task',
+    'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate',
+    'SendMessage', 'CronCreate', 'CronDelete', 'CronList', 'RemoteTrigger',
+    'EnterPlanMode', 'ExitPlanMode', 'PushNotification',
+  ];
 
-  console.log('[trainer] final summary:\n' + summary);
+  // Watchdog: the model has ended its turn "to wait" despite instructions. The
+  // contract's observable outcome is a report file, so retry the whole session
+  // (fresh context; the instructions are stateless — everything is re-derived
+  // from Mazda's transcript) until one exists or the time budget runs out.
+  const REPORTS_DIR = join(HERE, 'reports');
+  mkdirSync(REPORTS_DIR, { recursive: true });
+  const startMs = Date.now();
+  const reportWritten = () => {
+    try {
+      return readdirSync(REPORTS_DIR).some((f) => {
+        try { return statSync(join(REPORTS_DIR, f)).mtimeMs >= startMs; }
+        catch { return false; }
+      });
+    } catch { return false; }
+  };
+
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const remainingMs = TRAINER_TIMEOUT_MS - (Date.now() - startMs);
+    if (remainingMs < 60_000) break;
+    const attemptPrompt = attempt === 1 ? prompt : `${prompt}
+
+---
+
+WATCHDOG — attempt ${attempt} of ${MAX_ATTEMPTS}. A previous trainer session for this same
+dispatch ended WITHOUT writing a report (it stopped talking to "wait" — a contract
+violation). Mazda's run may already be finished: read her transcript as it stands, grade
+what actually happened, coach her if warranted, and WRITE THE REPORT FILE — do it EARLY,
+as soon as you have a verdict, before any optional polish. Write to a NEW filename using
+the current UTC timestamp; never overwrite a previous attempt's file. If you must wait,
+use only a foreground Bash sleep loop.`;
+
+    try {
+      const summary = await claude()
+        .withModel(TRAINER_MODEL)
+        .allowTools('Bash', 'Read', 'Write')
+        .denyTools(...DENIED_TOOLS)
+        .skipPermissions()
+        .inDirectory(HERE)
+        .withTimeout(Math.min(remainingMs, TRAINER_ATTEMPT_TIMEOUT_MS))
+        .withEnv({ LETTA_BASE_URL, MAZDA_AGENT_ID })
+        .onToolUse((tool) => {
+          console.log(`[trainer] tool: ${tool.name} ${JSON.stringify(tool.input).slice(0, 300)}`);
+        })
+        .query(attemptPrompt)
+        .asText();
+      console.log(`[trainer] attempt ${attempt} summary:\n` + summary);
+    } catch (err) {
+      // A session that times out or crashes AFTER writing the report still
+      // fulfilled the contract — the report is the deliverable, the final
+      // summary is garnish. Fall through to the reportWritten() check.
+      console.error(`[trainer] attempt ${attempt} errored: ${err?.message || err}`);
+    }
+    if (reportWritten()) {
+      console.log('[trainer] report file written — done.');
+      return;
+    }
+    console.log('[trainer] no report file since dispatch — relaunching (watchdog).');
+  }
+
+  if (!reportWritten()) {
+    console.error('[trainer] FAILED: session(s) ended without writing a report.');
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {

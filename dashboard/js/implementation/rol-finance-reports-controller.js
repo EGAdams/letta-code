@@ -428,29 +428,124 @@ export class RolFinanceReportsController {
     pk.msg.style.color = "#6b7280";
     pk.msg.textContent = "Opening Mazda…";
     try {
-      const mod = await import("/js/implementation/index.js");
       const box = this._ensureMazdaBox();
-      const http = new mod.FetchHttpClient();
-      const speech = new mod.BrowserSpeechSynthesizer(globalThis);
-      new mod.InputOptionsRenderer({
-        http,
-        speech,
-        agentName: "Mazda",
-        agentId: this._mazdaAgentId,
-        onStatus: () => {},
-      }).render(box.id, this._mazdaAgentId);
-      const ta = box.querySelector?.("textarea");
-      if (ta) {
-        ta.value =
-          `# Goal\nFix this New Record so it categorizes\n\n# Record\n${d.description || ""} • ${d.signedAmount || ""} • ${d.date || ""}\n\n` +
-          `# Expense id\n${d.expenseId || ""}\n\n# Why it failed\n${d.reason || "(uncategorized)"}\n\n# What to do\n`;
-      }
+      this._buildHeadlessMazdaUI(box, d);
       pk.msg.textContent = "";
       this._mazdaDialog.classList.add("open");
     } catch (err) {
       pk.msg.style.color = "#b91c1c";
       pk.msg.textContent = `Could not open Mazda: ${err.message}`;
     }
+  }
+
+  /** Build a clean, headless "Ask Mazda" UI using /api/headless-prompt. */
+  _buildHeadlessMazdaUI(box, cardData) {
+    box.innerHTML = "";
+    const mk = (tag, cls, text) => {
+      const e = this._doc.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    };
+
+    // Pre-filled prompt with the card context
+    const defaultPrompt =
+      `# Goal\nFix this New Record so it categorizes\n\n# Record\n${cardData.description || ""} • ${cardData.signedAmount || ""} • ${cardData.date || ""}\n\n` +
+      `# Expense id\n${cardData.expenseId || ""}\n\n# Why it failed\n${cardData.reason || "(uncategorized)"}\n\n# What to do\n`;
+
+    // Layout: heading, textarea, send button, response area
+    const container = mk("div");
+    container.style.cssText = "display:flex;flex-direction:column;gap:10px;";
+
+    const heading = mk("p");
+    heading.innerHTML = "<strong>Ask Mazda about this record:</strong>";
+    heading.style.cssText = "margin:0;font-size:0.9rem;color:#666;";
+
+    const textarea = mk("textarea");
+    textarea.value = defaultPrompt;
+    textarea.style.cssText =
+      "min-height:120px;padding:8px;border:1px solid #bbb;border-radius:4px;font-family:monospace;font-size:0.85rem;resize:vertical;";
+
+    const buttonRow = mk("div");
+    buttonRow.style.cssText = "display:flex;gap:8px;";
+
+    const sendBtn = mk("button", null, "Send to Mazda");
+    sendBtn.type = "button";
+    sendBtn.style.cssText =
+      "flex:1;padding:8px 12px;background:#4c6ef5;color:#fff;border:0;border-radius:4px;cursor:pointer;font-weight:600;";
+
+    const clearBtn = mk("button", null, "Clear");
+    clearBtn.type = "button";
+    clearBtn.style.cssText =
+      "flex:1;padding:8px 12px;background:#6c757d;color:#fff;border:0;border-radius:4px;cursor:pointer;";
+
+    buttonRow.appendChild(sendBtn);
+    buttonRow.appendChild(clearBtn);
+
+    const status = mk("div");
+    status.style.cssText = "min-height:1.4em;font-size:0.85rem;color:#555;";
+
+    const responseArea = mk("div");
+    responseArea.style.cssText =
+      "border-top:1px solid #ddd;padding-top:10px;max-height:300px;overflow-y:auto;font-size:0.85rem;line-height:1.5;";
+
+    clearBtn.addEventListener("click", () => {
+      textarea.value = defaultPrompt;
+      responseArea.innerHTML = "";
+      status.textContent = "";
+      textarea.focus();
+    });
+
+    sendBtn.addEventListener("click", async () => {
+      const prompt = textarea.value.trim();
+      if (!prompt) {
+        status.style.color = "#b91c1c";
+        status.textContent = "Nothing to send.";
+        return;
+      }
+      sendBtn.disabled = true;
+      status.style.color = "#6b7280";
+      status.textContent = "Sending to Mazda…";
+      responseArea.innerHTML = "";
+
+      try {
+        const res = await this._http.postJSON("/api/headless-prompt", {
+          agent: this._mazdaAgentId,
+          prompt,
+        });
+        sendBtn.disabled = false;
+
+        if (res?.ok) {
+          status.style.color = "#059669";
+          status.textContent = "✓ Mazda replied:";
+          responseArea.innerHTML = `<div style="white-space:pre-wrap;background:#f5f5f5;padding:8px;border-radius:4px;border-left:3px solid #059669;">${this._escapeHtml(res.output || "(no response)")}</div>`;
+        } else {
+          status.style.color = "#b91c1c";
+          status.textContent = `Error: ${res?.error || "Unknown error"}`;
+          responseArea.innerHTML = "";
+        }
+      } catch (err) {
+        sendBtn.disabled = false;
+        status.style.color = "#b91c1c";
+        status.textContent = `Request failed: ${err.message}`;
+        responseArea.innerHTML = "";
+      }
+    });
+
+    container.appendChild(heading);
+    container.appendChild(textarea);
+    container.appendChild(buttonRow);
+    container.appendChild(status);
+    container.appendChild(responseArea);
+    box.appendChild(container);
+
+    textarea.focus();
+  }
+
+  _escapeHtml(text) {
+    const div = this._doc.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   /** Lazily build the Ask Mazda sub-dialog that hosts the InputOptions box. */

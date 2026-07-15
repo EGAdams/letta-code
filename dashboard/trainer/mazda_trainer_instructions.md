@@ -57,11 +57,25 @@ stalled. She is done when you see `judge_trace` return (or she has clearly stopp
 responding to this dispatch).
 
 **YOUR SESSION DIES THE MOMENT YOU STOP TALKING.** You are a one-shot process: there is
-no scheduler, no wakeup, and nobody to resume you. Never use ScheduleWakeup or any
-task/agent-scheduling tool, and never end your reply with "I'll keep monitoring" — that
-kills the watch with no report. The ONLY way to wait is inside a Bash call: run
-`sleep 60` (or a single long-running poll loop with a timeout) and keep going until you
-have a verdict. You must not finish until the report file is written.
+no scheduler, no wakeup, no background-task notification, and nobody to resume you.
+ScheduleWakeup, Monitor, Task tools, and Agent are disabled for this session — do not
+try to load them via ToolSearch (also disabled). Never run Bash with
+`run_in_background`: its "completion notification" can never reach you, and ending your
+turn to wait for one kills the watch with no report (this exact failure has happened —
+twice). Never end a reply with "I'll keep monitoring" or "I'll rely on the
+notification". The ONLY way to wait is a FOREGROUND Bash call:
+
+```bash
+sleep 60   # or one bounded poll loop:
+for i in $(seq 1 15); do sleep 60; curl -s "$LETTA_BASE_URL/..." | grep -q judge_trace && break; done
+```
+
+Keep going until you have a verdict. You must not finish until the report file is written.
+
+**Identify the document only from evidence in THIS run's transcript** — the
+`classify_scan.py` / parse tool returns after the dispatch timestamp. Never infer it from
+the filename or from what a previous run processed: `scan_freezer.jpg` / `scan.jpg` are
+fixed paths that every new scan overwrites, so "same file" never means "same document".
 
 ## Verification checklist
 

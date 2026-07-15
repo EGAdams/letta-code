@@ -251,6 +251,57 @@ order). And `window.open(url, "_blank", "noopener,noreferrer")` returns **`null`
 `noopener` is set, so don't treat a null return as "popup blocked" (it caused a false red error
 even though the receipt opened).
 
+### Recent Report / "Most Recent Document" synthetic intake page — 2026-07-13
+
+`GET /recent_report.html` (the Reports tab's landing view) has **two render modes**, chosen by
+`resolve_recent_report()` (whichever candidate has the newest timestamp): a real `report.html`
+mirrored via `<base href>` injection, or — the common case for scanner scans, which store
+straight to MySQL and never produce a `report.html` — a **synthetic page** built by
+`build_recent_intake_html(intake)`. `intake` is a dict persisted in
+`dashboard/recent_report.json` (`{document, image_path, label, kind: scan|pdf, dispatched_at,
+expense_ids, parsed, stored, doc_kind, vendor, reported_at}`), written by
+`record_recent_intake()` at dispatch time and folded/updated by `merge_recent_intake_event()`
+each time Mazda's STEP 8 `POST /api/expense-stored` callback lands (`record_stored_expense()` →
+`merge_recent_intake_event(event)`; if that event's (date, amount) matches an existing
+`report.html` row, `set_recent_report_pointer()` also flips the view to real-report mode, so the
+synthetic page is only shown when no such match exists).
+
+The synthetic page shows, under the "dispatched" line and above the Mazda status paragraph:
+**Document Type**, **Month Range**, **Associated PDF**, **Associated Receipt** — computed by:
+- `_document_type_label(doc_kind, vendor)` → e.g. "Chase Bank Statement". `doc_kind`/`vendor`
+  are seeded from the deterministic facade at dispatch (`run_intake_facade`, usually
+  `doc_kind=unknown` for scanned JPEGs — no extractable text) and then **overwritten by Mazda's
+  own vision classification** once she reports it in the (now-extended) STEP 8 payload — see
+  `build_mazda_scan_message`'s STEP 8 curl template, which now asks for `"doc_kind"`/`"vendor"`
+  alongside the pre-existing fields. **Naming divergence to watch for**: `mazda_intake.py` /
+  `parsing_router` use `doc_kind` ∈ `statement|receipt|unknown` + `vendor`, but
+  `rol_finances/tools/classify_scan.py` (the vision classifier Mazda actually runs on JPEG scans)
+  uses `doc_type` ∈ `receipt|bank_statement|tax_document|other` + `merchant`. Both dashboard-side
+  functions (`merge_recent_intake_event`, `record_stored_expense`) accept **either** naming.
+- `_format_month_range(rows)` → earliest/latest `expense_date` among the intake's matched/stored
+  rows, e.g. `"May 30, 2025 >>---> June 23, 2025"`.
+- `_associated_source_paths(rows)` → **reuses existing primitives rather than re-deriving
+  document↔transaction linkage**: `_find_matching_report_row(date, amount, vendor_key)` (search
+  every existing `report.html`'s rows for the same transaction — already used by
+  `recategorize_expense`) → `_source_document_path(report_path)` (that report's dir → its source
+  PDF/xlsx — already used by `reprocess_report`) for **Associated PDF**; and
+  `_resolve_expense_receipt_path(date, amount, receipt_url)` (same resolver `lookup_receipt`/View
+  Receipt uses) for **Associated Receipt**. When `intake['kind'] == 'pdf'` (the currently-processed
+  document IS a PDF), Associated PDF always reads `<b>this.</b>` regardless of row matching.
+  No match anywhere → both fields render `--`.
+
+**Gotcha**: intakes recorded *before* this feature shipped have no `doc_kind`/`vendor` key in
+`recent_report.json`, so Document Type renders "Unknown" until the document is reprocessed or a
+new scan comes in and Mazda's STEP 8 report populates it. Tests:
+`tests/test_server.py -k "document_type_label or format_month_range or associated_source_paths
+or recent_intake_html"`.
+
+**Deploy**: live-box-only change as of 2026-07-13, same as the View Receipt work above — this
+repo's local checkout does not yet have it (see `dashboard-live-vs-local-divergence` memory).
+Direct `scp`/`ssh adamsl@100.72.158.63` worked cleanly this session (no need for the
+Windows-host-hop fallback) — try the direct path first, fall back to
+`NewUser@100.118.122.75` → `wsl.exe` only if that host is unreachable.
+
 ### Scanners — physical document scanners (Project Plans → ROL Finance → Scanners)
 
 Two HP scanners attached to the live Win11 box: **Window** = HPI297BEA (HP OfficeJet 8120e),

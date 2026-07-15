@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mazda vs. Meta-Harness: Self-Improvement System Review</title>
+<style>
+  :root {
+    --bg: #f5f7fb;
+    --paper: #ffffff;
+    --ink: #172033;
+    --ink-soft: #475569;
+    --rule: #dbe4f0;
+    --accent: #2563eb;
+    --accent-soft: #eaf0f8;
+    --good: #166534; --good-bg: #dcfce7;
+    --bad: #991b1b; --bad-bg: #fee2e2;
+    --warn: #92400e; --warn-bg: #fef3c7;
+    --neutral: #334155; --neutral-bg: #e2e8f0;
+    --code-bg: #0f172a; --code-ink: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  }
+  .page { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
+  .hero {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 16px;
+    padding: 32px 36px;
+    box-shadow: 0 10px 30px rgba(15,23,42,.06);
+  }
+  .hero .kicker {
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-size: .78rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 0 0 8px;
+  }
+  .hero h1 { margin: 0 0 10px; font-size: 2rem; line-height: 1.25; }
+  .hero p.lede { margin: 0; color: var(--ink-soft); font-size: 1.05rem; }
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    margin-top: 18px;
+  }
+  .pill {
+    background: var(--accent-soft); color: var(--accent);
+    border-radius: 999px; padding: 5px 12px; font-size: .82rem; font-weight: 600;
+  }
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 16px;
+    padding: 28px 32px;
+    margin-top: 22px;
+    box-shadow: 0 10px 30px rgba(15,23,42,.04);
+  }
+  .card h2 {
+    margin-top: 0;
+    font-size: 1.4rem;
+    border-bottom: 2px solid var(--accent-soft);
+    padding-bottom: 10px;
+  }
+  .card h3 { font-size: 1.12rem; margin-top: 28px; }
+  .card h4 { font-size: 1rem; margin-top: 18px; color: var(--ink); }
+  p { margin: 0 0 14px; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  strong { color: var(--ink); }
+  code {
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 1px 6px;
+    border-radius: 6px;
+    font-size: .88em;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  .toc {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+    list-style: none;
+    margin: 0; padding: 0;
+  }
+  .toc li a {
+    display: block;
+    padding: 10px 14px;
+    background: var(--accent-soft);
+    border-radius: 10px;
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: .92rem;
+  }
+  .toc li a:hover { text-decoration: underline; }
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  th, td { border: 1px solid var(--rule); padding: 10px 12px; text-align: left; vertical-align: top; font-size: .92rem; }
+  thead th { background: var(--accent-soft); position: sticky; top: 0; }
+  tbody tr:nth-child(even) { background: #fbfdff; }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-weight: 700; font-size: .76rem; white-space: nowrap;
+  }
+  .badge.adopt { background: var(--good-bg); color: var(--good); }
+  .badge.adapt { background: var(--warn-bg); color: var(--warn); }
+  .badge.present { background: var(--neutral-bg); color: var(--neutral); }
+  .badge.skip { background: var(--bad-bg); color: var(--bad); }
+  .finding {
+    border: 1px solid var(--rule);
+    border-left: 5px solid var(--accent);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    background: #fbfdff;
+  }
+  .finding.p0 { border-left-color: var(--bad); }
+  .finding.p1 { border-left-color: var(--accent); }
+  .finding.p2, .finding.p3, .finding.p4, .finding.p5, .finding.p6 { border-left-color: var(--warn); }
+  .finding-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .finding-title h4 { margin: 0; font-size: 1.02rem; }
+  .prio {
+    font-size: .74rem; font-weight: 800; text-transform: uppercase;
+    padding: 2px 9px; border-radius: 999px; background: var(--code-bg); color: var(--code-ink);
+  }
+  .kv { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: .92rem; margin-top: 8px; }
+  .kv dt { font-weight: 700; color: var(--ink-soft); }
+  .kv dd { margin: 0; }
+  .callout {
+    background: var(--accent-soft);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    font-size: .95rem;
+  }
+  .callout.final {
+    background: #0f172a; color: #e2e8f0;
+  }
+  .callout.final strong { color: #fff; }
+  footer {
+    text-align: center; color: var(--ink-soft); font-size: .82rem; margin-top: 36px;
+  }
+  @media (max-width: 700px) {
+    .hero, .card { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <section class="hero">
+    <p class="kicker">Self-Improvement Systems &middot; Comparative Review</p>
+    <h1>Mazda vs. Meta-Harness</h1>
+    <p class="lede">
+      A review of Mazda's production self-improvement control plane against the Stanford IRIS Lab
+      Meta-Harness framework (<a href="https://arxiv.org/abs/2603.28052" target="_blank" rel="noopener noreferrer">arXiv:2603.28052</a>,
+      <a href="https://github.com/stanford-iris-lab/meta-harness" target="_blank" rel="noopener noreferrer">github.com/stanford-iris-lab/meta-harness</a>),
+      with concrete, gate-preserving adoption recommendations.
+    </p>
+    <div class="meta-row">
+      <span class="pill">No code modified during review</span>
+      <span class="pill">Sources: mazda_dev_status.html + live Mazda source</span>
+      <span class="pill">Sources: Meta-Harness repo (README, ONBOARDING, skills, loops)</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Contents</h2>
+    <ul class="toc">
+      <li><a href="#summary">1. Executive Summary</a></li>
+      <li><a href="#comparison">2. Side-by-Side Comparison</a></li>
+      <li><a href="#ideas">3. Reusable Ideas, Classified</a></li>
+      <li><a href="#plan">4. Prioritized Adoption Plan</a></li>
+      <li><a href="#experiment">5. Low-Cost First Experiment</a></li>
+      <li><a href="#recommendation">6. Final Recommendation</a></li>
+    </ul>
+  </section>
+
+  <section class="card" id="summary">
+    <h2>1. Executive Summary</h2>
+    <p>
+      <strong>Mazda and Meta-Harness solve two different halves of the same problem, and each is strong
+      exactly where the other is weak.</strong>
+    </p>
+    <p>
+      Mazda is a <em>production control plane</em>: a ports-and-adapters framework (nine factory families,
+      six-station loop) that runs an agent, judges it deterministically, proposes a wrapper edit, A/B tests it,
+      gates it (safety / cost / regression / usefulness), and activates it behind human approval with snapshots
+      and rollback. Its governance is far ahead of Meta-Harness. But its <em>generative</em> half is thin: the
+      live <code>MazdaProposalGenerator</code> is a hand-written lookup table mapping six <code>FailureType</code>
+      values to six canned English patch strings. Mazda can only ever &ldquo;propose&rdquo; what a developer
+      pre-wrote into that table. It also has no validation/test split, no cross-iteration search history, and no
+      autonomous multi-iteration loop.
+    </p>
+    <p>
+      Meta-Harness is a <em>research search engine</em>: an outer loop where a full coding agent (Claude Code via
+      <code>claude_wrapper.py</code>) reads scores and raw execution traces, forms falsifiable hypotheses,
+      prototypes mechanisms, and writes arbitrary new harness code; an inner loop scores each candidate on a
+      search set; a Pareto frontier and append-only <code>evolution_summary.jsonl</code> accumulate evidence across
+      iterations; and a hard firewall separates validation (used during evolution) from held-out test (touched
+      only once, at an explicit, irreversible finalization step). It has essentially no production governance:
+      no gates beyond score comparison, no human approval, no activation/rollback, and it warns that candidates
+      cost real money (~$500/iteration for TB2).
+    </p>
+    <div class="callout">
+      <strong>Recommendation.</strong> Keep Mazda's pipeline exactly as it is from <em>Experiment</em> onward,
+      and replace/augment its <em>Propose</em> station and evidence-analysis loop with Meta-Harness's proposer
+      pattern &mdash; an LLM proposer that emits <code>ProposalCommand</code> objects into Mazda's existing gate
+      chain, plus a validation/test split, a frontier + evolution summary, and anti-leakage source checks.
+      Nothing downstream of Propose needs to change, which is precisely what Mazda's interface-first design was
+      built for.
+    </div>
+  </section>
+
+  <section class="card" id="comparison">
+    <h2>2. Side-by-Side Comparison</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Dimension</th><th>Mazda (<code>agent_self_improvement</code>)</th><th>Meta-Harness</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>What it improves</strong></td>
+            <td>The <em>wrapper</em> around a fixed LLM: prompts, tool descriptions, context strategy, memory notes, workflows &mdash; for one live finance fleet</td>
+            <td>The <em>harness</em>: arbitrary Python code around a fixed model (memory systems, agent scaffolds) &mdash; per domain, offline</td></tr>
+          <tr><td><strong>Candidate generation</strong></td>
+            <td>Deterministic: <code>FailureType</code> &rarr; pre-written patch text (<code>proposals.py</code>); <code>FailurePatternSuggester</code> groups repeats (&ge;2) into one proposal</td>
+            <td>LLM proposer agent (Claude Code, max effort) reads history + traces, forms 1&ndash;3 falsifiable hypotheses per iteration, mandatorily prototypes, writes new code</td></tr>
+          <tr><td><strong>Search space</strong></td>
+            <td>Fixed menu of 4 command types over existing artifacts</td>
+            <td>Arbitrary code; skill prompts forbid parameter-only variants and demand new mechanisms</td></tr>
+          <tr><td><strong>Use of traces</strong></td>
+            <td>Traces persisted to SQLite; consumed by verifiers and pattern counting; not deeply read by any proposer</td>
+            <td>Proposer deep-reads raw trajectories / <code>log.jsonl</code> as the primary analysis step; proposer's own sessions logged to <code>experience/</code> (tools, files read, tokens, cost)</td></tr>
+          <tr><td><strong>Historical evidence</strong></td>
+            <td>Evidence store holds traces / verdicts / proposals / approvals &mdash; audit-oriented, per-event</td>
+            <td><code>evolution_summary.jsonl</code> (per-candidate hypothesis, axis, delta, outcome, timing), <code>frontier_val.json</code> (best per dataset/task), per-iteration post-mortem reports &mdash; search-oriented, cross-iteration</td></tr>
+          <tr><td><strong>Evaluation</strong></td>
+            <td>Deterministic-rules-first verifiers &rarr; ScoreCard &rarr; verdict; LLM judge only for ambiguity</td>
+            <td>Task metric (accuracy / pass rate) on a search set; noise handled by multi-trial evals</td></tr>
+          <tr><td><strong>Held-out test isolation</strong></td>
+            <td><strong>Absent.</strong> A/B runs on <code>task_inputs</code> with no split; nothing prevents optimizing against the same cases forever</td>
+            <td><strong>Core design.</strong> Evolution sees only val; test results live in a directory never exposed; <code>--test</code> finalization freezes the run permanently (<code>finalized.json</code> blocks further evolution)</td></tr>
+          <tr><td><strong>Overfitting prevention</strong></td>
+            <td>Only implicit (RegressionGate on baseline cases)</td>
+            <td>Val/test split, anti-overfitting skill rules (no task names in code), universal + per-task <code>forbidden_references</code> denylist checked against candidate source before spending eval budget</td></tr>
+          <tr><td><strong>Gates</strong></td>
+            <td>4-gate chain: Safety, Cost, Regression, Usefulness &mdash; explicit contracts</td>
+            <td>None as such; frontier selection is the only &ldquo;gate&rdquo;; TB2 loop does track cost/token <code>rollout_metrics</code> per candidate</td></tr>
+          <tr><td><strong>Human approval / activation / rollback</strong></td>
+            <td>Approval gateway, snapshot store, activation + rollback services, audit records</td>
+            <td>None. Winner = frontier top; adoption is manual / out-of-band</td></tr>
+          <tr><td><strong>Trust boundary</strong></td>
+            <td>Layering rules (contracts import nothing concrete); generated <em>code</em> never exists &mdash; proposals are text patches</td>
+            <td>Generated code is arbitrary Python, never imported by the controller; run in a short-lived sandboxed subprocess (Harbor pilot)</td></tr>
+          <tr><td><strong>Autonomy</strong></td>
+            <td>One proposal per failing trace; no autonomous multi-iteration loop shipped</td>
+            <td>Fully autonomous N-iteration loop with resume, fresh-start, interrupt handling</td></tr>
+          <tr><td><strong>Cost accounting</strong></td>
+            <td><code>CostGate</code>, per-run token usage in traces, <code>estimated_cost_usd</code> in experiments</td>
+            <td>Per-candidate propose/bench/wall timing, tokens, <code>$cost_usd</code> per proposer session; explicit budget discipline (bring-up ladder: 1 task &rarr; 30 &rarr; 89)</td></tr>
+          <tr><td><strong>Reproducibility</strong></td>
+            <td>SQLite evidence store, wrapper revisions by id, 200+ provider-free tests</td>
+            <td>Run-name-isolated log dirs, full raw event logs, import-validation before eval, provider-free test suites</td></tr>
+          <tr><td><strong>Maturity</strong></td>
+            <td>4 of 9 factory families real; LLM/prompt/tool/context/workflow are stubs; loop not yet closed end-to-end in production</td>
+            <td>&ldquo;Cleaned-up paper code, not tested beyond verifying it runs&rdquo;; research-grade</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="ideas">
+    <h2>3. Reusable Meta-Harness Ideas, Classified</h2>
+
+    <h3><span class="badge adopt">Adopt directly</span></h3>
+    <ol>
+      <li><strong>Validation / held-out test split with one-shot finalization</strong> (<code>meta_harness.py</code>: <code>FINALIZED</code> state machine, test results in a directory the proposer never sees).</li>
+      <li><strong>Append-only search history</strong>: <code>evolution_summary.jsonl</code> &mdash; one JSON row per candidate with hypothesis, axis, delta vs. frontier, outcome, timing &mdash; plus <code>frontier_val.json</code>.</li>
+      <li><strong>Proposer session logging</strong> (<code>claude_wrapper.py</code>'s <code>experience/</code> layout: <code>meta.json</code>, <code>response.md</code>, <code>events.jsonl</code>, per-tool-call files). Drop-in; it's a standalone file.</li>
+      <li><strong>Cheap pre-flight candidate validation before spending eval budget</strong> (import check / interface-compliance check, as in <code>validate_candidates</code> and TB2's <code>validate_agent_class</code>).</li>
+    </ol>
+
+    <h3><span class="badge adapt">Adapt to Mazda</span></h3>
+    <ol start="5">
+      <li><strong>LLM proposer agent replacing the lookup-table proposer</strong> &mdash; the single highest-value idea. An <code>LlmProposalGenerator</code> adapter behind the existing <code>IProposalGenerator</code> port, driven by a <code>claude_wrapper</code>-style subprocess with a Mazda-specific SKILL.md prior, emitting the <em>same</em> <code>ImprovementProposal</code>/command objects. Everything downstream (experiment, gates, approval, rollback) is untouched.</li>
+      <li><strong>Falsifiable hypothesis + prediction fields</strong> on every proposal, and &ldquo;one mechanism per candidate&rdquo; discipline (from both SKILL.md files). Maps onto <code>Rationale.expected_benefit</code>, which exists but is canned text today.</li>
+      <li><strong>Anti-leakage <code>forbidden_references</code> source check</strong> (Harbor <code>controller.py</code>: <code>validate_source</code> + universal denylist). Adapt as a fifth gate or a <code>SafetyGate</code> extension: proposed patch text must not reference held-out case identifiers, specific vendor names from eval fixtures, verifier internals, etc.</li>
+      <li><strong>Per-iteration post-mortem reports</strong> (Step 0 of the skill: &le;30-line &ldquo;what changed, what improved/regressed, takeaway&rdquo;). Adapt as an artifact the proposer writes into Mazda's evidence store/reporting family.</li>
+      <li><strong>Proposer prior as a versioned SKILL.md</strong> &mdash; the prior itself becomes part of the wrapper: versionable, diffable, and improvable through the same gates.</li>
+      <li><strong>Cost bring-up ladder</strong> (1 case &rarr; subset &rarr; full suite) and per-candidate <code>rollout_metrics</code>. Mazda's <code>CostGate</code> exists; the ladder is an evaluation-ordering policy to bolt onto the experiment runner.</li>
+    </ol>
+
+    <h3><span class="badge present">Already present in Mazda</span></h3>
+    <ol start="11">
+      <li><strong>Baseline-vs-candidate paired comparison with regression detection</strong> &mdash; <code>BaselineCandidateExperimentRunner</code> + <code>ScorecardRegressionDetector</code> are equivalent to (and cleaner than) Meta-Harness's frontier delta.</li>
+      <li><strong>Deterministic-rules-first evaluation</strong> &mdash; Mazda's Principle 5.1 is stronger than Meta-Harness's metric-only scoring.</li>
+      <li><strong>Never touch the base model</strong> &mdash; both systems share this thesis (harness &equiv; wrapper).</li>
+      <li><strong>Sandbox/trust boundary for untrusted code</strong> &mdash; Mazda sidesteps it entirely by proposing text patches, not code; the Harbor subprocess isolation is only needed if Mazda ever lets a proposer write executable artifacts.</li>
+      <li><strong>Cost tracking primitives</strong> &mdash; token usage in traces, <code>estimated_cost_usd</code>, <code>CostGate</code>.</li>
+    </ol>
+
+    <h3><span class="badge skip">Not appropriate for Mazda</span></h3>
+    <ol start="16">
+      <li><strong>Fully autonomous activation of frontier winners</strong> &mdash; violates Mazda's human-approval invariant. The autonomous loop should end at &ldquo;proposal awaiting approval,&rdquo; never at activation.</li>
+      <li><strong>Arbitrary-Python search space</strong> &mdash; Mazda's command-object granularity (prompt patch, tool-description patch, memory note, context rule) is the right blast radius for a live finance fleet. Letting the proposer write arbitrary code would demolish the gate chain's ability to reason about changes.</li>
+      <li><strong>&ldquo;MUST produce N candidates every iteration, never stop&rdquo;</strong> &mdash; right for research search under a paid budget, wrong for production: Mazda should be allowed to conclude &ldquo;no material failure pattern this week; no proposal.&rdquo;</li>
+      <li><strong><code>--fresh</code> wipe-and-restart semantics</strong> &mdash; conflicts with Mazda's append-only audit evidence.</li>
+    </ol>
+  </section>
+
+  <section class="card" id="plan">
+    <h2>4. Prioritized Mazda Adoption Plan</h2>
+    <p>Each item: idea &rarr; gap &rarr; integration point &rarr; benefit / risks &rarr; required evidence &rarr; priority &amp; effort.</p>
+
+    <div class="finding p0">
+      <div class="finding-title"><h4>P0 &mdash; Validation/test split + finalization freeze</h4><span class="prio">adopt &middot; small</span></div>
+      <p><strong>Gap:</strong> Mazda has <em>no</em> held-out isolation; repeated gate-passing against the same cases will silently overfit the wrapper to its own regression suite.</p>
+      <p><strong>Integration:</strong> Split the evaluation case corpus (receipt fixtures, statement cases) into <code>search</code> and <code>holdout</code> sets at the persistence layer; <code>ABRunConfig.task_inputs</code> draws only from <code>search</code>. Add a <code>FinalizationService</code> in the improvement family: holdout is evaluated only when a candidate has passed all four gates and is queued for human approval, and a <code>finalized</code> flag on the wrapper-revision record blocks further tuning against that holdout snapshot.</p>
+      <p><strong>Benefit:</strong> The UsefulnessGate's answer becomes trustworthy; approval decisions rest on unseen data.</p>
+      <p><strong>Risks:</strong> Mazda's case corpus is small &mdash; a split shrinks statistical power. Mitigate with periodic holdout rotation (rotate, then retire the old holdout into search).</p>
+      <div class="kv">
+        <dt>Evidence needed</dt><dd>Unit tests that evolution paths cannot read holdout results (mirror Meta-Harness's separate <code>results/</code> dir); a demonstration that at least one past &ldquo;improvement&rdquo; scores differently on the split.</dd>
+        <dt>Effort</dt><dd>~2&ndash;4 days</dd>
+        <dt>Priority</dt><dd><strong>Highest</strong> &mdash; correctness precondition for everything else</dd>
+      </div>
+    </div>
+
+    <div class="finding p1">
+      <div class="finding-title"><h4>P1 &mdash; LLM proposer behind <code>IProposalGenerator</code></h4><span class="prio">adapt &middot; medium</span></div>
+      <p><strong>Gap:</strong> the deterministic proposer can only re-emit six pre-written sentences; it cannot learn from traces or invent a fix for an unanticipated failure (everything else falls into the <code>MEMORY_NOTE</code> catch-all).</p>
+      <p><strong>Integration:</strong> new adapter <code>implementations/improvement/llm_proposals.py::ClaudeProposalGenerator(IProposalGenerator)</code> that (a) pulls the failing trace cluster + recent verdicts + current wrapper artifacts from the evidence store, (b) invokes a vendored <code>claude_wrapper.run()</code> with a Mazda SKILL.md prior, (c) parses a structured <code>pending_proposal.json</code> into the existing <code>ImprovementProposal</code>/<code>ChangeSet</code> command objects, (d) falls back to <code>MazdaProposalGenerator</code> on parse failure. Selected in the composition root via <code>profile.improvement == "llm_proposer"</code> &mdash; a profile edit, not a kernel change.</p>
+      <p><strong>Benefit:</strong> proposals become trace-grounded and open-ended while remaining <em>inspectable text patches</em> that flow through the unchanged experiment/gate/approval/rollback pipeline. This is Meta-Harness's engine inside Mazda's brakes.</p>
+      <p><strong>Risks:</strong> non-determinism in proposal content (acceptable: verdicts stay deterministic; the proposal is gated); prompt-injection via trace content into the proposer (constrain proposer tools to Read-only over an exported evidence snapshot, never live systems); token cost (log per-session cost &agrave; la <code>claude_wrapper</code>, enforce via CostGate).</p>
+      <div class="kv">
+        <dt>Evidence needed</dt><dd>Offline replay &mdash; feed N historical failing traces to both proposers, human-rate proposal quality; verify every LLM proposal round-trips through Pydantic validation and the gate chain; verify fallback path.</dd>
+        <dt>Effort</dt><dd>~1&ndash;2 weeks</dd>
+        <dt>Priority</dt><dd><strong>High</strong> &mdash; largest capability unlock</dd>
+      </div>
+    </div>
+
+    <div class="finding p2">
+      <div class="finding-title"><h4>P2 &mdash; Search history + frontier</h4><span class="prio">adopt &middot; small</span></div>
+      <p><strong>Gap:</strong> the evidence store records events but nothing summarizes <em>what has been tried and with what delta</em>, so a proposer (human or LLM) can't avoid re-proposing failed ideas.</p>
+      <p><strong>Integration:</strong> an <code>evolution_summary</code> table (or JSONL exported by the reporting family) with per-proposal hypothesis, target artifact, gate outcomes, val delta; a <code>frontier</code> view of best-known wrapper revision per task type. Feed both into the P1 proposer's context.</p>
+      <p><strong>Benefit:</strong> cross-iteration learning; the documented Meta-Harness failure mode (&ldquo;parameter variants regress or tie&rdquo;) is avoided by making history visible.</p>
+      <div class="kv">
+        <dt>Evidence needed</dt><dd>Schema tests; proposer prompt includes and demonstrably references it.</dd>
+        <dt>Effort</dt><dd>2&ndash;3 days</dd>
+        <dt>Priority</dt><dd><strong>High</strong>, immediately after P1 (they compound)</dd>
+      </div>
+    </div>
+
+    <div class="finding p3">
+      <div class="finding-title"><h4>P3 &mdash; Anti-leakage source/patch check as a gate</h4><span class="prio">adapt &middot; small</span></div>
+      <p><strong>Gap:</strong> nothing stops a proposal (especially an LLM one) from embedding holdout-case specifics (&ldquo;Walgreens receipts always&hellip;&rdquo;) &mdash; overfitting by memorization.</p>
+      <p><strong>Integration:</strong> <code>LeakageGate</code> in <code>implementations/evaluation/gates.py</code>, configured with a denylist derived from holdout fixtures (vendor names, filenames, case ids) + a universal list, string-checked against <code>patch_text</code> &mdash; a direct port of <code>controller.py::validate_source</code>. Add it to the GateChain (making it five gates).</p>
+      <p><strong>Benefit:</strong> cheap, deterministic, runs before any eval spend.</p>
+      <p><strong>Risks:</strong> false positives on legitimately common substrings; keep the list reviewable in config.</p>
+      <div class="kv">
+        <dt>Evidence needed</dt><dd>Unit tests with seeded leaks; run against all historical proposals (should pass).</dd>
+        <dt>Effort</dt><dd>1&ndash;2 days</dd>
+        <dt>Priority</dt><dd><strong>Medium-high</strong> &mdash; mandatory <em>before</em> P1 goes live, trivial after P0 defines the holdout</dd>
+      </div>
+    </div>
+
+    <div class="finding p4">
+      <div class="finding-title"><h4>P4 &mdash; Proposer session logging (<code>experience/</code>)</h4><span class="prio">adopt &middot; trivial</span></div>
+      <p><strong>Gap:</strong> if P1 ships, the proposer's own reasoning process is unaudited &mdash; contrary to Mazda's auditability principle.</p>
+      <p><strong>Integration:</strong> vendor <code>claude_wrapper.py</code> as-is; point <code>log_dir</code> at an <code>experience/</code> sibling of the SQLite store; store the session directory path on the <code>ImprovementProposal</code> record.</p>
+      <p><strong>Benefit:</strong> every activated change traces back to the exact proposer session (tools used, files read, tokens, cost) &mdash; extends Mazda's audit chain upstream into generation.</p>
+      <div class="kv">
+        <dt>Effort</dt><dd>&lt;1 day</dd>
+        <dt>Priority</dt><dd><strong>Medium</strong> (bundled with P1)</dd>
+      </div>
+    </div>
+
+    <div class="finding p5">
+      <div class="finding-title"><h4>P5 &mdash; Post-iteration reports + hypothesis/prediction fields</h4><span class="prio">adapt &middot; small</span></div>
+      <p><strong>Gap:</strong> experiment outcomes aren't distilled into takeaways; <code>expected_benefit</code> is boilerplate, never scored against reality.</p>
+      <p><strong>Integration:</strong> add <code>hypothesis</code> and <code>prediction</code> to <code>Rationale</code>; after each experiment, the reporting family (or the P1 proposer's next session, Step-0 style) writes a &le;30-line report comparing prediction to outcome, stored in the evidence store.</p>
+      <p><strong>Benefit:</strong> turns the evidence store from a log into a curriculum; improves both LLM and human proposal quality over time.</p>
+      <div class="kv">
+        <dt>Effort</dt><dd>2&ndash;3 days</dd>
+        <dt>Priority</dt><dd><strong>Medium</strong></dd>
+      </div>
+    </div>
+
+    <div class="finding p6">
+      <div class="finding-title"><h4>P6 &mdash; Autonomous multi-iteration loop, ending at approval queue</h4><span class="prio">adapt &middot; medium</span></div>
+      <p><strong>Gap:</strong> Mazda's loop is single-shot per failure; no orchestrated propose &rarr; experiment &rarr; gate cycling.</p>
+      <p><strong>Integration:</strong> a <code>run_improvement_loop.py</code> entry point modeled on <code>meta_harness.py</code> (resume from summary, interrupt handling, per-iteration timing) &mdash; but its terminal state is &ldquo;gated proposals awaiting human approval,&rdquo; never activation. Budget caps (max iterations, max $ per run) enforced by CostGate.</p>
+      <p><strong>Risks:</strong> cost runaway (cap it); proposal spam into the approval queue (dedupe via P2 history).</p>
+      <div class="kv">
+        <dt>Evidence needed</dt><dd>Dry-run mode against the stub LLM family first; then a bounded live run.</dd>
+        <dt>Effort</dt><dd>~1 week</dd>
+        <dt>Priority</dt><dd><strong>Lower</strong> &mdash; only worthwhile after P0&ndash;P3 exist</dd>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="experiment">
+    <h2>5. Proposed Low-Cost First Experiment</h2>
+    <div class="callout">
+      <strong>Offline proposer bake-off</strong> &mdash; zero risk to the live fleet, no activation, no fleet changes.
+    </div>
+    <ol>
+      <li>Export 10&ndash;20 historical failing traces + verdicts from the SQLite evidence store into a read-only snapshot directory (this is the whole &ldquo;world&rdquo; the proposer may see).</li>
+      <li>Split Mazda's existing evaluation fixtures ~70/30 into search/holdout (P0 in miniature, done by hand for the experiment).</li>
+      <li>Vendor <code>claude_wrapper.py</code>; write a ~1-page <code>mazda-proposer/SKILL.md</code> (modeled on the text-classification SKILL.md: read history &rarr; hypothesize &rarr; emit structured JSON proposal; anti-leakage rules naming the holdout denylist; &ldquo;one mechanism per candidate&rdquo;).</li>
+      <li>Run 3 iterations: each produces 2 candidate <code>ImprovementProposal</code> JSONs. Parse them into Mazda's Pydantic models; run each through <code>BaselineCandidateExperimentRunner</code> on the <em>search</em> fixtures and the existing GateChain, plus a prototype <code>LeakageGate</code>.</li>
+      <li>Compare against the deterministic <code>MazdaProposalGenerator</code> output for the same traces: gate-pass rate, val delta, human-rated proposal quality, and holdout delta for any gate-passer.</li>
+      <li>Log everything to <code>experience/</code> and an <code>evolution_summary.jsonl</code>.</li>
+    </ol>
+    <div class="kv">
+      <dt>Cost</dt><dd>A few dollars of proposer tokens (or $0 on subscription auth, as <code>propose_claude</code> does) plus cheap deterministic evals; ~2&ndash;3 days of work.</dd>
+      <dt>Success criterion</dt><dd>At least one LLM-generated proposal passes all gates with a positive holdout delta that the lookup-table proposer could not have produced. That single artifact justifies (or kills) P1 with evidence instead of opinion.</dd>
+    </div>
+  </section>
+
+  <section class="card" id="recommendation">
+    <h2>6. Final Recommendation</h2>
+    <p>
+      Do not replace Mazda with Meta-Harness &mdash; Meta-Harness itself says it's untested paper code, and it
+      lacks every production control Mazda's invariants require (gates, approval, rollback, audit). Equally, do
+      not leave Mazda's Propose station as a six-entry lookup table: it caps the system's ceiling at whatever
+      failures its authors pre-imagined, and the missing holdout split means even those gains can't be trusted.
+    </p>
+    <p>
+      The right synthesis is <strong>Meta-Harness as the engine, Mazda as the brakes</strong>: adopt the val/test
+      firewall first (P0 &mdash; it's a correctness bug in Mazda today, not an enhancement), then swap in an LLM
+      proposer behind the existing <code>IProposalGenerator</code> port with a leakage gate, session logging, and
+      a search-history summary (P1&ndash;P4). Every adopted component enters through an existing port, is
+      selected in the composition root by profile, keeps the kernel finance-blind, keeps verification
+      deterministic, and ends at the human approval gateway &mdash; so all seven of Mazda's stated principles
+      survive intact.
+    </p>
+    <div class="callout final">
+      <strong>Classification for planning:</strong> P0, P2, P3, P4 are production-ready adoptions (small,
+      deterministic, testable). P1, P5, P6 are staged experiments that must earn their way in through the
+      Section&nbsp;5 bake-off and Mazda's own gates.
+    </div>
+  </section>
+
+  <footer>
+    Prepared for Mazda / rol_finances self-improvement planning. Distinguishes experimental research ideas
+    (Meta-Harness) from production-ready components (Mazda). No source code was modified to produce this review.
+  </footer>
+
+</div>
+</body>
+</html>
