@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Mazda Trainer — dynamically builds a Claude agent (via claude-code-sdk-ts) that
+// Mazda Trainer — dynamically builds a Codex agent that
 // watches ONE Mazda intake run, verifies it, and coaches Mazda on failures.
 //
 // Fired fire-and-forget by dashboard/server.py (_notify_trainer_of_scan) every time
@@ -11,29 +11,20 @@
 // The agent's system message = mazda_trainer_instructions.md + the text of
 // notes_plans_handoffs/mazda_dev_status.html (Mazda's developer manual).
 
-import { mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { claude } from '/home/adamsl/claude-code-sdk-ts/dist/index.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-// The SDK spawns the `claude` CLI with our env. An inherited ANTHROPIC_API_KEY
-// silently outranks the OAuth login and can point at a creditless API account
-// ("Credit balance is too low" → CLI exit 1 mid-run). CLAUDECODE /
-// CLAUDE_CODE_ENTRYPOINT leak when launched from inside a Claude Code session
-// and confuse the nested CLI. Strip all three so the trainer always runs on
-// this box's OAuth login regardless of who launched it.
-delete process.env.ANTHROPIC_API_KEY;
-delete process.env.CLAUDECODE;
-delete process.env.CLAUDE_CODE_ENTRYPOINT;
 const INSTRUCTIONS_PATH = join(HERE, 'mazda_trainer_instructions.md');
 const MANUAL_PATH = join(HERE, '..', '..', 'notes_plans_handoffs', 'mazda_dev_status.html');
 
 const LETTA_BASE_URL = process.env.LETTA_BASE_URL || 'http://100.80.49.10:8283';
 const MAZDA_AGENT_ID =
   process.env.MAZDA_AGENT_ID || 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e';
-const TRAINER_MODEL = process.env.TRAINER_MODEL || 'sonnet';
+const TRAINER_MODEL = process.env.TRAINER_MODEL || 'gpt-5.6-sol';
+const CODEX_BIN = process.env.MAZDA_TRAINER_CODEX_BIN || 'codex';
 const TRAINER_TIMEOUT_MS = Number(process.env.TRAINER_TIMEOUT_MS || 35 * 60 * 1000);
 // Cap any single session below the overall budget so a session that dies at the
 // buzzer (e.g. timing out mid-Write, seen 2026-07-13) still leaves the watchdog
@@ -100,6 +91,54 @@ function buildTaskMessage(args) {
   ].join('\n');
 }
 
+async function runCodexAttempt(prompt, timeoutMs, attempt) {
+  const summaryPath = `/tmp/mazda_trainer_summary_${process.pid}_${attempt}.txt`;
+  const proc = Bun.spawn([
+    CODEX_BIN, 'exec', '--ephemeral', '--skip-git-repo-check',
+    '--dangerously-bypass-approvals-and-sandbox', '--color', 'never',
+    '--model', TRAINER_MODEL, '--cd', HERE,
+    '--output-last-message', summaryPath, '-',
+  ], {
+    cwd: HERE,
+    env: { ...process.env, LETTA_BASE_URL, MAZDA_AGENT_ID },
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  proc.stdin.write(prompt);
+  proc.stdin.end();
+
+  const stdoutPromise = new Response(proc.stdout).text();
+  const stderrPromise = new Response(proc.stderr).text();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill();
+  }, timeoutMs);
+  const exitCode = await proc.exited;
+  clearTimeout(timer);
+  const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
+  if (stdout) console.log(stdout.trimEnd());
+  if (stderr) console.error(stderr.trimEnd());
+  if (timedOut) throw new Error(`Codex Trainer timed out after ${timeoutMs}ms`);
+  if (exitCode !== 0) throw new Error(`Codex Trainer exited with code ${exitCode}`);
+  try { return readFileSync(summaryPath, 'utf8').trim(); }
+  catch { return stdout.trim(); }
+}
+
+function writeEmergencyReport(args, errors) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+  const scanner = args.scanner.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const path = join(HERE, 'reports', `${stamp}_${scanner || 'scanner'}.md`);
+  writeFileSync(path, `# Mazda Trainer Report\n\n` +
+    `- **Verdict:** STALLED\n- **Scanner:** ${args.scanner}\n` +
+    `- **Document:** ${args.scanPath}\n- **Dispatch:** ${args.dispatchedAt}\n\n` +
+    `The Codex Trainer failed before it could complete evidence review or coaching. ` +
+    `Mazda's intake result must not be treated as verified.\n\n` +
+    `## Runner errors\n\n${errors.map((e) => `- ${e}`).join('\n')}\n`);
+  return path;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   console.log(`[trainer] watching Mazda intake run: scanner=${args.scanner} ` +
@@ -116,19 +155,6 @@ async function main() {
     console.log(prompt.slice(-700));
     return;
   }
-
-  // Tools that "wait" by ending the assistant turn. In -p mode nothing ever
-  // resumes the session, so any of these kills the watch with no report — the
-  // exact failure observed on 2026-07-13 (twice). allowTools() alone does NOT
-  // remove them: it's a permission whitelist, and skipPermissions() makes it
-  // moot. denyTools() → --disallowedTools actually strips them. ToolSearch is
-  // first because it's the gateway that loads the rest mid-session.
-  const DENIED_TOOLS = [
-    'ToolSearch', 'ScheduleWakeup', 'Monitor', 'Agent', 'Task',
-    'TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate',
-    'SendMessage', 'CronCreate', 'CronDelete', 'CronList', 'RemoteTrigger',
-    'EnterPlanMode', 'ExitPlanMode', 'PushNotification',
-  ];
 
   // Watchdog: the model has ended its turn "to wait" despite instructions. The
   // contract's observable outcome is a report file, so retry the whole session
@@ -147,6 +173,7 @@ async function main() {
   };
 
   const MAX_ATTEMPTS = 3;
+  const errors = [];
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const remainingMs = TRAINER_TIMEOUT_MS - (Date.now() - startMs);
     if (remainingMs < 60_000) break;
@@ -163,25 +190,15 @@ the current UTC timestamp; never overwrite a previous attempt's file. If you mus
 use only a foreground Bash sleep loop.`;
 
     try {
-      const summary = await claude()
-        .withModel(TRAINER_MODEL)
-        .allowTools('Bash', 'Read', 'Write')
-        .denyTools(...DENIED_TOOLS)
-        .skipPermissions()
-        .inDirectory(HERE)
-        .withTimeout(Math.min(remainingMs, TRAINER_ATTEMPT_TIMEOUT_MS))
-        .withEnv({ LETTA_BASE_URL, MAZDA_AGENT_ID })
-        .onToolUse((tool) => {
-          console.log(`[trainer] tool: ${tool.name} ${JSON.stringify(tool.input).slice(0, 300)}`);
-        })
-        .query(attemptPrompt)
-        .asText();
+      const summary = await runCodexAttempt(
+        attemptPrompt, Math.min(remainingMs, TRAINER_ATTEMPT_TIMEOUT_MS), attempt);
       console.log(`[trainer] attempt ${attempt} summary:\n` + summary);
     } catch (err) {
       // A session that times out or crashes AFTER writing the report still
       // fulfilled the contract — the report is the deliverable, the final
       // summary is garnish. Fall through to the reportWritten() check.
       console.error(`[trainer] attempt ${attempt} errored: ${err?.message || err}`);
+      errors.push(`attempt ${attempt}: ${err?.message || err}`);
     }
     if (reportWritten()) {
       console.log('[trainer] report file written — done.');
@@ -191,7 +208,9 @@ use only a foreground Bash sleep loop.`;
   }
 
   if (!reportWritten()) {
-    console.error('[trainer] FAILED: session(s) ended without writing a report.');
+    const emergencyPath = writeEmergencyReport(args, errors);
+    console.error(`[trainer] FAILED: session(s) ended without writing a report; ` +
+      `emergency report: ${emergencyPath}`);
     process.exit(1);
   }
 }

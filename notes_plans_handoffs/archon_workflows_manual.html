@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archon Workflows — User Manual &amp; Letta Integration Study</title>
+<style>
+  :root {
+    --bg: #08111f; --panel: #ffffff; --soft: #f8fafc; --ink: #102033;
+    --muted: #64748b; --line: #dbe4ef; --blue: #2563eb; --green: #16a34a;
+    --orange: #b45309; --red: #dc2626; --purple: #7c3aed; --cyan: #0891b2;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: var(--ink); background: #eaf0f7; line-height: 1.55; }
+  .hero { color: #fff; background: linear-gradient(135deg, #020617 0%, #1e1b4b 55%, #7c3aed 100%); padding: 44px 30px 34px; }
+  .hero-inner, .page { max-width: 1280px; margin: 0 auto; }
+  .eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; opacity: .85; font-weight: 700; }
+  h1 { margin: 10px 0 12px; font-size: 38px; line-height: 1.1; }
+  .subtitle { max-width: 1000px; font-size: 18px; opacity: .94; }
+  .badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+  .badge { border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.12); padding: 7px 11px; border-radius: 999px; font-size: 13px; }
+  .page { padding: 26px 22px 54px; }
+  .section { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; margin: 18px 0; padding: 24px; box-shadow: 0 12px 30px rgba(15,23,42,.08); }
+  h2 { margin: 0 0 14px; font-size: 25px; color: #0f172a; }
+  h3 { margin: 18px 0 8px; font-size: 18px; color: #1e293b; }
+  h4 { margin: 14px 0 6px; font-size: 15px; color: #334155; }
+  p { margin: 9px 0; }
+  ul, ol { margin-top: 8px; }
+  li { margin: 5px 0; }
+  a { color: #1d4ed8; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: Consolas, "Courier New", monospace; background: #eef4ff; padding: 2px 5px; border-radius: 5px; font-size: .92em; }
+  pre { margin: 14px 0; border-radius: 14px; overflow-x: auto; background: #0b1220; color: #dbeafe; border: 1px solid #334155; padding: 16px; }
+  pre code { background: transparent; padding: 0; color: #e0f2fe; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; border: 1px solid var(--line); padding: 10px; }
+  th { background: #f1f5f9; color: #0f172a; }
+  tr:nth-child(even) td { background: #fbfdff; }
+  .grid { display: grid; gap: 14px; }
+  .grid.two { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .grid.three { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  @media (max-width: 900px) { .grid.two, .grid.three { grid-template-columns: 1fr; } }
+  .card { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: #fff; }
+  .card.soft { background: var(--soft); }
+  .card h3, .card h4 { margin-top: 0; }
+  .callout { border-left: 5px solid var(--blue); background: #eff6ff; padding: 14px 16px; border-radius: 12px; margin: 14px 0; }
+  .warning { border-left-color: var(--orange); background: #fffbeb; }
+  .success { border-left-color: var(--green); background: #f0fdf4; }
+  .danger { border-left-color: var(--red); background: #fef2f2; }
+  .tag { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; margin-right: 6px; }
+  .tag.blue { background: #dbeafe; color: #1e40af; }
+  .tag.green { background: #dcfce7; color: #166534; }
+  .tag.orange { background: #fef3c7; color: #92400e; }
+  .tag.red { background: #fee2e2; color: #991b1b; }
+  .tag.purple { background: #ede9fe; color: #5b21b6; }
+  .toc { columns: 2; column-gap: 32px; }
+  @media (max-width: 700px) { .toc { columns: 1; } }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-inner">
+    <div class="eyebrow">Project Plans · Archon Workflows</div>
+    <h1>Archon Workflows — User Manual &amp; Letta Integration Study</h1>
+    <div class="subtitle">
+      How to use Archon (the governed agentic automation engine at <code style="background:rgba(255,255,255,.15);color:#fff">/home/adamsl/Archon</code>),
+      and an engineering assessment of what our Letta-based self-improving agent system (Mazda and friends)
+      can reuse, adapt, or integrate from it.
+    </div>
+    <div class="badges">
+      <span class="badge">Bun + TypeScript</span>
+      <span class="badge">YAML DAG Workflows</span>
+      <span class="badge">Human Approval Gates</span>
+      <span class="badge">Git Worktree Isolation</span>
+      <span class="badge">MIT Licensed</span>
+      <span class="badge">Written 2026-07-12</span>
+    </div>
+  </div>
+</div>
+
+<div class="page">
+
+  <div class="section">
+    <h2>Contents</h2>
+    <ol class="toc">
+      <li><a href="#what">What Archon Is</a></li>
+      <li><a href="#quickstart">Quick Start &amp; CLI Cheat Sheet</a></li>
+      <li><a href="#anatomy">Workflow Anatomy (YAML DAG)</a></li>
+      <li><a href="#features">Key Features In Depth</a></li>
+      <li><a href="#config">Configuration</a></li>
+      <li><a href="#compare">Architecture Comparison: Archon vs Our Letta/Mazda Stack</a></li>
+      <li><a href="#reuse">Reuse Analysis — As-Is, Concepts, Code, Concerns</a></li>
+      <li><a href="#decision">Recommendation</a></li>
+      <li><a href="#steps">Proposed Integration Steps</a></li>
+    </ol>
+  </div>
+
+  <!-- ============ 1. WHAT ============ -->
+  <div class="section" id="what">
+    <h2>1 · What Archon Is</h2>
+    <p>
+      <strong>Archon</strong> is a self-hostable, <em>governed</em> agentic automation engine. It runs multi-step
+      workflows that mix <strong>deterministic steps</strong> (bash / TypeScript / Python scripts) with
+      <strong>AI agent steps</strong> (Claude Code SDK, Codex SDK, and others), with <strong>human approval
+      gates</strong> and a full <strong>audit trail</strong> — driven from Slack, Telegram, GitHub, Discord, the
+      web UI, or the CLI. Its most mature use is agentic <em>coding</em> against git repos; the same engine is
+      being extended to general business-operations automation.
+    </p>
+    <div class="grid three">
+      <div class="card soft">
+        <h4>The engine</h4>
+        <p>A workflow executor that reads YAML DAG definitions, runs nodes in topological order (independent
+        nodes concurrently), substitutes outputs between nodes, pauses at approval gates, and records every
+        step transition to a database.</p>
+      </div>
+      <div class="card soft">
+        <h4>The providers</h4>
+        <p>AI backends behind one interface (<code>IAgentProvider</code>): <strong>Claude</strong> (Agent SDK),
+        <strong>Codex</strong>, <strong>Pi</strong> (~20 LLM backends), <strong>OpenCode</strong>, and
+        <strong>Copilot</strong>. Providers are registered in a typed registry and selected per workflow or per node.</p>
+      </div>
+      <div class="card soft">
+        <h4>The surfaces</h4>
+        <p>Platform adapters behind one interface (<code>IPlatformAdapter</code>): Web UI (SSE streaming),
+        Slack, Telegram, GitHub (webhooks + <code>@archon</code> mentions), Discord, and a CLI that works
+        without the server at all.</p>
+      </div>
+    </div>
+    <div class="callout">
+      <strong>Design stance:</strong> single-tenant per install (isolation at the deployment layer, not in code),
+      strict TypeScript + Zod schemas everywhere, fail-fast explicit errors, git as a first-class citizen
+      (every run can execute in its own git <em>worktree</em>), and a hard rule against processes autonomously
+      killing work they can't prove is orphaned.
+    </div>
+    <p>
+      <strong>Stack:</strong> Bun workspaces monorepo — <code>@archon/paths</code>, <code>@archon/git</code>,
+      <code>@archon/providers</code>, <code>@archon/isolation</code>, <code>@archon/workflows</code> (the engine),
+      <code>@archon/core</code>, <code>@archon/adapters</code>, <code>@archon/server</code> (Hono + OpenAPI),
+      <code>@archon/web</code> (React), <code>@archon/cli</code>. Storage is SQLite by default
+      (<code>~/.archon/archon.db</code>, zero setup) or PostgreSQL via <code>DATABASE_URL</code>.
+      License is <strong>MIT</strong>.
+    </p>
+  </div>
+
+  <!-- ============ 2. QUICK START ============ -->
+  <div class="section" id="quickstart">
+    <h2>2 · Quick Start &amp; CLI Cheat Sheet</h2>
+    <p>The CLI runs workflows directly, no server needed. It must be run from inside a git repository
+    (subdirectories work). From <code>/home/adamsl/Archon</code>:</p>
+<pre><code># Dev server + web UI (server :3090, web :5173)
+bun run dev
+
+# Everything below works standalone from any git repo:
+bun run cli workflow list                      # what workflows exist here (bundled + repo + ~/.archon)
+bun run cli workflow run assist "What does the orchestrator do?"
+bun run cli workflow run implement "Add auth"  # auto-creates an isolated worktree + branch
+bun run cli workflow run implement --branch feature-auth "Add auth"
+bun run cli workflow run quick-fix --no-worktree "Fix typo"   # opt out of isolation
+bun run cli workflow run implement "Add auth" --detach        # background child process
+
+bun run cli workflow status                    # active runs (running + paused)
+bun run cli workflow runs --json               # recent runs, machine-readable
+bun run cli workflow get &lt;run-id&gt; --verbose    # one run, per-node summary
+bun run cli workflow resume &lt;run-id&gt;           # re-run a failed run, skipping completed nodes
+bun run cli workflow abandon &lt;run-id&gt;          # discard a non-terminal run
+
+# Approval gates (a paused run waits for one of these):
+bun run cli workflow approve &lt;run-id&gt; "looks good, also rename X"
+bun run cli workflow reject  &lt;run-id&gt; "wrong file, target server.py"
+
+bun run cli validate workflows                 # lint all workflow YAML + referenced resources
+bun run cli isolation list                     # active worktrees
+bun run cli isolation cleanup --merged         # remove worktrees whose branches merged
+bun run cli doctor                             # verify setup (claude binary, gh auth, DB, adapters)</code></pre>
+    <p>In chat surfaces (Slack/Telegram/web) the same lifecycle is exposed as slash commands:
+    <code>/workflow list</code>, <code>/workflow run &lt;name&gt; &lt;args&gt;</code>, <code>/workflow status</code>,
+    <code>/workflow approve &lt;id&gt;</code>, <code>/workflow resume &lt;id&gt;</code>, etc. Free-text messages are
+    routed by an AI router to the best-matching workflow (falling back to <code>archon-assist</code>).</p>
+    <h3>Where workflows live</h3>
+    <table>
+      <tr><th>Scope</th><th>Path</th><th>Notes</th></tr>
+      <tr><td>Bundled defaults</td><td><code>.archon/workflows/defaults/</code> in the Archon repo</td><td>~20 ready-made workflows: <code>archon-feature-development</code>, <code>archon-fix-github-issue</code>, <code>archon-plan-to-pr</code>, <code>archon-piv-loop</code>, <code>archon-ralph-dag</code>…</td></tr>
+      <tr><td>Per-repo</td><td><code>&lt;repo&gt;/.archon/workflows/*.yaml</code></td><td>Overrides bundled by name; discovered recursively at runtime</td></tr>
+      <tr><td>Home / global</td><td><code>~/.archon/workflows/</code></td><td>Applies to every project; priority bundled &lt; global &lt; project</td></tr>
+    </table>
+  </div>
+
+  <!-- ============ 3. ANATOMY ============ -->
+  <div class="section" id="anatomy">
+    <h2>3 · Workflow Anatomy (YAML DAG)</h2>
+    <p>A workflow is a YAML file with a <code>nodes:</code> list. Each node has an <code>id</code>, exactly one
+    node-type key, and optional <code>depends_on</code> edges. Nodes in the same topological layer run
+    <strong>concurrently</strong>. Everything is Zod-validated at load time (cycles, unknown deps, bad
+    <code>$nodeId.output</code> references, unknown providers all rejected before anything runs).</p>
+
+    <h3>Node types</h3>
+    <table>
+      <tr><th>Type</th><th>What it does</th><th>AI?</th></tr>
+      <tr><td><code>prompt:</code></td><td>Inline prompt sent to the configured AI provider</td><td>Yes</td></tr>
+      <tr><td><code>command:</code></td><td>Runs a named command file from <code>.archon/commands/</code> (a reusable prompt template)</td><td>Yes</td></tr>
+      <tr><td><code>loop:</code></td><td>Iterative AI prompt repeated until a completion signal; supports <code>fresh_context</code> and <code>$LOOP_PREV_OUTPUT</code></td><td>Yes</td></tr>
+      <tr><td><code>bash:</code></td><td>Shell script; stdout captured as <code>$nodeId.output</code>; receives managed per-project env vars</td><td>No</td></tr>
+      <tr><td><code>script:</code></td><td>Inline or named TypeScript (<code>runtime: bun</code>) or <strong>Python</strong> (<code>runtime: uv</code>) with <code>deps:</code> and <code>timeout:</code>; stdout captured</td><td>No</td></tr>
+      <tr><td><code>approval:</code></td><td><strong>Human gate</strong> — run pauses until approve/reject; <code>capture_response: true</code> stores the human's comment as the node output; rejection feeds <code>$REJECTION_REASON</code> into an <code>on_reject</code> prompt</td><td>No</td></tr>
+    </table>
+
+    <h3>Data flow between nodes</h3>
+    <ul>
+      <li><code>$nodeId.output</code> — cleaned output of a completed upstream node.</li>
+      <li><code>$nodeId.output.field</code> — field access when the producer declared <code>output_format</code>
+        (a JSON schema). Access is <em>strict</em>: an undeclared field fails the consuming node instead of
+        silently passing <code>''</code>.</li>
+      <li><code>output_format</code> — structured JSON output, SDK-grammar-enforced on Claude/Codex/OpenCode and
+        best-effort (validate + re-ask up to 3×) on Pi/Copilot. A node that declares a schema but can't produce
+        valid output <strong>fails loudly</strong>.</li>
+      <li><code>when:</code> conditions and <code>trigger_rule</code> join semantics for conditional branches.</li>
+      <li>Variables: <code>$1..$n</code>, <code>$ARGUMENTS</code>, <code>$ARTIFACTS_DIR</code> (per-run artifacts
+        directory, pre-created), <code>$WORKFLOW_ID</code>, <code>$BASE_BRANCH</code>, <code>$LOOP_USER_INPUT</code>,
+        <code>$REJECTION_REASON</code>.</li>
+    </ul>
+
+    <h3>A real bundled example (abridged)</h3>
+<pre><code>name: archon-feature-development
+description: |
+  Use when: Implementing a feature from an existing plan.
+nodes:
+  - id: implement
+    command: archon-implement       # named prompt template
+    provider: claude
+    model: large                    # resolves through the tier system
+
+  - id: create-pr
+    command: archon-create-pr
+    depends_on: [implement]
+    context: fresh                  # new session, not a continuation
+
+  - id: verify-pr-base
+    bash: |                         # deterministic step, no AI
+      set -euo pipefail
+      HEAD_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+      PR_NUMBER=$(gh pr list --head "$HEAD_BRANCH" --state open --json number -q '.[0].number')
+      ...
+    depends_on: [create-pr]</code></pre>
+
+    <h3>A gated pipeline sketch (what a Mazda-style stage chain looks like)</h3>
+<pre><code>name: finance-doc-pipeline
+nodes:
+  - id: parse
+    prompt: "Parse the statement at $1 into transactions."
+    output_format:                  # schema-validated JSON out
+      type: object
+      properties:
+        vendor:   { type: string }
+        total:    { type: number }
+
+  - id: duplicate-check
+    script:
+      runtime: uv                   # real Python, real DB, deterministic
+      name: duplicate_lookup        # .archon/scripts/duplicate_lookup.py
+    depends_on: [parse]
+
+  - id: human-gate
+    approval: "Store expense for $parse.output.vendor, total $parse.output.total?"
+    capture_response: true
+    depends_on: [duplicate-check]
+
+  - id: store
+    script: { runtime: uv, name: store_expense }
+    depends_on: [human-gate]</code></pre>
+  </div>
+
+  <!-- ============ 4. FEATURES ============ -->
+  <div class="section" id="features">
+    <h2>4 · Key Features In Depth</h2>
+    <div class="grid two">
+      <div class="card">
+        <h4>🔀 Git worktree isolation</h4>
+        <p>Every workflow run (and optionally every conversation) executes in its own git worktree under
+        <code>~/.archon/workspaces/&lt;owner&gt;/&lt;repo&gt;/worktrees/</code>, with auto-generated branch names and
+        deterministic per-worktree dev ports. Parallel runs can't stomp each other. Cleanup commands understand
+        "branch merged" and "PR closed". Non-destructive by default; it refuses to remove worktrees with
+        uncommitted changes.</p>
+      </div>
+      <div class="card">
+        <h4>✅ Approval gates &amp; interactive loops</h4>
+        <p><code>approval:</code> nodes pause the run in the database. Approve/reject arrives later from
+        <em>any</em> surface (CLI, Slack, web) and resumes execution. Rejections carry a reason into
+        <code>on_reject</code> prompts; approvals can carry user text into the next loop iteration
+        (<code>$LOOP_USER_INPUT</code>). This is a durable, replayable human-in-the-loop primitive.</p>
+      </div>
+      <div class="card">
+        <h4>🧾 Audit trail &amp; artifacts</h4>
+        <p>Two tables — <code>workflow_runs</code> (run state) and <code>workflow_events</code> (step-level log:
+        transitions, artifacts, errors) — plus JSONL file logs and a per-run <code>$ARTIFACTS_DIR</code> outside
+        the repo. Nodes can declare <code>output_type</code> to get typed output sidecars
+        (<code>nodes/&lt;id&gt;.md</code> + <code>.meta.json</code>) so later runs find outputs by type, not filename
+        guessing.</p>
+      </div>
+      <div class="card">
+        <h4>🧠 Session persistence</h4>
+        <p>AI sessions are immutable; transitions create new linked sessions with an explicit reason
+        (audit trail via <code>parent_session_id</code>). <code>persist_session: true</code> on a node keeps one
+        provider session <em>across runs</em>, keyed by (workflow, node, scope) — long-lived per-node memory.</p>
+      </div>
+      <div class="card">
+        <h4>🎚️ Model tiers &amp; aliases</h4>
+        <p>Workflows say <code>model: small|medium|large</code> or <code>@custom-alias</code>; config maps tiers
+        to concrete provider/model/effort (globally, per repo, or per user). Swapping the entire fleet from
+        Claude to Codex to a cheap OpenRouter model is a config edit, not a workflow edit. This is
+        "wrapper-not-model" made operational.</p>
+      </div>
+      <div class="card">
+        <h4>🔐 Governance &amp; credentials</h4>
+        <p>Per-user AI credentials and GitHub tokens encrypted at rest (AES-256-GCM); runs execute with the
+        <em>acting user's</em> credentials. Per-node <code>allowed_tools</code>/<code>denied_tools</code>
+        restrictions, per-node MCP server configs, hooks, and sub-agent definitions (Claude). Workflows can
+        declare <code>requires: [github]</code> to hard-block before any cost is incurred.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 5. CONFIG ============ -->
+  <div class="section" id="config">
+    <h2>5 · Configuration</h2>
+    <p>Two YAML files, merged (repo overrides global):</p>
+    <table>
+      <tr><th>File</th><th>Purpose</th></tr>
+      <tr><td><code>~/.archon/config.yaml</code></td><td>Install-wide: default assistant, per-provider model defaults, tiers, aliases</td></tr>
+      <tr><td><code>&lt;repo&gt;/.archon/config.yaml</code></td><td>Repo-specific overrides + <code>env:</code>, docs path, defaults opt-out</td></tr>
+    </table>
+<pre><code>assistants:
+  claude:
+    model: sonnet                # or opus / haiku / claude-* / inherit
+  codex:
+    model: gpt-5.3-codex
+    modelReasoningEffort: medium
+
+tiers:                           # what small/medium/large mean HERE
+  small:  { provider: claude, model: haiku }
+  medium: { provider: claude, model: sonnet }
+  large:  { provider: codex,  model: gpt-5.5, effort: high }
+
+aliases:
+  "@cheap": { provider: pi, model: openrouter/qwen/qwen3-coder }</code></pre>
+    <p>Priority: workflow-level options → config defaults → SDK defaults. Per-project env vars
+    (<code>codebase_env_vars</code> table, managed in the web UI) are injected into Claude/Codex/bash/script
+    node subprocess environments.</p>
+  </div>
+
+  <!-- ============ 6. COMPARISON ============ -->
+  <div class="section" id="compare">
+    <h2>6 · Architecture Comparison: Archon vs Our Letta/Mazda Stack</h2>
+    <p>Our system (per <em>Mazda — A Developer's Manual</em> and the Self-Improvement Plan) has two faces:
+    the <strong>runtime</strong> — Mazda, a Letta orchestrator agent, delegating to five minion agents that
+    drive Claude Agent SDK sessions against a finance MCP server — and the <strong>control plane</strong> —
+    the interface-first Python <code>agent_self_improvement</code> package (trace → judge → propose → A/B →
+    gate → activate → rollback; nine factory families; "improve the wrapper, never the model").</p>
+
+    <table>
+      <tr><th>Dimension</th><th>Archon</th><th>Our Letta/Mazda system</th></tr>
+      <tr>
+        <td><strong>Core unit of work</strong></td>
+        <td>A <em>workflow run</em>: a YAML DAG executed by a stateless engine; state lives in DB rows + artifacts</td>
+        <td>A <em>stateful agent</em>: Letta server holds memory blocks, tools, and conversation history per agent</td>
+      </tr>
+      <tr>
+        <td><strong>Orchestration</strong></td>
+        <td>Deterministic engine orders the steps; AI only fills in steps (plus an AI router for chat entry)</td>
+        <td>An LLM (Mazda) decides ordering/delegation at runtime; workflow order is prompt-encoded</td>
+      </tr>
+      <tr>
+        <td><strong>Memory / learning</strong></td>
+        <td>None built in — sessions can persist per node, but there is no self-editing memory and no improvement loop</td>
+        <td>The whole point: memory self-editing is <em>live and proven</em>; the gated improvement loop is built (not yet wired)</td>
+      </tr>
+      <tr>
+        <td><strong>Human gates</strong></td>
+        <td>First-class <code>approval:</code> nodes, durable across restarts, actionable from any surface</td>
+        <td>Designed (GateChain in the self-improvement plan) but not implemented as a runtime primitive</td>
+      </tr>
+      <tr>
+        <td><strong>Audit / evidence</strong></td>
+        <td><code>workflow_runs</code> + <code>workflow_events</code> + JSONL logs + per-run artifact dirs, out of the box</td>
+        <td>Trace capture is a planned service (TraceCommandService); today evidence is ad-hoc (API reads, dashboards)</td>
+      </tr>
+      <tr>
+        <td><strong>Deterministic steps</strong></td>
+        <td><code>bash:</code> and <code>script:</code> nodes (bun/<strong>uv Python</strong>) as peers of AI nodes in the same DAG</td>
+        <td>Deterministic services live behind the finance MCP server / Python services; the agent must <em>choose</em> to call them</td>
+      </tr>
+      <tr>
+        <td><strong>AI backends</strong></td>
+        <td>5 providers behind <code>IAgentProvider</code> (Claude, Codex, Pi≈20 backends, OpenCode, Copilot); per-node override</td>
+        <td>Letta-managed models + minions hard-wired to the Claude Agent SDK executor</td>
+      </tr>
+      <tr>
+        <td><strong>Entry surfaces</strong></td>
+        <td>Slack, Telegram, GitHub, Discord, Web (SSE), CLI — one adapter interface</td>
+        <td>Custom dashboard (Python stdlib server + vanilla JS), Telegram for Scissari, letta-code CLI</td>
+      </tr>
+      <tr>
+        <td><strong>Language / runtime</strong></td>
+        <td>Bun + strict TypeScript + Zod monorepo</td>
+        <td>letta-code is <em>also Bun + TypeScript</em>; control plane is Python; dashboard is stdlib Python</td>
+      </tr>
+      <tr>
+        <td><strong>Storage</strong></td>
+        <td>Own SQLite (default) or Postgres, 18 <code>remote_agent_*</code> tables</td>
+        <td>Letta's Postgres (agent state) + logger API + per-project files</td>
+      </tr>
+      <tr>
+        <td><strong>Failure posture</strong></td>
+        <td>Fail fast, resume from last completed node, never auto-kill ambiguous work</td>
+        <td>Recovery policies exist in letta-code (turn recovery, approval recovery) but per-incident, not engine-level</td>
+      </tr>
+    </table>
+
+    <div class="callout success">
+      <strong>The one-sentence relationship:</strong> Archon is a production-grade implementation of exactly the
+      layer our Mazda plans keep <em>designing</em> — versioned workflow skeletons (Phase 08), evaluation gates
+      (Phase 09/10), evidence capture, and rollback-safe activation — but it has <strong>no learning loop</strong>;
+      our system has the learning loop (memory self-editing, judge/propose/A-B) but lacks Archon's durable,
+      auditable execution substrate. They are complements, not competitors.
+    </div>
+  </div>
+
+  <!-- ============ 7. REUSE ============ -->
+  <div class="section" id="reuse">
+    <h2>7 · Reuse Analysis</h2>
+
+    <h3><span class="tag green">USE AS-IS</span> Components reusable directly</h3>
+    <table>
+      <tr><th>Component</th><th>Why it drops in cleanly</th></tr>
+      <tr>
+        <td><strong>Archon CLI as a dev tool</strong> on <code>letta-code</code> and <code>rol_finances</code></td>
+        <td>Zero integration required: <code>bun run cli workflow run implement "…"</code> from either repo gives
+        us isolated-worktree coding agents, plan→PR pipelines, and PR review workflows today. Both repos are git
+        repos, which is Archon's only hard requirement.</td>
+      </tr>
+      <tr>
+        <td><strong><code>@archon/git</code> + <code>@archon/isolation</code></strong> packages</td>
+        <td>Leaf packages (no <code>@archon/core</code> dependency), typed worktree/branch/repo operations with
+        error classification. letta-code is also Bun+TS — these could be imported for Scissari's executor or any
+        agent that needs safe parallel checkouts.</td>
+      </tr>
+      <tr>
+        <td><strong>Bundled workflows</strong> (<code>archon-fix-github-issue</code>, <code>archon-plan-to-pr</code>,
+        <code>archon-comprehensive-pr-review</code>…)</td>
+        <td>Battle-tested YAML for the coding tasks we currently hand-drive; also the best reference corpus for
+        authoring our own pipelines.</td>
+      </tr>
+      <tr>
+        <td><strong>Approval-gate lifecycle</strong> (run/pause/approve/reject/resume, from any surface)</td>
+        <td>Usable immediately by wrapping finance steps in a Archon workflow — no code changes, just YAML.</td>
+      </tr>
+    </table>
+
+    <h3><span class="tag blue">ADOPT CONCEPTS</span> Design patterns that would improve our architecture</h3>
+    <ul>
+      <li><strong>Deterministic engine orders the steps; the LLM fills them in.</strong> Our Mazda plan already
+        concluded this ("Mazda stops carrying every operation as one overloaded toolset") — Archon shows the
+        working shape: stage order is data (YAML), not prompt text, so it's versionable, diffable, and gateable.
+        This is precisely a "workflow skeleton" from self-improvement Phase 08.</li>
+      <li><strong>Immutable sessions with explicit transition reasons.</strong> Every session change records
+        <code>parent_session_id</code> + <code>transition_reason</code>. Applied to Mazda's memory edits, this
+        would give the self-improvement loop the provenance chain it needs for rollback.</li>
+      <li><strong>Strict structured output as a node contract.</strong> <code>output_format</code> +
+        schema-validated <code>$node.output.field</code> access, failing loudly on misses. This is our
+        "stable handoff contracts" between stage agents, enforced by the engine instead of by convention.</li>
+      <li><strong>Tier/alias model indirection.</strong> Workflows name <code>small/medium/large</code>, config
+        binds them. For the wrapper-improvement thesis this makes "model" just another wrapper knob that A/B
+        experiments can flip without touching prompts.</li>
+      <li><strong>"No autonomous lifecycle mutation across process boundaries."</strong> A process that can't
+        prove work is orphaned must not kill it — surface it with a one-click action instead. Directly relevant
+        to our dashboard's restart buttons and to Mazda run recovery.</li>
+      <li><strong>Store-interface seams (<code>IWorkflowStore</code>, <code>WorkflowDeps</code> injection).</strong>
+        The engine package has zero DB/AI/config dependencies; everything is injected. Our nine-factory-families
+        design shares this instinct — Archon proves it works at production scale in TS.</li>
+    </ul>
+
+    <h3><span class="tag purple">ADAPT CODE</span> Source code worth adapting or integrating</h3>
+    <table>
+      <tr><th>Source</th><th>Adaptation</th><th>Effort</th></tr>
+      <tr>
+        <td><code>packages/workflows/</code> (engine: loader, dag-executor, schemas)</td>
+        <td>Use as the execution substrate for the Mazda document pipeline — each stage agent becomes a node.
+        Consumable as a library thanks to <code>WorkflowDeps</code> injection.</td>
+        <td>Low–Medium</td>
+      </tr>
+      <tr>
+        <td><code>packages/providers/src/community/</code> (Pi/OpenCode as templates)</td>
+        <td><strong>Write a <code>LettaProvider</code></strong> implementing <code>IAgentProvider</code>: map
+        <code>sendQuery()</code> → <code>POST /v1/agents/&lt;id&gt;/messages</code> on our Letta server
+        (100.80.49.10:8283), stream chunks back, map session-resume to the agent's persistent conversation.
+        Community providers (<code>builtIn: false</code>) are the sanctioned extension point — Pi and OpenCode
+        show the exact shape.</td>
+        <td>Medium (~1 package dir + registry entry)</td>
+      </tr>
+      <tr>
+        <td><code>script:</code> node with <code>runtime: uv</code></td>
+        <td>Run our existing Python deterministic services (duplicate lookup, vendor map, expense repository)
+        as first-class DAG nodes — no rewrite, they already speak Python.</td>
+        <td>Low</td>
+      </tr>
+      <tr>
+        <td><code>workflow_events</code> schema + event emitter</td>
+        <td>Adopt as the TraceCommandService implementation for the improvement loop: every stage transition,
+        artifact, and error is already an event row.</td>
+        <td>Low</td>
+      </tr>
+      <tr>
+        <td>Approval-gate + <code>$REJECTION_REASON</code> machinery</td>
+        <td>Implements the improvement loop's <em>gate</em> step: "propose → human gate → activate" becomes a
+        three-node Archon workflow with rollback as an <code>on_reject</code> script node.</td>
+        <td>Low</td>
+      </tr>
+    </table>
+
+    <h3><span class="tag orange">CONCERNS</span> Compatibility concerns, limitations, required changes</h3>
+    <div class="grid two">
+      <div class="card soft">
+        <h4>No Letta provider exists</h4>
+        <p>Out of the box Archon can't talk to a Letta agent — AI nodes drive stateless SDK sessions
+        (Claude/Codex/…). Using Mazda's minions from Archon requires the <code>LettaProvider</code> above,
+        or keeping minions as Claude-SDK sessions and letting Letta-Mazda sit <em>outside</em> the engine.</p>
+      </div>
+      <div class="card soft">
+        <h4>Stateful vs stateless philosophies</h4>
+        <p>Letta agents remember everything server-side; Archon assumes fresh sessions per node
+        (<code>persist_session</code> is per-(workflow, node, scope), not a global agent memory). Mapping
+        Mazda's memory-block learning onto Archon nodes needs a deliberate decision about which state lives
+        where — don't let both sides think they own history.</p>
+      </div>
+      <div class="card soft">
+        <h4>Git-repo-centric engine</h4>
+        <p>The CLI and worktree isolation require a git repo cwd. Fine for <code>rol_finances</code> and
+        <code>letta-code</code>, but finance <em>document</em> runs don't need worktrees — use
+        <code>--no-worktree</code> or the server API to avoid pointless checkout churn.</p>
+      </div>
+      <div class="card soft">
+        <h4>Separate databases</h4>
+        <p>Archon writes its own SQLite/Postgres (18 <code>remote_agent_*</code> tables); Letta has its own
+        Postgres. That's fine (single-tenant, two concerns) but means run-evidence joins across the two need an
+        export step — e.g. a <code>bash:</code> node posting run summaries to our logger API (:8284).</p>
+      </div>
+      <div class="card soft">
+        <h4>No learning loop inside Archon</h4>
+        <p>Archon will not judge, propose, or A/B anything. The <code>agent_self_improvement</code> control
+        plane remains ours; Archon is only the trustworthy executor + gatekeeper underneath it.</p>
+      </div>
+      <div class="card soft">
+        <h4>Operational overhead &amp; churn</h4>
+        <p>Archon is a fast-moving codebase (Bun-specific test isolation quirks, strict Zod/TS conventions,
+        generated bundles that must be regenerated). Pin a version for integration; treat upgrades as scheduled
+        maintenance. MIT license poses no constraint.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 8. DECISION ============ -->
+  <div class="section" id="decision">
+    <h2>8 · Recommendation</h2>
+    <table>
+      <tr><th>Option</th><th>Verdict</th><th>Rationale</th></tr>
+      <tr>
+        <td><strong>1 · Use parts of Archon as-is</strong></td>
+        <td><span class="tag green">YES — start now</span></td>
+        <td>Zero-risk wins: run Archon CLI workflows (fix-issue, plan-to-PR, PR review) against
+        <code>letta-code</code> and <code>rol_finances</code> for our own development work. This also builds
+        operational familiarity before any deeper integration.</td>
+      </tr>
+      <tr>
+        <td><strong>2 · Adapt Archon's concepts / code</strong></td>
+        <td><span class="tag green">YES — the main prize</span></td>
+        <td>Adopt the engine (YAML DAG + approval gates + workflow_events) as the execution substrate the Mazda
+        plans keep specifying but haven't built: stage order as data, deterministic Python services as
+        <code>script:</code> nodes, human gates and audit for free.</td>
+      </tr>
+      <tr>
+        <td><strong>3 · Integrate into the Letta system</strong></td>
+        <td><span class="tag orange">SELECTIVE</span></td>
+        <td>Integrate at two seams only: (a) a community <code>LettaProvider</code> so DAG nodes can be Letta
+        agents, and (b) an evidence bridge from <code>workflow_events</code> to our logger/improvement loop.
+        Do <em>not</em> try to merge databases, replace the dashboard, or move Mazda's memory into Archon —
+        the learning loop stays ours.</td>
+      </tr>
+    </table>
+    <div class="callout">
+      <strong>Bottom line:</strong> keep Letta as the <em>mind</em> (stateful agents, self-editing memory,
+      improvement analytics) and adopt Archon as the <em>spine</em> (ordered, gated, audited, resumable
+      execution). That division matches both projects' own theses.
+    </div>
+  </div>
+
+  <!-- ============ 9. STEPS ============ -->
+  <div class="section" id="steps">
+    <h2>9 · Proposed Integration Steps</h2>
+    <ol>
+      <li><strong>Pilot (no code, ~an afternoon).</strong> From <code>rol_finances</code>:
+        <code>bun run cli workflow list</code>, then run <code>archon-assist</code> and one coding workflow in a
+        worktree. Confirm <code>~/.archon/</code> workspace layout, artifacts, and the approve/reject loop from
+        the CLI.</li>
+      <li><strong>Author the first finance workflow (YAML only).</strong> Recreate one Mazda pipeline slice
+        (parse → duplicate-check → approval → store) as <code>rol_finances/.archon/workflows/finance-doc-pipeline.yaml</code>,
+        with the deterministic steps as <code>script: runtime: uv</code> nodes calling our existing Python
+        services, and <code>output_format</code> schemas as the stage contracts. Run with
+        <code>--no-worktree</code>.</li>
+      <li><strong>Build <code>LettaProvider</code></strong> in <code>packages/providers/src/community/letta/</code>
+        (modeled on the Pi provider, registered <code>builtIn: false</code>): <code>sendQuery()</code> →
+        Letta REST messages API, streaming chunks back; session-resume → the agent's own conversation. Then a
+        DAG node can be <em>Mazda or a minion</em> via <code>provider: letta</code>.</li>
+      <li><strong>Evidence bridge.</strong> Add a terminal <code>bash:</code>/<code>script:</code> node (or a
+        small consumer of <code>workflow_events</code>) that posts run summaries to the logger API
+        (:8284) so improvement-loop judging can score Archon runs alongside live-agent traces.</li>
+      <li><strong>Wire one improvement-loop gate.</strong> Express "propose wrapper change → human gate →
+        activate (snapshot) / reject (rollback)" as an Archon workflow whose activate/rollback steps call the
+        <code>agent_self_improvement</code> Python services. This is the first live use of the gated loop that
+        §4 of the Self-Improvement Plan says is built-but-not-wired.</li>
+      <li><strong>Dashboard visibility.</strong> Once runs exist, add a dashboard panel polling Archon's REST API
+        (<code>GET /api/workflows/runs</code>, server on :3090) the same way we poll Letta — runs, statuses, and
+        pending approvals surfaced next to agent health.</li>
+    </ol>
+    <div class="callout warning">
+      <strong>Sequencing rule:</strong> steps 1–2 are pure usage and safe to do immediately; step 3 is the first
+      real code commitment — do it only after step 2 proves the engine fits the finance pipeline's shape.
+      Pin the Archon version at whatever commit step 3 targets.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>References</h2>
+    <ul>
+      <li>Archon repo: <code>/home/adamsl/Archon</code> (branch <code>dev</code>) — architecture reference in its <code>CLAUDE.md</code>; docs site content under <code>packages/docs-web/</code>.</li>
+      <li>Bundled workflow corpus: <code>/home/adamsl/Archon/.archon/workflows/defaults/</code>.</li>
+      <li>Mazda — A Developer's Manual: <a href="/notes_plans_handoffs/mazda_dev_status.html">mazda_dev_status.html</a>.</li>
+      <li>Mazda Self-Improvement Plan: <a href="/notes_plans_handoffs/mazda_self_improvement_plan.html">mazda_self_improvement_plan.html</a>.</li>
+      <li>Superseded orchestrator design (history): <a href="/team_construction_plan.html">team_construction_plan.html</a>.</li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>

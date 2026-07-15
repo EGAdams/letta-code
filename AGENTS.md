@@ -1,5 +1,54 @@
 # Repository Guidelines
 
+## Parity with Claude Code: Skills & Memory Pointers
+
+Claude Code (the assistant used alongside Codex on this machine) has three
+knowledge sources that Codex does not load automatically. Read them
+explicitly when they're relevant to the current task — don't rely on this
+file alone for anything skill- or memory-shaped.
+
+- **Full repo instructions**: `/home/adamsl/letta-code/CLAUDE.md` — the
+  canonical architecture doc (entry points, agent/tools/skills/permissions/
+  hooks layers, Bun API conventions, memfs authoring policy, pre-commit
+  hook behavior, known pre-existing test failures). The "Repository
+  Guidelines" section below is a condensed subset; `CLAUDE.md` has more
+  detail and is kept current — prefer it when the two disagree.
+
+- **Project skills** (repo-scoped, git-tracked):
+  - `/home/adamsl/letta-code/skills/` — built-in skills bundled with the
+    `letta` CLI product itself (copied from `src/skills/builtin/` at build
+    time). Each subdirectory has a `SKILL.md` with a `name`/`description`
+    frontmatter header — read that header first to decide relevance, then
+    open the full file if it matches the task.
+  - `/home/adamsl/letta-code/.skills/` — the larger, actively-used set of
+    project-authored skills for operating this environment (Mazda/Suzuki
+    dashboard, receipt pipeline, WSL/Tailscale recovery, Letta admin,
+    memory/memfs migration, etc.). This is the directory to check first for
+    anything involving the dashboard, receipt scanning, live Letta agents,
+    or infra recovery — it's a superset of `skills/`.
+
+- **Global skills** (user-scoped, apply across all repos):
+  `/home/adamsl/.claude/skills/` — either a single `<name>.md` file or a
+  `<name>/SKILL.md` dir per skill. See `/home/adamsl/.claude/skills/README.md`
+  for an index. Covers logger-API ops, dashboard debugging, invoice tools,
+  OAuth/token rotation, and other cross-project operational skills.
+
+- **Persistent memory** (accumulated learnings from past sessions, written
+  after task-relevant discoveries or user corrections — not derivable from
+  the code itself):
+  `/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md`
+  is the index; each linked file in that same directory is one dated memory
+  (incident, fix, standing preference). Read `MEMORY.md` first, then follow
+  links for entries relevant to the current task. This directory is the
+  closest Codex analog to the "Agent Memory: ..." sections appended below —
+  treat both as authoritative, dated, and prone to going stale (verify
+  paths/behavior still exist before acting on an old entry).
+
+When starting non-trivial work, skim `MEMORY.md` and check whether
+`.skills/` or `skills/` has a matching skill by description before
+improvising a solution — that's the equivalent of what Claude Code does
+automatically via its skill-matching system prompt.
+
 ## Project Structure & Module Organization
 - Main source lives in `src/` (CLI runtime, providers, tools, skills, web templates).
 - Unit and behavior tests live in `src/tests/`.

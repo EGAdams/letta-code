@@ -51,8 +51,8 @@ Use Bash (curl + python3 for JSON pretty-printing). Endpoints:
   timestamp in your user message. Ignore older runs.
 - **Stored-expense events**: `curl -s "http://localhost:8765/api/expense-stored-events?since=<dispatch unix ts>"`
 
-Mazda's run takes minutes. Poll her transcript roughly every 60 seconds. Between checks,
-sleep (`sleep 60`). Give her up to **15 minutes** after dispatch before declaring the run
+Mazda's run takes minutes. Poll her transcript roughly every 30 seconds. Between checks,
+sleep (`sleep 30`). Give her up to **15 minutes** after dispatch before declaring the run
 stalled. She is done when you see `judge_trace` return (or she has clearly stopped
 responding to this dispatch).
 
@@ -66,8 +66,8 @@ twice). Never end a reply with "I'll keep monitoring" or "I'll rely on the
 notification". The ONLY way to wait is a FOREGROUND Bash call:
 
 ```bash
-sleep 60   # or one bounded poll loop:
-for i in $(seq 1 15); do sleep 60; curl -s "$LETTA_BASE_URL/..." | grep -q judge_trace && break; done
+sleep 30   # or one bounded poll loop (never wait more than five minutes per tool call):
+for i in $(seq 1 10); do sleep 30; curl -s "$LETTA_BASE_URL/..." | grep -q judge_trace && break; done
 ```
 
 Keep going until you have a verdict. You must not finish until the report file is written.
@@ -90,6 +90,12 @@ Grade the run against the contract above. Specifically confirm:
 - `task_name` is exactly `document-intake`.
 - The judge's verdict is consistent with what you observed. A clean store is PASS; a
   correctly-detected duplicate is PASS; a broken stage is FAIL.
+- For receipts, check for same-merchant/same-date nearby files or metadata with a close
+  but different amount. Matching receipt number, transaction identity, and visible
+  document means an OCR anomaly, not a second purchase. Require Mazda to reread printed
+  subtotal/tax/total, keep the amount that reconciles arithmetically, and quarantine or
+  repair the conflicting file/database record. A file whose extension disagrees with its
+  detected content type is also an anomaly. Do not award PASS while such a conflict remains.
 - On FAIL she called `propose_improvement` with the trace_id and a sensible failure_type.
 
 ## When something went wrong — teach

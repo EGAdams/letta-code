@@ -102,9 +102,6 @@ ROL_FINANCES_REPORTS_DEFAULT_MONTH = 'jan-2025'
 ROL_FINANCES_REPORTS_BASE = os.path.join(
     ROL_FINANCES_REPORTS_PARENT, ROL_FINANCES_REPORTS_MONTHS[ROL_FINANCES_REPORTS_DEFAULT_MONTH])
 ROL_FINANCES_REPORTS_URL_PREFIX = '/rol_finances_reports'
-RECENT_REPORT_PATH = '/recent_report.html'
-RECENT_REPORT_IMAGE_PATH = '/recent_report_document'
-RECENT_REPORT_POINTER_FILE = os.path.join(HERE, 'recent_report.json')
 ROL_FINANCE_REPORTS = [
     {'key': 'amex-61006',        'label': 'Amex 61006',         'dir': 'amex_personal_january_25'},
     {'key': 'fnbo-4851',         'label': 'FNBO 4851',          'dir': 'january_fnbo_2025_account_4851'},
@@ -267,23 +264,6 @@ def _rol_finance_recent_reports(limit=5):
                 'mtime': mtime,
                 'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html',
             })
-    # Unit fixtures replace the reports root; their synthetic report universe
-    # must not be contaminated by this machine's persisted live intake pointer.
-    live_reports_root = os.path.realpath(os.path.expanduser(
-        '~/rol_finances/readable_documents/bank_statements'))
-    intake = (load_recent_intake()
-              if os.path.realpath(ROL_FINANCES_REPORTS_PARENT) == live_reports_root
-              else None)
-    if intake and os.path.isfile(intake.get('document', '')):
-        candidates.append({
-            'key': 'recent-intake',
-            'label': intake.get('label') or os.path.basename(intake['document']),
-            'month_key': '',
-            'status': 'pass' if intake.get('stored_at') else 'review',
-            'needs_attention': not bool(intake.get('stored_at')),
-            'mtime': float(intake.get('stored_at') or intake.get('dispatched_at') or 0),
-            'url': RECENT_REPORT_PATH,
-        })
     latest = max(candidates, key=lambda c: c['mtime']) if candidates else None
     items = sorted(
         candidates,
@@ -292,61 +272,473 @@ def _rol_finance_recent_reports(limit=5):
     return {'latest': latest, 'items': items}
 
 
-def load_recent_intake():
+# ── Recent Report (/recent_report.html) ──────────────────────────────────
+# The Reports tab lands on "Recent Report" — a live view of the Verified
+# Transactions from the most recently processed document. It is served
+# dynamically (never a stale copy): each GET re-reads the current source
+# report.html, so recategorizations done through the picker dialog show up on
+# the next load. "Most recent" is the newer of:
+#   - an explicit pointer written when Mazda's STEP 8 /api/expense-stored
+#     callback (or a Reprocess Document run) names/matches a report, and
+#   - the newest report.html mtime (Mazda rewriting a report on disk bumps it
+#     even when no callback fires).
+RECENT_REPORT_PATH = '/recent_report.html'
+RECENT_REPORT_POINTER_FILE = os.path.join(HERE, 'recent_report.json')
+_recent_report_lock = threading.Lock()
+
+
+def _read_recent_pointer_file():
+    """Raw pointer-file contents ({} when missing/corrupt). The file holds BOTH
+    the report pointer ({report_path, updated_at}) and the last intake dispatch
+    ({intake: {...}}) — scanned documents usually have no report.html, so the
+    intake record is what lets /recent_report.html reflect them at all."""
     try:
         with open(RECENT_REPORT_POINTER_FILE, encoding='utf-8') as f:
             data = json.load(f)
-        return data if isinstance(data, dict) else None
     except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_recent_pointer_file(data):
+    try:
+        with open(RECENT_REPORT_POINTER_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
+        return True
+    except OSError:
+        return False
+
+
+def set_recent_report_pointer(report_path):
+    """Persist <url path> of the report.html for the most recently processed
+    document. No-op (False) when the path doesn't resolve to a real report."""
+    if not _report_file_for_url(report_path):
+        return False
+    with _recent_report_lock:
+        data = _read_recent_pointer_file()
+        data['report_path'] = report_path
+        data['updated_at'] = time.time()
+        return _write_recent_pointer_file(data)
+
+
+def record_recent_intake(image_path, label, kind='scan', facade=None):
+    """Record an intake dispatch (scan or PDF) the moment Mazda is notified,
+    so /recent_report.html can show the document even before — or without —
+    any report.html existing for it. Called from process_scanned_document /
+    process_pdf_document.
+
+    `facade` is the deterministic classify+parse result (run_intake_facade),
+    already computed at dispatch time for every doc — seeds doc_kind/vendor
+    for the 'Document Type' field. It's frequently 'unknown' for scanned
+    images (no extractable text), in which case merge_recent_intake_event
+    overwrites it once Mazda reports her own vision classification back."""
+    facade = facade or {}
+    with _recent_report_lock:
+        data = _read_recent_pointer_file()
+        data['intake'] = {
+            'document': os.path.basename(image_path or ''),
+            'image_path': image_path or '',
+            'label': label or '',
+            'kind': kind,
+            'dispatched_at': time.time(),
+            'expense_ids': [],
+            'duplicate_expense_ids': [],
+            'parsed': None,
+            'stored': None,
+            'doc_kind': facade.get('doc_kind'),
+            'vendor': facade.get('vendor'),
+        }
+        return _write_recent_pointer_file(data)
+
+
+def merge_recent_intake_event(event):
+    """Fold a STEP 8 /api/expense-stored event into the current intake record
+    (expense ids + parsed/stored counts + doc_kind/vendor), so the synthetic
+    recent view can list the actual transactions and describe the document
+    once Mazda reports them."""
+    with _recent_report_lock:
+        data = _read_recent_pointer_file()
+        intake = data.get('intake')
+        if not isinstance(intake, dict):
+            return False
+        ids = list(intake.get('expense_ids') or [])
+        duplicate_ids = list(intake.get('duplicate_expense_ids') or [])
+        # Duplicates matter as much as newly-stored rows here: a re-scan that
+        # stores nothing still shows its transactions so they can be
+        # recategorized before the next scan.
+        for eid in (list(event.get('expense_ids') or [])
+                    + list(event.get('duplicate_expense_ids') or [])
+                    + [event.get('expense_id')]):
+            try:
+                eid = int(eid)
+            except (TypeError, ValueError):
+                continue
+            if eid not in ids:
+                ids.append(eid)
+        intake['expense_ids'] = ids
+        for eid in event.get('duplicate_expense_ids') or []:
+            try:
+                eid = int(eid)
+            except (TypeError, ValueError):
+                continue
+            if eid not in duplicate_ids:
+                duplicate_ids.append(eid)
+        intake['duplicate_expense_ids'] = duplicate_ids
+        for k in ('parsed', 'stored'):
+            if event.get(k) is not None:
+                try:
+                    intake[k] = int(event[k])
+                except (TypeError, ValueError):
+                    pass
+        # doc_kind/vendor: Mazda's own classification (STEP 8 payload) beats the
+        # facade's dispatch-time guess (often 'unknown' for scanned images) —
+        # accept either her doc_kind (statement/receipt/unknown, matching the
+        # facade's vocabulary) or classify_scan.py's doc_type/merchant naming.
+        doc_kind = event.get('doc_kind') or event.get('doc_type')
+        if doc_kind and doc_kind != 'unknown':
+            intake['doc_kind'] = doc_kind
+        vendor = event.get('vendor') or event.get('merchant')
+        if vendor and vendor != 'unknown':
+            intake['vendor'] = vendor
+        intake['reported_at'] = time.time()
+        return _write_recent_pointer_file(data)
+
+
+def _load_recent_report_pointer():
+    data = _read_recent_pointer_file()
+    rp = data.get('report_path')
+    if not rp or not _report_file_for_url(rp):
         return None
+    try:
+        updated_at = float(data.get('updated_at') or 0)
+    except (TypeError, ValueError):
+        updated_at = 0.0
+    return {'report_path': rp, 'updated_at': updated_at}
 
 
-def record_recent_intake(document, label, kind, facade=None):
-    """Persist the last successfully dispatched document across server restarts."""
-    data = {
-        'document': os.path.realpath(document),
-        'label': label or os.path.basename(document),
-        'kind': kind,
-        'dispatched_at': time.time(),
-        'doc_kind': (facade or {}).get('doc_kind'),
-        'vendor': (facade or {}).get('vendor'),
+def resolve_recent_report():
+    """The most recently processed document, as one of:
+      {'mode': 'report', 'url', 'file'}   — a report.html to mirror, or
+      {'mode': 'intake', 'intake': {...}} — a dispatch with no report.html
+                                            (typical for scanned documents).
+    Picks the newest among the explicit report pointer, the newest report.html
+    mtime, and the last intake dispatch. Returns None when nothing exists."""
+    candidates = []
+    pointer = _load_recent_report_pointer()
+    if pointer:
+        candidates.append((pointer['updated_at'], 'report', pointer['report_path']))
+    latest = _rol_finance_recent_reports(limit=1).get('latest')
+    if latest:
+        candidates.append((latest['mtime'], 'report', latest['url']))
+    intake = _read_recent_pointer_file().get('intake')
+    if isinstance(intake, dict) and intake.get('dispatched_at'):
+        candidates.append((float(intake['dispatched_at']), 'intake', intake))
+    for _ts, mode, payload in sorted(candidates, key=lambda c: c[0], reverse=True):
+        if mode == 'intake':
+            return {'mode': 'intake', 'intake': payload}
+        fp = _report_file_for_url(payload)
+        if fp:
+            return {'mode': 'report', 'url': payload, 'file': fp}
+    return None
+
+
+def _fetch_expenses_by_ids(ids):
+    """Rows for the synthetic recent-intake view — same shape as the Receipt
+    Only rows so the shared picker markup drives them identically."""
+    clean = []
+    for i in ids or []:
+        try:
+            clean.append(int(i))
+        except (TypeError, ValueError):
+            continue
+    clean = clean[:200]
+    if not clean:
+        return []
+    placeholders = ','.join(['%s'] * len(clean))
+    with _rol_get_connection() as cnx:
+        with cnx.cursor() as cur:
+            cur.execute('SELECT id, parent_id FROM categories')
+            parent_of = {
+                int(r['id']): (int(r['parent_id']) if r['parent_id'] is not None else None)
+                for r in cur.fetchall()
+            }
+            cur.execute(
+                "SELECT id, expense_date, amount, id_light, description, category_id, receipt_url "
+                f"FROM expenses WHERE id IN ({placeholders}) "
+                "ORDER BY expense_date, id",
+                tuple(clean),
+            )
+            rows = cur.fetchall()
+    out = []
+    for r in rows:
+        cid = r.get('category_id')
+        rep = _reporting_category_for_id(
+            int(cid) if cid is not None else None, parent_of)
+        out.append({
+            'id': int(r['id']),
+            'date': str(r['expense_date']),
+            'amount': str(r['amount']),
+            'vendor_key': (r.get('id_light') or '').strip(),
+            'description': (r.get('description') or '').strip(),
+            'reporting_category': rep,
+            'cat_class': REPORTING_CATEGORY_CLASS.get(rep, 'cat-uncategorized'),
+            'receipt_url': (r.get('receipt_url') or '').strip(),
+        })
+    return out
+
+
+def _associated_source_paths(rows):
+    """Resolve the source PDF and receipt file backing a set of transactions
+    (the rows shown on the synthetic Recent Report intake view).
+
+    Reuses the same (date, amount) matching primitives the Set Category
+    dialog's View Receipt button and recategorize's report-row search already
+    use, rather than re-deriving document/transaction linkage from scratch:
+      - _find_matching_report_row + _source_document_path locate the PDF/xlsx
+        an existing report.html's row for the same (date, amount) traces back
+        to — i.e. this transaction was originally imported from there.
+      - _resolve_expense_receipt_path locates a receipt file on disk for a
+        row that has a non-empty receipt_url.
+    Returns (pdf_path or '', receipt_path or ''), stopping at the first row
+    that yields each (rows of one intake are assumed to share one source doc).
+    """
+    pdf_path, receipt_path = '', ''
+    for r in rows or []:
+        if not pdf_path:
+            match = _find_matching_report_row(
+                r.get('date'), r.get('amount'), r.get('vendor_key'))
+            if match:
+                pdf_path = _source_document_path(match['report_path']) or ''
+        if not receipt_path:
+            ru = (r.get('receipt_url') or '').strip()
+            if ru:
+                receipt_path = _resolve_expense_receipt_path(
+                    r.get('date'), r.get('amount'), ru) or ''
+        if pdf_path and receipt_path:
+            break
+    return pdf_path, receipt_path
+
+
+_DOC_KIND_LABELS = {
+    'statement': 'Bank Statement',
+    'bank_statement': 'Bank Statement',
+    'receipt': 'Receipt',
+    'tax_document': 'Tax Document',
+}
+
+
+def _document_type_label(doc_kind, vendor):
+    """Human label for the 'Document Type' field, e.g. 'Chase Bank Statement'.
+
+    doc_kind/vendor come from whichever document classifier ran (the
+    deterministic facade's doc_kind/vendor for text-extractable PDFs, or
+    Mazda's classify_scan.py vision result — doc_type/merchant — for scanned
+    images, folded into the intake record by merge_recent_intake_event)."""
+    kind_label = _DOC_KIND_LABELS.get((doc_kind or '').strip().lower())
+    vendor = (vendor or '').strip()
+    if vendor and vendor.lower() not in ('unknown', 'none'):
+        vendor_label = vendor.replace('_', ' ').title()
+        return f'{vendor_label} {kind_label}' if kind_label else vendor_label
+    return kind_label or 'Unknown'
+
+
+def _format_month_range(rows):
+    """'May 30, 2025 >>---> June 23, 2025' from the earliest/latest expense_date
+    among rows, or '--' when there's nothing to show a range for."""
+    dates = sorted({r['date'] for r in (rows or []) if r.get('date')})
+    if not dates:
+        return '--'
+    def _fmt(d):
+        try:
+            return datetime.strptime(d, '%Y-%m-%d').strftime('%B %-d, %Y')
+        except ValueError:
+            return d
+    if len(dates) == 1 or dates[0] == dates[-1]:
+        return _fmt(dates[0])
+    return f'{_fmt(dates[0])} >>---> {_fmt(dates[-1])}'
+
+
+def build_recent_intake_html(intake):
+    """Synthetic recent-report page for an intake whose document has no
+    report.html (the normal case for scanner scans — they store expenses in
+    MySQL but never generate a report file). Mirrors the Receipt Only page:
+    a #verified-transactions table of the intake's expenses with the same
+    embedded category-picker dialog, so recategorize / view-receipt work
+    exactly like on a real report."""
+    from html import escape as _esc
+    doc = intake.get('document') or 'document'
+    label = intake.get('label') or ''
+    dispatched_at = intake.get('dispatched_at')
+    when = ''
+    if dispatched_at:
+        when = datetime.fromtimestamp(float(dispatched_at)).strftime('%Y-%m-%d %H:%M')
+    reported = intake.get('reported_at')
+    parsed = intake.get('parsed')
+    stored = intake.get('stored')
+    duplicate_ids = {
+        int(i) for i in (intake.get('duplicate_expense_ids') or [])
+        if str(i).isdigit()
     }
-    tmp = RECENT_REPORT_POINTER_FILE + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
-        f.write('\n')
-    os.replace(tmp, RECENT_REPORT_POINTER_FILE)
-    return data
+
+    rows, row_error = [], None
+    try:
+        rows = _fetch_expenses_by_ids(intake.get('expense_ids') or [])
+    except Exception as exc:
+        row_error = str(exc)
+
+    doc_type_label = _document_type_label(intake.get('doc_kind'), intake.get('vendor'))
+    month_range = _format_month_range(rows)
+    pdf_path, receipt_path = _associated_source_paths(rows)
+    if intake.get('kind') == 'pdf':
+        # Rule 2: the currently-processed document IS the PDF — it's the
+        # source regardless of what (date, amount) matching finds elsewhere.
+        pdf_display = '<b>this.</b>'
+    elif pdf_path:
+        pdf_display = _esc(pdf_path)
+    else:
+        pdf_display = '--'
+    receipt_display = _esc(receipt_path) if receipt_path else '--'
+
+    if rows:
+        if stored == 0 and parsed:
+            status = (f'Mazda parsed {parsed} transaction(s); all were already in the '
+                      f'database from an earlier run of this document. The {len(rows)} '
+                      'matching rows are shown below — click one to (re)categorize it.')
+        else:
+            status = (f'{len(rows)} transaction(s) recorded by this intake. '
+                      'Click a row to set its category.')
+    elif row_error:
+        status = f'Could not load this intake’s transactions from the database: {row_error}'
+    elif reported:
+        if parsed and not stored:
+            status = (f'Mazda parsed {parsed} transaction(s); all were already in the '
+                      'database (duplicates of an earlier run of this document) — '
+                      'nothing new was stored.')
+        else:
+            status = 'Mazda finished this intake without storing new transactions.'
+    else:
+        status = 'Dispatched to Mazda — processing… this page refreshes automatically.'
+
+    picker_css, picker_html, click_css = '', '', ''
+    try:
+        picker_css, picker_html, click_css = _receipt_only_picker_assets()
+    except Exception:
+        pass  # picker unavailable → page still renders, rows just aren't clickable
+
+    trs = []
+    for r in rows:
+        row_id = r.get('id')
+        is_duplicate = row_id in duplicate_ids or (stored == 0 and bool(parsed))
+        duplicate_badge = (' <strong class="duplicate-badge">DUPLICATE</strong>'
+                           if is_duplicate else '')
+        trs.append(
+            '<tr class="%s%s" data-expense-id="%s" '
+            'data-source-document="%s" data-is-duplicate="%s" '
+            'data-vendor-key="%s" data-description="%s" '
+            'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
+            'title="Click row to set category / view receipt">'
+            '<td>%s</td><td class="number">%s</td><td>%s</td><td>%s</td></tr>' % (
+                r['cat_class'], ' duplicate-row' if is_duplicate else '',
+                row_id or '',
+                _esc(receipt_path or pdf_path or '', quote=True),
+                'true' if is_duplicate else 'false',
+                _esc(r['vendor_key'], quote=True),
+                _esc(r['description'], quote=True),
+                _esc(r['amount'], quote=True),
+                _esc(r['date'], quote=True),
+                _esc(r['description']) + duplicate_badge,
+                _esc(r['amount']), _esc(r['date']),
+                _esc(r['reporting_category']),
+            ))
+    table = ''
+    if trs:
+        table = (
+            '  <h2>Verified Transactions</h2>\n'
+            '  <table id="verified-transactions"><thead><tr>'
+            '<th>Description</th><th class="number">Amount</th><th>Date</th>'
+            '<th>Category</th></tr></thead><tbody>\n'
+            + '\n'.join(trs) + '\n</tbody></table>\n')
+    # Refresh while we're still waiting on Mazda's STEP 8 report-back.
+    refresh = '' if (rows or reported) else '<meta http-equiv="refresh" content="30">'
+    sub = f'{label} — ' if label else ''
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        + refresh +
+        '<title>Recent Report</title><style>\n'
+        '    body { font-family: Arial, sans-serif; margin:0; padding:20px; '
+        'background:#f1f5f9; color:#0f172a; }\n'
+        '    section.card { background:#fff; border-radius:12px; padding:18px 20px; '
+        'margin:0 auto; max-width:1100px; box-shadow:0 1px 3px rgba(0,0,0,.08); }\n'
+        '    h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:18px 0 8px; }\n'
+        '    table { width:100%; border-collapse:collapse; overflow:hidden; '
+        'border-radius:12px; font-size:0.95rem; }\n'
+        '    th, td { padding:8px 10px; border-bottom:1px solid #e5e7eb; text-align:left; }\n'
+        '    th { background:#0f172a; color:#fff; }\n'
+        '    th.number, td.number { text-align:right; }\n'
+        '    .muted { color:#6b7280; }\n'
+        '    .duplicate-row td { box-shadow:inset 0 2px #b91c1c,inset 0 -2px #b91c1c; }\n'
+        '    .duplicate-badge { display:inline-block; margin-left:8px; padding:2px 7px; '
+        'border-radius:999px; background:#b91c1c; color:#fff; font-size:.72rem; letter-spacing:.04em; }\n'
+        + _receipt_only_cat_css() + '\n'
+        + click_css + '\n'
+        + picker_css + '\n'
+        '  </style></head><body>\n'
+        '<section class="card">\n'
+        f'  <h1>Most Recent Document: {_esc(doc)}</h1>\n'
+        f'  <p class="muted">{_esc(sub)}dispatched {_esc(when)}</p>\n'
+        '  <p class="doc-meta">'
+        f'Document Type: {_esc(doc_type_label)}<br>'
+        f'Month Range: {_esc(month_range)}<br>'
+        f'Associated PDF: {pdf_display}<br>'
+        f'Associated Receipt: {receipt_display}</p>\n'
+        f'  <p>{_esc(status)}</p>\n'
+        + table +
+        '</section>\n' + picker_html + '\n</body></html>')
 
 
-def mark_recent_intake_stored(event):
-    data = load_recent_intake()
-    if not data:
-        return
-    data['stored_at'] = time.time()
-    data['last_event'] = event
-    tmp = RECENT_REPORT_POINTER_FILE + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
-        f.write('\n')
-    os.replace(tmp, RECENT_REPORT_POINTER_FILE)
+def build_recent_report_html():
+    """Body for GET /recent_report.html. Two shapes:
+      - report mode: the current most-recent report.html with a <base href>
+        injected so its relative assets keep resolving under the report's own
+        /rol_finances_reports/... directory (the picker dialog posts to
+        absolute /api/... URLs, so recategorize works unchanged), or
+      - intake mode: a synthetic page for a dispatched document that has no
+        report.html (see build_recent_intake_html)."""
+    recent = resolve_recent_report()
+    if not recent:
+        return ('<!doctype html><meta charset="utf-8">'
+                '<body style="font-family:sans-serif;padding:2em">'
+                '<h2>Recent Report</h2>'
+                '<p>No document has been processed yet. Scan or reprocess a '
+                'document and this page will show its Verified Transactions.</p>')
+    if recent.get('mode') == 'intake':
+        return build_recent_intake_html(recent['intake'])
+    with open(recent['file'], encoding='utf-8', errors='replace') as f:
+        html = f.read()
+    base_href = recent['url'].rsplit('/', 1)[0] + '/'
+    base_tag = f'<base href="{base_href}">'
+    m = re.search(r'<head[^>]*>', html, re.I)
+    if m:
+        return html[:m.end()] + base_tag + html[m.end():]
+    return base_tag + html
 
 
-def build_recent_intake_html(data):
-    import html
-    label = html.escape(data.get('label') or os.path.basename(data.get('document', '')))
-    doc_kind = html.escape(data.get('doc_kind') or 'Unknown')
-    state = 'Stored by Mazda' if data.get('stored_at') else 'Processing dispatched to Mazda'
-    preview = (f'<img src="{RECENT_REPORT_IMAGE_PATH}" alt="{label}" '
-               'style="max-width:100%;max-height:70vh;object-fit:contain">')
-    if data.get('kind') == 'pdf':
-        preview = f'<p><a href="{RECENT_REPORT_IMAGE_PATH}">Open PDF</a></p>'
-    return ('<!doctype html><html><head><meta charset="utf-8"><title>Recent Report</title>'
-            '<style>body{font:16px Georgia,serif;max-width:960px;margin:2rem auto;padding:0 1rem;'
-            'color:#24211d;background:#faf7ef}h1{border-bottom:3px solid #ba4b2f;padding-bottom:.5rem}'
-            '.meta{color:#665f55}</style></head><body><h1>Recent Report</h1>'
-            f'<h2>{label}</h2><p class="meta">{html.escape(state)} · Document type: {doc_kind}</p>'
-            f'{preview}</body></html>')
+def _resolve_report_path_alias(report_path):
+    """The Recent Report view serves a real report.html at /recent_report.html,
+    so the picker dialog injected in that report posts
+    report_path='/recent_report.html' (it uses location.pathname). Translate
+    the alias to the underlying report URL so row recolor, receipt lookup and
+    reprocess hit the actual file on disk."""
+    if report_path == RECENT_REPORT_PATH:
+        recent = resolve_recent_report()
+        if recent and recent.get('mode') == 'report':
+            return recent['url']
+        # Intake mode (or nothing yet): no report.html backs the page — return
+        # '' so recategorize does its search-every-report / DB-only fallback,
+        # exactly like the New Records dialog.
+        return ''
+    return report_path
 
 
 def _split_report_url(report_path):
@@ -1136,14 +1528,24 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'wrapper revision, and ACTIVATES it — your next run receives it in STEP 1 '
         f'automatically. If it returns pending_approval or a block, stop there; do '
         f'not retry and do not activate anything manually.\n\n'
-        f'STEP 8 — NOTIFY DASHBOARD (fire-and-forget; only when STEP 4 stored successfully). '
-        f'Post the stored expense to the dashboard so the Reports tab auto-refreshes receipts. '
+        f'STEP 8 — NOTIFY DASHBOARD (fire-and-forget; ALWAYS run this after record_trace, '
+        f'even when nothing new was stored — e.g. every transaction was a duplicate. The '
+        f'dashboard\'s Recent Report view shows this run\'s outcome either way). '
         f'executor_run, no special cwd/env needed:\n'
         f'  curl -s -X POST http://localhost:8765/api/expense-stored '
         f'-H "Content-Type: application/json" '
-        f'-d \'{{"expense_id":<id from STEP 4>,"expense_date":"<YYYY-MM-DD>",'
+        f'-d \'{{"expense_id":<first stored id, or null>,'
+        f'"expense_ids":[<ALL expense ids stored this run; [] when none>],'
+        f'"duplicate_expense_ids":[<the duplicate_expense_ids list from '
+        f'store_statement_transactions.py; [] when none>],'
+        f'"parsed":<transactions parsed>,"stored":<transactions stored>,'
+        f'"expense_date":"<YYYY-MM-DD>",'
         f'"amount":"<decimal string>","vendor_key":"<vendor_key>",'
-        f'"description":"<merchant_name>","receipt_url":"<scan_image_path>"}}\'\n'
+        f'"description":"<merchant_name>","receipt_url":"<scan_image_path>",'
+        f'"doc_kind":"<statement|receipt|unknown, from the facade or your own '
+        f'classify_scan.py/STEP 0 classification — the same value you recorded '
+        f'as doc_kind in STEP 5>","vendor":"<the vendor/merchant name you '
+        f'identified, e.g. \\"chase\\", or \\"unknown\\">"}}\'\n'
         f'Ignore errors — the dashboard degrades gracefully if unreachable.\n'
     )
 
@@ -1226,8 +1628,8 @@ def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None):
 
 
 # ── Mazda Trainer ────────────────────────────────────────────────────────────
-# Every scan dispatched to Mazda also spawns a Trainer agent (Claude, via the
-# claude-code-sdk-ts library) that watches the run, verifies the document was
+# Every scan dispatched to Mazda also spawns a Codex Trainer agent that watches
+# the run, verifies the document was
 # processed correctly, and coaches Mazda on failures. Mazda runs on a cheap mini
 # model while her self-improvement harness is validated — the Trainer is the
 # safety net that makes that acceptable. Fire-and-forget, like the Mazda
@@ -1269,10 +1671,11 @@ def _notify_trainer_of_scan(scan_image_path, scanner_name, facade_result=None):
     cmd = build_trainer_command(
         scan_image_path, scanner_name, facade_result, dispatched_at)
     env = dict(os.environ)
-    # The systemd --user service's PATH lacks bun/claude; the SDK spawns the
-    # `claude` CLI, so both bins must be reachable from the child.
+    # The systemd --user service's PATH lacks bun/codex; the runner spawns the
+    # `codex` CLI, so both bins must be reachable from the child.
     env['PATH'] = ':'.join([
         os.path.expanduser('~/.bun/bin'), os.path.expanduser('~/.local/bin'),
+        os.path.expanduser('~/.npm-global/bin'),
         env.get('PATH', '/usr/bin:/bin'),
     ])
     try:
@@ -1317,17 +1720,53 @@ def _notify_mazda_of_pdf(file_path, label=None):
         print(f'[pdf→mazda] Failed to notify Mazda: {exc}')
 
 
+# Intake-dispatch claim: exactly one Mazda dispatch per (scanner, image file,
+# image mtime). Both the server's own post-scan auto-dispatch and the
+# frontend's POST /api/process-document funnel through process_scanned_document;
+# whichever arrives second sees the claim and skips the dispatch.
+_scan_dispatch_claims = {}
+_scan_dispatch_claim_lock = threading.Lock()
+
+
+def _claim_scan_dispatch(key, image_path):
+    """True exactly once per (scanner, image path, image mtime)."""
+    try:
+        mtime = int(os.path.getmtime(image_path))
+    except OSError:
+        return False
+    claim = (image_path, mtime)
+    with _scan_dispatch_claim_lock:
+        if _scan_dispatch_claims.get(key) == claim:
+            return False
+        _scan_dispatch_claims[key] = claim
+        return True
+
+
+def _release_scan_dispatch(key, image_path):
+    """Undo a claim whose dispatch failed (e.g. staging error) so a retry of
+    the same image can dispatch."""
+    with _scan_dispatch_claim_lock:
+        claimed = _scan_dispatch_claims.get(key)
+        if claimed and claimed[0] == image_path:
+            del _scan_dispatch_claims[key]
+
+
 def run_scanner(key):
     """Manual scan (POST /api/scanner-scan). Adds back-compat `ok` to the status.
 
-    NOTE: this no longer notifies Mazda directly. The intake pipeline (both the
-    deterministic inline result AND the agentic Mazda dispatch) is now driven by
-    POST /api/process-document, which the dashboard auto-fires the instant a scan
-    finishes (see process_scanned_document). That keeps a single dispatch point
-    so Mazda is notified exactly once per finished scan.
+    When the scan finishes ready, the SERVER dispatches the intake pipeline in a
+    background thread. The frontend still POSTs /api/process-document for its
+    inline stage display, but that call no longer carries the dispatch: on
+    2026-07-12 a scan's intake was lost because dispatch relied on the browser
+    surviving the scan. _claim_scan_dispatch keeps the two paths from ever
+    double-dispatching Mazda for the same image.
     """
     result = _invoke_scanner(key)
     result['ok'] = (result.get('status') == 'ready')
+    if result['ok']:
+        threading.Thread(
+            target=process_scanned_document, args=(key,), daemon=True,
+        ).start()
     return result
 
 
@@ -1466,6 +1905,16 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
         result['image_path'] = image_path
         return result
     if os.path.isfile(image_path):
+        if not _claim_scan_dispatch(key, image_path):
+            # This exact image was already dispatched (the server auto-fires
+            # intake when a scan finishes AND the frontend still POSTs
+            # /api/process-document) — never send Mazda the same document twice.
+            result = build_pipeline_result(facade, mazda_dispatched=True)
+            result['trainer_dispatched'] = False
+            result['already_dispatched'] = True
+            result['scanner'] = key
+            result['image_path'] = image_path
+            return result
         remote_image_path = _stage_scan_for_mazda(image_path)
         if remote_image_path:
             threading.Thread(
@@ -1474,10 +1923,12 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
                 daemon=True,
             ).start()
             mazda_dispatched = True
-            record_recent_intake(image_path, cfg.get('name', key), 'scan', facade)
             trainer_dispatched = _notify_trainer_of_scan(
                 remote_image_path, cfg.get('name', key), facade)
+            record_recent_intake(
+                remote_image_path, cfg.get('name', key), kind='scan', facade=facade)
         else:
+            _release_scan_dispatch(key, image_path)
             stage_error = ('Could not copy the scan to where Mazda can read it '
                             '(SSH/copy to the executor machine failed) — Mazda was not notified.')
     result = build_pipeline_result(facade, mazda_dispatched)
@@ -1522,7 +1973,7 @@ def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
         args=(real, doc_label),
         daemon=True,
     ).start()
-    record_recent_intake(real, doc_label, 'pdf', facade)
+    record_recent_intake(real, doc_label, kind='pdf', facade=facade)
     # PDFs already live inside ROL_FINANCES_DIR (enforced above), so no staging
     # is needed — executor_run on this box reads them directly. This also
     # covers reprocess_report, which delegates here.
@@ -1564,6 +2015,12 @@ def reprocess_report(report_url):
     # receipts-present / Receipt-Only fetch reflects them without the 300s TTL wait.
     _invalidate_receipt_index()
     result = process_pdf_document(source_path, label=label)
+    # This document is now the most recently processed one — point
+    # /recent_report.html at it regardless of how the pipeline run ends.
+    # Set AFTER process_pdf_document so this report pointer is newer than the
+    # intake record written inside it: a reprocessed document HAS a report.html
+    # to show, so report mode must win the recency race.
+    set_recent_report_pointer(report_url)
     result['report_url'] = report_url
     return result
 
@@ -1603,10 +2060,30 @@ def record_stored_expense(data):
         'description': data.get('description', ''),
         'receipt_url': data.get('receipt_url', ''),
         'report_path': data.get('report_path', ''),
+        'expense_ids': data.get('expense_ids') or [],
+        'duplicate_expense_ids': data.get('duplicate_expense_ids') or [],
+        'parsed': data.get('parsed'),
+        'stored': data.get('stored'),
+        'doc_kind': data.get('doc_kind') or data.get('doc_type') or '',
+        'vendor': data.get('vendor') or data.get('merchant') or '',
     }
     with _stored_expense_lock:
         _stored_expense_events.append(event)
-    mark_recent_intake_stored(event)
+    # Keep /recent_report.html current. Best-effort: the callback must succeed
+    # even if the recent-report bookkeeping can't.
+    try:
+        # Fold ids/counts into the last intake record so the synthetic recent
+        # view can list this run's transactions.
+        merge_recent_intake_event(event)
+        rp = event['report_path']
+        if not rp:
+            match = _find_matching_report_row(
+                event['expense_date'], event['amount'], event['vendor_key'])
+            rp = match['report_path'] if match else ''
+        if rp:
+            set_recent_report_pointer(rp)
+    except Exception as exc:
+        print(f'[expense-stored] recent-report update failed: {exc}')
     return {'ok': True}
 
 
@@ -2532,6 +3009,19 @@ SERVERS = [
                 f'{LETTA_DOCKER_HOST} (Docker container on the Win10 box)',
     },
     {
+        'key': 'chatgpt-provider',
+        'name': 'ChatGPT Provider (Mazda LLM)',
+        'check': 'chatgpt_provider_health',
+        'remote': True,
+        'depends_on': 'letta',
+        'note': 'OAuth token on the chatgpt-plus-pro Letta provider — the credential '
+                'Mazda + the Suzuki fleet make every LLM call with. RED = token dead '
+                '(e.g. expired access token + invalid refresh token): every dispatch '
+                'to the fleet fails with HTTP 401 even while scans and all other '
+                'servers look fine. Restart swaps in the standby account token '
+                '(swap_chatgpt_provider_token.sh on the Letta box).',
+    },
+    {
         'key': 'executor',
         'name': 'Executor Server',
         'health_url': 'http://127.0.0.1:8787/health',
@@ -3134,6 +3624,46 @@ def restart_document_vision():
 
 # server key → restart handler (returns {ok, text}). Covers ALL SERVERS so every
 # Server Management tab can be restarted from the UI.
+def chatgpt_provider_health(timeout=None):
+    """Zero-token health of the chatgpt-plus-pro OAuth credential itself — the
+    token every Mazda/Suzuki LLM step runs on. Distinct from the Letta tile
+    (server up != token valid): on 2026-07-13 a scan dispatched cleanly, Letta
+    was green, and Mazda silently got nothing because the provider token had
+    expired with a dead refresh token (HTTP 401 on every dispatch). This tile
+    makes that state RED in Server Management instead of only Agent Management."""
+    try:
+        creds, ptype = _fetch_provider_oauth_creds(CHATGPT_PLUS_PRO)
+    except Exception as e:
+        return {'ok': False, 'text': f'cannot read provider row from Letta API: {e}'}
+    if not creds:
+        return {'ok': False, 'text': f'{CHATGPT_PLUS_PRO}: provider row has no OAuth creds'}
+    probe_fn = PROVIDER_USAGE_PROBES.get(ptype)
+    if not probe_fn:
+        return {'ok': False, 'text': f'no usage probe for provider type {ptype!r}'}
+    probe = probe_fn(creds, timeout=timeout or 8)
+    if probe['ok']:
+        return {'ok': True, 'text': f'{CHATGPT_PLUS_PRO} token valid — usage {probe["text"]}'}
+    return {'ok': False, 'hard': True,  # a restart click can't revive a dead token by itself
+            'text': f'{CHATGPT_PLUS_PRO} token UNUSABLE — {probe["text"]} — Mazda + fleet '
+                    f'cannot run a single LLM step (dispatches fail HTTP 401); '
+                    f'Restart swaps to the standby account token'}
+
+
+def restart_chatgpt_provider():
+    """'Restart' for the provider tile = swap the chatgpt-plus-pro row to the
+    standby account token on the Letta box (same script auto-failover uses).
+    Only helps when the standby token is alive — the tile stays red otherwise."""
+    _log_restart('chatgpt-provider: swap provider token to standby')
+    ok, note = _run_chatgpt_failover_swap()
+    if not ok:
+        return {'ok': False, 'text': f'token swap failed — {note}'}
+    try:
+        _poll_chatgpt_provider_once()  # refresh the fleet's send-errors now, not in 90s
+    except Exception:
+        pass
+    return {'ok': True, 'text': f'provider token swapped to standby — {note}'}
+
+
 RESTART_HANDLERS = {
     'win10-node': restart_win10_node,          # revive WSL node via the Windows host
     'executor': start_executor_server,        # script frees the port + relaunches
@@ -3153,6 +3683,7 @@ RESTART_HANDLERS = {
         'systemctl --user restart dashboard-proxy.service 2>&1 | tail -3 || '
         'echo "no dashboard-proxy.service — start mechanism unknown, please configure"'),
     'document-vision': restart_document_vision,
+    'chatgpt-provider': restart_chatgpt_provider,  # swap provider row to standby token
 }
 RESTARTABLE_KEYS = set(RESTART_HANDLERS)
 
@@ -3722,6 +4253,7 @@ HEALTH_CHECKS = {
     'frita_executor_health': frita_executor_health,
     'win10_node_health': win10_node_health,
     'document_vision_health': document_vision_health,
+    'chatgpt_provider_health': chatgpt_provider_health,
 }
 
 
@@ -3777,8 +4309,9 @@ def compute_server_status(health, *, starting=False, restartable=False,
          reachable, so a Restart button can recover it;
       4. recently-restarted — the 'starting' grace window after a Restart.
     Red ('down') is reserved for genuinely-stuck servers: down with no restart
-    path, or a remote whose host we can't even reach (host_unreachable) to attempt
-    a fix. host_unreachable is derived from an actual host probe (e.g. the SSH/
+    path, a remote whose host we can't even reach (host_unreachable) to attempt
+    a fix, or a health result flagged 'hard': True — a failure a restart click
+    cannot fix by itself (e.g. a dead OAuth token that needs human re-auth). host_unreachable is derived from an actual host probe (e.g. the SSH/
     docker check), not from guessing at the health-text wording."""
     if health is not None and health.get('ok'):
         return 'concern' if health.get('concern') else 'up'
@@ -3786,7 +4319,7 @@ def compute_server_status(health, *, starting=False, restartable=False,
         return 'starting'
     if dependency_down:
         return 'concern'
-    if restartable and not host_unreachable:
+    if restartable and not host_unreachable and not (health or {}).get('hard'):
         return 'concern'
     return 'down'
 
@@ -4702,29 +5235,58 @@ def _usage(t):
                  "ChatGPT-Account-Id": t.get("account_id", ""),
                  "OpenAI-Beta": "codex-1", "originator": "codex_cli_rs", "User-Agent": "codex"})
     return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
-def _refresh(d):
-    t = d["tokens"]
+def _refresh_token(rt):
     body = json.dumps({"grant_type": "refresh_token", "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-                       "refresh_token": t["refresh_token"], "scope": "openid profile email"}).encode()
+                       "refresh_token": rt, "scope": "openid profile email"}).encode()
     req = urllib.request.Request("https://auth.openai.com/oauth/token", data=body,
         headers={"Content-Type": "application/json"})
-    r = json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
+    return json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
+def _persist(d, r):
+    t = d["tokens"]
     for k in ("access_token", "refresh_token", "id_token"):
         if r.get(k): t[k] = r[k]
     d["last_refresh"] = time.strftime("%Y-%m-%dT%H:%M:%S.000000Z", time.gmtime())
     json.dump(d, open(AUTH, "w"))
     return t
+def _refresh(d):
+    return _persist(d, _refresh_token(d["tokens"]["refresh_token"]))
+def _heal(d):
+    # Codex refresh tokens are single-use/rotating: the live auth.json token may be
+    # stale (already consumed) while a backup file still holds a valid one the codex
+    # CLI left behind. Try each backup's token; on success persist into auth.json.
+    import glob
+    for f in sorted(glob.glob(AUTH + "*"), reverse=True):
+        if f == AUTH:
+            continue
+        try:
+            rt = json.load(open(f))["tokens"].get("refresh_token")
+        except Exception:
+            continue
+        if not rt:
+            continue
+        try:
+            return _persist(d, _refresh_token(rt)), f
+        except Exception:
+            continue
+    return None, None
 out = {"model": model, "as_of": time.time()}
-# LIVE usage with SELF-HEAL on 401 (refresh via the codex refresh_token + persist).
+# LIVE usage with SELF-HEAL on 401: refresh via the stored token, and if THAT is
+# rejected (invalid_refresh_token), auto-recover from a still-valid backup token.
 try:
     d = json.load(open(AUTH)); t = d["tokens"]
     try:
         out["usage"] = _usage(t)
     except urllib.error.HTTPError as e:
-        if e.code == 401:
-            out["usage"] = _usage(_refresh(d)); out["refreshed"] = True
-        else:
+        if e.code != 401:
             raise
+        try:
+            out["usage"] = _usage(_refresh(d)); out["refreshed"] = True
+        except urllib.error.HTTPError:
+            healed, src = _heal(d)
+            if healed is None:
+                raise
+            out["usage"] = _usage(healed); out["refreshed"] = True
+            out["healed_from"] = os.path.basename(src)
 except urllib.error.HTTPError as e:
     code = None
     try:
@@ -4902,6 +5464,24 @@ def _human_reset(when):
 _model_stats_cache = {}   # key → (timestamp, result)
 MODEL_STATS_CACHE_TTL = 120  # seconds – prevent 429s from rapid polling
 
+# Codex rate-limit windows are labeled by their duration (limit_window_seconds),
+# not by position in the payload, so a single-window response still labels correctly.
+_CODEX_WINDOW_ORDER = {'5-hour': 0, 'weekly': 1}
+
+def _codex_window_label(seconds):
+    try:
+        s = int(seconds or 0)
+    except (TypeError, ValueError):
+        s = 0
+    if s <= 0:
+        return 'usage'
+    if s <= 6 * 3600:       # ~5-hour window (18000s), allow slack
+        return '5-hour'
+    if s <= 8 * 86400:      # ~weekly window (604800s)
+        return 'weekly'
+    days = round(s / 86400)
+    return f'{days}-day'
+
 def model_stats(source_key):
     """Build the Model Stats payload for one source: provider/model, usage windows
     (used_percent + reset), a tokens summary, and a status (up/concern/down) so the
@@ -4939,18 +5519,36 @@ def _model_stats_uncached(source_key, src):
         rl = u.get('rate_limit') or {}
         out['detail'] = f'plan: {u.get("plan_type", "?")}'
         worst = 0.0
-        for wkey, wlabel in (('primary_window', '5-hour'), ('secondary_window', 'weekly')):
+        # Label each window by its actual duration (limit_window_seconds), NOT by
+        # position: Codex sometimes returns only the weekly window in
+        # primary_window with secondary_window null, so the old positional
+        # ('primary'→5-hour, 'secondary'→weekly) mapping mislabeled the weekly bar
+        # as "5-hour" and dropped the weekly bar entirely.
+        for wkey in ('primary_window', 'secondary_window'):
             w = rl.get(wkey)
             if not isinstance(w, dict):
                 continue
             up = float(w.get('used_percent') or 0)
             worst = max(worst, up)
             out['windows'].append({
-                'label': wlabel,
+                'label': _codex_window_label(w.get('limit_window_seconds')),
                 'used_percent': round(up, 1),
                 'resets_at': w.get('reset_at'),
                 'resets_in': _human_reset(w.get('reset_at')),
             })
+        # OpenAI temporarily removed the rolling 5-hour Codex cap on Plus/Pro/
+        # Business tiers on 2026-07-12 (following the GPT-5.6 Sol launch), so
+        # wham/usage now returns secondary_window: null — there's genuinely no
+        # 5-hour data to show, not a bug on our end. Insert a placeholder row
+        # for parity with the Claude card, which always shows both windows;
+        # flip back to real data automatically once OpenAI restores the window.
+        if not any(x['label'] == '5-hour' for x in out['windows']):
+            out['windows'].append({
+                'label': '5-hour', 'used_percent': None, 'resets_at': None,
+                'resets_in': None, 'unavailable': True,
+                'note': 'OpenAI paused the 5-hour cap 2026-07-12 (weekly-only, for now)',
+            })
+        out['windows'].sort(key=lambda x: _CODEX_WINDOW_ORDER.get(x['label'], 99))
         if rl.get('limit_reached') or worst >= 100:
             out['status'] = 'down'        # maxed → red, with reset shown
         elif worst >= 80:
@@ -5597,26 +6195,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if path == '/api/terminal':
             return self.handle_terminal_ws(query)
 
-        if path == RECENT_REPORT_PATH:
-            intake = load_recent_intake()
-            if not intake:
-                return self.send_error(404)
-            content = build_recent_intake_html(intake).encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Content-Length', len(content))
-            self._send_no_cache_headers()
-            self.end_headers()
-            return self.wfile.write(content)
-
-        if path == RECENT_REPORT_IMAGE_PATH:
-            intake = load_recent_intake()
-            document = (intake or {}).get('document', '')
-            allowed = os.path.realpath(document).startswith(os.path.realpath(ROL_FINANCES_DIR) + os.sep)
-            if not allowed or not os.path.isfile(document):
-                return self.send_error(404)
-            return self.serve_file(document)
-
         if path == '/api/code-status':
             return self.json_response(get_code_status())
         if path == '/api/agents':
@@ -5911,6 +6489,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.wfile.write(data)
             return
 
+        if path == RECENT_REPORT_PATH:
+            try:
+                body = build_recent_report_html()
+            except Exception as e:
+                from html import escape as _esc
+                body = ('<!doctype html><meta charset="utf-8"><body>'
+                        '<pre>Recent Report build error: %s</pre>' % _esc(str(e)))
+            data = body.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(data)))
+            # Always re-resolved — a cached copy would pin an older document.
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         if path.startswith(ROL_FINANCES_REPORTS_URL_PREFIX + '/'):
             fp = _report_file_for_url(path)
             if fp:
@@ -6058,7 +6653,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data = json.loads(body)
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
-            return self.json_response(reprocess_report(data.get('report_url', '')))
+            return self.json_response(reprocess_report(
+                _resolve_report_path_alias(data.get('report_url', ''))))
 
         if path == '/api/expense-stored':
             try:
@@ -6183,7 +6779,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('vendor_key', ''),
                 data.get('reporting_category', ''),
                 data.get('description', ''),
-                data.get('report_path', ''),
+                _resolve_report_path_alias(data.get('report_path', '')),
             ))
 
         if path == '/api/receipt-lookup':
@@ -6196,7 +6792,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('signed_amount', ''),
                 data.get('vendor_key', ''),
                 data.get('description', ''),
-                data.get('report_path', ''),
+                _resolve_report_path_alias(data.get('report_path', '')),
             ))
 
         if path == '/api/receipts-present':

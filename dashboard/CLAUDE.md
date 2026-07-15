@@ -411,6 +411,79 @@ loops + report-before-finish); the .mjs strips `ANTHROPIC_API_KEY`/`CLAUDECODE`/
 dashboard service's PATH lacks bun/claude so the Popen prepends `~/.bun/bin:~/.local/bin`.
 Tests: `tests/test_server.py -k trainer`.
 
+### Recent Report — the Reports tab's default view (2026-07-12/13)
+
+Project Plans → ROL Finance → Reports now opens on **Recent Report** (`GET
+/recent_report.html`), not a fixed month. It always shows whatever document was
+most recently dispatched to Mazda, in one of two modes chosen server-side by
+`resolve_recent_report()` (newest of three signals: an explicit report pointer,
+the newest `report.html` mtime, and the last intake dispatch):
+
+- **report mode** — the document has a real `report.html` (the 13 registered
+  statement docs). Served with an injected `<base href>` so the report's own
+  Verified Transactions table + category picker work unchanged; the picker's
+  `location.pathname` POST (`/recent_report.html`) is translated back to the
+  real report URL by `_resolve_report_path_alias()` before hitting
+  `recategorize-expense` / `receipt-lookup` / `reprocess-report`.
+- **intake mode** — no `report.html` exists, the normal case for a **scanned**
+  document (scans store straight to MySQL; they don't generate a report file).
+  `build_recent_intake_html()` renders a synthetic page live from the DB,
+  listing every expense id Mazda's STEP 8/9 callback reported — **both newly
+  stored (`expense_ids`) and duplicate-matched-but-not-stored
+  (`duplicate_expense_ids`)** — as a clickable Verified-Transactions-style table
+  with the same picker. **This is why Mazda's dashboard callback must fire even
+  when `stored:0`**: a re-scan of an already-processed statement is a common,
+  correct outcome, but without the callback the page shows nothing at all (or
+  stale data from days ago) instead of "here are the 8 transactions this run
+  touched, recategorize if you want."
+
+Server-side bookkeeping lives in `dashboard/recent_report.json` (gitignored):
+`process_scanned_document`/`process_pdf_document` write an intake record the
+moment they dispatch Mazda (so the page shows "Dispatched to Mazda —
+processing…" even before she reports back); `record_stored_expense` (the
+`/api/expense-stored` handler) folds `expense_ids`/`duplicate_expense_ids`/
+`parsed`/`stored` into that record via `merge_recent_intake_event()`, and sets
+the report pointer when a `report_path` is given or found by
+`_find_matching_report_row`. `reprocess_report` sets the pointer AFTER calling
+`process_pdf_document` specifically so report mode wins the recency race for a
+document that does have a report.html.
+
+**Dispatch is now server-side and deduped.** Before 2026-07-12, Mazda was only
+notified when the browser's `POST /api/process-document` landed — closing the
+tab right after a scan could silently lose the document. `run_scanner()` now
+spawns `process_scanned_document` itself the instant `_invoke_scanner` reports
+`status: ready`; `_claim_scan_dispatch(key, image_path)` (keyed on scanner +
+image path + image mtime) ensures the frontend's still-present
+`/api/process-document` POST can't double-dispatch the same image. A failed
+staging attempt releases the claim (`_release_scan_dispatch`) so a retry can
+still dispatch.
+
+**`rol_finances` companion change (uncommitted there):** `duplicate_expense_ids`
+in `store_statement_transactions.py`'s JSON report comes from a new
+`DuplicateChecker.find_duplicate_expense_id()` — the same exact/composite/fuzzy
+duplicate logic as before, but returning the EXISTING row's id instead of just
+a bool. Mazda's memfs (`receipt_intake_procedure.md`, `finance_codebase_map.md`)
+has been updated with the full STEP 9 field contract and the always-fire rule.
+
+**Test isolation gotcha (found 2026-07-12): pytest was spawning REAL Trainer
+agents.** A scan-dispatch test didn't mock `_notify_trainer_of_scan`, so every
+`pytest tests/` run launched a genuine ~25-minute Claude Trainer session against
+a scan path that only existed in the test — one such run filed a misleading
+"Window Scanner STALLED (infrastructure failure)" report in
+`trainer/reports/`, and would also have clobbered the live `recent_report.json`.
+`tests/conftest.py` now has an autouse fixture that forces `TRAINER_ENABLED =
+False`, points `RECENT_REPORT_POINTER_FILE` at a tmp path, and clears
+`_scan_dispatch_claims` — **any new test touching `process_scanned_document` /
+`process_pdf_document` inherits this automatically; don't re-mock it per-test.**
+If a trainer report ever claims an "infrastructure delivery failure," check its
+timestamp against a concurrent `pytest tests/` run and the dashboard access log
+for a matching real `POST /api/process-document` before believing it.
+
+Tests: `tests/test_server.py` (recent-report pointer/resolve/html-building,
+intake-record + STEP 8 merge including duplicates, dispatch-claim dedup,
+`_resolve_report_path_alias`) + `js/tests/rol-finance-reports-controller.test.js`
+(Recent Report tab build/highlight/rebuild).
+
 ## Server health indicators, Restart-all & Model Stats (2026-06-22)
 
 Three things were added to `server.py` + the frontend (see memories

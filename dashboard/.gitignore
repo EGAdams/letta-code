@@ -4,4 +4,6 @@ __pycache__/
 
 # Runtime voice diagnostics (raw vs. cleaned transcripts) — not source.
 voice_transcripts.json
+
+# Runtime pointer for /recent_report.html (most recently processed document).
 recent_report.json
