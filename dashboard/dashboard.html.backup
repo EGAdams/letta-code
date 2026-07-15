@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="/css/dashboard.css?v=20260708c" />
+</head>
+<body class="startup-loading">
+  <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
+    <div class="startup-panel">
+      <div class="startup-title">Dashboard Startup Checks</div>
+      <div class="startup-status" id="startup-status-text">Running Dashboard checks...</div>
+      <div class="startup-progress-shell" aria-hidden="true">
+        <div class="startup-progress-bar" id="startup-progress-bar"></div>
+      </div>
+      <div class="startup-console" id="startup-console"></div>
+    </div>
+  </div>
+  <aside class="sidebar">
+    <h1>Dashboard</h1>
+
+    <!-- Main nav -->
+    <nav id="nav-main">
+      <button type="button" class="tab active" data-nav="main" data-target="home">Home</button>
+      <button type="button" class="tab" data-nav="main" data-target="rol-finance">ROL Finance</button>
+      <button type="button" class="tab" data-nav="main" data-target="status">Status</button>
+      <button type="button" class="tab" data-nav="main" data-target="instructions">Instructions</button>
+      <button type="button" class="tab" data-nav="main" data-target="tool-management">Tool Management</button>
+      <button type="button" class="tab" data-nav="main" data-target="agent-management" id="btn-agent-mgmt">Agent Management</button>
+      <button type="button" class="tab" data-nav="main" data-target="server-management" id="btn-server-mgmt">Server Management</button>
+      <button type="button" class="tab" data-nav="main" data-target="ssh-connections" id="btn-ssh-connections">SSH Connections</button>
+      <button type="button" class="tab" data-nav="main" data-target="project-plans">Project Plans</button>
+      <button type="button" class="tab" data-nav="main" data-target="model-stats" id="btn-model-stats">Model Stats</button>
+      <button type="button" class="tab" data-nav="main" data-target="pc-monitor" id="btn-pc-monitor">PC Monitor</button>
+    </nav>
+
+    <!-- PC Monitor sub-nav -->
+    <nav id="nav-pc-monitor" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-pc-monitor">Back</button>
+      <button type="button" class="tab" data-nav="pc-monitor" data-pc="win11">Windows 11</button>
+      <button type="button" class="tab" data-nav="pc-monitor" data-pc="win10">Windows 10</button>
+      <button type="button" class="tab" data-nav="pc-monitor" data-pc="moms46">Moms 46</button>
+    </nav>
+
+    <!-- Model Stats sub-nav -->
+    <nav id="nav-model-stats" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-model-stats">Back</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="r46-claude">R46 Claude OAuth</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="r46-codex">R46 Codex OAuth</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="gemini">Antigravity CLI</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="w11-claude">W11 Claude OAuth</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="w11-codex">W11 Codex OAuth</button>
+    </nav>
+
+    <!-- Status sub-nav -->
+    <nav id="nav-status" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back">Back</button>
+      <button type="button" class="tab active" data-nav="status" data-target="status-home">Home</button>
+      <button type="button" class="tab" data-nav="status" data-target="status-agents">Agents</button>
+      <button type="button" class="tab" data-nav="status" data-target="status-process-monitors">Process Monitors</button>
+      <button type="button" class="tab" data-nav="status" data-target="status-servers">Servers</button>
+      <button type="button" class="tab" data-nav="status" data-target="status-pc-monitor">PC Monitor</button>
+    </nav>
+
+    <!-- Tool management sub-nav -->
+    <nav id="nav-tools" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-tools">Back</button>
+      <button type="button" class="tab active" data-nav="tools" data-target="tools-home">Home</button>
+      <button type="button" class="tab" data-nav="tools" data-target="tools-web-search">web_search_exa</button>
+      <button type="button" class="tab" data-nav="tools" data-target="tools-web-fetch">web_fetch_exa</button>
+      <button type="button" class="tab" data-nav="tools" data-target="tools-executor-run">executor_run</button>
+      <button type="button" class="tab" data-nav="tools" data-target="tools-send-message">send_message_to_agent</button>
+      <button type="button" class="tab" data-nav="tools" data-target="tools-memory">memory</button>
+    </nav>
+
+    <!-- Agent management sub-nav -->
+    <nav id="nav-agents" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-agents">Back</button>
+      <button type="button" class="tab active" data-nav="agents" data-target="agents-home" id="btn-agents-home">Agents</button>
+    </nav>
+
+    <!-- Project Plans sub-nav -->
+    <nav id="nav-plans" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-plans">Back</button>
+      <button type="button" class="tab active" data-nav="plans" data-target="plans-self-evolving">Self Evolving</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-divide-conquer">Divide Conquer</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-audio-input">Audio Input</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-dev-status">Mazda Dev Status</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-training">Mazda Training</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-verification-tracker">Verification Tracker</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-self-improvement">Self Improvement Plan</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-diet-pi-comm">Diet Pi Comm</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-archon-workflows">Archon Workflows</button>
+    </nav>
+
+    <!-- ROL Finance sub-nav -->
+    <nav id="nav-rol-finance" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-rol-finance">Back</button>
+      <button type="button" class="tab active" data-nav="rol-finance" data-target="rol-finance-plan">Plan</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-current-status">Current Status</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-taxes">Taxes</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-reports">Reports</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-scanners">Scanners</button>
+    </nav>
+
+    <!-- ROL Finance Reports sub-nav (report tabs injected dynamically) -->
+    <nav id="nav-rol-finance-reports" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-rol-finance-reports">Back</button>
+    </nav>
+
+    <!-- ROL Finance Scanners sub-nav -->
+    <nav id="nav-scanners" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-scanners">Back</button>
+      <button type="button" class="tab active" data-nav="scanners" data-target="scanners-freezer">Freezer Scanner</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-window">Window Scanner</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-pdf">Process PDF</button>
+    </nav>
+
+    <!-- Agent detail sub-nav -->
+    <nav id="nav-agent-detail" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-agent-detail">Back</button>
+      <button type="button" class="tab active" data-nav="agent-detail" data-target="agent-detail-home">Home</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-thoughts">Thoughts</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-messages">Messages</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tool-calls">Tool Calls</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-agent-card">Agent Card</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tests">Tests</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-input-options">Input Options</button>
+    </nav>
+
+    <!-- Server management sub-nav (server tabs injected dynamically) -->
+    <nav id="nav-servers" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-servers">Back</button>
+    </nav>
+
+    <!-- SSH Connections sub-nav (connection tabs injected dynamically) -->
+    <nav id="nav-ssh-connections" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-ssh">Back</button>
+    </nav>
+  </aside>
+
+  <main class="content" id="main-content">
+    <!-- Main views -->
+    <section id="home" class="view active">
+      <!-- Intentionally left empty for now -->
+    </section>
+
+    <section id="instructions" class="view">
+      <h2>Instructions</h2>
+
+      <h3>SSH into this machine</h3>
+      <p>
+        This box is <strong>DESKTOP-SHDBATI</strong> — a <strong>Windows 10 Home</strong> host running
+        <strong>WSL Ubuntu 24.04</strong>. There are two separate SSH targets, each with its own user.
+        Almost everything (Letta server, agents, <code>/home/adamsl</code>, the code) lives inside
+        <strong>WSL Ubuntu</strong> — that's the one you usually want.
+      </p>
+
+      <div class="note">
+        <strong>Always connect over Tailscale, never the LAN IP.</strong> The <code>10.0.0.x</code> LAN
+        address is DHCP and changes on reboot (it shifted <code>10.0.0.143 → 10.0.0.142</code> on
+        2026-05-30, which is part of why connections broke). Tailscale IPs never change. Both ends must be
+        on the same Tailnet — run <code>tailscale status</code> to confirm.
+      </div>
+
+      <table class="kv">
+        <tr><th>Target</th><th>Connect (Tailscale — use this)</th><th>User</th><th>LAN fallback (drifts!)</th></tr>
+        <tr>
+          <td><strong>WSL Ubuntu</strong><br/>(Letta, agents, code)</td>
+          <td><code>ssh adamsl@100.80.49.10</code></td>
+          <td><code>adamsl</code></td>
+          <td>not on LAN directly</td>
+        </tr>
+        <tr>
+          <td><strong>Windows 10 host</strong></td>
+          <td><code>ssh NewUser@100.69.80.89</code></td>
+          <td><code>NewUser</code></td>
+          <td><code>ssh NewUser@10.0.0.142</code></td>
+        </tr>
+      </table>
+      <p>Both run OpenSSH on port 22.</p>
+
+      <h3>Why SSH broke on 2026-05-30 — and how it's fixed</h3>
+      <p>After the Windows reboot at 17:00, two things went wrong:</p>
+      <ol>
+        <li><strong>WSL's sshd did not auto-start.</strong> The <code>ssh.service</code> was set to
+          <code>disabled</code>, so it stayed down from the 17:00 reboot until someone started it manually at
+          19:13 — anyone trying to connect in that window got "connection refused."</li>
+        <li><strong>The LAN IP drifted</strong> <code>10.0.0.143 → 10.0.0.142</code> via DHCP, so anyone
+          using the old LAN address was hitting a dead host.</li>
+      </ol>
+
+      <div class="ok">
+        <strong>Permanent fix — run once in WSL</strong> so sshd always comes back after a reboot:
+        <pre><code>sudo systemctl enable ssh
+sudo systemctl start ssh</code></pre>
+        After that, always connect over Tailscale (<code>adamsl@100.80.49.10</code> for WSL) — that address
+        never changes, so reboots can't break it.
+      </div>
+
+      <h3>Troubleshooting checklist</h3>
+      <details>
+        <summary>"Connection refused" or "timed out"</summary>
+        <pre><code># On the WSL host, confirm sshd is up and set to auto-start:
+systemctl is-active ssh        # want: active
+systemctl is-enabled ssh       # want: enabled
+ss -tlnp | grep :22            # want: 0.0.0.0:22 listening
+
+# Confirm Tailscale is connected (run on BOTH ends):
+tailscale status
+tailscale ip -4                # WSL should report 100.80.49.10
+
+# End-to-end reachability (proves the box answers over Tailscale):
+curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pre>
+      </details>
+
+      <hr style="margin:20px 0;border:none;border-top:1px solid #ddd;" />
+
+      <h3>Reference pages</h3>
+      <p>
+        Live upload/instructions page:<br />
+        <a id="instructions-guide-link" href="/americanjewelry_live_upload_guide.html" target="_blank" rel="noopener noreferrer">
+          /americanjewelry_live_upload_guide.html
+        </a>
+      </p>
+      <p>
+        Windows 10 management:<br />
+        <a id="instructions-mgmt-link" href="/windows_10_dashboard_management.html" target="_blank" rel="noopener noreferrer">
+          /windows_10_dashboard_management.html
+        </a>
+      </p>
+    </section>
+
+
+
+    <section id="model-stats" class="view">
+      <h2>Model Stats</h2>
+      <p class="srv-note">Pick a provider/account on the left to see current session token usage and limits. Red = maxed out (with reset time). W11 = this machine, R46 = mom's machine.</p>
+      <div id="model-stats-body"><p class="am-dim">Select a source…</p></div>
+    </section>
+
+    <section id="pc-monitor" class="view">
+      <h2>PC Monitor</h2>
+      <p class="srv-note">RAM, hard-drive, and network usage per machine. A tab blinking yellow means one of that PC's metrics crossed its alert threshold.</p>
+      <div id="pc-monitor-body"><p class="am-dim">Select a PC&hellip;</p></div>
+    </section>
+
+    <section id="tool-management" class="view">
+      <h2>Tool Management</h2>
+      <p>Use the left tool tabs to view tool notes.</p>
+    </section>
+
+    <section id="tools-home" class="view">
+      <h2>Tools Home</h2><p>Placeholder for tool management overview.</p>
+    </section>
+    <section id="tools-web-search" class="view"><p>web_search_exa placeholder.</p></section>
+    <section id="tools-web-fetch" class="view"><p>web_fetch_exa placeholder.</p></section>
+    <section id="tools-executor-run" class="view"><p>executor_run placeholder.</p></section>
+    <section id="tools-send-message" class="view"><p>send_message_to_agent placeholder.</p></section>
+    <section id="tools-memory" class="view"><p>memory placeholder.</p></section>
+
+    <section id="agent-management" class="view">
+      <h2>Agent Management</h2>
+      <p>Use the left agent tabs to view agent stubs.</p>
+    </section>
+
+    <section id="agents-home" class="view">
+      <h2>Agents</h2>
+      <p id="agents-home-status" class="am-dim">Loading agents&hellip;</p>
+    </section>
+
+    <section id="server-management" class="view">
+      <h2>Server Management</h2>
+      <p>Click a server above to view its logs and health status.</p>
+    </section>
+
+    <section id="servers-detail" class="view">
+      <h2 id="servers-detail-title">Server</h2>
+      <div id="servers-detail-body"></div>
+    </section>
+
+    <section id="ssh-connections" class="view">
+      <h2>SSH Connections</h2>
+      <p>Click a connection above to test it and view its terminal/connection log.</p>
+    </section>
+
+    <section id="ssh-connection-detail" class="view">
+      <h2 id="ssh-connection-detail-title">SSH Connection</h2>
+      <div id="ssh-connection-detail-body"></div>
+    </section>
+
+    <section id="agent-detail-home" class="view">
+      <h2 id="agent-detail-title">Agent</h2>
+      <p id="agent-detail-home-text">Choose a tab above to view this agent's data.</p>
+    </section>
+    <section id="agent-detail-thoughts" class="view"></section>
+    <section id="agent-detail-messages" class="view"></section>
+    <section id="agent-detail-tool-calls" class="view"></section>
+    <section id="agent-detail-agent-card" class="view"></section>
+    <section id="agent-detail-tests" class="view"></section>
+    <section id="agent-detail-input-options" class="view"></section>
+
+    <!-- Status sub-views -->
+    <section id="status-home" class="view">
+      <h2>Status</h2>
+      <p>
+        Live status page:<br />
+        <a href="/status.html" target="_blank" rel="noopener noreferrer">
+          /status.html
+        </a>
+      </p>
+    </section>
+
+    <section id="status-agents" class="view">
+      <h2>Agents</h2>
+      <p>Live status page for agents monitoring.</p>
+    </section>
+
+    <section id="status-process-monitors" class="view">
+      <p>Process Monitors</p>
+    </section>
+
+    <section id="status-servers" class="view">
+      <h2>Servers</h2>
+      <div class="srv-summary-toolbar">
+        <button type="button" class="am-btn" id="servers-refresh-btn">Refresh</button>
+        <span id="servers-last-updated" class="srv-summary-stamp"></span>
+      </div>
+      <div id="servers-list"><p class="am-dim">Loading&hellip;</p></div>
+    </section>
+
+    <section id="status-pc-monitor" class="view">
+      <p>PC monitors</p>
+    </section>
+
+    <!-- Project Plans views -->
+    <section id="plans-self-evolving" class="view">
+      <iframe id="self-evolving-plan-frame" class="plan-frame" src="/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html"></iframe>
+    </section>
+
+    <section id="plans-divide-conquer" class="view">
+      <iframe id="divide-conquer-plan-frame" class="plan-frame" src="/divide_and_conquer_scissari_fix.html"></iframe>
+    </section>
+
+    <section id="plans-audio-input" class="view">
+      <iframe id="audio-plan-frame" class="plan-frame" src="/audio_input/audio_plan.html"></iframe>
+    </section>
+
+    <section id="plans-mazda-dev-status" class="view">
+      <iframe id="mazda-dev-status-plan-frame" class="plan-frame" src="/notes_plans_handoffs/mazda_dev_status.html"></iframe>
+    </section>
+
+    <section id="plans-mazda-training" class="view">
+      <iframe id="mazda-training-plan-frame" class="plan-frame" src="/notes_plans_handoffs/mazdas_training_process.html"></iframe>
+    </section>
+
+    <section id="plans-verification-tracker" class="view">
+      <iframe id="verification-tracker-plan-frame" class="plan-frame" src="/notes_plans_handoffs/verification_tracker.html"></iframe>
+    </section>
+
+    <section id="plans-self-improvement" class="view">
+      <iframe id="self-improvement-plan-frame" class="plan-frame" src="/notes_plans_handoffs/mazda_self_improvement_plan.html"></iframe>
+    </section>
+
+    <section id="plans-archon-workflows" class="view">
+      <iframe id="archon-workflows-plan-frame" class="plan-frame" src="/notes_plans_handoffs/archon_workflows_manual.html"></iframe>
+    </section>
+
+    <section id="plans-diet-pi-comm" class="view">
+      <iframe id="diet-pi-comm-plan-frame" class="plan-frame" src="/notes_plans_handoffs/diet_pi_communicator.html"></iframe>
+    </section>
+
+    <!-- ROL Finance views -->
+    <section id="rol-finance-plan" class="view">
+      <iframe id="rol-finance-plan-frame" class="plan-frame" src="/rol_finances/tools/plan.html"></iframe>
+    </section>
+
+    <section id="rol-finance-current-status" class="view">
+      <h2>Current Status</h2>
+      <p>Current Status content coming soon.</p>
+    </section>
+
+    <section id="rol-finance-taxes" class="view">
+      <h2>Taxes</h2>
+      <p>Taxes content coming soon.</p>
+    </section>
+
+    <section id="rol-finance-reports" class="view">
+      <p>Loading reports…</p>
+    </section>
+
+    <!-- ROL Finance report views injected dynamically by RF.init() -->
+    <section id="rol-finance-reports-views"></section>
+
+    <section id="scanners-freezer" class="view">
+      <div class="scanner-dialog" data-scanner="freezer">
+        <div class="startup-panel scanner-panel">
+          <div class="startup-title">Freezer Scanner</div>
+          <div class="startup-status scanner-device">HP063E28 (HP Deskjet 4100 series)</div>
+          <div class="scanner-state">Idle — ready to scan.</div>
+          <div class="startup-progress-shell" aria-hidden="true">
+            <div class="startup-progress-bar scanner-bar"></div>
+          </div>
+          <div class="scanner-actions">
+            <button type="button" class="am-btn scanner-start">Start Scan</button>
+            <button type="button" class="am-btn am-copy scanner-show" disabled>Show Image</button>
+            <button type="button" class="am-btn scanner-process" disabled>Process Document</button>
+          </div>
+          <div class="scanner-result hidden" aria-live="polite"></div>
+        </div>
+        <div class="scanner-image-box hidden">
+          <button type="button" class="scanner-image-close" aria-label="Close image">&times;</button>
+          <img class="scanner-image" alt="Scanned document" />
+        </div>
+      </div>
+    </section>
+
+    <section id="scanners-window" class="view">
+      <div class="scanner-dialog" data-scanner="window">
+        <div class="startup-panel scanner-panel">
+          <div class="startup-title">Window Scanner</div>
+          <div class="startup-status scanner-device">HPI297BEA (HP Officejet 8120e series)</div>
+          <div class="scanner-state">Idle — ready to scan.</div>
+          <div class="startup-progress-shell" aria-hidden="true">
+            <div class="startup-progress-bar scanner-bar"></div>
+          </div>
+          <div class="scanner-actions">
+            <button type="button" class="am-btn scanner-start">Start Scan</button>
+            <button type="button" class="am-btn am-copy scanner-show" disabled>Show Image</button>
+            <button type="button" class="am-btn scanner-process" disabled>Process Document</button>
+          </div>
+          <div class="scanner-result hidden" aria-live="polite"></div>
+        </div>
+        <div class="scanner-image-box hidden">
+          <button type="button" class="scanner-image-close" aria-label="Close image">&times;</button>
+          <img class="scanner-image" alt="Scanned document" />
+        </div>
+      </div>
+    </section>
+    <section id="scanners-pdf" class="view">
+      <div class="startup-panel scanner-panel pdf-process-panel">
+        <div class="startup-title">Process PDF Document</div>
+        <div class="startup-status">Run the intake pipeline on an existing PDF file. Mazda will investigate, categorize, and store the result.</div>
+        <div class="pdf-path-row">
+          <label for="pdf-file-path" class="pdf-path-label">File Path</label>
+          <input type="text" id="pdf-file-path" class="pdf-path-input" placeholder="/home/adamsl/rol_finances/readable_documents/..." spellcheck="false" />
+        </div>
+        <div class="pdf-path-row">
+          <label for="pdf-doc-label" class="pdf-path-label">Label</label>
+          <input type="text" id="pdf-doc-label" class="pdf-path-input" placeholder="e.g. Bank 5938 PDF 1 — February 2025" />
+        </div>
+        <div class="scanner-actions">
+          <button type="button" class="am-btn pdf-process-btn">Process Document</button>
+        </div>
+        <div class="scanner-result hidden" aria-live="polite"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Code-change restart prompt -->
+  <div id="code-change-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <p>Changes in Agents code detected. Restart dashboard-server.service?</p>
+      <div class="modal-actions">
+        <button type="button" class="am-btn" id="code-change-yes">Yes</button>
+        <button type="button" class="am-btn am-copy" id="code-change-no">No</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Document-vision-down halt notice -->
+  <div id="vision-halted-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <p><strong>Scanning halted.</strong> All document-vision tiers (Gemini,
+      ChatGPT-OAuth/Codex CLI, and OpenAI key) are down — Mazda has no way to
+      classify or read a scanned document right now, so new scans will not be
+      dispatched to her.</p>
+      <p id="vision-halted-detail" class="vision-halted-detail"></p>
+      <div class="modal-actions">
+        <button type="button" class="am-btn" id="vision-halted-retry">Retry Now</button>
+        <button type="button" class="am-btn am-copy" id="vision-halted-dismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/js/dashboard-boot.js?v=20260710a"></script>
+</body>
+</html>

@@ -456,6 +456,10 @@ body.startup-loading .sidebar {
   font-weight: 700;
 }
 
+.tab.hidden {
+  display: none;
+}
+
 .tab.back-tab {
   background: #555;
 }
@@ -974,6 +978,17 @@ summary {
   50% {
     opacity: 0.25;
   }
+}
+/* Provider 429 banner: red, bold, with the live reset countdown inline —
+   loud enough that nobody has to rediscover a rate limit from a terminal. */
+.ms-rate-limited {
+  color: #e53935;
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin: 8px 0;
+}
+.ms-rate-limited [data-countdown-until] {
+  font-variant-numeric: tabular-nums;
 }
 /* Slow-leak badge under the bars ("Slow token drain — +X% over last 2h"). */
 .ms-leak {

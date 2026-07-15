@@ -65,7 +65,42 @@ describe("RolFinanceReportsController", () => {
     expect(() => new RolFinanceReportsController({})).toThrow();
   });
 
-  test("openReports builds a tab + view per report and lands on the Recent Report view", async () => {
+  test("openReports shows only months (no document tabs) and lands on the Recent Report view", async () => {
+    const ctx = setup([
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
+    ]);
+    await ctx.rf.openReports();
+
+    // Months are their own navigation level: no document tabs, no fetch yet.
+    expect(ctx.nav.querySelectorAll("[data-report-key]").length).toBe(0);
+    expect(ctx.requestedUrls).toEqual([]);
+    const monthTabs = ctx.nav.querySelectorAll(".tab.month-tab");
+    expect(monthTabs.length).toBe(2);
+    expect(monthTabs.every((t) => !t.classList.contains("hidden"))).toBe(true);
+
+    // The back-to-months tab exists but stays hidden at the months level.
+    const backTab = ctx.nav.querySelector(".tab[data-months-back]");
+    expect(backTab.classList.contains("hidden")).toBe(true);
+
+    // No document tab selected — the Recent Report view is shown by default.
+    expect(ctx.selected.length).toBe(0);
+    expect(ctx.activated).toEqual(["rol-finance-report-recent"]);
+    const recentView = ctx.viewsContainer.querySelector(
+      "#rol-finance-report-recent",
+    );
+    expect(recentView.innerHTML).toContain("/recent_report.html");
+    const recentTab = ctx.nav.querySelector(".tab[data-recent-report]");
+    expect(recentTab.textContent).toBe("Recent Report");
+    expect(recentTab.classList.contains("active")).toBe(true);
+  });
+
+  test("openMonth builds the month's document tabs and hides the month tabs behind Back", async () => {
     const ctx = setup([
       {
         key: "jan",
@@ -83,6 +118,7 @@ describe("RolFinanceReportsController", () => {
       },
     ]);
     await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
 
     const tabs = ctx.nav.querySelectorAll("[data-report-key]");
     expect(tabs.length).toBe(2);
@@ -92,33 +128,71 @@ describe("RolFinanceReportsController", () => {
     expect(tabs[1].className).toBe("tab report-missing");
 
     const views = ctx.viewsContainer.querySelectorAll("section");
-    // overview + 2 document views + the Recent Report view.
-    expect(views.length).toBe(4);
+    // overview + 2 document views (openMonth wiped the Recent Report view).
+    expect(views.length).toBe(3);
     const docViews = views.filter(
-      (v) =>
-        v.id !== "rol-finance-reports-overview" &&
-        v.id !== "rol-finance-report-recent",
+      (v) => v.id !== "rol-finance-reports-overview",
     );
     expect(docViews[0].id).toBe("rol-finance-report-jan");
     expect(docViews[0].innerHTML).toContain("/r/jan.html");
     expect(docViews[1].innerHTML).toContain("Missing report.html");
 
-    // No document tab selected — the Recent Report view is shown by default.
-    expect(ctx.selected.length).toBe(0);
-    expect(ctx.activated).toEqual([
-      "rol-finance-reports-overview",
-      "rol-finance-report-recent",
-    ]);
-    const recentView = views.find((v) => v.id === "rol-finance-report-recent");
-    expect(recentView.innerHTML).toContain("/recent_report.html");
-    const recentTab = ctx.nav.querySelector(".tab[data-recent-report]");
-    expect(recentTab.textContent).toBe("Recent Report");
-    expect(recentTab.classList.contains("active")).toBe(true);
+    // Month + Recent Report tabs hide; the Back tab shows.
+    const monthTabs = ctx.nav.querySelectorAll(".tab.month-tab");
+    expect(monthTabs.every((t) => t.classList.contains("hidden"))).toBe(true);
+    expect(
+      ctx.nav
+        .querySelector(".tab[data-recent-report]")
+        .classList.contains("hidden"),
+    ).toBe(true);
+    expect(
+      ctx.nav
+        .querySelector(".tab[data-months-back]")
+        .classList.contains("hidden"),
+    ).toBe(false);
 
-    // Default month (jan-2025) requested.
     expect(ctx.requestedUrls).toEqual([
       "/api/rol-finance-reports?month=jan-2025",
     ]);
+  });
+
+  test("backToMonths drops the document tabs and returns to the months-only level", async () => {
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-month-status"))
+        return { months: [] };
+      if (url.startsWith("/api/rol-finance-recent-scans"))
+        return { rows: [], queue_total: 0 };
+      return [
+        {
+          key: "jan",
+          label: "January",
+          exists: true,
+          status: "pass",
+          url: "/r/jan.html",
+        },
+      ];
+    });
+    await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
+
+    const backTab = ctx.nav.querySelector(".tab[data-months-back]");
+    backTab.click();
+
+    // Document tabs removed; months + Recent Report visible again, unselected.
+    expect(ctx.nav.querySelectorAll("[data-report-key]").length).toBe(0);
+    const monthTabs = ctx.nav.querySelectorAll(".tab.month-tab");
+    expect(monthTabs.every((t) => !t.classList.contains("hidden"))).toBe(true);
+    expect(monthTabs.every((t) => !t.classList.contains("active"))).toBe(true);
+    expect(backTab.classList.contains("hidden")).toBe(true);
+
+    // Lands back on a fresh Recent Report view; month filter cleared.
+    expect(ctx.activated[ctx.activated.length - 1]).toBe(
+      "rol-finance-report-recent",
+    );
+    expect(
+      ctx.viewsContainer.querySelector("#rol-finance-report-recent"),
+    ).not.toBe(null);
+    expect(ctx.rf._activeMonthKey).toBe(null);
   });
 
   test("month/report tabs clear the Recent Report highlight; reopening rebuilds the view", async () => {
@@ -197,6 +271,7 @@ describe("RolFinanceReportsController", () => {
       },
     ]);
     await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
 
     const overview = ctx.viewsContainer
       .querySelectorAll("section")
@@ -216,7 +291,7 @@ describe("RolFinanceReportsController", () => {
     expect(overview.innerHTML).not.toContain("Receipt Only");
   });
 
-  test("openReports caches the list (no rebuild / refetch on second call)", async () => {
+  test("openReports builds its tabs once (no duplicates on second call)", async () => {
     const ctx = setup([
       {
         key: "jan",
@@ -228,8 +303,10 @@ describe("RolFinanceReportsController", () => {
     ]);
     await ctx.rf.openReports();
     await ctx.rf.openReports();
-    expect(ctx.nav.querySelectorAll("[data-report-key]").length).toBe(1);
-    expect(ctx.requestedUrls.length).toBe(1);
+    expect(ctx.nav.querySelectorAll(".tab.month-tab").length).toBe(2);
+    expect(ctx.nav.querySelectorAll(".tab[data-recent-report]").length).toBe(1);
+    expect(ctx.nav.querySelectorAll(".tab[data-months-back]").length).toBe(1);
+    expect(ctx.requestedUrls.length).toBe(0);
   });
 
   test("openMonth fetches and caches per month, independent existence per document", async () => {
@@ -254,7 +331,8 @@ describe("RolFinanceReportsController", () => {
             },
           ],
     );
-    await ctx.rf.openReports(); // opens jan-2025 by default
+    await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
     await ctx.rf.openMonth("feb-2025");
 
     expect(ctx.requestedUrls).toEqual([
@@ -286,6 +364,7 @@ describe("RolFinanceReportsController", () => {
       },
     ]);
     await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
     ctx.activated.length = 0;
     ctx.selected.length = 0;
 
@@ -298,11 +377,17 @@ describe("RolFinanceReportsController", () => {
     ).toBe(true);
   });
 
-  test("a fetch failure shows an error section", async () => {
+  test("a fetch failure shows an error section with the Back tab still available", async () => {
     const ctx = setup(new Error("nope"));
     await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
     expect(ctx.viewsContainer.innerHTML).toContain("Failed to load reports");
     expect(ctx.viewsContainer.innerHTML).toContain("nope");
+    expect(
+      ctx.nav
+        .querySelector(".tab[data-months-back]")
+        .classList.contains("hidden"),
+    ).toBe(false);
   });
 
   test("openReport activates the matching view", () => {
@@ -331,6 +416,7 @@ describe("RolFinanceReportsController", () => {
       },
     ]);
     await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
 
     const janView = ctx.viewsContainer.querySelector("#rol-finance-report-jan");
     expect(janView.querySelector(".reprocess-bar")).not.toBeNull();
@@ -352,6 +438,7 @@ describe("RolFinanceReportsController", () => {
       },
     ]);
     await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
 
     const btn = ctx.viewsContainer.querySelector(".reprocess-btn");
     btn.click();
@@ -396,6 +483,7 @@ describe("RolFinanceReportsController", () => {
       { postPayload: pipelineResult },
     );
     await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
 
     const btn = ctx.viewsContainer.querySelector(".reprocess-btn");
     const statusEl = ctx.viewsContainer.querySelector(".reprocess-status");
@@ -422,6 +510,7 @@ describe("RolFinanceReportsController", () => {
       { postPayload: new Error("source doc not found") },
     );
     await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
 
     const btn = ctx.viewsContainer.querySelector(".reprocess-btn");
     const statusEl = ctx.viewsContainer.querySelector(".reprocess-status");

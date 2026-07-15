@@ -291,6 +291,8 @@ function inputOptionsSetup({ modelInfo } = {}) {
     postJSON: async (url, body) => {
       posts.push({ url, body });
       if (url === "/api/agent-model") return { ok: true, model: body.model };
+      if (url === "/api/letta-code-message")
+        return { ok: true, reply: "Hello from Mazda." };
       return { replies: [] };
     },
   };
@@ -356,12 +358,17 @@ function inputOptionsSetup({ modelInfo } = {}) {
 }
 
 describe("InputOptionsRenderer (Strategy)", () => {
-  test("Send forwards text to the letta-code terminal session, never /api/test", async () => {
+  test("Send uses the clean Letta Code endpoint, never /api/test or terminal keystrokes", async () => {
     const ctx = inputOptionsSetup();
     ctx.container.querySelector(".am-test-input").value = "hello there";
     await ctx.api.send();
-    expect(ctx.sentLines).toEqual(["hello there"]);
-    expect(ctx.posts.length).toBe(0);
+    expect(ctx.sentLines).toEqual([]);
+    expect(ctx.posts).toEqual([
+      {
+        url: "/api/letta-code-message",
+        body: { agent: "a9", text: "hello there" },
+      },
+    ]);
     expect(ctx.statuses).toEqual([{ agentId: "a9", status: "active" }]);
   });
 
@@ -385,12 +392,13 @@ describe("InputOptionsRenderer (Strategy)", () => {
     expect(ctx.sentLines.length).toBe(0);
   });
 
-  test("render() wires a background terminal session for the Send button", async () => {
+  test("render() does not wire the klunky background terminal", async () => {
     const ctx = inputOptionsSetup();
     ctx.container.querySelector(".am-test-input").value = "hi";
     await ctx.api.send();
-    expect(ctx.sentLines).toEqual(["hi"]);
+    expect(ctx.sentLines).toEqual([]);
     expect(ctx.terminalDisposed).toBe(false);
+    expect(ctx.api.terminal).toBe(null);
   });
 
   test("model dropdown loads options from /api/agent-model and shows current", async () => {

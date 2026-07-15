@@ -896,14 +896,8 @@ export class InputOptionsRenderer extends DetailRenderer {
     });
 
     // ── letta-code session (background pty running `letta --agent <id>`) ──
-    // This is the ONLY path text is sent to the agent through — see `send()`.
-    const terminal = this._terminalFactory({
-      container,
-      agentId: id,
-      agentName: this._agentName,
-      doc: this._doc,
-      bs,
-    });
+    // Disabled here: sends use the clean headless JSON endpoint below.
+    const terminal = null;
 
     // ── Send: forwards text into the letta-code session above ──────────────
     const send = async () => {
@@ -918,13 +912,18 @@ export class InputOptionsRenderer extends DetailRenderer {
       const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
       this._onStatus(id, "active");
       try {
-        // We only reach agents through a real letta-code session (the
-        // terminal below), never the raw Letta HTTP API directly — that
-        // used to be a second, parallel path into the agent:
-        //   const r = await this._http.postJSON("/api/test", { agent: id, text });
-        terminal.sendLine(text);
-        outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div><span class="msi-line">sent — see the terminal below for the reply</span></div>`;
-        showStatus("Sent to the letta-code session.");
+        const r = await this._http.postJSON("/api/letta-code-message", {
+          agent: id,
+          text,
+        });
+        if (!r?.ok || !r.reply)
+          throw new Error(r?.error || "Mazda returned no answer.");
+        const replies = [{ type: "assistant_message", text: r.reply }];
+        outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div>${renderReplyRows(replies, this._agentName)}</div>`;
+        showStatus("Answer received.");
+        if (this._speech?.supported) {
+          this._speech.speak(composeSpokenText(replies), this._agentName);
+        }
       } catch (e) {
         this._onStatus(id, "error");
         outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div><span class="msi-line err">! ${TextUtils.esc(e.message)}</span></div>`;

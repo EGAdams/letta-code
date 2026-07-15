@@ -888,6 +888,44 @@ function renderRateOfChange(rate) {
   return h;
 }
 
+/* Live reset countdown. renderModelStats stamps spans with
+   data-countdown-until (unix seconds); one shared ticker keeps them counting
+   down each second and re-fetches the card once a deadline passes so the tab
+   flips back to green on its own. */
+function resetEpoch(when) {
+  if (!when) return null;
+  if (typeof when === "number") return when;
+  const t = Date.parse(when);
+  return Number.isNaN(t) ? null : t / 1000;
+}
+
+function fmtCountdown(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
+
+setInterval(() => {
+  document.querySelectorAll("[data-countdown-until]").forEach((el) => {
+    const secs = Math.round(
+      Number(el.dataset.countdownUntil) - Date.now() / 1000,
+    );
+    if (secs > 0) {
+      el.textContent = `${fmtCountdown(secs)} until reset`;
+    } else if (!el.dataset.countdownDone) {
+      el.dataset.countdownDone = "1";
+      el.textContent = "resetting now…";
+      if (MS.current) {
+        MS.show(MS.current);
+        MS.pollColors();
+      }
+    }
+  });
+}, 1000);
+
 function renderModelStats(d) {
   if (!d || d.ok === false) {
     return `<p class="am-warn">${esc(d?.error || "no data")}</p>`;
@@ -900,6 +938,23 @@ function renderModelStats(d) {
         : "#43a047";
   let h = '<div class="ms-card">';
   h += `<h3>${esc(d.label)} <span style="color:${dot}">●</span></h3>`;
+  if (d.rate_limited) {
+    // Provider-side 429: say so loudly, with the local reset time and a live
+    // countdown — the whole point is never having to diagnose this from a
+    // terminal again.
+    const until = Number(d.rate_limited_until) || null;
+    const at = until
+      ? new Date(until * 1000).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
+    h += `<p class="am-warn ms-rate-limited">⛔ RATE LIMITED (HTTP 429)${
+      at
+        ? ` — resets at ${at} · <span data-countdown-until="${until}">…</span>`
+        : " — reset time not reported"
+    }</p>`;
+  }
   if (d.model) h += `<p><b>Model:</b> <code>${esc(d.model)}</code></p>`;
   if (d.detail) h += `<p class="am-dim">${esc(d.detail)}</p>`;
   for (const w of d.windows || []) {
@@ -922,13 +977,14 @@ function renderModelStats(d) {
   if (d.leak?.suspected) {
     h += `<p class="ms-leak" title="Usage kept climbing across several consecutive time buckets even though the short-term rate looks calm — the signature of a background drip (leaked poller, stuck loop) rather than a normal work burst.">⚠ ${esc(d.leak.text || "Slow token drain")}</p>`;
   }
-  if (d.status === "down") {
+  if (d.status === "down" && !d.rate_limited) {
     // Show the reset of the window that's actually maxed (highest used %), not
     // just the first one — e.g. weekly at 100% while the 5-hour just reset.
     const maxed = (d.windows || [])
       .filter((w) => w.resets_in)
       .sort((a, b) => (b.used_percent || 0) - (a.used_percent || 0))[0];
-    h += `<p class="am-warn">MAXED OUT${maxed ? ` — ${esc(maxed.label)} resets ${esc(maxed.resets_in)}` : ""}</p>`;
+    const maxedEpoch = resetEpoch(maxed?.resets_at);
+    h += `<p class="am-warn">MAXED OUT${maxed ? ` — ${esc(maxed.label)} resets ${esc(maxed.resets_in)}` : ""}${maxedEpoch ? ` · <span data-countdown-until="${maxedEpoch}">…</span>` : ""}</p>`;
   }
   if (typeof d.tokens_used === "number") {
     h += `<p><b>Tokens used:</b> ${d.tokens_used.toLocaleString()}${d.cost_usd ? ` · $${d.cost_usd}` : ""}</p>`;

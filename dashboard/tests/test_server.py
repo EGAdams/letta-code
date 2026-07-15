@@ -533,8 +533,76 @@ def test_model_stats_claude_live_windows(monkeypatch):
     assert [w['used_percent'] for w in d['windows']] == [19.0, 12.0]
 
 
+def test_model_stats_claude_rate_limited_is_red_with_reset(monkeypatch):
+    # A provider-side 429 (the R46 Claude incident, 2026-07-15) must be RED
+    # with an absolute reset epoch, not yellow "usage unavailable".
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'as_of': 1000.0, 'error': 'HTTP 429', 'retry_after': 2627,
+        'recent_model': 'claude-opus-4-8'})
+    d = server.model_stats('r46-claude')
+    assert d['status'] == 'down'
+    assert d['rate_limited'] is True
+    assert d['rate_limited_until'] == 1000.0 + 2627
+    assert 'RATE LIMITED' in d['detail']
+
+
+def test_model_stats_claude_rate_limited_without_retry_after(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'as_of': 1000.0, 'error': 'HTTP 429'})
+    d = server.model_stats('w11-claude')
+    assert d['status'] == 'down' and d['rate_limited'] is True
+    assert 'rate_limited_until' not in d
+    assert 'reset time not reported' in d['detail']
+
+
+def test_model_stats_codex_rate_limited_is_red(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'model': 'gpt-5.5', 'as_of': 500.0,
+        'error': 'rate_limit_exceeded', 'retry_after': 60})
+    d = server.model_stats('w11-codex')
+    assert d['status'] == 'down' and d['rate_limited'] is True
+    assert d['rate_limited_until'] == 560.0
+
+
+def test_model_stats_claude_non_rate_limit_error_stays_concern(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'as_of': 1.0, 'error': 'HTTP 401'})
+    d = server.model_stats('r46-claude')
+    assert d['status'] == 'concern' and not d.get('rate_limited')
+
+
 def test_model_stats_unknown_source():
     assert server.model_stats('nope')['ok'] is False
+
+
+def test_validate_letta_code_prompt_accepts_normal_multiline_text():
+    assert server.validate_letta_code_prompt('hello\r\nMazda\t!') == 'hello\nMazda\t!'
+
+
+@pytest.mark.parametrize('text', ['bad\x00text', '\x1b[31mred', 'bad\x7ftext'])
+def test_validate_letta_code_prompt_rejects_terminal_control_characters(text):
+    with pytest.raises(ValueError, match='control characters'):
+        server.validate_letta_code_prompt(text)
+
+
+def test_run_letta_code_message_returns_only_final_result(monkeypatch):
+    monkeypatch.setattr(server.shutil, 'which', lambda _name: '/usr/bin/letta')
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        seen['argv'] = argv
+        return server.subprocess.CompletedProcess(
+            argv, 0,
+            stdout=json.dumps({'result': 'The clean answer.',
+                               'agent_id': 'agent-ok',
+                               'conversation_id': 'conv-ok'}), stderr='')
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    agent_id = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
+    result = server.run_letta_code_message(agent_id, 'question?')
+    assert result['reply'] == 'The clean answer.'
+    assert seen['argv'][0] == '/usr/bin/letta'
+    assert '--output-format' in seen['argv'] and 'json' in seen['argv']
 
 
 def test_classify_failure_distinguishes_classes():
@@ -1915,7 +1983,8 @@ def test_scan_message_routes_statements_to_statement_pipeline():
     assert 'tools/receipt_scanning_tools/store_statement_transactions.py' in msg
     # Statement evidence fields the statement-aware intake rubric reads.
     for field in ('transactions_parsed', 'transactions_stored',
-                  'transactions_duplicate', 'transactions_skipped_credits'):
+                  'transactions_duplicate', 'transactions_skipped_credits',
+                  'deposits_stored'):
         assert f'"{field}"' in msg, f'statement field {field!r} missing from message'
 
 

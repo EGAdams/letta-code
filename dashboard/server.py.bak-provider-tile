@@ -342,7 +342,6 @@ def record_recent_intake(image_path, label, kind='scan', facade=None):
             'kind': kind,
             'dispatched_at': time.time(),
             'expense_ids': [],
-            'duplicate_expense_ids': [],
             'parsed': None,
             'stored': None,
             'doc_kind': facade.get('doc_kind'),
@@ -362,7 +361,6 @@ def merge_recent_intake_event(event):
         if not isinstance(intake, dict):
             return False
         ids = list(intake.get('expense_ids') or [])
-        duplicate_ids = list(intake.get('duplicate_expense_ids') or [])
         # Duplicates matter as much as newly-stored rows here: a re-scan that
         # stores nothing still shows its transactions so they can be
         # recategorized before the next scan.
@@ -376,14 +374,6 @@ def merge_recent_intake_event(event):
             if eid not in ids:
                 ids.append(eid)
         intake['expense_ids'] = ids
-        for eid in event.get('duplicate_expense_ids') or []:
-            try:
-                eid = int(eid)
-            except (TypeError, ValueError):
-                continue
-            if eid not in duplicate_ids:
-                duplicate_ids.append(eid)
-        intake['duplicate_expense_ids'] = duplicate_ids
         for k in ('parsed', 'stored'):
             if event.get(k) is not None:
                 try:
@@ -475,7 +465,6 @@ def _fetch_expenses_by_ids(ids):
         rep = _reporting_category_for_id(
             int(cid) if cid is not None else None, parent_of)
         out.append({
-            'id': int(r['id']),
             'date': str(r['expense_date']),
             'amount': str(r['amount']),
             'vendor_key': (r.get('id_light') or '').strip(),
@@ -575,10 +564,6 @@ def build_recent_intake_html(intake):
     reported = intake.get('reported_at')
     parsed = intake.get('parsed')
     stored = intake.get('stored')
-    duplicate_ids = {
-        int(i) for i in (intake.get('duplicate_expense_ids') or [])
-        if str(i).isdigit()
-    }
 
     rows, row_error = [], None
     try:
@@ -627,27 +612,17 @@ def build_recent_intake_html(intake):
 
     trs = []
     for r in rows:
-        row_id = r.get('id')
-        is_duplicate = row_id in duplicate_ids or (stored == 0 and bool(parsed))
-        duplicate_badge = (' <strong class="duplicate-badge">DUPLICATE</strong>'
-                           if is_duplicate else '')
         trs.append(
-            '<tr class="%s%s" data-expense-id="%s" '
-            'data-source-document="%s" data-is-duplicate="%s" '
-            'data-vendor-key="%s" data-description="%s" '
+            '<tr class="%s" data-vendor-key="%s" data-description="%s" '
             'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
             'title="Click row to set category / view receipt">'
             '<td>%s</td><td class="number">%s</td><td>%s</td><td>%s</td></tr>' % (
-                r['cat_class'], ' duplicate-row' if is_duplicate else '',
-                row_id or '',
-                _esc(receipt_path or pdf_path or '', quote=True),
-                'true' if is_duplicate else 'false',
+                r['cat_class'],
                 _esc(r['vendor_key'], quote=True),
                 _esc(r['description'], quote=True),
                 _esc(r['amount'], quote=True),
                 _esc(r['date'], quote=True),
-                _esc(r['description']) + duplicate_badge,
-                _esc(r['amount']), _esc(r['date']),
+                _esc(r['description']), _esc(r['amount']), _esc(r['date']),
                 _esc(r['reporting_category']),
             ))
     table = ''
@@ -677,9 +652,6 @@ def build_recent_intake_html(intake):
         '    th { background:#0f172a; color:#fff; }\n'
         '    th.number, td.number { text-align:right; }\n'
         '    .muted { color:#6b7280; }\n'
-        '    .duplicate-row td { box-shadow:inset 0 2px #b91c1c,inset 0 -2px #b91c1c; }\n'
-        '    .duplicate-badge { display:inline-block; margin-left:8px; padding:2px 7px; '
-        'border-radius:999px; background:#b91c1c; color:#fff; font-size:.72rem; letter-spacing:.04em; }\n'
         + _receipt_only_cat_css() + '\n'
         + click_css + '\n'
         + picker_css + '\n'
@@ -1448,19 +1420,15 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'  S1. Extract every transaction (Gemini vision):\n'
         f'      {MAZDA_RF_VENV_PY} tools/receipt_scanning_tools/parse_statement_scan.py '
         f'{scan_image_path} -o /tmp/mazda_stmt.json\n'
-        f'  S2. Dedupe + store them. Expenses are inserted UNCATEGORIZED (they enter '
-        f'the New Records queue for a human to categorize — do NOT run the categorizer '
-        f'for statements). Deposits/credits are NOT expenses: the script persists them '
-        f'to the bank-side `transactions` ledger (type CREDIT, never categorized, '
-        f'never reviewed by a human):\n'
+        f'  S2. Dedupe + store them UNCATEGORIZED (they enter the New Records queue '
+        f'for a human to categorize — do NOT run the categorizer for statements):\n'
         f'      {MAZDA_RF_VENV_PY} '
         f'tools/receipt_scanning_tools/store_statement_transactions.py '
         f'-f /tmp/mazda_stmt.json --source-file {scan_image_path}\n'
         f'      → {{"transactions_parsed": N, "skipped_credits": N, "duplicates": N, '
-        f'"stored": N, "expense_ids": [...], "deposits_stored": N, "deposit_ids": [...], '
-        f'"deposit_duplicates": N}}\n'
-        f'  EVERY row coming back "duplicates" or "deposit_duplicates" is a SUCCESSFUL '
-        f'no-op, not a failure, and a deposit missing from expenses is CORRECT. '
+        f'"stored": N, "expense_ids": [...]}}\n'
+        f'  Payments/credits are skipped automatically (deposits are not expenses), '
+        f'and EVERY row coming back "duplicates" is a SUCCESSFUL no-op, not a failure. '
         f'Then continue at STEP 5 with the STATEMENT evidence JSON described there.\n\n'
         f'STEP 2 — INVESTIGATE (only with REAL parsed data — never pass "unknown"):\n'
         f'  a. check_vendor_key(id_light="scan", description=<merchant>, '
@@ -1515,7 +1483,6 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'"classification_confidence": <0-1>, "duplicate_checked": true, '
         f'"transactions_parsed": <N from S2>, "transactions_stored": <N>, '
         f'"transactions_duplicate": <N>, "transactions_skipped_credits": <N>, '
-        f'"deposits_stored": <N from S2, deposits persisted to transactions>, '
         f'"problems": [<strings>]}}\n'
         f'  Keep the returned trace_id.\n\n'
         f'STEP 6 — judge_trace(trace_id) — ALWAYS, on success or failure. The intake rubric '
@@ -1544,8 +1511,6 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'"duplicate_expense_ids":[<the duplicate_expense_ids list from '
         f'store_statement_transactions.py; [] when none>],'
         f'"parsed":<transactions parsed>,"stored":<transactions stored>,'
-        f'"deposits_stored":<deposits stored to the transactions ledger this run; '
-        f'0 when none>,'
         f'"expense_date":"<YYYY-MM-DD>",'
         f'"amount":"<decimal string>","vendor_key":"<vendor_key>",'
         f'"description":"<merchant_name>","receipt_url":"<scan_image_path>",'
@@ -1635,8 +1600,8 @@ def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None):
 
 
 # ── Mazda Trainer ────────────────────────────────────────────────────────────
-# Every scan dispatched to Mazda also spawns a Codex Trainer agent that watches
-# the run, verifies the document was
+# Every scan dispatched to Mazda also spawns a Trainer agent (Claude, via the
+# claude-code-sdk-ts library) that watches the run, verifies the document was
 # processed correctly, and coaches Mazda on failures. Mazda runs on a cheap mini
 # model while her self-improvement harness is validated — the Trainer is the
 # safety net that makes that acceptable. Fire-and-forget, like the Mazda
@@ -1678,11 +1643,10 @@ def _notify_trainer_of_scan(scan_image_path, scanner_name, facade_result=None):
     cmd = build_trainer_command(
         scan_image_path, scanner_name, facade_result, dispatched_at)
     env = dict(os.environ)
-    # The systemd --user service's PATH lacks bun/codex; the runner spawns the
-    # `codex` CLI, so both bins must be reachable from the child.
+    # The systemd --user service's PATH lacks bun/claude; the SDK spawns the
+    # `claude` CLI, so both bins must be reachable from the child.
     env['PATH'] = ':'.join([
         os.path.expanduser('~/.bun/bin'), os.path.expanduser('~/.local/bin'),
-        os.path.expanduser('~/.npm-global/bin'),
         env.get('PATH', '/usr/bin:/bin'),
     ])
     try:
@@ -2069,7 +2033,6 @@ def record_stored_expense(data):
         'report_path': data.get('report_path', ''),
         'expense_ids': data.get('expense_ids') or [],
         'duplicate_expense_ids': data.get('duplicate_expense_ids') or [],
-        'deposits_stored': data.get('deposits_stored') or 0,
         'parsed': data.get('parsed'),
         'stored': data.get('stored'),
         'doc_kind': data.get('doc_kind') or data.get('doc_type') or '',
@@ -3017,19 +2980,6 @@ SERVERS = [
                 f'{LETTA_DOCKER_HOST} (Docker container on the Win10 box)',
     },
     {
-        'key': 'chatgpt-provider',
-        'name': 'ChatGPT Provider (Mazda LLM)',
-        'check': 'chatgpt_provider_health',
-        'remote': True,
-        'depends_on': 'letta',
-        'note': 'OAuth token on the chatgpt-plus-pro Letta provider — the credential '
-                'Mazda + the Suzuki fleet make every LLM call with. RED = token dead '
-                '(e.g. expired access token + invalid refresh token): every dispatch '
-                'to the fleet fails with HTTP 401 even while scans and all other '
-                'servers look fine. Restart swaps in the standby account token '
-                '(swap_chatgpt_provider_token.sh on the Letta box).',
-    },
-    {
         'key': 'executor',
         'name': 'Executor Server',
         'health_url': 'http://127.0.0.1:8787/health',
@@ -3632,46 +3582,6 @@ def restart_document_vision():
 
 # server key → restart handler (returns {ok, text}). Covers ALL SERVERS so every
 # Server Management tab can be restarted from the UI.
-def chatgpt_provider_health(timeout=None):
-    """Zero-token health of the chatgpt-plus-pro OAuth credential itself — the
-    token every Mazda/Suzuki LLM step runs on. Distinct from the Letta tile
-    (server up != token valid): on 2026-07-13 a scan dispatched cleanly, Letta
-    was green, and Mazda silently got nothing because the provider token had
-    expired with a dead refresh token (HTTP 401 on every dispatch). This tile
-    makes that state RED in Server Management instead of only Agent Management."""
-    try:
-        creds, ptype = _fetch_provider_oauth_creds(CHATGPT_PLUS_PRO)
-    except Exception as e:
-        return {'ok': False, 'text': f'cannot read provider row from Letta API: {e}'}
-    if not creds:
-        return {'ok': False, 'text': f'{CHATGPT_PLUS_PRO}: provider row has no OAuth creds'}
-    probe_fn = PROVIDER_USAGE_PROBES.get(ptype)
-    if not probe_fn:
-        return {'ok': False, 'text': f'no usage probe for provider type {ptype!r}'}
-    probe = probe_fn(creds, timeout=timeout or 8)
-    if probe['ok']:
-        return {'ok': True, 'text': f'{CHATGPT_PLUS_PRO} token valid — usage {probe["text"]}'}
-    return {'ok': False, 'hard': True,  # a restart click can't revive a dead token by itself
-            'text': f'{CHATGPT_PLUS_PRO} token UNUSABLE — {probe["text"]} — Mazda + fleet '
-                    f'cannot run a single LLM step (dispatches fail HTTP 401); '
-                    f'Restart swaps to the standby account token'}
-
-
-def restart_chatgpt_provider():
-    """'Restart' for the provider tile = swap the chatgpt-plus-pro row to the
-    standby account token on the Letta box (same script auto-failover uses).
-    Only helps when the standby token is alive — the tile stays red otherwise."""
-    _log_restart('chatgpt-provider: swap provider token to standby')
-    ok, note = _run_chatgpt_failover_swap()
-    if not ok:
-        return {'ok': False, 'text': f'token swap failed — {note}'}
-    try:
-        _poll_chatgpt_provider_once()  # refresh the fleet's send-errors now, not in 90s
-    except Exception:
-        pass
-    return {'ok': True, 'text': f'provider token swapped to standby — {note}'}
-
-
 RESTART_HANDLERS = {
     'win10-node': restart_win10_node,          # revive WSL node via the Windows host
     'executor': start_executor_server,        # script frees the port + relaunches
@@ -3691,7 +3601,6 @@ RESTART_HANDLERS = {
         'systemctl --user restart dashboard-proxy.service 2>&1 | tail -3 || '
         'echo "no dashboard-proxy.service — start mechanism unknown, please configure"'),
     'document-vision': restart_document_vision,
-    'chatgpt-provider': restart_chatgpt_provider,  # swap provider row to standby token
 }
 RESTARTABLE_KEYS = set(RESTART_HANDLERS)
 
@@ -4194,7 +4103,6 @@ HEALTH_CHECKS = {
     'frita_executor_health': frita_executor_health,
     'win10_node_health': win10_node_health,
     'document_vision_health': document_vision_health,
-    'chatgpt_provider_health': chatgpt_provider_health,
 }
 
 
@@ -4250,9 +4158,8 @@ def compute_server_status(health, *, starting=False, restartable=False,
          reachable, so a Restart button can recover it;
       4. recently-restarted — the 'starting' grace window after a Restart.
     Red ('down') is reserved for genuinely-stuck servers: down with no restart
-    path, a remote whose host we can't even reach (host_unreachable) to attempt
-    a fix, or a health result flagged 'hard': True — a failure a restart click
-    cannot fix by itself (e.g. a dead OAuth token that needs human re-auth). host_unreachable is derived from an actual host probe (e.g. the SSH/
+    path, or a remote whose host we can't even reach (host_unreachable) to attempt
+    a fix. host_unreachable is derived from an actual host probe (e.g. the SSH/
     docker check), not from guessing at the health-text wording."""
     if health is not None and health.get('ok'):
         return 'concern' if health.get('concern') else 'up'
@@ -4260,7 +4167,7 @@ def compute_server_status(health, *, starting=False, restartable=False,
         return 'starting'
     if dependency_down:
         return 'concern'
-    if restartable and not host_unreachable and not (health or {}).get('hard'):
+    if restartable and not host_unreachable:
         return 'concern'
     return 'down'
 
@@ -5235,12 +5142,6 @@ except urllib.error.HTTPError as e:
     except Exception:
         pass
     out["error"] = code or ("HTTP %d" % e.code)
-    ra = e.headers.get("Retry-After") if e.headers else None
-    if ra:
-        try:
-            out["retry_after"] = int(ra)
-        except ValueError:
-            pass
 except Exception as e:
     out["error"] = str(e)[:140]
 print(json.dumps(out))
@@ -5292,12 +5193,6 @@ try:
             raise
 except urllib.error.HTTPError as e:
     out["error"] = "HTTP %d" % e.code
-    ra = e.headers.get("Retry-After") if e.headers else None
-    if ra:
-        try:
-            out["retry_after"] = int(ra)
-        except ValueError:
-            pass
 except Exception as e:
     out["error"] = str(e)[:140]
 try:
@@ -5454,29 +5349,6 @@ def model_stats(source_key):
     return out
 
 
-def _looks_rate_limited(err):
-    t = str(err).lower()
-    return ('429' in t or 'rate limit' in t or 'rate_limit' in t
-            or 'too many requests' in t)
-
-
-def _fill_rate_limited(out, d, err):
-    """A provider-side 429 means the ACCOUNT is throttled — that's red
-    ('you cannot use this provider right now'), not a yellow 'usage
-    unavailable' shrug. Surface the reset as an absolute epoch so the
-    frontend can render a live countdown."""
-    out['status'] = 'down'
-    out['rate_limited'] = True
-    retry_after = d.get('retry_after')
-    if retry_after:
-        until = (d.get('as_of') or time.time()) + retry_after
-        out['rate_limited_until'] = until
-        out['detail'] = f'RATE LIMITED ({err}) — resets {_human_reset(until)}'
-    else:
-        out['detail'] = f'RATE LIMITED ({err}) — reset time not reported'
-    return out
-
-
 def _model_stats_uncached(source_key, src):
     out = {'ok': True, 'key': source_key, 'label': src['label'], 'kind': src['kind'],
            'windows': [], 'status': 'up', 'detail': ''}
@@ -5487,10 +5359,8 @@ def _model_stats_uncached(source_key, src):
         out['as_of'] = d.get('as_of')
         u = d.get('usage') or {}
         if d.get('error') or not u:
-            err = d.get('error', 'no data')
-            if _looks_rate_limited(err):
-                return _fill_rate_limited(out, d, err)
             out['status'] = 'concern'
+            err = d.get('error', 'no data')
             hint = ' — run `codex login`' if 'expired' in str(err) or 'token' in str(err) else ''
             out['detail'] = f'usage unavailable: {err}{hint}'
             return out
@@ -5514,18 +5384,6 @@ def _model_stats_uncached(source_key, src):
                 'resets_at': w.get('reset_at'),
                 'resets_in': _human_reset(w.get('reset_at')),
             })
-        # OpenAI temporarily removed the rolling 5-hour Codex cap on Plus/Pro/
-        # Business tiers on 2026-07-12 (following the GPT-5.6 Sol launch), so
-        # wham/usage now returns secondary_window: null — there's genuinely no
-        # 5-hour data to show, not a bug on our end. Insert a placeholder row
-        # for parity with the Claude card, which always shows both windows;
-        # flip back to real data automatically once OpenAI restores the window.
-        if not any(x['label'] == '5-hour' for x in out['windows']):
-            out['windows'].append({
-                'label': '5-hour', 'used_percent': None, 'resets_at': None,
-                'resets_in': None, 'unavailable': True,
-                'note': 'OpenAI paused the 5-hour cap 2026-07-12 (weekly-only, for now)',
-            })
         out['windows'].sort(key=lambda x: _CODEX_WINDOW_ORDER.get(x['label'], 99))
         if rl.get('limit_reached') or worst >= 100:
             out['status'] = 'down'        # maxed → red, with reset shown
@@ -5539,11 +5397,8 @@ def _model_stats_uncached(source_key, src):
         out['model'] = d.get('recent_model') or 'Claude subscription'
         u = d.get('usage') or {}
         if d.get('error') or not u:
-            err = d.get('error', 'no data')
-            if _looks_rate_limited(err):
-                return _fill_rate_limited(out, d, err)
             out['status'] = 'concern'
-            out['detail'] = f'usage unavailable: {err}'
+            out['detail'] = f'usage unavailable: {d.get("error", "no data")}'
             return out
         worst = 0.0
         for key, label in (('five_hour', '5-hour'), ('seven_day', 'weekly')):
@@ -5857,51 +5712,6 @@ import termios
 
 _WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 _TERMINAL_ID_RE = re.compile(r'^[A-Za-z0-9_-]+$')
-_LETTA_CODE_MAX_PROMPT_CHARS = 20000
-_LETTA_CODE_FORBIDDEN_INPUT_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
-
-
-def validate_letta_code_prompt(value):
-    """Accept message text while rejecting terminal-control traffic."""
-    if not isinstance(value, str):
-        raise ValueError('message must be text')
-    value = value.replace('\r\n', '\n').replace('\r', '\n')
-    if not value.strip():
-        raise ValueError('message is empty')
-    if len(value) > _LETTA_CODE_MAX_PROMPT_CHARS:
-        raise ValueError(f'message is too long (maximum {_LETTA_CODE_MAX_PROMPT_CHARS} characters)')
-    if _LETTA_CODE_FORBIDDEN_INPUT_RE.search(value):
-        raise ValueError('message contains unsupported control characters')
-    return value
-
-
-def run_letta_code_message(agent_id, prompt, timeout=330):
-    """Run one Letta Code turn and expose only its final JSON result."""
-    lid = letta_id_for(agent_id)
-    if not lid or not _TERMINAL_ID_RE.fullmatch(lid):
-        raise ValueError('invalid Letta agent id')
-    clean_prompt = validate_letta_code_prompt(prompt)
-    letta_bin = shutil.which('letta') or os.path.join(REPO_ROOT, 'letta.js')
-    proc = subprocess.run(
-        [letta_bin, '--agent', lid, '--prompt', clean_prompt,
-         '--output-format', 'json', '--memfs-startup', 'skip'],
-        cwd=REPO_ROOT, text=True, capture_output=True, timeout=timeout,
-        env={**os.environ, 'LETTA_BASE_URL': LETTA_BASE_URL},
-    )
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or 'Letta Code failed').strip()
-        raise RuntimeError(detail[-1000:])
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError('Letta Code returned invalid JSON') from exc
-    result = payload.get('result')
-    if not isinstance(result, str) or not result.strip():
-        raise RuntimeError('Mazda returned no answer')
-    return {'ok': True, 'reply': result, 'run': {
-        'agent_id': payload.get('agent_id'),
-        'conversation_id': payload.get('conversation_id'),
-    }}
 
 
 def ws_accept_key(sec_websocket_key):
@@ -6780,20 +6590,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response({'replies': [{'type': 'assistant_message', 'text': f'[stub] {agent_id} got: {text}'}]})
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
-
-        if path == '/api/letta-code-message':
-            try:
-                data = json.loads(body)
-                return self.json_response(run_letta_code_message(
-                    data.get('agent', ''), data.get('text', '')))
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            except ValueError as e:
-                return self.error_response(str(e), 400)
-            except subprocess.TimeoutExpired:
-                return self.error_response('Mazda took too long to answer', 504)
-            except Exception as e:
-                return self.error_response(str(e), 502)
 
         if path == '/api/recategorize-expense':
             try:

@@ -91,20 +91,81 @@ export class RolFinanceReportsController {
   }
 
   /**
-   * Inject the Recent Report + month tabs (once), preload the first month's
-   * document tabs, then land on the Recent Report view — the Verified
-   * Transactions of the most recently processed document.
+   * Inject the Back-to-months + Recent Report + month tabs (once), then land
+   * on the Recent Report view — the Verified Transactions of the most recently
+   * processed document. Months are a navigation level of their own: no
+   * document tabs are shown until a month is tapped (openMonth), and the
+   * injected Back tab (hidden here) returns from a month's documents to this
+   * months-only level.
    */
   async openReports() {
     if (!this._monthsBuilt) {
+      this.buildMonthsBackTab();
       this.buildRecentReportTab();
       this.buildMonthTabs();
       this._monthsBuilt = true;
     }
-    const first = this._months[0];
-    if (first) await this.openMonth(first.key);
     this.openRecentReport();
     this.startPolling();
+  }
+
+  /**
+   * Inject the "Back" tab (once, hidden) that leads from a month's document
+   * list back to the months-only level. It sits ahead of the Recent Report +
+   * month tabs and only becomes visible while a month is open.
+   */
+  buildMonthsBackTab() {
+    const tab = this._doc.createElement("button");
+    tab.type = "button";
+    tab.className = "tab back-tab months-back-tab hidden";
+    tab.dataset.monthsBack = "1";
+    tab.textContent = "Back";
+    tab.addEventListener("click", () => this.backToMonths());
+    this._nav.appendChild(tab);
+  }
+
+  /**
+   * Enter the month-detail level: only this month's document tabs (plus the
+   * injected Back tab) are visible. The months, Recent Report, and the static
+   * back-to-ROL-Finance tab hide until backToMonths().
+   */
+  _enterMonthDetail() {
+    this._nav
+      .querySelectorAll(".tab[data-recent-report], .tab.month-tab")
+      .forEach((t) => {
+        t.classList.add("hidden");
+      });
+    this._nav.querySelectorAll(".tab[data-months-back]").forEach((t) => {
+      t.classList.remove("hidden");
+    });
+    const staticBack = this._nav.querySelector("#btn-back-rol-finance-reports");
+    if (staticBack) staticBack.classList.add("hidden");
+  }
+
+  /**
+   * Leave the month-detail level: drop the document tabs and show just the
+   * months (plus Recent Report) again, landing back on the Recent Report view.
+   */
+  backToMonths() {
+    this._nav.querySelectorAll(".tab[data-report-key]").forEach((t) => {
+      t.remove();
+    });
+    this._nav.querySelectorAll(".tab[data-months-back]").forEach((t) => {
+      t.classList.add("hidden");
+    });
+    this._nav
+      .querySelectorAll(".tab[data-recent-report], .tab.month-tab")
+      .forEach((t) => {
+        t.classList.remove("hidden");
+        t.classList.remove("active");
+      });
+    const staticBack = this._nav.querySelector("#btn-back-rol-finance-reports");
+    if (staticBack) staticBack.classList.remove("hidden");
+    this._activeMonthKey = null;
+    this._viewsContainer.innerHTML = "";
+    this.openRecentReport();
+    // Re-scope New Records / month colors to "all months" (fire-and-forget).
+    this.refreshStatus();
   }
 
   /** Inject the "Recent Report" tab (once), ahead of the month tabs. */
@@ -561,8 +622,9 @@ export class RolFinanceReportsController {
   }
 
   /**
-   * Select a month: highlight its tab, fetch its report list (cached per
-   * month key), and (re)build its document tabs/views.
+   * Open a month's document level: hide the month tabs behind the injected
+   * Back tab, fetch this month's report list (cached per month key), and
+   * (re)build its document tabs/views.
    */
   async openMonth(monthKey) {
     const month = this._months.find((m) => m.key === monthKey);
@@ -575,6 +637,7 @@ export class RolFinanceReportsController {
     this._nav.querySelectorAll(".tab[data-recent-report]").forEach((t) => {
       t.classList.remove("active");
     });
+    this._enterMonthDetail();
 
     let reports = this._reportsByMonth.get(monthKey);
     if (!reports) {

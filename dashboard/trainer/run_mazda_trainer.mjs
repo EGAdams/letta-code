@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
-// Mazda Trainer — dynamically builds a Codex agent that
+// Mazda Trainer — dynamically builds a Claude agent (via claude-code-sdk-ts) that
 // watches ONE Mazda intake run, verifies it, and coaches Mazda on failures.
+// If a Claude session fails outright (quota/auth/crash/timeout), the watchdog
+// falls back to `codex exec` (gpt-5.4-mini) for the remaining attempts.
 //
 // Fired fire-and-forget by dashboard/server.py (_notify_trainer_of_scan) every time
 // a scan is dispatched to Mazda. Can also be run by hand:
@@ -14,8 +16,19 @@
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { claude } from '/home/adamsl/claude-code-sdk-ts/dist/index.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+
+// The SDK spawns the `claude` CLI with our env. An inherited ANTHROPIC_API_KEY
+// silently outranks the OAuth login and can point at a creditless API account
+// ("Credit balance is too low" → CLI exit 1 mid-run). CLAUDECODE /
+// CLAUDE_CODE_ENTRYPOINT leak when launched from inside a Claude Code session
+// and confuse the nested CLI. Strip all three so the trainer always runs on
+// this box's OAuth login regardless of who launched it.
+delete process.env.ANTHROPIC_API_KEY;
+delete process.env.CLAUDECODE;
+delete process.env.CLAUDE_CODE_ENTRYPOINT;
 
 const INSTRUCTIONS_PATH = join(HERE, 'mazda_trainer_instructions.md');
 const MANUAL_PATH = join(HERE, '..', '..', 'notes_plans_handoffs', 'mazda_dev_status.html');
@@ -23,7 +36,10 @@ const MANUAL_PATH = join(HERE, '..', '..', 'notes_plans_handoffs', 'mazda_dev_st
 const LETTA_BASE_URL = process.env.LETTA_BASE_URL || 'http://100.80.49.10:8283';
 const MAZDA_AGENT_ID =
   process.env.MAZDA_AGENT_ID || 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e';
-const TRAINER_MODEL = process.env.TRAINER_MODEL || 'gpt-5.6-sol';
+const TRAINER_MODEL = process.env.TRAINER_MODEL || 'sonnet';
+// Fallback when the Claude session itself fails; gpt-5.4-mini is the vetted
+// ChatGPT-OAuth mini handle (plain gpt-5-mini is rejected by the provider).
+const TRAINER_CODEX_MODEL = process.env.TRAINER_CODEX_MODEL || 'gpt-5.4-mini';
 const CODEX_BIN = process.env.MAZDA_TRAINER_CODEX_BIN || 'codex';
 const TRAINER_TIMEOUT_MS = Number(process.env.TRAINER_TIMEOUT_MS || 35 * 60 * 1000);
 // Cap any single session below the overall budget so a session that dies at the
@@ -91,12 +107,27 @@ function buildTaskMessage(args) {
   ].join('\n');
 }
 
+async function runClaudeAttempt(prompt, timeoutMs) {
+  return claude()
+    .withModel(TRAINER_MODEL)
+    .allowTools('Bash', 'Read', 'Write')
+    .skipPermissions()
+    .inDirectory(HERE)
+    .withTimeout(timeoutMs)
+    .withEnv({ LETTA_BASE_URL, MAZDA_AGENT_ID })
+    .onToolUse((tool) => {
+      console.log(`[trainer] tool: ${tool.name} ${JSON.stringify(tool.input).slice(0, 300)}`);
+    })
+    .query(prompt)
+    .asText();
+}
+
 async function runCodexAttempt(prompt, timeoutMs, attempt) {
   const summaryPath = `/tmp/mazda_trainer_summary_${process.pid}_${attempt}.txt`;
   const proc = Bun.spawn([
     CODEX_BIN, 'exec', '--ephemeral', '--skip-git-repo-check',
     '--dangerously-bypass-approvals-and-sandbox', '--color', 'never',
-    '--model', TRAINER_MODEL, '--cd', HERE,
+    '--model', TRAINER_CODEX_MODEL, '--cd', HERE,
     '--output-last-message', summaryPath, '-',
   ], {
     cwd: HERE,
@@ -133,7 +164,7 @@ function writeEmergencyReport(args, errors) {
   writeFileSync(path, `# Mazda Trainer Report\n\n` +
     `- **Verdict:** STALLED\n- **Scanner:** ${args.scanner}\n` +
     `- **Document:** ${args.scanPath}\n- **Dispatch:** ${args.dispatchedAt}\n\n` +
-    `The Codex Trainer failed before it could complete evidence review or coaching. ` +
+    `The Trainer failed before it could complete evidence review or coaching. ` +
     `Mazda's intake result must not be treated as verified.\n\n` +
     `## Runner errors\n\n${errors.map((e) => `- ${e}`).join('\n')}\n`);
   return path;
@@ -142,7 +173,8 @@ function writeEmergencyReport(args, errors) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   console.log(`[trainer] watching Mazda intake run: scanner=${args.scanner} ` +
-    `scan=${args.scanPath} dispatched_at=${args.dispatchedAt} model=${TRAINER_MODEL}`);
+    `scan=${args.scanPath} dispatched_at=${args.dispatchedAt} ` +
+    `model=${TRAINER_MODEL} codex_fallback=${TRAINER_CODEX_MODEL}`);
 
   const prompt = `${buildSystemMessage()}\n\n---\n\n${buildTaskMessage(args)}`;
 
@@ -174,6 +206,11 @@ async function main() {
 
   const MAX_ATTEMPTS = 3;
   const errors = [];
+  // Claude is the primary. A session that ERRORS (quota/auth/crash/timeout)
+  // flips all remaining attempts to the codex fallback; a session that merely
+  // ends without a report (the "stopped to wait" contract violation) retries
+  // on Claude, since the session itself was healthy.
+  let useCodex = false;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const remainingMs = TRAINER_TIMEOUT_MS - (Date.now() - startMs);
     if (remainingMs < 60_000) break;
@@ -189,16 +226,24 @@ as soon as you have a verdict, before any optional polish. Write to a NEW filena
 the current UTC timestamp; never overwrite a previous attempt's file. If you must wait,
 use only a foreground Bash sleep loop.`;
 
+    const attemptTimeoutMs = Math.min(remainingMs, TRAINER_ATTEMPT_TIMEOUT_MS);
     try {
-      const summary = await runCodexAttempt(
-        attemptPrompt, Math.min(remainingMs, TRAINER_ATTEMPT_TIMEOUT_MS), attempt);
-      console.log(`[trainer] attempt ${attempt} summary:\n` + summary);
+      const summary = useCodex
+        ? await runCodexAttempt(attemptPrompt, attemptTimeoutMs, attempt)
+        : await runClaudeAttempt(attemptPrompt, attemptTimeoutMs);
+      console.log(`[trainer] attempt ${attempt} (${useCodex ? 'codex' : 'claude'}) summary:\n` + summary);
     } catch (err) {
       // A session that times out or crashes AFTER writing the report still
       // fulfilled the contract — the report is the deliverable, the final
       // summary is garnish. Fall through to the reportWritten() check.
-      console.error(`[trainer] attempt ${attempt} errored: ${err?.message || err}`);
-      errors.push(`attempt ${attempt}: ${err?.message || err}`);
+      const backend = useCodex ? 'codex' : 'claude';
+      console.error(`[trainer] attempt ${attempt} (${backend}) errored: ${err?.message || err}`);
+      errors.push(`attempt ${attempt} (${backend}): ${err?.message || err}`);
+      if (!useCodex) {
+        useCodex = true;
+        console.log(`[trainer] Claude session failed — falling back to codex ` +
+          `(${TRAINER_CODEX_MODEL}) for remaining attempts.`);
+      }
     }
     if (reportWritten()) {
       console.log('[trainer] report file written — done.');

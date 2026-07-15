@@ -1448,19 +1448,15 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'  S1. Extract every transaction (Gemini vision):\n'
         f'      {MAZDA_RF_VENV_PY} tools/receipt_scanning_tools/parse_statement_scan.py '
         f'{scan_image_path} -o /tmp/mazda_stmt.json\n'
-        f'  S2. Dedupe + store them. Expenses are inserted UNCATEGORIZED (they enter '
-        f'the New Records queue for a human to categorize — do NOT run the categorizer '
-        f'for statements). Deposits/credits are NOT expenses: the script persists them '
-        f'to the bank-side `transactions` ledger (type CREDIT, never categorized, '
-        f'never reviewed by a human):\n'
+        f'  S2. Dedupe + store them UNCATEGORIZED (they enter the New Records queue '
+        f'for a human to categorize — do NOT run the categorizer for statements):\n'
         f'      {MAZDA_RF_VENV_PY} '
         f'tools/receipt_scanning_tools/store_statement_transactions.py '
         f'-f /tmp/mazda_stmt.json --source-file {scan_image_path}\n'
         f'      → {{"transactions_parsed": N, "skipped_credits": N, "duplicates": N, '
-        f'"stored": N, "expense_ids": [...], "deposits_stored": N, "deposit_ids": [...], '
-        f'"deposit_duplicates": N}}\n'
-        f'  EVERY row coming back "duplicates" or "deposit_duplicates" is a SUCCESSFUL '
-        f'no-op, not a failure, and a deposit missing from expenses is CORRECT. '
+        f'"stored": N, "expense_ids": [...]}}\n'
+        f'  Payments/credits are skipped automatically (deposits are not expenses), '
+        f'and EVERY row coming back "duplicates" is a SUCCESSFUL no-op, not a failure. '
         f'Then continue at STEP 5 with the STATEMENT evidence JSON described there.\n\n'
         f'STEP 2 — INVESTIGATE (only with REAL parsed data — never pass "unknown"):\n'
         f'  a. check_vendor_key(id_light="scan", description=<merchant>, '
@@ -1515,7 +1511,6 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'"classification_confidence": <0-1>, "duplicate_checked": true, '
         f'"transactions_parsed": <N from S2>, "transactions_stored": <N>, '
         f'"transactions_duplicate": <N>, "transactions_skipped_credits": <N>, '
-        f'"deposits_stored": <N from S2, deposits persisted to transactions>, '
         f'"problems": [<strings>]}}\n'
         f'  Keep the returned trace_id.\n\n'
         f'STEP 6 — judge_trace(trace_id) — ALWAYS, on success or failure. The intake rubric '
@@ -1544,8 +1539,6 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'"duplicate_expense_ids":[<the duplicate_expense_ids list from '
         f'store_statement_transactions.py; [] when none>],'
         f'"parsed":<transactions parsed>,"stored":<transactions stored>,'
-        f'"deposits_stored":<deposits stored to the transactions ledger this run; '
-        f'0 when none>,'
         f'"expense_date":"<YYYY-MM-DD>",'
         f'"amount":"<decimal string>","vendor_key":"<vendor_key>",'
         f'"description":"<merchant_name>","receipt_url":"<scan_image_path>",'
@@ -2069,7 +2062,6 @@ def record_stored_expense(data):
         'report_path': data.get('report_path', ''),
         'expense_ids': data.get('expense_ids') or [],
         'duplicate_expense_ids': data.get('duplicate_expense_ids') or [],
-        'deposits_stored': data.get('deposits_stored') or 0,
         'parsed': data.get('parsed'),
         'stored': data.get('stored'),
         'doc_kind': data.get('doc_kind') or data.get('doc_type') or '',

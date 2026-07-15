@@ -5,10 +5,13 @@ Operations skill for the Scissari Live Thought Monitor — the WebSocket pipelin
 ## Architecture
 
 ```
-lettabot (producer) → thought_bridge.py (:8765) → browser (ws://100.72.158.63:8765)
+lettabot (producer) → thought_bridge.py (:8766) → browser (ws://100.72.158.63:8766)
                                                  ↑
                              serve_monitor.py (:8899) serves the HTML over HTTP
 ```
+
+> Port is **8766**, not 8765 — 8765 is the dashboard server on the same host.
+> Lettabot's `~/lettabot/.env` sets `THOUGHT_BRIDGE_URL=ws://localhost:8766`.
 
 - **Producer**: `thought-broadcaster.ts` singleton in lettabot; fires on `reasoning`, `tool_call`, `tool_result` stream events in `processMessage`, `sendToAgent`, and `streamToAgent`.
 - **Bridge**: `thought_bridge.py` — Python asyncio WebSocket server; role-negotiated (first message `{"role":"producer"}` = producer, else consumer).
@@ -19,7 +22,7 @@ lettabot (producer) → thought_bridge.py (:8765) → browser (ws://100.72.158.6
 
 | File | Purpose |
 |------|---------|
-| `/home/adamsl/planner/a2a_communicating_agents/thought_bridge.py` | WebSocket fanout server (port 8765) |
+| `/home/adamsl/planner/a2a_communicating_agents/thought_bridge.py` | WebSocket fanout server (port 8766) |
 | `/home/adamsl/planner/a2a_communicating_agents/serve_monitor.py` | HTTP server for HTML (port 8899) |
 | `/home/adamsl/planner/a2a_communicating_agents/monitor_thoughts_plan.html` | Browser terminal UI |
 | `/home/adamsl/lettabot/src/core/thought-broadcaster.ts` | TS singleton WebSocket producer |
@@ -27,37 +30,34 @@ lettabot (producer) → thought_bridge.py (:8765) → browser (ws://100.72.158.6
 | `/home/adamsl/planner/a2a_communicating_agents/logs/monitor_http.log` | HTTP server log |
 | `/home/adamsl/lettabot/lettabot-api.json` | Lettabot API key (for pipeline tests) |
 
-## Starting the stack
+## Starting the stack (systemd-managed — preferred)
+
+Both processes run as systemd **user** units; don't nohup them while the units are enabled
+(you'll get EADDRINUSE):
 
 ```bash
-VENV=/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/venv/bin/python3
-mkdir -p /home/adamsl/planner/a2a_communicating_agents/logs
+systemctl --user restart thought-bridge.service thought-bridge-monitor.service
+systemctl --user status thought-bridge.service --no-pager -l | head -20  # "Bridge ready."
+journalctl --user -u thought-bridge.service -n 20 --no-pager
 
-# 1. Bridge
-nohup $VENV /home/adamsl/planner/a2a_communicating_agents/thought_bridge.py \
-  > /home/adamsl/planner/a2a_communicating_agents/logs/thought_bridge.log 2>&1 &
-
-# 2. HTTP monitor server
-nohup $VENV /home/adamsl/planner/a2a_communicating_agents/serve_monitor.py \
-  > /home/adamsl/planner/a2a_communicating_agents/logs/monitor_http.log 2>&1 &
-
-# 3. Restart lettabot (if not running or after rebuild)
-kill $(pgrep -f "dist/main.js" | head -1) 2>/dev/null; sleep 1
-nohup bash /home/adamsl/lettabot/start_scissari_bot.sh > /tmp/lettabot-new.log 2>&1 &
-
-# 4. Confirm producer connected
-until grep -q "Connected to bridge" /tmp/lettabot-new.log; do sleep 2; done
-tail -3 /home/adamsl/planner/a2a_communicating_agents/logs/thought_bridge.log
+# Restart lettabot if the producer needs to reconnect quickly
+systemctl --user list-units | grep -q lettabot && systemctl --user restart lettabot.service || \
+  { kill $(pgrep -f "dist/main.js" | head -1) 2>/dev/null; sleep 1; \
+    nohup bash /home/adamsl/lettabot/start_scissari_bot.sh > /tmp/lettabot-new.log 2>&1 & }
 ```
+
+Manual fallback (stop the units first): run `thought_bridge.py` and `serve_monitor.py`
+with `/home/adamsl/ws-venv/bin/python3` (has `websockets`; the old
+`receipt_scanning_tools/venv` path is broken).
 
 ## Checking status
 
 ```bash
-pgrep -f "thought_bridge.py" && echo "bridge OK" || echo "bridge DOWN"
-pgrep -f "serve_monitor.py"  && echo "http OK"   || echo "http DOWN"
-pgrep -f "dist/main.js"      && echo "lettabot OK" || echo "lettabot DOWN"
+ss -ltn | grep -E ':(8766|8899)\b'          # both must be listening
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8899/   # 200 = monitor up
+systemctl --user is-active thought-bridge.service thought-bridge-monitor.service
 grep "ThoughtBroadcaster" /tmp/lettabot-new.log | tail -1  # should say "Connected"
-tail -3 /home/adamsl/planner/a2a_communicating_agents/logs/thought_bridge.log  # producers=1
+journalctl --user -u thought-bridge.service -n 3 --no-pager  # producers=1
 ```
 
 ## URLs
@@ -71,7 +71,7 @@ tail -3 /home/adamsl/planner/a2a_communicating_agents/logs/thought_bridge.log  #
 
 ```python
 # Run from WSL to verify end-to-end
-VENV=/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/venv/bin/python3
+VENV=/home/adamsl/ws-venv/bin/python3
 $VENV - <<'EOF'
 import asyncio, json, threading, time, urllib.request
 
@@ -79,7 +79,7 @@ API_KEY = json.load(open('/home/adamsl/lettabot/lettabot-api.json'))['apiKey']
 
 async def consume(received):
     import websockets
-    async with websockets.connect('ws://100.72.158.63:8765', open_timeout=5) as ws:
+    async with websockets.connect('ws://100.72.158.63:8766', open_timeout=5) as ws:
         await asyncio.wait_for(ws.recv(), timeout=3)  # welcome
         try:
             while True:
@@ -107,6 +107,18 @@ EOF
 ```
 
 ## Troubleshooting
+
+### Dashboard shows "NEEDS ATTENTION — Connection refused" / units crash-looping
+- **Cause**: the repo directory moved (2026-07-14: `/home/adamsl/a2a_communicating_agents` →
+  `/home/adamsl/planner/a2a_communicating_agents`), so both units failed with
+  `status=200/CHDIR` and restart forever. `systemctl --user status` shows a huge
+  "restart counter" and `Changing to the requested working directory failed`.
+- **Fix**: update `WorkingDirectory`/`ExecStart` in
+  `~/.config/systemd/user/thought-bridge{,-monitor}.service`, then
+  `systemctl --user daemon-reload && systemctl --user restart thought-bridge thought-bridge-monitor`.
+- **Gotcha**: a copy restored from an old snapshot may hardcode `PORT = 8765` in
+  `thought_bridge.py` (and `ws://…:8765` in `monitor_thoughts_plan.html`) — that collides
+  with the dashboard. The bridge port must be **8766** everywhere.
 
 ### Page stuck on "CONNECTING..." / Chrome TypeError `classList` of null
 - **Cause**: `id="progress-fill indeterminate"` (space in ID) → querySelector returns null → crash in setStatus before WS starts.
