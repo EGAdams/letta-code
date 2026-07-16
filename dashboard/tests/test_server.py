@@ -483,11 +483,13 @@ def test_model_stats_sources_cover_w11_r46_gemini():
 
 
 def _codex_usage(primary, secondary=0, reached=False):
+    # Real payloads carry limit_window_seconds (5-hour=18000, weekly=604800); the
+    # extractor labels windows by that duration, so the fixture must include it.
     return {'model': 'gpt-5.5', 'as_of': 1.0, 'usage': {
         'plan_type': 'plus',
         'rate_limit': {'limit_reached': reached,
-                       'primary_window': {'used_percent': primary, 'reset_at': 9999999999},
-                       'secondary_window': {'used_percent': secondary, 'reset_at': 9999999999}}}}
+                       'primary_window': {'used_percent': primary, 'limit_window_seconds': 18000, 'reset_at': 9999999999},
+                       'secondary_window': {'used_percent': secondary, 'limit_window_seconds': 604800, 'reset_at': 9999999999}}}}
 
 
 def test_model_stats_codex_red_at_100_percent(monkeypatch):
@@ -513,6 +515,30 @@ def test_model_stats_codex_green_when_low(monkeypatch):
     # mom's machine ~90% left == ~10% used → green
     monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(10.0, 11.0))
     assert server.model_stats('r46-codex')['status'] == 'up'
+
+
+def test_codex_windows_labeled_by_duration_not_position(monkeypatch):
+    # Regression: Codex sometimes returns ONLY the weekly window in primary_window
+    # (secondary null). The old positional map mislabeled it "5-hour" and dropped
+    # the weekly bar; windows must now be labeled by limit_window_seconds.
+    weekly_only = {'model': 'gpt-5.5', 'as_of': 1.0, 'usage': {
+        'plan_type': 'plus',
+        'rate_limit': {'limit_reached': False,
+                       'primary_window': {'used_percent': 12.0, 'limit_window_seconds': 604800,
+                                          'reset_at': 9999999999},
+                       'secondary_window': None}}}
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: weekly_only)
+    d = server.model_stats('r46-codex')
+    labels = [w['label'] for w in d['windows']]
+    assert labels == ['weekly']               # the weekly bar is back, correctly labeled
+    assert d['windows'][0]['used_percent'] == 12.0
+
+
+def test_codex_window_label_helper():
+    assert server._codex_window_label(18000) == '5-hour'
+    assert server._codex_window_label(604800) == 'weekly'
+    assert server._codex_window_label(None) == 'usage'
+    assert server._codex_window_label(0) == 'usage'
 
 
 def test_model_stats_codex_token_expired_is_concern_with_hint(monkeypatch):

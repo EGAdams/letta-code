@@ -5469,6 +5469,7 @@ def _model_stats_uncached(source_key, src):
                 'resets_at': w.get('reset_at'),
                 'resets_in': _human_reset(w.get('reset_at')),
             })
+<<<<<<< Updated upstream
         # OpenAI temporarily removed the rolling 5-hour Codex cap on Plus/Pro/
         # Business tiers on 2026-07-12 (following the GPT-5.6 Sol launch), so
         # wham/usage now returns secondary_window: null — there's genuinely no
@@ -5481,6 +5482,8 @@ def _model_stats_uncached(source_key, src):
                 'resets_in': None, 'unavailable': True,
                 'note': 'OpenAI paused the 5-hour cap 2026-07-12 (weekly-only, for now)',
             })
+=======
+>>>>>>> Stashed changes
         out['windows'].sort(key=lambda x: _CODEX_WINDOW_ORDER.get(x['label'], 99))
         if rl.get('limit_reached') or worst >= 100:
             out['status'] = 'down'        # maxed → red, with reset shown
