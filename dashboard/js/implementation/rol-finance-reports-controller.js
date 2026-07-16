@@ -43,6 +43,11 @@ export class RolFinanceReportsController {
     receiptLookupEndpoint = "/api/receipt-lookup",
     recentScansLimit = 5,
     recentReportUrl = "/recent_report.html",
+    scannerReportUrl = "/scanner_report.html",
+    scanners = [
+      { key: "window", label: "Window Scanner" },
+      { key: "freezer", label: "Freezer Scanner" },
+    ],
     mazdaAgentId = "agent-6b536cf4-ec88-4290-b595-fed21d14bd8e",
     months = [
       { key: "jan-2025", label: "January 2025" },
@@ -73,6 +78,8 @@ export class RolFinanceReportsController {
     this._receiptLookupEndpoint = receiptLookupEndpoint;
     this._recentScansLimit = recentScansLimit;
     this._recentReportUrl = recentReportUrl;
+    this._scannerReportUrl = scannerReportUrl;
+    this._scanners = scanners;
     this._mazdaAgentId = mazdaAgentId;
     this._openUrl = openUrl;
     this._months = months;
@@ -102,6 +109,7 @@ export class RolFinanceReportsController {
     if (!this._monthsBuilt) {
       this.buildMonthsBackTab();
       this.buildRecentReportTab();
+      this.buildScannerTabs();
       this.buildMonthTabs();
       this._monthsBuilt = true;
     }
@@ -131,7 +139,9 @@ export class RolFinanceReportsController {
    */
   _enterMonthDetail() {
     this._nav
-      .querySelectorAll(".tab[data-recent-report], .tab.month-tab")
+      .querySelectorAll(
+        ".tab[data-recent-report], .tab[data-scanner], .tab.month-tab",
+      )
       .forEach((t) => {
         t.classList.add("hidden");
       });
@@ -154,7 +164,9 @@ export class RolFinanceReportsController {
       t.classList.add("hidden");
     });
     this._nav
-      .querySelectorAll(".tab[data-recent-report], .tab.month-tab")
+      .querySelectorAll(
+        ".tab[data-recent-report], .tab[data-scanner], .tab.month-tab",
+      )
       .forEach((t) => {
         t.classList.remove("hidden");
         t.classList.remove("active");
@@ -179,6 +191,63 @@ export class RolFinanceReportsController {
   }
 
   /**
+   * Inject one tab per physical scanner (once), after Recent Report. Each
+   * shows that scanner's OWN last scanned document — Recent Report shows the
+   * last processed document of any kind, which isn't enough when both
+   * scanners run at the same time.
+   */
+  buildScannerTabs() {
+    for (const s of this._scanners) {
+      const tab = this._doc.createElement("button");
+      tab.type = "button";
+      tab.className = "tab scanner-report-tab";
+      tab.dataset.scanner = s.key;
+      tab.textContent = s.label;
+      this._nav.appendChild(tab);
+    }
+  }
+
+  /**
+   * Open one scanner's view: an iframe over /scanner_report.html?scanner=<key>
+   * — the server renders the Verified Transactions of the last document
+   * scanned on that specific scanner (same synthetic intake page + category
+   * picker as Recent Report). Rebuilt on every open so the server re-resolves
+   * the scanner's latest scan.
+   */
+  openScannerReport(key) {
+    this._nav
+      .querySelectorAll(
+        ".tab[data-month-key], .tab[data-report-key], .tab[data-recent-report]",
+      )
+      .forEach((t) => {
+        t.classList.remove("active");
+      });
+    this._nav.querySelectorAll(".tab[data-scanner]").forEach((t) => {
+      t.classList.toggle("active", t.dataset.scanner === key);
+    });
+
+    const viewId = `rol-finance-report-scanner-${key}`;
+    const stale = this._viewsContainer.querySelector(`#${viewId}`);
+    if (stale) stale.remove();
+    const view = this._doc.createElement("section");
+    view.id = viewId;
+    view.className = "view";
+    const src = `${this._scannerReportUrl}?scanner=${encodeURIComponent(key)}`;
+    view.insertAdjacentHTML(
+      "beforeend",
+      `<iframe class="plan-frame" src="${TextUtils.esc(src)}"></iframe>`,
+    );
+    const iframe = view.querySelector("iframe");
+    if (iframe) {
+      iframe.addEventListener("load", () =>
+        this.showOnlyVerifiedTransactions(iframe),
+      );
+    }
+    this._viewsContainer.appendChild(view);
+    this._activateView(viewId);
+  }
+
+  /**
    * Open the Recent Report view: an iframe over /recent_report.html — the
    * server dynamically serves whichever report.html belongs to the most
    * recently processed document — collapsed to its Verified Transactions card
@@ -189,7 +258,9 @@ export class RolFinanceReportsController {
    */
   openRecentReport() {
     this._nav
-      .querySelectorAll(".tab[data-month-key], .tab[data-report-key]")
+      .querySelectorAll(
+        ".tab[data-month-key], .tab[data-report-key], .tab[data-scanner]",
+      )
       .forEach((t) => {
         t.classList.remove("active");
       });
@@ -729,9 +800,11 @@ export class RolFinanceReportsController {
     this._nav.querySelectorAll(".tab[data-month-key]").forEach((t) => {
       t.classList.toggle("active", t.dataset.monthKey === monthKey);
     });
-    this._nav.querySelectorAll(".tab[data-recent-report]").forEach((t) => {
-      t.classList.remove("active");
-    });
+    this._nav
+      .querySelectorAll(".tab[data-recent-report], .tab[data-scanner]")
+      .forEach((t) => {
+        t.classList.remove("active");
+      });
     this._enterMonthDetail();
 
     let reports = this._reportsByMonth.get(monthKey);
@@ -890,6 +963,11 @@ export class RolFinanceReportsController {
       if (r.exists) {
         const bar = this.buildReprocessBar(r);
         view.appendChild(bar);
+        // Red reports: explain the failure (and what clears it) above the
+        // Verified Transactions iframe, which hides the report's own
+        // Overall Result / verification sections.
+        const failureHtml = this.renderFailureReasonHtml(r);
+        if (failureHtml) view.insertAdjacentHTML("beforeend", failureHtml);
         // Keep the iframe in innerHTML so querySelectorAll on the view
         // can find it in the real DOM while the bar stays queryable via
         // the children tree (the FakeElement pattern this codebase uses).
@@ -908,6 +986,34 @@ export class RolFinanceReportsController {
       }
       this._viewsContainer.appendChild(view);
     }
+  }
+
+  /**
+   * Pure view method: render the "Document Failure Reason" section for a red
+   * report from the failure_detail the server extracted out of report.html
+   * (badge line, Overall Result summary, and the non-PASS sections that name
+   * the remaining work). Returns "" for non-fail reports or when the server
+   * had nothing to extract, so callers can insert the result unconditionally.
+   */
+  renderFailureReasonHtml(r) {
+    const d = r?.failure_detail;
+    if (r?.status !== "fail" || !d) return "";
+    const issues = (d.issues || [])
+      .map(
+        (i) =>
+          `<li><strong>${TextUtils.esc(i.section)}</strong> — ${TextUtils.esc(i.status)}: ${TextUtils.esc(i.text)}</li>`,
+      )
+      .join("");
+    return `<div class="doc-failure-reason">
+      <h3>Document Failure Reason</h3>
+      ${d.badge ? `<p class="dfr-badge">${TextUtils.esc(d.badge)}</p>` : ""}
+      ${d.summary ? `<p class="dfr-summary">${TextUtils.esc(d.summary)}</p>` : ""}
+      ${
+        issues
+          ? `<p class="dfr-todo">To clear the red state, resolve:</p><ul>${issues}</ul>`
+          : ""
+      }
+    </div>`;
   }
 
   /**
@@ -1008,9 +1114,11 @@ export class RolFinanceReportsController {
       this._nav.querySelectorAll(".tab[data-report-key]").forEach((t) => {
         t.classList.toggle("active", t === tab);
       });
-      this._nav.querySelectorAll(".tab[data-recent-report]").forEach((t) => {
-        t.classList.remove("active");
-      });
+      this._nav
+        .querySelectorAll(".tab[data-recent-report], .tab[data-scanner]")
+        .forEach((t) => {
+          t.classList.remove("active");
+        });
     }
     this.openReport(key);
   }

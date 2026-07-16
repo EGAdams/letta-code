@@ -25,6 +25,8 @@ from urllib.parse import urlparse, parse_qs, quote, unquote
 from voice.pipeline import build_pipeline, handle_voice_upload
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
+LETTA_CODE_BUN = os.environ.get(
+    'LETTA_CODE_BUN', os.path.expanduser('~/.bun/bin/bun'))
 
 # Time this process started serving — used by /api/code-status to detect source
 # files that changed on disk after the running process loaded them, so the
@@ -231,6 +233,56 @@ def _classify_report_status(report_file):
     return 'review'
 
 
+def _strip_html_text(fragment):
+    """Collapse an HTML fragment to its visible text (tags dropped,
+    whitespace normalized)."""
+    return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', fragment)).strip()
+
+
+def _extract_report_failure_detail(report_file):
+    """Pull the human-facing failure explanation out of a red report.html so
+    the dashboard can show it WITHOUT the iframe (which hides every section
+    except Verified Transactions): the hero badge line, the Overall Result
+    summary box, and each card section whose status pill is not PASS — those
+    sections name the remaining work needed to clear the red state. Returns
+    {badge, summary, issues: [{section, status, text}]} or None."""
+    try:
+        with open(report_file, 'r', encoding='utf-8', errors='replace') as f:
+            html = f.read()
+    except OSError:
+        return None
+    detail = {}
+    m = re.search(r'<div class="badge[^"]*">(.*?)</div>', html, re.S)
+    if m:
+        detail['badge'] = _strip_html_text(m.group(1))
+    m = re.search(r'<div class="summary-box">(.*?)</div>', html, re.S)
+    if m:
+        detail['summary'] = _strip_html_text(m.group(1))
+    issues = []
+    for sec in re.finditer(r'<section class="card">(.*?)</section>', html, re.S):
+        body = sec.group(1)
+        sm = re.search(r'<span class="status-(fail|warn)[^"]*">(.*?)</span>',
+                       body, re.S)
+        if not sm:
+            continue
+        hm = re.search(r'<h2[^>]*>(.*?)</h2>', body, re.S)
+        # First paragraph of the section, with the status pill itself removed
+        # so its label isn't duplicated in the text.
+        pm = re.search(r'<p>(.*?)</p>', body, re.S)
+        text = ''
+        if pm:
+            text = _strip_html_text(
+                re.sub(r'<span class="status-[^"]*">.*?</span>', '', pm.group(1), flags=re.S))
+        issues.append({
+            'section': _strip_html_text(hm.group(1)) if hm else '',
+            'status': _strip_html_text(sm.group(2)),
+            'text': text,
+        })
+    if issues:
+        detail['issues'] = issues
+    return detail or None
+
+
 def _rol_reports_base_dir(month_key):
     """Base dir for a month key, e.g. 'feb-2025' -> .../bank_statements/february."""
     sub = ROL_FINANCES_REPORTS_MONTHS.get(
@@ -283,6 +335,7 @@ def _rol_finance_recent_reports(limit=5):
 #   - the newest report.html mtime (Mazda rewriting a report on disk bumps it
 #     even when no callback fires).
 RECENT_REPORT_PATH = '/recent_report.html'
+SCANNER_REPORT_PATH = '/scanner_report.html'
 RECENT_REPORT_POINTER_FILE = os.path.join(HERE, 'recent_report.json')
 _recent_report_lock = threading.Lock()
 
@@ -321,7 +374,8 @@ def set_recent_report_pointer(report_path):
         return _write_recent_pointer_file(data)
 
 
-def record_recent_intake(image_path, label, kind='scan', facade=None):
+def record_recent_intake(image_path, label, kind='scan', facade=None,
+                         conversation_id=None, dispatched_at=None):
     """Record an intake dispatch (scan or PDF) the moment Mazda is notified,
     so /recent_report.html can show the document even before — or without —
     any report.html existing for it. Called from process_scanned_document /
@@ -335,73 +389,206 @@ def record_recent_intake(image_path, label, kind='scan', facade=None):
     facade = facade or {}
     with _recent_report_lock:
         data = _read_recent_pointer_file()
-        data['intake'] = {
+        intake = {
             'document': os.path.basename(image_path or ''),
             'image_path': image_path or '',
             'label': label or '',
             'kind': kind,
-            'dispatched_at': time.time(),
+            'dispatched_at': float(dispatched_at or time.time()),
             'expense_ids': [],
             'duplicate_expense_ids': [],
             'parsed': None,
             'stored': None,
             'doc_kind': facade.get('doc_kind'),
             'vendor': facade.get('vendor'),
+            'conversation_id': conversation_id,
+            'status': 'processing',
+            'status_detail': '',
         }
+        data['intake'] = intake
+        # Scans are ALSO recorded per-scanner (keyed by the scanner's human
+        # name), so the Window Scanner / Freezer Scanner tabs keep showing each
+        # scanner's own last document while both scanners run concurrently —
+        # the shared 'intake' slot above only ever shows whichever dispatch
+        # happened last.
+        if kind == 'scan' and label:
+            scanner_intakes = data.get('scanner_intakes')
+            if not isinstance(scanner_intakes, dict):
+                scanner_intakes = {}
+            scanner_intakes[label] = dict(intake)
+            data['scanner_intakes'] = scanner_intakes
         return _write_recent_pointer_file(data)
+
+
+def _fold_event_into_intake(intake, event):
+    """Fold one STEP 8 event's fields (expense ids + parsed/stored counts +
+    doc_kind/vendor) into one intake record, in place."""
+    ids = list(intake.get('expense_ids') or [])
+    duplicate_ids = list(intake.get('duplicate_expense_ids') or [])
+    # Duplicates matter as much as newly-stored rows here: a re-scan that
+    # stores nothing still shows its transactions so they can be
+    # recategorized before the next scan.
+    for eid in (list(event.get('expense_ids') or [])
+                + list(event.get('duplicate_expense_ids') or [])
+                + [event.get('expense_id')]):
+        try:
+            eid = int(eid)
+        except (TypeError, ValueError):
+            continue
+        if eid not in ids:
+            ids.append(eid)
+    intake['expense_ids'] = ids
+    for eid in event.get('duplicate_expense_ids') or []:
+        try:
+            eid = int(eid)
+        except (TypeError, ValueError):
+            continue
+        if eid not in duplicate_ids:
+            duplicate_ids.append(eid)
+    intake['duplicate_expense_ids'] = duplicate_ids
+    for k in ('parsed', 'stored'):
+        if event.get(k) is not None:
+            try:
+                intake[k] = int(event[k])
+            except (TypeError, ValueError):
+                pass
+    # doc_kind/vendor: Mazda's own classification (STEP 8 payload) beats the
+    # facade's dispatch-time guess (often 'unknown' for scanned images) —
+    # accept either her doc_kind (statement/receipt/unknown, matching the
+    # facade's vocabulary) or classify_scan.py's doc_type/merchant naming.
+    doc_kind = event.get('doc_kind') or event.get('doc_type')
+    if doc_kind and doc_kind != 'unknown':
+        intake['doc_kind'] = doc_kind
+    vendor = event.get('vendor') or event.get('merchant')
+    if vendor and vendor != 'unknown':
+        intake['vendor'] = vendor
+    intake['reported_at'] = time.time()
+    intake['status'] = (event.get('status') or 'complete').lower()
+    if event.get('status_detail'):
+        intake['status_detail'] = str(event['status_detail'])
+
+
+def _event_document_path(event):
+    """The source document an event refers to. document_path is explicit in
+    the (extended) STEP 8 payload; receipt_url has always carried the scan
+    image path for scanner intakes, so it doubles as a fallback for events
+    from agents still using the older message template."""
+    return (event.get('document_path') or event.get('receipt_url') or '').strip()
 
 
 def merge_recent_intake_event(event):
-    """Fold a STEP 8 /api/expense-stored event into the current intake record
-    (expense ids + parsed/stored counts + doc_kind/vendor), so the synthetic
-    recent view can list the actual transactions and describe the document
-    once Mazda reports them."""
+    """Fold a STEP 8 /api/expense-stored event into every intake record it
+    belongs to — the shared 'last processed document' record and/or the
+    per-scanner records — so the Recent Report and per-scanner views can list
+    the actual transactions once Mazda reports them.
+
+    Routing: when the event names its source document (document_path /
+    receipt_url) and that path matches stored intake(s), only those records
+    are updated — this is what keeps two concurrently-running scanners from
+    folding each other's results together. An event with no recognizable
+    document path falls back to the previous behavior: it updates the current
+    shared intake (and its per-scanner mirror, when they are the same
+    dispatch)."""
     with _recent_report_lock:
         data = _read_recent_pointer_file()
-        intake = data.get('intake')
-        if not isinstance(intake, dict):
-            return False
-        ids = list(intake.get('expense_ids') or [])
-        duplicate_ids = list(intake.get('duplicate_expense_ids') or [])
-        # Duplicates matter as much as newly-stored rows here: a re-scan that
-        # stores nothing still shows its transactions so they can be
-        # recategorized before the next scan.
-        for eid in (list(event.get('expense_ids') or [])
-                    + list(event.get('duplicate_expense_ids') or [])
-                    + [event.get('expense_id')]):
-            try:
-                eid = int(eid)
-            except (TypeError, ValueError):
-                continue
-            if eid not in ids:
-                ids.append(eid)
-        intake['expense_ids'] = ids
-        for eid in event.get('duplicate_expense_ids') or []:
-            try:
-                eid = int(eid)
-            except (TypeError, ValueError):
-                continue
-            if eid not in duplicate_ids:
-                duplicate_ids.append(eid)
-        intake['duplicate_expense_ids'] = duplicate_ids
-        for k in ('parsed', 'stored'):
-            if event.get(k) is not None:
-                try:
-                    intake[k] = int(event[k])
-                except (TypeError, ValueError):
-                    pass
-        # doc_kind/vendor: Mazda's own classification (STEP 8 payload) beats the
-        # facade's dispatch-time guess (often 'unknown' for scanned images) —
-        # accept either her doc_kind (statement/receipt/unknown, matching the
-        # facade's vocabulary) or classify_scan.py's doc_type/merchant naming.
-        doc_kind = event.get('doc_kind') or event.get('doc_type')
-        if doc_kind and doc_kind != 'unknown':
-            intake['doc_kind'] = doc_kind
-        vendor = event.get('vendor') or event.get('merchant')
-        if vendor and vendor != 'unknown':
-            intake['vendor'] = vendor
-        intake['reported_at'] = time.time()
+        main = data.get('intake') if isinstance(data.get('intake'), dict) else None
+        scanner_intakes = data.get('scanner_intakes')
+        scanners = ([i for i in scanner_intakes.values() if isinstance(i, dict)]
+                    if isinstance(scanner_intakes, dict) else [])
+        path = _event_document_path(event)
+        conversation_id = str(event.get('conversation_id') or '').strip()
+        try:
+            dispatched_at = float(event.get('dispatched_at') or 0)
+        except (TypeError, ValueError):
+            dispatched_at = 0.0
+        candidates = ([main] if main else []) + scanners
+        targets = []
+        if conversation_id or dispatched_at:
+            for intake in candidates:
+                if conversation_id and intake.get('conversation_id') != conversation_id:
+                    continue
+                if dispatched_at:
+                    try:
+                        if abs(float(intake.get('dispatched_at') or 0) - dispatched_at) >= 2.0:
+                            continue
+                    except (TypeError, ValueError):
+                        continue
+                targets.append(intake)
+            # An identified callback must never fall through to filename-only
+            # routing: scanner files are reused, so a late prior-run callback
+            # would otherwise overwrite the current dispatch.
+            if not targets:
+                return False
+        else:
+            targets = [i for i in candidates
+                       if path and i.get('image_path') == path]
+        if not targets:
+            if not main:
+                return False
+            targets = [main]
+            for si in scanners:
+                if (si.get('image_path') == main.get('image_path')
+                        and si.get('dispatched_at') == main.get('dispatched_at')):
+                    targets.append(si)
+        for intake in targets:
+            _fold_event_into_intake(intake, event)
         return _write_recent_pointer_file(data)
+
+
+_TERMINAL_INTAKE_STATUSES = {'pass', 'corrected', 'fail', 'stalled', 'complete'}
+
+
+def merge_recent_intake_status(update):
+    """Apply a Trainer terminal status to the exact dispatched intake.
+
+    Conversation id is the primary correlation key; document path plus dispatch
+    timestamp is the compatibility fallback. Never update the merely-latest
+    intake when no exact match exists, because Window and Freezer can overlap.
+    """
+    status = str(update.get('status') or '').strip().lower()
+    if status not in _TERMINAL_INTAKE_STATUSES:
+        return False
+    conversation_id = str(update.get('conversation_id') or '').strip()
+    document_path = _event_document_path(update)
+    try:
+        dispatched_at = float(update.get('dispatched_at') or 0)
+    except (TypeError, ValueError):
+        dispatched_at = 0.0
+    with _recent_report_lock:
+        data = _read_recent_pointer_file()
+        main = data.get('intake') if isinstance(data.get('intake'), dict) else None
+        scanner_intakes = data.get('scanner_intakes')
+        scanners = ([i for i in scanner_intakes.values() if isinstance(i, dict)]
+                    if isinstance(scanner_intakes, dict) else [])
+        candidates = ([main] if main else []) + scanners
+        targets = []
+        for intake in candidates:
+            if conversation_id and intake.get('conversation_id') == conversation_id:
+                targets.append(intake)
+                continue
+            same_path = document_path and intake.get('image_path') == document_path
+            try:
+                same_dispatch = (dispatched_at and
+                                 abs(float(intake.get('dispatched_at') or 0) -
+                                     dispatched_at) < 2.0)
+            except (TypeError, ValueError):
+                same_dispatch = False
+            if same_path and same_dispatch:
+                targets.append(intake)
+        if not targets:
+            return False
+        for intake in targets:
+            intake['status'] = status
+            intake['status_detail'] = str(update.get('detail') or '').strip()
+            intake['trainer_report'] = str(update.get('report_path') or '').strip()
+            intake['reported_at'] = time.time()
+        return _write_recent_pointer_file(data)
+
+
+def record_intake_status(data):
+    """Dashboard endpoint used by the Trainer runner after writing its report."""
+    merged = merge_recent_intake_status(data or {})
+    return {'ok': merged, 'status': (data or {}).get('status', '')}
 
 
 def _load_recent_report_pointer():
@@ -524,6 +711,7 @@ _DOC_KIND_LABELS = {
     'bank_statement': 'Bank Statement',
     'receipt': 'Receipt',
     'tax_document': 'Tax Document',
+    'invoice': 'Invoice (awaiting payment counterpart)',
 }
 
 
@@ -573,6 +761,8 @@ def build_recent_intake_html(intake):
     if dispatched_at:
         when = datetime.fromtimestamp(float(dispatched_at)).strftime('%Y-%m-%d %H:%M')
     reported = intake.get('reported_at')
+    intake_status = str(intake.get('status') or 'processing').lower()
+    status_detail = str(intake.get('status_detail') or '').strip()
     parsed = intake.get('parsed')
     stored = intake.get('stored')
     duplicate_ids = {
@@ -599,7 +789,12 @@ def build_recent_intake_html(intake):
         pdf_display = '--'
     receipt_display = _esc(receipt_path) if receipt_path else '--'
 
-    if rows:
+    if intake_status in ('fail', 'stalled'):
+        label_text = 'FAILED' if intake_status == 'fail' else 'STALLED'
+        status = f'Mazda Trainer reported {label_text}.'
+        if status_detail:
+            status += f' {status_detail}'
+    elif rows:
         if stored == 0 and parsed:
             status = (f'Mazda parsed {parsed} transaction(s); all were already in the '
                       f'database from an earlier run of this document. The {len(rows)} '
@@ -659,7 +854,8 @@ def build_recent_intake_html(intake):
             '<th>Category</th></tr></thead><tbody>\n'
             + '\n'.join(trs) + '\n</tbody></table>\n')
     # Refresh while we're still waiting on Mazda's STEP 8 report-back.
-    refresh = '' if (rows or reported) else '<meta http-equiv="refresh" content="30">'
+    terminal = intake_status in _TERMINAL_INTAKE_STATUSES
+    refresh = '' if (rows or reported or terminal) else '<meta http-equiv="refresh" content="30">'
     sub = f'{label} — ' if label else ''
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -724,6 +920,53 @@ def build_recent_report_html():
     return base_tag + html
 
 
+def get_scanner_intake(scanner_key):
+    """The last intake dispatched from one physical scanner ('window' /
+    'freezer'), or None. Reads the per-scanner record written by
+    record_recent_intake; falls back to the shared intake record for pointer
+    files written before per-scanner records existed."""
+    cfg = SCANNERS.get(scanner_key)
+    if not cfg:
+        return None
+    name = cfg.get('name', scanner_key)
+    data = _read_recent_pointer_file()
+    scanner_intakes = data.get('scanner_intakes')
+    if isinstance(scanner_intakes, dict):
+        intake = scanner_intakes.get(name)
+        if isinstance(intake, dict) and intake.get('dispatched_at'):
+            return intake
+    intake = data.get('intake')
+    if (isinstance(intake, dict) and intake.get('kind') == 'scan'
+            and intake.get('label') == name and intake.get('dispatched_at')):
+        return intake
+    return None
+
+
+def build_scanner_report_html(scanner_key):
+    """Body for GET /scanner_report.html?scanner=<key> — the Verified
+    Transactions of the LAST document scanned on that specific scanner,
+    regardless of what the other scanner (or a PDF reprocess) did since.
+    Reuses the synthetic intake page so recategorize / view-receipt work
+    identically to the Recent Report view."""
+    cfg = SCANNERS.get(scanner_key)
+    if not cfg:
+        from html import escape as _esc
+        return ('<!doctype html><meta charset="utf-8">'
+                '<body style="font-family:sans-serif;padding:2em">'
+                f'<h2>Unknown scanner: {_esc(str(scanner_key))}</h2>')
+    intake = get_scanner_intake(scanner_key)
+    if not intake:
+        from html import escape as _esc
+        name = _esc(cfg.get('name', scanner_key))
+        return ('<!doctype html><meta charset="utf-8">'
+                '<body style="font-family:sans-serif;padding:2em">'
+                f'<h2>{name}</h2>'
+                f'<p>No document has been scanned on the {name} yet. '
+                'Scan a document and this page will show its Verified '
+                'Transactions.</p>')
+    return build_recent_intake_html(intake)
+
+
 def _resolve_report_path_alias(report_path):
     """The Recent Report view serves a real report.html at /recent_report.html,
     so the picker dialog injected in that report posts
@@ -737,6 +980,11 @@ def _resolve_report_path_alias(report_path):
         # Intake mode (or nothing yet): no report.html backs the page — return
         # '' so recategorize does its search-every-report / DB-only fallback,
         # exactly like the New Records dialog.
+        return ''
+    if report_path == SCANNER_REPORT_PATH:
+        # Scanner reports are always synthetic DB-backed pages. There is no
+        # report.html to recolor, so an empty path intentionally selects
+        # recategorize_expense's search/static-row-or-DB-only success path.
         return ''
     return report_path
 
@@ -1121,6 +1369,97 @@ SCANNERS = {
         'output': 'scan_freezer.jpg',
     },
 }
+
+# The scanner dialogs also expose a repair for the HP DeskJet's Windows print
+# queue. Its old link-local IPv6 port becomes stale after printer/router
+# restarts; the printer itself remains reachable on this IPv4 RAW port.
+DESKJET_PRINTER_NAME = 'HP063E28 (HP DeskJet 4100 series)'
+DESKJET_PRINTER_IP = '10.0.0.243'
+DESKJET_PRINTER_PORT = 'IP_10.0.0.243'
+_WINDOWS_POWERSHELL = (
+    '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe')
+
+
+def fix_deskjet_printer(runner=subprocess.run):
+    """Repair the DeskJet queue through Windows PowerShell.
+
+    This is the same safe repair as the Desktop helper: verify the printer's
+    RAW service, create its IPv4 port if needed, bind the existing HP queue to
+    that port, and refresh the spooler. Never installs/removes a driver or
+    deletes queued jobs.
+    """
+    interop = _wsl_interop_socket()
+    if not interop:
+        return {
+            'ok': False,
+            'text': ('Printer repair needs Windows access. Open a WSL window '
+                     'and try Fix Printer again.'),
+        }
+
+    script = f"""
+$ErrorActionPreference = 'Stop'
+$printerName = '{DESKJET_PRINTER_NAME}'
+$printerIp = '{DESKJET_PRINTER_IP}'
+$portName = '{DESKJET_PRINTER_PORT}'
+if (-not (Test-NetConnection -ComputerName $printerIp -Port 9100 -InformationLevel Quiet -WarningAction SilentlyContinue)) {{
+    throw "The printer is not reachable at $printerIp. Make sure it is powered on and connected to Wi-Fi."
+}}
+if (-not (Get-Printer -Name $printerName -ErrorAction SilentlyContinue)) {{
+    throw "The HP DeskJet 4100 Windows queue was not found."
+}}
+if (-not (Get-PrinterPort -Name $portName -ErrorAction SilentlyContinue)) {{
+    Add-PrinterPort -Name $portName -PrinterHostAddress $printerIp -PortNumber 9100
+}}
+Set-Printer -Name $printerName -PortName $portName
+try {{
+    Restart-Service Spooler -Force
+}} catch {{
+    # The dashboard's Windows token can update this per-user queue but may not
+    # be elevated enough to control the system service. The port switch is the
+    # actual repair; let Windows refresh status through the new port normally.
+}}
+Start-Sleep -Seconds 2
+$printer = Get-Printer -Name $printerName
+[ordered]@{{
+    ok = ([string]$printer.PrinterStatus -eq 'Normal')
+    status = [string]$printer.PrinterStatus
+    port = [string]$printer.PortName
+}} | ConvertTo-Json -Compress
+"""
+    env = os.environ.copy()
+    env['WSL_INTEROP'] = interop
+    try:
+        proc = runner(
+            [_WINDOWS_POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+             '-Command', script],
+            capture_output=True, text=True, timeout=35, env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'text': 'Printer repair timed out.'}
+    except Exception as exc:  # noqa: BLE001 — surface the actionable failure
+        return {'ok': False, 'text': f'Could not start printer repair: {exc}'}
+
+    output = (proc.stdout or '').strip()
+    if proc.returncode != 0:
+        error = (proc.stderr or output or 'Windows printer repair failed.').strip()
+        return {'ok': False, 'text': error[:500]}
+    try:
+        payload = json.loads(output.splitlines()[-1])
+    except (json.JSONDecodeError, IndexError):
+        return {
+            'ok': False,
+            'text': f'Windows returned an unreadable printer status: {output[:300]}',
+        }
+    status = payload.get('status') or 'Unknown'
+    ok = payload.get('ok') is not False
+    return {
+        'ok': ok,
+        'text': (f'Printer fixed. Windows status: {status}.' if ok else
+                 f'The port was repaired, but Windows status is still {status}.'),
+        'status': status,
+        'port': payload.get('port') or DESKJET_PRINTER_PORT,
+    }
+
 # Serialize all device access: two concurrent WIA transfers self-induce the very
 # "device is busy" error we are trying to detect. Both the manual scan and the
 # Freezer's 5s status poll go through this lock.
@@ -1341,7 +1680,8 @@ def mazda_facade_identified(facade_result):
     )
 
 
-def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
+def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
+                             conversation_id=None, dispatched_at=None):
     """Pure builder for the intake instruction Mazda receives after a scan.
 
     No I/O — returns the message string so it can be unit-tested. Encodes the
@@ -1374,6 +1714,43 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
             f'  parsed: {parsed_summary}'
         )
         fallback_block = ''
+        if doc_kind in ('statement', 'bank_statement'):
+            return (
+                f'A bank or credit-card statement was scanned on the {scanner_name}. '
+                f'The image is: {scan_image_path}\n'
+                f'The deterministic vision facade already classified it as statement '
+                f'(confidence={confidence}, vendor={vendor}). Do not classify it again.\n\n'
+                f'This is a STATEMENT-ONLY intake. Receipt/invoice investigation, '
+                f'categorization, and all single-document parsing/storage are forbidden '
+                f'and intentionally omitted from this dispatch.\n\n'
+                f'1. Call load_wrapper_revision(agent_name="Mazda").\n'
+                f'2. Via executor_run with cwd=/home/adamsl/rol_finances and '
+                f'env={MAZDA_RF_ENV_JSON}, run:\n'
+                f'   {MAZDA_RF_VENV_PY} '
+                f'tools/receipt_scanning_tools/parse_statement_scan.py '
+                f'{scan_image_path}\n'
+                f'3. Write that returned JSON to /tmp/mazda_statement.json, then via '
+                f'executor_run with the same cwd/env run:\n'
+                f'   {MAZDA_RF_VENV_PY} '
+                f'tools/receipt_scanning_tools/store_statement_transactions.py '
+                f'-f /tmp/mazda_statement.json --source-file {scan_image_path}\n'
+                f'4. Call record_trace(agent_name="Mazda", task_name="document-intake", '
+                f'input_text="{scan_image_path}", agent_output=<JSON containing '
+                f'document_path, doc_kind="statement", classification_confidence, '
+                f'duplicate_checked=true, transactions_parsed, transactions_stored, '
+                f'transactions_duplicate, transactions_skipped_credits, deposits_stored, '
+                f'and problems>).\n'
+                f'5. Call judge_trace(trace_id) always. On FAIL call propose_improvement '
+                f'and apply_proposal.\n'
+                f'6. Always notify the dashboard via executor_run with curl POST '
+                f'http://localhost:8765/api/expense-stored. The JSON must contain all '
+                f'expense_ids and duplicate_expense_ids from step 3, parsed/stored counts, '
+                f'doc_kind="statement", vendor="{vendor}", '
+                f'document_path="{scan_image_path}", '
+                f'conversation_id="{conversation_id or ""}", and '
+                f'dispatched_at={float(dispatched_at or 0)}.\n'
+                f'Do not stop before steps 4-6 even when every transaction is a duplicate.'
+            )
     else:
         # Facade did not identify the doc (doc_kind=unknown, confidence=0, or crashed).
         # This is NORMAL for JPEG receipt scans — the facade uses text extraction which
@@ -1388,11 +1765,18 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         fallback_block = (
             f'\nSTEP 0 — CLASSIFY + PARSE YOURSELF (facade returned doc_kind=unknown). '
             f'executor_run, cwd=/home/adamsl/rol_finances, env={MAZDA_RF_ENV_JSON}:\n'
-            f'  a. Classify (Gemini vision):\n'
+            f'  HARD ROUTING BARRIER: run classification as its OWN executor_run call. '
+            f'Never chain the classifier to a parser or store command with `&&`, `;`, or '
+            f'any other shell operator. Read `doc_type` before choosing the next command.\n'
+            f'  a. Classify ONLY (Gemini vision):\n'
             f'     {MAZDA_RF_VENV_PY} tools/classify_scan.py '
             f'{scan_image_path}\n'
-            f'     → {{"doc_type": "receipt"|"statement", "confidence": 0-1, "reason": "..."}}\n'
-            f'  b. Parse (receipt only):\n'
+            f'     → {{"doc_type": "receipt"|"invoice"|"statement"|"tax_document"|"other", '
+            f'"confidence": 0-1, "reason": "..."}}\n'
+            f'  If doc_type is `bank_statement` or `statement`, STOP STEP 0 HERE and '
+            f'jump directly to STATEMENT BRANCH S1. Running receipt parser/store commands '
+            f'on a statement is forbidden.\n'
+            f'  b. ONLY for receipt OR invoice, parse in a NEW executor_run call:\n'
             f'     {MAZDA_RF_VENV_PY} '
             f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
             f'-f {scan_image_path} --json --engine=gemini\n'
@@ -1439,6 +1823,12 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'READ THEM AND APPLY EVERY RULE that matches this document; they override '
         f'the default steps below. Keep the returned wrapper_revision for '
         f'record_trace.\n\n'
+        f'ROUTING PRECEDENCE — the explicit `doc_type` returned by classify_scan.py '
+        f'is authoritative and its matching branch below overrides generic prose '
+        f'rules about emails, bills, or non-receipts. In particular, an email '
+        f'screenshot whose enclosed document is `invoice` MUST run the INVOICE '
+        f'BRANCH; never route it away merely because it is an email or bill. A '
+        f'`receipt` MUST run STEPS 2-4. Only explicit `doc_type=other` is unsupported.\n\n'
         f'{fallback_block}'
         f'STATEMENT BRANCH — if this document is a bank or credit-card statement '
         f'(doc_kind "bank_statement" or "statement" from the facade or STEP 0): SKIP '
@@ -1462,6 +1852,29 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'  EVERY row coming back "duplicates" or "deposit_duplicates" is a SUCCESSFUL '
         f'no-op, not a failure, and a deposit missing from expenses is CORRECT. '
         f'Then continue at STEP 5 with the STATEMENT evidence JSON described there.\n\n'
+        f'INVOICE BRANCH — if this document is a bill/invoice requesting payment where the '
+        f'document itself does NOT show payment already made (doc_type "invoice" from '
+        f'classify_scan.py — e.g. a contractor/consultant invoice with a balance due, not '
+        f'stamped paid). An invoice is NOT proof a payment happened; it is a PLACEHOLDER for a '
+        f'payment we expect to see evidenced later by a bank statement transaction or a paid '
+        f'receipt for the SAME (date, amount). Run STEPS 2-3 normally (investigate + categorize '
+        f'this vendor exactly like a receipt), then at STEP 4 add the `--invoice` flag to the '
+        f'store command instead of a normal save:\n'
+        f'  {MAZDA_RF_VENV_PY} '
+        f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
+        f'-f {scan_image_path} --save --invoice --category-id=<id from step 3> --engine=gemini\n'
+        f'  → {{"success": true, "expense_id": <int>, "expense_status": '
+        f'"WAITING_FOR_PAYMENT_COUNTERPART", "linked_counterpart": false, ...}}\n'
+        f'This stores ONE expense row with expense_status=WAITING_FOR_PAYMENT_COUNTERPART — do '
+        f'NOT create it any other way and do NOT wait for a human to confirm payment first. The '
+        f'system links the eventual counterpart automatically: the NEXT time ANY document '
+        f'(statement scan or receipt scan) is stored with the SAME (expense_date, amount), the '
+        f'storage tools detect the waiting placeholder and UPDATE that same row (receipt_url, '
+        f'source_file, notes, expense_status → COUNTERPART_DOCUMENT_LINKED) instead of inserting '
+        f'a second expense — so if `linked_counterpart: true` comes back on ANY future receipt '
+        f'or statement store, that is CORRECT behavior closing out an earlier invoice, not a '
+        f'duplicate to investigate. Continue to STEP 5 using doc_kind "invoice" in the evidence '
+        f'JSON.\n\n'
         f'STEP 2 — INVESTIGATE (only with REAL parsed data — never pass "unknown"):\n'
         f'  a. check_vendor_key(id_light="scan", description=<merchant>, '
         f'vendor_key=<vendor_key from facade or derived above>)\n'
@@ -1481,7 +1894,9 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'  b. check_duplicates(id_light="scan", expense_date=<YYYY-MM-DD, or '
         f'"1970-01-01" if no date was extracted>, '
         f'amount=<decimal string>, description=<merchant>)\n'
-        f'  If duplicate → skip store; still record_trace + judge_trace, then stop.\n\n'
+        f'  If duplicate → skip only STEP 4 storage. Still run STEP 3 categorization, '
+        f'record_trace, judge_trace, and the STEP 8 callback; duplicate detection is '
+        f'never permission to stop the run early.\n\n'
         f'STEP 3 — CATEGORIZE (executor_run, cwd=/home/adamsl/rol_finances, '
         f'env={MAZDA_RF_ENV_JSON}):\n'
         f'{categorizer_input_line}'
@@ -1504,11 +1919,14 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'The task_name MUST be exactly "document-intake" so it is judged by the intake '
         f'rubric (not the statement rubric). agent_output MUST be this JSON object recording '
         f'what actually happened — the judge reads these fields:\n'
-        f'  {{"document_path": "{scan_image_path}", "doc_kind": "receipt"|"statement"|"unknown", '
+        f'  {{"document_path": "{scan_image_path}", "doc_kind": "receipt"|"invoice"|"statement"|"unknown", '
         f'"classification_confidence": <0-1>, "vendor_key": "<resolved or null>", '
         f'"vendor_key_recognized": <true|false>, "category_id": <int or null>, '
         f'"duplicate_checked": <true|false>, "is_duplicate": <true|false>, '
-        f'"stored": <true|false>, "expense_id": <int or null>, "problems": [<strings>]}}\n'
+        f'"stored": <true|false>, "expense_id": <int or null>, '
+        f'"expense_status": "<NONE|WAITING_FOR_PAYMENT_COUNTERPART|COUNTERPART_DOCUMENT_LINKED, '
+        f'from the store response, when doc_kind is invoice or when linked_counterpart was true>", '
+        f'"problems": [<strings>]}}\n'
         f'  For a STATEMENT, record this evidence JSON INSTEAD (the judge routes it '
         f'to the statement rubric — the receipt fields above do not apply):\n'
         f'  {{"document_path": "{scan_image_path}", "doc_kind": "statement", '
@@ -1549,7 +1967,10 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None):
         f'"expense_date":"<YYYY-MM-DD>",'
         f'"amount":"<decimal string>","vendor_key":"<vendor_key>",'
         f'"description":"<merchant_name>","receipt_url":"<scan_image_path>",'
-        f'"doc_kind":"<statement|receipt|unknown, from the facade or your own '
+        f'"document_path":"{scan_image_path}",'
+        f'"conversation_id":"{conversation_id or ""}",'
+        f'"dispatched_at":{float(dispatched_at or 0)},'
+        f'"doc_kind":"<statement|receipt|invoice|unknown, from the facade or your own '
         f'classify_scan.py/STEP 0 classification — the same value you recorded '
         f'as doc_kind in STEP 5>","vendor":"<the vendor/merchant name you '
         f'identified, e.g. \\"chase\\", or \\"unknown\\">"}}\'\n'
@@ -1609,29 +2030,62 @@ def _stage_scan_for_mazda(local_image_path):
     return staged_path
 
 
-def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None):
+def _create_mazda_conversation():
+    """Create one isolated Letta conversation for one intake dispatch.
+
+    Never fall back to Mazda's agent-default conversation: that would allow
+    simultaneous Window and Freezer scans to share compacted context again.
+    """
+    try:
+        agent_id = quote(MAZDA_AGENT_ID, safe='')
+        req = urllib.request.Request(
+            f'{LETTA_BASE_URL}/v1/conversations/?agent_id={agent_id}',
+            data=b'{}',
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            conversation = json.loads(resp.read().decode())
+        conversation_id = conversation.get('id')
+        if not isinstance(conversation_id, str) or not conversation_id:
+            raise ValueError('Letta returned no conversation id')
+        return conversation_id
+    except Exception as exc:
+        print(f'[scan→mazda] Failed to create isolated conversation: {exc}')
+        return None
+
+
+def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None,
+                          conversation_id=None, dispatched_at=None):
     """Background: send the scanned document to Mazda for intake processing.
 
     scan_image_path must already be reachable from Mazda's executor tools
     (see _stage_scan_for_mazda) — this function does no staging itself.
     """
+    if not conversation_id:
+        print('[scan→mazda] Refusing shared/default conversation dispatch')
+        return False
     try:
-        msg = build_mazda_scan_message(scan_image_path, scanner_name, facade_result)
+        msg = build_mazda_scan_message(
+            scan_image_path, scanner_name, facade_result,
+            conversation_id=conversation_id, dispatched_at=dispatched_at)
         payload = json.dumps({
             'messages': [{'role': 'user', 'content': msg}],
-            'stream': False,
+            'streaming': False,
         }).encode()
         req = urllib.request.Request(
-            f'{LETTA_BASE_URL}/v1/agents/{MAZDA_AGENT_ID}/messages',
+            f'{LETTA_BASE_URL}/v1/conversations/{quote(conversation_id, safe="")}/messages',
             data=payload,
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
         with urllib.request.urlopen(req, timeout=120) as resp:
             print(f'[scan→mazda] Mazda notified of scan ({scanner_name}): '
-                  f'HTTP {resp.status}')
+                  f'HTTP {resp.status}; conversation={conversation_id}')
+        return True
     except Exception as exc:
         print(f'[scan→mazda] Failed to notify Mazda: {exc}')
+        return False
 
 
 # ── Mazda Trainer ────────────────────────────────────────────────────────────
@@ -1649,7 +2103,7 @@ TRAINER_ENABLED = os.environ.get(
 
 
 def build_trainer_command(scan_image_path, scanner_name, facade_result=None,
-                          dispatched_at=None):
+                          dispatched_at=None, conversation_id=None):
     """Pure builder for the Trainer launch argv — no I/O, unit-tested."""
     cmd = [
         TRAINER_RUNNER, TRAINER_SCRIPT,
@@ -1659,10 +2113,13 @@ def build_trainer_command(scan_image_path, scanner_name, facade_result=None,
     ]
     if dispatched_at is not None:
         cmd += ['--dispatched-at', str(int(dispatched_at))]
+    if conversation_id:
+        cmd += ['--conversation-id', conversation_id]
     return cmd
 
 
-def _notify_trainer_of_scan(scan_image_path, scanner_name, facade_result=None):
+def _notify_trainer_of_scan(scan_image_path, scanner_name, facade_result=None,
+                            conversation_id=None, dispatched_at=None):
     """Fire-and-forget: launch the Trainer agent to watch this Mazda run.
 
     Returns True when the trainer process was spawned. Never raises — the
@@ -1670,13 +2127,20 @@ def _notify_trainer_of_scan(scan_image_path, scanner_name, facade_result=None):
     """
     if not TRAINER_ENABLED:
         return False
+    if not conversation_id:
+        print('[scan→trainer] Refusing to watch a shared/default conversation')
+        return False
     if not os.path.isfile(TRAINER_SCRIPT):
         print(f'[scan→trainer] Trainer script missing: {TRAINER_SCRIPT}')
         return False
-    dispatched_at = int(time.time())
-    log_path = f'/tmp/mazda_trainer_{dispatched_at}.log'
+    dispatched_at = int(dispatched_at or time.time())
+    scanner_slug = re.sub(r'[^A-Za-z0-9]+', '_', scanner_name).strip('_') or 'scanner'
+    conversation_slug = re.sub(r'[^A-Za-z0-9]+', '', conversation_id)[-12:]
+    log_path = (f'/tmp/mazda_trainer_{dispatched_at}_{scanner_slug}_'
+                f'{conversation_slug}.log')
     cmd = build_trainer_command(
-        scan_image_path, scanner_name, facade_result, dispatched_at)
+        scan_image_path, scanner_name, facade_result, dispatched_at,
+        conversation_id)
     env = dict(os.environ)
     # The systemd --user service's PATH lacks bun/codex; the runner spawns the
     # `codex` CLI, so both bins must be reachable from the child.
@@ -1698,8 +2162,12 @@ def _notify_trainer_of_scan(scan_image_path, scanner_name, facade_result=None):
         return False
 
 
-def _notify_mazda_of_pdf(file_path, label=None):
+def _notify_mazda_of_pdf(file_path, label=None, conversation_id=None,
+                         dispatched_at=None):
     """Background: send a PDF document to Mazda for intake processing."""
+    if not conversation_id:
+        print('[pdf→mazda] Refusing shared/default conversation dispatch')
+        return False
     try:
         label_str = f' "{label}"' if label else ''
         msg = (
@@ -1710,21 +2178,27 @@ def _notify_mazda_of_pdf(file_path, label=None):
             f'2. Classify and parse the document (cheapest reliable tool first).\n'
             f'3. Call record_trace when done to log this run.\n'
             f'4. If anything fails, call propose_improvement with the failure details.'
+            f' Every /api/expense-stored callback must include '
+            f'"conversation_id":"{conversation_id}" and '
+            f'"dispatched_at":{float(dispatched_at or 0)}.'
         )
         payload = json.dumps({
             'messages': [{'role': 'user', 'content': msg}],
-            'stream': False,
+            'streaming': False,
         }).encode()
         req = urllib.request.Request(
-            f'{LETTA_BASE_URL}/v1/agents/{MAZDA_AGENT_ID}/messages',
+            f'{LETTA_BASE_URL}/v1/conversations/{quote(conversation_id, safe="")}/messages',
             data=payload,
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
         with urllib.request.urlopen(req, timeout=120) as resp:
-            print(f'[pdf→mazda] Mazda notified of PDF{label_str}: HTTP {resp.status}')
+            print(f'[pdf→mazda] Mazda notified of PDF{label_str}: HTTP {resp.status}; '
+                  f'conversation={conversation_id}')
+        return True
     except Exception as exc:
         print(f'[pdf→mazda] Failed to notify Mazda: {exc}')
+        return False
 
 
 # Intake-dispatch claim: exactly one Mazda dispatch per (scanner, image file,
@@ -1924,22 +2398,35 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
             return result
         remote_image_path = _stage_scan_for_mazda(image_path)
         if remote_image_path:
-            threading.Thread(
-                target=_notify_mazda_of_scan,
-                args=(remote_image_path, cfg.get('name', key), facade),
-                daemon=True,
-            ).start()
-            mazda_dispatched = True
-            trainer_dispatched = _notify_trainer_of_scan(
-                remote_image_path, cfg.get('name', key), facade)
-            record_recent_intake(
-                remote_image_path, cfg.get('name', key), kind='scan', facade=facade)
+            conversation_id = _create_mazda_conversation()
+            if conversation_id:
+                dispatched_at = time.time()
+                threading.Thread(
+                    target=_notify_mazda_of_scan,
+                    args=(remote_image_path, cfg.get('name', key), facade,
+                          conversation_id, dispatched_at),
+                    daemon=True,
+                ).start()
+                mazda_dispatched = True
+                trainer_dispatched = _notify_trainer_of_scan(
+                    remote_image_path, cfg.get('name', key), facade,
+                    conversation_id, dispatched_at)
+                record_recent_intake(
+                    remote_image_path, cfg.get('name', key), kind='scan',
+                    facade=facade, conversation_id=conversation_id,
+                    dispatched_at=dispatched_at)
+            else:
+                _release_scan_dispatch(key, image_path)
+                stage_error = ('Could not create an isolated Mazda conversation; '
+                               'the scan was not dispatched into shared context.')
         else:
             _release_scan_dispatch(key, image_path)
             stage_error = ('Could not copy the scan to where Mazda can read it '
                             '(SSH/copy to the executor machine failed) — Mazda was not notified.')
     result = build_pipeline_result(facade, mazda_dispatched)
     result['trainer_dispatched'] = trainer_dispatched
+    if mazda_dispatched:
+        result['conversation_id'] = conversation_id
     if stage_error:
         result['stage_error'] = stage_error
     result['scanner'] = key
@@ -1975,21 +2462,35 @@ def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
         result['file_path'] = real
         result['label'] = doc_label
         return result
+    conversation_id = _create_mazda_conversation()
+    if not conversation_id:
+        result = build_pipeline_result(facade, mazda_dispatched=False)
+        result['trainer_dispatched'] = False
+        result['stage_error'] = ('Could not create an isolated Mazda conversation; '
+                                 'the PDF was not dispatched into shared context.')
+        result['file_path'] = real
+        result['label'] = doc_label
+        return result
+    dispatched_at = time.time()
     threading.Thread(
         target=_notify_mazda_of_pdf,
-        args=(real, doc_label),
+        args=(real, doc_label, conversation_id, dispatched_at),
         daemon=True,
     ).start()
-    record_recent_intake(real, doc_label, kind='pdf', facade=facade)
+    record_recent_intake(real, doc_label, kind='pdf', facade=facade,
+                         conversation_id=conversation_id,
+                         dispatched_at=dispatched_at)
     # PDFs already live inside ROL_FINANCES_DIR (enforced above), so no staging
     # is needed — executor_run on this box reads them directly. This also
     # covers reprocess_report, which delegates here.
     trainer_dispatched = _notify_trainer_of_scan(
-        real, f'PDF intake ({doc_label})', facade)
+        real, f'PDF intake ({doc_label})', facade, conversation_id,
+        dispatched_at)
     result = build_pipeline_result(facade, mazda_dispatched=True)
     result['trainer_dispatched'] = trainer_dispatched
     result['file_path'] = real
     result['label'] = doc_label
+    result['conversation_id'] = conversation_id
     return result
 
 
@@ -2067,6 +2568,7 @@ def record_stored_expense(data):
         'description': data.get('description', ''),
         'receipt_url': data.get('receipt_url', ''),
         'report_path': data.get('report_path', ''),
+        'document_path': data.get('document_path', ''),
         'expense_ids': data.get('expense_ids') or [],
         'duplicate_expense_ids': data.get('duplicate_expense_ids') or [],
         'deposits_stored': data.get('deposits_stored') or 0,
@@ -3974,58 +4476,8 @@ def run_letta_headless(agent_id, prompt_text):
     Returns: {'ok': bool, 'output': str, 'error': str}
     """
     try:
-        # Resolve the agent ID through our cache
-        lid = letta_id_for(agent_id)
-        if not lid:
-            return {'ok': False, 'error': f'Agent not found: {agent_id}'}
-
-        # Run letta with -p (headless) and --output-format json
-        # The JSON output includes a 'messages' array; we'll extract the reply
-        cmd = [
-            'bun', 'run', 'dev',
-            '--agent', lid,
-            '-p', prompt_text,
-            '--output-format', 'json',
-        ]
-
-        result = subprocess.run(
-            cmd,
-            cwd=os.path.dirname(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        if result.returncode != 0:
-            error = result.stderr.strip() or result.stdout.strip()
-            return {'ok': False, 'error': error or 'letta exited with error'}
-
-        # Parse the JSON output and extract the last assistant message
-        try:
-            output_data = json.loads(result.stdout)
-            # The output has a 'messages' key with message objects
-            messages = output_data.get('messages', [])
-
-            # Find the last assistant message or fallback to any message
-            reply = ''
-            for msg in reversed(messages):
-                if msg.get('type') == 'assistant_message' or not msg.get('type'):
-                    text = msg.get('text', '') or msg.get('content', '')
-                    if text:
-                        reply = text
-                        break
-
-            if not reply and messages:
-                # Fallback: join all text content
-                reply = '\n'.join(
-                    msg.get('text') or msg.get('content') or ''
-                    for msg in messages
-                    if msg.get('text') or msg.get('content')
-                ).strip()
-
-            return {'ok': True, 'output': reply or '(no reply)'}
-        except json.JSONDecodeError as je:
-            return {'ok': False, 'error': f'Failed to parse JSON output: {str(je)}'}
+        result = run_letta_code_message(agent_id, prompt_text, timeout=60)
+        return {'ok': True, 'output': result['reply']}
     except subprocess.TimeoutExpired:
         return {'ok': False, 'error': 'letta command timed out (60s)'}
     except Exception as e:
@@ -4081,6 +4533,27 @@ FRITA_EXEC_GHOST_URL = 'http://100.80.49.10:8797/claude_sdk_status'
 # is exactly the "HTTP Error 404: Not Found" Frita hit. We probe it cheaply so
 # the affected agents' tabs go red. See agent_health_check / uses_claude_sdk.
 FRITA_EXEC_WORK_URL = 'http://100.80.49.10:8799/claude_sdk'
+# The push side of claude-creds-sync.{timer,path,service} (see
+# server_tools/sync_claude_creds_to_frita.sh) — this box's Claude OAuth token
+# refreshes constantly via normal use, but the copy pushed to the executor's
+# frita-claude-home can still go stale in the gap before the next sync fires.
+# frita_executor_health() runs this directly on a creds_valid:false reading so
+# a health *check* also fixes the thing it found broken, instead of just
+# reporting yellow until claude-creds-sync.path/timer gets around to it.
+FRITA_CREDS_SYNC_SCRIPT = os.path.expanduser('~/server_tools/sync_claude_creds_to_frita.sh')
+
+
+def _resync_frita_creds(timeout):
+    """Best-effort: re-push this box's current Claude OAuth token to the
+    frita-executor. Returns True iff the script ran and exited 0 — a non-zero
+    exit (e.g. local token itself expiring within 5min) just means "can't help
+    right now", not an error worth raising."""
+    try:
+        r = subprocess.run([FRITA_CREDS_SYNC_SCRIPT], capture_output=True,
+                            timeout=timeout, text=True)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 def _probe_claude_sdk_endpoint(url, timeout):
@@ -4150,6 +4623,18 @@ def frita_executor_health(timeout=None):
     if not good.get('ready'):
         missing = [k for k in ('sdk_present', 'claude_present', 'creds_present')
                    if not good.get(k)]
+        # creds_present-but-expired is the one failure mode this box can fix by
+        # itself (re-push a fresh token) rather than needing a redeploy — try
+        # that once before reporting down. See _resync_frita_creds.
+        if good.get('creds_present') and good.get('creds_valid') is False:
+            missing.append('creds_valid')
+            if _resync_frita_creds(t):
+                healed = _probe_sdk_status(FRITA_EXEC_GOOD_URL, t)
+                if healed and healed.get('ready'):
+                    return {'ok': True,
+                            'concern': True,  # surfaced, but self-healed this sweep
+                            'text': f'SDK OK on :8799 (host={healed.get("host")}) — '
+                                    'auto-resynced an expired token.' + ghost_warn}
         return {'ok': False,
                 'text': f'SDK executor on :8799 NOT ready (missing: {", ".join(missing)}; '
                         f'host={good.get("host")}) — minions broken.' + ghost_warn}
@@ -4472,10 +4957,29 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
         return {'ok': False, 'text': f'ssh to {target} failed: {e}'}
 
 
+def _tailscale_cli():
+    """Return the available Tailscale CLI, including the WSL host fallback.
+
+    A freshly migrated WSL distro may not have the Linux package installed
+    even though the Windows host is connected to the same tailnet.  WSL
+    interop exposes that host client as ``tailscale.exe``; using it keeps the
+    peer-only entries in SSH Connections meaningful during/after migration.
+    """
+    discovered = shutil.which('tailscale') or shutil.which('tailscale.exe')
+    if discovered:
+        return discovered
+    # systemd user units intentionally use a Linux-only PATH, so WSL interop
+    # executables are not discoverable there even though they remain runnable.
+    windows_cli = '/mnt/c/Program Files/Tailscale/tailscale.exe'
+    if os.path.isfile(windows_cli):
+        return windows_cli
+    return 'tailscale'
+
+
 def _tailscale_ping_test(host, timeout):
     ping_timeout = f'{timeout}s' if isinstance(timeout, int) else str(timeout)
     cmd = [
-        'tailscale', 'ping',
+        _tailscale_cli(), 'ping',
         '--c=1',
         '--until-direct=false',
         f'--timeout={ping_timeout}',
@@ -4507,7 +5011,12 @@ def tailscale_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
     """
     status_text = None
     try:
-        result = subprocess.run(['tailscale', 'status'], capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(
+            [_tailscale_cli(), 'status'],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
         for line in result.stdout.splitlines():
             if line.split()[:1] == [cfg['host']]:
                 status_text = line.strip()
@@ -5569,14 +6078,21 @@ def _model_stats_uncached(source_key, src):
         # primary_window with secondary_window null, so the old positional
         # ('primary'→5-hour, 'secondary'→weekly) mapping mislabeled the weekly bar
         # as "5-hour" and dropped the weekly bar entirely.
-        for wkey in ('primary_window', 'secondary_window'):
+        for wkey, fallback_label in (
+                ('primary_window', '5-hour'),
+                ('secondary_window', 'weekly')):
             w = rl.get(wkey)
             if not isinstance(w, dict):
                 continue
             up = float(w.get('used_percent') or 0)
             worst = max(worst, up)
+            seconds = w.get('limit_window_seconds')
             out['windows'].append({
-                'label': _codex_window_label(w.get('limit_window_seconds')),
+                # Current payloads identify windows by duration. Retain the
+                # old positional labels only for legacy/mocked payloads that
+                # omit it, instead of producing two generic "usage" rows.
+                'label': (_codex_window_label(seconds)
+                          if seconds is not None else fallback_label),
                 'used_percent': round(up, 1),
                 'resets_at': w.get('reset_at'),
                 'resets_in': _human_reset(w.get('reset_at')),
@@ -5942,18 +6458,47 @@ def validate_letta_code_prompt(value):
     return value
 
 
+def _letta_code_command():
+    """Return a service-safe command prefix for this checkout's CLI.
+
+    dashboard-server.service has a deliberately small PATH and the repo may not
+    have a built letta.js yet. Prefer the canonical TypeScript dev entry point
+    through Bun, using its stable user install path, then fall back to a linked
+    or built CLI when needed.
+    """
+    bun = LETTA_CODE_BUN if os.path.isfile(LETTA_CODE_BUN) else shutil.which('bun')
+    if bun:
+        return [bun, 'run', 'dev', '--']
+    letta = shutil.which('letta')
+    if letta:
+        return [letta]
+    built = os.path.join(REPO_ROOT, 'letta.js')
+    if os.path.isfile(built):
+        return [built]
+    raise FileNotFoundError(
+        'Letta Code runtime not found (expected ~/.bun/bin/bun, PATH letta, '
+        f'or {built})')
+
+
 def run_letta_code_message(agent_id, prompt, timeout=330):
     """Run one Letta Code turn and expose only its final JSON result."""
     lid = letta_id_for(agent_id)
     if not lid or not _TERMINAL_ID_RE.fullmatch(lid):
         raise ValueError('invalid Letta agent id')
     clean_prompt = validate_letta_code_prompt(prompt)
-    letta_bin = shutil.which('letta') or os.path.join(REPO_ROOT, 'letta.js')
+    command = _letta_code_command()
+    # `bun run dev` expands to a package script that invokes `bun` once more.
+    # Preserve the resolved runtime directory for that nested command even
+    # under dashboard-server.service's intentionally minimal PATH.
+    runtime_path = os.path.dirname(command[0])
+    child_path = os.environ.get('PATH', '')
+    if runtime_path:
+        child_path = runtime_path + (os.pathsep + child_path if child_path else '')
     proc = subprocess.run(
-        [letta_bin, '--agent', lid, '--prompt', clean_prompt,
+        [*command, '--agent', lid, '--prompt', clean_prompt,
          '--output-format', 'json', '--memfs-startup', 'skip'],
         cwd=REPO_ROOT, text=True, capture_output=True, timeout=timeout,
-        env={**os.environ, 'LETTA_BASE_URL': LETTA_BASE_URL},
+        env={**os.environ, 'PATH': child_path, 'LETTA_BASE_URL': LETTA_BASE_URL},
     )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or 'Letta Code failed').strip()
@@ -6466,13 +7011,22 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             for r in ROL_FINANCE_REPORTS:
                 report_file = os.path.join(base_dir, r['dir'], 'report.html')
                 exists = os.path.isfile(report_file)
-                result.append({
+                status = _classify_report_status(report_file) if exists else 'missing'
+                entry = {
                     'key': r['key'],
                     'label': r['label'],
                     'exists': exists,
-                    'status': _classify_report_status(report_file) if exists else 'missing',
+                    'status': status,
                     'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html' if exists else None,
-                })
+                }
+                # Red reports carry the human-facing "why it failed / what's
+                # left to do" pulled from the report itself, since the iframe
+                # view hides everything but Verified Transactions.
+                if status == 'fail':
+                    fd = _extract_report_failure_detail(report_file)
+                    if fd:
+                        entry['failure_detail'] = fd
+                result.append(entry)
             # Synthetic "Receipt Only" tab: receipts with no bank-statement
             # transaction. Built live from the DB (no report.html on disk), so
             # it isn't a verification target — status: None excludes it from
@@ -6599,6 +7153,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.wfile.write(data)
             return
 
+        if path == SCANNER_REPORT_PATH:
+            try:
+                body = build_scanner_report_html(query.get('scanner', [''])[0])
+            except Exception as e:
+                from html import escape as _esc
+                body = ('<!doctype html><meta charset="utf-8"><body>'
+                        '<pre>Scanner Report build error: %s</pre>' % _esc(str(e)))
+            data = body.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(data)))
+            # Always re-resolved — a cached copy would pin an older scan.
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         if path.startswith(ROL_FINANCES_REPORTS_URL_PREFIX + '/'):
             fp = _report_file_for_url(path)
             if fp:
@@ -6718,6 +7289,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(run_scanner(data.get('scanner', '')))
 
+        if path == '/api/fix-printer':
+            return self.json_response(fix_deskjet_printer())
+
         if path == '/api/process-document':
             try:
                 data = json.loads(body)
@@ -6755,6 +7329,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(record_stored_expense(data))
+
+        if path == '/api/intake-status':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            result = record_intake_status(data)
+            return self.json_response(result)
 
         if path == '/api/agent-model':
             try:

@@ -250,6 +250,11 @@ body.startup-loading .sidebar {
   margin-bottom: 6px;
 }
 
+.printer-repair-success {
+  color: #4cc35a;
+  font-weight: 600;
+}
+
 .pipeline-stages {
   list-style: none;
   margin: 0;
@@ -561,6 +566,47 @@ a:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* "Document Failure Reason" card shown above a red report's iframe */
+.doc-failure-reason {
+  padding: 10px 14px;
+  background: #2a1518;
+  border-bottom: 1px solid #7f1d1d;
+  border-left: 4px solid #dc2626;
+  color: #f3d6d6;
+  font-size: 0.85em;
+}
+
+.doc-failure-reason h3 {
+  margin: 0 0 6px;
+  color: #fca5a5;
+  font-size: 1em;
+}
+
+.doc-failure-reason .dfr-badge {
+  margin: 0 0 6px;
+  font-weight: 700;
+  color: #fecaca;
+}
+
+.doc-failure-reason .dfr-summary {
+  margin: 0 0 6px;
+}
+
+.doc-failure-reason .dfr-todo {
+  margin: 6px 0 4px;
+  font-weight: 700;
+  color: #fca5a5;
+}
+
+.doc-failure-reason ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.doc-failure-reason li {
+  margin: 3px 0;
 }
 
 pre {

@@ -616,6 +616,87 @@ describe("RolFinanceReportsController", () => {
     expect(empty).toContain("No records processed yet.");
   });
 
+  test("renderFailureReasonHtml renders badge, summary and remaining-work list for a fail report", () => {
+    const ctx = setup([]);
+    const html = ctx.rf.renderFailureReasonHtml({
+      status: "fail",
+      failure_detail: {
+        badge: "⚠️ FAIL - Math verified, DB/category issues remain",
+        summary: "One deposit is not traceable to a persisted DB row.",
+        issues: [
+          {
+            section: "Expense Category Verification",
+            status: "REVIEW NEEDED",
+            text: "Several rows still use broad <Personal> categories.",
+          },
+        ],
+      },
+    });
+    expect(html).toContain("Document Failure Reason");
+    expect(html).toContain("FAIL - Math verified");
+    expect(html).toContain("not traceable to a persisted DB row");
+    expect(html).toContain("To clear the red state, resolve:");
+    expect(html).toContain("Expense Category Verification");
+    expect(html).toContain("REVIEW NEEDED");
+    // User-supplied text is escaped.
+    expect(html).toContain("&lt;Personal&gt;");
+  });
+
+  test("renderFailureReasonHtml returns empty for pass reports and fail reports without detail", () => {
+    const ctx = setup([]);
+    expect(
+      ctx.rf.renderFailureReasonHtml({
+        status: "pass",
+        failure_detail: { badge: "x" },
+      }),
+    ).toBe("");
+    expect(ctx.rf.renderFailureReasonHtml({ status: "fail" })).toBe("");
+  });
+
+  test("buildTabsAndViews puts the Document Failure Reason section above the report iframe for fail reports only", async () => {
+    const ctx = setup([
+      {
+        key: "ok",
+        label: "OK Report",
+        exists: true,
+        status: "pass",
+        url: "/r/ok.html",
+      },
+      {
+        key: "bad",
+        label: "Bad Report",
+        exists: true,
+        status: "fail",
+        url: "/r/bad.html",
+        failure_detail: {
+          badge: "⚠️ FAIL - DB issues remain",
+          summary: "One deposit is not traceable.",
+          issues: [
+            {
+              section: "Database Presence Verification",
+              status: "PASS WITH NOTES",
+              text: "One unmatched credit row.",
+            },
+          ],
+        },
+      },
+    ]);
+    await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
+
+    const okView = ctx.viewsContainer.querySelector("#rol-finance-report-ok");
+    expect(okView.innerHTML).not.toContain("Document Failure Reason");
+
+    const badView = ctx.viewsContainer.querySelector("#rol-finance-report-bad");
+    expect(badView.innerHTML).toContain("Document Failure Reason");
+    expect(badView.innerHTML).toContain("FAIL - DB issues remain");
+    expect(badView.innerHTML).toContain("Database Presence Verification");
+    // The failure section renders before the Verified Transactions iframe.
+    expect(badView.innerHTML.indexOf("doc-failure-reason")).toBeLessThan(
+      badView.innerHTML.indexOf("<iframe"),
+    );
+  });
+
   test.skip("legacy refreshRecentReports fetches and fills the placeholder", async () => {
     const ctx = setup([
       {
@@ -982,5 +1063,85 @@ describe("RolFinanceReportsController", () => {
     expect(dialog.classList.contains("open")).toBe(false);
     const panel = ctx.doc.getElementById("rol-finance-recent-scans");
     expect(panel.innerHTML).toContain("Nothing waiting");
+  });
+
+  test("openReports injects Window/Freezer Scanner tabs after Recent Report", async () => {
+    const ctx = setup([]);
+    await ctx.rf.openReports();
+
+    const scannerTabs = ctx.nav.querySelectorAll(".tab[data-scanner]");
+    expect(scannerTabs.length).toBe(2);
+    expect(scannerTabs.map((t) => t.textContent)).toEqual([
+      "Window Scanner",
+      "Freezer Scanner",
+    ]);
+    expect(scannerTabs.map((t) => t.dataset.scanner)).toEqual([
+      "window",
+      "freezer",
+    ]);
+    // None active yet — Recent Report is the landing view.
+    expect(scannerTabs.every((t) => !t.classList.contains("active"))).toBe(
+      true,
+    );
+  });
+
+  test("openScannerReport shows that scanner's iframe and owns the highlight", async () => {
+    const ctx = setup([]);
+    await ctx.rf.openReports();
+
+    ctx.rf.openScannerReport("freezer");
+
+    expect(ctx.activated).toContain("rol-finance-report-scanner-freezer");
+    const view = ctx.viewsContainer.querySelector(
+      "#rol-finance-report-scanner-freezer",
+    );
+    expect(view.innerHTML).toContain("/scanner_report.html?scanner=freezer");
+    const freezerTab = ctx.nav.querySelector('.tab[data-scanner="freezer"]');
+    const windowTab = ctx.nav.querySelector('.tab[data-scanner="window"]');
+    const recentTab = ctx.nav.querySelector(".tab[data-recent-report]");
+    expect(freezerTab.classList.contains("active")).toBe(true);
+    expect(windowTab.classList.contains("active")).toBe(false);
+    expect(recentTab.classList.contains("active")).toBe(false);
+
+    // Switching to the other scanner rebuilds its view and moves the highlight.
+    ctx.rf.openScannerReport("window");
+    expect(ctx.activated).toContain("rol-finance-report-scanner-window");
+    expect(
+      ctx.viewsContainer
+        .querySelector("#rol-finance-report-scanner-window")
+        .innerHTML.includes("/scanner_report.html?scanner=window"),
+    ).toBe(true);
+    expect(windowTab.classList.contains("active")).toBe(true);
+    expect(freezerTab.classList.contains("active")).toBe(false);
+
+    // Recent Report clears the scanner highlight again.
+    ctx.rf.openRecentReport();
+    expect(windowTab.classList.contains("active")).toBe(false);
+    expect(recentTab.classList.contains("active")).toBe(true);
+  });
+
+  test("scanner tabs hide inside a month and return via Back", async () => {
+    const ctx = setup([
+      {
+        key: "jan",
+        label: "January",
+        exists: true,
+        status: "pass",
+        url: "/r/jan.html",
+      },
+    ]);
+    await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
+
+    const scannerTabs = ctx.nav.querySelectorAll(".tab[data-scanner]");
+    expect(scannerTabs.every((t) => t.classList.contains("hidden"))).toBe(true);
+
+    ctx.rf.backToMonths();
+    expect(scannerTabs.every((t) => !t.classList.contains("hidden"))).toBe(
+      true,
+    );
+    expect(scannerTabs.every((t) => !t.classList.contains("active"))).toBe(
+      true,
+    );
   });
 });

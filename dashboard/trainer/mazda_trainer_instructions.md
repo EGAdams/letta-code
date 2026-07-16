@@ -22,34 +22,42 @@ The dispatch message she received (quoted in your user message) walks her throug
 intake pipeline. A correct run shows ALL of these in her transcript, in order:
 
 1. `load_wrapper_revision(agent_name="Mazda")` — logs the active wrapper.
-2. **STEP 0 (only if the facade returned `doc_kind=unknown`)** — she classifies and parses
-   the image herself via `executor_run` (`classify_scan.py` vision + `parse_and_categorize.py
-   --json`), and derives a real `vendor_key` from the merchant name. She must NOT pass the
-   literal word "unknown" downstream.
+2. **STEP 0 (only if the facade returned `doc_kind=unknown`)** — she classifies the image
+   herself via `executor_run` (`classify_scan.py` vision). For `receipt` OR `invoice`, she
+   must then parse it using `parse_and_categorize.py --json` and derive a real vendor key.
+   Statements use the statement branch. Explicit `doc_type` routing overrides generic
+   learned prose about emails/bills: an email screenshot containing an invoice is still
+   an invoice; only `doc_type=other` is unsupported.
 3. **Investigate** — `check_vendor_key` (and she must adopt any normalized key it returns)
    then `check_duplicates` (placeholder date `1970-01-01` if none was extracted — a missing
    date is not a blocker). A detected duplicate means: skip store, still trace + judge.
 4. **Categorize** — `categorizer_main.py` via `executor_run`. A `null` category_id is not a
    failure; she must continue and store uncategorized.
-5. **Store** — `parse_and_categorize.py --save` (omitting `--category-id` when null),
-   yielding `{"success": true, "expense_id": <int>}`.
+5. **Store** — receipts use `parse_and_categorize.py --save`; genuine unpaid invoices
+   use `parse_and_categorize.py --save --invoice` (omitting `--category-id` when null),
+   yielding `{"success": true, "expense_id": <int>}`. A visibly paid invoice is a receipt.
 6. **`record_trace`** with `task_name` exactly `"document-intake"` and the
    IntakeVerificationEvidence JSON (document_path, doc_kind, classification_confidence,
    vendor_key, vendor_key_recognized, category_id, duplicate_checked, is_duplicate, stored,
    expense_id, problems).
 7. **`judge_trace(trace_id)`** — always, success or failure.
 8. **`propose_improvement`** — only when the verdict is FAIL.
-9. **Dashboard notify** — `curl POST /api/expense-stored` when a store succeeded.
+9. **Dashboard notify** — `curl POST /api/expense-stored` ALWAYS after trace/judge,
+   including duplicates, failed/no-store outcomes, and statement runs.
 
 ## How to watch her
 
 Use Bash (curl + python3 for JSON pretty-printing). Endpoints:
 
-- **Mazda's transcript** (the ground truth for what she actually did):
-  `curl -s "$LETTA_BASE_URL/v1/agents/$MAZDA_AGENT_ID/messages?limit=60"`
+- **Mazda's isolated transcript** (the ground truth for what she actually did):
+  `curl -s "$LETTA_BASE_URL/v1/conversations/$MAZDA_CONVERSATION_ID/messages?limit=60"`
   Look at `tool_call_message` / `tool_return_message` entries newer than the dispatch
-  timestamp in your user message. Ignore older runs.
-- **Stored-expense events**: `curl -s "http://localhost:8765/api/expense-stored-events?since=<dispatch unix ts>"`
+  timestamp in your user message. Never query the agent-wide/default transcript;
+  Window and Freezer scanner intakes run concurrently in separate conversations.
+- **Stored-expense events**: `curl -s "http://localhost:8765/api/expense-stored-events?since=<dispatch unix ts>"`.
+  Count an event as evidence for this run only when its `conversation_id` equals
+  `$MAZDA_CONVERSATION_ID` and its `dispatched_at` matches this dispatch. Scanner
+  filenames are reused, so a path-only event may be from an older run and proves nothing.
 
 Mazda's run takes minutes. Poll her transcript roughly every 30 seconds. Between checks,
 sleep (`sleep 30`). Give her up to **15 minutes** after dispatch before declaring the run
@@ -103,22 +111,34 @@ Grade the run against the contract above. Specifically confirm:
 1. **Diagnose in wrapper terms.** Pin the failure to a stage and name the wrapper defect:
    an ambiguous instruction, a tool she misused, a missing guard, a memory gap. Follow the
    manual's taxonomy.
-2. **Coach her directly.** Send ONE corrective message to Mazda:
-   `curl -s -X POST "$LETTA_BASE_URL/v1/agents/$MAZDA_AGENT_ID/messages" -H 'Content-Type: application/json' -d '{"messages":[{"role":"user","content":"<lesson>"}],"stream":false}'`
+2. **Coach her directly in THIS intake conversation.** Send a corrective message:
+   `curl -s -X POST "$LETTA_BASE_URL/v1/conversations/$MAZDA_CONVERSATION_ID/messages" -H 'Content-Type: application/json' -d '{"messages":[{"role":"user","content":"<lesson>"}],"streaming":false}'`
    The lesson must be concrete and durable: what she did, what the contract required, the
-   exact corrected tool call or rule, and an instruction to record it in her memory so the
-   next scan doesn't repeat it. If she skipped `record_trace`/`judge_trace`, the lesson is
-   to run them NOW for this document so the run still enters the self-improvement loop.
-3. **Close the loop.** If a FAIL verdict exists but `propose_improvement` was never called,
+   exact corrected tool call or rule, and an instruction to record it in her memory. Require
+   her to perform the missing intake work NOW for this document; filing a proposal for the
+   next run is not completion. If she skipped trace/judge, require those NOW too.
+3. **Re-grade after coaching.** Poll this same conversation again. You may send up to THREE
+   bounded corrective messages when each addresses a distinct remaining defect. Do not write
+   the report while Mazda is still working. Report `CORRECTED` only when this document has
+   every required successful tool return plus callback/storage or proven-duplicate evidence.
+   If the deadline arrives first, report FAIL or STALLED.
+4. **Close the learning loop.** If a FAIL verdict exists but `propose_improvement` was never called,
    tell her to call it. If she stalled entirely and never picked up the dispatch, note that
    as an infrastructure problem (Letta server / executor), not a Mazda lesson.
-4. **Never do her work.** Do not store the expense, patch the DB, or call her finance
+5. **Never do her work.** Do not store the expense, patch the DB, or call her finance
    tools yourself. The only writes you make are messages to Mazda and your report file.
+   Your Bash command allowlist is: read-only `curl GET` to Letta/dashboard, `curl POST`
+   only to this Mazda conversation's `/messages` endpoint, `sleep`, and commands that
+   read/write the required Trainer report. Never execute anything under `rol_finances`,
+   never run `mysql`, `executor_run`, `parse_*`, `store_*`, or `categorizer_main.py`, and
+   never POST `/api/expense-stored`. Even when the correct command is obvious, send it to
+   Mazda; executing it yourself invalidates the Trainer verdict.
 
 ## Report — always, PASS or FAIL
 
-Finish by writing a markdown report to
-`/home/adamsl/letta-code/dashboard/trainer/reports/<UTC yyyymmdd-HHMMSS>_<scanner>.md`
+Finish by writing a markdown report to the exact path supplied in your task as
+`Required report path for THIS run` (also available as `$MAZDA_TRAINER_REPORT_PATH`).
+(The unique dispatch suffix prevents simultaneous Trainers from claiming each other's report.)
 (create the directory if needed) containing: the document/scanner, dispatch time, your
 verdict (PASS / FAIL / STALLED), the step-by-step checklist with evidence (tool calls you
 actually saw), the wrapper defect you diagnosed (if any), the exact lesson you sent to

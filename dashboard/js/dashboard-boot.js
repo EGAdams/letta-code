@@ -25,6 +25,7 @@ import {
   DomTabFactory,
   FetchHttpClient,
   InputOptionsRenderer,
+  PrinterRepairController,
   RolFinanceReportsController,
   ServerActionController,
   ServerHealthMonitor,
@@ -35,6 +36,7 @@ import {
 
 // One shared HttpClient (Adapter over fetch) used by AM / SM / SSHM / RF.
 const http = new FetchHttpClient();
+const printerRepair = new PrinterRepairController({ http });
 
 // One shared ActivePoller: only one agent stream polls at a time, so
 // switching tabs/agents stops the previous stream before starting a new one.
@@ -611,6 +613,10 @@ if (
     if (!tab || tab.id === "btn-back-rol-finance-reports") return;
     if (tab.dataset.recentReport) {
       RF.openRecentReport();
+      return;
+    }
+    if (tab.dataset.scanner) {
+      RF.openScannerReport(tab.dataset.scanner);
       return;
     }
     if (tab.dataset.monthKey) {
@@ -2120,6 +2126,7 @@ function setupScanners() {
     const state = dialog.querySelector(".scanner-state");
     const startBtn = dialog.querySelector(".scanner-start");
     const showBtn = dialog.querySelector(".scanner-show");
+    const fixPrinterBtn = dialog.querySelector(".scanner-fix-printer");
     const processBtn = dialog.querySelector(".scanner-process");
     const resultBox = dialog.querySelector(".scanner-result");
     const imageBox = dialog.querySelector(".scanner-image-box");
@@ -2313,6 +2320,29 @@ function setupScanners() {
       void pipeline.process(scanner);
     };
 
+    const runPrinterRepair = async () => {
+      if (!fixPrinterBtn || !resultBox) return;
+      const repairButtons = document.querySelectorAll(".scanner-fix-printer");
+      repairButtons.forEach((button) => {
+        button.disabled = true;
+      });
+      resultBox.classList.remove("hidden");
+      resultBox.innerHTML =
+        '<div class="pipeline-title">Printer repair</div>' +
+        '<div class="pipeline-busy">Checking the HP DeskJet and repairing its Windows queue…</div>';
+      const result = await printerRepair.repair();
+      const message = TextUtils.esc(
+        result.text ||
+          (result.ok ? "Printer fixed." : "Printer repair failed."),
+      );
+      resultBox.innerHTML =
+        '<div class="pipeline-title">Printer repair</div>' +
+        `<div class="${result.ok ? "printer-repair-success" : "pipeline-error"}">${message}</div>`;
+      repairButtons.forEach((button) => {
+        button.disabled = false;
+      });
+    };
+
     const setBusy = (msg) => {
       if (progressTimer) {
         clearInterval(progressTimer);
@@ -2474,6 +2504,8 @@ function setupScanners() {
     closeBtn.addEventListener("click", hideImage);
     showBtn.addEventListener("click", showImage);
     startBtn.addEventListener("click", runManualScan);
+    if (fixPrinterBtn)
+      fixPrinterBtn.addEventListener("click", runPrinterRepair);
     if (processBtn) processBtn.addEventListener("click", runPipeline);
     // Click the dark backdrop (outside the image frame) to close the modal.
     imageBox.addEventListener("click", (e) => {

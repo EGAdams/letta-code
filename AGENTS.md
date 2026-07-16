@@ -49,6 +49,17 @@ When starting non-trivial work, skim `MEMORY.md` and check whether
 improvising a solution — that's the equivalent of what Claude Code does
 automatically via its skill-matching system prompt.
 
+## Mazda Trainer (dashboard sub-project)
+
+For anything involving **Mazda** (the self-improving document-intake agent) or
+her **Trainer** (the watcher agent that verifies and coaches every intake run),
+read `dashboard/AGENTS.md` — it documents the Trainer's files
+(`dashboard/trainer/`), how to run it manually (`run_mazda_trainer.mjs`,
+`--dry-run`), the STEP 1–8 intake contract it grades, the three levers for
+training Mazda durably (coaching message → memfs `system/*.md` edit →
+instructions/rubric change), and the gotchas (one-shot session, pytest must
+never spawn real Trainers, `MAZDA_TRAINER_ENABLED=0` kill switch).
+
 ## Project Structure & Module Organization
 - Main source lives in `src/` (CLI runtime, providers, tools, skills, web templates).
 - Unit and behavior tests live in `src/tests/`.

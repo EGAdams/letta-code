@@ -24,12 +24,16 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
       misleading STALLED report for a scan that never existed.
     - _scan_dispatch_claims: the one-dispatch-per-image guard is module state;
       clear it so tests never inherit a claim from an earlier test.
+    - _create_mazda_conversation: intake tests must not create live Letta
+      conversations unless they explicitly replace this stub.
     """
     import server
     monkeypatch.setattr(
         server, 'RECENT_REPORT_POINTER_FILE',
         str(tmp_path / 'recent_report_pointer.json'))
     monkeypatch.setattr(server, 'TRAINER_ENABLED', False)
+    monkeypatch.setattr(server, '_create_mazda_conversation',
+                        lambda: 'conv-test-isolated')
     server._scan_dispatch_claims.clear()
     yield
     server._scan_dispatch_claims.clear()
