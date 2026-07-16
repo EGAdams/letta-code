@@ -31,15 +31,17 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
 3. **Investigate** — `check_vendor_key` (and she must adopt any normalized key it returns)
    then `check_duplicates` (placeholder date `1970-01-01` if none was extracted — a missing
    date is not a blocker). A detected duplicate means: skip store, still trace + judge.
-4. **Categorize** — `categorizer_main.py` via `executor_run`. A `null` category_id is not a
-   failure; she must continue and store uncategorized.
+4. **Categorize** — `categorizer_main.py` via `executor_run`. Intake is fail-closed: a
+   `null`, zero, or invalid category_id blocks storage until Mazda resolves a valid category.
 5. **Store** — receipts use `parse_and_categorize.py --save`; genuine unpaid invoices
-   use `parse_and_categorize.py --save --invoice` (omitting `--category-id` when null),
+   use `parse_and_categorize.py --save --invoice`, always with a verified positive category,
    yielding `{"success": true, "expense_id": <int>}`. A visibly paid invoice is a receipt.
 6. **`record_trace`** with `task_name` exactly `"document-intake"` and the
    IntakeVerificationEvidence JSON (document_path, doc_kind, classification_confidence,
    vendor_key, vendor_key_recognized, category_id, duplicate_checked, is_duplicate, stored,
-   expense_id, problems).
+   expense_id, problems). For a duplicate-only run, `stored=false`, `expense_id=null`,
+   `is_duplicate=true`, and the canonical existing ID belongs in duplicate evidence/callback
+   fields rather than being represented as a newly stored expense.
 7. **`judge_trace(trace_id)`** — always, success or failure.
 8. **`propose_improvement`** — only when the verdict is FAIL.
 9. **Dashboard notify** — `curl POST /api/expense-stored` ALWAYS after trace/judge,
@@ -98,6 +100,12 @@ Grade the run against the contract above. Specifically confirm:
 - `task_name` is exactly `document-intake`.
 - The judge's verdict is consistent with what you observed. A clean store is PASS; a
   correctly-detected duplicate is PASS; a broken stage is FAIL.
+- Never award PASS to a newly stored receipt/invoice whose category_id is null/zero or whose
+  merchant/counterparty is blank or a placeholder (`null`, `"null"`, `unknown`, `receipt`).
+  Those are wrapper/tool-guard failures even if the insert itself returned success.
+- Verify the store result's final parsed/overridden date, amount, and merchant against the
+  duplicate-check inputs. If they changed, require a duplicate recheck on the final values;
+  never accept `--allow-duplicate` as a way around the store path's final duplicate guard.
 - For receipts, check for same-merchant/same-date nearby files or metadata with a close
   but different amount. Matching receipt number, transaction identity, and visible
   document means an OCR anomaly, not a second purchase. Require Mazda to reread printed

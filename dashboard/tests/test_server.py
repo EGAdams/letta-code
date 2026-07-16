@@ -855,8 +855,10 @@ def test_stage_scan_for_mazda_copies_locally_and_mirrors_to_win10(
 
     monkeypatch.setattr(server.subprocess, 'run', _fake_run)
     staged_path = server._stage_scan_for_mazda(str(local))
-    assert staged_path == f'{staging_dir}/scan_freezer.jpg'
-    assert (staging_dir / 'scan_freezer.jpg').read_bytes() == b'fake-jpeg'
+    staged_name = os.path.basename(staged_path)
+    assert staged_path.startswith(f'{staging_dir}/scan_freezer_')
+    assert staged_path.endswith('_42f114e0f62e.jpg')
+    assert (staging_dir / staged_name).read_bytes() == b'fake-jpeg'
     assert calls[0][:2] == ['ssh', '-o']
     assert 'mkdir' in calls[0]
     assert calls[1][0] == 'scp'
@@ -877,8 +879,8 @@ def test_stage_scan_for_mazda_ssh_failure_is_nonfatal(tmp_path, monkeypatch):
 
     monkeypatch.setattr(server.subprocess, 'run', _fake_run)
     staged_path = server._stage_scan_for_mazda(str(local))
-    assert staged_path == f'{staging_dir}/scan.jpg'
-    assert (staging_dir / 'scan.jpg').exists()
+    assert staged_path.startswith(f'{staging_dir}/scan_')
+    assert os.path.exists(staged_path)
 
 
 def test_stage_scan_for_mazda_returns_none_when_local_copy_fails(
@@ -2239,6 +2241,16 @@ def test_scan_message_never_passes_unknown_as_vendor_key():
     assert 'from STEP 0' in msg
 
 
+def test_scan_message_fails_closed_on_unresolved_vendor_or_category():
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', _FACADE_JPEG_UNKNOWN)
+    assert 'FAIL-CLOSED CATEGORY RULE' in msg
+    assert 'category_id is null/zero, do NOT run STEP 4' in msg
+    assert 'do NOT store an uncategorized expense' in msg
+    assert 'final duplicate guard using its final parsed/overridden' in msg
+    assert 'never retry with --allow-duplicate' in msg
+    assert 'Store EVEN IF category_id' not in msg
+
+
 def test_scan_message_instructs_structured_intake_evidence():
     """STEP 5 must tell Mazda to record the structured IntakeVerificationEvidence
     JSON under task_name="document-intake" — that is what the intake verdict
@@ -2417,6 +2429,8 @@ def test_record_stored_expense_appends_event():
         'vendor_key': 'goodwill_cascade',
         'description': 'Goodwill Cascade',
         'receipt_url': '/scans/scan.jpg',
+        'conversation_id': 'conv-intake-42',
+        'dispatched_at': 123.5,
     })
     assert result == {'ok': True}
 
@@ -2424,8 +2438,28 @@ def test_record_stored_expense_appends_event():
     assert len(events) == 1
     assert events[0]['expense_id'] == 42
     assert events[0]['vendor_key'] == 'goodwill_cascade'
+    assert events[0]['conversation_id'] == 'conv-intake-42'
+    assert events[0]['dispatched_at'] == 123.5
     assert 'stored_at' in events[0]
     _clear_expense_events()
+
+
+def test_duplicate_only_correction_replaces_superseded_expense_ids():
+    intake = {
+        'expense_ids': [1518, 1520],
+        'duplicate_expense_ids': [],
+        'stored': 1,
+    }
+
+    server._fold_event_into_intake(intake, {
+        'stored': 0,
+        'duplicate_expense_ids': [1518],
+        'expense_id': None,
+    })
+
+    assert intake['expense_ids'] == [1518]
+    assert intake['duplicate_expense_ids'] == [1518]
+    assert intake['stored'] == 0
 
 
 def test_get_stored_expense_events_filters_by_since():
@@ -3352,6 +3386,44 @@ def test_run_scanner_does_not_dispatch_on_busy(monkeypatch):
     assert spawned == []
 
 
+def test_scanner_status_is_read_only(monkeypatch):
+    monkeypatch.setattr(server, 'SCANNERS', {'freezer': {'name': 'Freezer Scanner'}})
+    monkeypatch.setattr(
+        server, '_invoke_scanner',
+        lambda _key: (_ for _ in ()).throw(AssertionError('status GET started a scan')))
+    server._scanner_runtime_status.clear()
+
+    assert server.scanner_status('freezer') == {'status': 'idle', 'ok': True}
+
+
+def test_run_scanner_blocks_while_previous_intake_is_being_verified(monkeypatch):
+    monkeypatch.setattr(server, '_scanner_intake_in_progress', lambda _key: True)
+    monkeypatch.setattr(
+        server, '_invoke_scanner',
+        lambda _key: (_ for _ in ()).throw(AssertionError('started overlapping scan')))
+
+    result = server.run_scanner('freezer')
+
+    assert result['status'] == 'intake_busy'
+    assert result['ok'] is False
+
+
+def test_persisted_content_fingerprint_prevents_restart_redispatch(
+        tmp_path, monkeypatch):
+    scan = tmp_path / 'scan.jpg'
+    scan.write_bytes(b'same-physical-scan')
+    digest = server._scan_content_sha256(scan)
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': 'scan.jpg'},
+    })
+    monkeypatch.setattr(server, 'get_scanner_intake', lambda _key: {
+        'content_sha256': digest,
+    })
+    server._scan_dispatch_claims.clear()
+
+    assert server._claim_scan_dispatch('window', scan, digest) is False
+
+
 def test_merge_recent_intake_event_folds_ids_and_counts(tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
@@ -3518,6 +3590,34 @@ def test_merge_identified_late_event_cannot_clobber_reused_scanner_path(
     intake = server._read_recent_pointer_file()['scanner_intakes']['Freezer Scanner']
     assert intake['conversation_id'] == 'conv-new'
     assert intake['expense_ids'] == []
+
+
+def test_record_stored_expense_preserves_identity_for_late_callback_routing(
+        tmp_path, monkeypatch):
+    """The event-bus adapter must not discard the identifiers that make the
+    reused scanner path safe.  This was the direct cause of an older Freezer
+    callback being folded into the next Freezer report."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    _clear_expense_events()
+    path = '/staged/scan_freezer.jpg'
+    server.record_recent_intake(
+        path, 'Freezer Scanner', conversation_id='conv-new', dispatched_at=200)
+
+    server.record_stored_expense({
+        'document_path': path,
+        'conversation_id': 'conv-old',
+        'dispatched_at': 100,
+        'expense_ids': [1518],
+        'stored': 1,
+    })
+
+    intake = server._read_recent_pointer_file()['scanner_intakes']['Freezer Scanner']
+    assert intake['conversation_id'] == 'conv-new'
+    assert intake['expense_ids'] == []
+    event = server.get_stored_expense_events(0)[-1]
+    assert event['conversation_id'] == 'conv-old'
+    assert event['dispatched_at'] == 100
+    _clear_expense_events()
 
 
 def test_merge_identified_event_routes_by_conversation_and_dispatch(

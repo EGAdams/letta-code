@@ -6,6 +6,7 @@ Run: python3 server.py   (from /home/adamsl/letta-code/dashboard/)
 Then open: http://localhost:8765/
 """
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -375,7 +376,8 @@ def set_recent_report_pointer(report_path):
 
 
 def record_recent_intake(image_path, label, kind='scan', facade=None,
-                         conversation_id=None, dispatched_at=None):
+                         conversation_id=None, dispatched_at=None,
+                         content_sha256=None):
     """Record an intake dispatch (scan or PDF) the moment Mazda is notified,
     so /recent_report.html can show the document even before — or without —
     any report.html existing for it. Called from process_scanned_document /
@@ -402,6 +404,7 @@ def record_recent_intake(image_path, label, kind='scan', facade=None,
             'doc_kind': facade.get('doc_kind'),
             'vendor': facade.get('vendor'),
             'conversation_id': conversation_id,
+            'content_sha256': content_sha256 or '',
             'status': 'processing',
             'status_detail': '',
         }
@@ -425,6 +428,18 @@ def _fold_event_into_intake(intake, event):
     doc_kind/vendor) into one intake record, in place."""
     ids = list(intake.get('expense_ids') or [])
     duplicate_ids = list(intake.get('duplicate_expense_ids') or [])
+    # A corrected duplicate-only callback supersedes any earlier bad store
+    # from the same isolated run. Keep only the canonical existing rows named
+    # by the final callback instead of permanently unioning a deleted/bad ID
+    # into the scanner view.
+    try:
+        duplicate_only = (int(event.get('stored')) == 0 and
+                          bool(event.get('duplicate_expense_ids')))
+    except (TypeError, ValueError):
+        duplicate_only = False
+    if duplicate_only:
+        ids = []
+        duplicate_ids = []
     # Duplicates matter as much as newly-stored rows here: a re-scan that
     # stores nothing still shows its transactions so they can be
     # recategorized before the next scan.
@@ -1888,9 +1903,8 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'check_duplicates below and in the STEP 5 evidence JSON. '
         f'parse_and_categorize.py --save already substitutes this same placeholder '
         f'automatically when transaction_date is missing, so STEP 4 needs no special '
-        f'handling. This way the receipt still lands in the dashboard\'s New Records '
-        f'queue (uncategorized) for a human to fill in the real date, instead of the '
-        f'receipt being lost entirely.\n'
+        f'handling. This preserves the receipt with an honest sentinel date instead of '
+        f'silently guessing a date or losing the document.\n'
         f'  b. check_duplicates(id_light="scan", expense_date=<YYYY-MM-DD, or '
         f'"1970-01-01" if no date was extracted>, '
         f'amount=<decimal string>, description=<merchant>)\n'
@@ -1902,18 +1916,23 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'{categorizer_input_line}'
         f'  {MAZDA_RF_VENV_PY} tools/categorizer/categorizer_main.py '
         f'-i /tmp/mazda_cat_input.json --provider=gemini\n'
-        f'  → {{"vendor_key": "...", "category_id": <int>}} '
-        f'(a null category_id means the categorizer could not resolve one — do NOT stop: '
-        f'continue to STEP 4 and store the expense UNCATEGORIZED so it enters the '
-        f'dashboard\'s New Records queue for a human to categorize)\n\n'
+        f'  → {{"vendor_key": "...", "category_id": <int>}}\n'
+        f'  FAIL-CLOSED CATEGORY RULE: merchant/vendor placeholders such as null, "null", '
+        f'"unknown", or "receipt" are not real vendors. If merchant/vendor is unresolved '
+        f'or category_id is null/zero, do NOT run STEP 4 and do NOT store an uncategorized '
+        f'expense. Record and judge a truthful failed trace, propose an improvement, and '
+        f'send STEP 8 with stored:0.\n\n'
         f'STEP 4 — STORE (executor_run, cwd=/home/adamsl/rol_finances, '
         f'env={MAZDA_RF_ENV_JSON}). '
-        f'Write permission is granted for this intake task. Store EVEN IF category_id '
-        f'is null (omit the --category-id flag in that case):\n'
+        f'Write permission is granted only after a verified merchant/vendor and positive '
+        f'category_id are available:\n'
         f'  {MAZDA_RF_VENV_PY} '
         f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
         f'-f {scan_image_path} --save --category-id=<id from step 3> --engine=gemini\n'
-        f'  → {{"success": true, "expense_id": <int>, ...}}\n\n'
+        f'  → {{"success": true, "expense_id": <int>, ...}} OR a duplicate result. '
+        f'The save path performs a final duplicate guard using its final parsed/overridden '
+        f'date, amount, and merchant. If it reports duplicate, treat the existing expense '
+        f'as the result and never retry with --allow-duplicate.\n\n'
         f'STEP 5 — record_trace(agent_name="Mazda", task_name="document-intake", '
         f'input_text=<scan path>, agent_output=<the intake-evidence JSON below>). '
         f'The task_name MUST be exactly "document-intake" so it is judged by the intake '
@@ -2005,7 +2024,20 @@ def _stage_scan_for_mazda(local_image_path):
     """
     if not os.path.isfile(local_image_path):
         return None
-    staged_name = os.path.basename(local_image_path)
+    # Scanner output names are reusable (scan.jpg / scan_freezer.jpg), while a
+    # Mazda conversation can remain active for minutes.  Never give two runs
+    # the same mutable path: a late tool call from the older run could otherwise
+    # read and store the newer scan.  Keep the scanner prefix for diagnostics,
+    # and add both a dispatch-unique timestamp and a content fingerprint.
+    source_name = os.path.basename(local_image_path)
+    stem, suffix = os.path.splitext(source_name)
+    try:
+        with open(local_image_path, 'rb') as src:
+            content_hash = hashlib.sha256(src.read()).hexdigest()[:12]
+    except OSError as exc:
+        print(f'[scan→mazda] Failed to fingerprint scan: {exc}')
+        return None
+    staged_name = f'{stem}_{time.time_ns()}_{content_hash}{suffix}'
     staged_path = f'{SCAN_STAGING_REMOTE_DIR}/{staged_name}'
     try:
         os.makedirs(SCAN_STAGING_REMOTE_DIR, exist_ok=True)
@@ -2209,15 +2241,35 @@ _scan_dispatch_claims = {}
 _scan_dispatch_claim_lock = threading.Lock()
 
 
-def _claim_scan_dispatch(key, image_path):
-    """True exactly once per (scanner, image path, image mtime)."""
+def _scan_content_sha256(image_path):
     try:
-        mtime = int(os.path.getmtime(image_path))
+        digest = hashlib.sha256()
+        with open(image_path, 'rb') as src:
+            for chunk in iter(lambda: src.read(1024 * 1024), b''):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return ''
+
+
+def _claim_scan_dispatch(key, image_path, content_sha256=None):
+    """Claim a scanner image once, including across dashboard restarts."""
+    try:
+        stat = os.stat(image_path)
     except OSError:
         return False
-    claim = (image_path, mtime)
+    content_sha256 = content_sha256 or _scan_content_sha256(image_path)
+    claim = (image_path, stat.st_mtime_ns, stat.st_size, content_sha256)
     with _scan_dispatch_claim_lock:
         if _scan_dispatch_claims.get(key) == claim:
+            return False
+        # The in-memory claim is lost on a service restart. The per-scanner
+        # intake pointer persists the immutable content fingerprint, so an old
+        # browser cannot redispatch the same output file after the restart.
+        cfg = SCANNERS.get(key) or {}
+        previous = get_scanner_intake(key)
+        if (content_sha256 and previous and
+                previous.get('content_sha256') == content_sha256):
             return False
         _scan_dispatch_claims[key] = claim
         return True
@@ -2232,6 +2284,22 @@ def _release_scan_dispatch(key, image_path):
             del _scan_dispatch_claims[key]
 
 
+_scanner_runtime_status = {}
+_scanner_runtime_status_lock = threading.Lock()
+
+
+def _scanner_intake_in_progress(key, max_age_seconds=35 * 60):
+    """True while this scanner's previous Mazda/Trainer run is unfinished."""
+    intake = get_scanner_intake(key)
+    if not intake or intake.get('status') not in ('processing', 'complete'):
+        return False
+    try:
+        age = time.time() - float(intake.get('dispatched_at') or 0)
+    except (TypeError, ValueError):
+        return False
+    return 0 <= age < max_age_seconds
+
+
 def run_scanner(key):
     """Manual scan (POST /api/scanner-scan). Adds back-compat `ok` to the status.
 
@@ -2242,8 +2310,21 @@ def run_scanner(key):
     surviving the scan. _claim_scan_dispatch keeps the two paths from ever
     double-dispatching Mazda for the same image.
     """
+    if _scanner_intake_in_progress(key):
+        return {
+            'ok': False,
+            'status': 'intake_busy',
+            'error': ('The previous document from this scanner is still being '
+                      'verified. Wait for its Trainer PASS/FAIL before scanning another.'),
+        }
     result = _invoke_scanner(key)
     result['ok'] = (result.get('status') == 'ready')
+    with _scanner_runtime_status_lock:
+        # GET /api/scanner-status is observation-only. A completed scan is
+        # represented as idle there; only this POST response carries `ready`
+        # and can cause the frontend to launch intake.
+        _scanner_runtime_status[key] = (
+            {'status': 'idle', 'ok': True} if result['ok'] else dict(result))
     if result['ok']:
         threading.Thread(
             target=process_scanned_document, args=(key,), daemon=True,
@@ -2252,8 +2333,11 @@ def run_scanner(key):
 
 
 def scanner_status(key):
-    """Lightweight status probe (GET /api/scanner-status) for the Freezer's poll."""
-    return _invoke_scanner(key)
+    """Read-only scanner state. Never starts WIA or writes a scan image."""
+    if key not in SCANNERS:
+        return {'status': 'error', 'ok': False, 'error': f'Unknown scanner: {key}'}
+    with _scanner_runtime_status_lock:
+        return dict(_scanner_runtime_status.get(key, {'status': 'idle', 'ok': True}))
 
 
 # ── Document intake pipeline (the "Process Document" action) ────────────────
@@ -2386,7 +2470,8 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
         result['image_path'] = image_path
         return result
     if os.path.isfile(image_path):
-        if not _claim_scan_dispatch(key, image_path):
+        content_sha256 = _scan_content_sha256(image_path)
+        if not _claim_scan_dispatch(key, image_path, content_sha256):
             # This exact image was already dispatched (the server auto-fires
             # intake when a scan finishes AND the frontend still POSTs
             # /api/process-document) — never send Mazda the same document twice.
@@ -2414,7 +2499,8 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
                 record_recent_intake(
                     remote_image_path, cfg.get('name', key), kind='scan',
                     facade=facade, conversation_id=conversation_id,
-                    dispatched_at=dispatched_at)
+                    dispatched_at=dispatched_at,
+                    content_sha256=content_sha256)
             else:
                 _release_scan_dispatch(key, image_path)
                 stage_error = ('Could not create an isolated Mazda conversation; '
@@ -2576,6 +2662,10 @@ def record_stored_expense(data):
         'stored': data.get('stored'),
         'doc_kind': data.get('doc_kind') or data.get('doc_type') or '',
         'vendor': data.get('vendor') or data.get('merchant') or '',
+        # Preserve exact dispatch identity.  Reusable scanner filenames are
+        # insufficient routing keys when an older conversation reports late.
+        'conversation_id': data.get('conversation_id', ''),
+        'dispatched_at': data.get('dispatched_at'),
     }
     with _stored_expense_lock:
         _stored_expense_events.append(event)
