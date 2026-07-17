@@ -52,6 +52,8 @@ export class RolFinanceReportsController {
     months = [
       { key: "jan-2025", label: "January 2025" },
       { key: "feb-2025", label: "February 2025" },
+      { key: "mar-2025", label: "March 2025" },
+      { key: "apr-2025", label: "April 2025" },
     ],
     setInterval: _setInterval = null,
     clearInterval: _clearInterval = null,
@@ -849,10 +851,7 @@ export class RolFinanceReportsController {
     }
   }
 
-  /**
-   * Build the month-level landing view: one color-coded row per document.
-   * Skips reports with no `status` (e.g. the synthetic Receipt Only tab).
-   */
+  /** Build the month landing view, including completed receipt-only progress. */
   buildOverview(reports, month) {
     const view = this._doc.createElement("section");
     view.id = "rol-finance-reports-overview";
@@ -861,7 +860,15 @@ export class RolFinanceReportsController {
     const rows = reports
       .map((r) => ({
         r,
-        info: RolFinanceReportsController.statusInfo(r.status),
+        info:
+          r.key === "receipt-only"
+            ? {
+                cls: r.receipt_count ? "rol-status-pass" : "rol-status-review",
+                label: r.receipt_count
+                  ? `${r.receipt_count} receipt${r.receipt_count === 1 ? "" : "s"} processed`
+                  : "No receipts processed",
+              }
+            : RolFinanceReportsController.statusInfo(r.status),
       }))
       .filter(({ info }) => info)
       .map(
@@ -950,11 +957,16 @@ export class RolFinanceReportsController {
   buildTabsAndViews(reports) {
     for (const r of reports) {
       const missing = !r.exists;
+      const receiptCount =
+        r.key === "receipt-only" && Number.isInteger(r.receipt_count)
+          ? r.receipt_count
+          : null;
       const tab = this._doc.createElement("button");
       tab.type = "button";
-      tab.className = `tab${missing ? " report-missing" : ""}`;
+      tab.className = `tab${missing ? " report-missing" : ""}${receiptCount > 0 ? " receipt-progress" : ""}`;
       tab.dataset.reportKey = r.key;
-      tab.textContent = r.label;
+      tab.textContent =
+        receiptCount == null ? r.label : `${r.label} (${receiptCount})`;
       this._nav.appendChild(tab);
 
       const view = this._doc.createElement("section");
@@ -963,11 +975,11 @@ export class RolFinanceReportsController {
       if (r.exists) {
         const bar = this.buildReprocessBar(r);
         view.appendChild(bar);
-        // Red reports: explain the failure (and what clears it) above the
-        // Verified Transactions iframe, which hides the report's own
-        // Overall Result / verification sections.
-        const failureHtml = this.renderFailureReasonHtml(r);
-        if (failureHtml) view.insertAdjacentHTML("beforeend", failureHtml);
+        // Red and yellow reports: explain why the document needs attention
+        // and what to do next above the Verified Transactions iframe, which
+        // hides the report's own Overall Result / verification sections.
+        const attentionHtml = this.renderAttentionReasonHtml(r);
+        if (attentionHtml) view.insertAdjacentHTML("beforeend", attentionHtml);
         // Keep the iframe in innerHTML so querySelectorAll on the view
         // can find it in the real DOM while the bar stays queryable via
         // the children tree (the FakeElement pattern this codebase uses).
@@ -988,32 +1000,39 @@ export class RolFinanceReportsController {
     }
   }
 
-  /**
-   * Pure view method: render the "Document Failure Reason" section for a red
-   * report from the failure_detail the server extracted out of report.html
-   * (badge line, Overall Result summary, and the non-PASS sections that name
-   * the remaining work). Returns "" for non-fail reports or when the server
-   * had nothing to extract, so callers can insert the result unconditionally.
-   */
-  renderFailureReasonHtml(r) {
-    const d = r?.failure_detail;
-    if (r?.status !== "fail" || !d) return "";
+  /** Render the reason and next action for a red or yellow report. */
+  renderAttentionReasonHtml(r) {
+    if (!r || !["fail", "review"].includes(r.status)) return "";
+    const d = r.attention_detail || r.failure_detail;
+    if (!d) return "";
+    const isReview = r.status === "review";
     const issues = (d.issues || [])
       .map(
         (i) =>
           `<li><strong>${TextUtils.esc(i.section)}</strong> — ${TextUtils.esc(i.status)}: ${TextUtils.esc(i.text)}</li>`,
       )
       .join("");
-    return `<div class="doc-failure-reason">
-      <h3>Document Failure Reason</h3>
+    const recommendedAction =
+      d.recommended_action ||
+      (isReview
+        ? "Review the unresolved items below and decide or correct each one."
+        : "Resolve the items below, then reprocess the document.");
+    return `<div class="doc-failure-reason${isReview ? " doc-review-reason" : ""}">
+      <h3>${isReview ? "Document Review Reason" : "Document Failure Reason"}</h3>
       ${d.badge ? `<p class="dfr-badge">${TextUtils.esc(d.badge)}</p>` : ""}
       ${d.summary ? `<p class="dfr-summary">${TextUtils.esc(d.summary)}</p>` : ""}
       ${
         issues
-          ? `<p class="dfr-todo">To clear the red state, resolve:</p><ul>${issues}</ul>`
+          ? `<p class="dfr-todo">${isReview ? "Items needing review:" : "To clear the red state, resolve:"}</p><ul>${issues}</ul>`
           : ""
       }
+      <p class="dfr-action"><strong>Recommended action:</strong> ${TextUtils.esc(recommendedAction)}</p>
     </div>`;
+  }
+
+  /** Backward-compatible method used by existing callers/tests. */
+  renderFailureReasonHtml(r) {
+    return this.renderAttentionReasonHtml(r);
   }
 
   /**

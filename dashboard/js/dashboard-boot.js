@@ -2096,14 +2096,9 @@ new VisionHaltAlert({ http }).start();
    backend scan AND a ~10s yellow progress fill; when the scan returns the bar
    snaps green + "Scan Finished" and the image opens automatically. The image
    is dismissable (× / re-opened with "Show Image"). */
-// The Freezer Scanner (non-default HP063E28) is notorious for "WIA device is
-// busy" until power-cycled. While its tab is showing we probe /api/scanner-status:
-// the FIRST check fires immediately, then we back off to every 15s (each probe
-// runs a real WIA call, so polling harder stresses stisvc). Each probe shows a
-// yellow progress fill reflecting its timing (busy fails in ~3s; a recovery scan
-// takes ~33s). On `busy`/`offline` the bar turns RED with a blinking red "Restart
-// the Scanner Please"; the moment the device recovers, that same probe's transfer
-// succeeds and the scanned image appears.
+// Scanner status is strictly observation-only. A WIA transfer is started only
+// by the explicit Start Scan POST; background GET polling must never create or
+// dispatch another document.
 const SCANNER_POLL_MS = 15000;
 const MONITORED_SCANNERS = new Set();
 const SCANNER_IMAGE_MIN_ZOOM = 0.25;
@@ -2386,11 +2381,26 @@ function setupScanners() {
       state.textContent = msg;
     };
 
+    const setIdle = () => {
+      if (progressTimer) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+      clearBlink();
+      setBar(0);
+      panel.classList.remove("scan-busy", "scan-complete", "scan-error");
+      state.textContent = "Idle — ready to scan.";
+    };
+
     // Map a /api/scanner-status or /api/scanner-scan result onto the dialog.
     const applyResult = (data) => {
       const status = data.status || (data.ok ? "ready" : "error");
       if (status === "ready") {
         setReady(data.image_url);
+      } else if (status === "idle") {
+        setIdle();
+      } else if (status === "intake_busy") {
+        setBusy(data.error || "Previous scan is still being verified.");
       } else if (status === "busy" || status === "offline") {
         setBusy("Restart the Scanner Please");
       } else {

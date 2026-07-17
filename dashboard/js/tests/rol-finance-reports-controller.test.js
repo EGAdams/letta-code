@@ -81,7 +81,13 @@ describe("RolFinanceReportsController", () => {
     expect(ctx.nav.querySelectorAll("[data-report-key]").length).toBe(0);
     expect(ctx.requestedUrls).toEqual([]);
     const monthTabs = ctx.nav.querySelectorAll(".tab.month-tab");
-    expect(monthTabs.length).toBe(2);
+    expect(monthTabs.length).toBe(4);
+    expect(monthTabs.map((t) => t.textContent)).toEqual([
+      "January 2025",
+      "February 2025",
+      "March 2025",
+      "April 2025",
+    ]);
     expect(monthTabs.every((t) => !t.classList.contains("hidden"))).toBe(true);
 
     // The back-to-months tab exists but stays hidden at the months level.
@@ -267,6 +273,7 @@ describe("RolFinanceReportsController", () => {
         label: "Receipt Only",
         exists: true,
         status: null,
+        receipt_count: 6,
         url: "/r/receipt.html",
       },
     ]);
@@ -287,8 +294,14 @@ describe("RolFinanceReportsController", () => {
     expect(overview.innerHTML).toContain("In progress");
     expect(overview.innerHTML).toContain("Failed");
     expect(overview.innerHTML).toContain("Not started");
-    // Receipt Only isn't a verification target — not listed in the overview.
-    expect(overview.innerHTML).not.toContain("Receipt Only");
+    // Completed receipt intake is visible even though it is not a statement.
+    expect(overview.innerHTML).toContain("Receipt Only");
+    expect(overview.innerHTML).toContain("6 receipts processed");
+    const receiptTab = ctx.nav.querySelector(
+      '[data-report-key="receipt-only"]',
+    );
+    expect(receiptTab.textContent).toBe("Receipt Only (6)");
+    expect(receiptTab.classList.contains("receipt-progress")).toBe(true);
   });
 
   test("openReports builds its tabs once (no duplicates on second call)", async () => {
@@ -303,7 +316,7 @@ describe("RolFinanceReportsController", () => {
     ]);
     await ctx.rf.openReports();
     await ctx.rf.openReports();
-    expect(ctx.nav.querySelectorAll(".tab.month-tab").length).toBe(2);
+    expect(ctx.nav.querySelectorAll(".tab.month-tab").length).toBe(4);
     expect(ctx.nav.querySelectorAll(".tab[data-recent-report]").length).toBe(1);
     expect(ctx.nav.querySelectorAll(".tab[data-months-back]").length).toBe(1);
     expect(ctx.requestedUrls.length).toBe(0);

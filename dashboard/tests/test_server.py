@@ -128,6 +128,25 @@ def test_rol_finance_reports_include_diners_annual_summary():
     assert report['label'] == 'Diners 0587 Year'
 
 
+def test_rol_finance_months_include_march_and_april_placeholders():
+    assert server.ROL_FINANCES_REPORTS_MONTHS['mar-2025'] == 'march'
+    assert server.ROL_FINANCES_REPORTS_MONTHS['apr-2025'] == 'april'
+    assert server.ROL_FINANCES_MONTH_RANGES['mar-2025'] == (
+        '2025-03-01', '2025-03-31')
+    assert server.ROL_FINANCES_MONTH_RANGES['apr-2025'] == (
+        '2025-04-01', '2025-04-30')
+
+
+def test_all_year_report_cards_only_appear_in_january():
+    january = server._rol_finance_reports_for_month('jan-2025')
+    march = server._rol_finance_reports_for_month('mar-2025')
+    assert any(r.get('all_year') for r in january)
+    assert not any(r.get('all_year') for r in march)
+    assert {r['key'] for r in march} == {
+        r['key'] for r in server.ROL_FINANCE_REPORTS if not r.get('all_year')
+    }
+
+
 def test_lookup_receipt_rejects_date_amount_file_when_matched_expense_url_is_empty(
         monkeypatch):
     expense = {
@@ -1586,6 +1605,11 @@ _FAIL_REPORT_HTML = '''
   <p><span class="status-warn">REVIEW NEEDED</span> Several rows still use broad
   <code class="inline-code">Personal</code> categories.</p>
 </section>
+<section class="card">
+  <h2>Final Verification Status</h2>
+  <p><strong>Required next action:</strong> decide whether the broad Personal
+  categories are acceptable policy outcomes.</p>
+</section>
 '''
 
 
@@ -1603,6 +1627,15 @@ def test_extract_report_failure_detail(tmp_path):
     assert issue['status'] == 'REVIEW NEEDED'
     assert issue['text'].startswith('Several rows')
     assert 'REVIEW NEEDED' not in issue['text']
+    assert d['recommended_action'].startswith('decide whether')
+
+
+def test_extract_report_attention_detail_supports_review_reports(tmp_path):
+    p = tmp_path / 'report.html'
+    p.write_text(_FAIL_REPORT_HTML.replace('FAIL', 'REVIEW NEEDED'))
+    d = server._extract_report_attention_detail(str(p))
+    assert d['badge'].startswith('⚠️ REVIEW NEEDED')
+    assert d['recommended_action'].startswith('decide whether')
 
 
 def test_extract_report_failure_detail_missing_file(tmp_path):
@@ -2526,6 +2559,31 @@ def test_is_uncategorized_flags_null_and_legacy_ids():
     # A real reporting bucket is finished, not "work to do".
     assert server._is_uncategorized(100) is False
     assert server._is_uncategorized(190) is False
+
+
+def test_receipt_only_rows_are_all_year_for_january_and_month_scoped_otherwise(
+        monkeypatch):
+    queries = []
+
+    def router(sql, params):
+        if 'FROM categories' in sql:
+            return []
+        queries.append((sql, params))
+        return []
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+
+    server._fetch_receipt_only_rows('jan-2025')
+    server._fetch_receipt_only_rows('feb-2025')
+    server._fetch_receipt_only_rows('mar-2025')
+    server._fetch_receipt_only_rows('apr-2025')
+
+    assert 'BETWEEN' not in queries[0][0]
+    assert queries[0][1] == ()
+    assert queries[1][1] == ('2025-02-01', '2025-02-28')
+    assert queries[2][1] == ('2025-03-01', '2025-03-31')
+    assert queries[3][1] == ('2025-04-01', '2025-04-30')
 
 
 def test_fetch_recent_scans_returns_uncategorized_newest_first_with_total(monkeypatch):
@@ -3685,6 +3743,8 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
     assert 'scan.jpg' in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
+    assert 'class="cat-travel-and-vehicle has-receipt"' in html
+    assert 'data-source-document="/api/intake-document?scanner=window"' in html
     # The freezer tab still shows its own placeholder — window's scan is not its.
     assert ('No document has been scanned on the Freezer Scanner yet'
             in server.build_scanner_report_html('freezer'))
@@ -3692,6 +3752,21 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
 
 def test_scanner_report_path_resolves_as_synthetic_db_backed_page():
     assert server._resolve_report_path_alias('/scanner_report.html') == ''
+
+
+def test_scanner_intake_document_path_prefers_recorded_scan(tmp_path, monkeypatch):
+    staging = tmp_path / 'incoming_scans'
+    staging.mkdir()
+    recorded = staging / 'scan_unique.jpg'
+    recorded.write_bytes(b'jpeg')
+    monkeypatch.setattr(server, 'SCAN_STAGING_REMOTE_DIR', str(staging))
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(tmp_path / 'scanner_tools'))
+    _scanner_registry(monkeypatch)
+    monkeypatch.setattr(server, 'get_scanner_intake', lambda key: {
+        'image_path': str(recorded),
+    })
+    assert server.scanner_intake_document_path('window') == str(recorded)
+    assert server.scanner_intake_document_path('nope') == ''
 
 
 def test_document_type_label():

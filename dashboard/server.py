@@ -82,16 +82,17 @@ ROL_FINANCES_PLAN_FILE = os.path.expanduser('~/rol_finances/tools/plan.html')
 # containing a generated report.html. Lives outside the repo, so reports are
 # served under ROL_FINANCES_REPORTS_URL_PREFIX (path-traversal checked below).
 # `check_images/` is intentionally excluded — still waiting on those files.
-# Reports are grouped by month (the frontend's month tabs); the same `dir` name
-# is looked up under each month's own subfolder, so a document is "ready" for a
-# given month independently of the others (e.g. Platinum Year, an annual
-# statement, already has a report.html under both january/ and february/, while
-# month-specific statements like FNBO 4851 only exist under january/ so far).
+# Reports are grouped by month (the frontend's month tabs); each monthly `dir`
+# is looked up under that month's own subfolder, so a document is "ready" for a
+# given month independently of the others. All-year documents are intentionally
+# shown only in January, which is the dashboard's special all-year view.
 ROL_FINANCES_REPORTS_PARENT = os.path.expanduser(
     '~/rol_finances/readable_documents/bank_statements')
 ROL_FINANCES_REPORTS_MONTHS = {
     'jan-2025': 'january',
     'feb-2025': 'february',
+    'mar-2025': 'march',
+    'apr-2025': 'april',
 }
 # Calendar date range (inclusive) each month tab covers. Used by
 # /api/rol-finance-month-status to find that month's most-recently-scanned
@@ -100,6 +101,8 @@ ROL_FINANCES_REPORTS_MONTHS = {
 ROL_FINANCES_MONTH_RANGES = {
     'jan-2025': ('2025-01-01', '2025-01-31'),
     'feb-2025': ('2025-02-01', '2025-02-28'),
+    'mar-2025': ('2025-03-01', '2025-03-31'),
+    'apr-2025': ('2025-04-01', '2025-04-30'),
 }
 ROL_FINANCES_REPORTS_DEFAULT_MONTH = 'jan-2025'
 ROL_FINANCES_REPORTS_BASE = os.path.join(
@@ -108,18 +111,25 @@ ROL_FINANCES_REPORTS_URL_PREFIX = '/rol_finances_reports'
 ROL_FINANCE_REPORTS = [
     {'key': 'amex-61006',        'label': 'Amex 61006',         'dir': 'amex_personal_january_25'},
     {'key': 'fnbo-4851',         'label': 'FNBO 4851',          'dir': 'january_fnbo_2025_account_4851'},
-    {'key': 'amex-personal-year','label': 'Amex Personal Year', 'dir': 'amex_personal_whole_2025'},
+    {'key': 'amex-personal-year','label': 'Amex Personal Year', 'dir': 'amex_personal_whole_2025', 'all_year': True},
     {'key': 'bank-5938-pdf1',    'label': 'Bank 5938 PDF 1',    'dir': 'december_january_personal_bank_statement'},
     {'key': 'bank-6285-pdf1',    'label': 'Bank 6285 PDF 1',    'dir': 'non_profit_rol_Statement_december_january_6285'},
     {'key': 'bank-6285-pdf2',    'label': 'Bank 6285 PDF 2',    'dir': 'business_january_february_6285'},
     {'key': 'jetblue-pdf1',      'label': 'Jet Blue PDF 1',     'dir': 'jet_blue__december_january_12_26_25_to_01_23_25'},
     {'key': 'jetblue-pdf2',      'label': 'Jet Blue PDF 2',     'dir': 'jet_blue_january_february_01_27_to_02_25_25'},
-    {'key': 'platinum-year',     'label': 'Platinum Year',      'dir': 'platinum_business_credit_card_for_the_year'},
+    {'key': 'platinum-year',     'label': 'Platinum Year',      'dir': 'platinum_business_credit_card_for_the_year', 'all_year': True},
     {'key': 'diners-club-0587',  'label': 'Diners Club 0587',   'dir': 'diners_club__january_25_statements-MONTHLY-0587'},
-    {'key': 'diners-0587-year',  'label': 'Diners 0587 Year',   'dir': 'diners_0587_whole_year_2025'},
+    {'key': 'diners-0587-year',  'label': 'Diners 0587 Year',   'dir': 'diners_0587_whole_year_2025', 'all_year': True},
     {'key': 'bank-3119-pdf',     'label': 'Bank 3119 PDF',      'dir': 'fifth_third_non_profit_3119'},
-    {'key': 'choice-7580-year',  'label': 'Choice 7580 Year',   'dir': 'choice_7580_year'},
+    {'key': 'choice-7580-year',  'label': 'Choice 7580 Year',   'dir': 'choice_7580_year', 'all_year': True},
 ]
+
+
+def _rol_finance_reports_for_month(month_key):
+    """Document cards for a month; all-year cards live only under January."""
+    if month_key == ROL_FINANCES_REPORTS_DEFAULT_MONTH:
+        return ROL_FINANCE_REPORTS
+    return [r for r in ROL_FINANCE_REPORTS if not r.get('all_year')]
 
 # ── ROL Finance: recategorize a Verified-Transactions row ─────────────────
 # The category-picker dialog injected into each report.html (by
@@ -240,13 +250,14 @@ def _strip_html_text(fragment):
     return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', fragment)).strip()
 
 
-def _extract_report_failure_detail(report_file):
-    """Pull the human-facing failure explanation out of a red report.html so
-    the dashboard can show it WITHOUT the iframe (which hides every section
-    except Verified Transactions): the hero badge line, the Overall Result
-    summary box, and each card section whose status pill is not PASS — those
-    sections name the remaining work needed to clear the red state. Returns
-    {badge, summary, issues: [{section, status, text}]} or None."""
+def _extract_report_attention_detail(report_file):
+    """Pull the human-facing explanation out of a fail/review report.html.
+
+    The dashboard iframe hides everything except Verified Transactions, so the
+    parent view needs the hero badge, summary, unresolved sections, and the
+    report author's required/recommended next action. Returns a detail dict or
+    None when the report has no recognizable attention information.
+    """
     try:
         with open(report_file, 'r', encoding='utf-8', errors='replace') as f:
             html = f.read()
@@ -259,6 +270,19 @@ def _extract_report_failure_detail(report_file):
     m = re.search(r'<div class="summary-box">(.*?)</div>', html, re.S)
     if m:
         detail['summary'] = _strip_html_text(m.group(1))
+    # Older reports use a flat <h2> + <p class="warn"> layout instead of
+    # hero/card wrappers. Their final-status paragraph is both the badge and
+    # the best available summary.
+    if not detail.get('badge'):
+        m = re.search(
+            r'<h2[^>]*>Final[^<]*Status</h2>\s*<p[^>]*class=["\'](?:warn|fail)["\'][^>]*>(.*?)</p>',
+            html,
+            re.S | re.I,
+        )
+        if m:
+            final_text = _strip_html_text(m.group(1))
+            detail['badge'] = final_text
+            detail.setdefault('summary', final_text)
     issues = []
     for sec in re.finditer(r'<section class="card">(.*?)</section>', html, re.S):
         body = sec.group(1)
@@ -281,7 +305,42 @@ def _extract_report_failure_detail(report_file):
         })
     if issues:
         detail['issues'] = issues
+    else:
+        # Legacy flat reports put each warning immediately after its heading.
+        for sec in re.finditer(
+            r'<h2[^>]*>([^<]+)</h2>\s*<p[^>]*class=["\'](warn|fail)["\'][^>]*>(.*?)</p>',
+            html,
+            re.S | re.I,
+        ):
+            section = _strip_html_text(sec.group(1))
+            if section.lower().startswith('final '):
+                continue
+            raw_text = _strip_html_text(sec.group(3))
+            status_match = re.match(r'([A-Z_ ]+)\s*[—-]\s*(.*)', raw_text)
+            issues.append({
+                'section': section,
+                'status': (status_match.group(1).replace('_', ' ').strip()
+                           if status_match else sec.group(2).upper()),
+                'text': status_match.group(2).strip() if status_match else raw_text,
+            })
+        if issues:
+            detail['issues'] = issues
+    for paragraph in re.finditer(r'<p[^>]*>(.*?)</p>', html, re.S):
+        paragraph_text = _strip_html_text(paragraph.group(1))
+        action = re.match(
+            r'(?:Required|Recommended) next actions?\s*:\s*(.+)',
+            paragraph_text,
+            re.I,
+        )
+        if action:
+            detail['recommended_action'] = action.group(1).strip()
+            break
     return detail or None
+
+
+def _extract_report_failure_detail(report_file):
+    """Backward-compatible name for existing callers and tests."""
+    return _extract_report_attention_detail(report_file)
 
 
 def _rol_reports_base_dir(month_key):
@@ -301,7 +360,7 @@ def _rol_finance_recent_reports(limit=5):
     candidates = []
     for month_key in ROL_FINANCES_REPORTS_MONTHS:
         base_dir = _rol_reports_base_dir(month_key)
-        for r in ROL_FINANCE_REPORTS:
+        for r in _rol_finance_reports_for_month(month_key):
             report_file = os.path.join(base_dir, r['dir'], 'report.html')
             try:
                 mtime = os.path.getmtime(report_file)
@@ -835,6 +894,11 @@ def build_recent_intake_html(intake):
     except Exception:
         pass  # picker unavailable → page still renders, rows just aren't clickable
 
+    scanner_key = next((key for key, cfg in SCANNERS.items()
+                        if cfg.get('name') == label), '')
+    source_document_url = (
+        f'{INTAKE_DOCUMENT_URL_PREFIX}?scanner={scanner_key}'
+        if intake.get('kind') == 'scan' and scanner_key else '')
     trs = []
     for r in rows:
         row_id = r.get('id')
@@ -842,15 +906,16 @@ def build_recent_intake_html(intake):
         duplicate_badge = (' <strong class="duplicate-badge">DUPLICATE</strong>'
                            if is_duplicate else '')
         trs.append(
-            '<tr class="%s%s" data-expense-id="%s" '
+            '<tr class="%s%s%s" data-expense-id="%s" '
             'data-source-document="%s" data-is-duplicate="%s" '
             'data-vendor-key="%s" data-description="%s" '
             'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
             'title="Click row to set category / view receipt">'
             '<td>%s</td><td class="number">%s</td><td>%s</td><td>%s</td></tr>' % (
                 r['cat_class'], ' duplicate-row' if is_duplicate else '',
+                ' has-receipt' if source_document_url else '',
                 row_id or '',
-                _esc(receipt_path or pdf_path or '', quote=True),
+                _esc(source_document_url, quote=True),
                 'true' if is_duplicate else 'false',
                 _esc(r['vendor_key'], quote=True),
                 _esc(r['description'], quote=True),
@@ -980,6 +1045,37 @@ def build_scanner_report_html(scanner_key):
                 'Scan a document and this page will show its Verified '
                 'Transactions.</p>')
     return build_recent_intake_html(intake)
+
+
+def scanner_intake_document_path(scanner_key):
+    """Return the reviewable source image for one scanner's current report.
+
+    Prefer the immutable staged path recorded with the intake. Fall back to the
+    scanner's current output for legacy pointer records. Both paths are limited
+    to scanner-owned directories so this endpoint cannot expose arbitrary files.
+    """
+    cfg = SCANNERS.get(scanner_key)
+    if not cfg:
+        return ''
+    intake = get_scanner_intake(scanner_key) or {}
+    candidates = [
+        intake.get('image_path') or '',
+        os.path.join(SCAN_TOOLS_DIR, cfg.get('output', '')),
+    ]
+    allowed = [os.path.abspath(SCAN_STAGING_REMOTE_DIR),
+               os.path.abspath(SCAN_TOOLS_DIR)]
+    for candidate in candidates:
+        fp = os.path.abspath(candidate) if candidate else ''
+        if not fp or not os.path.isfile(fp):
+            continue
+        try:
+            if not any(os.path.commonpath([fp, root]) == root for root in allowed):
+                continue
+        except ValueError:
+            continue
+        if os.path.splitext(fp)[1].lower() in ('.jpg', '.jpeg', '.png', '.webp'):
+            return fp
+    return ''
 
 
 def _resolve_report_path_alias(report_path):
@@ -1370,6 +1466,7 @@ def _invalidate_receipt_index():
 SCAN_TOOLS_DIR = os.path.expanduser(
     '~/planner/nonprofit_finance_db/receipt_scanning_tools')
 SCANNER_IMAGE_URL_PREFIX = '/api/scanner-image'
+INTAKE_DOCUMENT_URL_PREFIX = '/api/intake-document'
 SCANNERS = {
     'window': {
         'name': 'Window Scanner',
@@ -2747,7 +2844,6 @@ def _resolve_receipt_url_path(receipt_url):
     store such as the live-pipeline Windows destination), so a receipt_url that
     names a file in either tree resolves.
     """
-    import glob as _glob
     _by_da, by_stem = _receipt_index()
     ru = (receipt_url or '').strip().lstrip('/')
     if not ru:
@@ -2761,12 +2857,10 @@ def _resolve_receipt_url_path(receipt_url):
     stem = os.path.splitext(os.path.basename(ru))[0].lower()
     if stem in by_stem:
         return by_stem[stem][0]
-    # Basename anywhere under any index subtree.
-    for _prefix, _base, subtree in RECEIPT_MOUNTS:
-        g = _glob.glob(os.path.join(subtree, '**', os.path.basename(ru)),
-                       recursive=True)
-        if g:
-            return g[0]
+    # by_stem already indexes every basename under every receipt subtree. Do
+    # not repeat recursive glob walks for missing files: a month can contain
+    # dozens of stale receipt_url values and those redundant scans made the
+    # Receipt Only page appear blank for 10+ seconds.
     return None
 
 
@@ -3036,11 +3130,20 @@ def _reporting_category_for_id(category_id, parent_of):
     return 'Uncategorized'
 
 
-def _fetch_receipt_only_rows():
+def _fetch_receipt_only_rows(month_key=None):
     """expenses with no matching bank-statement transaction (same date + abs amount)
     AND a receipt file that actually resolves on disk, each tagged with its current
     reporting category. The resolve check keeps the tab in lockstep with the red
     has-receipt marker so every row shown genuinely has a receipt."""
+    # January is the intentionally special all-year receipt display. Every
+    # other configured month is restricted to its own calendar date range.
+    month_range = None if month_key == ROL_FINANCES_REPORTS_DEFAULT_MONTH else \
+        ROL_FINANCES_MONTH_RANGES.get(month_key)
+    date_clause = ''
+    date_params = ()
+    if month_range:
+        date_clause = ' AND e.expense_date BETWEEN %s AND %s'
+        date_params = month_range
     with _rol_get_connection() as cnx:
         with cnx.cursor() as cur:
             cur.execute('SELECT id, parent_id FROM categories')
@@ -3055,7 +3158,9 @@ def _fetch_receipt_only_rows():
                 "WHERE NOT EXISTS (SELECT 1 FROM transactions t "
                 "                  WHERE t.transaction_date=e.expense_date "
                 "                    AND ABS(t.amount)=ABS(e.amount)) "
-                "ORDER BY e.expense_date, e.id"
+                f"{date_clause} "
+                "ORDER BY e.expense_date, e.id",
+                date_params,
             )
             rows = cur.fetchall()
     out = []
@@ -3238,7 +3343,7 @@ def _receipt_only_cat_css():
     return '\n'.join(lines)
 
 
-def build_receipt_only_report_html():
+def build_receipt_only_report_html(month_key=None):
     """A standalone, same-origin report page for receipt-only records. Mirrors the
     restructured Verified Transactions table (Description | Amount | Date, clickable
     rows with data-* attrs) and embeds the identical category picker, so the existing
@@ -3246,7 +3351,7 @@ def build_receipt_only_report_html():
     all drive it without change."""
     from html import escape as _esc
     picker_css, picker_html, click_css = _receipt_only_picker_assets()
-    rows = _fetch_receipt_only_rows()
+    rows = _fetch_receipt_only_rows(month_key)
     trs = []
     for r in rows:
         trs.append(
@@ -7098,7 +7203,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 month_key = ROL_FINANCES_REPORTS_DEFAULT_MONTH
             base_dir = _rol_reports_base_dir(month_key)
             result = []
-            for r in ROL_FINANCE_REPORTS:
+            for r in _rol_finance_reports_for_month(month_key):
                 report_file = os.path.join(base_dir, r['dir'], 'report.html')
                 exists = os.path.isfile(report_file)
                 status = _classify_report_status(report_file) if exists else 'missing'
@@ -7109,24 +7214,36 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     'status': status,
                     'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html' if exists else None,
                 }
-                # Red reports carry the human-facing "why it failed / what's
-                # left to do" pulled from the report itself, since the iframe
-                # view hides everything but Verified Transactions.
-                if status == 'fail':
-                    fd = _extract_report_failure_detail(report_file)
-                    if fd:
-                        entry['failure_detail'] = fd
+                # Red and yellow reports carry the human-facing reason and
+                # recommended action pulled from the report itself, since the
+                # iframe hides everything but Verified Transactions.
+                if status in ('fail', 'review'):
+                    detail = _extract_report_attention_detail(report_file)
+                    if not detail:
+                        detail = {
+                            'badge': 'REVIEW NEEDED' if status == 'review' else 'FAILED',
+                            'summary': 'This report needs attention but does not include a structured explanation.',
+                            'recommended_action': 'Open the full report, identify the unresolved verification item, and update or reprocess the document.',
+                        }
+                    entry['attention_detail'] = detail
+                    if detail:
+                        # Preserve the existing API field for older red-row
+                        # clients while they migrate to attention_detail.
+                        if status == 'fail':
+                            entry['failure_detail'] = detail
                 result.append(entry)
             # Synthetic "Receipt Only" tab: receipts with no bank-statement
-            # transaction. Built live from the DB (no report.html on disk), so
-            # it isn't a verification target — status: None excludes it from
-            # the month overview's pass/review/fail breakdown.
+            # transaction. Include the exact resolved-file count so completed
+            # receipt work is visible in the month overview even while every
+            # statement/document placeholder is still red.
+            receipt_count = len(_fetch_receipt_only_rows(month_key))
             result.append({
                 'key': 'receipt-only',
                 'label': 'Receipt Only',
                 'exists': True,
                 'status': None,
-                'url': RECEIPT_ONLY_REPORT_PATH,
+                'receipt_count': receipt_count,
+                'url': f'{RECEIPT_ONLY_REPORT_PATH}?month={month_key}',
             })
             return self.json_response(result)
 
@@ -7213,7 +7330,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == RECEIPT_ONLY_REPORT_PATH:
             try:
-                body = build_receipt_only_report_html()
+                month_key = query.get('month', [ROL_FINANCES_REPORTS_DEFAULT_MONTH])[0]
+                if month_key not in ROL_FINANCES_REPORTS_MONTHS:
+                    month_key = ROL_FINANCES_REPORTS_DEFAULT_MONTH
+                body = build_receipt_only_report_html(month_key)
             except Exception as e:
                 from html import escape as _esc
                 body = ('<!doctype html><meta charset="utf-8"><body>'
@@ -7278,6 +7398,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 if os.path.isfile(fp):
                     ctype = 'image/jpeg' if fp.endswith(('.jpg', '.jpeg')) else 'image/png'
                     return self.serve_file(fp, ctype)
+            self.send_error(404)
+            return
+
+        if path == INTAKE_DOCUMENT_URL_PREFIX:
+            fp = scanner_intake_document_path(query.get('scanner', [''])[0])
+            if fp:
+                ext = os.path.splitext(fp)[1].lower()
+                ctype = {
+                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                    '.png': 'image/png', '.webp': 'image/webp',
+                }.get(ext, 'application/octet-stream')
+                return self.serve_file(fp, ctype)
             self.send_error(404)
             return
 

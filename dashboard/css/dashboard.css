@@ -568,7 +568,7 @@ a:hover {
   white-space: nowrap;
 }
 
-/* "Document Failure Reason" card shown above a red report's iframe */
+/* Attention-reason card shown above a red or yellow report's iframe */
 .doc-failure-reason {
   padding: 10px 14px;
   background: #2a1518;
@@ -607,6 +607,23 @@ a:hover {
 
 .doc-failure-reason li {
   margin: 3px 0;
+}
+
+.doc-failure-reason .dfr-action {
+  margin: 8px 0 0;
+}
+
+.doc-failure-reason.doc-review-reason {
+  background: #2a2415;
+  border-bottom-color: #854d0e;
+  border-left-color: #eab308;
+  color: #fef3c7;
+}
+
+.doc-failure-reason.doc-review-reason h3,
+.doc-failure-reason.doc-review-reason .dfr-badge,
+.doc-failure-reason.doc-review-reason .dfr-todo {
+  color: #fde047;
 }
 
 pre {
@@ -1356,6 +1373,18 @@ summary {
 .tab.report-missing:hover,
 .tab.report-missing:focus-visible {
   background: #c62828;
+}
+
+/* Receipt Only is real completed intake work, even before statement PDFs are
+   processed. Show its resolved receipt count as green progress. */
+.tab.receipt-progress {
+  background: #43a047;
+  color: #fff;
+  font-weight: 700;
+}
+.tab.receipt-progress:hover,
+.tab.receipt-progress:focus-visible {
+  background: #388e3c;
 }
 
 /* Month overview landing page (Project Plans → ROL Finance → Reports →
