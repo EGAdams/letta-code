@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Expense Itemization — Parent / Line-Item Architecture Plan</title>
+<style>
+  :root{
+    --paper:#fbf8f1; --paper2:#f3ede0; --ink:#1c1a17; --soft:#5b5447; --rule:#d8cfba;
+    --crimson:#7a1f2b; --crimson2:#9b2c39; --navy:#1f3a5f; --gold:#9a7b32;
+    --green:#166534; --amber:#9a6b00; --red:#9b2c39;
+    --code-bg:#2b2722; --code-ink:#ede4d3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#e7e0d2;color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 14px}
+  .leaf{background:var(--paper);border:1px solid var(--rule);
+    box-shadow:0 14px 40px rgba(28,26,23,.14);margin:22px 0;padding:46px 56px;border-radius:4px}
+  @media(max-width:760px){.leaf{padding:28px 20px}body{font-size:16px}}
+  h1{font-size:40px;line-height:1.08;margin:0 0 6px;letter-spacing:-.01em}
+  h2{font-size:26px;margin:38px 0 6px;border-bottom:2px solid var(--crimson);
+    padding-bottom:6px;display:inline-block}
+  h3{font-size:20px;margin:26px 0 6px;color:var(--navy)}
+  h4{font-size:16px;margin:18px 0 4px;color:var(--soft);text-transform:uppercase;letter-spacing:.08em}
+  .sub{font-style:italic;color:var(--soft);font-size:19px;margin:2px 0 10px}
+  .kicker{text-transform:uppercase;letter-spacing:.3em;font-size:12px;color:var(--crimson);font-weight:700}
+  p{margin:11px 0}
+  code{font-family:"SF Mono","JetBrains Mono",Consolas,monospace;font-size:.84em;
+    background:#efe8d8;color:#5a3030;padding:1px 5px;border-radius:3px}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:16px 18px;
+    overflow-x:auto;margin:14px 0;font-size:13.5px;line-height:1.55;border:1px solid #4a4036}
+  pre code{background:transparent;color:var(--code-ink);padding:0}
+  .filename{font-family:Consolas,monospace;font-size:12px;color:var(--soft);margin:14px 0 -8px;display:block}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px}
+  th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--rule)}
+  thead th{border-bottom:2px solid var(--ink);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  .box{border:1px solid var(--rule);border-left:4px solid var(--navy);background:var(--paper2);
+    padding:12px 18px;margin:16px 0;border-radius:0 6px 6px 0}
+  .box.warn{border-left-color:var(--amber)}
+  .box.danger{border-left-color:var(--red)}
+  .box.good{border-left-color:var(--green)}
+  .tag{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.06em;padding:2px 8px;border-radius:10px;margin-right:6px}
+  .tag.p0{background:#f6d7da;color:var(--crimson)}
+  .tag.p1{background:#e2e8f0;color:var(--navy)}
+  .tag.p2{background:#efe8d8;color:var(--gold)}
+  ul,ol{margin:10px 0;padding-left:26px}
+  li{margin:5px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="leaf">
+<div class="kicker">ROL Finances — Next Shift Handoff</div>
+<h1>Expense Itemization</h1>
+<p class="sub">Parent / line-item architecture: one charge, many real expenses. Written 2026-07-17 (end of shift).</p>
+
+<h2>Why this exists</h2>
+<p>
+On 2026-07-17 a Chase statement charge of <strong>$60.00</strong> (Amazon order
+<code>112-5047119-7910611</code>) was stored as expense <code>1504</code> with the generic
+category 143 "Amazon". The order's real contents — a <em>Kirundo dress</em> ($53.98),
+<em>mascara</em> ($7.45), and a <em>Roku remote</em> ($19.88) — belong in <strong>different
+categories</strong> (clothing, personal care, electronics). One row with one
+<code>category_id</code> cannot represent that honestly: today we categorize the
+<em>payment channel</em>, not the <em>expense</em>.
+</p>
+<p>
+The same flaw applies to multi-item receipts. The $3,047 Children's Vision receipt
+(expense <code>1502</code>) contains <strong>9 separate donation line items</strong> forced into a
+single row — and it was initially miscategorized precisely because a single row invites a
+single lazy vendor-level guess.
+</p>
+
+<div class="box danger">
+<strong>The double-count trap.</strong> If we store each item as its own expense row, the
+parent charge must stop counting as an expense — otherwise the $60 charge <em>plus</em> its
+items appear in every total. Verified 2026-07-17: <code>vw_monthly_expense_summary</code> is a
+bare <code>SUM(e.amount) GROUP BY category</code> over <em>all</em> rows. Parent and children
+coexisting today would immediately corrupt every monthly report.
+</div>
+
+<div class="box warn">
+<strong>Do not delete the parent ("nuke" ≠ DELETE).</strong> The parent row is demoted, not
+removed. It is the only thing that (a) reconciles against the bank statement in
+<code>verify_statement_totals</code>, and (b) anchors <code>check_duplicates</code> — delete it and the
+next scan of the same statement re-imports the $60 as new. The parent stays as the
+<em>audit &amp; reconciliation anchor</em>, excluded from all category sums.
+</div>
+
+<div class="box warn">
+<strong>The split-shipment trap (Amazon-specific).</strong> The $60 charge covers an
+<em>unknown subset</em> of the $85 order (Amazon splits orders across shipments; the
+spreadsheet's Card Statement Reference column is unfilled). We cannot honestly itemize a
+charge whose item allocation we don't know. Rule: <strong>itemize only when line items
+reconcile exactly to the charge amount; otherwise the row stays STANDALONE with a
+review flag.</strong> Partial guessing is fabricating data — the same honesty rule Mazda's
+Trainer enforces on evidence.
+</div>
+
+<h2>Schema (Phase 0 — the only DDL)</h2>
+<pre><code>ALTER TABLE expenses
+  ADD COLUMN parent_expense_id BIGINT UNSIGNED NULL,
+  ADD COLUMN expense_role ENUM('STANDALONE','PARENT','LINE_ITEM')
+      NOT NULL DEFAULT 'STANDALONE',
+  ADD CONSTRAINT fk_expenses_parent
+      FOREIGN KEY (parent_expense_id) REFERENCES expenses(id),
+  ADD INDEX idx_expenses_parent (parent_expense_id);</code></pre>
+<p>
+Backward compatible: every existing row (≈884 as of tonight, incl. 1504–1506) remains
+valid as <code>STANDALONE</code>, exactly like the <code>expense_status</code> migration on
+2026-07-17. Integrity invariants (enforced in the repository layer, checked by tests):
+</p>
+<ul>
+  <li><code>LINE_ITEM</code> ⟺ <code>parent_expense_id IS NOT NULL</code>; the parent must have role <code>PARENT</code>.</li>
+  <li>Children of a parent must <strong>sum exactly</strong> to the parent's amount.</li>
+  <li>Reports and views sum only <code>expense_role != 'PARENT'</code>.</li>
+  <li>A <code>PARENT</code> has <code>category_id NULL</code> (it is not an expense; it is a payment event).</li>
+  <li><code>id_light</code> for children: <code>&lt;parent_id_light&gt;-item-&lt;n&gt;</code> (unique key preserved).</li>
+</ul>
+<p>Views needing the <code>expense_role != 'PARENT'</code> predicate (audit each; these are the
+known summers): <code>vw_monthly_expense_summary</code>, <code>vw_report_financials</code>,
+<code>vw_large_transactions</code>, <code>vw_balance_by_org</code>, and any
+<code>vw_*transaction*</code> view that joins expenses.</p>
+
+<h2>Architecture — program to the interface</h2>
+<p>
+All new code lives behind ABC ports with concretes injected at the composition root
+(the CLI <code>main()</code> / dashboard boot — never inside the domain logic), matching the
+established pattern in <code>rol_finances</code> and the dashboard JS. Four ports, one
+Abstract Factory:
+</p>
+
+<span class="filename">rol_finances/tools/itemization/ports.py&nbsp;&nbsp;(all new — names are the contract, adjust freely)</span>
+<pre><code>class LineItemSource(ABC):
+    """Yields candidate line items for a charge/receipt. Pure read."""
+    @abstractmethod
+    def line_items(self, charge: ChargeContext) -> list[LineItem]: ...
+
+class ItemizationPolicy(ABC):
+    """Decides whether itemization is HONEST for this charge. Fail closed."""
+    @abstractmethod
+    def evaluate(self, charge: ChargeContext,
+                 items: list[LineItem]) -> ItemizationDecision: ...
+
+class ItemCategorizer(ABC):
+    """Assigns a category to ONE line item (not to the whole charge)."""
+    @abstractmethod
+    def categorize(self, item: LineItem,
+                   charge: ChargeContext) -> CategoryAssignment: ...
+
+class ItemizedExpenseRepository(ABC):
+    """Persists parent + children ATOMICALLY (one transaction), or
+       re-parents an existing STANDALONE row into a PARENT + children."""
+    @abstractmethod
+    def store_itemized(self, parent: ExpenseDraft,
+                       children: list[ExpenseDraft]) -> ItemizedStoreResult: ...
+    @abstractmethod
+    def itemize_existing(self, expense_id: int,
+                         children: list[ExpenseDraft]) -> ItemizedStoreResult: ...</code></pre>
+
+<span class="filename">rol_finances/tools/itemization/factory.py</span>
+<pre><code>class ItemizationFactory(ABC):
+    """GoF Abstract Factory: one factory per document family guarantees the
+       source/policy/categorizer/repository quartet is mutually consistent.
+       Client code (Mazda tools, store scripts) NEVER constructs concretes."""
+    @abstractmethod
+    def line_item_source(self) -> LineItemSource: ...
+    @abstractmethod
+    def itemization_policy(self) -> ItemizationPolicy: ...
+    @abstractmethod
+    def item_categorizer(self) -> ItemCategorizer: ...
+    @abstractmethod
+    def repository(self) -> ItemizedExpenseRepository: ...
+
+class ReceiptItemizationFactory(ItemizationFactory):
+    """Receipts: items come from the parsed receipt itself; policy is
+       ExactReconciliationPolicy (receipt lines ALWAYS sum to the total —
+       if they don't, the parse is wrong, refuse)."""
+
+class AmazonStatementItemizationFactory(ItemizationFactory):
+    """Amazon charges: items from AmazonOrderSpreadsheetSource (wraps
+       lookup_amazon_order.py's lookup); policy additionally handles the
+       split-shipment case → NOT_ITEMIZABLE unless items reconcile to
+       the charge amount exactly."""
+
+# Registry keyed by document family; the ONLY place concretes are wired.
+def factory_for(doc_family: str) -> ItemizationFactory: ...</code></pre>
+
+<h3>Concrete implementations (first wave)</h3>
+<table>
+<thead><tr><th>Port</th><th>Concrete</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>LineItemSource</code></td><td><code>ReceiptLineItemSource</code></td><td>Adapts <code>parse_and_categorize.py --json</code> line output.</td></tr>
+<tr><td><code>LineItemSource</code></td><td><code>AmazonOrderSpreadsheetSource</code></td><td>Adapts the existing <code>lookup_amazon_order.py</code> lookup (extract Order Number → itemized rows from <code>vendor_reference/amazon_orders_2025_itemized.xlsx</code>). Digital orders (<code>D01-…</code>) are not in the sheet → returns empty → policy says NOT_ITEMIZABLE → row stays STANDALONE. Correct, not a bug.</td></tr>
+<tr><td><code>ItemizationPolicy</code></td><td><code>ExactReconciliationPolicy</code></td><td>sum(items) == charge amount (cent-exact) else NOT_ITEMIZABLE. The default and only Phase-1 policy. A tolerance policy may come later; do not build it speculatively.</td></tr>
+<tr><td><code>ItemCategorizer</code></td><td><code>VendorCategoryStoreCategorizer</code></td><td>Deterministic first: reuse <code>VendorCategoryStore</code> patterns against the item name.</td></tr>
+<tr><td><code>ItemCategorizer</code></td><td><code>LlmItemCategorizer</code></td><td>Fallback for novel item names. <strong>Use a cheap/fast model</strong> (Haiku-class / gpt-5.4-mini) — "what category is a Roku remote" is a simple reading task, not frontier work. Decorate it with a <code>ReviewFlaggingCategorizer</code> so low-confidence answers mark the child for human review instead of silently guessing (Decorator, same gate philosophy as Mazda's proposal gates).</td></tr>
+<tr><td><code>ItemizedExpenseRepository</code></td><td><code>MySqlItemizedExpenseRepository</code></td><td>Single transaction; enforces every invariant above; refuses partial writes (fail closed, like tonight's receipt-storage hardening).</td></tr>
+</tbody>
+</table>
+
+<div class="box good">
+<strong>Why Abstract Factory and not just DI of four params:</strong> the quartet is
+correlated. Pairing <code>AmazonOrderSpreadsheetSource</code> with a tolerance policy, or a
+receipt source with the split-shipment policy, produces quiet data corruption. The factory
+makes invalid combinations unrepresentable — client code can only ask for a consistent
+family. That is the textbook GoF justification, not ceremony.
+</div>
+
+<h2>Phases (do them in order)</h2>
+<table>
+<thead><tr><th>Phase</th><th>Scope</th><th>Done when</th></tr></thead>
+<tbody>
+<tr><td><span class="tag p0">P0</span>Schema + views</td>
+<td>DDL above; add <code>expense_role != 'PARENT'</code> to summing views; repository-layer invariant checks; migration test against a DB snapshot.</td>
+<td>All 884 rows STANDALONE; every report total unchanged (byte-identical before/after).</td></tr>
+<tr><td><span class="tag p0">P0</span>Ports + factories + MySQL repo</td>
+<td>Files above with unit tests (fake repos/sources — FakeElement-style test seams, no live DB needed).</td>
+<td><code>store_itemized</code> and <code>itemize_existing</code> round-trip on a test DB; partial-write refusal proven by test.</td></tr>
+<tr><td><span class="tag p1">P1</span>Receipts pilot</td>
+<td><code>ReceiptItemizationFactory</code> end-to-end. Pilot on expense <code>1502</code> (Children's Vision, 9 donation lines, $3,047 — lines sum exactly, no ambiguity). Re-parent via <code>itemize_existing</code>.</td>
+<td>1502 becomes PARENT + 9 LINE_ITEMs summing to $3,047; monthly totals unchanged; report shows 9 categorized rows.</td></tr>
+<tr><td><span class="tag p1">P1</span>Report + dashboard rendering</td>
+<td>report.html: parent renders as a header row (no amount in the sum column), children indented beneath. Category picker's <code>(date, abs(amount))</code> matching must become <strong>id-based for LINE_ITEMs</strong> — children share a date and can collide on amount. Update REPORT_OUTPUT_CONTRACT + <code>rol-finance-reports-controller.js</code> (pure render methods, injected deps, per house style).</td>
+<td>Recategorizing a single line item via the picker updates only that child, DB + HTML.</td></tr>
+<tr><td><span class="tag p2">P2</span>Amazon statements</td>
+<td><code>AmazonStatementItemizationFactory</code>. Only charges whose spreadsheet items reconcile exactly get itemized; others stay STANDALONE + review flag. Candidate: re-parent 1504 once shipment allocation is known (mom filling the sheet's Card&nbsp;Statement&nbsp;Reference column would unlock exact reconciliation).</td>
+<td>A reconciling Amazon charge itemizes; tonight's $60 (non-reconciling) correctly refuses.</td></tr>
+<tr><td><span class="tag p2">P2</span>Mazda integration</td>
+<td>New MCP tool(s) wrapping <code>factory_for(...)</code> + the pipeline; wrapper rule: "when a charge has an itemizable source, attempt itemization; NEVER hand-build parent/child SQL"; Trainer rubric addition: parent/child sum integrity + no PARENT in totals. Restart <code>mazda-tools-mcp</code> after wiring.</td>
+<td>A scanned multi-item receipt auto-itemizes in a live Trainer-watched run.</td></tr>
+</tbody>
+</table>
+
+<h2>Blast radius — audit each before P1 ships</h2>
+<ul>
+<li><code>e_two_e_processing/duplicate_checker.py</code> — statement lines must match against <code>PARENT</code>/<code>STANDALONE</code> only, never LINE_ITEMs (a $19.88 child must not "duplicate" a real $19.88 charge elsewhere).</li>
+<li><code>store_statement_transactions.py</code> / <code>parse_and_categorize.py --save</code> — route through the repository port; keep the fail-closed behavior added 2026-07-16.</li>
+<li><code>create_id_light</code> / <code>generate_id_light</code> — child suffix scheme.</li>
+<li>All <code>vw_*</code> views listed above; grep for any raw <code>SUM(</code> over expenses in <code>dashboard/server.py</code> too.</li>
+<li>Baker / receipt-URL baking — children share the parent's <code>receipt_url</code>/<code>source_file</code>.</li>
+<li>New Records categorize flow (searches report.html by date+amount) — same id-based fix as the picker.</li>
+</ul>
+
+<h2>Standing constraints (project rules — do not relearn these the hard way)</h2>
+<ul>
+<li><strong>Program to the interface</strong>; concretes wired only at the composition root. ABC ports + DI in Python, injected controllers in dashboard JS.</li>
+<li><strong>Fail closed</strong> — refusing to itemize is success; wrong itemization is failure. (Same rule the Trainer enforces on Mazda's evidence.)</li>
+<li><strong>Cheap model for simple tasks</strong> — spreadsheet reading, item-name lookups, text extraction: Haiku-class / gpt-5.4-mini. Reserve big models for judgment calls.</li>
+<li><code>rol_finances</code> is live and multi-agent-dirty — <code>git status</code> + diff before editing, stage by filename, never <code>-A</code>, never stash the whole tree.</li>
+<li>The live box runs two yolo-mode letta.js processes writing concurrently — check the tree before assuming it's clean.</li>
+<li>Vendor yaml edits require a <code>mazda-tools-mcp</code> restart (cached map).</li>
+</ul>
+
+<h2>Open follow-ups inherited by this work (context, not blockers)</h2>
+<ul>
+<li><strong>Raw-vs-normalized alias audit:</strong> <code>resolve_vendor_key()</code> matches alias regexes against the RAW description, but many of the ~261 aliases in <code>vendor_category.yaml</code> are written in normalized (underscore) form and may never match anything. Tonight's 3 <code>*_general</code> aliases were deliberately written raw-form and verified. A systematic audit belongs to whoever touches <code>VendorCategoryStoreCategorizer</code>.</li>
+<li><strong><code>check_vendor_key</code> fuzzy matcher too permissive</strong> — resolved Amazon rows to Apple/Audible with <code>recognized:true</code> (Trainer report 2026-07-17, wrap-v024 covers receipts but not statement rows). The item-level categorizer must not inherit this: plausibility-gate all fuzzy matches.</li>
+<li>Mazda proposals 84–86 + her memory note from 2026-07-17 document the vendor-resolution saga; read them before changing her wrapper.</li>
+</ul>
+
+<div class="box">
+<strong>State as of end of shift 2026-07-17:</strong> all four Chase Jan-2025 transactions
+stored flat &amp; correct (1503 Apple/142, 1504 Amazon/143, 1505 AMZN Digital/143, 1506
+OpenAI/398). <code>lookup_amazon_order.py</code> + spreadsheet working via <code>executor_run</code>.
+Three general vendor aliases live in <code>vendor_category.yaml</code>. Nothing in this plan is
+started; everything above is design.
+</div>
+
+</div>
+</div>
+</body>
+</html>
