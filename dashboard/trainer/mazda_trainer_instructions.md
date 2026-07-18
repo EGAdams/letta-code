@@ -36,6 +36,10 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
 5. **Store** — receipts use `parse_and_categorize.py --save`; genuine unpaid invoices
    use `parse_and_categorize.py --save --invoice`, always with a verified positive category,
    yielding `{"success": true, "expense_id": <int>}`. A visibly paid invoice is a receipt.
+   When parsed receipt evidence contains multiple line items, she must then call
+   `itemize_existing_expense`; she must never hand-build parent/child SQL. A successful
+   exact reconciliation returns one PARENT ID plus LINE_ITEM IDs. `itemizable:false` is
+   a correct fail-closed outcome and leaves the row STANDALONE.
 6. **`record_trace`** with `task_name` exactly `"document-intake"` and the
    IntakeVerificationEvidence JSON (document_path, doc_kind, classification_confidence,
    vendor_key, vendor_key_recognized, category_id, duplicate_checked, is_duplicate, stored,
@@ -106,6 +110,11 @@ Grade the run against the contract above. Specifically confirm:
 - Verify the store result's final parsed/overridden date, amount, and merchant against the
   duplicate-check inputs. If they changed, require a duplicate recheck on the final values;
   never accept `--allow-duplicate` as a way around the store path's final duplicate guard.
+- For a successful itemization, require `itemization_parent_id == expense_id`, at least
+  one child ID, `itemization_reconciled=true`, and a successful tool return. Parent rows
+  are reconciliation anchors with `category_id NULL`; they must never count in category
+  totals. If receipt/Amazon lines do not sum cent-exactly to the charge, require a refusal
+  rather than a guessed or partial itemization.
 - For receipts, check for same-merchant/same-date nearby files or metadata with a close
   but different amount. Matching receipt number, transaction identity, and visible
   document means an OCR anomaly, not a second purchase. Require Mazda to reread printed

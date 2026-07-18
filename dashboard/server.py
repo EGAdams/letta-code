@@ -1138,7 +1138,7 @@ def _iter_existing_report_files():
                 yield url, report_file, r['label']
 
 
-def _find_matching_report_row(date_str, amount_str, vendor_key=''):
+def _find_matching_report_row(date_str, amount_str, vendor_key='', expense_id=None):
     """Search every existing report.html's Verified-Transactions rows for the one
     matching (date, amount) — used by recategorize_expense when it is called with
     no report_path (the New Records dialog's case: it only knows the DB row, not
@@ -1154,7 +1154,8 @@ def _find_matching_report_row(date_str, amount_str, vendor_key=''):
     """
     d = (date_str or '').strip()
     a = (amount_str or '').strip()
-    if not d or not a:
+    eid = str(expense_id or '').strip()
+    if not eid and (not d or not a):
         return None
     matches = []
     for url, file_path, label in _iter_existing_report_files():
@@ -1168,7 +1169,10 @@ def _find_matching_report_row(date_str, amount_str, vendor_key=''):
             vk_m = re.search(r'data-vendor-key="([^"]*)"', open_tag)
             if not vk_m:
                 continue  # not a Verified-Transactions row (e.g. a summary table)
-            if ('>%s<' % d) not in inner or ('>%s<' % a) not in inner:
+            if eid:
+                if ('data-expense-id="%s"' % eid) not in open_tag:
+                    continue
+            elif ('>%s<' % d) not in inner or ('>%s<' % a) not in inner:
                 continue
             matches.append({
                 'report_path': url, 'label': label, 'row_vendor_key': vk_m.group(1),
@@ -1184,7 +1188,8 @@ def _find_matching_report_row(date_str, amount_str, vendor_key=''):
     return None
 
 
-def _update_report_row_color(report_path, vendor_key, date_str, amount_str, new_cls):
+def _update_report_row_color(report_path, vendor_key, date_str, amount_str, new_cls,
+                             expense_id=None):
     """Rewrite the cat-* class on the matching Verified-Transactions <tr> on disk.
 
     Identifies the row by data-vendor-key + the displayed date and amount cells, so
@@ -1200,7 +1205,8 @@ def _update_report_row_color(report_path, vendor_key, date_str, amount_str, new_
     vk = (vendor_key or '').strip()
     d = (date_str or '').strip()
     a = (amount_str or '').strip()
-    if not vk:
+    eid = str(expense_id or '').strip()
+    if not eid and not vk:
         return False
 
     def attempt(require_date, require_amount):
@@ -1209,12 +1215,18 @@ def _update_report_row_color(report_path, vendor_key, date_str, amount_str, new_
 
         def repl(m):
             open_tag, inner = m.group(1), m.group(2)
-            if state['done'] or ('data-vendor-key="%s"' % vk) not in open_tag:
+            if state['done']:
                 return m.group(0)
-            if require_date and d and ('>%s<' % d) not in inner:
-                return m.group(0)
-            if require_amount and a and ('>%s<' % a) not in inner:
-                return m.group(0)
+            if eid:
+                if ('data-expense-id="%s"' % eid) not in open_tag:
+                    return m.group(0)
+            else:
+                if ('data-vendor-key="%s"' % vk) not in open_tag:
+                    return m.group(0)
+                if require_date and d and ('>%s<' % d) not in inner:
+                    return m.group(0)
+                if require_amount and a and ('>%s<' % a) not in inner:
+                    return m.group(0)
             # Replace ALL cat-* classes in the class attribute so re-categorizing
             # a row doesn't leave stale old classes behind (or double-add when the
             # same category is picked twice).
@@ -1232,8 +1244,8 @@ def _update_report_row_color(report_path, vendor_key, date_str, amount_str, new_
         out = _re.sub(r'<tr([^>]*)>(.*?)</tr>', repl, html, flags=_re.S)
         return out if state['done'] else None
 
-    # Prefer the tightest match (vendor+date+amount), then loosen — always vendor-gated.
-    for require_date, require_amount in ((True, True), (True, False), (False, True)):
+    attempts = ((False, False),) if eid else ((True, True), (True, False), (False, True))
+    for require_date, require_amount in attempts:
         out = attempt(require_date, require_amount)
         if out is not None:
             with open(fp, 'w', encoding='utf-8') as f:
@@ -1257,32 +1269,48 @@ def _vendor_prefix(id_light):
     return _re.sub(r'_\d{2}_\d{2}_\d{2}_\d+_\d+$', '', id_light or '')
 
 
-def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category, description='', report_path=''):
+def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category,
+                         description='', report_path='', expense_id=None):
     """Persist a user's category pick for one Verified-Transactions row.
 
-    Matches the row to an expenses row by (expense_date, abs(amount)) — the only
-    reliable join, since report vendor_keys diverge from the DB id_light vendor part
-    (e.g. 'circle_k_09828_cirst' vs 'circle_k_09828'). When that date/amount is shared
-    by several expenses, disambiguates by vendor_key prefix then exact description.
+    Uses expense_id when the row provides it. Legacy standalone report rows fall
+    back to (expense_date, abs(amount)); LINE_ITEM rows must provide an ID because
+    siblings can share both date and amount.
     """
     from decimal import Decimal, InvalidOperation
     if reporting_category not in REPORTING_CATEGORY_DB_MAP:
         return {'ok': False, 'error': f'Unknown category: {reporting_category}'}
     target_id = REPORTING_CATEGORY_DB_MAP[reporting_category]
 
-    raw_amt = str(signed_amount or '').replace('$', '').replace(',', '').strip()
-    try:
-        amt = abs(Decimal(raw_amt))
-    except (InvalidOperation, ValueError):
-        return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
+    target_expense_id = None
+    if expense_id not in (None, ''):
+        try:
+            target_expense_id = int(expense_id)
+        except (TypeError, ValueError):
+            return {'ok': False, 'error': f'Bad expense_id: {expense_id!r}'}
+    amt = None
+    if target_expense_id is None:
+        raw_amt = str(signed_amount or '').replace('$', '').replace(',', '').strip()
+        try:
+            amt = abs(Decimal(raw_amt))
+        except (InvalidOperation, ValueError):
+            return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
 
     try:
         with _rol_get_connection() as cnx:
             with cnx.cursor() as cur:
                 def _find_expense(d):
+                    if target_expense_id is not None:
+                        cur.execute(
+                            "SELECT id, id_light, description, category_id, expense_role "
+                            "FROM expenses WHERE id=%s",
+                            (target_expense_id,),
+                        )
+                        return cur.fetchall()
                     cur.execute(
-                        "SELECT id, id_light, description, category_id "
-                        "FROM expenses WHERE expense_date=%s AND amount=%s",
+                        "SELECT id, id_light, description, category_id, expense_role "
+                        "FROM expenses WHERE expense_date=%s AND amount=%s "
+                        "AND expense_role='STANDALONE'",
                         (d, str(amt)),
                     )
                     return cur.fetchall()
@@ -1290,7 +1318,7 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
                 rows = _find_expense(date_str)
                 # Credit-card posting dates are often 1-3 days after the purchase
                 # date stored in the DB. Try nearby dates when exact lookup fails.
-                if not rows:
+                if not rows and target_expense_id is None:
                     try:
                         base = datetime.strptime(date_str, '%Y-%m-%d').date()
                         for delta in (-1, 1, -2, 2, -3, 3):
@@ -1301,6 +1329,9 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
                     except (ValueError, AttributeError):
                         pass
                 if not rows:
+                    if target_expense_id is not None:
+                        return {'ok': False,
+                                'error': f'Expense {target_expense_id} was not found.'}
                     # Transaction not in DB (e.g. annual summary never imported).
                     # Still persist the color in the HTML file so the pick survives
                     # a page refresh, and return ok so the dialog closes cleanly.
@@ -1311,7 +1342,8 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
                             if new_cls:
                                 file_updated = _update_report_row_color(
                                     report_path, vendor_key, date_str,
-                                    signed_amount, new_cls)
+                                    signed_amount, new_cls,
+                                    expense_id=target_expense_id)
                         except Exception:
                             pass
                     return {'ok': True, 'expense_id': None,
@@ -1338,6 +1370,10 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
                                 'error': f'{len(rows)} expenses share that date/amount; '
                                          'could not pinpoint which one.'}
 
+                if chosen.get('expense_role') == 'PARENT':
+                    return {'ok': False,
+                            'error': 'A PARENT is a reconciliation anchor and cannot be categorized.'}
+
                 cur.execute("UPDATE expenses SET category_id=%s WHERE id=%s",
                             (target_id, chosen['id']))
     except Exception as e:
@@ -1357,11 +1393,15 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
         # often diverges, so a plain report_path lookup can't be done client-side).
         try:
             new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
-            found = _find_matching_report_row(date_str, signed_amount, vendor_key) if new_cls else None
+            report_expense_id = (
+                chosen['id'] if chosen.get('expense_role') == 'LINE_ITEM' else None)
+            found = _find_matching_report_row(
+                date_str, signed_amount, vendor_key, report_expense_id) if new_cls else None
             if found:
                 if _update_report_row_color(
                         found['report_path'], found['row_vendor_key'],
-                        date_str, signed_amount, new_cls):
+                        date_str, signed_amount, new_cls,
+                        expense_id=report_expense_id):
                     file_updated = True
                     matched_report = {'report_path': found['report_path'], 'label': found['label']}
         except Exception:
@@ -1378,7 +1418,10 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
                 # "+$10.00", "296.41") — NOT the normalized abs value used for the DB lookup,
                 # which would only match plain rows like "10.25".
                 file_updated = _update_report_row_color(
-                    report_path, vendor_key, date_str, signed_amount, new_cls)
+                    report_path, vendor_key, date_str, signed_amount, new_cls,
+                    expense_id=(chosen['id']
+                                if chosen.get('expense_role') == 'LINE_ITEM'
+                                else None))
         except Exception:
             file_updated = False
 
@@ -2030,6 +2073,20 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'The save path performs a final duplicate guard using its final parsed/overridden '
         f'date, amount, and merchant. If it reports duplicate, treat the existing expense '
         f'as the result and never retry with --allow-duplicate.\n\n'
+        f'STEP 4B — ITEMIZE WHEN EVIDENCE ALLOWS (MCP tool; never hand-build SQL):\n'
+        f'  For a newly stored receipt whose parsed JSON has multiple line items, call '
+        f'itemize_existing_expense(doc_family="receipt", expense_id=<STEP 4 id>, '
+        f'id_light=<stored id_light>, expense_date=<final stored date>, amount=<final '
+        f'stored total>, description=<final merchant>, receipt_payload_json=<the exact '
+        f'STEP 0 JSON>, category_ids=[<one verified positive category per item>], '
+        f'receipt_url=<store result>, source_file="{scan_image_path}").\n'
+        f'  The factory checks that source lines sum CENT-EXACTLY to the charge and writes '
+        f'PARENT + LINE_ITEM rows in one transaction. itemizable:false is a CORRECT '
+        f'fail-closed result: leave the expense STANDALONE and record the reason. Never '
+        f'guess missing lines, allocate an Amazon split shipment, retry a partial write, '
+        f'or issue parent/child SQL yourself. For Amazon statement charges use '
+        f'doc_family="amazon_statement" only when an order ID is present; the same exact '
+        f'reconciliation rule applies.\n\n'
         f'STEP 5 — record_trace(agent_name="Mazda", task_name="document-intake", '
         f'input_text=<scan path>, agent_output=<the intake-evidence JSON below>). '
         f'The task_name MUST be exactly "document-intake" so it is judged by the intake '
@@ -2040,6 +2097,10 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"vendor_key_recognized": <true|false>, "category_id": <int or null>, '
         f'"duplicate_checked": <true|false>, "is_duplicate": <true|false>, '
         f'"stored": <true|false>, "expense_id": <int or null>, '
+        f'"itemization_attempted": <true|false>, "itemized": <true|false>, '
+        f'"itemization_reconciled": <true only when itemization succeeded>, '
+        f'"itemization_parent_id": <int or null>, '
+        f'"itemization_child_ids": [<all child ids>], '
         f'"expense_status": "<NONE|WAITING_FOR_PAYMENT_COUNTERPART|COUNTERPART_DOCUMENT_LINKED, '
         f'from the store response, when doc_kind is invoice or when linked_counterpart was true>", '
         f'"problems": [<strings>]}}\n'
@@ -2931,11 +2992,24 @@ def _select_matching_expense(rows, vendor_key, description):
     return chosen
 
 
-def _matching_expense(cur, date_str, amount_str, vendor_key, description):
+def _matching_expense(cur, date_str, amount_str, vendor_key, description,
+                      expense_id=None):
     """Return the expense matching a report row using the recategorization rules."""
+    if expense_id not in (None, ''):
+        try:
+            eid = int(expense_id)
+        except (TypeError, ValueError):
+            return None
+        cur.execute(
+            "SELECT id, id_light, description, receipt_url, notes, expense_date, amount "
+            "FROM expenses WHERE id=%s",
+            (eid,),
+        )
+        return _select_matching_expense(cur.fetchall(), vendor_key, description)
     cur.execute(
-        "SELECT id, id_light, description, receipt_url, notes "
-        "FROM expenses WHERE expense_date=%s AND amount=%s",
+        "SELECT id, id_light, description, receipt_url, notes, expense_date, amount "
+        "FROM expenses WHERE expense_date=%s AND amount=%s "
+        "AND expense_role <> 'LINE_ITEM'",
         (date_str, amount_str),
     )
     return _select_matching_expense(cur.fetchall(), vendor_key, description)
@@ -2976,18 +3050,23 @@ def _document_machine_origin():
     return "Mom's machine" if 'rosemary' in hostname else 'Win 11'
 
 
-def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_path=''):
+def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_path='',
+                   expense_id=None):
     """Return receipt and source-document metadata for one report row."""
     amt = _norm_amount(signed_amount)
-    if amt is None:
+    if amt is None and expense_id in (None, ''):
         return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
     chosen = None
     resolve_date = date_str
     try:
         with _rol_get_connection() as cnx:
             with cnx.cursor() as cur:
-                chosen = _matching_expense(cur, date_str, amt, vendor_key, description)
-                if chosen is None and date_str:
+                chosen = _matching_expense(
+                    cur, date_str, amt, vendor_key, description, expense_id)
+                if chosen is not None and expense_id not in (None, ''):
+                    resolve_date = str(chosen.get('expense_date') or date_str)
+                    amt = _norm_amount(chosen.get('amount')) or amt
+                if chosen is None and date_str and expense_id in (None, ''):
                     try:
                         base = datetime.strptime(date_str, '%Y-%m-%d').date()
                         for delta in (-1, 1, -2, 2, -3, 3):
@@ -3032,14 +3111,16 @@ def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_p
 # ── ROL Finance: save a free-text note for a Verified-Transactions row ────────
 # The "Set Category" dialog's notes textarea POSTs here on Close. Matches the same
 # expense row recategorize_expense/lookup_receipt use, then writes expenses.notes.
-def save_expense_notes(date_str, signed_amount, vendor_key, description, notes):
+def save_expense_notes(date_str, signed_amount, vendor_key, description, notes,
+                       expense_id=None):
     amt = _norm_amount(signed_amount)
-    if amt is None:
+    if amt is None and expense_id in (None, ''):
         return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
     try:
         with _rol_get_connection() as cnx:
             with cnx.cursor() as cur:
-                chosen = _matching_expense(cur, date_str, amt, vendor_key, description)
+                chosen = _matching_expense(
+                    cur, date_str, amt, vendor_key, description, expense_id)
                 if chosen is None:
                     return {'ok': False,
                             'error': 'No matching expense in DB for that date/amount (bank-only row).'}
@@ -3152,10 +3233,11 @@ def _fetch_receipt_only_rows(month_key=None):
                 for r in cur.fetchall()
             }
             cur.execute(
-                "SELECT e.expense_date, e.amount, e.id_light, e.description, "
-                "       e.category_id, e.receipt_url "
+                "SELECT e.id, e.expense_date, e.amount, e.id_light, e.description, "
+                "       e.category_id, e.receipt_url, e.expense_role "
                 "FROM expenses e "
-                "WHERE NOT EXISTS (SELECT 1 FROM transactions t "
+                "WHERE e.expense_role <> 'PARENT' "
+                "AND NOT EXISTS (SELECT 1 FROM transactions t "
                 "                  WHERE t.transaction_date=e.expense_date "
                 "                    AND ABS(t.amount)=ABS(e.amount)) "
                 f"{date_clause} "
@@ -3177,6 +3259,7 @@ def _fetch_receipt_only_rows(month_key=None):
         rep = _reporting_category_for_id(
             int(cid) if cid is not None else None, parent_of)
         out.append({
+            'id': int(r['id']),
             'date': date_str,
             'amount': str(r['amount']),
             'vendor_key': (r.get('id_light') or '').strip(),
@@ -3235,6 +3318,7 @@ def _fetch_recent_scans(limit=5, month_key=None):
                 "       category_id, receipt_url, created_at, notes "
                 "FROM expenses "
                 "WHERE (category_id IS NULL OR category_id IN (%s, %s))"
+                " AND expense_role <> 'PARENT'"
                 f"{where_suffix} "
                 "ORDER BY created_at DESC, id DESC LIMIT %s",
                 (*_UNCATEGORIZED_CATEGORY_IDS, *where_params, limit),
@@ -3243,6 +3327,7 @@ def _fetch_recent_scans(limit=5, month_key=None):
             cur.execute(
                 "SELECT COUNT(*) AS n FROM expenses "
                 "WHERE (category_id IS NULL OR category_id IN (%s, %s))"
+                " AND expense_role <> 'PARENT'"
                 f"{where_suffix}",
                 (*_UNCATEGORIZED_CATEGORY_IDS, *where_params),
             )
@@ -3288,6 +3373,7 @@ def _fetch_month_status():
                     "SELECT id, id_light, description, expense_date, amount, "
                     "       category_id, created_at "
                     "FROM expenses WHERE expense_date BETWEEN %s AND %s "
+                    "AND expense_role <> 'PARENT' "
                     "ORDER BY created_at DESC, id DESC LIMIT 1",
                     (start, end),
                 )
@@ -3295,6 +3381,7 @@ def _fetch_month_status():
                 cur.execute(
                     "SELECT COUNT(*) AS n FROM expenses "
                     "WHERE expense_date BETWEEN %s AND %s "
+                    "AND expense_role <> 'PARENT' "
                     "AND (category_id IS NULL OR category_id IN (%s, %s))",
                     (start, end, *_UNCATEGORIZED_CATEGORY_IDS),
                 )
@@ -3355,11 +3442,12 @@ def build_receipt_only_report_html(month_key=None):
     trs = []
     for r in rows:
         trs.append(
-            '<tr class="%s" data-vendor-key="%s" data-description="%s" '
+            '<tr class="%s" data-expense-id="%s" data-vendor-key="%s" data-description="%s" '
             'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
             'title="Click row to set category / view receipt">'
             '<td>%s</td><td class="number">%s</td><td>%s</td></tr>' % (
                 r['cat_class'],
+                _esc(r['id'], quote=True),
                 _esc(r['vendor_key'], quote=True),
                 _esc(r['description'], quote=True),
                 _esc(r['amount'], quote=True),
@@ -3438,6 +3526,7 @@ _MAZDA_TOOLS = [
     'record_trace',
     'propose_improvement',
     'run_experiment',
+    'itemize_existing_expense',
 ]
 
 # Mazda + all 5 minions run on the same chatgpt-plus-pro OAuth account, so a
@@ -7690,6 +7779,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('reporting_category', ''),
                 data.get('description', ''),
                 _resolve_report_path_alias(data.get('report_path', '')),
+                data.get('expense_id'),
             ))
 
         if path == '/api/receipt-lookup':
@@ -7703,6 +7793,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('vendor_key', ''),
                 data.get('description', ''),
                 _resolve_report_path_alias(data.get('report_path', '')),
+                data.get('expense_id'),
             ))
 
         if path == '/api/receipts-present':
@@ -7723,6 +7814,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('vendor_key', ''),
                 data.get('description', ''),
                 data.get('notes', ''),
+                data.get('expense_id'),
             ))
 
         self.send_error(404)

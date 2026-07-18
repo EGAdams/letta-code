@@ -554,6 +554,7 @@ export class RolFinanceReportsController {
     let res;
     try {
       res = await this._http.postJSON(this._recategorizeEndpoint, {
+        expense_id: d.expenseId || "",
         vendor_key: d.vendorKey || "",
         description: d.description || "",
         signed_amount: d.signedAmount || "",
@@ -588,6 +589,7 @@ export class RolFinanceReportsController {
     let res;
     try {
       res = await this._http.postJSON(this._receiptLookupEndpoint, {
+        expense_id: d.expenseId || "",
         vendor_key: d.vendorKey || "",
         description: d.description || "",
         signed_amount: d.signedAmount || "",

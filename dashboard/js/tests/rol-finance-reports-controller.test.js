@@ -1068,6 +1068,7 @@ describe("RolFinanceReportsController", () => {
       p.url.startsWith("/api/recategorize-expense"),
     );
     expect(post).not.toBe(undefined);
+    expect(post.body.expense_id).toBe("42");
     expect(post.body.reporting_category).toBe("Travel & Vehicle");
     // DB-only: no report_path (these records have no static report.html row).
     expect("report_path" in post.body).toBe(false);

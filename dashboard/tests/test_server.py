@@ -1393,6 +1393,7 @@ def test_mazda_declares_self_improvement_tools():
         'record_trace',
         'propose_improvement',
         'run_experiment',
+        'itemize_existing_expense',
     ]
     assert mazda.get('orchestrator') is True
 
@@ -1878,6 +1879,50 @@ def test_update_report_row_color_replaces_stale_cat_class(tmp_path, monkeypatch)
     html = p.read_text(encoding='utf-8')
     assert 'cat-personal' in html
     assert 'cat-food-and-hospitality' not in html
+
+
+def test_update_report_row_color_uses_expense_id_for_equal_sibling_amounts(tmp_path, monkeypatch):
+    p = tmp_path / 'report.html'
+    p.write_text(
+        '<table><tbody>'
+        '<tr class="cat-personal" data-expense-id="1503" data-vendor-key="vision">'
+        '<td>Donation A</td><td>50.00</td><td>2025-01-01</td></tr>'
+        '<tr class="cat-personal" data-expense-id="1504" data-vendor-key="vision">'
+        '<td>Donation B</td><td>50.00</td><td>2025-01-01</td></tr>'
+        '</tbody></table>',
+        encoding='utf-8',
+    )
+    monkeypatch.setattr(server, '_report_file_for_url', lambda _: str(p))
+
+    result = server._update_report_row_color(
+        'fake/path', 'vision', '2025-01-01', '50.00',
+        'cat-gifts-and-love-offerings', expense_id=1504,
+    )
+
+    assert result is True
+    html = p.read_text(encoding='utf-8')
+    first, second = html.split('</tr>')[:2]
+    assert 'cat-personal' in first
+    assert 'cat-gifts-and-love-offerings' in second
+
+
+def test_recategorize_expense_rejects_parent_even_with_exact_id(monkeypatch):
+    expense = {
+        'id': 1502,
+        'id_light': 'vision_01_01_25_100_00',
+        'description': 'Vision receipt',
+        'category_id': None,
+        'expense_role': 'PARENT',
+    }
+    monkeypatch.setattr(
+        server, '_rol_get_connection', lambda: _FakeConnection([expense]))
+
+    result = server.recategorize_expense(
+        '', '', '', 'Gifts & Love Offerings', expense_id=1502,
+    )
+
+    assert result['ok'] is False
+    assert 'PARENT' in result['error']
 
 
 class _DateSelectCursor:
