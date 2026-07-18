@@ -3718,6 +3718,69 @@ _claude_tool_log_lock = threading.Lock()
 VOICE_LOG_FILE = os.path.join(HERE, 'voice_transcripts.json')
 _voice_log_lock = threading.Lock()
 
+# Voice OUTPUT (text-to-speech) — the agents speak with the same edge-tts
+# voice the pickle_cpp scoreboard uses (en-GB-SoniaNeural, see
+# rpi-rgb-led-matrix/pickle_cpp/tools/generate_placeholder_sounds.py).
+# Like whisper, we shell out to the CLI so the server stays stdlib-only.
+EDGE_TTS_BIN = os.environ.get(
+    'EDGE_TTS_BIN', os.path.expanduser('~/.local/bin/edge-tts'))
+EDGE_TTS_VOICE = os.environ.get('EDGE_TTS_VOICE', 'en-GB-SoniaNeural')
+EDGE_TTS_TIMEOUT_SEC = int(os.environ.get('EDGE_TTS_TIMEOUT_SEC', 30))
+TTS_MAX_TEXT_LEN = 4000
+TTS_CACHE_DIR = os.environ.get('TTS_CACHE_DIR', '/tmp/dashboard_tts_cache')
+_VOICE_NAME_RE = re.compile(r'^[A-Za-z]{2}-[A-Za-z]{2,}-[A-Za-z0-9]+$')
+
+
+def tts_cache_path(text, voice):
+    """Deterministic cache file for a (voice, text) pair (pure)."""
+    key = hashlib.sha256(f'{voice}\x00{text}'.encode('utf-8')).hexdigest()
+    return os.path.join(TTS_CACHE_DIR, f'{voice}_{key[:32]}.mp3')
+
+
+def synthesize_speech(text, voice=None, runner=subprocess.run):
+    """Text → MP3 file via edge-tts; returns {ok, path, cached} or {ok:False, error}.
+
+    `runner` is injected so tests never hit the network. Results are cached by
+    (voice, text) hash — repeated phrases (agent names, short acks) are served
+    from disk instantly.
+    """
+    text = (text or '').strip()
+    if not text:
+        return {'ok': False, 'error': 'empty text'}
+    if len(text) > TTS_MAX_TEXT_LEN:
+        text = text[:TTS_MAX_TEXT_LEN]
+    voice = voice or EDGE_TTS_VOICE
+    if not _VOICE_NAME_RE.match(voice):
+        return {'ok': False, 'error': f'invalid voice name: {voice!r}'}
+
+    path = tts_cache_path(text, voice)
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return {'ok': True, 'path': path, 'cached': True}
+
+    if not os.path.exists(EDGE_TTS_BIN):
+        return {'ok': False, 'error': f'edge-tts binary not found: {EDGE_TTS_BIN}'}
+    os.makedirs(TTS_CACHE_DIR, exist_ok=True)
+    tmp_path = f'{path}.tmp{os.getpid()}'
+    try:
+        proc = runner(
+            [EDGE_TTS_BIN, '--voice', voice, '--text', text,
+             '--write-media', tmp_path],
+            capture_output=True, text=True, timeout=EDGE_TTS_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'error': f'edge-tts timed out after {EDGE_TTS_TIMEOUT_SEC}s'}
+    except Exception as exc:
+        return {'ok': False, 'error': f'edge-tts failed to run: {exc}'}
+    if proc.returncode != 0 or not os.path.exists(tmp_path) \
+            or os.path.getsize(tmp_path) == 0:
+        err = (proc.stderr or '').strip() or f'exit {proc.returncode}'
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        return {'ok': False, 'error': f'edge-tts failed: {err[:300]}'}
+    os.replace(tmp_path, path)  # atomic — concurrent requests can't collide
+    return {'ok': True, 'path': path, 'cached': False}
+
 # Port this dashboard is served on (also used for the dashboard self-health check).
 PORT = int(os.environ.get('PORT', 8765))
 
@@ -7592,6 +7655,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response({'ok': False, 'text': f'Unknown action: {action} for {server}'})
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
+
+        if path == '/api/tts':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            result = synthesize_speech(data.get('text', ''),
+                                       voice=data.get('voice'))
+            if not result.get('ok'):
+                return self.json_response(result)
+            return self.serve_file(result['path'], content_type='audio/mpeg')
 
         if path == '/api/scanner-scan':
             try:

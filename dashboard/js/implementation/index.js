@@ -40,6 +40,7 @@ export { DomConsoleView } from "./dom-console-view.js";
 export { DomDocumentPipelineView } from "./dom-document-pipeline-view.js";
 export { DomNavigationController } from "./dom-navigation-controller.js";
 export { DomTabFactory } from "./dom-tab-factory.js";
+export { EdgeTtsSpeechSynthesizer } from "./edge-tts-speech-synthesizer.js";
 export { FetchHttpClient } from "./fetch-http-client.js";
 export { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
 export {

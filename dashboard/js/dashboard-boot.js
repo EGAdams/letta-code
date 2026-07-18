@@ -14,7 +14,6 @@ import {
   AgentActivityPoller,
   AgentCardRenderer,
   AgentHealthPoller,
-  BrowserSpeechSynthesizer,
   ChatDetailRenderer,
   CodeChangeAlert,
   ConnectionLogController,
@@ -23,6 +22,7 @@ import {
   DomConsoleView,
   DomDocumentPipelineView,
   DomTabFactory,
+  EdgeTtsSpeechSynthesizer,
   FetchHttpClient,
   InputOptionsRenderer,
   PrinterRepairController,
@@ -1231,17 +1231,15 @@ if (navPcMonitor) {
   }
 }
 
-/* =====================  Voice output (Web Speech API)  =====================
-       Browser-native text-to-speech. No API key, no server round-trip, free.
-       Now provided by the library's BrowserSpeechSynthesizer (Facade) +
-       AgentVoiceCatalog (Strategy/Registry): each agent gets its own cached
-       voice so Scissari, Mazda, Frita, Hailey, Jeri and the Mazda
-       stages sound distinct, never falling back to a male voice. The per-agent
-       voice catalog (FEMALE/MALE patterns, agent preferences, selection +
-       male-avoidance fallbacks) lives in
-       js/abstract/agent-voice-catalog.interface.js. */
-const Speech = new BrowserSpeechSynthesizer(window);
-Speech.bindVoiceChanges(); // initial pick + re-pick/clear on onvoiceschanged
+/* =====================  Voice output (edge-tts via /api/tts)  ==============
+       The agents now speak with the same edge-tts en-GB-SoniaNeural voice the
+       pickle_cpp scoreboard uses: EdgeTtsSpeechSynthesizer (Decorator over the
+       BrowserSpeechSynthesizer facade) POSTs the reply text to /api/tts and
+       plays the returned MP3. When the server voice is unavailable (offline,
+       edge-tts missing) it falls back to the old Web Speech path with the
+       per-agent AgentVoiceCatalog voices. */
+const Speech = new EdgeTtsSpeechSynthesizer(window);
+Speech.bindVoiceChanges(); // fallback engine: initial pick + re-pick on change
 
 /* =====================  Agent Manager  ===================== */
 // The three agent-detail streams (Thoughts / Messages / Tool Calls) are

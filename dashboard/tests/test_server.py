@@ -8,6 +8,7 @@ start/"starting" lifecycle used by the executor Start button.
 import json
 import os
 import time
+import types
 
 import pytest
 import server
@@ -3968,3 +3969,64 @@ def test_compute_server_status_hard_failure_stays_red():
     assert compute_server_status({'ok': False, 'hard': True}, restartable=True) == 'down'
     assert compute_server_status({'ok': False}, restartable=True) == 'concern'
     assert compute_server_status({'ok': True}, restartable=True) == 'up'
+
+
+# ---------------------------------------------------------------------------
+# /api/tts — edge-tts voice synthesis (the pickle_cpp en-GB-SoniaNeural voice)
+# ---------------------------------------------------------------------------
+
+def _tts_env(monkeypatch, tmp_path):
+    """Point the TTS cache at a tmp dir and fake an existing edge-tts binary."""
+    fake_bin = tmp_path / 'edge-tts'
+    fake_bin.write_text('#!/bin/sh\n')
+    monkeypatch.setattr(server, 'EDGE_TTS_BIN', str(fake_bin))
+    monkeypatch.setattr(server, 'TTS_CACHE_DIR', str(tmp_path / 'cache'))
+    return fake_bin
+
+
+def test_synthesize_speech_rejects_empty_and_bad_voice(monkeypatch, tmp_path):
+    _tts_env(monkeypatch, tmp_path)
+    assert server.synthesize_speech('')['ok'] is False
+    assert server.synthesize_speech('   ')['ok'] is False
+    bad = server.synthesize_speech('hi', voice='$(rm -rf /)')
+    assert bad['ok'] is False and 'invalid voice' in bad['error']
+
+
+def test_synthesize_speech_runs_edge_tts_and_caches(monkeypatch, tmp_path):
+    fake_bin = _tts_env(monkeypatch, tmp_path)
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        # edge-tts writes the media file itself; emulate that.
+        out = cmd[cmd.index('--write-media') + 1]
+        with open(out, 'wb') as f:
+            f.write(b'ID3fakeaudio')
+        return types.SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    first = server.synthesize_speech('hello there', runner=fake_run)
+    assert first['ok'] is True and first['cached'] is False
+    assert calls[0][0] == str(fake_bin)
+    assert calls[0][calls[0].index('--voice') + 1] == server.EDGE_TTS_VOICE
+    assert open(first['path'], 'rb').read() == b'ID3fakeaudio'
+
+    second = server.synthesize_speech('hello there', runner=fake_run)
+    assert second['ok'] is True and second['cached'] is True
+    assert len(calls) == 1  # cache hit — no second subprocess
+
+
+def test_synthesize_speech_reports_edge_tts_failure(monkeypatch, tmp_path):
+    _tts_env(monkeypatch, tmp_path)
+
+    def failing_run(cmd, **kwargs):
+        return types.SimpleNamespace(returncode=1, stdout='', stderr='boom')
+
+    result = server.synthesize_speech('hello', runner=failing_run)
+    assert result['ok'] is False and 'boom' in result['error']
+
+
+def test_synthesize_speech_missing_binary(monkeypatch, tmp_path):
+    monkeypatch.setattr(server, 'EDGE_TTS_BIN', str(tmp_path / 'nope'))
+    monkeypatch.setattr(server, 'TTS_CACHE_DIR', str(tmp_path / 'cache'))
+    result = server.synthesize_speech('hello')
+    assert result['ok'] is False and 'not found' in result['error']
