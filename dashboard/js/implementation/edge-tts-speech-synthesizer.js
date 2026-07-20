@@ -31,9 +31,28 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
       opts.audioFactory ||
       (typeof win?.Audio === "function" ? (url) => new win.Audio(url) : null);
     this._voice = opts.voice || null;
+    this._agentVoices = new Map();
     this._audio = null;
     this._audioUrl = null;
     this._generation = 0;
+  }
+
+  /** Change the server-side edge-tts voice used by the next speak(). */
+  setVoice(voice, agentName = null) {
+    if (agentName) {
+      if (voice) this._agentVoices.set(agentName, voice);
+      else this._agentVoices.delete(agentName);
+      return;
+    }
+    this._voice = voice || null;
+  }
+
+  /** Return the current server-side edge-tts voice override, if any. */
+  getVoice(agentName = null) {
+    if (agentName && this._agentVoices.has(agentName)) {
+      return this._agentVoices.get(agentName);
+    }
+    return this._voice;
   }
 
   /** Server TTS works without Web Speech; either engine makes us supported. */
@@ -52,7 +71,7 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     if (!say) return null;
     this.cancel();
     const generation = this._generation;
-    const pending = this._speakRemote(say, generation).catch(() => {
+    const pending = this._speakRemote(say, generation, agentName).catch(() => {
       if (generation !== this._generation) return null;
       // super.speak/cancel dereference the Web Speech engine unguarded (our
       // `supported` override is true without one), so gate on the engine.
@@ -77,14 +96,13 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     if (this._engine) super.cancel();
   }
 
-  async _speakRemote(say, generation) {
+  async _speakRemote(say, generation, agentName = null) {
     if (!this._fetchFn || !this._audioFactory) throw new Error("no server tts");
+    const voice = this.getVoice(agentName);
     const res = await this._fetchFn("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        this._voice ? { text: say, voice: this._voice } : { text: say },
-      ),
+      body: JSON.stringify(voice ? { text: say, voice } : { text: say }),
     });
     const type = res?.headers?.get?.("content-type") || "";
     if (!res || !res.ok || !type.startsWith("audio/")) {

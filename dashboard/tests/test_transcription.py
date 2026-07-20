@@ -6,12 +6,19 @@ orchestration in isolation.
 """
 import pytest
 
+from voice import config
 from voice.transcription import (
     TranscriptionError,
     WhisperCppTranscriber,
     build_ffmpeg_args,
     build_whisper_args,
 )
+
+
+def test_default_whisper_model_matches_installed_dashboard_model():
+    assert config.DEFAULT_WHISPER_MODEL_PATH.endswith(
+        "/whisper.cpp/models/ggml-base.en.bin"
+    )
 
 
 def _val_after(args, flag):

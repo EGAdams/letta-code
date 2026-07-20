@@ -5,6 +5,32 @@ import { AgentStreamController } from "./agent-stream-controller.js";
 import { DomConsoleView } from "./dom-console-view.js";
 import { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
 
+export const EDGE_TTS_EN_US_VOICES = [
+  { value: "en-US-AnaNeural", label: "Ana", gender: "Female" },
+  { value: "en-US-AriaNeural", label: "Aria", gender: "Female" },
+  { value: "en-US-AvaNeural", label: "Ava", gender: "Female" },
+  {
+    value: "en-US-AvaMultilingualNeural",
+    label: "Ava Multilingual",
+    gender: "Female",
+  },
+  { value: "en-US-EmmaNeural", label: "Emma", gender: "Female" },
+  {
+    value: "en-US-EmmaMultilingualNeural",
+    label: "Emma Multilingual",
+    gender: "Female",
+  },
+  { value: "en-US-JennyNeural", label: "Jenny", gender: "Female" },
+  { value: "en-US-MichelleNeural", label: "Michelle", gender: "Female" },
+  { value: "en-US-AndrewNeural", label: "Andrew", gender: "Male" },
+  { value: "en-US-BrianNeural", label: "Brian", gender: "Male" },
+  { value: "en-US-ChristopherNeural", label: "Christopher", gender: "Male" },
+  { value: "en-US-EricNeural", label: "Eric", gender: "Male" },
+  { value: "en-US-GuyNeural", label: "Guy", gender: "Male" },
+  { value: "en-US-RogerNeural", label: "Roger", gender: "Male" },
+  { value: "en-US-SteffanNeural", label: "Steffan", gender: "Male" },
+];
+
 /**
  * Lazy-load the vendored xterm.js UMD bundle + fit addon + stylesheet (served
  * locally from /vendor/xterm — the live box is firewalled, so no CDN). Resolves
@@ -665,6 +691,84 @@ export function attachTerminalPanel({
 }
 
 /**
+ * buildModelRow — shared "Model:" select row (label + <select>), backed by
+ * /api/agent-model. Extracted so InputOptionsRenderer and AgentsRouterRenderer
+ * (which points it at the router-classifier agent's id instead of a normal
+ * agent's) don't duplicate this fetch/PATCH wiring.
+ *
+ *   el        → element factory, e.g. `this._el.bind(this)`
+ *   http      → HttpClient
+ *   agentId   → the Letta agent id this dropdown edits (any real "agent-<uuid>")
+ *   showStatus(msg, isError) → status-line callback
+ *
+ * Returns { row, select } — the caller places `row` in the DOM.
+ */
+export function buildModelRow({ el, http, agentId, showStatus }) {
+  const modelRow = el("div");
+  modelRow.style.cssText = "display:flex;align-items:center;gap:8px;";
+  const modelLbl = el("span", { textContent: "Model:" });
+  modelLbl.style.cssText = "font-size:0.9rem;color:#555;white-space:nowrap;";
+  const modelSel = el("select", {
+    className: "io-model-select",
+    disabled: true,
+  });
+  modelSel.style.cssText =
+    "flex:1;min-width:0;padding:6px;border-radius:4px;border:1px solid #bbb;";
+  modelRow.append(modelLbl, modelSel);
+
+  let modelCurrent = "";
+  http
+    .getJSON(`/api/agent-model?agent=${encodeURIComponent(agentId)}`)
+    .then((d) => {
+      if (!d || !d.ok || !Array.isArray(d.options) || !d.options.length) {
+        modelRow.style.display = "none";
+        return;
+      }
+      modelSel.innerHTML = "";
+      for (const h of d.options) {
+        const opt = el("option", {
+          value: h,
+          textContent: h.split("/").pop(),
+          title: h,
+        });
+        modelSel.appendChild(opt);
+      }
+      modelCurrent = d.current || d.options[0];
+      modelSel.value = modelCurrent;
+      modelSel.disabled = false;
+    })
+    .catch(() => {
+      modelRow.style.display = "none";
+    });
+
+  modelSel.addEventListener("change", async () => {
+    const next = modelSel.value;
+    modelSel.disabled = true;
+    showStatus(`Switching model to ${next.split("/").pop()}…`);
+    try {
+      const r = await http.postJSON("/api/agent-model", {
+        agent: agentId,
+        model: next,
+      });
+      if (r?.ok) {
+        modelCurrent = r.model || next;
+        showStatus(`Model set to ${modelCurrent.split("/").pop()}.`);
+      } else {
+        modelSel.value = modelCurrent;
+        showStatus(r?.error || "Model change failed.", true);
+      }
+    } catch (e) {
+      modelSel.value = modelCurrent;
+      showStatus(`Model change failed: ${e.message}`, true);
+    } finally {
+      modelSel.disabled = false;
+    }
+  });
+
+  return { row: modelRow, select: modelSel };
+}
+
+/**
  * InputOptionsRenderer — Strategy for the "Input Options" tab.
  *
  * Same voice/http/speech pipeline as the chat tab but a different, vertically
@@ -680,6 +784,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     agentId = null,
     onStatus = () => {},
     doc = globalThis.document,
+    storage = globalThis.localStorage,
     recorderFactory = (opts) => new MediaRecorderVoiceRecorder(opts),
     terminalFactory = (opts) => attachTerminalPanel(opts),
   }) {
@@ -691,6 +796,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     this._agentId = agentId;
     this._onStatus = onStatus;
     this._doc = doc;
+    this._storage = storage;
     this._recorderFactory = recorderFactory;
     this._terminalFactory = terminalFactory;
   }
@@ -773,67 +879,103 @@ export class InputOptionsRenderer extends DetailRenderer {
     // ── Model selector — which LLM handle this agent runs on ──────────────
     // Options come from /api/agent-model (the probed-working Codex OAuth
     // handles); changing it PATCHes the agent's llm_config through server.py.
-    const modelRow = this._el("div");
-    modelRow.style.cssText = "display:flex;align-items:center;gap:8px;";
-    const modelLbl = this._el("span", { textContent: "Model:" });
-    modelLbl.style.cssText = "font-size:0.9rem;color:#555;white-space:nowrap;";
-    const modelSel = this._el("select", {
-      className: "io-model-select",
-      disabled: true,
+    const { row: modelRow } = buildModelRow({
+      el: this._el.bind(this),
+      http: this._http,
+      agentId: id,
+      showStatus,
     });
-    modelSel.style.cssText =
-      "flex:1;min-width:0;padding:6px;border-radius:4px;border:1px solid #bbb;";
-    modelRow.append(modelLbl, modelSel);
     col.prepend(modelRow);
 
-    let modelCurrent = "";
+    // ── Voice selector — edge-tts voice for the next spoken reply ──────────
+    // The EdgeTtsSpeechSynthesizer exposes setVoice(); browser-only fallback
+    // speakers ignore this control but still render harmlessly.
+    const voiceSelectRow = this._el("div");
+    voiceSelectRow.style.cssText = "display:flex;align-items:center;gap:8px;";
+    const voiceLbl = this._el("span", { textContent: "Voice:" });
+    voiceLbl.style.cssText = "font-size:0.9rem;color:#555;white-space:nowrap;";
+    const voiceSel = this._el("select", { className: "io-voice-select" });
+    voiceSel.style.cssText =
+      "flex:1;min-width:0;padding:6px;border-radius:4px;border:1px solid #bbb;";
+    voiceSel.appendChild(
+      this._el("option", {
+        value: "",
+        textContent: "Default (Sonia, UK)",
+        title: "Use the server default voice",
+      }),
+    );
+    for (const voice of EDGE_TTS_EN_US_VOICES) {
+      const opt = this._el("option", {
+        value: voice.value,
+        textContent: `${voice.label} (${voice.gender})`,
+        title: voice.value,
+      });
+      voiceSel.appendChild(opt);
+    }
+    const voiceStorageKey = `dash-agent-voice:${this._agentName}`;
+    const storedVoice = this._storage?.getItem?.(voiceStorageKey) || "";
+    const validStoredVoice =
+      storedVoice &&
+      EDGE_TTS_EN_US_VOICES.some((voice) => voice.value === storedVoice);
+    if (validStoredVoice) {
+      this._speech?.setVoice?.(storedVoice, this._agentName);
+    }
+    voiceSel.value =
+      this._speech?.getVoice?.(this._agentName) ||
+      (validStoredVoice ? storedVoice : "");
     this._http
-      .getJSON(`/api/agent-model?agent=${encodeURIComponent(id)}`)
+      .getJSON(`/api/agent-voice?agent=${encodeURIComponent(id)}`)
       .then((d) => {
-        if (!d || !d.ok || !Array.isArray(d.options) || !d.options.length) {
-          modelRow.style.display = "none";
+        if (!d || !d.ok) return;
+        const serverVoice = d.voice || "";
+        if (
+          serverVoice &&
+          !EDGE_TTS_EN_US_VOICES.some((voice) => voice.value === serverVoice)
+        ) {
           return;
         }
-        modelSel.innerHTML = "";
-        for (const h of d.options) {
-          const opt = this._el("option", {
-            value: h,
-            textContent: h.split("/").pop(),
-            title: h,
-          });
-          modelSel.appendChild(opt);
+        voiceSel.value = serverVoice;
+        this._speech?.setVoice?.(serverVoice || null, this._agentName);
+        if (serverVoice) {
+          this._storage?.setItem?.(voiceStorageKey, serverVoice);
+        } else {
+          this._storage?.removeItem?.(voiceStorageKey);
         }
-        modelCurrent = d.current || d.options[0];
-        modelSel.value = modelCurrent;
-        modelSel.disabled = false;
       })
       .catch(() => {
-        modelRow.style.display = "none";
+        // Keep the local cached voice when Letta metadata is temporarily
+        // unavailable.
       });
-
-    modelSel.addEventListener("change", async () => {
-      const next = modelSel.value;
-      modelSel.disabled = true;
-      showStatus(`Switching model to ${next.split("/").pop()}…`);
-      try {
-        const r = await this._http.postJSON("/api/agent-model", {
-          agent: id,
-          model: next,
-        });
-        if (r?.ok) {
-          modelCurrent = r.model || next;
-          showStatus(`Model set to ${modelCurrent.split("/").pop()}.`);
-        } else {
-          modelSel.value = modelCurrent;
-          showStatus(r?.error || "Model change failed.", true);
-        }
-      } catch (e) {
-        modelSel.value = modelCurrent;
-        showStatus(`Model change failed: ${e.message}`, true);
-      } finally {
-        modelSel.disabled = false;
+    voiceSel.addEventListener("change", () => {
+      this._speech?.setVoice?.(voiceSel.value || null, this._agentName);
+      if (voiceSel.value) {
+        this._storage?.setItem?.(voiceStorageKey, voiceSel.value);
+      } else {
+        this._storage?.removeItem?.(voiceStorageKey);
       }
+      this._http
+        .postJSON("/api/agent-voice", {
+          agent: id,
+          voice: voiceSel.value,
+        })
+        .then((r) => {
+          if (!r?.ok) {
+            showStatus(r?.error || "Voice saved locally only.", true);
+          }
+        })
+        .catch((e) => {
+          showStatus(`Voice saved locally only: ${e.message}`, true);
+        });
+      showStatus(
+        voiceSel.value
+          ? `Voice set to ${voiceSel.value.replace(/^en-US-/, "")}.`
+          : "Voice reset to default.",
+      );
     });
+    voiceSelectRow.append(voiceLbl, voiceSel);
+    const colChildren = Array.from(col.children);
+    const afterModel = colChildren[colChildren.indexOf(modelRow) + 1];
+    col.insertBefore(voiceSelectRow, afterModel || null);
 
     autoSendBtn.addEventListener("click", () => {
       autoSendOn = !autoSendOn;
@@ -983,6 +1125,20 @@ export class InputOptionsRenderer extends DetailRenderer {
       }
     });
 
-    return { send, recorder, terminal };
+    // Exposes the textarea (and a small append helper) so a caller that opens
+    // this page programmatically — e.g. AgentsRouterRenderer, after detecting
+    // this agent's name — can hand off text without reaching into internals.
+    return {
+      send,
+      recorder,
+      terminal,
+      textarea: textEl,
+      setText: (text) => {
+        textEl.value = text;
+      },
+      appendText: (text) => {
+        textEl.value = textEl.value ? `${textEl.value} ${text}` : text;
+      },
+    };
   }
 }

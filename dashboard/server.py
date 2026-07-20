@@ -609,7 +609,13 @@ def merge_recent_intake_event(event):
         return _write_recent_pointer_file(data)
 
 
-_TERMINAL_INTAKE_STATUSES = {'pass', 'corrected', 'fail', 'stalled', 'complete'}
+_TERMINAL_INTAKE_STATUSES = {
+    'pass', 'corrected', 'fail', 'stalled', 'complete',
+    # Nothing more happens on THIS run once a human needs to pick a vendor —
+    # stop the Recent Report page's 30s auto-refresh, same as any other
+    # finished run (see list_pending_vendor_review()/set_receipt_vendor()).
+    'awaiting_vendor_review',
+}
 
 
 def merge_recent_intake_status(update):
@@ -1436,6 +1442,96 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
     }
 
 
+# ── Vendor review: pick a vendor_key for a receipt that saved with no category ─
+# Companion to the FAIL-CLOSED CATEGORY RULE in build_mazda_scan_message(): when
+# Mazda can't resolve a vendor/category, parse_and_categorize.py now still saves
+# the receipt image + an expense row with category_id=NULL,
+# expense_status='NEEDS_VENDOR_KEY' (see save_receipt_pending_vendor_review() in
+# rol_finances) instead of dropping the document. These three functions back the
+# dashboard's "pick a vendor" dialog that finishes the save later.
+CATEGORIZER_LIB_DIR = os.path.expanduser('~/rol_finances/tools/categorizer/python_libary')
+
+
+def _vendor_category_lookup():
+    import sys as _sys
+    if CATEGORIZER_LIB_DIR not in _sys.path:
+        _sys.path.insert(0, CATEGORIZER_LIB_DIR)
+    from vendor_category_lookup import VendorCategoryLookup  # type: ignore
+    return VendorCategoryLookup()
+
+
+def list_vendor_keys():
+    """Every known vendor_key + category, for the "pick a vendor" dialog."""
+    try:
+        return {'ok': True, 'vendor_keys': _vendor_category_lookup().list_vendor_keys()}
+    except Exception as e:
+        return {'ok': False, 'error': f'Could not load vendor_category.yaml: {e}', 'vendor_keys': []}
+
+
+def list_pending_vendor_review():
+    """Expenses saved with no category (expense_status=NEEDS_VENDOR_KEY)."""
+    try:
+        with _rol_get_connection() as cnx:
+            with cnx.cursor() as cur:
+                cur.execute(
+                    "SELECT id, expense_date, amount, description, receipt_url, source_file "
+                    "FROM expenses WHERE expense_status='NEEDS_VENDOR_KEY' "
+                    "ORDER BY expense_date DESC"
+                )
+                rows = cur.fetchall()
+    except Exception as e:
+        return {'ok': False, 'error': f'DB error: {e}', 'rows': []}
+
+    out = []
+    for r in rows:
+        image_url = None
+        source_file = r.get('source_file')
+        if source_file and os.path.isfile(source_file):
+            try:
+                image_url = _receipt_url_for_path(source_file)
+            except Exception:
+                image_url = None
+        out.append({
+            'expense_id': r['id'],
+            'expense_date': str(r.get('expense_date') or ''),
+            'amount': str(r.get('amount') or ''),
+            'description': r.get('description') or '',
+            'receipt_url': r.get('receipt_url') or '',
+            'image_url': image_url,
+        })
+    return {'ok': True, 'rows': out}
+
+
+def set_receipt_vendor(expense_id, vendor_key):
+    """Resolve a human-picked vendor_key to a category_id and finish the save."""
+    try:
+        expense_id = int(expense_id)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': f'Bad expense_id: {expense_id!r}'}
+    vendor_key = (vendor_key or '').strip()
+    if not vendor_key:
+        return {'ok': False, 'error': 'vendor_key is required'}
+
+    try:
+        category_id = _vendor_category_lookup().get_category_id(vendor_key)
+    except Exception as e:
+        return {'ok': False, 'error': f'Could not load vendor_category.yaml: {e}'}
+    if category_id is None:
+        return {'ok': False, 'error': f'Unknown vendor_key: {vendor_key}'}
+
+    try:
+        with _rol_get_connection() as cnx:
+            with cnx.cursor() as cur:
+                cur.execute(
+                    "UPDATE expenses SET category_id=%s, expense_status='NONE' WHERE id=%s",
+                    (category_id, expense_id),
+                )
+    except Exception as e:
+        return {'ok': False, 'error': f'DB error: {e}'}
+
+    return {'ok': True, 'expense_id': expense_id, 'category_id': category_id}
+
+
 # ── ROL Finance: open the stored receipt for a Verified-Transactions row ──────
 # The "View Receipt" button in the category-picker dialog POSTs to
 # /api/receipt-lookup; we match the same expenses row recategorize_expense does,
@@ -2059,17 +2155,22 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'  → {{"vendor_key": "...", "category_id": <int>}}\n'
         f'  FAIL-CLOSED CATEGORY RULE: merchant/vendor placeholders such as null, "null", '
         f'"unknown", or "receipt" are not real vendors. If merchant/vendor is unresolved '
-        f'or category_id is null/zero, do NOT run STEP 4 and do NOT store an uncategorized '
-        f'expense. Record and judge a truthful failed trace, propose an improvement, and '
-        f'send STEP 8 with stored:0.\n\n'
+        f'or category_id is null/zero, STILL run STEP 4 but OMIT --category-id entirely — '
+        f'the store tool saves the receipt image and a NULL-category placeholder row '
+        f'(expense_status=NEEDS_VENDOR_KEY) instead of failing closed, so a human can pick '
+        f'the right vendor_key later via the dashboard instead of the scan being lost. '
+        f'Record and judge a truthful trace reflecting the unresolved category, propose an '
+        f'improvement, and send STEP 8 with stored:0 and status:"awaiting_vendor_review".\n\n'
         f'STEP 4 — STORE (executor_run, cwd=/home/adamsl/rol_finances, '
         f'env={MAZDA_RF_ENV_JSON}). '
-        f'Write permission is granted only after a verified merchant/vendor and positive '
-        f'category_id are available:\n'
+        f'Include --category-id=<id from step 3> when STEP 3 resolved a positive one; OMIT '
+        f'the flag entirely when it did not (see FAIL-CLOSED CATEGORY RULE above — the tool '
+        f'still saves the receipt + a pending-review placeholder row rather than erroring):\n'
         f'  {MAZDA_RF_VENV_PY} '
         f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
         f'-f {scan_image_path} --save --category-id=<id from step 3> --engine=gemini\n'
-        f'  → {{"success": true, "expense_id": <int>, ...}} OR a duplicate result. '
+        f'  → {{"success": true, "expense_id": <int>, "pending_vendor_review": <true when '
+        f'--category-id was omitted/invalid>, ...}} OR a duplicate result. '
         f'The save path performs a final duplicate guard using its final parsed/overridden '
         f'date, amount, and merchant. If it reports duplicate, treat the existing expense '
         f'as the result and never retry with --allow-duplicate.\n\n'
@@ -2150,7 +2251,11 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"doc_kind":"<statement|receipt|invoice|unknown, from the facade or your own '
         f'classify_scan.py/STEP 0 classification — the same value you recorded '
         f'as doc_kind in STEP 5>","vendor":"<the vendor/merchant name you '
-        f'identified, e.g. \\"chase\\", or \\"unknown\\">"}}\'\n'
+        f'identified, e.g. \\"chase\\", or \\"unknown\\">",'
+        f'"status":"<omit this key normally; include "awaiting_vendor_review" ONLY when '
+        f'STEP 4 returned pending_vendor_review:true, so the Recent Report view shows '
+        f'this document is waiting on a human vendor pick rather than a generic failure>"'
+        f'}}\'\n'
         f'Ignore errors — the dashboard degrades gracefully if unreachable.\n'
     )
 
@@ -3501,6 +3606,25 @@ AGENT_MODEL_OPTIONS = [
     'chatgpt-plus-pro/gpt-5.4-mini',
 ]
 
+AGENT_VOICE_OPTIONS = [
+    'en-US-AnaNeural',
+    'en-US-AriaNeural',
+    'en-US-AvaNeural',
+    'en-US-AvaMultilingualNeural',
+    'en-US-EmmaNeural',
+    'en-US-EmmaMultilingualNeural',
+    'en-US-JennyNeural',
+    'en-US-MichelleNeural',
+    'en-US-AndrewNeural',
+    'en-US-BrianNeural',
+    'en-US-ChristopherNeural',
+    'en-US-EricNeural',
+    'en-US-GuyNeural',
+    'en-US-RogerNeural',
+    'en-US-SteffanNeural',
+]
+AGENT_VOICE_METADATA_KEY = 'dashboard_voice'
+
 def agent_model_options(current_handle):
     """Dropdown options for an agent: the vetted Codex handles, plus the
     agent's own handle at the top when it's on another provider (lc-gemini,
@@ -3509,6 +3633,53 @@ def agent_model_options(current_handle):
     if current_handle and current_handle not in options:
         options.insert(0, current_handle)
     return options
+
+def agent_voice_from_metadata(agent_data):
+    """Return a valid dashboard voice stored on the Letta agent, or ''."""
+    meta = (agent_data or {}).get('metadata') or {}
+    if not isinstance(meta, dict):
+        return ''
+    voice = meta.get(AGENT_VOICE_METADATA_KEY) or ''
+    return voice if voice in AGENT_VOICE_OPTIONS else ''
+
+def agent_voice_payload(agent_id):
+    """Read one agent's dashboard voice preference from Letta metadata."""
+    lid = letta_id_for(agent_id)
+    if not lid:
+        return {'ok': False, 'error': 'not a Letta agent',
+                'voice': '', 'options': AGENT_VOICE_OPTIONS}
+    data = letta_get(f'/v1/agents/{lid}', timeout=15) or {}
+    return {'ok': True, 'voice': agent_voice_from_metadata(data),
+            'options': AGENT_VOICE_OPTIONS}
+
+def patch_agent_voice(agent_id, voice):
+    """Persist one agent's dashboard voice preference in Letta metadata."""
+    lid = letta_id_for(agent_id)
+    if not lid:
+        return {'ok': False, 'error': 'not a Letta agent'}
+    voice = voice or ''
+    if voice and voice not in AGENT_VOICE_OPTIONS:
+        return {'ok': False, 'error': f'voice {voice!r} is not in the allowed list'}
+
+    cur = letta_get(f'/v1/agents/{lid}', timeout=15) or {}
+    meta = cur.get('metadata') or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    meta = dict(meta)
+    if voice:
+        meta[AGENT_VOICE_METADATA_KEY] = voice
+    else:
+        meta.pop(AGENT_VOICE_METADATA_KEY, None)
+
+    req = urllib.request.Request(
+        f'{LETTA_BASE_URL}/v1/agents/{lid}',
+        data=json.dumps({'metadata': meta}).encode(),
+        headers={'Content-Type': 'application/json'},
+        method='PATCH',
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        resp = json.loads(r.read().decode())
+    return {'ok': True, 'voice': agent_voice_from_metadata(resp)}
 
 # Agents that are wired to the Letta API automatically.
 # Add any new Letta agent here: { 'name': '...', 'id': '<real-letta-agent-id>' }
@@ -7195,11 +7366,27 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return self.json_response({'ok': True, 'current': handle,
                                         'options': agent_model_options(handle)})
 
+        if path == '/api/router-agent':
+            from router.classify import build_router_strategy
+            strategy = build_router_strategy()
+            if not strategy.agent_id:
+                return self.json_response({'ok': False, 'error': 'router agent not found'})
+            return self.json_response({'ok': True, 'agent_id': strategy.agent_id})
+
+        if path == '/api/agent-voice':
+            return self.json_response(agent_voice_payload(agent_id))
+
         if path == '/api/agent-activity':
             return self.json_response(agent_activity_status())
 
         if path == '/api/agent-health':
             return self.json_response(agent_health_status())
+
+        if path == '/api/vendor-keys':
+            return self.json_response(list_vendor_keys())
+
+        if path == '/api/pending-vendor-review':
+            return self.json_response(list_pending_vendor_review())
 
         if path == '/api/model-stats-sources':
             return self.json_response([
@@ -7723,6 +7910,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             result = record_intake_status(data)
             return self.json_response(result)
 
+        if path == '/api/route-detect':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            from router.classify import build_router_strategy
+            result = build_router_strategy().classify(data.get('text', ''))
+            return self.json_response({'ok': True, **result})
+
         if path == '/api/agent-model':
             try:
                 data = json.loads(body)
@@ -7746,6 +7942,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response({'ok': True, 'model': new_handle})
             except urllib.error.HTTPError as e:
                 return self.json_response({'ok': False, 'error': f'letta {e.code}: {e.read().decode()[:200]}'})
+            except Exception as e:
+                return self.json_response({'ok': False, 'error': str(e)})
+
+        if path == '/api/agent-voice':
+            try:
+                data = json.loads(body)
+                return self.json_response(
+                    patch_agent_voice(data.get('agent', ''), data.get('voice', '')))
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            except urllib.error.HTTPError as e:
+                return self.json_response(
+                    {'ok': False, 'error': f'letta {e.code}: {e.read().decode()[:200]}'})
             except Exception as e:
                 return self.json_response({'ok': False, 'error': str(e)})
 
@@ -7855,6 +8064,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _resolve_report_path_alias(data.get('report_path', '')),
                 data.get('expense_id'),
             ))
+
+        if path == '/api/set-receipt-vendor':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(set_receipt_vendor(
+                data.get('expense_id'), data.get('vendor_key', '')))
 
         if path == '/api/receipt-lookup':
             try:

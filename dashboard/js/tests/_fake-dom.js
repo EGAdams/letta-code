@@ -3,7 +3,7 @@
  * suffix, so Bun won't execute it). It implements just enough of the DOM API
  * the concrete classes touch: createElement, getElementById, querySelector(All),
  * classList, dataset, innerHTML/insertAdjacentHTML, appendChild/prepend,
- * scrollTop/scrollHeight.
+ * replaceWith, scrollTop/scrollHeight.
  *
  * Querying walks the live child tree (built via createElement/appendChild), so
  * it only understands simple selectors: `.class`, `#id`, `tag`, `[data-x]`,
@@ -101,6 +101,14 @@ export class FakeElement {
       this.parent.children = this.parent.children.filter((c) => c !== this);
       this.parent = null;
     }
+  }
+  replaceWith(...nodes) {
+    if (!this.parent) return;
+    const i = this.parent.children.indexOf(this);
+    if (i === -1) return;
+    for (const n of nodes) n.parent = this.parent;
+    this.parent.children.splice(i, 1, ...nodes);
+    this.parent = null;
   }
   append(...kids) {
     for (const k of kids) this.appendChild(k);

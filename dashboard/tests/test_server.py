@@ -2169,6 +2169,111 @@ def test_recategorize_expense_no_report_path_no_match_stays_db_only(tmp_path, mo
     assert result['matched_report'] is None
 
 
+# ── Vendor review: pick a vendor_key for a receipt saved with no category ────
+# Companion to save_receipt_pending_vendor_review() in rol_finances: an
+# unresolved vendor/category no longer drops the scan — the image + a
+# NULL-category expense row (expense_status=NEEDS_VENDOR_KEY) get saved
+# instead, and these endpoints let a human finish the save later.
+
+class _FakeVendorLookup:
+    def __init__(self, vendor_keys=None, category_id=None):
+        self._vendor_keys = vendor_keys or []
+        self._category_id = category_id
+
+    def list_vendor_keys(self):
+        return self._vendor_keys
+
+    def get_category_id(self, vendor_key):
+        return self._category_id
+
+
+def test_list_vendor_keys_returns_lookup_results(monkeypatch):
+    vendor_keys = [{'vendor_key': 'costco', 'category_id': 130, 'category_name': 'Food & Hospitality'}]
+    monkeypatch.setattr(server, '_vendor_category_lookup', lambda: _FakeVendorLookup(vendor_keys))
+
+    result = server.list_vendor_keys()
+
+    assert result == {'ok': True, 'vendor_keys': vendor_keys}
+
+
+def test_list_vendor_keys_reports_load_failure(monkeypatch):
+    def _boom():
+        raise RuntimeError('yaml missing')
+    monkeypatch.setattr(server, '_vendor_category_lookup', _boom)
+
+    result = server.list_vendor_keys()
+
+    assert result['ok'] is False
+    assert 'yaml missing' in result['error']
+    assert result['vendor_keys'] == []
+
+
+def test_list_pending_vendor_review_builds_image_url(tmp_path, monkeypatch):
+    receipt_file = tmp_path / 'bjs_05_10_26_40_77.jpg'
+    receipt_file.write_bytes(b'image')
+    row = {
+        'id': 321, 'expense_date': '2026-05-10', 'amount': '40.77',
+        'description': "BJ's Restaurant", 'receipt_url': 'bjs_05_10_26_40_77.jpg',
+        'source_file': str(receipt_file),
+    }
+    monkeypatch.setattr(server, '_rol_get_connection', lambda: _FakeConnection([row]))
+    monkeypatch.setattr(server, '_receipt_url_for_path', lambda fp: '/rol_finances_receipts/' + os.path.basename(fp))
+
+    result = server.list_pending_vendor_review()
+
+    assert result['ok'] is True
+    assert result['rows'] == [{
+        'expense_id': 321, 'expense_date': '2026-05-10', 'amount': '40.77',
+        'description': "BJ's Restaurant", 'receipt_url': 'bjs_05_10_26_40_77.jpg',
+        'image_url': '/rol_finances_receipts/bjs_05_10_26_40_77.jpg',
+    }]
+
+
+def test_list_pending_vendor_review_missing_file_has_no_image_url(monkeypatch):
+    row = {
+        'id': 321, 'expense_date': '2026-05-10', 'amount': '40.77',
+        'description': "BJ's Restaurant", 'receipt_url': 'bjs.jpg',
+        'source_file': '/does/not/exist.jpg',
+    }
+    monkeypatch.setattr(server, '_rol_get_connection', lambda: _FakeConnection([row]))
+
+    result = server.list_pending_vendor_review()
+
+    assert result['ok'] is True
+    assert result['rows'][0]['image_url'] is None
+
+
+def test_set_receipt_vendor_resolves_category_and_updates(monkeypatch):
+    monkeypatch.setattr(server, '_vendor_category_lookup', lambda: _FakeVendorLookup(category_id=130))
+    conn = _FakeConnection([])
+    monkeypatch.setattr(server, '_rol_get_connection', lambda: conn)
+
+    result = server.set_receipt_vendor(321, 'costco')
+
+    assert result == {'ok': True, 'expense_id': 321, 'category_id': 130}
+
+
+def test_set_receipt_vendor_rejects_unknown_vendor_key(monkeypatch):
+    monkeypatch.setattr(server, '_vendor_category_lookup', lambda: _FakeVendorLookup(category_id=None))
+
+    result = server.set_receipt_vendor(321, 'totally_unknown')
+
+    assert result == {'ok': False, 'error': 'Unknown vendor_key: totally_unknown'}
+
+
+def test_set_receipt_vendor_rejects_bad_expense_id(monkeypatch):
+    result = server.set_receipt_vendor('not-an-int', 'costco')
+
+    assert result['ok'] is False
+    assert 'Bad expense_id' in result['error']
+
+
+def test_set_receipt_vendor_requires_vendor_key():
+    result = server.set_receipt_vendor(321, '')
+
+    assert result == {'ok': False, 'error': 'vendor_key is required'}
+
+
 # ── Mazda scan-intake notification (regression: 2026-06-28 intake run) ───────
 # Three bugs were caught the first time a real receipt was scanned and handed to
 # Mazda. These tests pin the pure builder so they cannot silently return:
@@ -2321,10 +2426,14 @@ def test_scan_message_never_passes_unknown_as_vendor_key():
 
 
 def test_scan_message_fails_closed_on_unresolved_vendor_or_category():
+    """An unresolved vendor/category no longer drops the receipt: STEP 4 still
+    runs (without --category-id) so the image + a NEEDS_VENDOR_KEY placeholder
+    row get saved for a human to categorize later."""
     msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', _FACADE_JPEG_UNKNOWN)
     assert 'FAIL-CLOSED CATEGORY RULE' in msg
-    assert 'category_id is null/zero, do NOT run STEP 4' in msg
-    assert 'do NOT store an uncategorized expense' in msg
+    assert 'STILL run STEP 4 but OMIT --category-id entirely' in msg
+    assert 'NEEDS_VENDOR_KEY' in msg
+    assert 'awaiting_vendor_review' in msg
     assert 'final duplicate guard using its final parsed/overridden' in msg
     assert 'never retry with --allow-duplicate' in msg
     assert 'Store EVEN IF category_id' not in msg
@@ -3143,6 +3252,95 @@ def test_agent_model_options_only_vetted_codex_handles():
         assert handle.startswith('chatgpt-plus-pro/')
         model = handle.split('/', 1)[1]
         assert model in ('gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini')
+
+
+# ── /api/agent-voice — dashboard TTS preference in Letta metadata ────────────
+
+def test_agent_voice_from_metadata_validates_allowed_voice():
+    assert server.agent_voice_from_metadata(
+        {'metadata': {'dashboard_voice': 'en-US-JennyNeural'}}) == 'en-US-JennyNeural'
+    assert server.agent_voice_from_metadata(
+        {'metadata': {'dashboard_voice': '$(rm -rf /)'}}) == ''
+    assert server.agent_voice_from_metadata({'metadata': None}) == ''
+
+
+def test_patch_agent_voice_merges_metadata(monkeypatch):
+    captured = {}
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self):
+            return json.dumps({
+                'metadata': {
+                    'existing': 'keep',
+                    'dashboard_voice': 'en-US-JennyNeural',
+                },
+            }).encode()
+
+    def fake_letta_get(path, **kwargs):
+        assert path == '/v1/agents/agent-frita'
+        return {'metadata': {'existing': 'keep'}}
+
+    def fake_urlopen(req, timeout=0):
+        captured['url'] = req.full_url
+        captured['method'] = req.method
+        captured['body'] = json.loads(req.data.decode())
+        return _Resp()
+
+    monkeypatch.setattr(server, 'letta_id_for', lambda agent: 'agent-frita')
+    monkeypatch.setattr(server, 'letta_get', fake_letta_get)
+    monkeypatch.setattr(server.urllib.request, 'urlopen', fake_urlopen)
+
+    result = server.patch_agent_voice('agent-frita', 'en-US-JennyNeural')
+
+    assert result == {'ok': True, 'voice': 'en-US-JennyNeural'}
+    assert captured['method'] == 'PATCH'
+    assert captured['url'].endswith('/v1/agents/agent-frita')
+    assert captured['body'] == {
+        'metadata': {
+            'existing': 'keep',
+            'dashboard_voice': 'en-US-JennyNeural',
+        },
+    }
+
+
+def test_patch_agent_voice_empty_removes_metadata_key(monkeypatch):
+    captured = {}
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"metadata":{"existing":"keep"}}'
+
+    monkeypatch.setattr(server, 'letta_id_for', lambda agent: 'agent-frita')
+    monkeypatch.setattr(
+        server,
+        'letta_get',
+        lambda path, **kwargs: {
+            'metadata': {
+                'existing': 'keep',
+                'dashboard_voice': 'en-US-JennyNeural',
+            },
+        },
+    )
+    def fake_urlopen(req, timeout=0):
+        captured['body'] = json.loads(req.data.decode())
+        return _Resp()
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', fake_urlopen)
+
+    result = server.patch_agent_voice('agent-frita', '')
+
+    assert result == {'ok': True, 'voice': ''}
+    assert captured['body'] == {'metadata': {'existing': 'keep'}}
+
+
+def test_patch_agent_voice_rejects_unlisted_voice(monkeypatch):
+    monkeypatch.setattr(server, 'letta_id_for', lambda agent: 'agent-frita')
+    result = server.patch_agent_voice('agent-frita', 'en-US-NopeNeural')
+    assert result['ok'] is False
+    assert 'allowed list' in result['error']
 
 
 # ── ChatGPT provider auto-failover gate ───────────────────────────────────────

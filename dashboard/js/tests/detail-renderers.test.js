@@ -273,10 +273,16 @@ describe("AgentCardRenderer (Strategy)", () => {
   });
 });
 
-function inputOptionsSetup({ modelInfo } = {}) {
+function inputOptionsSetup({ modelInfo, voiceInfo, storage } = {}) {
   const doc = new FakeDocument();
   const container = doc.createElement("section");
   container.id = "io";
+  const fallbackStorage = new Map();
+  const storagePort = storage || {
+    getItem: (k) => (fallbackStorage.has(k) ? fallbackStorage.get(k) : null),
+    setItem: (k, v) => fallbackStorage.set(k, v),
+    removeItem: (k) => fallbackStorage.delete(k),
+  };
   // The raw /api/test HTTP path must never be hit anymore — text only
   // reaches the agent through the letta-code terminal session.
   const posts = [];
@@ -284,6 +290,9 @@ function inputOptionsSetup({ modelInfo } = {}) {
   const http = {
     getJSON: async (url) => {
       gets.push(url);
+      if (url.startsWith("/api/agent-voice")) {
+        return voiceInfo ?? { ok: false, voice: "", options: [] };
+      }
       // /api/agent-model — the model dropdown loader. Default mimics a
       // non-Letta tab (dropdown hides) unless the test passes modelInfo.
       return modelInfo ?? { ok: false, options: [] };
@@ -291,16 +300,23 @@ function inputOptionsSetup({ modelInfo } = {}) {
     postJSON: async (url, body) => {
       posts.push({ url, body });
       if (url === "/api/agent-model") return { ok: true, model: body.model };
+      if (url === "/api/agent-voice") return { ok: true, voice: body.voice };
       if (url === "/api/letta-code-message")
         return { ok: true, reply: "Hello from Mazda." };
       return { replies: [] };
     },
   };
   const spoken = [];
+  const selectedVoices = new Map();
   const speech = {
     supported: true,
     cancel: () => {},
     speak: (t, name) => spoken.push({ t, name }),
+    setVoice: (voice, agentName) => {
+      if (voice) selectedVoices.set(agentName, voice);
+      else selectedVoices.delete(agentName);
+    },
+    getVoice: (agentName) => selectedVoices.get(agentName) || null,
   };
   const statuses = [];
   let recorder;
@@ -336,6 +352,7 @@ function inputOptionsSetup({ modelInfo } = {}) {
     agentName: "Mazda",
     onStatus: (agentId, status) => statuses.push({ agentId, status }),
     doc,
+    storage: storagePort,
     recorderFactory,
     terminalFactory,
   });
@@ -354,6 +371,10 @@ function inputOptionsSetup({ modelInfo } = {}) {
     get terminalDisposed() {
       return terminalDisposed;
     },
+    get selectedVoice() {
+      return selectedVoices.get("Mazda") || null;
+    },
+    storage: storagePort,
   };
 }
 
@@ -414,7 +435,7 @@ describe("InputOptionsRenderer (Strategy)", () => {
       },
     });
     await Promise.resolve(); // let the getJSON .then() settle
-    expect(ctx.gets).toEqual(["/api/agent-model?agent=a9"]);
+    expect(ctx.gets).toContain("/api/agent-model?agent=a9");
     const sel = ctx.container.querySelector(".io-model-select");
     expect(sel.children.length).toBe(3);
     expect(sel.value).toBe("chatgpt-plus-pro/gpt-5.4-mini");
@@ -449,5 +470,67 @@ describe("InputOptionsRenderer (Strategy)", () => {
     await Promise.resolve();
     const sel = ctx.container.querySelector(".io-model-select");
     expect(sel.parent.style.display).toBe("none");
+  });
+
+  test("voice dropdown offers en-US Edge voices and changes the next spoken reply", async () => {
+    const ctx = inputOptionsSetup();
+    const sel = ctx.container.querySelector(".io-voice-select");
+    expect(sel).not.toBeNull();
+    expect([...sel.children].map((opt) => opt.value)).toContain(
+      "en-US-JennyNeural",
+    );
+    expect([...sel.children].map((opt) => opt.value)).toContain(
+      "en-US-EmmaNeural",
+    );
+    expect(ctx.selectedVoice).toBeNull();
+
+    sel.value = "en-US-EmmaNeural";
+    sel.dispatch("change", {});
+    await Promise.resolve();
+    expect(ctx.selectedVoice).toBe("en-US-EmmaNeural");
+    expect(ctx.posts).toContainEqual({
+      url: "/api/agent-voice",
+      body: { agent: "a9", voice: "en-US-EmmaNeural" },
+    });
+
+    ctx.container.querySelector(".am-test-input").value = "hello there";
+    await ctx.api.send();
+    expect(ctx.spoken).toEqual([{ t: "Hello from Mazda.", name: "Mazda" }]);
+    expect(ctx.selectedVoice).toBe("en-US-EmmaNeural");
+  });
+
+  test("voice dropdown persists per agent through rerender", async () => {
+    const persisted = new Map();
+    const storage = {
+      getItem: (k) => (persisted.has(k) ? persisted.get(k) : null),
+      setItem: (k, v) => persisted.set(k, v),
+      removeItem: (k) => persisted.delete(k),
+    };
+    const first = inputOptionsSetup({ storage });
+    const firstSel = first.container.querySelector(".io-voice-select");
+    firstSel.value = "en-US-JennyNeural";
+    firstSel.dispatch("change", {});
+    expect(persisted.get("dash-agent-voice:Mazda")).toBe("en-US-JennyNeural");
+
+    const second = inputOptionsSetup({ storage });
+    const secondSel = second.container.querySelector(".io-voice-select");
+    expect(secondSel.value).toBe("en-US-JennyNeural");
+    expect(second.selectedVoice).toBe("en-US-JennyNeural");
+
+    secondSel.value = "";
+    secondSel.dispatch("change", {});
+    await Promise.resolve();
+    expect(persisted.has("dash-agent-voice:Mazda")).toBe(false);
+  });
+
+  test("voice dropdown loads the cross-device Letta metadata preference", async () => {
+    const ctx = inputOptionsSetup({
+      voiceInfo: { ok: true, voice: "en-US-JennyNeural", options: [] },
+    });
+    await Promise.resolve();
+    const sel = ctx.container.querySelector(".io-voice-select");
+    expect(ctx.gets).toContain("/api/agent-voice?agent=a9");
+    expect(sel.value).toBe("en-US-JennyNeural");
+    expect(ctx.selectedVoice).toBe("en-US-JennyNeural");
   });
 });

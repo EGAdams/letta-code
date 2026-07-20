@@ -117,6 +117,7 @@
       <button type="button" class="tab active" data-nav="scanners" data-target="scanners-freezer">Freezer Scanner</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-window">Window Scanner</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-pdf">Process PDF</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-vendor-review">Needs Vendor Review</button>
     </nav>
 
     <!-- Agent detail sub-nav -->
@@ -269,7 +270,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
     <section id="agents-home" class="view">
       <h2>Agents</h2>
-      <p id="agents-home-status" class="am-dim">Loading agents&hellip;</p>
+      <div id="agents-home-status" class="am-dim">Loading agents&hellip;</div>
     </section>
 
     <section id="server-management" class="view">
@@ -464,6 +465,13 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
           <button type="button" class="am-btn pdf-process-btn">Process Document</button>
         </div>
         <div class="scanner-result hidden" aria-live="polite"></div>
+      </div>
+    </section>
+    <section id="scanners-vendor-review" class="view">
+      <div class="startup-panel scanner-panel">
+        <div class="startup-title">Needs Vendor Review</div>
+        <div class="startup-status">Receipts whose vendor couldn't be auto-categorized are saved anyway — pick an existing vendor_key here to finish the save.</div>
+        <div id="vendor-review-panel" class="vendor-review-panel hidden"></div>
       </div>
     </section>
   </main>

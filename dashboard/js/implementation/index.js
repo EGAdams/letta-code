@@ -14,6 +14,8 @@ export { ActivePoller } from "./active-poller.js";
 export { AgentActivityPoller } from "./agent-activity-poller.js";
 export { AgentHealthPoller } from "./agent-health-poller.js";
 export { AgentStreamController } from "./agent-stream-controller.js";
+export { AgentsRouterRenderer } from "./agents-router-renderer.js";
+export { BrowserSpeechRecognitionListener } from "./browser-speech-recognition-listener.js";
 export { BrowserSpeechSynthesizer } from "./browser-speech-synthesizer.js";
 export { CodeChangeAlert } from "./code-change-alert.js";
 export {
@@ -23,6 +25,7 @@ export {
 } from "./connection-controllers.js";
 export {
   AgentCardRenderer,
+  buildModelRow,
   ChatDetailRenderer,
   composeSpokenText,
   InputOptionsRenderer,
@@ -40,6 +43,7 @@ export { DomConsoleView } from "./dom-console-view.js";
 export { DomDocumentPipelineView } from "./dom-document-pipeline-view.js";
 export { DomNavigationController } from "./dom-navigation-controller.js";
 export { DomTabFactory } from "./dom-tab-factory.js";
+export { DomVendorReviewView } from "./dom-vendor-review-view.js";
 export { EdgeTtsSpeechSynthesizer } from "./edge-tts-speech-synthesizer.js";
 export { FetchHttpClient } from "./fetch-http-client.js";
 export { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
@@ -57,4 +61,5 @@ export {
   classifyServerStatus,
   ServerLogController,
 } from "./server-log-controller.js";
+export { VendorReviewController } from "./vendor-review-controller.js";
 export { VisionHaltAlert } from "./vision-halt-alert.js";

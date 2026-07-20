@@ -11,8 +11,11 @@ HOME = os.path.expanduser("~")
 WHISPER_CPP_BIN = os.environ.get(
     "WHISPER_CPP_BIN", os.path.join(HOME, "whisper.cpp", "build", "bin", "whisper-cli")
 )
+DEFAULT_WHISPER_MODEL_PATH = os.path.join(
+    HOME, "whisper.cpp", "models", "ggml-base.en.bin"
+)
 WHISPER_MODEL_PATH = os.environ.get(
-    "WHISPER_MODEL_PATH", os.path.join(HOME, "whisper.cpp", "models", "ggml-small.en.bin")
+    "WHISPER_MODEL_PATH", DEFAULT_WHISPER_MODEL_PATH
 )
 # No system ffmpeg on this host — fall back to lettabot's bundled imageio-ffmpeg.
 FFMPEG_BIN = os.environ.get(

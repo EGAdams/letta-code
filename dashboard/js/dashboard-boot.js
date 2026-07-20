@@ -14,6 +14,8 @@ import {
   AgentActivityPoller,
   AgentCardRenderer,
   AgentHealthPoller,
+  AgentsRouterRenderer,
+  BrowserSpeechRecognitionListener,
   ChatDetailRenderer,
   CodeChangeAlert,
   ConnectionLogController,
@@ -22,6 +24,7 @@ import {
   DomConsoleView,
   DomDocumentPipelineView,
   DomTabFactory,
+  DomVendorReviewView,
   EdgeTtsSpeechSynthesizer,
   FetchHttpClient,
   InputOptionsRenderer,
@@ -31,6 +34,7 @@ import {
   ServerHealthMonitor,
   ServerLogController,
   StreamDetailRenderer,
+  VendorReviewController,
   VisionHaltAlert,
 } from "./implementation/index.js";
 
@@ -639,6 +643,9 @@ if (
         stopAllScannerMonitors();
         if (tab.dataset.target === "scanners-freezer") {
           scannerControllers.freezer?.startMonitor();
+        }
+        if (tab.dataset.target === "scanners-vendor-review") {
+          vendorReviewController?.refresh();
         }
       });
     });
@@ -1303,6 +1310,33 @@ const renderInputOptions = (am, target) => {
   return api;
 };
 
+// Long-lived across renders/navigation (unlike the renderers above, which are
+// rebuilt fresh on every open) so "Start Listening" keeps listening straight
+// through the hand-off to a detected agent's Input Options page — only the
+// callbacks get re-claimed per render, via setCallbacks() inside
+// AgentsRouterRenderer. See continuous-listener.interface.js.
+const routerListener = new BrowserSpeechRecognitionListener();
+
+const resolveAgentIdByName = (name) => {
+  const match = (AM.agents || []).find(
+    (a) => a.name.toLowerCase() === String(name).toLowerCase(),
+  );
+  return match ? match.id : null;
+};
+
+// Opens the detected agent's Input Options page and hands back its render()
+// api (setText/appendText) so the router can transfer the remainder text.
+const openAgentForRouter = (id) => AM.openById(id, "input-options");
+
+const renderAgentsRouter = (target) =>
+  new AgentsRouterRenderer({
+    http,
+    listener: routerListener,
+    resolveAgentId: resolveAgentIdByName,
+    openAgent: openAgentForRouter,
+    onStatus: setAgentTabStatus,
+  }).render(target);
+
 // Maps an agent-detail view id to how its content is rendered.
 const DETAIL_RENDERERS = {
   "agent-detail-thoughts": (am, id) =>
@@ -1396,19 +1430,11 @@ const AM = {
         if (!alreadyCached) agentGate.writeLine(`Agent ${a.name}`);
         navAgents.appendChild(tabFactory.buildAgentTab(a));
       }
-      const age = this.agentsLoadedAt
-        ? Math.max(0, Math.round((Date.now() - this.agentsLoadedAt) / 1000))
-        : 0;
-      if (status)
-        status.innerHTML =
-          "Loaded <strong>" +
-          this.agents.length +
-          "</strong> agent" +
-          (this.agents.length === 1 ? "" : "s") +
-          (age ? ` <span class="dim">(cached ${age}s ago)</span>` : "") +
-          ". Pick one from the left to view its Thoughts, Messages, Tool Calls, or Input Options.";
       if (!alreadyCached)
         agentGate.complete("agents", `Loaded ${this.agents.length} agents.`);
+      // Replaces the old static "Loaded N agents…" message with the
+      // voice/text router (see AgentsRouterRenderer).
+      renderAgentsRouter("agents-home-status");
     } finally {
       this._tabsLoading = false;
     }
@@ -1436,19 +1462,23 @@ const AM = {
     this.renderDetail("agent-detail-thoughts");
   },
 
-  // Render content for whichever agent-detail tab is active.
+  // Render content for whichever agent-detail tab is active. Returns whatever
+  // the renderer's render() returns (e.g. InputOptionsRenderer's {send,
+  // setText, appendText, ...} api), so deep-link callers like the Agents-home
+  // router can reach the freshly-rendered panel without touching DOM globals.
   renderDetail(target) {
     this.stopPoll();
-    if (!this.current) return;
+    if (!this.current) return undefined;
     if (target === "agent-detail-home") {
       setAgentDetailContent(this.current.name);
-      return;
+      return undefined;
     }
     const fn = DETAIL_RENDERERS[target];
-    if (fn) fn(this, target);
+    return fn ? fn(this, target) : undefined;
   },
 
-  // Deep-link helper: open an agent (and optional detail tab) by id.
+  // Deep-link helper: open an agent (and optional detail tab) by id. Returns
+  // the render() result for the requested view (see renderDetail above).
   async openById(id, view) {
     navMain.classList.add("hidden");
     navAgents.classList.remove("hidden");
@@ -1470,8 +1500,9 @@ const AM = {
         tab,
       );
       safeActivateView(target);
-      this.renderDetail(target);
+      return this.renderDetail(target);
     }
+    return undefined;
   },
 };
 
@@ -2575,6 +2606,23 @@ const scannerControllers = setupScanners();
 function stopAllScannerMonitors() {
   for (const c of Object.values(scannerControllers)) c.stopMonitor();
 }
+
+/* Needs Vendor Review — ROL Finance > Scanners > Needs Vendor Review.
+   Lists receipts saved with expense_status=NEEDS_VENDOR_KEY (vendor/category
+   couldn't be auto-resolved, so the image + a placeholder row were saved
+   anyway — see save_receipt_pending_vendor_review() in rol_finances) and lets
+   a human finish the save by picking an existing vendor_key. */
+const vendorReviewPanelEl = document.getElementById("vendor-review-panel");
+const vendorReviewController = vendorReviewPanelEl
+  ? new VendorReviewController({
+      http,
+      view: new DomVendorReviewView(vendorReviewPanelEl, {
+        getVendorKeys: () => vendorReviewController.listVendorKeys(),
+        onPickVendor: (expenseId, vendorKey) =>
+          vendorReviewController.pickVendor(expenseId, vendorKey),
+      }),
+    })
+  : null;
 
 /* Process PDF — ROL Finance > Scanners > Process PDF.
    Runs the intake pipeline (classify → parse inline, Mazda dispatched for

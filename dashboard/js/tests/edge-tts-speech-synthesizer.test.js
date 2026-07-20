@@ -111,6 +111,73 @@ describe("EdgeTtsSpeechSynthesizer", () => {
     });
   });
 
+  test("setVoice changes the server voice used by the next speak", async () => {
+    const calls = [];
+    const { factory } = fakeAudioFactory();
+    const s = new EdgeTtsSpeechSynthesizer(
+      {},
+      {
+        fetchFn: async (url, opts) => {
+          calls.push({ url, opts });
+          return okAudioResponse();
+        },
+        audioFactory: factory,
+        voice: "en-US-JennyNeural",
+      },
+    );
+    expect(s.getVoice()).toBe("en-US-JennyNeural");
+    s.setVoice("en-US-EmmaNeural");
+    await s.speak("hi").pending;
+    expect(JSON.parse(calls[0].opts.body)).toEqual({
+      text: "hi",
+      voice: "en-US-EmmaNeural",
+    });
+  });
+
+  test("setVoice(null) returns to the server default voice", async () => {
+    const calls = [];
+    const { factory } = fakeAudioFactory();
+    const s = new EdgeTtsSpeechSynthesizer(
+      {},
+      {
+        fetchFn: async (url, opts) => {
+          calls.push({ url, opts });
+          return okAudioResponse();
+        },
+        audioFactory: factory,
+        voice: "en-US-JennyNeural",
+      },
+    );
+    s.setVoice(null);
+    expect(s.getVoice()).toBeNull();
+    await s.speak("hi").pending;
+    expect(JSON.parse(calls[0].opts.body)).toEqual({ text: "hi" });
+  });
+
+  test("agent-specific voices do not change other agents", async () => {
+    const calls = [];
+    const { factory } = fakeAudioFactory();
+    const s = new EdgeTtsSpeechSynthesizer(
+      {},
+      {
+        fetchFn: async (url, opts) => {
+          calls.push({ url, opts });
+          return okAudioResponse();
+        },
+        audioFactory: factory,
+        voice: "en-GB-SoniaNeural",
+      },
+    );
+    s.setVoice("en-US-JennyNeural", "Frita");
+    expect(s.getVoice("Frita")).toBe("en-US-JennyNeural");
+    expect(s.getVoice("Mazda")).toBe("en-GB-SoniaNeural");
+
+    await s.speak("hi", "Frita").pending;
+    await s.speak("hi", "Mazda").pending;
+    expect(JSON.parse(calls[0].opts.body).voice).toBe("en-US-JennyNeural");
+    expect(JSON.parse(calls[1].opts.body).voice).toBe("en-GB-SoniaNeural");
+  });
+
   test("falls back to the browser engine when the server replies non-audio", async () => {
     const win = fakeSpeechWindow();
     const { factory } = fakeAudioFactory();
