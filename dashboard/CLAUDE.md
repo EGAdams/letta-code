@@ -370,6 +370,35 @@ the OAuth login; the dashboard service's PATH lacks bun/claude so the Popen prep
 `~/.bun/bin:~/.local/bin`. Tests: `tests/test_server.py -k trainer` — the pytest conftest fixture
 disables the Trainer so test runs never spawn a real ~25-minute Claude session.
 
+### Categorizer LLM fallback chain + provider health alerting
+
+`tools/categorizer/categorizer_main.py` (STEP 3 of receipt intake — vendor→category, in
+`rol_finances`, not this repo) tries providers in order: `gemini` → `chatgpt-oauth` → `anthropic`.
+Built 2026-07-20 after the `gemini` CLI broke silently for 3+ days (missing binary, then daily
+quota exhaustion) with no alert anywhere — every receipt just degraded to a null-category
+pending-review row.
+
+- **`chatgpt-oauth`** (`find_category/chatgpt_oauth_provider.py`) tries EG's own Codex OAuth
+  session (`~/.codex/auth.json`) first, then **mom's** (`~/.codex-moms/auth.json`, kept fresh by
+  `server_tools/sync_moms_codex_token.sh` + `codex-moms-token-sync.timer`, every 20 min — mom has
+  agreed her token can be used this way). `anthropic` has no second account, just EG's existing
+  `ANTHROPIC_API_KEY` — there's no proven OAuth path for Anthropic in this codebase to mirror.
+- Every provider call (all 4: gemini/chatgpt-oauth/anthropic/openai) logs success/failure/fallback
+  through an injected `IProviderHealthRecorder` port (`find_category/health_recorder.py`) to
+  `~/.mazda/provider_health.json` (`tools/provider_health.py`) — GoF-style: providers depend on the
+  abstraction, not on the JSON file directly.
+- **Dashboard tile**: Server Management → "LLM Provider Fallbacks (Categorizer)"
+  (`mazda_categorizer_fallback_health`, distinct from the "Document Vision" tile above, which only
+  checks credential *presence* for the earlier vision-classification step, not real call outcomes).
+  Yellow = a fallback fired in the last 24h (still working). Red = every tracked tier's last
+  attempt failed. Restart button re-syncs mom's token and re-reports.
+- **Not yet covered** (comments left in place pointing back here): `parsing_router/` (its own
+  `env_loader.get_api_key`) and `e_two_e_processing/row_sources/_pdf_utils.py` — both have their
+  own single-account Codex OAuth resolution already, `e_two_e_processing/row_sources/
+  llm_pdf_parser.py` also shells to a bare `gemini` CLI, and neither has mom's-account fallback,
+  an Anthropic path, or any health logging. Port the same pattern there if a failure is ever
+  traced to either.
+
 ## Server health indicators, restart, and Model Stats
 
 - **4-state server status** via `compute_server_status()`/`server_status_kind()`:

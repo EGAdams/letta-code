@@ -1,1002 +1,1002 @@
 [
   {
-    "date": "2026-07-20T16:29:01",
-    "type": "Bash",
-    "text": "wc -l /home/adamsl/rol_finances/tools/categorizer/vendor_category.yaml\nhead -40 /home/adamsl/rol_finances/tools/categorizer/vendor_category.yaml"
-  },
-  {
-    "date": "2026-07-20T16:29:05",
-    "type": "Bash",
-    "text": "sed -n '1,50p' /home/adamsl/rol_finances/parsing_router/show_supported_vendors.py"
-  },
-  {
-    "date": "2026-07-20T16:29:09",
-    "type": "Bash",
-    "text": "grep -n \"def \\|class \" /home/adamsl/rol_finances/tools/categorizer/VendorCategoryStore.py | head -30\necho ---\ngrep -n \"def \\|class \\|--vendor-key\\|--category-id\" /home/adamsl/rol_finances/tools/receip"
-  },
-  {
-    "date": "2026-07-20T16:29:13",
-    "type": "Bash",
-    "text": "grep -n \"def _stage_scan_for_mazda\\|SCAN_TOOLS_DIR\\|def run_intake_facade\" /home/adamsl/letta-code/dashboard/server.py | head -10"
-  },
-  {
-    "date": "2026-07-20T16:29:20",
-    "type": "Bash",
-    "text": "grep -n \"def _stage_scan_for_mazda\" -A 25 /home/adamsl/letta-code/dashboard/server.py | head -30"
-  },
-  {
-    "date": "2026-07-20T16:31:57",
-    "type": "Write",
-    "text": "/home/adamsl/.claude/plans/effervescent-launching-ladybug.md\n\u2192 # Save receipt image even when vendor is unrecognized; let a human pick the vendor later  ## Context  Today, when Mazda scans a receipt and can't resolve a vendor/category (e.g. the `gemini` CLI is mi"
-  },
-  {
-    "date": "2026-07-20T16:36:41",
-    "type": "ExitPlanMode",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-07-20T16:36:45",
-    "type": "ToolSearch",
-    "text": "query: TaskCreate"
-  },
-  {
-    "date": "2026-07-20T16:36:49",
-    "type": "TaskCreate",
-    "text": "subject: Add save_receipt_pending_vendor_review() in rol_finances"
-  },
-  {
-    "date": "2026-07-20T16:36:51",
-    "type": "TaskCreate",
-    "text": "subject: Add vendor-key listing + apply-vendor-key helpers"
-  },
-  {
-    "date": "2026-07-20T16:36:52",
-    "type": "TaskCreate",
-    "text": "subject: Update Mazda's STEP 3 fail-closed contract"
-  },
-  {
-    "date": "2026-07-20T16:36:53",
-    "type": "TaskCreate",
-    "text": "subject: Add dashboard endpoints for vendor review"
-  },
-  {
-    "date": "2026-07-20T16:36:55",
-    "type": "TaskCreate",
-    "text": "subject: Build Set-Vendor dialog + Scanners tab hooks"
-  },
-  {
-    "date": "2026-07-20T16:36:56",
-    "type": "TaskCreate",
-    "text": "subject: Write tests for new backend/dashboard/frontend pieces"
-  },
-  {
-    "date": "2026-07-20T16:36:57",
-    "type": "TaskCreate",
-    "text": "subject: Run full verification + manual end-to-end check"
-  },
-  {
-    "date": "2026-07-20T16:37:00",
-    "type": "ToolSearch",
-    "text": "query: TaskUpdate"
-  },
-  {
-    "date": "2026-07-20T16:37:02",
-    "type": "TaskUpdate",
-    "text": "taskId: 1"
-  },
-  {
-    "date": "2026-07-20T16:37:03",
+    "date": "2026-07-20T23:58:23",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
+    "text": "/home/adamsl/rol_finances/tools/categorizer/categorizer_main.py"
   },
   {
-    "date": "2026-07-20T16:37:51",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-07-20T16:37:54",
-    "type": "TaskUpdate",
-    "text": "taskId: 1"
-  },
-  {
-    "date": "2026-07-20T16:37:54",
-    "type": "TaskUpdate",
-    "text": "taskId: 2"
-  },
-  {
-    "date": "2026-07-20T16:37:55",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/categorizer/python_libary/vendor_category_lookup.py"
-  },
-  {
-    "date": "2026-07-20T16:38:00",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-07-20T16:38:02",
+    "date": "2026-07-20T23:58:25",
     "type": "Bash",
-    "text": "grep -n \"ExpenseRepository\\|ReceiptMetadataRepository\" /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py | head -20"
+    "text": "grep -n \"^from\\|^import\\|AutoApproval\" /home/adamsl/rol_finances/tools/categorizer/find_category/__init__.py"
   },
   {
-    "date": "2026-07-20T16:38:09",
+    "date": "2026-07-20T23:58:29",
     "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/categorizer/python_libary/vendor_category_lookup.py"
+    "text": "/home/adamsl/rol_finances/tools/categorizer/categorizer_main.py"
   },
   {
-    "date": "2026-07-20T16:38:16",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-07-20T16:38:20",
+    "date": "2026-07-20T23:58:31",
     "type": "Bash",
-    "text": "grep -rn \"vendor_category_lookup\\|python_libary\" /home/adamsl/rol_finances/tools/categorizer/*.py /home/adamsl/rol_finances/tools/categorizer/**/*.py 2>/dev/null | grep -v \"\\.pyc\""
+    "text": "grep -n \"find_component = ClaudeFindCategory\" /home/adamsl/rol_finances/tools/categorizer/categorizer_main.py"
   },
   {
-    "date": "2026-07-20T16:38:25",
+    "date": "2026-07-20T23:58:37",
     "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
+    "text": "/home/adamsl/rol_finances/tools/categorizer/categorizer_main.py"
   },
   {
-    "date": "2026-07-20T16:38:31",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-07-20T16:38:35",
+    "date": "2026-07-20T23:59:00",
     "type": "Bash",
-    "text": "grep -n \"argparse\\|add_argument\\|__main__\\|def main(\" /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py | tail -40"
+    "text": "cd /home/adamsl/rol_finances\ntime (PYTHONPATH=/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python3 /home/adamsl/rol_finances/tools/categorizer/categorizer_main.py -i /tmp/mazda_cat_in"
   },
   {
-    "date": "2026-07-20T16:38:41",
+    "date": "2026-07-20T23:59:13",
     "type": "Bash",
-    "text": "grep -n \"def recategorize_expense\\|def _mysql_conn\\|finance-db.env\\|import pymysql\\|import mysql\\|REPORTING_CATEGORY_DB_MAP\" /home/adamsl/letta-code/dashboard/server.py | head -20"
+    "text": "cd /home/adamsl/rol_finances\nfor f in tools/categorizer/find_category/chatgpt_oauth_provider.py tools/categorizer/find_category/provider_factory.py tools/categorizer/find_category/gemini_provider.py t"
   },
   {
-    "date": "2026-07-20T16:38:44",
+    "date": "2026-07-20T23:59:21",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-07-20T16:38:52",
-    "type": "Bash",
-    "text": "grep -n \"^import yaml\\|^import \\|^from \" /home/adamsl/letta-code/dashboard/server.py | grep -i yaml; python3 -c \"import yaml; print('yaml ok')\" 2>&1; grep -n \"REPORTING_CATEGORY_DB_MAP\" -A 20 /home/ad"
-  },
-  {
-    "date": "2026-07-20T16:38:57",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:39:10",
-    "type": "Bash",
-    "text": "grep -n \"RECEIPT_PARSING_TOOLS\\s*=\\|ROL_FINANCES_DIR\\s*=\\|rol_finances_receipts\\|ROL_FINANCES_RECEIPTS\" /home/adamsl/letta-code/dashboard/server.py | head -20"
-  },
-  {
-    "date": "2026-07-20T16:39:14",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:39:21",
-    "type": "Bash",
-    "text": "grep -n \"_resolve_expense_receipt_path\\|def _resolve_receipt_url_path\" /home/adamsl/letta-code/dashboard/server.py | head -10"
-  },
-  {
-    "date": "2026-07-20T16:39:24",
-    "type": "TaskUpdate",
-    "text": "taskId: 2"
-  },
-  {
-    "date": "2026-07-20T16:39:25",
-    "type": "TaskUpdate",
-    "text": "taskId: 3"
-  },
-  {
-    "date": "2026-07-20T16:39:25",
-    "type": "Bash",
-    "text": "grep -n \"FAIL-CLOSED CATEGORY RULE\" -A 15 -B 5 /home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:39:30",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-07-20T16:39:38",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:39:52",
-    "type": "Bash",
-    "text": "grep -n \"STEP 8\" -A 25 /home/adamsl/letta-code/dashboard/server.py | head -60"
-  },
-  {
-    "date": "2026-07-20T16:39:57",
-    "type": "Bash",
-    "text": "grep -n \"expense-stored\" -B3 -A 20 /home/adamsl/letta-code/dashboard/server.py | grep -A 20 \"STEP 8\\|api/expense-stored.*curl\\|f'STEP 8\" | head -60"
-  },
-  {
-    "date": "2026-07-20T16:40:00",
-    "type": "Bash",
-    "text": "grep -n \"STEP 8 \u2014\\|curl -X POST.*expense-stored\\|expense-stored.*curl\" /home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:40:03",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:40:20",
+    "date": "2026-07-20T23:59:28",
     "type": "Edit",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-07-20T16:40:27",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:40:43",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:40:49",
-    "type": "Bash",
-    "text": "grep -n \"test_scan_message_fails_closed_on_unresolved_vendor_or_category\" -A 25 /home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-07-20T16:40:55",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-07-20T16:40:58",
-    "type": "TaskUpdate",
-    "text": "taskId: 3"
-  },
-  {
-    "date": "2026-07-20T16:40:59",
-    "type": "TaskUpdate",
-    "text": "taskId: 4"
-  },
-  {
-    "date": "2026-07-20T16:41:00",
-    "type": "Bash",
-    "text": "grep -n \"vendor_category.yaml\\|VENDOR_CATEGORY_YAML\\|CATEGORIZER_DIR\" /home/adamsl/letta-code/dashboard/server.py | head; grep -n \"'/api/recategorize-expense'\\|register_route\\|routes\\[\" /home/adamsl/l"
-  },
-  {
-    "date": "2026-07-20T16:41:03",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:41:08",
-    "type": "Bash",
-    "text": "grep -n \"if path == '/api/agents'\\|def do_GET\\|parsed_path.query\\|parse_qs\" /home/adamsl/letta-code/dashboard/server.py | head -20"
-  },
-  {
-    "date": "2026-07-20T16:41:11",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:41:17",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:41:23",
-    "type": "Bash",
-    "text": "ls -la ~/rol_finances/receipt_parsing_tools 2>&1 | head -5; echo \"---\"; ls -la ~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools 2>&1 | head -5"
-  },
-  {
-    "date": "2026-07-20T16:41:32",
-    "type": "Bash",
-    "text": "find ~/rol_finances -iname \"parse_and_categorize.py\" -o -iname \"vendor_category_lookup.py\" 2>/dev/null | xargs -I{} sh -c 'echo \"{}\"; md5sum \"{}\"'"
-  },
-  {
-    "date": "2026-07-20T16:41:48",
-    "type": "Bash",
-    "text": "grep -n \"^ROL_FINANCES_DIR\" /home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:41:52",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:42:08",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:42:15",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:42:20",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:42:24",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:42:34",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T16:42:37",
-    "type": "TaskUpdate",
-    "text": "taskId: 4"
-  },
-  {
-    "date": "2026-07-20T16:42:38",
-    "type": "TaskUpdate",
-    "text": "taskId: 5"
-  },
-  {
-    "date": "2026-07-20T16:42:38",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/dom-document-pipeline-view.js"
-  },
-  {
-    "date": "2026-07-20T16:42:49",
-    "type": "Bash",
-    "text": "grep -n \"scanner-dialog\\|id=\\\"scanner\\|class=\\\"scanner\" /home/adamsl/letta-code/dashboard/dashboard.html | head -30"
-  },
-  {
-    "date": "2026-07-20T16:42:52",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-07-20T16:43:04",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/abstract/document-pipeline-view.interface.js"
-  },
-  {
-    "date": "2026-07-20T16:43:08",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/document-pipeline-controller.js"
-  },
-  {
-    "date": "2026-07-20T16:43:15",
-    "type": "Bash",
-    "text": "sed -n '1,40p' /home/adamsl/letta-code/dashboard/js/abstract/http-client.interface.js"
-  },
-  {
-    "date": "2026-07-20T16:43:22",
-    "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/js/abstract/vendor-review-view.interface.js\n\u2192 import { abstractMethod } from \"./not-implemented.js\";  /**  * VendorReviewView \u2014 the output Strategy for the \"Needs Vendor Review\" panel.  *  * A receipt whose vendor/category couldn't be auto-reso"
-  },
-  {
-    "date": "2026-07-20T16:43:32",
-    "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/vendor-review-controller.js\n\u2192 /**  * VendorReviewController \u2014 Command for the \"Needs Vendor Review\" panel.  *  * Backs the dashboard's \"pick a vendor\" flow: a scan that couldn't be  * auto-categorized is saved anyway with expens"
-  },
-  {
-    "date": "2026-07-20T16:43:40",
-    "type": "Bash",
-    "text": "grep -n \"^\\.pipeline-\\|^\\.scanner-result\\|^\\.scanner-dialog\" /home/adamsl/letta-code/dashboard/css/dashboard.css | head -20; wc -l /home/adamsl/letta-code/dashboard/css/dashboard.css"
-  },
-  {
-    "date": "2026-07-20T16:43:43",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
-  },
-  {
-    "date": "2026-07-20T16:43:48",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
-  },
-  {
-    "date": "2026-07-20T16:43:56",
-    "type": "Bash",
-    "text": "grep -n \"modal-overlay\\|\\.modal {\" /home/adamsl/letta-code/dashboard/css/dashboard.css | head -10; grep -n \"vision-halted-modal\" /home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-07-20T16:44:05",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
-  },
-  {
-    "date": "2026-07-20T16:44:32",
-    "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/dom-vendor-review-view.js\n\u2192 import { VendorReviewView } from \"../abstract/vendor-review-view.interface.js\"; import { TextUtils } from \"../abstract/text-utils.js\";  /**  * DomVendorReviewView \u2014 concrete VendorReviewView renderi"
-  },
-  {
-    "date": "2026-07-20T16:44:37",
-    "type": "Bash",
-    "text": "grep -n \"export\" /home/adamsl/letta-code/dashboard/js/implementation/index.js | head -30"
-  },
-  {
-    "date": "2026-07-20T16:44:41",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/index.js"
-  },
-  {
-    "date": "2026-07-20T16:44:49",
-    "type": "Bash",
-    "text": "grep -n \"scanners-freezer\\|scanners-window\\|scanners-pdf\\|data-view=\\\"scanners\" /home/adamsl/letta-code/dashboard/dashboard.html /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -30"
-  },
-  {
-    "date": "2026-07-20T16:44:54",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-07-20T16:44:59",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
-  },
-  {
-    "date": "2026-07-20T16:45:04",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-07-20T16:45:09",
-    "type": "Bash",
-    "text": "sed -n '1,40p' /home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-07-20T16:45:13",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-07-20T16:45:17",
-    "type": "Bash",
-    "text": "grep -n \"function setupScanners\\|scannerControllers = \\|^}\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | sed -n '1,10p'"
-  },
-  {
-    "date": "2026-07-20T16:45:20",
-    "type": "Bash",
-    "text": "grep -n \"setupScanners\\|scannerControllers\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-07-20T16:45:23",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-07-20T16:45:28",
-    "type": "Bash",
-    "text": "awk 'NR==2141,NR==2610' /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | grep -n \"return controllers\\|^}\" "
-  },
-  {
-    "date": "2026-07-20T16:45:31",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-07-20T16:45:39",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-07-20T16:45:48",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-07-20T16:45:56",
-    "type": "TaskUpdate",
-    "text": "taskId: 5"
-  },
-  {
-    "date": "2026-07-20T16:45:56",
-    "type": "TaskUpdate",
-    "text": "taskId: 6"
-  },
-  {
-    "date": "2026-07-20T16:46:00",
-    "type": "Bash",
-    "text": "find /home/adamsl/rol_finances -iname \"*test*parse_and_categorize*\" -o -iname \"*test*receipt_parsing*\" 2>/dev/null | grep -v __pycache__"
-  },
-  {
-    "date": "2026-07-20T16:46:03",
-    "type": "Bash",
-    "text": "find /home/adamsl/rol_finances -path \"*/tests/*\" -iname \"*.py\" 2>/dev/null | grep -v __pycache__ | xargs grep -l \"save_receipt_non_interactive\\|parse_and_categorize\" 2>/dev/null"
-  },
-  {
-    "date": "2026-07-20T16:46:08",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/tests/test_save_receipt_params.py"
-  },
-  {
-    "date": "2026-07-20T16:46:21",
-    "type": "Bash",
-    "text": "grep -n \"_warn_if_id_light_mismatch\\|_save_and_verify_receipt_metadata\" -A 12 /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py | head -40"
-  },
-  {
-    "date": "2026-07-20T16:46:54",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/tests/test_save_receipt_params.py"
-  },
-  {
-    "date": "2026-07-20T16:47:00",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/tests/test_save_receipt_params.py"
-  },
-  {
-    "date": "2026-07-20T16:47:04",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools && python3 -m pytest tests/test_save_receipt_params.py -q 2>&1 | tail -60"
-  },
-  {
-    "date": "2026-07-20T16:47:10",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && ls .venv/bin/python* 2>&1; ls -d .venv 2>&1; find / -maxdepth 3 -iname \"*venv*\" 2>/dev/null | grep -i rol_finances"
-  },
-  {
-    "date": "2026-07-20T16:47:15",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools && PYTHONPATH=/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python -m pytest tests/test_save_receipt_par"
-  },
-  {
-    "date": "2026-07-20T16:47:29",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools && PYTHONPATH=/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python -m pytest tests/test_save_receipt_par"
-  },
-  {
-    "date": "2026-07-20T16:47:35",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/tests/test_save_receipt_params.py"
-  },
-  {
-    "date": "2026-07-20T16:47:40",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/tests/test_save_receipt_params.py"
-  },
-  {
-    "date": "2026-07-20T16:47:44",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/tests/test_save_receipt_params.py"
-  },
-  {
-    "date": "2026-07-20T16:47:50",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/tests/test_save_receipt_params.py"
-  },
-  {
-    "date": "2026-07-20T16:47:55",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/tests/test_save_receipt_params.py"
-  },
-  {
-    "date": "2026-07-20T16:47:59",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools && PYTHONPATH=/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python -m pytest tests/test_save_receipt_par"
-  },
-  {
-    "date": "2026-07-20T16:48:07",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools && PYTHONPATH=/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python -m pytest tests/ -q 2>&1 | tail -25"
-  },
-  {
-    "date": "2026-07-20T16:48:11",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && git status --short tools/receipt_scanning_tools/receipt_parsing_tools/ | head -20"
-  },
-  {
-    "date": "2026-07-20T16:48:18",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && git stash push -- tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py tools/receipt_scanning_tools/receipt_parsing_tools/tests/test_save_receipt_"
-  },
-  {
-    "date": "2026-07-20T16:48:25",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && git diff --stat tools/categorizer/python_libary/vendor_category_lookup.py"
-  },
-  {
-    "date": "2026-07-20T16:48:29",
-    "type": "Bash",
-    "text": "grep -n \"def test_recategorize_expense\\|_rol_get_connection\\|class Fake\\|def test.*rol\" /home/adamsl/letta-code/dashboard/tests/test_server.py | head -20"
-  },
-  {
-    "date": "2026-07-20T16:48:33",
-    "type": "Bash",
-    "text": "grep -n \"class _FakeConnection\\|class _FakeCursor\" -A 40 /home/adamsl/letta-code/dashboard/tests/test_server.py | head -60"
-  },
-  {
-    "date": "2026-07-20T16:48:39",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-07-20T16:48:55",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-07-20T16:49:01",
-    "type": "Bash",
-    "text": "grep -n \"^from pathlib import\\|^import pathlib\" /home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-07-20T16:49:06",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
-  },
-  {
-    "date": "2026-07-20T16:49:11",
-    "type": "Bash",
-    "text": "grep -n \"^import os\" /home/adamsl/letta-code/dashboard/tests/test_server.py | head -1"
-  },
-  {
-    "date": "2026-07-20T16:49:15",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && .venv/bin/python -m pytest tests/test_server.py -k \"vendor\" -q 2>&1 | tail -60"
-  },
-  {
-    "date": "2026-07-20T16:49:22",
-    "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/test_server.py -q 2>&1 | tail -40"
-  },
-  {
-    "date": "2026-07-20T16:49:27",
-    "type": "Bash",
-    "text": "find /home/adamsl/letta-code/dashboard/js/tests -iname \"*pipeline-controller*\" -o -iname \"*dom-document-pipeline*\""
-  },
-  {
-    "date": "2026-07-20T16:49:30",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/document-pipeline-controller.test.js"
-  },
-  {
-    "date": "2026-07-20T16:49:45",
-    "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/vendor-review-controller.test.js\n\u2192 import { describe, expect, test } from \"bun:test\"; import { VendorReviewController } from \"../implementation/vendor-review-controller.js\";  // Fake HttpClient that records calls and returns scripted r"
-  },
-  {
-    "date": "2026-07-20T16:49:48",
-    "type": "Bash",
-    "text": "bun test js/tests/vendor-review-controller.test.js 2>&1 | tail -40"
-  },
-  {
-    "date": "2026-07-20T16:49:52",
-    "type": "TaskUpdate",
-    "text": "taskId: 6"
-  },
-  {
-    "date": "2026-07-20T16:49:52",
-    "type": "TaskUpdate",
-    "text": "taskId: 7"
-  },
-  {
-    "date": "2026-07-20T16:49:53",
-    "type": "Bash",
-    "text": "bun test js/tests 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-07-20T16:50:08",
-    "type": "Bash",
-    "text": ".venv/bin/python -c \"import ast; ast.parse(open('server.py').read())\" && echo \"server.py syntax OK\"\n.venv/bin/python -m pytest tests/ -q 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-07-20T16:50:15",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools && PYTHONPATH=/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python -c \"\nimport parse_and_categorize as m"
-  },
-  {
-    "date": "2026-07-20T16:50:20",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools && PYTHONPATH=/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python -c \"\nimport parse_and_categorize as m"
-  },
-  {
-    "date": "2026-07-20T16:50:24",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && .venv/bin/python -c \"\nimport server\nresult = server.list_vendor_keys()\nprint(result['ok'], len(result['vendor_keys']))\nprint(result['vendor_keys'][:2])\n\" 2>&1 |"
-  },
-  {
-    "date": "2026-07-20T16:50:28",
-    "type": "Bash",
-    "text": ".venv/bin/python -c \"\nimport server\nresult = server._vendor_category_lookup()\n\" 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-07-20T16:50:35",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport server\nresult = server.list_vendor_keys()\nprint(result['ok'], len(result['vendor_keys']))\nprint(result['vendor_keys'][:2])\n\" 2>&1 | tail -10"
-  },
-  {
-    "date": "2026-07-20T16:50:40",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport server\nresult = server.list_pending_vendor_review()\nprint(result['ok'])\nprint(len(result.get('rows', [])), result.get('error'))\n\" 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-07-20T16:50:47",
-    "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service 2>&1; sleep 2; systemctl --user is-active dashboard-server.service"
-  },
-  {
-    "date": "2026-07-20T16:50:51",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/vendor-keys | python3 -c \"import json,sys; d=json.load(sys.stdin); print(d['ok'], len(d['vendor_keys']))\"\ncurl -s http://localhost:8765/api/pending-vendor-review | py"
-  },
-  {
-    "date": "2026-07-20T16:50:57",
-    "type": "Bash",
-    "text": "ls -la /home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/scan_freezer_1784561387621911517_85fc58a6b1ca.jpg 2>&1"
-  },
-  {
-    "date": "2026-07-20T16:51:06",
-    "type": "TaskUpdate",
-    "text": "taskId: 7"
-  },
-  {
-    "date": "2026-07-20T17:16:45",
-    "type": "Bash",
-    "text": "bun test js/tests 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-07-20T17:17:01",
-    "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-07-20T17:17:18",
-    "type": "Bash",
-    "text": "curl -s -w '\\nHTTP_STATUS:%{http_code}\\n' \"http://100.80.49.10:8283/v1/agents?limit=200\" | tail -5"
-  },
-  {
-    "date": "2026-07-20T17:17:24",
-    "type": "Bash",
-    "text": "grep -n \"def letta_get\\|Authorization\\|X-BARE-PASSWORD\\|LETTA_API_KEY\\|password\" /home/adamsl/letta-code/dashboard/server.py | head -20"
-  },
-  {
-    "date": "2026-07-20T17:17:27",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-07-20T17:17:33",
-    "type": "Bash",
-    "text": "curl -sL -w '\\nHTTP_STATUS:%{http_code}\\n' \"http://100.80.49.10:8283/v1/agents?limit=200\" | tail -c 2000"
-  },
-  {
-    "date": "2026-07-20T17:17:40",
-    "type": "Bash",
-    "text": "curl -sL \"http://100.80.49.10:8283/v1/agents?limit=300\" -o /tmp/agents.json\npython3 -c \"\nimport json\ndata = json.load(open('/tmp/agents.json'))\nagents = data if isinstance(data, list) else data.get('a"
-  },
-  {
-    "date": "2026-07-20T17:18:00",
-    "type": "Bash",
-    "text": "grep -rl \"POST.*v1/agents\\b\\|'/v1/agents'\" ~/rol_finances ~/planner ~/letta-code 2>/dev/null | grep -v node_modules | grep -v \".venv\" | head -10"
-  },
-  {
-    "date": "2026-07-20T17:18:04",
-    "type": "Bash",
-    "text": "grep -n \"v1/agents'\" /home/adamsl/letta-code/dashboard/server.py | grep -i \"post\\|create\" \ngrep -n \"def create_agent\\|POST.*'/v1/agents'\\|urlopen.*v1/agents\" /home/adamsl/letta-code/dashboard/server.p"
-  },
-  {
-    "date": "2026-07-20T17:18:08",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata = json.load(open('/tmp/agents.json'))\nagents = data if isinstance(data, list) else data.get('agents', [])\nfor a in agents:\n    if a['name']=='mazda-router-agent':\n       "
-  },
-  {
-    "date": "2026-07-20T17:18:16",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata = json.load(open('/tmp/agents.json'))\nagents = data if isinstance(data, list) else data.get('agents', [])\nfor a in agents:\n    if a['name']=='transcript-cleanup-agent':\n "
-  },
-  {
-    "date": "2026-07-20T17:18:30",
-    "type": "Bash",
-    "text": "cat > /tmp/create_router_agent.json <<'EOF'\n{\n  \"name\": \"dashboard-agent-router\",\n  \"model\": \"chatgpt-plus-pro/gpt-5.4-mini\",\n  \"embedding\": \"letta/letta-free\",\n  \"memory_blocks\": [\n    {\n      \"label"
-  },
-  {
-    "date": "2026-07-20T17:18:34",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\nd = json.load(open('/tmp/create_router_agent_resp.json'))\nprint('id:', d.get('id'))\nprint('name:', d.get('name'))\nprint('handle:', (d.get('llm_config') or {}).get('handle'))\n\""
-  },
-  {
-    "date": "2026-07-20T17:18:42",
-    "type": "Bash",
-    "text": ".venv/bin/python -c \"\nfrom router.classify import build_router_strategy\ns = build_router_strategy()\nprint('resolved agent_id:', s.agent_id)\nout = s.classify('I was working on the scoreboard earlier an"
-  },
-  {
-    "date": "2026-07-20T17:18:58",
-    "type": "Bash",
-    "text": ".venv/bin/python -c \"\nfrom router.classify import build_router_strategy\ns = build_router_strategy()\nout = s.classify('I was scanning receipts, ask the car finance agent to rerun the intake for that re"
-  },
-  {
-    "date": "2026-07-20T17:19:07",
+    "date": "2026-07-20T23:59:49",
     "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 2 && systemctl --user is-active dashboard-server.service"
+    "text": "cd /home/adamsl/letta-code/dashboard\npython3 -c \"import ast; ast.parse(open('server.py').read())\" && echo \"syntax OK\"\n.venv/bin/python -m pytest tests/ -q 2>&1 | tail -10"
   },
   {
-    "date": "2026-07-20T17:19:18",
+    "date": "2026-07-20T23:59:54",
     "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/router-agent | python3 -m json.tool\necho \"---\"\ncurl -s -X POST http://localhost:8765/api/route-detect -H \"Content-Type: application/json\" \\\n  -d '{\"text\":\"I was think"
+    "text": "systemctl --user restart dashboard-server.service\nsleep 2\nsystemctl --user is-active dashboard-server.service\ncurl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8765/"
   },
   {
-    "date": "2026-07-20T17:19:23",
+    "date": "2026-07-21T00:32:10",
     "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/agents | python3 -c \"\nimport json,sys\nagents = json.load(sys.stdin)\nnames = {a['name'] for a in agents}\nfor n in ['Frita','Scissari','Hailey','Jeri','Mazda','Suzuki']"
+    "text": "echo \"=== Anthropic/OpenAI provider usage across rol_finances ===\"\ngrep -rl \"ANTHROPIC_API_KEY\\|anthropic\\.\\|AnthropicProvider\" /home/adamsl/rol_finances --include=\"*.py\" 2>/dev/null | grep -v test | "
   },
   {
-    "date": "2026-07-20T17:33:39",
+    "date": "2026-07-21T00:35:27",
     "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"Want me to actually re-run the BJ's Restaurant receipt through the fixed save path now, to prove it end-to-end on real data?\",\"header\":\"Live re-run\",\"options\":[{\"label\":\"Yes, run it now\",\"description\":\"I'll run parse_and_categorize.py --save (no --category-id) against the already-staged scan. This writes a real row to the live expenses DB and moves the file into readable_documents/receipts/may/.\"},{\"label\":\"No, leave it for a real scan/Mazda run\",\"description\":\"Skip the manual re-run \u2014 the next real scan Mazda processes (or a fresh scan you do) will exercise the new path naturally.\"}],\"multiSelect\":false}]"
+    "text": "questions: [{\"question\":\"Does mom know her OAuth token would get tapped automatically by Mazda's background finance processing whenever your token/quota has trouble? This isn't just reading \u2014 it'll consume her subscription's usage.\",\"header\":\"Mom's consent\",\"options\":[{\"label\":\"Yes, already fine with it (Recommended)\",\"description\":\"Go ahead and wire her token in as an automatic fallback.\"},{\"label\":\"Ask her first\",\"description\":\"I'll hold off on the mom's-token wiring until you've confirmed with her; I can build everything else now.\"},{\"label\":\"Use it, but alert every time it's used\",\"description\":\"Wire it in, but treat every fallback-to-mom's-token event as notable, not silent.\"}],\"multiSelect\":false},{\"question\":\"What should \\\"implemented everywhere\\\" mean? The full scope is 3 separate subsystems (tools/categorizer, parsing_router, e_two_e_processing), ~15 files.\",\"header\":\"Scope\",\"options\":[{\"label\":\"Just the live Mazda intake path (Recommended)\",\"description\":\"tools/categorizer + parse_and_categorize.py \u2014 the code that actually runs on every scan today. parsing_router/ and e_two_e_processing/ appear to be a separate/older pipeline \u2014 worth confirming they're even in active use before spending effort there.\"},{\"label\":\"All 3 subsystems now\",\"description\":\"Full sweep across categorizer, parsing_router, and e_two_e_processing in this pass.\"},{\"label\":\"Let me clarify which subsystems are live\",\"description\":\"I'm not sure myself which of parsing_router/e_two_e_processing are dead code vs. active \u2014 tell me.\"}],\"multiSelect\":false},{\"question\":\"Where should quota/auth-failure alerts surface? The dashboard already has a Server Management tab with a live health-check pattern (up/concern/down) other infra uses.\",\"header\":\"Alert channel\",\"options\":[{\"label\":\"Dashboard Server Management tile (Recommended)\",\"description\":\"New health-check entry (e.g. \\\"LLM Provider Quotas\\\") using the existing up/concern/down pattern \u2014 consistent with everything else you monitor there.\"},{\"label\":\"Telegram via lettabot\",\"description\":\"Push a message through the existing lettabot Telegram bot when a fallback fires or all providers are exhausted.\"},{\"label\":\"Both\",\"description\":\"Dashboard tile for passive status + Telegram push for anything urgent (all providers down).\"}],\"multiSelect\":false}]"
   },
   {
-    "date": "2026-07-20T17:35:26",
-    "type": "Write",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_agents_router_2026_07_20.md\n\u2192 --- name: dashboard-agents-router description: \"Agents-home voice/text router shipped 2026-07-20 \u2014 architecture, files, live agent id, and the openWakeWord decision behind it.\" metadata:    node_typ"
-  },
-  {
-    "date": "2026-07-20T17:35:30",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-07-20T17:35:36",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-07-20T17:35:45",
+    "date": "2026-07-21T00:35:40",
     "type": "Bash",
-    "text": "grep -n \"^### \\|^## \" /home/adamsl/letta-code/dashboard/CLAUDE.md | head -30"
+    "text": "cat /home/adamsl/rol_finances/tools/categorizer/find_category/anthropic_provider.py | tail -40\necho \"=== any existing claude-oauth style client in rol_finances? ===\"\ngrep -rl \"claude.credentials\\|CLAU"
   },
   {
-    "date": "2026-07-20T17:35:48",
+    "date": "2026-07-21T00:36:04",
+    "type": "Bash",
+    "text": "env | grep -i ANTHROPIC\necho \"---\"\ngrep -rn \"ANTHROPIC_API_KEY\" ~/.bashrc ~/.profile 2>/dev/null\necho \"--- is anthropic ever actually invoked in Mazda's live dispatch? ---\"\ngrep -n \"provider=anthropic"
+  },
+  {
+    "date": "2026-07-21T00:36:21",
+    "type": "Bash",
+    "text": "timeout 8 ssh adamsl@100.72.34.38 \"grep -h ANTHROPIC_API_KEY ~/.bashrc 2>/dev/null | head -2; echo '---codex mom---'; cat ~/.codex/auth.json 2>/dev/null | python3 -c \\\"import json,sys; d=json.load(sys"
+  },
+  {
+    "date": "2026-07-21T00:36:27",
+    "type": "Bash",
+    "text": "timeout 8 ssh adamsl@100.72.34.38 \"test -f ~/.claude/.credentials.json && echo EXISTS || echo MISSING\" 2>&1\necho \"--- local (this box) ---\"\ntest -f ~/.claude/.credentials.json && echo EXISTS || echo M"
+  },
+  {
+    "date": "2026-07-21T00:36:46",
+    "type": "Bash",
+    "text": "curl -s \"http://100.80.49.10:8283/v1/models\" 2>/dev/null | python3 -c \"\nimport json,sys\ntry:\n    data=json.load(sys.stdin)\nexcept Exception as e:\n    print('parse error', e); sys.exit()\nmodels = data "
+  },
+  {
+    "date": "2026-07-21T00:36:50",
+    "type": "Bash",
+    "text": "curl -s \"http://100.80.49.10:8283/v1/models\" | head -c 300\necho\necho \"--- try /v1/models/embeddings or providers endpoint ---\"\ncurl -s \"http://100.80.49.10:8283/v1/providers\" 2>/dev/null | head -c 800"
+  },
+  {
+    "date": "2026-07-21T00:37:08",
+    "type": "Bash",
+    "text": "systemctl --user cat claude-creds-sync.service claude-creds-sync.path 2>&1 | head -60\necho \"---sync script---\"\nfind /home/adamsl -maxdepth 3 -iname \"*creds-sync*\" -o -iname \"*creds_sync*\" 2>/dev/null "
+  },
+  {
+    "date": "2026-07-21T00:37:52",
+    "type": "Bash",
+    "text": "cat /home/adamsl/server_tools/sync_claude_creds_to_frita.sh 2>/dev/null | head -30"
+  },
+  {
+    "date": "2026-07-21T00:38:04",
+    "type": "Write",
+    "text": "/home/adamsl/server_tools/sync_moms_codex_token.sh\n\u2192 #!/usr/bin/env bash # sync_moms_codex_token.sh \u2014 pull mom's (rosemary46) Codex/ChatGPT OAuth token to # this box as a fallback credential for tools/chatgpt_oauth_vision.py and # tools/categorizer/fi"
+  },
+  {
+    "date": "2026-07-21T00:38:08",
+    "type": "Bash",
+    "text": "chmod +x /home/adamsl/server_tools/sync_moms_codex_token.sh\n/home/adamsl/server_tools/sync_moms_codex_token.sh\necho \"---verify---\"\nls -la ~/.codex-moms/ 2>/dev/null\ncat ~/.codex-moms/auth.json 2>/dev/"
+  },
+  {
+    "date": "2026-07-21T00:38:12",
+    "type": "Bash",
+    "text": "cat /home/adamsl/.config/systemd/user/claude-creds-sync.timer 2>/dev/null"
+  },
+  {
+    "date": "2026-07-21T00:38:15",
+    "type": "Write",
+    "text": "/home/adamsl/.config/systemd/user/codex-moms-token-sync.service\n\u2192 [Unit] Description=Pull mom's (rosemary46) Codex/ChatGPT OAuth token as a fallback credential  [Service] Type=oneshot ExecStart=/home/adamsl/server_tools/sync_moms_codex_token.sh "
+  },
+  {
+    "date": "2026-07-21T00:38:18",
+    "type": "Write",
+    "text": "/home/adamsl/.config/systemd/user/codex-moms-token-sync.timer\n\u2192 [Unit] Description=Pull mom's Codex OAuth token every 20 minutes  [Timer] OnBootSec=2min OnUnitActiveSec=20min  [Install] WantedBy=timers.target "
+  },
+  {
+    "date": "2026-07-21T00:38:22",
+    "type": "Bash",
+    "text": "systemctl --user daemon-reload\nsystemctl --user enable --now codex-moms-token-sync.timer\nsystemctl --user is-active codex-moms-token-sync.timer\nsystemctl --user list-timers codex-moms-token-sync.timer"
+  },
+  {
+    "date": "2026-07-21T00:38:37",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/provider_health.py\n\u2192 \"\"\"Shared success/failure log for the LLM providers Mazda's intake pipeline depends on (gemini, chatgpt-oauth [primary + mom's account], anthropic).  WHY THIS EXISTS: on 2026-07-20 the `gemini` CLI wa"
+  },
+  {
+    "date": "2026-07-21T00:38:43",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/chatgpt_oauth_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:38:57",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/chatgpt_oauth_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:39:00",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/chatgpt_oauth_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:39:10",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/chatgpt_oauth_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:39:19",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/chatgpt_oauth_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:39:22",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/chatgpt_oauth_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:39:26",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/chatgpt_oauth_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:39:29",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/chatgpt_oauth_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:39:31",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/chatgpt_oauth_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:39:45",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/chatgpt_oauth_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:39:50",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\npython3 -c \"import ast; ast.parse(open('tools/chatgpt_oauth_vision.py').read())\" && echo \"syntax OK\"\ngrep -n \"_get_credentials()\\|_load_auth_file()\\|_save_auth_file(\" tool"
+  },
+  {
+    "date": "2026-07-21T00:39:54",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\nPYTHONPATH=/home/adamsl/rol_finances .venv/bin/python3 -c \"\nimport sys\nsys.path.insert(0, 'tools')\nimport chatgpt_oauth_vision as v\nprint('accounts configured:', v._ACCOUN"
+  },
+  {
+    "date": "2026-07-21T00:40:03",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/chatgpt_oauth_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:40:06",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/chatgpt_oauth_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:40:17",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/chatgpt_oauth_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:40:20",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/chatgpt_oauth_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:40:24",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/chatgpt_oauth_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:40:44",
+    "type": "Bash",
+    "text": "ls -la ~/.mazda/provider_health.json 2>&1\necho \"---direct python test---\"\ncd /home/adamsl/rol_finances\nPYTHONPATH=/home/adamsl/rol_finances .venv/bin/python3 -c \"\nimport sys\nsys.path.insert(0, 'tools'"
+  },
+  {
+    "date": "2026-07-21T00:41:01",
+    "type": "Bash",
+    "text": "find /home/adamsl/rol_finances/tools/categorizer -name \"__pycache__\" -exec rm -rf {} + 2>/dev/null\ncd /home/adamsl/rol_finances\nPYTHONPATH=/home/adamsl/rol_finances .venv/bin/python3 -c \"\nfrom tools.c"
+  },
+  {
+    "date": "2026-07-21T00:41:32",
+    "type": "Bash",
+    "text": "rm -f ~/.mazda/provider_health.json\ncd /home/adamsl/rol_finances\nPYTHONPATH=/home/adamsl/rol_finances .venv/bin/python3 tools/categorizer/categorizer_main.py -i /tmp/mazda_cat_input_oauth_test.json --"
+  },
+  {
+    "date": "2026-07-21T00:41:46",
+    "type": "Bash",
+    "text": "find /home/adamsl/rol_finances -iname \"provider_health.py\" 2>/dev/null\necho \"---check via runtime introspection---\"\ncd /home/adamsl/rol_finances\nPYTHONPATH=/home/adamsl/rol_finances .venv/bin/python3 "
+  },
+  {
+    "date": "2026-07-21T00:42:00",
+    "type": "Bash",
+    "text": "grep -n \"bjs_restaurant_brewhouse\" /home/adamsl/rol_finances/tools/categorizer/vendor_category.yaml 2>/dev/null\necho \"---categorize() method---\"\nsed -n '1,80p' /home/adamsl/rol_finances/tools/categori"
+  },
+  {
+    "date": "2026-07-21T00:42:07",
+    "type": "Bash",
+    "text": "sed -n '80,180p' /home/adamsl/rol_finances/tools/categorizer/CategorizerEngine.py"
+  },
+  {
+    "date": "2026-07-21T00:42:10",
+    "type": "Bash",
+    "text": "grep -n \"def categorize\" /home/adamsl/rol_finances/tools/categorizer/CategorizerEngine.py\nsed -n '190,260p' /home/adamsl/rol_finances/tools/categorizer/CategorizerEngine.py"
+  },
+  {
+    "date": "2026-07-21T00:42:34",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\nrm -f ~/.mazda/provider_health.json\ncat > /tmp/mazda_cat_fresh_vendor.json <<'EOF'\n{\"id_light\":\"\",\"description\":\"Zippy Testville Widget Co\",\"vendor_key\":\"zippy_testville_w"
+  },
+  {
+    "date": "2026-07-21T00:42:44",
+    "type": "Bash",
+    "text": "grep -n \"zippy_testville\\|bjs_restaurant_brewhouse\" /home/adamsl/rol_finances/tools/categorizer/vendor_category.yaml"
+  },
+  {
+    "date": "2026-07-21T00:42:47",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/vendor_category.yaml"
+  },
+  {
+    "date": "2026-07-21T00:42:54",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/vendor_category.yaml"
+  },
+  {
+    "date": "2026-07-21T00:42:59",
+    "type": "Bash",
+    "text": "rm -f ~/.mazda/provider_health.json\npython3 -c \"import yaml; d=yaml.safe_load(open('/home/adamsl/rol_finances/tools/categorizer/vendor_category.yaml')); print('YAML parses OK, entries count roughly:',"
+  },
+  {
+    "date": "2026-07-21T00:43:06",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/gemini_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:43:09",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/gemini_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:43:13",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/gemini_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:43:18",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/gemini_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:43:23",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/anthropic_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:43:54",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/health_recorder.py\n\u2192 from __future__ import annotations  from abc import ABC, abstractmethod   class IProviderHealthRecorder(ABC):     \"\"\"Port for recording LLM-provider call outcomes (success/failure/fallback     between"
+  },
+  {
+    "date": "2026-07-21T00:44:02",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/json_provider_health_recorder.py\n\u2192 from __future__ import annotations  import sys from pathlib import Path  # tools/provider_health.py lives at the repo-root \"tools\" package, two levels # up from this file's \"tools/categorizer/find_cat"
+  },
+  {
+    "date": "2026-07-21T00:44:08",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/llm_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:11",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/llm_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:14",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/llm_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:20",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/llm_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:27",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/gemini_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:31",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/gemini_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:36",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/gemini_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:40",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/chatgpt_oauth_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:46",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/chatgpt_oauth_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:49",
+    "type": "Bash",
+    "text": "grep -n \"_health\\.\" /home/adamsl/rol_finances/tools/categorizer/find_category/chatgpt_oauth_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:52",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/chatgpt_oauth_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:44:59",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/chatgpt_oauth_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:45:10",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/anthropic_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:45:15",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/anthropic_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:45:18",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/openai_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:45:21",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/openai_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:45:25",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/categorizer/find_category/openai_provider.py"
+  },
+  {
+    "date": "2026-07-21T00:45:33",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\nfor f in tools/categorizer/find_category/health_recorder.py tools/categorizer/find_category/json_provider_health_recorder.py tools/categorizer/find_category/llm_provider.p"
+  },
+  {
+    "date": "2026-07-21T00:45:50",
+    "type": "Bash",
+    "text": "rm -f ~/.mazda/provider_health.json\ncd /home/adamsl/rol_finances\ncat > /tmp/mazda_cat_fresh_vendor2.json <<'EOF'\n{\"id_light\":\"\",\"description\":\"Bloop Testcorp Supplies\",\"vendor_key\":\"bloop_testcorp_sup"
+  },
+  {
+    "date": "2026-07-21T00:45:58",
+    "type": "Bash",
+    "text": "grep -n \"bloop_testcorp\" /home/adamsl/rol_finances/tools/categorizer/vendor_category.yaml"
+  },
+  {
+    "date": "2026-07-21T00:46:04",
+    "type": "Bash",
+    "text": "rm -f ~/.mazda/provider_health.json"
+  },
+  {
+    "date": "2026-07-21T00:46:08",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:46:16",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:46:21",
+    "type": "Bash",
+    "text": "grep -n \"^SERVERS = {\\|^HEALTH_CHECKS = {\\|def frita_executor_health\\|'check':\" /home/adamsl/letta-code/dashboard/server.py | head -20"
+  },
+  {
+    "date": "2026-07-21T00:46:24",
+    "type": "Bash",
+    "text": "sed -n '4030,4075p' /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:46:30",
+    "type": "Bash",
+    "text": "grep -n \"def chatgpt_provider_health\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:46:32",
+    "type": "Bash",
+    "text": "sed -n '4676,4740p' /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:46:55",
+    "type": "Bash",
+    "text": "sed -n '5284,5300p' /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:46:59",
+    "type": "Bash",
+    "text": "grep -n \"def compute_server_status\\|def server_status_kind\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:47:02",
+    "type": "Bash",
+    "text": "sed -n '5331,5395p' /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:47:12",
+    "type": "Bash",
+    "text": "grep -n \"^import os\\|^import json\\|^import time\" /home/adamsl/letta-code/dashboard/server.py | head -5"
+  },
+  {
+    "date": "2026-07-21T00:47:16",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:47:20",
+    "type": "Bash",
+    "text": "sed -n '4600,4672p' /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:47:35",
+    "type": "Bash",
+    "text": "grep -n \"def document_vision_health\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:47:39",
+    "type": "Bash",
+    "text": "sed -n '5231,5285p' /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:47:57",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:48:02",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:48:05",
+    "type": "Bash",
+    "text": "grep -n \"'key': 'document-vision'\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:48:08",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:48:17",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:48:22",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard\npython3 -c \"import ast; ast.parse(open('server.py').read())\" && echo \"syntax OK\""
+  },
+  {
+    "date": "2026-07-21T00:48:31",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard\npython3 -c \"\nimport sys, time, json, os\nsys.path.insert(0, '.')\nimport server\n\npath = os.path.expanduser('~/.mazda/provider_health.json')\nos.makedirs(os.path.dirna"
+  },
+  {
+    "date": "2026-07-21T00:48:33",
+    "type": "Bash",
+    "text": "cat /home/adamsl/letta-code/dashboard/recent_report.json 2>/dev/null | python3 -m json.tool | head -100"
+  },
+  {
+    "date": "2026-07-21T00:48:36",
+    "type": "Bash",
+    "text": "grep -n \"def build_recent_intake_html\\|def resolve_recent_report\\|def merge_recent_intake_event\\|expense_ids\\|duplicate_expense_ids\" /home/adamsl/letta-code/dashboard/server.py | head -80"
+  },
+  {
+    "date": "2026-07-21T00:48:39",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:48:42",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:48:46",
+    "type": "Bash",
+    "text": "grep -n \"_fetch_expenses_by_ids\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:48:49",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard\n.venv/bin/python -m pytest tests/ -q 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-07-21T00:48:50",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:48:57",
+    "type": "Bash",
+    "text": "grep -n \"'document-vision': restart_document_vision\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:48:59",
+    "type": "Bash",
+    "text": "grep -n \"updated_at\\|report_path\\|_load_recent_report_pointer\\|_write_recent_pointer_file\\|_read_recent_pointer_file\" /home/adamsl/letta-code/dashboard/server.py | head -60"
+  },
+  {
+    "date": "2026-07-21T00:49:03",
+    "type": "Bash",
+    "text": "grep -n \"set_recent_report_pointer\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:49:05",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:49:06",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:49:10",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:49:15",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard\npython3 -c \"import ast; ast.parse(open('server.py').read())\" && echo \"syntax OK\"\n.venv/bin/python -m pytest tests/ -q 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-07-21T00:49:27",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:49:31",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:49:36",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:49:40",
+    "type": "Bash",
+    "text": "grep -n \"^def mazda_categorizer_fallback_health\\|^DOCUMENT_VISION_HALT_MESSAGE\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:49:44",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:49:51",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:49:58",
+    "type": "Bash",
+    "text": "grep -c '<tr' \"/home/adamsl/rol_finances/readable_documents/bank_statements/feb-2025/platinum_business_credit_card_for_the_year/report.html\" 2>/dev/null; echo \"---\"; find /home/adamsl/rol_finances -in"
+  },
+  {
+    "date": "2026-07-21T00:50:01",
+    "type": "Bash",
+    "text": "grep -c 'data-expense-id\\|<tr class=\"cat-' \"/home/adamsl/rol_finances/readable_documents/bank_statements/february/platinum_business_credit_card_for_the_year/report.html\""
+  },
+  {
+    "date": "2026-07-21T00:50:05",
+    "type": "Bash",
+    "text": "grep -oE '<h2>Verified Transactions</h2>' -A2 \"/home/adamsl/rol_finances/readable_documents/bank_statements/february/platinum_business_credit_card_for_the_year/report.html\" | head; echo ---; python3 -"
+  },
+  {
+    "date": "2026-07-21T00:50:06",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard\npython3 -c \"import ast; ast.parse(open('server.py').read())\" && echo \"syntax OK\"\n.venv/bin/python -m pytest tests/ -q 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-07-21T00:50:13",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard\n.venv/bin/python -m pytest tests/test_server.py -k test_every_server_is_restartable -v 2>&1 | tail -10\necho \"--- verify new tile actually testable via restart_serv"
+  },
+  {
+    "date": "2026-07-21T00:50:19",
+    "type": "Bash",
+    "text": "systemctl --user restart dashboard-server.service\nsleep 2\nsystemctl --user is-active dashboard-server.service\ncurl -s http://localhost:8765/api/server-health | python3 -c \"\nimport json,sys\nd = json.lo"
+  },
+  {
+    "date": "2026-07-21T00:50:26",
+    "type": "Bash",
+    "text": "grep -n \"OPENAI_API_KEY\\|ANTHROPIC_API_KEY\\|openai\\.\\|anthropic\\.\" /home/adamsl/rol_finances/parsing_router/vision_strategy/openai_vision.py /home/adamsl/rol_finances/parsing_router/vision_strategy/op"
+  },
+  {
+    "date": "2026-07-21T00:50:30",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/parsing_router/vision_strategy/openai_vision.py"
+  },
+  {
+    "date": "2026-07-21T00:50:37",
+    "type": "Bash",
+    "text": "grep -rln \"from parsing_router\\|import parsing_router\" /home/adamsl/rol_finances --include=\"*.py\" 2>/dev/null | grep -v \"^/home/adamsl/rol_finances/parsing_router/\" | grep -v test\necho \"---e_two_e_pro"
+  },
+  {
+    "date": "2026-07-21T00:50:46",
+    "type": "Bash",
+    "text": "sed -n '1,40p' /home/adamsl/rol_finances/parsing_router/env_loader.py"
+  },
+  {
+    "date": "2026-07-21T00:50:50",
+    "type": "Bash",
+    "text": "grep -n \"def get_api_key\" /home/adamsl/rol_finances/parsing_router/env_loader.py"
+  },
+  {
+    "date": "2026-07-21T00:50:53",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/parsing_router/env_loader.py"
+  },
+  {
+    "date": "2026-07-21T00:50:59",
+    "type": "Bash",
+    "text": "sed -n '75,108p' /home/adamsl/rol_finances/parsing_router/env_loader.py"
+  },
+  {
+    "date": "2026-07-21T00:51:08",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:51:12",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/parsing_router/env_loader.py"
+  },
+  {
+    "date": "2026-07-21T00:51:13",
+    "type": "Bash",
+    "text": "grep -n \"report_path\" /home/adamsl/letta-code/dashboard/server.py | grep -i \"data.get\\|event\\[\" "
+  },
+  {
+    "date": "2026-07-21T00:51:16",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/e_two_e_processing/row_sources/llm_pdf_parser.py"
+  },
+  {
+    "date": "2026-07-21T00:51:19",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T00:51:21",
+    "type": "Bash",
+    "text": "grep -n \"def get_api_key\\|gemini\\|OPENAI_API_KEY\\|ANTHROPIC\" /home/adamsl/rol_finances/e_two_e_processing/row_sources/_pdf_utils.py"
+  },
+  {
+    "date": "2026-07-21T00:51:22",
+    "type": "Bash",
+    "text": "grep -n \"_find_matching_report_row\\|record_stored_expense\\|set_recent_report_pointer\" tests/test_server.py | head -40"
+  },
+  {
+    "date": "2026-07-21T00:51:24",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/e_two_e_processing/row_sources/_pdf_utils.py"
+  },
+  {
+    "date": "2026-07-21T00:51:26",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-07-21T00:51:34",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/e_two_e_processing/row_sources/_pdf_utils.py"
+  },
+  {
+    "date": "2026-07-21T00:51:35",
+    "type": "Bash",
+    "text": "grep -rn \"expense-stored\\|record_stored_expense\" /home/adamsl/letta-code/dashboard/*.py /home/adamsl/letta-code/dashboard/router 2>/dev/null | grep -v test_"
+  },
+  {
+    "date": "2026-07-21T00:51:40",
+    "type": "Bash",
+    "text": "python3 -c \"import ast; ast.parse(open('/home/adamsl/rol_finances/parsing_router/env_loader.py').read())\" && echo OK1\npython3 -c \"import ast; ast.parse(open('/home/adamsl/rol_finances/e_two_e_processi"
+  },
+  {
+    "date": "2026-07-21T00:51:40",
+    "type": "Bash",
+    "text": "grep -n \"_recent_report_env\" tests/test_server.py | head -3"
+  },
+  {
+    "date": "2026-07-21T00:51:44",
+    "type": "Bash",
+    "text": "grep -n \"Scan \u2192 Trainer\\|## Server health indicators\" /home/adamsl/letta-code/dashboard/CLAUDE.md"
+  },
+  {
+    "date": "2026-07-21T00:51:47",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/CLAUDE.md"
   },
   {
-    "date": "2026-07-20T17:36:08",
+    "date": "2026-07-21T00:51:49",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-07-21T00:51:54",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -k \"recent_report or expense_stored or record_stored\" -q 2>&1 | tail -60"
+  },
+  {
+    "date": "2026-07-21T00:52:01",
     "type": "Edit",
     "text": "/home/adamsl/letta-code/dashboard/CLAUDE.md"
   },
   {
-    "date": "2026-07-20T18:00:59",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-b8c377bb-a49a-443c-9bc9-3e8367031392/messages?limit=60\" | python3 -c \"\nimport json,sys\ndata=json.load(sys.stdin)\nmsgs = data if isinstance(data,"
+    "date": "2026-07-21T00:52:01",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-07-20T18:01:01",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-b8c377bb-a49a-443c-9bc9-3e8367031392/messages?limit=60\" | python3 -m json.tool"
+    "date": "2026-07-21T00:52:06",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
   },
   {
-    "date": "2026-07-20T18:02:42",
+    "date": "2026-07-21T00:52:09",
     "type": "Bash",
-    "text": "for i in $(seq 1 10); do\n  sleep 30\n  COUNT=$(curl -s \"http://100.80.49.10:8283/v1/conversations/conv-b8c377bb-a49a-443c-9bc9-3e8367031392/messages?limit=60\" | python3 -c \"\nimport json,sys\ndata=json.l"
+    "text": ".venv/bin/python -m pytest tests/test_server.py -k \"recent_report or expense_stored or record_stored\" -q 2>&1 | tail -30"
   },
   {
-    "date": "2026-07-20T18:02:49",
+    "date": "2026-07-21T00:52:19",
     "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-b8c377bb-a49a-443c-9bc9-3e8367031392/messages?limit=60\" > /tmp/mazda_transcript.json\npython3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_tr"
+    "text": "cd /home/adamsl/letta-code/dashboard\n.venv/bin/python -m pytest tests/ -q 2>&1 | tail -6\necho \"=== systemd units ===\"\nsystemctl --user is-active dashboard-server.service codex-moms-token-sync.timer\nec"
   },
   {
-    "date": "2026-07-20T18:02:58",
+    "date": "2026-07-21T00:52:23",
     "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_transcript.json'))\nprint(len(data))\nfor m in data:\n    print(m.get('date'), m.get('message_type'), m.get('name',''))\n\""
+    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -30"
   },
   {
-    "date": "2026-07-20T18:03:57",
-    "type": "Bash",
-    "text": "for i in $(seq 1 6); do\n  sleep 30\n  OUT=$(curl -s \"http://100.80.49.10:8283/v1/conversations/conv-b8c377bb-a49a-443c-9bc9-3e8367031392/messages?limit=60\")\n  echo \"$OUT\" > /tmp/mazda_transcript.json\n "
+    "date": "2026-07-21T00:52:25",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/recent_report.json"
   },
   {
-    "date": "2026-07-20T18:04:00",
+    "date": "2026-07-21T00:52:30",
     "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_transcript.json'))\nfor m in data[:3]:\n    t = m.get('message_type')\n    if t == 'tool_call_message':\n        print('CALL', m.get('tool_call',{}"
+    "text": "python3 -c \"\nimport json\nwith open('recent_report.json') as f:\n    data = json.load(f)\ndata.pop('report_path', None)\ndata.pop('updated_at', None)\nwith open('recent_report.json', 'w') as f:\n    json.du"
   },
   {
-    "date": "2026-07-20T18:04:24",
+    "date": "2026-07-21T00:52:39",
     "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/api/expense-stored-events?since=1784570450\" | python3 -m json.tool | head -80"
+    "text": "systemctl --user restart dashboard-server.service && sleep 1 && systemctl --user is-active dashboard-server.service && curl -s http://localhost:8765/recent_report.html | grep -oE '<h1>[^<]*</h1>|Verif"
   },
   {
-    "date": "2026-07-20T18:04:59",
+    "date": "2026-07-21T00:59:33",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git log --oneline -- dashboard/server.py | grep -i \"expense-stored\\|recent.report\\|report_path\" | head -20\necho \"---blame---\"\ngit log -p --follow -- dashboard/server.py |"
+  },
+  {
+    "date": "2026-07-21T00:59:36",
+    "type": "Bash",
+    "text": "git log --follow -p -- server.py | grep -n \"_find_matching_report_row(\\s*$\\|rp = match\\['report_path'\\]\\|if not rp:\" -A2 -B5 | head -80"
+  },
+  {
+    "date": "2026-07-21T00:59:39",
+    "type": "Bash",
+    "text": "git show 80ddcad --stat | head -5; git log -1 --format='%an %ad %s' 80ddcad"
+  },
+  {
+    "date": "2026-07-21T00:59:48",
+    "type": "Bash",
+    "text": "git status --short"
+  },
+  {
+    "date": "2026-07-21T00:59:52",
+    "type": "Bash",
+    "text": "git diff --stat server.py tests/test_server.py"
+  },
+  {
+    "date": "2026-07-21T00:59:57",
+    "type": "Bash",
+    "text": "git diff server.py | head -200"
+  },
+  {
+    "date": "2026-07-21T01:00:13",
+    "type": "Bash",
+    "text": "git diff -- server.py | awk '/^@@ -2938,11/,/^@@ -4140,6/' | sed '$d' > /tmp/claude-1000/-home-adamsl-letta-code-dashboard/80457a0d-2638-4818-bd8a-4f56f83ec3be/scratchpad/fix.hunk 2>/dev/null; wc -l /"
+  },
+  {
+    "date": "2026-07-21T01:00:15",
+    "type": "Bash",
+    "text": "cat /tmp/claude-1000/-home-adamsl-letta-code-dashboard/80457a0d-2638-4818-bd8a-4f56f83ec3be/scratchpad/fix.hunk"
+  },
+  {
+    "date": "2026-07-21T01:00:21",
+    "type": "Bash",
+    "text": "SCRATCH=/tmp/claude-1000/-home-adamsl-letta-code-dashboard/80457a0d-2638-4818-bd8a-4f56f83ec3be/scratchpad\n{\necho \"diff --git a/dashboard/server.py b/dashboard/server.py\"\necho \"--- a/dashboard/server."
+  },
+  {
+    "date": "2026-07-21T01:00:23",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code\nSCRATCH=/tmp/claude-1000/-home-adamsl-letta-code-dashboard/80457a0d-2638-4818-bd8a-4f56f83ec3be/scratchpad\ngit apply --cached \"$SCRATCH/fix.patch\"\ngit add dashboard/tests/te"
+  },
+  {
+    "date": "2026-07-21T01:00:26",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git diff --cached -- dashboard/server.py"
+  },
+  {
+    "date": "2026-07-21T01:00:49",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git commit -m \"$(cat <<'EOF'\nfix(dashboard): stop coincidental date/amount match from hijacking Recent Report pointer\n\nrecord_stored_expense() moved /recent_report.html's"
+  },
+  {
+    "date": "2026-07-21T01:01:05",
     "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/trainer/reports/20260720-180050_Window_Scanner_d1784570450.md\n\u2192 # Trainer Report \u2014 Window Scanner  - **Scanner:** Window Scanner - **Document:** `scan_1784570447373542162_10e1c22d21eb.jpg` - **Dispatch:** 2026-07-20T18:00:50Z - **Mazda conversation:** `conv-b8c3"
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_recent_report_pointer_hijack_2026_07_20.md\n\u2192 --- name: dashboard-recent-report-pointer-hijack description: Recent Report showed a 169-row unrelated statement instead of a 1-row scan because record_stored_expense() moved the pointer on a coincide"
   },
   {
-    "date": "2026-07-20T18:07:24",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-1cc7ba5f-a386-4b54-898c-1efeae44a534/messages?limit=60\" | python3 -c \"\nimport json,sys\ndata=json.load(sys.stdin)\nmsgs=data if isinstance(data,li"
+    "date": "2026-07-21T01:01:07",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   },
   {
-    "date": "2026-07-20T18:07:59",
-    "type": "Bash",
-    "text": "for i in $(seq 1 10); do\n  sleep 30\n  RESULT=$(curl -s \"http://100.80.49.10:8283/v1/conversations/conv-1cc7ba5f-a386-4b54-898c-1efeae44a534/messages?limit=60\")\n  echo \"$RESULT\" > /tmp/mazda_poll.json"
+    "date": "2026-07-21T01:01:11",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   },
   {
-    "date": "2026-07-20T18:08:05",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_poll.json'))\nmsgs=data if isinstance(data,list) else data.get('messages',[])\nmsgs2=[m for m in msgs if (m.get('date') or m.get('created_at') or"
-  },
-  {
-    "date": "2026-07-20T18:12:35",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && git status --short | head -60 && echo \"---REMOTES---\" && git remote -v && echo \"---BRANCH---\" && git branch -vv && echo \"---LOG---\" && git log --oneline -5"
-  },
-  {
-    "date": "2026-07-20T18:13:13",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && git diff --stat dashboard/js/implementation/index.js dashboard/dashboard.html dashboard/server.py dashboard/CLAUDE.md dashboard/js/dashboard-boot.js dashboard/js/implemen"
-  },
-  {
-    "date": "2026-07-20T18:13:18",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && git diff dashboard/CLAUDE.md | head -100"
-  },
-  {
-    "date": "2026-07-20T18:13:23",
-    "type": "Bash",
-    "text": "for i in $(seq 1 10); do\n  sleep 30\n  curl -s \"http://100.80.49.10:8283/v1/conversations/conv-1cc7ba5f-a386-4b54-898c-1efeae44a534/messages?limit=100\" > /tmp/mazda_poll.json\n  echo \"--- poll $i ---\"\n "
-  },
-  {
-    "date": "2026-07-20T18:13:26",
-    "type": "Bash",
-    "text": "tail -c 6000 /home/adamsl/.claude/projects/-home-adamsl-letta-code-dashboard-trainer/8a6ac12b-827f-499c-9025-823f2ef1cd43/tool-results/bzk9vrd1g.txt"
-  },
-  {
-    "date": "2026-07-20T18:13:35",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_poll.json'))\nmsgs=data if isinstance(data,list) else data.get('messages',[])\nmsgs2=[m for m in msgs if (m.get('date') or m.get('created_at') or"
-  },
-  {
-    "date": "2026-07-20T18:13:37",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && cat dashboard/.gitignore 2>/dev/null; echo \"---root---\"; grep -n \"trainer/reports\\|claude_toolcalls\\|voice_transcripts\" .gitignore dashboard/.gitignore 2>/dev/null"
-  },
-  {
-    "date": "2026-07-20T18:13:40",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/api/expense-stored-events?since=1784570836\" | python3 -m json.tool | head -60"
-  },
-  {
-    "date": "2026-07-20T18:13:43",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && git ls-files dashboard/trainer/reports/ | tail -5\necho \"---count---\"\ngit ls-files dashboard/trainer/reports/ | wc -l\necho \"---claude_toolcalls tracked?---\"\ngit ls-files d"
-  },
-  {
-    "date": "2026-07-20T18:13:43",
-    "type": "Bash",
-    "text": "mkdir -p /home/adamsl/letta-code/dashboard/trainer/reports"
-  },
-  {
-    "date": "2026-07-20T18:13:51",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && git diff --stat ../CLAUDE.md 2>/dev/null; git diff CLAUDE.md 2>/dev/null | head -40"
-  },
-  {
-    "date": "2026-07-20T18:13:59",
+    "date": "2026-07-21T01:01:30",
     "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/trainer/reports/20260720-180716_Window_Scanner_d1784570836.md\n\u2192 # Trainer Report \u2014 Window Scanner  - **Document**: `scan_1784570833771811625_6d1b4ba11c02.jpg` - **Scanner**: Window Scanner - **Dispatch**: 2026-07-20T18:07:16Z - **Facade result**: `doc_kind=unkno"
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/feedback_partial_commit_concurrent_agents_2026_07_20.md\n\u2192 --- name: feedback-partial-commit-concurrent-agents description: \"When asked to commit a fix in dashboard/ or letta-code, check whether the target file also carries unrelated in-progress changes from "
   },
   {
-    "date": "2026-07-20T18:14:08",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && git diff dashboard/server.py | grep -c \"^+\" \ngit diff dashboard/server.py | grep \"^+\" | grep -v \"route-detect\\|router-agent\\|router.classify\\|build_router_strategy\\|^+++\\"
+    "date": "2026-07-21T01:01:33",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   },
   {
-    "date": "2026-07-20T18:14:23",
+    "date": "2026-07-21T01:01:42",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && git diff dashboard/dashboard.html"
+    "text": "grep -n \"100.80.49.10\\|win10\" /home/adamsl/letta-code/dashboard/server.py | grep -i \"ssh\\|host\" | head -20"
   },
   {
-    "date": "2026-07-20T18:14:29",
+    "date": "2026-07-21T01:01:46",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && for f in dashboard/css/dashboard.css dashboard/voice/config.py dashboard/js/implementation/edge-tts-speech-synthesizer.js dashboard/tests/test_server.py dashboard/tests/t"
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"echo SSH_OK && ls ~/.claude/projects 2>/dev/null | head -20\" 2>&1"
   },
   {
-    "date": "2026-07-20T18:14:46",
+    "date": "2026-07-21T01:01:51",
     "type": "Bash",
-    "text": "bun test js/tests 2>&1 | tail -10\necho \"---pytest---\"\n.venv/bin/python -m pytest tests/ -q 2>&1 | tail -10"
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"ls ~/.claude/projects/-home-adamsl-letta-code-dashboard/ 2>/dev/null; echo ---; ls ~/.claude/projects/-home-adamsl-letta-code/memory 2>/dev/null"
+  },
+  {
+    "date": "2026-07-21T01:02:00",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"cat ~/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md 2>/dev/null | head -60\" 2>&1"
+  },
+  {
+    "date": "2026-07-21T01:02:06",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"cat ~/.claude/projects/-home-adamsl-letta-code/memory/recent_report_intake_metadata.md\" 2>&1"
+  },
+  {
+    "date": "2026-07-21T01:02:20",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"cat > ~/.claude/projects/-home-adamsl-letta-code/memory/recent_report_pointer_hijack_fix.md\" <<'REMOTE_EOF'\n---\nname: recent-report-pointer-hija"
+  },
+  {
+    "date": "2026-07-21T01:02:24",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"grep -n 'Recent Report intake metadata' ~/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md\" 2>&1"
+  },
+  {
+    "date": "2026-07-21T01:02:29",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"sed -i '40a - [Recent Report pointer hijack fix](recent_report_pointer_hijack_fix.md) \u2014 2026-07-20: record_stored_expense() moved the recent-r"
+  },
+  {
+    "date": "2026-07-21T01:02:34",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"grep -n 'if not rp:' -A3 /home/adamsl/letta-code/dashboard/server.py 2>/dev/null | head -10; echo '---check path exists---'; ls /home/adamsl/let"
+  },
+  {
+    "date": "2026-07-21T01:02:41",
+    "type": "Bash",
+    "text": "timeout 20 ssh -o ConnectTimeout=8 adamsl@100.80.49.10 \"hostname; systemctl --user is-active dashboard-server.service 2>&1; git -C /home/adamsl/letta-code status --short -- dashboard/server.py 2>&1 | "
+  },
+  {
+    "date": "2026-07-21T01:07:30",
+    "type": "Bash",
+    "text": "echo \"=== letta-code git status ===\" \ngit status --short\necho\necho \"=== letta-code remote ===\"\ngit remote -v\necho\necho \"=== rol_finances git status ===\"\ncd /home/adamsl/rol_finances && git status --sh"
+  },
+  {
+    "date": "2026-07-21T01:07:49",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\ngit status --short | grep -E \"chatgpt_oauth_provider|health_recorder|json_provider_health_recorder|provider_health|update_expense_category\""
+  },
+  {
+    "date": "2026-07-21T01:08:16",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code\ngit ls-files dashboard/trainer/reports/ | tail -5\necho \"---is claude_toolcalls.json normally tracked/committed?---\"\ngit log --oneline -3 -- dashboard/claude_toolcalls.json\ne"
+  },
+  {
+    "date": "2026-07-21T01:08:43",
+    "type": "Bash",
+    "text": "cd ~/server_tools\ngit status --short\ngit remote -v\ngit log --oneline -3"
+  },
+  {
+    "date": "2026-07-21T01:08:49",
+    "type": "Bash",
+    "text": "find ~/server_tools -maxdepth 1 -iname \"README*\" -o -iname \"*.md\" 2>/dev/null\nfind /home/adamsl -maxdepth 2 -iname \"*bootstrap*\" -o -iname \"*provision*\" 2>/dev/null | grep -v proc"
+  },
+  {
+    "date": "2026-07-21T01:09:05",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\ngit add \\\n  e_two_e_processing/row_sources/_pdf_utils.py \\\n  parsing_router/env_loader.py \\\n  tools/categorizer/categorizer_main.py \\\n  tools/categorizer/find_category/ant"
+  },
+  {
+    "date": "2026-07-21T01:09:20",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rol_finances\ngit commit -m \"$(cat <<'EOF'\nfix(categorizer): dual-account OAuth fallback + provider health alerting\n\nGemini CLI was missing/quota-exhausted on the executor for 3+ days\n("
+  },
+  {
+    "date": "2026-07-21T01:09:33",
+    "type": "Bash",
+    "text": "cd ~/server_tools\ngit add sync_moms_codex_token.sh\ngit commit -m \"$(cat <<'EOF'\nfeat: sync mom's Codex OAuth token as a fallback credential\n\nMirrors sync_claude_creds_to_frita.sh's pattern (freshness "
   }
 ]

@@ -2153,14 +2153,31 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'  {MAZDA_RF_VENV_PY} tools/categorizer/categorizer_main.py '
         f'-i /tmp/mazda_cat_input.json --provider=gemini\n'
         f'  → {{"vendor_key": "...", "category_id": <int>}}\n'
+        f'  If that command errors or times out (Gemini CLI/quota trouble), retry ONCE with '
+        f'--provider=chatgpt-oauth instead of --provider=gemini (same command otherwise) — '
+        f'it already tries your ChatGPT OAuth session, then mom\'s, before giving up, so this '
+        f'one retry is really two account attempts. If THAT also fails, retry once more with '
+        f'--provider=anthropic (uses an API key, not OAuth — there is no second account for '
+        f'this tier). Only fall through to the FAIL-CLOSED CATEGORY RULE below if all three '
+        f'providers fail or the vendor is genuinely unresolvable.\n'
         f'  FAIL-CLOSED CATEGORY RULE: merchant/vendor placeholders such as null, "null", '
         f'"unknown", or "receipt" are not real vendors. If merchant/vendor is unresolved '
         f'or category_id is null/zero, STILL run STEP 4 but OMIT --category-id entirely — '
         f'the store tool saves the receipt image and a NULL-category placeholder row '
         f'(expense_status=NEEDS_VENDOR_KEY) instead of failing closed, so a human can pick '
         f'the right vendor_key later via the dashboard instead of the scan being lost. '
-        f'Record and judge a truthful trace reflecting the unresolved category, propose an '
-        f'improvement, and send STEP 8 with stored:0 and status:"awaiting_vendor_review".\n\n'
+        f'Record and judge a truthful trace reflecting the unresolved category (set '
+        f'pending_vendor_review:true in the STEP 5 evidence — this is what tells the judge '
+        f'a null category is a correct degraded save, not a failure), propose an '
+        f'improvement, and send STEP 8 with stored:1 (the row WAS stored) and '
+        f'status:"awaiting_vendor_review". If you later find the real category for this '
+        f'expense (e.g. via categorizer_main.py or a vendor_category.yaml lookup), correct '
+        f'the stored row with '
+        f'{MAZDA_RF_VENV_PY} tools/receipt_scanning_tools/receipt_parsing_tools/'
+        f'update_expense_category.py --expense-id=<id> --category-id=<id> — NEVER hand-write '
+        f'SQL against the finance DB; /api/recategorize-expense is a different tool for a '
+        f'different (coarser, 13-value) reporting taxonomy and will reject a vendor_category.yaml '
+        f'category name.\n\n'
         f'STEP 4 — STORE (executor_run, cwd=/home/adamsl/rol_finances, '
         f'env={MAZDA_RF_ENV_JSON}). '
         f'Include --category-id=<id from step 3> when STEP 3 resolved a positive one; OMIT '
@@ -2204,6 +2221,10 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"itemization_child_ids": [<all child ids>], '
         f'"expense_status": "<NONE|WAITING_FOR_PAYMENT_COUNTERPART|COUNTERPART_DOCUMENT_LINKED, '
         f'from the store response, when doc_kind is invoice or when linked_counterpart was true>", '
+        f'"pending_vendor_review": <true when STEP 4 returned pending_vendor_review:true '
+        f'(a null/omitted --category-id), else false — REQUIRED whenever category_id is null; '
+        f'the judge treats a null category with pending_vendor_review unset as a real failure, '
+        f'not the correct degraded save the FAIL-CLOSED CATEGORY RULE describes>, '
         f'"problems": [<strings>]}}\n'
         f'  For a STATEMENT, record this evidence JSON INSTEAD (the judge routes it '
         f'to the statement rubric — the receipt fields above do not apply):\n'
@@ -4144,6 +4165,17 @@ SERVERS = [
                 '(all 3 tiers down) means process_scanned_document() refuses to dispatch '
                 'Mazda at all — see DOCUMENT_VISION_HALT_MESSAGE.',
     },
+    {
+        'key': 'mazda-categorizer-llm',
+        'name': 'LLM Provider Fallbacks (Categorizer)',
+        'check': 'mazda_categorizer_fallback_health',
+        'note': 'tools/categorizer/categorizer_main.py\'s vendor->category LLM chain '
+                '(gemini -> chatgpt-oauth [EG\'s account, then mom\'s] -> anthropic), '
+                'read from real call outcomes in ~/.mazda/provider_health.json — never '
+                'a synthetic probe. YELLOW = a fallback fired recently (still working, '
+                'worth a look). RED = every tracked tier failed on its last attempt. '
+                'Built 2026-07-20 after the gemini CLI broke silently for 3+ days.',
+    },
 ]
 
 # SSH connections this dashboard can reach for remote administration. Each
@@ -4715,6 +4747,7 @@ RESTART_HANDLERS = {
         'systemctl --user restart dashboard-proxy.service 2>&1 | tail -3 || '
         'echo "no dashboard-proxy.service — start mechanism unknown, please configure"'),
     'document-vision': restart_document_vision,
+    'mazda-categorizer-llm': lambda: restart_mazda_categorizer_llm(),
     'chatgpt-provider': restart_chatgpt_provider,  # swap provider row to standby token
 }
 RESTARTABLE_KEYS = set(RESTART_HANDLERS)
@@ -5255,6 +5288,99 @@ def document_vision_health(timeout=None):
     return {'ok': True, 'concern': n_up == 1, 'text': text}
 
 
+MAZDA_PROVIDER_HEALTH_PATH = os.path.expanduser('~/.mazda/provider_health.json')
+MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS = 24 * 3600
+
+
+def mazda_categorizer_fallback_health(timeout=None):
+    """Health of the vendor-CATEGORIZATION LLM chain (STEP 3 of receipt intake:
+    tools/categorizer/categorizer_main.py's gemini -> chatgpt-oauth (EG's
+    account, then mom's) -> anthropic tiers). Distinct from document_vision_health
+    above, which covers the earlier vision-CLASSIFICATION step and only checks
+    credential presence, not real call outcomes.
+
+    WHY THIS EXISTS: on 2026-07-20 the gemini CLI was missing/quota-exhausted
+    on the executor for 3+ days before anyone noticed — every receipt just
+    silently degraded to a null-category pending-review row, which looked like
+    normal operation everywhere except a pile of NEEDS_VENDOR_KEY rows nobody
+    was watching for. This reads tools/provider_health.py's event log (written
+    by every real production call, not a synthetic probe — never burns quota
+    just to monitor) so a provider going bad shows up here within one scan
+    instead of days later."""
+    try:
+        with open(MAZDA_PROVIDER_HEALTH_PATH) as f:
+            state = json.load(f)
+    except FileNotFoundError:
+        return {'ok': True, 'text': 'no categorizer LLM calls logged yet'}
+    except (OSError, json.JSONDecodeError) as e:
+        return {'ok': False, 'text': f'cannot read {MAZDA_PROVIDER_HEALTH_PATH}: {e}'}
+
+    now = time.time()
+    cutoff = now - MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS
+
+    recent_fallbacks = []
+    account_entries = {}
+    for key, entry in state.items():
+        if key.endswith(':_fallbacks'):
+            provider = key.rsplit(':', 1)[0]
+            for ev in entry.get('events', []):
+                if ev.get('time', 0) >= cutoff:
+                    recent_fallbacks.append((provider, ev))
+            continue
+        account_entries[key] = entry
+
+    if not account_entries:
+        return {'ok': True, 'text': 'no categorizer LLM calls logged yet'}
+
+    # "down" only when EVERY tracked provider:account's most recent event was
+    # a failure — i.e. every known tier (including mom's fallback account) has
+    # failed, not just one link in the chain that a later tier covered for.
+    most_recent_per_account = []
+    for key, entry in account_entries.items():
+        last_success = entry.get('last_success', 0)
+        last_failure = entry.get('last_failure', 0)
+        most_recent_per_account.append((key, last_success >= last_failure, entry))
+
+    all_last_failed = all(not ok for _, ok, _ in most_recent_per_account)
+
+    if all_last_failed:
+        details = '; '.join(
+            f'{key}: {classify_failure(entry.get("last_failure_detail", ""))[1]}'
+            for key, _, entry in most_recent_per_account
+        )
+        return {'ok': False, 'hard': True,
+                'text': f'ALL categorizer LLM tiers currently failing — {details}. '
+                        f'Receipts will degrade to null-category pending-review rows.'}
+
+    if recent_fallbacks:
+        summary = '; '.join(
+            f'{provider} {ev["from"]}->{ev["to"]} ({classify_failure(ev.get("error",""))[1]})'
+            for provider, ev in recent_fallbacks[-5:]
+        )
+        return {'ok': True, 'concern': True,
+                'text': f'{len(recent_fallbacks)} fallback(s) in last 24h: {summary}'}
+
+    return {'ok': True, 'text': f'{len(account_entries)} provider account(s) healthy on primary tier'}
+
+
+def restart_mazda_categorizer_llm():
+    """'Restart' for the LLM Provider Fallbacks tile: there's no service to
+    bounce (this reads an event log, not a running process). The one real
+    recovery action available here is re-pulling mom's cached Codex token
+    (sync_moms_codex_token.sh) in case it just needed a refresh — then
+    re-report current status. EG's own token/gemini quota/anthropic key have
+    no remote fix a dashboard button can perform."""
+    try:
+        r = subprocess.run(
+            [os.path.expanduser('~/server_tools/sync_moms_codex_token.sh')],
+            capture_output=True, text=True, timeout=30)
+        sync_note = (r.stdout or r.stderr or '').strip()[:200]
+    except Exception as exc:
+        sync_note = f'sync script error: {exc}'
+    health = mazda_categorizer_fallback_health()
+    return {'ok': health['ok'], 'text': f'Re-synced mom\'s Codex token ({sync_note}). {health["text"]}'}
+
+
 DOCUMENT_VISION_HALT_MESSAGE = (
     'Scan NOT dispatched to Mazda: all document-vision tiers are down '
     '(Gemini key, ChatGPT-OAuth/Codex CLI, and OpenAI key all unavailable) — '
@@ -5269,6 +5395,7 @@ HEALTH_CHECKS = {
     'win10_node_health': win10_node_health,
     'document_vision_health': document_vision_health,
     'chatgpt_provider_health': chatgpt_provider_health,
+    'mazda_categorizer_fallback_health': mazda_categorizer_fallback_health,
 }
 
 
