@@ -3731,46 +3731,6 @@ def test_persisted_content_fingerprint_prevents_restart_redispatch(
     assert server._claim_scan_dispatch('window', scan, digest) is False
 
 
-def test_archive_scan_permanently_creates_dated_copy(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, 'SCAN_ARCHIVE_ROOT', str(tmp_path / 'archive'))
-    monkeypatch.setattr(server, 'SCAN_ARCHIVE_INDEX_PATH',
-                         str(tmp_path / 'archive' / 'index.json'))
-    scan = tmp_path / 'scan.jpg'
-    scan.write_bytes(b'a physical receipt, digitized')
-
-    info = server.archive_scan_permanently(str(scan), 'Window Scanner',
-                                            dispatched_at=1784000000.0)
-
-    assert info['already_seen_before'] is False
-    archive_path = info['archive_path']
-    assert archive_path and os.path.isfile(archive_path)
-    assert archive_path != str(scan)
-    with open(archive_path, 'rb') as f:
-        assert f.read() == b'a physical receipt, digitized'
-
-
-def test_archive_scan_permanently_detects_rescan_of_same_paper(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, 'SCAN_ARCHIVE_ROOT', str(tmp_path / 'archive'))
-    monkeypatch.setattr(server, 'SCAN_ARCHIVE_INDEX_PATH',
-                         str(tmp_path / 'archive' / 'index.json'))
-    scan = tmp_path / 'scan.jpg'
-    scan.write_bytes(b'same paper scanned twice')
-
-    first = server.archive_scan_permanently(str(scan), 'Window Scanner',
-                                             dispatched_at=1784000000.0)
-    # Simulate the scanner output file being reused for a later scan of the
-    # SAME physical paper (byte-identical content).
-    second = server.archive_scan_permanently(str(scan), 'Window Scanner',
-                                              dispatched_at=1784000500.0)
-
-    assert first['already_seen_before'] is False
-    assert second['already_seen_before'] is True
-    assert second['archive_path'] == first['archive_path']
-    index = server._read_scan_archive_index()
-    content_sha256 = server._scan_content_sha256(str(scan))
-    assert index[content_sha256]['rescan_count'] == 2
-
-
 def test_merge_recent_intake_event_folds_ids_and_counts(tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')

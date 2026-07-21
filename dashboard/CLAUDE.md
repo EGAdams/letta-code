@@ -348,23 +348,6 @@ Three load-bearing details:
    `task_name="document-intake"`, and STEP 6 judges every run (`judge_trace`), feeding the
    autonomous self-improvement loop. The judge (the intake rubric in
    `rol_finances/tools/self_improving_agent`) is served by this box's `mazda-tools-mcp.service`
-
-### Permanent scan archive (independent of Mazda)
-
-`archive_scan_permanently()` (`server.py`) copies every raw scan into
-`~/rol_finances/readable_documents/scanned_documents_archive/<YYYY>/<MM>/` (override via
-`SCAN_ARCHIVE_ROOT`) BEFORE Mazda is even dispatched, keyed by content SHA-256 in
-`scanned_documents_archive/index.json` (`{archive_path, scanner, first_archived_at,
-last_seen_at, rescan_count}`). This is deliberately dashboard-side, not part of Mazda's tool
-contract: DB duplicate-detection only proves a **transaction** was already recorded, not that
-the physical **paper** was already digitized, and archival must not depend on a cheap model
-remembering to do it every time. `already_seen_before=True` means this exact image's bytes were
-archived on an earlier scan (a genuine re-scan of the same paper, e.g. an accidental double-feed
-— not just a matching transaction). `process_scanned_document`'s result and the
-`recent_report.json` intake record both carry `archive_path`/`already_seen_before` so the
-dashboard can show it. This answers "was this document already scanned?" and is what makes it
-safe to retire the physical paper to long-term storage (IRS retention only requires a legible
-copy, not the original). Tests: `tests/test_server.py -k archive`.
    (`http://10.0.0.7:8791/sse`) — restart it after a rubric/tool change. The message and the
    evidence model share a field contract pinned by
    `test_scan_message_instructs_structured_intake_evidence`.

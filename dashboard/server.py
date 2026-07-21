@@ -436,8 +436,7 @@ def set_recent_report_pointer(report_path):
 
 def record_recent_intake(image_path, label, kind='scan', facade=None,
                          conversation_id=None, dispatched_at=None,
-                         content_sha256=None, archive_path=None,
-                         already_seen_before=False):
+                         content_sha256=None):
     """Record an intake dispatch (scan or PDF) the moment Mazda is notified,
     so /recent_report.html can show the document even before — or without —
     any report.html existing for it. Called from process_scanned_document /
@@ -465,8 +464,6 @@ def record_recent_intake(image_path, label, kind='scan', facade=None,
             'vendor': facade.get('vendor'),
             'conversation_id': conversation_id,
             'content_sha256': content_sha256 or '',
-            'archive_path': archive_path or '',
-            'already_seen_before': bool(already_seen_before),
             'status': 'processing',
             'status_detail': '',
         }
@@ -2346,93 +2343,6 @@ def _stage_scan_for_mazda(local_image_path):
     return staged_path
 
 
-# ── Permanent scan archive ────────────────────────────────────────────────
-# Why this exists (2026-07-21): DB duplicate-detection only answers "was this
-# TRANSACTION already recorded" — it says nothing about whether the physical
-# PAPER in hand has already been digitized. The whole point of scanning is to
-# stop treating originals as the record of truth so they can go in the attic
-# for IRS retention instead of a filing cabinet. That requires a durable,
-# indexed copy of every scan — independent of whatever Mazda decides to do
-# with it (store / duplicate / fail) — so this lives in the dashboard, not in
-# Mazda's tool contract: it must not depend on the cheap model remembering to
-# do it. incoming_scans/ already keeps a uniquely-named copy of every scan,
-# but it is a staging directory for the executor (undocumented as an archive,
-# no human-facing index) — this gives EG an actual "was this already
-# scanned?" answer and a permanent, organized location.
-SCAN_ARCHIVE_ROOT = os.environ.get(
-    'SCAN_ARCHIVE_ROOT',
-    os.path.expanduser('~/rol_finances/readable_documents/scanned_documents_archive'))
-SCAN_ARCHIVE_INDEX_PATH = os.path.join(SCAN_ARCHIVE_ROOT, 'index.json')
-_scan_archive_lock = threading.Lock()
-
-
-def _read_scan_archive_index():
-    try:
-        with open(SCAN_ARCHIVE_INDEX_PATH, 'r') as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def _write_scan_archive_index(data):
-    os.makedirs(SCAN_ARCHIVE_ROOT, exist_ok=True)
-    tmp_path = SCAN_ARCHIVE_INDEX_PATH + '.tmp'
-    with open(tmp_path, 'w') as f:
-        json.dump(data, f, indent=2, sort_keys=True)
-    os.replace(tmp_path, SCAN_ARCHIVE_INDEX_PATH)
-
-
-def archive_scan_permanently(local_image_path, scanner_label, content_sha256=None,
-                              dispatched_at=None):
-    """Copy a raw scan into a permanent, human-browsable, indexed archive.
-
-    Runs unconditionally on every scan dispatch, before Mazda is even
-    notified — archival must never depend on her pipeline succeeding, finding
-    a duplicate, or running at all. Returns a dict with `archive_path` (None
-    on failure — caller must not treat archival failure as fatal to intake)
-    and `already_seen_before` (True when this exact image's content hash was
-    archived on an earlier scan — a genuine re-scan of the same paper, not
-    merely the same transaction).
-    """
-    dispatched_at = dispatched_at if dispatched_at is not None else time.time()
-    content_sha256 = content_sha256 or _scan_content_sha256(local_image_path)
-    if not content_sha256:
-        return {'archive_path': None, 'already_seen_before': False}
-    with _scan_archive_lock:
-        index = _read_scan_archive_index()
-        existing = index.get(content_sha256)
-        if existing and os.path.isfile(existing.get('archive_path', '')):
-            existing['rescan_count'] = int(existing.get('rescan_count', 1)) + 1
-            existing['last_seen_at'] = dispatched_at
-            index[content_sha256] = existing
-            _write_scan_archive_index(index)
-            return {'archive_path': existing['archive_path'],
-                     'already_seen_before': True,
-                     'first_archived_at': existing.get('first_archived_at')}
-        dt = datetime.fromtimestamp(dispatched_at)
-        dest_dir = os.path.join(SCAN_ARCHIVE_ROOT, dt.strftime('%Y'), dt.strftime('%m'))
-        slug = re.sub(r'[^A-Za-z0-9]+', '-', scanner_label or 'scan').strip('-').lower()
-        ext = os.path.splitext(local_image_path)[1] or '.jpg'
-        dest_name = f'{dt.strftime("%Y%m%d-%H%M%S")}_{slug}_{content_sha256[:12]}{ext}'
-        dest_path = os.path.join(dest_dir, dest_name)
-        try:
-            os.makedirs(dest_dir, exist_ok=True)
-            shutil.copyfile(local_image_path, dest_path)
-        except OSError as exc:
-            print(f'[scan-archive] Failed to archive scan permanently: {exc}')
-            return {'archive_path': None, 'already_seen_before': False}
-        index[content_sha256] = {
-            'archive_path': dest_path,
-            'scanner': scanner_label,
-            'first_archived_at': dispatched_at,
-            'last_seen_at': dispatched_at,
-            'rescan_count': 1,
-        }
-        _write_scan_archive_index(index)
-        return {'archive_path': dest_path, 'already_seen_before': False}
-
-
 def _create_mazda_conversation():
     """Create one isolated Letta conversation for one intake dispatch.
 
@@ -2825,7 +2735,6 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
     mazda_dispatched = False
     trainer_dispatched = False
     stage_error = None
-    archive_info = None
     vision_health = document_vision_health()
     if not vision_health.get('ok'):
         # All 3 classify_scan.py vision tiers are down — dispatching Mazda would
@@ -2853,15 +2762,6 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
             result['scanner'] = key
             result['image_path'] = image_path
             return result
-        # Archive BEFORE staging/dispatch, and unconditionally — a permanent
-        # copy of the paper must exist even if Mazda's dispatch fails below.
-        archive_info = archive_scan_permanently(
-            image_path, cfg.get('name', key), content_sha256=content_sha256)
-        if archive_info.get('already_seen_before'):
-            print(f'[scan-archive] {key}: this exact document was already '
-                  f'archived on an earlier scan '
-                  f'(first archived {archive_info.get("first_archived_at")}) — '
-                  f'a genuine re-scan of the same paper.')
         remote_image_path = _stage_scan_for_mazda(image_path)
         if remote_image_path:
             conversation_id = _create_mazda_conversation()
@@ -2881,9 +2781,7 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
                     remote_image_path, cfg.get('name', key), kind='scan',
                     facade=facade, conversation_id=conversation_id,
                     dispatched_at=dispatched_at,
-                    content_sha256=content_sha256,
-                    archive_path=archive_info.get('archive_path'),
-                    already_seen_before=archive_info.get('already_seen_before', False))
+                    content_sha256=content_sha256)
             else:
                 _release_scan_dispatch(key, image_path)
                 stage_error = ('Could not create an isolated Mazda conversation; '
@@ -2900,9 +2798,6 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
         result['stage_error'] = stage_error
     result['scanner'] = key
     result['image_path'] = image_path
-    if archive_info:
-        result['archive_path'] = archive_info.get('archive_path')
-        result['already_seen_before'] = archive_info.get('already_seen_before', False)
     return result
 
 

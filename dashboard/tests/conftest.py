@@ -26,12 +26,6 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
       clear it so tests never inherit a claim from an earlier test.
     - _create_mazda_conversation: intake tests must not create live Letta
       conversations unless they explicitly replace this stub.
-    - SCAN_ARCHIVE_ROOT/SCAN_ARCHIVE_INDEX_PATH: archive_scan_permanently()
-      runs unconditionally inside process_scanned_document; without isolation
-      a pytest run writes real files + index entries into the LIVE permanent
-      scan archive under ~/rol_finances (found 2026-07-21 during the archive
-      feature's own test run — three tiny test-fixture files landed in the
-      real archive directory).
     """
     import server
     monkeypatch.setattr(
@@ -40,9 +34,6 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
     monkeypatch.setattr(server, 'TRAINER_ENABLED', False)
     monkeypatch.setattr(server, '_create_mazda_conversation',
                         lambda: 'conv-test-isolated')
-    monkeypatch.setattr(server, 'SCAN_ARCHIVE_ROOT', str(tmp_path / 'scan_archive'))
-    monkeypatch.setattr(server, 'SCAN_ARCHIVE_INDEX_PATH',
-                        str(tmp_path / 'scan_archive' / 'index.json'))
     server._scan_dispatch_claims.clear()
     yield
     server._scan_dispatch_claims.clear()
