@@ -2938,11 +2938,15 @@ def record_stored_expense(data):
         # Fold ids/counts into the last intake record so the synthetic recent
         # view can list this run's transactions.
         merge_recent_intake_event(event)
+        # Only move the recent-report pointer when the event itself names its
+        # source report (a real reprocess of that report's document) — NOT
+        # when a report is merely found via date/amount coincidence. A
+        # coincidental match (e.g. a scanned receipt whose expense happens to
+        # land on the same date/amount as some row in an unrelated bank
+        # statement) must never hijack "most recent" away from the actual
+        # intake, or /recent_report.html shows that statement's full
+        # transaction table instead of the scan's own 1-row view.
         rp = event['report_path']
-        if not rp:
-            match = _find_matching_report_row(
-                event['expense_date'], event['amount'], event['vendor_key'])
-            rp = match['report_path'] if match else ''
         if rp:
             set_recent_report_pointer(rp)
     except Exception as exc:

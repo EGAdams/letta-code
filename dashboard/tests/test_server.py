@@ -3546,20 +3546,25 @@ def test_record_stored_expense_updates_recent_report_pointer(
     assert server._load_recent_report_pointer()['report_path'] == url
 
 
-def test_record_stored_expense_matches_report_when_no_report_path(
+def test_record_stored_expense_does_not_hijack_pointer_on_coincidental_match(
         tmp_path, monkeypatch):
+    # A stored expense whose (date, amount) happens to also match a row in
+    # some unrelated existing report must NOT move the recent-report pointer
+    # there — only an event that explicitly names its own report_path should.
+    # Otherwise a scanned receipt's dispatch (which is genuinely the most
+    # recent thing processed) gets shadowed by that unrelated report's full
+    # transaction table. See dashboard_recent_report_pointer_hijack fix.
     parent = _recent_report_env(tmp_path, monkeypatch)
-    # Give doc_a a Verified-Transactions row matching the stored expense.
     (parent / 'january' / 'doc_a' / 'report.html').write_text(
         '<html><head></head><body><table><tr data-vendor-key="kum_go">'
         '<td>2025-01-05</td><td>Kum & Go</td><td>12.34</td></tr>'
         '</table></body></html>')
+    assert server._load_recent_report_pointer() is None
     server.record_stored_expense({
         'kind': 'receipt', 'expense_id': 8, 'expense_date': '2025-01-05',
         'amount': '12.34', 'vendor_key': 'kum_go',
     })
-    ptr = server._load_recent_report_pointer()
-    assert ptr['report_path'] == '/rol_finances_reports/jan-2025/doc_a/report.html'
+    assert server._load_recent_report_pointer() is None
 
 
 def test_resolve_report_path_alias_translates_recent_report(tmp_path, monkeypatch):
