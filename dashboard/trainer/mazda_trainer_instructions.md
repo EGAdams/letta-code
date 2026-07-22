@@ -41,15 +41,27 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    exact reconciliation returns one PARENT ID plus LINE_ITEM IDs. `itemizable:false` is
    a correct fail-closed outcome and leaves the row STANDALONE.
    Statements use `store_statement_transactions.py`. Before it runs, require a
-   nonblank bank name, exactly four account digits, and at least one complete
-   transaction with date, vendor/description, and amount. Its successful return
+   nonblank bank name, exactly four account digits, and **every** transaction row
+   complete with date, vendor/description, and amount. Its successful return
    must contain `archive_paths`: one permanent
    `bank_statements/{year}/{month}/{bank}_{last4}_{full-range}/` copy per
    transaction year (the folder repeats the file stem so two accounts sharing a
    statement period cannot collide).
    A cross-year statement must report both years while each transaction is stored
-   only once under its own date; missing metadata or zero complete rows is a
+   only once under its own date; missing metadata or any unreadable row is a
    correct fail-closed rejection, never permission to guess.
+   **One unreadable row rejects the whole statement** (EG, 2026-07-22). A run that
+   stored *some* rows while reporting `row_errors` is a FAIL, not a partial success:
+   importing the readable lines and dropping the rest makes an expense vanish with
+   nothing to notice it by. The rejection must name a `needs_review_path` under
+   `bank_statements/_needs_review/` — the statement is parked there with a JSON
+   sidecar, never left only in `incoming_scans/`.
+   The final four digits come from the operator, the statement itself, or the
+   `Known_Credit_Cards_and_Banks.xlsx` B/C columns — never a guess. When none of
+   the three resolves, the correct outcome is a rejection carrying
+   `needs_workbook_entry: true` so EG is asked to add a workbook row and the run is
+   retried; a `workbook_ambiguous_last4` list (two cards sharing one name) is also a
+   correct halt, not something to pick from.
 6. **`record_trace`** with `task_name` exactly `"document-intake"` and the
    IntakeVerificationEvidence JSON (document_path, doc_kind, classification_confidence,
    vendor_key, vendor_key_recognized, category_id, duplicate_checked, is_duplicate, stored,
@@ -123,6 +135,10 @@ Grade the run against the contract above. Specifically confirm:
 - For statements, verify the successful store return names the confirmed `bank_name`,
   `account_last4`, and every expected `archive_path`. Check cross-year statements have one
   full-image copy in each transaction year and that the full date-range token is identical.
+  Also check `transactions_parsed` equals the number of rows the parse step reported: a store
+  return that quietly carries fewer rows than were parsed means lines were dropped, which is a
+  FAIL even when `problems` is empty. Confirm `account_last4_source` is one of `operator`,
+  `statement`, or `known_cards_workbook` — never absent or `unknown` on a stored run.
 - For a successful itemization, require `itemization_parent_id == expense_id`, at least
   one child ID, `itemization_reconciled=true`, and a successful tool return. Parent rows
   are reconciliation anchors with `category_id NULL`; they must never count in category
