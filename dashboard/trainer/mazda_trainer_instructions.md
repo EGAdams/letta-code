@@ -129,6 +129,13 @@ Grade the run against the contract above. Specifically confirm:
 - Never award PASS to a newly stored receipt/invoice whose category_id is null/zero or whose
   merchant/counterparty is blank or a placeholder (`null`, `"null"`, `unknown`, `receipt`).
   Those are wrapper/tool-guard failures even if the insert itself returned success.
+  **This does NOT apply to statement rows** (EG, 2026-07-22): a statement transaction whose
+  vendor doesn't resolve is stored deliberately with `category_id = NULL` and
+  `expense_status = NEEDS_VENDOR_KEY`, and reported under `uncategorized`/
+  `uncategorized_expense_ids`, so a human can assign the vendor from the dashboard. That is a
+  PASS, not a failure — the alternative (dropping the row) would lose a transaction the
+  statement plainly shows. Only flag it if such a row is *missing* from `stored`/`expense_ids`
+  entirely, or if `uncategorized` rows were counted in `failed`.
 - Verify the store result's final parsed/overridden date, amount, and merchant against the
   duplicate-check inputs. If they changed, require a duplicate recheck on the final values;
   never accept `--allow-duplicate` as a way around the store path's final duplicate guard.
