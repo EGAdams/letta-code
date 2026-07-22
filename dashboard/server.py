@@ -1641,24 +1641,34 @@ _WINDOWS_POWERSHELL = (
 # own LEDM web service is the honest source of device state, and WSL can reach it
 # directly over the LAN — no Windows interop needed.
 DESKJET_STATUS_URL = f'http://{DESKJET_PRINTER_IP}/DevMgmt/ProductStatusDyn.xml'
-# LEDM status categories that mean "nothing will come out of this printer until a
-# human does something", mapped to what that human should actually do. Anything
-# not listed here (ready, genuineHP ink nags, low-ink warnings) is not blocking.
+# This button lives on the *scanner* dialogs, so device conditions are split by
+# what they actually stop. Paper and ink stop printing only — the scanner glass
+# does not care that the tray is empty, and failing the repair over an empty tray
+# would be just as misleading as the false "Printer fixed." it replaced.
 DESKJET_BLOCKING_STATUS = {
-    'trayempty': 'The printer is out of paper. Load paper in the tray, then print again.',
-    'outofpaper': 'The printer is out of paper. Load paper in the tray, then print again.',
-    'inputtrayempty': 'The printer is out of paper. Load paper in the tray, then print again.',
-    'jamincorrectpage': 'There is a paper jam. Clear the jammed paper, then print again.',
-    'jaminprinter': 'There is a paper jam. Clear the jammed paper, then print again.',
-    'mediajam': 'There is a paper jam. Clear the jammed paper, then print again.',
-    'dooropen': 'A door or cover is open. Close it, then print again.',
-    'coveropen': 'A door or cover is open. Close it, then print again.',
-    'cartridgemissing': 'An ink cartridge is missing. Reseat both cartridges, then print again.',
-    'inkempty': 'An ink cartridge is empty. Replace it, then print again.',
-    'suppliesempty': 'An ink cartridge is empty. Replace it, then print again.',
-    'shuttingdown': 'The printer is shutting down. Turn it back on, then print again.',
-    'poweringdown': 'The printer is shutting down. Turn it back on, then print again.',
-    'offline': 'The printer is offline. Turn it on and reconnect it to Wi-Fi, then print again.',
+    # Mechanical/power states that take the whole device — scanner included — down.
+    # An open ink door is the known cause of a Freezer scan wedged at "busy"
+    # (see the scanner gotchas in dashboard/CLAUDE.md).
+    'dooropen': 'A door or cover is open on the printer. Close it, then try again.',
+    'coveropen': 'A door or cover is open on the printer. Close it, then try again.',
+    'jamincorrectpage': 'There is a paper jam. Clear the jammed paper, then try again.',
+    'jaminprinter': 'There is a paper jam. Clear the jammed paper, then try again.',
+    'mediajam': 'There is a paper jam. Clear the jammed paper, then try again.',
+    'scannererror': 'The scanner reported a hardware error. Power-cycle the printer, then try again.',
+    'scanprocessingerror': 'The scanner reported a hardware error. Power-cycle the printer, then try again.',
+    'shuttingdown': 'The printer is shutting down. Turn it back on, then try again.',
+    'poweringdown': 'The printer is shutting down. Turn it back on, then try again.',
+    'offline': 'The printer is offline. Turn it on and reconnect it to Wi-Fi, then try again.',
+}
+# Print-only conditions. Worth surfacing so nobody wonders why a print job never
+# came out, but they never fail the repair — scanning works fine without paper.
+DESKJET_PRINT_ONLY_STATUS = {
+    'trayempty': 'it is out of paper (printing only — scanning works without paper)',
+    'outofpaper': 'it is out of paper (printing only — scanning works without paper)',
+    'inputtrayempty': 'it is out of paper (printing only — scanning works without paper)',
+    'cartridgemissing': 'an ink cartridge is missing (printing only)',
+    'inkempty': 'an ink cartridge is empty (printing only)',
+    'suppliesempty': 'an ink cartridge is empty (printing only)',
 }
 
 
@@ -1670,20 +1680,23 @@ def _xml_localname(tag):
 def read_deskjet_device_status(opener=urllib.request.urlopen):
     """Ask the DeskJet itself what state it is in.
 
-    Returns `{'reachable': bool, 'categories': [str], 'blocker': str|None}`.
+    Returns `{'reachable', 'categories', 'blocker', 'note'}` — `blocker` is a
+    condition that stops the device outright (scanning included), `note` is a
+    print-only condition worth mentioning but never worth failing over.
     `opener` is injected so tests never touch the LAN. An unreachable or
     unparseable device is reported as `reachable: False` with no blocker — the
     port repair is still worth reporting, we just can't vouch for the hardware.
     """
+    unknown = {'reachable': False, 'categories': [], 'blocker': None, 'note': None}
     try:
         with opener(DESKJET_STATUS_URL, timeout=8) as resp:
             payload = resp.read()
     except Exception:  # noqa: BLE001 — any failure here is just "can't tell"
-        return {'reachable': False, 'categories': [], 'blocker': None}
+        return unknown
     try:
         root = ElementTree.fromstring(payload)
     except ElementTree.ParseError:
-        return {'reachable': False, 'categories': [], 'blocker': None}
+        return unknown
 
     categories = [
         (node.text or '').strip()
@@ -1691,12 +1704,19 @@ def read_deskjet_device_status(opener=urllib.request.urlopen):
         if _xml_localname(node.tag) == 'StatusCategory' and node.text
     ]
     blocker = None
+    note = None
     for category in categories:
-        message = DESKJET_BLOCKING_STATUS.get(category.lower())
-        if message:
-            blocker = message
-            break
-    return {'reachable': True, 'categories': categories, 'blocker': blocker}
+        key = category.lower()
+        if blocker is None:
+            blocker = DESKJET_BLOCKING_STATUS.get(key)
+        if note is None:
+            note = DESKJET_PRINT_ONLY_STATUS.get(key)
+    return {
+        'reachable': True,
+        'categories': categories,
+        'blocker': blocker,
+        'note': note,
+    }
 
 
 def fix_deskjet_printer(runner=subprocess.run, device_status=None):
@@ -1710,8 +1730,9 @@ def fix_deskjet_printer(runner=subprocess.run, device_status=None):
     The queue repair alone is not enough to claim success: it only proves
     Windows can *talk* to the printer. Before reporting "fixed" we ask the
     printer itself (`device_status`) whether anything on the hardware is
-    blocking, so an out-of-paper or jammed DeskJet is named instead of hidden
-    behind Windows' permanently-"Normal" PrinterStatus.
+    blocking, so a jammed or open DeskJet is named instead of hidden behind
+    Windows' permanently-"Normal" PrinterStatus. Paper and ink are reported as
+    a note, never a failure — this button sits on the scanner dialogs.
     """
     check_device = device_status or read_deskjet_device_status
     interop = _wsl_interop_socket()
@@ -1787,8 +1808,8 @@ $printer = Get-Printer -Name $printerName
     device = check_device()
     blocker = device.get('blocker')
     if ok and blocker:
-        # The Windows side is healthy; the printer is not. Say the thing the
-        # user can act on — never "Printer fixed." while paper is missing.
+        # The Windows side is healthy; the device is not. Say the thing the user
+        # can act on — never "Printer fixed." over an open door or a jam.
         return {
             'ok': False,
             'text': f'Windows is connected to the printer, but {blocker[0].lower()}{blocker[1:]}',
@@ -1801,16 +1822,26 @@ $printer = Get-Printer -Name $printerName
             'ok': False,
             'text': ('The Windows queue was repaired, but the printer did not '
                      'answer when asked how it is doing. Check that it is on '
-                     'and connected to Wi-Fi, then print a test page.'),
+                     'and connected to Wi-Fi, then try again.'),
             'status': status,
             'port': port,
             'device_status': [],
         }
+    if ok:
+        note = device.get('note')
+        text = 'Printer fixed — the printer reports it is ready.'
+        if note:
+            text = f'Printer fixed — the printer is ready to scan. Note: {note}.'
+        return {
+            'ok': True,
+            'text': f'{text} Windows status: {status}.',
+            'status': status,
+            'port': port,
+            'device_status': device.get('categories'),
+        }
     return {
-        'ok': ok,
-        'text': (f'Printer fixed — the printer reports it is ready. '
-                 f'Windows status: {status}.' if ok else
-                 f'The port was repaired, but Windows status is still {status}.'),
+        'ok': False,
+        'text': f'The port was repaired, but Windows status is still {status}.',
         'status': status,
         'port': port,
         'device_status': device.get('categories'),

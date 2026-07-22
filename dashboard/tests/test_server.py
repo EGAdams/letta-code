@@ -52,7 +52,7 @@ class _FakeResponse:
 
 
 def _ready_device():
-    return {'reachable': True, 'categories': ['ready'], 'blocker': None}
+    return {'reachable': True, 'categories': ['ready'], 'blocker': None, 'note': None}
 
 
 def test_fix_deskjet_printer_uses_the_working_ipv4_port(monkeypatch):
@@ -87,18 +87,20 @@ def test_fix_deskjet_printer_explains_missing_windows_interop(monkeypatch):
     monkeypatch.setattr(server, '_wsl_interop_socket', lambda: None)
 
     result = server.fix_deskjet_printer(
-        device_status=lambda: {'reachable': False, 'categories': [], 'blocker': None})
+        device_status=lambda: {
+            'reachable': False, 'categories': [], 'blocker': None, 'note': None})
 
     assert result['ok'] is False
     assert 'Open a WSL window' in result['text']
 
 
-def test_fix_deskjet_printer_reports_out_of_paper_instead_of_success(monkeypatch):
-    """The bug this guards: Windows says Normal, the printer is out of paper.
+def test_fix_deskjet_printer_treats_an_empty_paper_tray_as_a_note_not_a_failure(monkeypatch):
+    """These buttons live on the *scanner* dialogs — scanning needs no paper.
 
-    Windows can only report the queue, and this queue's RAW port has SNMP off,
-    so PrinterStatus is permanently 'Normal'. Reporting that as "Printer fixed"
-    sent the user back to a printer that still would not print.
+    Windows reports this queue as permanently 'Normal' (SNMP is off on its RAW
+    port), so the device's own report is the only honest source. But an empty
+    tray only stops printing; failing the repair over it would be as misleading
+    as the false "Printer fixed." it replaced.
     """
     monkeypatch.setattr(server, '_wsl_interop_socket', lambda: '/run/WSL/test_interop')
 
@@ -108,12 +110,33 @@ def test_fix_deskjet_printer_reports_out_of_paper_instead_of_success(monkeypatch
         device_status=lambda: {
             'reachable': True,
             'categories': ['trayEmpty', 'ready'],
-            'blocker': 'The printer is out of paper. Load paper in the tray, then print again.',
+            'blocker': None,
+            'note': 'it is out of paper (printing only — scanning works without paper)',
+        },
+    )
+
+    assert result['ok'] is True
+    assert 'ready to scan' in result['text']
+    assert 'out of paper' in result['text']
+
+
+def test_fix_deskjet_printer_fails_on_a_condition_that_stops_scanning(monkeypatch):
+    """An open ink door is the known cause of a Freezer scan wedged at "busy"."""
+    monkeypatch.setattr(server, '_wsl_interop_socket', lambda: '/run/WSL/test_interop')
+
+    result = server.fix_deskjet_printer(
+        runner=lambda command, **kwargs: _CompletedProcess(
+            stdout='{"ok":true,"status":"Normal","port":"IP_10.0.0.243"}\n'),
+        device_status=lambda: {
+            'reachable': True,
+            'categories': ['doorOpen'],
+            'blocker': 'A door or cover is open on the printer. Close it, then try again.',
+            'note': None,
         },
     )
 
     assert result['ok'] is False
-    assert 'out of paper' in result['text']
+    assert 'door or cover is open' in result['text']
     assert 'fixed' not in result['text'].lower()
 
 
@@ -123,7 +146,8 @@ def test_fix_deskjet_printer_does_not_claim_success_when_the_device_is_silent(mo
     result = server.fix_deskjet_printer(
         runner=lambda command, **kwargs: _CompletedProcess(
             stdout='{"ok":true,"status":"Normal","port":"IP_10.0.0.243"}\n'),
-        device_status=lambda: {'reachable': False, 'categories': [], 'blocker': None},
+        device_status=lambda: {
+            'reachable': False, 'categories': [], 'blocker': None, 'note': None},
     )
 
     assert result['ok'] is False
@@ -136,30 +160,45 @@ def test_fix_deskjet_printer_names_the_blocker_without_windows_access(monkeypatc
     result = server.fix_deskjet_printer(
         device_status=lambda: {
             'reachable': True,
-            'categories': ['trayEmpty'],
-            'blocker': 'The printer is out of paper. Load paper in the tray, then print again.',
+            'categories': ['doorOpen'],
+            'blocker': 'A door or cover is open on the printer. Close it, then try again.',
+            'note': None,
         })
 
     assert result == {
         'ok': False,
-        'text': 'The printer is out of paper. Load paper in the tray, then print again.',
+        'text': 'A door or cover is open on the printer. Close it, then try again.',
     }
 
 
-def test_read_deskjet_device_status_parses_the_printers_own_report():
+def test_read_deskjet_device_status_separates_print_only_from_blocking():
     status = server.read_deskjet_device_status(
         opener=lambda url, timeout=None: _FakeResponse(_ledm_status('trayEmpty', 'ready')))
 
     assert status['reachable'] is True
     assert status['categories'] == ['trayEmpty', 'ready']
-    assert 'out of paper' in status['blocker']
+    assert status['blocker'] is None            # paper never blocks scanning
+    assert 'out of paper' in status['note']
+
+
+def test_read_deskjet_device_status_flags_a_device_wide_blocker():
+    status = server.read_deskjet_device_status(
+        opener=lambda url, timeout=None: _FakeResponse(_ledm_status('doorOpen')))
+
+    assert 'door or cover is open' in status['blocker']
+    assert status['note'] is None
 
 
 def test_read_deskjet_device_status_ignores_non_blocking_categories():
     status = server.read_deskjet_device_status(
-        opener=lambda url, timeout=None: _FakeResponse(_ledm_status('ready')))
+        opener=lambda url, timeout=None: _FakeResponse(_ledm_status('ready', 'inPowerSave')))
 
-    assert status == {'reachable': True, 'categories': ['ready'], 'blocker': None}
+    assert status == {
+        'reachable': True,
+        'categories': ['ready', 'inPowerSave'],
+        'blocker': None,
+        'note': None,
+    }
 
 
 def test_read_deskjet_device_status_survives_an_unreachable_printer():
@@ -167,7 +206,7 @@ def test_read_deskjet_device_status_survives_an_unreachable_printer():
         raise OSError('no route to host')
 
     assert server.read_deskjet_device_status(opener=boom) == {
-        'reachable': False, 'categories': [], 'blocker': None,
+        'reachable': False, 'categories': [], 'blocker': None, 'note': None,
     }
 
 
