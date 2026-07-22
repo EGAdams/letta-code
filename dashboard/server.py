@@ -25,6 +25,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 from voice.pipeline import build_pipeline, handle_voice_upload
+import statement_review
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
 LETTA_CODE_BUN = os.environ.get(
@@ -7866,6 +7867,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 since_ts = 0.0
             return self.json_response(get_stored_expense_events(since_ts))
 
+        # Statements quarantined in bank_statements/_needs_review/ — the Scanner
+        # screen polls this and pops a dialog for each one.
+        if path == '/api/statement-reviews':
+            return self.json_response({
+                'ok': True,
+                'reviews': statement_review.list_reviews(),
+            })
+
         if path == '/api/rol-finance-recent-scans':
             try:
                 limit = int(query.get('limit', ['5'])[0])
@@ -8168,6 +8177,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(record_stored_expense(data))
+
+        # The dialog's OK / Save button: re-run the store for one quarantined
+        # statement, with any human-supplied amounts filled in. A failure keeps
+        # the item queued so the dialog reappears.
+        if path == '/api/statement-review-resolve':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            review_id = data.get('id')
+            if not review_id:
+                return self.error_response('Missing review id', 400)
+            ok, payload = statement_review.resolve_review(
+                review_id, amounts=data.get('amounts'))
+            return self.json_response({'ok': ok, **payload})
 
         if path == '/api/intake-status':
             try:

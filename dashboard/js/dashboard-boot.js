@@ -37,6 +37,7 @@ import {
   VendorReviewController,
   VisionHaltAlert,
 } from "./implementation/index.js";
+import { StatementReviewDialog } from "./implementation/statement-review-dialog.js";
 
 // One shared HttpClient (Adapter over fetch) used by AM / SM / SSHM / RF.
 const http = new FetchHttpClient();
@@ -2141,7 +2142,14 @@ function clampScannerImageZoom(value) {
   );
 }
 
+// A statement Mazda could not store waits in bank_statements/_needs_review/.
+// The dialog polls for those and asks EG for the one missing piece — a workbook
+// row, or an unreadable amount — then re-runs the store. Module-scope so it
+// survives navigation between tabs, like the router's listener.
+const statementReviewDialog = new StatementReviewDialog({ http });
+
 function setupScanners() {
+  statementReviewDialog.start();
   const controllers = {};
   document.querySelectorAll(".scanner-dialog").forEach((dialog) => {
     const scanner = dialog.dataset.scanner;
