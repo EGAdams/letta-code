@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pipecat Voice for Letta Agents — Future Project Plan</title>
+<style>
+  :root {
+    --paper: #fbf8f1; --paper2: #f3ede0; --ink: #1c1a17; --soft: #5b5447;
+    --rule: #d8cfba; --crimson: #7a1f2b; --navy: #1f3a5f;
+    --green: #166534; --amber: #9a6b00; --code-bg: #2b2722; --code-ink: #ede4d3;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #e7e0d2; color: var(--ink); font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; font-size: 17px; line-height: 1.62; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 14px; }
+  .leaf { background: var(--paper); border: 1px solid var(--rule); box-shadow: 0 14px 40px rgba(28,26,23,.14); margin: 22px 0; padding: 46px 56px; border-radius: 4px; }
+  @media (max-width: 760px) { .leaf { padding: 28px 20px; } body { font-size: 16px; } }
+  h1 { font-size: 40px; line-height: 1.08; margin: 0 0 6px; }
+  h2 { font-size: 26px; margin: 38px 0 6px; border-bottom: 2px solid var(--crimson); padding-bottom: 6px; display: inline-block; }
+  h3 { font-size: 20px; margin: 25px 0 5px; color: var(--navy); }
+  p { margin: 11px 0; }
+  ul, ol { margin: 10px 0; padding-left: 26px; }
+  li { margin: 5px 0; }
+  code { font-family: "SF Mono", Consolas, monospace; font-size: .84em; background: #efe8d8; color: #5a3030; padding: 1px 5px; border-radius: 3px; }
+  pre { background: var(--code-bg); color: var(--code-ink); border-radius: 8px; padding: 16px 18px; overflow-x: auto; font-size: 14px; line-height: 1.55; }
+  .kicker { text-transform: uppercase; letter-spacing: .3em; font-size: 12px; color: var(--crimson); font-weight: 700; }
+  .sub { font-style: italic; color: var(--soft); font-size: 19px; margin: 2px 0 10px; }
+  .box { border: 1px solid var(--rule); border-left: 4px solid var(--navy); background: var(--paper2); padding: 12px 18px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .box.good { border-left-color: var(--green); }
+  .box.warn { border-left-color: var(--amber); }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 2px 8px; border-radius: 10px; background: #efe2b8; color: #684b00; }
+  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 15px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; border-bottom: 2px solid var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap"><main class="leaf">
+  <div class="kicker">Letta Agents — Future Project</div>
+  <h1>Pipecat Voice Interface</h1>
+  <p class="sub">Give our existing Letta agents natural, interruptible voice conversations across browser, phone, and local devices.</p>
+  <p><span class="tag">Proposed</span> Added July 21, 2026. This is a future project, not an active implementation.</p>
+
+  <h2>Decision</h2>
+  <div class="box good"><strong>Use Pipecat as the real-time media shell around Letta.</strong> Letta remains the agent brain and source of truth for memory, identity, tools, skills, and conversation state. Pipecat handles microphone input, speech recognition, turn detection, interruption, streaming speech, and client transports.</div>
+
+  <h2>Target architecture</h2>
+  <pre>Browser / phone / microphone
+          ↓
+Pipecat transport + VAD + speech-to-text
+          ↓
+LettaAgentProcessor (our adapter)
+          ↓
+Existing Letta agent + memory + tools
+          ↓
+Pipecat streaming text-to-speech
+          ↓
+Speaker / browser / phone</pre>
+
+  <table>
+    <thead><tr><th>Pipecat owns</th><th>Letta owns</th></tr></thead>
+    <tbody>
+      <tr><td>WebRTC/WebSocket/phone transport</td><td>Agent identity and durable memory</td></tr>
+      <tr><td>Voice activity and turn detection</td><td>Reasoning, tools, and skills</td></tr>
+      <tr><td>STT, TTS, playback, and barge-in</td><td>Conversation history and state</td></tr>
+      <tr><td>Real-time media lifecycle and metrics</td><td>Long-running agent work</td></tr>
+    </tbody>
+  </table>
+
+  <h2>First proof of concept</h2>
+  <ol>
+    <li>Choose one existing Letta agent and preserve its current configuration unchanged.</li>
+    <li>Build a small Python Pipecat service with a browser microphone client.</li>
+    <li>Add a <code>LettaAgentProcessor</code> that sends a finalized transcript to the Letta messages API.</li>
+    <li>Translate only assistant-facing streamed text into Pipecat text frames; tool calls and internal steps must remain silent.</li>
+    <li>Feed those frames into streaming TTS and support immediate playback interruption when the user begins speaking.</li>
+    <li>Measure end-of-speech to first-audio latency and record transcripts for debugging.</li>
+  </ol>
+
+  <h2>Required adapter behavior</h2>
+  <ul>
+    <li>Map each voice session to the correct Letta agent and conversation.</li>
+    <li>Allow only one active request per agent conversation; queue or reject overlapping turns.</li>
+    <li>Separate spoken assistant text from reasoning, tool calls, tool results, and status events.</li>
+    <li>On barge-in, stop audio immediately and suppress every late token from the interrupted run.</li>
+    <li>Cancel the Letta run when supported and safe; otherwise wait for it to terminate before submitting the next turn.</li>
+    <li>Keep provider choices configurable so STT, TTS, and transports can be swapped without changing the adapter.</li>
+  </ul>
+
+  <h2>Implementation phases</h2>
+  <h3>Phase 1 — Local browser prototype</h3>
+  <p>One agent, one user, browser audio, streaming STT/TTS, visible transcript, and basic interruption handling.</p>
+  <h3>Phase 2 — Reliability</h3>
+  <p>Run cancellation, stale-output protection, timeouts, reconnect behavior, structured logs, latency metrics, and automated adapter tests.</p>
+  <h3>Phase 3 — Dashboard integration</h3>
+  <p>Add a voice control to the dashboard Agents view, reuse the existing agent selector, and show listening/thinking/speaking/tool-working states.</p>
+  <h3>Phase 4 — Additional transports</h3>
+  <p>Evaluate phone, mobile, and scoreboard/DietPi clients only after the browser prototype is stable.</p>
+
+  <h2>Risks and guardrails</h2>
+  <div class="box warn"><strong>Interruption is the critical seam.</strong> Stopping TTS does not automatically stop a Letta run. Every run needs an ID or generation token so late output can never leak into the next spoken turn.</div>
+  <ul>
+    <li>Do not duplicate Letta memory or agent tools inside Pipecat.</li>
+    <li>Do not let intermediate tool output reach TTS.</li>
+    <li>Require explicit confirmation before a voice command performs a destructive or externally visible action.</li>
+    <li>Keep the initial prototype on a trusted local/Tailscale path; add authentication before broader exposure.</li>
+    <li>Pin a Pipecat version during the prototype and isolate its adapter behind our own interface.</li>
+  </ul>
+
+  <h2>Prototype acceptance criteria</h2>
+  <ul>
+    <li>The selected Letta agent remembers the same information in voice and text sessions.</li>
+    <li>The user can interrupt speech and hear no stale continuation afterward.</li>
+    <li>Tool calls execute through Letta, while only the final assistant response is spoken.</li>
+    <li>Ten consecutive conversational turns complete without overlapping Letta requests.</li>
+    <li>Disconnect and reconnect do not corrupt the agent conversation.</li>
+    <li>The integration can change STT or TTS providers without changing Letta-specific code.</li>
+  </ul>
+
+  <h2>Before implementation</h2>
+  <p>Re-check the current Pipecat and Letta streaming APIs, choose the first agent and transport, and write contract tests for event filtering, request serialization, interruption, and stale-token suppression before connecting live audio.</p>
+</main></div>
+</body>
+</html>

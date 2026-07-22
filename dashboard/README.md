@@ -151,9 +151,10 @@ Other Project Plans notes:
   is opened.
 - `server.py` serves static files from both `dashboard/` and the repo root.
 - **Project Plans → Mazda Dev Status** (`/notes_plans_handoffs/mazda_dev_status.html`) is the
-- **Project Plans → Verification Tracker** (`/notes_plans_handoffs/verification_tracker.html`) mirrors the January statement verification tracker markdown as a dashboard-readable HTML page.
   canonical current-direction doc. The former **Mazda Orchestrator** tab was removed 2026-06-15;
   its doc `/team_construction_plan.html` is kept (with a SUPERSEDED banner) as design history only.
+- **Project Plans → Verification Tracker** (`/notes_plans_handoffs/verification_tracker.html`) mirrors the January statement verification tracker markdown as a dashboard-readable HTML page.
+- **Project Plans → Pipecat Voice** (`/notes_plans_handoffs/pipecat_letta_voice_plan.html`) records the proposed future integration that uses Pipecat for real-time voice/media while Letta remains the agent runtime and memory source of truth.
 - The old Tool Fix plan was removed; `/agent_self_improvement/mazda_tool_fix_plan.html`
   should return 404.
 - Frita can advise on dashboard deployment details at Letta agent id
