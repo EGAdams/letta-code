@@ -26,14 +26,25 @@ export class HttpClient {
     abstractMethod("request");
   }
 
-  /** GET + parse JSON, applying the shared error policy. */
-  async getJSON(url) {
-    return this._unwrap(await this.request(url));
+  /**
+   * GET + parse JSON, applying the shared error policy.
+   * @param {string} url
+   * @param {{timeout?:number}} [opts]
+   */
+  async getJSON(url, opts = {}) {
+    return this._unwrap(await this.request(url, { ...opts }));
   }
 
-  /** POST a JSON body + parse JSON, applying the shared error policy. */
-  async postJSON(url, body) {
+  /**
+   * POST a JSON body + parse JSON, applying the shared error policy.
+   * @param {string} url
+   * @param {any} body
+   * @param {{timeout?:number}} [opts] e.g. `{timeout: 360000}` for endpoints
+   *   whose server-side budget is far longer than the client default.
+   */
+  async postJSON(url, body, opts = {}) {
     const res = await this.request(url, {
+      ...opts,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

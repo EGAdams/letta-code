@@ -1054,10 +1054,15 @@ export class InputOptionsRenderer extends DetailRenderer {
       const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
       this._onStatus(id, "active");
       try {
-        const r = await this._http.postJSON("/api/letta-code-message", {
-          agent: id,
-          text,
-        });
+        // The server gives this endpoint a 330s budget (run_letta_code_message)
+        // because a real Mazda turn can run for minutes. The client default is
+        // 30s - without this override the browser aborts and reports a timeout
+        // for an answer the backend goes on to produce successfully.
+        const r = await this._http.postJSON(
+          "/api/letta-code-message",
+          { agent: id, text },
+          { timeout: 360000 },
+        );
         if (!r?.ok || !r.reply)
           throw new Error(r?.error || "Mazda returned no answer.");
         const replies = [{ type: "assistant_message", text: r.reply }];

@@ -7140,9 +7140,17 @@ def run_letta_code_message(agent_id, prompt, timeout=330):
     child_path = os.environ.get('PATH', '')
     if runtime_path:
         child_path = runtime_path + (os.pathsep + child_path if child_path else '')
+    # Headless runs have nobody to answer an approval prompt, so the CLI
+    # auto-DENIES anything gated ("Tool requires approval (headless mode)").
+    # Without a raised mode the agent can read and reason but every Edit/Write
+    # silently fails, and she reports work she was never allowed to do.
+    # acceptEdits auto-allows the edit tools + Bash and nothing else - narrower
+    # than --yolo/bypassPermissions, which this web-reachable endpoint should
+    # not hand out.
     proc = subprocess.run(
         [*command, '--agent', lid, '--prompt', clean_prompt,
-         '--output-format', 'json', '--memfs-startup', 'skip'],
+         '--output-format', 'json', '--memfs-startup', 'skip',
+         '--permission-mode', 'acceptEdits'],
         cwd=REPO_ROOT, text=True, capture_output=True, timeout=timeout,
         env={**os.environ, 'PATH': child_path, 'LETTA_BASE_URL': LETTA_BASE_URL},
     )

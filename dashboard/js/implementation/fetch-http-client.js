@@ -21,20 +21,29 @@ export class FetchHttpClient extends HttpClient {
     this._timeout = 30000;
   }
 
-  /** @override transport: delegate straight to fetch with timeout. */
+  /**
+   * @override transport: delegate straight to fetch with timeout.
+   *
+   * `opts.timeout` (ms) overrides the default for a single call - some
+   * endpoints (e.g. /api/letta-code-message) have a much larger server-side
+   * budget, and aborting at 30s discards an answer the backend still produces.
+   */
   async request(url, opts = {}) {
+    const { timeout, ...fetchOpts } = opts;
+    const budget =
+      typeof timeout === "number" && timeout > 0 ? timeout : this._timeout;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort(
         new DOMException(
-          `Request timed out after ${this._timeout / 1000}s: ${url}`,
+          `Request timed out after ${budget / 1000}s: ${url}`,
           "TimeoutError",
         ),
       );
-    }, this._timeout);
+    }, budget);
     try {
       return await this._fetch(url, {
-        ...opts,
+        ...fetchOpts,
         signal: controller.signal,
       });
     } finally {
