@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import deque
 import urllib.request
 import urllib.error
+from xml.etree import ElementTree
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
@@ -1632,17 +1633,94 @@ DESKJET_PRINTER_PORT = 'IP_10.0.0.243'
 _WINDOWS_POWERSHELL = (
     '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe')
 
+# Windows' own PrinterStatus is NOT evidence that the printer works. This queue's
+# RAW port has SNMP turned off, so the spooler never asks the hardware anything
+# and reports "Normal" while the DeskJet sits there out of paper or jammed. That
+# is exactly how "Printer fixed." got shown for a printer that could not print
+# (2026-07-22: the device was reporting trayEmpty the whole time). The printer's
+# own LEDM web service is the honest source of device state, and WSL can reach it
+# directly over the LAN — no Windows interop needed.
+DESKJET_STATUS_URL = f'http://{DESKJET_PRINTER_IP}/DevMgmt/ProductStatusDyn.xml'
+# LEDM status categories that mean "nothing will come out of this printer until a
+# human does something", mapped to what that human should actually do. Anything
+# not listed here (ready, genuineHP ink nags, low-ink warnings) is not blocking.
+DESKJET_BLOCKING_STATUS = {
+    'trayempty': 'The printer is out of paper. Load paper in the tray, then print again.',
+    'outofpaper': 'The printer is out of paper. Load paper in the tray, then print again.',
+    'inputtrayempty': 'The printer is out of paper. Load paper in the tray, then print again.',
+    'jamincorrectpage': 'There is a paper jam. Clear the jammed paper, then print again.',
+    'jaminprinter': 'There is a paper jam. Clear the jammed paper, then print again.',
+    'mediajam': 'There is a paper jam. Clear the jammed paper, then print again.',
+    'dooropen': 'A door or cover is open. Close it, then print again.',
+    'coveropen': 'A door or cover is open. Close it, then print again.',
+    'cartridgemissing': 'An ink cartridge is missing. Reseat both cartridges, then print again.',
+    'inkempty': 'An ink cartridge is empty. Replace it, then print again.',
+    'suppliesempty': 'An ink cartridge is empty. Replace it, then print again.',
+    'shuttingdown': 'The printer is shutting down. Turn it back on, then print again.',
+    'poweringdown': 'The printer is shutting down. Turn it back on, then print again.',
+    'offline': 'The printer is offline. Turn it on and reconnect it to Wi-Fi, then print again.',
+}
 
-def fix_deskjet_printer(runner=subprocess.run):
+
+def _xml_localname(tag):
+    """Strip the `{namespace}` prefix ElementTree keeps on every tag."""
+    return tag.rsplit('}', 1)[-1]
+
+
+def read_deskjet_device_status(opener=urllib.request.urlopen):
+    """Ask the DeskJet itself what state it is in.
+
+    Returns `{'reachable': bool, 'categories': [str], 'blocker': str|None}`.
+    `opener` is injected so tests never touch the LAN. An unreachable or
+    unparseable device is reported as `reachable: False` with no blocker — the
+    port repair is still worth reporting, we just can't vouch for the hardware.
+    """
+    try:
+        with opener(DESKJET_STATUS_URL, timeout=8) as resp:
+            payload = resp.read()
+    except Exception:  # noqa: BLE001 — any failure here is just "can't tell"
+        return {'reachable': False, 'categories': [], 'blocker': None}
+    try:
+        root = ElementTree.fromstring(payload)
+    except ElementTree.ParseError:
+        return {'reachable': False, 'categories': [], 'blocker': None}
+
+    categories = [
+        (node.text or '').strip()
+        for node in root.iter()
+        if _xml_localname(node.tag) == 'StatusCategory' and node.text
+    ]
+    blocker = None
+    for category in categories:
+        message = DESKJET_BLOCKING_STATUS.get(category.lower())
+        if message:
+            blocker = message
+            break
+    return {'reachable': True, 'categories': categories, 'blocker': blocker}
+
+
+def fix_deskjet_printer(runner=subprocess.run, device_status=None):
     """Repair the DeskJet queue through Windows PowerShell.
 
     This is the same safe repair as the Desktop helper: verify the printer's
     RAW service, create its IPv4 port if needed, bind the existing HP queue to
     that port, and refresh the spooler. Never installs/removes a driver or
     deletes queued jobs.
+
+    The queue repair alone is not enough to claim success: it only proves
+    Windows can *talk* to the printer. Before reporting "fixed" we ask the
+    printer itself (`device_status`) whether anything on the hardware is
+    blocking, so an out-of-paper or jammed DeskJet is named instead of hidden
+    behind Windows' permanently-"Normal" PrinterStatus.
     """
+    check_device = device_status or read_deskjet_device_status
     interop = _wsl_interop_socket()
     if not interop:
+        # No Windows access, but the printer is on the LAN — a real blocker is
+        # still worth naming, and is far more actionable than "open a WSL window".
+        blocker = check_device().get('blocker')
+        if blocker:
+            return {'ok': False, 'text': blocker}
         return {
             'ok': False,
             'text': ('Printer repair needs Windows access. Open a WSL window '
@@ -1705,12 +1783,37 @@ $printer = Get-Printer -Name $printerName
         }
     status = payload.get('status') or 'Unknown'
     ok = payload.get('ok') is not False
+    port = payload.get('port') or DESKJET_PRINTER_PORT
+    device = check_device()
+    blocker = device.get('blocker')
+    if ok and blocker:
+        # The Windows side is healthy; the printer is not. Say the thing the
+        # user can act on — never "Printer fixed." while paper is missing.
+        return {
+            'ok': False,
+            'text': f'Windows is connected to the printer, but {blocker[0].lower()}{blocker[1:]}',
+            'status': status,
+            'port': port,
+            'device_status': device.get('categories'),
+        }
+    if ok and not device.get('reachable'):
+        return {
+            'ok': False,
+            'text': ('The Windows queue was repaired, but the printer did not '
+                     'answer when asked how it is doing. Check that it is on '
+                     'and connected to Wi-Fi, then print a test page.'),
+            'status': status,
+            'port': port,
+            'device_status': [],
+        }
     return {
         'ok': ok,
-        'text': (f'Printer fixed. Windows status: {status}.' if ok else
+        'text': (f'Printer fixed — the printer reports it is ready. '
+                 f'Windows status: {status}.' if ok else
                  f'The port was repaired, but Windows status is still {status}.'),
         'status': status,
-        'port': payload.get('port') or DESKJET_PRINTER_PORT,
+        'port': port,
+        'device_status': device.get('categories'),
     }
 
 # Serialize all device access: two concurrent WIA transfers self-induce the very

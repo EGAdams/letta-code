@@ -23,6 +23,38 @@ class _CompletedProcess:
         self.stderr = stderr
 
 
+def _ledm_status(*categories):
+    """A minimal ProductStatusDyn.xml, namespaces and all, as the DeskJet serves it."""
+    body = ''.join(
+        f'<pscat:StatusCategory>{c}</pscat:StatusCategory>' for c in categories)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<psdyn:ProductStatusDyn'
+        ' xmlns:psdyn="http://www.hp.com/schemas/imaging/con/ledm/productstatusdyn/2007/10/31"'
+        ' xmlns:pscat="http://www.hp.com/schemas/imaging/con/ledm/productstatuscategories/2007/10/31">'
+        f'<psdyn:Status>{body}</psdyn:Status>'
+        '</psdyn:ProductStatusDyn>'
+    ).encode()
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def read(self):
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _ready_device():
+    return {'reachable': True, 'categories': ['ready'], 'blocker': None}
+
+
 def test_fix_deskjet_printer_uses_the_working_ipv4_port(monkeypatch):
     calls = []
 
@@ -33,13 +65,15 @@ def test_fix_deskjet_printer_uses_the_working_ipv4_port(monkeypatch):
 
     monkeypatch.setattr(server, '_wsl_interop_socket', lambda: '/run/WSL/test_interop')
 
-    result = server.fix_deskjet_printer(runner=fake_runner)
+    result = server.fix_deskjet_printer(
+        runner=fake_runner, device_status=_ready_device)
 
     assert result == {
         'ok': True,
-        'text': 'Printer fixed. Windows status: Normal.',
+        'text': 'Printer fixed — the printer reports it is ready. Windows status: Normal.',
         'status': 'Normal',
         'port': 'IP_10.0.0.243',
+        'device_status': ['ready'],
     }
     command, kwargs = calls[0]
     assert command[0] == server._WINDOWS_POWERSHELL
@@ -52,10 +86,89 @@ def test_fix_deskjet_printer_uses_the_working_ipv4_port(monkeypatch):
 def test_fix_deskjet_printer_explains_missing_windows_interop(monkeypatch):
     monkeypatch.setattr(server, '_wsl_interop_socket', lambda: None)
 
-    result = server.fix_deskjet_printer()
+    result = server.fix_deskjet_printer(
+        device_status=lambda: {'reachable': False, 'categories': [], 'blocker': None})
 
     assert result['ok'] is False
     assert 'Open a WSL window' in result['text']
+
+
+def test_fix_deskjet_printer_reports_out_of_paper_instead_of_success(monkeypatch):
+    """The bug this guards: Windows says Normal, the printer is out of paper.
+
+    Windows can only report the queue, and this queue's RAW port has SNMP off,
+    so PrinterStatus is permanently 'Normal'. Reporting that as "Printer fixed"
+    sent the user back to a printer that still would not print.
+    """
+    monkeypatch.setattr(server, '_wsl_interop_socket', lambda: '/run/WSL/test_interop')
+
+    result = server.fix_deskjet_printer(
+        runner=lambda command, **kwargs: _CompletedProcess(
+            stdout='{"ok":true,"status":"Normal","port":"IP_10.0.0.243"}\n'),
+        device_status=lambda: {
+            'reachable': True,
+            'categories': ['trayEmpty', 'ready'],
+            'blocker': 'The printer is out of paper. Load paper in the tray, then print again.',
+        },
+    )
+
+    assert result['ok'] is False
+    assert 'out of paper' in result['text']
+    assert 'fixed' not in result['text'].lower()
+
+
+def test_fix_deskjet_printer_does_not_claim_success_when_the_device_is_silent(monkeypatch):
+    monkeypatch.setattr(server, '_wsl_interop_socket', lambda: '/run/WSL/test_interop')
+
+    result = server.fix_deskjet_printer(
+        runner=lambda command, **kwargs: _CompletedProcess(
+            stdout='{"ok":true,"status":"Normal","port":"IP_10.0.0.243"}\n'),
+        device_status=lambda: {'reachable': False, 'categories': [], 'blocker': None},
+    )
+
+    assert result['ok'] is False
+    assert 'did not answer' in result['text']
+
+
+def test_fix_deskjet_printer_names_the_blocker_without_windows_access(monkeypatch):
+    monkeypatch.setattr(server, '_wsl_interop_socket', lambda: None)
+
+    result = server.fix_deskjet_printer(
+        device_status=lambda: {
+            'reachable': True,
+            'categories': ['trayEmpty'],
+            'blocker': 'The printer is out of paper. Load paper in the tray, then print again.',
+        })
+
+    assert result == {
+        'ok': False,
+        'text': 'The printer is out of paper. Load paper in the tray, then print again.',
+    }
+
+
+def test_read_deskjet_device_status_parses_the_printers_own_report():
+    status = server.read_deskjet_device_status(
+        opener=lambda url, timeout=None: _FakeResponse(_ledm_status('trayEmpty', 'ready')))
+
+    assert status['reachable'] is True
+    assert status['categories'] == ['trayEmpty', 'ready']
+    assert 'out of paper' in status['blocker']
+
+
+def test_read_deskjet_device_status_ignores_non_blocking_categories():
+    status = server.read_deskjet_device_status(
+        opener=lambda url, timeout=None: _FakeResponse(_ledm_status('ready')))
+
+    assert status == {'reachable': True, 'categories': ['ready'], 'blocker': None}
+
+
+def test_read_deskjet_device_status_survives_an_unreachable_printer():
+    def boom(url, timeout=None):
+        raise OSError('no route to host')
+
+    assert server.read_deskjet_device_status(opener=boom) == {
+        'reachable': False, 'categories': [], 'blocker': None,
+    }
 
 
 @pytest.fixture(autouse=True)
