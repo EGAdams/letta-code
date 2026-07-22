@@ -26,6 +26,14 @@ export function buildProcessDocumentRequest(scanner) {
   return { url: "/api/process-document", body: { scanner } };
 }
 
+export function buildStatementMetadataRequest(scanner, statementMetadata) {
+  const request = buildProcessDocumentRequest(scanner);
+  return {
+    ...request,
+    body: { ...request.body, statement_metadata: statementMetadata },
+  };
+}
+
 /** Compact, defensive one-line summary of the facade's `parsed` payload. */
 export function summarizeParsed(parsed) {
   if (!parsed || typeof parsed !== "object") return "";
@@ -119,7 +127,15 @@ export class DocumentPipelineController {
     this._inFlight = true;
     this._view.setBusy();
     try {
-      const result = await this._http.postJSON(this._url, body);
+      let result = await this._http.postJSON(this._url, body);
+      if (result?.needs_statement_metadata) {
+        const metadata = await this._view.requestStatementMetadata(result);
+        if (metadata) {
+          this._view.setBusy();
+          const resumed = buildStatementMetadataRequest(scanner, metadata);
+          result = await this._http.postJSON(this._url, resumed.body);
+        }
+      }
       this._view.render(result);
       return result;
     } catch (e) {

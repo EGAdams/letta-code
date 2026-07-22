@@ -30,6 +30,11 @@ export class DocumentPipelineView {
     abstractMethod("renderError");
   }
 
+  /** Ask the user for required statement metadata before dispatch resumes. */
+  async requestStatementMetadata(_result) {
+    abstractMethod("requestStatementMetadata");
+  }
+
   /** Clear / hide the inline result. */
   clear() {
     abstractMethod("clear");

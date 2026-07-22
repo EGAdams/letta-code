@@ -852,6 +852,99 @@ def test_process_scanned_document_unknown_scanner():
     assert r['stages'] == []
 
 
+def test_process_scanned_statement_pauses_for_missing_bank_metadata(
+        tmp_path, monkeypatch):
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': 'scan.jpg'},
+    })
+    facade = {'ok': True, 'doc_kind': 'statement', 'confidence': .99}
+    monkeypatch.setattr(server, 'run_intake_facade', lambda *a, **kw: facade)
+    monkeypatch.setattr(server, 'document_vision_health', lambda: {'ok': True})
+    monkeypatch.setattr(server, 'run_statement_preflight', lambda *a, **kw: {
+        'ok': False,
+        'needs_statement_metadata': True,
+        'missing_fields': ['account_last4'],
+        'bank_name': 'Chase',
+        'account_last4': None,
+    })
+    staged = []
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: staged.append(p))
+
+    result = server.process_scanned_document('window')
+
+    assert result['mazda_dispatched'] is False
+    assert result['needs_statement_metadata'] is True
+    assert result['missing_fields'] == ['account_last4']
+    assert result['statement_metadata']['bank_name'] == 'Chase'
+    assert staged == []
+
+
+def test_process_scanned_statement_resumes_with_user_metadata(
+        tmp_path, monkeypatch):
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': 'scan.jpg'},
+    })
+    facade = {'ok': True, 'doc_kind': 'statement', 'confidence': .99}
+    monkeypatch.setattr(server, 'run_intake_facade', lambda *a, **kw: dict(facade))
+    monkeypatch.setattr(server, 'document_vision_health', lambda: {'ok': True})
+    captured = {}
+
+    def _preflight(path, facade_result, metadata=None):
+        captured['metadata'] = metadata
+        return {
+            'ok': True, 'bank_name': metadata['bank_name'],
+            'account_last4': metadata['account_last4'],
+            'transactions': [
+                {'date': '2025-01-04', 'description': 'STORE', 'amount': -10}
+            ],
+        }
+
+    monkeypatch.setattr(server, 'run_statement_preflight', _preflight)
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: '/staged/scan.jpg')
+    dispatches = []
+    monkeypatch.setattr(
+        server.threading, 'Thread',
+        lambda target, args, daemon: dispatches.append(args) or _NoopThread())
+
+    result = server.process_scanned_document(
+        'window', statement_metadata={'bank_name': 'Chase', 'account_last4': '1234'})
+
+    assert captured['metadata'] == {'bank_name': 'Chase', 'account_last4': '1234'}
+    assert result['mazda_dispatched'] is True
+    assert dispatches[0][2]['statement_preflight']['account_last4'] == '1234'
+
+
+def test_process_scanned_statement_rejects_no_transactions(tmp_path, monkeypatch):
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': 'scan.jpg'},
+    })
+    monkeypatch.setattr(server, 'run_intake_facade', lambda *a, **kw: {
+        'ok': True, 'doc_kind': 'statement', 'confidence': .99})
+    monkeypatch.setattr(server, 'document_vision_health', lambda: {'ok': True})
+    monkeypatch.setattr(server, 'run_statement_preflight', lambda *a, **kw: {
+        'ok': False, 'rejected': True, 'needs_statement_metadata': False,
+        'error': 'statement has no complete transaction',
+    })
+
+    result = server.process_scanned_document('window')
+
+    assert result['mazda_dispatched'] is False
+    assert result['statement_rejected'] is True
+    assert 'complete transaction' in result['stage_error']
+
+
 def test_stage_scan_for_mazda_missing_local_file_returns_none():
     assert server._stage_scan_for_mazda('/nope/does-not-exist.jpg') is None
 
@@ -2467,6 +2560,23 @@ def test_scan_message_routes_statements_to_statement_pipeline():
                   'transactions_duplicate', 'transactions_skipped_credits',
                   'deposits_stored'):
         assert f'"{field}"' in msg, f'statement field {field!r} missing from message'
+
+
+def test_statement_dispatch_carries_confirmed_metadata_and_archive_evidence():
+    facade = dict(_FACADE_IDENTIFIED)
+    facade.update({
+        'doc_kind': 'statement',
+        'statement_preflight': {
+            'bank_name': 'Fifth Third Bank',
+            'account_last4': '5938',
+        },
+    })
+
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', facade)
+
+    assert "--bank-name 'Fifth Third Bank' --account-last4 5938" in msg
+    assert 'archive_paths' in msg
+    assert 'archive_years' in msg
 
 
 def test_scan_message_invoice_route_overrides_generic_email_bill_rule():

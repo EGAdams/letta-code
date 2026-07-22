@@ -28,6 +28,10 @@ const fakeView = () => {
     setBusy: () => events.push({ type: "busy" }),
     render: (r) => events.push({ type: "render", result: r }),
     renderError: (m) => events.push({ type: "error", message: m }),
+    requestStatementMetadata: async (result) => {
+      events.push({ type: "metadata", result });
+      return { bank_name: "Chase", account_last4: "1234" };
+    },
     clear: () => events.push({ type: "clear" }),
   };
 };
@@ -169,6 +173,39 @@ describe("DocumentPipelineController (Command)", () => {
     ]);
     expect(view.events.map((e) => e.type)).toEqual(["busy", "render"]);
     expect(res.ok).toBe(true);
+  });
+
+  test("process() requests missing statement metadata then resumes", async () => {
+    const calls = [];
+    const http = {
+      postJSON: async (url, body) => {
+        calls.push({ url, body });
+        if (calls.length === 1) {
+          return {
+            ok: true,
+            needs_statement_metadata: true,
+            statement_metadata: { bank_name: "Chase", account_last4: null },
+          };
+        }
+        return { ok: true, stages: [], mazda_dispatched: true };
+      },
+    };
+    const view = fakeView();
+    const c = new DocumentPipelineController({ http, view });
+
+    const result = await c.process("window");
+
+    expect(result.mazda_dispatched).toBe(true);
+    expect(calls[1].body).toEqual({
+      scanner: "window",
+      statement_metadata: { bank_name: "Chase", account_last4: "1234" },
+    });
+    expect(view.events.map((e) => e.type)).toEqual([
+      "busy",
+      "metadata",
+      "busy",
+      "render",
+    ]);
   });
 
   test("process() routes a transport error to the view without throwing", async () => {

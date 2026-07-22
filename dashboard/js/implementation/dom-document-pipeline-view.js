@@ -40,6 +40,51 @@ export class DomDocumentPipelineView extends DocumentPipelineView {
       )}</div>`;
   }
 
+  requestStatementMetadata(result) {
+    const current = result?.statement_metadata || {};
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay statement-metadata-modal";
+      overlay.innerHTML =
+        '<form class="modal-box statement-metadata-form">' +
+        "<h3>Bank statement details required</h3>" +
+        "<p>Confirm the bank and enter the final four account digits before this statement is stored.</p>" +
+        '<label>Bank name<input name="bank_name" required></label>' +
+        '<label>Account last 4<input name="account_last4" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label>' +
+        '<div class="statement-metadata-error" aria-live="polite"></div>' +
+        '<div class="modal-actions"><button type="button" class="am-btn metadata-cancel">Cancel</button>' +
+        '<button type="submit" class="am-btn">Continue intake</button></div>' +
+        "</form>";
+      const bank = overlay.querySelector('[name="bank_name"]');
+      const last4 = overlay.querySelector('[name="account_last4"]');
+      const error = overlay.querySelector(".statement-metadata-error");
+      bank.value = current.bank_name || "";
+      last4.value = current.account_last4 || "";
+      const finish = (value) => {
+        overlay.remove();
+        resolve(value);
+      };
+      overlay
+        .querySelector(".metadata-cancel")
+        .addEventListener("click", () => {
+          finish(null);
+        });
+      overlay.querySelector("form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const bankName = bank.value.trim().replace(/\s+/g, " ");
+        const accountLast4 = last4.value.trim();
+        if (!bankName || !/^\d{4}$/.test(accountLast4)) {
+          error.textContent =
+            "Enter a bank name and exactly four account digits.";
+          return;
+        }
+        finish({ bank_name: bankName, account_last4: accountLast4 });
+      });
+      document.body.appendChild(overlay);
+      (bank.value ? last4 : bank).focus();
+    });
+  }
+
   render(result) {
     this._el.classList.remove("hidden");
     const stages = Array.isArray(result?.stages) ? result.stages : [];
@@ -58,8 +103,9 @@ export class DomDocumentPipelineView extends DocumentPipelineView {
     const note = result?.mazda_dispatched
       ? "Mazda is processing investigate → categorize → store in the background."
       : "Mazda was not dispatched (no scanned image found).";
-    const err = result?.error
-      ? `<div class="pipeline-error">${TextUtils.esc(result.error)}</div>`
+    const errorText = result?.stage_error || result?.error;
+    const err = errorText
+      ? `<div class="pipeline-error">${TextUtils.esc(errorText)}</div>`
       : "";
     this._el.innerHTML =
       '<div class="pipeline-title">Document pipeline</div>' +

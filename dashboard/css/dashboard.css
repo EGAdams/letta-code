@@ -314,6 +314,26 @@ body.startup-loading .sidebar {
   font-style: italic;
 }
 
+.statement-metadata-form label {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0;
+  font-weight: 700;
+}
+
+.statement-metadata-modal .statement-metadata-form input {
+  padding: 9px 10px;
+  border: 1px solid #777;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.statement-metadata-error {
+  min-height: 1.3em;
+  color: #d9534f;
+  font-weight: 700;
+}
+
 /* Full-screen modal overlay — the scanned image pops open large and centered
    over a dark backdrop (click backdrop, ×, or Esc to close). Was previously an
    inline flex sibling of the panel, which could collapse to an empty short box

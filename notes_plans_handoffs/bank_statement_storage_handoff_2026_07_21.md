@@ -1,5 +1,36 @@
 # Bank Statement Year-Folder Storage — Handoff (2026-07-21)
 
+## IMPLEMENTED after this handoff (Codex, 2026-07-21)
+
+The warning below is historical: the scanner-storage feature is now implemented.
+
+- `statement_archive.py` validates bank name, account last four, and complete
+  transactions; its pure planner creates one full-image archive path per transaction
+  year with per-year row partitions. Filesystem copying is behind an ABC port.
+- `store_statement_transactions.py` archives accepted source images, reports
+  `archive_paths`/`archive_years`, and rejects before DB work when required data is absent.
+- The dashboard runs statement extraction before Mazda dispatch. Missing bank/last-four
+  opens a scanner-interface dialog; zero complete transactions rejects the scan. Valid
+  user metadata is carried into both parse and store commands.
+- Mazda's live memfs and the Trainer contract now require and verify permanent archives.
+- Migration tool: `migrate_bank_statements_to_year_folders.py` (dry-run by default,
+  bounded per-file extraction, review-report apply mode, originals preserved).
+
+Existing loose-file audit: there are **15** root PDF/image files, not 13. Nine now have
+byte-identical canonical year/range copies (some loose names were duplicate aliases):
+`3686285_december_january.pdf`, `3686285_january_february.pdf`,
+`7735938_december_january.pdf`, `7735938_december_january_check_images.pdf`,
+`7735938_january_february.pdf`, `diners_december_january.pdf`,
+`first_rol_bank_statement.pdf`, `jet_blue_february_march.pdf`, and
+`jet_blue_january_february.pdf`.
+
+Six were deliberately left untouched because no trustworthy full transaction range was
+available (provider timeout and no report evidence): `7735938_june_july.pdf`,
+`7735938_may_june_check_images.pdf`, `JET BLUE AnnualSummary2025-3965.pdf`,
+`fnbo_year-end-summary-2025.pdf`, `june_statement.pdf`, and `may_statement.pdf`.
+Do not infer their ranges from filenames; rerun the bounded audit or supply verified
+metadata/transactions. Original loose files were not removed so existing links remain valid.
+
 ## ⚠️ Read first — what's actually done vs. what's just agreed
 
 **Nothing about bank statements has been implemented yet.** This entire shift was spent on

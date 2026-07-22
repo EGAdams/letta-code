@@ -40,6 +40,14 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    `itemize_existing_expense`; she must never hand-build parent/child SQL. A successful
    exact reconciliation returns one PARENT ID plus LINE_ITEM IDs. `itemizable:false` is
    a correct fail-closed outcome and leaves the row STANDALONE.
+   Statements use `store_statement_transactions.py`. Before it runs, require a
+   nonblank bank name, exactly four account digits, and at least one complete
+   transaction with date, vendor/description, and amount. Its successful return
+   must contain `archive_paths`: one permanent
+   `bank_statements/{year}/{month}/{full-range}/` copy per transaction year.
+   A cross-year statement must report both years while each transaction is stored
+   only once under its own date; missing metadata or zero complete rows is a
+   correct fail-closed rejection, never permission to guess.
 6. **`record_trace`** with `task_name` exactly `"document-intake"` and the
    IntakeVerificationEvidence JSON (document_path, doc_kind, classification_confidence,
    vendor_key, vendor_key_recognized, category_id, duplicate_checked, is_duplicate, stored,
@@ -110,6 +118,9 @@ Grade the run against the contract above. Specifically confirm:
 - Verify the store result's final parsed/overridden date, amount, and merchant against the
   duplicate-check inputs. If they changed, require a duplicate recheck on the final values;
   never accept `--allow-duplicate` as a way around the store path's final duplicate guard.
+- For statements, verify the successful store return names the confirmed `bank_name`,
+  `account_last4`, and every expected `archive_path`. Check cross-year statements have one
+  full-image copy in each transaction year and that the full date-range token is identical.
 - For a successful itemization, require `itemization_parent_id == expense_id`, at least
   one child ID, `itemization_reconciled=true`, and a successful tool return. Parent rows
   are reconciliation anchors with `category_id NULL`; they must never count in category

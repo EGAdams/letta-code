@@ -9,6 +9,7 @@ import json
 import hashlib
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -1946,6 +1947,13 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
     parsed = fr.get('parsed') or {}
     confidence = fr.get('confidence') or 0.0
     identified = mazda_facade_identified(fr)
+    statement_preflight = fr.get('statement_preflight') or {}
+    statement_override_args = ''
+    if statement_preflight.get('bank_name') and statement_preflight.get('account_last4'):
+        statement_override_args = (
+            f' --bank-name {shlex.quote(str(statement_preflight["bank_name"]))}'
+            f' --account-last4 {shlex.quote(str(statement_preflight["account_last4"]))}'
+        )
 
     # Summarise the most useful parsed fields so the message stays readable.
     parsed_summary = json.dumps(
@@ -1979,18 +1987,19 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
                 f'env={MAZDA_RF_ENV_JSON}, run:\n'
                 f'   {MAZDA_RF_VENV_PY} '
                 f'tools/receipt_scanning_tools/parse_statement_scan.py '
-                f'{scan_image_path}\n'
+                f'{scan_image_path}{statement_override_args}\n'
                 f'3. Write that returned JSON to /tmp/mazda_statement.json, then via '
                 f'executor_run with the same cwd/env run:\n'
                 f'   {MAZDA_RF_VENV_PY} '
                 f'tools/receipt_scanning_tools/store_statement_transactions.py '
-                f'-f /tmp/mazda_statement.json --source-file {scan_image_path}\n'
+                f'-f /tmp/mazda_statement.json --source-file {scan_image_path}'
+                f'{statement_override_args}\n'
                 f'4. Call record_trace(agent_name="Mazda", task_name="document-intake", '
                 f'input_text="{scan_image_path}", agent_output=<JSON containing '
                 f'document_path, doc_kind="statement", classification_confidence, '
                 f'duplicate_checked=true, transactions_parsed, transactions_stored, '
                 f'transactions_duplicate, transactions_skipped_credits, deposits_stored, '
-                f'and problems>).\n'
+                f'bank_name, account_last4, archive_paths, archive_years, and problems>).\n'
                 f'5. Call judge_trace(trace_id) always. On FAIL call propose_improvement '
                 f'and apply_proposal.\n'
                 f'6. Always notify the dashboard via executor_run with curl POST '
@@ -2088,7 +2097,7 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'cwd=/home/adamsl/rol_finances, env={MAZDA_RF_ENV_JSON}):\n'
         f'  S1. Extract every transaction (Gemini vision):\n'
         f'      {MAZDA_RF_VENV_PY} tools/receipt_scanning_tools/parse_statement_scan.py '
-        f'{scan_image_path} -o /tmp/mazda_stmt.json\n'
+        f'{scan_image_path} -o /tmp/mazda_stmt.json{statement_override_args}\n'
         f'  S2. Dedupe + store them. Expenses are inserted UNCATEGORIZED (they enter '
         f'the New Records queue for a human to categorize — do NOT run the categorizer '
         f'for statements). Deposits/credits are NOT expenses: the script persists them '
@@ -2096,10 +2105,12 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'never reviewed by a human):\n'
         f'      {MAZDA_RF_VENV_PY} '
         f'tools/receipt_scanning_tools/store_statement_transactions.py '
-        f'-f /tmp/mazda_stmt.json --source-file {scan_image_path}\n'
+        f'-f /tmp/mazda_stmt.json --source-file {scan_image_path}'
+        f'{statement_override_args}\n'
         f'      → {{"transactions_parsed": N, "skipped_credits": N, "duplicates": N, '
         f'"stored": N, "expense_ids": [...], "deposits_stored": N, "deposit_ids": [...], '
-        f'"deposit_duplicates": N}}\n'
+        f'"deposit_duplicates": N, "bank_name": "...", "account_last4": "1234", '
+        f'"archive_paths": [...], "archive_years": [...]}}\n'
         f'  EVERY row coming back "duplicates" or "deposit_duplicates" is a SUCCESSFUL '
         f'no-op, not a failure, and a deposit missing from expenses is CORRECT. '
         f'Then continue at STEP 5 with the STATEMENT evidence JSON described there.\n\n'
@@ -2230,6 +2241,8 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"transactions_parsed": <N from S2>, "transactions_stored": <N>, '
         f'"transactions_duplicate": <N>, "transactions_skipped_credits": <N>, '
         f'"deposits_stored": <N from S2, deposits persisted to transactions>, '
+        f'"bank_name": "<confirmed bank>", "account_last4": "<four digits>", '
+        f'"archive_paths": [<all permanent copies>], "archive_years": [<years>], '
         f'"problems": [<strings>]}}\n'
         f'  Keep the returned trace_id.\n\n'
         f'STEP 6 — judge_trace(trace_id) — ALWAYS, on success or failure. The intake rubric '
@@ -2633,6 +2646,9 @@ ROL_FINANCES_DIR = os.path.expanduser('~/rol_finances')
 MAZDA_INTAKE_FACADE = os.path.join(ROL_FINANCES_DIR, 'tools', 'mazda_intake.py')
 MAZDA_INTAKE_PYTHON = os.path.join(ROL_FINANCES_DIR, '.venv', 'bin', 'python3')
 INTAKE_FACADE_TIMEOUT_SEC = 120
+STATEMENT_PARSE_SCRIPT = os.path.join(
+    ROL_FINANCES_DIR, 'tools', 'receipt_scanning_tools', 'parse_statement_scan.py')
+STATEMENT_PREFLIGHT_TIMEOUT_SEC = 180
 
 # The pipeline stages the deterministic facade does NOT run — delegated to Mazda.
 MAZDA_DELEGATED_STAGES = ('investigate', 'categorize', 'store')
@@ -2718,7 +2734,100 @@ def build_pipeline_result(facade, mazda_dispatched):
     }
 
 
-def process_scanned_document(key, org_id=1, engine='gemini'):
+def _statement_last4(value):
+    match = re.search(r'(?:^|\D)(\d{4})$', str(value or '').strip())
+    return match.group(1) if match else None
+
+
+def _complete_statement_transactions(rows):
+    """Keep only rows carrying a valid date, description, and numeric amount."""
+    complete = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        description = ' '.join(str(row.get('description') or '').split())
+        try:
+            datetime.strptime(str(row.get('date') or ''), '%Y-%m-%d')
+            amount = float(row['amount'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        normalized = dict(row)
+        normalized.update(description=description, amount=amount)
+        if description:
+            complete.append(normalized)
+    return complete
+
+
+def run_statement_preflight(image_path, facade_result, metadata=None):
+    """Extract and validate statement metadata before dispatch or storage."""
+    if (facade_result or {}).get('doc_kind') not in ('statement', 'bank_statement'):
+        return None
+    metadata = metadata if isinstance(metadata, dict) else {}
+    command = [MAZDA_INTAKE_PYTHON, STATEMENT_PARSE_SCRIPT, image_path]
+    bank_override = ' '.join(str(metadata.get('bank_name') or '').split())
+    last4_override = _statement_last4(metadata.get('account_last4'))
+    if bank_override:
+        command.extend(['--bank-name', bank_override])
+    if last4_override:
+        command.extend(['--account-last4', last4_override])
+    try:
+        proc = subprocess.run(
+            command, cwd=ROL_FINANCES_DIR, capture_output=True, text=True,
+            timeout=STATEMENT_PREFLIGHT_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'rejected': True,
+                'error': 'statement extraction timed out before storage'}
+    except Exception as exc:
+        return {'ok': False, 'rejected': True,
+                'error': f'statement extraction failed before storage: {exc}'}
+    output = (proc.stdout or '').strip()
+    try:
+        json_start = output.find('{')
+        if json_start < 0:
+            raise ValueError('no JSON object')
+        parsed = json.loads(output[json_start:])
+    except (ValueError, json.JSONDecodeError):
+        detail = (proc.stderr or output or f'exit {proc.returncode}')[:300]
+        return {'ok': False, 'rejected': True,
+                'error': f'statement extraction returned no JSON: {detail}'}
+    if not parsed.get('ok'):
+        return {'ok': False, 'rejected': True,
+                'error': parsed.get('error') or 'statement extraction failed'}
+
+    bank_name = bank_override or ' '.join(str(parsed.get('bank_name') or '').split())
+    account_last4 = last4_override or _statement_last4(parsed.get('account_number'))
+    transactions = _complete_statement_transactions(parsed.get('transactions'))
+    if not transactions:
+        return {
+            'ok': False, 'rejected': True, 'needs_statement_metadata': False,
+            'error': ('Statement rejected: no complete transaction with date, '
+                      'vendor/description, and amount was found.'),
+        }
+    missing = []
+    if not bank_name:
+        missing.append('bank_name')
+    if not account_last4:
+        missing.append('account_last4')
+    result = dict(parsed)
+    result.update({
+        'bank_name': bank_name or None,
+        'account_last4': account_last4,
+        'account_number': account_last4,
+        'transactions': transactions,
+        'transaction_count': len(transactions),
+    })
+    if missing:
+        result.update({
+            'ok': False,
+            'needs_statement_metadata': True,
+            'missing_fields': missing,
+            'error': 'Statement needs bank name and account last four before storage.',
+        })
+    return result
+
+
+def process_scanned_document(
+        key, org_id=1, engine='gemini', statement_metadata=None):
     """Orchestrate the Process Document action for one scanner's latest image.
 
     1. Resolve the scanner's output image.
@@ -2750,6 +2859,27 @@ def process_scanned_document(key, org_id=1, engine='gemini'):
         result['scanner'] = key
         result['image_path'] = image_path
         return result
+    statement_preflight = run_statement_preflight(
+        image_path, facade, metadata=statement_metadata)
+    if statement_preflight is not None:
+        if not statement_preflight.get('ok'):
+            result = build_pipeline_result(facade, mazda_dispatched=False)
+            result['trainer_dispatched'] = False
+            result['scanner'] = key
+            result['image_path'] = image_path
+            result['stage_error'] = statement_preflight.get('error')
+            result['needs_statement_metadata'] = bool(
+                statement_preflight.get('needs_statement_metadata'))
+            result['statement_rejected'] = bool(statement_preflight.get('rejected'))
+            result['missing_fields'] = statement_preflight.get('missing_fields', [])
+            result['statement_metadata'] = {
+                'bank_name': statement_preflight.get('bank_name'),
+                'account_last4': statement_preflight.get('account_last4'),
+            }
+            return result
+        facade = dict(facade)
+        facade['statement_preflight'] = statement_preflight
+        facade['vendor'] = statement_preflight['bank_name']
     if os.path.isfile(image_path):
         content_sha256 = _scan_content_sha256(image_path)
         if not _claim_scan_dispatch(key, image_path, content_sha256):
@@ -8009,6 +8139,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('scanner', ''),
                 org_id=data.get('org_id', 1),
                 engine=data.get('engine', 'gemini'),
+                statement_metadata=data.get('statement_metadata'),
             ))
 
         if path == '/api/process-pdf':
