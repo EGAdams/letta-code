@@ -733,6 +733,13 @@ def test_run_letta_code_message_returns_only_final_result(monkeypatch):
     assert '--output-format' in seen['argv'] and 'json' in seen['argv']
     assert seen['cwd'] == server.REPO_ROOT
     assert seen['env']['PATH'].split(server.os.pathsep)[0] == '/home/test/.bun/bin'
+    # Headless auto-denies gated tools, so without a raised permission mode the
+    # agent can never apply an edit it says it made.
+    argv = seen['argv']
+    assert argv[argv.index('--permission-mode') + 1] == 'acceptEdits'
+    # ...but never blanket bypass: this endpoint is reachable over the network.
+    assert '--yolo' not in argv
+    assert 'bypassPermissions' not in argv
 
 
 def test_letta_code_command_falls_back_to_linked_cli(monkeypatch):

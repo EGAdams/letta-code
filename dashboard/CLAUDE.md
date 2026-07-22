@@ -20,7 +20,9 @@ backend and a vanilla JS/CSS frontend (no build step, no node_modules here).
 # or directly:
 python3 server.py          # PORT=9000 to override port; LETTA_BASE_URL to point at a different Letta server
 ```
-Serves on **http://localhost:8765/**, binds `0.0.0.0`. `ReusableHTTPServer` is a
+Serves on **http://localhost:8765/**, binds `0.0.0.0`. ⚠ Editing files here does not necessarily
+change what users see — read **"Which machine is live"** before deploying or restarting anything.
+`ReusableHTTPServer` is a
 `ThreadingHTTPServer` — slow requests (whisper transcription ~5s) don't block the dashboard's
 pollers. In production this also runs as a systemd `--user` service (`dashboard-server.service`)
 that autostarts on boot — see "Boot autostart" below.
@@ -187,9 +189,40 @@ swapped in later via `AgentsRouterRenderer`'s `listener` injection point with no
 Tests: `tests/test_router_classify.py`, `js/tests/continuous-listener.test.js`,
 `js/tests/browser-speech-recognition-listener.test.js`, `js/tests/agents-router-renderer.test.js`.
 
+### Input Options "Send" → `/api/letta-code-message` (driving an agent for real work)
+
+The Send button on an agent's Input Options page does **not** use `/api/test` or the terminal — it
+POSTs to `/api/letta-code-message`, which `run_letta_code_message()` (`server.py`) services by
+shelling out to this checkout's letta CLI headlessly:
+`<bun run dev --|letta> --agent <id> --prompt <text> --output-format json --memfs-startup skip
+--permission-mode acceptEdits`. Two non-obvious invariants, both learned from a 2026-07-22 failure
+where Mazda appeared to "give no answer" while actually answering correctly:
+
+1. **The client timeout must be overridden per-call.** The server budget is **330s** because a real
+   agent turn runs for minutes, but `FetchHttpClient`'s default abort is **30s**. Before the fix the
+   browser aborted and printed `Request timed out after 30s: /api/letta-code-message` while the
+   backend went on to produce a perfectly good reply that was then discarded. `HttpClient.getJSON/
+   postJSON` therefore take an `{timeout}` option (threaded into `request()`), and the caller in
+   `js/implementation/detail-renderers.js` passes `{ timeout: 360000 }`. **Any new endpoint with a
+   long server-side budget needs the same explicit override** — don't raise the 30s default globally,
+   it's correct for the rest of the dashboard.
+2. **Headless mode auto-DENIES gated tools, so the permission mode must be raised.** With nobody to
+   answer an approval prompt, the CLI denies with `"Tool requires approval (headless mode)"`
+   (`classifyApprovals`, `denyReasonForAsk`). Without `--permission-mode`, the agent can read and
+   reason but **every Edit/Write silently fails** — it then reports work it was never allowed to do.
+   `acceptEdits` is used deliberately instead of `--yolo`: in this codebase `acceptEdits`
+   (`src/permissions/mode.ts`) already auto-allows `Write`/`Edit`/`MultiEdit`/`apply_patch` **and
+   `Bash`**, while `bypassPermissions` would hand blanket tool access to an endpoint on a
+   `0.0.0.0`-bound server. `tests/test_server.py` pins both the mode and the absence of `--yolo`.
+
+**Debugging tip:** "the agent gave no answer" has twice been a dashboard-rendering failure, not an
+agent failure. Read the agent's real history first — `GET /api/messages?agent=<letta-agent-id>` —
+before concluding it misbehaved.
+
 ### Project Plans tab
 
-The live dashboard source is the WSL repo at `/home/adamsl/letta-code`. `server.py` serves static
+The live dashboard source is the `letta-code` repo at `/home/adamsl/letta-code` **on the live box**
+(see "Which machine is live" below — that is not necessarily this machine). `server.py` serves static
 files from both `HERE` (`/home/adamsl/letta-code/dashboard`) and `REPO_ROOT`
 (`/home/adamsl/letta-code`), so repo-root plan pages are valid dashboard URLs:
 
@@ -415,6 +448,25 @@ pending-review row.
   detail panel has an always-enabled Restart button (`POST /api/server-action` `action:restart`).
   Local units restart via `systemctl --user restart <unit>`; frita-executor first runs
   `ensure_win10_docker` (removes a stale `/var/run/docker.pid` and starts docker).
+- **Mass yellow ("concern") across many unrelated tiles at once** (`executor`, `mcp-proxy`,
+  `lettabot`, `thought-bridge`, `mazda-tools-mcp`, `document-vision`, all with the same
+  `down_for_seconds` and `failure_class: "refused"`) is not several independent bugs — it's the
+  live box's **`user@1000.service` cgroup wedge** (`Active: failed (Result: resources)`, log line
+  `Failed to spawn executor: Device or resource busy`) taking down every `systemd --user` unit at
+  once. `dashboard`/`dashboard-proxy` themselves often still show `up` even mid-wedge (a leftover
+  process can keep answering `curl`, or the dashboard's own unit restarts faster than the others).
+  **Fix** (from `Ubuntu-26.04`, needs the base64-pipe hop above; `adamsl` has passwordless sudo):
+  ```bash
+  echo 1 | sudo tee /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/cgroup.kill
+  sudo systemctl reset-failed user@1000.service
+  sudo systemctl start user@1000.service
+  systemctl --user is-active dashboard-server lettabot thought-bridge mazda-tools-mcp mazda-executor
+  ```
+  **Verified 2026-07-22: it can re-wedge within ~60s of the first fix** (`Stopped` then wedged
+  again inside a minute) — re-check `sudo systemctl status user@1000.service` after ~90s before
+  declaring it fixed, and re-run the same three commands if it shows `failed` again. Confirm via
+  `curl -s http://localhost:8765/api/server-health | python3 -m json.tool` (or the same URL through
+  the public Tailscale hostname) — every tile should read `up`.
 - **Model Stats tab** — `/api/model-stats?source=` (+ `-sources`). Sub-nav: this box and mom's
   (rosemary46, via SSH) × Claude/Codex/Antigravity CLI. Antigravity has no quota API for free
   accounts, so its daily-request window is derived from the `loadCodeAssist` tier cap vs today's
@@ -427,7 +479,57 @@ pending-review row.
 
 After editing `server.py`: `systemctl --user restart dashboard-server.service` (then re-Start the
 Executor — the restart kills it). Tests: `tests/test_server.py`; `bun test js/tests` for the JS
-reducers/controllers.
+reducers/controllers. **That restart command assumes you are ON the live box** — see below.
+
+## Which machine is live (read before deploying or restarting)
+
+The checkout you are editing is often **not** the one serving the dashboard.
+
+- **Live host:** `DESKTOP-2OBSQMC`, and specifically its **`Ubuntu-26.04`** WSL distro. That box runs
+  **two** WSL distros sharing one network namespace; the older **`Ubuntu-24.04`** is a stub whose
+  `rol_finances` is a `tools/`-only shell, but it owns `tailscaled`/`sshd`, so a bare
+  `ssh adamsl@100.72.158.63` lands in the **wrong** distro while `hostname` looks identical.
+  Reliable path — always name the distro explicitly:
+  ```bash
+  ssh NewUser@100.118.122.75 'wsl.exe -d Ubuntu-26.04 -e bash -lc "<command>"'
+  ```
+- **`DESKTOP-SHDBATI`** (the Letta server box, Tailscale `100.80.49.10`) has **no**
+  `dashboard-server.service`. Its `localhost:8765` is `dashboard-proxy.service`, a TCP forwarder to
+  the live box — so a local `curl` succeeding proves nothing about your edits being deployed.
+
+**Verification must go through a base64-piped script, not inline quoting.** The nested
+`ssh → wsl.exe → bash -lc "…"` hop mangles arguments: inline
+`$(systemctl --user is-enabled dashboard-server.service)` returned `not-found` for a unit that was
+genuinely `enabled`/`active`, which nearly triggered a bogus investigation. Write the script locally,
+then:
+```bash
+B64=$(base64 -w0 script.sh)
+ssh NewUser@100.118.122.75 "wsl.exe -d Ubuntu-26.04 -e bash -lc \"echo $B64 | base64 -d > /tmp/s.sh && bash /tmp/s.sh\""
+```
+Use the same pattern for edits — the live checkout is **diverged** from this repo, so patch by
+verifying each anchor string occurs exactly once, taking a `.bak-<stamp>` copy, then string-replacing;
+never blind-`scp` whole files or `git pull` over it.
+
+### Known problem: restart fails with `Address already in use` on :8765
+
+- **Symptom:** `systemctl --user restart dashboard-server.service` in `Ubuntu-26.04` reports
+  *"failed because of unavailable resources"*, and `/tmp/dashboard_8765.log` shows
+  `OSError: [Errno 98] Address already in use`; the service then crash-loops.
+- **Cause:** the `Ubuntu-24.04` stub ran its **own** enabled `dashboard-server.service`. Both distros
+  share one port 8765, so the stub — perpetually losing the bind race — **wins the port the moment the
+  real service releases it on restart**, and the real one can never come back. Tell: `ps -eo
+  pid,etimes,cmd | grep server.py` in the stub shows a process only seconds old, matching your restart.
+- **Fix (narrow — never shut the 24.04 distro down, it owns tailscaled/sshd):** stop and disable only
+  that unit, then restart the real one.
+  ```bash
+  ssh NewUser@100.118.122.75 'wsl.exe -d Ubuntu-24.04 -e bash -lc "systemctl --user stop dashboard-server.service && systemctl --user disable dashboard-server.service"'
+  ssh NewUser@100.118.122.75 'wsl.exe -d Ubuntu-26.04 -e bash -lc "systemctl --user restart dashboard-server.service"'
+  ```
+- **Verification:** done 2026-07-22; the stub's unit is now stopped **and disabled**, so this should
+  not recur. Confirm the real unit's `MainPID` equals the `ss -tlnp` owner of :8765 and that the
+  process path is `/home/adamsl/letta-code/dashboard/server.py`. A `200` from `curl` alone is not
+  proof — a leftover process in another namespace can serve stale code (see the same warning under
+  the `user@1000` cgroup wedge in the project memory).
 
 ## Boot autostart (systemd `--user` services)
 

@@ -30,6 +30,38 @@ describe("FetchHttpClient (concrete HttpClient)", () => {
     expect(JSON.parse(seen.opts.body)).toEqual({ agent: "a1", text: "hi" });
   });
 
+  test("per-call timeout overrides the default and is not sent to fetch", async () => {
+    let seen;
+    const client = new FetchHttpClient((url, opts) => {
+      seen = { url, opts };
+      return Promise.resolve(okJson({ ok: true }));
+    });
+    await client.postJSON(
+      "/api/letta-code-message",
+      { text: "hi" },
+      {
+        timeout: 360000,
+      },
+    );
+    expect(seen.opts.timeout).toBeUndefined();
+    expect(seen.opts.signal).toBeInstanceOf(AbortSignal);
+    expect(seen.opts.signal.aborted).toBe(false);
+  });
+
+  test("a call that outlives its budget aborts with the budget in the message", async () => {
+    const client = new FetchHttpClient(
+      (_url, opts) =>
+        new Promise((_resolve, reject) => {
+          opts.signal.addEventListener("abort", () => {
+            reject(opts.signal.reason);
+          });
+        }),
+    );
+    await expect(
+      client.postJSON("/api/slow", {}, { timeout: 10 }),
+    ).rejects.toThrow(/timed out after 0.01s/);
+  });
+
   test("inherits the trimmed-error policy on non-OK", async () => {
     const client = new FetchHttpClient(() =>
       Promise.resolve({
