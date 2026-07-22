@@ -67,7 +67,11 @@ questions: **everything scanned as a statement — official or not — goes into
 `~/rol_finances/readable_documents/loose_statements/` is now orphaned — delete it or repurpose
 it, but don't build toward it.
 
-### 2. Folder path: `bank_statements/{year}/{month}/{range}/`
+### 2. Folder path: `bank_statements/{year}/{month}/{bank}_{last4}_{range}/`
+**Revised 2026-07-22:** the folder was originally spec'd as `{range}` alone. EG hit the
+collision risk that creates - two different accounts routinely share one statement period
+(Fifth Third 6285 and 5938 both had a `december_..__january_21` range in 2025/january) - so the
+folder now repeats the full file stem. Existing folders were migrated.
 - `{year}` = the reporting year (see rule 4 below for cross-year statements).
 - `{month}` = the month name (lowercase, matches receipts convention: `january`, `december`, …) of
   the **earliest transaction in that year's copy**.
@@ -77,7 +81,7 @@ it, but don't build toward it.
 
 Real example (the Chase statement processed this shift, transactions Jan 4–Jan 22 2025):
 ```
-bank_statements/2025/january/january_04__january_22/
+bank_statements/2025/january/chase_1234_january_04__january_22/
 ```
 
 ### 3. Image filename
@@ -96,8 +100,8 @@ save a full copy of the image into EACH year's folder tree**, not just one:
 
 ```
 Dec 28, 2024 → Jan 5, 2025 statement produces BOTH:
-  bank_statements/2024/december/december_28__january_05/   (imports only the Dec 2024 rows)
-  bank_statements/2025/january/december_28__january_05/    (imports only the Jan 2025 rows)
+  bank_statements/2024/december/fifth_third_5938_december_28__january_05/  (Dec 2024 rows only)
+  bank_statements/2025/january/fifth_third_5938_december_28__january_05/  (Jan 2025 rows only)
 ```
 
 - The **full range** (`december_28__january_05`) appears in BOTH folder names — don't truncate

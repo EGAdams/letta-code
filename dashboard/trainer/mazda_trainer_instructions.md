@@ -44,7 +44,9 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    nonblank bank name, exactly four account digits, and at least one complete
    transaction with date, vendor/description, and amount. Its successful return
    must contain `archive_paths`: one permanent
-   `bank_statements/{year}/{month}/{full-range}/` copy per transaction year.
+   `bank_statements/{year}/{month}/{bank}_{last4}_{full-range}/` copy per
+   transaction year (the folder repeats the file stem so two accounts sharing a
+   statement period cannot collide).
    A cross-year statement must report both years while each transaction is stored
    only once under its own date; missing metadata or zero complete rows is a
    correct fail-closed rejection, never permission to guess.
