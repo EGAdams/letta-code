@@ -1,191 +1,236 @@
-# Bank Statement Year-Folder Storage — Handoff (2026-07-21)
+# Bank Statement Intake — current state (started 2026-07-21, updated 2026-07-22)
 
-## IMPLEMENTED after this handoff (Codex, 2026-07-21)
+**Status: SHIPPED AND DEPLOYED.** Archiving, the fail-closed halt rules, the account
+last-4 lookup, and the Scanner-screen review dialog are all live on DESKTOP-2OBSQMC.
 
-The warning below is historical: the scanner-storage feature is now implemented.
-
-- `statement_archive.py` validates bank name, account last four, and complete
-  transactions; its pure planner creates one full-image archive path per transaction
-  year with per-year row partitions. Filesystem copying is behind an ABC port.
-- `store_statement_transactions.py` archives accepted source images, reports
-  `archive_paths`/`archive_years`, and rejects before DB work when required data is absent.
-- The dashboard runs statement extraction before Mazda dispatch. Missing bank/last-four
-  opens a scanner-interface dialog; zero complete transactions rejects the scan. Valid
-  user metadata is carried into both parse and store commands.
-- Mazda's live memfs and the Trainer contract now require and verify permanent archives.
-- Migration tool: `migrate_bank_statements_to_year_folders.py` (dry-run by default,
-  bounded per-file extraction, review-report apply mode, originals preserved).
-
-Existing loose-file audit: there are **15** root PDF/image files, not 13. Nine now have
-byte-identical canonical year/range copies (some loose names were duplicate aliases):
-`3686285_december_january.pdf`, `3686285_january_february.pdf`,
-`7735938_december_january.pdf`, `7735938_december_january_check_images.pdf`,
-`7735938_january_february.pdf`, `diners_december_january.pdf`,
-`first_rol_bank_statement.pdf`, `jet_blue_february_march.pdf`, and
-`jet_blue_january_february.pdf`.
-
-Six were deliberately left untouched because no trustworthy full transaction range was
-available (provider timeout and no report evidence): `7735938_june_july.pdf`,
-`7735938_may_june_check_images.pdf`, `JET BLUE AnnualSummary2025-3965.pdf`,
-`fnbo_year-end-summary-2025.pdf`, `june_statement.pdf`, and `may_statement.pdf`.
-Do not infer their ranges from filenames; rerun the bounded audit or supply verified
-metadata/transactions. Original loose files were not removed so existing links remain valid.
-
-## ⚠️ Read first — what's actually done vs. what's just agreed
-
-**Nothing about bank statements has been implemented yet.** This entire shift was spent on
-two adjacent things that ARE done (receipts year-folders, removing a bad hash-archive idea)
-plus a long back-and-forth with EG designing the bank-statement rules below. The design is
-solid and EG confirmed every piece of it — but zero code exists for it. Today's Chase-style
-scan would still be handled exactly as before: parsed into MySQL rows, no file saved anywhere.
-
-Start here. Everything below "The design (confirmed by EG)" is spec, not code.
+> **This file used to open with "Nothing about bank statements has been implemented yet."**
+> That was true the evening of 2026-07-21 and wrong by the next morning — a concurrent
+> `letta.js --yolo` agent implemented the archiver while the design was still being
+> discussed, and the stale warning cost a session's worth of wrong conclusions before
+> anyone checked `git log`. **Verify any doc in this directory against the code and git
+> history before trusting it.** Two live agents write to `rol_finances` and `letta-code`
+> continuously.
 
 ## Why this exists
 
-EG's underlying goal (same motivation as the receipts year-folders): a scanned document
-should end up in a permanent, human-browsable location so the physical paper can be
-discarded/archived ("put it in the attic for the feds") instead of kept as the real record.
-Receipts already do this via `save_receipt_non_interactive` → `move_receipt_to_month_day_dir`.
-**Statements currently do NOT** — `store_statement_transactions.py` only writes rows to MySQL;
-the scanned image is never persisted anywhere durable. That gap is what this feature closes.
+A scanned statement must end up in a permanent, human-browsable location so the physical
+paper can be archived ("put it in the attic for the feds") rather than remaining the real
+record. Receipts already did this via `save_receipt_non_interactive` →
+`move_receipt_to_month_day_dir`; statements only wrote MySQL rows and never persisted the
+image. That gap is now closed.
 
-We tried one other approach first (a dashboard-side content-hash archive, independent of
-document type) and EG explicitly killed it: a scanner produces different bytes on every pass
-of the same physical paper, so hash matching can't detect a real re-scan — only a
-byte-identical software double-dispatch, which `_claim_scan_dispatch` already handles. See
-`~/.claude/projects/-home-adamsl-letta-code/memory/dashboard_permanent_scan_archive_2026_07_21.md`
-for the full retraction if this comes up again — don't rebuild it.
+**Do not rebuild the content-hash archive.** An earlier dashboard-side approach hashed scan
+bytes to detect re-scans; EG killed it because a scanner produces different bytes on every
+pass of the same paper, so hashing only catches byte-identical software double-dispatch —
+which `_claim_scan_dispatch` already handles. Retraction:
+`~/.claude/projects/-home-adamsl-letta-code/memory/dashboard_permanent_scan_archive_2026_07_21.md`.
 
-## The design (confirmed by EG, via a real example — a Chase statement scanned 2026-07-20)
+Also dropped: the separate "loose statement" classification. **Everything scanned as a
+statement — official or not — goes into `bank_statements/`.** The orphaned
+`readable_documents/loose_statements/` folder is not built toward.
 
-### 1. No more separate "loose statement" concept
-Originally scoped as a distinct classification (official bank statement vs. informal/partial
-statement) with its own `loose_statements/` folder. EG killed this after one round of
-questions: **everything scanned as a statement — official or not — goes into
-`bank_statements/`.** The `loose_statements/` folder EG manually created at
-`~/rol_finances/readable_documents/loose_statements/` is now orphaned — delete it or repurpose
-it, but don't build toward it.
+## Where the code lives
 
-### 2. Folder path: `bank_statements/{year}/{month}/{bank}_{last4}_{range}/`
-**Revised 2026-07-22:** the folder was originally spec'd as `{range}` alone. EG hit the
-collision risk that creates - two different accounts routinely share one statement period
-(Fifth Third 6285 and 5938 both had a `december_..__january_21` range in 2025/january) - so the
-folder now repeats the full file stem. Existing folders were migrated.
-- `{year}` = the reporting year (see rule 4 below for cross-year statements).
-- `{month}` = the month name (lowercase, matches receipts convention: `january`, `december`, …) of
-  the **earliest transaction in that year's copy**.
-- `{range}` = `{firstmonth}_{firstday}__{lastmonth}_{lastday}`, built from the **earliest** and
-  **latest transaction dates found in the document** — the full range, not just the days
-  relevant to one reporting year.
+| Concern | File |
+|---|---|
+| Vision extraction of rows | `rol_finances/tools/receipt_scanning_tools/parse_statement_scan.py` |
+| Validation, archive planning, quarantine, amount suggestion | `…/statement_archive.py` |
+| Account last-4 lookup | `…/known_accounts.py` |
+| Dedupe + store + archive driver | `…/store_statement_transactions.py` |
+| Back-fill of pre-existing loose files | `…/migrate_bank_statements_to_year_folders.py` |
+| Vision classification (`doc_type: bank_statement`) | `rol_finances/tools/classify_scan.py` |
+| Tests | `…/test_statement_archive.py`, `test_known_accounts.py`, `test_store_statement_rejects.py` |
 
-Real example (the Chase statement processed this shift, transactions Jan 4–Jan 22 2025):
-```
-bank_statements/2025/january/chase_1234_january_04__january_22/
-```
+Dashboard side (`letta-code/dashboard/`): `statement_review.py`,
+`js/abstract/statement-review.interface.js`, `js/implementation/statement-review-dialog.js`,
+`tests/test_statement_review.py`, `js/tests/statement-review.test.js`.
 
-### 3. Image filename
-```
-{bank}_{last4}_{range}.jpg          # once the account number is known
-{bank}_{range}.jpg                  # before it's known
-```
-Example: `chase_january_04__january_22.jpg` → later renamed/refiled to
-`chase_1234_january_04__january_22.jpg` once the account's last 4 digits are confirmed. EG
-did not specify exactly when/how "known" gets determined — see open question #1 below.
-
-### 4. Cross-year statements: **copy into BOTH years**
-This was the trickiest part of the design and went through two iterations before landing.
-**Final rule, confirmed simplest by EG: if a statement's transactions span two calendar years,
-save a full copy of the image into EACH year's folder tree**, not just one:
+## Archive layout
 
 ```
-Dec 28, 2024 → Jan 5, 2025 statement produces BOTH:
-  bank_statements/2024/december/fifth_third_5938_december_28__january_05/  (Dec 2024 rows only)
-  bank_statements/2025/january/fifth_third_5938_december_28__january_05/  (Jan 2025 rows only)
+readable_documents/bank_statements/{year}/{month}/{bank}_{last4}_{range}/{bank}_{last4}_{range}.jpg
+                              e.g.  2025/march/american_express_4007_march_06__march_20/
 ```
 
-- The **full range** (`december_28__january_05`) appears in BOTH folder names — don't truncate
-  it per-year.
-- Each copy's transaction import is filtered to **only that year's transactions** — never
-  double-count a transaction across both reporting years.
-- (We initially discussed a more complex "which report is currently being processed" input
-  rule before landing on "just copy to both" — the simpler rule. If you find yourself building
-  logic to determine "the active report year," stop — that complexity was explicitly rejected.)
+- `{month}` = lowercase month name of the earliest transaction **in that year's copy**
+  (matches the receipts convention).
+- `{range}` = `{firstmonth}_{firstday}__{lastmonth}_{lastday}` from the earliest and latest
+  transaction dates **in the whole document**, not just the part in one year.
+- **The folder repeats the full file stem**, not just the range (revised 2026-07-22). Two
+  accounts routinely share one statement period — Fifth Third 6285 and 5938 both had a
+  `december_..__january_21` range in 2025/january — and a range-only folder collides.
+  Existing folders were migrated.
+- **Cross-year statements are copied into BOTH years.** The full range appears in both
+  folder names; each copy's DB import is filtered to only that year's rows so nothing is
+  double-counted. A more complex "which report year is active" rule was explicitly
+  rejected — if you find yourself building that, stop.
+- The archiver **copies, never moves**, and preserves an existing canonical copy rather
+  than overwriting it with fresh scanner bytes. **A file still sitting in `incoming_scans/`
+  is not evidence it failed to archive.**
 
-### 5. Minimum required data (mentioned by EG, not yet re-confirmed after simplification)
-Before the loose/official distinction was dropped, EG specified a general minimum-data halt
-rule that should likely still apply, but wasn't re-confirmed in the final simplified design —
-**ask EG before implementing** rather than assuming it still applies as originally stated:
-- Receipts: require `{vendor_key, date, amount}` or halt for human review, no guessing.
-- Statements: doesn't map 1:1 (many transactions, not one) — EG's original wording implied
-  something like `{bank_vendor_key, earliest_date, latest_date}` at the document level, with
-  each row still needing its own `{vendor_key, date, amount}` to store. Confirm this framing
-  is still wanted before building it.
+## The rules EG confirmed (2026-07-22)
 
-## Open questions to raise with EG before/while implementing
+1. **Every row readable, or the whole statement is quarantined.** One unreadable date,
+   description, or amount rejects the *entire* statement into
+   `bank_statements/_needs_review/` with a JSON sidecar. No partial import, no guessing.
+   *Why:* importing the readable rows and dropping the rest makes an expense vanish with
+   nothing to notice it by, while the paper gets filed as "done" and discarded.
+2. **An unresolved vendor is a different thing entirely.** That row is still stored, with
+   `category_id = NULL` and `expense_status = NEEDS_VENDOR_KEY`, reported under
+   `uncategorized` / `uncategorized_expense_ids` — **never counted in `failed`**. Same rule
+   as receipts; it lands in the dashboard's New Records queue. (Before 2026-07-22 it raised
+   and the transaction was never persisted at all.)
+3. **Account last-4 is looked up, never invented.** Precedence: `--account-last4` → the
+   number read off the statement → the known-cards workbook. If none resolve, the rejection
+   carries `needs_workbook_entry: true`.
+4. **Ambiguity halts.** Several cards at one bank (Amex ×2, Fifth Third ×3) means the
+   printed bank name cannot identify the card; the lookup returns
+   `workbook_ambiguous_last4` and stops rather than picking one.
 
-1. **How does the system know the account number to add `{last4}` to the filename?** Is this
-   OCR'd from the statement image, does Mazda ask, is it looked up from a known-accounts table
-   (rol_finances has `Known_Credit_Cards_and_Banks.xlsx` at the readable_documents root —
-   maybe cross-reference that), or is it a manual rename EG does later? Not yet asked.
-2. **Confidence threshold for "can't classify confidently" → human review**, for statements
-   specifically. The general principle (never guess, halt instead) is well-established
-   elsewhere in this codebase (see the receipts `_needs_review/` migration this shift as a
-   worked example of the same philosophy) but the specific statement-classification confidence
-   cutoff hasn't been discussed.
-3. Does this apply retroactively to the 13 existing statement files already sitting flat in
-   `readable_documents/bank_statements/` (see `dashboard/CLAUDE.md`'s "ROL Finance Reports"
-   section — these already have real `report.html` files and are a different, established
-   system)? Almost certainly **NOT** — those are the curated monthly bank-statement reports,
-   a separate concern from raw scanner intake. Don't touch them without asking.
+## The known-cards workbook
 
-## Suggested implementation approach (not yet started, just a starting point)
+`readable_documents/Known_Credit_Cards_and_Banks.xlsx`, sheet 1, **columns B/C/D only**.
+Row 1 is a header; a historical duplicate E/F block must be ignored or every card
+double-counts and looks ambiguous.
 
-Mirror what worked for receipts this shift — tests first, dry-run before any live move:
+| B — Partial File Name | C — Last 4 | D — Printed on Statement |
+|---|---|---|
+| `american_express_1006` | `1006` | American Express |
+| `barclays_bank_delaware_3965` | `3965` | Barclays Bank Delaware |
+| `chase_5783` | `5783` | Chase |
 
-1. **New pure path-generator function**, analogous to `move_receipt_to_month_day_dir` in
-   `rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py`
-   (and its duplicate at repo-root `receipt_parsing_tools/` — remember both copies exist and
-   diverge; see that file's new top-of-function comment for why). Something like
-   `build_statement_archive_paths(transactions, bank_name, account_last4=None) -> list[(year_path, filtered_transactions)]`
-   — returns one or two `(path, transactions)` pairs depending on whether the range crosses a
-   year boundary. Write this as a standalone, side-effect-free function first; test it against
-   the Chase example and a synthetic cross-year example before touching any file I/O.
-2. **Wire into `store_statement_transactions.py`** (currently DB-only) to also copy the image
-   into the computed path(s) and pass only the filtered per-year transactions to whatever does
-   the DB insert.
-3. **GoF separation** (EG's standing architecture rule, [[feedback_gof_ports_even_for_logging]]
-   in memory): keep classification, date-range extraction, path generation, and file-copy as
-   separably-testable pieces — don't fuse them into one function. The receipts migration this
-   shift (`migrate_receipts_to_year_folders.py`) is a reasonable model: a pure `plan_*()`
-   function returns a decision + reason, a separate runner executes it.
-4. Mazda's actual instructions (memfs) need updating so she does this — see
-   `mazda_memfs_update_procedure_2026_06_26` memory for the procedure (this is NOT a
-   `git commit` to a normal file; it's a separate memfs push). **Nothing in her wrapper
-   currently knows about any of this.**
-5. Update `dashboard/trainer/mazda_trainer_instructions.md`'s contract checklist so the Trainer
-   verifies the new archive step happened, same pattern as the receipt-store verification
-   already in that file.
+**Column D is load-bearing**: a scan yields the bank's printed name ("Barclays Bank
+Delaware"), not EG's shorthand. The lookup scores D and B and takes the best match. As of
+2026-07-22 every column-B value equals what the archiver generates from column D, so B
+genuinely describes the resulting filename.
 
-## What's already done this shift (context, not part of this handoff's scope)
+Parsed with stdlib `zipfile` + `ElementTree` — **openpyxl is not installed in any venv on
+any box**, and this isn't worth a runtime dependency.
 
-- Receipts reorganized into `receipts/{year}/{month}/{day}/` (was `{month}/{day}`, year token
-  from the filename was previously discarded). Migration script + tests committed:
-  `rol_finances` commit `e64587c`. 74 uncertain files parked in `receipts/_needs_review/` with
-  a manifest rather than guessed.
-- Dashboard-side content-hash scan archive was built, then explicitly removed same day per EG
-  — see the memory note above. Don't resurrect it. `letta-code` commit `782ee94`.
-- Both repos pushed clean, nothing from concurrent live agents' WIP bundled in.
+### Excel traps (every one of these was hit for real)
 
-## Where things live
+- **Leading zeros are silently dropped** on unformatted numeric cells: `0062` stores as
+  `62`. Column C is now formatted as **text** so stored == displayed.
+  `workbook_last4(cell, partial_file_name)` still restores zeros from column B when the two
+  agree numerically, and fails closed on a genuine mismatch.
+- **Never truncate the other way.** Two Amex rows once held FIVE digits (`61006`); taking
+  the trailing four would have invented account "1006". A non-4-digit cell is unusable.
+- **Writing the file while EG has it open in Excel loses the write.** Excel saves its stale
+  in-memory copy over yours; it does not merge. Ask EG to close it, back up first, verify
+  after.
+- **Edit it with zip/XML surgery, not openpyxl** — the workbook carries cell comments and a
+  `legacyDrawing` that a library rewrite would drop. Copy every zip entry through
+  byte-for-byte and patch only `xl/worksheets/sheet1.xml` (+ `styles.xml` for formats).
 
-- Statement scan/store code: `rol_finances/tools/receipt_scanning_tools/parse_statement_scan.py`,
-  `store_statement_transactions.py`.
-- Vision classification: `rol_finances/tools/classify_scan.py` (`doc_type: bank_statement` — no
-  official/loose distinction exists here; per rule 1 above, it doesn't need one anymore).
-- Existing receipts precedent to copy the pattern from:
-  `receipt_parsing_tools/parse_and_categorize.py` → `move_receipt_to_month_day_dir` +
-  `_parse_receipt_date_from_stem` (both the root and `tools/receipt_scanning_tools/` copies —
-  keep them in sync, see the sync-note comments added to both this shift).
-- `~/rol_finances/readable_documents/Known_Credit_Cards_and_Banks.xlsx` — possibly relevant to
-  open question #1 (account number lookup).
+## The bug that made the halt rule unreachable
+
+`parse_statement_scan.py` used to `continue` past any row whose amount wouldn't `float()`
+or whose date/description was blank — **deleting real transactions before the store step
+ever saw them**. The "one bad row quarantines the statement" rule therefore could never
+fire from a real scan, because the bad rows were already gone.
+
+Fixed 2026-07-22: every row is emitted, with `None` in the unreadable field plus
+`unreadable: true`, and the vision prompt instructs the model to do the same and never
+guess. The parser also now returns `statement_total` (the printed total of new charges).
+
+**Generalize this:** if a fail-closed rule appears never to trigger, check whether an
+upstream layer already discarded the bad input.
+
+## The review dialog (Scanner screen)
+
+The quarantine sidecar is a **self-contained retry packet** — all rows, the statement
+total, per-row suggestions, workbook state, archive root, env path — so a quarantined
+statement is re-runnable without re-scanning or re-parsing. This is deliberately
+*retry-after-the-fact* rather than pausing Mazda mid-run and holding state.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/statement-reviews` | Pending quarantined statements, newest first |
+| `POST /api/statement-review-resolve` `{id, amounts?}` | Re-run the store with human-supplied values |
+
+- **Missing card** → "add a row for this card, then press OK". OK re-runs (the workbook is
+  re-read on every lookup). A still-missing row **leaves the item queued so the dialog
+  reappears** — EG's explicit requirement.
+- **Unreadable amount** → one input per bad row, prefilled from
+  `suggest_missing_amount()`, which reconstructs exactly ONE missing amount as
+  `printed_total − sum(readable)`. Two unknowns, or no printed total, yields **no
+  suggestion** rather than a wrong one.
+- A blank entry is an error, never a silent skip — skipping would resubmit the same hole
+  and re-quarantine the statement.
+
+## Running the tests
+
+On **DESKTOP-SHDBATI** no venv has the full stack, and the repo-root `conftest.py` loads
+`tools/receipt_scanning_tools/app/db/__init__.py`, which imports `pymysql` — collection
+aborts with an INTERNALERROR before any test runs. Bypass it with `--confcutdir`:
+
+```bash
+cd /home/adamsl/rol_finances
+PYTHONPATH=/home/adamsl/rol_finances browser_tools/.venv/bin/pytest \
+  tools/receipt_scanning_tools/test_known_accounts.py \
+  tools/receipt_scanning_tools/test_statement_archive.py \
+  tools/receipt_scanning_tools/test_store_statement_rejects.py \
+  -q -p no:cacheprovider --confcutdir=tools/receipt_scanning_tools
+```
+
+On the live box use `/home/adamsl/rol_finances/.venv/bin/python3 -m pytest` with the same
+flags (33 pass there). Dashboard: `.venv/bin/python -m pytest tests/` and
+`bun test js/tests`.
+
+`test_store_statement_rejects.py` stubs the DB modules via `sys.modules`, so the reject
+path runs with no database. Tests importing `parse_statement_scan` fail on SHDBATI for
+missing `google.generativeai` — pre-existing, not a regression.
+
+## Deploying
+
+**Editing on SHDBATI changes nothing** — it runs only `dashboard-proxy.service`, a TCP
+forwarder. The live code is on DESKTOP-2OBSQMC (`Ubuntu-26.04`). Push, then pull there:
+
+```bash
+ssh NewUser@100.118.122.75 'wsl.exe -d Ubuntu-26.04 -e bash -lc "git -C /home/adamsl/rol_finances pull --ff-only origin main"'
+```
+
+Use the base64-piped script pattern from `dashboard/CLAUDE.md` for anything non-trivial.
+Two files are perpetually dirty there and are safe to `git checkout --` before pulling:
+`rol_finances.egg-info/SOURCES.txt` and `dashboard/claude_toolcalls.json`. Restart
+`dashboard-server.service` **only** when `server.py` changed — the statement scripts and
+the Trainer instructions are read fresh on every run.
+
+## Mazda's memory
+
+Her `system/statement_intake_procedure` block carries these rules (steps 6, 6a, 6b).
+**`git push` to `state.git` alone is inert** — verified 2026-07-22, the block was unchanged
+until `letta-code/scripts/project_memfs_to_blocks.py --agent <id>` ran. Before pushing,
+confirm every attached block label has a top-level `system/<label>.md` file, or the
+re-derivation can detach it; `statement_intake_procedure` was found existing *only* as a
+block with no file, and pushing blind would have wiped it.
+
+## Pre-existing loose files at the `bank_statements/` root (audited 2026-07-21)
+
+There are **15** loose PDFs at the `bank_statements/` root, not the 13 an older note
+claimed (verified 2026-07-22: `ls *.pdf` = 15, plus a stray
+`choice Credit Card Year End052826.csv` and `finance_directory_listing.php` that are not
+scanned statements). Nine of the 15 now have byte-identical canonical year/range copies —
+some loose names were duplicate aliases: `3686285_december_january.pdf`,
+`3686285_january_february.pdf`, `7735938_december_january.pdf`,
+`7735938_december_january_check_images.pdf`, `7735938_january_february.pdf`,
+`diners_december_january.pdf`, `first_rol_bank_statement.pdf`,
+`jet_blue_february_march.pdf`, `jet_blue_january_february.pdf`.
+
+Six were deliberately left untouched because no trustworthy full transaction range was
+available (provider timeout, no report evidence): `7735938_june_july.pdf`,
+`7735938_may_june_check_images.pdf`, `JET BLUE AnnualSummary2025-3965.pdf`,
+`fnbo_year-end-summary-2025.pdf`, `june_statement.pdf`, `may_statement.pdf`.
+**Do not infer their ranges from filenames** — rerun the bounded audit or supply verified
+metadata. Originals were not removed, so existing links stay valid.
+
+The curated monthly statement reports (the ones with real `report.html` files, see
+`dashboard/CLAUDE.md` → "ROL Finance Reports") are a **separate, established system** from
+raw scanner intake. Don't restructure them without asking.
+
+## Not built / open
+
+- No UI for browsing `_needs_review/` history; the dialog surfaces only pending items.
+- `united_0062`, `fnbo_4851`, `choice_7580` were filled into the workbook on 2026-07-22 and
+  have not been exercised by a real scan.
+- The Trainer verifies the contract but has not yet observed a live quarantine run.

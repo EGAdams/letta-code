@@ -403,6 +403,44 @@ the OAuth login; the dashboard service's PATH lacks bun/claude so the Popen prep
 `~/.bun/bin:~/.local/bin`. Tests: `tests/test_server.py -k trainer` — the pytest conftest fixture
 disables the Trainer so test runs never spawn a real ~25-minute Claude session.
 
+### Statement review dialog (Scanner screen)
+
+A scanned statement that `store_statement_transactions.py` refuses is parked in
+`~/rol_finances/readable_documents/bank_statements/_needs_review/` beside a JSON sidecar.
+Before 2026-07-22 nothing surfaced those — the run just ended and the document sat there.
+`statement_review.py` turns the sidecars into review items and the Scanner screen pops a
+dialog for each, polling every 15s (`StatementReviewDialog`, started from `setupScanners`
+and held at module scope in `dashboard-boot.js` so it survives tab navigation).
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/statement-reviews` | `{ok, reviews:[…]}` — pending quarantined statements, newest first |
+| `POST /api/statement-review-resolve` `{id, amounts?}` | Re-runs the store with human-supplied amounts; clears the queue on success |
+
+Two kinds of item, both fail-closed by design:
+- **`workbook`** — the account's last 4 digits couldn't be resolved. The dialog asks EG to
+  add a row to `Known_Credit_Cards_and_Banks.xlsx` and press OK; resolving just re-runs
+  (the workbook is re-read on every lookup). **A still-failing resolve leaves the sidecar
+  in place so the dialog reappears** — that recurrence is EG's explicit requirement, not a
+  bug. A bank with several cards on file reports `workbook_ambiguous_last4` and halts
+  rather than picking one.
+- **`amounts`** — one or more rows were unreadable. One input per bad row, prefilled with
+  the server's `suggested_amount` (computed as `printed_total − sum(readable)`, and only
+  when exactly one amount is missing — two unknowns or no printed total yields no
+  suggestion rather than a wrong one). A blank entry is an error, never a silent skip:
+  skipping would resubmit the same hole and re-quarantine the statement.
+
+The sidecar is a **self-contained retry packet** (rows, total, suggestions, workbook state,
+archive root, env path), so resolving replays the store without re-scanning or re-parsing —
+deliberately retry-after-the-fact rather than pausing Mazda mid-run and holding state.
+
+GoF split as usual: all decision logic is pure in
+`js/abstract/statement-review.interface.js` (15 bun tests); the dialog class is DOM+fetch
+only; the server side injects its store subprocess (`runner=`) so
+`tests/test_statement_review.py` runs offline. Full background — archive layout, halt
+rules, the workbook's Excel traps, and the upstream parser bug that made the halt rule
+unreachable — is in `notes_plans_handoffs/bank_statement_storage_handoff_2026_07_21.md`.
+
 ### Categorizer LLM fallback chain + provider health alerting
 
 `tools/categorizer/categorizer_main.py` (STEP 3 of receipt intake — vendor→category, in
