@@ -30,6 +30,7 @@ import {
   InputOptionsRenderer,
   PrinterRepairController,
   RolFinanceReportsController,
+  ScannerDiagnosticsController,
   ServerActionController,
   ServerHealthMonitor,
   ServerLogController,
@@ -598,6 +599,7 @@ if (
             );
           safeActivateView("scanners-freezer");
           scannerControllers.freezer?.startMonitor();
+          scannerControllers.freezer?.refreshDiagnostics();
           return;
         }
         safeSetActive(
@@ -644,6 +646,10 @@ if (
         stopAllScannerMonitors();
         if (tab.dataset.target === "scanners-freezer") {
           scannerControllers.freezer?.startMonitor();
+          scannerControllers.freezer?.refreshDiagnostics();
+        }
+        if (tab.dataset.target === "scanners-window") {
+          scannerControllers.window?.refreshDiagnostics();
         }
         if (tab.dataset.target === "scanners-vendor-review") {
           vendorReviewController?.refresh();
@@ -2164,7 +2170,23 @@ function setupScanners() {
     const imageBox = dialog.querySelector(".scanner-image-box");
     const img = dialog.querySelector(".scanner-image");
     const closeBtn = dialog.querySelector(".scanner-image-close");
+    const diagLeds = dialog.querySelector(".scanner-diag-leds");
+    const diagRefreshBtn = dialog.querySelector(".scanner-diag-refresh");
     const monitored = MONITORED_SCANNERS.has(scanner);
+
+    // Scanner-workflow health LEDs (WSL bridge / imaging service / driver /
+    // online / stuck scans / printer device). Read-only probe — never scans.
+    const diagnostics =
+      diagLeds && diagRefreshBtn
+        ? new ScannerDiagnosticsController({
+            http,
+            scanner,
+            esc: TextUtils.esc,
+          })
+        : null;
+    const refreshDiagnostics = () => {
+      if (diagnostics && diagLeds) void diagnostics.refresh(diagLeds);
+    };
     let lastImageUrl = null;
     let scanning = false;
     let progressTimer = null;
@@ -2373,6 +2395,8 @@ function setupScanners() {
       repairButtons.forEach((button) => {
         button.disabled = false;
       });
+      // The repair may have cleared a blocker (door/jam/offline) — re-read health.
+      refreshDiagnostics();
     };
 
     const setBusy = (msg) => {
@@ -2440,11 +2464,33 @@ function setupScanners() {
         setBusy(data.error || "Previous scan is still being verified.");
       } else if (status === "busy" || status === "offline") {
         setBusy("Restart the Scanner Please");
+        // A busy/offline scanner is exactly when the health LEDs earn their
+        // keep — refresh so the user sees WHICH failure point to reset.
+        refreshDiagnostics();
       } else {
         setFailed(`Scan failed: ${data.error || "unknown error"}`);
+        refreshDiagnostics();
       }
       return status;
     };
+
+    // "Refresh Health" must refresh both sets of evidence: the LED diagnostics
+    // and the main blinking status bar. Previously a completed Trainer left the
+    // browser blinking red forever even though the server had returned to idle.
+    const refreshRuntimeStatus = async () => {
+      try {
+        const res = await fetch(`/api/scanner-status?scanner=${scanner}`);
+        applyResult(await res.json());
+      } catch (err) {
+        setFailed(`Status refresh failed: ${err.message}`);
+      }
+    };
+    if (diagRefreshBtn) {
+      diagRefreshBtn.addEventListener("click", () => {
+        refreshDiagnostics();
+        void refreshRuntimeStatus();
+      });
+    }
 
     const stopMonitor = () => {
       monitorActive = false;
@@ -2606,7 +2652,7 @@ function setupScanners() {
         hideImage();
     });
 
-    controllers[scanner] = { startMonitor, stopMonitor };
+    controllers[scanner] = { startMonitor, stopMonitor, refreshDiagnostics };
   });
   return controllers;
 }

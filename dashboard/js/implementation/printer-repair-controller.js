@@ -1,4 +1,4 @@
-/** Build the fixed request used by both scanner-dialog Fix Printer buttons. */
+/** Build the fixed request used by both scanner-dialog Fix Scanner buttons. */
 export function buildPrinterRepairRequest() {
   return { url: "/api/fix-printer", body: {} };
 }

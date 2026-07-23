@@ -52,6 +52,7 @@ export {
   PrinterRepairController,
 } from "./printer-repair-controller.js";
 export { RolFinanceReportsController } from "./rol-finance-reports-controller.js";
+export { ScannerDiagnosticsController } from "./scanner-diagnostics-controller.js";
 export {
   buildServerActionRequest,
   ServerActionController,

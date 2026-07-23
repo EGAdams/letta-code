@@ -948,6 +948,126 @@ def test_scanner_registry_selects_by_name_not_first_device():
     # first, so "first device" would grab the wrong scanner).
     assert server.SCANNERS['freezer']['script'] == 'run_scan_freezer.sh'
     assert server.SCANNERS['window']['script'] == 'run_scan_window.sh'
+
+
+def _diag_by_id(result, check_id):
+    return next(c for c in result['checks'] if c['id'] == check_id)
+
+
+def test_scanner_diag_all_healthy_is_green():
+    ps = {'stisvc': 'Running', 'stale_scans': 0,
+          'hp_scan_doctor': 'Stopped', 'driver_present': True,
+          'driver_status': 'OK', 'wia': 'present', 'wia_connect': 'ready'}
+    r = server.build_scanner_diagnostics('window', True, ps)
+    assert r['overall'] == 'ok'
+    assert all(c['state'] == 'ok' for c in r['checks'])
+    # No printer-device LED on the Window scanner (that's a Freezer-only LAN probe).
+    assert not any(c['id'] == 'device' for c in r['checks'])
+
+
+def test_scanner_diag_device_holder_shows_two_red_leds():
+    ps = {'stisvc': 'Running', 'stale_scans': 0,
+          'hp_scan_doctor': 'Running', 'driver_present': True,
+          'driver_status': 'OK', 'wia': 'present', 'wia_connect': 'busy'}
+    r = server.build_scanner_diagnostics('window', True, ps)
+    assert _diag_by_id(r, 'hp-doctor')['state'] == 'bad'
+    assert 'stop and disable' in _diag_by_id(r, 'hp-doctor')['detail'].lower()
+    assert _diag_by_id(r, 'access')['state'] == 'bad'
+    assert 'holding it busy' in _diag_by_id(r, 'access')['detail'].lower()
+    assert r['overall'] == 'bad'
+
+
+def test_scanner_diag_running_hp_doctor_is_only_warning_when_access_works():
+    ps = {'stisvc': 'Running', 'stale_scans': 0,
+          'hp_scan_doctor': 'Running', 'driver_present': True,
+          'driver_status': 'OK', 'wia': 'present', 'wia_connect': 'ready'}
+    r = server.build_scanner_diagnostics('freezer', True, ps)
+    assert _diag_by_id(r, 'hp-doctor')['state'] == 'warn'
+    assert _diag_by_id(r, 'access')['state'] == 'ok'
+    assert r['overall'] == 'warn'
+
+
+def test_scanner_diag_no_wsl_bridge_is_red_and_windows_checks_unknown():
+    # The most common "reset everything" cause: no interactive WSL session for the
+    # service to borrow an interop socket from. Every Windows-side LED goes grey,
+    # not red — "we couldn't ask" is not "the scanner is broken".
+    r = server.build_scanner_diagnostics('window', False, None)
+    assert r['overall'] == 'bad'
+    assert _diag_by_id(r, 'bridge')['state'] == 'bad'
+    for cid in ('service', 'driver', 'online', 'stale'):
+        assert _diag_by_id(r, cid)['state'] == 'unknown'
+
+
+def test_scanner_diag_stisvc_stopped_is_red():
+    ps = {'stisvc': 'Stopped', 'stale_scans': 0,
+          'driver_present': True, 'driver_status': 'OK', 'wia': 'service-down'}
+    r = server.build_scanner_diagnostics('window', True, ps)
+    assert _diag_by_id(r, 'service')['state'] == 'bad'
+    assert r['overall'] == 'bad'
+
+
+def test_scanner_diag_driver_absent_prompts_reinstall():
+    ps = {'stisvc': 'Running', 'stale_scans': 0,
+          'driver_present': False, 'driver_status': 'absent', 'wia': 'absent'}
+    r = server.build_scanner_diagnostics('window', True, ps)
+    driver = _diag_by_id(r, 'driver')
+    assert driver['state'] == 'bad'
+    assert 'reinstall' in driver['detail'].lower()
+
+
+def test_scanner_diag_offline_and_wia_timeout_are_red():
+    off = server.build_scanner_diagnostics(
+        'window', True,
+        {'stisvc': 'Running', 'stale_scans': 0, 'driver_status': 'OK',
+         'driver_present': True, 'wia': 'absent'})
+    assert _diag_by_id(off, 'online')['state'] == 'bad'
+    wedged = server.build_scanner_diagnostics(
+        'window', True,
+        {'stisvc': 'Running', 'stale_scans': 0, 'driver_status': 'OK',
+         'driver_present': True, 'wia': 'timeout'})
+    assert _diag_by_id(wedged, 'online')['state'] == 'bad'
+
+
+def test_scanner_diag_stuck_scans_are_yellow():
+    ps = {'stisvc': 'Running', 'stale_scans': 2,
+          'driver_present': True, 'driver_status': 'OK', 'wia': 'present'}
+    r = server.build_scanner_diagnostics('window', True, ps)
+    assert _diag_by_id(r, 'stale')['state'] == 'warn'
+    assert r['overall'] == 'warn'
+
+
+def test_scanner_diag_freezer_device_blocker_is_red():
+    ps = {'stisvc': 'Running', 'stale_scans': 0,
+          'driver_present': True, 'driver_status': 'OK', 'wia': 'present'}
+    device = {'reachable': True, 'categories': ['doorOpen'],
+              'blocker': 'A door or cover is open on the printer.', 'note': None}
+    r = server.build_scanner_diagnostics('freezer', True, ps, device)
+    dev = _diag_by_id(r, 'device')
+    assert dev['state'] == 'bad'
+    assert dev['detail'] == device['blocker']
+    assert r['overall'] == 'bad'
+
+
+def test_scanner_diag_freezer_print_only_note_is_yellow_not_red():
+    ps = {'stisvc': 'Running', 'stale_scans': 0,
+          'driver_present': True, 'driver_status': 'OK', 'wia': 'present'}
+    device = {'reachable': True, 'categories': ['inputTrayEmpty'], 'blocker': None,
+              'note': 'it is out of paper (printing only — scanning works without paper)'}
+    r = server.build_scanner_diagnostics('freezer', True, ps, device)
+    assert _diag_by_id(r, 'device')['state'] == 'warn'
+
+
+def test_scanner_diag_unknown_scanner_errors():
+    r = server.build_scanner_diagnostics('nope', True, {})
+    # Falls through to no checks; the wrapper is what returns the error, but a bad
+    # key here should not raise.
+    assert r['scanner'] == 'nope'
+
+
+def test_scanner_diagnostics_wrapper_rejects_unknown_key():
+    r = server.scanner_diagnostics('nope')
+    assert r['overall'] == 'bad'
+    assert 'error' in r
     assert server.SCANNERS['freezer']['output'] != server.SCANNERS['window']['output']
 
 
@@ -4028,12 +4148,27 @@ def test_run_scanner_does_not_dispatch_on_busy(monkeypatch):
 
 def test_scanner_status_is_read_only(monkeypatch):
     monkeypatch.setattr(server, 'SCANNERS', {'freezer': {'name': 'Freezer Scanner'}})
+    monkeypatch.setattr(server, '_scanner_intake_in_progress', lambda _key: False)
     monkeypatch.setattr(
         server, '_invoke_scanner',
         lambda _key: (_ for _ in ()).throw(AssertionError('status GET started a scan')))
     server._scanner_runtime_status.clear()
 
     assert server.scanner_status('freezer') == {'status': 'idle', 'ok': True}
+
+
+def test_scanner_status_exposes_active_intake_lock_without_scanning(monkeypatch):
+    monkeypatch.setattr(server, 'SCANNERS', {'freezer': {'name': 'Freezer Scanner'}})
+    monkeypatch.setattr(server, '_scanner_intake_in_progress', lambda _key: True)
+    monkeypatch.setattr(
+        server, '_invoke_scanner',
+        lambda _key: (_ for _ in ()).throw(AssertionError('status GET started a scan')))
+
+    result = server.scanner_status('freezer')
+
+    assert result['status'] == 'intake_busy'
+    assert result['ok'] is False
+    assert 'still being verified' in result['error']
 
 
 def test_run_scanner_blocks_while_previous_intake_is_being_verified(monkeypatch):

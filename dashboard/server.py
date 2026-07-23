@@ -1718,12 +1718,19 @@ SCANNERS = {
         'device': 'HPI297BEA (HP OfficeJet 8120e series)',
         'script': 'run_scan_window.sh',   # selects HPI297BEA by name
         'output': 'scan.jpg',
+        # Diagnostics (scanner_diag.ps1): `namelike` matches the WIA device Name;
+        # `driver_match` matches the PnP Image-class FriendlyName (a different
+        # string — the model, not the WIA id).
+        'namelike': 'HPI297BEA',
+        'driver_match': 'OfficeJet 8120e',
     },
     'freezer': {
         'name': 'Freezer Scanner',
         'device': 'HP063E28 (HP DeskJet 4100 series)',
         'script': 'run_scan_freezer.sh',  # selects HP063E28 by name (non-default)
         'output': 'scan_freezer.jpg',
+        'namelike': 'HP063E28',
+        'driver_match': 'DeskJet 4100',
     },
 }
 
@@ -1848,7 +1855,7 @@ def fix_deskjet_printer(runner=subprocess.run, device_status=None):
         return {
             'ok': False,
             'text': ('Printer repair needs Windows access. Open a WSL window '
-                     'and try Fix Printer again.'),
+                     'and try Fix Scanner again.'),
         }
 
     script = f"""
@@ -2124,6 +2131,261 @@ def _invoke_scanner(key):
         result['image_url'] = (
             f'{SCANNER_IMAGE_URL_PREFIX}?scanner={key}&t={int(time.time())}')
     return result
+
+
+# ── Scanner workflow diagnostics (the health LEDs) ──────────────────────────
+# "We keep having to reset everything" — this makes every failure point in the
+# scan workflow visible as an LED instead of a mystery. Read-only: it probes,
+# it never scans. The Windows-side checks come from ONE scanner_diag.ps1 launch.
+SCANNER_DIAG_TIMEOUT_SEC = 30
+
+
+def _run_scanner_diag_ps(cfg, interop, skip_wia=False):
+    """Launch scanner_diag.ps1 via Windows PowerShell; return its parsed dict.
+
+    Returns None if the script is missing or the launch failed/was unparseable —
+    the caller renders those Windows-side checks as 'unknown' (grey), not red,
+    because "we couldn't ask Windows" is not the same as "the scanner is broken".
+    """
+    script_path = os.path.join(SCAN_TOOLS_DIR, 'scanner_diag.ps1')
+    if not os.path.isfile(script_path):
+        return None
+    env = os.environ.copy()
+    env['WSL_INTEROP'] = interop
+    args = [_WINDOWS_POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', './scanner_diag.ps1',
+            '-NameLike', cfg.get('namelike', ''),
+            '-FriendlyLike', cfg.get('driver_match', '')]
+    if skip_wia:
+        args.append('-SkipWia')
+    try:
+        proc = subprocess.run(
+            args, cwd=SCAN_TOOLS_DIR, capture_output=True, text=True,
+            timeout=SCANNER_DIAG_TIMEOUT_SEC, env=env)
+    except Exception:  # noqa: BLE001 — any failure just means "couldn't ask"
+        return None
+    out = (proc.stdout or '').strip()
+    if not out:
+        return None
+    try:
+        return json.loads(out.splitlines()[-1])
+    except (json.JSONDecodeError, IndexError):
+        return None
+
+
+def _diag_check(check_id, label, state, detail):
+    """One LED row: state is 'ok' | 'warn' | 'bad' | 'unknown'."""
+    return {'id': check_id, 'label': label, 'state': state, 'detail': detail}
+
+
+def build_scanner_diagnostics(key, interop_ok, ps_data, device_status=None):
+    """Pure map of raw probe results -> the scanner's health LEDs.
+
+    No I/O so it is fully unit-testable. `ps_data` is scanner_diag.ps1's parsed
+    JSON (or None when Windows was unreachable); `device_status` is
+    read_deskjet_device_status()'s dict for the Freezer (or None). The checks are
+    ordered as the workflow depends on them, top to bottom.
+    """
+    checks = []
+    ps = ps_data or {}
+    # Windows-side checks are only meaningful once we can actually reach Windows.
+    windows_reachable = bool(interop_ok) and ps_data is not None
+
+    # 1. WSL bridge — the systemd service borrows an interop socket from an
+    #    interactive WSL session; with none open it can't launch Windows at all.
+    if interop_ok:
+        checks.append(_diag_check(
+            'bridge', 'WSL Bridge', 'ok',
+            'The dashboard service can reach Windows to drive the scanner.'))
+    else:
+        checks.append(_diag_check(
+            'bridge', 'WSL Bridge', 'bad',
+            'No WSL session is open, so the service cannot reach Windows to '
+            'scan. Open a WSL terminal on the live box, then refresh.'))
+
+    # 2. Windows Image Acquisition service (stisvc) — the classic "wedge".
+    stisvc = (ps.get('stisvc') or '').lower()
+    if not windows_reachable:
+        checks.append(_diag_check('service', 'Imaging Service', 'unknown',
+            'Could not read the Windows Image Acquisition service.'))
+    elif stisvc == 'running':
+        checks.append(_diag_check('service', 'Imaging Service', 'ok',
+            'Windows Image Acquisition (stisvc) is running.'))
+    elif stisvc in ('stopped', 'stoppending', 'paused', 'startpending'):
+        checks.append(_diag_check('service', 'Imaging Service', 'bad',
+            'Windows Image Acquisition (stisvc) is not running. Restart it from '
+            'an elevated shell: net stop stisvc & net start stisvc.'))
+    else:
+        checks.append(_diag_check('service', 'Imaging Service', 'unknown',
+            f'Windows Image Acquisition service state: {ps.get("stisvc") or "unknown"}.'))
+
+    # HP's diagnostic utility installs an auto-start background service. It can
+    # exclusively hold one scanner while WIA enumeration, PnP, and stisvc all
+    # remain healthy — the exact "all LEDs green, scan says busy" failure.
+    if 'hp_scan_doctor' in ps:
+        hp_doctor = (ps.get('hp_scan_doctor') or '').lower()
+        if hp_doctor == 'running':
+            access = (ps.get('wia_connect') or '').lower()
+            if access in ('busy', 'error', 'timeout'):
+                checks.append(_diag_check('hp-doctor', 'HP Scan Doctor', 'bad',
+                    'HP Print Scan Doctor is running and may be holding this '
+                    'scanner busy. Stop and disable HPPrintScanDoctorService.'))
+            else:
+                checks.append(_diag_check('hp-doctor', 'HP Scan Doctor', 'warn',
+                    'HP Print Scan Doctor is running, but Windows can currently '
+                    'open this scanner. Disable the service if busy errors return.'))
+        elif hp_doctor in ('stopped', 'absent'):
+            checks.append(_diag_check('hp-doctor', 'HP Scan Doctor', 'ok',
+                'HP Print Scan Doctor is not holding the scanner.'))
+        else:
+            checks.append(_diag_check('hp-doctor', 'HP Scan Doctor', 'unknown',
+                f'HP Print Scan Doctor service state: '
+                f'{ps.get("hp_scan_doctor") or "unknown"}.'))
+
+    # 3. Driver health — this is the "may need to reinstall the driver" LED.
+    dstat = (ps.get('driver_status') or '').lower()
+    if not windows_reachable:
+        checks.append(_diag_check('driver', 'Driver Health', 'unknown',
+            'Could not read the scanner driver state.'))
+    elif dstat == 'ok':
+        checks.append(_diag_check('driver', 'Driver Health', 'ok',
+            'The imaging driver for this scanner reports healthy.'))
+    elif dstat == 'absent' or ps.get('driver_present') is False:
+        checks.append(_diag_check('driver', 'Driver Health', 'bad',
+            'Windows has no imaging driver for this scanner. Reinstall the HP '
+            'driver (HP Smart / HP Easy Start), then refresh.'))
+    elif dstat == 'error':
+        checks.append(_diag_check('driver', 'Driver Health', 'bad',
+            'The scanner driver reports an error. Reinstall the HP driver '
+            '(HP Smart / HP Easy Start), then refresh.'))
+    elif dstat in ('', 'unknown'):
+        checks.append(_diag_check('driver', 'Driver Health', 'unknown',
+            'Could not read the scanner driver state.'))
+    else:
+        checks.append(_diag_check('driver', 'Driver Health', 'warn',
+            f'The scanner driver reports "{ps.get("driver_status")}" — '
+            'if scans fail, reinstall the HP driver.'))
+
+    # 4. Online — is the named device enumerated by WIA right now?
+    wia = (ps.get('wia') or '').lower()
+    if not windows_reachable:
+        checks.append(_diag_check('online', 'Scanner Online', 'unknown',
+            'Could not check whether the scanner is online.'))
+    elif wia == 'present':
+        checks.append(_diag_check('online', 'Scanner Online', 'ok',
+            'Windows sees the scanner — it is powered on and connected.'))
+    elif wia == 'absent':
+        checks.append(_diag_check('online', 'Scanner Online', 'bad',
+            'Windows does not see the scanner. It is powered off, asleep, or '
+            'disconnected — power-cycle it, then refresh.'))
+    elif wia == 'busy':
+        checks.append(_diag_check('online', 'Scanner Online', 'warn',
+            'The scanner is busy. If it stays busy, close any open cover or ink '
+            'door and power-cycle it.'))
+    elif wia == 'timeout':
+        checks.append(_diag_check('online', 'Scanner Online', 'bad',
+            'WIA did not respond — the imaging service is likely wedged. Restart '
+            'stisvc (or kill it from an elevated shell so it auto-restarts).'))
+    elif wia == 'skipped':
+        checks.append(_diag_check('online', 'Scanner Online', 'warn',
+            'A scan is in progress — the online check was skipped to avoid '
+            'interfering with it.'))
+    elif wia == 'service-down':
+        checks.append(_diag_check('online', 'Scanner Online', 'unknown',
+            'Skipped — the imaging service is not running (see above).'))
+    else:
+        checks.append(_diag_check('online', 'Scanner Online', 'warn',
+            'WIA enumeration could not confirm the scanner.'))
+
+    # Enumeration only proves that Windows can see the device. Connect() is the
+    # first operation an actual scan performs and exposes exclusive holders.
+    if 'wia_connect' in ps:
+        access = (ps.get('wia_connect') or '').lower()
+        if access == 'ready':
+            checks.append(_diag_check('access', 'Scanner Access', 'ok',
+                'Windows can open this scanner for a scan.'))
+        elif access == 'busy':
+            checks.append(_diag_check('access', 'Scanner Access', 'bad',
+                'Windows sees the scanner, but another app or service is holding '
+                'it busy. Close scanner apps and stop HP Print Scan Doctor.'))
+        elif access == 'timeout':
+            checks.append(_diag_check('access', 'Scanner Access', 'bad',
+                'Windows could not open the scanner before the health check '
+                'timed out. Restart the imaging service.'))
+        elif access in ('skipped', 'service-down', 'not-tested'):
+            checks.append(_diag_check('access', 'Scanner Access', 'unknown',
+                'Scanner access could not be tested; resolve the earlier red '
+                'health check first.'))
+        else:
+            checks.append(_diag_check('access', 'Scanner Access', 'bad',
+                'Windows sees the scanner but could not open it. Close HP/Windows '
+                'scan apps, then restart the imaging service.'))
+
+    # 5. No stuck scan processes — leaked scans keep the device busy and,
+    #    piled up, wedge stisvc. Cleared before each scan, but worth surfacing.
+    stale = ps.get('stale_scans')
+    if not windows_reachable or stale is None or stale == -1:
+        checks.append(_diag_check('stale', 'No Stuck Scans', 'unknown',
+            'Could not check for leaked scan processes.'))
+    elif stale == 0:
+        checks.append(_diag_check('stale', 'No Stuck Scans', 'ok',
+            'No stuck scan processes are holding the device.'))
+    else:
+        checks.append(_diag_check('stale', 'No Stuck Scans', 'warn',
+            f'{stale} stuck scan process(es) are leaked. They are cleared before '
+            'the next scan, but repeated leaks wedge the imaging service.'))
+
+    # 6. Freezer only — the DeskJet answers over the LAN with honest device
+    #    state (Windows' spooler permanently reports "Normal"). No interop needed.
+    if key == 'freezer' and device_status is not None:
+        if device_status.get('blocker'):
+            checks.append(_diag_check('device', 'Printer Device', 'bad',
+                device_status['blocker']))
+        elif not device_status.get('reachable'):
+            checks.append(_diag_check('device', 'Printer Device', 'warn',
+                'The printer did not answer over the network. Scanning may still '
+                'work, but check that it is on and on Wi-Fi.'))
+        elif device_status.get('note'):
+            checks.append(_diag_check('device', 'Printer Device', 'warn',
+                f'The printer is up, but {device_status["note"]} '
+                '(scanning still works).'))
+        else:
+            checks.append(_diag_check('device', 'Printer Device', 'ok',
+                'The printer hardware reports it is ready.'))
+
+    states = [c['state'] for c in checks]
+    if 'bad' in states:
+        overall = 'bad'
+    elif 'warn' in states or 'unknown' in states:
+        overall = 'warn'
+    else:
+        overall = 'ok'
+    return {'scanner': key, 'checks': checks, 'overall': overall}
+
+
+def scanner_diagnostics(key):
+    """Read-only health snapshot of one scanner's whole workflow (the LEDs).
+
+    Never starts a WIA transfer. The Windows probe runs under `_SCAN_LOCK` when
+    it is free (so its lone WIA enumeration can't collide with a real scan's
+    Transfer); if a scan is already running it still reports every other check
+    and marks the online LED "scan in progress" rather than blocking.
+    """
+    if key not in SCANNERS:
+        return {'scanner': key, 'checks': [], 'overall': 'bad',
+                'error': f'Unknown scanner: {key}'}
+    interop = _wsl_interop_socket()
+    ps_data = None
+    if interop:
+        acquired = _SCAN_LOCK.acquire(blocking=False)
+        try:
+            ps_data = _run_scanner_diag_ps(
+                SCANNERS[key], interop, skip_wia=not acquired)
+        finally:
+            if acquired:
+                _SCAN_LOCK.release()
+    device_status = read_deskjet_device_status() if key == 'freezer' else None
+    return build_scanner_diagnostics(key, bool(interop), ps_data, device_status)
 
 
 MAZDA_AGENT_ID = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
@@ -2875,6 +3137,13 @@ def scanner_status(key):
     """Read-only scanner state. Never starts WIA or writes a scan image."""
     if key not in SCANNERS:
         return {'status': 'error', 'ok': False, 'error': f'Unknown scanner: {key}'}
+    if _scanner_intake_in_progress(key):
+        return {
+            'status': 'intake_busy',
+            'ok': False,
+            'error': ('The previous document from this scanner is still being '
+                      'verified. Wait for its Trainer PASS/FAIL before scanning another.'),
+        }
     with _scanner_runtime_status_lock:
         return dict(_scanner_runtime_status.get(key, {'status': 'idle', 'ok': True}))
 
@@ -8297,6 +8566,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/scanner-status':
             return self.json_response(scanner_status(query.get('scanner', [''])[0]))
+
+        if path == '/api/scanner-diagnostics':
+            return self.json_response(
+                scanner_diagnostics(query.get('scanner', [''])[0]))
 
         if path == SCANNER_IMAGE_URL_PREFIX:
             key = query.get('scanner', [''])[0]

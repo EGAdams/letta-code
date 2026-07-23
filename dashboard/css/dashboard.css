@@ -183,6 +183,106 @@ body.startup-loading .sidebar {
   cursor: not-allowed;
 }
 
+/* Scanner-workflow health LEDs — one row per failure point (WSL bridge,
+   imaging service, driver, online, stuck scans, printer device). Reuses the
+   Server Management traffic-light palette so green/yellow/red read the same. */
+.scanner-diagnostics {
+  margin-top: 14px;
+  max-width: min(92vw, 560px);
+  border: 1px solid #d9d9e3;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fafafd;
+}
+.scanner-diag-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.scanner-diag-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  letter-spacing: 0.02em;
+}
+.scanner-diag-refresh {
+  padding: 3px 12px;
+  font-size: 0.82rem;
+}
+.scanner-diagnostics.scanner-diag-busy .scanner-diag-refresh {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.scanner-diag-leds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.scanner-diag-busy .scanner-diag-leds {
+  opacity: 0.55;
+}
+.scanner-diag-empty {
+  font-size: 0.85rem;
+  color: #777;
+  padding: 2px 0;
+}
+.scanner-diag-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #ececf1;
+}
+.scanner-diag-led {
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: #999;
+}
+.scanner-diag-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.scanner-diag-label {
+  font-weight: 600;
+  font-size: 0.86rem;
+}
+.scanner-diag-detail {
+  font-size: 0.8rem;
+  color: #555;
+  line-height: 1.35;
+}
+.scanner-diag-row.diag-ok .scanner-diag-led {
+  background: #43a047;
+  box-shadow: 0 0 6px #43a047;
+}
+.scanner-diag-row.diag-warn .scanner-diag-led {
+  background: #f9a825;
+  box-shadow: 0 0 6px #f9a825;
+}
+.scanner-diag-row.diag-bad .scanner-diag-led {
+  background: #e53935;
+  box-shadow: 0 0 6px #e53935;
+}
+.scanner-diag-row.diag-bad {
+  background: #fdecea;
+  border-color: #f5c6c2;
+}
+.scanner-diag-row.diag-warn {
+  background: #fff8e1;
+  border-color: #f3e2b3;
+}
+.scanner-diag-row.diag-unknown .scanner-diag-led {
+  background: #9aa0a6;
+}
+
 /* Inline "Process Document" pipeline result (classify → parse → investigate →
    categorize → store). The deterministic front half is filled in within
    seconds; the agentic back half is dispatched to Mazda and shown as delegated. */
