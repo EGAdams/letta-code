@@ -513,9 +513,12 @@ pending-review row.
   sudo systemctl start user@1000.service
   systemctl --user is-active dashboard-server lettabot thought-bridge mazda-tools-mcp mazda-executor
   ```
-  **Verified 2026-07-22: it can re-wedge within ~60s of the first fix** (`Stopped` then wedged
-  again inside a minute) — re-check `sudo systemctl status user@1000.service` after ~90s before
-  declaring it fixed, and re-run the same three commands if it shows `failed` again. Confirm via
+  **You should no longer have to run this by hand (2026-07-23).** `user@1000.service` now carries
+  `OnFailure=fix-user-session.service`, so the recovery fires automatically the moment it wedges;
+  see `dashboard/ops/README.md`. The old advice that it "re-wedges within ~60s of the first fix"
+  was wrong — that was `loginctl terminate-user` in the previous runbook completing asynchronously
+  and tearing down the session that had just been restarted. **Do not use `terminate-user` here.**
+  Confirm via
   `curl -s http://localhost:8765/api/server-health | python3 -m json.tool` (or the same URL through
   the public Tailscale hostname) — every tile should read `up`.
 - **Model Stats tab** — `/api/model-stats?source=` (+ `-sources`). Sub-nav: this box and mom's
