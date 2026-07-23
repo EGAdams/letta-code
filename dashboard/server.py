@@ -1379,16 +1379,47 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
                                 'error': f'{len(rows)} expenses share that date/amount; '
                                          'could not pinpoint which one.'}
 
+                target_ids = [chosen['id']]
+                cascaded_to = []
                 if chosen.get('expense_role') == 'PARENT':
-                    return {'ok': False,
-                            'error': 'A PARENT is a reconciliation anchor and cannot be categorized.'}
+                    # A PARENT carries the receipt total purely as a reconciliation
+                    # anchor and is excluded from every reporting query (see the
+                    # "expense_role <> 'PARENT'" filters below), so a category set on
+                    # it would change nothing the user can see. Its LINE_ITEM children
+                    # are the rows that actually roll up, so cascade the pick to them
+                    # rather than dead-ending the dialog. The parent stays NULL — that
+                    # is what keeps the total from being double-counted.
+                    cur.execute(
+                        "SELECT id FROM expenses WHERE parent_expense_id=%s "
+                        "AND expense_role='LINE_ITEM' ORDER BY id",
+                        (chosen['id'],),
+                    )
+                    cascaded_to = [r['id'] for r in cur.fetchall()]
+                    if not cascaded_to:
+                        # A childless PARENT is a broken itemization, not something a
+                        # category pick can repair.
+                        return {'ok': False,
+                                'error': 'A PARENT is a reconciliation anchor and cannot be categorized.'}
+                    target_ids = cascaded_to
 
-                cur.execute("UPDATE expenses SET category_id=%s WHERE id=%s",
-                            (target_id, chosen['id']))
+                _ph = ','.join(['%s'] * len(target_ids))
+                cur.execute(
+                    f"UPDATE expenses SET category_id=%s WHERE id IN ({_ph})",
+                    (target_id, *target_ids),
+                )
     except Exception as e:
         return {'ok': False, 'error': f'DB error: {e}'}
 
     # Persist the color into the static report.html so it survives a refresh.
+    # Report rows are per-LINE_ITEM; a PARENT has no row of its own, so a cascade
+    # recolors each child row it just wrote.
+    if cascaded_to:
+        row_expense_ids = list(cascaded_to)
+    elif chosen.get('expense_role') == 'LINE_ITEM':
+        row_expense_ids = [chosen['id']]
+    else:
+        row_expense_ids = [None]
+
     file_updated = False
     matched_report = None
     if report_path == RECEIPT_ONLY_REPORT_PATH:
@@ -1402,17 +1433,17 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
         # often diverges, so a plain report_path lookup can't be done client-side).
         try:
             new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
-            report_expense_id = (
-                chosen['id'] if chosen.get('expense_role') == 'LINE_ITEM' else None)
-            found = _find_matching_report_row(
-                date_str, signed_amount, vendor_key, report_expense_id) if new_cls else None
-            if found:
-                if _update_report_row_color(
-                        found['report_path'], found['row_vendor_key'],
-                        date_str, signed_amount, new_cls,
-                        expense_id=report_expense_id):
-                    file_updated = True
-                    matched_report = {'report_path': found['report_path'], 'label': found['label']}
+            for report_expense_id in row_expense_ids:
+                found = _find_matching_report_row(
+                    date_str, signed_amount, vendor_key, report_expense_id) if new_cls else None
+                if found:
+                    if _update_report_row_color(
+                            found['report_path'], found['row_vendor_key'],
+                            date_str, signed_amount, new_cls,
+                            expense_id=report_expense_id):
+                        file_updated = True
+                        matched_report = {'report_path': found['report_path'],
+                                          'label': found['label']}
         except Exception:
             pass
         if not matched_report:
@@ -1426,11 +1457,11 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
                 # Match the file by the RAW displayed amount the client sent (e.g. "-$150.00",
                 # "+$10.00", "296.41") — NOT the normalized abs value used for the DB lookup,
                 # which would only match plain rows like "10.25".
-                file_updated = _update_report_row_color(
-                    report_path, vendor_key, date_str, signed_amount, new_cls,
-                    expense_id=(chosen['id']
-                                if chosen.get('expense_role') == 'LINE_ITEM'
-                                else None))
+                for report_expense_id in row_expense_ids:
+                    if _update_report_row_color(
+                            report_path, vendor_key, date_str, signed_amount,
+                            new_cls, expense_id=report_expense_id):
+                        file_updated = True
         except Exception:
             file_updated = False
 
@@ -1442,6 +1473,10 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
         'reporting_category': reporting_category,
         'file_updated': file_updated,
         'matched_report': matched_report,
+        # Non-empty only for a PARENT pick: the LINE_ITEM ids that actually got the
+        # category. Lets the dialog say "applied to N line items" instead of implying
+        # the parent row itself changed.
+        'cascaded_to_expense_ids': cascaded_to,
     }
 
 

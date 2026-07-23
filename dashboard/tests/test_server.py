@@ -2159,16 +2159,93 @@ def test_update_report_row_color_uses_expense_id_for_equal_sibling_amounts(tmp_p
     assert 'cat-gifts-and-love-offerings' in second
 
 
-def test_recategorize_expense_rejects_parent_even_with_exact_id(monkeypatch):
-    expense = {
-        'id': 1502,
-        'id_light': 'vision_01_01_25_100_00',
-        'description': 'Vision receipt',
-        'category_id': None,
-        'expense_role': 'PARENT',
-    }
-    monkeypatch.setattr(
-        server, '_rol_get_connection', lambda: _FakeConnection([expense]))
+class _ParentCursor:
+    """Cursor that answers the expense lookup, the child lookup, and records UPDATEs.
+
+    _FakeCursor returns the same rows for every query, which can't express a PARENT
+    whose child lookup returns different rows, so this one dispatches on the SQL.
+    """
+
+    def __init__(self, parent_row, child_rows):
+        self._parent = parent_row
+        self._children = child_rows
+        self._rows = []
+        self.updates = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def execute(self, sql, params=None):
+        if sql.startswith('UPDATE'):
+            self.updates.append((sql, params))
+            self._rows = []
+        elif 'parent_expense_id' in sql:
+            self._rows = self._children
+        else:
+            self._rows = [self._parent]
+
+    def fetchall(self):
+        return self._rows
+
+
+class _ParentConnection:
+    def __init__(self, parent_row, child_rows):
+        self.cursor_obj = _ParentCursor(parent_row, child_rows)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def cursor(self):
+        return self.cursor_obj
+
+
+_PARENT_ROW = {
+    'id': 1502,
+    'id_light': 'vision_01_01_25_100_00',
+    'description': 'Vision receipt',
+    'category_id': None,
+    'expense_role': 'PARENT',
+}
+
+
+def test_recategorize_expense_parent_cascades_to_line_items(monkeypatch):
+    """A PARENT pick must categorize its LINE_ITEM children, not dead-end.
+
+    Regression: a Freezer scan stored a Consumers Energy bill as PARENT + one
+    LINE_ITEM, and picking "Church Utilities" on it returned
+    'A PARENT is a reconciliation anchor and cannot be categorized.' with no way
+    forward. PARENT rows are excluded from every report, so the children are the
+    rows that actually carry the category.
+    """
+    conn = _ParentConnection(_PARENT_ROW, [{'id': 1503}, {'id': 1504}])
+    monkeypatch.setattr(server, '_rol_get_connection', lambda: conn)
+
+    result = server.recategorize_expense(
+        '', '', '', 'Gifts & Love Offerings', expense_id=1502,
+    )
+
+    assert result['ok'] is True
+    assert result['cascaded_to_expense_ids'] == [1503, 1504]
+    assert result['category_id'] == server.REPORTING_CATEGORY_DB_MAP['Gifts & Love Offerings']
+
+    # The UPDATE must hit the two children and never the parent — writing a
+    # category onto the parent would risk double-counting the receipt total.
+    assert len(conn.cursor_obj.updates) == 1
+    _sql, params = conn.cursor_obj.updates[0]
+    assert set(params[1:]) == {1503, 1504}
+    assert 1502 not in params[1:]
+
+
+def test_recategorize_expense_childless_parent_still_rejected(monkeypatch):
+    """A PARENT with no LINE_ITEM children is a broken itemization, not a pick."""
+    conn = _ParentConnection(_PARENT_ROW, [])
+    monkeypatch.setattr(server, '_rol_get_connection', lambda: conn)
 
     result = server.recategorize_expense(
         '', '', '', 'Gifts & Love Offerings', expense_id=1502,
@@ -2176,6 +2253,7 @@ def test_recategorize_expense_rejects_parent_even_with_exact_id(monkeypatch):
 
     assert result['ok'] is False
     assert 'PARENT' in result['error']
+    assert conn.cursor_obj.updates == []
 
 
 class _DateSelectCursor:
