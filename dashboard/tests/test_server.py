@@ -2826,6 +2826,17 @@ def test_scan_message_includes_dashboard_callback_step():
     assert 'fire-and-forget' in msg.lower() or 'Ignore errors' in msg
 
 
+def test_scan_message_duplicate_ids_are_not_statement_only():
+    """The receipt/invoice branch must report its duplicate id too. The old
+    wording sourced duplicate_expense_ids from store_statement_transactions.py
+    alone, and Mazda (backed by her Trainer) read that as "statement branch
+    only" — so an invoice duplicate posted [] and the Recent Report page had no
+    row to show."""
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Freezer Scanner')
+    assert 'NOT statement-only' in msg
+    assert 'exact_duplicate_expense_id' in msg
+
+
 # ── reprocess_report ──────────────────────────────────────────────────────────
 
 def test_reprocess_report_empty_url():
@@ -4416,6 +4427,66 @@ def test_merge_recent_intake_event_includes_duplicate_ids(tmp_path, monkeypatch)
     assert intake['expense_ids'] == [1490, 1491, 1492]
 
 
+def test_duplicate_only_event_without_ids_recovers_row_from_db(tmp_path, monkeypatch):
+    """A receipt/invoice duplicate callback that names no ids at all still
+    yields a listable row: the (date, amount) it matched on resolves the
+    pre-existing expense, so Verified Transactions renders instead of the bare
+    "already in the database" sentence."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    monkeypatch.setattr(
+        server, '_rol_get_connection', lambda: _FakeConnection([{'id': 1521}]))
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'duplicate_expense_ids': [], 'expense_id': None,
+        'parsed': 1, 'stored': 0,
+        'expense_date': '2025-01-23', 'amount': '222.65',
+        'vendor_key': 'consumers_7996',
+    })
+    intake = server._read_recent_pointer_file()['intake']
+    assert intake['expense_ids'] == [1521]
+    assert intake['duplicate_expense_ids'] == [1521]
+
+
+def test_duplicate_recovery_skips_ambiguous_date_amount(tmp_path, monkeypatch):
+    """Too many rows share the (date, amount) pair → show nothing rather than
+    rows that may belong to an unrelated document."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    monkeypatch.setattr(server, '_rol_get_connection', lambda: _FakeConnection(
+        [{'id': i} for i in (10, 11, 12, 13)]))
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'parsed': 1, 'stored': 0,
+        'expense_date': '2025-01-23', 'amount': '20.00'})
+    intake = server._read_recent_pointer_file()['intake']
+    assert intake['expense_ids'] == []
+    assert intake['duplicate_expense_ids'] == []
+
+
+def test_duplicate_recovery_needs_date_and_amount(monkeypatch):
+    """No date/amount to match on → no DB query, no guess."""
+    def _boom():
+        raise AssertionError('must not query without a date/amount')
+    monkeypatch.setattr(server, '_rol_get_connection', _boom)
+    assert server._resolve_duplicate_expense_ids('', '222.65') == []
+    assert server._resolve_duplicate_expense_ids('2025-01-23', '') == []
+    assert server._resolve_duplicate_expense_ids('2025-01-23', 'n/a') == []
+
+
+def test_duplicate_recovery_leaves_reported_ids_alone(tmp_path, monkeypatch):
+    """Recovery is a last resort: when STEP 8 did name its duplicates, the DB
+    is never consulted and the reported ids stand."""
+    def _boom():
+        raise AssertionError('must not query when the callback named ids')
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    monkeypatch.setattr(server, '_rol_get_connection', _boom)
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'duplicate_expense_ids': [1490], 'parsed': 1, 'stored': 0,
+        'expense_date': '2025-01-23', 'amount': '222.65'})
+    intake = server._read_recent_pointer_file()['intake']
+    assert intake['expense_ids'] == [1490]
+
+
 def test_recent_intake_html_duplicates_run_still_lists_rows(tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
@@ -4502,3 +4573,99 @@ def test_synthesize_speech_missing_binary(monkeypatch, tmp_path):
     monkeypatch.setattr(server, 'TTS_CACHE_DIR', str(tmp_path / 'cache'))
     result = server.synthesize_speech('hello')
     assert result['ok'] is False and 'not found' in result['error']
+
+
+# ── run_statement_preflight vs parse_statement_scan.py's output shape ───────
+# 2026-07-22: the parser switched to a multi-statement envelope
+# ({'statements': [...]}) while the preflight still read the old top-level
+# bank_name/account_number/transactions. Every field came back None, so each
+# statement scan was rejected as "no complete transaction" before dispatch and
+# the Window Scanner report silently kept showing the previous document.
+
+_STMT_FACADE = {'ok': True, 'doc_kind': 'statement', 'confidence': .99}
+_STMT_ROWS = [{'date': '2025-01-04', 'description': 'AMAZON MKTPL', 'amount': -60.0}]
+
+
+def _stub_statement_parser(monkeypatch, payload):
+    def fake_run(command, **kwargs):
+        return types.SimpleNamespace(
+            returncode=0, stdout=json.dumps(payload), stderr='')
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+
+
+def test_statement_preflight_reads_multi_statement_envelope(monkeypatch):
+    _stub_statement_parser(monkeypatch, {
+        'ok': True, 'doc_kind': 'statement', 'statement_count': 1,
+        'statements': [{'bank_name': 'Chase Amazon',
+                        'account_number': '1234',
+                        'transactions': _STMT_ROWS}],
+    })
+
+    result = server.run_statement_preflight('/scan.jpg', _STMT_FACADE)
+
+    assert result['ok'] is True
+    assert result['bank_name'] == 'Chase Amazon'
+    assert result['account_last4'] == '1234'
+    assert result['transaction_count'] == 1
+
+
+def test_statement_preflight_still_reads_legacy_flat_shape(monkeypatch):
+    _stub_statement_parser(monkeypatch, {
+        'ok': True, 'doc_kind': 'statement', 'bank_name': 'Wells Fargo',
+        'account_number': '7580', 'transactions': _STMT_ROWS,
+    })
+
+    result = server.run_statement_preflight('/scan.jpg', _STMT_FACADE)
+
+    assert result['ok'] is True
+    assert result['bank_name'] == 'Wells Fargo'
+    assert result['account_last4'] == '7580'
+
+
+def test_statement_preflight_asks_for_metadata_when_envelope_lacks_last4(
+        monkeypatch):
+    _stub_statement_parser(monkeypatch, {
+        'ok': True, 'statements': [{'bank_name': 'Chase Amazon',
+                                    'account_number': None,
+                                    'transactions': _STMT_ROWS}],
+    })
+
+    result = server.run_statement_preflight('/scan.jpg', _STMT_FACADE)
+
+    assert result['ok'] is False
+    assert result['needs_statement_metadata'] is True
+    assert result['missing_fields'] == ['account_last4']
+    assert result['bank_name'] == 'Chase Amazon'
+
+
+def test_statement_preflight_halts_on_two_statements_in_one_scan(monkeypatch):
+    _stub_statement_parser(monkeypatch, {
+        'ok': True, 'statement_count': 2,
+        'statements': [
+            {'bank_name': 'Chase', 'account_number': '1234',
+             'transactions': _STMT_ROWS},
+            {'bank_name': 'American Express', 'account_number': '5678',
+             'transactions': _STMT_ROWS},
+        ],
+    })
+
+    result = server.run_statement_preflight('/scan.jpg', _STMT_FACADE)
+
+    assert result['ok'] is False and result['rejected'] is True
+    assert result['needs_statement_metadata'] is False
+    assert 'Chase 1234' in result['error']
+    assert 'American Express 5678' in result['error']
+
+
+def test_statement_preflight_rejects_envelope_with_no_transactions(monkeypatch):
+    _stub_statement_parser(monkeypatch, {
+        'ok': True, 'statement_count': 1,
+        'statements': [{'bank_name': 'Chase', 'account_number': '1234',
+                        'transactions': []}],
+    })
+
+    result = server.run_statement_preflight('/scan.jpg', _STMT_FACADE)
+
+    assert result['ok'] is False and result['rejected'] is True
+    assert 'no complete transaction' in result['error']

@@ -529,6 +529,20 @@ def _fold_event_into_intake(intake, event):
                 intake[k] = int(event[k])
             except (TypeError, ValueError):
                 pass
+    # Safety net for a duplicate run that named no ids. The receipt/invoice
+    # branch of Mazda's STEP 8 has more than once posted
+    # duplicate_expense_ids:[] even though check_duplicates knew the existing
+    # row's id, which left the Recent Report page with nothing to render — the
+    # user sees "already in the database" and no Verified Transactions table at
+    # all. The event still carries the date/amount it matched on, so resolve
+    # the pre-existing row here rather than depending on the agent's payload.
+    if (not ids and not duplicate_ids
+            and intake.get('stored') == 0 and (intake.get('parsed') or 0) > 0):
+        recovered = _resolve_duplicate_expense_ids(
+            event.get('expense_date'), event.get('amount'))
+        if recovered:
+            intake['expense_ids'] = list(recovered)
+            intake['duplicate_expense_ids'] = list(recovered)
     # doc_kind/vendor: Mazda's own classification (STEP 8 payload) beats the
     # facade's dispatch-time guess (often 'unknown' for scanned images) —
     # accept either her doc_kind (statement/receipt/unknown, matching the
@@ -755,6 +769,51 @@ def _fetch_expenses_by_ids(ids):
             'receipt_url': (r.get('receipt_url') or '').strip(),
         })
     return out
+
+
+def _resolve_duplicate_expense_ids(expense_date, amount, limit=3):
+    """Ids of already-stored expenses matching (expense_date, |amount|).
+
+    Used only as the last-resort recovery in _fold_event_into_intake when a
+    duplicate-only callback named no ids at all. Deliberately narrow:
+
+    - (date, amount) is the same join this codebase already trusts for
+      receipt↔row linkage (see _resolve_receipt_path), and it is the only
+      identifying pair a duplicate callback reliably carries — vendor_key is
+      NOT usable here, because check_duplicates reports the stored row's
+      id_light (e.g. consumers_energy_01_23_25_222_65) while STEP 8 reports the
+      normalized vendor key (consumers_7996); requiring them to agree would
+      reject every real match.
+    - More than `limit` hits means the pair is ambiguous (a common round amount
+      on a busy day), so return nothing rather than showing rows that may
+      belong to an unrelated document. Guessing wrong here is worse than the
+      empty table this is trying to fix.
+
+    Best-effort: any DB problem yields [] and the caller renders as before.
+    """
+    date_s = str(expense_date or '').strip()
+    amount_s = str(amount or '').strip()
+    if not date_s or not amount_s:
+        return []
+    try:
+        amount_f = abs(float(amount_s.replace(',', '').replace('$', '')))
+    except ValueError:
+        return []
+    try:
+        with _rol_get_connection() as cnx:
+            with cnx.cursor() as cur:
+                cur.execute(
+                    'SELECT id FROM expenses '
+                    'WHERE expense_date = %s AND ABS(ABS(amount) - %s) < 0.005 '
+                    'ORDER BY id LIMIT %s',
+                    (date_s, amount_f, limit + 1),
+                )
+                rows = cur.fetchall()
+    except Exception as exc:
+        print(f'[expense-stored] duplicate id recovery failed: {exc}')
+        return []
+    ids = [int(r['id']) for r in rows]
+    return [] if len(ids) > limit else ids
 
 
 def _associated_source_paths(rows):
@@ -2292,7 +2351,10 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'amount=<decimal string>, description=<merchant>)\n'
         f'  If duplicate → skip only STEP 4 storage. Still run STEP 3 categorization, '
         f'record_trace, judge_trace, and the STEP 8 callback; duplicate detection is '
-        f'never permission to stop the run early.\n\n'
+        f'never permission to stop the run early. Keep the returned '
+        f'exact_duplicate_expense_id — STEP 8 must report it in duplicate_expense_ids, '
+        f'or the dashboard has no row to show and the Recent Report page comes up '
+        f'empty for this scan.\n\n'
         f'STEP 3 — CATEGORIZE (executor_run, cwd=/home/adamsl/rol_finances, '
         f'env={MAZDA_RF_ENV_JSON}):\n'
         f'{categorizer_input_line}'
@@ -2403,8 +2465,12 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'-H "Content-Type: application/json" '
         f'-d \'{{"expense_id":<first stored id, or null>,'
         f'"expense_ids":[<ALL expense ids stored this run; [] when none>],'
-        f'"duplicate_expense_ids":[<the duplicate_expense_ids list from '
-        f'store_statement_transactions.py; [] when none>],'
+        f'"duplicate_expense_ids":[<EVERY already-existing expense id this run '
+        f'matched but did not re-store. Statement branch: the duplicate_expense_ids '
+        f'list from store_statement_transactions.py. Receipt/invoice branch: the '
+        f'exact_duplicate_expense_id (and any fuzzy match id) returned by STEP 2b '
+        f'check_duplicates — this field is NOT statement-only. [] only when nothing '
+        f'was a duplicate>],'
         f'"parsed":<transactions parsed>,"stored":<transactions stored>,'
         f'"deposits_stored":<deposits stored to the transactions ledger this run; '
         f'0 when none>,'
@@ -2893,6 +2959,39 @@ def _complete_statement_transactions(rows):
     return complete
 
 
+def _statement_records(parsed):
+    """Normalize parse_statement_scan.py's output to a list of statement dicts.
+
+    The script grew a multi-statement envelope on 2026-07-22 (one scanned page
+    can hold two cards): {'statements': [{bank_name, account_number,
+    transactions, ...}, ...]}. It previously put those fields at the top level.
+    Both shapes are accepted here so the preflight keeps working whichever
+    version of the script is deployed — reading only the old flat keys against
+    the new envelope silently yielded no bank, no last4 and no transactions,
+    which rejected every statement scan before it could be dispatched.
+    """
+    if not isinstance(parsed, dict):
+        return []
+    statements = parsed.get('statements')
+    if isinstance(statements, list):
+        return [s for s in statements if isinstance(s, dict)]
+    if any(parsed.get(key) is not None
+           for key in ('bank_name', 'account_number', 'transactions')):
+        return [parsed]
+    return []
+
+
+def _statement_records_summary(statements):
+    """Human-readable 'Chase 1234, Amex 5678' for a multi-statement rejection."""
+    labels = []
+    for statement in statements:
+        bank = ' '.join(str(statement.get('bank_name') or '').split())
+        last4 = _statement_last4(statement.get('account_number'))
+        labels.append(' '.join(part for part in (bank, last4) if part)
+                      or 'unidentified account')
+    return ', '.join(labels)
+
+
 def run_statement_preflight(image_path, facade_result, metadata=None):
     """Extract and validate statement metadata before dispatch or storage."""
     if (facade_result or {}).get('doc_kind') not in ('statement', 'bank_statement'):
@@ -2929,9 +3028,26 @@ def run_statement_preflight(image_path, facade_result, metadata=None):
         return {'ok': False, 'rejected': True,
                 'error': parsed.get('error') or 'statement extraction failed'}
 
-    bank_name = bank_override or ' '.join(str(parsed.get('bank_name') or '').split())
-    account_last4 = last4_override or _statement_last4(parsed.get('account_number'))
-    transactions = _complete_statement_transactions(parsed.get('transactions'))
+    statements = _statement_records(parsed)
+    if len(statements) > 1:
+        # The parser can split one scanned page into several accounts, but every
+        # stage after this point — the --bank-name/--account-last4 flags in
+        # build_mazda_scan_message, the single per-scanner intake record, the
+        # store script — describes ONE account. Attributing two accounts'
+        # transactions to statements[0] would file real money under the wrong
+        # card silently, so halt and ask for one statement per pass instead.
+        return {
+            'ok': False, 'rejected': True, 'needs_statement_metadata': False,
+            'error': ('Statement rejected: this scan holds '
+                      f'{len(statements)} separate statements '
+                      f'({_statement_records_summary(statements)}). Storage '
+                      'handles one account per scan — rescan them one at a '
+                      'time.'),
+        }
+    statement = statements[0] if statements else {}
+    bank_name = bank_override or ' '.join(str(statement.get('bank_name') or '').split())
+    account_last4 = last4_override or _statement_last4(statement.get('account_number'))
+    transactions = _complete_statement_transactions(statement.get('transactions'))
     if not transactions:
         return {
             'ok': False, 'rejected': True, 'needs_statement_metadata': False,

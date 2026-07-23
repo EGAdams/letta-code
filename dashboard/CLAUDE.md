@@ -314,6 +314,19 @@ must fire even when `stored:0`** — a re-scan of an already-processed statement
 correct outcome, but without the callback the page would show stale or empty data instead of
 "here are the transactions this run touched."
 
+**`duplicate_expense_ids` is not statement-only.** The STEP 8 template once sourced it from
+`store_statement_transactions.py`, and Mazda (endorsed by her Trainer) generalised that to "the
+receipt/invoice branch sends `[]`" — so a duplicate invoice produced `parsed:1, stored:0,
+expense_ids:[], duplicate_expense_ids:[]` and the Recent Report page rendered the "already in
+the database" sentence with **no Verified Transactions table at all**, even though STEP 2b
+`check_duplicates` had reported the existing row's id. The template now says so explicitly, and
+`_fold_event_into_intake` has a last-resort net: a duplicate-only event naming no ids resolves
+them from the DB by the `(expense_date, amount)` it matched on
+(`_resolve_duplicate_expense_ids`), bailing out when more than 3 rows share that pair rather
+than showing a coincidental match. Note vendor_key can't tighten that lookup — `check_duplicates`
+reports the stored `id_light` (`consumers_energy_01_23_25_222_65`) while STEP 8 reports the
+normalized key (`consumers_7996`).
+
 Dispatch is server-side and deduped: `run_scanner()` spawns `process_scanned_document` itself the
 instant a scan reports `ready` (so closing the browser tab right after a scan can't lose the
 document); `_claim_scan_dispatch(key, image_path)` (keyed on scanner + path + mtime) prevents the
