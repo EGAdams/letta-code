@@ -34,12 +34,36 @@ racing `rmdir`, not from the kill failing.
 | Artifact | Location on 2OBSQMC | Purpose |
 |---|---|---|
 | `fix-user-session.sh` | `/home/adamsl/bin/` in Ubuntu-26.04 | Clears a wedged `user@1000` cgroup tree and restarts it. Logs to `~/fix-user-session.log`. |
-| `hold-ubuntu2604.ps1` | `C:\Users\NewUser\` | Infinite loop holding one WSL client open so the distro is never terminated. Run by task `ROL WSL26 Holder` (`/sc onlogon`). |
-| `keep-dashboard-up.ps1` | `C:\Users\NewUser\` | Watchdog. Run by task `ROL Dashboard Keepalive` every 2 min. Logs to `C:\Users\NewUser\keep-dashboard-up.log`. |
+| `hold-ubuntu2604.ps1` | `C:\Users\NewUser\` | One blocking `wsl … sleep infinity` client so the distro is never terminated. |
+| `hold-ubuntu2604-hidden.vbs` | `C:\Users\NewUser\` | Starts the holder with no console window. Run by task `ROL WSL26 Holder` (`/sc onlogon`). |
+| `fix-user-session.service` | `/etc/systemd/system/` in Ubuntu-26.04 | Runs the recovery script. `Type=oneshot`, capped at 3 starts / 10 min. |
+| `user@1000.service.d/onfailure.conf` | `/etc/systemd/system/` in Ubuntu-26.04 | `OnFailure=fix-user-session.service` — fires the recovery the moment the wedge happens. |
+| `dashboard-server.service.d/restart.conf` | `~/.config/systemd/user/` in Ubuntu-26.04 | `Restart=always` (was `on-failure`, which ignores a clean-exit crash). |
 
-Watchdog escalation order: holder task not running → start it; `user@1000` not active → run the
-recovery via `systemd-run`; dashboard not answering 200 on two consecutive probes → restart
-`dashboard-server.service`.
+**Nothing here polls.** systemd's `OnFailure` is the trigger for a wedge, `Restart=always` is the
+trigger for a dead service, and the holder is a single blocking process, not a timer.
+
+### Why the polling watchdog was removed
+
+The first version of this shipped a `ROL Dashboard Keepalive` scheduled task that probed every
+2 minutes. It was a mistake on two counts:
+
+- **It was visible.** An interactive scheduled task running a console program flashes a window on
+  the desktop every time it fires. So did the holder, which used `sleep 3600` and therefore
+  re-attached hourly. Both are fixed: the holder blocks on `sleep infinity`, and it is launched
+  through a `.vbs` shim so no console window is ever created.
+- **It acted on guesses.** It parsed the text of `systemctl is-active` over the `wsl.exe` hop, so a
+  transient WSL RPC timeout came back as the status string and tripped a "recovery" of a perfectly
+  healthy system:
+
+  ```
+  08:15:32 user@1000.service=A connection attempt failed ... Wsl/Service/0x8007274c -> running fix-user-session.sh
+  ```
+
+  systemd knows the true state of its own units and needs no string parsing.
+
+Verified 2026-07-23 that `OnFailure` really fires in this environment, by fault-injecting a throwaway
+`ExecStart=/bin/false` unit with its own `OnFailure` target rather than by wedging the live dashboard.
 
 Also masked in Ubuntu-26.04 (originals moved to `~/disabled-units/`):
 
@@ -64,9 +88,14 @@ no matter what re-enables it.
   utility VM and survives a distro terminate. `wsl --shutdown` is not needed either.
 - Do not create the holder with PowerShell `Start-Process -ArgumentList` — array quoting mangles
   `bash -c '...'` and the process silently never starts.
-- Do not probe for the holder with an anchored regex through `wsl.exe -e bash -lc` (`^sleep 3600$`);
-  the anchors do not survive the nested quoting and it misreports. Query the scheduled task state
-  on the Windows side instead.
+- **Do not poll for liveness from the Windows side.** Anything reached through
+  `ssh → wsl.exe → bash -lc` returns text you have to parse, and WSL will occasionally hand you an
+  RPC error where you expected a unit state. Use systemd's own `OnFailure=` / `Restart=` inside the
+  distro; it is both event-driven and authoritative.
+- Do not use `schtasks /tr` to launch a console program on a `/sc onlogon` task — it flashes a
+  window at the user. Point it at `wscript.exe <shim>.vbs` with `Run(..., 0, False)`.
+- Backtick line-continuations do not survive the base64 → `powershell -File` round trip; keep
+  `schtasks /create` on one line and pass `/tr` via a variable.
 - A `curl` 200 proves nothing about which distro answered. Verify by MainPID:
   `systemctl --user show dashboard-server.service -p MainPID` must equal the `ss -tlnp | grep 8765`
   owner.
