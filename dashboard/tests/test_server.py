@@ -2987,6 +2987,59 @@ class _RoutingConnection:
         return _RoutingCursor(self._router)
 
 
+def test_fetch_expenses_by_ids_expands_parent_to_line_item_children(monkeypatch):
+    """A reported PARENT anchor is uncategorizable, so the intake view must
+    substitute its LINE_ITEM children (which carry the real category)."""
+    def router(sql, params):
+        if 'FROM categories' in sql:
+            return [{'id': 120, 'parent_id': None}]
+        if 'parent_expense_id IN' in sql:
+            return [{
+                'id': 1522, 'expense_date': '2025-01-23', 'amount': '222.65',
+                'id_light': 'consumers_energy_01_23_25_222_65-item-1',
+                'description': 'Amount Due', 'category_id': 120,
+                'receipt_url': 'consumers_energy_01_23_25_222_65.jpg',
+                'expense_role': 'LINE_ITEM', 'parent_expense_id': 1521,
+            }]
+        # The requested id resolves to the PARENT anchor.
+        return [{
+            'id': 1521, 'expense_date': '2025-01-23', 'amount': '222.65',
+            'id_light': 'consumers_energy_01_23_25_222_65',
+            'description': 'Consumers Energy', 'category_id': None,
+            'receipt_url': '', 'expense_role': 'PARENT',
+        }]
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+
+    rows = server._fetch_expenses_by_ids([1521])
+    # The anchor itself is gone; only the categorizable child is shown.
+    assert [r['id'] for r in rows] == [1522]
+    assert rows[0]['reporting_category'] == 'Church Utilities'
+    # Vendor stays recognizable even though the child line said only "Amount Due".
+    assert rows[0]['description'] == 'Consumers Energy — Amount Due'
+
+
+def test_fetch_expenses_by_ids_omits_childless_parent(monkeypatch):
+    """A PARENT with no LINE_ITEM children (a data anomaly) is dropped rather
+    than surfaced as an uncategorizable dead row."""
+    def router(sql, params):
+        if 'FROM categories' in sql:
+            return []
+        if 'parent_expense_id IN' in sql:
+            return []
+        return [{
+            'id': 1521, 'expense_date': '2025-01-23', 'amount': '222.65',
+            'id_light': 'x', 'description': 'Orphan', 'category_id': None,
+            'receipt_url': '', 'expense_role': 'PARENT',
+        }]
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+
+    assert server._fetch_expenses_by_ids([1521]) == []
+
+
 def test_is_uncategorized_flags_null_and_legacy_ids():
     assert server._is_uncategorized(None) is True
     assert server._is_uncategorized(1) is True

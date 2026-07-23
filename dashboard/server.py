@@ -728,7 +728,15 @@ def resolve_recent_report():
 
 def _fetch_expenses_by_ids(ids):
     """Rows for the synthetic recent-intake view — same shape as the Receipt
-    Only rows so the shared picker markup drives them identically."""
+    Only rows so the shared picker markup drives them identically.
+
+    A PARENT is a reconciliation anchor and carries no category of its own, so
+    the picker refuses it (see recategorize_expense). When STEP 8 reports a
+    PARENT id we therefore substitute its LINE_ITEM children — those are the
+    rows that actually hold the category — so the intake page shows something
+    the user can click and set. The child description is prefixed with the
+    parent's (e.g. "Consumers Energy — Amount Due") so the vendor is still
+    recognizable in the table."""
     clean = []
     for i in ids or []:
         try:
@@ -747,12 +755,48 @@ def _fetch_expenses_by_ids(ids):
                 for r in cur.fetchall()
             }
             cur.execute(
-                "SELECT id, expense_date, amount, id_light, description, category_id, receipt_url "
+                "SELECT id, expense_date, amount, id_light, description, category_id, "
+                "receipt_url, expense_role "
                 f"FROM expenses WHERE id IN ({placeholders}) "
                 "ORDER BY expense_date, id",
                 tuple(clean),
             )
             rows = cur.fetchall()
+
+            # Expand each PARENT anchor into its categorizable LINE_ITEM children.
+            parent_ids = [int(r['id']) for r in rows
+                          if (r.get('expense_role') or '') == 'PARENT']
+            if parent_ids:
+                parent_desc = {int(r['id']): (r.get('description') or '').strip()
+                               for r in rows}
+                ph2 = ','.join(['%s'] * len(parent_ids))
+                cur.execute(
+                    "SELECT id, expense_date, amount, id_light, description, category_id, "
+                    "receipt_url, expense_role, parent_expense_id "
+                    f"FROM expenses WHERE parent_expense_id IN ({ph2}) "
+                    "AND expense_role='LINE_ITEM' "
+                    "ORDER BY expense_date, id",
+                    tuple(parent_ids),
+                )
+                children = cur.fetchall()
+                child_by_parent = {}
+                for ch in children:
+                    pdesc = parent_desc.get(int(ch.get('parent_expense_id') or 0), '')
+                    cdesc = (ch.get('description') or '').strip()
+                    if pdesc and cdesc and pdesc.lower() not in cdesc.lower():
+                        ch['description'] = f'{pdesc} — {cdesc}'
+                    child_by_parent.setdefault(
+                        int(ch['parent_expense_id']), []).append(ch)
+                expanded = []
+                for r in rows:
+                    if (r.get('expense_role') or '') == 'PARENT':
+                        # Drop the anchor; show its children instead. A parent
+                        # with no children left (data anomaly) is simply omitted
+                        # rather than shown as an uncategorizable dead row.
+                        expanded.extend(child_by_parent.get(int(r['id']), []))
+                    else:
+                        expanded.append(r)
+                rows = expanded
     out = []
     for r in rows:
         cid = r.get('category_id')
