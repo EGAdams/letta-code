@@ -8,64 +8,116 @@
  * queued and the dialog comes back, which is the behavior EG asked for.
  *
  * All the decision logic lives in ../abstract/statement-review.interface.js so
- * it can be tested without a browser; this class is DOM + fetch only.
+ * it can be tested without a browser; this class is DOM + injected ports only.
  */
+import { PollingController } from "../abstract/polling-controller.interface.js";
 import {
-  answerableRows,
+  answerableFields,
+  buildMazdaReviewPrompt,
   buildResolvePayload,
-  collectAmounts,
+  collectCorrections,
   isSubmittable,
+  nextPendingReview,
   nextStateAfterResolve,
   prefillFor,
   REVIEW_KIND,
+  reviewIdentity,
 } from "../abstract/statement-review.interface.js";
+import { StatementReviewActions } from "../abstract/statement-review-actions.interface.js";
 
 const POLL_MS = 15000;
+const DEFERRED_STORAGE_KEY = "dashboard.statementReviews.deferred";
 
-export class StatementReviewDialog {
-  constructor({ http, pollMs = POLL_MS, doc = document } = {}) {
+export class StatementReviewDialog extends PollingController {
+  constructor({
+    http,
+    pollMs = POLL_MS,
+    doc = document,
+    storage = globalThis.sessionStorage,
+    actions,
+    setInterval,
+    clearInterval,
+  } = {}) {
+    super({
+      intervalMs: pollMs,
+      ...(setInterval ? { setInterval } : {}),
+      ...(clearInterval ? { clearInterval } : {}),
+    });
+    if (!(actions instanceof StatementReviewActions)) {
+      throw new TypeError(
+        "StatementReviewDialog requires StatementReviewActions",
+      );
+    }
     this.http = http;
-    this.pollMs = pollMs;
     this.doc = doc;
-    this.timer = null;
     this.current = null;
     this.values = {};
+    this.storage = storage;
+    this.actions = actions;
+    this.deferredIds = this._loadDeferredIds();
     this.busy = false;
     this.root = null;
   }
 
-  start() {
-    if (this.timer) return;
-    this.refresh();
-    this.timer = setInterval(() => {
-      this.refresh();
-    }, this.pollMs);
-  }
-
-  stop() {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
+  _loadDeferredIds() {
+    try {
+      const ids = JSON.parse(
+        this.storage?.getItem(DEFERRED_STORAGE_KEY) || "[]",
+      );
+      return new Set(Array.isArray(ids) ? ids : []);
+    } catch (_err) {
+      return new Set();
     }
   }
 
-  async refresh() {
-    // Never yank the dialog out from under someone mid-typing.
-    if (this.current || this.busy) return;
+  _saveDeferredIds() {
+    try {
+      if (this.storage) {
+        this.storage.setItem(
+          DEFERRED_STORAGE_KEY,
+          JSON.stringify([...this.deferredIds]),
+        );
+      }
+    } catch (_err) {
+      /* Deferral still works in memory when browser storage is unavailable. */
+    }
+  }
+
+  /** @override */
+  async poll() {
+    if (this.busy) return;
     try {
       const data = await this.http.getJSON("/api/statement-reviews");
-      const reviews = (data && data.reviews) || [];
-      if (reviews.length) this.open(reviews[0]);
+      const reviews = data?.reviews || [];
+      if (this.current) {
+        // Keep a live item stable while someone types, but dismiss it when a
+        // retry or another browser has actually removed that source from the
+        // server queue. Previously a resolved workbook error stayed over the
+        // scanner forever because current!=null disabled every future poll.
+        const identity = reviewIdentity(this.current);
+        const stillQueued = reviews.some(
+          (item) => reviewIdentity(item) === identity,
+        );
+        if (!stillQueued) this.close();
+        return;
+      }
+      const next = nextPendingReview(reviews, this.deferredIds);
+      if (next) this.open(next);
     } catch (_err) {
       /* a poll failure is not worth interrupting the user for */
     }
   }
 
+  /** Named alias retained for callers that request an immediate queue refresh. */
+  async refresh() {
+    return this.poll();
+  }
+
   open(item) {
     this.current = item;
     this.values = {};
-    answerableRows(item).forEach((row) => {
-      this.values[row.index] = prefillFor(row);
+    answerableFields(item).forEach((entry) => {
+      this.values[entry.key] = prefillFor(entry, entry.field);
     });
     this.render();
   }
@@ -93,21 +145,31 @@ export class StatementReviewDialog {
     const item = this.current;
     if (!item) return;
     const root = this._ensureRoot();
-    const rows = answerableRows(item);
-    const { errors } = collectAmounts(item, this.values);
+    const fields = answerableFields(item);
+    const { errors } = collectCorrections(item, this.values);
 
-    const rowsHtml = rows
-      .map((row) => {
-        const err = errors[row.index];
+    const rowsHtml = fields
+      .map((entry) => {
+        const err = errors[entry.key];
+        const label =
+          entry.field === "date"
+            ? "Transaction date"
+            : entry.field === "description"
+              ? "Merchant or description"
+              : "Expense amount";
+        const currency =
+          entry.field === "amount" ? '<span class="srd-currency">$</span>' : "";
         return `
-        <label class="srd-row" data-index="${row.index}">
-          <span class="srd-row-label">${escapeHtml(row.description || "Unlabeled row")}
-            <em>${escapeHtml(row.date || "date unreadable")}</em></span>
+        <label class="srd-row" data-index="${entry.index}" data-field="${entry.field}">
+          <span class="srd-row-label">${escapeHtml(label)}
+            <em>${escapeHtml(entry.description || "Unlabeled row")}</em></span>
           <span class="srd-input-wrap">
-            <span class="srd-currency">$</span>
-            <input type="text" inputmode="decimal" class="srd-amount"
-                   data-index="${row.index}"
-                   value="${escapeHtml(this.values[row.index] ?? "")}" />
+            ${currency}
+            <input type="${entry.inputType}" ${
+              entry.field === "amount" ? 'inputmode="decimal"' : ""
+            } class="srd-amount"
+                   data-key="${entry.key}"
+                   value="${escapeHtml(this.values[entry.key] ?? "")}" />
           </span>
           ${err ? `<span class="srd-error">${escapeHtml(err)}</span>` : ""}
         </label>`;
@@ -118,18 +180,26 @@ export class StatementReviewDialog {
     root.innerHTML = `
       <div class="srd-panel" role="dialog" aria-modal="true">
         <div class="srd-head">
-          <h3>${isWorkbook ? "Add this card to the sheet" : "I need one number"}</h3>
+          <h3>${isWorkbook ? "Add this card to the sheet" : "I need one detail"}</h3>
           <p>${escapeHtml(item.bank_name || "Statement")}${
             item.account_last4 ? ` ····${escapeHtml(item.account_last4)}` : ""
           }</p>
         </div>
         <div class="srd-body">
           <p class="srd-message">${escapeHtml(item.message || "")}</p>
+          <div class="srd-document">
+            <span>Offending document</span>
+            <code>${escapeHtml(
+              item.document_path || item.source_file || "Path unavailable",
+            )}</code>
+          </div>
           ${rowsHtml}
           ${banner ? `<p class="srd-banner">${escapeHtml(banner)}</p>` : ""}
         </div>
         <div class="srd-foot">
           <button type="button" class="srd-later">Leave for later</button>
+          <button type="button" class="srd-ask-mazda">Ask Mazda</button>
+          <button type="button" class="srd-show-document">Show Document</button>
           <button type="button" class="srd-ok"${this.busy ? " disabled" : ""}>${
             this.busy ? "Working…" : isWorkbook ? "OK" : "Save"
           }</button>
@@ -138,11 +208,33 @@ export class StatementReviewDialog {
 
     root.querySelectorAll(".srd-amount").forEach((input) => {
       input.addEventListener("input", (event) => {
-        this.values[event.target.dataset.index] = event.target.value;
+        this.values[event.target.dataset.key] = event.target.value;
       });
     });
     root.querySelector(".srd-later").addEventListener("click", () => {
+      const identity = reviewIdentity(this.current);
+      if (identity) {
+        this.deferredIds.add(identity);
+        this._saveDeferredIds();
+      }
       this.close();
+    });
+    root.querySelector(".srd-ask-mazda").addEventListener("click", async () => {
+      if (!this.current) return;
+      const prompt = buildMazdaReviewPrompt(this.current);
+      try {
+        await this.actions.askMazda(prompt, this.current);
+        this.close();
+      } catch (err) {
+        this.render(`Could not open Mazda: ${String(err?.message || err)}`);
+      }
+    });
+    root.querySelector(".srd-show-document").addEventListener("click", () => {
+      try {
+        this.actions.showDocument(this.current?.document_url, this.current);
+      } catch (err) {
+        this.render(String(err?.message || err));
+      }
     });
     root.querySelector(".srd-ok").addEventListener("click", () => {
       this.submit();
@@ -171,7 +263,7 @@ export class StatementReviewDialog {
         payload,
       );
     } catch (err) {
-      response = { ok: false, error: String((err && err.message) || err) };
+      response = { ok: false, error: String(err?.message || err) };
     }
     this.busy = false;
 

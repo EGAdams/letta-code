@@ -2839,6 +2839,89 @@ def test_scan_message_routes_statements_to_statement_pipeline():
                   'transactions_duplicate', 'transactions_skipped_credits',
                   'deposits_stored'):
         assert f'"{field}"' in msg, f'statement field {field!r} missing from message'
+    # After store, EG's handwritten category notes must be applied — the vendor
+    # lookup can't tell Rosemary's charge from Robert's, only his pen can.
+    assert 'apply_statement_annotations.py' in msg
+
+
+def test_scan_message_routes_moms_ledger_to_category_reconciliation():
+    msg = server.build_mazda_scan_message(
+        '/scans/moms-ledger.jpg', 'Window Scanner', _FACADE_JPEG_UNKNOWN
+    )
+
+    assert 'MOM LEDGER BRANCH' in msg
+    assert 'moms_ledger_reconciler.py --image /scans/moms-ledger.jpg' in msg
+    assert 'supported category evidence' in msg
+    assert 'never flatten a correct specific category back to generic 190' in msg
+    assert 'OpenAI Codex CLI' in msg
+    assert 'doc_kind="moms_ledger"' in msg
+    assert 'do not run receipt or statement storage' in msg
+
+
+def test_statement_branches_apply_handwritten_annotations_after_store():
+    """Both statement paths (facade-identified statement, and the JPEG→classify
+    fallback) must run apply_statement_annotations.py so EG's on-page category
+    notes become the category — never a manual dashboard fix afterward."""
+    # Facade-identified statement path.
+    facade = dict(_FACADE_IDENTIFIED)
+    facade['doc_kind'] = 'statement'
+    stmt_msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', facade)
+    assert 'apply_statement_annotations.py' in stmt_msg
+    assert 'annotations_applied' in stmt_msg
+    # It must feed the tool BOTH stored and duplicate ids (EG annotates dups too),
+    # and it must run after the store, not before.
+    assert stmt_msg.index('store_statement_transactions.py') < \
+        stmt_msg.index('apply_statement_annotations.py')
+
+    # JPEG → classify-yourself fallback path.
+    fb_msg = server.build_mazda_scan_message(
+        '/scans/x.jpg', 'Scanner', _FACADE_JPEG_UNKNOWN)
+    assert 'apply_statement_annotations.py' in fb_msg
+
+
+def test_statement_branches_require_canonical_dashboard_report():
+    """A stored statement is not complete until Mazda writes and validates the
+    exact report.html file the dashboard resolves."""
+    facade = dict(_FACADE_IDENTIFIED)
+    facade['doc_kind'] = 'statement'
+    stmt_msg = server.build_mazda_scan_message(
+        '/statements/march/bank_6285/statement.pdf', 'Scanner', facade)
+
+    for required in (
+        '/statements/march/bank_6285/report.html',
+        'REPORT_OUTPUT_CONTRACT.md',
+        'restructure_verified_transactions.py',
+        'hydrate_report_categories_from_db.py',
+        'audit_statement_reports.py',
+        'id="verified-transactions"',
+        'data-vendor-key',
+        'rol-category-picker:start',
+        'report_generated=true',
+        'report_audit_status',
+        'CATEGORY AUTHORITY RULE',
+        'expenses.category_id is authoritative',
+    ):
+        assert required in stmt_msg
+    assert stmt_msg.index('apply_statement_annotations.py') < \
+        stmt_msg.index('BUILD THE DASHBOARD REPORT')
+    assert stmt_msg.index('BUILD THE DASHBOARD REPORT') < \
+        stmt_msg.index('record_trace(')
+    assert '/tmp/mazda_statement_' in stmt_msg
+    assert '/tmp/mazda_stmt.json' not in stmt_msg
+
+    # The classify-yourself fallback must carry the same report obligation if
+    # STEP 0 discovers that an image is a statement.
+    fallback_msg = server.build_mazda_scan_message(
+        '/statements/march/bank_6285/scan.jpg',
+        'Scanner',
+        _FACADE_JPEG_UNKNOWN,
+    )
+    assert '/statements/march/bank_6285/report.html' in fallback_msg
+    assert 'restructure_verified_transactions.py' in fallback_msg
+    assert 'hydrate_report_categories_from_db.py' in fallback_msg
+    assert 'audit_statement_reports.py' in fallback_msg
+    assert '/tmp/mazda_statement_' in fallback_msg
+    assert '/tmp/mazda_stmt.json' not in fallback_msg
 
 
 def test_statement_dispatch_carries_confirmed_metadata_and_archive_evidence():
@@ -2856,6 +2939,74 @@ def test_statement_dispatch_carries_confirmed_metadata_and_archive_evidence():
     assert "--bank-name 'Fifth Third Bank' --account-last4 5938" in msg
     assert 'archive_paths' in msg
     assert 'archive_years' in msg
+
+
+def test_statement_dispatch_reuses_validated_preflight_json():
+    facade = dict(_FACADE_IDENTIFIED)
+    facade.update({
+        'doc_kind': 'statement',
+        'statement_preflight': {
+            'bank_name': 'Chase',
+            'account_last4': '5783',
+            'payload_path': '/scans/validated.statement.json',
+        },
+    })
+
+    msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', facade)
+
+    assert 'validated.statement.json' in msg
+    assert 'Do not run statement vision again' in msg
+    assert 'parse_statement_scan.py /scans/x.jpg' not in msg
+
+
+def test_statement_preflight_payload_uses_the_validated_rows():
+    preflight = {
+        'ok': True,
+        'bank_name': 'Chase',
+        'account_last4': '5783',
+        'transactions': [{
+            'date': '2025-09-15',
+            'description': 'MICROSOFT 365',
+            'amount': -106.99,
+        }],
+        'statements': [{
+            'statement_period': {'start': '2025-08-23', 'end': '2025-09-22'},
+            'statement_total': 106.99,
+        }],
+    }
+
+    payload = server._statement_preflight_payload('/staged/scan.jpg', preflight)
+
+    assert payload['source_image'] == '/staged/scan.jpg'
+    assert payload['statements'][0]['account_number'] == '5783'
+    assert payload['statements'][0]['transactions'][0]['date'] == '2025-09-15'
+    assert payload['statements'][0]['transactions'][0]['amount'] == -106.99
+
+
+def test_statement_preflight_payload_never_drops_an_unreadable_row():
+    preflight = {
+        'ok': True,
+        'bank_name': 'Chase',
+        'account_last4': '5783',
+        # Top-level rows are the preflight's complete-row summary.
+        'transactions': [_STMT_ROWS[0]],
+        # The original parser envelope retains the incomplete row that must
+        # reach store validation and quarantine the entire statement.
+        'statements': [{
+            'transactions': [
+                _STMT_ROWS[0],
+                {'date': None, 'description': 'SMUDGED',
+                 'amount': -9.99, 'unreadable': True},
+            ],
+        }],
+    }
+
+    payload = server._statement_preflight_payload('/staged/scan.jpg', preflight)
+
+    rows = payload['statements'][0]['transactions']
+    assert len(rows) == 2
+    assert rows[1]['description'] == 'SMUDGED'
+    assert payload['statements'][0]['unreadable_count'] == 1
 
 
 def test_scan_message_invoice_route_overrides_generic_email_bill_rule():
@@ -3901,8 +4052,14 @@ def test_process_pdf_document_dispatches_trainer(monkeypatch, tmp_path):
     monkeypatch.setattr(server, 'ROL_FINANCES_DIR', str(pdf_dir))
     monkeypatch.setattr(server, 'run_intake_facade',
                         lambda path, org_id=1, engine='gemini': {'ok': True})
-    monkeypatch.setattr(server.threading, 'Thread',
-                        lambda *a, **k: type('T', (), {'start': lambda s: None})())
+    pdf_dispatch = {}
+
+    def fake_thread(*args, **kwargs):
+        pdf_dispatch['target'] = kwargs.get('target')
+        pdf_dispatch['args'] = kwargs.get('args')
+        return type('T', (), {'start': lambda s: None})()
+
+    monkeypatch.setattr(server.threading, 'Thread', fake_thread)
     seen = {}
 
     def fake_trainer(path, name, facade, conversation_id, dispatched_at):
@@ -3918,6 +4075,8 @@ def test_process_pdf_document_dispatches_trainer(monkeypatch, tmp_path):
     assert facade == {'ok': True}
     assert conversation_id == 'conv-test-isolated'
     assert dispatched_at > 0
+    assert pdf_dispatch['target'] is server._notify_mazda_of_pdf
+    assert pdf_dispatch['args'][4] == {'ok': True}
 
 
 # ── Recent Report (/recent_report.html) ─────────────────────────────────────
@@ -4242,8 +4401,29 @@ def test_recent_intake_html_duplicates_note_when_nothing_stored(
                         lambda: ('', '', ''))
     html = server.build_recent_report_html()
     assert 'already in the' in html and 'duplicates' in html
-    # No transaction table (the id appears in the shared CSS regardless).
-    assert '<table id="verified-transactions"' not in html
+    # The Verified Transactions section always renders after a scan so a human
+    # can verify it — even a duplicate-only run with no resolvable rows shows
+    # the table (with an empty-state placeholder), never an omitted section.
+    assert '<table id="verified-transactions"' in html
+    assert 'nothing to verify' in html
+
+
+def test_recent_intake_html_empty_scan_still_shows_verified_section(
+        tmp_path, monkeypatch):
+    # A scan that parsed 0 transactions (e.g. a non-financial "other" document)
+    # must still render the Verified Transactions section for human review,
+    # rather than the section vanishing entirely.
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.merge_recent_intake_event({'expense_ids': [], 'parsed': 0, 'stored': 0})
+    monkeypatch.setattr(server, '_receipt_only_picker_assets', lambda: ('', '', ''))
+    data = server._read_recent_pointer_file()
+    html = server.build_recent_intake_html(data['scanner_intakes']['Window Scanner'])
+    assert '<h2>Verified Transactions</h2>' in html
+    assert '<table id="verified-transactions"' in html
+    assert 'nothing to verify' in html
+    # Reported back → no auto-refresh spinner state.
+    assert 'http-equiv="refresh"' not in html
 
 
 def test_recent_intake_html_pending_refreshes(tmp_path, monkeypatch):
@@ -4251,9 +4431,169 @@ def test_recent_intake_html_pending_refreshes(tmp_path, monkeypatch):
     server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '', ''))
+    monkeypatch.setattr(server, 'mazda_intake_progress', lambda _intake: {
+        'steps': [
+            {'label': 'STEP 1 — Load learned wrapper', 'status': 'done'},
+            {'label': 'STEP 2 — Check vendor and duplicates', 'status': 'active'},
+        ],
+        'completed': 1,
+        'required': 2,
+        'percent': 50,
+    })
     html = server.build_recent_report_html()
     assert 'Dispatched to Mazda' in html
     assert 'http-equiv="refresh"' in html
+    assert '<div class="mazda-working"' in html
+    assert 'Mazda Working' in html
+    assert '1 of 2 required steps complete' in html
+    assert 'STEP 1 — Load learned wrapper' in html
+    assert 'STEP 2 — Check vendor and duplicates' in html
+    assert 'class="mazda-progress-bar" style="width:50%"' in html
+
+
+def test_recent_intake_html_finished_hides_mazda_working_panel(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.merge_recent_intake_event({'expense_ids': [], 'parsed': 0, 'stored': 0})
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '', ''))
+
+    html = server.build_recent_report_html()
+
+    assert '<div class="mazda-working"' not in html
+    assert 'nothing to verify' in html
+
+
+def test_late_expense_callback_does_not_relock_trainer_pass(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake(
+        '/staged/scan.jpg', 'Window Scanner',
+        conversation_id='conv-window', dispatched_at=100.0)
+    assert server.record_intake_status({
+        'status': 'PASS', 'conversation_id': 'conv-window',
+        'document_path': '/staged/scan.jpg', 'dispatched_at': 100.0,
+    })['ok'] is True
+
+    server.merge_recent_intake_event({
+        'document_path': '/staged/scan.jpg',
+        'conversation_id': 'conv-window', 'dispatched_at': 100.0,
+        'parsed': 0, 'stored': 0,
+    })
+
+    intake = server.get_scanner_intake('window')
+    assert intake['status'] == 'pass'
+    assert server._scanner_intake_in_progress('window') is False
+
+
+def test_mazda_progress_uses_successful_tool_returns_not_calls():
+    def call(call_id, name, arguments=None):
+        return {
+            'message_type': 'tool_call_message',
+            'tool_call': {
+                'tool_call_id': call_id,
+                'name': name,
+                'arguments': arguments or {},
+            },
+        }
+
+    def returned(call_id, content='{}', status='success'):
+        return {
+            'message_type': 'tool_return_message',
+            'tool_call_id': call_id,
+            'status': status,
+            'tool_return': content,
+        }
+
+    messages = [
+        returned('wrapper'),
+        call('wrapper', 'load_wrapper_revision'),
+        # This call has no return and must not advance STEP 2.
+        call('vendor', 'check_vendor_key'),
+        returned('classify', json.dumps({
+            'returncode': 0,
+            'stdout': '{"doc_type":"receipt","confidence":0.98}',
+        })),
+        call('classify', 'executor_run', {
+            'command': 'python tools/classify_scan.py /scan.jpg',
+        }),
+        returned('parse', json.dumps({'returncode': 0, 'stdout': '{}'})),
+        call('parse', 'executor_run', {
+            'command': 'python parse_and_categorize.py -f /scan.jpg --json',
+        }),
+    ]
+
+    progress = server._mazda_progress_from_messages(
+        {'doc_kind': 'unknown'}, messages)
+
+    by_label = {step['label']: step['status'] for step in progress['steps']}
+    assert by_label['STEP 1 — Load learned wrapper'] == 'done'
+    assert by_label['STEP 0 — Classify and parse document'] == 'done'
+    assert by_label['STEP 2 — Check vendor and duplicates'] == 'active'
+    assert progress['completed'] == 2
+    assert progress['percent'] == 22
+
+
+def test_mazda_progress_marks_pass_only_improvement_step_skipped():
+    messages = [
+        {
+            'message_type': 'tool_call_message',
+            'tool_call': {
+                'tool_call_id': 'judge',
+                'name': 'judge_trace',
+                'arguments': {'trace_id': 10},
+            },
+        },
+        {
+            'message_type': 'tool_return_message',
+            'tool_call_id': 'judge',
+            'status': 'success',
+            'tool_return': '{"verdict":"PASS"}',
+        },
+    ]
+
+    progress = server._mazda_progress_from_messages(
+        {'doc_kind': 'receipt'}, messages)
+
+    improvement = next(
+        step for step in progress['steps'] if step['label'].startswith('STEP 7'))
+    assert improvement['status'] == 'skipped'
+    # STEP 0 was supplied by the facade and STEP 7 was unnecessary on PASS.
+    assert progress['required'] == 7
+
+
+def test_mazda_statement_progress_counts_validated_preflight_as_done():
+    progress = server._mazda_progress_from_messages(
+        {'doc_kind': 'statement'}, [])
+
+    preflight = next(
+        step for step in progress['steps'] if step['label'].startswith('STEP 2'))
+    assert preflight['status'] == 'done'
+
+
+def test_statement_review_success_publishes_ids_to_recent_report(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        server, 'merge_recent_intake_event',
+        lambda event: seen.update(event) or True,
+    )
+
+    assert server.merge_statement_review_result({
+        'report': {
+            'ok': True,
+            'source_file': '/scans/statement.jpg',
+            'transactions_parsed': 1,
+            'stored': 0,
+            'expense_ids': [],
+            'duplicate_expense_ids': [1541],
+            'bank_name': 'Chase',
+        },
+    }) is True
+
+    assert seen['document_path'] == '/scans/statement.jpg'
+    assert seen['duplicate_expense_ids'] == [1541]
+    assert seen['doc_kind'] == 'statement'
 
 
 def test_trainer_fail_status_targets_exact_conversation_and_stops_refresh(
@@ -4811,6 +5151,36 @@ def test_statement_preflight_still_reads_legacy_flat_shape(monkeypatch):
     assert result['account_last4'] == '7580'
 
 
+def test_statement_preflight_uses_last_four_of_full_printed_account(monkeypatch):
+    """Vision may return the complete printed account despite the last4 schema."""
+    _stub_statement_parser(monkeypatch, {
+        'ok': True,
+        'statements': [{
+            'bank_name': 'Fifth Third',
+            'account_number': '3686285',
+            'transactions': _STMT_ROWS,
+        }],
+    })
+
+    result = server.run_statement_preflight('/scan.jpg', _STMT_FACADE)
+
+    assert result['ok'] is True
+    assert result['account_last4'] == '6285'
+    assert result['last4_source'] == 'statement'
+
+
+class _FakeAccountDirectory:
+    """Offline stand-in for KnownCardsWorkbook (see known_accounts.py)."""
+
+    def __init__(self, last4=None, ambiguous=()):
+        self._last4 = last4
+        self._ambiguous = tuple(ambiguous)
+
+    def lookup_last4(self, bank_name):
+        return types.SimpleNamespace(
+            last4=self._last4, ambiguous_last4=self._ambiguous, matched_names=())
+
+
 def test_statement_preflight_asks_for_metadata_when_envelope_lacks_last4(
         monkeypatch):
     _stub_statement_parser(monkeypatch, {
@@ -4819,12 +5189,57 @@ def test_statement_preflight_asks_for_metadata_when_envelope_lacks_last4(
                                     'transactions': _STMT_ROWS}],
     })
 
-    result = server.run_statement_preflight('/scan.jpg', _STMT_FACADE)
+    # No workbook match: the last four is unknowable, so preflight must still
+    # fail closed and ask for metadata rather than guess.
+    result = server.run_statement_preflight(
+        '/scan.jpg', _STMT_FACADE, account_directory=_FakeAccountDirectory())
 
     assert result['ok'] is False
     assert result['needs_statement_metadata'] is True
     assert result['missing_fields'] == ['account_last4']
     assert result['bank_name'] == 'Chase Amazon'
+
+
+def test_statement_preflight_resolves_missing_last4_from_workbook(monkeypatch):
+    # The account number isn't on the scanned band, but the bank is a known card
+    # in Known_Credit_Cards_and_Banks.xlsx — resolve it and proceed to dispatch
+    # instead of stalling (the Chase -> 5783 case that reached EG on 2026-07-23).
+    _stub_statement_parser(monkeypatch, {
+        'ok': True, 'statements': [{'bank_name': 'Chase',
+                                    'account_number': None,
+                                    'transactions': _STMT_ROWS}],
+    })
+
+    result = server.run_statement_preflight(
+        '/scan.jpg', _STMT_FACADE,
+        account_directory=_FakeAccountDirectory(last4='5783'))
+
+    assert result['ok'] is True
+    assert result['account_last4'] == '5783'
+    assert result['last4_source'] == 'known_cards_workbook'
+    assert result.get('needs_statement_metadata') is not True
+
+
+def test_statement_preflight_fails_closed_on_ambiguous_workbook_match(
+        monkeypatch):
+    # A bank with several cards on file must NOT be resolved to one of them —
+    # surface the ambiguity and keep asking for metadata.
+    _stub_statement_parser(monkeypatch, {
+        'ok': True, 'statements': [{'bank_name': 'Fifth Third Bank',
+                                    'account_number': None,
+                                    'transactions': _STMT_ROWS}],
+    })
+
+    result = server.run_statement_preflight(
+        '/scan.jpg', _STMT_FACADE,
+        account_directory=_FakeAccountDirectory(
+            ambiguous=('5938', '6285', '3119')))
+
+    assert result['ok'] is False
+    assert result['needs_statement_metadata'] is True
+    assert result['account_last4'] is None
+    assert result['workbook_ambiguous_last4'] == ['5938', '6285', '3119']
+    assert '5938' in result['error']
 
 
 def test_statement_preflight_halts_on_two_statements_in_one_scan(monkeypatch):

@@ -20,6 +20,7 @@ import {
   CodeChangeAlert,
   ConnectionLogController,
   ConnectionTestController,
+  DashboardStatementReviewActions,
   DocumentPipelineController,
   DomConsoleView,
   DomDocumentPipelineView,
@@ -34,11 +35,11 @@ import {
   ServerActionController,
   ServerHealthMonitor,
   ServerLogController,
+  StatementReviewDialog,
   StreamDetailRenderer,
   VendorReviewController,
   VisionHaltAlert,
 } from "./implementation/index.js";
-import { StatementReviewDialog } from "./implementation/statement-review-dialog.js";
 
 // One shared HttpClient (Adapter over fetch) used by AM / SM / SSHM / RF.
 const http = new FetchHttpClient();
@@ -653,6 +654,12 @@ if (
         }
         if (tab.dataset.target === "scanners-vendor-review") {
           vendorReviewController?.refresh();
+        }
+        if (tab.dataset.scannerReport) {
+          const iframe = document.querySelector(
+            `#${tab.dataset.target} iframe`,
+          );
+          RF.loadScannerReportInto(iframe, tab.dataset.scannerReport);
         }
       });
     });
@@ -2152,7 +2159,19 @@ function clampScannerImageZoom(value) {
 // The dialog polls for those and asks EG for the one missing piece — a workbook
 // row, or an unreadable amount — then re-runs the store. Module-scope so it
 // survives navigation between tabs, like the router's listener.
-const statementReviewDialog = new StatementReviewDialog({ http });
+const statementReviewActions = new DashboardStatementReviewActions({
+  listAgents: async () => {
+    if (!AM.agents) {
+      AM.agents = await http.getJSON("/api/agents");
+    }
+    return AM.agents || [];
+  },
+  openAgentInput: (agentId) => AM.openById(agentId, "input-options"),
+});
+const statementReviewDialog = new StatementReviewDialog({
+  http,
+  actions: statementReviewActions,
+});
 
 function setupScanners() {
   statementReviewDialog.start();

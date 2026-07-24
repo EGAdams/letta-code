@@ -250,6 +250,22 @@ export class RolFinanceReportsController {
   }
 
   /**
+   * Load the same per-scanner report into an iframe owned by another dashboard
+   * navigation page. This keeps convenience aliases in sync with the Reports
+   * tabs, including their Verified Transactions-only presentation.
+   */
+  loadScannerReportInto(iframe, key) {
+    if (!iframe) return;
+    if (!iframe.dataset.scannerReportBound) {
+      iframe.addEventListener("load", () =>
+        this.showOnlyVerifiedTransactions(iframe),
+      );
+      iframe.dataset.scannerReportBound = "1";
+    }
+    iframe.src = `${this._scannerReportUrl}?scanner=${encodeURIComponent(key)}`;
+  }
+
+  /**
    * Open the Recent Report view: an iframe over /recent_report.html — the
    * server dynamically serves whichever report.html belongs to the most
    * recently processed document — collapsed to its Verified Transactions card

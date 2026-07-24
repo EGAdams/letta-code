@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  answerableFields,
   answerableRows,
+  buildMazdaReviewPrompt,
   buildResolvePayload,
-  collectAmounts,
+  collectCorrections,
   isSubmittable,
+  nextPendingReview,
   nextStateAfterResolve,
   prefillFor,
   REVIEW_KIND,
@@ -43,6 +46,23 @@ describe("answerable rows", () => {
     expect(answerableRows(item).map((r) => r.index)).toEqual([0]);
   });
 
+  test("date-only failures expose a date field", () => {
+    const item = {
+      kind: REVIEW_KIND.AMOUNTS,
+      rows: [
+        {
+          index: 0,
+          date: null,
+          description: "MICROSOFT 365",
+          missing: ["date"],
+        },
+      ],
+    };
+    expect(answerableFields(item)).toEqual([
+      expect.objectContaining({ index: 0, field: "date", inputType: "date" }),
+    ]);
+  });
+
   test("a workbook item asks about no rows", () => {
     expect(answerableRows(workbookItem)).toEqual([]);
   });
@@ -60,22 +80,42 @@ describe("prefill", () => {
 
 describe("collecting what the human typed", () => {
   test("accepts a plain number and strips $ and commas", () => {
-    expect(collectAmounts(amountsItem, { 3: "$1,234.50" }).amounts).toEqual({
-      3: 1234.5,
+    expect(
+      collectCorrections(amountsItem, { "3:amount": "$1,234.50" }).corrections,
+    ).toEqual({
+      3: { amount: 1234.5 },
     });
   });
 
   test("a blank entry is an error, never a silent skip", () => {
     // Skipping would resubmit the same hole and quarantine the statement again.
-    const { amounts, errors } = collectAmounts(amountsItem, { 3: "  " });
-    expect(amounts).toEqual({});
-    expect(errors[3]).toContain("Enter the amount");
+    const { corrections, errors } = collectCorrections(amountsItem, {
+      "3:amount": "  ",
+    });
+    expect(corrections).toEqual({});
+    expect(errors["3:amount"]).toContain("Enter the amount");
   });
 
   test("rejects junk and non-positive amounts", () => {
-    expect(collectAmounts(amountsItem, { 3: "abc" }).errors[3]).toBeTruthy();
-    expect(collectAmounts(amountsItem, { 3: "0" }).errors[3]).toBeTruthy();
-    expect(collectAmounts(amountsItem, { 3: "-5" }).errors[3]).toBeTruthy();
+    expect(
+      collectCorrections(amountsItem, { "3:amount": "abc" }).errors["3:amount"],
+    ).toBeTruthy();
+    expect(
+      collectCorrections(amountsItem, { "3:amount": "0" }).errors["3:amount"],
+    ).toBeTruthy();
+    expect(
+      collectCorrections(amountsItem, { "3:amount": "-5" }).errors["3:amount"],
+    ).toBeTruthy();
+  });
+
+  test("accepts an ISO transaction date", () => {
+    const item = {
+      kind: REVIEW_KIND.AMOUNTS,
+      rows: [{ index: 0, missing: ["date"] }],
+    };
+    expect(
+      collectCorrections(item, { "0:date": "2025-09-15" }).corrections,
+    ).toEqual({ 0: { date: "2025-09-15" } });
   });
 });
 
@@ -86,7 +126,7 @@ describe("submittability", () => {
 
   test("amounts need every row answered", () => {
     expect(isSubmittable(amountsItem, {})).toBe(false);
-    expect(isSubmittable(amountsItem, { 3: "4.50" })).toBe(true);
+    expect(isSubmittable(amountsItem, { "3:amount": "4.50" })).toBe(true);
   });
 });
 
@@ -98,14 +138,61 @@ describe("resolve payload", () => {
   });
 
   test("amounts send the typed values keyed by row index", () => {
-    expect(buildResolvePayload(amountsItem, { 3: "4.50" })).toEqual({
+    expect(buildResolvePayload(amountsItem, { "3:amount": "4.50" })).toEqual({
       id: "sidecar.json",
-      amounts: { 3: 4.5 },
+      corrections: { 3: { amount: 4.5 } },
     });
   });
 
   test("refuses to build a payload while an entry is invalid", () => {
-    expect(buildResolvePayload(amountsItem, { 3: "" })).toBeNull();
+    expect(buildResolvePayload(amountsItem, { "3:amount": "" })).toBeNull();
+  });
+});
+
+describe("Ask Mazda handoff", () => {
+  test("prefills the complete document context and path", () => {
+    const item = {
+      id: "review.jpg.json",
+      document_path: "/bank_statements/_needs_review/review.jpg",
+      document_context: {
+        source_file: "/incoming/scan.jpg",
+        bank_name: "Fifth Third",
+        workbook_ambiguous_last4: ["3119", "5938", "6285"],
+        transactions: [{ date: "2025-03-17", amount: -12.34 }],
+      },
+    };
+
+    const prompt = buildMazdaReviewPrompt(item);
+
+    expect(prompt).toContain("/bank_statements/_needs_review/review.jpg");
+    expect(prompt).toContain("/incoming/scan.jpg");
+    expect(prompt).toContain('"6285"');
+    expect(prompt).toContain('"transactions"');
+    expect(prompt).toContain("# My question for Mazda");
+  });
+});
+
+describe("leaving a review for later", () => {
+  test("skips the deferred item while leaving it in the server queue", () => {
+    const first = { id: "first.json", source_file: "/scans/first.jpg" };
+    const second = { id: "second.json" };
+    const reviews = [first, second];
+
+    expect(nextPendingReview(reviews, new Set(["/scans/first.jpg"]))).toBe(
+      second,
+    );
+    expect(reviews).toEqual([first, second]);
+  });
+
+  test("deferring a source suppresses every retry sidecar for that image", () => {
+    const reviews = [
+      { id: "retry.json", source_file: "/scans/microsoft.jpg" },
+      { id: "original.json", source_file: "/scans/microsoft.jpg" },
+    ];
+
+    expect(
+      nextPendingReview(reviews, new Set(["/scans/microsoft.jpg"])),
+    ).toBeNull();
   });
 });
 
@@ -131,6 +218,15 @@ describe("after resolving", () => {
     expect(state.item).toBe(workbookItem);
     expect(state.message).toContain("still no workbook row");
     expect(state.message).toContain("press OK again");
+  });
+
+  test("a failed field retry does not incorrectly blame the amount", () => {
+    const state = nextStateAfterResolve(amountsItem, {
+      ok: false,
+      error: "store returned no JSON",
+    });
+    expect(state.message).toContain("highlighted details");
+    expect(state.message).not.toContain("amounts");
   });
 
   test("singular phrasing for one transaction", () => {

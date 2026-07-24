@@ -352,6 +352,26 @@ registry + `_invoke_scanner()`/`classify_scan_result()` live in `server.py`. Out
 | `POST /api/scanner-scan` `{scanner}` | One-shot manual scan → `{status, ok, image_url\|error}` |
 | `GET /api/scanner-status?scanner=` | Lightweight probe → same `{status}` |
 | `GET /api/scanner-image?scanner=` | Serves the scanned JPEG |
+| `GET /api/scanner-diagnostics?scanner=` | Read-only health LEDs (see below) → `{overall, checks:[{id,label,state,detail}]}` |
+
+**Scanner Health LEDs** — the "we keep having to reset everything" panel on each scanner dialog.
+`scanner_diagnostics()` runs ONE `scanner_diag.ps1` launch (via the same interop socket) that
+probes every Windows-side failure point read-only (it never transfers a scan), and
+`build_scanner_diagnostics()` (pure, unit-tested) maps the raw result to LED rows. States are
+`ok`(green)/`warn`(yellow)/`bad`(red)/`unknown`(grey — "couldn't ask Windows", deliberately not
+red). The chain, top to bottom: **WSL Bridge** (interop socket present — the #1 reset cause) →
+**Imaging Service** (stisvc Running) → **Driver Health** (PnP Image-class device OK vs
+absent/error — the "reinstall the HP driver" signal) → **Scanner Online** (WIA enumerates the
+device by name; `timeout` here = wedged stisvc) → **No Stuck Scans** (leaked `scan_device.ps1`
+procs) → **Printer Device** (Freezer only — the DeskJet's own LEDM `ProductStatusDyn.xml` over the
+LAN, so door/jam/offline show red and paper/ink show yellow). The lone WIA enumeration runs under
+`_SCAN_LOCK` (non-blocking acquire) so it can't collide with a live scan's Transfer; during a scan
+it reports the online LED as "scan in progress" instead of blocking. It is refreshed on tab open,
+after a busy/offline/failed scan, after Fix Scanner, and via the panel's **Refresh** button — NOT
+auto-polled (constant WIA polling causes the very contention it detects). Front end:
+`ScannerDiagnosticsController` (`js/implementation/scanner-diagnostics-controller.js`) — server does
+the mapping, the class only renders rows. `scanner_diag.ps1` must be deployed to the scan-tools dir
+alongside `scan_device.ps1`/`reap_scans.ps1`.
 
 `status` ∈ ready/busy/offline/error. Auto-poll is gated by `MONITORED_SCANNERS` (a `Set` in
 `setupScanners` in `dashboard-boot.js`) — currently empty, so neither scanner auto-polls; both sit
@@ -370,9 +390,9 @@ scanner reporting "busy" from shared WIA-service contention).
 3. A "busy" state that won't clear on power-cycle is often an **open ink door/cover**, not a held
    handle. A real scan takes ≈33s (OfficeJet 300dpi), not 10s.
 
-Deploy: scp `scanner_scripts/*` to the scan-tools dir; scp dashboard files;
-`systemctl --user restart dashboard-server.service`. Tests: `tests/test_server.py -k scan` +
-`classify_scan_result`.
+Deploy: scp `scanner_scripts/*` to the scan-tools dir (now includes `scanner_diag.ps1`); scp
+dashboard files; `systemctl --user restart dashboard-server.service`. Tests:
+`tests/test_server.py -k "scan or diag"` + `js/tests/scanner-diagnostics-controller.test.js`.
 
 ### Scan → Mazda intake pipeline
 
@@ -483,6 +503,17 @@ pending-review row.
   an Anthropic path, or any health logging. Port the same pattern there if a failure is ever
   traced to either.
 
+### Statement Codex CLI vision fallback
+
+Both `rol_finances/tools/receipt_scanning_tools/parse_statement_scan.py` (transaction extraction)
+and `apply_statement_annotations.py` (EG's handwritten notes after storage) use the vision order
+Gemini → **OpenAI Codex CLI** → legacy direct ChatGPT-OAuth → standalone OpenAI. The Codex leg is implemented by
+`rol_finances/tools/codex_cli_vision.py`: PDFs are rendered to PNG pages with `pdftoppm`
+(`poppler-utils`) and attached to a non-interactive `codex exec --image` call. Never send a raw
+`application/pdf` as a ChatGPT `input_image`; that backend rejects it. This path uses the existing
+Codex OAuth subscription (EG first, then mom's approved synced account), never `OPENAI_API_KEY`.
+Successful tool output includes `annotation_provider: "codex-cli"`.
+
 ## Server health indicators, restart, and Model Stats
 
 - **4-state server status** via `compute_server_status()`/`server_status_kind()`:
@@ -513,12 +544,9 @@ pending-review row.
   sudo systemctl start user@1000.service
   systemctl --user is-active dashboard-server lettabot thought-bridge mazda-tools-mcp mazda-executor
   ```
-  **You should no longer have to run this by hand (2026-07-23).** `user@1000.service` now carries
-  `OnFailure=fix-user-session.service`, so the recovery fires automatically the moment it wedges;
-  see `dashboard/ops/README.md`. The old advice that it "re-wedges within ~60s of the first fix"
-  was wrong — that was `loginctl terminate-user` in the previous runbook completing asynchronously
-  and tearing down the session that had just been restarted. **Do not use `terminate-user` here.**
-  Confirm via
+  **Verified 2026-07-22: it can re-wedge within ~60s of the first fix** (`Stopped` then wedged
+  again inside a minute) — re-check `sudo systemctl status user@1000.service` after ~90s before
+  declaring it fixed, and re-run the same three commands if it shows `failed` again. Confirm via
   `curl -s http://localhost:8765/api/server-health | python3 -m json.tool` (or the same URL through
   the public Tailscale hostname) — every tile should read `up`.
 - **Model Stats tab** — `/api/model-stats?source=` (+ `-sources`). Sub-nav: this box and mom's

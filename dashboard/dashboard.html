@@ -119,6 +119,8 @@
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-window">Window Scanner</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-pdf">Process PDF</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-vendor-review">Needs Vendor Review</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-window" data-scanner-report="window">Last Windows Scan</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-freezer" data-scanner-report="freezer">Last Freezer Scan</button>
     </nav>
 
     <!-- Agent detail sub-nav -->
@@ -496,6 +498,12 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
         <div class="startup-status">Receipts whose vendor couldn't be auto-categorized are saved anyway — pick an existing vendor_key here to finish the save.</div>
         <div id="vendor-review-panel" class="vendor-review-panel hidden"></div>
       </div>
+    </section>
+    <section id="scanners-last-window" class="view">
+      <iframe class="plan-frame" title="Last Windows Scan"></iframe>
+    </section>
+    <section id="scanners-last-freezer" class="view">
+      <iframe class="plan-frame" title="Last Freezer Scan"></iframe>
     </section>
   </main>
 

@@ -23,6 +23,7 @@ export {
   ConnectionTestController,
   classifyConnectionStatus,
 } from "./connection-controllers.js";
+export { DashboardStatementReviewActions } from "./dashboard-statement-review-actions.js";
 export {
   AgentCardRenderer,
   buildModelRow,
@@ -62,5 +63,6 @@ export {
   classifyServerStatus,
   ServerLogController,
 } from "./server-log-controller.js";
+export { StatementReviewDialog } from "./statement-review-dialog.js";
 export { VendorReviewController } from "./vendor-review-controller.js";
 export { VisionHaltAlert } from "./vision-halt-alert.js";

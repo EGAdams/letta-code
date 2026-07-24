@@ -1134,6 +1134,27 @@ describe("RolFinanceReportsController", () => {
     expect(recentTab.classList.contains("active")).toBe(true);
   });
 
+  test("loadScannerReportInto gives Scanners-page aliases the same live report view", () => {
+    const ctx = setup([]);
+    const iframe = ctx.doc.createElement("iframe");
+    let loads = 0;
+    ctx.rf.showOnlyVerifiedTransactions = (loadedFrame) => {
+      expect(loadedFrame).toBe(iframe);
+      loads += 1;
+    };
+
+    ctx.rf.loadScannerReportInto(iframe, "window");
+    expect(iframe.src).toBe("/scanner_report.html?scanner=window");
+    expect(iframe.dataset.scannerReportBound).toBe("1");
+    iframe.dispatch("load");
+    expect(loads).toBe(1);
+
+    // Reopening refreshes the endpoint without stacking another load handler.
+    ctx.rf.loadScannerReportInto(iframe, "window");
+    iframe.dispatch("load");
+    expect(loads).toBe(2);
+  });
+
   test("scanner tabs hide inside a month and return via Back", async () => {
     const ctx = setup([
       {

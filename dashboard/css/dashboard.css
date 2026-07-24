@@ -1993,6 +1993,24 @@ summary {
   font: 0.95rem/1.5 Arial, sans-serif;
   color: #0f172a;
 }
+.statement-review-overlay .srd-document {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+.statement-review-overlay .srd-document span {
+  display: block;
+  margin-bottom: 4px;
+  font: 700 0.78rem Arial, sans-serif;
+  color: #475569;
+}
+.statement-review-overlay .srd-document code {
+  display: block;
+  overflow-wrap: anywhere;
+  font: 0.8rem/1.4 monospace;
+  color: #0f172a;
+}
 .statement-review-overlay .srd-row {
   display: block;
   padding: 10px 0;
@@ -2052,6 +2070,8 @@ summary {
   gap: 10px;
 }
 .statement-review-overlay .srd-later,
+.statement-review-overlay .srd-ask-mazda,
+.statement-review-overlay .srd-show-document,
 .statement-review-overlay .srd-ok {
   border: 0;
   border-radius: 8px;
@@ -2062,6 +2082,14 @@ summary {
 .statement-review-overlay .srd-later {
   background: #e5e7eb;
   color: #111827;
+}
+.statement-review-overlay .srd-ask-mazda {
+  background: #7c3aed;
+  color: #fff;
+}
+.statement-review-overlay .srd-show-document {
+  background: #475569;
+  color: #fff;
 }
 .statement-review-overlay .srd-ok {
   background: #2563eb;

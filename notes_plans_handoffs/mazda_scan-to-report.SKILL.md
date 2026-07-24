@@ -145,6 +145,21 @@ Then run the current injector:
 python3 tools/python_tasks/verification_lib/restructure_verified_transactions.py <statement_dir>/report.html
 ```
 
+Then hydrate categories from the live expense rows:
+
+```bash
+python3 tools/python_tasks/verification_lib/hydrate_report_categories_from_db.py <statement_dir>/report.html
+```
+
+Every expense/debit row must carry the nonblank ID returned by statement storage in
+`expense_ids` or `duplicate_expense_ids`. Treat that expense's current database category
+as authoritative. A duplicate may already have been categorized in an earlier workflow;
+never replace that category with `cat-uncategorized` just because this intake performed
+no insert.
+If a returned duplicate ID is uncategorized but a unique categorized expense with the
+same date, amount, and normalized description represents that transaction, use the
+categorized canonical ID on the report row before hydration.
+
 The resulting report must satisfy the dashboard contract:
 
 - contains exactly one table with:

@@ -554,7 +554,16 @@ def _fold_event_into_intake(intake, event):
     if vendor and vendor != 'unknown':
         intake['vendor'] = vendor
     intake['reported_at'] = time.time()
-    intake['status'] = (event.get('status') or 'complete').lower()
+    event_status = str(event.get('status') or '').strip().lower()
+    # STEP 8 and Trainer updates can race. A late expense-stored callback has
+    # no status of its own and must not downgrade an already-terminal Trainer
+    # PASS/FAIL back to "complete", which would re-lock the scanner after a
+    # service restart.
+    if event_status:
+        intake['status'] = event_status
+    elif str(intake.get('status') or '').lower() not in {
+            'pass', 'corrected', 'fail', 'stalled'}:
+        intake['status'] = 'complete'
     if event.get('status_detail'):
         intake['status_detail'] = str(event['status_detail'])
 
@@ -624,6 +633,23 @@ def merge_recent_intake_event(event):
         for intake in targets:
             _fold_event_into_intake(intake, event)
         return _write_recent_pointer_file(data)
+
+
+def merge_statement_review_result(payload):
+    """Publish a successful review retry through the normal report event path."""
+    report = (payload or {}).get('report') or {}
+    if not report.get('ok') or not report.get('source_file'):
+        return False
+    return merge_recent_intake_event({
+        'document_path': report.get('source_file'),
+        'doc_kind': 'statement',
+        'vendor': report.get('bank_name'),
+        'parsed': report.get('transactions_parsed'),
+        'stored': report.get('stored'),
+        'expense_ids': report.get('expense_ids') or [],
+        'duplicate_expense_ids': report.get('duplicate_expense_ids') or [],
+        'status': 'complete',
+    })
 
 
 _TERMINAL_INTAKE_STATUSES = {
@@ -898,6 +924,7 @@ _DOC_KIND_LABELS = {
     'receipt': 'Receipt',
     'tax_document': 'Tax Document',
     'invoice': 'Invoice (awaiting payment counterpart)',
+    'other': 'Blank or non-financial document',
 }
 
 
@@ -930,6 +957,126 @@ def _format_month_range(rows):
     if len(dates) == 1 or dates[0] == dates[-1]:
         return _fmt(dates[0])
     return f'{_fmt(dates[0])} >>---> {_fmt(dates[-1])}'
+
+
+_MAZDA_PROGRESS_LABELS = (
+    'STEP 1 — Load learned wrapper',
+    'STEP 0 — Classify and parse document',
+    'STEP 2 — Check vendor and duplicates',
+    'STEP 3 — Categorize',
+    'STEP 4 — Store',
+    'STEP 5 — Record trace',
+    'STEP 6 — Judge trace',
+    'STEP 7 — Propose improvement if needed',
+    'STEP 8 — Notify dashboard',
+)
+
+
+def _mazda_progress_from_messages(intake, messages):
+    """Derive intake progress only from successful tool returns."""
+    calls = {}
+    returns = {}
+    for message in messages or []:
+        call = message.get('tool_call') or {}
+        call_id = call.get('tool_call_id') or message.get('tool_call_id')
+        if message.get('message_type') == 'tool_call_message' and call_id:
+            calls[call_id] = call
+        if message.get('message_type') == 'tool_return_message' and call_id:
+            returns[call_id] = message
+
+    statuses = ['pending'] * len(_MAZDA_PROGRESS_LABELS)
+    doc_kind = str((intake or {}).get('doc_kind') or 'unknown').lower()
+    if doc_kind != 'unknown':
+        statuses[1] = 'skipped'
+    if doc_kind in ('statement', 'bank_statement'):
+        statuses[2] = 'done'  # dashboard preflight validated metadata/rows
+
+    def classify(call):
+        name = str(call.get('name') or '')
+        args = call.get('arguments') or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except ValueError:
+                args = {}
+        command = str(
+            args.get('command') or args.get('cmd') or args.get('input') or '')
+        if name == 'load_wrapper_revision':
+            return 0
+        if name == 'executor_run':
+            if ('classify_scan.py' in command
+                    or 'parse_and_categorize.py' in command
+                    and '--save' not in command
+                    or 'parse_statement_scan.py' in command):
+                return 1
+            if 'categorizer_main.py' in command:
+                return 3
+            if ('parse_and_categorize.py' in command and '--save' in command
+                    or 'store_statement_transactions.py' in command):
+                return 4
+            if '/api/expense-stored' in command:
+                return 8
+        if name in ('check_vendor_key', 'check_duplicates'):
+            return 2
+        if name == 'record_trace':
+            return 5
+        if name == 'judge_trace':
+            return 6
+        if name in ('propose_improvement', 'apply_proposal'):
+            return 7
+        return None
+
+    judge_passed = False
+    for call_id, call in calls.items():
+        index = classify(call)
+        if index is None:
+            continue
+        returned = returns.get(call_id)
+        successful = bool(
+            returned and str(returned.get('status') or 'success').lower()
+            in ('success', 'ok', 'completed'))
+        if successful:
+            statuses[index] = 'done'
+            if index == 6:
+                content = returned.get('tool_return') or returned.get('content') or ''
+                if isinstance(content, dict):
+                    verdict = content.get('verdict')
+                else:
+                    match = re.search(r'"verdict"\s*:\s*"([^"]+)"', str(content))
+                    verdict = match.group(1) if match else ''
+                judge_passed = str(verdict).upper() == 'PASS'
+        elif statuses[index] == 'pending':
+            statuses[index] = 'active'
+    if judge_passed:
+        statuses[7] = 'skipped'
+
+    steps = [
+        {'label': label, 'status': status}
+        for label, status in zip(_MAZDA_PROGRESS_LABELS, statuses)
+    ]
+    completed = sum(status == 'done' for status in statuses)
+    required = sum(status != 'skipped' for status in statuses)
+    percent = round(completed * 100 / required) if required else 100
+    return {
+        'steps': steps,
+        'completed': completed,
+        'required': required,
+        'percent': percent,
+    }
+
+
+def mazda_intake_progress(intake):
+    """Read this isolated conversation and return its verified progress."""
+    conversation_id = str((intake or {}).get('conversation_id') or '').strip()
+    if not conversation_id:
+        return _mazda_progress_from_messages(intake, [])
+    data = letta_get(
+        f'/v1/conversations/{quote(conversation_id, safe="")}/messages?limit=200',
+        timeout=25)
+    messages = (
+        data if isinstance(data, list)
+        else (data or {}).get('messages', (data or {}).get('results', [])))
+    return _mazda_progress_from_messages(intake, messages)
 
 
 def build_recent_intake_html(intake):
@@ -991,7 +1138,11 @@ def build_recent_intake_html(intake):
     elif row_error:
         status = f'Could not load this intake’s transactions from the database: {row_error}'
     elif reported:
-        if parsed and not stored:
+        if str(intake.get('doc_kind') or '').lower() == 'other':
+            status = (
+                'Mazda confirmed this scan is blank or non-financial. '
+                'No transactions were expected.')
+        elif parsed and not stored:
             status = (f'Mazda parsed {parsed} transaction(s); all were already in the '
                       'database (duplicates of an earlier run of this document) — '
                       'nothing new was stored.')
@@ -1037,17 +1188,36 @@ def build_recent_intake_html(intake):
                 _esc(r['amount']), _esc(r['date']),
                 _esc(r['reporting_category']),
             ))
-    table = ''
-    if trs:
-        table = (
-            '  <h2>Verified Transactions</h2>\n'
-            '  <table id="verified-transactions"><thead><tr>'
-            '<th>Description</th><th class="number">Amount</th><th>Date</th>'
-            '<th>Category</th></tr></thead><tbody>\n'
-            + '\n'.join(trs) + '\n</tbody></table>\n')
+    body_rows = '\n'.join(trs)
+    if not body_rows:
+        body_rows = (
+            '<tr><td colspan="4" class="muted">There is nothing to verify for '
+            'this document.</td></tr>')
+    table = (
+        '  <h2>Verified Transactions</h2>\n'
+        '  <table id="verified-transactions"><thead><tr>'
+        '<th>Description</th><th class="number">Amount</th><th>Date</th>'
+        '<th>Category</th></tr></thead><tbody>\n'
+        + body_rows + '\n</tbody></table>\n')
     # Refresh while we're still waiting on Mazda's STEP 8 report-back.
     terminal = intake_status in _TERMINAL_INTAKE_STATUSES
     refresh = '' if (rows or reported or terminal) else '<meta http-equiv="refresh" content="30">'
+    working = ''
+    if not reported and not terminal:
+        progress = mazda_intake_progress(intake)
+        progress_rows = ''.join(
+            '<li class="mazda-step-%s">%s</li>' % (
+                _esc(step.get('status') or 'pending'),
+                _esc(step.get('label') or ''))
+            for step in progress.get('steps', []))
+        working = (
+            '<div class="mazda-working"><h2>Mazda Working</h2>'
+            '<div class="mazda-progress-shell">'
+            f'<div class="mazda-progress-bar" style="width:{int(progress.get("percent", 0))}%"></div>'
+            '</div>'
+            f'<p>{int(progress.get("completed", 0))} of '
+            f'{int(progress.get("required", 0))} required steps complete</p>'
+            f'<ul>{progress_rows}</ul></div>')
     sub = f'{label} — ' if label else ''
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -1068,6 +1238,12 @@ def build_recent_intake_html(intake):
         '    .duplicate-row td { box-shadow:inset 0 2px #b91c1c,inset 0 -2px #b91c1c; }\n'
         '    .duplicate-badge { display:inline-block; margin-left:8px; padding:2px 7px; '
         'border-radius:999px; background:#b91c1c; color:#fff; font-size:.72rem; letter-spacing:.04em; }\n'
+        '    .mazda-working { margin:16px 0; padding:12px; border:1px solid #93c5fd; border-radius:10px; background:#eff6ff; }\n'
+        '    .mazda-progress-shell { height:10px; overflow:hidden; border-radius:999px; background:#dbeafe; }\n'
+        '    .mazda-progress-bar { height:100%; background:#2563eb; }\n'
+        '    .mazda-working ul { margin:8px 0 0; padding-left:20px; }\n'
+        '    .mazda-step-done { color:#166534; } .mazda-step-active { color:#b45309; font-weight:700; }\n'
+        '    .mazda-step-skipped, .mazda-step-pending { color:#6b7280; }\n'
         + _receipt_only_cat_css() + '\n'
         + click_css + '\n'
         + picker_css + '\n'
@@ -1081,7 +1257,8 @@ def build_recent_intake_html(intake):
         f'Associated PDF: {pdf_display}<br>'
         f'Associated Receipt: {receipt_display}</p>\n'
         f'  <p>{_esc(status)}</p>\n'
-        + table +
+        + working +
+        table +
         '</section>\n' + picker_html + '\n</body></html>')
 
 
@@ -2138,6 +2315,7 @@ def _invoke_scanner(key):
 # scan workflow visible as an LED instead of a mystery. Read-only: it probes,
 # it never scans. The Windows-side checks come from ONE scanner_diag.ps1 launch.
 SCANNER_DIAG_TIMEOUT_SEC = 30
+SCANNER_DIAG_LOCK_WAIT_SEC = 8
 
 
 def _run_scanner_diag_ps(cfg, interop, skip_wia=False):
@@ -2366,10 +2544,11 @@ def build_scanner_diagnostics(key, interop_ok, ps_data, device_status=None):
 def scanner_diagnostics(key):
     """Read-only health snapshot of one scanner's whole workflow (the LEDs).
 
-    Never starts a WIA transfer. The Windows probe runs under `_SCAN_LOCK` when
-    it is free (so its lone WIA enumeration can't collide with a real scan's
-    Transfer); if a scan is already running it still reports every other check
-    and marks the online LED "scan in progress" rather than blocking.
+    Never starts a WIA transfer. The Windows probe briefly waits for
+    `_SCAN_LOCK` so switching from Freezer to Window does not make the two
+    diagnostic requests manufacture a false "scan in progress" warning. A real
+    scan keeps the lock beyond this small wait, in which case the WIA checks are
+    still skipped rather than interfering with its transfer.
     """
     if key not in SCANNERS:
         return {'scanner': key, 'checks': [], 'overall': 'bad',
@@ -2377,7 +2556,7 @@ def scanner_diagnostics(key):
     interop = _wsl_interop_socket()
     ps_data = None
     if interop:
-        acquired = _SCAN_LOCK.acquire(blocking=False)
+        acquired = _SCAN_LOCK.acquire(timeout=SCANNER_DIAG_LOCK_WAIT_SEC)
         try:
             ps_data = _run_scanner_diag_ps(
                 SCANNERS[key], interop, skip_wia=not acquired)
@@ -2448,12 +2627,32 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
     confidence = fr.get('confidence') or 0.0
     identified = mazda_facade_identified(fr)
     statement_preflight = fr.get('statement_preflight') or {}
+    statement_payload_path = statement_preflight.get('payload_path') or ''
     statement_override_args = ''
     if statement_preflight.get('bank_name') and statement_preflight.get('account_last4'):
         statement_override_args = (
             f' --bank-name {shlex.quote(str(statement_preflight["bank_name"]))}'
             f' --account-last4 {shlex.quote(str(statement_preflight["account_last4"]))}'
         )
+    statement_token = hashlib.sha256(
+        scan_image_path.encode('utf-8')).hexdigest()[:12]
+    statement_json_path = (
+        statement_payload_path
+        or f'/tmp/mazda_statement_{statement_token}.json')
+    report_path = os.path.join(
+        os.path.dirname(scan_image_path), 'report.html')
+    statement_finish_block = (
+        f'  After store, run apply_statement_annotations.py for every stored AND '
+        f'duplicate expense id; `annotations_applied` is required evidence.\n'
+        f'  BUILD THE DASHBOARD REPORT at {report_path}. Follow '
+        f'REPORT_OUTPUT_CONTRACT.md, then run '
+        f'restructure_verified_transactions.py, '
+        f'hydrate_report_categories_from_db.py, and audit_statement_reports.py. '
+        f'The finished HTML must contain id="verified-transactions", '
+        f'data-vendor-key attributes, and the rol-category-picker:start marker. '
+        f'CATEGORY AUTHORITY RULE: expenses.category_id is authoritative. '
+        f'Record report_generated=true and report_audit_status.\n'
+    )
 
     # Summarise the most useful parsed fields so the message stays readable.
     parsed_summary = json.dumps(
@@ -2474,6 +2673,33 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         )
         fallback_block = ''
         if doc_kind in ('statement', 'bank_statement'):
+            if statement_payload_path:
+                statement_steps = (
+                    f'2. Do not run statement vision again. The dashboard already '
+                    f'validated every extracted row and wrote the exact parser JSON to '
+                    f'{statement_payload_path}.\n'
+                    f'3. Via executor_run with cwd=/home/adamsl/rol_finances and '
+                    f'env={MAZDA_RF_ENV_JSON}, run:\n'
+                    f'   {MAZDA_RF_VENV_PY} '
+                    f'tools/receipt_scanning_tools/store_statement_transactions.py '
+                    f'-f {statement_payload_path} --source-file {scan_image_path}'
+                    f'{statement_override_args}\n'
+                )
+            else:
+                statement_steps = (
+                    f'2. Via executor_run with cwd=/home/adamsl/rol_finances and '
+                    f'env={MAZDA_RF_ENV_JSON}, run:\n'
+                    f'   {MAZDA_RF_VENV_PY} '
+                    f'tools/receipt_scanning_tools/parse_statement_scan.py '
+                    f'{scan_image_path} -o {statement_json_path}'
+                    f'{statement_override_args}\n'
+                    f'3. Use {statement_json_path}, then via '
+                    f'executor_run with the same cwd/env run:\n'
+                    f'   {MAZDA_RF_VENV_PY} '
+                    f'tools/receipt_scanning_tools/store_statement_transactions.py '
+                    f'-f {statement_json_path} --source-file {scan_image_path}'
+                    f'{statement_override_args}\n'
+                )
             return (
                 f'A bank or credit-card statement was scanned on the {scanner_name}. '
                 f'The image is: {scan_image_path}\n'
@@ -2483,17 +2709,8 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
                 f'categorization, and all single-document parsing/storage are forbidden '
                 f'and intentionally omitted from this dispatch.\n\n'
                 f'1. Call load_wrapper_revision(agent_name="Mazda").\n'
-                f'2. Via executor_run with cwd=/home/adamsl/rol_finances and '
-                f'env={MAZDA_RF_ENV_JSON}, run:\n'
-                f'   {MAZDA_RF_VENV_PY} '
-                f'tools/receipt_scanning_tools/parse_statement_scan.py '
-                f'{scan_image_path}{statement_override_args}\n'
-                f'3. Write that returned JSON to /tmp/mazda_statement.json, then via '
-                f'executor_run with the same cwd/env run:\n'
-                f'   {MAZDA_RF_VENV_PY} '
-                f'tools/receipt_scanning_tools/store_statement_transactions.py '
-                f'-f /tmp/mazda_statement.json --source-file {scan_image_path}'
-                f'{statement_override_args}\n'
+                + statement_steps +
+                statement_finish_block +
                 f'4. Call record_trace(agent_name="Mazda", task_name="document-intake", '
                 f'input_text="{scan_image_path}", agent_output=<JSON containing '
                 f'document_path, doc_kind="statement", classification_confidence, '
@@ -2590,6 +2807,12 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'BRANCH; never route it away merely because it is an email or bill. A '
         f'`receipt` MUST run STEPS 2-4. Only explicit `doc_type=other` is unsupported.\n\n'
         f'{fallback_block}'
+        f'MOM LEDGER BRANCH — if STEP 0 returns doc_type="moms_ledger", run '
+        f'moms_ledger_reconciler.py --image {scan_image_path}. Use supported '
+        f'category evidence and never flatten a correct specific category back '
+        f'to generic 190. Use OpenAI Codex CLI when vision reconciliation is '
+        f'needed; do not run receipt or statement storage. Record '
+        f'doc_kind="moms_ledger".\n\n'
         f'STATEMENT BRANCH — if this document is a bank or credit-card statement '
         f'(doc_kind "bank_statement" or "statement" from the facade or STEP 0): SKIP '
         f'STEPS 2-4 entirely — they are for single receipts and a statement can never '
@@ -2597,7 +2820,7 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'cwd=/home/adamsl/rol_finances, env={MAZDA_RF_ENV_JSON}):\n'
         f'  S1. Extract every transaction (Gemini vision):\n'
         f'      {MAZDA_RF_VENV_PY} tools/receipt_scanning_tools/parse_statement_scan.py '
-        f'{scan_image_path} -o /tmp/mazda_stmt.json{statement_override_args}\n'
+        f'{scan_image_path} -o {statement_json_path}{statement_override_args}\n'
         f'  S2. Dedupe + store them. Expenses are inserted UNCATEGORIZED (they enter '
         f'the New Records queue for a human to categorize — do NOT run the categorizer '
         f'for statements). Deposits/credits are NOT expenses: the script persists them '
@@ -2605,7 +2828,7 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'never reviewed by a human):\n'
         f'      {MAZDA_RF_VENV_PY} '
         f'tools/receipt_scanning_tools/store_statement_transactions.py '
-        f'-f /tmp/mazda_stmt.json --source-file {scan_image_path}'
+        f'-f {statement_json_path} --source-file {scan_image_path}'
         f'{statement_override_args}\n'
         f'      → {{"transactions_parsed": N, "skipped_credits": N, "duplicates": N, '
         f'"stored": N, "expense_ids": [...], "deposits_stored": N, "deposit_ids": [...], '
@@ -2613,6 +2836,7 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"archive_paths": [...], "archive_years": [...]}}\n'
         f'  EVERY row coming back "duplicates" or "deposit_duplicates" is a SUCCESSFUL '
         f'no-op, not a failure, and a deposit missing from expenses is CORRECT. '
+        + statement_finish_block +
         f'Then continue at STEP 5 with the STATEMENT evidence JSON described there.\n\n'
         f'INVOICE BRANCH — if this document is a bill/invoice requesting payment where the '
         f'document itself does NOT show payment already made (doc_type "invoice" from '
@@ -2996,7 +3220,7 @@ def _notify_trainer_of_scan(scan_image_path, scanner_name, facade_result=None,
 
 
 def _notify_mazda_of_pdf(file_path, label=None, conversation_id=None,
-                         dispatched_at=None):
+                         dispatched_at=None, facade_result=None):
     """Background: send a PDF document to Mazda for intake processing."""
     if not conversation_id:
         print('[pdf→mazda] Refusing shared/default conversation dispatch')
@@ -3249,8 +3473,26 @@ def build_pipeline_result(facade, mazda_dispatched):
 
 
 def _statement_last4(value):
-    match = re.search(r'(?:^|\D)(\d{4})$', str(value or '').strip())
-    return match.group(1) if match else None
+    text = str(value or '').strip()
+    match = re.search(r'(?:^|\D)(\d{4})$', text)
+    if match:
+        return match.group(1)
+    # Some statements print the complete account number and vision returns it
+    # despite the parser contract asking for the final four. Six or more plain
+    # digits are unambiguously a full account number; retain its final four.
+    # Deliberately do not truncate five-digit values: malformed five-digit Amex
+    # workbook cells are a known trap and must continue to fail closed.
+    if re.fullmatch(r'\d{6,}', text):
+        return text[-4:]
+    return None
+
+
+def _default_statement_account_directory():
+    """Build the workbook-backed last-four resolver without a hard import."""
+    if ROL_FINANCES_DIR not in sys.path:
+        sys.path.insert(0, ROL_FINANCES_DIR)
+    from tools.receipt_scanning_tools.known_accounts import KnownCardsWorkbook
+    return KnownCardsWorkbook()
 
 
 def _complete_statement_transactions(rows):
@@ -3305,7 +3547,8 @@ def _statement_records_summary(statements):
     return ', '.join(labels)
 
 
-def run_statement_preflight(image_path, facade_result, metadata=None):
+def run_statement_preflight(
+        image_path, facade_result, metadata=None, account_directory=None):
     """Extract and validate statement metadata before dispatch or storage."""
     if (facade_result or {}).get('doc_kind') not in ('statement', 'bank_statement'):
         return None
@@ -3360,6 +3603,22 @@ def run_statement_preflight(image_path, facade_result, metadata=None):
     statement = statements[0] if statements else {}
     bank_name = bank_override or ' '.join(str(statement.get('bank_name') or '').split())
     account_last4 = last4_override or _statement_last4(statement.get('account_number'))
+    last4_source = 'operator' if last4_override else (
+        'statement' if account_last4 else 'unknown')
+    workbook_ambiguous_last4 = []
+    if not account_last4 and bank_name:
+        try:
+            lookup = (
+                account_directory or _default_statement_account_directory()
+            ).lookup_last4(bank_name)
+        except Exception:
+            lookup = None
+        if lookup:
+            account_last4 = _statement_last4(getattr(lookup, 'last4', None))
+            workbook_ambiguous_last4 = list(
+                getattr(lookup, 'ambiguous_last4', ()) or ())
+            if account_last4:
+                last4_source = 'known_cards_workbook'
     transactions = _complete_statement_transactions(statement.get('transactions'))
     if not transactions:
         return {
@@ -3379,15 +3638,69 @@ def run_statement_preflight(image_path, facade_result, metadata=None):
         'account_number': account_last4,
         'transactions': transactions,
         'transaction_count': len(transactions),
+        'last4_source': last4_source,
+        'workbook_ambiguous_last4': workbook_ambiguous_last4,
     })
     if missing:
+        ambiguity = (
+            ' Candidates in the known-cards workbook: '
+            + ', '.join(workbook_ambiguous_last4) + '.'
+            if workbook_ambiguous_last4 else '')
         result.update({
             'ok': False,
             'needs_statement_metadata': True,
             'missing_fields': missing,
-            'error': 'Statement needs bank name and account last four before storage.',
+            'error': (
+                'Statement needs bank name and account last four before storage.'
+                + ambiguity),
         })
     return result
+
+
+def _statement_preflight_payload(image_path, preflight):
+    """Return the exact validated parser envelope Mazda must store.
+
+    Preserve the original per-statement rows (including unreadable rows) so the
+    downstream validator can quarantine them. The top-level ``transactions``
+    list is only the complete-row summary used by preflight.
+    """
+    source_statements = preflight.get('statements')
+    source = (
+        source_statements[0]
+        if isinstance(source_statements, list) and source_statements
+        and isinstance(source_statements[0], dict)
+        else {})
+    rows = source.get('transactions')
+    if not isinstance(rows, list):
+        rows = preflight.get('transactions') or []
+    rows = [dict(row) for row in rows if isinstance(row, dict)]
+    statement = dict(source)
+    statement.update({
+        'bank_name': preflight.get('bank_name'),
+        'account_number': preflight.get('account_last4'),
+        'transaction_count': len(rows),
+        'unreadable_count': sum(
+            1 for row in rows if row.get('unreadable')),
+        'transactions': rows,
+    })
+    return {
+        'ok': True,
+        'doc_kind': 'statement',
+        'source_image': image_path,
+        'statement_count': 1,
+        'statements': [statement],
+    }
+
+
+def _write_statement_preflight_payload(image_path, preflight):
+    """Write a validated statement envelope beside Mazda's immutable scan."""
+    payload_path = image_path + '.statement.json'
+    try:
+        with open(payload_path, 'w', encoding='utf-8') as handle:
+            json.dump(_statement_preflight_payload(image_path, preflight), handle)
+    except OSError:
+        return ''
+    return payload_path
 
 
 def process_scanned_document(
@@ -3458,6 +3771,13 @@ def process_scanned_document(
             return result
         remote_image_path = _stage_scan_for_mazda(image_path)
         if remote_image_path:
+            if facade.get('statement_preflight'):
+                payload_path = _write_statement_preflight_payload(
+                    remote_image_path, facade['statement_preflight'])
+                if payload_path:
+                    facade = dict(facade)
+                    facade['statement_preflight'] = dict(
+                        facade['statement_preflight'], payload_path=payload_path)
             conversation_id = _create_mazda_conversation()
             if conversation_id:
                 dispatched_at = time.time()
@@ -3535,7 +3855,7 @@ def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
     dispatched_at = time.time()
     threading.Thread(
         target=_notify_mazda_of_pdf,
-        args=(real, doc_label, conversation_id, dispatched_at),
+        args=(real, doc_label, conversation_id, dispatched_at, facade),
         daemon=True,
     ).start()
     record_recent_intake(real, doc_label, kind='pdf', facade=facade,
@@ -4268,12 +4588,12 @@ def build_receipt_only_report_html(month_key=None):
             'title="Click row to set category / view receipt">'
             '<td>%s</td><td class="number">%s</td><td>%s</td></tr>' % (
                 r['cat_class'],
-                _esc(r['id'], quote=True),
-                _esc(r['vendor_key'], quote=True),
-                _esc(r['description'], quote=True),
-                _esc(r['amount'], quote=True),
-                _esc(r['date'], quote=True),
-                _esc(r['description']), _esc(r['amount']), _esc(r['date']),
+                _esc(str(r['id']), quote=True),
+                _esc(str(r['vendor_key']), quote=True),
+                _esc(str(r['description']), quote=True),
+                _esc(str(r['amount']), quote=True),
+                _esc(str(r['date']), quote=True),
+                _esc(str(r['description'])), _esc(str(r['amount'])), _esc(str(r['date'])),
             ))
     body_rows = '\n'.join(trs) if trs else (
         '<tr><td colspan="3" class="muted">No receipt-only records.</td></tr>')
@@ -4295,7 +4615,7 @@ def build_receipt_only_report_html(month_key=None):
         + _receipt_only_cat_css() + '\n'
         + click_css + '\n'
         + picker_css + '\n'
-        '  </style></head><body>\n'
+        + '  </style></head><body>\n'
         '<section class="card">\n'
         '  <h1>Receipt Only</h1>\n'
         '  <p class="muted">Receipts not associated with any bank-statement '
@@ -8438,6 +8758,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 'reviews': statement_review.list_reviews(),
             })
 
+        if path == '/api/statement-review-document':
+            fp = statement_review.review_document_path(
+                query.get('id', [''])[0])
+            if fp:
+                ext = os.path.splitext(fp)[1].lower()
+                ctype = {
+                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                    '.png': 'image/png', '.gif': 'image/gif',
+                    '.webp': 'image/webp', '.pdf': 'application/pdf',
+                }.get(ext, 'application/octet-stream')
+                return self.serve_file(fp, ctype)
+            self.send_error(404)
+            return
+
         if path == '/api/rol-finance-recent-scans':
             try:
                 limit = int(query.get('limit', ['5'])[0])
@@ -8513,8 +8847,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 body = build_receipt_only_report_html(month_key)
             except Exception as e:
                 from html import escape as _esc
-                body = ('<!doctype html><meta charset="utf-8"><body>'
-                        '<pre>Receipt Only build error: %s</pre>' % _esc(str(e)))
+                import traceback as tb
+                body = ('<!doctype html><meta charset="utf-8"><body><pre>'
+                        'DEBUG: Receipt Only endpoint is being executed\n'
+                        + _esc(tb.format_exc()) + '</pre></body></html>')
             data = body.encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -8758,6 +9094,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.error_response('Missing review id', 400)
             ok, payload = statement_review.resolve_review(
                 review_id, amounts=data.get('amounts'))
+            if ok:
+                merge_statement_review_result(payload)
             return self.json_response({'ok': ok, **payload})
 
         if path == '/api/intake-status':

@@ -29,6 +29,8 @@ binds it to the page. (The cutover is done — there is no inline `<script>` lef
 | `AgentCardRenderer`         | `DetailRenderer`       | `/api/agent-card` → identity/system-message/lists | `detail-renderers.js` |
 | `ChatDetailRenderer`        | `DetailRenderer`       | chat UI + voice + per-agent speech + `/api/test` | `detail-renderers.js` |
 | `InputOptionsRenderer`      | `DetailRenderer`       | Input Options UI (textarea/voice/auto-send) + `/api/test` | `detail-renderers.js` |
+| `StatementReviewDialog` | `PollingController` + `StatementReviewActions` collaborator | Polls/renders pending reviews while delegating Mazda/document actions through a port | `statement-review-dialog.js` |
+| `DashboardStatementReviewActions` | `StatementReviewActions` | Adapter that opens Mazda Input Options and review documents without coupling the dialog to AM or browser globals | `dashboard-statement-review-actions.js` |
 | `RolFinanceReportsController`| — (controller)        | `/api/rol-finance-reports` → report tabs + same-origin iframe reach | `rol-finance-reports-controller.js` |
 | `CodeChangeAlert`           | — (controller)         | `/api/code-status` → blink tab + restart modal | `code-change-alert.js` |
 
