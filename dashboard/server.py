@@ -4268,12 +4268,12 @@ def build_receipt_only_report_html(month_key=None):
             'title="Click row to set category / view receipt">'
             '<td>%s</td><td class="number">%s</td><td>%s</td></tr>' % (
                 r['cat_class'],
-                _esc(r['id'], quote=True),
-                _esc(r['vendor_key'], quote=True),
-                _esc(r['description'], quote=True),
-                _esc(r['amount'], quote=True),
-                _esc(r['date'], quote=True),
-                _esc(r['description']), _esc(r['amount']), _esc(r['date']),
+                _esc(str(r['id']), quote=True),
+                _esc(str(r['vendor_key']), quote=True),
+                _esc(str(r['description']), quote=True),
+                _esc(str(r['amount']), quote=True),
+                _esc(str(r['date']), quote=True),
+                _esc(str(r['description'])), _esc(str(r['amount'])), _esc(str(r['date'])),
             ))
     body_rows = '\n'.join(trs) if trs else (
         '<tr><td colspan="3" class="muted">No receipt-only records.</td></tr>')
@@ -4295,7 +4295,7 @@ def build_receipt_only_report_html(month_key=None):
         + _receipt_only_cat_css() + '\n'
         + click_css + '\n'
         + picker_css + '\n'
-        '  </style></head><body>\n'
+        + '  </style></head><body>\n'
         '<section class="card">\n'
         '  <h1>Receipt Only</h1>\n'
         '  <p class="muted">Receipts not associated with any bank-statement '
@@ -8513,8 +8513,10 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 body = build_receipt_only_report_html(month_key)
             except Exception as e:
                 from html import escape as _esc
-                body = ('<!doctype html><meta charset="utf-8"><body>'
-                        '<pre>Receipt Only build error: %s</pre>' % _esc(str(e)))
+                import traceback as tb
+                body = ('<!doctype html><meta charset="utf-8"><body><pre>'
+                        'DEBUG: Receipt Only endpoint is being executed\n'
+                        + _esc(tb.format_exc()) + '</pre></body></html>')
             data = body.encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
