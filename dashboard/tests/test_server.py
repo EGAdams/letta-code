@@ -7,6 +7,7 @@ start/"starting" lifecycle used by the executor Start button.
 """
 import json
 import os
+import re
 import time
 import types
 
@@ -326,6 +327,76 @@ def test_lookup_receipt_rejects_date_amount_file_when_matched_expense_url_is_emp
     assert result['receipt_url'] == ''
     assert result['receipt_path'] == ''
     assert result['error'] == 'No receipt on file for this expense.'
+
+
+def test_lookup_receipt_keeps_source_document_metadata_without_receipt(
+        monkeypatch):
+    source_image = (
+        '/home/adamsl/rol_finances/readable_documents/bank_statements/'
+        '2024/march/fubo_4851/statement.jpg'
+    )
+    expense = {
+        'id': 1659,
+        'id_light': 'meijer',
+        'description': 'MEIJER STORE #311 GRAND RAPIDS MI',
+        'receipt_url': '',
+        'document_url': source_image,
+        'moms_ledger': None,
+        'notes': '',
+    }
+    monkeypatch.setattr(
+        server, '_rol_get_connection', lambda: _FakeConnection([expense]))
+    monkeypatch.setattr(
+        server, '_source_document_path', lambda _report_path: '')
+    monkeypatch.setattr(
+        server, '_resolve_local_supporting_document',
+        lambda reference, kind: source_image if kind == 'source' else None)
+
+    result = server.lookup_receipt(
+        '2024-04-02', '-47.69', 'meijer',
+        'MEIJER STORE #311 GRAND RAPIDS MI', expense_id=1659,
+    )
+
+    assert result['ok'] is False
+    assert result['expense_id'] == 1659
+    assert result['receipt_url'] == ''
+    assert result['source_document_path'] == source_image
+
+
+def test_lookup_receipt_prefers_document_url_when_receipt_also_exists(
+        monkeypatch):
+    source_image = (
+        '/home/adamsl/rol_finances/readable_documents/bank_statements/'
+        '2024/march/fubo_4851/statement.jpg'
+    )
+    expense = {
+        'id': 1659,
+        'id_light': 'meijer',
+        'description': 'MEIJER STORE #311 GRAND RAPIDS MI',
+        'receipt_url': 'meijer_04_02_24_47_69.jpg',
+        'document_url': source_image,
+        'moms_ledger': None,
+        'notes': '',
+    }
+    monkeypatch.setattr(
+        server, '_rol_get_connection', lambda: _FakeConnection([expense]))
+    monkeypatch.setattr(
+        server, '_resolve_local_supporting_document',
+        lambda reference, kind: source_image if kind == 'source' else None)
+    monkeypatch.setattr(
+        server, '_resolve_expense_receipt_path',
+        lambda *_args: '/receipts/meijer_04_02_24_47_69.jpg')
+    monkeypatch.setattr(
+        server, '_source_document_path',
+        lambda *_args: '/legacy/report-derived-source.pdf')
+
+    result = server.lookup_receipt(
+        '2024-04-02', '-47.69', 'meijer',
+        'MEIJER STORE #311 GRAND RAPIDS MI', expense_id=1659,
+    )
+
+    assert result['ok'] is True
+    assert result['source_document_path'] == source_image
 
 
 def test_receipts_present_is_scoped_to_each_matching_expense(monkeypatch):
@@ -929,6 +1000,7 @@ def test_classify_scan_result_busy():
     assert r['status'] == 'busy'
     # Also recognised from the raw COM message even without our marker.
     assert server.classify_scan_result(4, 'The WIA device is busy.', False)['status'] == 'busy'
+    assert server.classify_scan_result(1, 'scanimage: device busy', False)['status'] == 'busy'
 
 
 def test_classify_scan_result_offline():
@@ -948,6 +1020,8 @@ def test_scanner_registry_selects_by_name_not_first_device():
     # first, so "first device" would grab the wrong scanner).
     assert server.SCANNERS['freezer']['script'] == 'run_scan_freezer.sh'
     assert server.SCANNERS['window']['script'] == 'run_scan_window.sh'
+    assert server.SCANNERS['freezer']['airscan_device'] == 'airscan:e1:Freezer Scanner'
+    assert server.SCANNERS['window']['airscan_device'] == 'airscan:e0:Window Scanner'
 
 
 def _diag_by_id(result, check_id):
@@ -963,6 +1037,18 @@ def test_scanner_diag_all_healthy_is_green():
     assert all(c['state'] == 'ok' for c in r['checks'])
     # No printer-device LED on the Window scanner (that's a Freezer-only LAN probe).
     assert not any(c['id'] == 'device' for c in r['checks'])
+
+
+def test_scanner_diag_airscan_healthy_ignores_stale_windows_wia():
+    ps = {'stisvc': 'Running', 'stale_scans': 0,
+          'driver_present': True, 'driver_status': 'Unknown',
+          'wia': 'absent', 'wia_connect': 'not-tested'}
+    r = server.build_scanner_diagnostics(
+        'window', True, ps, airscan_ready=True)
+    assert r['overall'] == 'ok'
+    assert all(c['state'] == 'ok' for c in r['checks'])
+    assert 'directly over the network' in _diag_by_id(r, 'bridge')['detail']
+    assert 'Windows WIA is not required' in _diag_by_id(r, 'service')['detail']
 
 
 def test_scanner_diag_device_holder_shows_two_red_leds():
@@ -1131,14 +1217,34 @@ def test_process_scanned_document_unknown_scanner():
     assert r['stages'] == []
 
 
+def test_process_scanned_document_waits_until_scanner_finishes(
+        tmp_path, monkeypatch):
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    (scan_dir / 'window_scan.jpg').write_bytes(b'partial scan bytes')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(
+        server, '_SCAN_LOCK', type('BusyLock', (), {'locked': lambda self: True})())
+    facade_calls = []
+    monkeypatch.setattr(
+        server, 'run_intake_facade',
+        lambda *args, **kwargs: facade_calls.append(args))
+
+    result = server.process_scanned_document('window')
+
+    assert result['ok'] is False
+    assert 'still scanning' in result['error']
+    assert facade_calls == []
+
+
 def test_process_scanned_statement_pauses_for_missing_bank_metadata(
         tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
-        'window': {'name': 'Window Scanner', 'output': 'scan.jpg'},
+        'window': {'name': 'Window Scanner', 'output': 'window_scan.jpg'},
     })
     facade = {'ok': True, 'doc_kind': 'statement', 'confidence': .99}
     monkeypatch.setattr(server, 'run_intake_facade', lambda *a, **kw: facade)
@@ -1166,10 +1272,10 @@ def test_process_scanned_statement_resumes_with_user_metadata(
         tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
-        'window': {'name': 'Window Scanner', 'output': 'scan.jpg'},
+        'window': {'name': 'Window Scanner', 'output': 'window_scan.jpg'},
     })
     facade = {'ok': True, 'doc_kind': 'statement', 'confidence': .99}
     monkeypatch.setattr(server, 'run_intake_facade', lambda *a, **kw: dict(facade))
@@ -1187,7 +1293,7 @@ def test_process_scanned_statement_resumes_with_user_metadata(
         }
 
     monkeypatch.setattr(server, 'run_statement_preflight', _preflight)
-    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: '/staged/scan.jpg')
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: '/staged/window_scan.jpg')
     dispatches = []
     monkeypatch.setattr(
         server.threading, 'Thread',
@@ -1204,10 +1310,10 @@ def test_process_scanned_statement_resumes_with_user_metadata(
 def test_process_scanned_statement_rejects_no_transactions(tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
-        'window': {'name': 'Window Scanner', 'output': 'scan.jpg'},
+        'window': {'name': 'Window Scanner', 'output': 'window_scan.jpg'},
     })
     monkeypatch.setattr(server, 'run_intake_facade', lambda *a, **kw: {
         'ok': True, 'doc_kind': 'statement', 'confidence': .99})
@@ -1226,6 +1332,22 @@ def test_process_scanned_statement_rejects_no_transactions(tmp_path, monkeypatch
 
 def test_stage_scan_for_mazda_missing_local_file_returns_none():
     assert server._stage_scan_for_mazda('/nope/does-not-exist.jpg') is None
+
+
+def test_stage_scan_for_mazda_rejects_empty_scan(tmp_path):
+    empty_scan = tmp_path / 'window_scan.jpg'
+    empty_scan.touch()
+
+    assert server._stage_scan_for_mazda(str(empty_scan)) is None
+
+
+def test_scan_output_must_be_a_nonempty_file(tmp_path):
+    scan = tmp_path / 'window_scan.jpg'
+    assert server._scan_output_ready(str(scan)) is False
+    scan.touch()
+    assert server._scan_output_ready(str(scan)) is False
+    scan.write_bytes(b'jpeg bytes')
+    assert server._scan_output_ready(str(scan)) is True
 
 
 def test_stage_scan_for_mazda_copies_locally_and_mirrors_to_win10(
@@ -1263,7 +1385,7 @@ def test_stage_scan_for_mazda_ssh_failure_is_nonfatal(tmp_path, monkeypatch):
     copy, so staging succeeds as long as the local copy lands."""
     staging_dir = tmp_path / 'incoming_scans'
     monkeypatch.setattr(server, 'SCAN_STAGING_REMOTE_DIR', str(staging_dir))
-    local = tmp_path / 'scan.jpg'
+    local = tmp_path / 'window_scan.jpg'
     local.write_bytes(b'fake-jpeg')
 
     def _fake_run(cmd, **kwargs):
@@ -1271,7 +1393,7 @@ def test_stage_scan_for_mazda_ssh_failure_is_nonfatal(tmp_path, monkeypatch):
 
     monkeypatch.setattr(server.subprocess, 'run', _fake_run)
     staged_path = server._stage_scan_for_mazda(str(local))
-    assert staged_path.startswith(f'{staging_dir}/scan_')
+    assert staged_path.startswith(f'{staging_dir}/window_scan_')
     assert os.path.exists(staged_path)
 
 
@@ -1279,7 +1401,7 @@ def test_stage_scan_for_mazda_returns_none_when_local_copy_fails(
         tmp_path, monkeypatch):
     monkeypatch.setattr(server, 'SCAN_STAGING_REMOTE_DIR',
                         str(tmp_path / 'staged'))
-    local = tmp_path / 'scan.jpg'
+    local = tmp_path / 'window_scan.jpg'
     local.write_bytes(b'fake-jpeg')
 
     def _boom(src, dst):
@@ -1295,18 +1417,18 @@ def test_process_scanned_document_dispatches_mazda_with_staged_remote_path(
     the local scan path her executor tools can't reach."""
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'run_scan_window.sh',
-                   'output': 'scan.jpg'},
+                   'output': 'window_scan.jpg'},
     })
     monkeypatch.setattr(server, 'run_intake_facade',
                          lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
     monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
     monkeypatch.setattr(server, '_stage_scan_for_mazda',
                          lambda local_path: '/home/adamsl/rol_finances/tools/'
-                                             'receipt_scanning_tools/incoming_scans/scan.jpg')
+                                             'receipt_scanning_tools/incoming_scans/window_scan.jpg')
     captured = {}
 
     def _fake_thread(target, args, daemon):
@@ -1318,7 +1440,7 @@ def test_process_scanned_document_dispatches_mazda_with_staged_remote_path(
     result = server.process_scanned_document('window')
     assert result['mazda_dispatched'] is True
     assert captured['args'][0] == (
-        '/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/scan.jpg')
+        '/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/window_scan.jpg')
     assert captured['args'][3] == 'conv-test-isolated'
     assert result['conversation_id'] == 'conv-test-isolated'
     assert 'stage_error' not in result
@@ -1329,12 +1451,12 @@ def test_window_and_freezer_dispatch_to_distinct_conversations(
     """Concurrent scanners must never share Mazda context or Trainer scope."""
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'scan.jpg').write_bytes(b'window')
+    (scan_dir / 'window_scan.jpg').write_bytes(b'window')
     (scan_dir / 'scan_freezer.jpg').write_bytes(b'freezer')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'window.sh',
-                   'output': 'scan.jpg'},
+                   'output': 'window_scan.jpg'},
         'freezer': {'name': 'Freezer Scanner', 'script': 'freezer.sh',
                     'output': 'scan_freezer.jpg'},
     })
@@ -1381,11 +1503,11 @@ def test_process_scanned_document_reports_stage_error_and_skips_mazda(
         tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'run_scan_window.sh',
-                   'output': 'scan.jpg'},
+                   'output': 'window_scan.jpg'},
     })
     monkeypatch.setattr(server, 'run_intake_facade',
                          lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
@@ -1407,18 +1529,18 @@ def test_process_scanned_document_fails_closed_when_conversation_creation_fails(
         tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    image = scan_dir / 'scan.jpg'
+    image = scan_dir / 'window_scan.jpg'
     image.write_bytes(b'fake-jpeg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'window.sh',
-                   'output': 'scan.jpg'},
+                   'output': 'window_scan.jpg'},
     })
     monkeypatch.setattr(server, 'run_intake_facade',
                         lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown'})
     monkeypatch.setattr(server, 'document_vision_health', lambda: {'ok': True})
     monkeypatch.setattr(server, '_stage_scan_for_mazda',
-                        lambda path: '/staged/scan.jpg')
+                        lambda path: '/staged/window_scan.jpg')
     monkeypatch.setattr(server, '_create_mazda_conversation', lambda: None)
     threads = []
     monkeypatch.setattr(
@@ -1439,11 +1561,11 @@ def test_process_scanned_document_halts_when_vision_all_down(tmp_path, monkeypat
     entirely, not just fail deep inside her trace."""
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'run_scan_window.sh',
-                   'output': 'scan.jpg'},
+                   'output': 'window_scan.jpg'},
     })
     monkeypatch.setattr(server, 'run_intake_facade',
                          lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
@@ -2404,6 +2526,92 @@ def test_recategorize_expense_credit_card_posting_date_offset(monkeypatch):
     assert result['expense_id'] == 555
 
 
+def test_recategorize_expense_records_one_time_undo_action(monkeypatch):
+    expense = {
+        'id': 555,
+        'id_light': 'trinity_church_01_16_25_50_00',
+        'description': 'TRINITY CHURCH',
+        'category_id': 190,
+        'expense_role': 'STANDALONE',
+    }
+    recorded = []
+    monkeypatch.setattr(
+        server, '_rol_get_connection', lambda: _FakeConnection([expense]))
+    monkeypatch.setattr(
+        server, '_record_category_undo',
+        lambda action: recorded.append(action) or 'undo-token-1',
+    )
+
+    result = server.recategorize_expense(
+        '2025-01-16', '-50.00', 'trinity_church',
+        'Food & Hospitality', expense_id=555,
+    )
+
+    assert result['undo_token'] == 'undo-token-1'
+    assert recorded == [{
+        'expense_id': 555,
+        'previous_category_id': 190,
+        'category_id': 130,
+        'previous_reporting_category': 'Gifts & Love Offerings',
+        'reporting_category': 'Food & Hospitality',
+        'date': '2025-01-16',
+        'signed_amount': '-50.00',
+        'vendor_key': 'trinity_church',
+        'description': 'TRINITY CHURCH',
+        'report_path': '',
+    }]
+
+
+def test_undo_recategorize_expense_restores_prior_category_and_report(monkeypatch):
+    action = {
+        'expense_id': 555,
+        'previous_category_id': 190,
+        'category_id': 130,
+        'previous_reporting_category': 'Gifts & Love Offerings',
+        'reporting_category': 'Food & Hospitality',
+        'date': '2025-01-16',
+        'signed_amount': '-50.00',
+        'vendor_key': 'trinity_church',
+        'description': 'TRINITY CHURCH',
+        'report_path': '/report.html',
+    }
+    updates = []
+    monkeypatch.setattr(
+        server, '_undo_category_action',
+        lambda token: {'status': 'restored', 'action': action},
+    )
+    monkeypatch.setattr(
+        server, '_update_report_row_color',
+        lambda *args, **kwargs: updates.append((args, kwargs)) or True,
+    )
+
+    result = server.undo_recategorize_expense('undo-token-1')
+
+    assert result['ok'] is True
+    assert result['expense_id'] == 555
+    assert result['category_id'] == 190
+    assert result['reporting_category'] == 'Gifts & Love Offerings'
+    assert result['file_updated'] is True
+    assert updates[0][0][-1] == 'cat-gifts-and-love-offerings'
+
+
+def test_undo_recategorize_expense_refuses_newer_category_change(monkeypatch):
+    monkeypatch.setattr(
+        server, '_undo_category_action',
+        lambda token: {
+            'status': 'conflict',
+            'error': 'Expense category changed again; refusing to overwrite it.',
+        },
+    )
+
+    result = server.undo_recategorize_expense('undo-token-1')
+
+    assert result == {
+        'ok': False,
+        'error': 'Expense category changed again; refusing to overwrite it.',
+    }
+
+
 # ── ROL Finance: New Records -> matching report.html row search ────────────
 # The New Records dialog has no report_path (it only knows the DB row), and the
 # report.html's own vendor_key (parsed from the bank statement) commonly diverges
@@ -2716,6 +2924,16 @@ def test_scan_message_jpeg_unknown_tells_mazda_to_classify_herself():
     # It must route her to the vision classifier + parser herself.
     assert 'tools/classify_scan.py /scans/scan_freezer.jpg' in msg
     assert 'parse_and_categorize.py -f /scans/scan_freezer.jpg --json' in msg
+    assert '--write-parsed-json /tmp/mazda_receipt_' in msg
+    assert '--parsed-json /tmp/mazda_receipt_' in msg
+    assert 'Do not run receipt vision a second time' in msg
+    artifact_out = re.search(
+        r'--write-parsed-json (/tmp/mazda_receipt_[a-f0-9]+\.json)', msg
+    ).group(1)
+    artifact_in = re.search(
+        r'--parsed-json (/tmp/mazda_receipt_[a-f0-9]+\.json)', msg
+    ).group(1)
+    assert artifact_in == artifact_out
     assert 'HARD ROUTING BARRIER' in msg
     assert 'Never chain the classifier to a parser or store command' in msg
     assert 'If doc_type is `bank_statement` or `statement`, STOP STEP 0 HERE' in msg
@@ -2806,8 +3024,10 @@ def test_scan_message_fails_closed_on_unresolved_vendor_or_category():
     assert 'STILL run STEP 4 but OMIT --category-id entirely' in msg
     assert 'NEEDS_VENDOR_KEY' in msg
     assert 'awaiting_vendor_review' in msg
-    assert 'final duplicate guard using its final parsed/overridden' in msg
-    assert 'never retry with --allow-duplicate' in msg
+    assert 'final duplicate guard using the SAME validated' in msg
+    assert 'Never retry with --allow-duplicate' in msg
+    assert 'parse_artifact_verified=true' in msg
+    assert 'duplicate at a different amount or scope is not proof' in msg
     assert 'Store EVEN IF category_id' not in msg
 
 
@@ -2858,6 +3078,18 @@ def test_scan_message_routes_moms_ledger_to_category_reconciliation():
     assert 'do not run receipt or statement storage' in msg
 
 
+def test_scan_message_distinguishes_annotated_statement_from_moms_ledger():
+    msg = server.build_mazda_scan_message(
+        '/scans/annotated-statement.jpg', 'Window Scanner',
+        _FACADE_JPEG_UNKNOWN,
+    )
+
+    assert 'cut-and-assembled composite' in msg
+    assert 'issuer letterhead, account metadata, a billing cycle' in msg
+    assert 'regardless of the amount of handwriting' in msg
+    assert '"moms_ledger"' in msg
+
+
 def test_statement_branches_apply_handwritten_annotations_after_store():
     """Both statement paths (facade-identified statement, and the JPEG→classify
     fallback) must run apply_statement_annotations.py so EG's on-page category
@@ -2868,6 +3100,11 @@ def test_statement_branches_apply_handwritten_annotations_after_store():
     stmt_msg = server.build_mazda_scan_message('/scans/x.jpg', 'Scanner', facade)
     assert 'apply_statement_annotations.py' in stmt_msg
     assert 'annotations_applied' in stmt_msg
+    assert (
+        'apply_statement_annotations.py --image /scans/x.jpg '
+        '--expense-ids <IDS>'
+    ) in stmt_msg
+    assert 'do not use singular --expense-id, shell substitution' in stmt_msg
     # It must feed the tool BOTH stored and duplicate ids (EG annotates dups too),
     # and it must run after the store, not before.
     assert stmt_msg.index('store_statement_transactions.py') < \
@@ -2900,6 +3137,8 @@ def test_statement_branches_require_canonical_dashboard_report():
         'report_audit_status',
         'CATEGORY AUTHORITY RULE',
         'expenses.category_id is authoritative',
+        ('tools/python_tasks/verification_lib/audit_statement_reports.py '
+         '/statements/march/bank_6285'),
     ):
         assert required in stmt_msg
     assert stmt_msg.index('apply_statement_annotations.py') < \
@@ -3289,6 +3528,29 @@ def test_fetch_expenses_by_ids_expands_parent_to_line_item_children(monkeypatch)
     assert rows[0]['reporting_category'] == 'Church Utilities'
     # Vendor stays recognizable even though the child line said only "Amount Due".
     assert rows[0]['description'] == 'Consumers Energy — Amount Due'
+
+
+def test_fetch_expenses_by_ids_supports_legacy_schema_without_roles(monkeypatch):
+    def router(sql, params):
+        if 'FROM categories' in sql:
+            return [{'id': 3, 'parent_id': None}]
+        if 'INFORMATION_SCHEMA.COLUMNS' in sql:
+            return []
+        assert 'expense_role' not in sql
+        return [{
+            'id': 1564, 'expense_date': '2025-03-31', 'amount': '94.41',
+            'id_light': 'meijer_03_31_25_94_41',
+            'description': 'meijer', 'category_id': 3,
+            'receipt_url': 'meijer_03_31_25_94_41.jpg',
+        }]
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+
+    rows = server._fetch_expenses_by_ids([1564])
+
+    assert [r['id'] for r in rows] == [1564]
+    assert rows[0]['amount'] == '94.41'
 
 
 def test_fetch_expenses_by_ids_omits_childless_parent(monkeypatch):
@@ -3862,6 +4124,8 @@ def test_agent_model_options_only_vetted_codex_handles():
 
 def test_agent_voice_from_metadata_validates_allowed_voice():
     assert server.agent_voice_from_metadata(
+        {'metadata': {'dashboard_voice': 'en-GB-SoniaNeural'}}) == 'en-GB-SoniaNeural'
+    assert server.agent_voice_from_metadata(
         {'metadata': {'dashboard_voice': 'en-US-JennyNeural'}}) == 'en-US-JennyNeural'
     assert server.agent_voice_from_metadata(
         {'metadata': {'dashboard_voice': '$(rm -rf /)'}}) == ''
@@ -3973,12 +4237,12 @@ def test_failover_ignores_non_rate_limit_errors():
 
 def test_build_trainer_command_carries_scan_context():
     cmd = server.build_trainer_command(
-        '/remote/incoming_scans/scan.jpg', 'Window Scanner',
+        '/remote/incoming_scans/window_scan.jpg', 'Window Scanner',
         {'ok': True, 'doc_kind': 'receipt'}, dispatched_at=1752170000,
         conversation_id='conv-window')
     assert cmd[0] == server.TRAINER_RUNNER
     assert cmd[1] == server.TRAINER_SCRIPT
-    assert cmd[cmd.index('--scan-path') + 1] == '/remote/incoming_scans/scan.jpg'
+    assert cmd[cmd.index('--scan-path') + 1] == '/remote/incoming_scans/window_scan.jpg'
     assert cmd[cmd.index('--scanner') + 1] == 'Window Scanner'
     assert json.loads(cmd[cmd.index('--facade') + 1]) == {
         'ok': True, 'doc_kind': 'receipt'}
@@ -4022,7 +4286,12 @@ def test_notify_trainer_spawns_detached_with_path(monkeypatch, tmp_path):
     assert server._notify_trainer_of_scan(
         '/remote/scan.jpg', 'Window Scanner', {'ok': True},
         'conv-window') is True
-    assert spawned['cmd'][1] == str(script)
+    # The Trainer must be launched in its own systemd-run --scope, outside
+    # dashboard-server.service's cgroup, so restarting the service (a routine
+    # deploy) can't silently kill an in-flight Trainer run (2026-07-25).
+    assert spawned['cmd'][0] == 'systemd-run'
+    assert '--scope' in spawned['cmd']
+    assert str(script) in spawned['cmd']
     assert spawned['kwargs']['start_new_session'] is True
     assert '.bun/bin' in spawned['kwargs']['env']['PATH']
     assert '.npm-global/bin' in spawned['kwargs']['env']['PATH']
@@ -4196,15 +4465,15 @@ def test_resolve_report_path_alias_translates_recent_report(tmp_path, monkeypatc
 def test_process_scanned_document_records_recent_intake(tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
-        'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'scan.jpg'},
+        'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'window_scan.jpg'},
     })
     monkeypatch.setattr(server, 'run_intake_facade',
                         lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
     monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
-    staged = '/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/scan.jpg'
+    staged = '/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/window_scan.jpg'
     monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: staged)
     monkeypatch.setattr(server.threading, 'Thread',
                         lambda *a, **k: type('T', (), {'start': lambda s: None})())
@@ -4212,14 +4481,14 @@ def test_process_scanned_document_records_recent_intake(tmp_path, monkeypatch):
     result = server.process_scanned_document('window')
     assert result['mazda_dispatched'] is True
     intake = server._read_recent_pointer_file().get('intake')
-    assert intake['document'] == 'scan.jpg'
+    assert intake['document'] == 'window_scan.jpg'
     assert intake['image_path'] == staged
     assert intake['label'] == 'Window Scanner'
     assert intake['kind'] == 'scan'
     # The intake (no report.html for a scan) is what /recent_report.html shows.
     resolved = server.resolve_recent_report()
     assert resolved['mode'] == 'intake'
-    assert resolved['intake']['document'] == 'scan.jpg'
+    assert resolved['intake']['document'] == 'window_scan.jpg'
 
 
 def test_process_scanned_document_second_call_does_not_redispatch(
@@ -4228,15 +4497,15 @@ def test_process_scanned_document_second_call_does_not_redispatch(
     process_scanned_document; the second must not send Mazda the same image."""
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
-        'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'scan.jpg'},
+        'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'window_scan.jpg'},
     })
     monkeypatch.setattr(server, 'run_intake_facade',
                         lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
     monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
-    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: '/staged/scan.jpg')
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: '/staged/window_scan.jpg')
     dispatches = []
 
     def _fake_thread(target, args, daemon):
@@ -4258,10 +4527,10 @@ def test_failed_staging_releases_the_dispatch_claim(tmp_path, monkeypatch):
     """A staging failure must not burn the claim — the retry has to dispatch."""
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'scan.jpg').write_bytes(b'fake-jpeg')
+    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
-        'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'scan.jpg'},
+        'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'window_scan.jpg'},
     })
     monkeypatch.setattr(server, 'run_intake_facade',
                         lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
@@ -4273,7 +4542,7 @@ def test_failed_staging_releases_the_dispatch_claim(tmp_path, monkeypatch):
     failed = server.process_scanned_document('window')
     assert failed['mazda_dispatched'] is False
 
-    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: '/staged/scan.jpg')
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: '/staged/window_scan.jpg')
     retried = server.process_scanned_document('window')
     assert retried['mazda_dispatched'] is True
     assert 'already_dispatched' not in retried
@@ -4342,13 +4611,57 @@ def test_run_scanner_blocks_while_previous_intake_is_being_verified(monkeypatch)
     assert result['ok'] is False
 
 
+def test_clear_scanner_verification_lock_marks_exact_intake_stalled(monkeypatch):
+    intake = {
+        'conversation_id': 'conv-window-stuck',
+        'image_path': '/staged/window_scan.jpg',
+        'dispatched_at': 1234.5,
+        'status': 'processing',
+    }
+    captured = []
+    monkeypatch.setattr(server, 'SCANNERS', {'window': {'name': 'Window Scanner'}})
+    monkeypatch.setattr(server, 'get_scanner_intake', lambda _key: intake)
+    monkeypatch.setattr(server, '_scanner_intake_in_progress', lambda _key: True)
+    monkeypatch.setattr(
+        server, 'merge_recent_intake_status',
+        lambda update: captured.append(update) or True)
+
+    result = server.clear_scanner_verification_lock('window')
+
+    assert result == {'ok': True, 'cleared': True, 'status': 'idle'}
+    assert captured == [{
+        'conversation_id': 'conv-window-stuck',
+        'document_path': '/staged/window_scan.jpg',
+        'dispatched_at': 1234.5,
+        'status': 'stalled',
+        'detail': ('Verification lock cleared manually from the scanner view; '
+                   'the scan and financial records were left unchanged.'),
+    }]
+    assert server._scanner_runtime_status['window'] == {
+        'status': 'idle', 'ok': True}
+
+
+def test_clear_scanner_verification_lock_is_noop_without_active_lock(monkeypatch):
+    monkeypatch.setattr(server, 'SCANNERS', {'freezer': {'name': 'Freezer Scanner'}})
+    monkeypatch.setattr(server, 'get_scanner_intake', lambda _key: {'status': 'pass'})
+    monkeypatch.setattr(server, '_scanner_intake_in_progress', lambda _key: False)
+    monkeypatch.setattr(
+        server, 'merge_recent_intake_status',
+        lambda _update: (_ for _ in ()).throw(AssertionError('changed intake')))
+
+    result = server.clear_scanner_verification_lock('freezer')
+
+    assert result['ok'] is True
+    assert result['cleared'] is False
+
+
 def test_persisted_content_fingerprint_prevents_restart_redispatch(
         tmp_path, monkeypatch):
-    scan = tmp_path / 'scan.jpg'
+    scan = tmp_path / 'window_scan.jpg'
     scan.write_bytes(b'same-physical-scan')
     digest = server._scan_content_sha256(scan)
     monkeypatch.setattr(server, 'SCANNERS', {
-        'window': {'name': 'Window Scanner', 'output': 'scan.jpg'},
+        'window': {'name': 'Window Scanner', 'output': 'window_scan.jpg'},
     })
     monkeypatch.setattr(server, 'get_scanner_intake', lambda _key: {
         'content_sha256': digest,
@@ -4414,7 +4727,7 @@ def test_recent_intake_html_empty_scan_still_shows_verified_section(
     # must still render the Verified Transactions section for human review,
     # rather than the section vanishing entirely.
     _recent_report_env(tmp_path, monkeypatch, docs=())
-    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     server.merge_recent_intake_event({'expense_ids': [], 'parsed': 0, 'stored': 0})
     monkeypatch.setattr(server, '_receipt_only_picker_assets', lambda: ('', '', ''))
     data = server._read_recent_pointer_file()
@@ -4428,7 +4741,7 @@ def test_recent_intake_html_empty_scan_still_shows_verified_section(
 
 def test_recent_intake_html_pending_refreshes(tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
-    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '', ''))
     monkeypatch.setattr(server, 'mazda_intake_progress', lambda _intake: {
@@ -4454,7 +4767,7 @@ def test_recent_intake_html_pending_refreshes(tmp_path, monkeypatch):
 def test_recent_intake_html_finished_hides_mazda_working_panel(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
-    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     server.merge_recent_intake_event({'expense_ids': [], 'parsed': 0, 'stored': 0})
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '', ''))
@@ -4469,15 +4782,15 @@ def test_late_expense_callback_does_not_relock_trainer_pass(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake(
-        '/staged/scan.jpg', 'Window Scanner',
+        '/staged/window_scan.jpg', 'Window Scanner',
         conversation_id='conv-window', dispatched_at=100.0)
     assert server.record_intake_status({
         'status': 'PASS', 'conversation_id': 'conv-window',
-        'document_path': '/staged/scan.jpg', 'dispatched_at': 100.0,
+        'document_path': '/staged/window_scan.jpg', 'dispatched_at': 100.0,
     })['ok'] is True
 
     server.merge_recent_intake_event({
-        'document_path': '/staged/scan.jpg',
+        'document_path': '/staged/window_scan.jpg',
         'conversation_id': 'conv-window', 'dispatched_at': 100.0,
         'parsed': 0, 'stored': 0,
     })
@@ -4528,8 +4841,8 @@ def test_mazda_progress_uses_successful_tool_returns_not_calls():
         {'doc_kind': 'unknown'}, messages)
 
     by_label = {step['label']: step['status'] for step in progress['steps']}
-    assert by_label['STEP 1 — Load learned wrapper'] == 'done'
-    assert by_label['STEP 0 — Classify and parse document'] == 'done'
+    assert by_label['STEP 0 — Load learned wrapper'] == 'done'
+    assert by_label['STEP 1 — Classify and parse document'] == 'done'
     assert by_label['STEP 2 — Check vendor and duplicates'] == 'active'
     assert progress['completed'] == 2
     assert progress['percent'] == 22
@@ -4600,7 +4913,7 @@ def test_trainer_fail_status_targets_exact_conversation_and_stops_refresh(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake(
-        '/staged/scan.jpg', 'Window Scanner', conversation_id='conv-window',
+        '/staged/window_scan.jpg', 'Window Scanner', conversation_id='conv-window',
         dispatched_at=100.0)
     server.record_recent_intake(
         '/staged/scan_freezer.jpg', 'Freezer Scanner', conversation_id='conv-freezer',
@@ -4608,7 +4921,7 @@ def test_trainer_fail_status_targets_exact_conversation_and_stops_refresh(
 
     assert server.record_intake_status({
         'status': 'FAIL', 'detail': 'invoice branch stopped before storage',
-        'conversation_id': 'conv-window', 'document_path': '/staged/scan.jpg',
+        'conversation_id': 'conv-window', 'document_path': '/staged/window_scan.jpg',
         'dispatched_at': 100.0, 'report_path': '/reports/window.md',
     })['ok'] is True
 
@@ -4628,11 +4941,11 @@ def test_trainer_status_without_exact_match_does_not_clobber_latest(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake(
-        '/staged/scan.jpg', 'Window Scanner', conversation_id='conv-current',
+        '/staged/window_scan.jpg', 'Window Scanner', conversation_id='conv-current',
         dispatched_at=200.0)
     assert server.record_intake_status({
         'status': 'FAIL', 'conversation_id': 'conv-old',
-        'document_path': '/staged/scan.jpg', 'dispatched_at': 100.0,
+        'document_path': '/staged/window_scan.jpg', 'dispatched_at': 100.0,
     })['ok'] is False
     assert server._read_recent_pointer_file()['intake']['status'] == 'processing'
 
@@ -4642,7 +4955,7 @@ def test_trainer_status_without_exact_match_does_not_clobber_latest(
 
 def _scanner_registry(monkeypatch):
     monkeypatch.setattr(server, 'SCANNERS', {
-        'window': {'name': 'Window Scanner', 'script': 'w.sh', 'output': 'scan.jpg'},
+        'window': {'name': 'Window Scanner', 'script': 'w.sh', 'output': 'window_scan.jpg'},
         'freezer': {'name': 'Freezer Scanner', 'script': 'f.sh',
                     'output': 'scan_freezer.jpg'},
     })
@@ -4650,13 +4963,13 @@ def _scanner_registry(monkeypatch):
 
 def test_record_recent_intake_keeps_per_scanner_records(tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
-    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
     data = server._read_recent_pointer_file()
     # Shared record = last dispatch of any kind (the Recent Report tab).
     assert data['intake']['label'] == 'Freezer Scanner'
     # Each scanner's record survives the other scanner's dispatch.
-    assert data['scanner_intakes']['Window Scanner']['image_path'] == '/staged/scan.jpg'
+    assert data['scanner_intakes']['Window Scanner']['image_path'] == '/staged/window_scan.jpg'
     assert (data['scanner_intakes']['Freezer Scanner']['image_path']
             == '/staged/scan_freezer.jpg')
     # A PDF/reprocess intake updates the shared record only.
@@ -4671,10 +4984,10 @@ def test_merge_routes_event_to_matching_scanner_intake(tmp_path, monkeypatch):
     document path folds ONLY into the scan it belongs to, even after the other
     scanner's dispatch overwrote the shared intake record."""
     _recent_report_env(tmp_path, monkeypatch, docs=())
-    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
-        'document_path': '/staged/scan.jpg', 'expense_ids': [11],
+        'document_path': '/staged/window_scan.jpg', 'expense_ids': [11],
         'parsed': 1, 'stored': 1})
     data = server._read_recent_pointer_file()
     assert data['scanner_intakes']['Window Scanner']['expense_ids'] == [11]
@@ -4690,6 +5003,44 @@ def test_merge_routes_event_to_matching_scanner_intake(tmp_path, monkeypatch):
     assert data['scanner_intakes']['Window Scanner']['expense_ids'] == [11]
     # The shared record IS the freezer's scan, so it folds too.
     assert data['intake']['expense_ids'] == [22]
+
+
+def test_duplicate_callback_amount_mismatch_does_not_show_old_receipt(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake(
+        '/staged/scan_freezer_current.jpg', 'Freezer Scanner',
+        conversation_id='conv-freezer-current', dispatched_at=100.0)
+    monkeypatch.setattr(server, '_duplicate_event_rows', lambda _ids: [{
+        'id': 1567, 'expense_date': '2025-03-11', 'amount': '22.89',
+    }])
+
+    assert server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer_current.jpg',
+        'conversation_id': 'conv-freezer-current',
+        'dispatched_at': 100.0,
+        'expense_date': '2025-03-11',
+        'amount': '25.56',
+        'parsed': 1,
+        'stored': 0,
+        'duplicate_expense_ids': [1567],
+    }) is True
+
+    intake = server.get_scanner_intake('freezer')
+    assert intake['expense_ids'] == []
+    assert intake['duplicate_expense_ids'] == []
+    assert intake['status'] == 'fail'
+    assert 'current parse is 2025-03-11 $25.56' in intake['integrity_error']
+    assert 'expense 1567 is 2025-03-11 $22.89' in intake['integrity_error']
+
+    # A late false-PASS Trainer verdict cannot put the mismatched row back.
+    assert server.record_intake_status({
+        'status': 'PASS',
+        'conversation_id': 'conv-freezer-current',
+        'document_path': '/staged/scan_freezer_current.jpg',
+        'dispatched_at': 100.0,
+    })['ok'] is True
+    assert server.get_scanner_intake('freezer')['status'] == 'fail'
 
 
 def test_merge_identified_late_event_cannot_clobber_reused_scanner_path(
@@ -4752,7 +5103,7 @@ def test_merge_identified_event_routes_by_conversation_and_dispatch(
 def test_merge_without_document_path_updates_intake_and_its_mirror(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
-    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     server.merge_recent_intake_event({'expense_ids': [7], 'parsed': 1, 'stored': 1})
     data = server._read_recent_pointer_file()
     assert data['intake']['expense_ids'] == [7]
@@ -4763,19 +5114,19 @@ def test_get_scanner_intake_reads_per_scanner_then_legacy(tmp_path, monkeypatch)
     _recent_report_env(tmp_path, monkeypatch, docs=())
     _scanner_registry(monkeypatch)
     assert server.get_scanner_intake('window') is None
-    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
-    assert server.get_scanner_intake('window')['image_path'] == '/staged/scan.jpg'
+    assert server.get_scanner_intake('window')['image_path'] == '/staged/window_scan.jpg'
     assert (server.get_scanner_intake('freezer')['image_path']
             == '/staged/scan_freezer.jpg')
     assert server.get_scanner_intake('nope') is None
     # Legacy pointer file (pre-per-scanner records): fall back to the shared
     # intake when it belongs to this scanner.
     server._write_recent_pointer_file({'intake': {
-        'document': 'scan.jpg', 'image_path': '/staged/scan.jpg',
+        'document': 'window_scan.jpg', 'image_path': '/staged/window_scan.jpg',
         'label': 'Window Scanner', 'kind': 'scan', 'dispatched_at': 1.0,
     }})
-    assert server.get_scanner_intake('window')['image_path'] == '/staged/scan.jpg'
+    assert server.get_scanner_intake('window')['image_path'] == '/staged/window_scan.jpg'
     assert server.get_scanner_intake('freezer') is None
 
 
@@ -4787,9 +5138,9 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
     assert 'Unknown scanner' in server.build_scanner_report_html('nope')
     html = server.build_scanner_report_html('window')
     assert 'No document has been scanned on the Window Scanner yet' in html
-    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     server.merge_recent_intake_event({
-        'document_path': '/staged/scan.jpg', 'expense_ids': [7],
+        'document_path': '/staged/window_scan.jpg', 'expense_ids': [7],
         'parsed': 1, 'stored': 1})
     monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
         'id': 7, 'date': '2025-06-01', 'amount': '-12.34', 'vendor_key': 'kum_go',
@@ -4797,7 +5148,7 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
         'cat_class': 'cat-travel-and-vehicle', 'receipt_url': '',
     }])
     html = server.build_scanner_report_html('window')
-    assert 'scan.jpg' in html
+    assert 'window_scan.jpg' in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'class="cat-travel-and-vehicle has-receipt"' in html
@@ -4937,7 +5288,7 @@ def test_alias_returns_empty_in_intake_mode(tmp_path, monkeypatch):
     """In intake mode the picker's location.pathname must translate to '' so
     recategorize takes the search-all-reports / DB-only path."""
     _recent_report_env(tmp_path, monkeypatch, docs=())
-    server.record_recent_intake('/staged/scan.jpg', 'Window Scanner')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     assert server._resolve_report_path_alias('/recent_report.html') == ''
 
 

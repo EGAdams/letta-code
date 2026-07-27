@@ -7,3 +7,6 @@ voice_transcripts.json
 
 # Runtime pointer for /recent_report.html (most recently processed document).
 recent_report.json
+category_undo_journal.json
+category_undo_journal.json.tmp
+.cache/

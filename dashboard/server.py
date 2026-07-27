@@ -26,6 +26,17 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 from voice.pipeline import build_pipeline, handle_voice_upload
+from category_undo import (
+    CategoryChange,
+    CategoryUndoService,
+    JsonCategoryUndoStore,
+    MySqlCategoryRepository,
+)
+from document_annotation import (
+    ExpenseEvidence,
+    IExpenseDocumentAnnotationService,
+    build_document_annotation_service,
+)
 import statement_review
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -45,6 +56,7 @@ SERVER_START_TIME = time.time()
 # for edits to take effect. Directories are walked recursively for .py files.
 CODE_WATCH_PATHS = [
     os.path.join(HERE, 'server.py'),
+    os.path.join(HERE, 'document_annotation.py'),
     os.path.join(HERE, 'voice'),
 ]
 
@@ -485,9 +497,84 @@ def record_recent_intake(image_path, label, kind='scan', facade=None,
         return _write_recent_pointer_file(data)
 
 
+def _duplicate_event_rows(ids):
+    """Raw date/amount identity for duplicate callback validation."""
+    clean = []
+    for value in ids or []:
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            continue
+        if value not in clean:
+            clean.append(value)
+    if not clean:
+        return []
+    placeholders = ','.join(['%s'] * len(clean))
+    with _rol_get_connection() as cnx:
+        with cnx.cursor() as cur:
+            cur.execute(
+                "SELECT id, expense_date, amount FROM expenses "
+                f"WHERE id IN ({placeholders})",
+                tuple(clean),
+            )
+            return list(cur.fetchall())
+
+
+def _duplicate_callback_integrity_error(event):
+    """Reject a duplicate ID whose stored date/amount is not this receipt."""
+    duplicate_ids = event.get('duplicate_expense_ids') or []
+    try:
+        duplicate_only = int(event.get('stored')) == 0 and bool(duplicate_ids)
+    except (TypeError, ValueError):
+        duplicate_only = False
+    date_s = str(event.get('expense_date') or '').strip()
+    amount_s = str(event.get('amount') or '').strip()
+    if not duplicate_only or not date_s or not amount_s:
+        return ''
+    try:
+        expected_amount = abs(float(
+            amount_s.replace(',', '').replace('$', '')))
+        clean_ids = [int(value) for value in duplicate_ids]
+        rows = _duplicate_event_rows(clean_ids)
+    except Exception as exc:
+        print(f'[expense-stored] duplicate callback validation skipped: {exc}')
+        return ''
+    by_id = {int(row['id']): row for row in rows}
+    for expense_id in clean_ids:
+        row = by_id.get(expense_id)
+        if row is None:
+            return f'Duplicate callback named missing expense {expense_id}.'
+        try:
+            stored_amount = abs(float(row.get('amount')))
+        except (TypeError, ValueError):
+            return f'Duplicate expense {expense_id} has an unreadable amount.'
+        stored_date = str(row.get('expense_date') or '').strip()
+        if stored_date != date_s or abs(stored_amount - expected_amount) >= 0.005:
+            return (
+                f'Duplicate callback mismatch: current parse is {date_s} '
+                f'${expected_amount:.2f}, but expense {expense_id} is '
+                f'{stored_date or "unknown date"} ${stored_amount:.2f}.'
+            )
+    return ''
+
+
 def _fold_event_into_intake(intake, event):
     """Fold one STEP 8 event's fields (expense ids + parsed/stored counts +
     doc_kind/vendor) into one intake record, in place."""
+    integrity_error = _duplicate_callback_integrity_error(event)
+    if integrity_error:
+        # Never let a coincidental/old DB row become this scan's displayed
+        # receipt. Preserve the current source document and surface the failed
+        # correlation for the Trainer instead.
+        event = dict(event)
+        event['expense_id'] = None
+        event['expense_ids'] = []
+        event['duplicate_expense_ids'] = []
+        intake['expense_ids'] = []
+        intake['duplicate_expense_ids'] = []
+        intake['integrity_error'] = integrity_error
+        intake['status'] = 'fail'
+        intake['status_detail'] = integrity_error
     ids = list(intake.get('expense_ids') or [])
     duplicate_ids = list(intake.get('duplicate_expense_ids') or [])
     # A corrected duplicate-only callback supersedes any earlier bad store
@@ -701,8 +788,15 @@ def merge_recent_intake_status(update):
         if not targets:
             return False
         for intake in targets:
-            intake['status'] = status
-            intake['status_detail'] = str(update.get('detail') or '').strip()
+            integrity_error = str(
+                intake.get('integrity_error') or '').strip()
+            if status in {'pass', 'corrected'} and integrity_error:
+                intake['status'] = 'fail'
+                intake['status_detail'] = integrity_error
+            else:
+                intake['status'] = status
+                intake['status_detail'] = str(
+                    update.get('detail') or '').strip()
             intake['trainer_report'] = str(update.get('report_path') or '').strip()
             intake['reported_at'] = time.time()
         return _write_recent_pointer_file(data)
@@ -781,8 +875,14 @@ def _fetch_expenses_by_ids(ids):
                 for r in cur.fetchall()
             }
             cur.execute(
+                "SELECT 1 AS present FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'expenses' "
+                "AND COLUMN_NAME = 'expense_role' LIMIT 1")
+            has_expense_roles = bool(cur.fetchone())
+            role_select = ', expense_role' if has_expense_roles else ''
+            cur.execute(
                 "SELECT id, expense_date, amount, id_light, description, category_id, "
-                "receipt_url, expense_role "
+                f"receipt_url, document_url, moms_ledger{role_select} "
                 f"FROM expenses WHERE id IN ({placeholders}) "
                 "ORDER BY expense_date, id",
                 tuple(clean),
@@ -791,14 +891,15 @@ def _fetch_expenses_by_ids(ids):
 
             # Expand each PARENT anchor into its categorizable LINE_ITEM children.
             parent_ids = [int(r['id']) for r in rows
-                          if (r.get('expense_role') or '') == 'PARENT']
+                          if has_expense_roles
+                          and (r.get('expense_role') or '') == 'PARENT']
             if parent_ids:
                 parent_desc = {int(r['id']): (r.get('description') or '').strip()
                                for r in rows}
                 ph2 = ','.join(['%s'] * len(parent_ids))
                 cur.execute(
                     "SELECT id, expense_date, amount, id_light, description, category_id, "
-                    "receipt_url, expense_role, parent_expense_id "
+                    "receipt_url, document_url, moms_ledger, expense_role, parent_expense_id "
                     f"FROM expenses WHERE parent_expense_id IN ({ph2}) "
                     "AND expense_role='LINE_ITEM' "
                     "ORDER BY expense_date, id",
@@ -960,8 +1061,8 @@ def _format_month_range(rows):
 
 
 _MAZDA_PROGRESS_LABELS = (
-    'STEP 1 — Load learned wrapper',
-    'STEP 0 — Classify and parse document',
+    'STEP 0 — Load learned wrapper',
+    'STEP 1 — Classify and parse document',
     'STEP 2 — Check vendor and duplicates',
     'STEP 3 — Categorize',
     'STEP 4 — Store',
@@ -1238,12 +1339,13 @@ def build_recent_intake_html(intake):
         '    .duplicate-row td { box-shadow:inset 0 2px #b91c1c,inset 0 -2px #b91c1c; }\n'
         '    .duplicate-badge { display:inline-block; margin-left:8px; padding:2px 7px; '
         'border-radius:999px; background:#b91c1c; color:#fff; font-size:.72rem; letter-spacing:.04em; }\n'
-        '    .mazda-working { margin:16px 0; padding:12px; border:1px solid #93c5fd; border-radius:10px; background:#eff6ff; }\n'
-        '    .mazda-progress-shell { height:10px; overflow:hidden; border-radius:999px; background:#dbeafe; }\n'
-        '    .mazda-progress-bar { height:100%; background:#2563eb; }\n'
+        '    .mazda-working { margin:16px 0; padding:12px; border:1px solid #3b4654; border-radius:10px; background:#000; color:#ffe761; }\n'
+        '    .mazda-working h2 { color:#fff; }\n'
+        '    .mazda-progress-shell { height:10px; overflow:hidden; border-radius:999px; background:rgba(10,16,24,.8); }\n'
+        '    .mazda-progress-bar { height:100%; background:#f4b400; }\n'
         '    .mazda-working ul { margin:8px 0 0; padding-left:20px; }\n'
-        '    .mazda-step-done { color:#166534; } .mazda-step-active { color:#b45309; font-weight:700; }\n'
-        '    .mazda-step-skipped, .mazda-step-pending { color:#6b7280; }\n'
+        '    .mazda-step-done { color:#4ade80; } .mazda-step-active { color:#ffe761; font-weight:700; }\n'
+        '    .mazda-step-skipped, .mazda-step-pending { color:#9aa5b1; }\n'
         + _receipt_only_cat_css() + '\n'
         + click_css + '\n'
         + picker_css + '\n'
@@ -1552,6 +1654,31 @@ def _rol_get_connection():
     return get_connection()
 
 
+_category_undo_service = None
+_category_undo_service_lock = threading.Lock()
+CATEGORY_UNDO_JOURNAL = os.path.join(HERE, 'category_undo_journal.json')
+
+
+def _get_category_undo_service():
+    """Composition root for the interface-backed category undo boundary."""
+    global _category_undo_service
+    with _category_undo_service_lock:
+        if _category_undo_service is None:
+            _category_undo_service = CategoryUndoService(
+                JsonCategoryUndoStore(CATEGORY_UNDO_JOURNAL),
+                MySqlCategoryRepository(_rol_get_connection),
+            )
+    return _category_undo_service
+
+
+def _record_category_undo(action):
+    return _get_category_undo_service().record(CategoryChange(**action))
+
+
+def _undo_category_action(token):
+    return _get_category_undo_service().undo(token)
+
+
 def _vendor_prefix(id_light):
     """Strip the trailing _MM_DD_YY_<amount> from an id_light to get its vendor part."""
     import re as _re
@@ -1714,14 +1841,100 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
         except Exception:
             file_updated = False
 
+    previous_category_id = chosen.get('category_id')
+    previous_reporting_category = REPORTING_CATEGORY_ANCESTOR_MAP.get(
+        previous_category_id, 'Uncategorized')
+    try:
+        undo_token = _record_category_undo({
+            'expense_id': int(chosen['id']),
+            'previous_category_id': previous_category_id,
+            'category_id': target_id,
+            'previous_reporting_category': previous_reporting_category,
+            'reporting_category': reporting_category,
+            'date': str(date_str or ''),
+            'signed_amount': str(signed_amount or ''),
+            'vendor_key': str(vendor_key or ''),
+            'description': str(description or chosen.get('description') or ''),
+            'report_path': (
+                matched_report['report_path'] if matched_report else report_path or ''
+            ),
+        })
+    except Exception as exc:
+        print(
+            '[category-undo] action=record status=failed '
+            f'expense_id={chosen["id"]} error={type(exc).__name__}'
+        )
+        undo_token = None
+
     return {
         'ok': True,
         'expense_id': chosen['id'],
-        'previous_category_id': chosen.get('category_id'),
+        'previous_category_id': previous_category_id,
         'category_id': target_id,
         'reporting_category': reporting_category,
         'file_updated': file_updated,
         'matched_report': matched_report,
+        'undo_token': undo_token,
+    }
+
+
+def undo_recategorize_expense(token):
+    """Undo one tokenized category write without overwriting a newer choice."""
+    result = _undo_category_action(str(token or '').strip())
+    if result.get('status') not in {'restored', 'already_restored'}:
+        return {'ok': False, 'error': result.get('error', 'Undo failed.')}
+
+    action = result['action']
+    previous_reporting_category = action['previous_reporting_category']
+    previous_class = REPORTING_CATEGORY_CLASS.get(
+        previous_reporting_category, 'cat-uncategorized')
+    report_path = action.get('report_path') or ''
+    file_updated = report_path == RECEIPT_ONLY_REPORT_PATH
+
+    if report_path and report_path != RECEIPT_ONLY_REPORT_PATH:
+        file_updated = _update_report_row_color(
+            report_path,
+            action.get('vendor_key', ''),
+            action.get('date', ''),
+            action.get('signed_amount', ''),
+            previous_class,
+            expense_id=action['expense_id'],
+        )
+        if not file_updated:
+            file_updated = _update_report_row_color(
+                report_path,
+                action.get('vendor_key', ''),
+                action.get('date', ''),
+                action.get('signed_amount', ''),
+                previous_class,
+            )
+    elif not report_path:
+        found = _find_matching_report_row(
+            action.get('date', ''),
+            action.get('signed_amount', ''),
+            action.get('vendor_key', ''),
+            action['expense_id'],
+        )
+        if found:
+            file_updated = _update_report_row_color(
+                found['report_path'],
+                found['row_vendor_key'],
+                action.get('date', ''),
+                action.get('signed_amount', ''),
+                previous_class,
+                expense_id=action['expense_id'],
+            )
+        else:
+            file_updated = True
+
+    return {
+        'ok': True,
+        'status': result['status'],
+        'expense_id': action['expense_id'],
+        'category_id': action['previous_category_id'],
+        'reporting_category': previous_reporting_category,
+        'category_class': previous_class,
+        'file_updated': file_updated,
     }
 
 
@@ -1757,7 +1970,8 @@ def list_pending_vendor_review():
         with _rol_get_connection() as cnx:
             with cnx.cursor() as cur:
                 cur.execute(
-                    "SELECT id, expense_date, amount, description, receipt_url, source_file "
+                    "SELECT id, expense_date, amount, description, receipt_url, "
+                    "document_url, moms_ledger, source_file "
                     "FROM expenses WHERE expense_status='NEEDS_VENDOR_KEY' "
                     "ORDER BY expense_date DESC"
                 )
@@ -1894,12 +2108,13 @@ SCANNERS = {
         'name': 'Window Scanner',
         'device': 'HPI297BEA (HP OfficeJet 8120e series)',
         'script': 'run_scan_window.sh',   # selects HPI297BEA by name
-        'output': 'scan.jpg',
+        'output': 'window_scan.jpg',
         # Diagnostics (scanner_diag.ps1): `namelike` matches the WIA device Name;
         # `driver_match` matches the PnP Image-class FriendlyName (a different
         # string — the model, not the WIA id).
         'namelike': 'HPI297BEA',
         'driver_match': 'OfficeJet 8120e',
+        'airscan_device': 'airscan:e0:Window Scanner',
     },
     'freezer': {
         'name': 'Freezer Scanner',
@@ -1908,6 +2123,7 @@ SCANNERS = {
         'output': 'scan_freezer.jpg',
         'namelike': 'HP063E28',
         'driver_match': 'DeskJet 4100',
+        'airscan_device': 'airscan:e1:Freezer Scanner',
     },
 }
 
@@ -2230,14 +2446,23 @@ def classify_scan_result(returncode, log, image_exists):
     low = (log or '').lower()
     if returncode == 0 and image_exists:
         return {'status': 'ready', 'log': log}
-    if 'scanner_busy' in low or 'device is busy' in low:
-        return {'status': 'busy', 'error': 'The WIA device is busy.', 'log': log}
+    if ('scanner_busy' in low or 'device is busy' in low
+            or 'device busy' in low or 'resource busy' in low):
+        return {'status': 'busy', 'error': 'The scanner is busy.', 'log': log}
     if 'scanner_offline' in low or 'not found' in low:
         return {'status': 'offline',
                 'error': 'Scanner not found (powered off or disconnected).',
                 'log': log}
     return {'status': 'error',
             'error': log or f'Scan failed (exit {returncode})', 'log': log}
+
+
+def _scan_output_ready(path):
+    """A scanner result is usable only when it contains actual bytes."""
+    try:
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+    except OSError:
+        return False
 
 
 def _invoke_scanner(key):
@@ -2275,15 +2500,18 @@ def _invoke_scanner(key):
     if not os.path.isfile(script_path):
         return {'status': 'error',
                 'error': f'Scanner script not found: {script_path}'}
+    uses_airscan = bool(cfg.get('airscan_device'))
     interop = _wsl_interop_socket()
-    if not interop:
+    if not interop and not uses_airscan:
         return {'status': 'error',
                 'error': 'No usable WSL interop socket — open a WSL session so the '
                          'service can launch the scanner.'}
     scan_env = os.environ.copy()
-    scan_env['WSL_INTEROP'] = interop
+    if interop:
+        scan_env['WSL_INTEROP'] = interop
     with _SCAN_LOCK:
-        _reap_stale_scans(scan_env)
+        if not uses_airscan:
+            _reap_stale_scans(scan_env)
         try:
             proc = subprocess.run(
                 ['bash', cfg['script']],
@@ -2294,7 +2522,8 @@ def _invoke_scanner(key):
         except subprocess.TimeoutExpired:
             # The bash wrapper is dead, but the Windows powershell.exe is not —
             # reap it so its WIA handle can't wedge the device/service.
-            _reap_stale_scans(scan_env)
+            if not uses_airscan:
+                _reap_stale_scans(scan_env)
             return {'status': 'error',
                     'error': f'Scan timed out after {SCAN_TIMEOUT_SEC}s '
                              '(scanner not responding).'}
@@ -2302,7 +2531,7 @@ def _invoke_scanner(key):
             return {'status': 'error', 'error': f'Failed to start scan: {exc}'}
     log = ((proc.stdout or '') + (proc.stderr or '')).strip()
     img = os.path.join(SCAN_TOOLS_DIR, cfg['output'])
-    result = classify_scan_result(proc.returncode, log, os.path.isfile(img))
+    result = classify_scan_result(proc.returncode, log, _scan_output_ready(img))
     if result['status'] == 'ready':
         # Cache-bust so the browser reloads the freshly scanned image each time.
         result['image_url'] = (
@@ -2316,6 +2545,26 @@ def _invoke_scanner(key):
 # it never scans. The Windows-side checks come from ONE scanner_diag.ps1 launch.
 SCANNER_DIAG_TIMEOUT_SEC = 30
 SCANNER_DIAG_LOCK_WAIT_SEC = 8
+
+
+def _airscan_ready(cfg):
+    """Return True when the native eSCL backend can query this scanner.
+
+    Both HP devices expose eSCL directly on the LAN. This path avoids Windows
+    WIA/WSD, whose stale Problem-45 device records used to leave the dashboard
+    red even while the scanner hardware was healthy. `--help` only fetches
+    capabilities; it never starts a scan.
+    """
+    device = cfg.get('airscan_device')
+    if not device or not shutil.which('scanimage'):
+        return False
+    try:
+        proc = subprocess.run(
+            ['scanimage', '-d', device, '--help'],
+            capture_output=True, text=True, timeout=SCANNER_DIAG_TIMEOUT_SEC)
+    except Exception:  # noqa: BLE001 — unavailable backend is a clean fallback
+        return False
+    return proc.returncode == 0
 
 
 def _run_scanner_diag_ps(cfg, interop, skip_wia=False):
@@ -2356,7 +2605,8 @@ def _diag_check(check_id, label, state, detail):
     return {'id': check_id, 'label': label, 'state': state, 'detail': detail}
 
 
-def build_scanner_diagnostics(key, interop_ok, ps_data, device_status=None):
+def build_scanner_diagnostics(
+        key, interop_ok, ps_data, device_status=None, airscan_ready=None):
     """Pure map of raw probe results -> the scanner's health LEDs.
 
     No I/O so it is fully unit-testable. `ps_data` is scanner_diag.ps1's parsed
@@ -2365,6 +2615,54 @@ def build_scanner_diagnostics(key, interop_ok, ps_data, device_status=None):
     ordered as the workflow depends on them, top to bottom.
     """
     checks = []
+
+    # The live scan scripts use native eSCL/AirScan first. When that backend can
+    # query the scanner, stale Windows WIA state is irrelevant and must not turn
+    # the LEDs red or tell the user to power-cycle healthy hardware.
+    if airscan_ready is True:
+        checks.extend([
+            _diag_check(
+                'bridge', 'Scanner Backend', 'ok',
+                'The dashboard can drive this scanner directly over the network.'),
+            _diag_check(
+                'service', 'Scanner Service', 'ok',
+                'The native AirScan service is available; Windows WIA is not required.'),
+            _diag_check(
+                'driver', 'Driver Health', 'ok',
+                'The scanner returned valid eSCL capabilities.'),
+            _diag_check(
+                'online', 'Scanner Online', 'ok',
+                'The scanner is powered on, connected, and answering directly.'),
+            _diag_check(
+                'access', 'Scanner Access', 'ok',
+                'The dashboard can open this scanner without Windows WIA.'),
+            _diag_check(
+                'stale', 'No Stuck Scans', 'ok',
+                'The direct scanner backend has no Windows scan processes to leak.'),
+        ])
+        if key == 'freezer' and device_status is not None:
+            if device_status.get('blocker'):
+                checks.append(_diag_check(
+                    'device', 'Printer Device', 'bad', device_status['blocker']))
+            elif not device_status.get('reachable'):
+                checks.append(_diag_check(
+                    'device', 'Printer Device', 'warn',
+                    'The printer status service did not answer, although its '
+                    'scanner interface is available.'))
+            elif device_status.get('note'):
+                checks.append(_diag_check(
+                    'device', 'Printer Device', 'warn',
+                    f'The printer is up, but {device_status["note"]} '
+                    '(scanning still works).'))
+            else:
+                checks.append(_diag_check(
+                    'device', 'Printer Device', 'ok',
+                    'The printer hardware reports it is ready.'))
+        states = [c['state'] for c in checks]
+        overall = 'bad' if 'bad' in states else (
+            'warn' if 'warn' in states or 'unknown' in states else 'ok')
+        return {'scanner': key, 'checks': checks, 'overall': overall}
+
     ps = ps_data or {}
     # Windows-side checks are only meaningful once we can actually reach Windows.
     windows_reachable = bool(interop_ok) and ps_data is not None
@@ -2553,9 +2851,10 @@ def scanner_diagnostics(key):
     if key not in SCANNERS:
         return {'scanner': key, 'checks': [], 'overall': 'bad',
                 'error': f'Unknown scanner: {key}'}
+    airscan_ready = _airscan_ready(SCANNERS[key])
     interop = _wsl_interop_socket()
     ps_data = None
-    if interop:
+    if interop and not airscan_ready:
         acquired = _SCAN_LOCK.acquire(timeout=SCANNER_DIAG_LOCK_WAIT_SEC)
         try:
             ps_data = _run_scanner_diag_ps(
@@ -2564,7 +2863,8 @@ def scanner_diagnostics(key):
             if acquired:
                 _SCAN_LOCK.release()
     device_status = read_deskjet_device_status() if key == 'freezer' else None
-    return build_scanner_diagnostics(key, bool(interop), ps_data, device_status)
+    return build_scanner_diagnostics(
+        key, bool(interop), ps_data, device_status, airscan_ready=airscan_ready)
 
 
 MAZDA_AGENT_ID = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
@@ -2626,6 +2926,27 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
     parsed = fr.get('parsed') or {}
     confidence = fr.get('confidence') or 0.0
     identified = mazda_facade_identified(fr)
+    supporting_document_contract = (
+        'SUPPORTING-DOCUMENT STORAGE CONTRACT — one expense can retain three '
+        'independent references. Receipt → receipt_url; statement/source document '
+        '→ document_url; Mom’s ledger → moms_ledger. Never write a statement path '
+        'into receipt_url or a receipt path into document_url. Attach the newly '
+        'processed document to the existing matched expense whenever possible and '
+        'preserve the other two document fields. An identical existing reference '
+        'is an idempotent success (`already_attached`). A different non-empty value '
+        'in the same field is a same-type conflict: preserve the original, require '
+        'human verification (`NEEDS_DOCUMENT_VERIFICATION`), and never create a '
+        'duplicate expense merely to retain the new scan. Documents may arrive in '
+        'any order; statement-first/receipt-later and receipt-first/statement-later '
+        'must converge on one expense row. Include the association field/status and '
+        'preserved-field evidence in trace problems/results and the dashboard callback. '
+        'Every available evidence type must be independently viewable from the Set '
+        'Category dialog: receipt_url → View Receipt, document_url → View Source '
+        'Document, and moms_ledger → View Mom’s Ledger. For every new or matched '
+        'statement expense, document_url must contain the statement reference; the '
+        'dashboard report-directory fallback is only for repairing legacy rows and is '
+        'not acceptable evidence for a new intake.\n\n'
+    )
     statement_preflight = fr.get('statement_preflight') or {}
     statement_payload_path = statement_preflight.get('payload_path') or ''
     statement_override_args = ''
@@ -2636,18 +2957,45 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         )
     statement_token = hashlib.sha256(
         scan_image_path.encode('utf-8')).hexdigest()[:12]
+    receipt_json_path = f'/tmp/mazda_receipt_{statement_token}.json'
+    receipt_parse_artifact_arg = (
+        '' if identified else f' --parsed-json {receipt_json_path}')
+    if identified:
+        receipt_store_contract = (
+            'This facade-identified path performs its one receipt parse during '
+            'STEP 4, so parse_artifact_verified may be false. Verify its final '
+            'date, amount, merchant, scope, and selected rows against the facade '
+            'evidence before accepting the result. ')
+    else:
+        receipt_store_contract = (
+            'The save path must report parse_artifact_verified=true and performs '
+            'a final duplicate guard using the SAME validated date, amount, '
+            'merchant, expense scope, and selected rows from STEP 0. ')
     statement_json_path = (
         statement_payload_path
         or f'/tmp/mazda_statement_{statement_token}.json')
     report_path = os.path.join(
         os.path.dirname(scan_image_path), 'report.html')
+    report_dir = os.path.dirname(report_path)
     statement_finish_block = (
-        f'  After store, run apply_statement_annotations.py for every stored AND '
-        f'duplicate expense id; `annotations_applied` is required evidence.\n'
+        f'  After store, run this exact command once, replacing <IDS> with one '
+        f'comma-separated value containing every stored AND duplicate expense id '
+        f'(do not use singular --expense-id, shell substitution, or per-ID calls):\n'
+        f'  {MAZDA_RF_VENV_PY} '
+        f'tools/receipt_scanning_tools/apply_statement_annotations.py '
+        f'--image {scan_image_path} --expense-ids <IDS>\n'
+        f'  `annotations_applied` is required evidence.\n'
         f'  BUILD THE DASHBOARD REPORT at {report_path}. Follow '
-        f'REPORT_OUTPUT_CONTRACT.md, then run '
-        f'restructure_verified_transactions.py, '
-        f'hydrate_report_categories_from_db.py, and audit_statement_reports.py. '
+        f'REPORT_OUTPUT_CONTRACT.md, then run these exact commands separately:\n'
+        f'  {MAZDA_RF_VENV_PY} '
+        f'tools/python_tasks/verification_lib/restructure_verified_transactions.py '
+        f'{report_path}\n'
+        f'  {MAZDA_RF_VENV_PY} '
+        f'tools/python_tasks/verification_lib/hydrate_report_categories_from_db.py '
+        f'{report_path}\n'
+        f'  {MAZDA_RF_VENV_PY} '
+        f'tools/python_tasks/verification_lib/audit_statement_reports.py '
+        f'{report_dir}\n'
         f'The finished HTML must contain id="verified-transactions", '
         f'data-vendor-key attributes, and the rol-category-picker:start marker. '
         f'CATEGORY AUTHORITY RULE: expenses.category_id is authoritative. '
@@ -2708,6 +3056,7 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
                 f'This is a STATEMENT-ONLY intake. Receipt/invoice investigation, '
                 f'categorization, and all single-document parsing/storage are forbidden '
                 f'and intentionally omitted from this dispatch.\n\n'
+                + supporting_document_contract +
                 f'1. Call load_wrapper_revision(agent_name="Mazda").\n'
                 + statement_steps +
                 statement_finish_block +
@@ -2748,7 +3097,8 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
             f'  a. Classify ONLY (Gemini vision):\n'
             f'     {MAZDA_RF_VENV_PY} tools/classify_scan.py '
             f'{scan_image_path}\n'
-            f'     → {{"doc_type": "receipt"|"invoice"|"statement"|"tax_document"|"other", '
+            f'     → {{"doc_type": "receipt"|"invoice"|"statement"|"moms_ledger"|'
+            f'"tax_document"|"other", '
             f'"confidence": 0-1, "reason": "..."}}\n'
             f'  If doc_type is `bank_statement` or `statement`, STOP STEP 0 HERE and '
             f'jump directly to STATEMENT BRANCH S1. Running receipt parser/store commands '
@@ -2756,8 +3106,13 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
             f'  b. ONLY for receipt OR invoice, parse in a NEW executor_run call:\n'
             f'     {MAZDA_RF_VENV_PY} '
             f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
-            f'-f {scan_image_path} --json --engine=gemini\n'
+            f'-f {scan_image_path} --json --engine=gemini '
+            f'--write-parsed-json {receipt_json_path}\n'
             f'     → JSON with merchant_name, transaction_date, total_amount, etc.\n'
+            f'     This writes the source-bound validated parse artifact '
+            f'{receipt_json_path}. Use that exact artifact for duplicate checking, '
+            f'categorization, itemization, callback values, and STEP 4 storage. '
+            f'Do not run receipt vision a second time.\n'
             f'  Derive vendor_key from merchant_name: lowercase, underscores '
             f'(e.g. "Goodwill Cascade" → "goodwill_cascade").\n\n'
         )
@@ -2795,6 +3150,7 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'the executor allowlist rejects an inline env-assignment as an unknown command '
         f'("Command not in allowlist: PYTHONPATH=..."). Always use the full venv python '
         f'path shown ({MAZDA_RF_VENV_PY}) and carry PYTHONPATH via the env argument.\n\n'
+        f'{supporting_document_contract}'
         f'STEP 1 — load_wrapper_revision(agent_name="Mazda"). The result includes '
         f'`instructions` — your accumulated LEARNED RULES from previous judged runs. '
         f'READ THEM AND APPLY EVERY RULE that matches this document; they override '
@@ -2807,7 +3163,16 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'BRANCH; never route it away merely because it is an email or bill. A '
         f'`receipt` MUST run STEPS 2-4. Only explicit `doc_type=other` is unsupported.\n\n'
         f'{fallback_block}'
-        f'MOM LEDGER BRANCH — if STEP 0 returns doc_type="moms_ledger", run '
+        f'DOCUMENT-STRUCTURE RULE — handwriting never changes an intact document\'s '
+        f'type. A complete bank or credit-card statement with consistent issuer '
+        f'letterhead, account metadata, a billing cycle, and regularly aligned rows '
+        f'remains a statement regardless of the amount of handwriting, circles, '
+        f'cross-outs, arithmetic, or category notes. `moms_ledger` is reserved for '
+        f'Mom\'s cut-and-assembled composite made from pieces of different source '
+        f'documents. A neat statement must use the STATEMENT BRANCH so it is archived; '
+        f'its handwriting is handled later by apply_statement_annotations.py.\n\n'
+        f'MOM LEDGER BRANCH — only if STEP 0 returns doc_type="moms_ledger" for a '
+        f'visibly cut-and-assembled composite, run '
         f'moms_ledger_reconciler.py --image {scan_image_path}. Use supported '
         f'category evidence and never flatten a correct specific category back '
         f'to generic 190. Use OpenAI Codex CLI when vision reconciliation is '
@@ -2848,14 +3213,16 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'store command instead of a normal save:\n'
         f'  {MAZDA_RF_VENV_PY} '
         f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
-        f'-f {scan_image_path} --save --invoice --category-id=<id from step 3> --engine=gemini\n'
+        f'-f {scan_image_path} --save --invoice --category-id=<id from step 3>'
+        f'{receipt_parse_artifact_arg} --engine=gemini\n'
         f'  → {{"success": true, "expense_id": <int>, "expense_status": '
         f'"WAITING_FOR_PAYMENT_COUNTERPART", "linked_counterpart": false, ...}}\n'
         f'This stores ONE expense row with expense_status=WAITING_FOR_PAYMENT_COUNTERPART — do '
         f'NOT create it any other way and do NOT wait for a human to confirm payment first. The '
         f'system links the eventual counterpart automatically: the NEXT time ANY document '
         f'(statement scan or receipt scan) is stored with the SAME (expense_date, amount), the '
-        f'storage tools detect the waiting placeholder and UPDATE that same row (receipt_url, '
+        f'storage tools detect the waiting placeholder and UPDATE that same row (the '
+        f'correct supporting-document field, '
         f'source_file, notes, expense_status → COUNTERPART_DOCUMENT_LINKED) instead of inserting '
         f'a second expense — so if `linked_counterpart: true` comes back on ANY future receipt '
         f'or statement store, that is CORRECT behavior closing out an earlier invoice, not a '
@@ -2878,7 +3245,8 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'silently guessing a date or losing the document.\n'
         f'  b. check_duplicates(id_light="scan", expense_date=<YYYY-MM-DD, or '
         f'"1970-01-01" if no date was extracted>, '
-        f'amount=<decimal string>, description=<merchant>)\n'
+        f'amount=<decimal string from the validated parse artifact>, '
+        f'description=<merchant>)\n'
         f'  If duplicate → skip only STEP 4 storage. Still run STEP 3 categorization, '
         f'record_trace, judge_trace, and the STEP 8 callback; duplicate detection is '
         f'never permission to stop the run early. Keep the returned '
@@ -2920,12 +3288,16 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'still saves the receipt + a pending-review placeholder row rather than erroring):\n'
         f'  {MAZDA_RF_VENV_PY} '
         f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
-        f'-f {scan_image_path} --save --category-id=<id from step 3> --engine=gemini\n'
+        f'-f {scan_image_path} --save --category-id=<id from step 3>'
+        f'{receipt_parse_artifact_arg} --engine=gemini\n'
         f'  → {{"success": true, "expense_id": <int>, "pending_vendor_review": <true when '
-        f'--category-id was omitted/invalid>, ...}} OR a duplicate result. '
-        f'The save path performs a final duplicate guard using its final parsed/overridden '
-        f'date, amount, and merchant. If it reports duplicate, treat the existing expense '
-        f'as the result and never retry with --allow-duplicate.\n\n'
+        f'--category-id was omitted/invalid>, "parse_artifact_verified": '
+        f'<true for the STEP 0 artifact path>, '
+        f'"parsed_amount": <the exact STEP 0 amount>, "expense_scope": '
+        f'"full_receipt"|"marked_items", ...}} OR a duplicate result. '
+        + receipt_store_contract +
+        f'A duplicate at a different amount or scope is '
+        f'not proof that this scan is a duplicate. Never retry with --allow-duplicate.\n\n'
         f'STEP 4B — ITEMIZE WHEN EVIDENCE ALLOWS (MCP tool; never hand-build SQL):\n'
         f'  For a newly stored receipt whose parsed JSON has multiple line items, call '
         f'itemize_existing_expense(doc_family="receipt", expense_id=<STEP 4 id>, '
@@ -2991,7 +3363,8 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'even when nothing new was stored — e.g. every transaction was a duplicate. The '
         f'dashboard\'s Recent Report view shows this run\'s outcome either way). '
         f'executor_run, no special cwd/env needed:\n'
-        f'  curl -s -X POST http://localhost:8765/api/expense-stored '
+        f'  curl -s --retry 3 --retry-delay 2 --retry-connrefused '
+        f'-X POST http://localhost:8765/api/expense-stored '
         f'-H "Content-Type: application/json" '
         f'-d \'{{"expense_id":<first stored id, or null>,'
         f'"expense_ids":[<ALL expense ids stored this run; [] when none>],'
@@ -3047,9 +3420,10 @@ def _stage_scan_for_mazda(local_image_path):
     when even the local copy failed — the caller must not hand Mazda a path
     she can't reach.
     """
-    if not os.path.isfile(local_image_path):
+    if not _scan_output_ready(local_image_path):
+        print('[scan→mazda] Refusing to stage a missing or empty scan output')
         return None
-    # Scanner output names are reusable (scan.jpg / scan_freezer.jpg), while a
+    # Scanner output names are reusable (window_scan.jpg / scan_freezer.jpg), while a
     # Mazda conversation can remain active for minutes.  Never give two runs
     # the same mutable path: a late tool call from the older run could otherwise
     # read and store the newer scan.  Keep the scanner prefix for diagnostics,
@@ -3206,6 +3580,16 @@ def _notify_trainer_of_scan(scan_image_path, scanner_name, facade_result=None,
         os.path.expanduser('~/.npm-global/bin'),
         env.get('PATH', '/usr/bin:/bin'),
     ])
+    # 2026-07-25: a plain subprocess.Popen(..., start_new_session=True) escapes
+    # the process GROUP but not the CGROUP — dashboard-server.service's default
+    # KillMode=control-group means restarting the service (a routine deploy)
+    # silently SIGKILLs every in-flight Trainer too, mid-run, with no error and
+    # no report. systemd-run --scope launches the Trainer in its own transient
+    # scope unit outside dashboard-server.service's cgroup, so a dashboard
+    # restart can no longer take it down.
+    unit_name = f'mazda-trainer-{dispatched_at}-{scanner_slug}-{conversation_slug}'
+    cmd = ['systemd-run', '--user', '--scope', '--collect', '--quiet',
+           f'--unit={unit_name}'] + cmd
     try:
         with open(log_path, 'ab') as log:
             subprocess.Popen(
@@ -3370,6 +3754,29 @@ def scanner_status(key):
         }
     with _scanner_runtime_status_lock:
         return dict(_scanner_runtime_status.get(key, {'status': 'idle', 'ok': True}))
+
+
+def clear_scanner_verification_lock(key):
+    """Terminal-out one scanner's stuck intake lock without changing finance data."""
+    if key not in SCANNERS:
+        return {'ok': False, 'error': f'Unknown scanner: {key}'}
+    intake = get_scanner_intake(key)
+    if not intake or not _scanner_intake_in_progress(key):
+        return {'ok': True, 'cleared': False,
+                'message': 'No active verification lock was found.'}
+    update = {
+        'conversation_id': intake.get('conversation_id'),
+        'document_path': intake.get('image_path'),
+        'dispatched_at': intake.get('dispatched_at'),
+        'status': 'stalled',
+        'detail': ('Verification lock cleared manually from the scanner view; '
+                   'the scan and financial records were left unchanged.'),
+    }
+    if not merge_recent_intake_status(update):
+        return {'ok': False, 'error': 'The active verification lock could not be matched.'}
+    with _scanner_runtime_status_lock:
+        _scanner_runtime_status[key] = {'status': 'idle', 'ok': True}
+    return {'ok': True, 'cleared': True, 'status': 'idle'}
 
 
 # ── Document intake pipeline (the "Process Document" action) ────────────────
@@ -3717,6 +4124,28 @@ def process_scanned_document(
     if not cfg:
         return {'ok': False, 'error': f'Unknown scanner: {key}', 'stages': []}
     image_path = os.path.join(SCAN_TOOLS_DIR, cfg.get('output', ''))
+    if _SCAN_LOCK.locked():
+        return {
+            'ok': False,
+            'error': 'The scanner is still scanning. Processing will start when the image is complete.',
+            'stage_error': 'Scanner transfer still in progress.',
+            'scanner': key,
+            'image_path': image_path,
+            'mazda_dispatched': False,
+            'trainer_dispatched': False,
+            'stages': [],
+        }
+    if not _scan_output_ready(image_path):
+        return {
+            'ok': False,
+            'error': 'The scanner did not produce a usable image. Please scan the document again.',
+            'stage_error': 'The scanner output image is missing or empty.',
+            'scanner': key,
+            'image_path': image_path,
+            'mazda_dispatched': False,
+            'trainer_dispatched': False,
+            'stages': [],
+        }
     facade = run_intake_facade(image_path, org_id=org_id, engine=engine)
     mazda_dispatched = False
     trainer_dispatched = False
@@ -4142,18 +4571,300 @@ def _matching_expense(cur, date_str, amount_str, vendor_key, description,
         except (TypeError, ValueError):
             return None
         cur.execute(
-            "SELECT id, id_light, description, receipt_url, notes, expense_date, amount "
+            "SELECT id, id_light, description, receipt_url, document_url, moms_ledger, "
+            "notes, expense_date, amount "
             "FROM expenses WHERE id=%s",
             (eid,),
         )
         return _select_matching_expense(cur.fetchall(), vendor_key, description)
     cur.execute(
-        "SELECT id, id_light, description, receipt_url, notes, expense_date, amount "
+        "SELECT id, id_light, description, receipt_url, document_url, moms_ledger, "
+        "notes, expense_date, amount "
         "FROM expenses WHERE expense_date=%s AND amount=%s "
         "AND expense_role <> 'LINE_ITEM'",
         (date_str, amount_str),
     )
     return _select_matching_expense(cur.fetchall(), vendor_key, description)
+
+
+def _lookup_expense_row(date_str, signed_amount, vendor_key, description='',
+                        expense_id=None):
+    amt = _norm_amount(signed_amount)
+    if amt is None and expense_id in (None, ''):
+        return None
+    with _rol_get_connection() as cnx:
+        with cnx.cursor() as cur:
+            return _matching_expense(
+                cur, date_str, amt, vendor_key, description, expense_id)
+
+
+_DOCUMENT_PLACEHOLDERS = {'null', 'none', 'undefined', 'n/a', 'na', '#'}
+_VIEWABLE_DOCUMENT_EXTENSIONS = {
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.pdf',
+    '.xlsx', '.xlsm',
+}
+SUPPORTING_DOCUMENT_URL_PREFIX = '/supporting-document'
+SUPPORTING_DOCUMENT_ANNOTATION_CACHE = os.path.join(
+    HERE, '.cache', 'document-annotations')
+_supporting_document_annotation_service = None
+_supporting_document_annotation_lock = threading.Lock()
+
+
+def _get_supporting_document_annotation_service(
+) -> IExpenseDocumentAnnotationService:
+    """Composition root for non-destructive supporting-document highlighting."""
+    global _supporting_document_annotation_service
+    with _supporting_document_annotation_lock:
+        if _supporting_document_annotation_service is None:
+            _supporting_document_annotation_service = (
+                build_document_annotation_service(
+                    SUPPORTING_DOCUMENT_ANNOTATION_CACHE)
+            )
+    return _supporting_document_annotation_service
+
+
+def _expense_annotation_evidence(chosen, document_type=''):
+    related_document_path = ''
+    if document_type == 'moms_ledger':
+        related_document_path = (
+            _resolve_local_supporting_document(
+                chosen.get('document_url'), 'source') or ''
+        )
+    return ExpenseEvidence(
+        expense_id=int(chosen['id']),
+        expense_date=str(chosen.get('expense_date') or ''),
+        amount=str(chosen.get('amount') or ''),
+        description=str(chosen.get('description') or ''),
+        vendor_key=_vendor_prefix(chosen.get('id_light')),
+        related_document_path=related_document_path,
+    )
+
+
+def _prepare_supporting_document_view(chosen, source_path, document_type=''):
+    """Ask the interface-backed service for an annotated, cached copy."""
+    return _get_supporting_document_annotation_service().prepare(
+        source_path, _expense_annotation_evidence(chosen, document_type))
+
+
+def _usable_document_reference(value):
+    value = str(value or '').strip()
+    if not value or value.lower() in _DOCUMENT_PLACEHOLDERS:
+        return False
+    parsed = urlparse(value)
+    if parsed.scheme and parsed.scheme not in {'http', 'https'}:
+        return False
+    if parsed.scheme in {'http', 'https'} and not parsed.netloc:
+        return False
+    return True
+
+
+def _resolve_local_supporting_document(reference, document_type):
+    if not _usable_document_reference(reference):
+        return None
+    if document_type == 'receipt':
+        return _resolve_receipt_url_path(reference)
+    raw = unquote(str(reference).split('#', 1)[0].strip())
+    candidates = [raw] if os.path.isabs(raw) else [
+        os.path.join(os.path.expanduser('~/rol_finances'), raw),
+        os.path.join(READABLE_DOCS_BASE, raw),
+    ]
+    allowed_roots = [
+        os.path.abspath(os.path.expanduser('~/rol_finances/readable_documents')),
+        os.path.abspath(os.path.expanduser(
+            '~/rol_finances/tools/receipt_scanning_tools/incoming_scans')),
+    ]
+    for candidate in candidates:
+        candidate = os.path.abspath(candidate)
+        if any(os.path.commonpath([candidate, root]) == root for root in allowed_roots):
+            if os.path.isfile(candidate):
+                return candidate
+    return None
+
+
+def _viewable_supporting_document(reference, resolved_path=None):
+    """Accept only formats the protected document viewer can render."""
+    candidate = resolved_path
+    if not candidate:
+        candidate = unquote(urlparse(str(reference or '')).path)
+    return os.path.splitext(candidate)[1].lower() in _VIEWABLE_DOCUMENT_EXTENSIONS
+
+
+def _supporting_document_descriptors(chosen, report_path=''):
+    definitions = (
+        ('receipt', 'View Receipt', 'receipt_url'),
+        ('source', 'View Source Document', 'document_url'),
+        ('moms_ledger', 'View Mom’s Ledger', 'moms_ledger'),
+    )
+    descriptors = []
+    for kind, label, field in definitions:
+        reference = (chosen.get(field) or '').strip()
+        if kind == 'source' and not _usable_document_reference(reference):
+            reference = _source_document_path(report_path)
+        local_path = _resolve_local_supporting_document(reference, kind)
+        remote_url = urlparse(reference).scheme in {'http', 'https'}
+        descriptors.append({
+            'type': kind,
+            'label': label,
+            'field': field,
+            'available': bool(
+                _usable_document_reference(reference)
+                and (local_path or remote_url)
+                and _viewable_supporting_document(reference, local_path)
+            ),
+        })
+    return descriptors
+
+
+def lookup_supporting_documents(date_str, signed_amount, vendor_key,
+                                description='', report_path='', expense_id=None):
+    try:
+        chosen = _lookup_expense_row(
+            date_str, signed_amount, vendor_key, description, expense_id)
+    except Exception as exc:
+        return {'ok': False, 'error': f'DB error: {exc}', 'documents': []}
+    if not chosen:
+        return {'ok': False, 'error': 'No matching expense in DB.', 'documents': []}
+    return {
+        'ok': True,
+        'expense_id': chosen['id'],
+        'receipt_url': chosen.get('receipt_url'),
+        'document_url': chosen.get('document_url'),
+        'moms_ledger': chosen.get('moms_ledger'),
+        'notes': chosen.get('notes') or '',
+        'documents': _supporting_document_descriptors(chosen, report_path),
+    }
+
+
+def open_supporting_document(date_str, signed_amount, vendor_key, document_type,
+                             description='', expense_id=None, report_path=''):
+    field_by_type = {
+        'receipt': 'receipt_url',
+        'source': 'document_url',
+        'moms_ledger': 'moms_ledger',
+    }
+    field = field_by_type.get(document_type)
+    if not field:
+        return {'ok': False, 'error': 'Unknown supporting-document type.'}
+    try:
+        chosen = _lookup_expense_row(
+            date_str, signed_amount, vendor_key, description, expense_id)
+    except Exception as exc:
+        return {'ok': False, 'error': f'DB error: {exc}'}
+    reference = (chosen.get(field) or '').strip() if chosen else ''
+    source_from_report = False
+    if (document_type == 'source'
+            and not _usable_document_reference(reference)):
+        reference = _source_document_path(report_path)
+        source_from_report = bool(reference)
+    if not _usable_document_reference(reference):
+        return {'ok': False, 'error': f'{field_by_type and document_type} document is not on file.'}
+    parsed = urlparse(reference)
+    if parsed.scheme in {'http', 'https'}:
+        if not _viewable_supporting_document(reference):
+            return {'ok': False,
+                    'error': f'The {document_type.replace("_", " ")} reference is not a viewable PDF, image, or Excel workbook.'}
+        return {
+            'ok': True,
+            'url': reference,
+            'highlighted': False,
+            'highlight_note': 'Remote documents are opened without a local annotation.',
+        }
+    path = _resolve_local_supporting_document(reference, document_type)
+    if not path:
+        print(
+            f'[supporting-document] missing type={document_type} '
+            f'expense_id={chosen.get("id") if chosen else ""}'
+        )
+        return {'ok': False,
+                'error': f'The {document_type.replace("_", " ")} document could not be found.'}
+    if not _viewable_supporting_document(reference, path):
+        return {'ok': False,
+                'error': f'The {document_type.replace("_", " ")} reference is not a viewable PDF, image, or Excel workbook.'}
+    prepared = _prepare_supporting_document_view(
+        chosen, path, document_type)
+    fragment = parsed.fragment
+    if prepared.highlighted and prepared.page:
+        fragment = f'page={prepared.page}'
+    page_fragment = (
+        f'#{fragment}'
+        if re.fullmatch(r'page=[1-9][0-9]*', fragment or '')
+        else ''
+    )
+    viewer_url = (
+        f'{SUPPORTING_DOCUMENT_URL_PREFIX}/{int(chosen["id"])}'
+        f'/{document_type}'
+    )
+    if source_from_report:
+        viewer_url += f'?report_path={quote(report_path, safe="")}'
+    return {
+        'ok': True,
+        'url': viewer_url + page_fragment,
+        'highlighted': prepared.highlighted,
+        'highlight_note': prepared.reason,
+    }
+
+
+def _supporting_document_path_for_expense(
+        expense_id, document_type, report_path=''):
+    """Resolve a stable expense-scoped viewer URL to its current local file."""
+    field_by_type = {
+        'receipt': 'receipt_url',
+        'source': 'document_url',
+        'moms_ledger': 'moms_ledger',
+    }
+    field = field_by_type.get(document_type)
+    if not field:
+        return None
+    try:
+        chosen = _lookup_expense_row(
+            '', '', '', '', expense_id=int(expense_id))
+    except (TypeError, ValueError, LookupError):
+        return None
+    except Exception as exc:
+        print(
+            f'[supporting-document] lookup failed expense_id={expense_id} '
+            f'type={document_type}: {exc}'
+        )
+        return None
+    reference = (chosen.get(field) or '').strip() if chosen else ''
+    if (document_type == 'source'
+            and not _usable_document_reference(reference)):
+        reference = _source_document_path(report_path)
+    if not _usable_document_reference(reference):
+        return None
+    path = _resolve_local_supporting_document(reference, document_type)
+    if not path or not _viewable_supporting_document(reference, path):
+        return None
+    return path
+
+
+def _supporting_document_view_for_expense(
+        expense_id, document_type, report_path=''):
+    """Resolve and annotate the document identified by a stable viewer URL."""
+    try:
+        chosen = _lookup_expense_row(
+            '', '', '', '', expense_id=int(expense_id))
+    except (TypeError, ValueError, LookupError):
+        return None
+    except Exception as exc:
+        print(
+            f'[supporting-document] viewer lookup failed expense_id={expense_id} '
+            f'type={document_type}: {exc}'
+        )
+        return None
+    source_path = _supporting_document_path_for_expense(
+        expense_id, document_type, report_path)
+    if not chosen or not source_path:
+        return None
+    result = _prepare_supporting_document_view(
+        chosen, source_path, document_type)
+    if not result.highlighted:
+        print(
+            f'[supporting-document] opened without highlight '
+            f'expense_id={expense_id} type={document_type} '
+            f'reason={result.reason}'
+        )
+    return result.path
 
 
 def _source_document_path(report_path, receipt_path=None):
@@ -4169,17 +4880,48 @@ def _source_document_path(report_path, receipt_path=None):
             report_file = candidate
     if report_file:
         directory = os.path.dirname(report_file)
-        preferred = []
-        for name in os.listdir(directory):
-            fp = os.path.join(directory, name)
-            ext = os.path.splitext(name)[1].lower()
-            if os.path.isfile(fp) and ext in ('.pdf', '.xlsx', '.xls', '.csv'):
-                preferred.append(fp)
-        if preferred:
-            priority = {'.pdf': 0, '.xlsx': 1, '.xls': 2, '.csv': 3}
-            preferred.sort(key=lambda fp: (priority[os.path.splitext(fp)[1].lower()],
-                                           os.path.basename(fp).lower()))
-            return preferred[0]
+        def preferred_source(candidate_directory):
+            preferred = []
+            if not os.path.isdir(candidate_directory):
+                return ''
+            for name in os.listdir(candidate_directory):
+                fp = os.path.join(candidate_directory, name)
+                ext = os.path.splitext(name)[1].lower()
+                if (os.path.isfile(fp)
+                        and ext in _VIEWABLE_DOCUMENT_EXTENSIONS):
+                    preferred.append(fp)
+            priority = {
+                '.pdf': 0, '.xlsx': 1, '.xlsm': 2,
+                '.jpg': 3, '.jpeg': 3, '.png': 3, '.webp': 3,
+                '.tif': 3, '.tiff': 3, '.bmp': 3, '.gif': 3,
+            }
+            preferred.sort(
+                key=lambda fp: (
+                    priority.get(os.path.splitext(fp)[1].lower(), 99),
+                    os.path.basename(fp).lower(),
+                )
+            )
+            return preferred[0] if preferred else ''
+
+        source = preferred_source(directory)
+        if source:
+            return source
+
+        # A statement may be listed under more than one month while only one
+        # canonical month directory contains the source file. Search the same
+        # report directory across configured month roots before giving up.
+        split = _split_report_url(raw)
+        if split:
+            _base, rel = split
+            report_directory = os.path.dirname(rel)
+            for month_key in ROL_FINANCES_REPORTS_MONTHS:
+                candidate_directory = os.path.join(
+                    _rol_reports_base_dir(month_key), report_directory)
+                if os.path.abspath(candidate_directory) == os.path.abspath(directory):
+                    continue
+                source = preferred_source(candidate_directory)
+                if source:
+                    return source
         if os.path.isfile(report_file):
             return report_file
     return receipt_path or ''
@@ -4222,13 +4964,25 @@ def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_p
     except Exception as e:
         return {'ok': False, 'error': f'DB error: {e}'}
 
+    document_reference = (
+        (chosen.get('document_url') or '').strip() if chosen else '')
+    resolved_document = (
+        _resolve_local_supporting_document(document_reference, 'source')
+        if document_reference else None)
+    if (not resolved_document and document_reference
+            and urlparse(document_reference).scheme in {'http', 'https'}
+            and _viewable_supporting_document(document_reference)):
+        resolved_document = document_reference
     metadata = {
         'expense_id': chosen['id'] if chosen else '',
         'receipt_url': '',
         'receipt_path': '',
         'notes': (chosen.get('notes') or '') if chosen else '',
         'machine_origin': _document_machine_origin(),
-        'source_document_path': _source_document_path(report_path),
+        # Ask Mazda must use the expense's database-backed source association.
+        # The report directory is only a legacy fallback for old rows.
+        'source_document_path': (
+            resolved_document or _source_document_path(report_path)),
     }
     if chosen is None:
         return dict(metadata, ok=False,
@@ -4244,7 +4998,8 @@ def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_p
         ok=True,
         receipt_url=_receipt_url_for_path(fp),
         receipt_path=fp,
-        source_document_path=_source_document_path(report_path, fp),
+        source_document_path=(
+            resolved_document or _source_document_path(report_path, fp)),
     )
     return metadata
 
@@ -4375,7 +5130,8 @@ def _fetch_receipt_only_rows(month_key=None):
             }
             cur.execute(
                 "SELECT e.id, e.expense_date, e.amount, e.id_light, e.description, "
-                "       e.category_id, e.receipt_url, e.expense_role "
+                "       e.category_id, e.receipt_url, e.document_url, "
+                "       e.moms_ledger, e.expense_role "
                 "FROM expenses e "
                 "WHERE e.expense_role <> 'PARENT' "
                 "AND NOT EXISTS (SELECT 1 FROM transactions t "
@@ -4407,6 +5163,9 @@ def _fetch_receipt_only_rows(month_key=None):
             'description': (r.get('description') or '').strip(),
             'reporting_category': rep,
             'cat_class': REPORTING_CATEGORY_CLASS.get(rep, 'cat-uncategorized'),
+            'receipt_url': r.get('receipt_url'),
+            'document_url': r.get('document_url'),
+            'moms_ledger': r.get('moms_ledger'),
         })
     return out
 
@@ -4456,7 +5215,8 @@ def _fetch_recent_scans(limit=5, month_key=None):
         with cnx.cursor() as cur:
             cur.execute(
                 "SELECT id, id_light, description, expense_date, amount, "
-                "       category_id, receipt_url, created_at, notes "
+                "       category_id, receipt_url, document_url, moms_ledger, "
+                "       created_at, notes "
                 "FROM expenses "
                 "WHERE (category_id IS NULL OR category_id IN (%s, %s))"
                 " AND expense_role <> 'PARENT'"
@@ -4497,6 +5257,9 @@ def _fetch_recent_scans(limit=5, month_key=None):
             'receipt_present': bool(
                 _resolve_expense_receipt_path(date_str, amt, r.get('receipt_url'))
                 if amt is not None else False),
+            'receipt_url': r.get('receipt_url') or '',
+            'document_url': r.get('document_url') or '',
+            'moms_ledger': r.get('moms_ledger') or '',
         })
     return {'rows': out, 'queue_total': total, 'limit': limit, 'month_key': month_key}
 
@@ -4559,6 +5322,18 @@ def _receipt_only_picker_assets():
         _sys.path.insert(0, VERIFICATION_LIB)
     rv = importlib.import_module('restructure_verified_transactions')
     return rv.CATEGORY_PICKER_CSS, rv.CATEGORY_PICKER_HTML, rv.CLICKABLE_ROW_CSS
+
+
+def _report_html_with_current_picker(report_file):
+    """Refresh only the picker assets in memory; never rewrite row categories."""
+    import importlib
+    import sys as _sys
+
+    if VERIFICATION_LIB not in _sys.path:
+        _sys.path.insert(0, VERIFICATION_LIB)
+    rv = importlib.import_module('restructure_verified_transactions')
+    with open(report_file, encoding='utf-8', errors='ignore') as handle:
+        return rv.add_category_picker(handle.read())
 
 
 def _receipt_only_cat_css():
@@ -4643,6 +5418,7 @@ AGENT_MODEL_OPTIONS = [
 ]
 
 AGENT_VOICE_OPTIONS = [
+    'en-GB-SoniaNeural',
     'en-US-AnaNeural',
     'en-US-AriaNeural',
     'en-US-AvaNeural',
@@ -6189,6 +6965,8 @@ def frita_executor_health(timeout=None):
     if not good.get('ready'):
         missing = [k for k in ('sdk_present', 'claude_present', 'creds_present')
                    if not good.get(k)]
+        if good.get('claude_runs') is False:
+            missing.append('claude_runs')
         # creds_present-but-expired is the one failure mode this box can fix by
         # itself (re-push a fresh token) rather than needing a redeploy — try
         # that once before reporting down. See _resync_frita_creds.
@@ -6201,12 +6979,19 @@ def frita_executor_health(timeout=None):
                             'concern': True,  # surfaced, but self-healed this sweep
                             'text': f'SDK OK on :8799 (host={healed.get("host")}) — '
                                     'auto-resynced an expired token.' + ghost_warn}
+        if good.get('claude_runs') is False:
+            runtime_msg = good.get('claude_error') or 'claude --version failed'
+            return {'ok': False,
+                    'text': f'SDK executor on :8799 NOT ready (Claude runtime failed: '
+                            f'{runtime_msg}; path={good.get("claude_path")}; '
+                            f'host={good.get("host")}) — minions broken.' + ghost_warn}
         return {'ok': False,
                 'text': f'SDK executor on :8799 NOT ready (missing: {", ".join(missing)}; '
                         f'host={good.get("host")}) — minions broken.' + ghost_warn}
     return {'ok': True,
             'concern': bool(ghost_warn),  # up, but a shadowing ghost → yellow, not green
-            'text': f'SDK OK on :8799 (host={good.get("host")}).' + ghost_warn}
+            'text': f'SDK OK on :8799 (host={good.get("host")}; '
+                    f'claude={good.get("claude_version") or "unknown"}).' + ghost_warn}
 
 
 # ── Document Vision health (classify_scan.py's 3-tier fallback) ─────────────
@@ -8896,7 +9681,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if path.startswith(ROL_FINANCES_REPORTS_URL_PREFIX + '/'):
             fp = _report_file_for_url(path)
             if fp:
-                return self.serve_file(fp, 'text/html')
+                data = _report_html_with_current_picker(fp).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Content-Length', str(len(data)))
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                self.wfile.write(data)
+                return
             self.send_error(404)
             return
 
@@ -8944,6 +9736,34 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     return self.serve_file(fp, ctype)
                 self.send_error(404)
                 return
+
+        if path.startswith(SUPPORTING_DOCUMENT_URL_PREFIX + '/'):
+            parts = path[len(SUPPORTING_DOCUMENT_URL_PREFIX) + 1:].split('/')
+            document_path = (
+                _supporting_document_view_for_expense(
+                    parts[0],
+                    parts[1],
+                    _resolve_report_path_alias(
+                        query.get('report_path', [''])[0]),
+                )
+                if len(parts) == 2
+                else None
+            )
+            if document_path:
+                ext = os.path.splitext(document_path)[1].lower()
+                ctype = {
+                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+                    '.gif': 'image/gif', '.webp': 'image/webp',
+                    '.pdf': 'application/pdf',
+                    '.xlsx': (
+                        'application/vnd.openxmlformats-officedocument.'
+                        'spreadsheetml.sheet'
+                    ),
+                    '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12',
+                }.get(ext, 'application/octet-stream')
+                return self.serve_file(document_path, ctype)
+            self.send_error(404)
+            return
 
         if path.startswith('/'):
             rel = path.lstrip('/')
@@ -9038,6 +9858,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(run_scanner(data.get('scanner', '')))
+
+        if path == '/api/scanner-clear-verification':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            result = clear_scanner_verification_lock(data.get('scanner', ''))
+            return self.json_response(result)
 
         if path == '/api/fix-printer':
             return self.json_response(fix_deskjet_printer())
@@ -9261,6 +10089,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('expense_id'),
             ))
 
+        if path == '/api/undo-recategorize-expense':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(
+                undo_recategorize_expense(data.get('undo_token', '')))
+
         if path == '/api/set-receipt-vendor':
             try:
                 data = json.loads(body)
@@ -9281,6 +10117,35 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('description', ''),
                 _resolve_report_path_alias(data.get('report_path', '')),
                 data.get('expense_id'),
+            ))
+
+        if path == '/api/supporting-documents':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(lookup_supporting_documents(
+                data.get('date', ''),
+                data.get('signed_amount', ''),
+                data.get('vendor_key', ''),
+                data.get('description', ''),
+                _resolve_report_path_alias(data.get('report_path', '')),
+                data.get('expense_id'),
+            ))
+
+        if path == '/api/open-supporting-document':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(open_supporting_document(
+                data.get('date', ''),
+                data.get('signed_amount', ''),
+                data.get('vendor_key', ''),
+                data.get('document_type', ''),
+                data.get('description', ''),
+                data.get('expense_id'),
+                _resolve_report_path_alias(data.get('report_path', '')),
             ))
 
         if path == '/api/receipts-present':

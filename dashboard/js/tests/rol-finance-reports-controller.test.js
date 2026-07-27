@@ -129,7 +129,7 @@ describe("RolFinanceReportsController", () => {
     const tabs = ctx.nav.querySelectorAll("[data-report-key]");
     expect(tabs.length).toBe(2);
     expect(tabs[0].textContent).toBe("January");
-    expect(tabs[0].className).toBe("tab");
+    expect(tabs[0].className).toBe("tab status-green");
     // Missing report → red tab + placeholder view.
     expect(tabs[1].className).toBe("tab report-missing");
 
@@ -996,6 +996,7 @@ describe("RolFinanceReportsController", () => {
       description: "MEIJER",
       signedAmount: "18.40",
       date: "2025-01-22",
+      reportingCategory: "Travel & Vehicle",
       reason: "Categorization incomplete — no reporting category was assigned.",
       receiptPresent: "1",
     };
@@ -1004,14 +1005,16 @@ describe("RolFinanceReportsController", () => {
     const dialog = ctx.doc.getElementById("rol-newrec-picker");
     expect(dialog).not.toBe(null);
     expect(dialog.classList.contains("open")).toBe(true);
-    expect(dialog.querySelector(".cp-target").textContent).toContain("MEIJER");
+    expect(dialog.querySelector(".cp-target").textContent).toBe(
+      "MEIJER  •  18.40  •  2025-01-22  •  Travel & Vehicle",
+    );
     expect(dialog.querySelector(".cp-reason").textContent).toContain(
       "Categorization incomplete",
     );
     const squares = dialog.querySelectorAll(".cp-square");
     expect(squares.length).toBe(2);
-    // The uncategorized square is marked as the current selection.
-    expect(squares[1].classList.contains("current")).toBe(true);
+    // The row's current category is marked as the current selection.
+    expect(squares[0].classList.contains("current")).toBe(true);
   });
 
   test("picking a category posts a DB-only recategorize, closes, and backfills", async () => {

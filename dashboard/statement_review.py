@@ -115,8 +115,24 @@ def review_message(packet):
             f"for this card, then press OK."
         )
 
+    row_errors = packet.get('row_errors') or []
+    # store_statement_transactions.py already tries the clean archived PDF for
+    # this account/period before quarantining anything (see RowGapResolver) --
+    # reaching here with a long list means that lookup found nothing, not that
+    # nobody tried. Enumerating every row anyway is what produced a wall of a
+    # dozen near-identical questions; past a couple of genuine gaps, ask once.
+    if len(row_errors) > 2:
+        bank = packet.get('bank_name') or 'this account'
+        return (
+            f"{len(row_errors)} transactions on this {bank} statement still "
+            f"have an unreadable date, description, or amount after checking "
+            f"the archived clean statement PDF for this account and period. "
+            f"Please open the document and fill in what you can read, or "
+            f"attach the correct statement PDF if one isn't archived yet."
+        )
+
     parts = []
-    for row in packet.get('row_errors') or []:
+    for row in row_errors:
         where = row.get('description') or 'an unlabeled row'
         when = row.get('date') or 'an unreadable date'
         missing = set(row.get('missing') or [])

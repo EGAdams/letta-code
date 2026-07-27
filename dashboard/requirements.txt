@@ -1,0 +1,5 @@
+# Runtime dependencies for supporting-document highlighting.
+PyMuPDF>=1.26
+Pillow>=12
+openpyxl>=3.1
+pytesseract>=0.3.13

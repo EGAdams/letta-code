@@ -25,6 +25,23 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
 2. **STEP 0 (only if the facade returned `doc_kind=unknown`)** — she classifies the image
    herself via `executor_run` (`classify_scan.py` vision). For `receipt` OR `invoice`, she
    must then parse it using `parse_and_categorize.py --json` and derive a real vendor key.
+   **Marked-item receipt scope is binding.** If a receipt has a localized circle, box,
+   checkmark, short arrow, highlight, or underline directly selecting one or more item
+   rows, the parse must return `expense_scope=marked_items`,
+   `selected_for_expense=true` only for those rows, and storage/duplicate/callback
+   amounts must equal the selected rows—not the full printed receipt total. A large
+   sweeping pen stroke across several rows, margin handwriting, or ink merely crossing
+   a row is not a selection. For example, a tight box around one `$10.99` item means
+   exactly one `$10.99` expense even when the receipt total is much larger. Missing or
+   misreading visible selection marks is a FAIL requiring immediate coaching and retry.
+   Handwritten item/category/beneficiary words are context, not selection marks. Every
+   selected row needs its own distinct localized mark; one underline or nearby note
+   cannot select adjacent rows. When this dispatch requires the STEP 0 receipt parser
+   (the normal JPEG path), it must write a source-bound parse artifact and STEP 4 must
+   load that exact artifact (`parse_artifact_verified=true`) instead of running receipt
+   vision again. Parse/store differences in amount, scope, selected rows, merchant,
+   date, or source hash are a FAIL even when the save-stage duplicate guard finds an
+   older record.
    Statements use the statement branch. `moms_ledger` uses the Mom-ledger reconciliation
    branch described below. Explicit `doc_type` routing overrides generic
    learned prose about emails/bills: an email screenshot containing an invoice is still
@@ -65,6 +82,54 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    A cross-year statement must report both years while each transaction is stored
    only once under its own date; missing metadata or any unreadable row is a
    correct fail-closed rejection, never permission to guess.
+
+   **SUPPORTING-DOCUMENT INVARIANTS (all branches).** Every matched expense has
+   three independent nullable references: receipt scans use only `receipt_url`;
+   statements and other source documents use only `document_url`; Mom's
+   composite ledger uses only `moms_ledger`. Grade the actual expense row or
+   successful attachment result, not Mazda's prose. The new association must
+   preserve the other two fields. Never accept a statement path in
+   `receipt_url`, a receipt path in `document_url`, or a ledger path in either.
+   Matching must be order-independent: statement first, receipt later and
+   receipt first, statement later must produce one expense containing both
+   references; Mom's ledger may arrive before either and must remain attached.
+   The durable evidence roots are
+   `readable_documents/receipts/`, `readable_documents/bank_statements/`, and
+   `readable_documents/ledger_documents/`. Correlate across all three. A
+   check-number match from Mom's ledger plus the statement's paid date/amount
+   and the receipt's payee/date/amount is strong identity evidence; amount alone
+   is never enough. Make associations through `SupportingDocumentService` and
+   its repository interface, never ad-hoc SQL in an intake handler.
+   A repeated incoming scan attached to multiple unrelated standalone
+   transactions is source-document evidence, not multiple receipts. Mazda must
+   classify it as a statement and store it in `document_url`. If durable
+   evidence proves a legacy reference was misclassified, reclassify it through
+   the supporting-document service/repository boundary so moving the reference
+   and clearing only the incorrect field happen atomically.
+   Reprocessing the identical reference is a successful idempotent
+   `already_attached` result and must not create an expense, transaction, or
+   report row. A different non-empty value for the same type is a
+   same-type conflict: the original reference must remain, the result must require human
+   verification through the existing review-note/log route. The live
+   `expense_status` enum has no `NEEDS_DOCUMENT_VERIFICATION` member, so Mazda
+   must not invent or write that value. Silent replacement, nulling either peer
+   field, or creating a second expense to avoid the conflict is a FAIL. Require
+   trace/callback evidence
+   naming the document type, selected field, target expense ID, association
+   status (`inserted`, `already_attached`, or `conflicted`), preserved fields,
+   and whether human verification is required.
+   **DIALOG VISIBILITY IS PART OF THE CONTRACT.** For every stored or matched
+   expense, each available evidence field must produce its corresponding Set
+   Category dialog action: `receipt_url` → **View Receipt**, `document_url` →
+   **View Source Document**, and `moms_ledger` → **View Mom’s Ledger**. Verify
+   this using the successful `/api/supporting-documents` response (or equivalent
+   DB-backed evidence), not Mazda's prose. A non-empty, resolvable field whose
+   descriptor is not `available:true` is a FAIL. Do not require a button for a
+   genuinely absent evidence type. Every new or duplicate-matched statement
+   expense must persist the statement reference in `document_url`; the
+   dashboard's report-directory fallback is a legacy repair aid and does not
+   satisfy a new intake. Grade every returned `expense_id` and
+   `duplicate_expense_id`, not only the first row.
    When the dispatch names an authoritative `*.statement.json` produced by the
    dashboard's validated preflight, Mazda MUST give that exact file to the store
    command and MUST NOT run `parse_statement_scan.py` again. A second vision pass
@@ -89,7 +154,20 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    dropped). Hand-editing a category, or telling EG to fix a row in the dashboard,
    is itself a FAIL — the whole point is that her reading his notes IS the
    categorization.
-   **Mom's ledger/check-payment worksheets are supported category evidence.**
+   **Document structure outranks handwriting.** An intact bank or credit-card
+   statement with one issuer's letterhead, account metadata, a billing cycle or
+   statement period, and regularly aligned transaction rows is a statement
+   regardless of how much handwriting, circling, crossing-out, arithmetic, or
+   category notation appears on it. Handwriting is handled after statement
+   storage by `apply_statement_annotations.py`; it never changes the document
+   type. `moms_ledger` is reserved for Mom's visibly cut-and-assembled composite
+   worksheets made from pieces of different source documents (mixed layouts,
+   letterheads, or pasted fragments). A neat intact statement classified as
+   `moms_ledger` is a classifier defect: coach Mazda to rerun with the corrected
+   structure rule, then require the full statement parse/store/archive/report
+   branch. Never award PASS merely because the classifier mentioned extensive
+   handwriting.
+   **Mom's composite ledger worksheets are supported category evidence.**
    When `classify_scan.py` returns `doc_type=moms_ledger`, Mazda must run
    `tools/categorizer/moms_ledger_reconciler.py --image <scan>` and must not
    store the printed payments as new expenses. The reconciler must return
@@ -256,12 +334,23 @@ Grade the run against the contract above. Specifically confirm:
   PASS, not a failure — the alternative (dropping the row) would lose a transaction the
   statement plainly shows. Only flag it if such a row is *missing* from `stored`/`expense_ids`
   entirely, or if `uncategorized` rows were counted in `failed`.
-- Verify the store result's final parsed/overridden date, amount, and merchant against the
-  duplicate-check inputs. If they changed, require a duplicate recheck on the final values;
-  never accept `--allow-duplicate` as a way around the store path's final duplicate guard.
+- When this dispatch required STEP 0 receipt parsing, verify the store result reports
+  `parse_artifact_verified=true`; facade-identified documents that explicitly skipped
+  STEP 0 are exempt. Compare the final date, amount, merchant, `expense_scope`, and
+  selected rows against STEP 0/facade evidence and the duplicate-check inputs. Any
+  change is a FAIL requiring a fresh validated parse; a save-stage duplicate against a
+  different amount/scope never proves the current marked receipt is a duplicate. Never
+  accept `--allow-duplicate` as a way around the guard.
 - For statements, verify the successful store return names the confirmed `bank_name`,
   `account_last4`, and every expected `archive_path`. Check cross-year statements have one
   full-image copy in each transaction year and that the full date-range token is identical.
+  Rows explicitly labeled Pending/Processing/Scheduled are not posted transactions and
+  must not be submitted as unreadable-date expenses. If statement storage quarantines
+  multiple rows, verify the archived clean-PDF resolver actually returned ground-truth
+  rows; a provider/authentication failure followed by a large human-review queue is a
+  FAIL, not a correct fail-closed outcome. Require Mazda to use the deterministic bank
+  parser and existing database duplicates/categories before asking EG to transcribe
+  fields already present in an archived statement or stored expense.
   Derive that range from expense/debit rows only: exclude payments, credits, refunds, and
   deposits from the first/last dates. A path whose end date came from a skipped payment or
   credit is a FAIL and a statement-archive wrapper defect, even if storage and deduplication

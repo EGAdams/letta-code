@@ -1,0 +1,670 @@
+"""Non-destructive expense highlighting for supporting documents.
+
+The dashboard depends on ``IExpenseDocumentAnnotationService``.  File-format
+details live behind ``IExpenseDocumentAnnotator`` strategies and are wired only
+by ``build_document_annotation_service`` (the composition root).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import re
+import statistics
+import threading
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, replace
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from typing import Iterable, Sequence
+
+ANNOTATION_SCHEMA_VERSION = 2
+
+
+@dataclass(frozen=True)
+class ExpenseEvidence:
+    expense_id: int
+    expense_date: str = ""
+    amount: str = ""
+    description: str = ""
+    vendor_key: str = ""
+    related_document_path: str = ""
+    reference_terms: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class AnnotationResult:
+    path: str
+    highlighted: bool
+    reason: str = ""
+    page: int | None = None
+
+
+class IExpenseDocumentAnnotator(ABC):
+    """Strategy port implemented by one or more document formats."""
+
+    @abstractmethod
+    def supports(self, source_path: str) -> bool:
+        """Return whether this strategy owns ``source_path``."""
+
+    @abstractmethod
+    def annotate(
+        self,
+        source_path: str,
+        output_path: str,
+        evidence: ExpenseEvidence,
+    ) -> AnnotationResult:
+        """Write an annotated copy, or return a fail-closed no-match result."""
+
+
+class IExpenseDocumentAnnotationService(ABC):
+    """Application port used by the HTTP supporting-document boundary."""
+
+    @abstractmethod
+    def prepare(
+        self,
+        source_path: str,
+        evidence: ExpenseEvidence,
+    ) -> AnnotationResult:
+        """Return a viewable annotated copy when the expense can be located."""
+
+
+class IExpenseReferenceResolver(ABC):
+    """Port for deriving stable row identifiers from related evidence."""
+
+    @abstractmethod
+    def resolve(self, evidence: ExpenseEvidence) -> tuple[str, ...]:
+        """Return identifiers such as a check number, or an empty tuple."""
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+def _tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in _TOKEN_RE.findall(str(value or "").lower())
+        if len(token) > 2 and token not in {"the", "and", "for", "inc", "llc"}
+    }
+
+
+def _amount_decimal(value: object) -> Decimal | None:
+    raw = str(value or "").strip().replace("$", "").replace(",", "")
+    raw = raw.strip("()")
+    try:
+        return abs(Decimal(raw))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _amount_matches(text: str, amount: Decimal | None) -> bool:
+    if amount is None:
+        return False
+    number = f"{amount:.2f}"
+    whole, cents = number.split(".")
+    grouped = f"{int(whole):,}.{cents}"
+    # Avoid matching 25.00 inside 125.00 or an account/reference number.
+    return bool(
+        re.search(
+            rf"(?<![\d.])(?:-\s*|\(\s*)?\$?\s*(?:{re.escape(number)}|"
+            rf"{re.escape(grouped)})(?!\d)",
+            text,
+            re.I,
+        )
+    )
+
+
+def _date_variants(value: str) -> set[str]:
+    raw = str(value or "").strip()
+    parsed = None
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y", "%m-%d-%y"):
+        try:
+            parsed = datetime.strptime(raw, fmt).date()
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        return {raw.lower()} if raw else set()
+    return {
+        parsed.strftime("%Y-%m-%d"),
+        parsed.strftime("%m/%d/%Y"),
+        parsed.strftime("%m/%d/%y"),
+        parsed.strftime("%m/%d"),
+        parsed.strftime("%m-%d-%Y"),
+        parsed.strftime("%m-%d-%y"),
+        parsed.strftime("%m-%d"),
+        f"{parsed.month}/{parsed.day}/{parsed.year}",
+        f"{parsed.month}/{parsed.day}/{str(parsed.year)[2:]}",
+        f"{parsed.month}/{parsed.day}",
+        f"{parsed.month}-{parsed.day}",
+    }
+
+
+def _date_matches(text: str, evidence_date: str) -> bool:
+    lowered = text.lower()
+    return any(value and value in lowered for value in _date_variants(evidence_date))
+
+
+def _line_score(text: str, evidence: ExpenseEvidence) -> int:
+    amount = _amount_decimal(evidence.amount)
+    reference_hit = any(
+        re.search(rf"\b{re.escape(term)}\b", text, re.I)
+        for term in evidence.reference_terms
+        if term
+    )
+    amount_hit = _amount_matches(text, amount)
+    if not amount_hit and not reference_hit:
+        return -1
+    score = 12 if reference_hit else 0
+    if amount_hit:
+        score += 5
+    if _date_matches(text, evidence.expense_date):
+        score += 5
+    line_tokens = _tokens(text)
+    description_hits = len(line_tokens & _tokens(evidence.description))
+    vendor_hits = len(line_tokens & _tokens(evidence.vendor_key.replace("_", " ")))
+    score += min(description_hits, 3)
+    score += min(vendor_hits, 2)
+    return score
+
+
+def _best_line(
+    lines: Iterable[tuple[str, object]],
+    evidence: ExpenseEvidence,
+) -> tuple[object | None, int]:
+    ranked = sorted(
+        ((_line_score(text, evidence), region) for text, region in lines),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    if not ranked or ranked[0][0] < 7:
+        return None, ranked[0][0] if ranked else -1
+    # A date+amount match is decisive.  For looser description matches, reject
+    # a tie instead of boxing the wrong repeated amount.
+    if (
+        ranked[0][0] < 10
+        and len(ranked) > 1
+        and ranked[1][0] == ranked[0][0]
+    ):
+        return None, ranked[0][0]
+    return ranked[0][1], ranked[0][0]
+
+
+def _spatial_lines(
+    words: Iterable[tuple[str, float, float, float, float]],
+) -> list[tuple[str, tuple[float, float, float, float]]]:
+    """Reconstruct visual rows when document extractors split table columns."""
+    clean = [
+        (str(text).strip(), float(x0), float(y0), float(x1), float(y1))
+        for text, x0, y0, x1, y1 in words
+        if str(text).strip()
+    ]
+    if not clean:
+        return []
+    heights = [max(1.0, word[4] - word[2]) for word in clean]
+    tolerance = max(3.0, statistics.median(heights) * 0.8)
+    rows: list[list[tuple[str, float, float, float, float]]] = []
+    centers: list[float] = []
+    for word in sorted(clean, key=lambda item: ((item[2] + item[4]) / 2, item[1])):
+        center = (word[2] + word[4]) / 2
+        best = None
+        best_distance = None
+        for index, row_center in enumerate(centers):
+            distance = abs(center - row_center)
+            if distance <= tolerance and (
+                best_distance is None or distance < best_distance
+            ):
+                best = index
+                best_distance = distance
+        if best is None:
+            rows.append([word])
+            centers.append(center)
+        else:
+            rows[best].append(word)
+            centers[best] = sum(
+                (item[2] + item[4]) / 2 for item in rows[best]
+            ) / len(rows[best])
+    output = []
+    for row in rows:
+        row.sort(key=lambda item: item[1])
+        output.append(
+            (
+                " ".join(item[0] for item in row),
+                (
+                    min(item[1] for item in row),
+                    min(item[2] for item in row),
+                    max(item[3] for item in row),
+                    max(item[4] for item in row),
+                ),
+            )
+        )
+    return output
+
+
+class PdfExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
+    def supports(self, source_path: str) -> bool:
+        return Path(source_path).suffix.lower() == ".pdf"
+
+    def annotate(
+        self,
+        source_path: str,
+        output_path: str,
+        evidence: ExpenseEvidence,
+    ) -> AnnotationResult:
+        try:
+            import fitz
+        except ImportError:
+            return AnnotationResult(source_path, False, "PyMuPDF is not installed.")
+
+        document = fitz.open(source_path)
+        candidates: list[tuple[str, tuple[int, object]]] = []
+        try:
+            for page_index, page in enumerate(document):
+                page_words = list(page.get_text("words"))
+                amount = _amount_decimal(evidence.amount)
+                median_height = statistics.median(
+                    max(1.0, word[3] - word[1]) for word in page_words
+                ) if page_words else 1.0
+                row_tolerance = max(3.0, median_height * 0.8)
+                # Table PDFs often encode each cell as a separate "line".
+                # Pair the exact amount with the nearest same-row date first;
+                # its tight rectangle avoids boxing three side-by-side checks
+                # that happen to share one visual y coordinate.
+                for amount_word in page_words:
+                    if not _amount_matches(str(amount_word[4]), amount):
+                        continue
+                    amount_center_y = (amount_word[1] + amount_word[3]) / 2
+                    same_row = [
+                        word
+                        for word in page_words
+                        if abs(
+                            ((word[1] + word[3]) / 2) - amount_center_y
+                        ) <= row_tolerance
+                    ]
+                    dates = [
+                        word for word in same_row
+                        if _date_matches(str(word[4]), evidence.expense_date)
+                    ]
+                    if not dates:
+                        continue
+                    date_word = min(
+                        dates,
+                        key=lambda word: abs(word[0] - amount_word[0]),
+                    )
+                    left = min(date_word[0], amount_word[0])
+                    right = max(date_word[2], amount_word[2])
+                    nearby = [
+                        word for word in same_row
+                        if left - 75 <= word[0] and word[2] <= right + 8
+                    ]
+                    rect = fitz.Rect(
+                        min(word[0] for word in nearby),
+                        min(word[1] for word in nearby),
+                        max(word[2] for word in nearby),
+                        max(word[3] for word in nearby),
+                    )
+                    text = " ".join(
+                        str(word[4]) for word in sorted(
+                            nearby, key=lambda word: word[0])
+                    )
+                    candidates.append((text, (page_index, rect)))
+                grouped: dict[tuple[int, int], list[tuple]] = {}
+                for word in page_words:
+                    grouped.setdefault((int(word[5]), int(word[6])), []).append(word)
+                for words in grouped.values():
+                    words.sort(key=lambda word: word[0])
+                    text = " ".join(str(word[4]) for word in words)
+                    rect = fitz.Rect(
+                        min(word[0] for word in words),
+                        min(word[1] for word in words),
+                        max(word[2] for word in words),
+                        max(word[3] for word in words),
+                    )
+                    candidates.append((text, (page_index, rect)))
+                for text, bounds in _spatial_lines(
+                    (word[4], word[0], word[1], word[2], word[3])
+                    for word in page_words
+                ):
+                    candidates.append(
+                        (text, (page_index, fitz.Rect(*bounds)))
+                    )
+            region, _score = _best_line(candidates, evidence)
+            if region is None:
+                return AnnotationResult(
+                    source_path,
+                    False,
+                    "No high-confidence expense row was found in the PDF.",
+                )
+            page_index, rect = region
+            page = document[page_index]
+            rect = fitz.Rect(
+                max(page.rect.x0, rect.x0 - 4),
+                max(page.rect.y0, rect.y0 - 3),
+                min(page.rect.x1, rect.x1 + 4),
+                min(page.rect.y1, rect.y1 + 3),
+            )
+            page.draw_rect(rect, color=(1, 0, 0), width=3, overlay=True)
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            document.save(output_path, garbage=3, deflate=True)
+            return AnnotationResult(output_path, True, page=page_index + 1)
+        finally:
+            document.close()
+
+
+class PdfCheckNumberResolver(IExpenseReferenceResolver):
+    """Find the check number beside this expense in a related bank statement."""
+
+    def resolve(self, evidence: ExpenseEvidence) -> tuple[str, ...]:
+        source_path = evidence.related_document_path
+        if not source_path or Path(source_path).suffix.lower() != ".pdf":
+            return ()
+        try:
+            import fitz
+        except ImportError:
+            return ()
+        amount = _amount_decimal(evidence.amount)
+        try:
+            document = fitz.open(source_path)
+        except Exception:
+            return ()
+        try:
+            for page in document:
+                words = list(page.get_text("words"))
+                if not words:
+                    continue
+                tolerance = max(
+                    3.0,
+                    statistics.median(
+                        max(1.0, word[3] - word[1]) for word in words
+                    ) * 0.8,
+                )
+                for amount_word in words:
+                    if not _amount_matches(str(amount_word[4]), amount):
+                        continue
+                    center_y = (amount_word[1] + amount_word[3]) / 2
+                    row = [
+                        word for word in words
+                        if abs(((word[1] + word[3]) / 2) - center_y)
+                        <= tolerance
+                    ]
+                    dates = [
+                        word for word in row
+                        if _date_matches(str(word[4]), evidence.expense_date)
+                    ]
+                    if not dates:
+                        continue
+                    date_word = min(
+                        dates,
+                        key=lambda word: abs(word[0] - amount_word[0]),
+                    )
+                    identifiers = [
+                        str(word[4])
+                        for word in row
+                        if word[2] <= date_word[0]
+                        and date_word[0] - word[2] <= 95
+                        and re.fullmatch(r"\d{4,6}", str(word[4]))
+                    ]
+                    if identifiers:
+                        return (identifiers[-1],)
+        finally:
+            document.close()
+        return ()
+
+
+class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
+    _EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+
+    def __init__(
+        self,
+        reference_resolver: IExpenseReferenceResolver | None = None,
+    ) -> None:
+        self._reference_resolver = reference_resolver
+
+    def supports(self, source_path: str) -> bool:
+        return Path(source_path).suffix.lower() in self._EXTENSIONS
+
+    def annotate(
+        self,
+        source_path: str,
+        output_path: str,
+        evidence: ExpenseEvidence,
+    ) -> AnnotationResult:
+        try:
+            from PIL import Image, ImageDraw
+            import pytesseract
+            from pytesseract import Output
+        except ImportError:
+            return AnnotationResult(
+                source_path, False, "Pillow or pytesseract is not installed."
+            )
+
+        try:
+            image = Image.open(source_path)
+            data = pytesseract.image_to_data(image, output_type=Output.DICT)
+        except Exception as exc:
+            return AnnotationResult(
+                source_path, False, f"Image OCR was unavailable: {exc}"
+            )
+
+        match_evidence = evidence
+        if self._reference_resolver is not None:
+            terms = self._reference_resolver.resolve(evidence)
+            if terms:
+                match_evidence = replace(evidence, reference_terms=terms)
+
+        grouped: dict[tuple[int, int, int], list[int]] = {}
+        spatial_words = []
+        for index, text in enumerate(data.get("text", [])):
+            if str(text or "").strip():
+                key = (
+                    int(data["block_num"][index]),
+                    int(data["par_num"][index]),
+                    int(data["line_num"][index]),
+                )
+                grouped.setdefault(key, []).append(index)
+                spatial_words.append(
+                    (
+                        str(text),
+                        int(data["left"][index]),
+                        int(data["top"][index]),
+                        int(data["left"][index]) + int(data["width"][index]),
+                        int(data["top"][index]) + int(data["height"][index]),
+                    )
+                )
+        lines = []
+        for indexes in grouped.values():
+            text = " ".join(str(data["text"][index]) for index in indexes)
+            left = min(int(data["left"][index]) for index in indexes)
+            top = min(int(data["top"][index]) for index in indexes)
+            right = max(
+                int(data["left"][index]) + int(data["width"][index])
+                for index in indexes
+            )
+            bottom = max(
+                int(data["top"][index]) + int(data["height"][index])
+                for index in indexes
+            )
+            lines.append((text, (left, top, right, bottom)))
+        lines.extend(_spatial_lines(spatial_words))
+        region, _score = _best_line(lines, match_evidence)
+        if region is None:
+            return AnnotationResult(
+                source_path,
+                False,
+                "No high-confidence expense row was found in the image.",
+            )
+        left, top, right, bottom = region
+        if match_evidence.reference_terms:
+            # A ledger's related statement may identify the expense by check
+            # number even when cross-outs defeat OCR on the payment line.
+            # Include the payment/confirmation lines immediately above it.
+            left = min(left, round(image.width * 0.08))
+            right = max(right, round(image.width * 0.94))
+            top = max(0, top - round(image.height * 0.06))
+            bottom = min(image.height - 1, bottom + round(image.height * 0.01))
+        padding = max(8, round(image.width * 0.004))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle(
+            (
+                max(0, left - padding),
+                max(0, top - padding),
+                min(image.width - 1, right + padding),
+                min(image.height - 1, bottom + padding),
+            ),
+            outline="red",
+            width=max(5, round(image.width * 0.003)),
+        )
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        suffix = Path(output_path).suffix.lower()
+        output_format = {
+            ".jpg": "JPEG",
+            ".jpeg": "JPEG",
+            ".png": "PNG",
+            ".bmp": "BMP",
+            ".tif": "TIFF",
+            ".tiff": "TIFF",
+            ".webp": "WEBP",
+        }.get(suffix, image.format or "PNG")
+        if output_format == "JPEG" and image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+        image.save(output_path, format=output_format)
+        return AnnotationResult(output_path, True)
+
+
+class ExcelExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
+    _EXTENSIONS = {".xlsx", ".xlsm"}
+
+    def supports(self, source_path: str) -> bool:
+        return Path(source_path).suffix.lower() in self._EXTENSIONS
+
+    def annotate(
+        self,
+        source_path: str,
+        output_path: str,
+        evidence: ExpenseEvidence,
+    ) -> AnnotationResult:
+        try:
+            from openpyxl import load_workbook
+            from openpyxl.styles import Border, Side
+        except ImportError:
+            return AnnotationResult(source_path, False, "openpyxl is not installed.")
+
+        keep_vba = Path(source_path).suffix.lower() == ".xlsm"
+        workbook = load_workbook(source_path, keep_vba=keep_vba, data_only=False)
+        candidates: list[tuple[str, tuple[object, int, int, int]]] = []
+        for sheet in workbook.worksheets:
+            for row in sheet.iter_rows():
+                populated = [cell for cell in row if cell.value not in (None, "")]
+                if not populated:
+                    continue
+                text_parts = []
+                for cell in populated:
+                    value = cell.value
+                    if isinstance(value, (datetime, date)):
+                        text_parts.append(value.strftime("%m/%d/%Y"))
+                    elif isinstance(value, (int, float, Decimal)):
+                        text_parts.append(f"{value:.2f}")
+                    else:
+                        text_parts.append(str(value))
+                candidates.append(
+                    (
+                        " ".join(text_parts),
+                        (sheet, row[0].row, populated[0].column, populated[-1].column),
+                    )
+                )
+        region, _score = _best_line(candidates, evidence)
+        if region is None:
+            workbook.close()
+            return AnnotationResult(
+                source_path,
+                False,
+                "No high-confidence expense row was found in the spreadsheet.",
+            )
+        sheet, row_number, first_column, last_column = region
+        red = Side(style="thick", color="FFFF0000")
+        for column in range(first_column, last_column + 1):
+            cell = sheet.cell(row=row_number, column=column)
+            cell.border = Border(
+                left=red if column == first_column else cell.border.left,
+                right=red if column == last_column else cell.border.right,
+                top=red,
+                bottom=red,
+            )
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        workbook.save(output_path)
+        workbook.close()
+        return AnnotationResult(output_path, True)
+
+
+class ExpenseDocumentAnnotationService(IExpenseDocumentAnnotationService):
+    def __init__(
+        self,
+        annotators: Sequence[IExpenseDocumentAnnotator],
+        cache_dir: str,
+    ) -> None:
+        self._annotators = tuple(annotators)
+        self._cache_dir = os.path.abspath(cache_dir)
+        self._lock = threading.Lock()
+
+    def prepare(
+        self,
+        source_path: str,
+        evidence: ExpenseEvidence,
+    ) -> AnnotationResult:
+        source_path = os.path.abspath(source_path)
+        annotator = next(
+            (item for item in self._annotators if item.supports(source_path)), None
+        )
+        if annotator is None:
+            return AnnotationResult(
+                source_path, False, "This document format has no annotation strategy."
+            )
+        try:
+            stat = os.stat(source_path)
+        except OSError as exc:
+            return AnnotationResult(source_path, False, f"Document unavailable: {exc}")
+        fingerprint = hashlib.sha256(
+            repr(
+                (
+                    source_path,
+                    stat.st_mtime_ns,
+                    stat.st_size,
+                    evidence,
+                    type(annotator).__name__,
+                    ANNOTATION_SCHEMA_VERSION,
+                )
+            ).encode("utf-8")
+        ).hexdigest()[:24]
+        suffix = Path(source_path).suffix.lower()
+        output_path = os.path.join(
+            self._cache_dir,
+            f"expense-{evidence.expense_id}-{fingerprint}{suffix}",
+        )
+        if os.path.isfile(output_path):
+            return AnnotationResult(output_path, True)
+        with self._lock:
+            if os.path.isfile(output_path):
+                return AnnotationResult(output_path, True)
+            try:
+                return annotator.annotate(source_path, output_path, evidence)
+            except Exception as exc:
+                return AnnotationResult(
+                    source_path,
+                    False,
+                    f"Highlighting failed safely: {type(exc).__name__}: {exc}",
+                )
+
+
+def build_document_annotation_service(
+    cache_dir: str,
+) -> IExpenseDocumentAnnotationService:
+    """Composition root: wire format implementations to the application port."""
+    return ExpenseDocumentAnnotationService(
+        (
+            PdfExpenseDocumentAnnotator(),
+            ImageExpenseDocumentAnnotator(PdfCheckNumberResolver()),
+            ExcelExpenseDocumentAnnotator(),
+        ),
+        cache_dir,
+    )

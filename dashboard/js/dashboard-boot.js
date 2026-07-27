@@ -2184,6 +2184,9 @@ function setupScanners() {
     const startBtn = dialog.querySelector(".scanner-start");
     const showBtn = dialog.querySelector(".scanner-show");
     const fixPrinterBtn = dialog.querySelector(".scanner-fix-printer");
+    const clearVerificationBtn = dialog.querySelector(
+      ".scanner-clear-verification",
+    );
     const processBtn = dialog.querySelector(".scanner-process");
     const resultBox = dialog.querySelector(".scanner-result");
     const imageBox = dialog.querySelector(".scanner-image-box");
@@ -2208,6 +2211,7 @@ function setupScanners() {
     };
     let lastImageUrl = null;
     let scanning = false;
+    let currentStatus = "idle";
     let progressTimer = null;
     let pollTimer = null;
     let monitorActive = false;
@@ -2475,6 +2479,10 @@ function setupScanners() {
     // Map a /api/scanner-status or /api/scanner-scan result onto the dialog.
     const applyResult = (data) => {
       const status = data.status || (data.ok ? "ready" : "error");
+      currentStatus = status;
+      if (clearVerificationBtn)
+        clearVerificationBtn.disabled = status !== "intake_busy";
+      startBtn.disabled = ["intake_busy", "busy", "offline"].includes(status);
       if (status === "ready") {
         setReady(data.image_url);
       } else if (status === "idle") {
@@ -2491,6 +2499,34 @@ function setupScanners() {
         refreshDiagnostics();
       }
       return status;
+    };
+
+    const clearVerificationLock = async () => {
+      if (
+        !clearVerificationBtn ||
+        !window.confirm(
+          "Clear this scanner's stuck verification lock? This does not delete the scan or change any financial records.",
+        )
+      )
+        return;
+      clearVerificationBtn.disabled = true;
+      try {
+        const res = await fetch("/api/scanner-clear-verification", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scanner }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok)
+          throw new Error(data.error || `request failed (${res.status})`);
+        setIdle();
+        currentStatus = "idle";
+        startBtn.disabled = false;
+        refreshDiagnostics();
+      } catch (err) {
+        setFailed(`Could not clear verification lock: ${err.message}`);
+        clearVerificationBtn.disabled = false;
+      }
     };
 
     // "Refresh Health" must refresh both sets of evidence: the LED diagnostics
@@ -2609,13 +2645,17 @@ function setupScanners() {
         setFailed(`Scan failed: ${err.message}`);
       } finally {
         scanning = false;
-        startBtn.disabled = false;
+        startBtn.disabled = ["intake_busy", "busy", "offline"].includes(
+          currentStatus,
+        );
       }
     };
 
     closeBtn.addEventListener("click", hideImage);
     showBtn.addEventListener("click", showImage);
     startBtn.addEventListener("click", runManualScan);
+    if (clearVerificationBtn)
+      clearVerificationBtn.addEventListener("click", clearVerificationLock);
     if (fixPrinterBtn)
       fixPrinterBtn.addEventListener("click", runPrinterRepair);
     if (processBtn) processBtn.addEventListener("click", runPipeline);

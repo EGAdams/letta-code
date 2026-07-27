@@ -30,6 +30,7 @@ export const EDGE_TTS_EN_US_VOICES = [
   { value: "en-US-RogerNeural", label: "Roger", gender: "Male" },
   { value: "en-US-SteffanNeural", label: "Steffan", gender: "Male" },
 ];
+export const DEFAULT_EDGE_TTS_VOICE = "en-GB-SoniaNeural";
 
 /**
  * Lazy-load the vendored xterm.js UMD bundle + fit addon + stylesheet (served
@@ -899,9 +900,9 @@ export class InputOptionsRenderer extends DetailRenderer {
       "flex:1;min-width:0;padding:6px;border-radius:4px;border:1px solid #bbb;";
     voiceSel.appendChild(
       this._el("option", {
-        value: "",
+        value: DEFAULT_EDGE_TTS_VOICE,
         textContent: "Default (Sonia, UK)",
-        title: "Use the server default voice",
+        title: DEFAULT_EDGE_TTS_VOICE,
       }),
     );
     for (const voice of EDGE_TTS_EN_US_VOICES) {
@@ -913,46 +914,41 @@ export class InputOptionsRenderer extends DetailRenderer {
       voiceSel.appendChild(opt);
     }
     const voiceStorageKey = `dash-agent-voice:${this._agentName}`;
-    const storedVoice = this._storage?.getItem?.(voiceStorageKey) || "";
+    const storedVoice =
+      this._storage?.getItem?.(voiceStorageKey) || DEFAULT_EDGE_TTS_VOICE;
     const validStoredVoice =
       storedVoice &&
-      EDGE_TTS_EN_US_VOICES.some((voice) => voice.value === storedVoice);
+      (storedVoice === DEFAULT_EDGE_TTS_VOICE ||
+        EDGE_TTS_EN_US_VOICES.some((voice) => voice.value === storedVoice));
     if (validStoredVoice) {
       this._speech?.setVoice?.(storedVoice, this._agentName);
     }
     voiceSel.value =
       this._speech?.getVoice?.(this._agentName) ||
-      (validStoredVoice ? storedVoice : "");
+      (validStoredVoice ? storedVoice : DEFAULT_EDGE_TTS_VOICE);
     this._http
       .getJSON(`/api/agent-voice?agent=${encodeURIComponent(id)}`)
       .then((d) => {
         if (!d || !d.ok) return;
-        const serverVoice = d.voice || "";
+        // Empty metadata is the legacy representation of the Sonia default.
+        const serverVoice = d.voice || DEFAULT_EDGE_TTS_VOICE;
         if (
-          serverVoice &&
+          serverVoice !== DEFAULT_EDGE_TTS_VOICE &&
           !EDGE_TTS_EN_US_VOICES.some((voice) => voice.value === serverVoice)
         ) {
           return;
         }
         voiceSel.value = serverVoice;
-        this._speech?.setVoice?.(serverVoice || null, this._agentName);
-        if (serverVoice) {
-          this._storage?.setItem?.(voiceStorageKey, serverVoice);
-        } else {
-          this._storage?.removeItem?.(voiceStorageKey);
-        }
+        this._speech?.setVoice?.(serverVoice, this._agentName);
+        this._storage?.setItem?.(voiceStorageKey, serverVoice);
       })
       .catch(() => {
         // Keep the local cached voice when Letta metadata is temporarily
         // unavailable.
       });
     voiceSel.addEventListener("change", () => {
-      this._speech?.setVoice?.(voiceSel.value || null, this._agentName);
-      if (voiceSel.value) {
-        this._storage?.setItem?.(voiceStorageKey, voiceSel.value);
-      } else {
-        this._storage?.removeItem?.(voiceStorageKey);
-      }
+      this._speech?.setVoice?.(voiceSel.value, this._agentName);
+      this._storage?.setItem?.(voiceStorageKey, voiceSel.value);
       this._http
         .postJSON("/api/agent-voice", {
           agent: id,
@@ -967,9 +963,9 @@ export class InputOptionsRenderer extends DetailRenderer {
           showStatus(`Voice saved locally only: ${e.message}`, true);
         });
       showStatus(
-        voiceSel.value
-          ? `Voice set to ${voiceSel.value.replace(/^en-US-/, "")}.`
-          : "Voice reset to default.",
+        voiceSel.value === DEFAULT_EDGE_TTS_VOICE
+          ? "Voice set to Sonia (UK)."
+          : `Voice set to ${voiceSel.value.replace(/^en-US-/, "")}.`,
       );
     });
     voiceSelectRow.append(voiceLbl, voiceSel);

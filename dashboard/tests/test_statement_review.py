@@ -95,6 +95,32 @@ def test_workbook_message_names_the_candidates_when_ambiguous():
     assert "can't tell which one" in message
 
 
+def test_many_row_errors_collapse_to_one_consolidated_question():
+    # Mom's heavily-annotated statement scans used to produce one question per
+    # unreadable field (a dozen+ for a single page). Past a couple of genuine
+    # gaps, ask once instead of enumerating every row.
+    row_errors = [
+        {'index': i, 'missing': ['date'], 'date': None, 'description': f'ROW {i}'}
+        for i in range(5)
+    ]
+    packet = _packet(bank_name='Fifth Third Bank', row_errors=row_errors)
+    message = statement_review.review_message(packet)
+    assert '5 transactions' in message
+    assert 'Fifth Third Bank' in message
+    assert 'ROW 0' not in message
+    assert 'checking the archived clean statement PDF' in message
+
+
+def test_two_row_errors_still_enumerate_individually():
+    row_errors = [
+        {'index': 0, 'missing': ['date'], 'date': None, 'description': 'ROW A'},
+        {'index': 1, 'missing': ['date'], 'date': None, 'description': 'ROW B'},
+    ]
+    message = statement_review.review_message(_packet(row_errors=row_errors))
+    assert 'ROW A' in message
+    assert 'ROW B' in message
+
+
 def test_list_reviews_reads_sidecars(tmp_path):
     _write(tmp_path, _packet())
     reviews = statement_review.list_reviews(archive_root=str(tmp_path))

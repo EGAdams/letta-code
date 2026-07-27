@@ -476,13 +476,14 @@ describe("InputOptionsRenderer (Strategy)", () => {
     const ctx = inputOptionsSetup();
     const sel = ctx.container.querySelector(".io-voice-select");
     expect(sel).not.toBeNull();
+    expect(sel.value).toBe("en-GB-SoniaNeural");
     expect([...sel.children].map((opt) => opt.value)).toContain(
       "en-US-JennyNeural",
     );
     expect([...sel.children].map((opt) => opt.value)).toContain(
       "en-US-EmmaNeural",
     );
-    expect(ctx.selectedVoice).toBeNull();
+    expect(ctx.selectedVoice).toBe("en-GB-SoniaNeural");
 
     sel.value = "en-US-EmmaNeural";
     sel.dispatch("change", {});
@@ -517,10 +518,20 @@ describe("InputOptionsRenderer (Strategy)", () => {
     expect(secondSel.value).toBe("en-US-JennyNeural");
     expect(second.selectedVoice).toBe("en-US-JennyNeural");
 
-    secondSel.value = "";
+    secondSel.value = "en-GB-SoniaNeural";
     secondSel.dispatch("change", {});
     await Promise.resolve();
-    expect(persisted.has("dash-agent-voice:Mazda")).toBe(false);
+    expect(persisted.get("dash-agent-voice:Mazda")).toBe("en-GB-SoniaNeural");
+  });
+
+  test("legacy empty server preference resolves to explicit Sonia voice", async () => {
+    const ctx = inputOptionsSetup({
+      voiceInfo: { ok: true, voice: "", options: [] },
+    });
+    await Promise.resolve();
+    const sel = ctx.container.querySelector(".io-voice-select");
+    expect(sel.value).toBe("en-GB-SoniaNeural");
+    expect(ctx.selectedVoice).toBe("en-GB-SoniaNeural");
   });
 
   test("voice dropdown loads the cross-device Letta metadata preference", async () => {

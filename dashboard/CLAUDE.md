@@ -282,6 +282,17 @@ spec** when `noopener` is set — don't treat a null return as "popup blocked".
 editing the injector, re-run it on all reports (command above). See the
 `rol_finance_view_receipt_fix` project memory.
 
+Supporting-document opens are non-destructive: `document_annotation.py` creates a
+cached annotated copy and leaves the PDF, image, or Excel workbook unchanged.
+`IExpenseDocumentAnnotationService` is the server-facing port; PDF, OCR-image,
+and Excel implementations are strategies wired only in
+`build_document_annotation_service()`. The match must include date+amount,
+description+amount, or a related check number; otherwise the original opens
+without a potentially misleading box. Mom's Ledger images can resolve their
+check number from the related statement before OCR matching. Runtime setup:
+`python3 -m pip install --user --break-system-packages -r dashboard/requirements.txt`
+and install the local `tesseract-ocr` package for image coordinates.
+
 ### Recent Report — the Reports tab's default view
 
 Project Plans → ROL Finance → Reports opens on **Recent Report** (`GET /recent_report.html`),
@@ -339,60 +350,72 @@ Tests: `tests/test_server.py` (recent-report pointer/resolve/html-building, inta
 ### Scanners — physical document scanners (Project Plans → ROL Finance → Scanners)
 
 Two HP scanners attached to the live box: **Window** = HPI297BEA (HP OfficeJet 8120e),
-**Freezer** = HP063E28 (HP DeskJet 4100, non-default, flaky). Driven by
-`scanner_scripts/scan_device.ps1` (in this repo; deployed to
-`~/planner/nonprofit_finance_db/receipt_scanning_tools/`), which selects the device **BY NAME**
-(`-NameLike`), not "first device" — WIA enumeration order is unstable. Wrappers
-`run_scan_window.sh` (→`scan.jpg`) / `run_scan_freezer.sh` (→`scan_freezer.jpg`). `SCANNERS`
-registry + `_invoke_scanner()`/`classify_scan_result()` live in `server.py`. Output is JPEG
-(quality 85, ~1MB) rather than a raw ~26MB WIA-transfer PNG.
+**Freezer** = HP063E28 (HP DeskJet 4100). Since 2026-07-24 they are driven directly from WSL
+through native `sane-airscan`/eSCL — **not Windows WIA**:
+
+- Window: `airscan:e0:Window Scanner` → `https://10.0.0.26/eSCL`
+- Freezer: `airscan:e1:Freezer Scanner` → `http://10.0.0.243/eSCL`
+
+WSL multicast discovery is unreliable, so the addresses are static in
+`scanner_scripts/airscan.conf` (installed at `/etc/sane.d/airscan.conf`). The shared
+`scanner_scripts/scan_airscan.sh` performs a 300-dpi flatbed JPEG scan with an 85-second timeout
+and preserves the existing `SCANNER_BUSY` / `SCANNER_OFFLINE` / `Saved:` output contract.
+`run_scan_window.sh` writes `window_scan.jpg`; `run_scan_freezer.sh` writes `scan_freezer.jpg`.
+All three scripts are deployed to `~/planner/nonprofit_finance_db/receipt_scanning_tools/`.
+`SCANNERS` + `_invoke_scanner()`/`classify_scan_result()` live in `server.py`.
 
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/scanner-scan` `{scanner}` | One-shot manual scan → `{status, ok, image_url\|error}` |
-| `GET /api/scanner-status?scanner=` | Lightweight probe → same `{status}` |
+| `GET /api/scanner-status?scanner=` | Legacy endpoint that performs a real scan; do NOT use as a health probe |
 | `GET /api/scanner-image?scanner=` | Serves the scanned JPEG |
 | `GET /api/scanner-diagnostics?scanner=` | Read-only health LEDs (see below) → `{overall, checks:[{id,label,state,detail}]}` |
 
-**Scanner Health LEDs** — the "we keep having to reset everything" panel on each scanner dialog.
-`scanner_diagnostics()` runs ONE `scanner_diag.ps1` launch (via the same interop socket) that
-probes every Windows-side failure point read-only (it never transfers a scan), and
-`build_scanner_diagnostics()` (pure, unit-tested) maps the raw result to LED rows. States are
-`ok`(green)/`warn`(yellow)/`bad`(red)/`unknown`(grey — "couldn't ask Windows", deliberately not
-red). The chain, top to bottom: **WSL Bridge** (interop socket present — the #1 reset cause) →
-**Imaging Service** (stisvc Running) → **Driver Health** (PnP Image-class device OK vs
-absent/error — the "reinstall the HP driver" signal) → **Scanner Online** (WIA enumerates the
-device by name; `timeout` here = wedged stisvc) → **No Stuck Scans** (leaked `scan_device.ps1`
-procs) → **Printer Device** (Freezer only — the DeskJet's own LEDM `ProductStatusDyn.xml` over the
-LAN, so door/jam/offline show red and paper/ink show yellow). The lone WIA enumeration runs under
-`_SCAN_LOCK` (non-blocking acquire) so it can't collide with a live scan's Transfer; during a scan
-it reports the online LED as "scan in progress" instead of blocking. It is refreshed on tab open,
-after a busy/offline/failed scan, after Fix Scanner, and via the panel's **Refresh** button — NOT
-auto-polled (constant WIA polling causes the very contention it detects). Front end:
-`ScannerDiagnosticsController` (`js/implementation/scanner-diagnostics-controller.js`) — server does
-the mapping, the class only renders rows. `scanner_diag.ps1` must be deployed to the scan-tools dir
-alongside `scan_device.ps1`/`reap_scans.ps1`.
+**Scanner Health LEDs** — `scanner_diagnostics()` first calls `_airscan_ready()`, a read-only
+capability query (`scanimage -d <device> --help`; never transfers a scan). A ready direct backend
+renders the actual live chain: **Scanner Backend → Scanner Service → Driver Health → Scanner
+Online → Scanner Access → No Stuck Scans**. Stale Windows WIA/WSD state must not turn these LEDs
+red. The Freezer also keeps its direct LEDM hardware check at
+`http://10.0.0.243/DevMgmt/ProductStatusDyn.xml`: door/jam/offline are red; paper/ink are
+printing-only yellow warnings and never block scanning.
+
+`scanner_diag.ps1`, WIA, stisvc, and WSL interop remain a legacy fallback only when AirScan is
+unavailable. Front end: `ScannerDiagnosticsController`
+(`js/implementation/scanner-diagnostics-controller.js`); server-side
+`build_scanner_diagnostics()` owns the mapping.
 
 `status` ∈ ready/busy/offline/error. Auto-poll is gated by `MONITORED_SCANNERS` (a `Set` in
 `setupScanners` in `dashboard-boot.js`) — currently empty, so neither scanner auto-polls; both sit
 idle until "Start Scan" is pressed (constant auto-polling was itself found to cause the Window
 scanner reporting "busy" from shared WIA-service contention).
 
-**Gotchas** (full detail in the `dashboard-scanner-wsl-interop` memory):
-1. **WSL interop** — the systemd `--user` dashboard service has no `WSL_INTEROP`, so it can't
-   launch Windows `powershell.exe` directly. `_wsl_interop_socket()` borrows a working
-   `/run/WSL/<pid>_interop` from an interactive WSL session — at least one must stay alive.
-2. **stisvc wedge** — a hung scan can leak the Windows `powershell.exe` and wedge the Windows
-   Image Acquisition service, so every scan hangs at `New-Object WIA.DeviceManager`.
-   `_reap_stale_scans()` runs before each scan + after timeout. Fully-wedged recovery: elevated
-   SSH to the Windows host, find `stisvc`'s PID via `sc queryex stisvc`, `taskkill /f /pid <PID>`
-   (it auto-restarts); a milder case just needs `net stop stisvc & net start stisvc`.
-3. A "busy" state that won't clear on power-cycle is often an **open ink door/cover**, not a held
-   handle. A real scan takes ≈33s (OfficeJet 300dpi), not 10s.
+**Root cause/history:** on 2026-07-24 both scanners' own eSCL interfaces reported `Idle` while
+Windows retained their WSD Image records as `Present:false, Problem:45`. Even elevated
+`fdPHost`/`upnphost`/`stisvc` restarts plus `pnputil /scan-devices` did not reconnect them. This
+explained the recurring busy/offline/power-cycle class of failures. Earlier HP Scan Doctor,
+open-cover, leaked-process, and missing-interop incidents were real but are no longer on the live
+scan path. Full current runbook: memory `dashboard_scanner_airscan_wia_bypass_2026_07_24`;
+`dashboard_scanner_wsl_interop` is legacy history.
 
-Deploy: scp `scanner_scripts/*` to the scan-tools dir (now includes `scanner_diag.ps1`); scp
-dashboard files; `systemctl --user restart dashboard-server.service`. Tests:
-`tests/test_server.py -k "scan or diag"` + `js/tests/scanner-diagnostics-controller.test.js`.
+Install/deploy/verify:
+
+```bash
+sudo apt-get install -y sane-airscan sane-utils
+sudo install -m 0644 scanner_scripts/airscan.conf /etc/sane.d/airscan.conf
+install -m 0755 scanner_scripts/{scan_airscan,run_scan_window,run_scan_freezer}.sh \
+  ~/planner/nonprofit_finance_db/receipt_scanning_tools/
+scanimage -L
+systemctl --user restart dashboard-server.service
+# Restart Executor after every dashboard restart:
+curl -sS -H 'Content-Type: application/json' \
+  -d '{"server":"executor","action":"start"}' http://localhost:8765/api/server-action
+curl -sS 'http://localhost:8765/api/scanner-diagnostics?scanner=window'
+curl -sS 'http://localhost:8765/api/scanner-diagnostics?scanner=freezer'
+.venv/bin/python -m pytest tests/ -q
+```
+
+Both scanners completed direct 300-dpi test scans on 2026-07-24 (Window ≈22s, Freezer ≈19s).
+Browser blinking-red state can be stale after repair; hard-refresh with `Ctrl+Shift+R`.
 
 ### Scan → Mazda intake pipeline
 

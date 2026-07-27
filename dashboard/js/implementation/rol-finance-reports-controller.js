@@ -396,6 +396,7 @@ export class RolFinanceReportsController {
               ` data-description="${TextUtils.esc(r.description || r.vendor_key || r.id_light || "—")}"` +
               ` data-signed-amount="${TextUtils.esc(r.amount || "")}"` +
               ` data-date="${TextUtils.esc(r.expense_date || "")}"` +
+              ` data-reporting-category="${TextUtils.esc(r.reporting_category || "Uncategorized")}"` +
               ` data-reason="${TextUtils.esc(r.reason || "")}"` +
               ` data-receipt-present="${r.receipt_present ? "1" : "0"}">` +
               `<td>${TextUtils.esc(r.expense_date || "")}</td>` +
@@ -524,7 +525,7 @@ export class RolFinanceReportsController {
     const pk = this._ensurePickerDialog();
     pk.msg.textContent = "";
     pk.msg.style.color = "";
-    pk.target.textContent = `${d.description || ""}  •  ${d.signedAmount || ""}  •  ${d.date || ""}`;
+    pk.target.textContent = `${d.description || ""}  •  ${d.signedAmount || ""}  •  ${d.date || ""}  •  ${d.reportingCategory || "Uncategorized"}`;
     // The reason this record failed to auto-process — shown so mom can fix it
     // here or tell Mazda what to do.
     pk.reason.textContent = d.reason
@@ -545,7 +546,7 @@ export class RolFinanceReportsController {
     pk.list.innerHTML = "";
     for (const c of cats) {
       const sq = this._doc.createElement("div");
-      sq.className = `cp-square${c.cls === "cat-uncategorized" ? " current" : ""}`;
+      sq.className = `cp-square${c.name === (d.reportingCategory || "Uncategorized") ? " current" : ""}`;
       sq.style.background = c.bg;
       sq.style.color = c.fg;
       sq.textContent = c.name;
@@ -981,7 +982,15 @@ export class RolFinanceReportsController {
           : null;
       const tab = this._doc.createElement("button");
       tab.type = "button";
-      tab.className = `tab${missing ? " report-missing" : ""}${receiptCount > 0 ? " receipt-progress" : ""}`;
+      const statusClass =
+        r.status === "fail"
+          ? " report-missing"
+          : r.status === "review"
+            ? " status-yellow"
+            : r.status === "pass"
+              ? " status-green"
+              : "";
+      tab.className = `tab${missing ? " report-missing" : statusClass}${receiptCount > 0 ? " receipt-progress" : ""}`;
       tab.dataset.reportKey = r.key;
       tab.textContent =
         receiptCount == null ? r.label : `${r.label} (${receiptCount})`;

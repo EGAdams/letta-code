@@ -899,6 +899,57 @@ python3 mazda_verify_receipt.py -f receipt.json --db /tmp/run.sqlite3 --output o
     <div class="folio">· 76 ·</div>
   </section>
 
+  <section class="leaf" id="supporting-documents-contract">
+    <div class="runninghead"><span>Document Intake</span><span>Supporting Evidence</span></div>
+    <p class="chapnum">Operational Addendum</p>
+    <h1 class="chap">Three Independent Supporting Documents</h1>
+    <div class="chap-rule"></div>
+    <p>Each nonprofit expense may retain three independent references:
+      <code>receipt_url</code> for a receipt, <code>document_url</code> for the
+      source statement or other non-receipt document, and
+      <code>moms_ledger</code> for Mom’s composite ledger image.</p>
+    <p><strong>Supporting-document contract.</strong> Attach only the field
+      corresponding to the current classification and preserve the other two.
+      Documents may arrive in any order and must converge on one matching
+      expense rather than create duplicates. An identical reference is an
+      idempotent success. A different non-empty same-type reference must never
+      overwrite the original; route it through the existing review-note/log
+      mechanism and identify the conflict without exposing private paths. Do
+      not invent a <code>NEEDS_DOCUMENT_VERIFICATION</code> expense status; that
+      member does not exist in the live enum.</p>
+    <p><strong>Evidence roots and matching.</strong> Reconcile across
+      <code>readable_documents/receipts/</code>,
+      <code>readable_documents/bank_statements/</code>, and
+      <code>readable_documents/ledger_documents/</code>. A ledger check number
+      joined to the statement paid date/amount and receipt payee/date/amount is
+      strong evidence for one expense; amount alone is insufficient. All
+      attachments go through <code>SupportingDocumentService</code> and its
+      repository interface, never direct handler SQL.</p>
+    <p><strong>Legacy classification repair.</strong> A repeated incoming scan
+      associated with multiple unrelated standalone transactions is a source
+      statement, not a receipt shared by all those expenses. Store it in
+      <code>document_url</code>. When visual or deterministic classification
+      proves a legacy reference is in the wrong field, reclassify it through
+      the supporting-document service/repository boundary so the move is
+      atomic and unrelated references remain untouched.</p>
+    <p>The Trainer grades successful tool returns and database-backed evidence
+      for the selected field, target expense ID, association status, preserved
+      references, and human-verification requirement. Receipt Only matching
+      must retain <code>receipt_url</code> while adding
+      <code>document_url</code>; Mom-ledger reconciliation must attach
+      <code>moms_ledger</code> to every uniquely matched expense.</p>
+    <p><strong>Set Category evidence visibility.</strong> Every available
+      evidence type must surface as its own dialog action:
+      <code>receipt_url</code> produces <em>View Receipt</em>,
+      <code>document_url</code> produces <em>View Source Document</em>, and
+      <code>moms_ledger</code> produces <em>View Mom’s Ledger</em>. New and
+      duplicate-matched statement expenses must persist their statement
+      reference in <code>document_url</code>; the dashboard may derive a source
+      from a report directory only to keep legacy records usable. The Trainer
+      checks every returned expense ID and fails a run when a resolvable stored
+      reference does not produce its corresponding available action.</p>
+    <div class="folio">· 77 ·</div>
+  </section>
 </div>
 </body>
 </html>

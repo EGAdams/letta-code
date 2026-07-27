@@ -51,7 +51,7 @@ describe("DashboardStatementReviewActions adapter", () => {
     ]);
   });
 
-  test("delegates document display to the injected browser opener", () => {
+  test("delegates document display to the injected browser opener when given a URL", () => {
     const opened = [];
     const actions = new DashboardStatementReviewActions({
       listAgents: async () => [],
@@ -80,4 +80,60 @@ describe("DashboardStatementReviewActions adapter", () => {
       /document is no longer available/,
     );
   });
+});
+
+test("builds a supporting-document URL from expense-backed review context", async () => {
+  const opened = [];
+  const posts = [];
+  const actions = new DashboardStatementReviewActions({
+    listAgents: async () => [],
+    openAgentInput: async () => null,
+    openUrl: (url) => opened.push(url),
+    postJSON: async (url, body) => {
+      posts.push([url, body]);
+      return { ok: true, url: "/supporting-document/token#page=1" };
+    },
+  });
+
+  await actions.showDocument("", {
+    expense_id: 477,
+    expense_date: "2025-01-13",
+    amount: "25.00",
+    vendor_key: "right_to_life",
+    description: "Right to Life - Current president: Amber Roseboom",
+  });
+
+  expect(posts).toEqual([
+    [
+      "/api/open-supporting-document",
+      {
+        expense_id: 477,
+        date: "2025-01-13",
+        signed_amount: "-25.00",
+        vendor_key: "right_to_life",
+        document_type: "source",
+        description: "Right to Life - Current president: Amber Roseboom",
+      },
+    ],
+  ]);
+  expect(opened).toEqual(["/supporting-document/token#page=1"]);
+});
+
+test("fails closed when supporting-document lookup cannot build a URL", async () => {
+  const actions = new DashboardStatementReviewActions({
+    listAgents: async () => [],
+    openAgentInput: async () => null,
+    openUrl: () => {},
+    postJSON: async () => ({ ok: false, error: "missing document" }),
+  });
+
+  await expect(
+    actions.showDocument("", {
+      expense_id: 477,
+      expense_date: "2025-01-13",
+      amount: "25.00",
+      vendor_key: "right_to_life",
+      description: "Right to Life - Current president: Amber Roseboom",
+    }),
+  ).rejects.toThrow(/missing document/);
 });
