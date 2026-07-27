@@ -58,7 +58,23 @@ describe("approval recovery wiring", () => {
 
     const segment = source.slice(start, end);
 
-    expect(segment).toContain("getClient()");
-    expect(segment).toContain("client.conversations.cancel");
+    expect(segment).toContain("requestBackendInterruptCancel()");
+  });
+
+  test("a new turn waits for backend interrupt cancellation before streaming", () => {
+    const appPath = fileURLToPath(
+      new URL("../../cli/App.tsx", import.meta.url),
+    );
+    const source = readFileSync(appPath, "utf-8");
+
+    const start = source.indexOf("const processConversation = useCallback");
+    const end = source.indexOf("setStreaming(true);", start);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const segment = source.slice(start, end);
+    expect(segment).toContain("pendingBackendInterruptCancelRef.current");
+    expect(segment).toContain("await pendingBackendInterruptCancel");
   });
 });

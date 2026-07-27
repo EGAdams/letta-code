@@ -1901,6 +1901,10 @@ export default function App({
   // Track if user wants to cancel (persists across state updates)
   const userCancelledRef = useRef(false);
 
+  // ESC cancellation is asynchronous on the server. Keep the next turn from
+  // racing the still-active run and receiving a conversation-busy 409.
+  const pendingBackendInterruptCancelRef = useRef<Promise<void> | null>(null);
+
   // Retry counter for transient LLM API errors (ref for synchronous access in loop)
   const llmApiErrorRetriesRef = useRef(0);
   const quotaAutoSwapAttemptedRef = useRef(false);
@@ -4090,6 +4094,12 @@ export default function App({
         if (userCancelledRef.current) {
           userCancelledRef.current = false; // Reset for next time
           return;
+        }
+
+        const pendingBackendInterruptCancel =
+          pendingBackendInterruptCancelRef.current;
+        if (pendingBackendInterruptCancel) {
+          await pendingBackendInterruptCancel;
         }
 
         // Double-check we haven't become stale between entry and try block
@@ -6594,6 +6604,39 @@ export default function App({
   );
 
   const handleInterrupt = useCallback(async () => {
+    const requestBackendInterruptCancel = () => {
+      const cancelConversationId =
+        conversationIdRef.current === "default"
+          ? agentIdRef.current
+          : conversationIdRef.current;
+      if (!cancelConversationId || cancelConversationId === "loading") {
+        return;
+      }
+
+      let trackedCancel: Promise<void>;
+      const cancelRequest = getClient().then(async (client) => {
+        await client.conversations.cancel(cancelConversationId);
+      });
+      const boundedCancel = Promise.race([
+        cancelRequest,
+        new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+      ]);
+      trackedCancel = boundedCancel
+        .catch((error) => {
+          debugLog(
+            "stream",
+            "Backend interrupt cancellation failed: %s",
+            error instanceof Error ? error.message : String(error),
+          );
+        })
+        .finally(() => {
+          if (pendingBackendInterruptCancelRef.current === trackedCancel) {
+            pendingBackendInterruptCancelRef.current = null;
+          }
+        });
+      pendingBackendInterruptCancelRef.current = trackedCancel;
+    };
+
     // If we're executing client-side tools, abort them AND the main stream
     const hasTrackedTools =
       executingToolCallIdsRef.current.length > 0 ||
@@ -6667,23 +6710,11 @@ export default function App({
       toolResultsInFlightRef.current = false;
       refreshDerived();
 
-      // Send cancel request to backend (fire-and-forget).
+      // Start backend cancellation without blocking the interrupt UI.
+      // The next turn awaits the tracked request before it streams.
       // Without this, the backend stays in requires_approval state after tool interrupt,
       // causing CONFLICT on the next user message.
-      getClient()
-        .then((client) => {
-          const cancelConversationId =
-            conversationIdRef.current === "default"
-              ? agentIdRef.current
-              : conversationIdRef.current;
-          if (!cancelConversationId || cancelConversationId === "loading") {
-            return;
-          }
-          return client.conversations.cancel(cancelConversationId);
-        })
-        .catch(() => {
-          // Silently ignore - cancellation already happened client-side
-        });
+      requestBackendInterruptCancel();
 
       // Delay flag reset to ensure React has flushed state updates before dequeue can fire.
       // Use setTimeout(50) instead of setTimeout(0) - the longer delay ensures React's
@@ -6790,22 +6821,9 @@ export default function App({
       setAutoHandledResults([]);
       setAutoDeniedApprovals([]);
 
-      // Send cancel request to backend asynchronously (fire-and-forget)
-      // Don't wait for it or show errors since user already got feedback
-      getClient()
-        .then((client) => {
-          const cancelConversationId =
-            conversationIdRef.current === "default"
-              ? agentIdRef.current
-              : conversationIdRef.current;
-          if (!cancelConversationId || cancelConversationId === "loading") {
-            return;
-          }
-          return client.conversations.cancel(cancelConversationId);
-        })
-        .catch(() => {
-          // Silently ignore - cancellation already happened client-side
-        });
+      // Start backend cancellation without blocking the interrupt UI.
+      // The next turn awaits the tracked request before it streams.
+      requestBackendInterruptCancel();
 
       // Reset cancellation flags after cleanup is complete.
       // Use setTimeout(50) instead of setTimeout(0) to ensure React has fully processed
