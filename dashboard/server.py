@@ -26,6 +26,8 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 from voice.pipeline import build_pipeline, handle_voice_upload
+from category_taxonomy import FallbackCategoryTaxonomy, MySqlCategoryTaxonomy
+from category_taxonomy_seed import LEGACY_TAXONOMY
 from category_undo import (
     CategoryChange,
     CategoryUndoService,
@@ -213,6 +215,13 @@ REPORTING_CATEGORY_STYLE = {
     'Uncategorized': ('#BFBFBF', '#000000'),
 }
 
+# SUPERSEDED by ICategoryTaxonomy (category_taxonomy.py) — reads go through
+# _get_category_taxonomy(), which sources this from the DB's is_report_category /
+# report_category_id columns (migration 2026_07_28_002 backfilled them to match
+# this dict exactly). These four dicts remain only as the seed for
+# LEGACY_TAXONOMY, the offline fallback. Editing them no longer changes runtime
+# behaviour while the DB is reachable; change the categories table instead.
+#
 # category_id → reporting bucket, walked up the ancestor chain. Duplicated from
 # create_spreadsheet.py's REPORTING_CATEGORY_ANCESTOR_MAP (small + stable; importing
 # create_spreadsheet pulls xlsxwriter which the server's system python lacks).
@@ -1671,6 +1680,33 @@ def _get_category_undo_service():
     return _category_undo_service
 
 
+_category_taxonomy = None
+_category_taxonomy_lock = threading.Lock()
+
+
+def _get_category_taxonomy():
+    """Composition root for the category tree.
+
+    The DB is authoritative; LEGACY_TAXONOMY is the fallback so a database blip
+    degrades the Set Category dialog to the old hardcoded behaviour instead of
+    emptying it. Migration 002 backfilled the presentation columns to reproduce
+    those same maps, so this returns identical answers to the four dicts above
+    for every id they covered — verified against all 169 categories and 892
+    categorised expenses by migrations/verify_taxonomy_equivalence.py.
+    """
+    global _category_taxonomy
+    with _category_taxonomy_lock:
+        if _category_taxonomy is None:
+            # Late-bound connection: resolve the module attribute per call so a
+            # test (or a reconnect) that replaces _rol_get_connection is honoured
+            # instead of being frozen in at first use.
+            _category_taxonomy = FallbackCategoryTaxonomy(
+                MySqlCategoryTaxonomy(lambda: _rol_get_connection()),
+                LEGACY_TAXONOMY,
+            )
+    return _category_taxonomy
+
+
 def _record_category_undo(action):
     return _get_category_undo_service().record(CategoryChange(**action))
 
@@ -1842,8 +1878,12 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
             file_updated = False
 
     previous_category_id = chosen.get('category_id')
-    previous_reporting_category = REPORTING_CATEGORY_ANCESTOR_MAP.get(
-        previous_category_id, 'Uncategorized')
+    # Walk the tree rather than doing a flat lookup. REPORTING_CATEGORY_ANCESTOR_MAP
+    # only covers 24 of 169 categories, so the old `.get(..., 'Uncategorized')`
+    # mislabelled every expense stored on a leaf — 280 of 892 categorised rows —
+    # and undo then repainted them grey instead of their real bucket colour.
+    previous_reporting_category = _get_category_taxonomy().label_for(
+        previous_category_id)
     try:
         undo_token = _record_category_undo({
             'expense_id': int(chosen['id']),
@@ -5135,17 +5175,15 @@ def receipts_present(rows):
 # on disk (the known data gap) and must be excluded so every row shown has a receipt
 # (and a marker). This also catches rows whose receipt_url is blank but whose receipt
 # file is still found by (date, amount).
-def _reporting_category_for_id(category_id, parent_of):
-    """Walk a leaf category_id up its parent chain to a reporting-bucket name."""
-    seen = set()
-    cur = category_id
-    while cur is not None and cur not in seen:
-        seen.add(cur)
-        name = REPORTING_CATEGORY_ANCESTOR_MAP.get(cur)
-        if name:
-            return name
-        cur = parent_of.get(cur)
-    return 'Uncategorized'
+def _reporting_category_for_id(category_id, parent_of=None):
+    """Walk a leaf category_id up its parent chain to a reporting-bucket name.
+
+    Delegates to ICategoryTaxonomy, which sources the same walk from the DB's
+    is_report_category / report_category_id columns. `parent_of` is retained
+    for call-site compatibility and ignored: the taxonomy carries the parentage
+    itself, so callers no longer need to pre-load the tree.
+    """
+    return _get_category_taxonomy().label_for(category_id)
 
 
 def _fetch_receipt_only_rows(month_key=None):
