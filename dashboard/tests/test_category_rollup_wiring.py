@@ -14,6 +14,7 @@ import pytest
 
 import server
 from category_taxonomy import CategoryNode, StaticCategoryTaxonomy
+from category_taxonomy_seed import LEGACY_TAXONOMY
 
 GREEN = "#A9D18E"
 GIFTS = 190
@@ -93,3 +94,62 @@ def test_taxonomy_composition_root_is_memoized(monkeypatch):
     monkeypatch.setattr(server, "_category_taxonomy", None)
     first = server._get_category_taxonomy()
     assert server._get_category_taxonomy() is first
+
+
+# ── Set Category dialog list ─────────────────────────────────────────────
+def _dialog_names(monkeypatch, taxonomy):
+    monkeypatch.setattr(server, "_get_category_taxonomy", lambda: taxonomy)
+    return [c["name"] for c in server._rol_finance_categories()]
+
+
+def test_dialog_lists_db_categories_and_one_uncategorized(monkeypatch):
+    tree = StaticCategoryTaxonomy([
+        CategoryNode(id=GIFTS, parent_id=None, name="Gifts & Love Offerings",
+                     is_report_category=True, is_selectable=True,
+                     display_order=1, report_label="Gifts & Love Offerings",
+                     report_bg=GREEN, report_fg="#000000",
+                     css_class="cat-gifts-and-love-offerings"),
+        CategoryNode(id=402, parent_id=None, name="Money Movement",
+                     is_report_category=True, is_selectable=True,
+                     display_order=2,
+                     report_label="Money Movement — Not an Expense",
+                     report_bg="#D6DCE4", report_fg="#000000",
+                     css_class="cat-money-movement",
+                     excluded_from_nonprofit_totals=True),
+    ])
+    names = _dialog_names(monkeypatch, tree)
+    assert names == ["Gifts & Love Offerings",
+                     "Money Movement — Not an Expense", "Uncategorized"]
+
+
+def test_dialog_does_not_duplicate_uncategorized_in_fallback(monkeypatch):
+    """LEGACY_TAXONOMY lists Uncategorized as selectable; appending the sentinel
+    unconditionally showed it twice whenever the DB was unreachable."""
+    names = _dialog_names(monkeypatch, LEGACY_TAXONOMY)
+    assert names.count("Uncategorized") == 1
+
+
+def test_dialog_flags_categories_excluded_from_totals(monkeypatch):
+    monkeypatch.setattr(server, "_get_category_taxonomy", lambda: LEGACY_TAXONOMY)
+    by_name = {c["name"]: c for c in server._rol_finance_categories()}
+    assert by_name["Personal"]["excluded"] is True
+    assert by_name["Gifts & Love Offerings"]["excluded"] is False
+
+
+def test_writer_accepts_every_category_the_dialog_offers(monkeypatch):
+    """The dialog must never offer something recategorize_expense rejects."""
+    monkeypatch.setattr(server, "_get_category_taxonomy", lambda: LEGACY_TAXONOMY)
+    for entry in server._rol_finance_categories():
+        _target_id, css = server._resolve_reporting_category(entry["name"])
+        assert css is not None, f"writer would reject {entry['name']!r}"
+
+
+def test_writer_rejects_an_unknown_category(monkeypatch):
+    monkeypatch.setattr(server, "_get_category_taxonomy", lambda: LEGACY_TAXONOMY)
+    assert server._resolve_reporting_category("Nonsense") == (None, None)
+
+
+def test_uncategorized_clears_the_category_id(monkeypatch):
+    monkeypatch.setattr(server, "_get_category_taxonomy", lambda: LEGACY_TAXONOMY)
+    assert server._resolve_reporting_category("Uncategorized") == \
+        (None, "cat-uncategorized")

@@ -5287,8 +5287,12 @@ def _rol_finance_categories():
             'excluded': bool(node.excluded_from_nonprofit_totals),
         })
     # "Uncategorized" is a sentinel, not a row: picking it clears category_id.
-    cats.append({'name': 'Uncategorized', 'cls': 'cat-uncategorized',
-                 'bg': '#BFBFBF', 'fg': '#000000', 'excluded': False})
+    # Only append it when the taxonomy did not already supply it — LEGACY_TAXONOMY
+    # (the offline fallback) lists it as selectable, and appending unconditionally
+    # showed it twice in the dialog whenever the DB was unreachable.
+    if not any(c['name'] == 'Uncategorized' for c in cats):
+        cats.append({'name': 'Uncategorized', 'cls': 'cat-uncategorized',
+                     'bg': '#BFBFBF', 'fg': '#000000', 'excluded': False})
     return cats
 
 
