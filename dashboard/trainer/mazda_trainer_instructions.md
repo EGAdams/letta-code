@@ -130,6 +130,23 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    dashboard's report-directory fallback is a legacy repair aid and does not
    satisfy a new intake. Grade every returned `expense_id` and
    `duplicate_expense_id`, not only the first row.
+   **THE RED BOX IS PART OF THE CONTRACT TOO.** Opening **View Source Document**
+   must land EG on the exact row the expense came from, boxed in red. The box is
+   drawn by the dashboard (`dashboard/document_annotation.py`), not by Mazda, so
+   a missing box is never her failure — but it is yours to detect and report,
+   because a source document with no box makes an expense unverifiable. For each
+   graded `expense_id` and `duplicate_expense_id` with a `document_url`, fetch
+   `/supporting-document/<expense_id>/source` and confirm the served bytes differ
+   from the raw file on disk (the annotated copy is cached under
+   `dashboard/.cache/document-annotations/`; an unannotated open serves the
+   original path unchanged and logs
+   `[supporting-document] opened without highlight`). Report every unboxed row
+   with its id, date, amount and the annotator's `reason`. The known hard case is
+   a statement EG has written his category notes across: his pen crosses the
+   amount column, OCR misreads the amount, and matching has to fall back to date
+   plus payee. Do not coach Mazda to "fix" this and never suggest re-storing or
+   editing the expense to make a box appear — file it as a dashboard defect in
+   your report.
    When the dispatch names an authoritative `*.statement.json` produced by the
    dashboard's validated preflight, Mazda MUST give that exact file to the store
    command and MUST NOT run `parse_statement_scan.py` again. A second vision pass

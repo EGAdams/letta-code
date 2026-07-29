@@ -289,7 +289,23 @@ and Excel implementations are strategies wired only in
 `build_document_annotation_service()`. The match must include date+amount,
 description+amount, or a related check number; otherwise the original opens
 without a potentially misleading box. Mom's Ledger images can resolve their
-check number from the related statement before OCR matching. Runtime setup:
+check number from the related statement before OCR matching.
+
+**Scans EG has written on are the hard case.** His category notes cross the
+amount column, so OCR reads `10.59` as `1.59` and no line can match on amount.
+`_line_score` therefore also accepts *date + a substantial share of the payee*
+as identity, scored below `_DECISIVE_SCORE` so it can never outrank a real
+amount match nor survive a tie; the image strategy then widens that box across
+the amount column, which the matched OCR line stops short of. Two rows with the
+same payee and date still cancel each other — without a readable amount there is
+nothing left to tell them apart. **When changing the tie rule, remember every
+strategy enumerates one physical row two or three times on purpose** (word
+grouped, spatially reconstructed, plus an amount/date pair for PDFs); `_same_row`
+compares regions by vertical overlap so a row cannot tie with itself and cancel
+its own box. That self-tie is exactly what suppressed the box on the Window
+Scanner's APPLE.COM/BILL $10.59 row.
+
+Runtime setup:
 `python3 -m pip install --user --break-system-packages -r dashboard/requirements.txt`
 and install the local `tesseract-ocr` package for image coordinates.
 

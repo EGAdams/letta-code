@@ -41,6 +41,21 @@ def test_trainer_grades_idempotency_conflicts_and_any_arrival_order():
     assert "Grade every returned `expense_id`" in instructions
 
 
+def test_trainer_grades_the_red_box_without_blaming_mazda_for_it():
+    instructions = (
+        ROOT / "dashboard/trainer/mazda_trainer_instructions.md"
+    ).read_text()
+
+    assert "THE RED BOX IS PART OF THE CONTRACT TOO" in instructions
+    assert "document_annotation.py" in instructions
+    assert "/supporting-document/<expense_id>/source" in instructions
+    assert "opened without highlight" in instructions
+    # The box is dashboard code, so coaching Mazda about it would teach her to
+    # "fix" a defect she cannot cause by editing rows that are already correct.
+    assert "never suggest re-storing or" in instructions
+    assert "file it as a dashboard defect" in instructions
+
+
 def test_developer_manual_contains_three_field_contract():
     manual = (ROOT / "notes_plans_handoffs/mazda_dev_status.html").read_text()
 
