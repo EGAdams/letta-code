@@ -5416,27 +5416,36 @@ def _fetch_month_status():
     return result
 
 
-def _receipt_only_picker_assets():
-    """The category-picker dialog markup/CSS reused verbatim from the report.html
-    injector, so the Receipt Only tab behaves identically to Verified Transactions."""
+def _picker_module():
     import importlib
     import sys as _sys
     if VERIFICATION_LIB not in _sys.path:
         _sys.path.insert(0, VERIFICATION_LIB)
-    rv = importlib.import_module('restructure_verified_transactions')
-    return rv.CATEGORY_PICKER_CSS, rv.CATEGORY_PICKER_HTML, rv.CLICKABLE_ROW_CSS
+    return importlib.import_module('restructure_verified_transactions')
+
+
+def _receipt_only_picker_assets():
+    """The category-picker dialog markup/CSS reused verbatim from the report.html
+    injector, so the Receipt Only tab behaves identically to Verified Transactions.
+
+    CATEGORY_PICKER_HTML is a TEMPLATE — its category list and row colours are
+    placeholders. Returning it raw shipped `var CATS = []` to the browser, which
+    left the dialog with no categories to render. Always render it through
+    render_picker_block() with this process's category list.
+    """
+    rv = _picker_module()
+    return (rv.CATEGORY_PICKER_CSS,
+            rv.render_picker_block(_rol_finance_categories()),
+            rv.CLICKABLE_ROW_CSS)
 
 
 def _report_html_with_current_picker(report_file):
     """Refresh only the picker assets in memory; never rewrite row categories."""
-    import importlib
-    import sys as _sys
-
-    if VERIFICATION_LIB not in _sys.path:
-        _sys.path.insert(0, VERIFICATION_LIB)
-    rv = importlib.import_module('restructure_verified_transactions')
+    rv = _picker_module()
     with open(report_file, encoding='utf-8', errors='ignore') as handle:
-        return rv.add_category_picker(handle.read())
+        # Pass the categories in: the injector would otherwise HTTP-fetch them
+        # from this very server, from inside one of its own request handlers.
+        return rv.add_category_picker(handle.read(), _rol_finance_categories())
 
 
 def _receipt_only_cat_css():

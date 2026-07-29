@@ -153,3 +153,44 @@ def test_uncategorized_clears_the_category_id(monkeypatch):
     monkeypatch.setattr(server, "_get_category_taxonomy", lambda: LEGACY_TAXONOMY)
     assert server._resolve_reporting_category("Uncategorized") == \
         (None, "cat-uncategorized")
+
+
+# ── the picker template must never reach the browser unrendered ──────────
+def test_receipt_only_picker_has_a_populated_category_list(monkeypatch):
+    """CATEGORY_PICKER_HTML is a template: its CATS array and colour rules are
+    placeholders. Returning it raw shipped `var CATS = []` to the browser and
+    the Set Category dialog rendered with no categories."""
+    monkeypatch.setattr(server, "_get_category_taxonomy", lambda: LEGACY_TAXONOMY)
+    _css, html, _row_css = server._receipt_only_picker_assets()
+    assert "__ROL_CATS__" not in html, "picker template left unrendered"
+    assert "__ROL_CAT_CSS__" not in html
+    assert "var CATS = [];" not in html and "var CATS = []" not in html
+    assert "Gifts & Love Offerings" in html
+    assert ".cat-gifts-and-love-offerings {" in html
+
+
+def test_report_picker_refresh_does_not_call_back_into_this_server(monkeypatch):
+    """add_category_picker fetches categories over HTTP when none are passed —
+    from this very process, inside one of its own request handlers. The server
+    must always hand its in-process list in."""
+    monkeypatch.setattr(server, "_get_category_taxonomy", lambda: LEGACY_TAXONOMY)
+    calls = []
+
+    class _Spy:
+        CATEGORY_PICKER_CSS = ""
+        CLICKABLE_ROW_CSS = ""
+
+        def add_category_picker(self, html, categories=None):
+            calls.append(categories)
+            return html
+
+        def load_picker_categories(self, *a, **k):
+            raise AssertionError("server must not HTTP-fetch its own categories")
+
+    monkeypatch.setattr(server, "_picker_module", lambda: _Spy())
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False) as handle:
+        handle.write("<html></html>")
+        path = handle.name
+    server._report_html_with_current_picker(path)
+    assert calls and calls[0], "categories were not passed in"
