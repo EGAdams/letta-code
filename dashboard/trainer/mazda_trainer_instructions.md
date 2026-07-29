@@ -197,7 +197,15 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    `bank_statements/_needs_review/` — the statement is parked there with a JSON
    sidecar, never left only in `incoming_scans/`.
    The final four digits come from the operator, the statement itself, or the
-   `Known_Credit_Cards_and_Banks.xlsx` B/C columns — never a guess. When none of
+   `Known_Credit_Cards_and_Banks.xlsx` B/C columns — never a guess. The workbook
+   is authoritative whenever the statement's primary branded card/product
+   letterhead matches exactly one row. For example, a visible **Choice
+   Privileges** letterhead matches the sole `choice_7580` row and therefore
+   resolves to account 7580 even when marked-over account digits are unreadable
+   or vision claims a different four digits. The issuing/servicing-bank name
+   (for example Wells Fargo) must not replace the visible branded product
+   identity for this lookup. Require `last4_source="known_cards_workbook"` and
+   `workbook_matched_names` evidence for such a resolution. When none of
    the three resolves, the correct outcome is a rejection carrying
    `needs_workbook_entry: true` so EG is asked to add a workbook row and the run is
    retried; a `workbook_ambiguous_last4` list (two cards sharing one name) is also a
@@ -361,6 +369,14 @@ Grade the run against the contract above. Specifically confirm:
   return that quietly carries fewer rows than were parsed means lines were dropped, which is a
   FAIL even when `problems` is empty. Confirm `account_last4_source` is one of `operator`,
   `statement`, or `known_cards_workbook` — never absent or `unknown` on a stored run.
+  Independently resolve the visible primary card/product letterhead against
+  `/home/adamsl/rol_finances/readable_documents/Known_Credit_Cards_and_Banks.xlsx`
+  on every statement run. If it uniquely resolves, compare that value with the
+  preflight, store return, archive directory, report path, trace, and callback.
+  Any mismatch is a FAIL even when `judge_trace` says PASS. Coach Mazda to rerun
+  storage with the workbook account, produce the correctly named archive/report,
+  remove the obsolete wrong-account archive only after the corrected copy is
+  verified, re-record/re-judge, and repeat the callback.
 - For statements, confirm `<source statement directory>/report.html` exists because Mazda
   created it in this run, covers the complete parsed/store result (including duplicates
   and deposits/credits), and has successful restructurer and auditor tool returns. Inspect

@@ -5571,6 +5571,57 @@ def test_statement_preflight_resolves_missing_last4_from_workbook(monkeypatch):
     assert result.get('needs_statement_metadata') is not True
 
 
+def test_statement_preflight_prefers_unique_letterhead_workbook_match_over_vision_digits(
+        monkeypatch):
+    """A branded card letterhead is safer than obscured account-number OCR.
+
+    The Choice Privileges scan on 2026-07-27 was visibly branded Choice but
+    vision guessed 4884 from marked-over digits.  The workbook has exactly one
+    Choice row (7580), so preflight must use that authoritative match rather
+    than archive and dispatch the statement under the guessed digits.
+    """
+    _stub_statement_parser(monkeypatch, {
+        'ok': True, 'statements': [{
+            'bank_name': 'Wells Fargo',
+            'account_number': '4884',
+            'transactions': _STMT_ROWS,
+        }],
+    })
+
+    class ChoiceDirectory:
+        def lookup_last4(self, name):
+            if name == 'Choice Privileges Mastercard':
+                return types.SimpleNamespace(
+                    last4='7580', ambiguous_last4=(),
+                    matched_names=('choice_7580',))
+            return types.SimpleNamespace(
+                last4=None, ambiguous_last4=(), matched_names=())
+
+    result = server.run_statement_preflight(
+        '/scan.jpg',
+        dict(_STMT_FACADE, vendor='Choice Privileges Mastercard'),
+        account_directory=ChoiceDirectory())
+
+    assert result['ok'] is True
+    assert result['bank_name'] == 'Choice Privileges Mastercard'
+    assert result['account_last4'] == '7580'
+    assert result['last4_source'] == 'known_cards_workbook'
+    assert result['workbook_matched_names'] == ['choice_7580']
+    message = server.build_mazda_scan_message(
+        '/staged/choice.jpg', 'Window Scanner',
+        {
+            'ok': True,
+            'doc_kind': 'statement',
+            'vendor': result['bank_name'],
+            'confidence': 1.0,
+            'statement_preflight': result,
+        })
+    assert "--bank-name 'Choice Privileges Mastercard'" in message
+    assert '--account-last4 7580' in message
+    assert '--account-last4-source known_cards_workbook' in message
+    assert '4884' not in message
+
+
 def test_statement_preflight_fails_closed_on_ambiguous_workbook_match(
         monkeypatch):
     # A bank with several cards on file must NOT be resolved to one of them —

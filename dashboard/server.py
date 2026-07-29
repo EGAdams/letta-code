@@ -2955,6 +2955,9 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
             f' --bank-name {shlex.quote(str(statement_preflight["bank_name"]))}'
             f' --account-last4 {shlex.quote(str(statement_preflight["account_last4"]))}'
         )
+        if statement_preflight.get('last4_source') == 'known_cards_workbook':
+            statement_override_args += (
+                ' --account-last4-source known_cards_workbook')
     statement_token = hashlib.sha256(
         scan_image_path.encode('utf-8')).hexdigest()[:12]
     receipt_json_path = f'/tmp/mazda_receipt_{statement_token}.json'
@@ -4008,24 +4011,61 @@ def run_statement_preflight(
                       'time.'),
         }
     statement = statements[0] if statements else {}
-    bank_name = bank_override or ' '.join(str(statement.get('bank_name') or '').split())
-    account_last4 = last4_override or _statement_last4(statement.get('account_number'))
+    parsed_bank_name = ' '.join(
+        str(statement.get('bank_name') or '').split())
+    facade_issuer = ' '.join(
+        str((facade_result or {}).get('vendor') or '').split())
+    if facade_issuer.lower() in ('unknown', 'none', 'null'):
+        facade_issuer = ''
+    bank_name = bank_override or parsed_bank_name or facade_issuer
+    statement_last4 = _statement_last4(statement.get('account_number'))
+    account_last4 = last4_override or statement_last4
     last4_source = 'operator' if last4_override else (
         'statement' if account_last4 else 'unknown')
     workbook_ambiguous_last4 = []
-    if not account_last4 and bank_name:
+    workbook_matched_names = []
+    # The primary branded letterhead identifies the account family more safely
+    # than OCR of marked-over digits.  Always try that identity even when vision
+    # emitted four digits; a unique workbook row is authoritative.  If there is
+    # no branded identity, retain the older missing-last4 lookup by bank name.
+    lookup_candidates = []
+    if not last4_override and facade_issuer:
+        lookup_candidates.append(facade_issuer)
+    if not account_last4 and bank_name and bank_name not in lookup_candidates:
+        lookup_candidates.append(bank_name)
+    lookup = None
+    lookup_name = ''
+    for candidate in lookup_candidates:
         try:
-            lookup = (
+            candidate_lookup = (
                 account_directory or _default_statement_account_directory()
-            ).lookup_last4(bank_name)
+            ).lookup_last4(candidate)
         except Exception:
-            lookup = None
-        if lookup:
-            account_last4 = _statement_last4(getattr(lookup, 'last4', None))
-            workbook_ambiguous_last4 = list(
-                getattr(lookup, 'ambiguous_last4', ()) or ())
-            if account_last4:
-                last4_source = 'known_cards_workbook'
+            candidate_lookup = None
+        if not candidate_lookup:
+            continue
+        candidate_last4 = _statement_last4(
+            getattr(candidate_lookup, 'last4', None))
+        candidate_ambiguity = list(
+            getattr(candidate_lookup, 'ambiguous_last4', ()) or ())
+        if candidate_last4 or candidate_ambiguity:
+            lookup = candidate_lookup
+            lookup_name = candidate
+            break
+    if lookup:
+        workbook_last4 = _statement_last4(getattr(lookup, 'last4', None))
+        workbook_ambiguous_last4 = list(
+            getattr(lookup, 'ambiguous_last4', ()) or ())
+        workbook_matched_names = list(
+            getattr(lookup, 'matched_names', ()) or ())
+        if workbook_last4:
+            account_last4 = workbook_last4
+            last4_source = 'known_cards_workbook'
+            if lookup_name == facade_issuer:
+                bank_name = facade_issuer
+        elif workbook_ambiguous_last4:
+            account_last4 = None
+            last4_source = 'unknown'
     transactions = _complete_statement_transactions(statement.get('transactions'))
     if not transactions:
         return {
@@ -4047,6 +4087,7 @@ def run_statement_preflight(
         'transaction_count': len(transactions),
         'last4_source': last4_source,
         'workbook_ambiguous_last4': workbook_ambiguous_last4,
+        'workbook_matched_names': workbook_matched_names,
     })
     if missing:
         ambiguity = (
