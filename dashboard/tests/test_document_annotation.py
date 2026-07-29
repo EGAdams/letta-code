@@ -189,6 +189,90 @@ def test_image_strategy_boxes_the_matching_ocr_line(tmp_path):
     assert red_pixels > 100
 
 
+def test_illegible_amount_still_matches_on_date_plus_payee():
+    from document_annotation import _best_line
+
+    # What tesseract returns for a statement row EG has written across: the
+    # date and payee survive, "10.59" comes back as "1.59".
+    lines = [
+        ("01/22/2025 MEIJER STORE 1.40", "row"),
+        ("Statement period 01/01/2025 - 01/31/2025", "header"),
+    ]
+
+    region, score, text = _best_line(lines, evidence())
+
+    assert region == "row"
+    assert text == "01/22/2025 MEIJER STORE 1.40"
+    # Held below the decisive band: identity alone never outranks a real
+    # amount match, and never survives a tie.
+    assert score < 10
+
+
+def test_illegible_amount_match_needs_the_date_and_the_payee():
+    from document_annotation import _best_line
+
+    # Right payee, wrong date — this is a different month's Meijer charge.
+    assert _best_line([("02/22/2025 MEIJER STORE", "row")], evidence())[0] is None
+    # Right date, no payee overlap — a bare date is not identity.
+    assert _best_line([("01/22/2025 balance forward", "row")], evidence())[0] is None
+
+
+def test_illegible_amount_match_rejects_two_rows_of_the_same_payee_and_date():
+    from document_annotation import _best_line
+
+    # Without a readable amount there is nothing left to tell these apart, so
+    # the annotator must box neither rather than guess.
+    lines = [
+        ("01/22/2025 MEIJER STORE 1.40", "first"),
+        ("01/22/2025 MEIJER STORE 8.40", "second"),
+    ]
+
+    assert _best_line(lines, evidence())[0] is None
+
+
+def test_image_strategy_boxes_the_amount_column_when_ocr_loses_it(tmp_path):
+    from PIL import Image, ImageDraw, ImageFont
+
+    from document_annotation import ImageExpenseDocumentAnnotator
+
+    source = tmp_path / "statement.png"
+    image = Image.new("RGB", (1400, 260), "white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.truetype(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 34
+    )
+    draw.text((30, 35), "01/21/2025 OTHER STORE", fill="black", font=font)
+    draw.text((1150, 35), "22.10", fill="black", font=font)
+    draw.text((30, 135), "01/22/2025 MEIJER STORE", fill="black", font=font)
+    # The amount column of the row we want, rendered unreadable the way EG's
+    # pen does it on a real scan.
+    draw.text((1150, 135), "18.40", fill="black", font=font)
+    draw.line((1120, 175, 1360, 130), fill="black", width=9)
+    draw.line((1120, 130, 1360, 175), fill="black", width=9)
+    image.save(source)
+    output = tmp_path / "annotated.png"
+
+    result = ImageExpenseDocumentAnnotator().annotate(
+        str(source), str(output), evidence()
+    )
+
+    assert result.highlighted is True
+    annotated = Image.open(output)
+    pixels = annotated.load()
+    # The box must reach across the amount column, not stop at the payee text.
+    red_columns = {
+        x
+        for x in range(annotated.width)
+        for y in range(annotated.height)
+        if pixels[x, y][0] > 200
+        and pixels[x, y][1] < 80
+        and pixels[x, y][2] < 80
+    }
+    annotated.close()
+    assert red_columns
+    assert max(red_columns) > 1200
+
+
 def test_excel_strategy_boxes_only_the_matching_row(tmp_path):
     from openpyxl import Workbook, load_workbook
 

@@ -19,7 +19,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterable, Sequence
 
-ANNOTATION_SCHEMA_VERSION = 2
+ANNOTATION_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -146,6 +146,15 @@ def _date_matches(text: str, evidence_date: str) -> bool:
     return any(value and value in lowered for value in _date_variants(evidence_date))
 
 
+# A tie at or above this score is decisive; below it, two equally-ranked rows
+# reject each other rather than boxing the wrong one.
+_DECISIVE_SCORE = 10
+# Ceiling for a match that never confirmed the amount.  Held below
+# ``_DECISIVE_SCORE`` on purpose, so an identity-only win can never survive a
+# tie with a second row that looks just as much like this expense.
+_IDENTITY_ONLY_CEILING = 9
+
+
 def _line_score(text: str, evidence: ExpenseEvidence) -> int:
     amount = _amount_decimal(evidence.amount)
     reference_hit = any(
@@ -154,41 +163,109 @@ def _line_score(text: str, evidence: ExpenseEvidence) -> int:
         if term
     )
     amount_hit = _amount_matches(text, amount)
-    if not amount_hit and not reference_hit:
-        return -1
-    score = 12 if reference_hit else 0
-    if amount_hit:
-        score += 5
-    if _date_matches(text, evidence.expense_date):
-        score += 5
+    date_hit = _date_matches(text, evidence.expense_date)
     line_tokens = _tokens(text)
     description_hits = len(line_tokens & _tokens(evidence.description))
     vendor_hits = len(line_tokens & _tokens(evidence.vendor_key.replace("_", " ")))
+    if not amount_hit and not reference_hit:
+        # A scan EG has written on loses its amount column to OCR: the pen
+        # stroke crosses the digits and "10.59" comes back as "1.59" or noise.
+        # Rather than fail closed on the whole row, accept the date plus a
+        # substantial share of the payee as identity, scored below the
+        # decisive band so any rival row still cancels the box.
+        if not date_hit or description_hits < 2:
+            return -1
+        return min(
+            _IDENTITY_ONLY_CEILING,
+            5 + min(description_hits, 3) + min(vendor_hits, 2),
+        )
+    score = 12 if reference_hit else 0
+    if amount_hit:
+        score += 5
+    if date_hit:
+        score += 5
     score += min(description_hits, 3)
     score += min(vendor_hits, 2)
     return score
 
 
+def _amount_confirmed(text: str, evidence: ExpenseEvidence) -> bool:
+    """Whether this line proves the amount itself, not just the expense's identity."""
+    return _amount_matches(text, _amount_decimal(evidence.amount))
+
+
+def _region_bounds(region: object) -> tuple[object, float, float] | None:
+    """``(page, top, bottom)`` for a candidate region, or ``None`` if unknown."""
+    if not isinstance(region, tuple) or not region:
+        return None
+    if len(region) == 4 and all(
+        isinstance(value, (int, float)) for value in region
+    ):
+        # Image strategy: (left, top, right, bottom) on a single-page image.
+        return "", float(region[1]), float(region[3])
+    head, rest = region[0], region[1:]
+    if len(rest) == 1 and all(hasattr(rest[0], side) for side in ("y0", "y1")):
+        # PDF strategy: (page index, Rect).
+        return head, float(rest[0].y0), float(rest[0].y1)
+    if len(rest) == 3 and isinstance(rest[0], (int, float)):
+        # Excel strategy: (sheet, row number, first column, last column).
+        return repr(head), float(rest[0]), float(rest[0])
+    return None
+
+
+def _same_row(first: object, second: object) -> bool:
+    """Whether two candidates are one physical row enumerated twice.
+
+    Every strategy describes a row more than once on purpose — word-grouped
+    and spatially reconstructed, plus an amount/date pair for PDFs — so two
+    top-ranked candidates are usually the same row seen twice.  Only a tie
+    between genuinely different rows is the ambiguity the tie rule exists for.
+    """
+    left = _region_bounds(first)
+    right = _region_bounds(second)
+    if left is None or right is None:
+        return first == second
+    if left[0] != right[0]:
+        return False
+    overlap = min(left[2], right[2]) - max(left[1], right[1])
+    span = min(left[2] - left[1], right[2] - right[1])
+    if span <= 0:
+        return overlap >= 0
+    return overlap > span / 2
+
+
 def _best_line(
     lines: Iterable[tuple[str, object]],
     evidence: ExpenseEvidence,
-) -> tuple[object | None, int]:
+) -> tuple[object | None, int, str]:
+    """Return ``(region, score, text)`` for the winning line, or ``(None, …)``."""
     ranked = sorted(
-        ((_line_score(text, evidence), region) for text, region in lines),
+        (
+            (_line_score(text, evidence), region, text)
+            for text, region in lines
+        ),
         key=lambda item: item[0],
         reverse=True,
     )
     if not ranked or ranked[0][0] < 7:
-        return None, ranked[0][0] if ranked else -1
+        return None, (ranked[0][0] if ranked else -1), ""
     # A date+amount match is decisive.  For looser description matches, reject
     # a tie instead of boxing the wrong repeated amount.
+    rival = next(
+        (
+            item
+            for item in ranked[1:]
+            if not _same_row(item[1], ranked[0][1])
+        ),
+        None,
+    )
     if (
-        ranked[0][0] < 10
-        and len(ranked) > 1
-        and ranked[1][0] == ranked[0][0]
+        ranked[0][0] < _DECISIVE_SCORE
+        and rival is not None
+        and rival[0] == ranked[0][0]
     ):
-        return None, ranked[0][0]
-    return ranked[0][1], ranked[0][0]
+        return None, ranked[0][0], ""
+    return ranked[0][1], ranked[0][0], ranked[0][2]
 
 
 def _spatial_lines(
@@ -329,7 +406,7 @@ class PdfExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
                     candidates.append(
                         (text, (page_index, fitz.Rect(*bounds)))
                     )
-            region, _score = _best_line(candidates, evidence)
+            region, _score, _text = _best_line(candidates, evidence)
             if region is None:
                 return AnnotationResult(
                     source_path,
@@ -487,7 +564,7 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
             )
             lines.append((text, (left, top, right, bottom)))
         lines.extend(_spatial_lines(spatial_words))
-        region, _score = _best_line(lines, match_evidence)
+        region, _score, matched_text = _best_line(lines, match_evidence)
         if region is None:
             return AnnotationResult(
                 source_path,
@@ -503,6 +580,12 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
             right = max(right, round(image.width * 0.94))
             top = max(0, top - round(image.height * 0.06))
             bottom = min(image.height - 1, bottom + round(image.height * 0.01))
+        elif not _amount_confirmed(matched_text, match_evidence):
+            # Identity-only match: OCR lost the amount column, so the winning
+            # line stops short of it.  Box the full statement row so the red
+            # box still shows EG where the money came from.
+            left = min(left, round(image.width * 0.08))
+            right = max(right, round(image.width * 0.94))
         padding = max(8, round(image.width * 0.004))
         draw = ImageDraw.Draw(image)
         draw.rectangle(
@@ -573,7 +656,7 @@ class ExcelExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
                         (sheet, row[0].row, populated[0].column, populated[-1].column),
                     )
                 )
-        region, _score = _best_line(candidates, evidence)
+        region, _score, _text = _best_line(candidates, evidence)
         if region is None:
             workbook.close()
             return AnnotationResult(
