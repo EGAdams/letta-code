@@ -923,16 +923,23 @@ def _fetch_expenses_by_ids(ids):
                         ch['description'] = f'{pdesc} — {cdesc}'
                     child_by_parent.setdefault(
                         int(ch['parent_expense_id']), []).append(ch)
-                expanded = []
+                # STEP 8 reports the anchor AND the children it created, so a
+                # child is usually in `rows` already. Keyed by id, the spliced
+                # copy wins: it is the one carrying the parent's vendor prefix.
+                expanded = {}
                 for r in rows:
                     if (r.get('expense_role') or '') == 'PARENT':
                         # Drop the anchor; show its children instead. A parent
                         # with no children left (data anomaly) is simply omitted
                         # rather than shown as an uncategorizable dead row.
-                        expanded.extend(child_by_parent.get(int(r['id']), []))
+                        for ch in child_by_parent.get(int(r['id']), []):
+                            expanded[int(ch['id'])] = ch
                     else:
-                        expanded.append(r)
-                rows = expanded
+                        expanded.setdefault(int(r['id']), r)
+                rows = sorted(
+                    expanded.values(),
+                    key=lambda r: (str(r.get('expense_date') or ''), int(r['id'])),
+                )
     out = []
     for r in rows:
         cid = r.get('category_id')

@@ -3573,6 +3573,73 @@ def test_fetch_expenses_by_ids_omits_childless_parent(monkeypatch):
     assert server._fetch_expenses_by_ids([1521]) == []
 
 
+def test_fetch_expenses_by_ids_reports_each_child_once_when_parent_also_listed(
+        monkeypatch):
+    """STEP 8 reports the PARENT anchor *and* every child it created.
+
+    The expansion pass drops the anchor and splices its children in, so a
+    child that was already in the requested id list used to be emitted twice
+    — once bare from the first query, once parent-prefixed from the expansion.
+    That is what put 22 rows on a 12-expense Window report.  Each child must
+    appear exactly once, keeping the prefixed copy so the vendor stays
+    readable.
+    """
+    def router(sql, params):
+        if 'FROM categories' in sql:
+            return [{'id': 204, 'parent_id': None}]
+        if 'parent_expense_id IN' in sql:
+            return [
+                {
+                    'id': 1685, 'expense_date': '2025-12-22', 'amount': '25.00',
+                    'id_light': 'rtl_12_22_25_247_70-item-1',
+                    'description': '12/22/2025 Contribution', 'category_id': 204,
+                    'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                    'expense_role': 'LINE_ITEM', 'parent_expense_id': 1684,
+                },
+                {
+                    'id': 1686, 'expense_date': '2025-12-22', 'amount': '25.00',
+                    'id_light': 'rtl_12_22_25_247_70-item-2',
+                    'description': '11/17/2025 Contribution', 'category_id': 204,
+                    'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                    'expense_role': 'LINE_ITEM', 'parent_expense_id': 1684,
+                },
+            ]
+        return [
+            {
+                'id': 1684, 'expense_date': '2025-12-22', 'amount': '50.00',
+                'id_light': 'rtl_12_22_25_247_70',
+                'description': 'Right to Life of Michigan Educational Fund',
+                'category_id': None, 'receipt_url': '', 'document_url': '',
+                'moms_ledger': None, 'expense_role': 'PARENT',
+            },
+            {
+                'id': 1685, 'expense_date': '2025-12-22', 'amount': '25.00',
+                'id_light': 'rtl_12_22_25_247_70-item-1',
+                'description': '12/22/2025 Contribution', 'category_id': 204,
+                'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                'expense_role': 'LINE_ITEM',
+            },
+            {
+                'id': 1686, 'expense_date': '2025-12-22', 'amount': '25.00',
+                'id_light': 'rtl_12_22_25_247_70-item-2',
+                'description': '11/17/2025 Contribution', 'category_id': 204,
+                'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                'expense_role': 'LINE_ITEM',
+            },
+        ]
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+
+    rows = server._fetch_expenses_by_ids([1684, 1685, 1686])
+
+    assert [r['id'] for r in rows] == [1685, 1686]
+    assert rows[0]['description'] == (
+        'Right to Life of Michigan Educational Fund — 12/22/2025 Contribution')
+    assert rows[1]['description'] == (
+        'Right to Life of Michigan Educational Fund — 11/17/2025 Contribution')
+
+
 def test_is_uncategorized_flags_null_and_legacy_ids():
     assert server._is_uncategorized(None) is True
     assert server._is_uncategorized(1) is True
