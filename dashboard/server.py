@@ -945,7 +945,7 @@ def _fetch_expenses_by_ids(ids):
             'vendor_key': (r.get('id_light') or '').strip(),
             'description': (r.get('description') or '').strip(),
             'reporting_category': rep,
-            'cat_class': REPORTING_CATEGORY_CLASS.get(rep, 'cat-uncategorized'),
+            'cat_class': _css_class_for_report_name(rep),
             'receipt_url': (r.get('receipt_url') or '').strip(),
         })
     return out
@@ -1730,9 +1730,11 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
     siblings can share both date and amount.
     """
     from decimal import Decimal, InvalidOperation
-    if reporting_category not in REPORTING_CATEGORY_DB_MAP:
+    # Resolve through the taxonomy (the categories table), not the frozen dict,
+    # so buckets added by a migration are selectable the moment they exist.
+    target_id, _target_cls = _resolve_reporting_category(reporting_category)
+    if _target_cls is None:
         return {'ok': False, 'error': f'Unknown category: {reporting_category}'}
-    target_id = REPORTING_CATEGORY_DB_MAP[reporting_category]
 
     target_expense_id = None
     if expense_id not in (None, ''):
@@ -1790,7 +1792,7 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
                     file_updated = False
                     if report_path and report_path != RECEIPT_ONLY_REPORT_PATH:
                         try:
-                            new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
+                            new_cls = _target_cls
                             if new_cls:
                                 file_updated = _update_report_row_color(
                                     report_path, vendor_key, date_str,
@@ -1844,7 +1846,7 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
         # (see _find_matching_report_row: DB vs. bank-statement vendor_key spelling
         # often diverges, so a plain report_path lookup can't be done client-side).
         try:
-            new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
+            new_cls = _target_cls
             report_expense_id = (
                 chosen['id'] if chosen.get('expense_role') == 'LINE_ITEM' else None)
             found = _find_matching_report_row(
@@ -1864,7 +1866,7 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
             file_updated = True
     else:
         try:
-            new_cls = REPORTING_CATEGORY_CLASS.get(reporting_category)
+            new_cls = _target_cls
             if new_cls:
                 # Match the file by the RAW displayed amount the client sent (e.g. "-$150.00",
                 # "+$10.00", "296.41") — NOT the normalized abs value used for the DB lookup,
@@ -1926,8 +1928,7 @@ def undo_recategorize_expense(token):
 
     action = result['action']
     previous_reporting_category = action['previous_reporting_category']
-    previous_class = REPORTING_CATEGORY_CLASS.get(
-        previous_reporting_category, 'cat-uncategorized')
+    previous_class = _css_class_for_report_name(previous_reporting_category)
     report_path = action.get('report_path') or ''
     file_updated = report_path == RECEIPT_ONLY_REPORT_PATH
 
@@ -5200,7 +5201,7 @@ def _fetch_receipt_only_rows(month_key=None):
             'vendor_key': (r.get('id_light') or '').strip(),
             'description': (r.get('description') or '').strip(),
             'reporting_category': rep,
-            'cat_class': REPORTING_CATEGORY_CLASS.get(rep, 'cat-uncategorized'),
+            'cat_class': _css_class_for_report_name(rep),
             'receipt_url': r.get('receipt_url'),
             'document_url': r.get('document_url'),
             'moms_ledger': r.get('moms_ledger'),
@@ -5226,14 +5227,74 @@ def _is_uncategorized(category_id):
 
 def _rol_finance_categories():
     """The reporting-category palette (name/cls/bg/fg) in display order for the
-    New Records 'Set Category' dialog. Built from the same maps
-    /api/recategorize-expense validates against, so the picker never offers a
-    category the writer would reject."""
+    Set Category dialog. Sourced from ICategoryTaxonomy — i.e. from the
+    `categories` table — so a category added by a migration shows up without a
+    code change. Previously this iterated REPORTING_CATEGORY_CLASS, which meant
+    new buckets (e.g. Money Movement, 402) were invisible no matter how many
+    times the service was restarted.
+
+    /api/recategorize-expense resolves picks through the same taxonomy, so the
+    picker still cannot offer a category the writer would reject.
+    """
     cats = []
-    for name, cls in REPORTING_CATEGORY_CLASS.items():
-        bg, fg = REPORTING_CATEGORY_STYLE.get(name, ('#BFBFBF', '#000000'))
-        cats.append({'name': name, 'cls': cls, 'bg': bg, 'fg': fg})
+    for node in _get_category_taxonomy().selectable_report_categories():
+        cats.append({
+            'name': node.label,
+            'cls': node.css_class or 'cat-uncategorized',
+            'bg': node.report_bg or '#BFBFBF',
+            'fg': node.report_fg or '#000000',
+            'excluded': bool(node.excluded_from_nonprofit_totals),
+        })
+    # "Uncategorized" is a sentinel, not a row: picking it clears category_id.
+    cats.append({'name': 'Uncategorized', 'cls': 'cat-uncategorized',
+                 'bg': '#BFBFBF', 'fg': '#000000', 'excluded': False})
     return cats
+
+
+def _report_category_node_by_name(name, selectable_only=True):
+    """Resolve a report/dialog label back to its category node.
+
+    selectable_only=False also finds buckets the dialog does not offer — notably
+    'Uncategorized' (node 1), which reports use as a label but which must never
+    appear as a choice.
+    """
+    wanted = str(name or '').strip()
+    taxonomy = _get_category_taxonomy()
+    nodes = (taxonomy.selectable_report_categories() if selectable_only
+             else [n for n in taxonomy.all_nodes() if n.is_report_category])
+    for node in nodes:
+        if node.label == wanted:
+            return node
+    return None
+
+
+def _css_class_for_report_name(name):
+    """The cat-* class for a reporting-bucket label, from the categories table.
+
+    Reports bake this class into each <tr> on disk, so it must stay stable for
+    existing buckets and must exist for new ones (a bucket with no class would
+    render unstyled).
+    """
+    node = _report_category_node_by_name(name, selectable_only=False)
+    if node is not None and node.css_class:
+        return node.css_class
+    return REPORTING_CATEGORY_CLASS.get(name, 'cat-uncategorized')
+
+
+def _resolve_reporting_category(name):
+    """(target_category_id, css_class) for a dialog pick, or (None, None) if the
+    name is not a selectable report category. 'Uncategorized' clears the id."""
+    if str(name or '').strip() == 'Uncategorized':
+        return None, 'cat-uncategorized'
+    node = _report_category_node_by_name(name)
+    if node is None:
+        # Fall back to the legacy maps so a stale client (or a report.html
+        # injected before this change) keeps working.
+        if name in REPORTING_CATEGORY_DB_MAP:
+            return (REPORTING_CATEGORY_DB_MAP[name],
+                    REPORTING_CATEGORY_CLASS.get(name, 'cat-uncategorized'))
+        return None, None
+    return node.id, (node.css_class or 'cat-uncategorized')
 
 
 def _fetch_recent_scans(limit=5, month_key=None):
