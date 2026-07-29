@@ -82,10 +82,13 @@ def test_legacy_bucket_ids_are_unchanged(taxonomy):
     assert server._reporting_category_for_id(242) == "Robert Benefits and Medical"
 
 
-def test_walgreens_still_reports_as_robert_until_migration_004(taxonomy):
-    """Documents the live misattribution rather than silently fixing it here:
-    378 -> 241 -> 240 -> (pointer) 242. Migration 003/004 moves it to the
-    unassigned bucket 418; until then this is the honest current answer."""
+def test_pre_004_tree_shows_the_walgreens_misattribution(taxonomy):
+    """The fixture models the tree as it stood BEFORE migration 004, where
+    378 -> 241 -> 240 -> (pointer) 242 silently made Rosemary's pharmacy spend
+    Robert's. Kept as a regression witness: migration 004 repointed 240 at the
+    unassigned bucket 418 and moved 378 under it, and
+    test_unassigned_medical_is_per_expense_only in test_category_taxonomy.py
+    pins the post-004 behaviour."""
     assert server._reporting_category_for_id(WALGREENS) == \
         "Robert Benefits and Medical"
 
