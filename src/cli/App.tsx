@@ -4924,6 +4924,8 @@ export default function App({
             lastSeqId,
             fallbackError,
             approvalRequestEndedTurn,
+            inactivityTimedOut,
+            backendCancelSucceeded,
           } = await drainResult;
 
           if (lastSeqId != null) {
@@ -5256,8 +5258,15 @@ export default function App({
               waitingForQueueCancelRef.current = false;
               queueSnapshotRef.current = [];
             } else {
-              // Regular user cancellation - show error
-              if (!EAGER_CANCEL) {
+              if (inactivityTimedOut) {
+                appendError(
+                  backendCancelSucceeded
+                    ? "Stopped after 90 seconds without tool progress. The backend run was cancelled, so this conversation is ready for another message."
+                    : "Stopped after 90 seconds without tool progress, but backend cancellation could not be confirmed. Start a new conversation with `letta --new` if this conversation remains busy.",
+                  true,
+                );
+              } else if (!EAGER_CANCEL) {
+                // Regular user cancellation - show error
                 appendError(INTERRUPT_MESSAGE, true);
               }
 

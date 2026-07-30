@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { Run } from "@letta-ai/letta-client/resources/agents/messages";
-import { discoverFallbackRunIdForResume } from "../../cli/helpers/stream";
+import {
+  discoverFallbackRunIdForResume,
+  resolveInactivityCancelId,
+} from "../../cli/helpers/stream";
 
 type RunsListClient = {
   runs: {
@@ -144,5 +147,29 @@ describe("discoverFallbackRunIdForResume", () => {
     );
 
     expect(candidate).toBeNull();
+  });
+});
+
+describe("resolveInactivityCancelId", () => {
+  test("cancels a named conversation by conversation ID", () => {
+    expect(
+      resolveInactivityCancelId({
+        conversationId: "conv-123",
+        resolvedConversationId: "conv-123",
+        agentId: "agent-1",
+        requestStartedAtMs: 0,
+      }),
+    ).toBe("conv-123");
+  });
+
+  test("cancels the default conversation by agent ID", () => {
+    expect(
+      resolveInactivityCancelId({
+        conversationId: "default",
+        resolvedConversationId: "default",
+        agentId: "agent-1",
+        requestStartedAtMs: 0,
+      }),
+    ).toBe("agent-1");
   });
 });
