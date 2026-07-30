@@ -3,11 +3,15 @@ import { APIError } from "@letta-ai/letta-client/core/error";
 import type { AgentState } from "@letta-ai/letta-client/resources/agents/agents";
 import type { Message } from "@letta-ai/letta-client/resources/agents/messages";
 import { getResumeData, type ResumeData } from "./agent/check-approval";
-import { getClient } from "./agent/client";
+import { getClient, getServerUrl } from "./agent/client";
 import {
   setAgentContext,
   setConversationId as setContextConversationId,
 } from "./agent/context";
+import {
+  acquireConversationLease,
+  type ConversationLease,
+} from "./agent/conversationLease";
 import type { AgentProvenance } from "./agent/create";
 import { getLettaCodeHeaders } from "./agent/http-headers";
 import { ISOLATED_BLOCK_LABELS } from "./agent/memory";
@@ -62,6 +66,8 @@ import { markMilestone } from "./utils/timing";
 // anti-pattern of creating new [] on every render which triggers useEffect re-runs
 const EMPTY_APPROVAL_ARRAY: ApprovalRequest[] = [];
 const EMPTY_MESSAGE_ARRAY: Message[] = [];
+let activeConversationLease: ConversationLease | null = null;
+process.once("exit", () => activeConversationLease?.release());
 void ensureFileIndex();
 
 function printHelp() {
@@ -1954,6 +1960,16 @@ async function main(): Promise<void> {
             conversationIdToUse = data.foundConversationId;
           }
         }
+
+        // A conversation contains approval/tool-call state and cannot safely be
+        // driven by two local TUI processes. Without this lease, each process can
+        // answer a different approval snapshot and the server rejects the stale
+        // tool-call ID, leaving both clients in a 409 retry loop.
+        activeConversationLease = acquireConversationLease({
+          agentId: agent.id,
+          conversationId: conversationIdToUse,
+          serverUrl: getServerUrl(),
+        });
 
         // Ensure memfs sync completed (already resolved for default path via Promise.all above)
         await memfsSyncPromise;
