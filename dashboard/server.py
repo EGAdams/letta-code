@@ -4699,21 +4699,34 @@ def _usable_document_reference(value):
     return True
 
 
+def _supporting_document_roots():
+    """Directories a stored document reference is allowed to resolve inside."""
+    return [
+        os.path.abspath(os.path.expanduser('~/rol_finances/readable_documents')),
+        os.path.abspath(os.path.expanduser(
+            '~/rol_finances/tools/receipt_scanning_tools/incoming_scans')),
+    ]
+
+
 def _resolve_local_supporting_document(reference, document_type):
     if not _usable_document_reference(reference):
         return None
     if document_type == 'receipt':
-        return _resolve_receipt_url_path(reference)
+        resolved = _resolve_receipt_url_path(reference)
+        if resolved:
+            return resolved
+        # A scan attached to an *existing* row (the receipt turned out to
+        # duplicate a statement line already in the DB) keeps the intake
+        # staging path it was scanned to — it was never filed into the
+        # receipts tree, so the receipt index cannot see it. Fall through to
+        # the generic allowed-roots resolution rather than dropping the
+        # View Receipt button for a receipt that is plainly on disk.
     raw = unquote(str(reference).split('#', 1)[0].strip())
     candidates = [raw] if os.path.isabs(raw) else [
         os.path.join(os.path.expanduser('~/rol_finances'), raw),
         os.path.join(READABLE_DOCS_BASE, raw),
     ]
-    allowed_roots = [
-        os.path.abspath(os.path.expanduser('~/rol_finances/readable_documents')),
-        os.path.abspath(os.path.expanduser(
-            '~/rol_finances/tools/receipt_scanning_tools/incoming_scans')),
-    ]
+    allowed_roots = _supporting_document_roots()
     for candidate in candidates:
         candidate = os.path.abspath(candidate)
         if any(os.path.commonpath([candidate, root]) == root for root in allowed_roots):

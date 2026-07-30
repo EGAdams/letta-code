@@ -382,3 +382,51 @@ def test_stable_supporting_document_url_resolves_current_database_path(
 
     assert first == str(statement)
     assert second == str(statement)
+
+
+def test_scan_attached_to_a_duplicate_row_still_offers_view_receipt(
+    tmp_path, monkeypatch
+):
+    """A receipt that duplicated an existing statement line keeps its button.
+
+    Mazda attaches the scan itself as the row's receipt_url, so the reference
+    is the intake staging path — the receipt was never filed into the receipts
+    tree and the receipt index cannot see it.
+    """
+    staging = tmp_path / "incoming_scans"
+    staging.mkdir()
+    scan = staging / "window_scan_1785375180579246760_bf6820fdd860.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(server, "_resolve_receipt_url_path", lambda ref: None)
+    monkeypatch.setattr(
+        server, "_supporting_document_roots", lambda: [str(staging)]
+    )
+
+    assert server._resolve_local_supporting_document(
+        str(scan), "receipt") == str(scan)
+
+    row = {
+        "receipt_url": str(scan),
+        "document_url": "",
+        "moms_ledger": "",
+    }
+    receipt = server._supporting_document_descriptors(
+        row, "/scanner_report.html?scanner=window")[0]
+
+    assert receipt["label"] == "View Receipt"
+    assert receipt["available"] is True
+
+
+def test_a_receipt_reference_outside_the_allowed_roots_stays_unavailable(
+    tmp_path, monkeypatch
+):
+    stray = tmp_path / "elsewhere" / "scan.jpg"
+    stray.parent.mkdir()
+    stray.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(server, "_resolve_receipt_url_path", lambda ref: None)
+    monkeypatch.setattr(
+        server, "_supporting_document_roots", lambda: [str(tmp_path / "roots")]
+    )
+
+    assert server._resolve_local_supporting_document(
+        str(stray), "receipt") is None
