@@ -13,12 +13,14 @@ def test_dispatch_teaches_field_mapping_and_preservation_for_every_branch():
     )
 
     assert "Receipt → receipt_url" in message
-    assert "statement/source document → document_url" in message
+    assert "downloaded from the bank → document_url" in message
+    assert "statement scanned from paper → scanned_statement_url" in message
     assert "Mom’s ledger → moms_ledger" in message
-    assert "Never write a statement path into receipt_url" in message
-    assert "preserve the other two document fields" in message
+    assert "MUST NEVER be stored in document_url" in message
+    assert "preserve the other three document fields" in message
     assert "View Receipt" in message
     assert "View Source Document" in message
+    assert "View Scanned Statement" in message
     assert "View Mom’s Ledger" in message
     assert "fallback is only for repairing legacy rows" in message
 
@@ -56,11 +58,12 @@ def test_trainer_grades_the_red_box_without_blaming_mazda_for_it():
     assert "file it as a dashboard defect" in instructions
 
 
-def test_developer_manual_contains_three_field_contract():
+def test_developer_manual_contains_four_field_contract():
     manual = (ROOT / "notes_plans_handoffs/mazda_dev_status.html").read_text()
 
     assert "receipt_url" in manual
     assert "document_url" in manual
+    assert "scanned_statement_url" in manual
     assert "moms_ledger" in manual
     assert "supporting-document" in manual.lower()
     assert "repeated incoming scan" in manual

@@ -443,6 +443,47 @@ def test_receipts_present_is_scoped_to_each_matching_expense(monkeypatch):
     assert result == {'ok': True, 'present': [False, True]}
 
 
+def test_scanned_statements_present_is_scoped_to_each_matching_expense(monkeypatch):
+    rows = [
+        {
+            'id': 1366,
+            'expense_date': '2025-07-31',
+            'amount': '6.24',
+            'id_light': 'kfc_k980120_07_31_25_6_24',
+            'description': 'KFC K980120',
+            'scanned_statement_url': '',
+        },
+        {
+            'id': 1434,
+            'expense_date': '2025-08-15',
+            'amount': '179.08',
+            'id_light': 'country_inn_by_carlson_08_15_25_179_08',
+            'description': 'COUNTRY INN & SUITES - ELKHART',
+            'scanned_statement_url':
+                '/scanned_statements/2025/choice_..._scan.jpg',
+        },
+    ]
+    monkeypatch.setattr(
+        server, '_rol_get_connection', lambda: _FakeConnection(rows))
+    monkeypatch.setattr(
+        server, '_resolve_local_supporting_document',
+        lambda reference, kind: '/x.jpg' if reference and kind == 'scanned_statement' else None)
+
+    result = server.scanned_statements_present([
+        {
+            'date': '2025-07-31', 'signed_amount': '-6.24',
+            'vendor_key': 'kfc_k980120', 'description': 'KFC K980120',
+        },
+        {
+            'date': '2025-08-15', 'signed_amount': '-179.08',
+            'vendor_key': 'country_inn_by_carlson',
+            'description': 'COUNTRY INN & SUITES - ELKHART',
+        },
+    ])
+
+    assert result == {'ok': True, 'present': [False, True]}
+
+
 def test_expense_receipt_resolution_falls_back_to_date_amount_for_nonempty_url(
         monkeypatch):
     monkeypatch.setattr(server, '_resolve_receipt_url_path', lambda _url: None)
@@ -3440,6 +3481,42 @@ def test_duplicate_only_correction_replaces_superseded_expense_ids():
     assert intake['stored'] == 0
 
 
+def test_fold_event_unions_scanned_statement_attached_ids():
+    """A re-scan that only fortifies existing rows (EVIDENCE_ATTACHED) must
+    still render those rows in Verified Transactions — the direct fix for the
+    Country Inn & Suites $179.08 charge disappearing from the scanner tab."""
+    intake = {'expense_ids': [], 'duplicate_expense_ids': [], 'stored': 0}
+
+    server._fold_event_into_intake(intake, {
+        'stored': 0,
+        'duplicate_expense_ids': [1366, 1390],
+        'scanned_statement_attached': [1366, 1390, 1434],
+        'outcome': 'EVIDENCE_ATTACHED',
+    })
+
+    assert set(intake['expense_ids']) == {1366, 1390, 1434}
+
+
+def test_intake_reports_rolled_back_row_count():
+    intake = {'expense_ids': [], 'duplicate_expense_ids': []}
+
+    server._fold_event_into_intake(intake, {
+        'stored': 0,
+        'parsed': 4,
+        'rolled_back_row_count': 2,
+    })
+
+    assert intake['rolled_back_row_count'] == 2
+
+
+def test_rolled_back_row_count_defaults_to_absent_when_not_reported():
+    intake = {'expense_ids': [], 'duplicate_expense_ids': []}
+
+    server._fold_event_into_intake(intake, {'stored': 0, 'parsed': 4})
+
+    assert 'rolled_back_row_count' not in intake
+
+
 def test_get_stored_expense_events_filters_by_since():
     _clear_expense_events()
     import time as _time
@@ -5158,8 +5235,82 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
             in server.build_scanner_report_html('freezer'))
 
 
+def test_scanner_statement_report_prefers_canonical_archived_report(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=('choice_7580_year',))
+    _scanner_registry(monkeypatch)
+    report_url = '/rol_finances_reports/jan-2025/choice_7580_year/report.html'
+    report_file = (tmp_path / 'reports' / 'january' / 'choice_7580_year'
+                   / 'report.html')
+    report_file.write_text(
+        '<html><head><title>choice</title></head><body>'
+        '<table id="verified-transactions"><tbody>'
+        '<tr data-expense-id="1366" data-vendor-key="kfc">'
+        '<td>KFC</td><td>-6.24</td><td>2025-07-31</td></tr>'
+        '<tr data-expense-id="1390" data-vendor-key="mr_burger">'
+        '<td>MR BURGER</td><td>-16.99</td><td>2025-08-15</td></tr>'
+        '<tr data-expense-id="1674" data-vendor-key="country_inn">'
+        '<td>COUNTRY INN</td><td>-179.08</td><td>2025-08-15</td></tr>'
+        '</tbody></table></body></html>')
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
+        'expense_ids': [1366, 1390],
+        'duplicate_expense_ids': [1366, 1390],
+        'parsed': 4,
+        'stored': 0,
+        'doc_kind': 'statement',
+        'vendor': 'Choice Privileges Mastercard',
+    })
+
+    html = server.build_scanner_report_html('freezer')
+
+    assert '<base href="/rol_finances_reports/jan-2025/choice_7580_year/">' in html
+    assert 'COUNTRY INN' in html
+    assert 'data-expense-id="1674"' in html
+    assert 'Most Recent Document:' not in html
+
+
+def test_scanner_statement_report_falls_back_to_synthetic_when_no_archive_match(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    _scanner_registry(monkeypatch)
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
+        'expense_ids': [1366, 1390],
+        'duplicate_expense_ids': [1366, 1390],
+        'parsed': 4,
+        'stored': 0,
+        'doc_kind': 'statement',
+        'vendor': 'Choice Privileges Mastercard',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
+        'id': 1366, 'date': '2025-07-31', 'amount': '6.24',
+        'vendor_key': 'kfc_07_31_25_6_24',
+        'description': 'KFC K980120 GRAND RAPIDS ,MI',
+        'reporting_category': 'Personal / Non-Church — Review Required',
+        'cat_class': 'cat-personal', 'receipt_url': '',
+    }])
+
+    html = server.build_scanner_report_html('freezer')
+
+    assert 'Most Recent Document: scan_freezer.jpg' in html
+    assert 'KFC K980120 GRAND RAPIDS ,MI' in html
+
+
 def test_scanner_report_path_resolves_as_synthetic_db_backed_page():
     assert server._resolve_report_path_alias('/scanner_report.html') == ''
+    # The picker now posts location.search as well, so the alias must match on
+    # the path alone — otherwise recategorize would treat the querystring page
+    # as a real report.html on disk and fail to find it.
+    assert server._resolve_report_path_alias(
+        '/scanner_report.html?scanner=freezer') == ''
+    assert server._resolve_report_path_alias(
+        server.RECEIPT_ONLY_REPORT_PATH + '?month=january'
+    ) == server.RECEIPT_ONLY_REPORT_PATH
 
 
 def test_scanner_intake_document_path_prefers_recorded_scan(tmp_path, monkeypatch):
