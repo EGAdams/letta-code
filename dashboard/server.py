@@ -6,6 +6,7 @@ Run: python3 server.py   (from /home/adamsl/letta-code/dashboard/)
 Then open: http://localhost:8765/
 """
 import json
+import glob
 import hashlib
 import os
 import re
@@ -1072,6 +1073,50 @@ def _associated_evidence_paths(rows):
     return scanned_statement_path, moms_ledger_path
 
 
+def _statement_archive_path(rows, vendor_key=''):
+    """Locate the canonically-named bank_statements archive copy of a scanned
+    statement — readable_documents/bank_statements/<year>/<month>/
+    <vendor>_<slug>/<vendor>_<slug>.<ext>, where slug is built from the
+    statement's own date range (e.g. 'july_31__august_15').
+
+    Scanner intakes only ever populate scanned_statement_url with the raw
+    scan filename (e.g. window_scan_...jpg) — the properly-named copy filed
+    under bank_statements/ isn't linked from the DB anywhere, so it has to be
+    found by matching this slug against every year/month folder rather than
+    looked up directly. Vendor tokens disambiguate when more than one folder
+    shares a date range; an unresolved ambiguity returns '' rather than
+    guessing (same fail-closed shape as _find_matching_report_row).
+    """
+    dates = sorted({r.get('date') for r in rows or [] if r.get('date')})
+    if not dates:
+        return ''
+    try:
+        start = datetime.strptime(dates[0], '%Y-%m-%d')
+        end = datetime.strptime(dates[-1], '%Y-%m-%d')
+    except ValueError:
+        return ''
+    slug = (f'{start.strftime("%B").lower()}_{start.day:02d}__'
+            f'{end.strftime("%B").lower()}_{end.day:02d}')
+    pattern = os.path.join(
+        READABLE_DOCS_BASE, 'bank_statements', str(start.year), '*', f'*{slug}')
+    folders = sorted(glob.glob(pattern))
+    if len(folders) > 1 and vendor_key:
+        tokens = [t for t in vendor_key.lower().split('_') if t.isalpha()]
+        narrowed = [f for f in folders
+                    if any(t in os.path.basename(f).lower() for t in tokens)]
+        if narrowed:
+            folders = narrowed
+    if len(folders) != 1:
+        return ''
+    folder = folders[0]
+    name = os.path.basename(folder)
+    for ext in ('.jpg', '.jpeg', '.png', '.pdf', '.xlsx'):
+        candidate = os.path.join(folder, name + ext)
+        if os.path.isfile(candidate):
+            return candidate
+    return ''
+
+
 _DOC_KIND_LABELS = {
     'statement': 'Bank Statement',
     'bank_statement': 'Bank Statement',
@@ -1276,6 +1321,14 @@ def build_recent_intake_html(intake):
         pdf_display = '--'
     receipt_display = _esc(receipt_path) if receipt_path else '--'
     scanned_statement_path, moms_ledger_path = _associated_evidence_paths(rows)
+    # Prefer the canonically-named bank_statements/ archive copy over
+    # whatever raw scan filename scanned_statement_url happens to carry —
+    # legacy rows still point at the staging path even once a properly
+    # named copy has been filed. See _statement_archive_path.
+    archive_path = _statement_archive_path(
+        rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
+    if archive_path:
+        scanned_statement_path = archive_path
     scanned_statement_display = (
         _esc(scanned_statement_path) if scanned_statement_path else '--')
     moms_ledger_display = _esc(moms_ledger_path) if moms_ledger_path else '--'

@@ -5406,6 +5406,78 @@ def test_recent_intake_html_shows_document_metadata(tmp_path, monkeypatch):
     assert 'Associated Receipt: --' in html
 
 
+def test_statement_archive_path_finds_canonically_named_copy(tmp_path, monkeypatch):
+    """A scanned statement's canonically-named bank_statements/ archive copy
+    (bank_statements/<year>/<month>/<vendor>_<slug>/<vendor>_<slug>.jpg) is
+    findable from the statement's own date range even though scanned_statement_url
+    never points at it — a duplicate rescan's DB rows still only carry the raw
+    scan filename from whichever run first stored them."""
+    base = tmp_path / 'readable_documents'
+    folder = (base / 'bank_statements' / '2025' / 'july'
+              / 'choice_privileges_mastercard_7580_july_31__august_15')
+    folder.mkdir(parents=True)
+    (folder / 'choice_privileges_mastercard_7580_july_31__august_15.jpg').write_bytes(b'x')
+    monkeypatch.setattr(server, 'READABLE_DOCS_BASE', str(base))
+    rows = [
+        {'date': '2025-07-31', 'amount': '6.24', 'vendor_key': 'choice_privileges_7580'},
+        {'date': '2025-08-15', 'amount': '16.99', 'vendor_key': 'choice_privileges_7580'},
+        {'date': '2025-08-15', 'amount': '179.08', 'vendor_key': 'choice_privileges_7580'},
+    ]
+    found = server._statement_archive_path(rows, vendor_key='choice_privileges_7580')
+    assert found == str(
+        folder / 'choice_privileges_mastercard_7580_july_31__august_15.jpg')
+
+
+def test_statement_archive_path_no_match_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'READABLE_DOCS_BASE', str(tmp_path / 'readable_documents'))
+    rows = [{'date': '2025-07-31', 'amount': '6.24', 'vendor_key': 'choice_privileges_7580'}]
+    assert server._statement_archive_path(rows) == ''
+    assert server._statement_archive_path([]) == ''
+
+
+def test_recent_intake_html_prefers_statement_archive_over_raw_scan_url(
+        tmp_path, monkeypatch):
+    """The 'Associated Scanned Statement' field on the Recent Report intake
+    page must show the canonically-named bank_statements/ archive copy when
+    one exists, not the stale raw scan filename recorded in scanned_statement_url."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    base = tmp_path / 'readable_documents'
+    folder = (base / 'bank_statements' / '2025' / 'july'
+              / 'choice_privileges_mastercard_7580_july_31__august_15')
+    folder.mkdir(parents=True)
+    archive_file = folder / 'choice_privileges_mastercard_7580_july_31__august_15.jpg'
+    archive_file.write_bytes(b'x')
+    monkeypatch.setattr(server, 'READABLE_DOCS_BASE', str(base))
+    monkeypatch.setattr(server, '_supporting_document_roots', lambda: [str(base)])
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'duplicate_expense_ids': [1, 2, 3], 'parsed': 5, 'stored': 0,
+    })
+    raw_scan = base / 'scanned_statements' / '2025' / 'window_scan_raw.jpg'
+    raw_scan.parent.mkdir(parents=True)
+    raw_scan.write_bytes(b'x')
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [
+        {'date': '2025-07-31', 'amount': '6.24', 'vendor_key': 'choice_privileges_7580',
+         'description': 'KFC', 'reporting_category': 'Uncategorized',
+         'cat_class': 'cat-uncategorized', 'receipt_url': '',
+         'scanned_statement_url': str(raw_scan)},
+        {'date': '2025-08-15', 'amount': '16.99', 'vendor_key': 'choice_privileges_7580',
+         'description': 'MR BURGER', 'reporting_category': 'Uncategorized',
+         'cat_class': 'cat-uncategorized', 'receipt_url': '',
+         'scanned_statement_url': str(raw_scan)},
+        {'date': '2025-08-15', 'amount': '179.08', 'vendor_key': 'choice_privileges_7580',
+         'description': 'COUNTRY INN', 'reporting_category': 'Uncategorized',
+         'cat_class': 'cat-uncategorized', 'receipt_url': '',
+         'scanned_statement_url': str(raw_scan)},
+    ])
+    monkeypatch.setattr(server, '_find_matching_report_row', lambda *a, **k: None)
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    html = server.build_recent_report_html()
+    assert f'Associated Scanned Statement: {archive_file}' in html
+    assert str(raw_scan) not in html
+
+
 def test_recent_intake_html_pdf_shows_this(tmp_path, monkeypatch):
     """Rule 2: when the currently-processed document is itself a PDF, the
     Associated PDF field reads 'this.' rather than searching report rows."""
