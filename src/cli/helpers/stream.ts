@@ -66,6 +66,8 @@ export type DrainResult = {
   approvalRequestEndedTurn?: boolean;
   apiDurationMs: number; // time spent in API call
   fallbackError?: string | null; // Error message for when we can't fetch details from server (no run_id)
+  inactivityTimedOut?: boolean;
+  backendCancelSucceeded?: boolean;
 };
 
 type RunsListResponse =
@@ -87,6 +89,14 @@ type RunsListClient = {
 };
 
 const FALLBACK_RUN_DISCOVERY_TIMEOUT_MS = 5000;
+
+export function resolveInactivityCancelId(
+  ctx: StreamRequestContext,
+): string | null {
+  return ctx.conversationId === "default"
+    ? ctx.agentId
+    : ctx.resolvedConversationId;
+}
 
 function _hasNonEmptyTextPart(content: unknown): boolean {
   if (typeof content === "string") {
@@ -566,6 +576,7 @@ export async function drainStream(
     lastSeqId: streamProcessor.lastSeqId,
     apiDurationMs,
     fallbackError,
+    inactivityTimedOut: inactivityAborted,
   };
 }
 
@@ -895,6 +906,39 @@ export async function drainStreamWithResume(
           runId: result.lastRunId ?? undefined,
         },
       );
+    }
+  }
+
+  // The 90-second no-tool-progress watchdog used to abort only the local HTTP
+  // stream. The backend run kept going, so the UI unlocked while the
+  // conversation was still busy and the next message inevitably hit 409.
+  // Cancel the backend run before returning control to any caller.
+  if (result.inactivityTimedOut && streamRequestContext) {
+    const cancelId = resolveInactivityCancelId(streamRequestContext);
+    if (cancelId) {
+      try {
+        const client = await lazyClient();
+        await client.conversations.cancel(cancelId);
+        result.backendCancelSucceeded = true;
+        debugWarn(
+          "stream",
+          "Inactivity timeout: backend run cancelled before releasing conversation",
+        );
+      } catch (cancelError) {
+        result.backendCancelSucceeded = false;
+        const cancelMessage =
+          cancelError instanceof Error
+            ? cancelError.message
+            : String(cancelError);
+        result.fallbackError = result.fallbackError
+          ? `${result.fallbackError}; backend cancellation failed: ${cancelMessage}`
+          : `Backend cancellation failed: ${cancelMessage}`;
+        debugWarn(
+          "stream",
+          "Inactivity timeout: backend cancellation failed:",
+          cancelMessage,
+        );
+      }
     }
   }
 
