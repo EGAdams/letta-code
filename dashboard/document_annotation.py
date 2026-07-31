@@ -19,7 +19,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterable, Sequence
 
-ANNOTATION_SCHEMA_VERSION = 3
+ANNOTATION_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -81,12 +81,28 @@ class IExpenseReferenceResolver(ABC):
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
+def _token_list(value: str) -> list[str]:
+    """Usable tokens in printed order — the payee comes before its city."""
+    seen: list[str] = []
+    for token in _TOKEN_RE.findall(str(value or "").lower()):
+        if len(token) > 2 and token not in {"the", "and", "for", "inc", "llc"}:
+            if token not in seen:
+                seen.append(token)
+    return seen
+
+
 def _tokens(value: str) -> set[str]:
-    return {
-        token
-        for token in _TOKEN_RE.findall(str(value or "").lower())
-        if len(token) > 2 and token not in {"the", "and", "for", "inc", "llc"}
-    }
+    return set(_token_list(value))
+
+
+def _payee_head_tokens(description: str) -> set[str]:
+    """The first tokens of a description — the payee's own name.
+
+    A statement prints "PAYEE CITY STATE", so the trailing tokens are shared by
+    every row from the same town ("GRAND RAPIDS MI") and identify nothing. Only
+    the head is identity.
+    """
+    return set(_token_list(description)[:2])
 
 
 def _amount_decimal(value: object) -> Decimal | None:
@@ -146,6 +162,38 @@ def _date_matches(text: str, evidence_date: str) -> bool:
     return any(value and value in lowered for value in _date_variants(evidence_date))
 
 
+def _complete_date_matches(text: str, evidence_date: str) -> bool:
+    """Match a printed calendar date, never a bare M/D mentioned in prose."""
+    variants = {
+        value
+        for value in _date_variants(evidence_date)
+        if re.search(r"(?:^|[-/])\d{2,4}$", value)
+        and value.count("/") + value.count("-") == 2
+    }
+    lowered = text.lower()
+    return any(value and value in lowered for value in variants)
+
+
+def _statement_row_date_matches(text: str, evidence_date: str) -> bool:
+    """Match the bare M/D a credit-card statement row opens with.
+
+    Card statements print the year once, in the billing-cycle header, and start
+    every transaction row with ``MM/DD MM/DD`` (posting and transaction date).
+    ``_complete_date_matches`` demands a year, so on those scans it can never
+    fire and the identity-only path was unreachable — the Choice Privileges
+    freezer scan of 2026-07-29 lost its box for exactly this reason. Anchoring
+    at the start of the line keeps the looser M/D out of prose, where a
+    "payment due by 03/21" sentence would otherwise read as a row date.
+    """
+    variants = {
+        value
+        for value in _date_variants(evidence_date)
+        if value.count("/") + value.count("-") == 1
+    }
+    stripped = str(text or "").lstrip(" |[](){}<>*.,:;-_\"'`~")
+    return any(value and stripped.lower().startswith(value) for value in variants)
+
+
 # A tie at or above this score is decisive; below it, two equally-ranked rows
 # reject each other rather than boxing the wrong one.
 _DECISIVE_SCORE = 10
@@ -153,6 +201,22 @@ _DECISIVE_SCORE = 10
 # ``_DECISIVE_SCORE`` on purpose, so an identity-only win can never survive a
 # tie with a second row that looks just as much like this expense.
 _IDENTITY_ONLY_CEILING = 9
+
+
+def _strong_description_score(
+    description_tokens: set[str],
+    description_hits: int,
+) -> int:
+    """Score a long, distinctive description when OCR loses date and amount."""
+    if len(description_tokens) < 8 or description_hits < 5:
+        return -1
+    coverage = description_hits / len(description_tokens)
+    if coverage < 0.5:
+        return -1
+    return min(
+        _IDENTITY_ONLY_CEILING,
+        5 + round(coverage * 4),
+    )
 
 
 def _line_score(text: str, evidence: ExpenseEvidence) -> int:
@@ -165,7 +229,8 @@ def _line_score(text: str, evidence: ExpenseEvidence) -> int:
     amount_hit = _amount_matches(text, amount)
     date_hit = _date_matches(text, evidence.expense_date)
     line_tokens = _tokens(text)
-    description_hits = len(line_tokens & _tokens(evidence.description))
+    description_tokens = _tokens(evidence.description)
+    description_hits = len(line_tokens & description_tokens)
     vendor_hits = len(line_tokens & _tokens(evidence.vendor_key.replace("_", " ")))
     if not amount_hit and not reference_hit:
         # A scan EG has written on loses its amount column to OCR: the pen
@@ -173,12 +238,26 @@ def _line_score(text: str, evidence: ExpenseEvidence) -> int:
         # Rather than fail closed on the whole row, accept the date plus a
         # substantial share of the payee as identity, scored below the
         # decisive band so any rival row still cancels the box.
-        if not date_hit or description_hits < 2:
-            return -1
-        return min(
-            _IDENTITY_ONLY_CEILING,
-            5 + min(description_hits, 3) + min(vendor_hits, 2),
-        )
+        # OCR routinely truncates the payee ("RADISSON HO"), so one hit on the
+        # payee's own name says more than two on the city it shares with every
+        # neighbouring row.
+        head_hits = len(line_tokens & _payee_head_tokens(evidence.description))
+        tail_hits = description_hits - head_hits
+        if _complete_date_matches(text, evidence.expense_date):
+            identified = description_hits >= 2
+        elif _statement_row_date_matches(text, evidence.expense_date):
+            # A bare M/D is weaker evidence than a printed calendar date, so
+            # require the payee's head: geography alone must never win a row.
+            identified = head_hits >= 1
+        else:
+            identified = False
+        if identified:
+            return min(
+                _IDENTITY_ONLY_CEILING,
+                5 + 2 * min(head_hits, 2) + min(tail_hits, 2)
+                + min(vendor_hits, 2),
+            )
+        return _strong_description_score(description_tokens, description_hits)
     score = 12 if reference_hit else 0
     if amount_hit:
         score += 5
@@ -317,6 +396,53 @@ def _spatial_lines(
             )
         )
     return output
+
+
+def _wrapped_line_windows(
+    lines: Sequence[tuple[str, tuple[float, float, float, float]]],
+) -> list[tuple[str, tuple[float, float, float, float]]]:
+    """Join overlapping OCR lines from one wrapped table row.
+
+    Tesseract can split a wrapped description into two rows and attach the
+    date/amount noise to only one of them. Only vertically touching lines with
+    overlapping horizontal bounds are joined, so adjacent table rows remain
+    separate candidates and the normal ambiguity rules still apply.
+    """
+    clean = [
+        (
+            str(text).strip(),
+            tuple(float(value) for value in region),
+        )
+        for text, region in lines
+        if str(text).strip()
+        and len(region) == 4
+        and all(isinstance(value, (int, float)) for value in region)
+    ]
+    if len(clean) < 2:
+        return []
+    heights = [
+        max(1.0, region[3] - region[1])
+        for _text, region in clean
+    ]
+    max_gap = max(2.0, statistics.median(heights) * 0.25)
+    ordered = sorted(clean, key=lambda item: (item[1][1], item[1][0]))
+    windows = []
+    for index, (text, region) in enumerate(ordered[:-1]):
+        parts = [text]
+        left, top, right, bottom = region
+        for next_text, next_region in ordered[index + 1:index + 3]:
+            horizontal_overlap = min(right, next_region[2]) - max(
+                left, next_region[0]
+            )
+            if next_region[1] > bottom + max_gap or horizontal_overlap <= 0:
+                break
+            parts.append(next_text)
+            left = min(left, next_region[0])
+            top = min(top, next_region[1])
+            right = max(right, next_region[2])
+            bottom = max(bottom, next_region[3])
+            windows.append((" ".join(parts), (left, top, right, bottom)))
+    return windows
 
 
 class PdfExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
@@ -563,7 +689,10 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
                 for index in indexes
             )
             lines.append((text, (left, top, right, bottom)))
-        lines.extend(_spatial_lines(spatial_words))
+        lines.extend(_wrapped_line_windows(lines))
+        spatial_lines = _spatial_lines(spatial_words)
+        lines.extend(spatial_lines)
+        lines.extend(_wrapped_line_windows(spatial_lines))
         region, _score, matched_text = _best_line(lines, match_evidence)
         if region is None:
             return AnnotationResult(
@@ -584,7 +713,14 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
             # Identity-only match: OCR lost the amount column, so the winning
             # line stops short of it.  Box the full statement row so the red
             # box still shows EG where the money came from.
-            left = min(left, round(image.width * 0.08))
+            description_tokens = _tokens(match_evidence.description)
+            description_hits = len(
+                _tokens(matched_text) & description_tokens
+            )
+            if _strong_description_score(
+                description_tokens, description_hits
+            ) < 0:
+                left = min(left, round(image.width * 0.08))
             right = max(right, round(image.width * 0.94))
         padding = max(8, round(image.width * 0.004))
         draw = ImageDraw.Draw(image)

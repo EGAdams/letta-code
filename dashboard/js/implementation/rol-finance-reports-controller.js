@@ -14,10 +14,10 @@ import { describePipelineStage } from "./document-pipeline-controller.js";
  *   2. An iframe loading the report.html, collapsed to the Verified Transactions
  *      card via showOnlyVerifiedTransactions on load.
  *
- * The controller polls GET /api/expense-stored-events every 15 s (when polling
- * is enabled by injecting setInterval / clearInterval). When Mazda stores a new
- * expense after a scan, she POSTs /api/expense-stored (STEP 8 in the scan
- * message); any open report iframe is reloaded so receipt markers auto-refresh.
+ * The controller polls expense events and the intake-state token every 15 s
+ * (when polling is enabled by injecting setInterval / clearInterval). Open
+ * report iframes reload when either persisted intake progress changes or Mazda
+ * stores an expense, so Last Scan / Recent Report shows in-flight work too.
  *
  * Programs to interfaces, not implementations:
  *   - HttpClient (http) — all network calls go through http.getJSON / postJSON.
@@ -36,6 +36,7 @@ export class RolFinanceReportsController {
     endpoint = "/api/rol-finance-reports",
     reprocessEndpoint = "/api/reprocess-report",
     expenseEventsEndpoint = "/api/expense-stored-events",
+    intakeStateEndpoint = "/api/intake-state",
     monthStatusEndpoint = "/api/rol-finance-month-status",
     recentScansEndpoint = "/api/rol-finance-recent-scans",
     categoriesEndpoint = "/api/rol-finance-categories",
@@ -73,6 +74,7 @@ export class RolFinanceReportsController {
     this._endpoint = endpoint;
     this._reprocessEndpoint = reprocessEndpoint;
     this._expenseEventsEndpoint = expenseEventsEndpoint;
+    this._intakeStateEndpoint = intakeStateEndpoint;
     this._monthStatusEndpoint = monthStatusEndpoint;
     this._recentScansEndpoint = recentScansEndpoint;
     this._categoriesEndpoint = categoriesEndpoint;
@@ -97,6 +99,7 @@ export class RolFinanceReportsController {
     this.reports = null;
     this._pollTimer = null;
     this._lastEventTs = 0;
+    this._lastIntakeToken = null;
   }
 
   /**
@@ -1196,17 +1199,31 @@ export class RolFinanceReportsController {
   }
 
   async _pollStoredExpenses() {
+    let shouldReload = false;
     try {
       const events = await this._http.getJSON(
         `${this._expenseEventsEndpoint}?since=${this._lastEventTs}`,
       );
       if (Array.isArray(events) && events.length > 0) {
         this._lastEventTs = Math.max(...events.map((e) => e.stored_at));
-        this._reloadOpenIframes();
+        shouldReload = true;
       }
     } catch {
       // Network error — silently ignore; retry on the next tick.
     }
+    try {
+      const state = await this._http.getJSON(this._intakeStateEndpoint);
+      const token = state?.token;
+      if (typeof token === "string") {
+        if (this._lastIntakeToken !== null && token !== this._lastIntakeToken) {
+          shouldReload = true;
+        }
+        this._lastIntakeToken = token;
+      }
+    } catch {
+      // Fail soft: expense events and status panels continue polling.
+    }
+    if (shouldReload) this._reloadOpenIframes();
     // Refresh every tick (not just when an expense-stored event fires): a
     // report can flip from review/fail to pass via the verification workflow
     // alone, with no expense-stored event, and New Records must still drop

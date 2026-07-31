@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 import server
 from document_annotation import AnnotationResult
 
@@ -152,6 +154,70 @@ def test_generated_html_report_is_not_a_source_document(
     }
 
 
+def test_source_document_is_unavailable_when_it_resolves_to_same_file_as_receipt(
+    tmp_path, monkeypatch
+):
+    receipt = tmp_path / "receipts" / "tikun_03_18_25_300_00.jpg"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_bytes(b"\xff\xd8\xff")
+    relative_receipt = os.path.relpath(receipt, server.READABLE_DOCS_BASE)
+
+    def _resolve(reference, kind):
+        if not reference:
+            return None
+        raw = str(reference).split("#", 1)[0]
+        if raw == str(receipt) or raw == relative_receipt:
+            return str(receipt)
+        return None
+
+    monkeypatch.setattr(server, "_resolve_local_supporting_document", _resolve)
+
+    documents = server._supporting_document_descriptors(
+        {
+            "receipt_url": relative_receipt,
+            "document_url": str(receipt),
+            "moms_ledger": "",
+        },
+        "/scanner_report.html?scanner=freezer",
+    )
+
+    assert documents[0]["available"] is True
+    assert documents[1] == {
+        "type": "source",
+        "label": "View Source Document",
+        "field": "document_url",
+        "available": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("receipt_url", "document_url"),
+    [
+        ("/receipts/tikun.jpg", "/receipts/tikun.jpg#page=2"),
+        ("receipt:/receipts/tikun.jpg", "/receipts/tikun.jpg"),
+        ({"source_document_id": "abc"}, {"id": "abc"}),
+    ],
+)
+def test_source_document_is_unavailable_for_equivalent_targets(receipt_url, document_url, monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "_resolve_local_supporting_document",
+        lambda reference, kind: "/tmp/shared.pdf" if reference and kind in {"receipt", "source"} else None,
+    )
+
+    documents = server._supporting_document_descriptors(
+        {
+            "receipt_url": receipt_url,
+            "document_url": document_url,
+            "moms_ledger": "",
+        },
+        "/scanner_report.html?scanner=freezer",
+    )
+
+    assert documents[0]["available"] is True
+    assert documents[1]["available"] is False
+
+
 def test_report_statement_is_available_when_document_url_is_missing(
     tmp_path, monkeypatch
 ):
@@ -180,6 +246,34 @@ def test_report_statement_is_available_when_document_url_is_missing(
         "label": "View Source Document",
         "field": "document_url",
         "available": True,
+    }
+
+
+def test_source_document_is_unavailable_when_it_only_repeats_receipt(
+    monkeypatch,
+):
+    receipt = "/receipts/tikun_03_18_25_300_00.jpg"
+    monkeypatch.setattr(
+        server,
+        "_resolve_local_supporting_document",
+        lambda reference, kind: receipt if kind == "receipt" and reference == receipt else None,
+    )
+
+    documents = server._supporting_document_descriptors(
+        {
+            "receipt_url": receipt,
+            "document_url": receipt,
+            "moms_ledger": "",
+        },
+        "/scanner_report.html?scanner=freezer",
+    )
+
+    assert documents[0]["available"] is True
+    assert documents[1] == {
+        "type": "source",
+        "label": "View Source Document",
+        "field": "document_url",
+        "available": False,
     }
 
 

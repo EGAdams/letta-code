@@ -229,6 +229,7 @@ files from both `HERE` (`/home/adamsl/letta-code/dashboard`) and `REPO_ROOT`
 | Tab | File | Served URL |
 |---|---|---|
 | Self Evolving | `notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` | `/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` |
+| Server Rewrite | `notes_plans_handoffs/server_rewrite.html` | `/notes_plans_handoffs/server_rewrite.html` |
 | Mazda Dev Status | `notes_plans_handoffs/mazda_dev_status.html` | `/notes_plans_handoffs/mazda_dev_status.html` |
 | Audio Input | `dashboard/audio_input/audio_plan.html` | `/audio_input/audio_plan.html` |
 
@@ -474,6 +475,19 @@ turn to "wait" (instructions mandate Bash `sleep` loops + report-before-finish);
 the OAuth login; the dashboard service's PATH lacks bun/claude so the Popen prepends
 `~/.bun/bin:~/.local/bin`. Tests: `tests/test_server.py -k trainer` — the pytest conftest fixture
 disables the Trainer so test runs never spawn a real ~25-minute Claude session.
+
+**The SDK's `.withTimeout()` is a no-op** (`@instantlyeasy/claude-code-sdk-ts@0.3.3` stores
+`options.timeout` and never reads it; only `.withSignal()` reaches the child process). A Claude
+session that stops producing output therefore used to hang `asText()` forever — the watchdog loop
+never regained control, so there was no retry, no codex fallback, no emergency report, and no
+`/api/intake-status` publish: the intake just stayed silently unverified. `trainer/claude-attempt.ts`
+(`runWithAbortTimeout`) supplies the AbortSignal *and* an independent hard deadline, which is what
+actually enforces `TRAINER_ATTEMPT_TIMEOUT_MS`. Tests: `bun test dashboard/trainer/claude-attempt.test.ts`
+plus `test_trainer_claude_attempt_has_an_enforceable_deadline`.
+
+Diagnosis trap: the Trainer's log is a **file**, and bun block-buffers stdout when stdout is not a
+TTY — a 0-byte `/tmp/mazda_trainer_*.log` means "still running (or killed before flush)", *not*
+"never started". Check `systemctl --user list-units 'mazda-trainer-*'` for the real answer.
 
 ### Statement review dialog (Scanner screen)
 

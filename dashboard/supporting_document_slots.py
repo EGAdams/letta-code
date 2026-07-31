@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
@@ -10,6 +11,31 @@ class SupportingDocumentSlot:
     kind: str
     expense_field: str
     label: str
+
+
+def _normalize_supporting_document_target(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        for key in ("id", "document_id", "source_document_id", "receipt_id", "value", "target"):
+            if key in value and value[key] is not None:
+                return _normalize_supporting_document_target(value[key])
+        return ""
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            normalized = _normalize_supporting_document_target(item)
+            if normalized:
+                return normalized
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    for prefix in ("receipt:", "receipt ", "source_document:", "source document:", "document:", "supporting_document:"):
+        if lowered.startswith(prefix):
+            lowered = lowered[len(prefix):].strip()
+            break
+    return lowered
 
 
 class SupportingDocumentCatalog:
@@ -32,6 +58,26 @@ class SupportingDocumentCatalog:
 
     def fields(self):
         return tuple(slot.expense_field for slot in self._slots)
+
+
+def get_supporting_document_lookup_key(
+    document: Mapping[str, Any] | None,
+    *,
+    kind: str,
+) -> str:
+    if not document:
+        return ""
+    if kind == "receipt":
+        candidate = document.get("receipt_id") or document.get("id") or document.get("document_id")
+        return _normalize_supporting_document_target(candidate)
+
+    source_candidate = document.get("source_document_id") or document.get("source_document")
+    source_key = _normalize_supporting_document_target(source_candidate)
+    if source_key:
+        return source_key
+
+    candidate = document.get("id") or document.get("document_id")
+    return _normalize_supporting_document_target(candidate)
 
 
 SUPPORTING_DOCUMENT_CATALOG = SupportingDocumentCatalog()

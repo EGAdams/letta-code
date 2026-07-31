@@ -1256,11 +1256,10 @@ if (navPcMonitor) {
        The agents now speak with the same edge-tts en-GB-SoniaNeural voice the
        pickle_cpp scoreboard uses: EdgeTtsSpeechSynthesizer (Decorator over the
        BrowserSpeechSynthesizer facade) POSTs the reply text to /api/tts and
-       plays the returned MP3. When the server voice is unavailable (offline,
-       edge-tts missing) it falls back to the old Web Speech path with the
-       per-agent AgentVoiceCatalog voices. */
+       plays the returned MP3. It intentionally stays silent if server audio
+       is unavailable so a browser-local robotic voice cannot replace an
+       agent's configured voice. */
 const Speech = new EdgeTtsSpeechSynthesizer(window);
-Speech.bindVoiceChanges(); // fallback engine: initial pick + re-pick on change
 
 /* =====================  Agent Manager  ===================== */
 // The three agent-detail streams (Thoughts / Messages / Tool Calls) are

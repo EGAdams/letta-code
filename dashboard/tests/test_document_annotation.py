@@ -217,6 +217,91 @@ def test_illegible_amount_match_needs_the_date_and_the_payee():
     assert _best_line([("01/22/2025 balance forward", "row")], evidence())[0] is None
 
 
+def test_illegible_amount_does_not_treat_a_bare_date_in_description_as_row_date():
+    from document_annotation import _best_line
+
+    target = ExpenseEvidence(
+        expense_id=1679,
+        expense_date="2025-03-05",
+        amount="19.50",
+        description="Edited Rosemary's 2/15 sermon",
+    )
+    lines = [
+        ("3/25/2025 Edited Rosemary's 3/5 sermon 15.50", "wrong-row"),
+        ("3/5/2025 Edited Rosemary's 2/15 sermon", "right-row"),
+    ]
+
+    assert _best_line(lines, target)[0] == "right-row"
+
+
+def test_wrapped_invoice_row_matches_on_unique_description_when_date_and_amount_are_garbled():
+    from document_annotation import _best_line, _wrapped_line_windows
+
+    target = ExpenseEvidence(
+        expense_id=1680,
+        expense_date="2025-03-12",
+        amount="18.00",
+        description=(
+            "Edited and uploaded the students and Rosemary's messages on "
+            "Love Not the World and Loving the Family of God"
+        ),
+        vendor_key="jacob_menninga",
+    )
+    # Captured from Tesseract on the real Freezer scan. The target row wraps,
+    # while OCR turns both 3/12/2025 and 18.00 into noise.
+    spatial_lines = [
+        (
+            "Travel Edited and uploaded the-students and Rosemary's messages on a",
+            (255.0, 1599.0, 2506.0, 1653.0),
+        ),
+        (
+            "apap avzS Love Not the World and Loving the Family of God "
+            "<2 saree —_ Sree?",
+            (724.0, 1639.0, 2459.0, 1694.0),
+        ),
+        (
+            "3/19/2025 Edited and uploaded Rosemary's sermon on the golden rule "
+            "0.65 15.00 9.75",
+            (725.0, 1777.0, 2131.0, 1816.0),
+        ),
+    ]
+
+    candidates = spatial_lines + _wrapped_line_windows(spatial_lines)
+    region, score, text = _best_line(candidates, target)
+
+    assert region == (255.0, 1599.0, 2506.0, 1694.0)
+    assert score == 9
+    assert "students" in text
+    assert "Love Not the World" in text
+
+
+def test_description_only_fallback_rejects_short_or_repeated_descriptions():
+    from document_annotation import _best_line
+
+    short = ExpenseEvidence(
+        expense_id=1,
+        amount="18.00",
+        description="Monthly subscription",
+    )
+    repeated = ExpenseEvidence(
+        expense_id=2,
+        amount="18.00",
+        description=(
+            "Edited and uploaded the students and Rosemary's messages on "
+            "Love Not the World and Loving the Family of God"
+        ),
+    )
+
+    assert _best_line([("Monthly subscription", "row")], short)[0] is None
+    assert _best_line(
+        [
+            (repeated.description, "first-row"),
+            (repeated.description, "second-row"),
+        ],
+        repeated,
+    )[0] is None
+
+
 def test_illegible_amount_match_rejects_two_rows_of_the_same_payee_and_date():
     from document_annotation import _best_line
 
@@ -296,3 +381,117 @@ def test_excel_strategy_boxes_only_the_matching_row(tmp_path):
     assert highlighted.active["C3"].border.right.color.rgb == "FFFF0000"
     assert highlighted.active["A2"].border.left.style is None
     highlighted.close()
+
+
+def test_card_statement_row_identifies_by_bare_month_day_and_payee_head():
+    """Card statements print the year once, in the billing-cycle header.
+
+    Every transaction row opens with "MM/DD MM/DD", so requiring a printed
+    calendar date made the identity-only path unreachable on scans of them —
+    the Choice Privileges freezer scan of 2026-07-29 lost the box on two rows
+    whose amount OCR could not read.
+    """
+    from document_annotation import _line_score
+
+    roku = ExpenseEvidence(
+        expense_id=1695,
+        expense_date="2025-03-17",
+        amount="7.99",
+        description="THE ROKU CHANNEL 8162728107 DE",
+        vendor_key="the_roku_channel",
+    )
+    radisson = ExpenseEvidence(
+        expense_id=1476,
+        expense_date="2025-03-15",
+        amount="127.56",
+        description="RADISSON HOTELS GRAND GRAND RAPIDS ,MI",
+        vendor_key="radisson",
+    )
+
+    # OCR read the amount as "BF .99" and split the year off the row.
+    assert _line_score(
+        "03/17 03/1 7 210001500 15270212Q009MWRO6 THE ROKU CHANNEL "
+        "8162728107 DE BF .99 | Lu=",
+        roku,
+    ) >= 7
+    # OCR truncated the payee and dropped the amount column entirely.
+    assert _line_score(
+        "03/15 03/15 920001300 85369432BAS8HP1E3 RADISSON HO", radisson
+    ) >= 7
+
+
+def test_bare_month_day_needs_the_payee_head_not_its_city():
+    from document_annotation import _line_score
+
+    radisson = ExpenseEvidence(
+        expense_id=1476,
+        expense_date="2025-03-15",
+        amount="127.56",
+        description="RADISSON HOTELS GRAND GRAND RAPIDS ,MI",
+        vendor_key="radisson",
+    )
+
+    # A different merchant in the same town, on the same day: "GRAND RAPIDS MI"
+    # is shared by every row printed from that city and identifies nothing.
+    assert _line_score(
+        "03/15 03/15 000 SOME OTHER PLACE GRAND RAPIDS MI", radisson
+    ) < 0
+    # A bare M/D inside prose is not a transaction row either.
+    assert _line_score(
+        "your payment must be received by 03/15 to avoid a late fee", radisson
+    ) < 0
+
+
+def test_image_strategy_boxes_a_card_statement_row_without_a_printed_year(
+    tmp_path,
+):
+    from PIL import Image, ImageDraw, ImageFont
+
+    from document_annotation import ImageExpenseDocumentAnnotator
+
+    source = tmp_path / "card_statement.png"
+    image = Image.new("RGB", (1500, 320), "white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.truetype(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32
+    )
+    draw.text((30, 30), "Billing Cycle 02/20/2025 to 03/21/2025",
+              fill="black", font=font)
+    draw.text((30, 120), "03/15 03/15 920001300 RADISSON HOTELS GRAND",
+              fill="black", font=font)
+    draw.text((30, 210), "03/17 03/17 210001500 THE ROKU CHANNEL 8162728107",
+              fill="black", font=font)
+    # The amount column both rows lost to EG's pen.
+    draw.text((1290, 210), "7.99", fill="black", font=font)
+    draw.line((1270, 250, 1460, 205), fill="black", width=9)
+    draw.line((1270, 205, 1460, 250), fill="black", width=9)
+    image.save(source)
+    output = tmp_path / "annotated.png"
+
+    result = ImageExpenseDocumentAnnotator().annotate(
+        str(source),
+        str(output),
+        ExpenseEvidence(
+            expense_id=1695,
+            expense_date="2025-03-17",
+            amount="7.99",
+            description="THE ROKU CHANNEL 8162728107 DE",
+            vendor_key="the_roku_channel",
+        ),
+    )
+
+    assert result.highlighted is True
+    annotated = Image.open(output)
+    pixels = annotated.load()
+    red_rows = {
+        y
+        for y in range(annotated.height)
+        for x in range(annotated.width)
+        if pixels[x, y][0] > 200
+        and pixels[x, y][1] < 80
+        and pixels[x, y][2] < 80
+    }
+    annotated.close()
+    assert red_rows
+    # The box must sit on the ROKU row, not the RADISSON row above it.
+    assert min(red_rows) > 150

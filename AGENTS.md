@@ -33,6 +33,12 @@ file alone for anything skill- or memory-shaped.
   for an index. Covers logger-API ops, dashboard debugging, invoice tools,
   OAuth/token rotation, and other cross-project operational skills.
 
+- **Shared Letta-agent skills** (used by the live agent fleet):
+  `/home/adamsl/.letta/skills/` — check this store as well when work involves
+  Mazda, Suzuki, dashboard architecture, or a workflow the Letta agents may
+  already know. For any change touching `dashboard/server.py`, read
+  `/home/adamsl/.letta/skills/chipping-away-at-server-rewrite/SKILL.md` fully.
+
 - **Persistent memory** (accumulated learnings from past sessions, written
   after task-relevant discoveries or user corrections — not derivable from
   the code itself):
@@ -45,9 +51,27 @@ file alone for anything skill- or memory-shaped.
   paths/behavior still exist before acting on an old entry).
 
 When starting non-trivial work, skim `MEMORY.md` and check whether
-`.skills/` or `skills/` has a matching skill by description before
+`~/.letta/skills/`, `.skills/`, or `skills/` has a matching skill by description before
 improvising a solution — that's the equivalent of what Claude Code does
 automatically via its skill-matching system prompt.
+
+## Dashboard Server Rewrite Discipline
+
+Treat `dashboard/server.py` as a God Object being reduced to a composition
+root. Program to typed Interfaces and inject concrete adapters at the outer
+boundary. Whenever related coding touches `dashboard/server.py`:
+
+- follow the `chipping-away-at-server-rewrite` skill;
+- run `wc -l dashboard/server.py` immediately before and after the slice;
+- report `before -> after`, signed delta, percentage change, and current count
+  versus the historical baseline in `notes_plans_handoffs/server_rewrite.html`;
+- update the matching plan row with the real code change and line-count evidence;
+- distinguish concurrent working-tree movement from the selected slice's own
+  delta, and explain any non-negative result plus the next deletion target.
+
+Do not reduce the count through compressed formatting or by moving behavior
+without establishing the intended Interface/Object boundary. The goal is a
+smaller composition root with behavior living in focused, tested modules.
 
 ## Mazda Trainer (dashboard sub-project)
 

@@ -18,6 +18,12 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claude } from '/home/adamsl/claude-code-sdk-ts/dist/index.js';
+import { runWithAbortTimeout } from "./claude-attempt.ts";
+import {
+  applyRedBoxAuditToReport,
+  auditRedBoxesForRun,
+  collectExpenseIds,
+} from "./red-box-gate.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -126,13 +132,18 @@ function buildTaskMessage(args) {
   ].join('\n');
 }
 
+// `.withTimeout()` is a no-op in claude-code-sdk-ts@0.3.3 — `options.timeout` is
+// stored and never read, so only `.withSignal()` can actually stop a stuck
+// `claude` child. runWithAbortTimeout supplies that signal AND a hard deadline,
+// so a hung session raises instead of parking the watchdog forever (see
+// claude-attempt.ts).
 async function runClaudeAttempt(prompt, timeoutMs, args) {
-  return claude()
+  return runWithAbortTimeout((signal) => claude()
     .withModel(TRAINER_MODEL)
     .allowTools('Bash', 'Read', 'Write')
     .skipPermissions()
     .inDirectory(HERE)
-    .withTimeout(timeoutMs)
+    .withSignal(signal)
     .withEnv({
       LETTA_BASE_URL,
       MAZDA_AGENT_ID,
@@ -143,7 +154,7 @@ async function runClaudeAttempt(prompt, timeoutMs, args) {
       console.log(`[trainer] tool: ${tool.name} ${JSON.stringify(tool.input).slice(0, 300)}`);
     })
     .query(prompt)
-    .asText();
+    .asText(), timeoutMs);
 }
 
 async function runCodexAttempt(prompt, timeoutMs, attempt, args) {
@@ -236,6 +247,74 @@ async function notifyDashboardStatus(args) {
   }
 }
 
+async function fetchJson(url, options = undefined) {
+  const response = await fetch(url, options);
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${body.slice(0, 300)}`);
+  }
+  try { return JSON.parse(body); }
+  catch { throw new Error(`Expected JSON from ${url}: ${body.slice(0, 300)}`); }
+}
+
+async function enforceDeterministicRedBoxGate(args) {
+  let audit;
+  let facade = {};
+  try { facade = JSON.parse(args.facade || '{}'); }
+  catch { facade = {}; }
+  try {
+    const [messages, events] = await Promise.all([
+      fetchJson(
+        `${LETTA_BASE_URL}/v1/conversations/${args.conversationId}/messages?limit=200`,
+      ),
+      fetchJson(
+        `${DASHBOARD_BASE_URL}/api/expense-stored-events?since=${args.dispatchedAt}`,
+      ),
+    ]);
+    const expenseIds = collectExpenseIds(
+      messages,
+      events,
+      Number(args.dispatchedAt),
+      args.conversationId,
+    );
+    const facadeDocKind =
+      typeof facade?.doc_kind === 'string'
+        ? facade.doc_kind
+        : (typeof facade?.docKind === 'string' ? facade.docKind : '');
+    const facadeReason =
+      typeof facade?.reason === 'string'
+        ? facade.reason
+        : (typeof facade?.status === 'string' ? facade.status : '');
+    audit = await auditRedBoxesForRun(expenseIds, (path, body) =>
+      fetchJson(`${DASHBOARD_BASE_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }), {
+        docKind: facadeDocKind,
+        reason: facadeReason,
+        events,
+        dispatchedAt: Number(args.dispatchedAt),
+        conversationId: args.conversationId,
+      });
+    console.log(`[trainer] deterministic red-box gate: checked=${audit.checked} ` +
+      `failures=${audit.failures.length} expense_ids=${expenseIds.join(',') || '(none)'}`);
+  } catch (err) {
+    audit = {
+      ok: false,
+      checked: 0,
+      failures: [{
+        expenseId: null,
+        documentType: 'audit',
+        reason: `Deterministic red-box audit could not complete: ${err?.message || err}`,
+      }],
+    };
+  }
+  const report = readFileSync(args.reportPath, 'utf8');
+  writeFileSync(args.reportPath, applyRedBoxAuditToReport(report, audit));
+  return audit.ok;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   args.reportPath = buildReportPath(args);
@@ -310,6 +389,7 @@ foreground Bash sleep loop.`;
       }
     }
     if (reportWritten()) {
+      await enforceDeterministicRedBoxGate(args);
       await notifyDashboardStatus(args);
       console.log('[trainer] report file written — done.');
       return;

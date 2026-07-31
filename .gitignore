@@ -166,3 +166,18 @@ browser_tools/*
 
 .claude/scheduled_tasks.lock
 dashboard/.playwright-mcp/page-*.yml
+
+dev-debug.log
+# Environment variables
+# Editor directories and files
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# OS specific
+
+# Task files
+# tasks.json
+# tasks/

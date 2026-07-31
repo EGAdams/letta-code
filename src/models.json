@@ -280,6 +280,214 @@
       }
     },
     {
+      "id": "gpt-5.6-sol-plus-pro-low",
+      "handle": "chatgpt-plus-pro/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol (ChatGPT)",
+      "description": "Frontier model for complex professional work (low reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "low",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-sol-plus-pro-medium",
+      "handle": "chatgpt-plus-pro/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol (ChatGPT)",
+      "description": "Frontier model for complex professional work (med reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "medium",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-sol-plus-pro-high",
+      "handle": "chatgpt-plus-pro/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol (ChatGPT)",
+      "description": "Frontier model for complex professional work (high reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "high",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-sol-plus-pro-xhigh",
+      "handle": "chatgpt-plus-pro/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol (ChatGPT)",
+      "description": "Frontier model for complex professional work (extra-high reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "xhigh",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-terra-plus-pro-medium",
+      "handle": "chatgpt-plus-pro/gpt-5.6-terra",
+      "label": "GPT-5.6 Terra (ChatGPT)",
+      "description": "Balanced GPT-5.6 model (med reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "medium",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-terra-plus-pro-low",
+      "handle": "chatgpt-plus-pro/gpt-5.6-terra",
+      "label": "GPT-5.6 Terra (ChatGPT)",
+      "description": "Balanced GPT-5.6 model (low reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "low",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-terra-plus-pro-high",
+      "handle": "chatgpt-plus-pro/gpt-5.6-terra",
+      "label": "GPT-5.6 Terra (ChatGPT)",
+      "description": "Balanced GPT-5.6 model (high reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "high",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-terra-plus-pro-xhigh",
+      "handle": "chatgpt-plus-pro/gpt-5.6-terra",
+      "label": "GPT-5.6 Terra (ChatGPT)",
+      "description": "Balanced GPT-5.6 model (extra-high reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "xhigh",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-luna-plus-pro-medium",
+      "handle": "chatgpt-plus-pro/gpt-5.6-luna",
+      "label": "GPT-5.6 Luna (ChatGPT)",
+      "description": "Efficient GPT-5.6 model for high-volume work (med reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "medium",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-luna-plus-pro-low",
+      "handle": "chatgpt-plus-pro/gpt-5.6-luna",
+      "label": "GPT-5.6 Luna (ChatGPT)",
+      "description": "Efficient GPT-5.6 model for high-volume work (low reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "low",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-luna-plus-pro-high",
+      "handle": "chatgpt-plus-pro/gpt-5.6-luna",
+      "label": "GPT-5.6 Luna (ChatGPT)",
+      "description": "Efficient GPT-5.6 model for high-volume work (high reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "high",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.6-luna-plus-pro-xhigh",
+      "handle": "chatgpt-plus-pro/gpt-5.6-luna",
+      "label": "GPT-5.6 Luna (ChatGPT)",
+      "description": "Efficient GPT-5.6 model for high-volume work (extra-high reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "xhigh",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.5-plus-pro-medium",
+      "handle": "chatgpt-plus-pro/gpt-5.5",
+      "label": "GPT-5.5 (ChatGPT)",
+      "description": "Previous frontier model (med reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "medium",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.5-plus-pro-low",
+      "handle": "chatgpt-plus-pro/gpt-5.5",
+      "label": "GPT-5.5 (ChatGPT)",
+      "description": "Previous frontier model (low reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "low",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.5-plus-pro-high",
+      "handle": "chatgpt-plus-pro/gpt-5.5",
+      "label": "GPT-5.5 (ChatGPT)",
+      "description": "Previous frontier model (high reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "high",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
+      "id": "gpt-5.5-plus-pro-xhigh",
+      "handle": "chatgpt-plus-pro/gpt-5.5",
+      "label": "GPT-5.5 (ChatGPT)",
+      "description": "Previous frontier model (extra-high reasoning) via ChatGPT Plus/Pro",
+      "updateArgs": {
+        "reasoning_effort": "xhigh",
+        "verbosity": "low",
+        "context_window": 272000,
+        "max_output_tokens": 128000,
+        "parallel_tool_calls": true
+      }
+    },
+    {
       "id": "gpt-5.4-plus-pro-none",
       "handle": "chatgpt-plus-pro/gpt-5.4",
       "label": "GPT-5.4 (ChatGPT)",

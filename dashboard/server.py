@@ -26,7 +26,17 @@ from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
+from agents.model_options import AgentModelOptionsService, select_model_options
+from agents.urllib_letta_gateway import UrllibLettaGateway
+
+try:
+    from PIL import Image, ImageStat
+except ImportError:  # pragma: no cover - runtime fallback when Pillow is absent
+    Image = None
+    ImageStat = None
+
 from voice.pipeline import build_pipeline, handle_voice_upload
+from voice.synthesis import EdgeTtsSynthesizer, cache_path as synthesis_cache_path
 from category_taxonomy import FallbackCategoryTaxonomy, MySqlCategoryTaxonomy
 from category_taxonomy_seed import LEGACY_TAXONOMY
 from category_undo import (
@@ -39,6 +49,12 @@ from document_annotation import (
     ExpenseEvidence,
     IExpenseDocumentAnnotationService,
     build_document_annotation_service,
+)
+from recent_intake_view import collapse_check_evidence_rows
+from intake_event_store import IIntakeEventStore, JsonIntakeEventStore
+from supporting_document_service import (
+    normalize_supporting_document_reference,
+    should_suppress_source_document,
 )
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 import statement_review
@@ -60,6 +76,7 @@ SERVER_START_TIME = time.time()
 # for edits to take effect. Directories are walked recursively for .py files.
 CODE_WATCH_PATHS = [
     os.path.join(HERE, 'server.py'),
+    os.path.join(HERE, 'agents'),
     os.path.join(HERE, 'document_annotation.py'),
     os.path.join(HERE, 'voice'),
 ]
@@ -141,6 +158,7 @@ ROL_FINANCE_REPORTS = [
     {'key': 'diners-0587-year',  'label': 'Diners 0587 Year',   'dir': 'diners_0587_whole_year_2025', 'all_year': True},
     {'key': 'bank-3119-pdf',     'label': 'Bank 3119 PDF',      'dir': 'fifth_third_non_profit_3119'},
     {'key': 'choice-7580-year',  'label': 'Choice 7580 Year',   'dir': 'choice_7580_year', 'all_year': True},
+    {'key': 'prime-chase-5783',  'label': 'Prime Chase 5783',   'dir': 'prime_chase_5783_whole_year_2025', 'all_year': True},
 ]
 
 
@@ -424,6 +442,22 @@ RECENT_REPORT_PATH = '/recent_report.html'
 SCANNER_REPORT_PATH = '/scanner_report.html'
 RECENT_REPORT_POINTER_FILE = os.path.join(HERE, 'recent_report.json')
 _recent_report_lock = threading.Lock()
+_intake_event_store: IIntakeEventStore | None = None
+_intake_event_store_path = None
+
+
+def _get_intake_event_store() -> IIntakeEventStore:
+    """Composition root for recent-intake persistence.
+
+    Rebuild when the configured path changes so tests and deployments can
+    redirect persistence without reaching into the concrete adapter.
+    """
+    global _intake_event_store, _intake_event_store_path
+    if (_intake_event_store is None or
+            _intake_event_store_path != RECENT_REPORT_POINTER_FILE):
+        _intake_event_store = JsonIntakeEventStore(RECENT_REPORT_POINTER_FILE)
+        _intake_event_store_path = RECENT_REPORT_POINTER_FILE
+    return _intake_event_store
 
 
 def _read_recent_pointer_file():
@@ -431,20 +465,14 @@ def _read_recent_pointer_file():
     the report pointer ({report_path, updated_at}) and the last intake dispatch
     ({intake: {...}}) — scanned documents usually have no report.html, so the
     intake record is what lets /recent_report.html reflect them at all."""
-    try:
-        with open(RECENT_REPORT_POINTER_FILE, encoding='utf-8') as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return _get_intake_event_store().read()
 
 
 def _write_recent_pointer_file(data):
     try:
-        with open(RECENT_REPORT_POINTER_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f)
+        _get_intake_event_store().write(data)
         return True
-    except OSError:
+    except (OSError, TypeError, ValueError):
         return False
 
 
@@ -462,7 +490,8 @@ def set_recent_report_pointer(report_path):
 
 def record_recent_intake(image_path, label, kind='scan', facade=None,
                          conversation_id=None, dispatched_at=None,
-                         content_sha256=None):
+                         content_sha256=None, status='processing',
+                         status_detail=''):
     """Record an intake dispatch (scan or PDF) the moment Mazda is notified,
     so /recent_report.html can show the document even before — or without —
     any report.html existing for it. Called from process_scanned_document /
@@ -490,8 +519,10 @@ def record_recent_intake(image_path, label, kind='scan', facade=None,
             'vendor': facade.get('vendor'),
             'conversation_id': conversation_id,
             'content_sha256': content_sha256 or '',
-            'status': 'processing',
-            'status_detail': '',
+            'archive_paths': [],
+            'archive_years': [],
+            'status': status,
+            'status_detail': status_detail,
         }
         data['intake'] = intake
         # Scans are ALSO recorded per-scanner (keyed by the scanner's human
@@ -652,6 +683,19 @@ def _fold_event_into_intake(intake, event):
     vendor = event.get('vendor') or event.get('merchant')
     if vendor and vendor != 'unknown':
         intake['vendor'] = vendor
+    if event.get('archive_paths') is not None:
+        intake['archive_paths'] = [
+            str(path).strip() for path in (event.get('archive_paths') or [])
+            if str(path).strip()
+        ]
+    if event.get('archive_years') is not None:
+        cleaned_years = []
+        for year in event.get('archive_years') or []:
+            try:
+                cleaned_years.append(int(year))
+            except (TypeError, ValueError):
+                continue
+        intake['archive_years'] = cleaned_years
     intake['reported_at'] = time.time()
     event_status = str(event.get('status') or '').strip().lower()
     # STEP 8 and Trainer updates can race. A late expense-stored callback has
@@ -891,11 +935,21 @@ def _fetch_expenses_by_ids(ids):
                 "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'expenses' "
                 "AND COLUMN_NAME = 'expense_role' LIMIT 1")
             has_expense_roles = bool(cur.fetchone())
-            role_select = ', expense_role' if has_expense_roles else ''
             cur.execute(
-                "SELECT id, expense_date, amount, id_light, description, category_id, "
-                "receipt_url, document_url, scanned_statement_url, "
-                f"moms_ledger{role_select} "
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'expenses' "
+                "AND COLUMN_NAME IN ('id_light', 'receipt_url', 'document_url', "
+                "'scanned_statement_url', 'moms_ledger')")
+            expense_columns = {r['COLUMN_NAME'] for r in cur.fetchall()}
+            role_select = ', expense_role' if has_expense_roles else ''
+            def optional_column(name):
+                return name if name in expense_columns else f"NULL AS {name}"
+            optional_select = ', '.join(optional_column(name) for name in (
+                'id_light', 'receipt_url', 'document_url',
+                'scanned_statement_url', 'moms_ledger'))
+            cur.execute(
+                "SELECT id, expense_date, amount, description, category_id, "
+                f"{optional_select}{role_select} "
                 f"FROM expenses WHERE id IN ({placeholders}) "
                 "ORDER BY expense_date, id",
                 tuple(clean),
@@ -1117,6 +1171,49 @@ def _statement_archive_path(rows, vendor_key=''):
     return ''
 
 
+_RECEIPT_DOC_KINDS = {'receipt', 'invoice'}
+_STATEMENT_DOC_KINDS = {'statement', 'bank_statement', 'credit_card_statement'}
+
+
+def _is_bank_statement_archive(path):
+    """True when a filed archive copy lives under the bank_statements tree.
+
+    The Scanned Statement slot is keyed off where the file was actually filed,
+    not off the intake's self-reported doc_kind — an authoritative receipt
+    archive path must never be presented as a statement.
+    """
+    return 'bank_statements' in str(path or '').replace('\\', '/').split('/')
+
+
+def _recent_intake_archive_path(intake, rows, receipt_path=''):
+    """Permanent filed scan path for the recent-intake page.
+
+    Prefer the authoritative archive_paths reported by storage. For legacy
+    events, receipts can use the resolved filed receipt and statements can
+    derive their canonical bank_statements archive path. Never let a receipt
+    date accidentally select an unrelated statement archive.
+    """
+    archive_paths = [
+        str(path).strip() for path in (intake.get('archive_paths') or [])
+        if str(path).strip()
+    ]
+    if archive_paths:
+        return archive_paths[0]
+    doc_kind = str(intake.get('doc_kind') or '').strip().lower()
+    if doc_kind in _RECEIPT_DOC_KINDS:
+        return str(receipt_path or '').strip()
+    # A scanned JPEG has no extractable text, so the facade seeds doc_kind
+    # 'unknown' and a callback that never reports its own classification
+    # leaves it that way. Those intakes are still statements far more often
+    # than not, and refusing to derive their archive copy would put the stale
+    # raw scan filename back in the Scanned Statement slot — the exact defect
+    # fixed by "show the canonical bank_statements archive path".
+    if doc_kind in _STATEMENT_DOC_KINDS or doc_kind in ('', 'unknown'):
+        return _statement_archive_path(
+            rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
+    return ''
+
+
 _DOC_KIND_LABELS = {
     'statement': 'Bank Statement',
     'bank_statement': 'Bank Statement',
@@ -1305,6 +1402,9 @@ def build_recent_intake_html(intake):
     rows, row_error = [], None
     try:
         rows = _fetch_expenses_by_ids(intake.get('expense_ids') or [])
+        rows, promoted_duplicate_ids = collapse_check_evidence_rows(
+            rows, duplicate_ids)
+        duplicate_ids |= promoted_duplicate_ids
     except Exception as exc:
         row_error = str(exc)
 
@@ -1325,15 +1425,17 @@ def build_recent_intake_html(intake):
     # whatever raw scan filename scanned_statement_url happens to carry —
     # legacy rows still point at the staging path even once a properly
     # named copy has been filed. See _statement_archive_path.
-    archive_path = _statement_archive_path(
-        rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
-    if archive_path:
+    archive_path = _recent_intake_archive_path(
+        intake, rows, receipt_path=receipt_path)
+    if archive_path and _is_bank_statement_archive(archive_path):
         scanned_statement_path = archive_path
     scanned_statement_display = (
         _esc(scanned_statement_path) if scanned_statement_path else '--')
+    archived_scan_display = _esc(archive_path) if archive_path else '--'
     moms_ledger_display = _esc(moms_ledger_path) if moms_ledger_path else '--'
     staged_scan_path = _intake_source_document(intake)
     staged_scan_display = _esc(staged_scan_path) if staged_scan_path else '--'
+    display_doc = os.path.basename(archive_path) if archive_path else doc
 
     if intake_status in ('fail', 'stalled'):
         label_text = 'FAILED' if intake_status == 'fail' else 'STALLED'
@@ -1463,7 +1565,7 @@ def build_recent_intake_html(intake):
         + picker_css + '\n'
         '  </style></head><body>\n'
         '<section class="card">\n'
-        f'  <h1>Most Recent Document: {_esc(doc)}</h1>\n'
+        f'  <h1>Most Recent Document: {_esc(display_doc)}</h1>\n'
         f'  <p class="muted">{_esc(sub)}dispatched {_esc(when)}</p>\n'
         '  <p class="doc-meta">'
         f'Document Type: {_esc(doc_type_label)}<br>'
@@ -1471,6 +1573,7 @@ def build_recent_intake_html(intake):
         f'Associated PDF: {pdf_display}<br>'
         f'Associated Receipt: {receipt_display}<br>'
         f'Associated Scanned Statement: {scanned_statement_display}<br>'
+        f'Archived Scan Copy: {archived_scan_display}<br>'
         f'Associated Mom’s Ledger: {moms_ledger_display}<br>'
         f'Staged Scan Image: {staged_scan_display}</p>\n'
         f'  <p>{_esc(status)}</p>\n'
@@ -1826,6 +1929,23 @@ def _update_report_row_color(report_path, vendor_key, date_str, amount_str, new_
 def _rol_get_connection():
     """get_connection() from the rol_finances receipt_parsing_tools tree."""
     import sys as _sys
+    # dashboard-server.service starts with a deliberately small environment.
+    # Seed only missing DB settings from the operator-owned env file before the
+    # receipt DB package constructs its settings object.
+    for env_path in (
+            os.path.expanduser('~/planner/nonprofit_finance_db/.env'),
+            os.path.expanduser('~/planner/.env')):
+        try:
+            with open(env_path, encoding='utf-8') as env_file:
+                for raw_line in env_file:
+                    line = raw_line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    key, value = line.split('=', 1)
+                    os.environ.setdefault(
+                        key.strip(), value.strip().strip('"\''))
+        except OSError:
+            continue
     if RECEIPT_PARSING_TOOLS not in _sys.path:
         _sys.path.insert(0, RECEIPT_PARSING_TOOLS)
     from app.db import get_connection  # type: ignore
@@ -2656,6 +2776,14 @@ def classify_scan_result(returncode, log, image_exists):
     low = (log or '').lower()
     if returncode == 0 and image_exists:
         return {'status': 'ready', 'log': log}
+    if returncode == 0 and not image_exists:
+        return {
+            'status': 'error',
+            'error': ('Scan finished, but the scanner did not produce a usable '
+                      'image (the output file is missing or empty). Please rescan.'),
+            'empty_output': True,
+            'log': log,
+        }
     if ('scanner_busy' in low or 'device is busy' in low
             or 'device busy' in low or 'resource busy' in low):
         return {'status': 'busy', 'error': 'The scanner is busy.', 'log': log}
@@ -2673,6 +2801,67 @@ def _scan_output_ready(path):
         return os.path.isfile(path) and os.path.getsize(path) > 0
     except OSError:
         return False
+
+
+def inspect_scan_image_quality(path):
+    """Deterministically reject obvious blank/unreadable scan images.
+
+    Fail closed only for scans that are nearly uniform white/black or that do
+    not decode as a real image. If Pillow is unavailable, degrade gracefully and
+    let the rest of the intake pipeline decide.
+    """
+    result = {
+        'ok': True,
+        'blank_like': False,
+        'reason': '',
+        'mean_luma': None,
+        'stddev_luma': None,
+        'width': None,
+        'height': None,
+    }
+    if Image is None or ImageStat is None:
+        result['reason'] = 'Pillow unavailable; skipped blank-scan inspection.'
+        return result
+    try:
+        with Image.open(path) as img:
+            img.load()
+            gray = img.convert('L')
+            width, height = gray.size
+            result['width'] = width
+            result['height'] = height
+            if width < 50 or height < 50:
+                result.update({
+                    'ok': False,
+                    'blank_like': True,
+                    'reason': 'The scan image is too small to be a readable document.',
+                })
+                return result
+            stat = ImageStat.Stat(gray)
+            mean = float(stat.mean[0])
+            stddev = float(stat.stddev[0])
+            result['mean_luma'] = round(mean, 2)
+            result['stddev_luma'] = round(stddev, 2)
+            extrema = gray.getextrema()
+            dynamic_range = float(extrema[1] - extrema[0])
+            # Blank-page heuristics: nearly uniform bright/dark pages with very
+            # low variation and almost no dynamic range. Thresholds are kept
+            # conservative so pale but real receipts/statements still pass.
+            if ((mean >= 248.0 and stddev <= 4.5 and dynamic_range <= 18.0) or
+                    (mean <= 7.0 and stddev <= 4.5 and dynamic_range <= 18.0)):
+                result.update({
+                    'ok': False,
+                    'blank_like': True,
+                    'reason': 'The scan appears blank or unreadable (nearly uniform page).',
+                })
+                return result
+    except Exception as exc:  # noqa: BLE001 - surface decode failures to UI/tests
+        result.update({
+            'ok': False,
+            'blank_like': True,
+            'reason': f'The scan image could not be decoded: {exc}',
+        })
+        return result
+    return result
 
 
 def _invoke_scanner(key):
@@ -3461,9 +3650,15 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"1970-01-01" if no date was extracted>, '
         f'amount=<decimal string from the validated parse artifact>, '
         f'description=<merchant>)\n'
-        f'  If duplicate → skip only STEP 4 storage. Still run STEP 3 categorization, '
-        f'record_trace, judge_trace, and the STEP 8 callback; duplicate detection is '
-        f'never permission to stop the run early. Keep the returned '
+        f'  If duplicate → STILL run STEP 4 exactly once, without '
+        f'--allow-duplicate. STEP 4 is also the receipt-filing/attachment step: it '
+        f'must rename the scan, archive it under readable_documents/receipts/'
+        f'{{year}}/{{month}}/{{month}}_{{day}}, and attach or upgrade receipt_url on '
+        f'the matched expense without inserting a second expense. A duplicate result '
+        f'or linked_counterpart=true is success; a same-type durable conflict requires '
+        f'verification. Still run STEP 3 categorization, record_trace, judge_trace, '
+        f'and the STEP 8 callback; duplicate detection is never permission to stop '
+        f'the run early. Keep the returned '
         f'exact_duplicate_expense_id — STEP 8 must report it in duplicate_expense_ids, '
         f'or the dashboard has no row to show and the Recent Report page comes up '
         f'empty for this scan.\n\n'
@@ -3507,6 +3702,8 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'  → {{"success": true, "expense_id": <int>, "pending_vendor_review": <true when '
         f'--category-id was omitted/invalid>, "parse_artifact_verified": '
         f'<true for the STEP 0 artifact path>, '
+        f'"receipt_archive_path": "<canonical filed image>", '
+        f'"archive_paths": ["<canonical filed image>"], '
         f'"parsed_amount": <the exact STEP 0 amount>, "expense_scope": '
         f'"full_receipt"|"marked_items", ...}} OR a duplicate result. '
         + receipt_store_contract +
@@ -3598,6 +3795,8 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"parsed":<transactions parsed>,"stored":<transactions stored>,'
         f'"deposits_stored":<deposits stored to the transactions ledger this run; '
         f'0 when none>,'
+        f'"archive_paths":[<all permanent receipt or statement copies returned by '
+        f'the store command>],"archive_years":[<their years>],'
         f'"expense_date":"<YYYY-MM-DD>",'
         f'"amount":"<decimal string>","vendor_key":"<vendor_key>",'
         f'"description":"<merchant_name>","receipt_url":"<scan_image_path>",'
@@ -3955,6 +4154,18 @@ def run_scanner(key):
         # and can cause the frontend to launch intake.
         _scanner_runtime_status[key] = (
             {'status': 'idle', 'ok': True} if result['ok'] else dict(result))
+    if result.get('empty_output'):
+        cfg = SCANNERS.get(key) or {}
+        image_path = os.path.join(SCAN_TOOLS_DIR, cfg.get('output', ''))
+        # Publish the failed attempt into the same per-scanner intake stream as
+        # successful dispatches. Otherwise Last Window/Freezer Scan remains on
+        # the prior document and makes an empty scanner capture look stuck.
+        record_recent_intake(
+            image_path,
+            cfg.get('name', key),
+            status='fail',
+            status_detail=result['error'],
+        )
     if result['ok']:
         threading.Thread(
             target=process_scanned_document, args=(key,), daemon=True,
@@ -4367,6 +4578,29 @@ def process_scanned_document(
             'trainer_dispatched': False,
             'stages': [],
         }
+    image_quality = inspect_scan_image_quality(image_path)
+    if not image_quality.get('ok'):
+        blank_detail = image_quality.get('reason') or (
+            'The scan appears blank or unreadable.')
+        # Same reasoning as run_scanner's empty_output branch: a rejection that
+        # publishes nothing leaves Last Window/Freezer Scan showing the PREVIOUS
+        # document, so a blank capture reads as a stuck scanner instead of a
+        # failed one.
+        record_recent_intake(
+            image_path, cfg.get('name', key), status='fail',
+            status_detail=blank_detail,
+        )
+        return {
+            'ok': False,
+            'error': 'The scan appears blank or unreadable. Please rescan the page.',
+            'stage_error': blank_detail,
+            'scanner': key,
+            'image_path': image_path,
+            'image_quality': image_quality,
+            'mazda_dispatched': False,
+            'trainer_dispatched': False,
+            'stages': [],
+        }
     facade = run_intake_facade(image_path, org_id=org_id, engine=engine)
     mazda_dispatched = False
     trainer_dispatched = False
@@ -4607,6 +4841,8 @@ def record_stored_expense(data):
         'stored': data.get('stored'),
         'doc_kind': data.get('doc_kind') or data.get('doc_type') or '',
         'vendor': data.get('vendor') or data.get('merchant') or '',
+        'archive_paths': data.get('archive_paths') or [],
+        'archive_years': data.get('archive_years') or [],
         # Preserve exact dispatch identity.  Reusable scanner filenames are
         # insufficient routing keys when an older conversation reports late.
         'conversation_id': data.get('conversation_id', ''),
@@ -4969,8 +5205,17 @@ def _source_document_reference(chosen, report_path=''):
     with no View Source Document button at all, even on a scanner report that
     knows exactly which image it came from.
     """
-    reference = (chosen or {}).get('document_url') or ''
+    chosen = chosen or {}
+    reference = chosen.get('document_url') or ''
     reference = str(reference).strip()
+    receipt_reference = str(chosen.get('receipt_url') or '').strip()
+    if should_suppress_source_document(
+            reference,
+            receipt_reference,
+            resolve_local_path=lambda ref: _resolve_local_supporting_document(
+                ref, 'source'
+            ) or _resolve_local_supporting_document(ref, 'receipt')):
+        return ''
     if _usable_document_reference(reference) and (
             urlparse(reference).scheme in {'http', 'https'}
             or _resolve_local_supporting_document(reference, 'source')):
@@ -4982,7 +5227,7 @@ def _supporting_document_descriptors(chosen, report_path=''):
     descriptors = []
     for slot in SUPPORTING_DOCUMENT_CATALOG.slots():
         kind, label, field = slot.kind, slot.label, slot.expense_field
-        reference = (chosen.get(field) or '').strip()
+        reference = normalize_supporting_document_reference(chosen.get(field))
         if kind == 'source':
             reference = _source_document_reference(chosen, report_path)
         local_path = _resolve_local_supporting_document(reference, kind)
@@ -5201,7 +5446,7 @@ def _source_document_path(report_path, receipt_path=None):
                     return source
         if os.path.isfile(report_file):
             return report_file
-    return receipt_path or ''
+    return ''
 
 
 def _document_machine_origin():
@@ -5790,16 +6035,22 @@ def build_receipt_only_report_html(month_key=None):
 # Letta API base URL — override with LETTA_BASE_URL env var
 LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rstrip('/')
 
-# Model handles selectable per-agent from Input Options. These are the ONLY
-# handles the chatgpt-plus-pro (Codex OAuth) provider accepts — verified
-# 2026-07-08 by probing chatgpt.com/backend-api/codex/responses directly:
-# every other handle (gpt-5.3, gpt-5.2, all *-codex variants) returns
-# "model is not supported when using Codex with a ChatGPT account".
+# Model handles selectable per-agent from Input Options. Keep this curated list
+# aligned with the ChatGPT OAuth catalog advertised by the live Letta server.
 AGENT_MODEL_OPTIONS = [
+    'chatgpt-plus-pro/gpt-5.6-sol',
+    'chatgpt-plus-pro/gpt-5.6-terra',
+    'chatgpt-plus-pro/gpt-5.6-luna',
     'chatgpt-plus-pro/gpt-5.5',
     'chatgpt-plus-pro/gpt-5.4',
     'chatgpt-plus-pro/gpt-5.4-mini',
 ]
+
+_LETTA_GATEWAY = UrllibLettaGateway(LETTA_BASE_URL)
+_AGENT_MODEL_OPTIONS_SERVICE = AgentModelOptionsService(
+    _LETTA_GATEWAY,
+    AGENT_MODEL_OPTIONS,
+)
 
 AGENT_VOICE_OPTIONS = [
     'en-GB-SoniaNeural',
@@ -5822,13 +6073,13 @@ AGENT_VOICE_OPTIONS = [
 AGENT_VOICE_METADATA_KEY = 'dashboard_voice'
 
 def agent_model_options(current_handle):
-    """Dropdown options for an agent: the vetted Codex handles, plus the
-    agent's own handle at the top when it's on another provider (lc-gemini,
-    etc.) so the dropdown never lies about the current state."""
-    options = list(AGENT_MODEL_OPTIONS)
-    if current_handle and current_handle not in options:
-        options.insert(0, current_handle)
-    return options
+    """Compatibility shim for callers that still consume a plain list."""
+    return list(select_model_options(current_handle, tuple(AGENT_MODEL_OPTIONS)))
+
+def agent_model_payload(letta_id, service=None):
+    """Compatibility shim while model reads move behind ILettaGateway."""
+    model_service = service or _AGENT_MODEL_OPTIONS_SERVICE
+    return model_service.get_options(letta_id).to_http()
 
 def agent_voice_from_metadata(agent_data):
     """Return a valid dashboard voice stored on the Letta agent, or ''."""
@@ -6095,58 +6346,23 @@ EDGE_TTS_VOICE = os.environ.get('EDGE_TTS_VOICE', 'en-GB-SoniaNeural')
 EDGE_TTS_TIMEOUT_SEC = int(os.environ.get('EDGE_TTS_TIMEOUT_SEC', 30))
 TTS_MAX_TEXT_LEN = 4000
 TTS_CACHE_DIR = os.environ.get('TTS_CACHE_DIR', '/tmp/dashboard_tts_cache')
-_VOICE_NAME_RE = re.compile(r'^[A-Za-z]{2}-[A-Za-z]{2,}-[A-Za-z0-9]+$')
 
 
 def tts_cache_path(text, voice):
-    """Deterministic cache file for a (voice, text) pair (pure)."""
-    key = hashlib.sha256(f'{voice}\x00{text}'.encode('utf-8')).hexdigest()
-    return os.path.join(TTS_CACHE_DIR, f'{voice}_{key[:32]}.mp3')
+    """Compatibility export for the extracted voice synthesis service."""
+    return synthesis_cache_path(TTS_CACHE_DIR, text, voice)
 
 
 def synthesize_speech(text, voice=None, runner=subprocess.run):
-    """Text → MP3 file via edge-tts; returns {ok, path, cached} or {ok:False, error}.
-
-    `runner` is injected so tests never hit the network. Results are cached by
-    (voice, text) hash — repeated phrases (agent names, short acks) are served
-    from disk instantly.
-    """
-    text = (text or '').strip()
-    if not text:
-        return {'ok': False, 'error': 'empty text'}
-    if len(text) > TTS_MAX_TEXT_LEN:
-        text = text[:TTS_MAX_TEXT_LEN]
-    voice = voice or EDGE_TTS_VOICE
-    if not _VOICE_NAME_RE.match(voice):
-        return {'ok': False, 'error': f'invalid voice name: {voice!r}'}
-
-    path = tts_cache_path(text, voice)
-    if os.path.exists(path) and os.path.getsize(path) > 0:
-        return {'ok': True, 'path': path, 'cached': True}
-
-    if not os.path.exists(EDGE_TTS_BIN):
-        return {'ok': False, 'error': f'edge-tts binary not found: {EDGE_TTS_BIN}'}
-    os.makedirs(TTS_CACHE_DIR, exist_ok=True)
-    tmp_path = f'{path}.tmp{os.getpid()}'
-    try:
-        proc = runner(
-            [EDGE_TTS_BIN, '--voice', voice, '--text', text,
-             '--write-media', tmp_path],
-            capture_output=True, text=True, timeout=EDGE_TTS_TIMEOUT_SEC)
-    except subprocess.TimeoutExpired:
-        return {'ok': False, 'error': f'edge-tts timed out after {EDGE_TTS_TIMEOUT_SEC}s'}
-    except Exception as exc:
-        return {'ok': False, 'error': f'edge-tts failed to run: {exc}'}
-    if proc.returncode != 0 or not os.path.exists(tmp_path) \
-            or os.path.getsize(tmp_path) == 0:
-        err = (proc.stderr or '').strip() or f'exit {proc.returncode}'
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-        return {'ok': False, 'error': f'edge-tts failed: {err[:300]}'}
-    os.replace(tmp_path, path)  # atomic — concurrent requests can't collide
-    return {'ok': True, 'path': path, 'cached': False}
+    """Compatibility adapter for the extracted server-rewrite voice service."""
+    return EdgeTtsSynthesizer(
+        binary_path=EDGE_TTS_BIN,
+        default_voice=EDGE_TTS_VOICE,
+        cache_dir=TTS_CACHE_DIR,
+        timeout_sec=EDGE_TTS_TIMEOUT_SEC,
+        max_text_len=TTS_MAX_TEXT_LEN,
+        runner=runner,
+    ).synthesize(text, voice)
 
 # Port this dashboard is served on (also used for the dashboard self-health check).
 PORT = int(os.environ.get('PORT', 8765))
@@ -9679,11 +9895,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             lid = letta_id_for(agent_id)
             if not lid:
                 return self.json_response({'ok': False, 'error': 'not a Letta agent', 'options': []})
-            data = letta_get(f'/v1/agents/{lid}', timeout=15) or {}
-            llm = data.get('llm_config') or {}
-            handle = llm.get('handle') or llm.get('model') or ''
-            return self.json_response({'ok': True, 'current': handle,
-                                        'options': agent_model_options(handle)})
+            return self.json_response(agent_model_payload(lid))
 
         if path == '/api/router-agent':
             from router.classify import build_router_strategy
@@ -9918,6 +10130,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except (ValueError, TypeError):
                 since_ts = 0.0
             return self.json_response(get_stored_expense_events(since_ts))
+
+        if path == '/api/intake-state':
+            # Opaque, deterministic snapshot token from the injected event-store
+            # interface. The browser does not inspect persistence details; it
+            # only reloads live intake views when this value changes.
+            return self.json_response({
+                'token': _get_intake_event_store().snapshot(),
+            })
 
         # Statements quarantined in bank_statements/_needs_review/ — the Scanner
         # screen polls this and pops a dialog for each one.

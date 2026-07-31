@@ -84,6 +84,7 @@
     <nav id="nav-plans" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-plans">Back</button>
       <button type="button" class="tab active" data-nav="plans" data-target="plans-self-evolving">Self Evolving</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-server-rewrite">Server Rewrite</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-divide-conquer">Divide Conquer</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-audio-input">Audio Input</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-dev-status">Mazda Dev Status</button>
@@ -120,7 +121,7 @@
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-window">Window Scanner</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-pdf">Process PDF</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-vendor-review">Needs Vendor Review</button>
-      <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-window" data-scanner-report="window">Last Windows Scan</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-window" data-scanner-report="window">Last Window Scan</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-freezer" data-scanner-report="freezer">Last Freezer Scan</button>
     </nav>
 
@@ -346,6 +347,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <iframe id="self-evolving-plan-frame" class="plan-frame" src="/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html"></iframe>
     </section>
 
+    <section id="plans-server-rewrite" class="view">
+      <iframe id="server-rewrite-plan-frame" class="plan-frame" src="/notes_plans_handoffs/server_rewrite.html"></iframe>
+    </section>
+
     <section id="plans-divide-conquer" class="view">
       <iframe id="divide-conquer-plan-frame" class="plan-frame" src="/divide_and_conquer_scissari_fix.html"></iframe>
     </section>
@@ -507,7 +512,7 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       </div>
     </section>
     <section id="scanners-last-window" class="view">
-      <iframe class="plan-frame" title="Last Windows Scan"></iframe>
+      <iframe class="plan-frame" title="Last Window Scan"></iframe>
     </section>
     <section id="scanners-last-freezer" class="view">
       <iframe class="plan-frame" title="Last Freezer Scan"></iframe>
@@ -540,6 +545,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20260710a"></script>
+  <script type="module" src="/js/dashboard-boot.js?v=20260730-sonia"></script>
 </body>
 </html>
