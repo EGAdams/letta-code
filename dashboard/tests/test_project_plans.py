@@ -7,25 +7,25 @@ import re
 DASHBOARD_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = DASHBOARD_DIR.parent
 DASHBOARD_HTML = DASHBOARD_DIR / "dashboard.html"
-SERVER_REWRITE_PLAN = REPO_ROOT / "notes_plans_handoffs" / "server_rewrite.html"
+SERVER_REWRITE_PLAN = REPO_ROOT / "notes_plans_handoffs" / "codebase_rewrite.html"
 
 
 def test_server_rewrite_tab_targets_the_plan_iframe():
     dashboard = DASHBOARD_HTML.read_text(encoding="utf-8")
 
     assert (
-        'data-nav="plans" data-target="plans-server-rewrite">Server Rewrite'
+        'data-nav="plans" data-target="plans-codebase-rewrite">Codebase Rewrite'
         in dashboard
     )
     section = re.search(
-        r'<section id="plans-server-rewrite" class="view">(.*?)</section>',
+        r'<section id="plans-codebase-rewrite" class="view">(.*?)</section>',
         dashboard,
         re.DOTALL,
     )
     assert section is not None
-    assert 'id="server-rewrite-plan-frame"' in section.group(1)
+    assert 'id="codebase-rewrite-plan-frame"' in section.group(1)
     assert 'class="plan-frame"' in section.group(1)
-    assert 'src="/notes_plans_handoffs/server_rewrite.html"' in section.group(1)
+    assert 'src="/notes_plans_handoffs/codebase_rewrite.html"' in section.group(1)
 
 
 def test_server_rewrite_plan_is_a_source_controlled_shrinking_ledger():

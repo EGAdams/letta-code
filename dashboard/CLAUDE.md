@@ -229,7 +229,7 @@ files from both `HERE` (`/home/adamsl/letta-code/dashboard`) and `REPO_ROOT`
 | Tab | File | Served URL |
 |---|---|---|
 | Self Evolving | `notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` | `/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` |
-| Server Rewrite | `notes_plans_handoffs/server_rewrite.html` | `/notes_plans_handoffs/server_rewrite.html` |
+| Codebase Rewrite | `notes_plans_handoffs/codebase_rewrite.html` | `/notes_plans_handoffs/codebase_rewrite.html` |
 | Mazda Dev Status | `notes_plans_handoffs/mazda_dev_status.html` | `/notes_plans_handoffs/mazda_dev_status.html` |
 | Audio Input | `dashboard/audio_input/audio_plan.html` | `/audio_input/audio_plan.html` |
 

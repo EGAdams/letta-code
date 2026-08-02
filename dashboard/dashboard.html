@@ -84,7 +84,7 @@
     <nav id="nav-plans" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-plans">Back</button>
       <button type="button" class="tab active" data-nav="plans" data-target="plans-self-evolving">Self Evolving</button>
-      <button type="button" class="tab" data-nav="plans" data-target="plans-server-rewrite">Server Rewrite</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-codebase-rewrite">Codebase Rewrite</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-divide-conquer">Divide Conquer</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-audio-input">Audio Input</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-dev-status">Mazda Dev Status</button>
@@ -348,8 +348,8 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <iframe id="self-evolving-plan-frame" class="plan-frame" src="/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html"></iframe>
     </section>
 
-    <section id="plans-server-rewrite" class="view">
-      <iframe id="server-rewrite-plan-frame" class="plan-frame" src="/notes_plans_handoffs/server_rewrite.html"></iframe>
+    <section id="plans-codebase-rewrite" class="view">
+      <iframe id="codebase-rewrite-plan-frame" class="plan-frame" src="/notes_plans_handoffs/codebase_rewrite.html"></iframe>
     </section>
 
     <section id="plans-divide-conquer" class="view">
@@ -546,6 +546,21 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <div class="modal-actions">
         <button type="button" class="am-btn" id="vision-halted-retry">Retry Now</button>
         <button type="button" class="am-btn am-copy" id="vision-halted-dismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="intake-halted-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <p><strong>Intake halted — cannot continue.</strong> An intake step
+      crashed unexpectedly, so the pipeline stopped instead of silently
+      degrading to a "no match" result and inserting a possibly-duplicate
+      expense. This is an application-code fault that needs a fix — it has been
+      escalated to Suzuki. Acknowledging clears this alert but not the
+      underlying bug.</p>
+      <p id="intake-halted-detail" class="vision-halted-detail"></p>
+      <div class="modal-actions">
+        <button type="button" class="am-btn am-copy" id="intake-halted-ack">Acknowledge</button>
       </div>
     </div>
   </div>

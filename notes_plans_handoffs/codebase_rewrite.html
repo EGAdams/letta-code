@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Dashboard Server Rewrite</title>
+<title>Codebase Rewrite</title>
 <style>
   :root {
     --bg: #eef2f6;
@@ -249,14 +249,16 @@
 </style>
 </head>
 <body>
-<main class="page" data-plan="server-rewrite" data-baseline-total="55">
+<main class="page" data-plan="codebase-rewrite" data-baseline-total="55">
   <header class="hero">
-    <p class="kicker">Dashboard Architecture &middot; Living Progress Plan</p>
-    <h1>Server Rewrite</h1>
+    <p class="kicker">Codebase Architecture &middot; Living Progress Plan</p>
+    <h1>Codebase Rewrite</h1>
     <p class="lede">
-      Incrementally reduce <code>dashboard/server.py</code> to a composition root.
-      Every side effect crosses an injected Interface; every behavior lives in a
-      focused Object or pure function; every extraction is pinned by tests before it moves.
+      Incrementally reduce this codebase's largest offenders &mdash; starting with
+      <code>dashboard/server.py</code>, and extending to the CLI, headless, and websocket
+      layers &mdash; to composition roots. Every side effect crosses an injected Interface;
+      every behavior lives in a focused Object or pure function; every extraction is pinned
+      by tests before it moves.
     </p>
     <div class="meta">
       <span class="pill">Created 2026-07-29</span>
@@ -274,7 +276,7 @@
         <div class="progress-label">Interface/Object slices extracted</div>
       </div>
       <div>
-        <div class="track" role="progressbar" aria-label="Server rewrite progress" aria-valuemin="0" aria-valuemax="55" aria-valuenow="0">
+        <div class="track" role="progressbar" aria-label="Codebase rewrite progress" aria-valuemin="0" aria-valuemax="55" aria-valuenow="0">
           <div class="bar" id="progress-bar"></div>
         </div>
         <div class="progress-label"><span id="remaining-count">55</span> active rows remain in this document.</div>
@@ -295,7 +297,7 @@
     </div>
   </section>
 
-  <nav class="card" aria-label="Server rewrite contents">
+  <nav class="card" aria-label="Codebase rewrite contents">
     <h2>Contents</h2>
     <ul class="toc">
       <li><a href="#rules">Operating rules</a></li>
@@ -441,7 +443,7 @@ class StrictModel(BaseModel):
       not by storing private state in one browser.
     </p>
     <div class="table-wrap">
-      <table aria-label="Active Server Rewrite work">
+      <table aria-label="Active Codebase Rewrite work">
         <thead>
           <tr>
             <th>Status</th>
@@ -597,13 +599,13 @@ Ledger row removed:</code></pre>
   </section>
 
   <footer>
-    Canonical file: <code>notes_plans_handoffs/server_rewrite.html</code>.
+    Canonical file: <code>notes_plans_handoffs/codebase_rewrite.html</code>.
     Update it in the same change that completes an Interface/Object slice.
   </footer>
 </main>
 <script>
   (() => {
-    const root = document.querySelector("[data-plan='server-rewrite']");
+    const root = document.querySelector("[data-plan='codebase-rewrite']");
     const total = Number(root?.dataset.baselineTotal || 0);
     const remaining = document.querySelectorAll("[data-work-item]").length;
     const completed = Math.max(0, total - remaining);
