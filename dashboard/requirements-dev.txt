@@ -1,5 +1,10 @@
 # Dev/test dependencies.
 #   python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 #   .venv/bin/python -m pytest tests/
+#   .venv/bin/pyright --project pyrightconfig.json
+#   .venv/bin/coverage run -m pytest -q tests/test_letta_gateway.py
+#   .venv/bin/coverage report -m
 -r requirements.txt
 pytest>=8
+coverage[toml]>=7,<8
+pyright>=1.1,<2
