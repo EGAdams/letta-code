@@ -78,4 +78,37 @@ describe("ServerActionController (Command)", () => {
     const res = await c.start("executor");
     expect(res).toEqual({ ok: false, text: "HTTP 502" });
   });
+
+  test("restart() defaults to the dashboard and POSTs the restart action", async () => {
+    const http = fakeHttp({ ok: true, text: "Restarting…" });
+    const c = new ServerActionController({ http });
+    const res = await c.restart();
+    expect(http.calls[0].body).toEqual({
+      server: "dashboard",
+      action: "restart",
+    });
+    expect(res).toEqual({ ok: true, text: "Restarting…" });
+  });
+
+  test("deploy() defaults to the dashboard and POSTs the deploy action", async () => {
+    const http = fakeHttp({ ok: true, text: "Deployed main (aaa -> bbb)." });
+    const c = new ServerActionController({ http });
+    const res = await c.deploy();
+    expect(http.calls[0].body).toEqual({
+      server: "dashboard",
+      action: "deploy",
+    });
+    expect(res).toEqual({ ok: true, text: "Deployed main (aaa -> bbb)." });
+  });
+
+  test("deploy() surfaces a fail-loud backend result without throwing", async () => {
+    const http = fakeHttp({
+      ok: false,
+      text: "git pull --ff-only origin main failed — tree NOT restarted",
+    });
+    const c = new ServerActionController({ http });
+    const res = await c.deploy();
+    expect(res.ok).toBe(false);
+    expect(res.text).toMatch(/NOT restarted/);
+  });
 });

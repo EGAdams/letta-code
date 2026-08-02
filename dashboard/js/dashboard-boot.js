@@ -1700,6 +1700,12 @@ const SM = {
       '<div class="srv-status starting" id="srv-status"><span class="srv-led"></span><span id="srv-status-text">checking…</span></div>' +
       '<input class="srv-filter" id="srv-filter" placeholder="Filter log lines (e.g. error)…" />' +
       `<button class="srv-start-btn" id="srv-restart-btn">Restart ${esc(name)}</button>` +
+      // The dashboard can deploy ITSELF (git pull the live checkout + restart) —
+      // the keyboard-free path so we're never dead in the water. Only this server
+      // has a backend deploy handler, so the button is dashboard-only.
+      (key === "dashboard"
+        ? '<button class="srv-start-btn" id="srv-deploy-btn">Deploy latest</button>'
+        : "") +
       '<div id="srv-console-host"></div>';
     safeActivateView("servers-detail");
 
@@ -1707,6 +1713,7 @@ const SM = {
     const statusText = body.querySelector("#srv-status-text");
     const filterEl = body.querySelector("#srv-filter");
     const restartBtn = body.querySelector("#srv-restart-btn");
+    const deployBtn = body.querySelector("#srv-deploy-btn");
     const view = DomConsoleView.mount(
       body.querySelector("#srv-console-host"),
       "srv",
@@ -1742,6 +1749,30 @@ const SM = {
       }
       restartBtn.disabled = false;
     });
+
+    if (deployBtn) {
+      deployBtn.addEventListener("click", async () => {
+        deployBtn.disabled = true;
+        restartBtn.disabled = true;
+        statusEl.className = "srv-status starting";
+        statusText.textContent = `DEPLOYING... — ${name.toLowerCase()}`;
+        const res = await serverAction.deploy(key);
+        if (res.ok) {
+          view.writeHtml(
+            '<div class="msi-entry"><span class="hdr">deploy action</span> ' +
+              esc(res.text || "OK") +
+              "</div>",
+          );
+          view.scrollToBottom();
+        } else {
+          // Fail loud: a bad pull did NOT restart the box — show why.
+          statusText.textContent = `DEPLOY FAILED — ${esc(res.text)}`;
+          statusEl.className = "srv-status down";
+        }
+        deployBtn.disabled = false;
+        restartBtn.disabled = false;
+      });
+    }
 
     // The ServerLogController polls /api/server-logs (3s, dedup by seq) and
     // reports health via onStatus → the detail-panel LED. The Restart button

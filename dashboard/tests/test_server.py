@@ -5805,3 +5805,90 @@ def test_statement_preflight_rejects_envelope_with_no_transactions(monkeypatch):
 
     assert result['ok'] is False and result['rejected'] is True
     assert 'no complete transaction' in result['error']
+
+
+# ── Keyboard-free deploy (resilience path) ────────────────────────────────────
+# deploy_dashboard() is the "never dead in the water" path: Frita (or EG from a
+# phone) triggers a git fast-forward + self-restart over HTTP, no keyboard/SSH.
+# The load-bearing guarantee is fail-loud: a bad pull must NOT restart the box.
+
+def _fake_git(monkeypatch, results):
+    """Drive server.deploy_dashboard's inner `git -C REPO_ROOT <args>` calls.
+
+    `results` maps a git subcommand (the first arg after -C REPO_ROOT) to a
+    (returncode, stdout, stderr) tuple. rev-parse is disambiguated by its flag.
+    """
+    def run(cmd, capture_output=True, text=True, timeout=None):
+        sub = cmd[3]  # ['git', '-C', REPO_ROOT, <sub>, ...]
+        if sub == 'rev-parse':
+            key = 'branch' if '--abbrev-ref' in cmd else 'sha'
+        else:
+            key = sub
+        rc, out, err = results[key]
+        return types.SimpleNamespace(returncode=rc, stdout=out, stderr=err)
+    monkeypatch.setattr(server.subprocess, 'run', run)
+
+
+def test_deploy_dashboard_fast_forwards_then_restarts(monkeypatch):
+    shas = iter(['aaaaaaa', 'bbbbbbb'])  # before, after
+    monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: None)
+    _fake_git(monkeypatch, {
+        'branch': (0, 'main\n', ''),
+        'sha': (0, '', ''),   # overridden below
+        'fetch': (0, '', ''),
+        'pull': (0, 'Updating aaaaaaa..bbbbbbb\n', ''),
+    })
+    # rev-parse --short returns before then after
+    orig = server.subprocess.run
+    def run(cmd, **k):
+        r = orig(cmd, **k)
+        if cmd[3] == 'rev-parse' and '--short' in cmd:
+            return types.SimpleNamespace(returncode=0, stdout=next(shas) + '\n', stderr='')
+        return r
+    monkeypatch.setattr(server.subprocess, 'run', run)
+
+    called = {}
+    def fake_restart():
+        called['restart'] = True
+        return {'ok': True, 'text': 'Restarting…'}
+    monkeypatch.setattr(server, 'restart_dashboard_server', fake_restart)
+
+    result = server.deploy_dashboard()
+    assert called.get('restart') is True
+    assert result['ok'] is True
+    assert 'aaaaaaa -> bbbbbbb' in result['text']
+
+
+def test_deploy_dashboard_fails_loud_and_skips_restart_on_non_ff(monkeypatch):
+    _fake_git(monkeypatch, {
+        'branch': (0, 'main\n', ''),
+        'sha': (0, 'aaaaaaa\n', ''),
+        'fetch': (0, '', ''),
+        'pull': (1, '', 'fatal: Not possible to fast-forward, aborting.'),
+    })
+    called = {}
+    monkeypatch.setattr(server, 'restart_dashboard_server',
+                        lambda: called.setdefault('restart', True))
+
+    result = server.deploy_dashboard()
+    assert 'restart' not in called          # a dirty/divergent tree is never activated
+    assert result['ok'] is False
+    assert 'NOT restarted' in result['text']
+    assert 'fast-forward' in result['text']
+
+
+def test_deploy_dashboard_fails_loud_when_fetch_fails(monkeypatch):
+    _fake_git(monkeypatch, {
+        'branch': (0, 'main\n', ''),
+        'sha': (0, 'aaaaaaa\n', ''),
+        'fetch': (1, '', 'fatal: could not read from remote'),
+        'pull': (0, '', ''),
+    })
+    called = {}
+    monkeypatch.setattr(server, 'restart_dashboard_server',
+                        lambda: called.setdefault('restart', True))
+
+    result = server.deploy_dashboard()
+    assert 'restart' not in called
+    assert result['ok'] is False
+    assert 'git fetch' in result['text'] and 'NOT restarted' in result['text']

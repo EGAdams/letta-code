@@ -6679,6 +6679,49 @@ def restart_dashboard_server():
         return {'ok': False, 'text': str(e)}
 
 
+def deploy_dashboard():
+    """Keyboard-free deploy: fast-forward the checked-out branch and self-restart.
+
+    This is the resilience path — the whole point is that the system is never
+    "dead in the water" waiting for a human at a keyboard. The dashboard runs in
+    the real `systemd --user` session, so it can `git pull` the live checkout and
+    restart itself, which a sandboxed executor (or Frita over Tailscale) cannot do
+    directly. It only ever fast-forwards the branch that is ALREADY checked out —
+    nothing to specify, no way to land on the wrong branch, no auth to lose.
+
+    Fails loud (standing rule): a non-fast-forwardable pull or any git error is
+    reported back and the restart is SKIPPED, so a broken or dirty tree is never
+    activated. Only a clean fast-forward proceeds to restart_dashboard_server()."""
+    def _git(*args):
+        return subprocess.run(
+            ['git', '-C', REPO_ROOT, *args],
+            capture_output=True, text=True, timeout=120)
+    try:
+        branch = _git('rev-parse', '--abbrev-ref', 'HEAD').stdout.strip()
+        before = _git('rev-parse', '--short', 'HEAD').stdout.strip()
+        fetch = _git('fetch', 'origin', branch)
+        if fetch.returncode != 0:
+            return {'ok': False, 'text': f'git fetch origin {branch} failed — '
+                                         f'tree NOT restarted:\n{fetch.stderr.strip()}'}
+        pull = _git('pull', '--ff-only', 'origin', branch)
+        if pull.returncode != 0:
+            return {'ok': False, 'text': f'git pull --ff-only origin {branch} failed — '
+                                         f'tree NOT restarted (fix the working tree first):\n'
+                                         f'{pull.stderr.strip() or pull.stdout.strip()}'}
+        after = _git('rev-parse', '--short', 'HEAD').stdout.strip()
+    except FileNotFoundError:
+        return {'ok': False, 'text': 'git not found — cannot deploy on this host.'}
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'text': 'git operation timed out — tree NOT restarted.'}
+    except Exception as e:
+        return {'ok': False, 'text': f'deploy error — tree NOT restarted: {e}'}
+
+    restart = restart_dashboard_server()
+    moved = 'already up to date' if before == after else f'{before} -> {after}'
+    return {'ok': restart.get('ok', False),
+            'text': f'Deployed {branch} ({moved}). ' + restart.get('text', '')}
+
+
 # docker-compose v1.29.2 (required on this box — see [[reference_logger_api_ops]])
 # throws `KeyError: 'ContainerConfig'` when it tries to "recreate" a container
 # stuck in the `Created` state (e.g. an interrupted `docker-compose up`, or an
@@ -10450,6 +10493,16 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.error_response('Invalid JSON', 400)
             result = record_intake_status(data)
             return self.json_response(result)
+
+        if path == '/api/intake-halt':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(record_intake_halt(data))
+
+        if path == '/api/intake-halt-ack':
+            return self.json_response(acknowledge_intake_halt())
 
         if path == '/api/route-detect':
             try:
