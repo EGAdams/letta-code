@@ -18,6 +18,11 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claude } from '/home/adamsl/claude-code-sdk-ts/dist/index.js';
+import {
+  applyRedBoxAuditToReport,
+  auditRedBoxesForRun,
+  collectExpenseIds,
+} from "./red-box-gate.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -209,7 +214,12 @@ async function notifyDashboardStatus(args) {
   const match = report.match(/Verdict[^A-Za-z]*(PASS|CORRECTED|FAIL|STALLED)/i);
   const status = (match?.[1] || 'STALLED').toLowerCase();
   const diagnosis = report.match(/## (?:Diagnosis|Wrapper Defect)\s+([\s\S]*?)(?=\n## |$)/i);
-  const detail = (diagnosis?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  let detail = (diagnosis?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  // A "Wrapper Defect"/"Diagnosis" section that says there was no defect (the
+  // common case on a clean PASS) is not failure detail — publishing it next
+  // to a FAILED/STALLED label produces a self-contradictory dashboard message
+  // like "reported FAILED. None. No coaching was necessary...".
+  if (/^none\b/i.test(detail)) detail = '';
   try {
     const response = await fetch(`${DASHBOARD_BASE_URL}/api/intake-status`, {
       method: 'POST',
@@ -234,6 +244,57 @@ async function notifyDashboardStatus(args) {
     console.error(`[trainer] failed to publish dashboard intake status: ${err?.message || err}`);
     return false;
   }
+}
+
+async function fetchJson(url, options = undefined) {
+  const response = await fetch(url, options);
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${body.slice(0, 300)}`);
+  }
+  try { return JSON.parse(body); }
+  catch { throw new Error(`Expected JSON from ${url}: ${body.slice(0, 300)}`); }
+}
+
+async function enforceDeterministicRedBoxGate(args) {
+  let audit;
+  try {
+    const [messages, events] = await Promise.all([
+      fetchJson(
+        `${LETTA_BASE_URL}/v1/conversations/${args.conversationId}/messages?limit=200`,
+      ),
+      fetchJson(
+        `${DASHBOARD_BASE_URL}/api/expense-stored-events?since=${args.dispatchedAt}`,
+      ),
+    ]);
+    const expenseIds = collectExpenseIds(
+      messages,
+      events,
+      Number(args.dispatchedAt),
+      args.conversationId,
+    );
+    audit = await auditRedBoxesForRun(expenseIds, (path, body) =>
+      fetchJson(`${DASHBOARD_BASE_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }));
+    console.log(`[trainer] deterministic red-box gate: checked=${audit.checked} ` +
+      `failures=${audit.failures.length} expense_ids=${expenseIds.join(',') || '(none)'}`);
+  } catch (err) {
+    audit = {
+      ok: false,
+      checked: 0,
+      failures: [{
+        expenseId: null,
+        documentType: 'audit',
+        reason: `Deterministic red-box audit could not complete: ${err?.message || err}`,
+      }],
+    };
+  }
+  const report = readFileSync(args.reportPath, 'utf8');
+  writeFileSync(args.reportPath, applyRedBoxAuditToReport(report, audit));
+  return audit.ok;
 }
 
 async function main() {
@@ -310,6 +371,7 @@ foreground Bash sleep loop.`;
       }
     }
     if (reportWritten()) {
+      await enforceDeterministicRedBoxGate(args);
       await notifyDashboardStatus(args);
       console.log('[trainer] report file written — done.');
       return;

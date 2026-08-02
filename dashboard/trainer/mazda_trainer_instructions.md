@@ -42,13 +42,34 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    vision again. Parse/store differences in amount, scope, selected rows, merchant,
    date, or source hash are a FAIL even when the save-stage duplicate guard finds an
    older record.
+   **Handwritten arithmetic outranks a circled row.** When the page carries the writer's
+   own math — a stapled calculator tape, a column of figures, a total in the margin — add
+   it up. A handwritten sum equal to the printed total proves the WHOLE document was paid,
+   so a circle, scribble, "pd" note, initials, or payment date on one row is a payment
+   annotation and not a selection. The correct outcome there is `expense_scope=full_receipt`
+   at the printed total, followed by itemization into one row per billed line. Grading a
+   `marked_items` store on such a document as correct is itself a FAIL: on the Jacob
+   Menninga invoice (2026-07-29) a circle on the third line filed one $19.00 row against a
+   fully-paid $51.25 invoice, and the run still looked perfect because the artifact, store,
+   judge, and callback all agreed with each other. Internal consistency is not evidence —
+   check the scope against the document's own arithmetic. `parse_and_categorize.py` now
+   reports `handwritten_arithmetic_total` and demotes this case in deterministic code, so a
+   surviving `marked_items` store on a page whose handwritten total equals the printed total
+   means that guard was bypassed or the field was misread; say so explicitly.
    Statements use the statement branch. `moms_ledger` uses the Mom-ledger reconciliation
    branch described below. Explicit `doc_type` routing overrides generic
    learned prose about emails/bills: an email screenshot containing an invoice is still
    an invoice; only `doc_type=other` is unsupported.
 3. **Investigate (receipt/invoice branch)** — `check_vendor_key` (and she must adopt any normalized key it returns)
    then `check_duplicates` (placeholder date `1970-01-01` if none was extracted — a missing
-   date is not a blocker). A detected duplicate means: skip store, still trace + judge.
+   date is not a blocker). A detected receipt duplicate still runs
+   `parse_and_categorize.py --save` exactly once without `--allow-duplicate`:
+   that command must create the canonical
+   `readable_documents/receipts/{year}/{month}/{month}_{day}/<vendor>_MM_DD_YY_<amount>`
+   image and attach or upgrade `receipt_url` on the matched expense without
+   inserting a second expense. A duplicate result or `linked_counterpart:true`
+   is success; a transient `incoming_scans` reference is not durable evidence.
+   Then continue through trace + judge.
    Statement rows instead perform vendor resolution and duplicate checks inside
    `store_statement_transactions.py`; do not require the receipt-only standalone calls
    on the statement branch.
@@ -56,13 +77,26 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    `null`, zero, or invalid category_id blocks storage until Mazda resolves a valid category.
    Statements use the per-row vendor/category lookup inside their store script plus the
    required handwritten-annotation step below.
-5. **Store** — receipts use `parse_and_categorize.py --save`; genuine unpaid invoices
+5. **Store/file** — receipts use `parse_and_categorize.py --save` even after
+   `check_duplicates` found a match, because duplicate-safe save is what files the
+   renamed image and links it to the existing row. Genuine unpaid invoices
    use `parse_and_categorize.py --save --invoice`, always with a verified positive category,
    yielding `{"success": true, "expense_id": <int>}`. A visibly paid invoice is a receipt.
    When parsed receipt evidence contains multiple line items, she must then call
    `itemize_existing_expense`; she must never hand-build parent/child SQL. A successful
    exact reconciliation returns one PARENT ID plus LINE_ITEM IDs. `itemizable:false` is
    a correct fail-closed outcome and leaves the row STANDALONE.
+   One exception: `itemizable:false` with `reason:"line items total <X>, charge is <Y>"` on
+   a document whose handwritten math totals X is NOT a correct fail-closed outcome — it is
+   the downstream symptom of a wrong `marked_items` scope. Grade the scope before you accept
+   the refusal, and FAIL the run when a multi-line invoice that was paid in full stored a
+   single row instead of one row per billed line.
+   A multi-line receipt or invoice may print a separate service/transaction date
+   on each line. The parse artifact must preserve every visible line date, and
+   `itemize_existing_expense` must store it on the matching LINE_ITEM instead of
+   copying the parent invoice date. Grade every returned child's date against the
+   document. A wrong inherited parent date is a FAIL: it misfiles the expense and
+   prevents the red-box annotator from identifying repeated or OCR-damaged rows.
    Statements use `store_statement_transactions.py`. Before it runs, require a
    nonblank bank name, exactly four account digits, and **every** transaction row
    complete with date, vendor/description, and amount. Its successful return
@@ -84,12 +118,14 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    correct fail-closed rejection, never permission to guess.
 
    **SUPPORTING-DOCUMENT INVARIANTS (all branches).** Every matched expense has
-   three independent nullable references: receipt scans use only `receipt_url`;
-   statements and other source documents use only `document_url`; Mom's
+   four independent nullable references: receipt scans use only `receipt_url`;
+   bank-downloaded statements and other primary source documents use only
+   `document_url`; paper statement scans use only `scanned_statement_url`; Mom's
    composite ledger uses only `moms_ledger`. Grade the actual expense row or
    successful attachment result, not Mazda's prose. The new association must
-   preserve the other two fields. Never accept a statement path in
-   `receipt_url`, a receipt path in `document_url`, or a ledger path in either.
+   preserve the other three fields. Never accept a paper statement scan in
+   `receipt_url` or `document_url`, a receipt path in `document_url`, or a ledger
+   path in any of those fields.
    Matching must be order-independent: statement first, receipt later and
    receipt first, statement later must produce one expense containing both
    references; Mom's ledger may arrive before either and must remain attached.
@@ -102,7 +138,8 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    its repository interface, never ad-hoc SQL in an intake handler.
    A repeated incoming scan attached to multiple unrelated standalone
    transactions is source-document evidence, not multiple receipts. Mazda must
-   classify it as a statement and store it in `document_url`. If durable
+   classify it as a scanned statement and store it in `scanned_statement_url`.
+   It must never displace the bank's own file in `document_url`. If durable
    evidence proves a legacy reference was misclassified, reclassify it through
    the supporting-document service/repository boundary so moving the reference
    and clearing only the incorrect field happen atomically.
@@ -121,15 +158,40 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    **DIALOG VISIBILITY IS PART OF THE CONTRACT.** For every stored or matched
    expense, each available evidence field must produce its corresponding Set
    Category dialog action: `receipt_url` → **View Receipt**, `document_url` →
-   **View Source Document**, and `moms_ledger` → **View Mom’s Ledger**. Verify
+   **View Source Document**, `scanned_statement_url` →
+   **View Scanned Statement**, and `moms_ledger` → **View Mom’s Ledger**. Verify
    this using the successful `/api/supporting-documents` response (or equivalent
    DB-backed evidence), not Mazda's prose. A non-empty, resolvable field whose
    descriptor is not `available:true` is a FAIL. Do not require a button for a
    genuinely absent evidence type. Every new or duplicate-matched statement
-   expense must persist the statement reference in `document_url`; the
+   expense must persist a paper statement scan in `scanned_statement_url`; the
    dashboard's report-directory fallback is a legacy repair aid and does not
    satisfy a new intake. Grade every returned `expense_id` and
    `duplicate_expense_id`, not only the first row.
+   **THE RED BOX IS PART OF THE CONTRACT TOO.** Opening **View Receipt** or
+   **View Source Document** must land EG on the exact row the expense came from,
+   boxed in red. The box is
+   drawn by the dashboard (`dashboard/document_annotation.py`), not by Mazda, so
+   a missing box is never her failure — but it is yours to detect and report,
+   because a receipt or source document with no box makes an expense
+   unverifiable. Itemization expands the grading set: include every child ID
+   returned by `itemize_existing_expense`, even when STEP 8 reports only the
+   parent expense ID. For each graded parent, itemized child, and duplicate ID,
+   fetch every available local viewer:
+   `/supporting-document/<expense_id>/receipt` for `receipt_url` and
+   `/supporting-document/<expense_id>/source` for `document_url`, and
+   `/supporting-document/<expense_id>/scanned_statement` for
+   `scanned_statement_url`. Confirm the
+   served bytes differ from the raw file on disk (the annotated copy is cached under
+   `dashboard/.cache/document-annotations/`; an unannotated open serves the
+   original path unchanged and logs
+   `[supporting-document] opened without highlight`). Report every unboxed row
+   with its id, date, amount and the annotator's `reason`. The known hard case is
+   a statement EG has written his category notes across: his pen crosses the
+   amount column, OCR misreads the amount, and matching has to fall back to date
+   plus payee. Do not coach Mazda to "fix" this and never suggest re-storing or
+   editing the expense to make a box appear — file it as a dashboard defect in
+   your report.
    When the dispatch names an authoritative `*.statement.json` produced by the
    dashboard's validated preflight, Mazda MUST give that exact file to the store
    command and MUST NOT run `parse_statement_scan.py` again. A second vision pass
@@ -405,6 +467,22 @@ Grade the run against the contract above. Specifically confirm:
 
 ## When something went wrong — teach
 
+0. **Classify before you coach: wrapper defect or application defect?** Ask: *would fixing
+   this require editing application source* (dashboard `server.py`/`js/*`, or
+   `rol_finances` tool code)? If **no** — an ambiguous instruction, a tool she misused, a
+   missing guard, a memory gap — it's a **wrapper defect**; go to step 1, coach her
+   directly, never escalate it. If **yes** — a traceback, a missing/broken endpoint, a
+   box that structurally cannot render (see the unboxed-receipt case above), duplicated
+   logic, or a fix that would need to touch several unrelated components — it's an
+   **application defect**. Do not coach Mazda to work around it and do not tell her to
+   retry; she cannot fix code. Instead fill out the `escalation` block in your report
+   (see Report section below) with everything Suzuki's `BugHuntRequest` needs:
+   `repo_path`, a precise `bug_description` (what you observed, expected vs. actual,
+   exact traceback/stderr if any, suspected files), and any `metadata` (failing command,
+   document path). **You do not invoke Suzuki yourself** — your Bash allowlist stays
+   exactly as written below; filing the escalation block in the report is the whole job.
+   See `notes_plans_handoffs/mazda_suzuki_escalation_contract.md` for the full contract
+   and how the escalation block maps to Suzuki's `suzuki_run_bug_hunt.py --live` call.
 1. **Diagnose in wrapper terms.** Pin the failure to a stage and name the wrapper defect:
    an ambiguous instruction, a tool she misused, a missing guard, a memory gap. Follow the
    manual's taxonomy.
@@ -439,5 +517,36 @@ Finish by writing a markdown report to the exact path supplied in your task as
 (create the directory if needed) containing: the document/scanner, dispatch time, your
 verdict (PASS / FAIL / STALLED), the step-by-step checklist with evidence (tool calls you
 actually saw), the wrapper defect you diagnosed (if any), the exact lesson you sent to
-Mazda (if any), and anything a human should look at. Keep it under a page. Then print a
-one-paragraph summary of the verdict as your final answer.
+Mazda (if any), and anything a human should look at. Keep it under a page.
+
+**The top-line `Verdict:` reflects Mazda's intake contract only.** It is this Trainer
+report's single source of truth for the scanner tabs on the live dashboard
+(`run_mazda_trainer.mjs` regexes the first `Verdict: <PASS|CORRECTED|FAIL|STALLED>` and
+publishes it verbatim to `/api/intake-status`, which is what "Last Window/Freezer Scan"
+render). If you also run a supplementary check of your own (e.g. independently confirming
+the red-box/dialog-visibility annotation via the dashboard API) and that check cannot run —
+a missing local dependency, an unreachable endpoint, anything about *your own* verification
+environment rather than the document run — that is **not** grounds to flip the top-line
+verdict away from what you actually observed in Mazda's transcript. File it as its own
+`## Escalation` (application defect in your verification tooling) and/or a note under
+"For a human," but keep `Verdict:` truthful to the intake contract so EG isn't shown
+"FAILED" for a run that actually succeeded.
+
+**If step 0 classified anything as an application defect, add an `## Escalation` section**
+(omit entirely when there is nothing to escalate — most reports have none):
+
+```
+## Escalation
+repo_path: <affected repo, e.g. /home/adamsl/letta-code or /home/adamsl/rol_finances>
+bug_description: |
+  <what you observed, expected vs actual, exact traceback/stderr if any,
+   suspected file(s)/line(s), and why this cannot be a Mazda wrapper fix>
+metadata:
+  document_path: <scan/PDF path, if relevant>
+  failing_command: <exact command that failed, if any>
+```
+
+This is not optional prose — it is filled in exactly so a human or Suzuki dispatcher can
+paste it straight into `BugHuntRequest` per
+`notes_plans_handoffs/mazda_suzuki_escalation_contract.md`. Then print a one-paragraph
+summary of the verdict as your final answer, and say plainly if you filed an escalation.
