@@ -71,6 +71,7 @@ export interface Settings {
   enableSleeptime: boolean;
   sessionContextEnabled: boolean; // Send device/agent context on first message of each session
   autoSwapOnQuotaLimit: boolean; // Auto-switch to temporary Auto model override on quota-limit errors
+  disabledModelHandlePrefixes?: string[]; // Model handle prefixes to never auto-select (e.g. a self-hosted base provider backed by a dead API key: ["google_ai/"])
   memoryReminderInterval: number | null | "compaction" | "auto-compaction"; // DEPRECATED: use reflection* fields
   reflectionTrigger: "off" | "step-count" | "compaction-event";
   reflectionStepCount: number;

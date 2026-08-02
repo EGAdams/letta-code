@@ -436,6 +436,14 @@ SCANNER_REPORT_PATH = '/scanner_report.html'
 RECENT_REPORT_POINTER_FILE = os.path.join(HERE, 'recent_report.json')
 _recent_report_lock = threading.Lock()
 
+# Fail-loud intake-halt surface: rol_finances' DashboardIntakeHaltNotifier POSTs
+# here when an intake step crashes (a fault, not a "no match"), so the pipeline
+# HALTS instead of silently inserting a duplicate. Unlike the document-vision
+# halt (which self-clears when a provider tier recovers), a code fault does not
+# recover on its own — it stays active until a human acknowledges it.
+INTAKE_HALT_FILE = os.path.join(HERE, 'intake_halt.json')
+_intake_halt_lock = threading.Lock()
+
 
 def _read_recent_pointer_file():
     """Raw pointer-file contents ({} when missing/corrupt). The file holds BOTH
@@ -844,6 +852,63 @@ def record_intake_status(data):
     """Dashboard endpoint used by the Trainer runner after writing its report."""
     merged = merge_recent_intake_status(data or {})
     return {'ok': merged, 'status': (data or {}).get('status', '')}
+
+
+def record_intake_halt(data):
+    """Persist a fail-loud intake halt so the dashboard can raise the alert.
+
+    Called by rol_finances' DashboardIntakeHaltNotifier. Stores the single most
+    recent halt as active; a human clears it via /api/intake-halt-ack. Kept as a
+    discrete event (not merged) because each halt is a distinct fault to see."""
+    event = data or {}
+    record = {
+        'active': True,
+        'halted_at': time.time(),
+        'step': str(event.get('step', '')),
+        'cause': str(event.get('cause', '')),
+        'exception_type': str(event.get('exception_type', '')),
+        'document_path': str(event.get('document_path', '')),
+        'repo_path': str(event.get('repo_path', '')),
+        'metadata': event.get('metadata') if isinstance(event.get('metadata'), dict) else {},
+    }
+    with _intake_halt_lock:
+        try:
+            with open(INTAKE_HALT_FILE, 'w') as fh:
+                json.dump(record, fh)
+        except OSError as exc:
+            return {'ok': False, 'error': str(exc)}
+    return {'ok': True, 'active': True}
+
+
+def read_intake_halt():
+    """Current intake-halt state for the front-end poller."""
+    with _intake_halt_lock:
+        try:
+            with open(INTAKE_HALT_FILE) as fh:
+                record = json.load(fh)
+        except (OSError, ValueError):
+            return {'ok': True, 'active': False}
+    if not isinstance(record, dict) or not record.get('active'):
+        return {'ok': True, 'active': False}
+    return {'ok': True, 'active': True, 'event': record}
+
+
+def acknowledge_intake_halt():
+    """Clear the active halt once a human has seen it (the alert's Acknowledge)."""
+    with _intake_halt_lock:
+        try:
+            with open(INTAKE_HALT_FILE) as fh:
+                record = json.load(fh)
+        except (OSError, ValueError):
+            return {'ok': True, 'active': False}
+        if isinstance(record, dict):
+            record['active'] = False
+            try:
+                with open(INTAKE_HALT_FILE, 'w') as fh:
+                    json.dump(record, fh)
+            except OSError as exc:
+                return {'ok': False, 'error': str(exc)}
+    return {'ok': True, 'active': False}
 
 
 def _load_recent_report_pointer():
@@ -3615,6 +3680,11 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"category_id": <int or null>, '
         f'"duplicate_checked": <true|false>, "is_duplicate": <true|false>, '
         f'"stored": <true|false>, "expense_id": <int or null>, '
+        f'"linked_counterpart": <true when the save returned linked_counterpart:true — '
+        f'the receipt was attached to an existing statement expense instead of inserting a '
+        f'second row; expense_id is then that existing row and stored may be false>, '
+        f'"intake_halted": <true ONLY when a --save/store command returned '
+        f'"halted": true — see the HALT RULE below; then stored:false and expense_id:null>, '
         f'"itemization_attempted": <true|false>, "itemized": <true|false>, '
         f'"itemization_reconciled": <true only when itemization succeeded>, '
         f'"itemization_parent_id": <int or null>, '
@@ -3626,6 +3696,16 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'the judge treats a null category with pending_vendor_review unset as a real failure, '
         f'not the correct degraded save the FAIL-CLOSED CATEGORY RULE describes>, '
         f'"problems": [<strings>]}}\n'
+        f'  HALT RULE: if ANY `--save`/store command returns `"halted": true` (a JSON object '
+        f'with a `halt` block naming a `step`/`cause`/`exception_type`), an intake step '
+        f'crashed inside the tool — the pipeline fail-loud stopped instead of inserting a '
+        f'possibly-duplicate row. This is NOT your fault and there is nothing to retry or work '
+        f'around: do NOT re-run --save, do NOT add --allow-duplicate, do NOT hand-build a row. '
+        f'Record the trace with "intake_halted": true, "stored": false, "expense_id": null, and '
+        f'the halt\'s cause copied into "problems", then STILL run judge_trace and the STEP 8 '
+        f'dashboard callback (send stored:0). The judge scores a halt NEEDS_REVIEW, not FAIL, so '
+        f'do NOT call propose_improvement/apply_proposal for it — it is escalated to Suzuki as a '
+        f'code bug, not learned around.\n'
         f'  For a STATEMENT, record this evidence JSON INSTEAD (the judge routes it '
         f'to the statement rubric — the receipt fields above do not apply):\n'
         f'  {{"document_path": "{scan_image_path}", "doc_kind": "statement", '
@@ -10095,6 +10175,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 since_ts = 0.0
             return self.json_response(get_stored_expense_events(since_ts))
 
+        # Fail-loud intake-halt state — IntakeHaltAlert polls this and raises a
+        # full-screen "cannot continue" modal while a halt is active.
+        if path == '/api/intake-halt':
+            return self.json_response(read_intake_halt())
+
         # Statements quarantined in bank_statements/_needs_review/ — the Scanner
         # screen polls this and pops a dialog for each one.
         if path == '/api/statement-reviews':
@@ -10386,6 +10471,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
                 if action == 'start' and server == 'frita-executor':
                     result = start_frita_executor()
+                    return self.json_response(result)
+
+                if action == 'deploy' and server == 'dashboard':
+                    # Keyboard-free deploy: pull the current branch + self-restart.
+                    result = deploy_dashboard()
                     return self.json_response(result)
 
                 if action in ('start', 'restart') and server == 'dashboard':

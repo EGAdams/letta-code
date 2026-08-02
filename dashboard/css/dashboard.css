@@ -1983,6 +1983,7 @@ summary {
   font-size: 0.85em;
   color: #666;
   margin-top: 8px;
+  white-space: pre-line;
 }
 
 /* ── Statement review dialog (Scanner screen) ──────────────────────────────

@@ -47,6 +47,7 @@ export { DomTabFactory } from "./dom-tab-factory.js";
 export { DomVendorReviewView } from "./dom-vendor-review-view.js";
 export { EdgeTtsSpeechSynthesizer } from "./edge-tts-speech-synthesizer.js";
 export { FetchHttpClient } from "./fetch-http-client.js";
+export { IntakeHaltAlert } from "./intake-halt-alert.js";
 export { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
 export {
   buildPrinterRepairRequest,

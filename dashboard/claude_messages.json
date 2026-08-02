@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "date": "2026-07-26T08:19:35.115682",
+    "type": "user_message",
+    "text": "Just scanned a document in Freezer Scan. Please check the Last Freezer Scan tab. It is not running."
+  },
+  {
+    "date": "2026-07-26T08:19:35.164916",
+    "type": "assistant_message",
+    "text": "Fixed: the first Freezer attempt never produced an image. Retried the live scanner successfully; Last Freezer Scan now shows the new Diners Club statement as processing, with Mazda conversation conv-1ec6f224-4c41-48f8-8f64-8873f4706308 and an active Trainer."
+  }
+]

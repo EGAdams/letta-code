@@ -4883,6 +4883,38 @@ def test_late_expense_callback_does_not_relock_trainer_pass(
     assert server._scanner_intake_in_progress('window') is False
 
 
+def test_intake_halt_record_read_and_acknowledge(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'INTAKE_HALT_FILE', str(tmp_path / 'intake_halt.json'))
+
+    # Nothing recorded yet.
+    assert server.read_intake_halt() == {'ok': True, 'active': False}
+
+    # rol_finances' DashboardIntakeHaltNotifier POSTs a halt.
+    assert server.record_intake_halt({
+        'step': 'source-counterpart-lookup',
+        'cause': 'not enough arguments for format string',
+        'exception_type': 'TypeError',
+        'document_path': '/scan.jpg',
+        'repo_path': '/home/adamsl/rol_finances',
+        'metadata': {'amount': '100.00'},
+    }) == {'ok': True, 'active': True}
+
+    state = server.read_intake_halt()
+    assert state['active'] is True
+    assert state['event']['step'] == 'source-counterpart-lookup'
+    assert state['event']['exception_type'] == 'TypeError'
+    assert state['event']['metadata'] == {'amount': '100.00'}
+
+    # A human acknowledges — the alert clears but the record persists.
+    assert server.acknowledge_intake_halt() == {'ok': True, 'active': False}
+    assert server.read_intake_halt() == {'ok': True, 'active': False}
+
+
+def test_intake_halt_acknowledge_with_no_record_is_safe(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'INTAKE_HALT_FILE', str(tmp_path / 'missing.json'))
+    assert server.acknowledge_intake_halt() == {'ok': True, 'active': False}
+
+
 def test_mazda_progress_uses_successful_tool_returns_not_calls():
     def call(call_id, name, arguments=None):
         return {

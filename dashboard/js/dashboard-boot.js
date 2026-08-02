@@ -29,6 +29,7 @@ import {
   EdgeTtsSpeechSynthesizer,
   FetchHttpClient,
   InputOptionsRenderer,
+  IntakeHaltAlert,
   PrinterRepairController,
   RolFinanceReportsController,
   ScannerDiagnosticsController,
@@ -2162,6 +2163,7 @@ new CodeChangeAlert({ http }).start();
 // ALL down (polls /api/server-health's 'document-vision' entry every 20s).
 // Mirrors the server-side halt in process_scanned_document().
 new VisionHaltAlert({ http }).start();
+new IntakeHaltAlert({ http }).start();
 
 /* =====================  Scanners  =====================
    ROL Finance > Scanners > {Window,Freezer} Scanner. Each `.scanner-dialog`

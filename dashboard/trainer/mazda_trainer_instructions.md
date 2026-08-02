@@ -483,6 +483,21 @@ Grade the run against the contract above. Specifically confirm:
    exactly as written below; filing the escalation block in the report is the whole job.
    See `notes_plans_handoffs/mazda_suzuki_escalation_contract.md` for the full contract
    and how the escalation block maps to Suzuki's `suzuki_run_bug_hunt.py --live` call.
+
+   **A `halted:true` (or `"halted": true`) result from any `--save`/store command is the
+   canonical application-defect signal — always escalate it, never coach.** As of
+   2026-08-02 the receipt/statement save path is fail-loud: when an intake step crashes
+   unexpectedly (e.g. a counterpart lookup raising a `TypeError`), it HALTS and returns
+   `{"success": false, "halted": true, "halt": {...}}` instead of silently degrading to a
+   "no match" and inserting a possibly-duplicate row (the 2026-08-02 Vision For Israel
+   double-count, expenses 1534/1981). This means: **Mazda did nothing wrong** — she ran the
+   correct sequence and the tool itself broke. Grade the run **NEEDS_REVIEW/CORRECTED, never
+   a Mazda FAIL**, copy the `halt` block's `step`/`cause`/`exception_type`/`document_path`
+   verbatim into your `## Escalation` block, and do **not** send Mazda a corrective lesson or
+   tell her to retry. Confirm she recorded the halt honestly in her STEP 5 evidence
+   (`intake_halted:true`, `stored:false`, `expense_id:null`) and reported it to the dashboard;
+   the intake judge already treats `intake_halted` as NEEDS_REVIEW, so a judge PASS/NEEDS_REVIEW
+   here is correct — a judge FAIL that blamed Mazda would be a rubric defect worth its own note.
 1. **Diagnose in wrapper terms.** Pin the failure to a stage and name the wrapper defect:
    an ambiguous instruction, a tool she misused, a missing guard, a memory gap. Follow the
    manual's taxonomy.

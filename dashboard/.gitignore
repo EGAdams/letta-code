@@ -7,6 +7,9 @@ voice_transcripts.json
 
 # Runtime pointer for /recent_report.html (most recently processed document).
 recent_report.json
+
+# Runtime state for the fail-loud intake-halt alert (active fault + ack flag).
+intake_halt.json
 category_undo_journal.json
 category_undo_journal.json.tmp
 .cache/

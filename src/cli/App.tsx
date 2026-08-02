@@ -80,6 +80,7 @@ import { reconcileExistingAgentState } from "../agent/reconcileExistingAgentStat
 import {
   AUTO_MODEL_HANDLE,
   resolveDefaultAgentModel,
+  resolveQuotaFallbackModel,
 } from "../agent/serverModelSelection";
 import { recordSessionEnd } from "../agent/sessionHistory";
 import { SessionStats } from "../agent/stats";
@@ -6054,9 +6055,13 @@ export default function App({
             !quotaAutoSwapAttemptedRef.current;
 
           if (canAttemptQuotaAutoSwap) {
-            const quotaFallbackModel = await resolveDefaultAgentModel({
-              preferredModel: TEMP_QUOTA_OVERRIDE_MODEL,
-              disallowedHandles: currentModelLabel ? [currentModelLabel] : [],
+            // Quota-fallback model-selection policy lives in serverModelSelection
+            // (testable, no UI): prefer Auto, never re-select the current model or
+            // an off-limits provider (dead-key providers + the quota-limited one).
+            const quotaFallbackModel = await resolveQuotaFallbackModel({
+              currentModelLabel,
+              configuredDisabledPrefixes:
+                settingsManager.getSetting("disabledModelHandlePrefixes") ?? [],
             });
 
             if (!quotaFallbackModel) {
