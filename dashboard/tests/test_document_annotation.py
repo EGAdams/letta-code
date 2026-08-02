@@ -362,6 +362,33 @@ def test_repeated_amount_still_rejects_the_ambiguous_total_line():
     assert _best_line(lines, target)[0] is None
 
 
+def test_repeated_total_restatement_boxes_the_bottom_most_line():
+    from document_annotation import _best_line
+
+    # Payment-slip shape (Dermatology Associates freezer scan, 2026-08-02):
+    # a single total is printed twice — a labeled field, then a footer
+    # confirmation — with no date or payee on either line. Both disjoint
+    # regions carry the word "total", so this is the receipt restating its
+    # one figure, not two coincidentally-equal line items; the bottom-most
+    # restatement (closest to the signature/copy line) wins.
+    target = ExpenseEvidence(
+        expense_id=1980,
+        expense_date="2025-04-08",
+        amount="150.00",
+        description="Dermatology Associates of West Michigan",
+        vendor_key="dermatology_associates_of_west_michigan_dawm",
+    )
+    lines = [
+        ("Total Amount 150.00", (30, 400, 300, 430)),
+        ("Total $150.00", (30, 500, 260, 530)),
+    ]
+
+    region, score, text = _best_line(lines, target)
+
+    assert region == (30, 500, 260, 530)
+    assert score < 7
+
+
 def test_image_strategy_boxes_the_amount_column_when_ocr_loses_it(tmp_path):
     from PIL import Image, ImageDraw, ImageFont
 

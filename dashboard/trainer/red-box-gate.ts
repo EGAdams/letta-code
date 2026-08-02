@@ -54,11 +54,28 @@ function collectIdsFromValue(
   if (depth > 8) return;
   if (typeof value === "string") {
     const text = value.trim();
-    if (!(text.startsWith("{") || text.startsWith("["))) return;
-    try {
-      collectIdsFromValue(JSON.parse(text), ids, depth + 1);
-    } catch {
-      return;
+    if (text.startsWith("{") || text.startsWith("[")) {
+      try {
+        collectIdsFromValue(JSON.parse(text), ids, depth + 1);
+        return;
+      } catch {
+        // Fall through to per-line parsing below — a Bash tool_return's
+        // `stdout` field is captured CLI output, not a bare JSON document:
+        // parse_and_categorize.py --save prints prose/log lines (including
+        // Python dict reprs with single quotes, e.g. "Receipt metadata
+        // create kwargs: {'expense_id': 1980, ...}") followed by exactly one
+        // trailing JSON line. A whole-string parse failure here doesn't mean
+        // no JSON is present.
+      }
+    }
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) continue;
+      try {
+        collectIdsFromValue(JSON.parse(trimmed), ids, depth + 1);
+      } catch {
+        // Not JSON (e.g. the single-quoted Python repr line above) — skip.
+      }
     }
     return;
   }

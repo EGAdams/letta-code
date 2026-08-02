@@ -79,6 +79,7 @@ class IExpenseReferenceResolver(ABC):
 
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+_TOTAL_WORD_RE = re.compile(r"\btotal\b", re.I)
 
 
 def _token_list(value: str) -> list[str]:
@@ -363,6 +364,25 @@ def _best_line(
                             parents[root_i] = root_j
             if len({_root(i) for i in range(len(matches))}) == 1:
                 return matches[0][1], matches[0][0], matches[0][2]
+            if all(_TOTAL_WORD_RE.search(item[2]) for item in matches):
+                # A single-total receipt (payment slip, AT&T-style bill)
+                # routinely restates its one total twice — a labeled field
+                # ("Total Amount 150.00") plus a footer confirmation ("Total
+                # $150.00") — which the amount-uniqueness check above sees as
+                # two disjoint regions and, before this branch existed, always
+                # rejected as ambiguous (the Dermatology Associates freezer
+                # scan of 2026-08-02 lost its box for exactly this: OCR read
+                # "Total Amount 150.00" and "Total $150.00" as separate rows).
+                # A genuine second line item never shares the word "total" —
+                # see test_repeated_amount_still_rejects_the_ambiguous_total_line,
+                # where "Late fee $15.00" carries no such word and still
+                # rejects. Box the bottom-most restatement: receipts finalize
+                # with the true total closest to the signature/copy line.
+                best = max(
+                    matches,
+                    key=lambda item: (_region_bounds(item[1]) or ("", 0.0, 0.0))[2],
+                )
+                return best[1], best[0], best[2]
         return None, ranked[0][0], ""
     # A date+amount match is decisive.  For looser description matches, reject
     # a tie instead of boxing the wrong repeated amount.
