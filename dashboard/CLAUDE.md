@@ -229,6 +229,7 @@ files from both `HERE` (`/home/adamsl/letta-code/dashboard`) and `REPO_ROOT`
 | Tab | File | Served URL |
 |---|---|---|
 | Self Evolving | `notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` | `/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` |
+| Server Rewrite | `notes_plans_handoffs/server_rewrite.html` | `/notes_plans_handoffs/server_rewrite.html` |
 | Mazda Dev Status | `notes_plans_handoffs/mazda_dev_status.html` | `/notes_plans_handoffs/mazda_dev_status.html` |
 | Audio Input | `dashboard/audio_input/audio_plan.html` | `/audio_input/audio_plan.html` |
 
@@ -289,7 +290,23 @@ and Excel implementations are strategies wired only in
 `build_document_annotation_service()`. The match must include date+amount,
 description+amount, or a related check number; otherwise the original opens
 without a potentially misleading box. Mom's Ledger images can resolve their
-check number from the related statement before OCR matching. Runtime setup:
+check number from the related statement before OCR matching.
+
+**Scans EG has written on are the hard case.** His category notes cross the
+amount column, so OCR reads `10.59` as `1.59` and no line can match on amount.
+`_line_score` therefore also accepts *date + a substantial share of the payee*
+as identity, scored below `_DECISIVE_SCORE` so it can never outrank a real
+amount match nor survive a tie; the image strategy then widens that box across
+the amount column, which the matched OCR line stops short of. Two rows with the
+same payee and date still cancel each other — without a readable amount there is
+nothing left to tell them apart. **When changing the tie rule, remember every
+strategy enumerates one physical row two or three times on purpose** (word
+grouped, spatially reconstructed, plus an amount/date pair for PDFs); `_same_row`
+compares regions by vertical overlap so a row cannot tie with itself and cancel
+its own box. That self-tie is exactly what suppressed the box on the Window
+Scanner's APPLE.COM/BILL $10.59 row.
+
+Runtime setup:
 `python3 -m pip install --user --break-system-packages -r dashboard/requirements.txt`
 and install the local `tesseract-ocr` package for image coordinates.
 
@@ -458,6 +475,16 @@ turn to "wait" (instructions mandate Bash `sleep` loops + report-before-finish);
 the OAuth login; the dashboard service's PATH lacks bun/claude so the Popen prepends
 `~/.bun/bin:~/.local/bin`. Tests: `tests/test_server.py -k trainer` — the pytest conftest fixture
 disables the Trainer so test runs never spawn a real ~25-minute Claude session.
+
+**Wrapper defect vs. application defect (2026-08-01).** Before coaching, the Trainer now
+classifies the failure: a *wrapper defect* (Mazda's instructions/tools/memory — coach her,
+unchanged) or an *application defect* (a real bug in this repo's or `rol_finances`' code —
+she cannot fix it by retrying). Application defects get a structured `## Escalation` block
+in the report (`repo_path`, `bug_description`, `metadata`) instead of a buried sentence. The
+Trainer still never executes anything under `rol_finances` and never invokes Suzuki itself —
+a human (or a future report-grepping dispatcher) turns that block into Suzuki's
+`BugHuntRequest`. Full contract, routing rule, and exact Suzuki invocation:
+`notes_plans_handoffs/mazda_suzuki_escalation_contract.md`.
 
 ### Statement review dialog (Scanner screen)
 

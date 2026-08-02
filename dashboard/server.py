@@ -6,6 +6,7 @@ Run: python3 server.py   (from /home/adamsl/letta-code/dashboard/)
 Then open: http://localhost:8765/
 """
 import json
+import glob
 import hashlib
 import os
 import re
@@ -25,7 +26,12 @@ from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
+from agents.letta_gateway import ILettaGateway
+from agents.model_options import AgentModelOptionsService, select_model_options
+from agents.urllib_letta_gateway import UrllibLettaGateway
+
 from voice.pipeline import build_pipeline, handle_voice_upload
+from voice.synthesis import EdgeTtsSynthesizer, cache_path as synthesis_cache_path
 from category_taxonomy import FallbackCategoryTaxonomy, MySqlCategoryTaxonomy
 from category_taxonomy_seed import LEGACY_TAXONOMY
 from category_undo import (
@@ -39,6 +45,11 @@ from document_annotation import (
     IExpenseDocumentAnnotationService,
     build_document_annotation_service,
 )
+from supporting_document_service import (
+    normalize_supporting_document_reference,
+    should_suppress_source_document,
+)
+from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 import statement_review
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -58,6 +69,7 @@ SERVER_START_TIME = time.time()
 # for edits to take effect. Directories are walked recursively for .py files.
 CODE_WATCH_PATHS = [
     os.path.join(HERE, 'server.py'),
+    os.path.join(HERE, 'agents'),
     os.path.join(HERE, 'document_annotation.py'),
     os.path.join(HERE, 'voice'),
 ]
@@ -139,6 +151,7 @@ ROL_FINANCE_REPORTS = [
     {'key': 'diners-0587-year',  'label': 'Diners 0587 Year',   'dir': 'diners_0587_whole_year_2025', 'all_year': True},
     {'key': 'bank-3119-pdf',     'label': 'Bank 3119 PDF',      'dir': 'fifth_third_non_profit_3119'},
     {'key': 'choice-7580-year',  'label': 'Choice 7580 Year',   'dir': 'choice_7580_year', 'all_year': True},
+    {'key': 'prime-chase-5783',  'label': 'Prime Chase 5783', 'dir': 'prime_chase_5783_whole_year_2025', 'all_year': True},
 ]
 
 
@@ -488,6 +501,8 @@ def record_recent_intake(image_path, label, kind='scan', facade=None,
             'vendor': facade.get('vendor'),
             'conversation_id': conversation_id,
             'content_sha256': content_sha256 or '',
+            'archive_paths': [],
+            'archive_years': [],
             'status': 'processing',
             'status_detail': '',
         }
@@ -603,6 +618,7 @@ def _fold_event_into_intake(intake, event):
     # recategorized before the next scan.
     for eid in (list(event.get('expense_ids') or [])
                 + list(event.get('duplicate_expense_ids') or [])
+                + list(event.get('scanned_statement_attached') or [])
                 + [event.get('expense_id')]):
         try:
             eid = int(eid)
@@ -619,7 +635,7 @@ def _fold_event_into_intake(intake, event):
         if eid not in duplicate_ids:
             duplicate_ids.append(eid)
     intake['duplicate_expense_ids'] = duplicate_ids
-    for k in ('parsed', 'stored'):
+    for k in ('parsed', 'stored', 'rolled_back_row_count'):
         if event.get(k) is not None:
             try:
                 intake[k] = int(event[k])
@@ -649,6 +665,19 @@ def _fold_event_into_intake(intake, event):
     vendor = event.get('vendor') or event.get('merchant')
     if vendor and vendor != 'unknown':
         intake['vendor'] = vendor
+    if event.get('archive_paths') is not None:
+        intake['archive_paths'] = [
+            str(path).strip() for path in (event.get('archive_paths') or [])
+            if str(path).strip()
+        ]
+    if event.get('archive_years') is not None:
+        cleaned_years = []
+        for year in event.get('archive_years') or []:
+            try:
+                cleaned_years.append(int(year))
+            except (TypeError, ValueError):
+                continue
+        intake['archive_years'] = cleaned_years
     intake['reported_at'] = time.time()
     event_status = str(event.get('status') or '').strip().lower()
     # STEP 8 and Trainer updates can race. A late expense-stored callback has
@@ -891,7 +920,8 @@ def _fetch_expenses_by_ids(ids):
             role_select = ', expense_role' if has_expense_roles else ''
             cur.execute(
                 "SELECT id, expense_date, amount, id_light, description, category_id, "
-                f"receipt_url, document_url, moms_ledger{role_select} "
+                "receipt_url, document_url, scanned_statement_url, "
+                f"moms_ledger{role_select} "
                 f"FROM expenses WHERE id IN ({placeholders}) "
                 "ORDER BY expense_date, id",
                 tuple(clean),
@@ -908,7 +938,8 @@ def _fetch_expenses_by_ids(ids):
                 ph2 = ','.join(['%s'] * len(parent_ids))
                 cur.execute(
                     "SELECT id, expense_date, amount, id_light, description, category_id, "
-                    "receipt_url, document_url, moms_ledger, expense_role, parent_expense_id "
+                    "receipt_url, document_url, scanned_statement_url, moms_ledger, "
+                    "expense_role, parent_expense_id "
                     f"FROM expenses WHERE parent_expense_id IN ({ph2}) "
                     "AND expense_role='LINE_ITEM' "
                     "ORDER BY expense_date, id",
@@ -954,6 +985,9 @@ def _fetch_expenses_by_ids(ids):
             'reporting_category': rep,
             'cat_class': _css_class_for_report_name(rep),
             'receipt_url': (r.get('receipt_url') or '').strip(),
+            'document_url': (r.get('document_url') or '').strip(),
+            'scanned_statement_url': (r.get('scanned_statement_url') or '').strip(),
+            'moms_ledger': (r.get('moms_ledger') or '').strip(),
         })
     return out
 
@@ -1025,6 +1059,13 @@ def _associated_source_paths(rows):
                 r.get('date'), r.get('amount'), r.get('vendor_key'))
             if match:
                 pdf_path = _source_document_path(match['report_path']) or ''
+            if not pdf_path:
+                # No report.html traces back to this row, but the expense may
+                # still carry its own document_url (e.g. a bank-downloaded
+                # statement/xlsx attached directly, never via a report row).
+                du = (r.get('document_url') or '').strip()
+                if du:
+                    pdf_path = _resolve_local_supporting_document(du, 'source') or ''
         if not receipt_path:
             ru = (r.get('receipt_url') or '').strip()
             if ru:
@@ -1033,6 +1074,97 @@ def _associated_source_paths(rows):
         if pdf_path and receipt_path:
             break
     return pdf_path, receipt_path
+
+
+def _associated_evidence_paths(rows):
+    """Resolve the remaining two supporting-document evidence slots
+    (`scanned_statement_url`, `moms_ledger`) backing a set of transactions —
+    the counterparts to `_associated_source_paths`'s PDF/receipt.
+
+    Scanner intakes routinely populate `scanned_statement_url` (the archived
+    photo of the printed statement) without ever touching `document_url` or
+    `receipt_url`, so these are surfaced separately rather than folded into
+    _associated_source_paths's two slots. See the 4-evidence-slot model.
+    Returns (scanned_statement_path or '', moms_ledger_path or ''), stopping at
+    the first row that yields each.
+    """
+    scanned_statement_path, moms_ledger_path = '', ''
+    for r in rows or []:
+        if not scanned_statement_path:
+            ref = (r.get('scanned_statement_url') or '').strip()
+            if ref:
+                scanned_statement_path = (
+                    _resolve_local_supporting_document(ref, 'scanned_statement')
+                    or ref)
+        if not moms_ledger_path:
+            ref = (r.get('moms_ledger') or '').strip()
+            if ref:
+                moms_ledger_path = (
+                    _resolve_local_supporting_document(ref, 'moms_ledger') or ref)
+        if scanned_statement_path and moms_ledger_path:
+            break
+    return scanned_statement_path, moms_ledger_path
+
+
+def _statement_archive_path(rows, vendor_key=''):
+    """Locate the canonically-named bank_statements archive copy of a scanned
+    statement — readable_documents/bank_statements/<year>/<month>/
+    <vendor>_<slug>/<vendor>_<slug>.<ext>, where slug is built from the
+    statement's own date range (e.g. 'july_31__august_15').
+
+    Scanner intakes only ever populate scanned_statement_url with the raw
+    scan filename (e.g. window_scan_...jpg) — the properly-named copy filed
+    under bank_statements/ isn't linked from the DB anywhere, so it has to be
+    found by matching this slug against every year/month folder rather than
+    looked up directly. Vendor tokens disambiguate when more than one folder
+    shares a date range; an unresolved ambiguity returns '' rather than
+    guessing (same fail-closed shape as _find_matching_report_row).
+    """
+    dates = sorted({r.get('date') for r in rows or [] if r.get('date')})
+    if not dates:
+        return ''
+    try:
+        start = datetime.strptime(dates[0], '%Y-%m-%d')
+        end = datetime.strptime(dates[-1], '%Y-%m-%d')
+    except ValueError:
+        return ''
+    slug = (f'{start.strftime("%B").lower()}_{start.day:02d}__'
+            f'{end.strftime("%B").lower()}_{end.day:02d}')
+    pattern = os.path.join(
+        READABLE_DOCS_BASE, 'bank_statements', str(start.year), '*', f'*{slug}')
+    folders = sorted(glob.glob(pattern))
+    if len(folders) > 1 and vendor_key:
+        tokens = [t for t in vendor_key.lower().split('_') if t.isalpha()]
+        narrowed = [f for f in folders
+                    if any(t in os.path.basename(f).lower() for t in tokens)]
+        if narrowed:
+            folders = narrowed
+    if len(folders) != 1:
+        return ''
+    folder = folders[0]
+    name = os.path.basename(folder)
+    for ext in ('.jpg', '.jpeg', '.png', '.pdf', '.xlsx'):
+        candidate = os.path.join(folder, name + ext)
+        if os.path.isfile(candidate):
+            return candidate
+    return ''
+
+
+def _recent_intake_archive_path(intake, rows, receipt_path=''):
+    """Return this intake's durable filed scan, never its staging name."""
+    archive_paths = [
+        str(path).strip() for path in (intake.get('archive_paths') or [])
+        if str(path).strip()
+    ]
+    if archive_paths:
+        return archive_paths[0]
+    doc_kind = str(intake.get('doc_kind') or '').strip().lower()
+    if doc_kind in {'receipt', 'invoice'}:
+        return str(receipt_path or '').strip()
+    if doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}:
+        return _statement_archive_path(
+            rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
+    return ''
 
 
 _DOC_KIND_LABELS = {
@@ -1238,6 +1370,23 @@ def build_recent_intake_html(intake):
     else:
         pdf_display = '--'
     receipt_display = _esc(receipt_path) if receipt_path else '--'
+    scanned_statement_path, moms_ledger_path = _associated_evidence_paths(rows)
+    # Prefer the canonically-named bank_statements/ archive copy over
+    # whatever raw scan filename scanned_statement_url happens to carry —
+    # legacy rows still point at the staging path even once a properly
+    # named copy has been filed. See _statement_archive_path.
+    archive_path = _recent_intake_archive_path(
+        intake, rows, receipt_path=receipt_path)
+    if (archive_path and str(intake.get('doc_kind') or '').lower()
+            in {'statement', 'bank_statement', 'credit_card_statement'}):
+        scanned_statement_path = archive_path
+    scanned_statement_display = (
+        _esc(scanned_statement_path) if scanned_statement_path else '--')
+    archived_scan_display = _esc(archive_path) if archive_path else '--'
+    moms_ledger_display = _esc(moms_ledger_path) if moms_ledger_path else '--'
+    staged_scan_path = _intake_source_document(intake)
+    staged_scan_display = _esc(staged_scan_path) if staged_scan_path else '--'
+    display_doc = os.path.basename(archive_path) if archive_path else doc
 
     if intake_status in ('fail', 'stalled'):
         label_text = 'FAILED' if intake_status == 'fail' else 'STALLED'
@@ -1367,13 +1516,17 @@ def build_recent_intake_html(intake):
         + picker_css + '\n'
         '  </style></head><body>\n'
         '<section class="card">\n'
-        f'  <h1>Most Recent Document: {_esc(doc)}</h1>\n'
+        f'  <h1>Most Recent Document: {_esc(display_doc)}</h1>\n'
         f'  <p class="muted">{_esc(sub)}dispatched {_esc(when)}</p>\n'
         '  <p class="doc-meta">'
         f'Document Type: {_esc(doc_type_label)}<br>'
         f'Month Range: {_esc(month_range)}<br>'
         f'Associated PDF: {pdf_display}<br>'
-        f'Associated Receipt: {receipt_display}</p>\n'
+        f'Associated Receipt: {receipt_display}<br>'
+        f'Associated Scanned Statement: {scanned_statement_display}<br>'
+        f'Archived Scan Copy: {archived_scan_display}<br>'
+        f'Associated Mom’s Ledger: {moms_ledger_display}<br>'
+        f'Staged Scan Image: {staged_scan_display}</p>\n'
         f'  <p>{_esc(status)}</p>\n'
         + working +
         table +
@@ -1405,6 +1558,57 @@ def build_recent_report_html():
     if m:
         return html[:m.end()] + base_tag + html[m.end():]
     return base_tag + html
+
+
+def _embed_report_html(report_url, report_file):
+    """Return one report.html with a <base href> injected for dashboard use."""
+    with open(report_file, encoding='utf-8', errors='replace') as f:
+        html = f.read()
+    base_href = report_url.rsplit('/', 1)[0] + '/'
+    base_tag = f'<base href="{base_href}">'
+    m = re.search(r'<head[^>]*>', html, re.I)
+    if m:
+        return html[:m.end()] + base_tag + html[m.end():]
+    return base_tag + html
+
+
+def _scanner_statement_report(scanner_key, intake):
+    """Prefer the canonical archived statement report for one scanner intake.
+
+    When a statement scan already has a real archived report.html that contains
+    one of this intake's expense ids, serve that report directly instead of the
+    synthetic intake page. This keeps the scanner tab aligned with the verified
+    canonical artifact and avoids collapsing a statement down to whatever subset
+    of ids happened to be forwarded in the intake callback.
+    """
+    if not isinstance(intake, dict):
+        return None
+    doc_kind = str(intake.get('doc_kind') or '').strip().lower()
+    if doc_kind not in {'statement', 'bank_statement', 'tax_document'}:
+        return None
+    expense_ids = []
+    for source in (intake.get('expense_ids') or [],
+                   intake.get('duplicate_expense_ids') or [],
+                   intake.get('scanned_statement_attached') or []):
+        for value in source:
+            try:
+                expense_ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
+    if not expense_ids:
+        return None
+    seen = set()
+    for expense_id in expense_ids:
+        if expense_id in seen:
+            continue
+        seen.add(expense_id)
+        found = _find_matching_report_row('', '', expense_id=expense_id)
+        if not found:
+            continue
+        report_file = _report_file_for_url(found.get('report_path', ''))
+        if report_file:
+            return {'url': found['report_path'], 'file': report_file, 'expense_id': expense_id}
+    return None
 
 
 def get_scanner_intake(scanner_key):
@@ -1451,6 +1655,9 @@ def build_scanner_report_html(scanner_key):
                 f'<p>No document has been scanned on the {name} yet. '
                 'Scan a document and this page will show its Verified '
                 'Transactions.</p>')
+    canonical = _scanner_statement_report(scanner_key, intake)
+    if canonical:
+        return _embed_report_html(canonical['url'], canonical['file'])
     return build_recent_intake_html(intake)
 
 
@@ -1490,8 +1697,13 @@ def _resolve_report_path_alias(report_path):
     so the picker dialog injected in that report posts
     report_path='/recent_report.html' (it uses location.pathname). Translate
     the alias to the underlying report URL so row recolor, receipt lookup and
-    reprocess hit the actual file on disk."""
-    if report_path == RECENT_REPORT_PATH:
+    reprocess hit the actual file on disk.
+
+    The dialog now posts location.search too (the scanner report needs it to say
+    WHICH scanner), so every synthetic page is matched on its path alone and
+    answers without its query string."""
+    base = str(report_path or '').split('?', 1)[0]
+    if base == RECENT_REPORT_PATH:
         recent = resolve_recent_report()
         if recent and recent.get('mode') == 'report':
             return recent['url']
@@ -1499,11 +1711,14 @@ def _resolve_report_path_alias(report_path):
         # '' so recategorize does its search-every-report / DB-only fallback,
         # exactly like the New Records dialog.
         return ''
-    if report_path == SCANNER_REPORT_PATH:
+    if base == SCANNER_REPORT_PATH:
         # Scanner reports are always synthetic DB-backed pages. There is no
         # report.html to recolor, so an empty path intentionally selects
         # recategorize_expense's search/static-row-or-DB-only success path.
         return ''
+    if base == RECEIPT_ONLY_REPORT_PATH:
+        # Synthetic too, but its own code path keys off this exact constant.
+        return base
     return report_path
 
 
@@ -2975,12 +3190,14 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
     confidence = fr.get('confidence') or 0.0
     identified = mazda_facade_identified(fr)
     supporting_document_contract = (
-        'SUPPORTING-DOCUMENT STORAGE CONTRACT — one expense can retain three '
+        'SUPPORTING-DOCUMENT STORAGE CONTRACT — one expense can retain four '
         'independent references. Receipt → receipt_url; statement/source document '
-        '→ document_url; Mom’s ledger → moms_ledger. Never write a statement path '
+        'downloaded from the bank → document_url; statement scanned from paper '
+        '→ scanned_statement_url; Mom’s ledger → moms_ledger. A scanned statement '
+        'is derived evidence and MUST NEVER be stored in document_url. Never write a statement path '
         'into receipt_url or a receipt path into document_url. Attach the newly '
         'processed document to the existing matched expense whenever possible and '
-        'preserve the other two document fields. An identical existing reference '
+        'preserve the other three document fields. An identical existing reference '
         'is an idempotent success (`already_attached`). A different non-empty value '
         'in the same field is a same-type conflict: preserve the original, require '
         'human verification (`NEEDS_DOCUMENT_VERIFICATION`), and never create a '
@@ -2990,8 +3207,9 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         'preserved-field evidence in trace problems/results and the dashboard callback. '
         'Every available evidence type must be independently viewable from the Set '
         'Category dialog: receipt_url → View Receipt, document_url → View Source '
-        'Document, and moms_ledger → View Mom’s Ledger. For every new or matched '
-        'statement expense, document_url must contain the statement reference; the '
+        'Document, scanned_statement_url → View Scanned Statement, and moms_ledger '
+        '→ View Mom’s Ledger. For every new or matched scanned-statement expense, '
+        'scanned_statement_url must contain the archived scan reference; the '
         'dashboard report-directory fallback is only for repairing legacy rows and is '
         'not acceptable evidence for a new intake.\n\n'
     )
@@ -3298,9 +3516,28 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"1970-01-01" if no date was extracted>, '
         f'amount=<decimal string from the validated parse artifact>, '
         f'description=<merchant>)\n'
-        f'  If duplicate → skip only STEP 4 storage. Still run STEP 3 categorization, '
-        f'record_trace, judge_trace, and the STEP 8 callback; duplicate detection is '
-        f'never permission to stop the run early. Keep the returned '
+        f'  A PROBABLE duplicate counts too. When check_duplicates returns '
+        f'fuzzy_duplicate_id_light (same date and amount, but the vendor keys do not '
+        f'match), you MUST investigate it before storing instead of treating '
+        f'"not exact" as "not a duplicate". The common case is an existing row named '
+        f'only by a payment instrument — "Check 11040" — which names no payee at all, '
+        f'so there is no vendor evidence against the match and date+amount is the only '
+        f'identity either row has. Read the existing expense and decide: if it is the '
+        f'same real-world payment, treat it exactly like an exact duplicate (skip '
+        f'STEP 4 storage) and report fuzzy_duplicate_expense_id in STEP 8 '
+        f'duplicate_expense_ids. If it is genuinely a different payment, store and say '
+        f'in the STEP 5 evidence problems why you ruled it out. On 2026-07-29 a $24.20 '
+        f'contribution was stored a second time because a "Check 11040" row with the '
+        f'same date and amount was dismissed as unrelated.\n'
+        f'  If duplicate → STILL run STEP 4 exactly once, without '
+        f'--allow-duplicate. STEP 4 is also the receipt-filing/attachment step: it '
+        f'must rename the scan, archive it under readable_documents/receipts/'
+        f'{{year}}/{{month}}/{{month}}_{{day}}, and attach or upgrade receipt_url on '
+        f'the matched expense without inserting a second expense. A duplicate result '
+        f'or linked_counterpart=true is success; a same-type durable conflict requires '
+        f'verification. Still run STEP 3 categorization, record_trace, judge_trace, '
+        f'and the STEP 8 callback; duplicate detection is never permission to stop '
+        f'the run early. Keep the returned '
         f'exact_duplicate_expense_id — STEP 8 must report it in duplicate_expense_ids, '
         f'or the dashboard has no row to show and the Recent Report page comes up '
         f'empty for this scan.\n\n'
@@ -3344,6 +3581,8 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'  → {{"success": true, "expense_id": <int>, "pending_vendor_review": <true when '
         f'--category-id was omitted/invalid>, "parse_artifact_verified": '
         f'<true for the STEP 0 artifact path>, '
+        f'"receipt_archive_path": "<canonical filed image>", '
+        f'"archive_paths": ["<canonical filed image>"], '
         f'"parsed_amount": <the exact STEP 0 amount>, "expense_scope": '
         f'"full_receipt"|"marked_items", ...}} OR a duplicate result. '
         + receipt_store_contract +
@@ -3370,7 +3609,10 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'what actually happened — the judge reads these fields:\n'
         f'  {{"document_path": "{scan_image_path}", "doc_kind": "receipt"|"invoice"|"statement"|"unknown", '
         f'"classification_confidence": <0-1>, "vendor_key": "<resolved or null>", '
-        f'"vendor_key_recognized": <true|false>, "category_id": <int or null>, '
+        f'"vendor_key_recognized": <true|false>, '
+        f'"merchant": "<the payee EXACTLY as printed on the document, from STEP 0 '
+        f'classification - NOT the normalized vendor_key>", '
+        f'"category_id": <int or null>, '
         f'"duplicate_checked": <true|false>, "is_duplicate": <true|false>, '
         f'"stored": <true|false>, "expense_id": <int or null>, '
         f'"itemization_attempted": <true|false>, "itemized": <true|false>, '
@@ -3425,9 +3667,18 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'exact_duplicate_expense_id (and any fuzzy match id) returned by STEP 2b '
         f'check_duplicates — this field is NOT statement-only. [] only when nothing '
         f'was a duplicate>],'
+        f'"scanned_statement_attached":[<EVERY existing expense id whose '
+        f'scanned_statement_url was attached this run>],'
+        f'"scanned_statement_path":"<permanent scanned_statements archive path, '
+        f'or empty for non-statement scans>",'
+        f'"outcome":"<EVIDENCE_ATTACHED when a scan only fortified existing rows, '
+        f'otherwise omit>",'
+        f'"rolled_back_row_count":<rows discarded by rollback; normally 0>,'
         f'"parsed":<transactions parsed>,"stored":<transactions stored>,'
         f'"deposits_stored":<deposits stored to the transactions ledger this run; '
         f'0 when none>,'
+        f'"archive_paths":[<all permanent receipt or statement copies returned by '
+        f'the store command>],"archive_years":[<their years>],'
         f'"expense_date":"<YYYY-MM-DD>",'
         f'"amount":"<decimal string>","vendor_key":"<vendor_key>",'
         f'"description":"<merchant_name>","receipt_url":"<scan_image_path>",'
@@ -4475,6 +4726,8 @@ def record_stored_expense(data):
         'stored': data.get('stored'),
         'doc_kind': data.get('doc_kind') or data.get('doc_type') or '',
         'vendor': data.get('vendor') or data.get('merchant') or '',
+        'archive_paths': data.get('archive_paths') or [],
+        'archive_years': data.get('archive_years') or [],
         # Preserve exact dispatch identity.  Reusable scanner filenames are
         # insufficient routing keys when an older conversation reports late.
         'conversation_id': data.get('conversation_id', ''),
@@ -4653,22 +4906,30 @@ def _select_matching_expense(rows, vendor_key, description):
 
 def _matching_expense(cur, date_str, amount_str, vendor_key, description,
                       expense_id=None):
-    """Return the expense matching a report row using the recategorization rules."""
+    """Return the expense matching a report row using the recategorization rules.
+
+    Direct expense_id lookups must return that exact row, including LINE_ITEM
+    children. Date/amount lookups intentionally remain parent-biased so report-row
+    recategorization does not ambiguously land on an itemized sibling.
+    """
     if expense_id not in (None, ''):
         try:
             eid = int(expense_id)
         except (TypeError, ValueError):
             return None
         cur.execute(
-            "SELECT id, id_light, description, receipt_url, document_url, moms_ledger, "
-            "notes, expense_date, amount "
+            "SELECT id, id_light, description, receipt_url, document_url, "
+            "scanned_statement_url, moms_ledger, "
+            "notes, expense_date, amount, expense_role, parent_expense_id "
             "FROM expenses WHERE id=%s",
             (eid,),
         )
-        return _select_matching_expense(cur.fetchall(), vendor_key, description)
+        rows = cur.fetchall()
+        return rows[0] if rows else None
     cur.execute(
-        "SELECT id, id_light, description, receipt_url, document_url, moms_ledger, "
-        "notes, expense_date, amount "
+        "SELECT id, id_light, description, receipt_url, document_url, "
+        "scanned_statement_url, moms_ledger, "
+        "notes, expense_date, amount, expense_role, parent_expense_id "
         "FROM expenses WHERE expense_date=%s AND amount=%s "
         "AND expense_role <> 'LINE_ITEM'",
         (date_str, amount_str),
@@ -4747,21 +5008,34 @@ def _usable_document_reference(value):
     return True
 
 
+def _supporting_document_roots():
+    """Directories a stored document reference is allowed to resolve inside."""
+    return [
+        os.path.abspath(os.path.expanduser('~/rol_finances/readable_documents')),
+        os.path.abspath(os.path.expanduser(
+            '~/rol_finances/tools/receipt_scanning_tools/incoming_scans')),
+    ]
+
+
 def _resolve_local_supporting_document(reference, document_type):
     if not _usable_document_reference(reference):
         return None
     if document_type == 'receipt':
-        return _resolve_receipt_url_path(reference)
+        resolved = _resolve_receipt_url_path(reference)
+        if resolved:
+            return resolved
+        # A scan attached to an *existing* row (the receipt turned out to
+        # duplicate a statement line already in the DB) keeps the intake
+        # staging path it was scanned to — it was never filed into the
+        # receipts tree, so the receipt index cannot see it. Fall through to
+        # the generic allowed-roots resolution rather than dropping the
+        # View Receipt button for a receipt that is plainly on disk.
     raw = unquote(str(reference).split('#', 1)[0].strip())
     candidates = [raw] if os.path.isabs(raw) else [
         os.path.join(os.path.expanduser('~/rol_finances'), raw),
         os.path.join(READABLE_DOCS_BASE, raw),
     ]
-    allowed_roots = [
-        os.path.abspath(os.path.expanduser('~/rol_finances/readable_documents')),
-        os.path.abspath(os.path.expanduser(
-            '~/rol_finances/tools/receipt_scanning_tools/incoming_scans')),
-    ]
+    allowed_roots = _supporting_document_roots()
     for candidate in candidates:
         candidate = os.path.abspath(candidate)
         if any(os.path.commonpath([candidate, root]) == root for root in allowed_roots):
@@ -4778,17 +5052,97 @@ def _viewable_supporting_document(reference, resolved_path=None):
     return os.path.splitext(candidate)[1].lower() in _VIEWABLE_DOCUMENT_EXTENSIONS
 
 
+def _intake_source_document(intake):
+    """The scan image an intake dispatch was built from, or ''.
+
+    Only the immutable staged path recorded with the intake counts. The
+    scanner's own output file (`scan_freezer.jpg`) is reused by every later
+    scan, so falling back to it would offer a *different* document under the
+    label "View Source Document".
+    """
+    path = str((intake or {}).get('image_path') or '').strip()
+    if path and _resolve_local_supporting_document(path, 'source'):
+        return path
+    return ''
+
+
+def _intake_scan_is_a_source_document(intake):
+    """Whether this intake's scan image is a *separate* source document from
+    its receipt — e.g. a scanned multi-transaction bank/credit-card statement.
+
+    A receipt or invoice scan has no separate downloaded source: the scan IS
+    the receipt, already offered via "View Receipt", so offering it again as
+    "View Source Document" is misleading (same image, redundant button). Only
+    statement-type scans — which cover many transactions distinct from any
+    one row's own receipt — should populate that button from the scan image.
+    """
+    doc_kind = str((intake or {}).get('doc_kind') or '').strip().lower()
+    return doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}
+
+
+def _report_source_document_reference(report_path):
+    """The document the report page holding this row was built from.
+
+    Month reports live next to their statement file, which `_source_document_path`
+    finds by scanning the report directory. Scanner reports and Recent Report in
+    intake mode are synthetic DB-backed pages with **no** report.html — their
+    source document is the scan image named by the intake pointer, so resolve it
+    from there instead of from the URL, but only when that scan is actually a
+    statement (see `_intake_scan_is_a_source_document`) — a plain receipt/invoice
+    scan has no separate source document to offer.
+    """
+    base, _, query = unquote(str(report_path or '')).partition('?')
+    if base == SCANNER_REPORT_PATH:
+        scanner_key = (parse_qs(query).get('scanner', [''])[0] or '').strip().lower()
+        intake = get_scanner_intake(scanner_key) or {}
+        if not _intake_scan_is_a_source_document(intake):
+            return ''
+        return _intake_source_document(intake)
+    if base == RECENT_REPORT_PATH:
+        recent = resolve_recent_report() or {}
+        if recent.get('mode') == 'intake':
+            intake = recent.get('intake') or {}
+            if not _intake_scan_is_a_source_document(intake):
+                return ''
+            return _intake_source_document(intake)
+        return _source_document_path(recent.get('url') or '')
+    return _source_document_path(report_path)
+
+
+def _source_document_reference(chosen, report_path=''):
+    """The source-document reference to offer for one expense row.
+
+    The stored `document_url` wins, but only while it still resolves. A scan
+    image that disappears after storage (2026-07-29: a concurrent agent's
+    `git add -A` swept two in-flight scans off disk) otherwise left the dialog
+    with no View Source Document button at all, even on a scanner report that
+    knows exactly which image it came from.
+    """
+    chosen = chosen or {}
+    reference = chosen.get('document_url') or ''
+    reference = str(reference).strip()
+    receipt_reference = str(chosen.get('receipt_url') or '').strip()
+    if should_suppress_source_document(
+            reference,
+            receipt_reference,
+            resolve_local_path=lambda ref: _resolve_local_supporting_document(
+                ref, 'source'
+            ) or _resolve_local_supporting_document(ref, 'receipt')):
+        return ''
+    if _usable_document_reference(reference) and (
+            urlparse(reference).scheme in {'http', 'https'}
+            or _resolve_local_supporting_document(reference, 'source')):
+        return reference
+    return _report_source_document_reference(report_path) or reference
+
+
 def _supporting_document_descriptors(chosen, report_path=''):
-    definitions = (
-        ('receipt', 'View Receipt', 'receipt_url'),
-        ('source', 'View Source Document', 'document_url'),
-        ('moms_ledger', 'View Mom’s Ledger', 'moms_ledger'),
-    )
     descriptors = []
-    for kind, label, field in definitions:
-        reference = (chosen.get(field) or '').strip()
-        if kind == 'source' and not _usable_document_reference(reference):
-            reference = _source_document_path(report_path)
+    for slot in SUPPORTING_DOCUMENT_CATALOG.slots():
+        kind, label, field = slot.kind, slot.label, slot.expense_field
+        reference = normalize_supporting_document_reference(chosen.get(field))
+        if kind == 'source':
+            reference = _source_document_reference(chosen, report_path)
         local_path = _resolve_local_supporting_document(reference, kind)
         remote_url = urlparse(reference).scheme in {'http', 'https'}
         descriptors.append({
@@ -4818,6 +5172,7 @@ def lookup_supporting_documents(date_str, signed_amount, vendor_key,
         'expense_id': chosen['id'],
         'receipt_url': chosen.get('receipt_url'),
         'document_url': chosen.get('document_url'),
+        'scanned_statement_url': chosen.get('scanned_statement_url'),
         'moms_ledger': chosen.get('moms_ledger'),
         'notes': chosen.get('notes') or '',
         'documents': _supporting_document_descriptors(chosen, report_path),
@@ -4826,14 +5181,10 @@ def lookup_supporting_documents(date_str, signed_amount, vendor_key,
 
 def open_supporting_document(date_str, signed_amount, vendor_key, document_type,
                              description='', expense_id=None, report_path=''):
-    field_by_type = {
-        'receipt': 'receipt_url',
-        'source': 'document_url',
-        'moms_ledger': 'moms_ledger',
-    }
-    field = field_by_type.get(document_type)
-    if not field:
+    slot = SUPPORTING_DOCUMENT_CATALOG.slot_for_kind(document_type)
+    if not slot:
         return {'ok': False, 'error': 'Unknown supporting-document type.'}
+    field = slot.expense_field
     try:
         chosen = _lookup_expense_row(
             date_str, signed_amount, vendor_key, description, expense_id)
@@ -4841,12 +5192,12 @@ def open_supporting_document(date_str, signed_amount, vendor_key, document_type,
         return {'ok': False, 'error': f'DB error: {exc}'}
     reference = (chosen.get(field) or '').strip() if chosen else ''
     source_from_report = False
-    if (document_type == 'source'
-            and not _usable_document_reference(reference)):
-        reference = _source_document_path(report_path)
-        source_from_report = bool(reference)
+    if document_type == 'source':
+        stored_reference = reference
+        reference = _source_document_reference(chosen, report_path)
+        source_from_report = bool(reference) and reference != stored_reference
     if not _usable_document_reference(reference):
-        return {'ok': False, 'error': f'{field_by_type and document_type} document is not on file.'}
+        return {'ok': False, 'error': f'{document_type} document is not on file.'}
     parsed = urlparse(reference)
     if parsed.scheme in {'http', 'https'}:
         if not _viewable_supporting_document(reference):
@@ -4896,14 +5247,10 @@ def open_supporting_document(date_str, signed_amount, vendor_key, document_type,
 def _supporting_document_path_for_expense(
         expense_id, document_type, report_path=''):
     """Resolve a stable expense-scoped viewer URL to its current local file."""
-    field_by_type = {
-        'receipt': 'receipt_url',
-        'source': 'document_url',
-        'moms_ledger': 'moms_ledger',
-    }
-    field = field_by_type.get(document_type)
-    if not field:
+    slot = SUPPORTING_DOCUMENT_CATALOG.slot_for_kind(document_type)
+    if not slot:
         return None
+    field = slot.expense_field
     try:
         chosen = _lookup_expense_row(
             '', '', '', '', expense_id=int(expense_id))
@@ -4916,9 +5263,8 @@ def _supporting_document_path_for_expense(
         )
         return None
     reference = (chosen.get(field) or '').strip() if chosen else ''
-    if (document_type == 'source'
-            and not _usable_document_reference(reference)):
-        reference = _source_document_path(report_path)
+    if document_type == 'source':
+        reference = _source_document_reference(chosen, report_path)
     if not _usable_document_reference(reference):
         return None
     path = _resolve_local_supporting_document(reference, document_type)
@@ -5162,6 +5508,42 @@ def receipts_present(rows):
                     pass
             ru = (chosen.get('receipt_url') or '').strip() if chosen else ''
             present = bool(_resolve_expense_receipt_path(resolve_date, amt, ru))
+        out.append(present)
+    return {'ok': True, 'present': out}
+
+
+def scanned_statements_present(rows):
+    """Same shape/contract as receipts_present, for the SCANNED_STATEMENT slot.
+
+    Drives a row marker distinct from the receipt corner: a row backed by a
+    scan of a printed statement EG has physically reviewed, independent of
+    whether it also has a receipt or the bank's own downloaded source."""
+    expense_map = {}
+    try:
+        with _rol_get_connection() as cnx:
+            with cnx.cursor() as cur:
+                cur.execute(
+                    "SELECT id, expense_date, amount, id_light, description, "
+                    "scanned_statement_url FROM expenses"
+                )
+                for r in cur.fetchall():
+                    key = (str(r['expense_date']), str(r['amount']))
+                    expense_map.setdefault(key, []).append(r)
+    except Exception:
+        expense_map = {}
+    out = []
+    for row in rows or []:
+        amt = _norm_amount(row.get('signed_amount'))
+        date_str = (row.get('date') or '').strip()
+        present = False
+        if amt is not None:
+            vk = row.get('vendor_key', '')
+            desc = row.get('description', '')
+            chosen = _select_matching_expense(
+                expense_map.get((date_str, amt), []), vk, desc)
+            ref = (chosen.get('scanned_statement_url') or '').strip() if chosen else ''
+            present = bool(
+                ref and _resolve_local_supporting_document(ref, 'scanned_statement'))
         out.append(present)
     return {'ok': True, 'present': out}
 
@@ -5566,16 +5948,22 @@ def build_receipt_only_report_html(month_key=None):
 # Letta API base URL — override with LETTA_BASE_URL env var
 LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rstrip('/')
 
-# Model handles selectable per-agent from Input Options. These are the ONLY
-# handles the chatgpt-plus-pro (Codex OAuth) provider accepts — verified
-# 2026-07-08 by probing chatgpt.com/backend-api/codex/responses directly:
-# every other handle (gpt-5.3, gpt-5.2, all *-codex variants) returns
-# "model is not supported when using Codex with a ChatGPT account".
+# Model handles selectable per-agent from Input Options. Keep this curated list
+# aligned with the ChatGPT OAuth catalog advertised by the live Letta server.
 AGENT_MODEL_OPTIONS = [
+    'chatgpt-plus-pro/gpt-5.6-sol',
+    'chatgpt-plus-pro/gpt-5.6-terra',
+    'chatgpt-plus-pro/gpt-5.6-luna',
     'chatgpt-plus-pro/gpt-5.5',
     'chatgpt-plus-pro/gpt-5.4',
     'chatgpt-plus-pro/gpt-5.4-mini',
 ]
+
+_LETTA_GATEWAY: ILettaGateway = UrllibLettaGateway(LETTA_BASE_URL)
+_AGENT_MODEL_OPTIONS_SERVICE = AgentModelOptionsService(
+    _LETTA_GATEWAY,
+    AGENT_MODEL_OPTIONS,
+)
 
 AGENT_VOICE_OPTIONS = [
     'en-GB-SoniaNeural',
@@ -5598,13 +5986,13 @@ AGENT_VOICE_OPTIONS = [
 AGENT_VOICE_METADATA_KEY = 'dashboard_voice'
 
 def agent_model_options(current_handle):
-    """Dropdown options for an agent: the vetted Codex handles, plus the
-    agent's own handle at the top when it's on another provider (lc-gemini,
-    etc.) so the dropdown never lies about the current state."""
-    options = list(AGENT_MODEL_OPTIONS)
-    if current_handle and current_handle not in options:
-        options.insert(0, current_handle)
-    return options
+    """Compatibility shim for callers that still consume a plain list."""
+    return list(select_model_options(current_handle, tuple(AGENT_MODEL_OPTIONS)))
+
+def agent_model_payload(letta_id, service=None):
+    """Compatibility shim while model reads move behind ILettaGateway."""
+    model_service = service or _AGENT_MODEL_OPTIONS_SERVICE
+    return model_service.get_options(letta_id).to_http()
 
 def agent_voice_from_metadata(agent_data):
     """Return a valid dashboard voice stored on the Letta agent, or ''."""
@@ -5871,58 +6259,22 @@ EDGE_TTS_VOICE = os.environ.get('EDGE_TTS_VOICE', 'en-GB-SoniaNeural')
 EDGE_TTS_TIMEOUT_SEC = int(os.environ.get('EDGE_TTS_TIMEOUT_SEC', 30))
 TTS_MAX_TEXT_LEN = 4000
 TTS_CACHE_DIR = os.environ.get('TTS_CACHE_DIR', '/tmp/dashboard_tts_cache')
-_VOICE_NAME_RE = re.compile(r'^[A-Za-z]{2}-[A-Za-z]{2,}-[A-Za-z0-9]+$')
-
 
 def tts_cache_path(text, voice):
-    """Deterministic cache file for a (voice, text) pair (pure)."""
-    key = hashlib.sha256(f'{voice}\x00{text}'.encode('utf-8')).hexdigest()
-    return os.path.join(TTS_CACHE_DIR, f'{voice}_{key[:32]}.mp3')
+    """Compatibility export for the extracted voice synthesis service."""
+    return synthesis_cache_path(TTS_CACHE_DIR, text, voice)
 
 
 def synthesize_speech(text, voice=None, runner=subprocess.run):
-    """Text → MP3 file via edge-tts; returns {ok, path, cached} or {ok:False, error}.
-
-    `runner` is injected so tests never hit the network. Results are cached by
-    (voice, text) hash — repeated phrases (agent names, short acks) are served
-    from disk instantly.
-    """
-    text = (text or '').strip()
-    if not text:
-        return {'ok': False, 'error': 'empty text'}
-    if len(text) > TTS_MAX_TEXT_LEN:
-        text = text[:TTS_MAX_TEXT_LEN]
-    voice = voice or EDGE_TTS_VOICE
-    if not _VOICE_NAME_RE.match(voice):
-        return {'ok': False, 'error': f'invalid voice name: {voice!r}'}
-
-    path = tts_cache_path(text, voice)
-    if os.path.exists(path) and os.path.getsize(path) > 0:
-        return {'ok': True, 'path': path, 'cached': True}
-
-    if not os.path.exists(EDGE_TTS_BIN):
-        return {'ok': False, 'error': f'edge-tts binary not found: {EDGE_TTS_BIN}'}
-    os.makedirs(TTS_CACHE_DIR, exist_ok=True)
-    tmp_path = f'{path}.tmp{os.getpid()}'
-    try:
-        proc = runner(
-            [EDGE_TTS_BIN, '--voice', voice, '--text', text,
-             '--write-media', tmp_path],
-            capture_output=True, text=True, timeout=EDGE_TTS_TIMEOUT_SEC)
-    except subprocess.TimeoutExpired:
-        return {'ok': False, 'error': f'edge-tts timed out after {EDGE_TTS_TIMEOUT_SEC}s'}
-    except Exception as exc:
-        return {'ok': False, 'error': f'edge-tts failed to run: {exc}'}
-    if proc.returncode != 0 or not os.path.exists(tmp_path) \
-            or os.path.getsize(tmp_path) == 0:
-        err = (proc.stderr or '').strip() or f'exit {proc.returncode}'
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-        return {'ok': False, 'error': f'edge-tts failed: {err[:300]}'}
-    os.replace(tmp_path, path)  # atomic — concurrent requests can't collide
-    return {'ok': True, 'path': path, 'cached': False}
+    """Compatibility adapter for the extracted server-rewrite voice service."""
+    return EdgeTtsSynthesizer(
+        binary_path=EDGE_TTS_BIN,
+        default_voice=EDGE_TTS_VOICE,
+        cache_dir=TTS_CACHE_DIR,
+        timeout_sec=EDGE_TTS_TIMEOUT_SEC,
+        max_text_len=TTS_MAX_TEXT_LEN,
+        runner=runner,
+    ).synthesize(text, voice)
 
 # Port this dashboard is served on (also used for the dashboard self-health check).
 PORT = int(os.environ.get('PORT', 8765))
@@ -6808,7 +7160,11 @@ def get_letta_id(agent_cfg):
         return agent_cfg['id']
     return _resolve_letta_id(agent_cfg['name'])
 
-def letta_messages(agent_id, limit=200):
+def letta_messages(
+    agent_id: str,
+    limit: int = 200,
+    gateway: ILettaGateway | None = None,
+) -> list[dict[str, object]]:
     """Fetch all message types for an agent from the Letta API.
 
     Backs the Messages/Thoughts/Tool Calls tabs. Uses a longer-than-default
@@ -6819,10 +7175,15 @@ def letta_messages(agent_id, limit=200):
     even though the agent had messages. 25s keeps this under the browser's
     30s fetch abort while giving the slow relay path room to finish.
     """
-    data = letta_get(f'/v1/agents/{agent_id}/messages?limit={limit}', timeout=25)
-    if not data:
-        return []
-    return data if isinstance(data, list) else data.get('messages', data.get('results', []))
+    message_gateway = gateway or _LETTA_GATEWAY
+    return [
+        message.to_legacy()
+        for message in message_gateway.get_agent_messages(
+            agent_id,
+            limit=limit,
+            timeout=25,
+        )
+    ]
 
 def _msg_date(m):
     """Return the best available timestamp string for a Letta message."""
@@ -9455,11 +9816,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             lid = letta_id_for(agent_id)
             if not lid:
                 return self.json_response({'ok': False, 'error': 'not a Letta agent', 'options': []})
-            data = letta_get(f'/v1/agents/{lid}', timeout=15) or {}
-            llm = data.get('llm_config') or {}
-            handle = llm.get('handle') or llm.get('model') or ''
-            return self.json_response({'ok': True, 'current': handle,
-                                        'options': agent_model_options(handle)})
+            return self.json_response(agent_model_payload(lid))
 
         if path == '/api/router-agent':
             from router.classify import build_router_strategy
@@ -9903,8 +10260,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _supporting_document_view_for_expense(
                     parts[0],
                     parts[1],
-                    _resolve_report_path_alias(
-                        query.get('report_path', [''])[0]),
+                    # raw — see /api/supporting-documents
+                    query.get('report_path', [''])[0],
                 )
                 if len(parts) == 2
                 else None
@@ -10289,7 +10646,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('signed_amount', ''),
                 data.get('vendor_key', ''),
                 data.get('description', ''),
-                _resolve_report_path_alias(data.get('report_path', '')),
+                # Raw, NOT alias-resolved: the alias collapses a scanner /
+                # intake-mode page to '' (correct for row recolor, which has no
+                # file to rewrite), and that erased the only clue to which
+                # scanned document the row's page was built from.
+                data.get('report_path', ''),
                 data.get('expense_id'),
             ))
 
@@ -10305,7 +10666,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('document_type', ''),
                 data.get('description', ''),
                 data.get('expense_id'),
-                _resolve_report_path_alias(data.get('report_path', '')),
+                data.get('report_path', ''),  # raw — see /api/supporting-documents
             ))
 
         if path == '/api/receipts-present':
@@ -10314,6 +10675,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(receipts_present(data.get('rows', [])))
+
+        if path == '/api/scanned-statements-present':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(
+                scanned_statements_present(data.get('rows', [])))
 
         if path == '/api/save-expense-notes':
             try:
