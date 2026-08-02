@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dashboard Server Rewrite</title>
+<style>
+  :root {
+    --bg: #eef2f6;
+    --paper: #ffffff;
+    --ink: #18212f;
+    --muted: #586576;
+    --rule: #d9e1ea;
+    --navy: #12355b;
+    --blue: #1769aa;
+    --blue-soft: #e6f1fa;
+    --green: #177245;
+    --green-soft: #e5f5ec;
+    --amber: #996515;
+    --amber-soft: #fff4d6;
+    --red: #a33a3a;
+    --code: #132235;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      linear-gradient(120deg, rgba(23, 105, 170, .08), transparent 34rem),
+      var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  }
+  .page { max-width: 1240px; margin: 0 auto; padding: 26px 22px 72px; }
+  .hero, .card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 15px;
+    box-shadow: 0 8px 26px rgba(18, 53, 91, .06);
+  }
+  .hero {
+    position: relative;
+    overflow: hidden;
+    padding: 34px 38px;
+  }
+  .hero::after {
+    content: "";
+    position: absolute;
+    width: 190px;
+    height: 190px;
+    right: -62px;
+    top: -74px;
+    border: 28px solid var(--blue-soft);
+    border-radius: 50%;
+  }
+  .kicker {
+    margin: 0 0 8px;
+    color: var(--blue);
+    font-size: .76rem;
+    font-weight: 800;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+  }
+  h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.05; }
+  .lede {
+    max-width: 850px;
+    margin: 14px 0 0;
+    color: var(--muted);
+    font-size: 1.06rem;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    margin-top: 20px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: var(--blue-soft);
+    color: var(--navy);
+    font-size: .8rem;
+    font-weight: 700;
+  }
+  .card { margin-top: 18px; padding: 25px 29px; }
+  h2 {
+    margin: 0 0 14px;
+    color: var(--navy);
+    font-size: 1.38rem;
+  }
+  h3 { margin: 24px 0 9px; color: var(--navy); font-size: 1.05rem; }
+  p { margin: 9px 0; }
+  code {
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--blue-soft);
+    color: var(--navy);
+    font: .86em "SFMono-Regular", Consolas, monospace;
+  }
+  pre {
+    overflow-x: auto;
+    margin: 14px 0;
+    padding: 16px 18px;
+    border-radius: 10px;
+    background: var(--code);
+    color: #dbe9f7;
+    font: .84rem/1.55 "SFMono-Regular", Consolas, monospace;
+  }
+  pre code { padding: 0; background: none; color: inherit; }
+  a { color: var(--blue); }
+  ul, ol { margin: 9px 0; padding-left: 23px; }
+  li { margin: 5px 0; }
+  .progress-grid {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 25px;
+    align-items: center;
+  }
+  .progress-number {
+    font-size: 2.2rem;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--navy);
+  }
+  .progress-label { margin-top: 7px; color: var(--muted); font-size: .84rem; }
+  .track {
+    height: 16px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e4e9ef;
+  }
+  .bar {
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--green), #35a66e);
+    transition: width .25s ease;
+  }
+  .baseline {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .metric {
+    padding: 12px 14px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: #f8fafc;
+  }
+  .metric strong { display: block; color: var(--navy); font-size: 1.18rem; }
+  .metric span { color: var(--muted); font-size: .78rem; }
+  .callout {
+    margin: 14px 0;
+    padding: 13px 16px;
+    border-left: 4px solid var(--blue);
+    border-radius: 7px;
+    background: var(--blue-soft);
+  }
+  .callout.warn { border-color: var(--amber); background: var(--amber-soft); }
+  .callout.good { border-color: var(--green); background: var(--green-soft); }
+  .toc {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 8px;
+    padding: 0;
+    list-style: none;
+  }
+  .toc a {
+    display: block;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--blue-soft);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%;
+    min-width: 930px;
+    border-collapse: collapse;
+    font-size: .86rem;
+  }
+  th, td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--navy);
+    color: #fff;
+    font-size: .72rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  tbody tr:hover { background: #eef6fc; }
+  .phase td {
+    padding-top: 16px;
+    background: var(--blue-soft);
+    color: var(--navy);
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .todo {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #7b8795;
+    border-radius: 4px;
+    vertical-align: -3px;
+  }
+  .port { color: var(--navy); font-weight: 700; }
+  .object { color: var(--green); font-weight: 700; }
+  .already {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 10px;
+  }
+  .done-card {
+    padding: 12px 14px;
+    border: 1px solid #b8dfc8;
+    border-radius: 9px;
+    background: var(--green-soft);
+  }
+  .done-card strong { display: block; color: var(--green); }
+  .decision {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 7px 14px;
+    margin: 0;
+  }
+  .decision dt { color: var(--muted); font-weight: 700; }
+  .decision dd { margin: 0; }
+  footer { padding: 28px 4px 0; color: var(--muted); text-align: center; font-size: .8rem; }
+  @media (max-width: 720px) {
+    .page { padding: 12px 10px 50px; }
+    .hero, .card { padding: 21px 18px; border-radius: 10px; }
+    .progress-grid { grid-template-columns: 1fr; gap: 13px; }
+  }
+</style>
+</head>
+<body>
+<main class="page" data-plan="server-rewrite" data-baseline-total="55">
+  <header class="hero">
+    <p class="kicker">Dashboard Architecture &middot; Living Progress Plan</p>
+    <h1>Server Rewrite</h1>
+    <p class="lede">
+      Incrementally reduce <code>dashboard/server.py</code> to a composition root.
+      Every side effect crosses an injected Interface; every behavior lives in a
+      focused Object or pure function; every extraction is pinned by tests before it moves.
+    </p>
+    <div class="meta">
+      <span class="pill">Created 2026-07-29</span>
+      <span class="pill">Owner: dashboard teams</span>
+      <span class="pill">Method: strangler refactor</span>
+      <span class="pill">No route-contract changes</span>
+    </div>
+  </header>
+
+  <section class="card" id="progress">
+    <h2>Progress</h2>
+    <div class="progress-grid">
+      <div>
+        <div class="progress-number"><span id="completed-count">0</span> / <span id="total-count">55</span></div>
+        <div class="progress-label">Interface/Object slices extracted</div>
+      </div>
+      <div>
+        <div class="track" role="progressbar" aria-label="Server rewrite progress" aria-valuemin="0" aria-valuemax="55" aria-valuenow="0">
+          <div class="bar" id="progress-bar"></div>
+        </div>
+        <div class="progress-label"><span id="remaining-count">55</span> active rows remain in this document.</div>
+      </div>
+    </div>
+    <div class="baseline">
+      <div class="metric"><strong>10,486</strong><span>server.py lines at baseline</span></div>
+      <div class="metric"><strong>269</strong><span>top-level functions</span></div>
+      <div class="metric"><strong>233</strong><span>top-level assignments</span></div>
+      <div class="metric"><strong>1,062</strong><span>DashboardHandler lines</span></div>
+      <div class="metric"><strong>5,625</strong><span>test_server.py lines</span></div>
+      <div class="metric"><strong>532 pass</strong><span>7 skip; 6 dependency failures</span></div>
+    </div>
+    <div class="callout warn">
+      <strong>First gate:</strong> make the baseline suite green. The six failures observed
+      on 2026-07-29 are missing PyMuPDF, Pillow, and openpyxl in the dashboard venv.
+      Refactoring does not begin until failures reliably mean regressions.
+    </div>
+  </section>
+
+  <nav class="card" aria-label="Server rewrite contents">
+    <h2>Contents</h2>
+    <ul class="toc">
+      <li><a href="#rules">Operating rules</a></li>
+      <li><a href="#typed-tdd">Typed contracts + TDD</a></li>
+      <li><a href="#target">Target architecture</a></li>
+      <li><a href="#ledger">Active extraction ledger</a></li>
+      <li><a href="#already-extracted">Established examples</a></li>
+      <li><a href="#workflow">One-slice workflow</a></li>
+      <li><a href="#decisions">Decision log</a></li>
+    </ul>
+  </nav>
+
+  <section class="card" id="rules">
+    <h2>Operating rules</h2>
+    <ol>
+      <li><strong>Program to the Interface.</strong> Domain services import ports, never concrete adapters.</li>
+      <li><strong>Wire once.</strong> Concrete construction belongs in <code>server.py</code> or a dedicated application factory.</li>
+      <li><strong>TDD is mandatory.</strong> No production Interface or Object is written before its failing test. Work proceeds Red &rarr; Green &rarr; Refactor.</li>
+      <li><strong>Characterize before moving.</strong> Characterization tests pin public output, errors, caching, locking, and failure behavior before legacy code moves.</li>
+      <li><strong>Types are executable contracts.</strong> Python boundaries use strict Pydantic models; new browser code uses strict TypeScript.</li>
+      <li><strong>Keep pure code simple.</strong> Pure transforms remain functions; do not create an Interface without a boundary.</li>
+      <li><strong>Side effects require ports.</strong> Network, process, filesystem, database, clock, logging, metrics, and notifications are injected.</li>
+      <li><strong>One slice per change.</strong> Interface, Object, adapter, tests, wiring, and compatibility shim travel together.</li>
+      <li><strong>No live dependencies in unit tests.</strong> Use small fakes that implement the same port contract.</li>
+      <li><strong>Preserve HTTP contracts.</strong> Status, headers, JSON shapes, timeouts, and route names stay stable unless separately approved.</li>
+      <li><strong>Delete completed detail.</strong> Once a row meets its exit test, remove it from this ledger. Git is the completion history.</li>
+    </ol>
+    <div class="callout good">
+      The plan intentionally gets shorter. Do not grow a permanent “Completed” table.
+      Update the baseline total only when a genuinely new boundary is discovered; otherwise
+      remove finished rows and let the progress calculation advance.
+    </div>
+  </section>
+
+  <section class="card" id="typed-tdd">
+    <h2>Strict typed contracts and test-first development</h2>
+    <div class="callout">
+      <strong>Non-negotiable:</strong> Pydantic v2 is mandatory for Python data
+      crossing an Interface, process, persistence, or HTTP boundary. All new frontend
+      code is TypeScript. The type checker and the tests are merge gates, not advisory tools.
+    </div>
+
+    <h3>Python contract policy</h3>
+    <p>
+      ABCs describe behavior; Pydantic models describe data. Commands, results, API
+      requests/responses, repository records, configuration, events, and adapter payloads
+      use named models derived from one strict base:
+    </p>
+<pre><code>from pydantic import BaseModel, ConfigDict
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(strict=True, extra=&quot;forbid&quot;, frozen=True)</code></pre>
+    <ul>
+      <li>No unvalidated <code>dict[str, Any]</code> may cross a port. Validate once at the outer adapter, then pass typed models inward.</li>
+      <li>No implicit coercion at a boundary: <code>&quot;1&quot;</code> is not accepted where an integer is required.</li>
+      <li>Unknown fields fail closed through <code>extra=&quot;forbid&quot;</code>; immutable DTOs prevent hidden mutation.</li>
+      <li>Discriminated unions model variant results such as up/down/starting or receipt/statement/unknown.</li>
+      <li>Every public function and method in a rewritten module has complete parameter and return annotations.</li>
+      <li><code>Any</code>, unparameterized containers, and blanket type ignores require a written decision-log exception.</li>
+    </ul>
+    <p>
+      Static checking runs with <code>pyright --project dashboard/pyrightconfig.json</code>,
+      where <code>typeCheckingMode = &quot;strict&quot;</code>. Runtime Pydantic validation
+      complements static checking; neither replaces the other.
+    </p>
+
+    <h3>TypeScript contract policy</h3>
+    <ul>
+      <li>All new frontend code is TypeScript (<code>.ts</code>), with <code>strict</code>, <code>noUncheckedIndexedAccess</code>, <code>exactOptionalPropertyTypes</code>, and <code>useUnknownInCatchVariables</code>.</li>
+      <li>Existing JavaScript may remain only as legacy. A touched module is migrated or placed under <code>// @ts-check</code> with complete JSDoc types until migration is practical.</li>
+      <li>No blind type assertions (<code>as Foo</code>) for HTTP JSON. A type guard or runtime schema validates unknown input first.</li>
+      <li>Discriminated unions replace stringly typed status objects and scattered property checks.</li>
+      <li><code>bunx tsc --noEmit -p dashboard/tsconfig.json</code> must pass before tests and deployment.</li>
+      <li>The TypeScript build emits browser JavaScript deterministically; generated output is never hand-edited.</li>
+    </ul>
+
+    <h3>TDD order for every ledger row</h3>
+    <ol>
+      <li><strong>RED:</strong> write the consumer behavior test and run it. Record the expected failure; import/contract absence counts as red for a new extraction.</li>
+      <li>Add Characterization tests around the legacy seam so the behavior being preserved is explicit.</li>
+      <li>Add Shared contract tests that every concrete adapter and fake must pass.</li>
+      <li>Add Negative validation tests proving malformed types, missing fields, extra fields, and invalid variants are rejected.</li>
+      <li><strong>GREEN:</strong> add only enough typed Interface/Object code to make the focused tests pass.</li>
+      <li><strong>REFACTOR:</strong> remove duplication and improve names while the tests and type checkers stay green.</li>
+      <li>Run the focused suite, complete Python suite, complete browser suite, static type checks, and coverage gate.</li>
+    </ol>
+
+    <h3>Required test layers</h3>
+    <div class="table-wrap">
+      <table aria-label="Required TDD test layers">
+        <thead><tr><th>Layer</th><th>Purpose</th><th>Required evidence</th></tr></thead>
+        <tbody>
+          <tr><td>Characterization tests</td><td>Freeze current route/service behavior before movement</td><td>Success, error, timeout, cache, and concurrency cases</td></tr>
+          <tr><td>Domain unit tests</td><td>Drive service behavior through fake ports</td><td>No network, filesystem, process, clock, or database access</td></tr>
+          <tr><td>Shared contract tests</td><td>Hold real adapters and fakes to one behavioral contract</td><td>Parameterized suite runs against every implementation</td></tr>
+          <tr><td>Negative validation tests</td><td>Prove strict Pydantic/runtime TypeScript validation</td><td>Wrong, missing, extra, and ambiguous data fails closed</td></tr>
+          <tr><td>Adapter integration tests</td><td>Verify serialization and external protocol mapping</td><td>Fixture servers/files/processes only; no production systems</td></tr>
+          <tr><td>Composition tests</td><td>Verify every port is wired once to a valid concrete</td><td>Application builds and all routes register without serving</td></tr>
+          <tr><td>HTTP/browser tests</td><td>Protect public routes, headers, JSON, navigation, and rendering</td><td>Black-box request and DOM assertions</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn">
+      New or extracted domain/application modules require <strong>100% branch coverage</strong>.
+      Coverage does not prove test quality: the test must also fail when the implemented behavior
+      is removed or inverted. Adapter exceptions must be narrow and recorded in the decision log.
+    </div>
+  </section>
+
+  <section class="card" id="target">
+    <h2>Target architecture</h2>
+<pre><code>dashboard/
+  server.py                 # construct adapters, start threads/server, compatibility exports
+  http/                     # route registry, controllers, HTTP/WebSocket adapters
+  agents/                   # Letta gateway, directory, messaging, agent health
+  server_management/        # health probes, logs, SSH, restart orchestration
+  model_usage/              # usage sources, history, provider health/failover
+  intake/                   # scanners, classification, staging, dispatch, Trainer
+  finance/                  # expense/receipt/report repositories and services
+  voice/                    # existing transcription/cleanup pipeline
+  tests/                    # mirrors the production domains above</code></pre>
+    <p>
+      The directory names are targets, not a mandate to move everything at once.
+      A slice may begin as one flat module when that keeps the change reviewable.
+    </p>
+    <h3>Definition of done for the rewrite</h3>
+    <ul>
+      <li><code>server.py</code> is startup and dependency wiring, ideally below 500 lines.</li>
+      <li><code>DashboardHandler</code> adapts HTTP to registered controllers and contains no business rules.</li>
+      <li>Every concrete external dependency can be replaced by a test fake through constructor injection.</li>
+      <li>All Python boundary data is strict Pydantic; all new frontend modules are strict TypeScript.</li>
+      <li>Pyright and TypeScript complete with zero errors and no unexplained suppressions.</li>
+      <li><code>test_server.py</code> contains only composition/compatibility tests; domain tests live beside their domains.</li>
+      <li>The complete Python and JavaScript dashboard suites pass without contacting live infrastructure.</li>
+    </ul>
+  </section>
+
+  <section class="card" id="ledger">
+    <h2>Active Interface/Object ledger</h2>
+    <p>
+      Each work row is one reviewable extraction. The checkbox is deliberately visual rather
+      than browser-persistent: completion is shared by deleting the row in source control,
+      not by storing private state in one browser.
+    </p>
+    <div class="table-wrap">
+      <table aria-label="Active Server Rewrite work">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Interface / Port</th>
+            <th>Object / Adapter</th>
+            <th>Current seam</th>
+            <th>Exit test</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="phase"><td colspan="5">0 &mdash; Test and composition foundation</td></tr>
+          <tr data-work-item data-port="ITestEnvironment" data-object="DashboardTestEnvironment" data-done-when="suite-green"><td><span class="todo"></span></td><td class="port">ITestEnvironment</td><td class="object">DashboardTestEnvironment</td><td>Venv capability setup and test isolation</td><td>Full suite is green or optional capabilities skip explicitly</td></tr>
+          <tr data-work-item data-port="PydanticContract" data-object="StrictModel"><td><span class="todo"></span></td><td class="port">Pydantic boundary contract</td><td class="object">StrictModel</td><td>Untyped dicts, tuples, and optional fields crossing seams</td><td>Strict/frozen/extra-forbid models cover every new boundary</td></tr>
+          <tr data-work-item data-port="IPayloadCodec" data-object="PydanticPayloadCodec"><td><span class="todo"></span></td><td class="port">IPayloadCodec</td><td class="object">PydanticPayloadCodec</td><td>Manual JSON decoding, coercion, and response shaping</td><td>Negative contract tests reject wrong and extra fields</td></tr>
+          <tr data-work-item data-port="ITypeCheckGate" data-object="PyrightAndTypeScriptGate"><td><span class="todo"></span></td><td class="port">ITypeCheckGate</td><td class="object">PyrightAndTypeScriptGate</td><td>Dashboard Python/JS currently outside strict project type gates</td><td>Strict Pyright and <code>tsc --noEmit</code> pass in one command</td></tr>
+          <tr data-work-item data-port="IContractTestSuite" data-object="SharedContractTestSuite"><td><span class="todo"></span></td><td class="port">IContractTestSuite</td><td class="object">SharedContractTestSuite</td><td>Adapter and fake behavior can drift independently</td><td>Every port implementation runs the same contract suite</td></tr>
+          <tr data-work-item data-port="IClock" data-object="SystemClock"><td><span class="todo"></span></td><td class="port">IClock</td><td class="object">SystemClock, FixedClock</td><td><code>time.time()</code>, <code>datetime.now()</code>, TTLs</td><td>Time-sensitive services run against FixedClock</td></tr>
+          <tr data-work-item data-port="ICommandRunner" data-object="SubprocessCommandRunner"><td><span class="todo"></span></td><td class="port">ICommandRunner</td><td class="object">SubprocessCommandRunner</td><td>Direct <code>subprocess.run/Popen</code></td><td>Services assert commands without spawning processes</td></tr>
+          <tr data-work-item data-port="IHttpTransport" data-object="UrllibHttpTransport"><td><span class="todo"></span></td><td class="port">IHttpTransport</td><td class="object">UrllibHttpTransport</td><td>Direct <code>urllib.request</code> calls</td><td>Timeout, HTTP error, and JSON contracts have adapter tests</td></tr>
+          <tr data-work-item data-port="IActivityRecorder" data-object="JsonActivityRecorder"><td><span class="todo"></span></td><td class="port">IActivityRecorder</td><td class="object">JsonActivityRecorder, NullActivityRecorder</td><td>JSON log helpers and cross-cutting events</td><td>No service imports a concrete log writer</td></tr>
+
+          <tr class="phase"><td colspan="5">1 &mdash; HTTP boundary</td></tr>
+          <tr data-work-item data-port="IRouteController" data-object="RouteRegistry"><td><span class="todo"></span></td><td class="port">IRouteController</td><td class="object">RouteRegistry</td><td><code>do_GET</code>/<code>do_POST</code> condition chains</td><td>Every API route is registered and duplicate routes fail startup</td></tr>
+          <tr data-work-item data-port="IRequestBodyReader" data-object="HttpRequestBodyReader"><td><span class="todo"></span></td><td class="port">IRequestBodyReader</td><td class="object">HttpRequestBodyReader</td><td>Body length, decoding, JSON parsing</td><td>Malformed/empty/oversized bodies have contract tests</td></tr>
+          <tr data-work-item data-port="IResponseWriter" data-object="DashboardResponseWriter"><td><span class="todo"></span></td><td class="port">IResponseWriter</td><td class="object">DashboardResponseWriter</td><td><code>json_response</code>, <code>error_response</code>, cache headers</td><td>Status, headers, and response shapes match characterization tests</td></tr>
+          <tr data-work-item data-port="IStaticAssetStore" data-object="LocalStaticAssetStore"><td><span class="todo"></span></td><td class="port">IStaticAssetStore</td><td class="object">LocalStaticAssetStore</td><td>HERE/REPO_ROOT file resolution and serving</td><td>Traversal, type, missing-file, and no-cache tests pass</td></tr>
+          <tr data-work-item data-port="ITerminalSession" data-object="PtyTerminalSession"><td><span class="todo"></span></td><td class="port">ITerminalSession</td><td class="object">PtyTerminalSession</td><td>PTY spawn, resize, reap, WebSocket bridge</td><td>Frame/session lifecycle tested without a real shell</td></tr>
+          <tr data-work-item data-port="IDashboardApplication" data-object="DashboardApplication"><td><span class="todo"></span></td><td class="port">IDashboardApplication</td><td class="object">DashboardApplication</td><td>Startup threads, caches, handler globals</td><td><code>server.py</code> only constructs and starts the application</td></tr>
+
+          <tr class="phase"><td colspan="5">2 &mdash; Letta agents</td></tr>
+          <tr data-work-item data-port="ILettaGateway" data-object="UrllibLettaGateway" data-progress="model-read,message-read"><td><span class="todo"></span></td><td class="port">ILettaGateway</td><td class="object">UrllibLettaGateway</td><td>Agents, thoughts, tool calls, and writes; model reads migrated behind <code>AgentModelOptionsService</code> on 2026-07-30 and raw message retrieval migrated on 2026-07-31</td><td>No agent service constructs a Letta URL; remaining callers keep this row active</td></tr>
+          <tr data-work-item data-port="IAgentDirectory" data-object="CachedAgentDirectory"><td><span class="todo"></span></td><td class="port">IAgentDirectory</td><td class="object">CachedAgentDirectory</td><td><code>LETTA_AGENTS</code>, discovery, cache refresh</td><td>Registry ordering and cache behavior are unit tested</td></tr>
+          <tr data-work-item data-port="IAgentMessageService" data-object="AgentMessageService"><td><span class="todo"></span></td><td class="port">IAgentMessageService</td><td class="object">AgentMessageService</td><td><code>/api/test</code> and message shaping</td><td>Reset/send/fallback behavior uses a fake gateway</td></tr>
+          <tr data-work-item data-port="IAgentHealthProbe" data-object="AgentHealthProbe"><td><span class="todo"></span></td><td class="port">IAgentHealthProbe</td><td class="object">AgentHealthProbe</td><td>Required tools, SDK endpoint, send errors</td><td>Health matrix is deterministic without live agents</td></tr>
+          <tr data-work-item data-port="IAgentPromptRunner" data-object="LettaCodePromptRunner"><td><span class="todo"></span></td><td class="port">IAgentPromptRunner</td><td class="object">LettaCodePromptRunner</td><td>Headless CLI command and prompt validation</td><td>Permission mode, timeout, and final-result tests stay pinned</td></tr>
+          <tr data-work-item data-port="IAgentSystemMessageRepository" data-object="FileAgentSystemMessageRepository"><td><span class="todo"></span></td><td class="port">IAgentSystemMessageRepository</td><td class="object">FileAgentSystemMessageRepository</td><td>Per-agent system message files</td><td>Missing and unsafe paths fail closed</td></tr>
+
+          <tr class="phase"><td colspan="5">3 &mdash; Server Management</td></tr>
+          <tr data-work-item data-port="IHealthProbe" data-object="HttpHealthProbe"><td><span class="todo"></span></td><td class="port">IHealthProbe</td><td class="object">HttpHealthProbe, TcpHealthProbe, CommandHealthProbe</td><td><code>HEALTH_CHECKS</code> and check variants</td><td>Adding a probe requires an adapter plus one registry entry</td></tr>
+          <tr data-work-item data-port="IServerRegistry" data-object="ServerRegistry"><td><span class="todo"></span></td><td class="port">IServerRegistry</td><td class="object">ServerRegistry</td><td><code>SERVERS</code> config and validation</td><td>Invalid dependencies/check names fail at construction</td></tr>
+          <tr data-work-item data-port="IServerHealthService" data-object="ServerHealthService"><td><span class="todo"></span></td><td class="port">IServerHealthService</td><td class="object">ServerHealthService</td><td>Status computation, dependency roll-up, cache</td><td>All green/yellow/red transitions have clock-controlled tests</td></tr>
+          <tr data-work-item data-port="IServerController" data-object="ServerController"><td><span class="todo"></span></td><td class="port">IServerController</td><td class="object">ServerController</td><td>Restart/start command dispatch</td><td>Unknown, blocked, starting, and success outcomes are tested</td></tr>
+          <tr data-work-item data-port="IServerLogSource" data-object="FileServerLogSource"><td><span class="todo"></span></td><td class="port">IServerLogSource</td><td class="object">FileServerLogSource, RemoteServerLogSource</td><td>Tailing, filters, remote Letta log pull</td><td>Sequence/filter behavior runs against fixtures</td></tr>
+          <tr data-work-item data-port="ISshGateway" data-object="OpenSshGateway"><td><span class="todo"></span></td><td class="port">ISshGateway</td><td class="object">OpenSshGateway</td><td>SSH health, Windows/WSL commands</td><td>No health/controller object assembles raw SSH commands</td></tr>
+          <tr data-work-item data-port="IAvailabilityTracker" data-object="AvailabilityTracker"><td><span class="todo"></span></td><td class="port">IAvailabilityTracker</td><td class="object">AvailabilityTracker</td><td>Starting windows and down duration globals</td><td>State transitions use injected clock and isolated state</td></tr>
+          <tr data-work-item data-port="IPcMetricsSource" data-object="SshPcMetricsSource"><td><span class="todo"></span></td><td class="port">IPcMetricsSource</td><td class="object">LocalPcMetricsSource, SshPcMetricsSource</td><td>PC monitor extraction, cache, rate calculation</td><td>Parsing is pure and collection uses fake sources</td></tr>
+
+          <tr class="phase"><td colspan="5">4 &mdash; Model usage and provider health</td></tr>
+          <tr data-work-item data-port="IModelUsageSource" data-object="CodexUsageSource"><td><span class="todo"></span></td><td class="port">IModelUsageSource</td><td class="object">CodexUsageSource, ClaudeUsageSource, AntigravityUsageSource</td><td>Token extraction and remote source registry</td><td>Each source passes one shared contract suite</td></tr>
+          <tr data-work-item data-port="IModelUsageService" data-object="ModelUsageService"><td><span class="todo"></span></td><td class="port">IModelUsageService</td><td class="object">ModelUsageService</td><td><code>model_stats</code>, labels, classification</td><td>Service contains no provider-specific condition chain</td></tr>
+          <tr data-work-item data-port="IUsageHistoryStore" data-object="JsonUsageHistoryStore"><td><span class="todo"></span></td><td class="port">IUsageHistoryStore</td><td class="object">JsonUsageHistoryStore</td><td>Samples, pruning, burn rate, slow leak history</td><td>Corrupt/missing history degrades safely</td></tr>
+          <tr data-work-item data-port="IProviderHealthMonitor" data-object="ChatGptProviderHealthMonitor"><td><span class="todo"></span></td><td class="port">IProviderHealthMonitor</td><td class="object">ChatGptProviderHealthMonitor</td><td>Zero-token polling and fleet error flags</td><td>One probe updates the complete provider fleet deterministically</td></tr>
+          <tr data-work-item data-port="IProviderFailoverStrategy" data-object="ChatGptTokenFailoverStrategy"><td><span class="todo"></span></td><td class="port">IProviderFailoverStrategy</td><td class="object">ChatGptTokenFailoverStrategy</td><td>Standby headroom, swap command, cooldown</td><td>Decision logic and command adapter are independently tested</td></tr>
+
+          <tr class="phase"><td colspan="5">5 &mdash; Scanner and intake workflow</td></tr>
+          <tr data-work-item data-port="IScannerDevice" data-object="WindowsWiaScanner"><td><span class="todo"></span></td><td class="port">IScannerDevice</td><td class="object">WindowsWiaScanner</td><td>Device selection, locking, WIA invocation</td><td>Scanner choice never depends on enumeration order</td></tr>
+          <tr data-work-item data-port="IScannerRegistry" data-object="ScannerRegistry"><td><span class="todo"></span></td><td class="port">IScannerRegistry</td><td class="object">ScannerRegistry</td><td>Window/Freezer configuration</td><td>Unknown and duplicate devices fail at construction</td></tr>
+          <tr data-work-item data-port="IScannerDiagnostics" data-object="HpScannerDiagnostics"><td><span class="todo"></span></td><td class="port">IScannerDiagnostics</td><td class="object">HpScannerDiagnostics</td><td>2,232-line scanner/fix/diagnostic region</td><td>Every LED and remediation message has fixture tests</td></tr>
+          <tr data-work-item data-port="IPrinterRepairService" data-object="DeskJetPrinterRepairService"><td><span class="todo"></span></td><td class="port">IPrinterRepairService</td><td class="object">DeskJetPrinterRepairService</td><td><code>fix_deskjet_printer</code></td><td>Repair never claims success without device evidence</td></tr>
+          <tr data-work-item data-port="IDocumentClassifier" data-object="IntakeFacadeClassifier"><td><span class="todo"></span></td><td class="port">IDocumentClassifier</td><td class="object">IntakeFacadeClassifier</td><td>Facade invocation and classification shaping</td><td>Ready/busy/offline/error cases use one typed result</td></tr>
+          <tr data-work-item data-port="IDocumentStager" data-object="LocalAndRemoteDocumentStager"><td><span class="todo"></span></td><td class="port">IDocumentStager</td><td class="object">LocalAndRemoteDocumentStager</td><td>Local copy and Win10 mirror</td><td>Local authority and nonfatal mirror failure are pinned</td></tr>
+          <tr data-work-item data-port="IAgentConversationFactory" data-object="MazdaConversationFactory"><td><span class="todo"></span></td><td class="port">IAgentConversationFactory</td><td class="object">MazdaConversationFactory</td><td>Per-scan Letta conversation creation</td><td>Conversation failure stops dispatch without side effects</td></tr>
+          <tr data-work-item data-port="IDocumentDispatcher" data-object="MazdaDocumentDispatcher"><td><span class="todo"></span></td><td class="port">IDocumentDispatcher</td><td class="object">MazdaDocumentDispatcher</td><td>482-line scan message and notify call</td><td>Message builder is pure; gateway owns delivery</td></tr>
+          <tr data-work-item data-port="ITrainerNotifier" data-object="DetachedTrainerNotifier"><td><span class="todo"></span></td><td class="port">ITrainerNotifier</td><td class="object">DetachedTrainerNotifier, NullTrainerNotifier</td><td>Trainer command and detached spawn</td><td>Tests cannot spawn a real Trainer by construction</td></tr>
+          <tr data-work-item data-port="IIntakeEventStore" data-object="JsonIntakeEventStore"><td><span class="todo"></span></td><td class="port">IIntakeEventStore</td><td class="object">JsonIntakeEventStore</td><td>Recent report pointer and expense-stored events</td><td>Merge, dedupe, pruning, and corrupt JSON are tested</td></tr>
+          <tr data-work-item data-port="IDocumentIntakeService" data-object="DocumentIntakeService"><td><span class="todo"></span></td><td class="port">IDocumentIntakeService</td><td class="object">DocumentIntakeService</td><td><code>process_scanned_document</code>, <code>process_pdf_document</code></td><td>Workflow is an injected coordinator with no module globals</td></tr>
+
+          <tr class="phase"><td colspan="5">6 &mdash; ROL Finance</td></tr>
+          <tr data-work-item data-port="IExpenseRepository" data-object="MySqlExpenseRepository"><td><span class="todo"></span></td><td class="port">IExpenseRepository</td><td class="object">MySqlExpenseRepository</td><td>Expense lookup, category changes, notes</td><td>Services never import DB connection helpers</td></tr>
+          <tr data-work-item data-port="IReceiptRepository" data-object="FileReceiptRepository"><td><span class="todo"></span></td><td class="port">IReceiptRepository</td><td class="object">FileReceiptRepository</td><td>Receipt mounts, index, matching, URL mapping</td><td>Mount/index policy has contract tests and injected clock</td></tr>
+          <tr data-work-item data-port="IReportRepository" data-object="FileReportRepository"><td><span class="todo"></span></td><td class="port">IReportRepository</td><td class="object">FileReportRepository</td><td>Report aliases, discovery, status, row lookup</td><td>Path safety and ambiguity rules are isolated</td></tr>
+          <tr data-work-item data-port="IReportRowWriter" data-object="HtmlReportRowWriter"><td><span class="todo"></span></td><td class="port">IReportRowWriter</td><td class="object">HtmlReportRowWriter</td><td>Static row category/color updates</td><td>Writes are idempotent and fixture snapshots stay stable</td></tr>
+          <tr data-work-item data-port="IExpenseCategorizationService" data-object="ExpenseCategorizationService"><td><span class="todo"></span></td><td class="port">IExpenseCategorizationService</td><td class="object">ExpenseCategorizationService</td><td><code>recategorize_expense</code> and undo orchestration</td><td>DB, report, taxonomy, undo ports are constructor-injected</td></tr>
+          <tr data-work-item data-port="IReceiptLookupService" data-object="ReceiptLookupService"><td><span class="todo"></span></td><td class="port">IReceiptLookupService</td><td class="object">ReceiptLookupService</td><td>Lookup/presence/source-document resolution</td><td>Every matching tier is tested without real files or DB</td></tr>
+          <tr data-work-item data-port="ISupportingDocumentService" data-object="SupportingDocumentService"><td><span class="todo"></span></td><td class="port">ISupportingDocumentService</td><td class="object">SupportingDocumentService</td><td>Supporting-document lookup/open flow</td><td>Uses existing annotation port and injected repositories</td></tr>
+          <tr data-work-item data-port="IFinanceReportService" data-object="FinanceReportService"><td><span class="todo"></span></td><td class="port">IFinanceReportService</td><td class="object">FinanceReportService</td><td>Recent intake/report and receipt-only HTML</td><td>Rendering is separate from data acquisition</td></tr>
+          <tr data-work-item data-port="IRecentScanRepository" data-object="MySqlRecentScanRepository"><td><span class="todo"></span></td><td class="port">IRecentScanRepository</td><td class="object">MySqlRecentScanRepository</td><td>Recent scans and month status queries</td><td>Query results map to typed records behind one port</td></tr>
+          <tr data-work-item data-port="IVendorReviewService" data-object="VendorReviewService"><td><span class="todo"></span></td><td class="port">IVendorReviewService</td><td class="object">VendorReviewService</td><td>Vendor keys, pending review, set vendor</td><td>Validation, categorization, and persistence are isolated</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="already-extracted">
+    <h2>Established examples &mdash; do not move backward</h2>
+    <p>These are outside the active count because they already demonstrate the intended shape.</p>
+    <div class="already">
+      <div class="done-card"><strong>ICategoryTaxonomy</strong><span>Static, MySQL, and fallback implementations in <code>category_taxonomy.py</code>.</span></div>
+      <div class="done-card"><strong>Category undo ports</strong><span>Repository and store contracts with compare-and-swap orchestration in <code>category_undo.py</code>.</span></div>
+      <div class="done-card"><strong>IExpenseDocumentAnnotationService</strong><span>Format strategies and composition factory in <code>document_annotation.py</code>.</span></div>
+      <div class="done-card"><strong>Voice pipeline</strong><span>Transcription, cleanup, Letta adapter, pipeline, and edge-tts synthesis strategy separated under <code>voice/</code>.</span></div>
+      <div class="done-card"><strong>Statement review</strong><span>Review behavior already isolated in <code>statement_review.py</code>.</span></div>
+      <div class="done-card"><strong>Frontend GoF layer</strong><span>Interfaces under <code>js/abstract/</code>, concretes under <code>js/implementation/</code>.</span></div>
+    </div>
+  </section>
+
+  <section class="card" id="workflow">
+    <h2>One-slice workflow</h2>
+    <ol>
+      <li>Choose exactly one active row; record its current callers and mutable globals.</li>
+      <li>Write the failing consumer test first, run it, and save the RED command plus failure.</li>
+      <li>Add characterization, shared-contract, and negative-validation tests before production code.</li>
+      <li>Define the smallest fully typed ABC and strict Pydantic models in the owning domain. The abstract module imports no concrete adapter.</li>
+      <li>Implement only enough typed behavior for GREEN, including a minimal fake that passes the same contract tests.</li>
+      <li>Inject the port into the service/controller; construct the concrete only at the composition root.</li>
+      <li>Leave a temporary forwarding function in <code>server.py</code> when compatibility requires it.</li>
+      <li>Move relevant tests from <code>test_server.py</code> into the matching domain test file.</li>
+      <li>Refactor with tests green, then run Pyright, TypeScript, focused tests, full suites, coverage, and the relevant manual smoke check.</li>
+      <li>Record current line counts, delete this work row, and commit the shrinking plan with the implementation.</li>
+    </ol>
+    <h3>Required evidence in each handoff or PR</h3>
+<pre><code>Slice:
+Observed RED:
+RED command and failure:
+Interface:
+Pydantic model(s):
+TypeScript type(s):
+Concrete Object(s):
+Callers migrated:
+Compatibility shim:
+Focused tests:
+Contract/negative tests:
+Pyright result:
+TypeScript result:
+Branch coverage:
+Full Python result:
+Full JavaScript result:
+server.py lines before/after:
+test_server.py lines before/after:
+Ledger row removed:</code></pre>
+  </section>
+
+  <section class="card" id="decisions">
+    <h2>Decision log</h2>
+    <dl class="decision">
+      <dt>2026-07-29</dt>
+      <dd>Use an incremental ports-and-adapters rewrite; do not replace the stdlib HTTP server or change routes as part of extraction.</dd>
+      <dt>2026-07-29</dt>
+      <dd>Interfaces are required at meaningful boundaries and all cross-cutting side effects. Pure transforms remain functions.</dd>
+      <dt>2026-07-29</dt>
+      <dd>Completed work rows are deleted instead of archived here, so this page becomes smaller as the rewrite advances.</dd>
+      <dt>2026-07-29</dt>
+      <dd>Begin with the green test baseline, then model usage as the pilot production slice.</dd>
+      <dt>2026-07-29</dt>
+      <dd>Adopt strict Pydantic v2 models for every Python boundary and strict TypeScript for all new frontend work; static and runtime validation are both required.</dd>
+      <dt>2026-07-29</dt>
+      <dd>Adopt strict TDD: witness RED before production code, reach GREEN minimally, then refactor; new domain/application modules require 100% branch coverage.</dd>
+      <dt>2026-07-30</dt>
+      <dd>Completed the model-read sub-slice of <code>ILettaGateway</code>: RED was <code>pytest -q tests/test_letta_gateway.py</code> failing because the <code>agents</code> boundary did not exist; GREEN was 14 focused gateway/model-option tests. Added strict frozen Pydantic contracts, <code>FakeLettaGateway</code>, <code>UrllibLettaGateway</code>, composition-root wiring, and a temporary <code>agent_model_payload</code> forwarding shim. The ledger row remains because messages, thoughts, tool calls, and write paths are not migrated.</dd>
+      <dt>2026-07-31</dt>
+      <dd>Completed the raw-message-read sub-slice of <code>ILettaGateway</code>: RED was <code>pytest -q tests/test_letta_gateway.py</code> failing to import the not-yet-created <code>LettaAgentMessage</code>; GREEN was 34 focused gateway tests plus 360 <code>test_server.py</code> tests. Added a strict immutable normalized message contract, shared fake/urllib behavior, fail-closed envelope and field validation, URL ownership in <code>UrllibLettaGateway</code>, and a temporary <code>letta_messages</code> forwarding shim. Installed/configured Pyright and branch coverage for the rewritten <code>agents/</code> boundary; strict checking reports zero errors and the focused suite covers 229 statements and 90 branches at 100%. GoF dependency tests now prohibit application-service imports of concrete adapters and require the composition-root gateway plus compatibility shim to expose <code>ILettaGateway</code> explicitly; <code>UrllibLettaGateway</code> is constructed only in <code>server.py</code>. The public activity-view shapes and 25-second timeout remain unchanged. The ledger row remains for roster, thought/tool-call application services, and write paths.</dd>
+    </dl>
+  </section>
+
+  <footer>
+    Canonical file: <code>notes_plans_handoffs/server_rewrite.html</code>.
+    Update it in the same change that completes an Interface/Object slice.
+  </footer>
+</main>
+<script>
+  (() => {
+    const root = document.querySelector("[data-plan='server-rewrite']");
+    const total = Number(root?.dataset.baselineTotal || 0);
+    const remaining = document.querySelectorAll("[data-work-item]").length;
+    const completed = Math.max(0, total - remaining);
+    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+    document.getElementById("completed-count").textContent = String(completed);
+    document.getElementById("total-count").textContent = String(total);
+    document.getElementById("remaining-count").textContent = String(remaining);
+    document.getElementById("progress-bar").style.width = `${percent}%`;
+    const track = document.querySelector("[role='progressbar']");
+    if (track) track.setAttribute("aria-valuenow", String(completed));
+  })();
+</script>
+</body>
+</html>
