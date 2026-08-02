@@ -3345,6 +3345,9 @@ def test_scan_message_duplicate_ids_are_not_statement_only():
     msg = server.build_mazda_scan_message('/scans/x.jpg', 'Freezer Scanner')
     assert 'NOT statement-only' in msg
     assert 'exact_duplicate_expense_id' in msg
+    assert 'If duplicate → STILL run STEP 4 exactly once' in msg
+    assert 'without --allow-duplicate' in msg
+    assert 'receipt_archive_path' in msg
 
 
 # ── reprocess_report ──────────────────────────────────────────────────────────
@@ -3409,6 +3412,8 @@ def test_record_stored_expense_appends_event():
         'receipt_url': '/scans/scan.jpg',
         'conversation_id': 'conv-intake-42',
         'dispatched_at': 123.5,
+        'archive_paths': ['/receipts/2025/january/example.jpg'],
+        'archive_years': [2025],
     })
     assert result == {'ok': True}
 
@@ -3418,6 +3423,9 @@ def test_record_stored_expense_appends_event():
     assert events[0]['vendor_key'] == 'goodwill_cascade'
     assert events[0]['conversation_id'] == 'conv-intake-42'
     assert events[0]['dispatched_at'] == 123.5
+    assert events[0]['archive_paths'] == [
+        '/receipts/2025/january/example.jpg']
+    assert events[0]['archive_years'] == [2025]
     assert 'stored_at' in events[0]
     _clear_expense_events()
 
@@ -4179,12 +4187,20 @@ def test_agent_model_options_empty_handle():
 
 
 def test_agent_model_options_only_vetted_codex_handles():
-    # Guards the probe result of 2026-07-08: gpt-5.3 / *-codex handles are
-    # rejected by the ChatGPT-account codex backend and must never be offered.
+    expected_models = {
+        'gpt-5.6-sol',
+        'gpt-5.6-terra',
+        'gpt-5.6-luna',
+        'gpt-5.5',
+        'gpt-5.4',
+        'gpt-5.4-mini',
+    }
     for handle in server.AGENT_MODEL_OPTIONS:
         assert handle.startswith('chatgpt-plus-pro/')
         model = handle.split('/', 1)[1]
-        assert model in ('gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini')
+        assert model in expected_models
+    assert {handle.split('/', 1)[1]
+            for handle in server.AGENT_MODEL_OPTIONS} == expected_models
 
 
 # ── /api/agent-voice — dashboard TTS preference in Letta metadata ────────────
@@ -5227,6 +5243,14 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
 
 def test_scanner_report_path_resolves_as_synthetic_db_backed_page():
     assert server._resolve_report_path_alias('/scanner_report.html') == ''
+    # The picker now posts location.search as well, so the alias must match on
+    # the path alone — otherwise recategorize would treat the querystring page
+    # as a real report.html on disk and fail to find it.
+    assert server._resolve_report_path_alias(
+        '/scanner_report.html?scanner=freezer') == ''
+    assert server._resolve_report_path_alias(
+        server.RECEIPT_ONLY_REPORT_PATH + '?month=january'
+    ) == server.RECEIPT_ONLY_REPORT_PATH
 
 
 def test_scanner_intake_document_path_prefers_recorded_scan(tmp_path, monkeypatch):
@@ -5337,6 +5361,46 @@ def test_recent_intake_html_pdf_shows_this(tmp_path, monkeypatch):
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
     html = server.build_recent_report_html()
     assert 'Associated PDF: <b>this.</b>' in html
+
+
+def test_recent_receipt_uses_canonical_archive_name_and_not_statement_slot(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    archived = (
+        '/home/adamsl/rol_finances/readable_documents/receipts/2025/march/'
+        'march_18/intercessors_for_america_03_18_25_30_50.jpg')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'duplicate_expense_ids': [1547],
+        'parsed': 1, 'stored': 0, 'doc_kind': 'receipt',
+        'vendor': 'Intercessors for America',
+        'archive_paths': [archived], 'archive_years': [2025],
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
+        'id': 1547, 'date': '2025-03-18', 'amount': '30.50',
+        'vendor_key': 'check_11051_03_18_25_30_50',
+        'description': 'Check 11051',
+        'reporting_category': 'Gifts & Love Offerings',
+        'cat_class': 'cat-gifts-and-love-offerings',
+        'receipt_url': archived, 'document_url': '/docs/statement.pdf',
+        'scanned_statement_url': '', 'moms_ledger': '',
+    }])
+    monkeypatch.setattr(
+        server, '_associated_source_paths', lambda rows: ('', archived))
+    monkeypatch.setattr(
+        server, '_intake_source_document',
+        lambda intake: '/staged/window_scan.jpg')
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+
+    html = server.build_recent_report_html()
+
+    assert ('Most Recent Document: '
+            'intercessors_for_america_03_18_25_30_50.jpg') in html
+    assert f'Associated Receipt: {archived}' in html
+    assert f'Archived Scan Copy: {archived}' in html
+    assert 'Associated Scanned Statement: --' in html
+    assert 'Staged Scan Image: /staged/window_scan.jpg' in html
 
 
 def test_report_pointer_newer_than_intake_wins(tmp_path, monkeypatch):

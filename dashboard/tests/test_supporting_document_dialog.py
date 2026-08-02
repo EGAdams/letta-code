@@ -1,3 +1,5 @@
+import os
+
 import server
 from document_annotation import AnnotationResult
 
@@ -52,10 +54,16 @@ def test_picker_has_two_rows_and_no_receipt_fallback():
     assert "document_url || metadata.receipt_url" not in html
     assert "moms_ledger || metadata.receipt_url" not in html
     descriptors = server._supporting_document_descriptors(
-        {"receipt_url": "", "document_url": "", "moms_ledger": ""}
+        {
+            "receipt_url": "",
+            "document_url": "",
+            "scanned_statement_url": "",
+            "moms_ledger": "",
+        }
     )
     assert [item["label"] for item in descriptors] == [
-        "View Receipt", "View Source Document", "View Mom’s Ledger"
+        "View Receipt", "View Source Document",
+        "View Scanned Statement", "View Mom’s Ledger",
     ]
 
 
@@ -382,3 +390,147 @@ def test_stable_supporting_document_url_resolves_current_database_path(
 
     assert first == str(statement)
     assert second == str(statement)
+
+
+def _resolve_if_on_disk(monkeypatch):
+    """Stand in for the allowed-roots resolver: any real file resolves."""
+    monkeypatch.setattr(
+        server,
+        "_resolve_local_supporting_document",
+        lambda reference, kind: (
+            str(reference)
+            if reference and os.path.isfile(str(reference).split("#", 1)[0])
+            else None
+        ),
+    )
+
+
+def test_scanner_report_offers_its_own_scan_when_stored_path_is_gone(
+    tmp_path, monkeypatch
+):
+    """A scan image deleted after storage must not silently remove the button.
+
+    2026-07-29: a concurrent agent's `git add -A` swept two in-flight scans off
+    disk, so every row of the Last Freezer Scan resolved to nothing and the
+    dialog rendered no View Source Document button at all — even though the page
+    itself was built from that scanner's intake and knew the image.
+    """
+    scan = tmp_path / "scan_freezer_1785370278642285445_af131e077dc3.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    deleted = tmp_path / "scan_freezer_deleted_by_git_add.jpg"
+    monkeypatch.setattr(
+        server,
+        "get_scanner_intake",
+        lambda key: (
+            {"image_path": str(scan), "doc_kind": "statement"}
+            if key == "freezer" else None
+        ),
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": str(deleted), "moms_ledger": ""}
+    report_path = "/scanner_report.html?scanner=freezer"
+
+    assert server._source_document_reference(row, report_path) == str(scan)
+    documents = server._supporting_document_descriptors(row, report_path)
+    assert documents[1]["available"] is True
+
+
+def test_scanner_report_never_borrows_the_other_scanner_or_a_reused_output(
+    tmp_path, monkeypatch
+):
+    """The fallback is intake-scoped, and only the immutable staged path counts.
+
+    The scanner's own output file (scan_freezer.jpg) is overwritten by the next
+    scan, so offering it would show a different document under the label
+    "View Source Document" — the legacy-document_url bug all over again.
+    """
+    window_scan = tmp_path / "window_scan_1785370237366238893_a1c87d8f3be6.jpg"
+    window_scan.write_bytes(b"\xff\xd8\xff")
+    reusable_output = tmp_path / "scan_freezer.jpg"
+    reusable_output.write_bytes(b"\xff\xd8\xff")
+    intakes = {
+        "window": {"image_path": str(window_scan), "doc_kind": "statement"},
+        "freezer": {},  # dispatched before staging existed: no immutable path
+    }
+    monkeypatch.setattr(server, "get_scanner_intake", intakes.get)
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": "", "moms_ledger": ""}
+
+    assert server._source_document_reference(
+        row, "/scanner_report.html?scanner=window") == str(window_scan)
+    assert server._source_document_reference(
+        row, "/scanner_report.html?scanner=freezer") == ""
+    assert server._supporting_document_descriptors(
+        row, "/scanner_report.html?scanner=freezer")[1]["available"] is False
+
+
+def test_recent_report_intake_mode_offers_the_dispatched_scan(
+    tmp_path, monkeypatch
+):
+    scan = tmp_path / "window_scan_1785370237366238893_a1c87d8f3be6.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server,
+        "resolve_recent_report",
+        lambda: {
+            "mode": "intake",
+            "intake": {"image_path": str(scan), "doc_kind": "statement"},
+        },
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": "", "moms_ledger": ""}
+
+    assert server._source_document_reference(
+        row, server.RECENT_REPORT_PATH) == str(scan)
+
+
+def test_receipt_scan_never_offers_itself_as_a_source_document(tmp_path, monkeypatch):
+    """A receipt/invoice scan has no separate source document.
+
+    The scan image already appears as "View Receipt"; offering it again under
+    "View Source Document" is a redundant, misleading duplicate button — that
+    label is reserved for a genuine downloaded/scanned statement covering
+    several transactions, distinct from any one row's own receipt.
+    """
+    scan = tmp_path / "scan_freezer_1785370278642285445_af131e077dc3.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server,
+        "get_scanner_intake",
+        lambda key: {"image_path": str(scan), "doc_kind": "receipt"},
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": "", "moms_ledger": ""}
+    report_path = "/scanner_report.html?scanner=freezer"
+
+    assert server._source_document_reference(row, report_path) == ""
+    documents = server._supporting_document_descriptors(row, report_path)
+    assert documents[1]["available"] is False
+
+
+def test_stored_document_url_still_wins_while_it_resolves(tmp_path, monkeypatch):
+    stored = tmp_path / "statement.pdf"
+    stored.write_bytes(b"%PDF-1.4\n")
+    scan = tmp_path / "scan_freezer_1785370278642285445_af131e077dc3.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server, "get_scanner_intake",
+        lambda key: {"image_path": str(scan), "doc_kind": "receipt"}
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": str(stored), "moms_ledger": ""}
+
+    assert server._source_document_reference(
+        row, "/scanner_report.html?scanner=freezer") == str(stored)
+
+
+def test_picker_reports_the_page_query_so_a_scanner_can_be_identified():
+    """/scanner_report.html is one path for two scanners."""
+    _css, html, _click_css = server._receipt_only_picker_assets()
+
+    assert "report_path: location.pathname + location.search" in html
