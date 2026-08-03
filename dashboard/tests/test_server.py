@@ -1015,6 +1015,7 @@ def test_run_letta_code_message_returns_only_final_result(monkeypatch):
         '/home/test/.bun/bin/bun', 'run', 'dev', '--']
     assert '--output-format' in seen['argv'] and 'json' in seen['argv']
     assert seen['cwd'] == server.REPO_ROOT
+    assert seen['timeout'] == 900
     assert seen['env']['PATH'].split(server.os.pathsep)[0] == '/home/test/.bun/bin'
     # Headless auto-denies gated tools, so without a raised permission mode the
     # agent can never apply an edit it says it made.
@@ -5421,6 +5422,51 @@ def test_merge_identified_event_routes_by_conversation_and_dispatch(
     assert intake['expense_ids'] == [1507]
 
 
+def test_merge_dispatch_only_event_does_not_cross_concurrent_scanners(
+        tmp_path, monkeypatch):
+    """Window and Freezer dispatched inside the 2s window; a STEP 8 callback
+    that carries dispatched_at but no conversation_id (older message template)
+    must land only on the scanner whose document it names — otherwise Last
+    Window Scan shows the Freezer's transactions."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake(
+        '/staged/window_scan.jpg', 'Window Scanner',
+        conversation_id='conv-window', dispatched_at=100.0)
+    server.record_recent_intake(
+        '/staged/scan_freezer.jpg', 'Freezer Scanner',
+        conversation_id='conv-freezer', dispatched_at=101.0)
+
+    assert server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
+        'dispatched_at': 101.0,
+        'expense_ids': [4242], 'parsed': 1, 'stored': 1,
+    }) is True
+
+    assert server.get_scanner_intake('freezer')['expense_ids'] == [4242]
+    assert server.get_scanner_intake('window')['expense_ids'] == []
+
+
+def test_merge_dispatch_only_event_keeps_mirror_when_path_is_unrecognized(
+        tmp_path, monkeypatch):
+    """The document path is a tie-breaker, never a filter. A callback naming a
+    renamed/archived copy still updates the dispatch it was correlated to."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake(
+        '/staged/scan_freezer.jpg', 'Freezer Scanner',
+        conversation_id='conv-freezer', dispatched_at=300.0)
+
+    assert server.merge_recent_intake_event({
+        'document_path': '/archive/2025/03/consumers_energy_03_11_25.jpg',
+        'conversation_id': 'conv-freezer',
+        'dispatched_at': 300.0,
+        'expense_ids': [4243], 'parsed': 1, 'stored': 1,
+    }) is True
+
+    assert server.get_scanner_intake('freezer')['expense_ids'] == [4243]
+    data = server._read_recent_pointer_file()
+    assert data['intake']['expense_ids'] == [4243]
+
+
 def test_merge_without_document_path_updates_intake_and_its_mirror(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
@@ -6038,6 +6084,34 @@ def test_recent_intake_html_duplicates_run_still_lists_rows(tmp_path, monkeypatc
     assert '<table id="verified-transactions"' in html
     assert 'data-vendor-key="amazon_com"' in html
     assert 'already in the' in html and 'shown below' in html
+
+
+def test_recent_intake_html_collapses_equivalent_duplicate_ids(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
+    server.merge_recent_intake_event({
+        'duplicate_expense_ids': [561, 1519], 'parsed': 1, 'stored': 0})
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [
+        {
+            'id': 561, 'date': '2025-02-20', 'amount': '33.13',
+            'vendor_key': 'mr_burger', 'description': 'MR BURGER RESTAURANT 1',
+            'reporting_category': 'Food & Hospitality',
+            'cat_class': 'cat-food-and-hospitality', 'receipt_url': 'canonical.jpg',
+        },
+        {
+            'id': 1519, 'date': '2025-02-20', 'amount': '33.13',
+            'vendor_key': 'mr_burger_restaurant', 'description': 'MR BURGER RESTAURANT',
+            'reporting_category': 'Food & Hospitality',
+            'cat_class': 'cat-food-and-hospitality', 'receipt_url': 'duplicate.png',
+        },
+    ])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+
+    html = server.build_recent_report_html()
+
+    assert html.count('data-expense-id="561"') == 1
+    assert 'data-expense-id="1519"' not in html
 
 
 def test_compute_server_status_hard_failure_stays_red():

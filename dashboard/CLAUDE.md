@@ -198,12 +198,12 @@ shelling out to this checkout's letta CLI headlessly:
 --permission-mode acceptEdits`. Two non-obvious invariants, both learned from a 2026-07-22 failure
 where Mazda appeared to "give no answer" while actually answering correctly:
 
-1. **The client timeout must be overridden per-call.** The server budget is **330s** because a real
+1. **The client timeout must be overridden per-call.** The server budget is **900s** because a real
    agent turn runs for minutes, but `FetchHttpClient`'s default abort is **30s**. Before the fix the
    browser aborted and printed `Request timed out after 30s: /api/letta-code-message` while the
    backend went on to produce a perfectly good reply that was then discarded. `HttpClient.getJSON/
    postJSON` therefore take an `{timeout}` option (threaded into `request()`), and the caller in
-   `js/implementation/detail-renderers.js` passes `{ timeout: 360000 }`. **Any new endpoint with a
+   `js/implementation/detail-renderers.js` passes `{ timeout: 930000 }`. **Any new endpoint with a
    long server-side budget needs the same explicit override** — don't raise the 30s default globally,
    it's correct for the rest of the dashboard.
 2. **Headless mode auto-DENIES gated tools, so the permission mode must be raised.** With nobody to
@@ -232,6 +232,7 @@ files from both `HERE` (`/home/adamsl/letta-code/dashboard`) and `REPO_ROOT`
 | Server Rewrite | `notes_plans_handoffs/server_rewrite.html` | `/notes_plans_handoffs/server_rewrite.html` |
 | Mazda Dev Status | `notes_plans_handoffs/mazda_dev_status.html` | `/notes_plans_handoffs/mazda_dev_status.html` |
 | Audio Input | `dashboard/audio_input/audio_plan.html` | `/audio_input/audio_plan.html` |
+| Voice Communication | `../talking_agent_parts/voice_communication_plan.html` (exposed by `dashboard/voice_communication_plan.html`) | `/voice_communication_plan.html` |
 
 **`Mazda Dev Status` is the canonical current-direction doc** (Mazda is the orchestrator herself,
 with minions that drive the Claude Agent SDK). `team_construction_plan.html` (repo root) describes

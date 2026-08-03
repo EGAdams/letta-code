@@ -762,6 +762,19 @@ def merge_recent_intake_event(event):
             # would otherwise overwrite the current dispatch.
             if not targets:
                 return False
+            # Window and Freezer can be dispatched within the 2s dispatch
+            # window, so a callback carrying dispatched_at but no
+            # conversation_id (the older STEP 8 template) matches BOTH
+            # scanners and folds one scanner's expenses into the other's tab.
+            # When the event names a document that is one of those matches,
+            # that path is the tie-breaker. It is deliberately only a
+            # disambiguator: a path naming nothing here (e.g. an archived or
+            # renamed copy reported after filing) leaves routing unchanged
+            # rather than dropping the callback.
+            if path:
+                named = [i for i in targets if i.get('image_path') == path]
+                if named:
+                    targets = named
         else:
             targets = [i for i in candidates
                        if path and i.get('image_path') == path]
@@ -5022,25 +5035,40 @@ def _select_matching_expense(rows, vendor_key, description):
 def _matching_expense(cur, date_str, amount_str, vendor_key, description,
                       expense_id=None):
     """Return the expense matching a report row using the recategorization rules."""
+    # Finance deployments are mid-migration: the current expenses table has
+    # the durable receipt field but not the dashboard-only id_light,
+    # document_url, statement, ledger, notes, or role columns.  Selecting
+    # those unconditionally made *every* supporting-document open fail before
+    # the annotator could draw the red box.  This boundary adapter keeps the
+    # reader compatible with both schemas and gives absent optional fields a
+    # stable empty value for the document service.
+    cur.execute("SHOW COLUMNS FROM expenses")
+    columns = {str(row.get('Field') or '') for row in cur.fetchall()}
+    required_columns = ('id', 'description', 'receipt_url', 'expense_date', 'amount')
+    optional_columns = (
+        'id_light', 'document_url', 'scanned_statement_url', 'moms_ledger',
+        'notes',
+    )
+    select_columns = [f'`{column}`' for column in required_columns]
+    select_columns.extend(
+        f'`{column}`' if column in columns else f'NULL AS `{column}`'
+        for column in optional_columns
+    )
+    select_sql = ', '.join(select_columns)
     if expense_id not in (None, ''):
         try:
             eid = int(expense_id)
         except (TypeError, ValueError):
             return None
         cur.execute(
-            "SELECT id, id_light, description, receipt_url, document_url, "
-            "scanned_statement_url, moms_ledger, "
-            "notes, expense_date, amount "
-            "FROM expenses WHERE id=%s",
+            f"SELECT {select_sql} FROM expenses WHERE id=%s",
             (eid,),
         )
         return _select_matching_expense(cur.fetchall(), vendor_key, description)
+    role_filter = " AND `expense_role` <> 'LINE_ITEM'" if 'expense_role' in columns else ''
     cur.execute(
-        "SELECT id, id_light, description, receipt_url, document_url, "
-        "scanned_statement_url, moms_ledger, "
-        "notes, expense_date, amount "
-        "FROM expenses WHERE expense_date=%s AND amount=%s "
-        "AND expense_role <> 'LINE_ITEM'",
+        f"SELECT {select_sql} FROM expenses WHERE expense_date=%s AND amount=%s"
+        f"{role_filter}",
         (date_str, amount_str),
     )
     return _select_matching_expense(cur.fetchall(), vendor_key, description)
@@ -9525,7 +9553,7 @@ def _letta_code_command():
         f'or {built})')
 
 
-def run_letta_code_message(agent_id, prompt, timeout=330):
+def run_letta_code_message(agent_id, prompt, timeout=900):
     """Run one Letta Code turn and expose only its final JSON result."""
     lid = letta_id_for(agent_id)
     if not lid or not _TERMINAL_ID_RE.fullmatch(lid):

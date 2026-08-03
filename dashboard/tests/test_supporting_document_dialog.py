@@ -6,6 +6,44 @@ import server
 from document_annotation import AnnotationResult
 
 
+def test_matching_expense_supports_receipt_only_finance_schema():
+    """A missing optional dashboard column cannot prevent red-box preparation."""
+    queries = []
+
+    class Cursor:
+        def execute(self, sql, params=None):
+            queries.append((sql, params))
+
+        def fetchall(self):
+            if len(queries) == 1:
+                return [
+                    {"Field": name}
+                    for name in ("id", "description", "receipt_url", "expense_date", "amount")
+                ]
+            return [{
+                "id": 1120,
+                "description": "MEIJER STORE #020 GRAND RAPIDS MI",
+                "receipt_url": "/receipts/meijer_12_29_24_53_06.jpg",
+                "expense_date": "2024-12-29",
+                "amount": "53.06",
+                "id_light": None,
+                "document_url": None,
+                "scanned_statement_url": None,
+                "moms_ledger": None,
+                "notes": None,
+            }]
+
+    chosen = server._matching_expense(
+        Cursor(), "", "", "meijer", "MEIJER STORE #020 GRAND RAPIDS MI", 1120
+    )
+
+    assert chosen["id"] == 1120
+    assert chosen["receipt_url"].endswith("53_06.jpg")
+    select_sql = queries[1][0]
+    assert "NULL AS `id_light`" in select_sql
+    assert "NULL AS `document_url`" in select_sql
+
+
 def test_lookup_exposes_all_three_document_fields(monkeypatch):
     row = {
         "id": 42,

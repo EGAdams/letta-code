@@ -155,6 +155,7 @@ Other Project Plans notes:
   its doc `/team_construction_plan.html` is kept (with a SUPERSEDED banner) as design history only.
 - **Project Plans → Verification Tracker** (`/notes_plans_handoffs/verification_tracker.html`) mirrors the January statement verification tracker markdown as a dashboard-readable HTML page.
 - **Project Plans → Pipecat Voice** (`/notes_plans_handoffs/pipecat_letta_voice_plan.html`) records the proposed future integration that uses Pipecat for real-time voice/media while Letta remains the agent runtime and memory source of truth.
+- **Project Plans → Voice Communication** (`/voice_communication_plan.html`) is the active SOLID/GoF object-creation plan sourced from `/home/adamsl/talking_agent_parts/voice_communication_plan.html`; the dashboard exposes that source through a narrow relative symlink.
 - The old Tool Fix plan was removed; `/agent_self_improvement/mazda_tool_fix_plan.html`
   should return 404.
 - Frita can advise on dashboard deployment details at Letta agent id

@@ -19,7 +19,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterable, Sequence
 
-ANNOTATION_SCHEMA_VERSION = 4
+ANNOTATION_SCHEMA_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,7 @@ class IExpenseReferenceResolver(ABC):
 
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+_LABELED_TOTAL_RE = re.compile(r"\btotal\b", re.I)
 
 
 def _token_list(value: str) -> list[str]:
@@ -131,6 +132,18 @@ def _amount_matches(text: str, amount: Decimal | None) -> bool:
     )
 
 
+def _labeled_total_amount_stem_matches(
+    text: str,
+    amount: Decimal | None,
+) -> bool:
+    """Recover a TOTAL whose final cent digit alone was lost to handwriting."""
+    if amount is None or not _LABELED_TOTAL_RE.search(text):
+        return False
+    whole, cents = f"{amount:.2f}".split(".")
+    stem = f"{whole}.{cents[0]}"
+    return bool(re.search(rf"(?<![\d.])\$?\s*{re.escape(stem)}(?!\d)", text, re.I))
+
+
 def _date_variants(value: str) -> set[str]:
     raw = str(value or "").strip()
     parsed = None
@@ -154,12 +167,17 @@ def _date_variants(value: str) -> set[str]:
         f"{parsed.month}/{parsed.day}/{str(parsed.year)[2:]}",
         f"{parsed.month}/{parsed.day}",
         f"{parsed.month}-{parsed.day}",
+        f"{parsed.strftime('%B')} {parsed.day}, {parsed.year}",
+        f"{parsed.strftime('%b')} {parsed.day}, {parsed.year}",
     }
 
 
 def _date_matches(text: str, evidence_date: str) -> bool:
     lowered = text.lower()
-    return any(value and value in lowered for value in _date_variants(evidence_date))
+    return any(
+        value and value.lower() in lowered
+        for value in _date_variants(evidence_date)
+    )
 
 
 def _complete_date_matches(text: str, evidence_date: str) -> bool:
@@ -171,7 +189,7 @@ def _complete_date_matches(text: str, evidence_date: str) -> bool:
         and value.count("/") + value.count("-") == 2
     }
     lowered = text.lower()
-    return any(value and value in lowered for value in variants)
+    return any(value and value.lower() in lowered for value in variants)
 
 
 def _statement_row_date_matches(text: str, evidence_date: str) -> bool:
@@ -191,7 +209,9 @@ def _statement_row_date_matches(text: str, evidence_date: str) -> bool:
         if value.count("/") + value.count("-") == 1
     }
     stripped = str(text or "").lstrip(" |[](){}<>*.,:;-_\"'`~")
-    return any(value and stripped.lower().startswith(value) for value in variants)
+    return any(
+        value and stripped.lower().startswith(value.lower()) for value in variants
+    )
 
 
 # A tie at or above this score is decisive; below it, two equally-ranked rows
@@ -226,7 +246,12 @@ def _line_score(text: str, evidence: ExpenseEvidence) -> int:
         for term in evidence.reference_terms
         if term
     )
-    amount_hit = _amount_matches(text, amount)
+    exact_amount_hit = _amount_matches(text, amount)
+    recovered_total_hit = (
+        not exact_amount_hit
+        and _labeled_total_amount_stem_matches(text, amount)
+    )
+    amount_hit = exact_amount_hit or recovered_total_hit
     date_hit = _date_matches(text, evidence.expense_date)
     line_tokens = _tokens(text)
     description_tokens = _tokens(evidence.description)
@@ -261,6 +286,14 @@ def _line_score(text: str, evidence: ExpenseEvidence) -> int:
     score = 12 if reference_hit else 0
     if amount_hit:
         score += 5
+    if recovered_total_hit:
+        # Explicit TOTAL plus all but the final cent digit is stronger than an
+        # exact authorization-copy amount with no expense semantics.
+        score += 2
+        if re.match(r"^\s*total\b", text, re.I):
+            # Prefer the actual TOTAL row over a context window which merely
+            # contains that row's text but draws a neighbouring region.
+            score += 1
     if date_hit:
         score += 5
     score += min(description_hits, 3)
@@ -270,7 +303,10 @@ def _line_score(text: str, evidence: ExpenseEvidence) -> int:
 
 def _amount_confirmed(text: str, evidence: ExpenseEvidence) -> bool:
     """Whether this line proves the amount itself, not just the expense's identity."""
-    return _amount_matches(text, _amount_decimal(evidence.amount))
+    amount = _amount_decimal(evidence.amount)
+    return _amount_matches(text, amount) or _labeled_total_amount_stem_matches(
+        text, amount
+    )
 
 
 def _region_bounds(region: object) -> tuple[object, float, float] | None:
@@ -443,6 +479,129 @@ def _wrapped_line_windows(
             bottom = max(bottom, next_region[3])
             windows.append((" ".join(parts), (left, top, right, bottom)))
     return windows
+
+
+def _bill_summary_windows(
+    lines: Sequence[tuple[str, tuple[float, float, float, float]]],
+) -> list[tuple[str, tuple[float, float, float, float]]]:
+    """Join three close rows when a bill prints charge and date separately.
+
+    Matching remains fail-closed: this only supplies candidates. The normal
+    scorer still requires the target amount and date before selecting one.
+    """
+    clean = sorted(
+        (
+            (str(text).strip(), tuple(float(value) for value in region))
+            for text, region in lines
+            if str(text).strip() and len(region) == 4
+        ),
+        key=lambda item: (item[1][1], item[1][0]),
+    )
+    output = []
+    for index in range(len(clean) - 2):
+        window = clean[index:index + 3]
+        heights = [max(1.0, region[3] - region[1]) for _text, region in window]
+        max_gap = max(12.0, statistics.median(heights) * 0.75)
+        if any(
+            window[offset + 1][1][1] - window[offset][1][3] > max_gap
+            for offset in range(2)
+        ):
+            continue
+        # Find which row contains the expense amount — that is the line to box.
+        # For DTE bills (expense 1985), the amount is in the first row and the
+        # date is in a later row. For Priority Health EOBs (expense 1988), the
+        # date and description are in the first row but the amount is in a later
+        # row. Box whichever row carries the expense amount, not the context.
+        # Prefer rows with charge/billed/payment labels over balance summaries.
+        expense_labels = re.compile(r"\b(?:billed|charge|payment|paid|due)\b", re.I)
+        balance_labels = re.compile(r"\b(?:balance|total\s+balance|account\s+balance)\b", re.I)
+
+        # First, try rows with explicit expense labels and amounts
+        amount_row_index = next(
+            (
+                i
+                for i, (text, _region) in enumerate(window)
+                if re.search(r"(?:^|\s)\$\s*\d+[,\d]*\.\d{2}(?:\s|$)", text)
+                and expense_labels.search(text)
+                and not balance_labels.search(text)
+            ),
+            None,
+        )
+        if amount_row_index is None:
+            # Second, try any row with amount that's NOT a balance
+            amount_row_index = next(
+                (
+                    i
+                    for i, (text, _region) in enumerate(window)
+                    if re.search(r"(?:^|\s)[\$]?\d+[,\d]*\.\d{2}(?:\s|$)", text)
+                    and not balance_labels.search(text)
+                    and not re.search(r"\d{4}", text)  # Exclude dates like "2025"
+                ),
+                0,
+            )
+        expense_region = window[amount_row_index][1]
+        output.append(
+            (" ".join(text for text, _region in window), expense_region)
+        )
+    return output
+
+
+def _image_expense_candidates(
+    ocr_data: dict[str, Sequence[object]],
+) -> list[tuple[str, tuple[float, float, float, float]]]:
+    """Pure OCR-to-candidate transform used by the image adapter."""
+    grouped: dict[tuple[int, int, int], list[int]] = {}
+    spatial_words = []
+    for index, text in enumerate(ocr_data.get("text", [])):
+        if not str(text or "").strip():
+            continue
+        key = (
+            int(ocr_data["block_num"][index]),
+            int(ocr_data["par_num"][index]),
+            int(ocr_data["line_num"][index]),
+        )
+        grouped.setdefault(key, []).append(index)
+        left = int(ocr_data["left"][index])
+        top = int(ocr_data["top"][index])
+        spatial_words.append(
+            (
+                str(text),
+                left,
+                top,
+                left + int(ocr_data["width"][index]),
+                top + int(ocr_data["height"][index]),
+            )
+        )
+
+    grouped_lines = []
+    for indexes in grouped.values():
+        text = " ".join(str(ocr_data["text"][index]) for index in indexes)
+        grouped_lines.append(
+            (
+                text,
+                (
+                    min(int(ocr_data["left"][index]) for index in indexes),
+                    min(int(ocr_data["top"][index]) for index in indexes),
+                    max(
+                        int(ocr_data["left"][index])
+                        + int(ocr_data["width"][index])
+                        for index in indexes
+                    ),
+                    max(
+                        int(ocr_data["top"][index])
+                        + int(ocr_data["height"][index])
+                        for index in indexes
+                    ),
+                ),
+            )
+        )
+    spatial_lines = _spatial_lines(spatial_words)
+    candidates = grouped_lines + _bill_summary_windows(grouped_lines)
+    candidates.extend(_wrapped_line_windows(grouped_lines))
+    candidates.extend(spatial_lines)
+    candidates.extend(_bill_summary_windows(spatial_lines))
+    candidates.extend(_wrapped_line_windows(spatial_lines))
+    return candidates
 
 
 class PdfExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
@@ -644,7 +803,20 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
 
         try:
             image = Image.open(source_path)
-            data = pytesseract.image_to_data(image, output_type=Output.DICT)
+            # Give Tesseract the original file so scan DPI/encoding metadata is
+            # preserved. Passing a decoded PIL object makes pytesseract write a
+            # temporary image; on the DTE bill that erased both 53.06 readings.
+            # PSM 1 enables Tesseract's orientation detection before layout
+            # analysis. Scanner hardware may deliver an otherwise valid form
+            # rotated 180 degrees (Children's Vision, expense 1987).
+            ocr_candidates = []
+            for config in ("--psm 1", "--psm 6"):
+                data = pytesseract.image_to_data(
+                    source_path,
+                    output_type=Output.DICT,
+                    config=config,
+                )
+                ocr_candidates.extend(_image_expense_candidates(data))
         except Exception as exc:
             return AnnotationResult(
                 source_path, False, f"Image OCR was unavailable: {exc}"
@@ -656,43 +828,7 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
             if terms:
                 match_evidence = replace(evidence, reference_terms=terms)
 
-        grouped: dict[tuple[int, int, int], list[int]] = {}
-        spatial_words = []
-        for index, text in enumerate(data.get("text", [])):
-            if str(text or "").strip():
-                key = (
-                    int(data["block_num"][index]),
-                    int(data["par_num"][index]),
-                    int(data["line_num"][index]),
-                )
-                grouped.setdefault(key, []).append(index)
-                spatial_words.append(
-                    (
-                        str(text),
-                        int(data["left"][index]),
-                        int(data["top"][index]),
-                        int(data["left"][index]) + int(data["width"][index]),
-                        int(data["top"][index]) + int(data["height"][index]),
-                    )
-                )
-        lines = []
-        for indexes in grouped.values():
-            text = " ".join(str(data["text"][index]) for index in indexes)
-            left = min(int(data["left"][index]) for index in indexes)
-            top = min(int(data["top"][index]) for index in indexes)
-            right = max(
-                int(data["left"][index]) + int(data["width"][index])
-                for index in indexes
-            )
-            bottom = max(
-                int(data["top"][index]) + int(data["height"][index])
-                for index in indexes
-            )
-            lines.append((text, (left, top, right, bottom)))
-        lines.extend(_wrapped_line_windows(lines))
-        spatial_lines = _spatial_lines(spatial_words)
-        lines.extend(spatial_lines)
-        lines.extend(_wrapped_line_windows(spatial_lines))
+        lines = ocr_candidates
         region, _score, matched_text = _best_line(lines, match_evidence)
         if region is None:
             return AnnotationResult(
@@ -701,7 +837,10 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
                 "No high-confidence expense row was found in the image.",
             )
         left, top, right, bottom = region
-        if match_evidence.reference_terms:
+        if (
+            match_evidence.reference_terms
+            and not _amount_confirmed(matched_text, match_evidence)
+        ):
             # A ledger's related statement may identify the expense by check
             # number even when cross-outs defeat OCR on the payment line.
             # Include the payment/confirmation lines immediately above it.

@@ -8,6 +8,53 @@ DASHBOARD_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = DASHBOARD_DIR.parent
 DASHBOARD_HTML = DASHBOARD_DIR / "dashboard.html"
 SERVER_REWRITE_PLAN = REPO_ROOT / "notes_plans_handoffs" / "server_rewrite.html"
+VOICE_COMMUNICATION_PLAN = (
+    REPO_ROOT.parent / "talking_agent_parts" / "voice_communication_plan.html"
+)
+VOICE_COMMUNICATION_DASHBOARD_LINK = (
+    DASHBOARD_DIR / "voice_communication_plan.html"
+)
+
+
+def test_voice_communication_tab_targets_the_external_plan_source():
+    dashboard = DASHBOARD_HTML.read_text(encoding="utf-8")
+
+    assert (
+        'data-nav="plans" data-target="plans-voice-communication">Voice Communication'
+        in dashboard
+    )
+    section = re.search(
+        r'<section id="plans-voice-communication" class="view">(.*?)</section>',
+        dashboard,
+        re.DOTALL,
+    )
+    assert section is not None
+    assert 'id="voice-communication-plan-frame"' in section.group(1)
+    assert 'class="plan-frame"' in section.group(1)
+    assert 'src="/voice_communication_plan.html"' in section.group(1)
+    assert VOICE_COMMUNICATION_DASHBOARD_LINK.is_symlink()
+    assert (
+        VOICE_COMMUNICATION_DASHBOARD_LINK.resolve()
+        == VOICE_COMMUNICATION_PLAN.resolve()
+    )
+
+
+def test_voice_communication_plan_defines_the_new_design_protocol():
+    plan = VOICE_COMMUNICATION_PLAN.read_text(encoding="utf-8")
+
+    assert "SOLID Change Protocol" in plan
+    assert "Gang of Four First" in plan
+    assert "Single Responsibility Principle" in plan
+    assert "Open/Closed Principle" in plan
+    assert "Liskov Substitution Principle" in plan
+    assert "Interface Segregation Principle" in plan
+    assert "Dependency Inversion Principle" in plan
+    assert "voice_agent" in plan
+    assert "Pipecat" in plan
+    assert "VoiceSession" in plan
+    assert "ConversationCoordinator" in plan
+    assert "PipelineFactory" in plan
+    assert "LettaAgentAdapter" in plan
 
 
 def test_server_rewrite_tab_targets_the_plan_iframe():

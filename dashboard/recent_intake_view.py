@@ -37,6 +37,13 @@ def _group_key(row: dict) -> tuple[str, str]:
     return str(row.get("date") or ""), _amount_key(row.get("amount"))
 
 
+def _merchant_key(row: dict) -> tuple[str, ...]:
+    return tuple(
+        token for token in re.findall(r"[a-z]+", str(row.get("description") or "").lower())
+        if token not in {"inc", "llc", "the"}
+    )
+
+
 def _preference_key(row: dict) -> tuple[int, int, int, int, int]:
     has_receipt = 1 if str(row.get("receipt_url") or "").strip() else 0
     has_source = 1 if str(row.get("document_url") or "").strip() else 0
@@ -59,6 +66,43 @@ def merge_supporting_document_fields(primary: dict, siblings: Iterable[dict]) ->
             if value:
                 merged[field] = value
     return merged
+
+
+def collapse_equivalent_expense_rows(rows: Iterable[dict], duplicate_ids=()):
+    """Collapse duplicate IDs only when date, amount, and merchant agree."""
+    rows = list(rows or [])
+    duplicate_ids = {int(i) for i in (duplicate_ids or []) if str(i).isdigit()}
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[(_group_key(row), _merchant_key(row))].append(row)
+
+    collapsed = []
+    promoted_duplicates = set()
+    for (_transaction, merchant), group in grouped.items():
+        if len(group) > 1 and merchant:
+            primary = max(
+                group,
+                key=lambda row: (
+                    _preference_key(row)[:4],
+                    -int(row.get("id") or 0),
+                ),
+            )
+            merged = merge_supporting_document_fields(primary, group)
+            collapsed.append(merged)
+            group_ids = {
+                int(row["id"]) for row in group
+                if str((row or {}).get("id") or "").isdigit()
+            }
+            if duplicate_ids.intersection(group_ids):
+                promoted_duplicates.add(int(merged["id"]))
+            continue
+        collapsed.extend(group)
+        promoted_duplicates.update(
+            int(row["id"]) for row in group
+            if str((row or {}).get("id") or "").isdigit()
+            and int(row["id"]) in duplicate_ids
+        )
+    return collapsed, promoted_duplicates
 
 
 def collapse_check_evidence_rows(rows: Iterable[dict], duplicate_ids=()):
@@ -95,4 +139,7 @@ def collapse_check_evidence_rows(rows: Iterable[dict], duplicate_ids=()):
         for row in group:
             if str((row or {}).get("id") or "").isdigit() and int(row["id"]) in duplicate_ids:
                 promoted_duplicates.add(int(row["id"]))
-    return collapsed, promoted_duplicates
+    return collapse_equivalent_expense_rows(
+        collapsed,
+        duplicate_ids | promoted_duplicates,
+    )

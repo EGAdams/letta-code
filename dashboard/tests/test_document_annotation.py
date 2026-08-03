@@ -189,6 +189,139 @@ def test_image_strategy_boxes_the_matching_ocr_line(tmp_path):
     assert red_pixels > 100
 
 
+def test_bill_summary_candidate_joins_amount_rows_to_the_dated_balance_row():
+    from document_annotation import (
+        ExpenseEvidence,
+        _best_line,
+        _bill_summary_windows,
+    )
+
+    target = ExpenseEvidence(
+        expense_id=1985,
+        expense_date="2025-04-10",
+        amount="53.06",
+        description="DTE",
+        vendor_key="dte_04_10_25_53_06",
+    )
+    # Captured from Tesseract on the 2026-08-02 Freezer scan. The charge and
+    # its date are printed on adjacent bill-summary rows, not one OCR line.
+    lines = [
+        ("Gas Commercial Heating 53.06", (200, 1953, 1306, 1992)),
+        ("Total Current Charges 53.06", (180, 2004, 1307, 2041)),
+        ("Account Balance as of April 10, 2025 = $216.79", (180, 2062, 1307, 2097)),
+    ]
+
+    candidates = lines + _bill_summary_windows(lines)
+    region, score, text = _best_line(candidates, target)
+
+    assert score >= 10
+    assert "Gas Commercial Heating 53.06" in text
+    assert "April 10, 2025" in text
+    # Adjacent rows supply date context, but only the actual expense row is boxed.
+    assert region == (200.0, 1953.0, 1306.0, 1992.0)
+
+
+def test_image_strategy_passes_original_scan_path_to_tesseract(tmp_path, monkeypatch):
+    from PIL import Image
+    import pytesseract
+
+    from document_annotation import ImageExpenseDocumentAnnotator
+
+    source = tmp_path / "dte.jpg"
+    Image.new("RGB", (1400, 2200), "white").save(source, dpi=(300, 300))
+    output = tmp_path / "annotated.jpg"
+    seen = []
+
+    def fake_image_to_data(image, output_type, config):
+        seen.append((image, config))
+        rows = [
+            ("Gas Commercial Heating 53.06", 200, 1953, 1106, 39, 1),
+            ("Total Current Charges 53.06", 180, 2004, 1127, 37, 2),
+            ("Account Balance as of April 10, 2025 = $216.79", 180, 2062, 1127, 35, 3),
+        ]
+        data = {key: [] for key in (
+            "text", "left", "top", "width", "height",
+            "block_num", "par_num", "line_num",
+        )}
+        for text, left, top, width, height, line_number in rows:
+            data["text"].append(text)
+            data["left"].append(left)
+            data["top"].append(top)
+            data["width"].append(width)
+            data["height"].append(height)
+            data["block_num"].append(1)
+            data["par_num"].append(1)
+            data["line_num"].append(line_number)
+        return data
+
+    monkeypatch.setattr(pytesseract, "image_to_data", fake_image_to_data)
+    result = ImageExpenseDocumentAnnotator().annotate(
+        str(source),
+        str(output),
+        ExpenseEvidence(1985, "2025-04-10", "53.06", "DTE", "dte"),
+    )
+
+    assert seen == [
+        (str(source), "--psm 1"),
+        (str(source), "--psm 6"),
+    ]
+    assert result.highlighted is True
+
+
+def test_auto_oriented_form_boxes_only_the_amount_word():
+    from document_annotation import _best_line, _image_expense_candidates
+
+    # Tesseract PSM 1 auto-orients the upside-down Children's Vision receipt.
+    # The date and amount share a visual row, but the drawing bounds must stay
+    # on 300.50 rather than stretching across the form to the date field.
+    data = {
+        "text": ["300.50", "2/14/2025", "Amount", "Date"],
+        "left": [1278, 2139, 1056, 2207],
+        "top": [1651, 1658, 1703, 1718],
+        "width": [150, 222, 241, 104],
+        "height": [38, 40, 44, 39],
+        "block_num": [16, 15, 16, 15],
+        "par_num": [1, 1, 1, 1],
+        "line_num": [2, 2, 1, 1],
+    }
+    target = ExpenseEvidence(
+        1987,
+        "2025-02-14",
+        "300.50",
+        "Children's Vision Int. Inc.",
+        "childrens_vision_int_inc",
+    )
+
+    region, score, text = _best_line(_image_expense_candidates(data), target)
+
+    assert score >= 10
+    assert "2/14/2025" in text
+    assert region == (1278.0, 1651.0, 1428.0, 1689.0)
+
+
+def test_ocr_damaged_total_outranks_exact_approval_confirmation():
+    from document_annotation import _best_line
+
+    target = ExpenseEvidence(
+        561,
+        "2025-02-20",
+        "33.13",
+        "MR BURGER RESTAURANT",
+        "mr_burger_restaurant",
+    )
+    lines = [
+        ("TOTAL 33.1", (1019, 634, 1566, 658)),
+        ("Uta receipt noise TOTAL 33.1", (1019, 560, 1589, 591)),
+        ("Approved USD $33.13", (1009, 1324, 1572, 1354)),
+    ]
+
+    region, score, text = _best_line(lines, target)
+
+    assert score >= 7
+    assert text == "TOTAL 33.1"
+    assert region == (1019, 634, 1566, 658)
+
+
 def test_illegible_amount_still_matches_on_date_plus_payee():
     from document_annotation import _best_line
 
@@ -495,3 +628,111 @@ def test_image_strategy_boxes_a_card_statement_row_without_a_printed_year(
     assert red_rows
     # The box must sit on the ROKU row, not the RADISSON row above it.
     assert min(red_rows) > 150
+
+
+def test_childrens_vision_check_1107_expense_1996_annotates_correctly(tmp_path):
+    """Expense 1996 (Children's Vision Int. Inc., check #1107) should box correctly.
+
+    This test verifies the specific user-reported case: a donation check receipt
+    should be annotated with a red box around the amount and date when viewed.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    from document_annotation import ImageExpenseDocumentAnnotator
+
+    # Simulate the Children's Vision donation receipt layout
+    source = tmp_path / "childrens_vision_check_1107.jpg"
+    image = Image.new("RGB", (2480, 3508), "white")  # Letter size at 300 DPI
+    draw = ImageDraw.Draw(image)
+
+    # Try to load a truetype font, fall back to default if unavailable
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48
+        )
+    except (OSError, IOError):
+        # Font file not found, use Pillow's default bitmap font
+        # Scale it up by drawing multiple times slightly offset
+        font = ImageFont.load_default()
+
+    # Receipt header
+    draw.text((100, 100), "Children's Vision Int. Inc.", fill="black", font=font)
+    draw.text((100, 200), "Donation Receipt", fill="black", font=font)
+
+    # Critical fields that should be matched
+    draw.text((100, 800), "Date: 01/06/2026", fill="black", font=font)
+    draw.text((100, 900), "Check #: 1107", fill="black", font=font)
+    draw.text((100, 1000), "Amount: $3,047.00", fill="black", font=font)
+    draw.text((100, 1100), "Thank you for your donation", fill="black", font=font)
+
+    image.save(source)
+    output = tmp_path / "annotated.jpg"
+
+    # Evidence matching expense_id 1996
+    evidence = ExpenseEvidence(
+        expense_id=1996,
+        expense_date="2026-01-06",
+        amount="3047.00",
+        description="Children's Vision Int. Inc. — Donation (Check # 1107)",
+        vendor_key="childrens_vision_int_inc",
+    )
+
+    result = ImageExpenseDocumentAnnotator().annotate(
+        str(source), str(output), evidence
+    )
+
+    assert result.highlighted is True, f"Expected highlighting but got: {result.reason}"
+    assert output.exists()
+
+    # Verify the red box is present
+    annotated = Image.open(output)
+    pixels = annotated.load()
+    red_pixels = sum(
+        1
+        for y in range(annotated.height)
+        for x in range(annotated.width)
+        if pixels[x, y][0] > 200
+        and pixels[x, y][1] < 80
+        and pixels[x, y][2] < 80
+    )
+    annotated.close()
+    assert red_pixels > 100, "Red box should be visible in the annotated image"
+
+
+def test_priority_health_eob_boxes_provider_billed_not_intro_text():
+    """Priority Health EOBs: intro text has date+description but wrong region.
+
+    The EOB intro says "ROSEMARY L. BARNES had a service visit on January 28, 2025"
+    which matches the date and description. If _bill_summary_windows creates a
+    candidate joining the intro, amount summary, and provider-billed lines, we must
+    box the Provider billed line (where the expense actually appears), NOT the intro.
+    """
+    from document_annotation import _best_line, _bill_summary_windows
+
+    target = ExpenseEvidence(
+        expense_id=1988,
+        expense_date="2025-01-28",
+        amount="240.00",
+        description="Priority Health - OLENZER, EMILY K",
+        vendor_key="priority_health",
+    )
+
+    # Realistic scenario: intro text is close enough to the amount lines that
+    # _bill_summary_windows creates a composite candidate
+    lines = [
+        ("ROSEMARY L. BARNES had a service visit on January 28, 2025 with OLENZER, EMILY K", (30, 550, 600, 570)),
+        ("Your claim summary", (30, 580, 600, 595)),
+        ("Provider billed $240.00", (30, 597, 400, 615)),
+    ]
+
+    candidates = lines + _bill_summary_windows(lines)
+    region, score, text = _best_line(candidates, target)
+
+    assert region is not None, f"Should find a match. Candidates: {len(candidates)}"
+    assert score >= 10, f"Should have high confidence with date+amount, got score {score}"
+
+    # The box MUST be around "Provider billed $240.00" (y=597), NOT the intro text (y=550)
+    assert region[1] >= 590 and region[1] <= 620, (
+        f"BUG: Boxed intro text (y={region[1]}) instead of Provider billed line (y~597). "
+        f"Matched text: {text}"
+    )
+    assert "240.00" in text, f"Matched text should contain the target amount, got: {text}"
