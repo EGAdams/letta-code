@@ -1788,6 +1788,50 @@ def test_document_vision_health_one_tier_up_is_concern(monkeypatch, tmp_path):
     assert health.get('concern') is True
 
 
+def test_categorizer_health_ignores_document_vision_entries(monkeypatch, tmp_path):
+    """Vision outcomes in the shared file must not make categorizer yellow/red."""
+    path = tmp_path / 'provider_health.json'
+    path.write_text(json.dumps({
+        'chatgpt-oauth-vision:eg': {
+            'last_failure': time.time(),
+            'last_failure_detail': 'vision token missing',
+        },
+        'chatgpt-oauth-vision:moms': {
+            'last_failure': time.time(),
+            'last_failure_detail': 'vision token missing',
+        },
+    }))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    health = server.mazda_categorizer_fallback_health()
+
+    assert health == {'ok': True, 'text': 'no categorizer LLM calls logged yet'}
+
+
+def test_categorizer_health_keeps_categorizer_failure_with_vision_entries(
+        monkeypatch, tmp_path):
+    """Filtering unrelated entries must not hide a real categorizer failure."""
+    path = tmp_path / 'provider_health.json'
+    now = time.time()
+    path.write_text(json.dumps({
+        'chatgpt-oauth-vision:eg': {
+            'last_failure': now,
+            'last_failure_detail': 'vision token missing',
+        },
+        'gemini': {
+            'last_failure': now,
+            'last_failure_detail': 'gemini CLI timed out',
+        },
+    }))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    health = server.mazda_categorizer_fallback_health()
+
+    assert health['ok'] is False
+    assert health['hard'] is True
+    assert 'gemini: timeout' in health['text']
+
+
 class _NoopThread:
     def start(self):
         pass
@@ -2373,6 +2417,30 @@ def test_recent_reports_needs_attention_flag_matches_status(tmp_path, monkeypatc
 
 def _ssh_cfg():
     return {'key': '__test_ssh_conn', 'name': 'Test Conn', 'host': '0.0.0.0', 'user': 'nobody'}
+
+
+def test_ssh_test_uses_configured_identity_file(monkeypatch, tmp_path):
+    identity = tmp_path / 'id_ed25519'
+    identity.write_text('test key')
+    calls = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        return type('Result', (), {
+            'returncode': 0,
+            'stdout': 'CONNECTED\nDESKTOP-SHDBATI\n',
+            'stderr': '',
+        })()
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    result = server.ssh_test({**_ssh_cfg(), 'identity_file': str(identity)}, timeout=5)
+
+    assert result['ok'] is True
+    assert calls == [[
+        'ssh', '-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes',
+        '-o', 'StrictHostKeyChecking=accept-new', '-o', 'IdentitiesOnly=yes',
+        '-i', str(identity), 'nobody@0.0.0.0', 'echo CONNECTED && hostname',
+    ]]
 
 
 def test_tailscale_test_accepts_ping_when_status_is_stale_offline(monkeypatch):

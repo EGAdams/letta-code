@@ -37,18 +37,16 @@ export class HealthMonitor {
   }
 
   /**
-   * Reduce a health payload to an overall status for the top-level tab:
-   * any starting → "starting"; else any down → "down"; else any concern
-   * (yellow "needs attention, fixable here") → "concern"; else "up".
+   * Reduce a health payload to an availability status for the top-level tab:
+   * any starting → "starting"; else any down → "down"; else "up".
+   * Per-server concern stays on the affected child tab; rolling it up would
+   * falsely implicate unrelated services in the parent tab.
    */
   static overallStatus(health) {
     if (!health) return "unknown";
     const servers = health.servers || [];
     if (servers.some((s) => s.status === "starting")) return "starting";
     if (health.any_down) return "down";
-    if (health.any_concern || servers.some((s) => s.status === "concern")) {
-      return "concern";
-    }
     return "up";
   }
 
