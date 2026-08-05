@@ -27,6 +27,12 @@ import {
 } from "./accumulator";
 import { chunkLog } from "./chunkLog";
 import type { ContextTracker } from "./contextTracker";
+import {
+  classifyStreamActivity,
+  createProgressWatchdog,
+  type InactivityReason,
+  type InactivityWatchdog,
+} from "./stream-activity";
 import type { ErrorInfo } from "./streamProcessor";
 import { StreamProcessor } from "./streamProcessor";
 
@@ -67,7 +73,18 @@ export type DrainResult = {
   apiDurationMs: number; // time spent in API call
   fallbackError?: string | null; // Error message for when we can't fetch details from server (no run_id)
   inactivityTimedOut?: boolean;
+  /** Which deadline fired, when `inactivityTimedOut` is true. */
+  inactivityReason?: InactivityReason;
   backendCancelSucceeded?: boolean;
+};
+
+/**
+ * Injectable collaborators for {@link drainStream}. Optional so the ~10
+ * existing call sites keep working; tests pass a fake watchdog instead of
+ * monkeypatching the clock and the timer.
+ */
+export type DrainStreamDeps = {
+  watchdog?: InactivityWatchdog;
 };
 
 type RunsListResponse =
@@ -243,6 +260,7 @@ export async function drainStream(
   seenSeqIdThreshold?: number | null,
   isResumeStream?: boolean,
   skipCancelToolsOnError?: boolean,
+  deps?: DrainStreamDeps,
 ): Promise<DrainResult> {
   const startTime = performance.now();
   const requestStartTime = getStreamRequestStartTime(stream) ?? startTime;
@@ -257,11 +275,11 @@ export async function drainStream(
   // Track if we triggered abort via our listener (for eager cancellation)
   let abortedViaListener = false;
 
-  // Inactivity timeout: abort if no content tokens arrive for 90 seconds (pings keep
-  // the connection alive but don't produce content, so we need an explicit check).
-  const CONTENT_INACTIVITY_MS = 90_000;
-  let lastContentMs = Date.now();
-  let inactivityAborted = false;
+  // Inactivity watchdog. Two deadlines, both owned by the policy object:
+  // a short one for a stream that has gone silent (pings keep the connection
+  // alive but produce no content) and a long one for a model that keeps
+  // reasoning without ever executing a tool.
+  const watchdog = deps?.watchdog ?? createProgressWatchdog();
 
   // Capture the abort generation at stream start to detect if handleInterrupt ran
   const startAbortGen = buffers.abortGeneration || 0;
@@ -293,21 +311,13 @@ export async function drainStream(
     }
   }
 
-  const inactivityTimer = setInterval(() => {
-    const timeSinceLastContent = Date.now() - lastContentMs;
-    if (!inactivityAborted && timeSinceLastContent > CONTENT_INACTIVITY_MS) {
-      inactivityAborted = true;
-      clearInterval(inactivityTimer);
-      debugWarn(
-        "drainStream",
-        `Inactivity timeout: no model content for ${timeSinceLastContent}ms (threshold: ${CONTENT_INACTIVITY_MS}ms), aborting stream`,
-      );
-      abortedViaListener = true;
-      if (stream.controller && !stream.controller.signal.aborted) {
-        stream.controller.abort();
-      }
+  watchdog.start((reason) => {
+    debugWarn("drainStream", `Inactivity timeout (${reason}), aborting stream`);
+    abortedViaListener = true;
+    if (stream.controller && !stream.controller.signal.aborted) {
+      stream.controller.abort();
     }
-  }, 10_000);
+  });
 
   try {
     for await (const chunk of stream) {
@@ -400,19 +410,15 @@ export async function drainStream(
         queueMicrotask(refresh);
       }
 
-      // Reset inactivity timer only on actual tool execution progress.
-      // reasoning_message and assistant_message are intentionally excluded:
-      // they reset when the model is stuck in a planning loop without executing
-      // tools, which caused 2hr+ hangs (the timer never fires if only reasoning
-      // chunks arrive).
-      if (
-        chunk.message_type === "tool_call_message" ||
-        chunk.message_type === "tool_return_message"
-      ) {
-        lastContentMs = Date.now();
+      // Report liveness to the watchdog. Model output keeps the run alive
+      // against the short deadline; only real tool execution clears the long
+      // no-tool-progress deadline that catches planning loops.
+      const activity = classifyStreamActivity(chunk.message_type);
+      if (activity) {
+        watchdog.record(activity);
         debugLog(
           "drainStream",
-          `Timer reset by ${chunk.message_type} (tool execution progress)`,
+          `Watchdog activity ${activity} from ${chunk.message_type}`,
         );
       }
 
@@ -474,7 +480,7 @@ export async function drainStream(
     }
     queueMicrotask(refresh);
   } finally {
-    clearInterval(inactivityTimer);
+    watchdog.stop();
 
     // Persist chunk log to disk (one write per stream, not per chunk)
     try {
@@ -576,7 +582,10 @@ export async function drainStream(
     lastSeqId: streamProcessor.lastSeqId,
     apiDurationMs,
     fallbackError,
-    inactivityTimedOut: inactivityAborted,
+    inactivityTimedOut: watchdog.firedReason() !== null,
+    ...(watchdog.firedReason()
+      ? { inactivityReason: watchdog.firedReason() as InactivityReason }
+      : {}),
   };
 }
 

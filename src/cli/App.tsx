@@ -303,6 +303,7 @@ import {
   drainStream,
   drainStreamWithResume,
 } from "./helpers/stream";
+import { inactivityStopMessage } from "./helpers/stream-activity";
 import {
   collectFinishedTaskToolCalls,
   createSubagentGroupItem,
@@ -4925,6 +4926,7 @@ export default function App({
             fallbackError,
             approvalRequestEndedTurn,
             inactivityTimedOut,
+            inactivityReason,
             backendCancelSucceeded,
           } = await drainResult;
 
@@ -5260,9 +5262,10 @@ export default function App({
             } else {
               if (inactivityTimedOut) {
                 appendError(
-                  backendCancelSucceeded
-                    ? "Stopped after 90 seconds without tool progress. The backend run was cancelled, so this conversation is ready for another message."
-                    : "Stopped after 90 seconds without tool progress, but backend cancellation could not be confirmed. Start a new conversation with `letta --new` if this conversation remains busy.",
+                  inactivityStopMessage(
+                    inactivityReason ?? "no_content",
+                    backendCancelSucceeded === true,
+                  ),
                   true,
                 );
               } else if (!EAGER_CANCEL) {

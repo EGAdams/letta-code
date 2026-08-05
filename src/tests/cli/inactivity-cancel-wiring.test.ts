@@ -32,6 +32,12 @@ describe("inactivity timeout cancellation wiring", () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     expect(segment).toContain("if (inactivityTimedOut)");
-    expect(segment).toContain("backend run was cancelled");
+    // The wording itself lives in inactivityStopMessage, which is unit-tested
+    // in stream-activity/inactivity-message.test.ts. What matters here is that
+    // the TUI delegates to it and forwards which deadline actually fired —
+    // hardcoding "90 seconds" here is what made the Mazda stop misleading.
+    expect(segment).toContain("inactivityStopMessage(");
+    expect(segment).toContain("inactivityReason");
+    expect(segment).not.toContain("90 seconds");
   });
 });
