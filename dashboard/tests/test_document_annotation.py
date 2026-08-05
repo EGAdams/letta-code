@@ -132,6 +132,30 @@ def test_pdf_strategy_boxes_only_the_matching_side_by_side_check(tmp_path):
     assert red_rects[0].width < 180
 
 
+def test_check_number_in_description_counts_as_reference_identity():
+    from document_annotation import _best_line
+
+    target = ExpenseEvidence(
+        expense_id=1996,
+        expense_date="2026-01-06",
+        amount="303.00",
+        description="Donation (Check # 1107)",
+        vendor_key="childrens_vision_int_inc",
+    )
+
+    region, score, text = _best_line(
+        [
+            ("8/16/2023 1107 303.00 2,111.00", "target-row"),
+            ("4/22/2025 1071 303.00 1,203.50", "other-row"),
+        ],
+        target,
+    )
+
+    assert region == "target-row"
+    assert score >= 12
+    assert "1107" in text
+
+
 def test_pdf_reference_resolver_derives_check_number(tmp_path):
     import fitz
 
@@ -187,6 +211,38 @@ def test_image_strategy_boxes_the_matching_ocr_line(tmp_path):
     )
     annotated.close()
     assert red_pixels > 100
+
+
+def test_bill_summary_candidate_joins_amount_rows_to_the_dated_balance_row():
+    from document_annotation import (
+        ExpenseEvidence,
+        _best_line,
+        _bill_summary_windows,
+    )
+
+    target = ExpenseEvidence(
+        expense_id=1985,
+        expense_date="2025-04-10",
+        amount="53.06",
+        description="DTE",
+        vendor_key="dte_04_10_25_53_06",
+    )
+    # Captured from Tesseract on the 2026-08-02 Freezer scan. The charge and
+    # its date are printed on adjacent bill-summary rows, not one OCR line.
+    lines = [
+        ("Gas Commercial Heating 53.06", (200, 1953, 1306, 1992)),
+        ("Total Current Charges 53.06", (180, 2004, 1307, 2041)),
+        ("Account Balance as of April 10, 2025 = $216.79", (180, 2062, 1307, 2097)),
+    ]
+
+    candidates = lines + _bill_summary_windows(lines)
+    region, score, text = _best_line(candidates, target)
+
+    assert score >= 10
+    assert "Gas Commercial Heating 53.06" in text
+    assert "April 10, 2025" in text
+    # Adjacent rows prove identity, but only the expense row is boxed.
+    assert region == (200.0, 1953.0, 1306.0, 1992.0)
 
 
 def test_illegible_amount_still_matches_on_date_plus_payee():

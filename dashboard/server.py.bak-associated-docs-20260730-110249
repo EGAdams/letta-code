@@ -6,7 +6,6 @@ Run: python3 server.py   (from /home/adamsl/letta-code/dashboard/)
 Then open: http://localhost:8765/
 """
 import json
-import glob
 import hashlib
 import os
 import re
@@ -26,12 +25,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
-from agents.letta_gateway import ILettaGateway
-from agents.model_options import AgentModelOptionsService, select_model_options
-from agents.urllib_letta_gateway import UrllibLettaGateway
-
 from voice.pipeline import build_pipeline, handle_voice_upload
-from voice.synthesis import EdgeTtsSynthesizer, cache_path as synthesis_cache_path
 from category_taxonomy import FallbackCategoryTaxonomy, MySqlCategoryTaxonomy
 from category_taxonomy_seed import LEGACY_TAXONOMY
 from category_undo import (
@@ -44,11 +38,6 @@ from document_annotation import (
     ExpenseEvidence,
     IExpenseDocumentAnnotationService,
     build_document_annotation_service,
-)
-from recent_intake_view import collapse_check_evidence_rows
-from supporting_document_service import (
-    normalize_supporting_document_reference,
-    should_suppress_source_document,
 )
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 import statement_review
@@ -70,7 +59,6 @@ SERVER_START_TIME = time.time()
 # for edits to take effect. Directories are walked recursively for .py files.
 CODE_WATCH_PATHS = [
     os.path.join(HERE, 'server.py'),
-    os.path.join(HERE, 'agents'),
     os.path.join(HERE, 'document_annotation.py'),
     os.path.join(HERE, 'voice'),
 ]
@@ -152,7 +140,6 @@ ROL_FINANCE_REPORTS = [
     {'key': 'diners-0587-year',  'label': 'Diners 0587 Year',   'dir': 'diners_0587_whole_year_2025', 'all_year': True},
     {'key': 'bank-3119-pdf',     'label': 'Bank 3119 PDF',      'dir': 'fifth_third_non_profit_3119'},
     {'key': 'choice-7580-year',  'label': 'Choice 7580 Year',   'dir': 'choice_7580_year', 'all_year': True},
-    {'key': 'prime-chase-5783',  'label': 'Prime Chase 5783', 'dir': 'prime_chase_5783_whole_year_2025', 'all_year': True},
 ]
 
 
@@ -437,14 +424,6 @@ SCANNER_REPORT_PATH = '/scanner_report.html'
 RECENT_REPORT_POINTER_FILE = os.path.join(HERE, 'recent_report.json')
 _recent_report_lock = threading.Lock()
 
-# Fail-loud intake-halt surface: rol_finances' DashboardIntakeHaltNotifier POSTs
-# here when an intake step crashes (a fault, not a "no match"), so the pipeline
-# HALTS instead of silently inserting a duplicate. Unlike the document-vision
-# halt (which self-clears when a provider tier recovers), a code fault does not
-# recover on its own — it stays active until a human acknowledges it.
-INTAKE_HALT_FILE = os.path.join(HERE, 'intake_halt.json')
-_intake_halt_lock = threading.Lock()
-
 
 def _read_recent_pointer_file():
     """Raw pointer-file contents ({} when missing/corrupt). The file holds BOTH
@@ -510,8 +489,6 @@ def record_recent_intake(image_path, label, kind='scan', facade=None,
             'vendor': facade.get('vendor'),
             'conversation_id': conversation_id,
             'content_sha256': content_sha256 or '',
-            'archive_paths': [],
-            'archive_years': [],
             'status': 'processing',
             'status_detail': '',
         }
@@ -674,19 +651,6 @@ def _fold_event_into_intake(intake, event):
     vendor = event.get('vendor') or event.get('merchant')
     if vendor and vendor != 'unknown':
         intake['vendor'] = vendor
-    if event.get('archive_paths') is not None:
-        intake['archive_paths'] = [
-            str(path).strip() for path in (event.get('archive_paths') or [])
-            if str(path).strip()
-        ]
-    if event.get('archive_years') is not None:
-        cleaned_years = []
-        for year in event.get('archive_years') or []:
-            try:
-                cleaned_years.append(int(year))
-            except (TypeError, ValueError):
-                continue
-        intake['archive_years'] = cleaned_years
     intake['reported_at'] = time.time()
     event_status = str(event.get('status') or '').strip().lower()
     # STEP 8 and Trainer updates can race. A late expense-stored callback has
@@ -855,63 +819,6 @@ def record_intake_status(data):
     return {'ok': merged, 'status': (data or {}).get('status', '')}
 
 
-def record_intake_halt(data):
-    """Persist a fail-loud intake halt so the dashboard can raise the alert.
-
-    Called by rol_finances' DashboardIntakeHaltNotifier. Stores the single most
-    recent halt as active; a human clears it via /api/intake-halt-ack. Kept as a
-    discrete event (not merged) because each halt is a distinct fault to see."""
-    event = data or {}
-    record = {
-        'active': True,
-        'halted_at': time.time(),
-        'step': str(event.get('step', '')),
-        'cause': str(event.get('cause', '')),
-        'exception_type': str(event.get('exception_type', '')),
-        'document_path': str(event.get('document_path', '')),
-        'repo_path': str(event.get('repo_path', '')),
-        'metadata': event.get('metadata') if isinstance(event.get('metadata'), dict) else {},
-    }
-    with _intake_halt_lock:
-        try:
-            with open(INTAKE_HALT_FILE, 'w') as fh:
-                json.dump(record, fh)
-        except OSError as exc:
-            return {'ok': False, 'error': str(exc)}
-    return {'ok': True, 'active': True}
-
-
-def read_intake_halt():
-    """Current intake-halt state for the front-end poller."""
-    with _intake_halt_lock:
-        try:
-            with open(INTAKE_HALT_FILE) as fh:
-                record = json.load(fh)
-        except (OSError, ValueError):
-            return {'ok': True, 'active': False}
-    if not isinstance(record, dict) or not record.get('active'):
-        return {'ok': True, 'active': False}
-    return {'ok': True, 'active': True, 'event': record}
-
-
-def acknowledge_intake_halt():
-    """Clear the active halt once a human has seen it (the alert's Acknowledge)."""
-    with _intake_halt_lock:
-        try:
-            with open(INTAKE_HALT_FILE) as fh:
-                record = json.load(fh)
-        except (OSError, ValueError):
-            return {'ok': True, 'active': False}
-        if isinstance(record, dict):
-            record['active'] = False
-            try:
-                with open(INTAKE_HALT_FILE, 'w') as fh:
-                    json.dump(record, fh)
-            except OSError as exc:
-                return {'ok': False, 'error': str(exc)}
-    return {'ok': True, 'active': False}
-
-
 def _load_recent_report_pointer():
     data = _read_recent_pointer_file()
     rp = data.get('report_path')
@@ -986,8 +893,7 @@ def _fetch_expenses_by_ids(ids):
             role_select = ', expense_role' if has_expense_roles else ''
             cur.execute(
                 "SELECT id, expense_date, amount, id_light, description, category_id, "
-                "receipt_url, document_url, scanned_statement_url, "
-                f"moms_ledger{role_select} "
+                f"receipt_url, document_url, moms_ledger{role_select} "
                 f"FROM expenses WHERE id IN ({placeholders}) "
                 "ORDER BY expense_date, id",
                 tuple(clean),
@@ -1004,8 +910,7 @@ def _fetch_expenses_by_ids(ids):
                 ph2 = ','.join(['%s'] * len(parent_ids))
                 cur.execute(
                     "SELECT id, expense_date, amount, id_light, description, category_id, "
-                    "receipt_url, document_url, scanned_statement_url, moms_ledger, "
-                    "expense_role, parent_expense_id "
+                    "receipt_url, document_url, moms_ledger, expense_role, parent_expense_id "
                     f"FROM expenses WHERE parent_expense_id IN ({ph2}) "
                     "AND expense_role='LINE_ITEM' "
                     "ORDER BY expense_date, id",
@@ -1051,9 +956,6 @@ def _fetch_expenses_by_ids(ids):
             'reporting_category': rep,
             'cat_class': _css_class_for_report_name(rep),
             'receipt_url': (r.get('receipt_url') or '').strip(),
-            'document_url': (r.get('document_url') or '').strip(),
-            'scanned_statement_url': (r.get('scanned_statement_url') or '').strip(),
-            'moms_ledger': (r.get('moms_ledger') or '').strip(),
         })
     return out
 
@@ -1125,13 +1027,6 @@ def _associated_source_paths(rows):
                 r.get('date'), r.get('amount'), r.get('vendor_key'))
             if match:
                 pdf_path = _source_document_path(match['report_path']) or ''
-            if not pdf_path:
-                # No report.html traces back to this row, but the expense may
-                # still carry its own document_url (e.g. a bank-downloaded
-                # statement/xlsx attached directly, never via a report row).
-                du = (r.get('document_url') or '').strip()
-                if du:
-                    pdf_path = _resolve_local_supporting_document(du, 'source') or ''
         if not receipt_path:
             ru = (r.get('receipt_url') or '').strip()
             if ru:
@@ -1140,97 +1035,6 @@ def _associated_source_paths(rows):
         if pdf_path and receipt_path:
             break
     return pdf_path, receipt_path
-
-
-def _associated_evidence_paths(rows):
-    """Resolve the remaining two supporting-document evidence slots
-    (`scanned_statement_url`, `moms_ledger`) backing a set of transactions —
-    the counterparts to `_associated_source_paths`'s PDF/receipt.
-
-    Scanner intakes routinely populate `scanned_statement_url` (the archived
-    photo of the printed statement) without ever touching `document_url` or
-    `receipt_url`, so these are surfaced separately rather than folded into
-    _associated_source_paths's two slots. See the 4-evidence-slot model.
-    Returns (scanned_statement_path or '', moms_ledger_path or ''), stopping at
-    the first row that yields each.
-    """
-    scanned_statement_path, moms_ledger_path = '', ''
-    for r in rows or []:
-        if not scanned_statement_path:
-            ref = (r.get('scanned_statement_url') or '').strip()
-            if ref:
-                scanned_statement_path = (
-                    _resolve_local_supporting_document(ref, 'scanned_statement')
-                    or ref)
-        if not moms_ledger_path:
-            ref = (r.get('moms_ledger') or '').strip()
-            if ref:
-                moms_ledger_path = (
-                    _resolve_local_supporting_document(ref, 'moms_ledger') or ref)
-        if scanned_statement_path and moms_ledger_path:
-            break
-    return scanned_statement_path, moms_ledger_path
-
-
-def _statement_archive_path(rows, vendor_key=''):
-    """Locate the canonically-named bank_statements archive copy of a scanned
-    statement — readable_documents/bank_statements/<year>/<month>/
-    <vendor>_<slug>/<vendor>_<slug>.<ext>, where slug is built from the
-    statement's own date range (e.g. 'july_31__august_15').
-
-    Scanner intakes only ever populate scanned_statement_url with the raw
-    scan filename (e.g. window_scan_...jpg) — the properly-named copy filed
-    under bank_statements/ isn't linked from the DB anywhere, so it has to be
-    found by matching this slug against every year/month folder rather than
-    looked up directly. Vendor tokens disambiguate when more than one folder
-    shares a date range; an unresolved ambiguity returns '' rather than
-    guessing (same fail-closed shape as _find_matching_report_row).
-    """
-    dates = sorted({r.get('date') for r in rows or [] if r.get('date')})
-    if not dates:
-        return ''
-    try:
-        start = datetime.strptime(dates[0], '%Y-%m-%d')
-        end = datetime.strptime(dates[-1], '%Y-%m-%d')
-    except ValueError:
-        return ''
-    slug = (f'{start.strftime("%B").lower()}_{start.day:02d}__'
-            f'{end.strftime("%B").lower()}_{end.day:02d}')
-    pattern = os.path.join(
-        READABLE_DOCS_BASE, 'bank_statements', str(start.year), '*', f'*{slug}')
-    folders = sorted(glob.glob(pattern))
-    if len(folders) > 1 and vendor_key:
-        tokens = [t for t in vendor_key.lower().split('_') if t.isalpha()]
-        narrowed = [f for f in folders
-                    if any(t in os.path.basename(f).lower() for t in tokens)]
-        if narrowed:
-            folders = narrowed
-    if len(folders) != 1:
-        return ''
-    folder = folders[0]
-    name = os.path.basename(folder)
-    for ext in ('.jpg', '.jpeg', '.png', '.pdf', '.xlsx'):
-        candidate = os.path.join(folder, name + ext)
-        if os.path.isfile(candidate):
-            return candidate
-    return ''
-
-
-def _recent_intake_archive_path(intake, rows, receipt_path=''):
-    """Return this intake's durable filed scan, never its staging name."""
-    archive_paths = [
-        str(path).strip() for path in (intake.get('archive_paths') or [])
-        if str(path).strip()
-    ]
-    if archive_paths:
-        return archive_paths[0]
-    doc_kind = str(intake.get('doc_kind') or '').strip().lower()
-    if doc_kind in {'receipt', 'invoice'}:
-        return str(receipt_path or '').strip()
-    if doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}:
-        return _statement_archive_path(
-            rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
-    return ''
 
 
 _DOC_KIND_LABELS = {
@@ -1421,9 +1225,6 @@ def build_recent_intake_html(intake):
     rows, row_error = [], None
     try:
         rows = _fetch_expenses_by_ids(intake.get('expense_ids') or [])
-        rows, promoted_duplicate_ids = collapse_check_evidence_rows(
-            rows, duplicate_ids)
-        duplicate_ids |= promoted_duplicate_ids
     except Exception as exc:
         row_error = str(exc)
 
@@ -1439,23 +1240,6 @@ def build_recent_intake_html(intake):
     else:
         pdf_display = '--'
     receipt_display = _esc(receipt_path) if receipt_path else '--'
-    scanned_statement_path, moms_ledger_path = _associated_evidence_paths(rows)
-    # Prefer the canonically-named bank_statements/ archive copy over
-    # whatever raw scan filename scanned_statement_url happens to carry —
-    # legacy rows still point at the staging path even once a properly
-    # named copy has been filed. See _statement_archive_path.
-    archive_path = _recent_intake_archive_path(
-        intake, rows, receipt_path=receipt_path)
-    if (archive_path and str(intake.get('doc_kind') or '').lower()
-            in {'statement', 'bank_statement', 'credit_card_statement'}):
-        scanned_statement_path = archive_path
-    scanned_statement_display = (
-        _esc(scanned_statement_path) if scanned_statement_path else '--')
-    archived_scan_display = _esc(archive_path) if archive_path else '--'
-    moms_ledger_display = _esc(moms_ledger_path) if moms_ledger_path else '--'
-    staged_scan_path = _intake_source_document(intake)
-    staged_scan_display = _esc(staged_scan_path) if staged_scan_path else '--'
-    display_doc = os.path.basename(archive_path) if archive_path else doc
 
     if intake_status in ('fail', 'stalled'):
         label_text = 'FAILED' if intake_status == 'fail' else 'STALLED'
@@ -1585,17 +1369,13 @@ def build_recent_intake_html(intake):
         + picker_css + '\n'
         '  </style></head><body>\n'
         '<section class="card">\n'
-        f'  <h1>Most Recent Document: {_esc(display_doc)}</h1>\n'
+        f'  <h1>Most Recent Document: {_esc(doc)}</h1>\n'
         f'  <p class="muted">{_esc(sub)}dispatched {_esc(when)}</p>\n'
         '  <p class="doc-meta">'
         f'Document Type: {_esc(doc_type_label)}<br>'
         f'Month Range: {_esc(month_range)}<br>'
         f'Associated PDF: {pdf_display}<br>'
-        f'Associated Receipt: {receipt_display}<br>'
-        f'Associated Scanned Statement: {scanned_statement_display}<br>'
-        f'Archived Scan Copy: {archived_scan_display}<br>'
-        f'Associated Mom’s Ledger: {moms_ledger_display}<br>'
-        f'Staged Scan Image: {staged_scan_display}</p>\n'
+        f'Associated Receipt: {receipt_display}</p>\n'
         f'  <p>{_esc(status)}</p>\n'
         + working +
         table +
@@ -1627,57 +1407,6 @@ def build_recent_report_html():
     if m:
         return html[:m.end()] + base_tag + html[m.end():]
     return base_tag + html
-
-
-def _embed_report_html(report_url, report_file):
-    """Return one report.html with a <base href> injected for dashboard use."""
-    with open(report_file, encoding='utf-8', errors='replace') as f:
-        html = f.read()
-    base_href = report_url.rsplit('/', 1)[0] + '/'
-    base_tag = f'<base href="{base_href}">'
-    m = re.search(r'<head[^>]*>', html, re.I)
-    if m:
-        return html[:m.end()] + base_tag + html[m.end():]
-    return base_tag + html
-
-
-def _scanner_statement_report(scanner_key, intake):
-    """Prefer the canonical archived statement report for one scanner intake.
-
-    When a statement scan already has a real archived report.html that contains
-    one of this intake's expense ids, serve that report directly instead of the
-    synthetic intake page. This keeps the scanner tab aligned with the verified
-    canonical artifact and avoids collapsing a statement down to whatever subset
-    of ids happened to be forwarded in the intake callback.
-    """
-    if not isinstance(intake, dict):
-        return None
-    doc_kind = str(intake.get('doc_kind') or '').strip().lower()
-    if doc_kind not in {'statement', 'bank_statement', 'tax_document'}:
-        return None
-    expense_ids = []
-    for source in (intake.get('expense_ids') or [],
-                   intake.get('duplicate_expense_ids') or [],
-                   intake.get('scanned_statement_attached') or []):
-        for value in source:
-            try:
-                expense_ids.append(int(value))
-            except (TypeError, ValueError):
-                continue
-    if not expense_ids:
-        return None
-    seen = set()
-    for expense_id in expense_ids:
-        if expense_id in seen:
-            continue
-        seen.add(expense_id)
-        found = _find_matching_report_row('', '', expense_id=expense_id)
-        if not found:
-            continue
-        report_file = _report_file_for_url(found.get('report_path', ''))
-        if report_file:
-            return {'url': found['report_path'], 'file': report_file, 'expense_id': expense_id}
-    return None
 
 
 def get_scanner_intake(scanner_key):
@@ -1724,9 +1453,6 @@ def build_scanner_report_html(scanner_key):
                 f'<p>No document has been scanned on the {name} yet. '
                 'Scan a document and this page will show its Verified '
                 'Transactions.</p>')
-    canonical = _scanner_statement_report(scanner_key, intake)
-    if canonical:
-        return _embed_report_html(canonical['url'], canonical['file'])
     return build_recent_intake_html(intake)
 
 
@@ -3598,15 +3324,9 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'in the STEP 5 evidence problems why you ruled it out. On 2026-07-29 a $24.20 '
         f'contribution was stored a second time because a "Check 11040" row with the '
         f'same date and amount was dismissed as unrelated.\n'
-        f'  If duplicate → STILL run STEP 4 exactly once, without '
-        f'--allow-duplicate. STEP 4 is also the receipt-filing/attachment step: it '
-        f'must rename the scan, archive it under readable_documents/receipts/'
-        f'{{year}}/{{month}}/{{month}}_{{day}}, and attach or upgrade receipt_url on '
-        f'the matched expense without inserting a second expense. A duplicate result '
-        f'or linked_counterpart=true is success; a same-type durable conflict requires '
-        f'verification. Still run STEP 3 categorization, record_trace, judge_trace, '
-        f'and the STEP 8 callback; duplicate detection is never permission to stop '
-        f'the run early. Keep the returned '
+        f'  If duplicate → skip only STEP 4 storage. Still run STEP 3 categorization, '
+        f'record_trace, judge_trace, and the STEP 8 callback; duplicate detection is '
+        f'never permission to stop the run early. Keep the returned '
         f'exact_duplicate_expense_id — STEP 8 must report it in duplicate_expense_ids, '
         f'or the dashboard has no row to show and the Recent Report page comes up '
         f'empty for this scan.\n\n'
@@ -3650,8 +3370,6 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'  → {{"success": true, "expense_id": <int>, "pending_vendor_review": <true when '
         f'--category-id was omitted/invalid>, "parse_artifact_verified": '
         f'<true for the STEP 0 artifact path>, '
-        f'"receipt_archive_path": "<canonical filed image>", '
-        f'"archive_paths": ["<canonical filed image>"], '
         f'"parsed_amount": <the exact STEP 0 amount>, "expense_scope": '
         f'"full_receipt"|"marked_items", ...}} OR a duplicate result. '
         + receipt_store_contract +
@@ -3684,11 +3402,6 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"category_id": <int or null>, '
         f'"duplicate_checked": <true|false>, "is_duplicate": <true|false>, '
         f'"stored": <true|false>, "expense_id": <int or null>, '
-        f'"linked_counterpart": <true when the save returned linked_counterpart:true — '
-        f'the receipt was attached to an existing statement expense instead of inserting a '
-        f'second row; expense_id is then that existing row and stored may be false>, '
-        f'"intake_halted": <true ONLY when a --save/store command returned '
-        f'"halted": true — see the HALT RULE below; then stored:false and expense_id:null>, '
         f'"itemization_attempted": <true|false>, "itemized": <true|false>, '
         f'"itemization_reconciled": <true only when itemization succeeded>, '
         f'"itemization_parent_id": <int or null>, '
@@ -3700,16 +3413,6 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'the judge treats a null category with pending_vendor_review unset as a real failure, '
         f'not the correct degraded save the FAIL-CLOSED CATEGORY RULE describes>, '
         f'"problems": [<strings>]}}\n'
-        f'  HALT RULE: if ANY `--save`/store command returns `"halted": true` (a JSON object '
-        f'with a `halt` block naming a `step`/`cause`/`exception_type`), an intake step '
-        f'crashed inside the tool — the pipeline fail-loud stopped instead of inserting a '
-        f'possibly-duplicate row. This is NOT your fault and there is nothing to retry or work '
-        f'around: do NOT re-run --save, do NOT add --allow-duplicate, do NOT hand-build a row. '
-        f'Record the trace with "intake_halted": true, "stored": false, "expense_id": null, and '
-        f'the halt\'s cause copied into "problems", then STILL run judge_trace and the STEP 8 '
-        f'dashboard callback (send stored:0). The judge scores a halt NEEDS_REVIEW, not FAIL, so '
-        f'do NOT call propose_improvement/apply_proposal for it — it is escalated to Suzuki as a '
-        f'code bug, not learned around.\n'
         f'  For a STATEMENT, record this evidence JSON INSTEAD (the judge routes it '
         f'to the statement rubric — the receipt fields above do not apply):\n'
         f'  {{"document_path": "{scan_image_path}", "doc_kind": "statement", '
@@ -3761,8 +3464,6 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"parsed":<transactions parsed>,"stored":<transactions stored>,'
         f'"deposits_stored":<deposits stored to the transactions ledger this run; '
         f'0 when none>,'
-        f'"archive_paths":[<all permanent receipt or statement copies returned by '
-        f'the store command>],"archive_years":[<their years>],'
         f'"expense_date":"<YYYY-MM-DD>",'
         f'"amount":"<decimal string>","vendor_key":"<vendor_key>",'
         f'"description":"<merchant_name>","receipt_url":"<scan_image_path>",'
@@ -4810,8 +4511,6 @@ def record_stored_expense(data):
         'stored': data.get('stored'),
         'doc_kind': data.get('doc_kind') or data.get('doc_type') or '',
         'vendor': data.get('vendor') or data.get('merchant') or '',
-        'archive_paths': data.get('archive_paths') or [],
-        'archive_years': data.get('archive_years') or [],
         # Preserve exact dispatch identity.  Reusable scanner filenames are
         # insufficient routing keys when an older conversation reports late.
         'conversation_id': data.get('conversation_id', ''),
@@ -5150,20 +4849,6 @@ def _intake_source_document(intake):
     return ''
 
 
-def _intake_scan_is_a_source_document(intake):
-    """Whether this intake's scan image is a *separate* source document from
-    its receipt — e.g. a scanned multi-transaction bank/credit-card statement.
-
-    A receipt or invoice scan has no separate downloaded source: the scan IS
-    the receipt, already offered via "View Receipt", so offering it again as
-    "View Source Document" is misleading (same image, redundant button). Only
-    statement-type scans — which cover many transactions distinct from any
-    one row's own receipt — should populate that button from the scan image.
-    """
-    doc_kind = str((intake or {}).get('doc_kind') or '').strip().lower()
-    return doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}
-
-
 def _report_source_document_reference(report_path):
     """The document the report page holding this row was built from.
 
@@ -5171,24 +4856,16 @@ def _report_source_document_reference(report_path):
     finds by scanning the report directory. Scanner reports and Recent Report in
     intake mode are synthetic DB-backed pages with **no** report.html — their
     source document is the scan image named by the intake pointer, so resolve it
-    from there instead of from the URL, but only when that scan is actually a
-    statement (see `_intake_scan_is_a_source_document`) — a plain receipt/invoice
-    scan has no separate source document to offer.
+    from there instead of from the URL.
     """
     base, _, query = unquote(str(report_path or '')).partition('?')
     if base == SCANNER_REPORT_PATH:
         scanner_key = (parse_qs(query).get('scanner', [''])[0] or '').strip().lower()
-        intake = get_scanner_intake(scanner_key) or {}
-        if not _intake_scan_is_a_source_document(intake):
-            return ''
-        return _intake_source_document(intake)
+        return _intake_source_document(get_scanner_intake(scanner_key) or {})
     if base == RECENT_REPORT_PATH:
         recent = resolve_recent_report() or {}
         if recent.get('mode') == 'intake':
-            intake = recent.get('intake') or {}
-            if not _intake_scan_is_a_source_document(intake):
-                return ''
-            return _intake_source_document(intake)
+            return _intake_source_document(recent.get('intake') or {})
         return _source_document_path(recent.get('url') or '')
     return _source_document_path(report_path)
 
@@ -5202,17 +4879,8 @@ def _source_document_reference(chosen, report_path=''):
     with no View Source Document button at all, even on a scanner report that
     knows exactly which image it came from.
     """
-    chosen = chosen or {}
-    reference = chosen.get('document_url') or ''
+    reference = (chosen or {}).get('document_url') or ''
     reference = str(reference).strip()
-    receipt_reference = str(chosen.get('receipt_url') or '').strip()
-    if should_suppress_source_document(
-            reference,
-            receipt_reference,
-            resolve_local_path=lambda ref: _resolve_local_supporting_document(
-                ref, 'source'
-            ) or _resolve_local_supporting_document(ref, 'receipt')):
-        return ''
     if _usable_document_reference(reference) and (
             urlparse(reference).scheme in {'http', 'https'}
             or _resolve_local_supporting_document(reference, 'source')):
@@ -5224,7 +4892,7 @@ def _supporting_document_descriptors(chosen, report_path=''):
     descriptors = []
     for slot in SUPPORTING_DOCUMENT_CATALOG.slots():
         kind, label, field = slot.kind, slot.label, slot.expense_field
-        reference = normalize_supporting_document_reference(chosen.get(field))
+        reference = (chosen.get(field) or '').strip()
         if kind == 'source':
             reference = _source_document_reference(chosen, report_path)
         local_path = _resolve_local_supporting_document(reference, kind)
@@ -6032,22 +5700,16 @@ def build_receipt_only_report_html(month_key=None):
 # Letta API base URL — override with LETTA_BASE_URL env var
 LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rstrip('/')
 
-# Model handles selectable per-agent from Input Options. Keep this curated list
-# aligned with the ChatGPT OAuth catalog advertised by the live Letta server.
+# Model handles selectable per-agent from Input Options. These are the ONLY
+# handles the chatgpt-plus-pro (Codex OAuth) provider accepts — verified
+# 2026-07-08 by probing chatgpt.com/backend-api/codex/responses directly:
+# every other handle (gpt-5.3, gpt-5.2, all *-codex variants) returns
+# "model is not supported when using Codex with a ChatGPT account".
 AGENT_MODEL_OPTIONS = [
-    'chatgpt-plus-pro/gpt-5.6-sol',
-    'chatgpt-plus-pro/gpt-5.6-terra',
-    'chatgpt-plus-pro/gpt-5.6-luna',
     'chatgpt-plus-pro/gpt-5.5',
     'chatgpt-plus-pro/gpt-5.4',
     'chatgpt-plus-pro/gpt-5.4-mini',
 ]
-
-_LETTA_GATEWAY: ILettaGateway = UrllibLettaGateway(LETTA_BASE_URL)
-_AGENT_MODEL_OPTIONS_SERVICE = AgentModelOptionsService(
-    _LETTA_GATEWAY,
-    AGENT_MODEL_OPTIONS,
-)
 
 AGENT_VOICE_OPTIONS = [
     'en-GB-SoniaNeural',
@@ -6070,13 +5732,13 @@ AGENT_VOICE_OPTIONS = [
 AGENT_VOICE_METADATA_KEY = 'dashboard_voice'
 
 def agent_model_options(current_handle):
-    """Compatibility shim for callers that still consume a plain list."""
-    return list(select_model_options(current_handle, tuple(AGENT_MODEL_OPTIONS)))
-
-def agent_model_payload(letta_id, service=None):
-    """Compatibility shim while model reads move behind ILettaGateway."""
-    model_service = service or _AGENT_MODEL_OPTIONS_SERVICE
-    return model_service.get_options(letta_id).to_http()
+    """Dropdown options for an agent: the vetted Codex handles, plus the
+    agent's own handle at the top when it's on another provider (lc-gemini,
+    etc.) so the dropdown never lies about the current state."""
+    options = list(AGENT_MODEL_OPTIONS)
+    if current_handle and current_handle not in options:
+        options.insert(0, current_handle)
+    return options
 
 def agent_voice_from_metadata(agent_data):
     """Return a valid dashboard voice stored on the Letta agent, or ''."""
@@ -6343,22 +6005,58 @@ EDGE_TTS_VOICE = os.environ.get('EDGE_TTS_VOICE', 'en-GB-SoniaNeural')
 EDGE_TTS_TIMEOUT_SEC = int(os.environ.get('EDGE_TTS_TIMEOUT_SEC', 30))
 TTS_MAX_TEXT_LEN = 4000
 TTS_CACHE_DIR = os.environ.get('TTS_CACHE_DIR', '/tmp/dashboard_tts_cache')
+_VOICE_NAME_RE = re.compile(r'^[A-Za-z]{2}-[A-Za-z]{2,}-[A-Za-z0-9]+$')
+
 
 def tts_cache_path(text, voice):
-    """Compatibility export for the extracted voice synthesis service."""
-    return synthesis_cache_path(TTS_CACHE_DIR, text, voice)
+    """Deterministic cache file for a (voice, text) pair (pure)."""
+    key = hashlib.sha256(f'{voice}\x00{text}'.encode('utf-8')).hexdigest()
+    return os.path.join(TTS_CACHE_DIR, f'{voice}_{key[:32]}.mp3')
 
 
 def synthesize_speech(text, voice=None, runner=subprocess.run):
-    """Compatibility adapter for the extracted server-rewrite voice service."""
-    return EdgeTtsSynthesizer(
-        binary_path=EDGE_TTS_BIN,
-        default_voice=EDGE_TTS_VOICE,
-        cache_dir=TTS_CACHE_DIR,
-        timeout_sec=EDGE_TTS_TIMEOUT_SEC,
-        max_text_len=TTS_MAX_TEXT_LEN,
-        runner=runner,
-    ).synthesize(text, voice)
+    """Text → MP3 file via edge-tts; returns {ok, path, cached} or {ok:False, error}.
+
+    `runner` is injected so tests never hit the network. Results are cached by
+    (voice, text) hash — repeated phrases (agent names, short acks) are served
+    from disk instantly.
+    """
+    text = (text or '').strip()
+    if not text:
+        return {'ok': False, 'error': 'empty text'}
+    if len(text) > TTS_MAX_TEXT_LEN:
+        text = text[:TTS_MAX_TEXT_LEN]
+    voice = voice or EDGE_TTS_VOICE
+    if not _VOICE_NAME_RE.match(voice):
+        return {'ok': False, 'error': f'invalid voice name: {voice!r}'}
+
+    path = tts_cache_path(text, voice)
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return {'ok': True, 'path': path, 'cached': True}
+
+    if not os.path.exists(EDGE_TTS_BIN):
+        return {'ok': False, 'error': f'edge-tts binary not found: {EDGE_TTS_BIN}'}
+    os.makedirs(TTS_CACHE_DIR, exist_ok=True)
+    tmp_path = f'{path}.tmp{os.getpid()}'
+    try:
+        proc = runner(
+            [EDGE_TTS_BIN, '--voice', voice, '--text', text,
+             '--write-media', tmp_path],
+            capture_output=True, text=True, timeout=EDGE_TTS_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'error': f'edge-tts timed out after {EDGE_TTS_TIMEOUT_SEC}s'}
+    except Exception as exc:
+        return {'ok': False, 'error': f'edge-tts failed to run: {exc}'}
+    if proc.returncode != 0 or not os.path.exists(tmp_path) \
+            or os.path.getsize(tmp_path) == 0:
+        err = (proc.stderr or '').strip() or f'exit {proc.returncode}'
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        return {'ok': False, 'error': f'edge-tts failed: {err[:300]}'}
+    os.replace(tmp_path, path)  # atomic — concurrent requests can't collide
+    return {'ok': True, 'path': path, 'cached': False}
 
 # Port this dashboard is served on (also used for the dashboard self-health check).
 PORT = int(os.environ.get('PORT', 8765))
@@ -6571,10 +6269,6 @@ SSH_CONNECTIONS = [
         'name': 'Windows 10 Host',
         'host': '100.69.80.89',
         'user': 'NewUser',
-        # Prefer the dedicated key on the remote WSL dashboard host. The
-        # fallback is the normal key on this WSL host, where that dedicated
-        # key is not installed.
-        'identity_files': ('~/.ssh/id_win10_host', '~/.ssh/id_ed25519_win10', '~/.ssh/id_ed25519'),
         'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.69.80.89)',
     },
     {
@@ -6765,49 +6459,6 @@ def restart_dashboard_server():
         return {'ok': False, 'text': 'systemd-run not found — cannot self-restart on this host.'}
     except Exception as e:
         return {'ok': False, 'text': str(e)}
-
-
-def deploy_dashboard():
-    """Keyboard-free deploy: fast-forward the checked-out branch and self-restart.
-
-    This is the resilience path — the whole point is that the system is never
-    "dead in the water" waiting for a human at a keyboard. The dashboard runs in
-    the real `systemd --user` session, so it can `git pull` the live checkout and
-    restart itself, which a sandboxed executor (or Frita over Tailscale) cannot do
-    directly. It only ever fast-forwards the branch that is ALREADY checked out —
-    nothing to specify, no way to land on the wrong branch, no auth to lose.
-
-    Fails loud (standing rule): a non-fast-forwardable pull or any git error is
-    reported back and the restart is SKIPPED, so a broken or dirty tree is never
-    activated. Only a clean fast-forward proceeds to restart_dashboard_server()."""
-    def _git(*args):
-        return subprocess.run(
-            ['git', '-C', REPO_ROOT, *args],
-            capture_output=True, text=True, timeout=120)
-    try:
-        branch = _git('rev-parse', '--abbrev-ref', 'HEAD').stdout.strip()
-        before = _git('rev-parse', '--short', 'HEAD').stdout.strip()
-        fetch = _git('fetch', 'origin', branch)
-        if fetch.returncode != 0:
-            return {'ok': False, 'text': f'git fetch origin {branch} failed — '
-                                         f'tree NOT restarted:\n{fetch.stderr.strip()}'}
-        pull = _git('pull', '--ff-only', 'origin', branch)
-        if pull.returncode != 0:
-            return {'ok': False, 'text': f'git pull --ff-only origin {branch} failed — '
-                                         f'tree NOT restarted (fix the working tree first):\n'
-                                         f'{pull.stderr.strip() or pull.stdout.strip()}'}
-        after = _git('rev-parse', '--short', 'HEAD').stdout.strip()
-    except FileNotFoundError:
-        return {'ok': False, 'text': 'git not found — cannot deploy on this host.'}
-    except subprocess.TimeoutExpired:
-        return {'ok': False, 'text': 'git operation timed out — tree NOT restarted.'}
-    except Exception as e:
-        return {'ok': False, 'text': f'deploy error — tree NOT restarted: {e}'}
-
-    restart = restart_dashboard_server()
-    moved = 'already up to date' if before == after else f'{before} -> {after}'
-    return {'ok': restart.get('ok', False),
-            'text': f'Deployed {branch} ({moved}). ' + restart.get('text', '')}
 
 
 # docker-compose v1.29.2 (required on this box — see [[reference_logger_api_ops]])
@@ -7291,11 +6942,7 @@ def get_letta_id(agent_cfg):
         return agent_cfg['id']
     return _resolve_letta_id(agent_cfg['name'])
 
-def letta_messages(
-    agent_id: str,
-    limit: int = 200,
-    gateway: ILettaGateway | None = None,
-) -> list[dict[str, object]]:
+def letta_messages(agent_id, limit=200):
     """Fetch all message types for an agent from the Letta API.
 
     Backs the Messages/Thoughts/Tool Calls tabs. Uses a longer-than-default
@@ -7306,15 +6953,10 @@ def letta_messages(
     even though the agent had messages. 25s keeps this under the browser's
     30s fetch abort while giving the slow relay path room to finish.
     """
-    message_gateway = gateway or _LETTA_GATEWAY
-    return [
-        message.to_legacy()
-        for message in message_gateway.get_agent_messages(
-            agent_id,
-            limit=limit,
-            timeout=25,
-        )
-    ]
+    data = letta_get(f'/v1/agents/{agent_id}/messages?limit={limit}', timeout=25)
+    if not data:
+        return []
+    return data if isinstance(data, list) else data.get('messages', data.get('results', []))
 
 def _msg_date(m):
     """Return the best available timestamp string for a Letta message."""
@@ -8038,14 +7680,7 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
     """Run a real `ssh ... echo CONNECTED` round trip against cfg. Returns {ok, text}."""
     target = f"{cfg['user']}@{cfg['host']}"
     cmd = ['ssh', '-o', f'ConnectTimeout={timeout}', '-o', 'BatchMode=yes',
-           '-o', 'StrictHostKeyChecking=accept-new']
-    identity_files = cfg.get('identity_files') or (cfg.get('identity_file', ''),)
-    for configured_identity in identity_files:
-        identity_file = os.path.expanduser(configured_identity)
-        if identity_file and os.path.isfile(identity_file):
-            cmd.extend(['-o', 'IdentitiesOnly=yes', '-i', identity_file])
-            break
-    cmd.extend([target, 'echo CONNECTED && hostname'])
+           '-o', 'StrictHostKeyChecking=accept-new', target, 'echo CONNECTED && hostname']
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
         out_lines = result.stdout.strip().splitlines()
@@ -9584,7 +9219,7 @@ def _letta_code_command():
         f'or {built})')
 
 
-def run_letta_code_message(agent_id, prompt, timeout=900):
+def run_letta_code_message(agent_id, prompt, timeout=330):
     """Run one Letta Code turn and expose only its final JSON result."""
     lid = letta_id_for(agent_id)
     if not lid or not _TERMINAL_ID_RE.fullmatch(lid):
@@ -9954,7 +9589,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             lid = letta_id_for(agent_id)
             if not lid:
                 return self.json_response({'ok': False, 'error': 'not a Letta agent', 'options': []})
-            return self.json_response(agent_model_payload(lid))
+            data = letta_get(f'/v1/agents/{lid}', timeout=15) or {}
+            llm = data.get('llm_config') or {}
+            handle = llm.get('handle') or llm.get('model') or ''
+            return self.json_response({'ok': True, 'current': handle,
+                                        'options': agent_model_options(handle)})
 
         if path == '/api/router-agent':
             from router.classify import build_router_strategy
@@ -10189,11 +9828,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except (ValueError, TypeError):
                 since_ts = 0.0
             return self.json_response(get_stored_expense_events(since_ts))
-
-        # Fail-loud intake-halt state — IntakeHaltAlert polls this and raises a
-        # full-screen "cannot continue" modal while a halt is active.
-        if path == '/api/intake-halt':
-            return self.json_response(read_intake_halt())
 
         # Statements quarantined in bank_statements/_needs_review/ — the Scanner
         # screen polls this and pops a dialog for each one.
@@ -10488,11 +10122,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     result = start_frita_executor()
                     return self.json_response(result)
 
-                if action == 'deploy' and server == 'dashboard':
-                    # Keyboard-free deploy: pull the current branch + self-restart.
-                    result = deploy_dashboard()
-                    return self.json_response(result)
-
                 if action in ('start', 'restart') and server == 'dashboard':
                     result = restart_dashboard_server()
                     return self.json_response(result)
@@ -10598,16 +10227,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.error_response('Invalid JSON', 400)
             result = record_intake_status(data)
             return self.json_response(result)
-
-        if path == '/api/intake-halt':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(record_intake_halt(data))
-
-        if path == '/api/intake-halt-ack':
-            return self.json_response(acknowledge_intake_halt())
 
         if path == '/api/route-detect':
             try:

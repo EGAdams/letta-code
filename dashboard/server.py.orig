@@ -1421,9 +1421,6 @@ def build_recent_intake_html(intake):
     rows, row_error = [], None
     try:
         rows = _fetch_expenses_by_ids(intake.get('expense_ids') or [])
-        rows, promoted_duplicate_ids = collapse_check_evidence_rows(
-            rows, duplicate_ids)
-        duplicate_ids |= promoted_duplicate_ids
     except Exception as exc:
         row_error = str(exc)
 
@@ -6571,10 +6568,6 @@ SSH_CONNECTIONS = [
         'name': 'Windows 10 Host',
         'host': '100.69.80.89',
         'user': 'NewUser',
-        # Prefer the dedicated key on the remote WSL dashboard host. The
-        # fallback is the normal key on this WSL host, where that dedicated
-        # key is not installed.
-        'identity_files': ('~/.ssh/id_win10_host', '~/.ssh/id_ed25519_win10', '~/.ssh/id_ed25519'),
         'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.69.80.89)',
     },
     {
@@ -8038,14 +8031,7 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
     """Run a real `ssh ... echo CONNECTED` round trip against cfg. Returns {ok, text}."""
     target = f"{cfg['user']}@{cfg['host']}"
     cmd = ['ssh', '-o', f'ConnectTimeout={timeout}', '-o', 'BatchMode=yes',
-           '-o', 'StrictHostKeyChecking=accept-new']
-    identity_files = cfg.get('identity_files') or (cfg.get('identity_file', ''),)
-    for configured_identity in identity_files:
-        identity_file = os.path.expanduser(configured_identity)
-        if identity_file and os.path.isfile(identity_file):
-            cmd.extend(['-o', 'IdentitiesOnly=yes', '-i', identity_file])
-            break
-    cmd.extend([target, 'echo CONNECTED && hostname'])
+           '-o', 'StrictHostKeyChecking=accept-new', target, 'echo CONNECTED && hostname']
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
         out_lines = result.stdout.strip().splitlines()
@@ -9584,7 +9570,7 @@ def _letta_code_command():
         f'or {built})')
 
 
-def run_letta_code_message(agent_id, prompt, timeout=900):
+def run_letta_code_message(agent_id, prompt, timeout=330):
     """Run one Letta Code turn and expose only its final JSON result."""
     lid = letta_id_for(agent_id)
     if not lid or not _TERMINAL_ID_RE.fullmatch(lid):

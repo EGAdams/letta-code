@@ -166,3 +166,4 @@ browser_tools/*
 
 .claude/scheduled_tasks.lock
 dashboard/.playwright-mcp/page-*.yml
+scan_freezer.jpg

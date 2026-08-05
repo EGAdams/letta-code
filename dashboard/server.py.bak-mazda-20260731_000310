@@ -26,7 +26,6 @@ from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
-from agents.letta_gateway import ILettaGateway
 from agents.model_options import AgentModelOptionsService, select_model_options
 from agents.urllib_letta_gateway import UrllibLettaGateway
 
@@ -44,11 +43,6 @@ from document_annotation import (
     ExpenseEvidence,
     IExpenseDocumentAnnotationService,
     build_document_annotation_service,
-)
-from recent_intake_view import collapse_check_evidence_rows
-from supporting_document_service import (
-    normalize_supporting_document_reference,
-    should_suppress_source_document,
 )
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 import statement_review
@@ -436,14 +430,6 @@ RECENT_REPORT_PATH = '/recent_report.html'
 SCANNER_REPORT_PATH = '/scanner_report.html'
 RECENT_REPORT_POINTER_FILE = os.path.join(HERE, 'recent_report.json')
 _recent_report_lock = threading.Lock()
-
-# Fail-loud intake-halt surface: rol_finances' DashboardIntakeHaltNotifier POSTs
-# here when an intake step crashes (a fault, not a "no match"), so the pipeline
-# HALTS instead of silently inserting a duplicate. Unlike the document-vision
-# halt (which self-clears when a provider tier recovers), a code fault does not
-# recover on its own — it stays active until a human acknowledges it.
-INTAKE_HALT_FILE = os.path.join(HERE, 'intake_halt.json')
-_intake_halt_lock = threading.Lock()
 
 
 def _read_recent_pointer_file():
@@ -853,63 +839,6 @@ def record_intake_status(data):
     """Dashboard endpoint used by the Trainer runner after writing its report."""
     merged = merge_recent_intake_status(data or {})
     return {'ok': merged, 'status': (data or {}).get('status', '')}
-
-
-def record_intake_halt(data):
-    """Persist a fail-loud intake halt so the dashboard can raise the alert.
-
-    Called by rol_finances' DashboardIntakeHaltNotifier. Stores the single most
-    recent halt as active; a human clears it via /api/intake-halt-ack. Kept as a
-    discrete event (not merged) because each halt is a distinct fault to see."""
-    event = data or {}
-    record = {
-        'active': True,
-        'halted_at': time.time(),
-        'step': str(event.get('step', '')),
-        'cause': str(event.get('cause', '')),
-        'exception_type': str(event.get('exception_type', '')),
-        'document_path': str(event.get('document_path', '')),
-        'repo_path': str(event.get('repo_path', '')),
-        'metadata': event.get('metadata') if isinstance(event.get('metadata'), dict) else {},
-    }
-    with _intake_halt_lock:
-        try:
-            with open(INTAKE_HALT_FILE, 'w') as fh:
-                json.dump(record, fh)
-        except OSError as exc:
-            return {'ok': False, 'error': str(exc)}
-    return {'ok': True, 'active': True}
-
-
-def read_intake_halt():
-    """Current intake-halt state for the front-end poller."""
-    with _intake_halt_lock:
-        try:
-            with open(INTAKE_HALT_FILE) as fh:
-                record = json.load(fh)
-        except (OSError, ValueError):
-            return {'ok': True, 'active': False}
-    if not isinstance(record, dict) or not record.get('active'):
-        return {'ok': True, 'active': False}
-    return {'ok': True, 'active': True, 'event': record}
-
-
-def acknowledge_intake_halt():
-    """Clear the active halt once a human has seen it (the alert's Acknowledge)."""
-    with _intake_halt_lock:
-        try:
-            with open(INTAKE_HALT_FILE) as fh:
-                record = json.load(fh)
-        except (OSError, ValueError):
-            return {'ok': True, 'active': False}
-        if isinstance(record, dict):
-            record['active'] = False
-            try:
-                with open(INTAKE_HALT_FILE, 'w') as fh:
-                    json.dump(record, fh)
-            except OSError as exc:
-                return {'ok': False, 'error': str(exc)}
-    return {'ok': True, 'active': False}
 
 
 def _load_recent_report_pointer():
@@ -1421,9 +1350,6 @@ def build_recent_intake_html(intake):
     rows, row_error = [], None
     try:
         rows = _fetch_expenses_by_ids(intake.get('expense_ids') or [])
-        rows, promoted_duplicate_ids = collapse_check_evidence_rows(
-            rows, duplicate_ids)
-        duplicate_ids |= promoted_duplicate_ids
     except Exception as exc:
         row_error = str(exc)
 
@@ -3684,11 +3610,6 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'"category_id": <int or null>, '
         f'"duplicate_checked": <true|false>, "is_duplicate": <true|false>, '
         f'"stored": <true|false>, "expense_id": <int or null>, '
-        f'"linked_counterpart": <true when the save returned linked_counterpart:true — '
-        f'the receipt was attached to an existing statement expense instead of inserting a '
-        f'second row; expense_id is then that existing row and stored may be false>, '
-        f'"intake_halted": <true ONLY when a --save/store command returned '
-        f'"halted": true — see the HALT RULE below; then stored:false and expense_id:null>, '
         f'"itemization_attempted": <true|false>, "itemized": <true|false>, '
         f'"itemization_reconciled": <true only when itemization succeeded>, '
         f'"itemization_parent_id": <int or null>, '
@@ -3700,16 +3621,6 @@ def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
         f'the judge treats a null category with pending_vendor_review unset as a real failure, '
         f'not the correct degraded save the FAIL-CLOSED CATEGORY RULE describes>, '
         f'"problems": [<strings>]}}\n'
-        f'  HALT RULE: if ANY `--save`/store command returns `"halted": true` (a JSON object '
-        f'with a `halt` block naming a `step`/`cause`/`exception_type`), an intake step '
-        f'crashed inside the tool — the pipeline fail-loud stopped instead of inserting a '
-        f'possibly-duplicate row. This is NOT your fault and there is nothing to retry or work '
-        f'around: do NOT re-run --save, do NOT add --allow-duplicate, do NOT hand-build a row. '
-        f'Record the trace with "intake_halted": true, "stored": false, "expense_id": null, and '
-        f'the halt\'s cause copied into "problems", then STILL run judge_trace and the STEP 8 '
-        f'dashboard callback (send stored:0). The judge scores a halt NEEDS_REVIEW, not FAIL, so '
-        f'do NOT call propose_improvement/apply_proposal for it — it is escalated to Suzuki as a '
-        f'code bug, not learned around.\n'
         f'  For a STATEMENT, record this evidence JSON INSTEAD (the judge routes it '
         f'to the statement rubric — the receipt fields above do not apply):\n'
         f'  {{"document_path": "{scan_image_path}", "doc_kind": "statement", '
@@ -5150,20 +5061,6 @@ def _intake_source_document(intake):
     return ''
 
 
-def _intake_scan_is_a_source_document(intake):
-    """Whether this intake's scan image is a *separate* source document from
-    its receipt — e.g. a scanned multi-transaction bank/credit-card statement.
-
-    A receipt or invoice scan has no separate downloaded source: the scan IS
-    the receipt, already offered via "View Receipt", so offering it again as
-    "View Source Document" is misleading (same image, redundant button). Only
-    statement-type scans — which cover many transactions distinct from any
-    one row's own receipt — should populate that button from the scan image.
-    """
-    doc_kind = str((intake or {}).get('doc_kind') or '').strip().lower()
-    return doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}
-
-
 def _report_source_document_reference(report_path):
     """The document the report page holding this row was built from.
 
@@ -5171,24 +5068,16 @@ def _report_source_document_reference(report_path):
     finds by scanning the report directory. Scanner reports and Recent Report in
     intake mode are synthetic DB-backed pages with **no** report.html — their
     source document is the scan image named by the intake pointer, so resolve it
-    from there instead of from the URL, but only when that scan is actually a
-    statement (see `_intake_scan_is_a_source_document`) — a plain receipt/invoice
-    scan has no separate source document to offer.
+    from there instead of from the URL.
     """
     base, _, query = unquote(str(report_path or '')).partition('?')
     if base == SCANNER_REPORT_PATH:
         scanner_key = (parse_qs(query).get('scanner', [''])[0] or '').strip().lower()
-        intake = get_scanner_intake(scanner_key) or {}
-        if not _intake_scan_is_a_source_document(intake):
-            return ''
-        return _intake_source_document(intake)
+        return _intake_source_document(get_scanner_intake(scanner_key) or {})
     if base == RECENT_REPORT_PATH:
         recent = resolve_recent_report() or {}
         if recent.get('mode') == 'intake':
-            intake = recent.get('intake') or {}
-            if not _intake_scan_is_a_source_document(intake):
-                return ''
-            return _intake_source_document(intake)
+            return _intake_source_document(recent.get('intake') or {})
         return _source_document_path(recent.get('url') or '')
     return _source_document_path(report_path)
 
@@ -5202,17 +5091,8 @@ def _source_document_reference(chosen, report_path=''):
     with no View Source Document button at all, even on a scanner report that
     knows exactly which image it came from.
     """
-    chosen = chosen or {}
-    reference = chosen.get('document_url') or ''
+    reference = (chosen or {}).get('document_url') or ''
     reference = str(reference).strip()
-    receipt_reference = str(chosen.get('receipt_url') or '').strip()
-    if should_suppress_source_document(
-            reference,
-            receipt_reference,
-            resolve_local_path=lambda ref: _resolve_local_supporting_document(
-                ref, 'source'
-            ) or _resolve_local_supporting_document(ref, 'receipt')):
-        return ''
     if _usable_document_reference(reference) and (
             urlparse(reference).scheme in {'http', 'https'}
             or _resolve_local_supporting_document(reference, 'source')):
@@ -5224,7 +5104,7 @@ def _supporting_document_descriptors(chosen, report_path=''):
     descriptors = []
     for slot in SUPPORTING_DOCUMENT_CATALOG.slots():
         kind, label, field = slot.kind, slot.label, slot.expense_field
-        reference = normalize_supporting_document_reference(chosen.get(field))
+        reference = (chosen.get(field) or '').strip()
         if kind == 'source':
             reference = _source_document_reference(chosen, report_path)
         local_path = _resolve_local_supporting_document(reference, kind)
@@ -6043,7 +5923,7 @@ AGENT_MODEL_OPTIONS = [
     'chatgpt-plus-pro/gpt-5.4-mini',
 ]
 
-_LETTA_GATEWAY: ILettaGateway = UrllibLettaGateway(LETTA_BASE_URL)
+_LETTA_GATEWAY = UrllibLettaGateway(LETTA_BASE_URL)
 _AGENT_MODEL_OPTIONS_SERVICE = AgentModelOptionsService(
     _LETTA_GATEWAY,
     AGENT_MODEL_OPTIONS,
@@ -6571,10 +6451,6 @@ SSH_CONNECTIONS = [
         'name': 'Windows 10 Host',
         'host': '100.69.80.89',
         'user': 'NewUser',
-        # Prefer the dedicated key on the remote WSL dashboard host. The
-        # fallback is the normal key on this WSL host, where that dedicated
-        # key is not installed.
-        'identity_files': ('~/.ssh/id_win10_host', '~/.ssh/id_ed25519_win10', '~/.ssh/id_ed25519'),
         'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.69.80.89)',
     },
     {
@@ -6765,49 +6641,6 @@ def restart_dashboard_server():
         return {'ok': False, 'text': 'systemd-run not found — cannot self-restart on this host.'}
     except Exception as e:
         return {'ok': False, 'text': str(e)}
-
-
-def deploy_dashboard():
-    """Keyboard-free deploy: fast-forward the checked-out branch and self-restart.
-
-    This is the resilience path — the whole point is that the system is never
-    "dead in the water" waiting for a human at a keyboard. The dashboard runs in
-    the real `systemd --user` session, so it can `git pull` the live checkout and
-    restart itself, which a sandboxed executor (or Frita over Tailscale) cannot do
-    directly. It only ever fast-forwards the branch that is ALREADY checked out —
-    nothing to specify, no way to land on the wrong branch, no auth to lose.
-
-    Fails loud (standing rule): a non-fast-forwardable pull or any git error is
-    reported back and the restart is SKIPPED, so a broken or dirty tree is never
-    activated. Only a clean fast-forward proceeds to restart_dashboard_server()."""
-    def _git(*args):
-        return subprocess.run(
-            ['git', '-C', REPO_ROOT, *args],
-            capture_output=True, text=True, timeout=120)
-    try:
-        branch = _git('rev-parse', '--abbrev-ref', 'HEAD').stdout.strip()
-        before = _git('rev-parse', '--short', 'HEAD').stdout.strip()
-        fetch = _git('fetch', 'origin', branch)
-        if fetch.returncode != 0:
-            return {'ok': False, 'text': f'git fetch origin {branch} failed — '
-                                         f'tree NOT restarted:\n{fetch.stderr.strip()}'}
-        pull = _git('pull', '--ff-only', 'origin', branch)
-        if pull.returncode != 0:
-            return {'ok': False, 'text': f'git pull --ff-only origin {branch} failed — '
-                                         f'tree NOT restarted (fix the working tree first):\n'
-                                         f'{pull.stderr.strip() or pull.stdout.strip()}'}
-        after = _git('rev-parse', '--short', 'HEAD').stdout.strip()
-    except FileNotFoundError:
-        return {'ok': False, 'text': 'git not found — cannot deploy on this host.'}
-    except subprocess.TimeoutExpired:
-        return {'ok': False, 'text': 'git operation timed out — tree NOT restarted.'}
-    except Exception as e:
-        return {'ok': False, 'text': f'deploy error — tree NOT restarted: {e}'}
-
-    restart = restart_dashboard_server()
-    moved = 'already up to date' if before == after else f'{before} -> {after}'
-    return {'ok': restart.get('ok', False),
-            'text': f'Deployed {branch} ({moved}). ' + restart.get('text', '')}
 
 
 # docker-compose v1.29.2 (required on this box — see [[reference_logger_api_ops]])
@@ -7291,11 +7124,7 @@ def get_letta_id(agent_cfg):
         return agent_cfg['id']
     return _resolve_letta_id(agent_cfg['name'])
 
-def letta_messages(
-    agent_id: str,
-    limit: int = 200,
-    gateway: ILettaGateway | None = None,
-) -> list[dict[str, object]]:
+def letta_messages(agent_id, limit=200):
     """Fetch all message types for an agent from the Letta API.
 
     Backs the Messages/Thoughts/Tool Calls tabs. Uses a longer-than-default
@@ -7306,15 +7135,10 @@ def letta_messages(
     even though the agent had messages. 25s keeps this under the browser's
     30s fetch abort while giving the slow relay path room to finish.
     """
-    message_gateway = gateway or _LETTA_GATEWAY
-    return [
-        message.to_legacy()
-        for message in message_gateway.get_agent_messages(
-            agent_id,
-            limit=limit,
-            timeout=25,
-        )
-    ]
+    data = letta_get(f'/v1/agents/{agent_id}/messages?limit={limit}', timeout=25)
+    if not data:
+        return []
+    return data if isinstance(data, list) else data.get('messages', data.get('results', []))
 
 def _msg_date(m):
     """Return the best available timestamp string for a Letta message."""
@@ -8038,14 +7862,7 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
     """Run a real `ssh ... echo CONNECTED` round trip against cfg. Returns {ok, text}."""
     target = f"{cfg['user']}@{cfg['host']}"
     cmd = ['ssh', '-o', f'ConnectTimeout={timeout}', '-o', 'BatchMode=yes',
-           '-o', 'StrictHostKeyChecking=accept-new']
-    identity_files = cfg.get('identity_files') or (cfg.get('identity_file', ''),)
-    for configured_identity in identity_files:
-        identity_file = os.path.expanduser(configured_identity)
-        if identity_file and os.path.isfile(identity_file):
-            cmd.extend(['-o', 'IdentitiesOnly=yes', '-i', identity_file])
-            break
-    cmd.extend([target, 'echo CONNECTED && hostname'])
+           '-o', 'StrictHostKeyChecking=accept-new', target, 'echo CONNECTED && hostname']
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
         out_lines = result.stdout.strip().splitlines()
@@ -9584,7 +9401,7 @@ def _letta_code_command():
         f'or {built})')
 
 
-def run_letta_code_message(agent_id, prompt, timeout=900):
+def run_letta_code_message(agent_id, prompt, timeout=330):
     """Run one Letta Code turn and expose only its final JSON result."""
     lid = letta_id_for(agent_id)
     if not lid or not _TERMINAL_ID_RE.fullmatch(lid):
@@ -10190,11 +10007,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 since_ts = 0.0
             return self.json_response(get_stored_expense_events(since_ts))
 
-        # Fail-loud intake-halt state — IntakeHaltAlert polls this and raises a
-        # full-screen "cannot continue" modal while a halt is active.
-        if path == '/api/intake-halt':
-            return self.json_response(read_intake_halt())
-
         # Statements quarantined in bank_statements/_needs_review/ — the Scanner
         # screen polls this and pops a dialog for each one.
         if path == '/api/statement-reviews':
@@ -10488,11 +10300,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     result = start_frita_executor()
                     return self.json_response(result)
 
-                if action == 'deploy' and server == 'dashboard':
-                    # Keyboard-free deploy: pull the current branch + self-restart.
-                    result = deploy_dashboard()
-                    return self.json_response(result)
-
                 if action in ('start', 'restart') and server == 'dashboard':
                     result = restart_dashboard_server()
                     return self.json_response(result)
@@ -10598,16 +10405,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.error_response('Invalid JSON', 400)
             result = record_intake_status(data)
             return self.json_response(result)
-
-        if path == '/api/intake-halt':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(record_intake_halt(data))
-
-        if path == '/api/intake-halt-ack':
-            return self.json_response(acknowledge_intake_halt())
 
         if path == '/api/route-detect':
             try:

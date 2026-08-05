@@ -2226,6 +2226,30 @@ def _ssh_cfg():
     return {'key': '__test_ssh_conn', 'name': 'Test Conn', 'host': '0.0.0.0', 'user': 'nobody'}
 
 
+def test_ssh_test_uses_configured_identity_file(monkeypatch, tmp_path):
+    identity = tmp_path / 'id_ed25519'
+    identity.write_text('test key')
+    calls = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        return type('Result', (), {
+            'returncode': 0,
+            'stdout': 'CONNECTED\nDESKTOP-SHDBATI\n',
+            'stderr': '',
+        })()
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    result = server.ssh_test({**_ssh_cfg(), 'identity_files': (str(identity),)}, timeout=5)
+
+    assert result['ok'] is True
+    assert calls == [[
+        'ssh', '-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes',
+        '-o', 'StrictHostKeyChecking=accept-new', '-o', 'IdentitiesOnly=yes',
+        '-i', str(identity), 'nobody@0.0.0.0', 'echo CONNECTED && hostname',
+    ]]
+
+
 def test_tailscale_test_accepts_ping_when_status_is_stale_offline(monkeypatch):
     calls = []
     monkeypatch.setattr(server, '_tailscale_cli', lambda: 'tailscale')
