@@ -10,3 +10,4 @@ recent_report.json
 category_undo_journal.json
 category_undo_journal.json.tmp
 .cache/
+.venv-dev/

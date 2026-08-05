@@ -48,9 +48,17 @@ from document_annotation import (
 from recent_intake_view import collapse_check_evidence_rows
 from supporting_document_service import (
     normalize_supporting_document_reference,
+    references_same_underlying_document,
     should_suppress_source_document,
 )
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
+from finance.expense_schema import InformationSchemaProbe, ShowColumnsProbe
+from finance.report_page import ReportPageRoutes
+from finance.supporting_documents import (
+    IIntakePageLookup,
+    SupportingDocumentPageResolver,
+    slot_reference,
+)
 import statement_review
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -434,6 +442,11 @@ def _rol_finance_recent_reports(limit=5):
 #     even when no callback fires).
 RECENT_REPORT_PATH = '/recent_report.html'
 SCANNER_REPORT_PATH = '/scanner_report.html'
+REPORT_PAGE_ROUTES = ReportPageRoutes(
+    scanner_path=SCANNER_REPORT_PATH,
+    recent_path=RECENT_REPORT_PATH,
+)
+_SUPPORTING_DOCUMENT_PAGES = None
 RECENT_REPORT_POINTER_FILE = os.path.join(HERE, 'recent_report.json')
 _recent_report_lock = threading.Lock()
 
@@ -984,10 +997,19 @@ def _fetch_expenses_by_ids(ids):
                 "AND COLUMN_NAME = 'expense_role' LIMIT 1")
             has_expense_roles = bool(cur.fetchone())
             role_select = ', expense_role' if has_expense_roles else ''
+            # A narrower live schema must not fail the whole page: absent
+            # optional columns come back as NULL (see finance.expense_schema).
+            optional_columns = (
+                'id_light', 'receipt_url', 'document_url',
+                'scanned_statement_url', 'moms_ledger',
+            )
+            schema = InformationSchemaProbe().read(cur, optional_columns)
+            select_sql = schema.select_clause(
+                ('id', 'expense_date', 'amount', 'description', 'category_id'),
+                optional_columns,
+            )
             cur.execute(
-                "SELECT id, expense_date, amount, id_light, description, category_id, "
-                "receipt_url, document_url, scanned_statement_url, "
-                f"moms_ledger{role_select} "
+                f"SELECT {select_sql}{role_select} "
                 f"FROM expenses WHERE id IN ({placeholders}) "
                 "ORDER BY expense_date, id",
                 tuple(clean),
@@ -4996,27 +5018,30 @@ def _matching_expense(cur, date_str, amount_str, vendor_key, description,
     children. Date/amount lookups intentionally remain parent-biased so report-row
     recategorization does not ambiguously land on an itemized sibling.
     """
+    optional_columns = (
+        'id_light', 'document_url', 'scanned_statement_url', 'moms_ledger',
+        'notes', 'expense_role', 'parent_expense_id',
+    )
+    schema = ShowColumnsProbe().read(cur, optional_columns)
+    select_sql = schema.select_clause(
+        ('id', 'description', 'receipt_url', 'expense_date', 'amount'),
+        optional_columns,
+        quote='`',
+    )
+    role_filter = (
+        " AND `expense_role` <> 'LINE_ITEM'" if schema.has('expense_role') else ''
+    )
     if expense_id not in (None, ''):
         try:
             eid = int(expense_id)
         except (TypeError, ValueError):
             return None
-        cur.execute(
-            "SELECT id, id_light, description, receipt_url, document_url, "
-            "scanned_statement_url, moms_ledger, "
-            "notes, expense_date, amount, expense_role, parent_expense_id "
-            "FROM expenses WHERE id=%s",
-            (eid,),
-        )
+        cur.execute(f"SELECT {select_sql} FROM expenses WHERE id=%s", (eid,))
         rows = cur.fetchall()
         return rows[0] if rows else None
     cur.execute(
-        "SELECT id, id_light, description, receipt_url, document_url, "
-        "scanned_statement_url, moms_ledger, "
-        "notes, expense_date, amount, expense_role, parent_expense_id "
-        "FROM expenses WHERE expense_date=%s AND amount=%s "
-        "AND expense_role <> 'LINE_ITEM'",
-        (date_str, amount_str),
+        f"SELECT {select_sql} FROM expenses WHERE expense_date=%s AND amount=%s"
+        f"{role_filter}", (date_str, amount_str)
     )
     return _select_matching_expense(cur.fetchall(), vendor_key, description)
 
@@ -5167,30 +5192,57 @@ def _intake_scan_is_a_source_document(intake):
 def _report_source_document_reference(report_path):
     """The document the report page holding this row was built from.
 
-    Month reports live next to their statement file, which `_source_document_path`
-    finds by scanning the report directory. Scanner reports and Recent Report in
-    intake mode are synthetic DB-backed pages with **no** report.html — their
-    source document is the scan image named by the intake pointer, so resolve it
-    from there instead of from the URL, but only when that scan is actually a
-    statement (see `_intake_scan_is_a_source_document`) — a plain receipt/invoice
-    scan has no separate source document to offer.
+    Month reports live next to their downloaded statement file, which
+    `_source_document_path` finds by scanning the report directory. Scanner
+    reports and Recent Report intake pages are synthetic DB-backed pages: their
+    paper scan belongs exclusively to `scanned_statement_url`, never to the
+    downloaded-source slot.
     """
-    base, _, query = unquote(str(report_path or '')).partition('?')
-    if base == SCANNER_REPORT_PATH:
-        scanner_key = (parse_qs(query).get('scanner', [''])[0] or '').strip().lower()
-        intake = get_scanner_intake(scanner_key) or {}
-        if not _intake_scan_is_a_source_document(intake):
-            return ''
+    return _supporting_document_pages().source_document_reference(
+        report_path, _source_document_path
+    )
+
+
+class _ServerIntakePageLookup(IIntakePageLookup):
+    """Adapter binding the page rules to this server's intake state."""
+
+    def recent_report(self):
+        return resolve_recent_report() or {}
+
+    def scanner_intake(self, scanner_key):
+        return get_scanner_intake(scanner_key) or {}
+
+    def intake_scan_reference(self, intake):
         return _intake_source_document(intake)
-    if base == RECENT_REPORT_PATH:
-        recent = resolve_recent_report() or {}
-        if recent.get('mode') == 'intake':
-            intake = recent.get('intake') or {}
-            if not _intake_scan_is_a_source_document(intake):
-                return ''
-            return _intake_source_document(intake)
-        return _source_document_path(recent.get('url') or '')
-    return _source_document_path(report_path)
+
+
+def _supporting_document_pages():
+    """Composition point for the page resolver (built once, on first use)."""
+    global _SUPPORTING_DOCUMENT_PAGES
+    if _SUPPORTING_DOCUMENT_PAGES is None:
+        _SUPPORTING_DOCUMENT_PAGES = SupportingDocumentPageResolver(
+            _ServerIntakePageLookup(), REPORT_PAGE_ROUTES
+        )
+    return _SUPPORTING_DOCUMENT_PAGES
+
+
+def _report_scanned_statement_reference(report_path):
+    """The paper scan a scanner/recent-intake page can offer for its rows."""
+    return _supporting_document_pages().scanned_statement_reference(report_path)
+
+
+def _slot_reference(chosen, kind, report_path=''):
+    """The reference to offer for one supporting-document slot."""
+    slot = SUPPORTING_DOCUMENT_CATALOG.slot_for_kind(kind)
+    if slot is None:
+        return ''
+    if kind == 'source':
+        return _source_document_reference(chosen, report_path)
+    return slot_reference(
+        chosen, slot, report_path,
+        normalize=normalize_supporting_document_reference,
+        page_scan=_report_scanned_statement_reference,
+    )
 
 
 def _source_document_reference(chosen, report_path=''):
@@ -5213,20 +5265,31 @@ def _source_document_reference(chosen, report_path=''):
                 ref, 'source'
             ) or _resolve_local_supporting_document(ref, 'receipt')):
         return ''
+    scanned_statement_reference = str(
+        chosen.get('scanned_statement_url') or '').strip()
+    if references_same_underlying_document(
+            reference,
+            scanned_statement_reference,
+            resolve_local_path=lambda ref: (
+                _resolve_local_supporting_document(ref, 'source')
+                or _resolve_local_supporting_document(ref, 'scanned_statement')
+            )):
+        return ''
     if _usable_document_reference(reference) and (
             urlparse(reference).scheme in {'http', 'https'}
             or _resolve_local_supporting_document(reference, 'source')):
         return reference
-    return _report_source_document_reference(report_path) or reference
+    # A stale stored path is not evidence.  In particular, never return a
+    # missing scanner image as a downloaded source document; the scanner page's
+    # paper copy is resolved through the separate scanned-statement slot.
+    return _report_source_document_reference(report_path) or ''
 
 
 def _supporting_document_descriptors(chosen, report_path=''):
     descriptors = []
     for slot in SUPPORTING_DOCUMENT_CATALOG.slots():
         kind, label, field = slot.kind, slot.label, slot.expense_field
-        reference = normalize_supporting_document_reference(chosen.get(field))
-        if kind == 'source':
-            reference = _source_document_reference(chosen, report_path)
+        reference = _slot_reference(chosen, kind, report_path)
         local_path = _resolve_local_supporting_document(reference, kind)
         remote_url = urlparse(reference).scheme in {'http', 'https'}
         descriptors.append({
@@ -5275,11 +5338,13 @@ def open_supporting_document(date_str, signed_amount, vendor_key, document_type,
     except Exception as exc:
         return {'ok': False, 'error': f'DB error: {exc}'}
     reference = (chosen.get(field) or '').strip() if chosen else ''
-    source_from_report = False
-    if document_type == 'source':
-        stored_reference = reference
-        reference = _source_document_reference(chosen, report_path)
-        source_from_report = bool(reference) and reference != stored_reference
+    stored_reference = reference
+    reference = _slot_reference(chosen, document_type, report_path)
+    source_from_report = (
+        document_type == 'source'
+        and bool(reference)
+        and reference != stored_reference
+    )
     if not _usable_document_reference(reference):
         return {'ok': False, 'error': f'{document_type} document is not on file.'}
     parsed = urlparse(reference)
@@ -5346,9 +5411,7 @@ def _supporting_document_path_for_expense(
             f'type={document_type}: {exc}'
         )
         return None
-    reference = (chosen.get(field) or '').strip() if chosen else ''
-    if document_type == 'source':
-        reference = _source_document_reference(chosen, report_path)
+    reference = _slot_reference(chosen, document_type, report_path)
     if not _usable_document_reference(reference):
         return None
     path = _resolve_local_supporting_document(reference, document_type)

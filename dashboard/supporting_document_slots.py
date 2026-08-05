@@ -11,6 +11,10 @@ class SupportingDocumentSlot:
     kind: str
     expense_field: str
     label: str
+    #: When the row stores nothing, may the page's own intake scan stand in?
+    #: True only for the scanned-statement slot: a synthetic scanner page knows
+    #: which paper image its rows came from, and legacy rows predate the column.
+    falls_back_to_page_scan: bool = False
 
 
 def _normalize_supporting_document_target(value: Any) -> str:
@@ -46,6 +50,7 @@ class SupportingDocumentCatalog:
             "scanned_statement",
             "scanned_statement_url",
             "View Scanned Statement",
+            falls_back_to_page_scan=True,
         ),
         SupportingDocumentSlot("moms_ledger", "moms_ledger", "View Mom’s Ledger"),
     )

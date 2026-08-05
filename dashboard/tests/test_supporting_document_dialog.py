@@ -542,29 +542,24 @@ def _resolve_if_on_disk(monkeypatch):
 def test_scanner_report_offers_its_own_scan_when_stored_path_is_gone(
     tmp_path, monkeypatch
 ):
-    """A scan image deleted after storage must not silently remove the button.
-
-    2026-07-29: a concurrent agent's `git add -A` swept two in-flight scans off
-    disk, so every row of the Last Freezer Scan resolved to nothing and the
-    dialog rendered no View Source Document button at all — even though the page
-    itself was built from that scanner's intake and knew the image.
-    """
+    """A paper scan is not a downloaded source document, even if it remains staged."""
     scan = tmp_path / "scan_freezer_1785370278642285445_af131e077dc3.jpg"
     scan.write_bytes(b"\xff\xd8\xff")
     deleted = tmp_path / "scan_freezer_deleted_by_git_add.jpg"
     monkeypatch.setattr(
         server,
         "get_scanner_intake",
-        lambda key: {"image_path": str(scan)} if key == "freezer" else None,
+        lambda key: {"image_path": str(scan), "doc_kind": "statement"}
+        if key == "freezer" else None,
     )
     _resolve_if_on_disk(monkeypatch)
 
     row = {"receipt_url": "", "document_url": str(deleted), "moms_ledger": ""}
     report_path = "/scanner_report.html?scanner=freezer"
 
-    assert server._source_document_reference(row, report_path) == str(scan)
+    assert server._source_document_reference(row, report_path) == ""
     documents = server._supporting_document_descriptors(row, report_path)
-    assert documents[1]["available"] is True
+    assert documents[1]["available"] is False
 
 
 def test_scanner_report_never_borrows_the_other_scanner_or_a_reused_output(
@@ -590,7 +585,7 @@ def test_scanner_report_never_borrows_the_other_scanner_or_a_reused_output(
     row = {"receipt_url": "", "document_url": "", "moms_ledger": ""}
 
     assert server._source_document_reference(
-        row, "/scanner_report.html?scanner=window") == str(window_scan)
+        row, "/scanner_report.html?scanner=window") == ""
     assert server._source_document_reference(
         row, "/scanner_report.html?scanner=freezer") == ""
     assert server._supporting_document_descriptors(
@@ -612,7 +607,60 @@ def test_recent_report_intake_mode_offers_the_dispatched_scan(
     row = {"receipt_url": "", "document_url": "", "moms_ledger": ""}
 
     assert server._source_document_reference(
-        row, server.RECENT_REPORT_PATH) == str(scan)
+        row, server.RECENT_REPORT_PATH) == ""
+
+
+def test_scanned_statement_never_appears_as_downloaded_source(
+    tmp_path, monkeypatch
+):
+    scan = tmp_path / "fubo_statement_scan.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server,
+        "_resolve_local_supporting_document",
+        lambda reference, kind: str(scan)
+        if reference and kind in {"source", "scanned_statement"} else None,
+    )
+
+    documents = server._supporting_document_descriptors(
+        {
+            "receipt_url": "",
+            "document_url": str(scan),
+            "scanned_statement_url": str(scan),
+            "moms_ledger": "",
+        },
+        "/scanner_report.html?scanner=freezer",
+    )
+
+    assert documents[1]["available"] is False
+    assert documents[2]["available"] is True
+
+
+def test_last_freezer_scan_appears_only_as_scanned_statement(
+    tmp_path, monkeypatch
+):
+    scan = tmp_path / "last_freezer_scan.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server,
+        "get_scanner_intake",
+        lambda key: {"image_path": str(scan), "doc_kind": None}
+        if key == "freezer" else None,
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {
+        "receipt_url": "",
+        "document_url": "",
+        "scanned_statement_url": "",
+        "moms_ledger": "",
+    }
+    documents = server._supporting_document_descriptors(
+        row, "/scanner_report.html?scanner=freezer"
+    )
+
+    assert documents[1]["available"] is False
+    assert documents[2]["available"] is True
 
 
 def test_stored_document_url_still_wins_while_it_resolves(tmp_path, monkeypatch):
