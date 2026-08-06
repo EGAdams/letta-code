@@ -26,7 +26,7 @@ def test_gateway_uses_first_existing_configured_identity(tmp_path):
     )
 
     result = gateway.test_connection(
-        SshTarget('NewUser', '100.69.80.89', ('~/.missing', str(identity))),
+        SshTarget('NewUser', '100.118.122.75', ('~/.missing', str(identity))),
         timeout=8,
     )
 
@@ -35,7 +35,7 @@ def test_gateway_uses_first_existing_configured_identity(tmp_path):
         [
             'ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
             '-o', 'StrictHostKeyChecking=accept-new', '-o', 'IdentitiesOnly=yes',
-            '-i', str(identity), 'NewUser@100.69.80.89',
+            '-i', str(identity), 'NewUser@100.118.122.75',
             'echo CONNECTED && hostname',
         ],
         18,
@@ -44,12 +44,12 @@ def test_gateway_uses_first_existing_configured_identity(tmp_path):
 
 def test_gateway_preserves_permission_denied_text():
     runner = FakeRunner(subprocess.CompletedProcess(
-        ['ssh'], 255, '', 'NewUser@100.69.80.89: Permission denied (publickey).\n'))
+        ['ssh'], 255, '', 'NewUser@100.118.122.75: Permission denied (publickey).\n'))
 
     result = OpenSshGateway(runner=runner).test_connection(
-        SshTarget('NewUser', '100.69.80.89'), timeout=8)
+        SshTarget('NewUser', '100.118.122.75'), timeout=8)
 
     assert result == {
         'ok': False,
-        'text': 'NewUser@100.69.80.89: Permission denied (publickey).',
+        'text': 'NewUser@100.118.122.75: Permission denied (publickey).',
     }

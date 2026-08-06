@@ -180,6 +180,11 @@ def list_reviews(archive_root=None):
                 packet = json.load(handle)
         except (OSError, ValueError):
             continue
+        # Validate the document file still exists before showing the review.
+        # Stale entries (files moved or archived) should not resurface in the dialog.
+        document = path[:-len('.json')]
+        if not os.path.isfile(document):
+            continue
         items.append(build_review_item(path, packet))
     return items
 

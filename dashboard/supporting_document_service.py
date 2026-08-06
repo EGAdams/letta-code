@@ -8,6 +8,7 @@ policy details itself.
 """
 
 from collections.abc import Mapping
+import hashlib
 import os
 from urllib.parse import unquote, urlparse
 
@@ -55,7 +56,11 @@ def references_same_underlying_document(
 
     left_path = _normalized_local_identity(left_ref, resolve_local_path)
     right_path = _normalized_local_identity(right_ref, resolve_local_path)
-    return bool(left_path and right_path and left_path == right_path)
+    if left_path and right_path and left_path == right_path:
+        return True
+    left_content = _local_content_identity(left_path) if left_path else None
+    right_content = _local_content_identity(right_path) if right_path else None
+    return bool(left_content and right_content and left_content == right_content)
 
 
 def should_suppress_source_document(
@@ -108,3 +113,21 @@ def _normalized_local_identity(reference: str, resolve_local_path):
     if os.path.isabs(raw):
         return os.path.realpath(raw)
     return None
+
+
+def _local_content_identity(path: str):
+    """Return a stable identity for two separately archived copies.
+
+    Scanner intake keeps the staged JPEG and the archived JPEG at different
+    paths.  ``realpath`` therefore cannot tell that they are the same paper
+    document.  Content identity is deliberately used only after both
+    references resolve to local files; it never makes a remote URL guessable.
+    """
+    try:
+        digest = hashlib.sha256()
+        with open(path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.digest()
+    except (OSError, TypeError):
+        return None

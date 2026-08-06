@@ -736,3 +736,334 @@ def test_priority_health_eob_boxes_provider_billed_not_intro_text():
         f"Matched text: {text}"
     )
     assert "240.00" in text, f"Matched text should contain the target amount, got: {text}"
+
+
+def _diners_freezer_ocr_data():
+    rows = [
+        ("05/30/2025 DIN-2025-0587 ADINUAL FEE Diners Club x-0587 (9500 )", 150),
+        ("06/15/2025 DIN-2025-0588 OTHER CHARGE 45.00", 250),
+    ]
+    data = {
+        key: []
+        for key in ("text", "block_num", "par_num", "line_num", "left", "top", "width", "height")
+    }
+    for line_number, (line, top) in enumerate(rows, 1):
+        left = 50
+        for token in line.split():
+            width = max(12, len(token) * 18)
+            data["text"].append(token)
+            data["block_num"].append(1)
+            data["par_num"].append(1)
+            data["line_num"].append(line_number)
+            data["left"].append(left)
+            data["top"].append(top)
+            data["width"].append(width)
+            data["height"].append(32)
+            left += width + 8
+    return data
+
+
+def test_last_freezer_scan_boxes_annual_fee_row_2000(tmp_path, monkeypatch):
+    """Regression: Diners Club ANNUAL FEE row 2000 must be boxed in scanned JPG.
+
+    This test verifies that ImageExpenseDocumentAnnotator can highlight the
+    expense line from the real Freezer scan JPEG, even when the row is complex.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    from document_annotation import ImageExpenseDocumentAnnotator
+
+    source = tmp_path / "diners_club_0587_april_22__may_30.jpg"
+    image = Image.new("RGB", (1400, 500), "white")
+    draw = ImageDraw.Draw(image)
+
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32
+        )
+    except (OSError, IOError):
+        font = ImageFont.load_default()
+
+    # Simulate relevant lines from the Diners statement
+    draw.text((50, 50), "Transaction Date    Posted Date    Reference Number    Description", fill="black", font=font)
+    draw.text((50, 150), "05/30/2025    05/30/2025    DIN-2025-0587    ANNUAL FEE Diners Club | x-0587    95.00", fill="black", font=font)
+    draw.text((50, 250), "06/15/2025    06/15/2025    DIN-2025-0588    OTHER CHARGE    45.00", fill="black", font=font)
+
+    image.save(source)
+    output = tmp_path / "annotated.jpg"
+
+    import pytesseract
+
+    monkeypatch.setattr(
+        pytesseract,
+        "image_to_data",
+        lambda *args, **kwargs: _diners_freezer_ocr_data(),
+    )
+
+    evidence = ExpenseEvidence(
+        expense_id=2000,
+        expense_date="2025-05-30",
+        amount="95.00",
+        description="ANNUAL FEE Diners Club | x-0587",
+        vendor_key="diners_club_0587",
+    )
+
+    result = ImageExpenseDocumentAnnotator().annotate(
+        str(source), str(output), evidence
+    )
+
+    assert result.highlighted is True
+    assert output.exists()
+
+    # Verify output bytes differ from source (highlighting applied)
+    source_bytes = source.read_bytes()
+    output_bytes = output.read_bytes()
+    assert source_bytes != output_bytes
+
+
+def test_best_line_joins_split_diners_annual_fee_description():
+    """The real scan splits the fee label and card identifier across rows."""
+    from document_annotation import _best_line
+
+    evidence = ExpenseEvidence(
+        expense_id=2000,
+        expense_date="2025-05-30",
+        amount="95.00",
+        description="ANNUAL FEE Diners Club | x-0587",
+        vendor_key="diners_club_0587",
+    )
+    region, score, text = _best_line(
+        [
+            ("3 Months a A)INUAL FEE", (220, 1352, 1147, 1423)),
+            ("Diners Club |-x-0587", (893, 1456, 1226, 1491)),
+            ("OTHER CHARGE", (893, 1560, 1226, 1595)),
+        ],
+        evidence,
+    )
+
+    assert region == (220, 1352, 1226, 1491)
+    assert score >= 7
+    assert "Diners Club" in text
+
+
+def test_row_expansion_boxes_the_complete_walgreens_statement_row():
+    """Walgreens 2003 must show date, merchant, and amount in one red box."""
+    from document_annotation import _expand_selected_row_region
+
+    evidence = ExpenseEvidence(
+        expense_id=2003,
+        expense_date="2025-01-17",
+        amount="141.76",
+        description="WALGREENS #15466 GRAND RAPIDS MI",
+        vendor_key="walgreens",
+    )
+    # This is the shape produced when the PDF/OCR extractor enumerates the
+    # three cells separately. The date/amount candidate won, but the old
+    # drawing boundary stopped at that candidate's date fragment.
+    lines = [
+        ("01/17/2025", (100.0, 240.0, 185.0, 262.0)),
+        ("WALGREENS #15466 GRAND RAPIDS MI", (205.0, 240.0, 650.0, 262.0)),
+        ("141.76", (1120.0, 240.0, 1195.0, 262.0)),
+        # A second Walgreens charge on another row must not be pulled in.
+        (
+            "01/23/2025 WALGREENS #15466 GRAND RAPIDS MI 9.85",
+            (100.0, 280.0, 1195.0, 302.0),
+        ),
+    ]
+
+    region, text = _expand_selected_row_region(lines, lines[0][1], evidence)
+
+    assert region == (100.0, 240.0, 1195.0, 262.0)
+    assert "WALGREENS" in text
+    assert "141.76" in text
+    assert "9.85" not in text
+
+
+def test_image_strategy_boxes_the_complete_walgreens_statement_row(tmp_path, monkeypatch):
+    """The image strategy must apply generic row expansion, not just PDF."""
+    from PIL import Image
+    import document_annotation
+    from document_annotation import ImageExpenseDocumentAnnotator
+
+    source = tmp_path / "walgreens.png"
+    output = tmp_path / "annotated.png"
+    Image.new("RGB", (1300, 420), "white").save(source)
+
+    lines = [
+        ("01/17/2025", (100.0, 120.0, 185.0, 142.0)),
+        ("WALGREENS #15466 GRAND RAPIDS MI", (205.0, 120.0, 650.0, 142.0)),
+        ("141.76", (1120.0, 120.0, 1195.0, 142.0)),
+        ("01/23/2025 WALGREENS #15466 GRAND RAPIDS MI 9.85", (100.0, 180.0, 1195.0, 202.0)),
+    ]
+
+    import pytesseract
+
+    monkeypatch.setattr(
+        pytesseract,
+        "image_to_data",
+        lambda *args, **kwargs: {},
+    )
+    monkeypatch.setattr(
+        document_annotation,
+        "_image_expense_candidates",
+        lambda _data: lines,
+    )
+
+    evidence = ExpenseEvidence(
+        expense_id=2003,
+        expense_date="2025-01-17",
+        amount="141.76",
+        description="WALGREENS #15466 GRAND RAPIDS MI",
+        vendor_key="walgreens",
+    )
+    result = ImageExpenseDocumentAnnotator().annotate(
+        str(source), str(output), evidence
+    )
+
+    assert result.highlighted is True
+    annotated = Image.open(output).convert("RGB")
+    # The expanded red rectangle includes the date and amount cells. Its
+    # bottom is below the first row but above the neighboring row.
+    assert annotated.getpixel((100, 112))[0] > 200
+    assert annotated.getpixel((1195, 112))[0] > 200
+    assert annotated.getpixel((100, 155))[:3] == (255, 255, 255)
+
+
+def test_amount_in_description_with_ambiguous_rows_fails_closed():
+    """When description contains the amount and multiple rows match, fail closed.
+
+    Regression test for the bug where "Affordable Store 61.80" matched multiple
+    rows with the same date and amount, but the description tokens ("store")
+    were too generic to disambiguate them.
+    """
+    from document_annotation import _best_line
+
+    # Case 1: Amount appears in description, multiple rows have same date+amount
+    evidence1 = ExpenseEvidence(
+        expense_id=9001,
+        expense_date="2026-08-05",
+        amount="61.80",
+        description="Affordable Store 61.80",
+        vendor_key="affordable_store",
+    )
+
+    # All three rows match on date+amount, but only "store" token overlaps
+    lines1 = [
+        ("08/05/2026 First Store 61.80", (100, 200, 800, 230)),
+        ("08/05/2026 Second Store 61.80", (100, 250, 800, 280)),
+        ("08/05/2026 Third Store 61.80", (100, 300, 800, 330)),
+    ]
+
+    region, score, text = _best_line(lines1, evidence1)
+    # Should fail closed - can't distinguish which "Store" is the right one
+    assert region is None, (
+        f"Should fail closed on ambiguous match, but boxed: {text!r}"
+    )
+
+    # Case 2: Distinctive description disambiguates despite same date+amount
+    evidence2 = ExpenseEvidence(
+        expense_id=9002,
+        expense_date="2026-08-05",
+        amount="61.80",
+        description="Second Store",  # Distinctive token "Second"
+        vendor_key="second_store",
+    )
+
+    region, score, text = _best_line(lines1, evidence2)
+    # Should succeed - "Second" uniquely identifies the middle row
+    assert region is not None, "Should box the distinctive match"
+    assert text == "08/05/2026 Second Store 61.80"
+
+
+def test_typo_in_description_with_correct_ocr_still_matches():
+    """Typo in description ('Annuall' vs 'ANNUAL') shouldn't prevent matching.
+
+    Regression test for "Annuall Fee 95.00" which had a typo but should still
+    match the correctly OCR'd "ANNUAL FEE" line via the OCR alias system and
+    other matching description tokens.
+    """
+    from document_annotation import _best_line
+
+    evidence = ExpenseEvidence(
+        expense_id=9003,
+        expense_date="2025-05-30",
+        amount="95.00",
+        description="Annuall Fee Diners Club",  # Typo: "Annuall" not "Annual"
+        vendor_key="diners_club",
+    )
+
+    lines = [
+        ("05/30/2025 ANNUAL FEE Diners Club 95.00", (100, 200, 800, 230)),
+        ("06/15/2025 OTHER CHARGE 45.00", (100, 250, 800, 280)),
+    ]
+
+    region, score, text = _best_line(lines, evidence)
+
+    # Should successfully box the ANNUAL FEE line despite the typo, because:
+    # 1. OCR aliases map common misspellings like "anual" -> "annual"
+    # 2. "Diners" and "Club" tokens also match
+    # 3. Date and amount match
+    assert region is not None, f"Should box despite typo, got: {region}"
+    assert text == "05/30/2025 ANNUAL FEE Diners Club 95.00"
+    assert score >= 10, f"Should have high confidence score, got: {score}"
+
+
+def test_repeated_amount_picks_cleaner_candidate():
+    """When same row appears twice with/without repeated amount, box the cleaner one.
+
+    Regression test for the bug where OCR produces two very similar candidates
+    for the same transaction - one with the amount appearing once, and one with
+    it repeated (e.g., appearing in multiple columns or OCR fragments). The
+    tie-breaking logic should recognize this scenario and prefer the cleaner
+    candidate rather than failing closed.
+    """
+    from document_annotation import _best_line
+
+    evidence = ExpenseEvidence(
+        expense_id=9004,
+        expense_date="2026-08-05",
+        amount="61.80",
+        description="Affordable Store",
+        vendor_key="affordable_store",
+    )
+
+    # Two candidates: same transaction, but one has amount repeated
+    lines = [
+        ("08/05/2026 Affordable Store $61.80 $61.80", (100, 200, 800, 230)),
+        ("08/05/2026 Affordable Store $61.80", (100, 250, 800, 280)),
+    ]
+
+    region, score, text = _best_line(lines, evidence)
+
+    # Should box the cleaner version (without repetition)
+    assert region is not None, "Should box the cleaner candidate, not fail closed"
+    assert text == "08/05/2026 Affordable Store $61.80"
+    assert region == (100, 250, 800, 280), f"Should pick the non-repeated version, got {region}"
+
+
+def test_neighboring_amount_in_composite_window_cannot_steal_row():
+    """A wrapped OCR window containing a neighboring charge must lose."""
+    from document_annotation import _best_line
+
+    evidence = ExpenseEvidence(
+        expense_id=9005,
+        expense_date="2025-04-24",
+        amount="61.80",
+        description="AFFORDABLE I STORE ... Diners Club | x-0587",
+        vendor_key="affordable_i_store",
+    )
+    correct = (
+        "April 24, 2025 AFFORDABLE I STORE ... Other Expenses -$61.80",
+        (100, 300, 900, 340),
+    )
+    # This is the shape produced when an evidence-aware window joins the
+    # neighboring $264.99 row to the target $61.80 row.
+    composite = (
+        "AFFORDABLE I STORE ... $264.99 April 24, 2025 "
+        "AFFORDABLE I STORE ... -$61.80",
+        (100, 220, 1100, 340),
+    )
+
+    region, _score, text = _best_line([composite, correct], evidence)
+
+    assert region == correct[1]
+    assert text == correct[0]

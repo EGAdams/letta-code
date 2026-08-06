@@ -59,6 +59,12 @@ from finance.supporting_documents import (
     SupportingDocumentPageResolver,
     slot_reference,
 )
+from supporting_document_application import (
+    ISupportingDocumentService,
+    SupportingDocumentPorts,
+    SupportingDocumentRequest,
+    SupportingDocumentService,
+)
 import statement_review
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -447,6 +453,7 @@ REPORT_PAGE_ROUTES = ReportPageRoutes(
     recent_path=RECENT_REPORT_PATH,
 )
 _SUPPORTING_DOCUMENT_PAGES = None
+_SUPPORTING_DOCUMENT_SERVICE = None
 RECENT_REPORT_POINTER_FILE = os.path.join(HERE, 'recent_report.json')
 _recent_report_lock = threading.Lock()
 
@@ -5267,186 +5274,114 @@ def _source_document_reference(chosen, report_path=''):
         return ''
     scanned_statement_reference = str(
         chosen.get('scanned_statement_url') or '').strip()
+    if not scanned_statement_reference:
+        scanned_statement_reference = _report_scanned_statement_reference(report_path)
+
+    # Resolve the effective source candidate before comparing it with the
+    # scanned statement.  The old order only compared the stored
+    # ``document_url``; when that field was empty, the report-directory
+    # fallback could resolve to the exact same JPG and expose two buttons for
+    # one document.
+    source_reference = reference
+    if not (_usable_document_reference(source_reference) and (
+            urlparse(source_reference).scheme in {'http', 'https'}
+            or _resolve_local_supporting_document(source_reference, 'source'))):
+        source_reference = _report_source_document_reference(report_path) or ''
+
     if references_same_underlying_document(
-            reference,
+            source_reference,
             scanned_statement_reference,
             resolve_local_path=lambda ref: (
                 _resolve_local_supporting_document(ref, 'source')
                 or _resolve_local_supporting_document(ref, 'scanned_statement')
             )):
         return ''
-    if _usable_document_reference(reference) and (
-            urlparse(reference).scheme in {'http', 'https'}
-            or _resolve_local_supporting_document(reference, 'source')):
-        return reference
+    if _usable_document_reference(source_reference) and (
+            urlparse(source_reference).scheme in {'http', 'https'}
+            or _resolve_local_supporting_document(source_reference, 'source')):
+        return source_reference
     # A stale stored path is not evidence.  In particular, never return a
     # missing scanner image as a downloaded source document; the scanner page's
     # paper copy is resolved through the separate scanned-statement slot.
-    return _report_source_document_reference(report_path) or ''
+    return ''
 
 
 def _supporting_document_descriptors(chosen, report_path=''):
-    descriptors = []
-    for slot in SUPPORTING_DOCUMENT_CATALOG.slots():
-        kind, label, field = slot.kind, slot.label, slot.expense_field
-        reference = _slot_reference(chosen, kind, report_path)
-        local_path = _resolve_local_supporting_document(reference, kind)
-        remote_url = urlparse(reference).scheme in {'http', 'https'}
-        descriptors.append({
-            'type': kind,
-            'label': label,
-            'field': field,
-            'available': bool(
-                _usable_document_reference(reference)
-                and (local_path or remote_url)
-                and _viewable_supporting_document(reference, local_path)
-            ),
-        })
-    return descriptors
+    return [
+        item.model_dump()
+        for item in _supporting_document_service().descriptors(
+            chosen, report_path
+        )
+    ]
+
+
+def _supporting_document_service() -> ISupportingDocumentService:
+    """Composition root for the supporting-document application boundary."""
+    global _SUPPORTING_DOCUMENT_SERVICE
+    if _SUPPORTING_DOCUMENT_SERVICE is None:
+        _SUPPORTING_DOCUMENT_SERVICE = SupportingDocumentService(
+            SupportingDocumentPorts(
+                lookup_expense=lambda *args, **kwargs: _lookup_expense_row(
+                    *args, **kwargs
+                ),
+                normalize_amount=lambda value: _norm_amount(value),
+                catalog=SUPPORTING_DOCUMENT_CATALOG,
+                normalize_reference=lambda value: normalize_supporting_document_reference(value),
+                usable_reference=lambda value: _usable_document_reference(value),
+                resolve_local=lambda reference, kind: _resolve_local_supporting_document(
+                    reference, kind
+                ),
+                viewable=lambda reference, path=None: _viewable_supporting_document(
+                    reference, path
+                ),
+                source_reference=lambda chosen, path: _source_document_reference(
+                    chosen, path
+                ),
+                reference_for=lambda chosen, kind, report_path: _slot_reference(
+                    chosen, kind, report_path
+                ),
+                prepare_view=lambda chosen, path, kind: _prepare_supporting_document_view(
+                    chosen, path, kind
+                ),
+                document_url_prefix=SUPPORTING_DOCUMENT_URL_PREFIX,
+            )
+        )
+    return _SUPPORTING_DOCUMENT_SERVICE
 
 
 def lookup_supporting_documents(date_str, signed_amount, vendor_key,
                                 description='', report_path='', expense_id=None):
-    try:
-        chosen = _lookup_expense_row(
-            date_str, signed_amount, vendor_key, description, expense_id)
-    except Exception as exc:
-        return {'ok': False, 'error': f'DB error: {exc}', 'documents': []}
-    if not chosen:
-        return {'ok': False, 'error': 'No matching expense in DB.', 'documents': []}
-    return {
-        'ok': True,
-        'expense_id': chosen['id'],
-        'receipt_url': chosen.get('receipt_url'),
-        'document_url': chosen.get('document_url'),
-        'scanned_statement_url': chosen.get('scanned_statement_url'),
-        'moms_ledger': chosen.get('moms_ledger'),
-        'notes': chosen.get('notes') or '',
-        'documents': _supporting_document_descriptors(chosen, report_path),
-    }
+    request = SupportingDocumentRequest(
+        date=date_str, signed_amount=signed_amount, vendor_key=vendor_key,
+        description=description, expense_id=expense_id, report_path=report_path,
+    )
+    return _supporting_document_service().lookup(
+        request, descriptor_builder=_supporting_document_descriptors
+    ).model_dump()
 
 
 def open_supporting_document(date_str, signed_amount, vendor_key, document_type,
                              description='', expense_id=None, report_path=''):
-    slot = SUPPORTING_DOCUMENT_CATALOG.slot_for_kind(document_type)
-    if not slot:
-        return {'ok': False, 'error': 'Unknown supporting-document type.'}
-    field = slot.expense_field
-    try:
-        chosen = _lookup_expense_row(
-            date_str, signed_amount, vendor_key, description, expense_id)
-    except Exception as exc:
-        return {'ok': False, 'error': f'DB error: {exc}'}
-    reference = (chosen.get(field) or '').strip() if chosen else ''
-    stored_reference = reference
-    reference = _slot_reference(chosen, document_type, report_path)
-    source_from_report = (
-        document_type == 'source'
-        and bool(reference)
-        and reference != stored_reference
+    request = SupportingDocumentRequest(
+        date=date_str, signed_amount=signed_amount, vendor_key=vendor_key,
+        document_type=document_type, description=description,
+        expense_id=expense_id, report_path=report_path,
     )
-    if not _usable_document_reference(reference):
-        return {'ok': False, 'error': f'{document_type} document is not on file.'}
-    parsed = urlparse(reference)
-    if parsed.scheme in {'http', 'https'}:
-        if not _viewable_supporting_document(reference):
-            return {'ok': False,
-                    'error': f'The {document_type.replace("_", " ")} reference is not a viewable PDF, image, or Excel workbook.'}
-        return {
-            'ok': True,
-            'url': reference,
-            'highlighted': False,
-            'highlight_note': 'Remote documents are opened without a local annotation.',
-        }
-    path = _resolve_local_supporting_document(reference, document_type)
-    if not path:
-        print(
-            f'[supporting-document] missing type={document_type} '
-            f'expense_id={chosen.get("id") if chosen else ""}'
-        )
-        return {'ok': False,
-                'error': f'The {document_type.replace("_", " ")} document could not be found.'}
-    if not _viewable_supporting_document(reference, path):
-        return {'ok': False,
-                'error': f'The {document_type.replace("_", " ")} reference is not a viewable PDF, image, or Excel workbook.'}
-    prepared = _prepare_supporting_document_view(
-        chosen, path, document_type)
-    fragment = parsed.fragment
-    if prepared.highlighted and prepared.page:
-        fragment = f'page={prepared.page}'
-    page_fragment = (
-        f'#{fragment}'
-        if re.fullmatch(r'page=[1-9][0-9]*', fragment or '')
-        else ''
-    )
-    viewer_url = (
-        f'{SUPPORTING_DOCUMENT_URL_PREFIX}/{int(chosen["id"])}'
-        f'/{document_type}'
-    )
-    if source_from_report:
-        viewer_url += f'?report_path={quote(report_path, safe="")}'
-    return {
-        'ok': True,
-        'url': viewer_url + page_fragment,
-        'highlighted': prepared.highlighted,
-        'highlight_note': prepared.reason,
-    }
+    return _supporting_document_service().open(request).model_dump()
 
 
 def _supporting_document_path_for_expense(
         expense_id, document_type, report_path=''):
-    """Resolve a stable expense-scoped viewer URL to its current local file."""
-    slot = SUPPORTING_DOCUMENT_CATALOG.slot_for_kind(document_type)
-    if not slot:
-        return None
-    field = slot.expense_field
-    try:
-        chosen = _lookup_expense_row(
-            '', '', '', '', expense_id=int(expense_id))
-    except (TypeError, ValueError, LookupError):
-        return None
-    except Exception as exc:
-        print(
-            f'[supporting-document] lookup failed expense_id={expense_id} '
-            f'type={document_type}: {exc}'
-        )
-        return None
-    reference = _slot_reference(chosen, document_type, report_path)
-    if not _usable_document_reference(reference):
-        return None
-    path = _resolve_local_supporting_document(reference, document_type)
-    if not path or not _viewable_supporting_document(reference, path):
-        return None
-    return path
+    return _supporting_document_service().path_for_expense(
+        int(expense_id), document_type, report_path
+    )
 
 
 def _supporting_document_view_for_expense(
         expense_id, document_type, report_path=''):
-    """Resolve and annotate the document identified by a stable viewer URL."""
-    try:
-        chosen = _lookup_expense_row(
-            '', '', '', '', expense_id=int(expense_id))
-    except (TypeError, ValueError, LookupError):
-        return None
-    except Exception as exc:
-        print(
-            f'[supporting-document] viewer lookup failed expense_id={expense_id} '
-            f'type={document_type}: {exc}'
-        )
-        return None
-    source_path = _supporting_document_path_for_expense(
-        expense_id, document_type, report_path)
-    if not chosen or not source_path:
-        return None
-    result = _prepare_supporting_document_view(
-        chosen, source_path, document_type)
-    if not result.highlighted:
-        print(
-            f'[supporting-document] opened without highlight '
-            f'expense_id={expense_id} type={document_type} '
-            f'reason={result.reason}'
-        )
-    return result.path
+    return _supporting_document_service().view_for_expense(
+        int(expense_id), document_type, report_path
+    )
 
 
 def _source_document_path(report_path, receipt_path=None):
@@ -6658,9 +6593,13 @@ SSH_CONNECTIONS = [
     {
         'key': 'win11',
         'name': 'Win11 (Lettabot/Dashboard)',
-        'host': '100.72.158.63',
+        'host': '100.102.209.100',
         'user': 'adamsl',
-        'note': 'Lettabot + the live dashboard deployment (100.72.158.63)',
+        'note': 'Lettabot + the live dashboard deployment. Was 100.72.158.63 '
+                '(desktop-2obsqmc-24, the Ubuntu-24.04 stub) until that node went '
+                'offline on 2026-08-05 — Ubuntu-26.04 (the real live distro) now '
+                'registers its own Tailscale node "desktop-2obsqmc" directly at '
+                '100.102.209.100, reachable over SSH with no wsl.exe hop needed.',
     },
     {
         'key': 'rosemary46',
@@ -8097,17 +8036,12 @@ def get_ssh_connection(key):
     return None
 
 
-def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
-    """Run a real `ssh ... echo CONNECTED` round trip against cfg. Returns {ok, text}."""
-    target = f"{cfg['user']}@{cfg['host']}"
+def _ssh_test_once(target, timeout, identity_file=None):
+    """One `ssh ... echo CONNECTED` round trip, optionally pinned to identity_file."""
     cmd = ['ssh', '-o', f'ConnectTimeout={timeout}', '-o', 'BatchMode=yes',
            '-o', 'StrictHostKeyChecking=accept-new']
-    identity_files = cfg.get('identity_files') or (cfg.get('identity_file', ''),)
-    for configured_identity in identity_files:
-        identity_file = os.path.expanduser(configured_identity)
-        if identity_file and os.path.isfile(identity_file):
-            cmd.extend(['-o', 'IdentitiesOnly=yes', '-i', identity_file])
-            break
+    if identity_file:
+        cmd.extend(['-o', 'IdentitiesOnly=yes', '-i', identity_file])
     cmd.extend([target, 'echo CONNECTED && hostname'])
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
@@ -8122,6 +8056,32 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
         return {'ok': False, 'text': f'ssh to {target} timed out after {timeout}s'}
     except Exception as e:
         return {'ok': False, 'text': f'ssh to {target} failed: {e}'}
+
+
+def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
+    """Run a real `ssh ... echo CONNECTED` round trip against cfg. Returns {ok, text}.
+
+    identity_files is an ordered preference list, not a single choice — a key
+    can exist on disk but no longer be authorized on the remote end (rotated,
+    revoked), so picking "the first file that exists" can wedge on a dead key
+    forever even though a later one in the list still works. Try each in turn
+    (mirrors the categorizer's provider fallback chain) and return the first
+    one that actually authenticates.
+    """
+    target = f"{cfg['user']}@{cfg['host']}"
+    identity_files = cfg.get('identity_files') or (cfg.get('identity_file', ''),)
+    candidates = [
+        os.path.expanduser(f) for f in identity_files
+        if f and os.path.isfile(os.path.expanduser(f))
+    ]
+    if not candidates:
+        return _ssh_test_once(target, timeout)
+    last = None
+    for identity_file in candidates:
+        last = _ssh_test_once(target, timeout, identity_file)
+        if last['ok']:
+            return last
+    return last
 
 
 def _tailscale_cli():
@@ -9203,12 +9163,18 @@ def _looks_rate_limited(err):
             or 'too many requests' in t)
 
 
-def _fill_rate_limited(out, d, err):
-    """A provider-side 429 means the ACCOUNT is throttled — that's red
-    ('you cannot use this provider right now'), not a yellow 'usage
-    unavailable' shrug. Surface the reset as an absolute epoch so the
-    frontend can render a live countdown."""
-    out['status'] = 'down'
+def _fill_rate_limited(out, d, err, severity='down'):
+    """A provider-side 429 means the endpoint we polled is throttled. For
+    Codex/Antigravity that endpoint IS the account's real quota meter, so a
+    429 there really does mean 'you cannot use this provider right now'
+    (severity='down', red). Claude's usage check hits a separate, much
+    stricter usage-stats endpoint (api/oauth/usage) that throttles on its own
+    schedule independent of the actual chat/completion API — repeated polling
+    (e.g. manual diagnostics) can trip it while Claude itself works fine. That
+    case passes severity='concern' (yellow) so the tile doesn't falsely claim
+    the whole OAuth connection is dead. Surface the reset as an absolute
+    epoch either way so the frontend can render a live countdown."""
+    out['status'] = severity
     out['rate_limited'] = True
     retry_after = d.get('retry_after')
     if retry_after:
@@ -9217,6 +9183,8 @@ def _fill_rate_limited(out, d, err):
         out['detail'] = f'RATE LIMITED ({err}) — resets {_human_reset(until)}'
     else:
         out['detail'] = f'RATE LIMITED ({err}) — reset time not reported'
+    if severity == 'concern':
+        out['detail'] = f'usage stats {out["detail"]} (Claude itself may still work — this only throttles quota reporting)'
     return out
 
 
@@ -9291,7 +9259,7 @@ def _model_stats_uncached(source_key, src):
         if d.get('error') or not u:
             err = d.get('error', 'no data')
             if _looks_rate_limited(err):
-                return _fill_rate_limited(out, d, err)
+                return _fill_rate_limited(out, d, err, severity='concern')
             out['status'] = 'concern'
             out['detail'] = f'usage unavailable: {err}'
             return out

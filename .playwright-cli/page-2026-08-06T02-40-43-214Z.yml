@@ -1,0 +1,484 @@
+- generic [active] [ref=e1]:
+  - complementary [ref=e10]:
+    - heading "Dashboard" [level=1] [ref=e11]
+    - navigation [ref=e40]:
+      - button "Back" [ref=e41] [cursor=pointer]
+      - button "Plan" [ref=e42] [cursor=pointer]
+      - button "Current Status" [ref=e43] [cursor=pointer]
+      - button "Taxes" [ref=e44] [cursor=pointer]
+      - button "Reports" [ref=e45] [cursor=pointer]
+      - button "Scanners" [ref=e46] [cursor=pointer]
+  - main [ref=e13]:
+    - iframe [ref=e48]:
+      - generic [ref=f16e1]:
+        - generic [ref=f16e2]:
+          - banner [ref=f16e3]:
+            - heading "ROL Finance Plan" [level=1] [ref=f16e4]
+            - paragraph [ref=f16e5]: Verification workflow for clean, accurate, deduplicated non-profit finance data.
+          - main [ref=f16e6]:
+            - generic [ref=f16e7]:
+              - heading "✓ Goal" [level=2] [ref=f16e8]:
+                - generic [ref=f16e9]: ✓
+                - text: Goal
+              - paragraph [ref=f16e10]: Verify that financial data extracted from statements, receipts, and other documents is accurate, categorized correctly, deduplicated, and safely stored in the non-profit finance database.
+            - generic [ref=f16e11]:
+              - heading "1 Verify Extracted Statement Data" [level=2] [ref=f16e12]:
+                - generic [ref=f16e13]: "1"
+                - text: Verify Extracted Statement Data
+              - paragraph [ref=f16e14]: Some source documents may be fuzzy, OCR-generated, or manually translated into structured data.
+              - paragraph [ref=f16e15]: "For every statement or financial document:"
+              - list [ref=f16e16]:
+                - listitem [ref=f16e17]: Extract usable transaction data.
+                - listitem [ref=f16e18]: Use a Python/calculator tool to verify totals.
+                - listitem [ref=f16e19]: Confirm that individual expenses, deposits, and balances add up correctly.
+                - listitem [ref=f16e20]: Flag any math mismatch before inserting data into the database.
+            - generic [ref=f16e21]:
+              - heading "2 Determine vendor_key and Category" [level=2] [ref=f16e22]:
+                - generic [ref=f16e23]: "2"
+                - text: Determine
+                - code [ref=f16e24]: vendor_key
+                - text: and Category
+              - paragraph [ref=f16e25]:
+                - text: For each expense, determine the correct
+                - code [ref=f16e26]: vendor_key
+                - text: from the transaction description.
+              - paragraph [ref=f16e27]:
+                - text: After the
+                - code [ref=f16e28]: vendor_key
+                - text: "is identified:"
+              - list [ref=f16e29]:
+                - listitem [ref=f16e30]: Look up the vendor in the existing lookup tools.
+                - listitem [ref=f16e31]: Assign the correct expense category.
+                - listitem [ref=f16e32]: If the vendor is unknown, add it to the evolving lookup list after review.
+              - paragraph [ref=f16e33]:
+                - strong [ref=f16e34]: "Location of tools for this system:"
+              - code [ref=f16e36]: /home/adamsl/rol_finances/tools/
+              - paragraph [ref=f16e37]: This folder also contains lookup lists that grow as new vendors and categories are discovered.
+            - generic [ref=f16e38]:
+              - heading "3 Prevent Duplicate Data" [level=2] [ref=f16e39]:
+                - generic [ref=f16e40]: "3"
+                - text: Prevent Duplicate Data
+              - paragraph [ref=f16e41]: The system must prevent the same transaction from being entered more than once.
+              - paragraph [ref=f16e42]: Sometimes receipt data and bank statement data may describe the same real-world transaction. For example, a receipt may have a matching bank statement row, or a bank statement row may have matching receipt data.
+              - paragraph [ref=f16e43]: When the system finds a match, the records should be linked together instead of being inserted as separate expenses.
+              - paragraph [ref=f16e44]: The system should also guard against accidental duplicate entries where the same record is entered more than once.
+            - generic [ref=f16e45]:
+              - heading "4 Store Verified Data in the Database" [level=2] [ref=f16e46]:
+                - generic [ref=f16e47]: "4"
+                - text: Store Verified Data in the Database
+              - paragraph [ref=f16e48]: Only insert or update data after verification is complete.
+              - paragraph [ref=f16e49]: "When matching data is found:"
+              - list [ref=f16e50]:
+                - listitem [ref=f16e51]:
+                  - text: If data from a receipt matches an existing expense record from a statement, populate the
+                  - code [ref=f16e52]: receipt_url
+                  - text: column of that expense record with the path to the receipt.
+                - listitem [ref=f16e53]:
+                  - text: If data from a statement matches an existing expense record from a receipt, populate the
+                  - code [ref=f16e54]: source_file
+                  - text: column of that expense record with the document path.
+                - listitem [ref=f16e55]:
+                  - text: Verify that the
+                  - code [ref=f16e56]: vendor_key
+                  - text: and category match between the linked records.
+              - paragraph [ref=f16e57]:
+                - text: If the
+                - code [ref=f16e58]: vendor_key
+                - text: "or category does not match:"
+              - generic [ref=f16e59]: HALT THE PROCESS
+              - paragraph [ref=f16e60]: The mismatch must be reviewed and resolved before continuing.
+            - generic [ref=f16e61]:
+              - heading "5 Project Plan — 2025 Church Financial Report Completion" [level=2] [ref=f16e62]:
+                - generic [ref=f16e63]: "5"
+                - text: Project Plan — 2025 Church Financial Report Completion
+              - paragraph [ref=f16e64]:
+                - strong [ref=f16e65]: "Current status as of 2026-07-28:"
+                - text: the 2025 books are further along than the 2026-07-22 snapshot showed, but the 2025 church financial report is
+                - strong [ref=f16e66]: still not finishable
+                - text: . A fresh account-by-account audit (database queries joined against the actual statement files on disk, not just the stale table) found that
+                - strong [ref=f16e67]: Amex Personal / Platinum Business
+                - text: and
+                - strong [ref=f16e68]: Choice Privileges 7580
+                - text: are fully processed for all 12 months — a big correction from the prior UNKNOWN/assumed status — and that
+                - strong [ref=f16e69]: Prime Chase
+                - text: is actually processed for January–June (not just June as previously recorded). The database now contains
+                - strong [ref=f16e70]: "868"
+                - text: 2025 expense rows (up from 745) plus
+                - strong [ref=f16e71]: "312"
+                - text: 2025 bank-ledger transaction rows (unchanged; the
+                - code [ref=f16e72]: transactions
+                - text: table still only reaches January–June).
+                - strong [ref=f16e73]: "132"
+                - text: 2025 expenses now carry a
+                - code [ref=f16e74]: receipt_url
+                - text: and
+                - strong [ref=f16e75]: "369"
+                - text: carry a
+                - code [ref=f16e76]: source_file
+                - text: ", but"
+                - strong [ref=f16e77]: "104"
+                - text: 2025 expenses remain uncategorized (up from 72, concentrated in March, June, April, May, and a smaller January tail; February and July–December are fully categorized). The top-level document inventory now shows
+                - strong [ref=f16e78]: "bank statements: 213 files"
+                - text: and
+                - strong [ref=f16e79]: "receipts: 330 files"
+                - text: ", still with no dedicated"
+                - strong [ref=f16e80]: invoices/
+                - text: or
+                - strong [ref=f16e81]: supporting_documents/
+                - text: "folders. The real remaining gaps are concentrated in three accounts:"
+                - strong [ref=f16e82]: FNBO 4851
+                - text: (documents exist for all 12 months but only January is processed),
+                - strong [ref=f16e83]: Diners Club 0587/1391
+                - text: (only January processed), and
+                - strong [ref=f16e84]: Fifth Third ROL 6285 / Personal 5938 / ROL 3119
+                - text: ", which all have genuine document gaps in the second half of the year, not just processing gaps."
+              - generic [ref=f16e85]:
+                - generic [ref=f16e86]:
+                  - heading "Completed / partially completed" [level=3] [ref=f16e87]
+                  - list [ref=f16e88]:
+                    - listitem [ref=f16e89]:
+                      - strong [ref=f16e90]: Amex Personal / Platinum Business is fully processed for all 12 months of 2025
+                      - text: — verified by matching every row of the whole-year source workbooks (
+                      - code [ref=f16e91]: amex_personal_whole_2025.xlsx
+                      - text: ","
+                      - code [ref=f16e92]: platinum_business_credit_card_for_the_year.xlsx
+                      - text: ) against the
+                      - code [ref=f16e93]: expenses
+                      - text: table by date+description+amount; every matchable row was found (the previous UNKNOWN status was wrong — the data is there, it just isn't linked via
+                      - code [ref=f16e94]: source_file
+                      - text: ).
+                    - listitem [ref=f16e95]:
+                      - strong [ref=f16e96]: Choice Privileges 7580 is fully processed for all 12 months
+                      - text: ", evidenced by a single whole-year"
+                      - code [ref=f16e97]: choice_7580_year.xlsx
+                      - text: import spanning Jan 4 – Dec 29 (152 expense rows).
+                    - listitem [ref=f16e98]:
+                      - strong [ref=f16e99]: Prime Chase is processed January–June
+                      - text: (not just June as the 2026-07-22 table showed), confirmed by matching a whole-account CSV export against
+                      - code [ref=f16e100]: expenses
+                      - text: row-by-row (exact description+date+amount hits in every month Jan–Jun).
+                    - listitem [ref=f16e101]:
+                      - strong [ref=f16e102]: Fifth Third ROL 6285
+                      - text: is processed January–April (Jan/Feb via completed
+                      - code [ref=f16e103]: transactions
+                      - text: import batches, Mar/Apr via matched statement-derived expense rows).
+                    - listitem [ref=f16e104]:
+                      - strong [ref=f16e105]: Fifth Third Personal 5938
+                      - text: is processed January–June (confirmed via distinctive description patterns — check numbers, mortgage payment, card-ending-9509 purchases, transfers to/from the 6285 checking account — present in the
+                      - code [ref=f16e106]: transactions
+                      - text: table every month Jan–Jun).
+                    - listitem [ref=f16e107]:
+                      - strong [ref=f16e108]: JetBlue Barclays 3965
+                      - text: and
+                      - strong [ref=f16e109]: Diners Club 0587
+                      - text: are processed for January (and JetBlue for February).
+                    - listitem [ref=f16e110]: Year-folder bank-statement archive behavior (implemented 2026-07-22) continues to be used for new intake alongside the legacy month-folder structure; duplication between the two structures did not turn out to hide any additional processed data once cross-checked.
+                - generic [ref=f16e111]:
+                  - heading "Not yet complete" [level=3] [ref=f16e112]
+                  - list [ref=f16e113]:
+                    - listitem [ref=f16e114]:
+                      - strong [ref=f16e115]: "FNBO 4851:"
+                      - text: a source statement PDF exists for every month of 2025, but only January's rows are actually in
+                      - code [ref=f16e116]: expenses
+                      - text: — February's extracted rows (
+                      - code [ref=f16e117]: iterated_rows.md
+                      - text: ) were checked directly against the database and 0 of 9 matched, confirming March–December are genuinely un-imported, not just unlabeled.
+                    - listitem [ref=f16e118]:
+                      - strong [ref=f16e119]: "Diners Club 0587/1391:"
+                      - text: only January is processed; a "whole year" 0587 PDF exists on disk but was never run through extraction (no
+                      - code [ref=f16e120]: iterated_rows.md
+                      - text: ), so February–December are present-but-unprocessed.
+                    - listitem [ref=f16e121]:
+                      - strong [ref=f16e122]: "Fifth Third ROL 6285:"
+                      - text: no statement document of any kind (year-folder, legacy folder, or top-level) could be found for May–December 2025 — this is a real document gap, not just a processing gap.
+                    - listitem [ref=f16e123]:
+                      - strong [ref=f16e124]: "Fifth Third Personal 5938:"
+                      - text: a July statement exists (
+                      - code [ref=f16e125]: june_july_bank_personal_statement.pdf
+                      - text: ) but was not processed (0 personal-pattern rows found in
+                      - code [ref=f16e126]: expenses
+                      - text: for July); no statement documents exist at all for August–December.
+                    - listitem [ref=f16e127]:
+                      - strong [ref=f16e128]: "Fifth Third ROL 3119:"
+                      - text: a January statement and check-image packets for Jan–Mar, Apr–Jun, and Jul–Sep exist, but the one processing attempt on record (report.html) shows FAIL/error status and no matching rows were found in the database for any month; October–December have no documents at all.
+                    - listitem [ref=f16e129]:
+                      - strong [ref=f16e130]: Prime Chase and JetBlue Barclays 3965
+                      - text: have whole-year/whole-account source documents on disk (CSV export, annual summary PDF) covering July–December, but no evidence those months were ever imported.
+                    - listitem [ref=f16e131]:
+                      - strong [ref=f16e132]: "104"
+                      - text: 2025 expenses are still uncategorized, concentrated in
+                      - strong [ref=f16e133]: March (38)
+                      - text: ","
+                      - strong [ref=f16e134]: June (28)
+                      - text: ","
+                      - strong [ref=f16e135]: April (15)
+                      - text: ","
+                      - strong [ref=f16e136]: May (13)
+                      - text: ", and"
+                      - strong [ref=f16e137]: January (10)
+                      - text: .
+                    - listitem [ref=f16e138]:
+                      - text: The
+                      - code [ref=f16e139]: transactions
+                      - text: (bank-ledger) table still only reaches January–June 2025; nothing from July onward has landed there, even though the
+                      - code [ref=f16e140]: expenses
+                      - text: table does have July–December rows (171) from the credit-card accounts that are fully processed.
+              - heading "Missing documents or unfinished tasks" [level=3] [ref=f16e141]
+              - list [ref=f16e142]:
+                - listitem [ref=f16e143]:
+                  - strong [ref=f16e144]: "Genuine document gaps (no source file found in any structure):"
+                  - text: Fifth Third ROL 6285 May–December 2025; Fifth Third Personal 5938 August–December 2025; Fifth Third ROL 3119 October–December 2025. These need to be chased as actual missing statements, not reprocessed from an existing file.
+                - listitem [ref=f16e145]:
+                  - strong [ref=f16e146]: "Processing-only gaps (document present, not yet imported):"
+                  - text: FNBO 4851 February–December; Diners Club 0587/1391 February–December; JetBlue Barclays 3965 March–December; Prime Chase July–December; Fifth Third ROL 3119 January–September (repeated processing attempts have failed per its report.html).
+                - listitem [ref=f16e147]:
+                  - strong [ref=f16e148]: Fifth Third ROL 3119 needs its processing pipeline debugged
+                  - text: before reprocessing is retried again — the existing report.html for the January statement shows explicit FAIL/error status, and no import batch for this account has ever completed.
+                - listitem [ref=f16e149]:
+                  - strong [ref=f16e150]: "Folder normalization:"
+                  - text: invoices and supporting documents still have no dedicated top-level folders; several accounts (6285, 5938, 3119, JetBlue, Diners) have real source documents scattered across the legacy month folders, the year-folder structure, and the readable_documents root itself — worth consolidating so future gap-audits don't have to re-derive this.
+                - listitem [ref=f16e151]:
+                  - strong [ref=f16e152]: "Uncategorized expenses:"
+                  - text: clear the
+                  - strong [ref=f16e153]: "104"
+                  - text: uncategorized 2025 expenses, with highest priority on the
+                  - strong [ref=f16e154]: 38 March
+                  - text: and
+                  - strong [ref=f16e155]: 28 June
+                  - text: rows.
+                - listitem [ref=f16e156]:
+                  - strong [ref=f16e157]: "Receipt matching:"
+                  - text: identify which church expenses still require receipt attachment versus which legitimately have no receipt (132 of 868 currently have a receipt_url).
+                - listitem [ref=f16e158]:
+                  - strong [ref=f16e159]: "Unmatched/missing-source review:"
+                  - text: review expenses with blank
+                  - code [ref=f16e160]: source_file
+                  - text: or blank
+                  - code [ref=f16e161]: receipt_url
+                  - text: and decide whether they need a missing-document chase, statement re-import, or are valid statement-only rows.
+                - listitem [ref=f16e162]:
+                  - strong [ref=f16e163]: "Final year-end verification:"
+                  - text: once source completeness is proven, rerun duplicate review, total checks, category review, and final report math at the year level.
+              - heading "Recommended order of work (fastest practical path)" [level=3] [ref=f16e164]
+              - list [ref=f16e165]:
+                - listitem [ref=f16e166]:
+                  - strong [ref=f16e167]: Build the master 2025 document checklist first.
+                  - text: Do not keep processing blindly. List every expected church account/month/document type and mark each as scanned, processed, categorized, duplicate-checked, stored, or missing.
+                - listitem [ref=f16e168]:
+                  - strong [ref=f16e169]: Finish statement coverage before chasing individual receipts.
+                  - text: The fastest way to close the books is to guarantee all church statements are present and fully processed month by month; that establishes the complete transaction backbone.
+                - listitem [ref=f16e170]:
+                  - strong [ref=f16e171]: Resolve all remaining statement FAIL / PASS-WITH-NOTES items that affect completeness.
+                  - text: January is close enough that its exceptions should be closed immediately rather than rediscovered later.
+                - listitem [ref=f16e172]:
+                  - strong [ref=f16e173]: Clear uncategorized expenses next.
+                  - text: "Once statement coverage is stable, work the 72 uncategorized rows in descending month-count order: June, March, May, April."
+                - listitem [ref=f16e174]:
+                  - strong [ref=f16e175]: Then attach receipts/invoices/supporting docs to already-stored transactions.
+                  - text: This is faster than trying to reconstruct the whole year from receipts first.
+                - listitem [ref=f16e176]:
+                  - strong [ref=f16e177]: Then review unmatched receipts and possible duplicates.
+                  - text: Anything still unmatched after full statement coverage becomes a short exception queue instead of a giant mixed backlog.
+                - listitem [ref=f16e178]:
+                  - strong [ref=f16e179]: Only after the above, produce the final church 2025 report package.
+              - heading "Milestones and completion criteria" [level=3] [ref=f16e180]
+              - list [ref=f16e181]:
+                - listitem [ref=f16e182]:
+                  - strong [ref=f16e183]: Milestone 1 — Source inventory complete.
+                  - text: "Completion criteria: every expected 2025 church document is listed, and each one is marked either processed and stored in the correct folder or explicitly missing/pending human retrieval."
+                - listitem [ref=f16e184]:
+                  - strong [ref=f16e185]: Milestone 2 — Statement backbone complete.
+                  - text: "Completion criteria: every 2025 church statement has been scanned or ingested, archived to the correct year/month/account path, parsed, duplicate-checked, and stored; statement totals reconcile; open statement FAILs are resolved or formally excluded with justification."
+                - listitem [ref=f16e186]:
+                  - strong [ref=f16e187]: Milestone 3 — Transaction classification complete.
+                  - text: "Completion criteria: zero church expenses remain uncategorized unless they are intentionally held for documented policy review."
+                - listitem [ref=f16e188]:
+                  - strong [ref=f16e189]: Milestone 4 — Supporting documents linked.
+                  - text: "Completion criteria: each receipt/invoice/supporting document is either matched to a stored transaction, linked as a counterpart/support document, or placed on a short human-review exception list."
+                - listitem [ref=f16e190]:
+                  - strong [ref=f16e191]: Milestone 5 — Year-end reconciliation complete.
+                  - text: "Completion criteria: no unresolved duplicate candidates, missing statements, unexplained unmatched receipts, or known total discrepancies remain in the church 2025 data set."
+                - listitem [ref=f16e192]:
+                  - strong [ref=f16e193]: Milestone 6 — Final financial report ready.
+                  - text: "Completion criteria: year totals can be produced from verified data, with category summaries and supporting documents in place, and the remaining exception list is empty or explicitly approved by a human."
+              - heading "Blockers requiring human assistance" [level=3] [ref=f16e194]
+              - list [ref=f16e195]:
+                - listitem [ref=f16e196]: Locating any church statements, receipts, invoices, or check images that were never scanned or are only present as paper originals.
+                - listitem [ref=f16e197]: Answering ambiguous categorization policy questions where the statement text is too vague to distinguish business/church/personal purpose.
+                - listitem [ref=f16e198]: Providing context for check numbers, transfers, and card payments that do not expose enough merchant detail in the source statement.
+                - listitem [ref=f16e199]: Confirming whether missing later-month statements actually exist, belong to the church accounts, or were intentionally not used.
+                - listitem [ref=f16e200]: Approving treatment of any lingering support-only or excluded documents that should not create accounting rows.
+              - heading "Fast completion strategy" [level=3] [ref=f16e201]
+              - paragraph [ref=f16e202]:
+                - text: The quickest accurate route is to treat this as a
+                - strong [ref=f16e203]: coverage problem first, cleanup problem second
+                - text: . First prove the full 2025 church statement set exists and is processed into the database. Second, clear the remaining uncategorized and unsupported rows. Third, link receipts and invoices to transactions already known to exist. This avoids the slow path of trying to reconstruct the year document-by-document without first knowing whether the transaction backbone is complete.
+              - paragraph [ref=f16e204]:
+                - strong [ref=f16e205]: "Immediate next actions:"
+              - list [ref=f16e206]:
+                - listitem [ref=f16e207]: "Chase the three accounts with genuine document gaps first: Fifth Third ROL 6285 (May–Dec), Fifth Third Personal 5938 (Aug–Dec), and Fifth Third ROL 3119 (Oct–Dec) — confirm whether these statements exist anywhere (paper, online banking portal, email) before assuming they were never generated."
+                - listitem [ref=f16e208]: Debug the Fifth Third ROL 3119 import pipeline — every processing attempt on record has failed, so even the documents already on hand (Jan–Sep) haven't produced usable data.
+                - listitem [ref=f16e209]: "Process the already-present-but-unimported statements: FNBO 4851 (Feb–Dec), Diners Club 0587/1391 (Feb–Dec), JetBlue Barclays 3965 (Mar–Dec), and Prime Chase (Jul–Dec) — these are pure processing work, no document chasing required."
+                - listitem [ref=f16e210]: Work down the 104 uncategorized expenses, starting with March (38) and June (28).
+                - listitem [ref=f16e211]: Generate the final year-level exception list, then produce the church financial report from only the verified rows.
+            - generic [ref=f16e212]:
+              - heading "6 Quick Links" [level=2] [ref=f16e213]:
+                - generic [ref=f16e214]: "6"
+                - text: Quick Links
+              - generic [ref=f16e215]:
+                - link "Open smart_menu in VSCode" [ref=f16e216] [cursor=pointer]:
+                  - /url: vscode://vscode-remote/wsl+Ubuntu-24.04/home/adamsl/smart_menu
+                - link "Open rol_finances in VSCode" [ref=f16e217] [cursor=pointer]:
+                  - /url: vscode://vscode-remote/wsl+Ubuntu-24.04/home/adamsl/rol_finances
+                - link "Open letta-code in VSCode" [ref=f16e218] [cursor=pointer]:
+                  - /url: vscode://vscode-remote/wsl+Ubuntu-24.04/home/adamsl/letta-code
+        - generic [ref=f16e219]:
+          - heading "2025 Statement Checklist" [level=2] [ref=f16e220]
+          - paragraph [ref=f16e221]: "Generated: 2026-07-28"
+          - table [ref=f16e222]:
+            - rowgroup [ref=f16e223]:
+              - row [ref=f16e224]:
+                - columnheader "Account" [ref=f16e225]
+                - columnheader "Jan" [ref=f16e226]
+                - columnheader "Feb" [ref=f16e227]
+                - columnheader "Mar" [ref=f16e228]
+                - columnheader "Apr" [ref=f16e229]
+                - columnheader "May" [ref=f16e230]
+                - columnheader "Jun" [ref=f16e231]
+                - columnheader "Jul" [ref=f16e232]
+                - columnheader "Aug" [ref=f16e233]
+                - columnheader "Sep" [ref=f16e234]
+                - columnheader "Oct" [ref=f16e235]
+                - columnheader "Nov" [ref=f16e236]
+                - columnheader "Dec" [ref=f16e237]
+              - row [ref=f16e238]:
+                - cell "FNBO 4851" [ref=f16e239]
+                - cell "PROCESSED" [ref=f16e240]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e241]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e242]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e243]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e244]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e245]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e246]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e247]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e248]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e249]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e250]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e251]
+              - row [ref=f16e252]:
+                - cell "Choice Privileges 7580" [ref=f16e253]
+                - cell "PROCESSED" [ref=f16e254]
+                - cell "PROCESSED" [ref=f16e255]
+                - cell "PROCESSED" [ref=f16e256]
+                - cell "PROCESSED" [ref=f16e257]
+                - cell "PROCESSED" [ref=f16e258]
+                - cell "PROCESSED" [ref=f16e259]
+                - cell "PROCESSED" [ref=f16e260]
+                - cell "PROCESSED" [ref=f16e261]
+                - cell "PROCESSED" [ref=f16e262]
+                - cell "PROCESSED" [ref=f16e263]
+                - cell "PROCESSED" [ref=f16e264]
+                - cell "PROCESSED" [ref=f16e265]
+              - row [ref=f16e266]:
+                - cell "Prime Chase" [ref=f16e267]
+                - cell "PROCESSED" [ref=f16e268]
+                - cell "PROCESSED" [ref=f16e269]
+                - cell "PROCESSED" [ref=f16e270]
+                - cell "PROCESSED" [ref=f16e271]
+                - cell "PROCESSED" [ref=f16e272]
+                - cell "PROCESSED" [ref=f16e273]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e274]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e275]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e276]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e277]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e278]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e279]
+              - row [ref=f16e280]:
+                - cell "Diners Club 0587/1391" [ref=f16e281]
+                - cell "PROCESSED" [ref=f16e282]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e283]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e284]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e285]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e286]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e287]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e288]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e289]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e290]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e291]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e292]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e293]
+              - row [ref=f16e294]:
+                - cell "JetBlue Barclays 3965" [ref=f16e295]
+                - cell "PROCESSED" [ref=f16e296]
+                - cell "PROCESSED" [ref=f16e297]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e298]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e299]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e300]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e301]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e302]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e303]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e304]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e305]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e306]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e307]
+              - row [ref=f16e308]:
+                - cell "Fifth Third ROL 6285" [ref=f16e309]
+                - cell "PROCESSED" [ref=f16e310]
+                - cell "PROCESSED" [ref=f16e311]
+                - cell "PROCESSED" [ref=f16e312]
+                - cell "PROCESSED" [ref=f16e313]
+                - cell "MISSING" [ref=f16e314]
+                - cell "MISSING" [ref=f16e315]
+                - cell "MISSING" [ref=f16e316]
+                - cell "MISSING" [ref=f16e317]
+                - cell "MISSING" [ref=f16e318]
+                - cell "MISSING" [ref=f16e319]
+                - cell "MISSING" [ref=f16e320]
+                - cell "MISSING" [ref=f16e321]
+              - row [ref=f16e322]:
+                - cell "Fifth Third Personal 5938" [ref=f16e323]
+                - cell "PROCESSED" [ref=f16e324]
+                - cell "PROCESSED" [ref=f16e325]
+                - cell "PROCESSED" [ref=f16e326]
+                - cell "PROCESSED" [ref=f16e327]
+                - cell "PROCESSED" [ref=f16e328]
+                - cell "PROCESSED" [ref=f16e329]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e330]
+                - cell "MISSING" [ref=f16e331]
+                - cell "MISSING" [ref=f16e332]
+                - cell "MISSING" [ref=f16e333]
+                - cell "MISSING" [ref=f16e334]
+                - cell "MISSING" [ref=f16e335]
+              - row [ref=f16e336]:
+                - cell "Fifth Third ROL 3119" [ref=f16e337]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e338]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e339]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e340]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e341]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e342]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e343]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e344]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e345]
+                - cell "PRESENT NOT PROCESSED" [ref=f16e346]
+                - cell "MISSING" [ref=f16e347]
+                - cell "MISSING" [ref=f16e348]
+                - cell "MISSING" [ref=f16e349]
+              - row [ref=f16e350]:
+                - cell "Amex Personal / Platinum Business" [ref=f16e351]
+                - cell "PROCESSED" [ref=f16e352]
+                - cell "PROCESSED" [ref=f16e353]
+                - cell "PROCESSED" [ref=f16e354]
+                - cell "PROCESSED" [ref=f16e355]
+                - cell "PROCESSED" [ref=f16e356]
+                - cell "PROCESSED" [ref=f16e357]
+                - cell "PROCESSED" [ref=f16e358]
+                - cell "PROCESSED" [ref=f16e359]
+                - cell "PROCESSED" [ref=f16e360]
+                - cell "PROCESSED" [ref=f16e361]
+                - cell "PROCESSED" [ref=f16e362]
+                - cell "PROCESSED" [ref=f16e363]
+          - paragraph [ref=f16e364]: "Status meanings: PROCESSED = document found and transactions verified in database; PRESENT NOT PROCESSED = document found but database verification missing; MISSING = no document found; UNKNOWN = evidence incomplete or ambiguous."
+          - paragraph [ref=f16e365]:
+            - text: "Notes: Diners Club 0587/1391 January is covered by the 0587 card; February is covered by the 1391 card (December 30–January 24 and January 28–February 21 statements), whose only recorded processing attempt (report.html) shows FAIL/error status. Fifth Third ROL 3119's Jan–Sep documents are mostly check-image packets (Jan–Mar, Apr–Jun, Jul–Sep) plus one January statement PDF; its only processing attempt on record failed, so nothing from this account has reached the database despite the paper trail existing. No status in this table was marked UNKNOWN this cycle — every account had enough filesystem and/or database evidence to call PROCESSED, PRESENT NOT PROCESSED, or MISSING with reasonable confidence; see the audit notes for the amount+date/description matching method used to verify processing where"
+            - code [ref=f16e366]: source_file
+            - text: was NULL.

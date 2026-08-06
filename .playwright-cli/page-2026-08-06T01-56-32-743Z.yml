@@ -1,0 +1,16 @@
+- generic [active] [ref=e1]:
+  - complementary [ref=e9]:
+    - heading "Dashboard" [level=1] [ref=e10]
+    - navigation [ref=e11]:
+      - button "Home" [ref=e13] [cursor=pointer]
+      - button "ROL Finance" [ref=e14] [cursor=pointer]
+      - button "Status" [ref=e15] [cursor=pointer]
+      - button "Instructions" [ref=e16] [cursor=pointer]
+      - button "Tool Management" [ref=e17] [cursor=pointer]
+      - button "Agent Management" [ref=e18] [cursor=pointer]
+      - button "Server Management" [ref=e19] [cursor=pointer]
+      - button "SSH Connections" [ref=e20] [cursor=pointer]
+      - button "Project Plans" [ref=e21] [cursor=pointer]
+      - button "Model Stats" [ref=e22] [cursor=pointer]
+      - button "PC Monitor" [ref=e23] [cursor=pointer]
+  - main [ref=e12]

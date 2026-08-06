@@ -10,6 +10,7 @@ import {
 } from "./agent/context";
 import {
   acquireConversationLease,
+  ConversationInUseError,
   type ConversationLease,
 } from "./agent/conversationLease";
 import type { AgentProvenance } from "./agent/create";
@@ -1965,11 +1966,45 @@ async function main(): Promise<void> {
         // driven by two local TUI processes. Without this lease, each process can
         // answer a different approval snapshot and the server rejects the stale
         // tool-call ID, leaving both clients in a 409 retry loop.
-        activeConversationLease = acquireConversationLease({
-          agentId: agent.id,
-          conversationId: conversationIdToUse,
-          serverUrl: getServerUrl(),
-        });
+        try {
+          activeConversationLease = acquireConversationLease({
+            agentId: agent.id,
+            conversationId: conversationIdToUse,
+            serverUrl: getServerUrl(),
+          });
+        } catch (error) {
+          // conversationIdToUse was only *implicitly* chosen (the agent's
+          // "default" conversation) when the user did not name a specific
+          // conversation to resume. In that case a busy lease isn't a reason
+          // to fail startup — it just means "default" is unavailable, so
+          // fall back to the same auto-new-conversation strategy `--new`
+          // uses. An explicit --resume/--conversation target still fails
+          // hard: silently redirecting a deliberately-chosen conversation
+          // would be surprising and could split the user's history.
+          if (
+            error instanceof ConversationInUseError &&
+            !specifiedConversationId &&
+            !selectedConversationId
+          ) {
+            console.warn(
+              `\nConversation ${conversationIdToUse} is open in another Letta Code process ` +
+                `(PID ${error.ownerPid}). Starting a new conversation instead.`,
+            );
+            const conversation = await client.conversations.create({
+              agent_id: agent.id,
+              isolated_block_labels: [...ISOLATED_BLOCK_LABELS],
+            });
+            conversationIdToUse = conversation.id;
+            setResumedExistingConversation(false);
+            activeConversationLease = acquireConversationLease({
+              agentId: agent.id,
+              conversationId: conversationIdToUse,
+              serverUrl: getServerUrl(),
+            });
+          } else {
+            throw error;
+          }
+        }
 
         // Ensure memfs sync completed (already resolved for default path via Promise.all above)
         await memfsSyncPromise;

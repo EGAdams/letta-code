@@ -2443,6 +2443,57 @@ def test_ssh_test_uses_configured_identity_file(monkeypatch, tmp_path):
     ]]
 
 
+def test_ssh_test_falls_through_a_dead_preferred_key_to_a_working_one(monkeypatch, tmp_path):
+    # A key can exist on disk but no longer be authorized on the remote end
+    # (rotated/revoked). Picking "the first file that exists" would wedge on
+    # that dead key forever even though a later one in the list still works.
+    dead = tmp_path / 'id_dead'
+    dead.write_text('dead key')
+    live = tmp_path / 'id_live'
+    live.write_text('live key')
+    calls = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        if str(dead) in cmd:
+            return type('Result', (), {
+                'returncode': 255,
+                'stdout': '',
+                'stderr': 'nobody@0.0.0.0: Permission denied (publickey).',
+            })()
+        return type('Result', (), {
+            'returncode': 0,
+            'stdout': 'CONNECTED\nDESKTOP-SHDBATI\n',
+            'stderr': '',
+        })()
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    result = server.ssh_test(
+        {**_ssh_cfg(), 'identity_files': (str(dead), str(live))}, timeout=5,
+    )
+
+    assert result['ok'] is True
+    assert len(calls) == 2  # tried the dead key first, then fell through to the live one
+
+
+def test_ssh_test_reports_the_last_failure_when_every_identity_fails(monkeypatch, tmp_path):
+    dead = tmp_path / 'id_dead'
+    dead.write_text('dead key')
+
+    def fake_run(cmd, **_kwargs):
+        return type('Result', (), {
+            'returncode': 255,
+            'stdout': '',
+            'stderr': 'nobody@0.0.0.0: Permission denied (publickey).',
+        })()
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    result = server.ssh_test({**_ssh_cfg(), 'identity_files': (str(dead),)}, timeout=5)
+
+    assert result['ok'] is False
+    assert 'Permission denied' in result['text']
+
+
 def test_tailscale_test_accepts_ping_when_status_is_stale_offline(monkeypatch):
     calls = []
     monkeypatch.setattr(server, '_tailscale_cli', lambda: 'tailscale')

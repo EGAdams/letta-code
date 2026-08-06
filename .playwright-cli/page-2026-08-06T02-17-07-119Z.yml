@@ -1,0 +1,30 @@
+- generic [active] [ref=e1]:
+  - complementary [ref=e9]:
+    - heading "Dashboard" [level=1] [ref=e10]
+    - navigation [ref=e11]:
+      - button "Home" [ref=e74] [cursor=pointer]
+      - button "ROL Finance" [ref=e75] [cursor=pointer]
+      - button "Status" [ref=e76] [cursor=pointer]
+      - button "Instructions" [ref=e77] [cursor=pointer]
+      - button "Tool Management" [ref=e78] [cursor=pointer]
+      - button "Agent Management" [ref=e79] [cursor=pointer]
+      - button "Server Management" [ref=e80] [cursor=pointer]
+      - button "SSH Connections" [ref=e81] [cursor=pointer]
+      - button "Project Plans" [ref=e82] [cursor=pointer]
+      - button "Model Stats" [ref=e83] [cursor=pointer]
+      - button "PC Monitor" [ref=e84] [cursor=pointer]
+  - main [ref=e12]
+  - dialog [ref=e64]:
+    - generic [ref=e65]:
+      - heading "I need one detail" [level=3] [ref=e66]
+      - paragraph [ref=e67]: Statement
+    - generic [ref=e68]:
+      - paragraph [ref=e69]: 3 transactions on this this account statement still have an unreadable date, description, or amount after checking the archived clean statement PDF for this account and period. Please open the document and fill in what you can read, or attach the correct statement PDF if one isn't archived yet.
+      - generic [ref=e70]:
+        - generic [ref=e71]: Offending document
+        - code [ref=e72]: /home/adamsl/rol_finances/readable_documents/bank_statements/_needs_review/choice_7580_year_parser_store_mismatch
+    - generic [ref=e73]:
+      - button "Leave for later" [ref=e85] [cursor=pointer]
+      - button "Ask Mazda" [ref=e86] [cursor=pointer]
+      - button "Show Document" [ref=e87] [cursor=pointer]
+      - button "Save" [ref=e88] [cursor=pointer]
