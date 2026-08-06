@@ -301,6 +301,18 @@ def test_rol_finance_reports_include_diners_annual_summary():
     assert report['label'] == 'Diners 0587 Year'
 
 
+def test_rol_finance_reports_include_amazon_marketplace():
+    report = next(
+        (r for r in server.ROL_FINANCE_REPORTS
+         if r['key'] == 'amazon-marketplace'),
+        None,
+    )
+    assert report is not None
+    assert report['label'] == 'Amazon Marketplace'
+    assert report['dir'] == 'amazon_marketplace_january_2025'
+    assert report.get('all_year') is not True
+
+
 def test_rol_finance_months_include_march_and_april_placeholders():
     assert server.ROL_FINANCES_REPORTS_MONTHS['mar-2025'] == 'march'
     assert server.ROL_FINANCES_REPORTS_MONTHS['apr-2025'] == 'april'
