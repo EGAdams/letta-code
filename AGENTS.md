@@ -16,22 +16,27 @@ file alone for anything skill- or memory-shaped.
 
 - **Project skills** (repo-scoped, git-tracked):
   - `/home/adamsl/letta-code/skills/` — built-in skills bundled with the
-    `letta` CLI product itself (copied from `src/skills/builtin/` at build
-    time). Each subdirectory has a `SKILL.md` with a `name`/`description`
+    `letta` CLI product itself (built from `src/skills/builtin/`). Each
+    subdirectory normally has a `SKILL.md` with a `name`/`description`
     frontmatter header — read that header first to decide relevance, then
-    open the full file if it matches the task.
-  - `/home/adamsl/letta-code/.skills/` — the larger, actively-used set of
-    project-authored skills for operating this environment (Mazda/Suzuki
-    dashboard, receipt pipeline, WSL/Tailscale recovery, Letta admin,
-    memory/memfs migration, etc.). This is the directory to check first for
-    anything involving the dashboard, receipt scanning, live Letta agents,
-    or infra recovery — it's a superset of `skills/`.
+    open the full file if it matches the task. A few legacy generated files
+    may still use the older `.skill` extension.
+  - `/home/adamsl/letta-code/src/skills/custom/` — the larger, actively-used
+    set of project-authored skills for operating this environment
+    (dashboard, receipt pipeline, WSL/Tailscale recovery, Letta admin,
+    memory/memfs migration, logger/debug workflows, etc.). Check this first
+    for operational tasks involving live Letta agents, infrastructure, or
+    repo-specific debugging.
+  - `/home/adamsl/letta-code/.skills/` — a small repo-local Claude skill
+    directory. Check it too, but do not assume it is a superset of
+    `src/skills/custom/`.
 
-- **Global skills** (user-scoped, apply across all repos):
-  `/home/adamsl/.claude/skills/` — either a single `<name>.md` file or a
-  `<name>/SKILL.md` dir per skill. See `/home/adamsl/.claude/skills/README.md`
-  for an index. Covers logger-API ops, dashboard debugging, invoice tools,
-  OAuth/token rotation, and other cross-project operational skills.
+- **Global skills** (user-scoped):
+  Claude's old `/home/adamsl/.claude/skills/` directory is not present on this
+  machine as of 2026-07-17. Codex-global skills live under
+  `/home/adamsl/.codex/skills/`; use them only when their descriptions match
+  the task. If a memory or dashboard note references an old Claude skill path,
+  verify the file still exists before relying on it.
 
 - **Persistent memory** (accumulated learnings from past sessions, written
   after task-relevant discoveries or user corrections — not derivable from
@@ -45,9 +50,9 @@ file alone for anything skill- or memory-shaped.
   paths/behavior still exist before acting on an old entry).
 
 When starting non-trivial work, skim `MEMORY.md` and check whether
-`.skills/` or `skills/` has a matching skill by description before
-improvising a solution — that's the equivalent of what Claude Code does
-automatically via its skill-matching system prompt.
+`src/skills/custom/`, `.skills/`, or `skills/` has a matching skill by
+description before improvising a solution — that's the equivalent of what
+Claude Code does automatically via its skill-matching system prompt.
 
 ## Mazda Trainer (dashboard sub-project)
 
@@ -74,7 +79,10 @@ never spawn real Trainers, `MAZDA_TRAINER_ENABLED=0` kill switch).
 - `bun run lint`: run Biome checks on `src/`.
 - `bun run fix`: apply Biome auto-fixes.
 - `bun run typecheck`: run strict TypeScript checks with no emit.
+- `bun run check`: run the custom project check script.
+- `bun test`: run the full Bun test suite.
 - `bun test src/tests`: run unit/behavior tests.
+- `bun run test:integration`: run the integration-test harness.
 - Example targeted integration test:  
   `bun test src/integration-tests/scissari-agent.integration.test.ts`
 
