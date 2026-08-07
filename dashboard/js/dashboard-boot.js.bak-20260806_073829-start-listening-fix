@@ -384,14 +384,6 @@ function clearActive(navEl, selector) {
   });
 }
 
-// Assigned once the statement-review dialog is constructed further down.
-// safeActivateView() is the single choke point every tab switch runs
-// through, so it's where we tell that dialog its visibility may need to
-// change — without it, the modal (see statement-review-overlay in
-// dashboard.css) stays parked over whichever tab the user switches to next,
-// silently swallowing every click there (e.g. Agents tab's Start Listening).
-let statementReviewDialogRef = null;
-
 function safeActivateView(id, fallbackId = "home") {
   const next = document.getElementById(id) ? id : fallbackId;
   document.querySelectorAll(".view").forEach((v) => {
@@ -410,7 +402,6 @@ function safeActivateView(id, fallbackId = "home") {
   const recentScansPanel = document.getElementById("rol-finance-recent-scans");
   if (recentScansPanel)
     recentScansPanel.hidden = !next.startsWith("rol-finance");
-  statementReviewDialogRef?.syncVisibility?.();
 }
 
 function safeSetActive(navEl, selector, target) {
@@ -2212,13 +2203,7 @@ const statementReviewActions = new DashboardStatementReviewActions({
 const statementReviewDialog = new StatementReviewDialog({
   http,
   actions: statementReviewActions,
-  // Only actually block the page while the Scanner tab (or one of its
-  // sub-views) is open — a queued review shouldn't stop the user from using
-  // Agents, Server Management, or any other unrelated tab.
-  isRelevantView: () =>
-    (document.querySelector(".view.active")?.id || "").startsWith("scanners"),
 });
-statementReviewDialogRef = statementReviewDialog;
 
 function setupScanners() {
   statementReviewDialog.start();

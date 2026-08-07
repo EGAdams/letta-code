@@ -48,7 +48,6 @@ from document_annotation import (
 from recent_intake_view import collapse_check_evidence_rows
 from supporting_document_service import (
     normalize_supporting_document_reference,
-    references_same_underlying_document,
     should_suppress_source_document,
 )
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
@@ -5195,46 +5194,31 @@ def _report_source_document_reference(report_path):
 
 
 def _source_document_reference(chosen, report_path=''):
-    """Resolve only distinct, viewable source evidence for a row.
+    """The source-document reference to offer for one expense row.
 
-    A scanner report may have a report-directory fallback that points at the
-    same paper JPG already stored in ``scanned_statement_url``. That image
-    belongs exclusively to the scanned-statement slot; never expose it again
-    as View Source Document. A distinct downloaded PDF remains available.
+    The stored `document_url` wins, but only while it still resolves. A scan
+    image that disappears after storage (2026-07-29: a concurrent agent's
+    `git add -A` swept two in-flight scans off disk) otherwise left the dialog
+    with no View Source Document button at all, even on a scanner report that
+    knows exactly which image it came from.
     """
     chosen = chosen or {}
-    stored_reference = str(chosen.get('document_url') or '').strip()
+    reference = chosen.get('document_url') or ''
+    reference = str(reference).strip()
     receipt_reference = str(chosen.get('receipt_url') or '').strip()
     if should_suppress_source_document(
-            stored_reference,
+            reference,
             receipt_reference,
             resolve_local_path=lambda ref: _resolve_local_supporting_document(
                 ref, 'source'
             ) or _resolve_local_supporting_document(ref, 'receipt')):
         return ''
+    if _usable_document_reference(reference) and (
+            urlparse(reference).scheme in {'http', 'https'}
+            or _resolve_local_supporting_document(reference, 'source')):
+        return reference
+    return _report_source_document_reference(report_path) or reference
 
-    scanned_reference = str(
-        chosen.get('scanned_statement_url') or '').strip()
-    source_reference = stored_reference
-    if not (_usable_document_reference(source_reference) and (
-            urlparse(source_reference).scheme in {'http', 'https'}
-            or _resolve_local_supporting_document(source_reference, 'source'))):
-        source_reference = _report_source_document_reference(report_path) or ''
-
-    if references_same_underlying_document(
-            source_reference,
-            scanned_reference,
-            resolve_local_path=lambda ref: (
-                _resolve_local_supporting_document(ref, 'source')
-                or _resolve_local_supporting_document(ref, 'scanned_statement')
-            )):
-        return ''
-
-    if _usable_document_reference(source_reference) and (
-            urlparse(source_reference).scheme in {'http', 'https'}
-            or _resolve_local_supporting_document(source_reference, 'source')):
-        return source_reference
-    return ''
 
 def _supporting_document_descriptors(chosen, report_path=''):
     descriptors = []
@@ -5400,7 +5384,6 @@ def _supporting_document_view_for_expense(
             f'reason={result.reason}'
         )
     return result.path
-
 
 
 def _source_document_path(report_path, receipt_path=None):
@@ -6612,13 +6595,9 @@ SSH_CONNECTIONS = [
     {
         'key': 'win11',
         'name': 'Win11 (Lettabot/Dashboard)',
-        'host': '100.102.209.100',
+        'host': '100.72.158.63',
         'user': 'adamsl',
-        'note': 'Lettabot + the live dashboard deployment. Was 100.72.158.63 '
-                '(desktop-2obsqmc-24, the Ubuntu-24.04 stub) until that node went '
-                'offline on 2026-08-05 -- Ubuntu-26.04 (the real live distro) now '
-                'registers its own Tailscale node "desktop-2obsqmc" directly at '
-                '100.102.209.100, reachable over SSH with no wsl.exe hop needed.',
+        'note': 'Lettabot + the live dashboard deployment (100.72.158.63)',
     },
     {
         'key': 'rosemary46',
@@ -8055,12 +8034,17 @@ def get_ssh_connection(key):
     return None
 
 
-def _ssh_test_once(target, timeout, identity_file=None):
-    """One `ssh ... echo CONNECTED` round trip, optionally pinned to identity_file."""
+def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
+    """Run a real `ssh ... echo CONNECTED` round trip against cfg. Returns {ok, text}."""
+    target = f"{cfg['user']}@{cfg['host']}"
     cmd = ['ssh', '-o', f'ConnectTimeout={timeout}', '-o', 'BatchMode=yes',
            '-o', 'StrictHostKeyChecking=accept-new']
-    if identity_file:
-        cmd.extend(['-o', 'IdentitiesOnly=yes', '-i', identity_file])
+    identity_files = cfg.get('identity_files') or (cfg.get('identity_file', ''),)
+    for configured_identity in identity_files:
+        identity_file = os.path.expanduser(configured_identity)
+        if identity_file and os.path.isfile(identity_file):
+            cmd.extend(['-o', 'IdentitiesOnly=yes', '-i', identity_file])
+            break
     cmd.extend([target, 'echo CONNECTED && hostname'])
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
@@ -8075,32 +8059,6 @@ def _ssh_test_once(target, timeout, identity_file=None):
         return {'ok': False, 'text': f'ssh to {target} timed out after {timeout}s'}
     except Exception as e:
         return {'ok': False, 'text': f'ssh to {target} failed: {e}'}
-
-
-def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
-    """Run a real `ssh ... echo CONNECTED` round trip against cfg. Returns {ok, text}.
-
-    identity_files is an ordered preference list, not a single choice — a key
-    can exist on disk but no longer be authorized on the remote end (rotated,
-    revoked), so picking "the first file that exists" can wedge on a dead key
-    forever even though a later one in the list still works. Try each in turn
-    (mirrors the categorizer's provider fallback chain) and return the first
-    one that actually authenticates.
-    """
-    target = f"{cfg['user']}@{cfg['host']}"
-    identity_files = cfg.get('identity_files') or (cfg.get('identity_file', ''),)
-    candidates = [
-        os.path.expanduser(f) for f in identity_files
-        if f and os.path.isfile(os.path.expanduser(f))
-    ]
-    if not candidates:
-        return _ssh_test_once(target, timeout)
-    last = None
-    for identity_file in candidates:
-        last = _ssh_test_once(target, timeout, identity_file)
-        if last['ok']:
-            return last
-    return last
 
 
 def _tailscale_cli():
@@ -9182,18 +9140,12 @@ def _looks_rate_limited(err):
             or 'too many requests' in t)
 
 
-def _fill_rate_limited(out, d, err, severity='down'):
-    """A provider-side 429 means the endpoint we polled is throttled. For
-    Codex/Antigravity that endpoint IS the account's real quota meter, so a
-    429 there really does mean 'you cannot use this provider right now'
-    (severity='down', red). Claude's usage check hits a separate, much
-    stricter usage-stats endpoint (api/oauth/usage) that throttles on its own
-    schedule independent of the actual chat/completion API — repeated polling
-    (e.g. manual diagnostics) can trip it while Claude itself works fine. That
-    case passes severity='concern' (yellow) so the tile doesn't falsely claim
-    the whole OAuth connection is dead. Surface the reset as an absolute
-    epoch either way so the frontend can render a live countdown."""
-    out['status'] = severity
+def _fill_rate_limited(out, d, err):
+    """A provider-side 429 means the ACCOUNT is throttled — that's red
+    ('you cannot use this provider right now'), not a yellow 'usage
+    unavailable' shrug. Surface the reset as an absolute epoch so the
+    frontend can render a live countdown."""
+    out['status'] = 'down'
     out['rate_limited'] = True
     retry_after = d.get('retry_after')
     if retry_after:
@@ -9202,8 +9154,6 @@ def _fill_rate_limited(out, d, err, severity='down'):
         out['detail'] = f'RATE LIMITED ({err}) — resets {_human_reset(until)}'
     else:
         out['detail'] = f'RATE LIMITED ({err}) — reset time not reported'
-    if severity == 'concern':
-        out['detail'] = f'usage stats {out["detail"]} (Claude itself may still work — this only throttles quota reporting)'
     return out
 
 
@@ -9278,7 +9228,7 @@ def _model_stats_uncached(source_key, src):
         if d.get('error') or not u:
             err = d.get('error', 'no data')
             if _looks_rate_limited(err):
-                return _fill_rate_limited(out, d, err, severity='concern')
+                return _fill_rate_limited(out, d, err)
             out['status'] = 'concern'
             out['detail'] = f'usage unavailable: {err}'
             return out

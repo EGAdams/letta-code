@@ -625,3 +625,30 @@ def test_image_strategy_boxes_a_card_statement_row_without_a_printed_year(
     assert red_rows
     # The box must sit on the ROKU row, not the RADISSON row above it.
     assert min(red_rows) > 150
+
+
+
+def test_last_freezer_scan_boxes_annual_fee_row_2000(tmp_path):
+    """The hard Last Freezer Scan row must be visibly boxed for verification."""
+    from document_annotation import ImageExpenseDocumentAnnotator
+
+    source = Path(
+        "/home/adamsl/rol_finances/readable_documents/scanned_statements/"
+        "2025/diners_club_0587_april_22__may_30.jpg"
+    )
+    assert source.exists()
+    output = tmp_path / "diners-0587-2000-annotated.jpg"
+    target = ExpenseEvidence(
+        expense_id=2000,
+        expense_date="2025-05-30",
+        amount="95.00",
+        description="ANNUAL FEE Diners Club | x-0587",
+        vendor_key="diners_club_0587",
+    )
+
+    result = ImageExpenseDocumentAnnotator().annotate(
+        str(source), str(output), target
+    )
+
+    assert result.highlighted is True
+    assert output.read_bytes() != source.read_bytes()

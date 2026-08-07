@@ -534,3 +534,54 @@ def test_picker_reports_the_page_query_so_a_scanner_can_be_identified():
     _css, html, _click_css = server._receipt_only_picker_assets()
 
     assert "report_path: location.pathname + location.search" in html
+
+
+
+def test_last_freezer_scan_keeps_source_pdf_and_scanned_statement_separate(
+    monkeypatch,
+):
+    """The Diners Club freezer intake has two different supporting documents."""
+    source_pdf = (
+        "/home/adamsl/rol_finances/readable_documents/bank_statements/"
+        "january/diners_0587_whole_year_2025/diners_0587_year_2025.pdf"
+    )
+    scanned_statement = (
+        "/home/adamsl/rol_finances/readable_documents/scanned_statements/"
+        "2025/diners_club_0587_april_22__may_30.jpg"
+    )
+    report_path = (
+        "/rol_finances_reports/jan-2025/"
+        "diners_0587_whole_year_2025/report.html"
+    )
+    row = {
+        "id": 2000,
+        "expense_date": "2025-05-30",
+        "amount": "95.00",
+        "id_light": "diners_club_0587_05_30_25_95_00",
+        "description": "ANNUAL FEE Diners Club | x-0587",
+        "receipt_url": None,
+        "document_url": None,
+        "scanned_statement_url": scanned_statement,
+        "moms_ledger": None,
+    }
+    monkeypatch.setattr(
+        server, "_lookup_expense_row", lambda *args, **kwargs: row
+    )
+
+    result = server.lookup_supporting_documents(
+        "2025-05-30", "-95.00", "diners_club_0587", row["description"],
+        report_path, 2000,
+    )
+
+    assert result["ok"] is True
+    assert result["document_url"] is None
+    assert result["scanned_statement_url"] == scanned_statement
+    source = next(item for item in result["documents"] if item["type"] == "source")
+    scanned = next(
+        item for item in result["documents"]
+        if item["type"] == "scanned_statement"
+    )
+    assert source["available"] is True
+    assert scanned["available"] is True
+    assert server._source_document_reference(row, report_path) == source_pdf
+    assert server._source_document_reference(row, report_path) != scanned_statement

@@ -9182,18 +9182,12 @@ def _looks_rate_limited(err):
             or 'too many requests' in t)
 
 
-def _fill_rate_limited(out, d, err, severity='down'):
-    """A provider-side 429 means the endpoint we polled is throttled. For
-    Codex/Antigravity that endpoint IS the account's real quota meter, so a
-    429 there really does mean 'you cannot use this provider right now'
-    (severity='down', red). Claude's usage check hits a separate, much
-    stricter usage-stats endpoint (api/oauth/usage) that throttles on its own
-    schedule independent of the actual chat/completion API — repeated polling
-    (e.g. manual diagnostics) can trip it while Claude itself works fine. That
-    case passes severity='concern' (yellow) so the tile doesn't falsely claim
-    the whole OAuth connection is dead. Surface the reset as an absolute
-    epoch either way so the frontend can render a live countdown."""
-    out['status'] = severity
+def _fill_rate_limited(out, d, err):
+    """A provider-side 429 means the ACCOUNT is throttled — that's red
+    ('you cannot use this provider right now'), not a yellow 'usage
+    unavailable' shrug. Surface the reset as an absolute epoch so the
+    frontend can render a live countdown."""
+    out['status'] = 'down'
     out['rate_limited'] = True
     retry_after = d.get('retry_after')
     if retry_after:
@@ -9202,8 +9196,6 @@ def _fill_rate_limited(out, d, err, severity='down'):
         out['detail'] = f'RATE LIMITED ({err}) — resets {_human_reset(until)}'
     else:
         out['detail'] = f'RATE LIMITED ({err}) — reset time not reported'
-    if severity == 'concern':
-        out['detail'] = f'usage stats {out["detail"]} (Claude itself may still work — this only throttles quota reporting)'
     return out
 
 
@@ -9278,7 +9270,7 @@ def _model_stats_uncached(source_key, src):
         if d.get('error') or not u:
             err = d.get('error', 'no data')
             if _looks_rate_limited(err):
-                return _fill_rate_limited(out, d, err, severity='concern')
+                return _fill_rate_limited(out, d, err)
             out['status'] = 'concern'
             out['detail'] = f'usage unavailable: {err}'
             return out

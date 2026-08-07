@@ -6585,14 +6585,14 @@ SERVERS = [
 SSH_CONNECTIONS = [
     {
         'key': 'win10-host',
-        'name': 'Windows 10 Host',
-        'host': '100.69.80.89',
+        'name': 'Windows 11 Host',
+        'host': '100.118.122.75',
         'user': 'NewUser',
         # Prefer the dedicated key on the remote WSL dashboard host. The
         # fallback is the normal key on this WSL host, where that dedicated
         # key is not installed.
         'identity_files': ('~/.ssh/id_win10_host', '~/.ssh/id_ed25519_win10', '~/.ssh/id_ed25519'),
-        'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.69.80.89)',
+        'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.118.122.75)',
     },
     {
         'key': 'win10-wsl-letta',
@@ -6888,7 +6888,7 @@ def start_logger_api():
 WIN10_NODE_HOST = LETTA_DOCKER_HOST.split('@')[-1] if '@' in LETTA_DOCKER_HOST else '100.80.49.10'
 # The Windows side of the same box (online even when the WSL node drops) — used to
 # revive the WSL node by restarting tailscaled inside the distro.
-WIN10_WINDOWS_HOST = os.environ.get('WIN10_WINDOWS_HOST', 'NewUser@100.69.80.89')
+WIN10_WINDOWS_HOST = os.environ.get('WIN10_WINDOWS_HOST', 'NewUser@100.118.122.75')
 WIN10_WSL_DISTRO = os.environ.get('WIN10_WSL_DISTRO', 'Ubuntu-24.04')
 _win10_node_cache = {'value': None, 'ts': 0.0}
 _win10_node_lock = threading.Lock()
@@ -8055,12 +8055,17 @@ def get_ssh_connection(key):
     return None
 
 
-def _ssh_test_once(target, timeout, identity_file=None):
-    """One `ssh ... echo CONNECTED` round trip, optionally pinned to identity_file."""
+def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
+    """Run a real `ssh ... echo CONNECTED` round trip against cfg. Returns {ok, text}."""
+    target = f"{cfg['user']}@{cfg['host']}"
     cmd = ['ssh', '-o', f'ConnectTimeout={timeout}', '-o', 'BatchMode=yes',
            '-o', 'StrictHostKeyChecking=accept-new']
-    if identity_file:
-        cmd.extend(['-o', 'IdentitiesOnly=yes', '-i', identity_file])
+    identity_files = cfg.get('identity_files') or (cfg.get('identity_file', ''),)
+    for configured_identity in identity_files:
+        identity_file = os.path.expanduser(configured_identity)
+        if identity_file and os.path.isfile(identity_file):
+            cmd.extend(['-o', 'IdentitiesOnly=yes', '-i', identity_file])
+            break
     cmd.extend([target, 'echo CONNECTED && hostname'])
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 10)
@@ -8075,32 +8080,6 @@ def _ssh_test_once(target, timeout, identity_file=None):
         return {'ok': False, 'text': f'ssh to {target} timed out after {timeout}s'}
     except Exception as e:
         return {'ok': False, 'text': f'ssh to {target} failed: {e}'}
-
-
-def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
-    """Run a real `ssh ... echo CONNECTED` round trip against cfg. Returns {ok, text}.
-
-    identity_files is an ordered preference list, not a single choice — a key
-    can exist on disk but no longer be authorized on the remote end (rotated,
-    revoked), so picking "the first file that exists" can wedge on a dead key
-    forever even though a later one in the list still works. Try each in turn
-    (mirrors the categorizer's provider fallback chain) and return the first
-    one that actually authenticates.
-    """
-    target = f"{cfg['user']}@{cfg['host']}"
-    identity_files = cfg.get('identity_files') or (cfg.get('identity_file', ''),)
-    candidates = [
-        os.path.expanduser(f) for f in identity_files
-        if f and os.path.isfile(os.path.expanduser(f))
-    ]
-    if not candidates:
-        return _ssh_test_once(target, timeout)
-    last = None
-    for identity_file in candidates:
-        last = _ssh_test_once(target, timeout, identity_file)
-        if last['ok']:
-            return last
-    return last
 
 
 def _tailscale_cli():
@@ -9182,18 +9161,12 @@ def _looks_rate_limited(err):
             or 'too many requests' in t)
 
 
-def _fill_rate_limited(out, d, err, severity='down'):
-    """A provider-side 429 means the endpoint we polled is throttled. For
-    Codex/Antigravity that endpoint IS the account's real quota meter, so a
-    429 there really does mean 'you cannot use this provider right now'
-    (severity='down', red). Claude's usage check hits a separate, much
-    stricter usage-stats endpoint (api/oauth/usage) that throttles on its own
-    schedule independent of the actual chat/completion API — repeated polling
-    (e.g. manual diagnostics) can trip it while Claude itself works fine. That
-    case passes severity='concern' (yellow) so the tile doesn't falsely claim
-    the whole OAuth connection is dead. Surface the reset as an absolute
-    epoch either way so the frontend can render a live countdown."""
-    out['status'] = severity
+def _fill_rate_limited(out, d, err):
+    """A provider-side 429 means the ACCOUNT is throttled — that's red
+    ('you cannot use this provider right now'), not a yellow 'usage
+    unavailable' shrug. Surface the reset as an absolute epoch so the
+    frontend can render a live countdown."""
+    out['status'] = 'down'
     out['rate_limited'] = True
     retry_after = d.get('retry_after')
     if retry_after:
@@ -9202,8 +9175,6 @@ def _fill_rate_limited(out, d, err, severity='down'):
         out['detail'] = f'RATE LIMITED ({err}) — resets {_human_reset(until)}'
     else:
         out['detail'] = f'RATE LIMITED ({err}) — reset time not reported'
-    if severity == 'concern':
-        out['detail'] = f'usage stats {out["detail"]} (Claude itself may still work — this only throttles quota reporting)'
     return out
 
 
@@ -9278,7 +9249,7 @@ def _model_stats_uncached(source_key, src):
         if d.get('error') or not u:
             err = d.get('error', 'no data')
             if _looks_rate_limited(err):
-                return _fill_rate_limited(out, d, err, severity='concern')
+                return _fill_rate_limited(out, d, err)
             out['status'] = 'concern'
             out['detail'] = f'usage unavailable: {err}'
             return out

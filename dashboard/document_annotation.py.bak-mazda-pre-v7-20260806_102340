@@ -19,7 +19,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterable, Sequence
 
-ANNOTATION_SCHEMA_VERSION = 22
+ANNOTATION_SCHEMA_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,6 @@ class IExpenseReferenceResolver(ABC):
 
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
-_TOTAL_WORD_RE = re.compile(r"\btotal\b", re.I)
 _LABELED_TOTAL_RE = re.compile(r"\btotal\b", re.I)
 
 # Tesseract's output for the Diners Club annual-fee scan is stable but
@@ -131,30 +130,6 @@ def _amount_decimal(value: object) -> Decimal | None:
         return None
 
 
-def _region_area(region: object) -> float:
-    """Return a comparable geometric area for candidate precision ranking."""
-    if (
-        isinstance(region, tuple)
-        and len(region) == 4
-        and all(isinstance(value, (int, float)) for value in region)
-    ):
-        return max(0.0, float(region[2] - region[0])) * max(
-            0.0, float(region[3] - region[1])
-        )
-    if (
-        isinstance(region, tuple)
-        and len(region) == 2
-        and hasattr(region[1], "x0")
-        and hasattr(region[1], "y0")
-        and hasattr(region[1], "x1")
-        and hasattr(region[1], "y1")
-    ):
-        return max(0.0, float(region[1].x1 - region[1].x0)) * max(
-            0.0, float(region[1].y1 - region[1].y0)
-        )
-    return float("inf")
-
-
 def _amount_matches(text: str, amount: Decimal | None) -> bool:
     if amount is None:
         return False
@@ -193,38 +168,6 @@ def _amount_matches(text: str, amount: Decimal | None) -> bool:
             re.I,
         )
     )
-
-
-def _foreign_amount_count(text: str, amount: Decimal | None) -> int:
-    """Count decimal amounts in ``text`` other than the target amount.
-
-    Evidence-aware OCR windows can accidentally join two neighboring card
-    rows. Such a window may contain the target amount and still score well,
-    but the unrelated second amount is strong evidence that it is not one
-    transaction row. Repeated copies of the target amount are intentionally
-    ignored because OCR commonly emits those from overlapping columns.
-    """
-    target = amount.quantize(Decimal("0.01")) if amount is not None else None
-    target_count = 0
-    count = 0
-    for match in re.finditer(
-        r"(?<![\d.])(?:-\s*|\(\s*)?\$?\s*(\d[\d,]*\.\d{2})(?!\d)",
-        str(text or ""),
-        re.I,
-    ):
-        try:
-            value = Decimal(match.group(1).replace(",", ""))
-        except InvalidOperation:
-            continue
-        if target is not None and value.quantize(Decimal("0.01")) == target:
-            target_count += 1
-        else:
-            count += 1
-    # A statement summary may legitimately repeat the same charge amount in
-    # two adjacent labeled rows. Do not penalize that known same-amount shape;
-    # the dangerous composite-window case has one target amount plus a
-    # different neighboring amount.
-    return count if target_count == 1 else 0
 
 
 def _labeled_total_amount_stem_matches(
@@ -364,21 +307,11 @@ def _description_only_score(
     return min(_IDENTITY_ONLY_CEILING, 7 + round(coverage * 2))
 
 
-def _description_reference_terms(description: str) -> tuple[str, ...]:
-    return tuple(
-        match.group(1)
-        for match in re.finditer(
-            r"check\s*#\s*([0-9]{3,})", str(description or ""), re.I
-        )
-    )
-
-
 def _line_score(text: str, evidence: ExpenseEvidence) -> int:
     amount = _amount_decimal(evidence.amount)
-    implicit_reference_terms = _description_reference_terms(evidence.description)
     reference_hit = any(
         re.search(rf"\b{re.escape(term)}\b", text, re.I)
-        for term in (*evidence.reference_terms, *implicit_reference_terms)
+        for term in evidence.reference_terms
         if term
     )
     exact_amount_hit = _amount_matches(text, amount)
@@ -388,27 +321,6 @@ def _line_score(text: str, evidence: ExpenseEvidence) -> int:
     )
     amount_hit = exact_amount_hit or recovered_total_hit
     date_hit = _date_matches(text, evidence.expense_date)
-    # OCR on the rendered scanner page may preserve the human-readable
-    # month/day but lose the year, or turn the date into prose such as
-    # ``April 24, 2025``. The transaction row is still identifiable when
-    # the amount and payee are present; retain that weaker date evidence for
-    # ranking instead of requiring an exact calendar token.
-    if not date_hit:
-        date_hit = _statement_row_date_matches(text, evidence.expense_date)
-        if not date_hit:
-            lowered = str(text or '').lower()
-            parsed_date = None
-            try:
-                parsed_date = datetime.strptime(
-                    str(evidence.expense_date), '%Y-%m-%d'
-                ).date()
-            except ValueError:
-                pass
-            if parsed_date is not None:
-                date_hit = (
-                    f'{parsed_date.strftime("%B")} {parsed_date.day}' in lowered
-                    or f'{parsed_date.strftime("%b")} {parsed_date.day}' in lowered
-                )
     line_tokens = _tokens(text)
     description_tokens = _tokens(evidence.description)
     description_hits = len(line_tokens & description_tokens)
@@ -470,11 +382,6 @@ def _line_score(text: str, evidence: ExpenseEvidence) -> int:
         score += 5
     score += min(description_hits, 3)
     score += min(vendor_hits, 2)
-    # A candidate containing the target amount plus another decimal amount is
-    # usually a generated window spanning two adjacent statement rows. Keep
-    # the exact target row ahead of that composite even when the window has
-    # slightly more description-token overlap.
-    score -= 4 * _foreign_amount_count(text, amount)
     return score
 
 
@@ -505,24 +412,6 @@ def _region_bounds(region: object) -> tuple[object, float, float] | None:
     return None
 
 
-def _region_width(region: object) -> float | None:
-    """Return the horizontal width of an image/PDF candidate, when available."""
-    if (
-        isinstance(region, tuple)
-        and len(region) == 4
-        and all(isinstance(value, (int, float)) for value in region)
-    ):
-        return float(region[2] - region[0])
-    if (
-        isinstance(region, tuple)
-        and len(region) == 2
-        and hasattr(region[1], "x0")
-        and hasattr(region[1], "x1")
-    ):
-        return float(region[1].x1 - region[1].x0)
-    return None
-
-
 def _same_row(first: object, second: object) -> bool:
     """Whether two candidates are one physical row enumerated twice.
 
@@ -542,237 +431,6 @@ def _same_row(first: object, second: object) -> bool:
     if span <= 0:
         return overlap >= 0
     return overlap > span / 2
-
-
-def _regions_share_visual_row(first: object, second: object) -> bool:
-    """Return whether two format-specific regions occupy one visual row.
-
-    ``_same_row`` intentionally treats partially overlapping candidates as the
-    same row for de-duplication. Row expansion also needs to join adjacent
-    fragments whose edges merely touch, such as separate date, description,
-    and amount cells.
-    """
-    left = _region_bounds(first)
-    right = _region_bounds(second)
-    if left is None or right is None or left[0] != right[0]:
-        return False
-    left_height = max(1.0, left[2] - left[1])
-    right_height = max(1.0, right[2] - right[1])
-    gap = max(left[1], right[1]) - min(left[2], right[2])
-    return gap <= max(3.0, min(left_height, right_height) * 0.35)
-
-
-def _regions_are_adjacent_visual_row(first: object, second: object) -> bool:
-    """Return whether nearby fragments may be one wrapped/card transaction.
-
-    A statement-card scan can place the date on a line above the merchant and
-    amount. This uses a height-relative gap so PDF and image strategies share
-    the same rule; callers still require independent row evidence before
-    joining anything.
-    """
-    left = _region_bounds(first)
-    right = _region_bounds(second)
-    if left is None or right is None or left[0] != right[0]:
-        return False
-    left_height = max(1.0, left[2] - left[1])
-    right_height = max(1.0, right[2] - right[1])
-    gap = max(left[1], right[1]) - min(left[2], right[2])
-    return gap <= max(3.0, min(left_height, right_height) * 2.25)
-
-
-def _region_union(first: object, second: object) -> object | None:
-    """Union two image/PDF regions without knowing their concrete adapter."""
-    if (
-        isinstance(first, tuple)
-        and isinstance(second, tuple)
-        and len(first) == 4
-        and len(second) == 4
-        and all(isinstance(value, (int, float)) for value in first + second)
-    ):
-        return (
-            min(first[0], second[0]),
-            min(first[1], second[1]),
-            max(first[2], second[2]),
-            max(first[3], second[3]),
-        )
-    if (
-        isinstance(first, tuple)
-        and isinstance(second, tuple)
-        and len(first) == 2
-        and len(second) == 2
-        and first[0] == second[0]
-        and all(hasattr(first[1], side) for side in ("x0", "y0", "x1", "y1"))
-        and all(hasattr(second[1], side) for side in ("x0", "y0", "x1", "y1"))
-    ):
-        rect_type = type(first[1])
-        return (
-            first[0],
-            rect_type(
-                min(first[1].x0, second[1].x0),
-                min(first[1].y0, second[1].y0),
-                max(first[1].x1, second[1].x1),
-                max(first[1].y1, second[1].y1),
-            ),
-        )
-    return None
-
-
-def _row_fragment_supports_expansion(
-    text: str,
-    evidence: ExpenseEvidence,
-) -> bool:
-    """Whether a fragment independently identifies this expense row."""
-    line_tokens = _tokens(text)
-    description_tokens = _tokens(evidence.description)
-    description_hits = line_tokens & description_tokens
-    head_hits = line_tokens & _payee_head_tokens(evidence.description)
-    vendor_hits = line_tokens & _tokens(evidence.vendor_key.replace("_", " "))
-    # A merchant head or vendor key is distinctive enough on its own. For a
-    # description without a merchant head, require two description tokens so a
-    # shared city/state token cannot widen a box into a neighboring row.
-    return bool(head_hits or vendor_hits or len(description_hits) >= 2)
-
-
-def _expand_selected_row_region(
-    lines: Sequence[tuple[str, object]],
-    selected_region: object,
-    evidence: ExpenseEvidence,
-    selected_text: str = "",
-) -> tuple[object, str]:
-    """Widen a winning candidate to matching same-row evidence fragments.
-
-    OCR/PDF adapters can enumerate one printed row as separate date,
-    description, and amount fragments. Selecting the right date or amount can
-    therefore still produce a red box around only one cell. Expand only to
-    fragments that independently match the known description/vendor or exact
-    amount; never expand a neighboring transaction merely because it is close.
-    """
-    expanded = selected_region
-    supporting_text: list[str] = []
-    selected_bounds = _region_bounds(selected_region)
-    if selected_bounds is None:
-        return selected_region, ""
-    selected_height = max(1.0, selected_bounds[2] - selected_bounds[1])
-    selected_width = max(1.0, _region_width(selected_region) or 0.0)
-    max_fragment_height = max(
-        selected_height * 1.5,
-        selected_height + min(40.0, selected_height * 0.5),
-    )
-    # A broad candidate that already contains the merchant and exact amount is
-    # complete. Do not let nearby summary/card text widen it into the next
-    # transaction; this is common when OCR emits overlapping page-level lines.
-    selected_text = selected_text or next(
-        (str(text) for text, region in lines if region == selected_region),
-        "",
-    )
-    description_tokens = _tokens(evidence.description)
-    description_hits = _tokens(selected_text) & description_tokens
-    description_is_complete = bool(
-        description_tokens
-        and len(description_hits) >= max(
-            3,
-            round(len(description_tokens) * 0.75),
-        )
-    )
-    # A reconstructed OCR/window candidate can contain the full row's text
-    # while its geometry still covers only the date cell. Treat only a
-    # genuinely broad region as complete; narrow amount-confirmed winners must
-    # continue through same-row fragment expansion below.
-    selected_region_is_broad = selected_width >= max(800.0, selected_height * 12.0)
-    selected_text_has_amount = _amount_confirmed(selected_text, evidence)
-    selected_text_has_description = _row_fragment_supports_expansion(
-        selected_text, evidence
-    )
-    image_region = (
-        isinstance(selected_region, tuple)
-        and len(selected_region) == 4
-        and all(isinstance(value, (int, float)) for value in selected_region)
-    )
-    date_fragment_present = image_region and any(
-        _regions_are_adjacent_visual_row(selected_region, region)
-        and _date_matches(str(text), evidence.expense_date)
-        for text, region in lines
-    )
-    if (
-        selected_region_is_broad
-        and _row_fragment_supports_expansion(selected_text, evidence)
-        and (
-            _amount_confirmed(selected_text, evidence)
-            or (
-                description_is_complete
-            )
-        )
-    ):
-        # A broad OCR candidate that already contains the complete merchant
-        # description is the row/card itself. Do not union it with nearby
-        # repeated Diners Club/card fragments; those are separate statement
-        # sections, not missing cells in this transaction.
-        return selected_region, ""
-    amount_pattern = re.compile(r"(?<!\d)\$?\d[\d,]*\.\d{2}(?!\d)")
-    description_fragment_present = any(
-        _regions_are_adjacent_visual_row(selected_region, region)
-        and (
-            _regions_share_visual_row(selected_region, region)
-            or (
-                (bounds := _region_bounds(region)) is not None
-                and bounds[2] - bounds[1] <= max_fragment_height
-            )
-        )
-        and _row_fragment_supports_expansion(text, evidence)
-        for text, region in lines
-    )
-    for text, region in lines:
-        if not _regions_are_adjacent_visual_row(selected_region, region):
-            continue
-        # Fragments must share the same visual row, not merely be "adjacent".
-        # A complete neighboring transaction row must never be pulled in just
-        # because it contains the same merchant name. Only same-row fragments
-        # (date/description/amount cells of the selected transaction) or
-        # wrapped multi-line card descriptions should be joined.
-        if not _regions_share_visual_row(selected_region, region):
-            # Allow date fragments above the selected region when the date is
-            # on a separate line (card statements). Otherwise, only join
-            # fragments that truly share the same visual row.
-            region_bounds = _region_bounds(region)
-            if region_bounds is None:
-                continue
-            is_date_above = (
-                date_fragment_present
-                and region_bounds[1] < selected_bounds[1]
-                and _date_matches(str(text), evidence.expense_date)
-            )
-            if not is_date_above:
-                continue
-        region_top = _region_bounds(region)[1] if _region_bounds(region) else None
-        if date_fragment_present and region_top is not None and region_top < selected_bounds[1]:
-            # Already handled above - skip date fragments above unless they're the date
-            if not _date_matches(str(text), evidence.expense_date):
-                continue
-        supports_description = _row_fragment_supports_expansion(text, evidence)
-        supports_date = (
-            date_fragment_present
-            and _date_matches(str(text), evidence.expense_date)
-        )
-        amount_hits = amount_pattern.findall(str(text))
-        region_bounds = _region_bounds(region)
-        if region_bounds is None:
-            continue
-        region_height = max(1.0, region_bounds[2] - region_bounds[1])
-        if region_height > max_fragment_height:
-            continue
-        supports_amount = (
-            description_fragment_present
-            and _amount_confirmed(str(text), evidence)
-            and len(amount_hits) <= 1
-            and region_height <= selected_height * 3
-        )
-        if not supports_description and not supports_amount and not supports_date:
-            continue
-        union = _region_union(expanded, region)
-        if union is not None:
-            expanded = union
-            supporting_text.append(str(text))
-    return expanded, " ".join(supporting_text)
 
 
 def _evidence_description_windows(
@@ -840,78 +498,17 @@ def _best_line(
 ) -> tuple[object | None, int, str]:
     """Return ``(region, score, text)`` for the winning line, or ``(None, …)``."""
     candidate_lines = list(lines)
-    # Composite windows are only a recovery path for wrapped rows. They can
-    # carry a correct amount/date copied from a nearby row, so never let one
-    # outrank an original OCR line with the same score.
-    original_line_count = len(candidate_lines)
     candidate_lines.extend(_evidence_description_windows(candidate_lines, evidence))
-    def _rank_key(item: tuple[int, object, str, bool]) -> tuple[object, ...]:
-        score, region, text, is_original = item
-        # When OCR lost both date and amount, several overlapping page/card
-        # candidates may have identical identity scores. Prefer the most
-        # precise candidate in that case: a narrow description/card row is
-        # evidence, while a larger composite also includes unrelated header
-        # or category text. Confirmed amount/date candidates retain priority.
-        amount_confirmed = _amount_confirmed(text, evidence)
-        date_confirmed = _date_matches(text, evidence.expense_date)
-        description_hits = len(_tokens(text) & _tokens(evidence.description))
-        identity_only_precision = not amount_confirmed and not date_confirmed
-        # Objective signals break ties, but the original score remains the
-        # primary rank: a description-only merchant row can legitimately be
-        # stronger than a generic statement line carrying the same amount.
-        # Within equal scores, amount/date evidence wins over broad windows.
-        evidence_strength = (
-            2 if amount_confirmed and date_confirmed
-            else 1 if amount_confirmed or date_confirmed
-            else 0
-        )
-        return (
-            score,
-            evidence_strength,
-            amount_confirmed,
-            date_confirmed,
-            description_hits,
-            -_region_area(region) if identity_only_precision else 0.0,
-            is_original,
-        )
-
     ranked = sorted(
         (
-            (_line_score(text, evidence), region, text, index < original_line_count)
-            for index, (text, region) in enumerate(candidate_lines)
+            (_line_score(text, evidence), region, text)
+            for text, region in candidate_lines
         ),
-        key=_rank_key,
+        key=lambda item: item[0],
         reverse=True,
     )
-    if not ranked:
-        return None, -1, ""
-    if ranked[0][0] < 7:
-        amount = _amount_decimal(evidence.amount)
-        matches = [item for item in ranked if _amount_matches(item[2], amount)]
-        if matches:
-            parents = list(range(len(matches)))
-
-            def _root(i: int) -> int:
-                while parents[i] != i:
-                    parents[i] = parents[parents[i]]
-                    i = parents[i]
-                return i
-
-            for i in range(len(matches)):
-                for j in range(i + 1, len(matches)):
-                    if _same_row(matches[i][1], matches[j][1]):
-                        root_i, root_j = _root(i), _root(j)
-                        if root_i != root_j:
-                            parents[root_i] = root_j
-            if len({_root(i) for i in range(len(matches))}) == 1:
-                return matches[0][1], matches[0][0], matches[0][2]
-            if all(_TOTAL_WORD_RE.search(item[2]) for item in matches):
-                best = max(
-                    matches,
-                    key=lambda item: (_region_bounds(item[1]) or ("", 0.0, 0.0))[2],
-                )
-                return best[1], best[0], best[2]
-        return None, ranked[0][0], ""
+    if not ranked or ranked[0][0] < 7:
+        return None, (ranked[0][0] if ranked else -1), ""
     # A date+amount match is decisive.  For looser description matches, reject
     # a tie instead of boxing the wrong repeated amount.
     rival = next(
@@ -919,7 +516,6 @@ def _best_line(
             item
             for item in ranked[1:]
             if not _same_row(item[1], ranked[0][1])
-            and not (item[3] is False and ranked[0][3] is True)
         ),
         None,
     )
@@ -929,58 +525,6 @@ def _best_line(
         and rival[0] == ranked[0][0]
     ):
         return None, ranked[0][0], ""
-    # Even when score >= _DECISIVE_SCORE, reject ties between rows that have
-    # the same date+amount but only weak description overlap. A score of 10+
-    # from date+amount+vendor with minimal distinctive description tokens is
-    # still ambiguous when multiple rows share that pattern.
-    if rival is not None and rival[0] == ranked[0][0]:
-        winner_description_hits = len(
-            _tokens(ranked[0][2]) & _tokens(evidence.description)
-        )
-        rival_description_hits = len(
-            _tokens(rival[2]) & _tokens(evidence.description)
-        )
-        # Only accept the winner if it has meaningfully more description
-        # overlap than its rival (at least 2 more tokens). Otherwise, the
-        # common tokens (like "store" in "First Store" vs "Second Store")
-        # don't disambiguate them.
-        if winner_description_hits < rival_description_hits + 2:
-            # OCR candidates generated from a single visual card often have
-            # different vertical extents but the same transaction text.
-            # Treat overlapping candidates as one row (the normal path), and
-            # prefer the tightest region so the fail-closed tie rule does not
-            # discard a valid card row merely because a window included its
-            # neighboring labels.
-            if _same_row(ranked[0][1], rival[1]):
-                tightest = min(
-                    (ranked[0], rival),
-                    key=lambda item: _region_area(item[1]),
-                )
-                return tightest[1], tightest[0], tightest[2]
-            # Before failing closed, check if the winner and rival are
-            # essentially the same transaction with just repeated amounts.
-            # This happens when OCR emits the same row multiple times or
-            # when the amount appears in multiple columns.
-            amount = _amount_decimal(evidence.amount)
-            if amount is not None:
-                winner_amount_count = len(re.findall(
-                    rf"(?<![\d.])\$?\s*{re.escape(f'{amount:.2f}')}(?!\d)",
-                    ranked[0][2]
-                ))
-                rival_amount_count = len(re.findall(
-                    rf"(?<![\d.])\$?\s*{re.escape(f'{amount:.2f}')}(?!\d)",
-                    rival[2]
-                ))
-                # If both have the same description hits and only differ in
-                # how many times the amount appears, prefer the one with
-                # fewer repetitions (likely more precise).
-                if winner_description_hits == rival_description_hits:
-                    if winner_amount_count > 0 and winner_amount_count < rival_amount_count:
-                        return ranked[0][1], ranked[0][0], ranked[0][2]
-                    if rival_amount_count > 0 and rival_amount_count < winner_amount_count:
-                        return rival[1], rival[0], rival[2]
-            # True ambiguity: fail closed
-            return None, ranked[0][0], ""
     return ranked[0][1], ranked[0][0], ranked[0][2]
 
 
@@ -1300,14 +844,6 @@ class PdfExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
                     "No high-confidence expense row was found in the PDF.",
                 )
             page_index, rect = region
-            expanded_region, expanded_text = _expand_selected_row_region(
-                candidates,
-                region,
-                evidence,
-                _text,
-            )
-            if expanded_text:
-                page_index, rect = expanded_region
             page = document[page_index]
             rect = fitz.Rect(
                 max(page.rect.x0, rect.x0 - 4),
@@ -1445,14 +981,6 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
                 False,
                 "No high-confidence expense row was found in the image.",
             )
-        expanded_region, expanded_text = _expand_selected_row_region(
-            lines,
-            region,
-            match_evidence,
-            matched_text,
-        )
-        if expanded_text:
-            region = expanded_region
         left, top, right, bottom = region
         if (
             match_evidence.reference_terms
