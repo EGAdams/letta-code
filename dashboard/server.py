@@ -154,6 +154,7 @@ ROL_FINANCE_REPORTS = [
     {'key': 'bank-3119-pdf',     'label': 'Bank 3119 PDF',      'dir': 'fifth_third_non_profit_3119'},
     {'key': 'choice-7580-year',  'label': 'Choice 7580 Year',   'dir': 'choice_7580_year', 'all_year': True},
     {'key': 'prime-chase-5783',  'label': 'Prime Chase 5783', 'dir': 'prime_chase_5783_whole_year_2025', 'all_year': True},
+    {'key': 'amazon-marketplace', 'label': 'Amazon Marketplace', 'dir': 'amazon_marketplace_january_2025'},
 ]
 
 
