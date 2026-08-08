@@ -1993,8 +1993,12 @@ async function main(): Promise<void> {
 
           // Legacy agents created before recipe tracking should be moved onto a
           // deterministic preset instead of preserving a stale prompt forever.
+          // A prompt that doesn't match any known preset is assumed CUSTOM, not
+          // default — this local cache is per-machine, so any second machine
+          // resuming an agent without this cache must never overwrite a real
+          // custom prompt it simply doesn't recognize (see fix/intake-duplicate-rows).
           if (!storedPreset && !agent.tags?.includes("role:subagent")) {
-            storedPreset = detectSystemPromptPreset(agent.system) ?? "default";
+            storedPreset = detectSystemPromptPreset(agent.system) ?? "custom";
             settingsManager.setSystemPromptPreset(agent.id, storedPreset);
           }
 

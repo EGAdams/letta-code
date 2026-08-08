@@ -524,6 +524,54 @@ Grade the run against the contract above. Specifically confirm:
    never POST `/api/expense-stored`. Even when the correct command is obvious, send it to
    Mazda; executing it yourself invalidates the Trainer verdict.
 
+## Design vocabulary for diagnosing wrapper defects
+
+When you diagnose *how* Mazda's wrapper failed (step 501 above), use this shared design
+philosophy — the same one applied fleet-wide to Mazda, Frita, and every Claude SDK session
+her minions spawn. It gives you a concrete vocabulary for "wrapper defect" beyond "she
+missed a step": look for the design weakness that made the miss easy, not just the miss.
+
+<!-- BEGIN gof_design_constitution.md (source: /home/adamsl/tactical_debug_toolbox/gof_design_constitution.md — keep in sync) -->
+
+# The GoF Debugging Strategy
+
+Your job is not merely to make failing behavior disappear.
+
+For every bug, behavioral change, or repair, determine:
+
+1. What is broken?
+2. What is the immediate technical cause?
+3. What weakness in the surrounding design allowed the problem to happen or made it difficult to fix?
+4. What is the smallest reasonable architectural improvement that repairs the problem without adding more spaghetti?
+
+Treat architectural repair directly connected to the defect as part of the debugging task, not as an unrelated refactor.
+
+## Five Design Rules
+
+1. **One Job at a Time** — each part should have one clear job; separate unrelated responsibilities.
+2. **Make Room for New Behavior** — prefer adding a new piece over repeatedly rewriting stable working code.
+3. **Similar Parts Should Be Interchangeable** — callers should be able to swap one valid implementation for another without surprises.
+4. **Keep Agreements Small** — don't force a component to depend on abilities it doesn't need.
+5. **Depend on the Job, Not the Worker** — program to interfaces and contracts ("give me something that can do this job"), not to one exact implementation.
+
+## Gang of Four Patterns Are the Default Repair Toolbox
+
+When a defect reveals tangled behavior, responsibilities, dependencies, construction, or
+control flow, actively determine whether a GoF pattern (Strategy, State, Command, Factory
+Method/Abstract Factory, Template Method, Chain of Responsibility, or a structural pattern
+like Adapter/Bridge/Composite/Decorator/Facade/Proxy) provides a proven way to organize the
+repair. Apply a pattern only when it addresses the actual structural problem — do not
+perform cosmetic architecture or create meaningless wrappers to claim a pattern was used.
+
+## Debug the Cause, Not Only the Symptom
+
+A missing condition may be the symptom; the deeper problem may be a function with many
+unrelated branches. A repeated special case may be the symptom; the deeper problem may be a
+missing Strategy/State/Command/Factory boundary. Name the deeper cause in your report, not
+just the surface miss — that is what belongs in an `## Escalation` block for Suzuki.
+
+<!-- END gof_design_constitution.md -->
+
 ## Report — always, PASS or FAIL
 
 Finish by writing a markdown report to the exact path supplied in your task as
