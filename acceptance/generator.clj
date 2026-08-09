@@ -62,3 +62,7 @@
   (let [[ir-path output-dir] args]
     (with-error-exit
       (write-artifacts! ir-path output-dir))))
+
+;; clj-mutate-manifest-begin
+;; {:version 1, :tested-at "2026-08-08T22:38:14.634862499-04:00", :module-hash "-1550567680", :forms [{:id "form/0/ns", :kind "ns", :line 1, :end-line nil, :hash "448754370"} {:id "defn-/sha256", :kind "defn-", :line 8, :end-line nil, :hash "-1753099738"} {:id "defn-/normalized-metadata-name", :kind "defn-", :line 13, :end-line nil, :hash "1697226484"} {:id "defn-/generated-source", :kind "defn-", :line 20, :end-line nil, :hash "-25207106"} {:id "defn-/write-artifacts!", :kind "defn-", :line 33, :end-line nil, :hash "593465050"} {:id "defn/-main", :kind "defn", :line 57, :end-line nil, :hash "-810437510"}]}
+;; clj-mutate-manifest-end

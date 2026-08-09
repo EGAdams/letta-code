@@ -29,6 +29,32 @@ class _Fallback(IImageRegionFallbackMatcher):
         return self.outcome
 
 
+_IMAGE_EXPENSES = {"2004", "2006", "1985", "1522"}
+_IMAGE_FIXTURES = {
+    "unmatched-check",
+    "ambiguous-checks",
+    "invalid-bounds-check",
+    "offline-fallback-check",
+}
+_TARGET_REGIONS = {
+    "the 125.00 check face payable to John Roark": "2004",
+    "the 30.00 check face payable to Gabrielle McKay": "2006",
+    "the DTE charge line for 53.06": "1985",
+    "the APPLE.COM row including its amount column": "1522",
+}
+_CONFUSING_REGIONS = {
+    "the repeated total and dated balance",
+    "the adjacent statement rows",
+}
+_VIEWER_ACTIONS = {"View Receipt", "View Scanned Statement"}
+
+
+def _require_choice(value, choices, label):
+    if value not in choices:
+        raise AssertionError(f"unknown {label}: {value!r}")
+    return value
+
+
 def _example_value(example, parameter_name):
     if parameter_name not in example:
         raise AssertionError(f"missing example value: {parameter_name}")
@@ -100,7 +126,10 @@ def _noop(world, match, example):
 
 
 def _available_image(world, match, example):
-    _ensure_image_world(world, _example_value(example, match.group(1)))
+    expense = _require_choice(
+        _example_value(example, match.group(1)), _IMAGE_EXPENSES, "image expense"
+    )
+    _ensure_image_world(world, expense)
 
 
 def _established_absent(world, match, example):
@@ -108,10 +137,21 @@ def _established_absent(world, match, example):
 
 
 def _fallback_identifies(world, match, example):
+    target = _require_choice(
+        _example_value(example, match.group(1)), _TARGET_REGIONS, "target region"
+    )
+    if _TARGET_REGIONS[target] != world.get("expense"):
+        raise AssertionError(
+            f"target region {target!r} does not belong to expense {world.get('expense')!r}"
+        )
     world["fallback"].outcome = ImageRegionMatch((30, 30, 270, 100), 0.99)
 
 
 def _open_viewer(world, match, example):
+    if match.groups():
+        _require_choice(
+            _example_value(example, match.group(1)), _VIEWER_ACTIONS, "viewer action"
+        )
     _run_image_annotation(world)
 
 
@@ -123,12 +163,28 @@ def _assert_annotated(world, match, example):
 
 
 def _assert_one_box(world, match, example):
+    value = _require_choice(
+        _example_value(example, match.group(1)),
+        _TARGET_REGIONS.keys() | _CONFUSING_REGIONS,
+        "receipt region",
+    )
+    if value in _TARGET_REGIONS and _TARGET_REGIONS[value] != world.get("expense"):
+        raise AssertionError(
+            f"target region {value!r} does not belong to expense {world.get('expense')!r}"
+        )
+    _assert_annotated(world, match, example)
+    assert world["fallback"].calls <= 1
+
+
+def _assert_no_unrelated_region(world, match, example):
     _assert_annotated(world, match, example)
     assert world["fallback"].calls <= 1
 
 
 def _image_fixture(world, match, example):
-    expense = _example_value(example, match.group(1))
+    expense = _require_choice(
+        _example_value(example, match.group(1)), _IMAGE_FIXTURES, "image fixture"
+    )
     _ensure_image_world(world, expense)
 
 
@@ -150,15 +206,22 @@ def _assert_unboxed(world, match, example):
 
 
 def _established_target(world, match, example):
+    _require_choice(
+        _example_value(example, match.group(1)), _TARGET_REGIONS, "target region"
+    )
     world["established_region"] = (40, 40, 260, 110)
 
 
 def _established_result(world, match, example):
     value = _example_value(example, match.group(1))
     _ensure_image_world(world, "42")
-    world["established_region"] = (
-        (40, 40, 260, 110) if value == "an eligible region" else None
-    )
+    established_regions = {
+        "an eligible region": (40, 40, 260, 110),
+        "no region": None,
+    }
+    if value not in established_regions:
+        raise AssertionError(f"unknown established result: {value!r}")
+    world["established_region"] = established_regions[value]
     world["fallback"].outcome = ImageRegionMatch((30, 30, 270, 100), 0.99)
 
 
@@ -220,7 +283,7 @@ HANDLERS = [
     (re.compile(r"^the user selects View Receipt$"), _open_viewer),
     (re.compile(r"^the receipt viewer opens an annotated copy$"), _assert_annotated),
     (re.compile(r"^exactly one red box encloses <([A-Za-z0-9_]+)>$"), _assert_one_box),
-    (re.compile(r"^no unrelated receipt region is enclosed$"), _assert_one_box),
+    (re.compile(r"^no unrelated receipt region is enclosed$"), _assert_no_unrelated_region),
     (re.compile(r"^image receipt fixture <([A-Za-z0-9_]+)> is available$"), _image_fixture),
     (re.compile(r"^the fallback outcome is <([A-Za-z0-9_]+)>$"), _fallback_outcome),
     (re.compile(r"^the original receipt opens without a red box$"), _assert_unboxed),
