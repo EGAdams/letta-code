@@ -5,11 +5,6 @@
             [acceptance.generator-support :refer [require-argument-count!
                                                   with-error-exit]]))
 
-(defn- exit! [status message]
-  (binding [*out* *err*]
-    (println message))
-  (System/exit status))
-
 (defn- sha256 [value]
   (let [digest (java.security.MessageDigest/getInstance "SHA-256")]
     (.update digest (.getBytes value java.nio.charset.StandardCharsets/UTF_8))

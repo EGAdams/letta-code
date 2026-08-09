@@ -108,6 +108,7 @@ Management and come back. A forced refresh is available with
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # first time
 .venv/bin/python -m pytest tests/                                        # 21 tests
+.venv/bin/python -m pytest property_tests/                               # property tests
 ```
 
 A venv is used because system Python is PEP-668 externally-managed. The **server
