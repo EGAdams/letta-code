@@ -1,81 +1,53 @@
 """Non-destructive expense highlighting for supporting documents.
 
-The dashboard depends on ``IExpenseDocumentAnnotationService``.  File-format
-details live behind ``IExpenseDocumentAnnotator`` strategies and are wired only
-by ``build_document_annotation_service`` (the composition root).
+The stable application contracts live in ``document_annotation_contracts``.
+This module implements format strategies and the service; the composition root
+wires those strategies to IO-near adapters.
 """
 
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import statistics
 import threading
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterable, Sequence
 
-ANNOTATION_SCHEMA_VERSION = 22
+from codex_image_region_fallback import CodexCliImageRegionFallbackMatcher
+from document_annotation_contracts import (
+    AnnotationResult,
+    ExpenseEvidence,
+    IExpenseDocumentAnnotationService,
+    IExpenseDocumentAnnotator,
+    IExpenseReferenceResolver,
+    IImageRegionFallbackMatcher,
+    ImageRegionMatch,
+)
+
+ANNOTATION_SCHEMA_VERSION = 23
 
 
-@dataclass(frozen=True)
-class ExpenseEvidence:
-    expense_id: int
-    expense_date: str = ""
-    amount: str = ""
-    description: str = ""
-    vendor_key: str = ""
-    related_document_path: str = ""
-    reference_terms: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class AnnotationResult:
-    path: str
-    highlighted: bool
-    reason: str = ""
-    page: int | None = None
-
-
-class IExpenseDocumentAnnotator(ABC):
-    """Strategy port implemented by one or more document formats."""
-
-    @abstractmethod
-    def supports(self, source_path: str) -> bool:
-        """Return whether this strategy owns ``source_path``."""
-
-    @abstractmethod
-    def annotate(
-        self,
-        source_path: str,
-        output_path: str,
-        evidence: ExpenseEvidence,
-    ) -> AnnotationResult:
-        """Write an annotated copy, or return a fail-closed no-match result."""
-
-
-class IExpenseDocumentAnnotationService(ABC):
-    """Application port used by the HTTP supporting-document boundary."""
-
-    @abstractmethod
-    def prepare(
-        self,
-        source_path: str,
-        evidence: ExpenseEvidence,
-    ) -> AnnotationResult:
-        """Return a viewable annotated copy when the expense can be located."""
-
-
-class IExpenseReferenceResolver(ABC):
-    """Port for deriving stable row identifiers from related evidence."""
-
-    @abstractmethod
-    def resolve(self, evidence: ExpenseEvidence) -> tuple[str, ...]:
-        """Return identifiers such as a check number, or an empty tuple."""
+def _valid_image_region(
+    region: tuple[float, float, float, float],
+    image_width: int,
+    image_height: int,
+) -> bool:
+    if len(region) != 4 or not all(
+        isinstance(value, (int, float)) and math.isfinite(value)
+        for value in region
+    ):
+        return False
+    left, top, right, bottom = region
+    return (
+        0 <= left < right <= image_width
+        and 0 <= top < bottom <= image_height
+    )
 
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -1385,12 +1357,15 @@ class PdfCheckNumberResolver(IExpenseReferenceResolver):
 
 class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
     _EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+    _MIN_FALLBACK_CONFIDENCE = 0.9
 
     def __init__(
         self,
         reference_resolver: IExpenseReferenceResolver | None = None,
+        fallback_matcher: IImageRegionFallbackMatcher | None = None,
     ) -> None:
         self._reference_resolver = reference_resolver
+        self._fallback_matcher = fallback_matcher
 
     def supports(self, source_path: str) -> bool:
         return Path(source_path).suffix.lower() in self._EXTENSIONS
@@ -1439,23 +1414,53 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
 
         lines = ocr_candidates
         region, _score, matched_text = _best_line(lines, match_evidence)
+        used_fallback = False
+        if region is None and self._fallback_matcher is not None:
+            try:
+                fallback_match = self._fallback_matcher.find_region(
+                    source_path,
+                    match_evidence,
+                )
+            except Exception as exc:
+                return AnnotationResult(
+                    source_path,
+                    False,
+                    f"Image fallback matching was unavailable: {exc}",
+                )
+            if (
+                fallback_match is not None
+                and isinstance(fallback_match.confidence, (int, float))
+                and not isinstance(fallback_match.confidence, bool)
+                and math.isfinite(fallback_match.confidence)
+                and fallback_match.confidence >= self._MIN_FALLBACK_CONFIDENCE
+                and fallback_match.confidence <= 1
+                and _valid_image_region(
+                    fallback_match.region,
+                    image.width,
+                    image.height,
+                )
+            ):
+                region = fallback_match.region
+                used_fallback = True
         if region is None:
             return AnnotationResult(
                 source_path,
                 False,
                 "No high-confidence expense row was found in the image.",
             )
-        expanded_region, expanded_text = _expand_selected_row_region(
-            lines,
-            region,
-            match_evidence,
-            matched_text,
-        )
-        if expanded_text:
-            region = expanded_region
+        if not used_fallback:
+            expanded_region, expanded_text = _expand_selected_row_region(
+                lines,
+                region,
+                match_evidence,
+                matched_text,
+            )
+            if expanded_text:
+                region = expanded_region
         left, top, right, bottom = region
         if (
-            match_evidence.reference_terms
+            not used_fallback
+            and match_evidence.reference_terms
             and not _amount_confirmed(matched_text, match_evidence)
         ):
             # A ledger's related statement may identify the expense by check
@@ -1465,7 +1470,10 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
             right = max(right, round(image.width * 0.94))
             top = max(0, top - round(image.height * 0.06))
             bottom = min(image.height - 1, bottom + round(image.height * 0.01))
-        elif not _amount_confirmed(matched_text, match_evidence):
+        elif (
+            not used_fallback
+            and not _amount_confirmed(matched_text, match_evidence)
+        ):
             # Identity-only match: OCR lost the amount column, so the winning
             # line stops short of it.  Box the full statement row so the red
             # box still shows EG where the money came from.
@@ -1638,7 +1646,10 @@ def build_document_annotation_service(
     return ExpenseDocumentAnnotationService(
         (
             PdfExpenseDocumentAnnotator(),
-            ImageExpenseDocumentAnnotator(PdfCheckNumberResolver()),
+            ImageExpenseDocumentAnnotator(
+                PdfCheckNumberResolver(),
+                CodexCliImageRegionFallbackMatcher(),
+            ),
             ExcelExpenseDocumentAnnotator(),
         ),
         cache_dir,
