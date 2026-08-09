@@ -1,7 +1,9 @@
 (ns acceptance.generator
   (:require [babashka.fs :as fs]
             [cheshire.core :as json]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [acceptance.generator-support :refer [require-argument-count!
+                                                  with-error-exit]]))
 
 (defn- exit! [status message]
   (binding [*out* *err*]
@@ -33,32 +35,35 @@
        "if __name__ == \"__main__\":\n"
        "    raise SystemExit(run_feature(FEATURE))\n")))
 
+(defn- write-artifacts! [ir-path output-dir]
+  (let [feature (json/parse-string (slurp ir-path) true)
+        stem (fs/strip-ext (fs/file-name ir-path))
+        feature-path (str "features/" stem ".feature")
+        generated-path (fs/path output-dir (str stem "_acceptance_test.py"))
+        source (generated-source feature)
+        metadata-path (fs/path output-dir "metadata"
+                               (normalized-metadata-name feature-path))
+        generated-relative (str generated-path)]
+    (fs/create-dirs output-dir)
+    (fs/create-dirs (fs/parent metadata-path))
+    (spit (str generated-path) source)
+    (spit (str metadata-path)
+          (str
+           (json/generate-string
+            {:schema_version 1
+             :feature_path feature-path
+             :ir_path ir-path
+             :implementation_hash (str "sha256:" (sha256 source))
+             :hash_scope "generated_files"
+             :generated_files [generated-relative]}
+            {:pretty true})
+           "\n"))))
+
 (defn -main [& args]
-  (when (not= 2 (count args))
-    (exit! 2 "usage: acceptance-entrypoint-generator <json-ir> <generated-test-output>"))
+  (require-argument-count!
+   args
+   2
+   "usage: acceptance-entrypoint-generator <json-ir> <generated-test-output>")
   (let [[ir-path output-dir] args]
-    (try
-      (let [feature (json/parse-string (slurp ir-path) true)
-            stem (fs/strip-ext (fs/file-name ir-path))
-            feature-path (str "features/" stem ".feature")
-            generated-path (fs/path output-dir (str stem "_acceptance_test.py"))
-            source (generated-source feature)
-            metadata-path (fs/path output-dir "metadata"
-                                   (normalized-metadata-name feature-path))
-            generated-relative (str generated-path)]
-        (fs/create-dirs output-dir)
-        (fs/create-dirs (fs/parent metadata-path))
-        (spit (str generated-path) source)
-        (spit (str metadata-path)
-              (str
-               (json/generate-string
-                {:schema_version 1
-                 :feature_path feature-path
-                 :ir_path ir-path
-                 :implementation_hash (str "sha256:" (sha256 source))
-                 :hash_scope "generated_files"
-                 :generated_files [generated-relative]}
-                {:pretty true})
-               "\n")))
-      (catch Exception error
-        (exit! 1 (.getMessage error))))))
+    (with-error-exit
+      (write-artifacts! ir-path output-dir))))
