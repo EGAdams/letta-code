@@ -8,9 +8,13 @@ by ``build_document_annotation_service`` (the composition root).
 from __future__ import annotations
 
 import hashlib
+import json
+import math
 import os
 import re
+import shutil
 import statistics
+import subprocess
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
@@ -19,7 +23,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterable, Sequence
 
-ANNOTATION_SCHEMA_VERSION = 22
+ANNOTATION_SCHEMA_VERSION = 23
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,12 @@ class AnnotationResult:
     highlighted: bool
     reason: str = ""
     page: int | None = None
+
+
+@dataclass(frozen=True)
+class ImageRegionMatch:
+    region: tuple[float, float, float, float]
+    confidence: float
 
 
 class IExpenseDocumentAnnotator(ABC):
@@ -76,6 +86,143 @@ class IExpenseReferenceResolver(ABC):
     @abstractmethod
     def resolve(self, evidence: ExpenseEvidence) -> tuple[str, ...]:
         """Return identifiers such as a check number, or an empty tuple."""
+
+
+class IImageRegionFallbackMatcher(ABC):
+    """Port for a confidence-scored image-region recovery strategy."""
+
+    @abstractmethod
+    def find_region(
+        self,
+        source_path: str,
+        evidence: ExpenseEvidence,
+    ) -> ImageRegionMatch | None:
+        """Return one confident candidate region, or no match."""
+
+
+class CodexCliImageRegionFallbackMatcher(IImageRegionFallbackMatcher):
+    """Ask subscription-backed Codex vision for one payment-region box."""
+
+    def __init__(
+        self,
+        codex_path: str | None = None,
+        model: str | None = None,
+        timeout: float = 120,
+        runner=None,
+    ) -> None:
+        self._codex_path = (
+            codex_path
+            or shutil.which("codex")
+            or os.path.expanduser("~/.npm-global/bin/codex")
+        )
+        self._model = model or os.environ.get(
+            "DOCUMENT_ANNOTATION_FALLBACK_MODEL",
+            "gpt-5.4-mini",
+        )
+        self._timeout = timeout
+        self._runner = runner or subprocess.run
+
+    def find_region(
+        self,
+        source_path: str,
+        evidence: ExpenseEvidence,
+    ) -> ImageRegionMatch | None:
+        prompt = (
+            "Inspect only the attached supporting-document image. Find the single "
+            "compact source payment region for this expense:\n"
+            f"date: {evidence.expense_date}\n"
+            f"amount: {evidence.amount}\n"
+            f"description/payee: {evidence.description}\n"
+            f"vendor key: {evidence.vendor_key}\n"
+            "For a check image, select the check face containing the payment and "
+            "payee. Exclude endorsement, back-office, remote-deposit, posting, "
+            "summary, and unrelated regions. Coordinates must use original image "
+            "pixels. If there is no confident unique match, return no regions. "
+            "Return only JSON in this exact shape: "
+            '{"confidence":0.0,"regions":['
+            '{"left":0,"top":0,"right":0,"bottom":0}]}'
+        )
+        command = [
+            self._codex_path,
+            "exec",
+            "--ephemeral",
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--model",
+            self._model,
+            "--image",
+            source_path,
+            "-",
+        ]
+        completed = self._runner(
+            command,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=self._timeout,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "unknown error").strip()
+            raise RuntimeError(f"Codex image matching failed: {detail}")
+        payload = self._parse_payload(completed.stdout)
+        regions = payload.get("regions")
+        if not isinstance(regions, list) or len(regions) != 1:
+            return None
+        confidence = payload.get("confidence")
+        region = regions[0]
+        if (
+            not isinstance(confidence, (int, float))
+            or isinstance(confidence, bool)
+            or not isinstance(region, dict)
+        ):
+            raise ValueError("Codex image matching returned an invalid result")
+        try:
+            bounds = tuple(
+                float(region[key])
+                for key in ("left", "top", "right", "bottom")
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "Codex image matching returned invalid bounds"
+            ) from exc
+        return ImageRegionMatch(
+            region=bounds,
+            confidence=float(confidence),
+        )
+
+    @staticmethod
+    def _parse_payload(output: str) -> dict:
+        decoder = json.JSONDecoder()
+        for index, character in enumerate(str(output or "")):
+            if character != "{":
+                continue
+            try:
+                payload, _end = decoder.raw_decode(output[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                return payload
+        raise ValueError("Codex image matching returned no JSON object")
+
+
+def _valid_image_region(
+    region: tuple[float, float, float, float],
+    image_width: int,
+    image_height: int,
+) -> bool:
+    if len(region) != 4 or not all(
+        isinstance(value, (int, float)) and math.isfinite(value)
+        for value in region
+    ):
+        return False
+    left, top, right, bottom = region
+    return (
+        0 <= left < right <= image_width
+        and 0 <= top < bottom <= image_height
+    )
 
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -1385,12 +1532,15 @@ class PdfCheckNumberResolver(IExpenseReferenceResolver):
 
 class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
     _EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+    _MIN_FALLBACK_CONFIDENCE = 0.9
 
     def __init__(
         self,
         reference_resolver: IExpenseReferenceResolver | None = None,
+        fallback_matcher: IImageRegionFallbackMatcher | None = None,
     ) -> None:
         self._reference_resolver = reference_resolver
+        self._fallback_matcher = fallback_matcher
 
     def supports(self, source_path: str) -> bool:
         return Path(source_path).suffix.lower() in self._EXTENSIONS
@@ -1439,23 +1589,53 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
 
         lines = ocr_candidates
         region, _score, matched_text = _best_line(lines, match_evidence)
+        used_fallback = False
+        if region is None and self._fallback_matcher is not None:
+            try:
+                fallback_match = self._fallback_matcher.find_region(
+                    source_path,
+                    match_evidence,
+                )
+            except Exception as exc:
+                return AnnotationResult(
+                    source_path,
+                    False,
+                    f"Image fallback matching was unavailable: {exc}",
+                )
+            if (
+                fallback_match is not None
+                and isinstance(fallback_match.confidence, (int, float))
+                and not isinstance(fallback_match.confidence, bool)
+                and math.isfinite(fallback_match.confidence)
+                and fallback_match.confidence >= self._MIN_FALLBACK_CONFIDENCE
+                and fallback_match.confidence <= 1
+                and _valid_image_region(
+                    fallback_match.region,
+                    image.width,
+                    image.height,
+                )
+            ):
+                region = fallback_match.region
+                used_fallback = True
         if region is None:
             return AnnotationResult(
                 source_path,
                 False,
                 "No high-confidence expense row was found in the image.",
             )
-        expanded_region, expanded_text = _expand_selected_row_region(
-            lines,
-            region,
-            match_evidence,
-            matched_text,
-        )
-        if expanded_text:
-            region = expanded_region
+        if not used_fallback:
+            expanded_region, expanded_text = _expand_selected_row_region(
+                lines,
+                region,
+                match_evidence,
+                matched_text,
+            )
+            if expanded_text:
+                region = expanded_region
         left, top, right, bottom = region
         if (
-            match_evidence.reference_terms
+            not used_fallback
+            and match_evidence.reference_terms
             and not _amount_confirmed(matched_text, match_evidence)
         ):
             # A ledger's related statement may identify the expense by check
@@ -1465,7 +1645,10 @@ class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
             right = max(right, round(image.width * 0.94))
             top = max(0, top - round(image.height * 0.06))
             bottom = min(image.height - 1, bottom + round(image.height * 0.01))
-        elif not _amount_confirmed(matched_text, match_evidence):
+        elif (
+            not used_fallback
+            and not _amount_confirmed(matched_text, match_evidence)
+        ):
             # Identity-only match: OCR lost the amount column, so the winning
             # line stops short of it.  Box the full statement row so the red
             # box still shows EG where the money came from.
@@ -1638,7 +1821,10 @@ def build_document_annotation_service(
     return ExpenseDocumentAnnotationService(
         (
             PdfExpenseDocumentAnnotator(),
-            ImageExpenseDocumentAnnotator(PdfCheckNumberResolver()),
+            ImageExpenseDocumentAnnotator(
+                PdfCheckNumberResolver(),
+                CodexCliImageRegionFallbackMatcher(),
+            ),
             ExcelExpenseDocumentAnnotator(),
         ),
         cache_dir,

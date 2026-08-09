@@ -1,12 +1,18 @@
 from pathlib import Path
 
+import pytest
+
 from document_annotation import (
     AnnotationResult,
+    CodexCliImageRegionFallbackMatcher,
     ExcelExpenseDocumentAnnotator,
     ExpenseDocumentAnnotationService,
     ExpenseEvidence,
+    ImageExpenseDocumentAnnotator,
+    ImageRegionMatch,
     IExpenseDocumentAnnotator,
     IExpenseDocumentAnnotationService,
+    IImageRegionFallbackMatcher,
     PdfCheckNumberResolver,
     PdfExpenseDocumentAnnotator,
 )
@@ -34,6 +40,187 @@ def evidence():
         description="MEIJER STORE",
         vendor_key="meijer",
     )
+
+
+class FakeImageRegionFallbackMatcher(IImageRegionFallbackMatcher):
+    def __init__(self, match):
+        self.match = match
+        self.calls = []
+
+    def find_region(self, source_path, evidence):
+        self.calls.append((source_path, evidence))
+        return self.match
+
+
+class UnavailableImageRegionFallbackMatcher(IImageRegionFallbackMatcher):
+    def find_region(self, source_path, evidence):
+        raise OSError("matching service offline")
+
+
+def test_image_strategy_uses_confident_fallback_when_established_match_is_absent(
+    tmp_path,
+    monkeypatch,
+):
+    from PIL import Image
+    import pytesseract
+
+    source = tmp_path / "check.png"
+    Image.new("RGB", (200, 120), "white").save(source)
+    output = tmp_path / "annotated.png"
+    fallback = FakeImageRegionFallbackMatcher(
+        ImageRegionMatch(region=(20, 30, 180, 90), confidence=0.99)
+    )
+    monkeypatch.setattr(
+        pytesseract,
+        "image_to_data",
+        lambda *args, **kwargs: {"text": []},
+    )
+
+    result = ImageExpenseDocumentAnnotator(
+        fallback_matcher=fallback,
+    ).annotate(str(source), str(output), evidence())
+
+    assert fallback.calls == [(str(source), evidence())]
+    assert result.highlighted is True
+    assert result.path == str(output)
+    annotated = Image.open(output)
+    red_pixels = [
+        (x, y)
+        for y in range(annotated.height)
+        for x in range(annotated.width)
+        if annotated.getpixel((x, y))[0] > 200
+        and annotated.getpixel((x, y))[1] < 80
+        and annotated.getpixel((x, y))[2] < 80
+    ]
+    annotated.close()
+    assert red_pixels
+    assert min(x for x, _y in red_pixels) < 20
+    assert max(x for x, _y in red_pixels) > 180
+    assert min(y for _x, y in red_pixels) < 30
+    assert max(y for _x, y in red_pixels) > 90
+
+
+@pytest.mark.parametrize(
+    "fallback_match",
+    [
+        None,
+        ImageRegionMatch(region=(20, 30, 180, 90), confidence=0.5),
+        ImageRegionMatch(region=(-1, 30, 180, 90), confidence=0.99),
+    ],
+)
+def test_image_strategy_fails_closed_for_uncertain_fallback_results(
+    tmp_path,
+    monkeypatch,
+    fallback_match,
+):
+    from PIL import Image
+    import pytesseract
+
+    source = tmp_path / "check.png"
+    Image.new("RGB", (200, 120), "white").save(source)
+    output = tmp_path / "annotated.png"
+    monkeypatch.setattr(
+        pytesseract,
+        "image_to_data",
+        lambda *args, **kwargs: {"text": []},
+    )
+
+    result = ImageExpenseDocumentAnnotator(
+        fallback_matcher=FakeImageRegionFallbackMatcher(fallback_match),
+    ).annotate(str(source), str(output), evidence())
+
+    assert result.highlighted is False
+    assert result.path == str(source)
+    assert output.exists() is False
+
+
+def test_image_strategy_fails_closed_when_fallback_service_is_unavailable(
+    tmp_path,
+    monkeypatch,
+):
+    from PIL import Image
+    import pytesseract
+
+    source = tmp_path / "check.png"
+    Image.new("RGB", (200, 120), "white").save(source)
+    output = tmp_path / "annotated.png"
+    monkeypatch.setattr(
+        pytesseract,
+        "image_to_data",
+        lambda *args, **kwargs: {"text": []},
+    )
+
+    result = ImageExpenseDocumentAnnotator(
+        fallback_matcher=UnavailableImageRegionFallbackMatcher(),
+    ).annotate(str(source), str(output), evidence())
+
+    assert result.highlighted is False
+    assert result.path == str(source)
+    assert "unavailable" in result.reason.lower()
+    assert output.exists() is False
+
+
+def test_codex_fallback_requests_one_payment_region_in_original_pixels():
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs))
+
+        class Completed:
+            returncode = 0
+            stdout = (
+                '{"confidence":0.98,"regions":['
+                '{"left":100,"top":80,"right":900,"bottom":420}]}'
+            )
+            stderr = ""
+
+        return Completed()
+
+    target = ExpenseEvidence(
+        expense_id=2004,
+        expense_date="2025-09-08",
+        amount="125.00",
+        description="John Roark",
+        vendor_key="john_roark",
+    )
+
+    match = CodexCliImageRegionFallbackMatcher(
+        codex_path="/opt/codex",
+        runner=runner,
+    ).find_region("/receipts/check.jpg", target)
+
+    assert match == ImageRegionMatch(
+        region=(100.0, 80.0, 900.0, 420.0),
+        confidence=0.98,
+    )
+    command, kwargs = calls[0]
+    assert command[:2] == ["/opt/codex", "exec"]
+    assert command[command.index("--image") + 1] == "/receipts/check.jpg"
+    assert "125.00" in kwargs["input"]
+    assert "John Roark" in kwargs["input"]
+    assert "posting" in kwargs["input"].lower()
+    assert kwargs["timeout"] > 0
+
+
+def test_codex_fallback_rejects_multiple_candidate_regions():
+    def runner(command, **kwargs):
+        class Completed:
+            returncode = 0
+            stdout = (
+                '{"confidence":0.99,"regions":['
+                '{"left":10,"top":20,"right":100,"bottom":80},'
+                '{"left":10,"top":100,"right":100,"bottom":160}]}'
+            )
+            stderr = ""
+
+        return Completed()
+
+    matcher = CodexCliImageRegionFallbackMatcher(
+        codex_path="/opt/codex",
+        runner=runner,
+    )
+
+    assert matcher.find_region("/receipts/check.jpg", evidence()) is None
 
 
 def test_service_programs_to_interface_and_caches_annotated_copy(tmp_path):
@@ -195,12 +382,14 @@ def test_image_strategy_boxes_the_matching_ocr_line(tmp_path):
     draw.text((30, 135), "01/22/2025 MEIJER STORE $18.40", fill="black", font=font)
     image.save(source)
     output = tmp_path / "annotated.png"
+    fallback = FakeImageRegionFallbackMatcher(None)
 
-    result = ImageExpenseDocumentAnnotator().annotate(
+    result = ImageExpenseDocumentAnnotator(fallback_matcher=fallback).annotate(
         str(source), str(output), evidence()
     )
 
     assert result.highlighted is True
+    assert fallback.calls == []
     assert output.exists()
     annotated = Image.open(output)
     # A pixel just outside the OCR text row should belong to the red rectangle.
