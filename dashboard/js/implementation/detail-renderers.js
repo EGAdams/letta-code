@@ -1,5 +1,7 @@
+import { ListenerState } from "../abstract/continuous-listener.interface.js";
 import { DetailRenderer } from "../abstract/detail-renderer.interface.js";
 import { TextUtils } from "../abstract/text-utils.js";
+import { mergeFinalChunk } from "../abstract/transcript-merge.js";
 import { RecorderState } from "../abstract/voice-recorder.interface.js";
 import { AgentStreamController } from "./agent-stream-controller.js";
 import { DomConsoleView } from "./dom-console-view.js";
@@ -539,8 +541,11 @@ export class ChatDetailRenderer extends DetailRenderer {
       } else {
         const ok = await recorder.start();
         if (!ok) {
+          const reason =
+            recorder.lastError ||
+            "Microphone needs a secure context (https). Open this dashboard via the Tailscale https URL.";
           setConsole(
-            '<div class="msi-line err">! Microphone needs a secure context (https). Open this dashboard via the Tailscale https URL.</div>',
+            `<div class="msi-line err">! ${TextUtils.esc(reason)}</div>`,
           );
         }
       }
@@ -788,6 +793,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     storage = globalThis.localStorage,
     recorderFactory = (opts) => new MediaRecorderVoiceRecorder(opts),
     terminalFactory = (opts) => attachTerminalPanel(opts),
+    listener = null,
   }) {
     super();
     if (!http) throw new Error("InputOptionsRenderer requires an HttpClient");
@@ -800,6 +806,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     this._storage = storage;
     this._recorderFactory = recorderFactory;
     this._terminalFactory = terminalFactory;
+    this._listener = listener;
   }
 
   _el(tag, props = {}) {
@@ -850,6 +857,20 @@ export class InputOptionsRenderer extends DetailRenderer {
     });
     recInd.append(recLed, recText);
     voiceRow.append(startBtn, recInd);
+
+    // Continuous browser-native listening — only rendered when a
+    // ContinuousListener is injected (Toyota's receptionist box; see
+    // dashboard-boot.js). Off by default: the user starts/stops it
+    // explicitly rather than it running the moment the page loads.
+    let listenBtn = null;
+    if (this._listener) {
+      listenBtn = this._el("button", {
+        className: "voice-btn",
+        textContent: "Start Listening",
+      });
+      listenBtn.style.cssText = `${bs}flex:1;background:#17a2b8;`;
+      voiceRow.append(listenBtn);
+    }
 
     const autoSendBtn = this._el("button", { textContent: "Auto Send" });
     autoSendBtn.style.cssText = `${bs}background:#6c757d;`;
@@ -1119,12 +1140,52 @@ export class InputOptionsRenderer extends DetailRenderer {
         const ok = await recorder.start();
         if (!ok) {
           showStatus(
-            "Microphone needs a secure context (https). Open this dashboard via the Tailscale https URL.",
+            recorder.lastError ||
+              "Microphone needs a secure context (https). Open this dashboard via the Tailscale https URL.",
             true,
           );
         }
       }
     });
+
+    // ── Start Listening (continuous, browser-native) — opt-in only ─────────
+    let committedListen = "";
+    if (this._listener && listenBtn) {
+      const syncListenBtn = (state) => {
+        const listening = state === ListenerState.LISTENING;
+        listenBtn.classList.toggle("recording", listening);
+        listenBtn.textContent = listening
+          ? "Stop Listening"
+          : "Start Listening";
+        startBtn.disabled = listening;
+      };
+      this._listener.setCallbacks({
+        onStateChange: syncListenBtn,
+        onResult: (text, isFinal) => {
+          if (!isFinal) return;
+          committedListen = mergeFinalChunk(committedListen, text);
+          textEl.value = committedListen;
+          committedListen = "";
+          send();
+        },
+        onError: (message) => showStatus(message, true),
+      });
+      syncListenBtn(this._listener.state);
+      listenBtn.addEventListener("click", async () => {
+        if (this._listener.isListening) {
+          this._listener.stop();
+        } else {
+          showStatus("Listening…");
+          const ok = await this._listener.start();
+          if (!ok) {
+            showStatus(
+              "Speech recognition isn't available in this browser.",
+              true,
+            );
+          }
+        }
+      });
+    }
 
     // Exposes the textarea (and a small append helper) so a caller that opens
     // this page programmatically — e.g. AgentsRouterRenderer, after detecting
@@ -1138,7 +1199,7 @@ export class InputOptionsRenderer extends DetailRenderer {
         textEl.value = text;
       },
       appendText: (text) => {
-        textEl.value = textEl.value ? `${textEl.value} ${text}` : text;
+        textEl.value = mergeFinalChunk(textEl.value, text);
       },
     };
   }

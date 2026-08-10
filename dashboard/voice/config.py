@@ -12,7 +12,7 @@ WHISPER_CPP_BIN = os.environ.get(
     "WHISPER_CPP_BIN", os.path.join(HOME, "whisper.cpp", "build", "bin", "whisper-cli")
 )
 DEFAULT_WHISPER_MODEL_PATH = os.path.join(
-    HOME, "whisper.cpp", "models", "ggml-base.en.bin"
+    HOME, "whisper.cpp", "models", "ggml-small.en.bin"
 )
 WHISPER_MODEL_PATH = os.environ.get(
     "WHISPER_MODEL_PATH", DEFAULT_WHISPER_MODEL_PATH
@@ -40,6 +40,7 @@ CLEANUP_MODEL = os.environ.get("CLEANUP_MODEL", "gemini-2.5-flash-lite")
 KNOWN_AGENT_NAMES = [
     "Scissari",
     "Frita",
+    "Shelia",
     "Hailey",
     "Jeri",
     "Mazda",

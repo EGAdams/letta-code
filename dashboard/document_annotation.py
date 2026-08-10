@@ -13,6 +13,7 @@ import os
 import re
 import statistics
 import threading
+from html import escape
 from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -1637,6 +1638,51 @@ class ExpenseDocumentAnnotationService(IExpenseDocumentAnnotationService):
                     False,
                     f"Highlighting failed safely: {type(exc).__name__}: {exc}",
                 )
+
+
+def render_excel_for_browser(source_path: str, output_path: str) -> str:
+    """Render an annotated workbook as a self-contained inline HTML view."""
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(source_path, data_only=False)
+    parts = [
+        "<!doctype html><html><head><meta charset='utf-8'>",
+        "<title>Supporting document</title>",
+        "<style>body{font-family:Arial,sans-serif;margin:20px}" 
+        "table{border-collapse:collapse;margin:0 0 24px}"
+        "td,th{border:1px solid #bbb;padding:4px 8px;white-space:pre-wrap}"
+        "th{background:#eee} .highlight{border:3px solid #f00!important}</style>",
+        "</head><body>",
+    ]
+    for sheet in workbook.worksheets:
+        parts.append(f"<h2>{escape(sheet.title)}</h2><table>")
+        for row in sheet.iter_rows():
+            values = [cell.value for cell in row]
+            if not any(value not in (None, "") for value in values):
+                continue
+            parts.append("<tr>")
+            for cell in row:
+                value = cell.value
+                if isinstance(value, (datetime, date)):
+                    text = value.strftime("%m/%d/%Y")
+                else:
+                    text = "" if value is None else str(value)
+                borders = cell.border
+                highlighted = any(
+                    getattr(side, "color", None) is not None
+                    and getattr(side.color, "rgb", "") in {"FFFF0000", "00FF0000"}
+                    for side in (borders.left, borders.right, borders.top, borders.bottom)
+                )
+                tag = "th" if cell.row == 1 else "td"
+                cls = " class='highlight'" if highlighted else ""
+                parts.append(f"<{tag}{cls}>{escape(text)}</{tag}>")
+            parts.append("</tr>")
+        parts.append("</table>")
+    parts.append("</body></html>")
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    Path(output_path).write_text("".join(parts), encoding="utf-8")
+    workbook.close()
+    return output_path
 
 
 def build_document_annotation_service(

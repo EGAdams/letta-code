@@ -1619,6 +1619,11 @@ def test_document_vision_health_two_tiers_up_is_green_not_concern(monkeypatch, t
     monkeypatch.setattr(server.os.path, 'expanduser',
                          lambda p: str(auth_path) if p == '~/.codex/auth.json' else p)
 
+    # Isolate the shared provider-health event log: this test pins the
+    # credential-presence signal only, not fallback history.
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH',
+                        str(tmp_path / 'absent.json'))
+
     health = server.document_vision_health()
     assert health['ok'] is True
     assert not health.get('concern')
@@ -5948,3 +5953,120 @@ def test_deploy_dashboard_fails_loud_when_fetch_fails(monkeypatch):
     assert 'restart' not in called
     assert result['ok'] is False
     assert 'git fetch' in result['text'] and 'NOT restarted' in result['text']
+
+
+# ── provider-health fallback classification ──────────────────────────────────
+
+def _fallback_state(*, cat_last_success=0, vision_last_success=0):
+    """provider_health.json shape: one categorizer + one vision fallback at t=100."""
+    return {
+        'chatgpt-oauth-categorizer:eg': {
+            'last_success': cat_last_success, 'last_failure': 99},
+        'chatgpt-oauth-vision:eg': {
+            'last_success': vision_last_success, 'last_failure': 99},
+        'chatgpt-oauth-categorizer:_fallbacks': {
+            'events': [{'time': 100, 'from': 'eg', 'to': 'moms', 'error': '429'}]},
+        'chatgpt-oauth-vision:_fallbacks': {
+            'events': [{'time': 100, 'from': 'eg', 'to': 'moms', 'error': '429'}]},
+    }
+
+
+def test_split_provider_health_state_separates_accounts_from_fallbacks():
+    accounts, fallbacks = server.split_provider_health_state(_fallback_state())
+    assert set(accounts) == {
+        'chatgpt-oauth-categorizer:eg', 'chatgpt-oauth-vision:eg'}
+    assert set(fallbacks) == {
+        'chatgpt-oauth-categorizer', 'chatgpt-oauth-vision'}
+    assert len(fallbacks['chatgpt-oauth-vision']) == 1
+
+
+def test_unresolved_fallbacks_skips_events_the_account_recovered_from():
+    # primary succeeded at t=150, after the t=100 fallback → resolved, no alert
+    accounts, fallbacks = server.split_provider_health_state(
+        _fallback_state(cat_last_success=150))
+    assert server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=False) == []
+
+
+def test_unresolved_fallbacks_keeps_events_with_no_later_success():
+    accounts, fallbacks = server.split_provider_health_state(
+        _fallback_state(cat_last_success=50))
+    events = server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=False)
+    assert [p for p, _ in events] == ['chatgpt-oauth-categorizer']
+
+
+def test_unresolved_fallbacks_honours_the_time_window():
+    accounts, fallbacks = server.split_provider_health_state(_fallback_state())
+    assert server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=500, want_vision=False) == []
+
+
+def test_unresolved_fallbacks_separates_vision_from_categorizer():
+    """Each chain belongs to its own tile — they must not bleed into each other."""
+    accounts, fallbacks = server.split_provider_health_state(_fallback_state())
+    cat = server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=False)
+    vis = server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=True)
+    assert [p for p, _ in cat] == ['chatgpt-oauth-categorizer']
+    assert [p for p, _ in vis] == ['chatgpt-oauth-vision']
+
+
+def test_categorizer_tile_ignores_vision_fallbacks(monkeypatch, tmp_path):
+    """A vision-only fallback must leave the Categorizer tile green."""
+    path = tmp_path / 'provider_health.json'
+    state = {
+        'chatgpt-oauth-categorizer:eg': {'last_success': 200, 'last_failure': 99},
+        'chatgpt-oauth-vision:_fallbacks': {
+            'events': [{'time': time.time(), 'from': 'eg', 'to': 'moms',
+                        'error': '429'}]},
+    }
+    path.write_text(json.dumps(state))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    health = server.mazda_categorizer_fallback_health()
+    assert health['ok'] is True
+    assert not health.get('concern')
+
+
+def test_categorizer_tile_flags_its_own_unrecovered_fallback(monkeypatch, tmp_path):
+    path = tmp_path / 'provider_health.json'
+    state = {
+        'chatgpt-oauth-categorizer:eg': {'last_success': 0, 'last_failure': 99},
+        # a healthy tier, so this exercises the yellow path rather than the
+        # "every tier is failing" red path
+        'chatgpt-oauth-categorizer:moms': {'last_success': 200, 'last_failure': 0},
+        'chatgpt-oauth-categorizer:_fallbacks': {
+            'events': [{'time': time.time(), 'from': 'eg', 'to': 'moms',
+                        'error': '429'}]},
+    }
+    path.write_text(json.dumps(state))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    health = server.mazda_categorizer_fallback_health()
+    assert health.get('concern') is True
+    assert 'unrecovered' in health['text']
+
+
+def test_vision_provider_fallbacks_survives_a_missing_event_log(monkeypatch, tmp_path):
+    """A missing log must never be the thing that colours the vision tile."""
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH',
+                        str(tmp_path / 'nope.json'))
+    assert server.vision_provider_fallbacks() == ''
+
+
+def test_vision_tile_flags_unrecovered_vision_fallback(monkeypatch, tmp_path):
+    """Credential checks pass but real calls keep failing over — the Document
+    Vision tile (not the Categorizer tile) must be the one that says so."""
+    path = tmp_path / 'provider_health.json'
+    path.write_text(json.dumps({
+        'chatgpt-oauth-vision:eg': {'last_success': 0, 'last_failure': 99},
+        'chatgpt-oauth-vision:_fallbacks': {
+            'events': [{'time': time.time(), 'from': 'eg', 'to': 'moms',
+                        'error': '429'}]},
+    }))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    summary = server.vision_provider_fallbacks()
+    assert 'unrecovered vision fallback' in summary

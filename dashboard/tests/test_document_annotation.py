@@ -15,6 +15,7 @@ from document_annotation import (
     IImageRegionFallbackMatcher,
     PdfCheckNumberResolver,
     PdfExpenseDocumentAnnotator,
+    render_excel_for_browser,
 )
 
 
@@ -700,6 +701,27 @@ def test_excel_strategy_boxes_only_the_matching_row(tmp_path):
     assert highlighted.active["C3"].border.right.color.rgb == "FFFF0000"
     assert highlighted.active["A2"].border.left.style is None
     highlighted.close()
+
+
+def test_render_excel_for_browser_preserves_red_highlight(tmp_path):
+    from openpyxl import Workbook
+
+    source = tmp_path / 'annotated.xlsx'
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(['Date', 'Description', 'Amount'])
+    sheet.append(['01/21/2025', 'TRINITY HEALTH CORP-LIVONIA MI', 225.00])
+    from openpyxl.styles import Border, Side
+    red = Side(style='thick', color='FFFF0000')
+    sheet['B2'].border = Border(left=red, right=red, top=red, bottom=red)
+    workbook.save(source)
+    output = tmp_path / 'view.html'
+
+    render_excel_for_browser(str(source), str(output))
+
+    html = output.read_text()
+    assert 'TRINITY HEALTH CORP-LIVONIA MI' in html
+    assert 'class=\'highlight\'' in html
 
 
 def test_card_statement_row_identifies_by_bare_month_day_and_payee_head():

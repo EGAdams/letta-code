@@ -57,7 +57,6 @@ const tabFactory = new DomTabFactory();
 const mainContent = document.getElementById("main-content");
 const navMain = document.getElementById("nav-main");
 const navStatus = document.getElementById("nav-status");
-const navTools = document.getElementById("nav-tools");
 const navAgents = document.getElementById("nav-agents");
 const navAgentDetail = document.getElementById("nav-agent-detail");
 const navServers = document.getElementById("nav-servers");
@@ -348,35 +347,6 @@ const agentGate = (() => {
   };
 })();
 
-// Leave empty to auto-use the current host/origin.
-// Set this if you need to pin links to a specific public URL.
-const WINDOWS_10_PUBLIC_URL = "";
-
-function getWindows10BaseUrl() {
-  const configured =
-    typeof WINDOWS_10_PUBLIC_URL === "string"
-      ? WINDOWS_10_PUBLIC_URL.trim()
-      : "";
-  if (configured) return configured.replace(/\/$/, "");
-  return window.location.origin.replace(/\/$/, "");
-}
-
-function applyInstructionLinks() {
-  const base = getWindows10BaseUrl();
-  const guide = `${base}/americanjewelry_live_upload_guide.html`;
-  const mgmt = `${base}/windows_10_dashboard_management.html`;
-  const guideEl = document.getElementById("instructions-guide-link");
-  const mgmtEl = document.getElementById("instructions-mgmt-link");
-  if (guideEl) {
-    guideEl.href = guide;
-    guideEl.textContent = guide;
-  }
-  if (mgmtEl) {
-    mgmtEl.href = mgmt;
-    mgmtEl.textContent = mgmt;
-  }
-}
-
 function clearActive(navEl, selector) {
   if (!navEl) return;
   navEl.querySelectorAll(selector).forEach((el) => {
@@ -419,6 +389,19 @@ function safeSetActive(navEl, selector, target) {
   target.classList.add("active");
 }
 
+// Server Management / SSH Connections / Model Stats / PC Monitor are all
+// nested one level under the System Status tab, so their own "Back" buttons
+// land one level up in navStatus (not all the way out to navMain/home).
+function returnToStatus(statusTarget) {
+  navStatus.classList.remove("hidden");
+  const tab = navStatus.querySelector(
+    `[data-nav="status"][data-target="${statusTarget}"]`,
+  );
+  if (tab) safeSetActive(navStatus, '[data-nav="status"][data-target]', tab);
+  else clearActive(navStatus, '[data-nav="status"][data-target]');
+  safeActivateView("status-home");
+}
+
 function setAgentDetailContent(agentName) {
   const name = (agentName || "Agent").trim();
   const titleEl = document.getElementById("agent-detail-title");
@@ -427,13 +410,11 @@ function setAgentDetailContent(agentName) {
   if (homeEl) homeEl.textContent = `Choose a tab above to view ${name}'s data.`;
 }
 
-applyInstructionLinks();
 setAgentDetailContent("Agent");
 
 if (
   navMain &&
   navStatus &&
-  navTools &&
   navAgents &&
   navAgentDetail &&
   navServers &&
@@ -450,28 +431,8 @@ if (
       if (target === "status") {
         navMain.classList.add("hidden");
         navStatus.classList.remove("hidden");
-        const statusHome = navStatus.querySelector(
-          '[data-nav="status"][data-target="status-home"]',
-        );
-        if (statusHome)
-          safeSetActive(
-            navStatus,
-            '[data-nav="status"][data-target]',
-            statusHome,
-          );
+        clearActive(navStatus, '[data-nav="status"][data-target]');
         safeActivateView("status-home");
-        return;
-      }
-
-      if (target === "tool-management") {
-        navMain.classList.add("hidden");
-        navTools.classList.remove("hidden");
-        const toolsHome = navTools.querySelector(
-          '[data-nav="tools"][data-target="tools-home"]',
-        );
-        if (toolsHome)
-          safeSetActive(navTools, '[data-nav="tools"][data-target]', toolsHome);
-        safeActivateView("tools-home");
         return;
       }
 
@@ -479,36 +440,6 @@ if (
         navMain.classList.add("hidden");
         navAgents.classList.remove("hidden");
         AM.showAgentsHome();
-        return;
-      }
-
-      if (target === "server-management") {
-        navMain.classList.add("hidden");
-        navServers.classList.remove("hidden");
-        SM.showServersHome();
-        return;
-      }
-
-      if (target === "ssh-connections") {
-        navMain.classList.add("hidden");
-        navSSH.classList.remove("hidden");
-        SSHM.showConnectionsHome();
-        return;
-      }
-
-      if (target === "model-stats" && navModelStats) {
-        navMain.classList.add("hidden");
-        navModelStats.classList.remove("hidden");
-        safeActivateView("model-stats");
-        MS.open();
-        return;
-      }
-
-      if (target === "pc-monitor" && navPcMonitor) {
-        navMain.classList.add("hidden");
-        navPcMonitor.classList.remove("hidden");
-        safeActivateView("pc-monitor");
-        PCM.open();
         return;
       }
 
@@ -549,20 +480,38 @@ if (
     .querySelectorAll('[data-nav="status"][data-target]')
     .forEach((tab) => {
       tab.addEventListener("click", () => {
+        const target = tab.dataset.target;
         safeSetActive(navStatus, '[data-nav="status"][data-target]', tab);
-        safeActivateView(tab.dataset.target);
-        if (tab.dataset.target === "status-servers") {
-          void loadServersSummary();
-        }
-      });
-    });
 
-  navTools
-    .querySelectorAll('[data-nav="tools"][data-target]')
-    .forEach((tab) => {
-      tab.addEventListener("click", () => {
-        safeSetActive(navTools, '[data-nav="tools"][data-target]', tab);
-        safeActivateView(tab.dataset.target);
+        if (target === "server-management") {
+          navStatus.classList.add("hidden");
+          navServers.classList.remove("hidden");
+          SM.showServersHome();
+          return;
+        }
+
+        if (target === "ssh-connections") {
+          navStatus.classList.add("hidden");
+          navSSH.classList.remove("hidden");
+          SSHM.showConnectionsHome();
+          return;
+        }
+
+        if (target === "model-stats" && navModelStats) {
+          navStatus.classList.add("hidden");
+          navModelStats.classList.remove("hidden");
+          safeActivateView("model-stats");
+          MS.open();
+          return;
+        }
+
+        if (target === "pc-monitor" && navPcMonitor) {
+          navStatus.classList.add("hidden");
+          navPcMonitor.classList.remove("hidden");
+          safeActivateView("pc-monitor");
+          PCM.open();
+          return;
+        }
       });
     });
 
@@ -670,6 +619,8 @@ if (
             `#${tab.dataset.target} iframe`,
           );
           RF.loadScannerReportInto(iframe, tab.dataset.scannerReport);
+          // Open Mazda's agent detail to show her progress immediately
+          AM.openById("agent-6b536cf4-ec88-4290-b595-fed21d14bd8e", "thoughts");
         }
       });
     });
@@ -728,13 +679,7 @@ if (
     backServers.addEventListener("click", () => {
       SM.stopPoll();
       navServers.classList.add("hidden");
-      navMain.classList.remove("hidden");
-      const homeTab = navMain.querySelector(
-        '[data-nav="main"][data-target="home"]',
-      );
-      if (homeTab)
-        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
-      safeActivateView("home");
+      returnToStatus("server-management");
     });
   }
 
@@ -756,27 +701,7 @@ if (
     backSSH.addEventListener("click", () => {
       SSHM.stopPoll();
       navSSH.classList.add("hidden");
-      navMain.classList.remove("hidden");
-      const homeTab = navMain.querySelector(
-        '[data-nav="main"][data-target="home"]',
-      );
-      if (homeTab)
-        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
-      safeActivateView("home");
-    });
-  }
-
-  const backTools = document.getElementById("btn-back-tools");
-  if (backTools) {
-    backTools.addEventListener("click", () => {
-      navTools.classList.add("hidden");
-      navMain.classList.remove("hidden");
-      const homeTab = navMain.querySelector(
-        '[data-nav="main"][data-target="home"]',
-      );
-      if (homeTab)
-        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
-      safeActivateView("home");
+      returnToStatus("ssh-connections");
     });
   }
 
@@ -1113,14 +1038,7 @@ if (navModelStats) {
     backMS.addEventListener("click", () => {
       MS.stopPoll();
       navModelStats.classList.add("hidden");
-      navMain.classList.remove("hidden");
-      const homeTab = navMain.querySelector(
-        '[data-nav="main"][data-target="home"]',
-      );
-      if (homeTab) {
-        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
-      }
-      safeActivateView("home");
+      returnToStatus("model-stats");
     });
   }
 }
@@ -1250,14 +1168,7 @@ if (navPcMonitor) {
     backPcMonitor.addEventListener("click", () => {
       PCM.stopPoll();
       navPcMonitor.classList.add("hidden");
-      navMain.classList.remove("hidden");
-      const homeTab = navMain.querySelector(
-        '[data-nav="main"][data-target="home"]',
-      );
-      if (homeTab) {
-        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
-      }
-      safeActivateView("home");
+      returnToStatus("pc-monitor");
     });
   }
 }
@@ -1359,6 +1270,38 @@ const renderAgentsRouter = (target) =>
     openAgent: openAgentForRouter,
     onStatus: setAgentTabStatus,
   }).render(target);
+
+/* ─────────────────  Toyota (Home screen receptionist)  ──────────────────
+ * Same Input Options widget as any agent's Agent Management page (reuses
+ * InputOptionsRenderer as-is), but pinned to the fixed "Toyota" agent and
+ * paired with its own ContinuousListener — separate from routerListener
+ * above, since that one lives on the Agents tab's router page. Listening is
+ * opt-in via the "Start Listening" button InputOptionsRenderer renders when
+ * given a listener (no name-detection hand-off; this box only ever talks to
+ * Toyota): every final recognized chunk while listening is sent straight to
+ * her, exactly as before — the only change is it no longer starts itself the
+ * moment the dashboard loads.
+ */
+const receptionistListener = new BrowserSpeechRecognitionListener();
+
+const startReceptionist = async () => {
+  let agentId;
+  try {
+    const d = await http.getJSON("/api/receptionist-agent");
+    if (!d?.ok || !d.agent_id) return;
+    agentId = d.agent_id;
+  } catch {
+    return;
+  }
+  new InputOptionsRenderer({
+    http,
+    speech: Speech,
+    agentName: "Toyota",
+    agentId,
+    listener: receptionistListener,
+  }).render("receptionist-box", agentId);
+};
+startReceptionist();
 
 // Maps an agent-detail view id to how its content is rendered.
 const DETAIL_RENDERERS = {
@@ -1584,64 +1527,6 @@ function fmtDownFor(sec) {
   if (sec < 60) return `${sec}s`;
   if (sec < 3600) return `${Math.floor(sec / 60)}m`;
   return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
-}
-
-function renderServerSkills(skills) {
-  if (!Array.isArray(skills) || skills.length === 0) {
-    return '<span class="srv-summary-stamp">-</span>';
-  }
-  return (
-    '<ul class="srv-skills">' +
-    skills.map((skill) => `<li>${esc(skill)}</li>`).join("") +
-    "</ul>"
-  );
-}
-
-async function loadServersSummary() {
-  const list = document.getElementById("servers-list");
-  const stamp = document.getElementById("servers-last-updated");
-  if (!list) return;
-  list.innerHTML = '<p class="am-dim">Checking&hellip;</p>';
-  try {
-    const [servers, health] = await Promise.all([
-      http.getJSON("/api/servers"),
-      http.getJSON("/api/server-health"),
-    ]);
-    const healthByKey = new Map(
-      (health?.servers || []).map((server) => [server.key, server.status]),
-    );
-    if (!servers.length) {
-      list.innerHTML = '<p class="am-dim">No servers registered.</p>';
-      return;
-    }
-    const rows = servers
-      .map((server) => {
-        const status = healthByKey.get(server.key) || "unknown";
-        const badge = `<span class="srv-badge ${status}">${esc(status.toUpperCase())}</span>`;
-        const url = server.url || server.health_url || "";
-        const link = url
-          ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>`
-          : '<span class="srv-summary-stamp">-</span>';
-        return (
-          "<tr>" +
-          `<td>${badge}</td>` +
-          `<td><strong>${esc(server.name)}</strong><br><span class="srv-summary-stamp">${esc(server.note || "")}</span></td>` +
-          `<td>${link}</td>` +
-          `<td>${renderServerSkills(server.skills)}</td>` +
-          "</tr>"
-        );
-      })
-      .join("");
-    list.innerHTML =
-      '<table class="srv-table"><thead><tr>' +
-      "<th>Status</th><th>Server</th><th>URL</th><th>Skills</th>" +
-      `</tr></thead><tbody>${rows}</tbody></table>`;
-    if (stamp) {
-      stamp.textContent = `Updated ${new Date().toLocaleTimeString()}`;
-    }
-  } catch (e) {
-    list.innerHTML = `<p class="msi-line err">Error: ${esc(e.message)}</p>`;
-  }
 }
 
 const SM = {
@@ -2095,10 +1980,6 @@ async function preloadStartupChecks() {
   SM.healthPollTimer = setInterval(() => SM.pollHealth(), 10000);
   SSHM.healthPollTimer = setInterval(() => SSHM.pollHealth(), 15000);
 }
-
-document
-  .getElementById("servers-refresh-btn")
-  ?.addEventListener("click", () => void loadServersSummary());
 
 /* =====================  ROL Finance Reports  =====================
        One tab per report directory under ~/rol_finances/readable_documents/

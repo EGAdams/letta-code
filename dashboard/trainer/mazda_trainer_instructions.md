@@ -192,6 +192,21 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    plus payee. Do not coach Mazda to "fix" this and never suggest re-storing or
    editing the expense to make a box appear — file it as a dashboard defect in
    your report.
+   **Update 2026-08-08**: the specific "No high-confidence expense row was found
+   in the image" failure on check-style/handwritten receipts (previously seen on
+   expenses 2004 and 2006 in your own reports) is now FIXED —
+   `ImageExpenseDocumentAnnotator` in `document_annotation.py` has a fallback
+   matcher (`CodexCliImageRegionFallbackMatcher`, `dashboard/
+   codex_image_region_fallback.py`) for exactly this document class, built via a
+   SwarmForge six-pack run (commits `9beea7d8`→`bc2bbfa2`; see
+   `mazda_suzuki_escalation_contract.md` §4a for how that pipeline actually
+   operates, prerequisites, and model tuning, if a future run needs one). A
+   recurrence of that exact failure message from here on is a genuine
+   regression, not a known/tolerated gap — escalate it fresh rather than citing
+   this note as an excuse to downgrade severity. A *different* unboxed-receipt
+   reason (e.g. `available:false` from a broken `receipt_url`/`source_file`
+   path) is unrelated — that class of bug and its fix are documented in
+   `tools/maintenance/backfill_source_file.py`'s docstring, in `rol_finances`.
    When the dispatch names an authoritative `*.statement.json` produced by the
    dashboard's validated preflight, Mazda MUST give that exact file to the store
    command and MUST NOT run `parse_statement_scan.py` again. A second vision pass

@@ -50,8 +50,10 @@ cert via Tailscale Serve:
 ```bash
 tailscale serve --bg 8765   # one-time; persists across reboots (needs --operator=$USER once)
 ```
-Then open `https://desktop-2obsqmc-24.tailb8fc54.ts.net/` on the phone — use the **hostname**,
-not the IP, or the cert won't validate.
+Then open `https://desktop-2obsqmc.tailb8fc54.ts.net/` on the phone — use the **hostname**,
+not the IP, or the cert won't validate. Note: this is `desktop-2obsqmc` (the primary Linux
+node), **not** `desktop-2obsqmc-24` (the WSL node — goes offline when its distro terminates;
+check `tailscale status` if unsure which one is currently up).
 
 ## Architecture
 
@@ -131,14 +133,16 @@ transcript-cleanup-agent → fills the message box → POST /api/test sends it`.
 | `voice/pipeline.py` | `VoicePipeline.process` + `handle_voice_upload` (the `/api/voice` handler logic) |
 
 It reuses lettabot's binaries rather than reinventing them — `whisper-cli` at
-`~/whisper.cpp/build/bin/whisper-cli`, model `~/whisper.cpp/models/ggml-base.en.bin`, ffmpeg from
-lettabot's bundled `imageio_ffmpeg`. All overridable via env (`WHISPER_CPP_BIN`,
-`WHISPER_MODEL_PATH`, `FFMPEG_BIN`, `WHISPER_LANGUAGE`, `WHISPER_THREADS`, `WHISPER_PROMPT`).
+`~/whisper.cpp/build/bin/whisper-cli`, model `~/whisper.cpp/models/ggml-small.en.bin` (upgraded
+2026-08-08 from `base.en` for better accuracy on agent names; adds a bit of latency per
+transcription, acceptable given transcription already runs ~5s). ffmpeg from lettabot's bundled
+`imageio_ffmpeg`. All overridable via env (`WHISPER_CPP_BIN`, `WHISPER_MODEL_PATH`, `FFMPEG_BIN`,
+`WHISPER_LANGUAGE`, `WHISPER_THREADS`, `WHISPER_PROMPT`).
 
 Every successful `/api/voice` call appends `{date, raw, cleaned}` to `voice_transcripts.json`
 (gitignored) — compare `raw` (what whisper heard) vs `cleaned` (what the cleanup agent produced)
-to diagnose a mis-delivered agent name. Whisper's `base.en` model can mishear an agent name as a
-common word too far off for the cleanup agent to rescue (e.g. "Mazda" → "Melissa"); the fix is
+to diagnose a mis-delivered agent name. Whisper's `small.en` model still can mishear an agent name
+as a common word too far off for the cleanup agent to rescue; the fix is
 `config.WHISPER_PROMPT` biasing whisper up front with the real agent names (disable with
 `WHISPER_PROMPT=""`).
 

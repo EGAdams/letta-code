@@ -114,6 +114,95 @@ is the heavy short-lived refactor swarm it can dispatch.
 
 ---
 
+## 4a. SwarmForge operational notes (live-verified 2026-08-08)
+
+First real six-pack run against this repo: `dashboard/document_annotation.py`'s image-receipt
+OCR matcher had no fallback for check-style/handwritten receipts (a "new document type won't
+fit" case per the decision rule above — Trainer had already correctly flagged it as a dashboard
+defect across multiple reports, never as something to coach Mazda about). Full pipeline
+completed end to end; commits `9beea7d8`→`bc2bbfa2` merged into `fix/intake-duplicate-rows`.
+What actually mattered in practice, that the README/AGENTS.md don't say:
+
+**Prerequisites this box didn't have out of the box:** `zsh` (`apt-get install zsh`) and
+`babashka`/`bb` (official installer: `curl -sLO https://raw.githubusercontent.com/babashka/babashka/master/install && chmod +x install && sudo ./install`). `tmux`, `git`, and the `codex`/`claude`
+CLIs were already present. Check with `zsh --version; bb --version; tmux -V` before launching —
+a missing prerequisite fails `./swarm` messily partway through.
+
+**Isolation, for real, not just in principle:** `git clone` the target repo into a scratch
+directory (e.g. `~/swarmforge-runs/<task-name>`), then `git remote remove origin` immediately —
+a clone's origin defaults to pointing back at the source repo, and a role pushing a ref there
+would touch the live repo even though no working-tree file changed. Pull the `six-pack` branch
+into that clone per the README's `curl | tar -xz --strip-components=1`, then launch `./swarm`
+from there. **Roles will still try to reach outside the scratch dir** — both `architect` and
+`coder` proposed running `PYTHON_BIN=/home/adamsl/letta-code/dashboard/.venv/bin/python`
+(the live checkout's venv) instead of building their own local venv. Watch every `pip
+install`/`PYTHON_BIN=`/`acceptance/run.sh` approval prompt for an absolute path outside the
+worktree and reject-and-redirect ("build a local venv, same pattern the last role used") rather
+than approving it.
+
+**A real gap in this SwarmForge distribution:** the constitution (`swarmforge/scripts/shared-
+articles/handoffs.prompt`, `constitution/articles/local-workflow.prompt`) instructs every role
+to run `merge_and_process <sender-role> <commit>` when accepting a handoff, but no such script
+ships in `swarmforge/scripts/`. Every role hit this and stalled ("Startup blocked:
+merge_and_process is missing from PATH... I stopped without manually merging"). Fix: drop a
+thin wrapper at `swarmforge/scripts/merge_and_process` in **every** worktree (each worktree has
+its own copy, not a symlink) that just runs `git merge "$commit" --no-edit`:
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $# -ge 2 ]] || { echo "usage: merge_and_process <sender-role> <commit>" >&2; exit 2; }
+git merge "$2" --no-edit
+```
+`chmod +x` it, and it's picked up automatically (`swarmforge/scripts/` is already on each role's
+PATH and already gitignored, so this never pollutes a role's own commits). Worth upstreaming to
+`swarm-forge` `main`/`six-pack` at some point rather than reapplying by hand every run.
+
+**Model/effort tuning — this is the lever that actually controls cost**, not just wall-clock:
+`six-pack`'s default config (`swarmforge/swarmforge.conf`) runs every role on `codex` with
+whatever the CLI's own default model is (`gpt-5.6-sol high` in this environment) — the
+"frontier" tier at max reasoning, for every role including pure verification passes. In this
+run, `cleaner`/`hardener`/`QA` each burned **~1–1.4M input tokens just on tool-fetch setup**
+(cloning `clj-mutate`/`crap4clj`/`dry4clj`/Acceptance-Pipeline-Specification into every worktree
+separately) before doing any real review work — those roles are inherently repetitive/mechanical
+(CRAP/DRY scans, mutation hardening, UI-only verification), not deep-architecture reasoning, so
+a lighter model is the right trade there. What was actually done, switched live mid-run via each
+role's own `/model` command in its tmux pane (does not require a restart):
+
+| Role | Why | Final setting |
+|---|---|---|
+| `specifier` | Defines behavior/acceptance criteria — keep full capability, but effort can drop once past the exploratory research phase | `gpt-5.6-sol low` |
+| `coder` | Writes the real implementation — same reasoning | `gpt-5.6-sol low` |
+| `cleaner` | Mechanical CRAP/DRY/coverage work, but still **edits real implementation code** (behavior-preserving refactors) — cheaper model, kept reasoning high since a sloppy cleanup here costs more downstream than it saves | `gpt-5.6-luna high` |
+| `architect` | Structural/boundary review, same reasoning-drop rationale as specifier/coder | `gpt-5.6-sol low` |
+| `hardender` | Pure verification (mutation hardening, re-running suites) — cheapest safe tier | `gpt-5.6-luna medium` |
+| `QA` | Pure verification (acceptance/UI checks) — cheapest safe tier | `gpt-5.6-luna medium` |
+
+`gpt-5.6-luna` is this environment's fast/affordable tier (`gpt-5.4-mini` migrated to it — see
+`~/.codex/config.toml`'s `[notice.model_migrations]`). **Switch before a role starts its real
+work, not mid-task** — a model swap doesn't lose context, but do it at an idle/NO_TASK boundary
+so you're not second-guessing a switch that landed mid-tool-call. The general rule that
+generalizes past this one run: roles that *write or redesign* code stay on the strongest
+available model at whatever effort the task complexity needs; roles that *mechanically verify*
+already-reviewed code (re-running suites, static analysis, CRAP/DRY, UI checks) are a safe place
+to drop to a cheaper/faster tier, because their job is binary pass/fail against tests other roles
+already wrote, not judgment calls.
+
+**Merging the result back to the live repo:** the scratch clone is disposable and has no
+push target (`origin` was removed), so bring commits back by fetching the scratch clone as a
+temporary remote from the *live* checkout (`git remote add swarmforge-scratch <scratch-path> &&
+git fetch swarmforge-scratch <branch> && git merge swarmforge-scratch/<branch> --no-edit`, then
+`git remote remove swarmforge-scratch`) rather than pushing outward from the scratch copy. If the
+live checkout has uncommitted work touching the same files SwarmForge also touched (likely — two
+letta.js `--yolo` sessions run against this repo concurrently per the top-level `CLAUDE.md`),
+`git stash push` (tracked changes only, not `--include-untracked`) before merging, then `git
+stash pop` after — expect it to fail once on `dashboard/claude_toolcalls.json` (a log file
+actively rewritten by a live process; `git checkout -- ` it immediately before retrying, possibly
+more than once) and possibly on any file both sides genuinely edited (resolve by hand; it will be
+a small, real, human-reviewable conflict, not a `.rej` avalanche, since SwarmForge's own commits
+are usually orthogonal to unrelated concurrent work).
+
+---
+
 ## 5. Report before significant changes
 
 Before a Suzuki/SwarmForge run makes non-trivial edits, state:

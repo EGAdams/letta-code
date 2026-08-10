@@ -44,6 +44,7 @@ from document_annotation import (
     ExpenseEvidence,
     IExpenseDocumentAnnotationService,
     build_document_annotation_service,
+    render_excel_for_browser,
 )
 from recent_intake_view import collapse_check_evidence_rows
 from supporting_document_service import (
@@ -6171,8 +6172,11 @@ _MAZDA_TOOLS = [
 CHATGPT_PLUS_PRO = 'chatgpt-plus-pro'
 
 LETTA_AGENTS = [
+    {'name': 'Toyota',   'id': 'agent-38cf768e-e1eb-4c29-978a-c6bb64282d25'},
     {'name': 'Scissari', 'id': 'agent-5955b0c2-7922-4ffe-9e43-b116053b80fa'},
     {'name': 'Frita',    'id': 'agent-881a883f-edd0-4963-bf67-6ef178b8f018', 'uses_claude_sdk': True},
+    {'name': 'Shelia',   'id': 'agent-1c2e170c-a67a-4364-b370-16a6b48c0770'},
+    {'name': 'Shelia',   'id': 'agent-1c2e170c-a67a-4364-b370-16a6b48c0770'},
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
     {'name': 'Jeri',     'id': None},
     {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'orchestrator': True},
@@ -6242,6 +6246,40 @@ AGENT_CARDS = {
             'host file and process inspection',
         ],
         'memory_summary': 'Keeps operational knowledge about the Win10 dashboard environment, serving paths, and tunnel setup.',
+    },
+    'Shelia': {
+        'identity': 'Shelia',
+        'role': 'Narrow, evidence-based Rosemary46 Windows/WSL/Tailscale recovery operator.',
+        'responsibilities': [
+            'Inspect Rosemary46 host, WSL, keepalive-task, and Tailscale evidence',
+            'Start the fixed WSL keepalive and restart tailscaled when evidence requires it',
+            'Verify real Tailscale and SSH recovery without hiding dashboard failures',
+        ],
+        'tools': [
+            'shelia_status',
+            'shelia_start_keepalive',
+            'shelia_restart_tailscale',
+            'shelia_reauth_instructions',
+            'shelia_verify_recovery',
+        ],
+        'memory_summary': 'Maintains a strict recovery sequence and reports unreachable, authentication, WSL, and SSH failures separately.',
+    },
+    'Shelia': {
+        'identity': 'Shelia',
+        'role': 'Narrow, evidence-based Rosemary46 Windows/WSL/Tailscale recovery operator.',
+        'responsibilities': [
+            'Inspect Rosemary46 host, WSL, keepalive-task, and Tailscale evidence',
+            'Start the fixed WSL keepalive and restart tailscaled when evidence requires it',
+            'Verify real Tailscale and SSH recovery without hiding dashboard failures',
+        ],
+        'tools': [
+            'shelia_status',
+            'shelia_start_keepalive',
+            'shelia_restart_tailscale',
+            'shelia_reauth_instructions',
+            'shelia_verify_recovery',
+        ],
+        'memory_summary': 'Maintains a strict recovery sequence and reports unreachable, authentication, WSL, and SSH failures separately.',
     },
     'Hailey': {
         'identity': 'Hailey',
@@ -7755,11 +7793,96 @@ def document_vision_health(timeout=None):
         return {'ok': False,
                 'text': 'ALL vision tiers down — Mazda cannot classify or read '
                         'scanned documents. ' + text}
-    return {'ok': True, 'concern': n_up == 1, 'text': text}
+
+    # Credential presence alone can't see a tier that authenticates but then
+    # fails every real call, so also surface unrecovered vision fallbacks from
+    # the shared provider_health event log. These used to land on the
+    # Categorizer tile, which owns a different chain and a different remedy.
+    vision_fallbacks = vision_provider_fallbacks()
+    if vision_fallbacks:
+        text += f' {vision_fallbacks}'
+    return {'ok': True, 'concern': n_up == 1 or bool(vision_fallbacks), 'text': text}
+
+
+def vision_provider_fallbacks():
+    """Summary of unrecovered vision-tier fallbacks, or '' when there are none.
+
+    Read-only and best-effort: a missing/corrupt event log must never turn the
+    Document Vision tile red on its own — the credential checks above are the
+    tile's primary signal."""
+    try:
+        with open(MAZDA_PROVIDER_HEALTH_PATH) as f:
+            state = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return ''
+    all_accounts, fallback_events = split_provider_health_state(state)
+    events = unresolved_fallbacks(
+        all_accounts, fallback_events,
+        time.time() - MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS, want_vision=True)
+    if not events:
+        return ''
+    summary = '; '.join(
+        f'{provider} {ev["from"]}->{ev["to"]} ({classify_failure(ev.get("error", ""))[1]})'
+        for provider, ev in events[-5:]
+    )
+    return f'{len(events)} unrecovered vision fallback(s) in last 24h: {summary}'
 
 
 MAZDA_PROVIDER_HEALTH_PATH = os.path.expanduser('~/.mazda/provider_health.json')
 MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS = 24 * 3600
+
+# provider_health.json is one shared event log covering two INDEPENDENT LLM
+# chains, each owned by its own dashboard tile: the vendor-categorization chain
+# (Categorizer tile) and the scan-classification chain (Document Vision tile).
+# Only the vision providers are self-identifying; `gemini`/`anthropic`/`openai`
+# are recorded under bare keys because the recorder in rol_finances doesn't tag
+# which chain called them, so they stay with the Categorizer tile as before.
+VISION_PROVIDER_PREFIX = 'chatgpt-oauth-vision'
+
+
+def provider_belongs_to_vision(provider):
+    """True for providers the Document Vision tile owns."""
+    return provider.startswith(VISION_PROVIDER_PREFIX)
+
+
+def split_provider_health_state(state):
+    """Split a raw provider_health.json mapping into
+    ({account_key: entry}, {provider: [event, ...]})."""
+    account_entries = {}
+    fallback_events = {}
+    for key, entry in state.items():
+        if key.endswith(':_fallbacks'):
+            fallback_events[key.rsplit(':', 1)[0]] = list(entry.get('events', []))
+        else:
+            account_entries[key] = entry
+    return account_entries, fallback_events
+
+
+def unresolved_fallbacks(account_entries, fallback_events, cutoff, want_vision):
+    """Fallback events inside the window that are still worth alerting on.
+
+    A fallback is *resolved* — and therefore NOT alert-worthy — once the account
+    it fell back FROM has recorded a success later than the fallback itself.
+    Without this check a single rate-limit blip kept the tile yellow for a full
+    24h even though the very next call succeeded seconds later (observed
+    2026-08-08: EG's ChatGPT cap reset, the primary tier recovered 11s after the
+    fallback, and the tile still read NEEDS ATTENTION ~16h afterwards). Alerting
+    on an already-recovered condition trains the operator to ignore the tile,
+    which is exactly the blindness this tile was built to prevent.
+    """
+    out = []
+    for provider, events in fallback_events.items():
+        if provider_belongs_to_vision(provider) != want_vision:
+            continue
+        for ev in events:
+            when = ev.get('time', 0)
+            if when < cutoff:
+                continue
+            origin = account_entries.get(f'{provider}:{ev.get("from")}', {})
+            if origin.get('last_success', 0) > when:
+                continue  # primary tier already recovered
+            out.append((provider, ev))
+    return out
 
 
 def mazda_categorizer_fallback_health(timeout=None):
@@ -7788,16 +7911,16 @@ def mazda_categorizer_fallback_health(timeout=None):
     now = time.time()
     cutoff = now - MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS
 
-    recent_fallbacks = []
-    account_entries = {}
-    for key, entry in state.items():
-        if key.endswith(':_fallbacks'):
-            provider = key.rsplit(':', 1)[0]
-            for ev in entry.get('events', []):
-                if ev.get('time', 0) >= cutoff:
-                    recent_fallbacks.append((provider, ev))
-            continue
-        account_entries[key] = entry
+    all_accounts, fallback_events = split_provider_health_state(state)
+    # Vision providers are the Document Vision tile's business, not this one's —
+    # a vision-tier fallback lighting up the Categorizer tile sends the operator
+    # to the wrong runbook.
+    account_entries = {
+        key: entry for key, entry in all_accounts.items()
+        if not provider_belongs_to_vision(key)
+    }
+    recent_fallbacks = unresolved_fallbacks(
+        all_accounts, fallback_events, cutoff, want_vision=False)
 
     if not account_entries:
         return {'ok': True, 'text': 'no categorizer LLM calls logged yet'}
@@ -7828,7 +7951,7 @@ def mazda_categorizer_fallback_health(timeout=None):
             for provider, ev in recent_fallbacks[-5:]
         )
         return {'ok': True, 'concern': True,
-                'text': f'{len(recent_fallbacks)} fallback(s) in last 24h: {summary}'}
+                'text': f'{len(recent_fallbacks)} unrecovered fallback(s) in last 24h: {summary}'}
 
     return {'ok': True, 'text': f'{len(account_entries)} provider account(s) healthy on primary tier'}
 
@@ -10014,6 +10137,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response({'ok': False, 'error': 'router agent not found'})
             return self.json_response({'ok': True, 'agent_id': strategy.agent_id})
 
+        if path == '/api/receptionist-agent':
+            cfg = next((a for a in LETTA_AGENTS if a['name'] == 'Toyota'), None)
+            rid = get_letta_id(cfg) if cfg else None
+            if not rid:
+                return self.json_response({'ok': False, 'error': 'receptionist agent not found'})
+            return self.json_response({'ok': True, 'agent_id': rid, 'name': 'Toyota'})
+
         if path == '/api/agent-voice':
             return self.json_response(agent_voice_payload(agent_id))
 
@@ -10462,7 +10592,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             )
             if document_path:
                 ext = os.path.splitext(document_path)[1].lower()
+                if ext in {'.xlsx', '.xlsm'}:
+                    browser_path = os.path.join(
+                        SUPPORTING_DOCUMENT_ANNOTATION_CACHE,
+                        os.path.basename(document_path) + '.html',
+                    )
+                    try:
+                        document_path = render_excel_for_browser(
+                            document_path, browser_path)
+                        ext = '.html'
+                    except Exception as exc:
+                        print(f'[supporting-document] Excel render failed: {exc}')
+                        self.send_error(500, 'Could not render spreadsheet')
+                        return
                 ctype = {
+                    '.html': 'text/html; charset=utf-8',
                     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
                     '.gif': 'image/gif', '.webp': 'image/webp',
                     '.pdf': 'application/pdf',
