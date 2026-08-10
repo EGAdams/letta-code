@@ -2138,3 +2138,25 @@ summary {
   background: #93c5fd;
   cursor: not-allowed;
 }
+
+/* Archive terminal section (shown after scan completes) */
+.archive-terminal-section {
+  margin-top: 20px;
+  padding: 16px;
+  background: #0b0e14;
+  border-radius: 8px;
+}
+.archive-terminal-section.hidden {
+  display: none;
+}
+.archive-terminal-section h3 {
+  margin: 0 0 12px;
+  color: #fff;
+  font-size: 1rem;
+}
+.archive-terminal-section .terminal-host {
+  height: 300px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+}

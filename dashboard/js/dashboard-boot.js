@@ -615,6 +615,7 @@ if (
           vendorReviewController?.refresh();
         }
         if (tab.dataset.scannerReport) {
+          const scannerKey = tab.dataset.scannerReport;
           const iframe = document.querySelector(
             `#${tab.dataset.target} iframe`,
           );
@@ -626,6 +627,33 @@ if (
           if (detailContainer) {
             AM.renderMazdaThoughtsInto(detailContainer);
           }
+          // Monitor for scan completion and show archive verification terminal
+          const terminalContainer = `#${tab.dataset.target}-archive-terminal`;
+          const pollCompletion = () => {
+            http
+              .getJSON(
+                `/api/scanner-intake-status?scanner=${encodeURIComponent(scannerKey)}`,
+              )
+              .then((data) => {
+                if (
+                  data &&
+                  data.status &&
+                  ["done", "fail", "stalled"].includes(data.status)
+                ) {
+                  // Scan is complete, show archive terminal
+                  AM.showArchiveTerminalForScanner(
+                    scannerKey,
+                    terminalContainer,
+                  );
+                  clearInterval(completionPoll);
+                }
+              })
+              .catch(() => {
+                // Ignore errors and keep polling
+              });
+          };
+          const completionPoll = setInterval(pollCompletion, 5000); // Check every 5 seconds
+          pollCompletion(); // Initial check
         }
       });
     });
@@ -1511,6 +1539,46 @@ const AM = {
     };
     pollTimer = setInterval(poll, controller.intervalMs || 3000);
     poll(); // Initial poll
+  },
+
+  // Show archive verification terminal for a completed scanner report.
+  showArchiveTerminalForScanner(scannerKey, containerSelector) {
+    const container = document.querySelector(containerSelector);
+    if (!container) return;
+
+    // Fetch archive path from server
+    http
+      .postJSON("/api/scanner-archive-path", { scanner: scannerKey })
+      .then((data) => {
+        if (!data.ok || !data.archive_path) {
+          container.innerHTML =
+            '<div class="msi-line err">! Could not determine archive path.</div>';
+          return;
+        }
+        container.classList.remove("hidden");
+        const heading = document.createElement("h3");
+        heading.textContent = `Archive Verification (${data.archive_path})`;
+        container.appendChild(heading);
+        const hostEl = document.createElement("div");
+        hostEl.className = "terminal-host";
+        container.appendChild(hostEl);
+
+        // Mount terminal and run ls -a
+        mountTerminal({
+          hostEl,
+          doc: document,
+          onStatus: () => {},
+        }).then((session) => {
+          if (session && session.sendLine) {
+            const archivePath = data.archive_path;
+            session.sendLine(`cd "${archivePath}" && ls -a`);
+          }
+        });
+      })
+      .catch((e) => {
+        container.classList.remove("hidden");
+        container.innerHTML = `<div class="msi-line err">! Error: ${esc(e.message)}</div>`;
+      });
   },
 };
 

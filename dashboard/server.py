@@ -10540,6 +10540,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return self.json_response(
                 scanner_diagnostics(query.get('scanner', [''])[0]))
 
+        if path == '/api/scanner-intake-status':
+            key = query.get('scanner', [''])[0]
+            intake = get_scanner_intake(key)
+            if intake:
+                status = str(intake.get('status') or 'processing').lower()
+                return self.json_response({'ok': True, 'status': status})
+            return self.json_response({'ok': True, 'status': 'idle'})
+
         if path == SCANNER_IMAGE_URL_PREFIX:
             key = query.get('scanner', [''])[0]
             cfg = SCANNERS.get(key)
@@ -10726,6 +10734,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.error_response('Invalid JSON', 400)
             result = clear_scanner_verification_lock(data.get('scanner', ''))
             return self.json_response(result)
+
+        if path == '/api/scanner-archive-path':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            scanner_key = data.get('scanner', '')
+            intake = get_scanner_intake(scanner_key)
+            if not intake:
+                return self.json_response({'ok': False, 'error': 'No intake found'})
+            rows = _fetch_expenses_by_ids(intake.get('expense_ids') or [])
+            archive_path = _recent_intake_archive_path(intake, rows)
+            if archive_path:
+                return self.json_response({'ok': True, 'archive_path': archive_path})
+            return self.json_response({'ok': False, 'error': 'Archive path not found'})
 
         if path == '/api/fix-printer':
             return self.json_response(fix_deskjet_printer())
