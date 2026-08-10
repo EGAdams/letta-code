@@ -619,8 +619,13 @@ if (
             `#${tab.dataset.target} iframe`,
           );
           RF.loadScannerReportInto(iframe, tab.dataset.scannerReport);
-          // Open Mazda's agent detail to show her progress immediately
-          AM.openById("agent-6b536cf4-ec88-4290-b595-fed21d14bd8e", "thoughts");
+          // Render Mazda's Thoughts below the progress indicators
+          const detailContainer = document.querySelector(
+            `#${tab.dataset.target}-mazda-detail`,
+          );
+          if (detailContainer) {
+            AM.renderMazdaThoughtsInto(detailContainer);
+          }
         }
       });
     });
@@ -1469,6 +1474,31 @@ const AM = {
       return this.renderDetail(target);
     }
     return undefined;
+  },
+
+  // Render Mazda's Thoughts into a specific DOM container (for scanner report tabs).
+  renderMazdaThoughtsInto(container) {
+    if (!container) return;
+    const mazdaId = "agent-6b536cf4-ec88-4290-b595-fed21d14bd8e";
+    container.innerHTML = "";
+    const heading = document.createElement("h2");
+    heading.textContent = "Mazda's Thoughts";
+    heading.style.cssText = "margin-top:20px;margin-bottom:10px;";
+    container.appendChild(heading);
+    const consoleView = DomConsoleView.mount(
+      container,
+      "mazda-thoughts-console",
+      document,
+    );
+    const controller = new AgentStreamController({
+      http,
+      view: consoleView,
+      url: `/api/thoughts?agent=${encodeURIComponent(mazdaId)}`,
+      agentId: mazdaId,
+      label: "thoughts",
+      intervalMs: 3000,
+    });
+    poller.run(controller);
   },
 };
 
