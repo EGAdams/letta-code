@@ -1498,7 +1498,19 @@ const AM = {
       label: "thoughts",
       intervalMs: 3000,
     });
-    poller.run(controller);
+    // Don't use the shared poller; run independently with error handling
+    let pollTimer = null;
+    const poll = async () => {
+      try {
+        await controller.poll();
+      } catch (e) {
+        consoleView.replaceHtml(
+          `<div class="msi-line err">! Failed to load thoughts: ${esc(e.message)}</div>`,
+        );
+      }
+    };
+    pollTimer = setInterval(poll, controller.intervalMs || 3000);
+    poll(); // Initial poll
   },
 };
 
