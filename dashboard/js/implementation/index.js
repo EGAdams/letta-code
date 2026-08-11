@@ -49,6 +49,7 @@ export { EdgeTtsSpeechSynthesizer } from "./edge-tts-speech-synthesizer.js";
 export { FetchHttpClient } from "./fetch-http-client.js";
 export { IntakeHaltAlert } from "./intake-halt-alert.js";
 export { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
+export { ModelStatsHealthMonitor } from "./model-stats-health-monitor.js";
 export {
   buildPrinterRepairRequest,
   PrinterRepairController,

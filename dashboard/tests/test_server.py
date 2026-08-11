@@ -10,6 +10,7 @@ import os
 import re
 import time
 import types
+import urllib.error
 
 import pytest
 import server
@@ -827,6 +828,59 @@ def test_win10_container_states_parses_docker_ps(monkeypatch):
 def test_model_stats_sources_cover_w11_r46_gemini():
     keys = set(server.MODEL_STAT_SOURCES)
     assert {'w11-codex', 'r46-codex', 'w11-claude', 'r46-claude', 'gemini'} <= keys
+
+
+def test_antigravity_extractor_refreshes_expired_token_and_retries(
+        monkeypatch, tmp_path, capsys):
+    token_dir = tmp_path / '.gemini' / 'antigravity-cli'
+    token_dir.mkdir(parents=True)
+    token_file = token_dir / 'antigravity-oauth-token'
+    token_file.write_text(json.dumps({
+        'auth_method': 'oauth-personal',
+        'token': {
+            'access_token': 'expired-access',
+            'refresh_token': 'durable-refresh',
+            'expiry': '2020-01-01T00:00:00+00:00',
+            'token_type': 'Bearer',
+        },
+    }))
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setenv('ANTIGRAVITY_OAUTH_CLIENT_ID', 'test-client-id')
+    monkeypatch.setenv('ANTIGRAVITY_OAUTH_CLIENT_SECRET', 'test-client-secret')
+    calls = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(request)
+        url = request.full_url
+        authorization = request.headers.get('Authorization')
+        if url.endswith('loadCodeAssist') and authorization == 'Bearer expired-access':
+            raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, None)
+        if url == 'https://oauth2.googleapis.com/token':
+            assert b'refresh_token=durable-refresh' in request.data
+            return _FakeResponse(json.dumps({
+                'access_token': 'renewed-access',
+                'expires_in': 3600,
+                'token_type': 'Bearer',
+            }).encode())
+        if url.endswith('loadCodeAssist') and authorization == 'Bearer renewed-access':
+            return _FakeResponse(json.dumps({
+                'currentTier': {'id': 'free-tier', 'name': 'Free'},
+            }).encode())
+        if url.startswith('https://www.googleapis.com/oauth2/v1/userinfo'):
+            return _FakeResponse(b'{"email":"eg1972@gmail.com"}')
+        raise AssertionError(f'unexpected request: {url} {authorization}')
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', fake_urlopen)
+    exec(server._ANTIGRAVITY_EXTRACT_PY, {})
+
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    saved = json.loads(token_file.read_text())['token']
+    assert result['error'] is None
+    assert result['tier_id'] == 'free-tier'
+    assert result['account'] == 'eg1972@gmail.com'
+    assert saved['access_token'] == 'renewed-access'
+    assert saved['refresh_token'] == 'durable-refresh'
+    assert len(calls) == 4
 
 
 def _codex_usage(primary, secondary=0, reached=False):
@@ -4000,6 +4054,21 @@ def test_parse_pc_metrics_output_reads_all_three_sections():
     # loopback excluded; eth0 + eth1 summed
     assert parsed['net_rx_bytes'] == 1500000
     assert parsed['net_tx_bytes'] == 2500000
+
+
+def test_pc_metrics_collector_uses_powershell_for_windows_ram():
+    command = server.pc_metrics_collector_command(server.PC_MONITORS['win11'])
+    assert server._WINDOWS_POWERSHELL in command
+    assert 'Get-CimInstance Win32_OperatingSystem' in command
+    assert 'TotalVisibleMemorySize' in command
+    assert 'FreePhysicalMemory' in command
+    assert '/proc/meminfo' not in command
+
+
+def test_pc_metrics_collector_keeps_proc_memory_for_linux():
+    command = server.pc_metrics_collector_command(server.PC_MONITORS['moms46'])
+    assert "grep -E 'MemTotal|MemAvailable' /proc/meminfo" in command
+    assert 'Get-CimInstance' not in command
 
 
 def test_parse_pc_metrics_output_falls_back_to_root_mount():

@@ -30,6 +30,7 @@ import {
   FetchHttpClient,
   InputOptionsRenderer,
   IntakeHaltAlert,
+  ModelStatsHealthMonitor,
   PrinterRepairController,
   RolFinanceReportsController,
   ScannerDiagnosticsController,
@@ -850,6 +851,46 @@ if (
 /* =====================  Utilities  ===================== */
 const esc = TextUtils.esc; // HTML-escape — now sourced from the library.
 
+// Roll the worst known status subsection up to the top-level System Status
+// tab. A healthy roll-up is solid green; any warning/error blinks so hidden
+// problems remain visible from the dashboard home screen.
+function updateSystemStatusTab() {
+  const systemTab = document.getElementById("btn-system-status");
+  if (!systemTab) return;
+  const children = [
+    "btn-server-mgmt",
+    "btn-ssh-connections",
+    "btn-model-stats",
+    "btn-pc-monitor",
+  ]
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+  const down = children.some(
+    (tab) =>
+      tab.classList.contains("server-down") ||
+      tab.classList.contains("tab-alert-red"),
+  );
+  const concern = children.some(
+    (tab) =>
+      tab.classList.contains("server-concern") ||
+      tab.classList.contains("server-starting") ||
+      tab.classList.contains("tab-alert"),
+  );
+  const allKnown =
+    children.length === 4 &&
+    children.every((tab) =>
+      ["server-up", "server-concern", "server-down", "server-starting"].some(
+        (name) => tab.classList.contains(name),
+      ),
+    );
+  systemTab.classList.remove("server-up", "server-concern", "server-down");
+  systemTab.classList.toggle("tab-alert-red", down);
+  systemTab.classList.toggle("tab-alert", !down && concern);
+  if (down) systemTab.classList.add("server-down");
+  else if (concern) systemTab.classList.add("server-concern");
+  else if (allKnown) systemTab.classList.add("server-up");
+}
+
 /* =====================  Model Stats  =====================
        Per-OAuth/CLI session token usage. Sub-nav tab per source; each shows
        usage windows as progress bars (red at 100% with reset time), plus a
@@ -1034,25 +1075,15 @@ const MS = {
     }
   },
   async pollColors() {
-    if (!navModelStats) return;
-    const tabs = [...navModelStats.querySelectorAll("[data-source]")];
-    await Promise.all(
-      tabs.map(async (t) => {
-        try {
-          const d = await http.getJSON(
-            `/api/model-stats?source=${encodeURIComponent(t.dataset.source)}`,
-          );
-          t.classList.remove("server-up", "server-concern", "server-down");
-          if (d.status === "down") t.classList.add("server-down");
-          else if (d.status === "concern") t.classList.add("server-concern");
-          else t.classList.add("server-up");
-        } catch {
-          /* leave tab uncolored on transient error */
-        }
-      }),
-    );
+    await modelStatsHealth.poll();
   },
 };
+
+const modelStatsHealth = new ModelStatsHealthMonitor({
+  http,
+  onStatus: updateSystemStatusTab,
+});
+modelStatsHealth.start();
 
 if (navModelStats) {
   navModelStats.querySelectorAll("[data-source]").forEach((tab) => {
@@ -1171,7 +1202,7 @@ const PCM = {
   async pollTabs() {
     if (!navPcMonitor) return;
     const tabs = [...navPcMonitor.querySelectorAll("[data-pc]")];
-    await Promise.all(
+    const levels = await Promise.all(
       tabs.map(async (t) => {
         try {
           const d = await http.getJSON(
@@ -1180,13 +1211,42 @@ const PCM = {
           const level = d.level || (d.alert ? "warn" : "ok");
           t.classList.toggle("tab-alert", level === "warn");
           t.classList.toggle("tab-alert-red", level === "crit");
+          return level;
         } catch {
           /* leave the tab unflagged on transient error */
+          return null;
         }
       }),
     );
+    const parent = document.getElementById("btn-pc-monitor");
+    const known = levels.filter(Boolean);
+    const level = known.includes("crit")
+      ? "crit"
+      : known.includes("warn")
+        ? "warn"
+        : known.length
+          ? "ok"
+          : null;
+    if (parent && level) {
+      parent.classList.remove("server-up", "server-concern", "server-down");
+      parent.classList.add(
+        level === "crit"
+          ? "server-down"
+          : level === "warn"
+            ? "server-concern"
+            : "server-up",
+      );
+      parent.classList.toggle("tab-alert", level === "warn");
+      parent.classList.toggle("tab-alert-red", level === "crit");
+      updateSystemStatusTab();
+    }
   },
 };
+
+// PC health contributes to the top-level status even if PC Monitor has never
+// been opened during this browser session.
+void PCM.pollTabs();
+setInterval(() => void PCM.pollTabs(), 15000);
 
 if (navPcMonitor) {
   navPcMonitor.querySelectorAll("[data-pc]").forEach((tab) => {
@@ -1601,6 +1661,7 @@ serverHealth.subscribe((health) => {
   else if (st === "concern") tab.classList.add("server-concern");
   else if (st === "down") tab.classList.add("server-down");
   else if (st === "up") tab.classList.add("server-up");
+  updateSystemStatusTab();
 });
 serverHealth.subscribe((health) => {
   if (!health) return;
@@ -1812,6 +1873,7 @@ connHealth.subscribe((health) => {
   tab.classList.remove("server-up", "server-down", "server-starting");
   if (!health) return;
   tab.classList.add(health.any_down ? "server-down" : "server-up");
+  updateSystemStatusTab();
 });
 connHealth.subscribe((health) => {
   if (!health) return;

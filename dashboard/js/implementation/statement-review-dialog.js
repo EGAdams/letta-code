@@ -211,10 +211,11 @@ export class StatementReviewDialog extends PollingController {
       .join("");
 
     const isWorkbook = item.kind === REVIEW_KIND.WORKBOOK;
+    const isUnsupported = item.kind === REVIEW_KIND.UNSUPPORTED;
     root.innerHTML = `
       <div class="srd-panel" role="dialog" aria-modal="true">
         <div class="srd-head">
-          <h3>${isWorkbook ? "Add this card to the sheet" : "I need one detail"}</h3>
+          <h3>${isWorkbook ? "Add this card to the sheet" : isUnsupported ? "Statement needs pipeline repair" : "I need one detail"}</h3>
           <p>${escapeHtml(item.bank_name || "Statement")}${
             item.account_last4 ? ` ····${escapeHtml(item.account_last4)}` : ""
           }</p>
@@ -234,9 +235,13 @@ export class StatementReviewDialog extends PollingController {
           <button type="button" class="srd-later">Leave for later</button>
           <button type="button" class="srd-ask-mazda">Ask Mazda</button>
           <button type="button" class="srd-show-document">Show Document</button>
-          <button type="button" class="srd-ok"${this.busy ? " disabled" : ""}>${
-            this.busy ? "Working…" : isWorkbook ? "OK" : "Save"
-          }</button>
+          ${
+            isUnsupported
+              ? ""
+              : `<button type="button" class="srd-ok"${this.busy ? " disabled" : ""}>${
+                  this.busy ? "Working…" : isWorkbook ? "OK" : "Save"
+                }</button>`
+          }
         </div>
       </div>`;
 
@@ -270,7 +275,7 @@ export class StatementReviewDialog extends PollingController {
         this.render(String(err?.message || err));
       }
     });
-    root.querySelector(".srd-ok").addEventListener("click", () => {
+    root.querySelector(".srd-ok")?.addEventListener("click", () => {
       this.submit();
     });
   }

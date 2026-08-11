@@ -9164,22 +9164,72 @@ print(json.dumps(out))
 # daily request cap (loadCodeAssist) as the limit, and today's count of
 # `streamGenerateContent` calls in agy's session logs as "used".
 _ANTIGRAVITY_EXTRACT_PY = r'''
-import json, os, glob, datetime, urllib.request, urllib.error
+import json, os, glob, datetime, urllib.parse, urllib.request, urllib.error
 HOME = os.path.expanduser("~")
 AG = os.path.join(HOME, ".gemini", "antigravity-cli")
 out = {"account": None, "tier": None, "tier_id": None, "limit": None,
        "used": None, "resets_at": None, "logged_in": False, "error": None}
 TOKEN = os.path.join(AG, "antigravity-oauth-token")
-try:
-    at = json.load(open(TOKEN))["token"]["access_token"]
-    out["logged_in"] = True
-    # Tier + daily request cap.
+# Keep OAuth client credentials out of source control. They are only needed when
+# an expired access token must be refreshed; the existing token remains usable
+# without them until then.
+OAUTH_CLIENT_ID = os.environ.get("ANTIGRAVITY_OAUTH_CLIENT_ID")
+OAUTH_CLIENT_SECRET = os.environ.get("ANTIGRAVITY_OAUTH_CLIENT_SECRET")
+
+def refresh_access_token(token_doc):
+    token = token_doc.get("token") or {}
+    refresh_token = token.get("refresh_token")
+    if not refresh_token:
+        raise RuntimeError("access token expired and no refresh token is available")
+    if not OAUTH_CLIENT_ID or not OAUTH_CLIENT_SECRET:
+        raise RuntimeError("access token expired and Antigravity OAuth client credentials are not configured")
+    body = urllib.parse.urlencode({
+        "client_id": OAUTH_CLIENT_ID,
+        "client_secret": OAUTH_CLIENT_SECRET,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    }).encode()
+    req = urllib.request.Request("https://oauth2.googleapis.com/token", data=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"})
+    renewed = json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+    access_token = renewed.get("access_token")
+    if not access_token:
+        raise RuntimeError("OAuth refresh returned no access token")
+    token["access_token"] = access_token
+    token["token_type"] = renewed.get("token_type", token.get("token_type", "Bearer"))
+    token["expiry"] = (datetime.datetime.now(datetime.timezone.utc) +
+        datetime.timedelta(seconds=int(renewed.get("expires_in", 3600)))).isoformat()
+    if renewed.get("refresh_token"):
+        token["refresh_token"] = renewed["refresh_token"]
+    token_doc["token"] = token
+    tmp = TOKEN + ".tmp.%d" % os.getpid()
+    with open(tmp, "w") as fh:
+        json.dump(token_doc, fh, indent=2)
+        fh.write("\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, TOKEN)
+    return access_token
+
+def load_code_assist(access_token):
     req = urllib.request.Request(
         "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
         data=json.dumps({"metadata": {"ideType": "IDE_UNSPECIFIED",
             "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"}}).encode(),
-        headers={"Authorization": "Bearer " + at, "Content-Type": "application/json"})
-    d = json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+        headers={"Authorization": "Bearer " + access_token, "Content-Type": "application/json"})
+    return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+
+try:
+    token_doc = json.load(open(TOKEN))
+    at = token_doc["token"]["access_token"]
+    out["logged_in"] = True
+    # Tier + daily request cap.
+    try:
+        d = load_code_assist(at)
+    except urllib.error.HTTPError as e:
+        if e.code != 401:
+            raise
+        at = refresh_access_token(token_doc)
+        d = load_code_assist(at)
     ct = d.get("currentTier") or {}
     out["tier"] = ct.get("name"); out["tier_id"] = ct.get("id")
     # Free Code Assist for individuals = 1000 req/day; paid tiers = 1500 req/day.
@@ -9925,19 +9975,20 @@ def _terminal_reap(pid):
 # frontend can draw progress bars and blink the tab yellow when any metric
 # crosses its alert threshold. Collection runs a tiny POSIX-shell snippet on
 # the target (locally for this box, over the existing key-auth SSH for the
-# others) and parses the /proc + df output here, so the remote machines need
-# nothing installed. Caveat: the Windows boxes are sampled through their WSL
-# distro, so RAM reflects the WSL VM and network the VM's NICs. Disk samples
-# the real Windows C: drive via the /mnt/c drvfs mount (falling back to / on
-# a box without one) — the WSL VHD's sparse 1TB root was misleading.
+# others) and parses the output here. Windows RAM is queried through PowerShell
+# from WSL so it reflects the physical host rather than the WSL VM's memory
+# limit. Network still reflects the WSL VM's NICs. Disk samples the real
+# Windows C: drive via the /mnt/c drvfs mount (falling back to / on a box
+# without one) — the WSL VHD's sparse 1TB root was misleading.
 #
 # Tuning: thresholds and the network bar's full-scale capacity are env vars —
 # override in dashboard-server.service, no code change needed.
 PC_MONITORS = {
-    'win11': {'label': 'Windows 11', 'host': None,
-              'note': 'This machine — the live dashboard box, sampled via its WSL distro.'},
+    'win11': {'label': 'Windows 11', 'host': None, 'memory_source': 'windows',
+              'note': 'This machine — Windows RAM and C: drive; network sampled via WSL.'},
     'win10': {'label': 'Windows 10', 'host': LETTA_DOCKER_HOST,
-              'note': 'The Letta box (100.80.49.10), sampled via its WSL distro.'},
+              'memory_source': 'windows',
+              'note': 'The Letta box (100.80.49.10) — Windows RAM and C: drive; network sampled via WSL.'},
     'moms46': {'label': 'Moms 46', 'host': R46_SSH_HOST,
                'note': "Mom's Rosemary46 Linux box (100.72.34.38)."},
 }
@@ -9953,11 +10004,26 @@ PC_ALERT_THRESHOLDS = {
 # Full scale for the Network Traffic bar: 100% = this many Mbit/s of rx+tx.
 PC_NET_CAPACITY_MBPS = float(os.environ.get('PC_NET_CAPACITY_MBPS', '100'))
 
-_PC_METRICS_SH = (
-    "echo ===MEM===; grep -E 'MemTotal|MemAvailable' /proc/meminfo; "
+_PC_LINUX_MEM_SH = "grep -E 'MemTotal|MemAvailable' /proc/meminfo"
+_WINDOWS_POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+_PC_WINDOWS_MEM_SH = (
+    f"{_WINDOWS_POWERSHELL} -NoProfile -NonInteractive -Command '"
+    "$os = Get-CimInstance Win32_OperatingSystem; "
+    "\"MemTotal: $($os.TotalVisibleMemorySize) kB\"; "
+    "\"MemAvailable: $($os.FreePhysicalMemory) kB\"' | tr -d '\\r'"
+)
+_PC_METRICS_SH_TEMPLATE = (
+    "echo ===MEM===; {memory_command}; "
     "echo ===DISK===; df -kP /mnt/c 2>/dev/null || df -kP /; "
     "echo ===NET===; cat /proc/net/dev"
 )
+
+
+def pc_metrics_collector_command(cfg):
+    """Build the WSL/Linux collector command for a configured PC."""
+    memory_command = (_PC_WINDOWS_MEM_SH if cfg.get('memory_source') == 'windows'
+                      else _PC_LINUX_MEM_SH)
+    return _PC_METRICS_SH_TEMPLATE.format(memory_command=memory_command)
 
 
 def parse_pc_metrics_output(text):
@@ -10074,12 +10140,13 @@ def pc_metrics(key):
     if cached and time.time() - cached[0] < PC_METRICS_CACHE_TTL:
         return cached[1]
     host = cfg.get('host')
+    collector = pc_metrics_collector_command(cfg)
     if host:
         cmd = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
                '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2',
-               host, _PC_METRICS_SH]
+               host, collector]
     else:
-        cmd = ['sh', '-c', _PC_METRICS_SH]
+        cmd = ['sh', '-c', collector]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
         if not (r.stdout or '').strip():

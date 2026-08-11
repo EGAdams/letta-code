@@ -15,6 +15,7 @@
 export const REVIEW_KIND = Object.freeze({
   WORKBOOK: "workbook",
   AMOUNTS: "amounts",
+  UNSUPPORTED: "unsupported",
 });
 
 /** Rows the human must actually answer (those missing an amount). */
