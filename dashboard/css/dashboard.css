@@ -2139,6 +2139,18 @@ summary {
   cursor: not-allowed;
 }
 
+/* Detail sections stacked below the scanner report iframe (Mazda's
+   Thoughts, archive-verification terminal) need a visible gap from the
+   iframe above them - the fullbleed .content wrapper has padding:0. */
+.agent-detail-section {
+  margin-top: 20px;
+  padding: 0 16px;
+}
+.archive-terminal-section {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
 /* Archive terminal section (shown after scan completes) */
 .archive-terminal-section {
   margin-top: 20px;
@@ -2157,6 +2169,10 @@ summary {
 .archive-terminal-section .terminal-host {
   height: 300px;
   border-radius: 6px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   background: #000;
+}
+.archive-terminal-section .terminal-host .xterm {
+  min-width: max-content;
 }

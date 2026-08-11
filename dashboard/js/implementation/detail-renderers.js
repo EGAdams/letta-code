@@ -108,10 +108,46 @@ export async function mountTerminal({
   const fit = new Fit();
   term.loadAddon(fit);
   term.open(hostEl);
+  // Keep archived paths on one terminal row. xterm's public options do not
+  // expose DECAWM, but the terminal escape sequence is the standard VT control
+  // for disabling automatic line wrapping. The host remains horizontally
+  // scrollable so long paths are clipped only by the viewport, never wrapped.
+  term.write("\x1b[?7l");
   try {
     fit.fit();
   } catch {
     /* host not yet laid out — resize handler will catch up */
+  }
+  // xterm.js's DOM renderer can fail to hook up its repaint pipeline for a
+  // Terminal instance that isn't the first one ever opened on the page -
+  // content lands correctly in the internal buffer (confirmed via
+  // term.buffer), but the DOM never reflects it, and even an explicit
+  // term.refresh()/same-size term.resize() is a no-op for it. A genuine
+  // size change (+1 then back) reliably kicks it into painting, but only
+  // once there's actually something written - nudging at mount time (before
+  // any data exists) does not help. Debounce a nudge to fire shortly after
+  // writes stop arriving.
+  let repaintNudgeTimer = null;
+  const repaintNudgeTimers = [];
+  const doRepaintNudge = () => {
+    try {
+      term.resize(term.cols + 1, term.rows);
+      term.resize(term.cols - 1, term.rows);
+    } catch {
+      /* ignore - best-effort paint nudge */
+    }
+  };
+  const scheduleRepaintNudge = () => {
+    if (repaintNudgeTimer) win.clearTimeout(repaintNudgeTimer);
+    repaintNudgeTimer = win.setTimeout(doRepaintNudge, 200);
+  };
+  // The debounced nudge above covers the common case, but its timing can
+  // race a burst of messages in a way that occasionally still leaves the
+  // DOM unpainted - back it up with a couple of unconditional nudges fired
+  // off the WebSocket connecting rather than off message timing, so at
+  // least one always lands after real content has arrived.
+  for (const delay of [700, 1800]) {
+    repaintNudgeTimers.push(win.setTimeout(doRepaintNudge, delay));
   }
 
   const proto = win.location.protocol === "https:" ? "wss" : "ws";
@@ -127,6 +163,11 @@ export async function mountTerminal({
 
   const decoder = new TextDecoder();
   let closed = false;
+  // sendLine() is often called by callers (e.g. the archive-verification
+  // terminal) immediately after mountTerminal() resolves, which can race
+  // the WebSocket handshake — queue lines typed/sent before the socket
+  // opens and flush them once it does, instead of silently dropping them.
+  let pendingLines = [];
   const send = (obj) => {
     if (ws.readyState === win.WebSocket.OPEN) ws.send(JSON.stringify(obj));
   };
@@ -134,6 +175,8 @@ export async function mountTerminal({
   ws.onopen = () => {
     onStatus("Connected.");
     send({ t: "r", c: term.cols, r: term.rows });
+    for (const text of pendingLines) send({ t: "i", d: `${text}\n` });
+    pendingLines = [];
   };
   ws.onmessage = (ev) => {
     term.write(
@@ -141,6 +184,7 @@ export async function mountTerminal({
         ? ev.data
         : decoder.decode(new Uint8Array(ev.data)),
     );
+    scheduleRepaintNudge();
   };
   ws.onclose = () => {
     if (!closed) term.write("\r\n\x1b[38;5;244m[session ended]\x1b[0m\r\n");
@@ -161,6 +205,8 @@ export async function mountTerminal({
 
   const dispose = () => {
     closed = true;
+    if (repaintNudgeTimer) win.clearTimeout(repaintNudgeTimer);
+    for (const t of repaintNudgeTimers) win.clearTimeout(t);
     win.removeEventListener("resize", onResize);
     try {
       ws.close();
@@ -174,7 +220,12 @@ export async function mountTerminal({
     }
   };
   const sendLine = (text) => {
-    if (!closed) send({ t: "i", d: `${text}\n` });
+    if (closed) return;
+    if (ws.readyState === win.WebSocket.OPEN) {
+      send({ t: "i", d: `${text}\n` });
+    } else {
+      pendingLines.push(text);
+    }
   };
   return { dispose, sendLine };
 }

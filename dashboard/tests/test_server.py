@@ -4879,7 +4879,8 @@ def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('/*css*/', '<div id="rol-category-picker"></div>', '/*rowcss*/'))
     html = server.build_recent_report_html()
-    assert 'scan_freezer.jpg' in html
+    assert 'scan_freezer.jpg' not in html
+    assert 'Archived scan image unavailable' in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'rol-category-picker' in html
@@ -5361,7 +5362,8 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
         'cat_class': 'cat-travel-and-vehicle', 'receipt_url': '',
     }])
     html = server.build_scanner_report_html('window')
-    assert 'window_scan.jpg' in html
+    assert 'window_scan.jpg' not in html
+    assert 'Archived scan image unavailable' in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'class="cat-travel-and-vehicle has-receipt"' in html
@@ -5528,9 +5530,31 @@ def test_recent_receipt_uses_canonical_archive_name_and_not_statement_slot(
     assert ('Most Recent Document: '
             'intercessors_for_america_03_18_25_30_50.jpg') in html
     assert f'Associated Receipt: {archived}' in html
-    assert f'Archived Scan Copy: {archived}' in html
-    assert 'Associated Scanned Statement: --' in html
-    assert 'Staged Scan Image: /staged/window_scan.jpg' in html
+    assert f'Archived Scan Image: {archived}' in html
+    assert 'Associated Scanned Statement:' not in html
+    assert 'Staged Scan Image:' not in html
+    assert '/staged/window_scan.jpg' not in html
+
+
+def test_scanner_report_hides_staged_image_when_archive_is_missing(
+        tmp_path, monkeypatch):
+    """A scanner report must not advertise its temporary processing image."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    _scanner_registry(monkeypatch)
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'parsed': 0, 'stored': 0, 'doc_kind': 'statement',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+
+    html = server.build_scanner_report_html('freezer')
+
+    assert 'Archived Scan Image: --' in html
+    assert 'Staged Scan Image:' not in html
+    assert '/staged/scan_freezer.jpg' not in html
+    assert 'Archived scan image unavailable' in html
 
 
 def test_report_pointer_newer_than_intake_wins(tmp_path, monkeypatch):

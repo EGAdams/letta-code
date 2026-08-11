@@ -1442,23 +1442,20 @@ def build_recent_intake_html(intake):
     else:
         pdf_display = '--'
     receipt_display = _esc(receipt_path) if receipt_path else '--'
-    scanned_statement_path, moms_ledger_path = _associated_evidence_paths(rows)
-    # Prefer the canonically-named bank_statements/ archive copy over
-    # whatever raw scan filename scanned_statement_url happens to carry —
-    # legacy rows still point at the staging path even once a properly
-    # named copy has been filed. See _statement_archive_path.
+    _scanned_statement_path, moms_ledger_path = _associated_evidence_paths(rows)
+    # Resolve the durable archive copy once and use it as the only scan-image
+    # path shown in the report. The intake's image_path is a temporary/staged
+    # processing location and must never be presented as an archived artifact.
     archive_path = _recent_intake_archive_path(
         intake, rows, receipt_path=receipt_path)
-    if (archive_path and str(intake.get('doc_kind') or '').lower()
-            in {'statement', 'bank_statement', 'credit_card_statement'}):
-        scanned_statement_path = archive_path
-    scanned_statement_display = (
-        _esc(scanned_statement_path) if scanned_statement_path else '--')
     archived_scan_display = _esc(archive_path) if archive_path else '--'
     moms_ledger_display = _esc(moms_ledger_path) if moms_ledger_path else '--'
-    staged_scan_path = _intake_source_document(intake)
-    staged_scan_display = _esc(staged_scan_path) if staged_scan_path else '--'
-    display_doc = os.path.basename(archive_path) if archive_path else doc
+    is_scan_intake = intake.get('kind') == 'scan'
+    display_doc = (
+        os.path.basename(archive_path)
+        if archive_path
+        else ('Archived scan image unavailable' if is_scan_intake else doc)
+    )
 
     if intake_status in ('fail', 'stalled'):
         label_text = 'FAILED' if intake_status == 'fail' else 'STALLED'
@@ -1595,10 +1592,8 @@ def build_recent_intake_html(intake):
         f'Month Range: {_esc(month_range)}<br>'
         f'Associated PDF: {pdf_display}<br>'
         f'Associated Receipt: {receipt_display}<br>'
-        f'Associated Scanned Statement: {scanned_statement_display}<br>'
-        f'Archived Scan Copy: {archived_scan_display}<br>'
-        f'Associated Mom’s Ledger: {moms_ledger_display}<br>'
-        f'Staged Scan Image: {staged_scan_display}</p>\n'
+        f'Archived Scan Image: {archived_scan_display}<br>'
+        f'Associated Mom’s Ledger: {moms_ledger_display}</p>\n'
         f'  <p>{_esc(status)}</p>\n'
         + working +
         table +
@@ -10812,8 +10807,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if not intake:
                 return self.json_response({'ok': False, 'error': 'No intake found'})
             rows = _fetch_expenses_by_ids(intake.get('expense_ids') or [])
-            archive_path = _recent_intake_archive_path(intake, rows)
-            if archive_path:
+            doc_kind = str(intake.get('doc_kind') or '').strip().lower()
+            archive_file = ''
+            if doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}:
+                # Prefer the canonically-named bank_statements/<year>/<month>/
+                # <vendor>_<slug>/ folder over intake['archive_paths'] - that
+                # field often points at the flat scanned_statements/<year>/
+                # copy instead, which (per archive_reference()'s own
+                # docstring in statement_archive.py) is not the durable,
+                # human-findable home a paper statement gets checked off
+                # against before it goes to the attic.
+                archive_file = _statement_archive_path(
+                    rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
+            if not archive_file:
+                archive_file = _recent_intake_archive_path(intake, rows)
+            # The result above is the specific filed document (a file, not a
+            # directory) - the archive-verification terminal needs to `cd`
+            # into its containing folder to `ls -a` the sibling documents/
+            # receipts, not the file itself.
+            archive_path = os.path.dirname(archive_file) if archive_file else ''
+            if archive_path and os.path.isdir(archive_path):
                 return self.json_response({'ok': True, 'archive_path': archive_path})
             return self.json_response({'ok': False, 'error': 'Archive path not found'})
 

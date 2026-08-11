@@ -14,6 +14,7 @@ import {
   AgentActivityPoller,
   AgentCardRenderer,
   AgentHealthPoller,
+  AgentStreamController,
   AgentsRouterRenderer,
   BrowserSpeechRecognitionListener,
   ChatDetailRenderer,
@@ -31,6 +32,7 @@ import {
   InputOptionsRenderer,
   IntakeHaltAlert,
   ModelStatsHealthMonitor,
+  mountTerminal,
   PrinterRepairController,
   RolFinanceReportsController,
   ScannerDiagnosticsController,
@@ -639,7 +641,9 @@ if (
                 if (
                   data &&
                   data.status &&
-                  ["done", "fail", "stalled"].includes(data.status)
+                  ["complete", "pass", "corrected", "fail", "stalled"].includes(
+                    data.status,
+                  )
                 ) {
                   // Scan is complete, show archive terminal
                   AM.showArchiveTerminalForScanner(
@@ -1410,6 +1414,13 @@ const DETAIL_RENDERERS = {
   "agent-detail-input-options": (am, id) => renderInputOptions(am, id),
 };
 
+// xterm.js's DOM renderer only reliably paints one live Terminal instance
+// per page - a second concurrent instance (e.g. switching from "Last Window
+// Scan" to "Last Freezer Scan") writes to its internal buffer correctly but
+// never repaints the DOM, even under an explicit term.refresh(). Keep at
+// most one archive-verification terminal mounted at a time.
+let _archiveTerminalSession = null;
+
 const AM = {
   current: null, // { id, name }
   agents: null,
@@ -1573,8 +1584,12 @@ const AM = {
     heading.textContent = "Mazda's Thoughts";
     heading.style.cssText = "margin-top:20px;margin-bottom:10px;";
     container.appendChild(heading);
+    // DomConsoleView.mount() clears its container via innerHTML - mount it
+    // into a dedicated child so it doesn't wipe out the heading above.
+    const consoleHost = document.createElement("div");
+    container.appendChild(consoleHost);
     const consoleView = DomConsoleView.mount(
-      container,
+      consoleHost,
       "mazda-thoughts-console",
       document,
     );
@@ -1606,6 +1621,23 @@ const AM = {
     const container = document.querySelector(containerSelector);
     if (!container) return;
 
+    // Dispose any previously-mounted archive terminal AND remove its DOM
+    // element (see _archiveTerminalSession comment) - disposing the xterm
+    // session alone leaves the old .terminal-host element in the document,
+    // which is enough to stop a newly-mounted instance's DOM renderer from
+    // ever painting, even though it keeps writing into its own buffer fine.
+    if (_archiveTerminalSession) {
+      try {
+        _archiveTerminalSession.session.dispose();
+      } catch {
+        /* already disposed */
+      }
+      _archiveTerminalSession.hostEl.remove();
+      _archiveTerminalSession = null;
+    }
+    // Clear this container too, in case the same tab is revisited.
+    container.innerHTML = "";
+
     // Fetch archive path from server
     http
       .postJSON("/api/scanner-archive-path", { scanner: scannerKey })
@@ -1623,15 +1655,17 @@ const AM = {
         hostEl.className = "terminal-host";
         container.appendChild(hostEl);
 
-        // Mount terminal and run ls -a
         mountTerminal({
           hostEl,
           doc: document,
           onStatus: () => {},
         }).then((session) => {
+          _archiveTerminalSession = { session, hostEl };
           if (session && session.sendLine) {
             const archivePath = data.archive_path;
-            session.sendLine(`cd "${archivePath}" && ls -a`);
+            // -1 forces one entry per line instead of ls's default
+            // multi-column layout, which was wrapping across several rows.
+            session.sendLine(`cd "${archivePath}" && ls -a1`);
           }
         });
       })

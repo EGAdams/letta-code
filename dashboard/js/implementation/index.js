@@ -30,6 +30,7 @@ export {
   ChatDetailRenderer,
   composeSpokenText,
   InputOptionsRenderer,
+  mountTerminal,
   renderReplyRows,
   StreamDetailRenderer,
 } from "./detail-renderers.js";
