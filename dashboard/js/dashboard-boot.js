@@ -1663,9 +1663,16 @@ const AM = {
           _archiveTerminalSession = { session, hostEl };
           if (session && session.sendLine) {
             const archivePath = data.archive_path;
+            const archiveName = data.archive_name || "";
+            const shellQuote = (value) =>
+              `'${String(value).replaceAll("'", `'"'"'`)}'`;
             // -1 forces one entry per line instead of ls's default
             // multi-column layout, which was wrapping across several rows.
-            session.sendLine(`cd "${archivePath}" && ls -a1`);
+            // ANSI 102 is a light-green background; the exact durable archive
+            // file returned by the server is highlighted in the listing.
+            session.sendLine(
+              `cd ${shellQuote(archivePath)} && ls -a1 | awk -v target=${shellQuote(archiveName)} '{ if ($0 == target) printf "\\033[102;30m%s\\033[0m\\n", $0; else print }'`,
+            );
           }
         });
       })

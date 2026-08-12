@@ -10827,7 +10827,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             # receipts, not the file itself.
             archive_path = os.path.dirname(archive_file) if archive_file else ''
             if archive_path and os.path.isdir(archive_path):
-                return self.json_response({'ok': True, 'archive_path': archive_path})
+                return self.json_response({
+                    'ok': True,
+                    'archive_path': archive_path,
+                    'archive_name': os.path.basename(archive_file),
+                })
             return self.json_response({'ok': False, 'error': 'Archive path not found'})
 
         if path == '/api/fix-printer':
