@@ -45,6 +45,11 @@ const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL || 'http://localhost:8
 const MAZDA_AGENT_ID =
   process.env.MAZDA_AGENT_ID || 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e';
 const TRAINER_MODEL = process.env.TRAINER_MODEL || 'sonnet';
+// Keep the Trainer's Claude OAuth account isolated from the dashboard host's
+// interactive Claude login. The live deployment populates this directory with
+// mom's credential; callers can override it for another account/home.
+const TRAINER_CLAUDE_HOME =
+  process.env.TRAINER_CLAUDE_HOME || '/home/adamsl/trainer-claude-home';
 // Fallback when the Claude session itself fails; gpt-5.4-mini is the vetted
 // ChatGPT-OAuth mini handle (plain gpt-5-mini is rejected by the provider).
 const TRAINER_CODEX_MODEL = process.env.TRAINER_CODEX_MODEL || 'gpt-5.4-mini';
@@ -145,6 +150,8 @@ async function runClaudeAttempt(prompt, timeoutMs, args) {
     .inDirectory(HERE)
     .withSignal(signal)
     .withEnv({
+      HOME: TRAINER_CLAUDE_HOME,
+      CLAUDE_CONFIG_DIR: `${TRAINER_CLAUDE_HOME}/.claude`,
       LETTA_BASE_URL,
       MAZDA_AGENT_ID,
       MAZDA_CONVERSATION_ID: args.conversationId,
