@@ -68,20 +68,33 @@ def test_letta_thoughts_reads_isolated_conversation(monkeypatch):
     }]
 
 
-def test_scanner_thoughts_returns_cache_while_refresh_runs(monkeypatch):
+def test_cached_thoughts_returns_cache_while_refresh_runs(monkeypatch):
     class FakeProxy:
         def get(self, key, *args, default=None):
-            assert key == 'conv-freezer'
+            assert key == ('agent-mazda', 'conv-freezer')
             assert args == ('agent-mazda', 'conv-freezer')
             return [{'text': 'cached'}]
 
-    monkeypatch.setattr(server, '_scanner_thoughts_proxy', FakeProxy())
+    monkeypatch.setattr(server, '_thoughts_proxy', FakeProxy())
 
     started = time.monotonic()
-    rows = server.scanner_thoughts('agent-mazda', 'conv-freezer')
+    rows = server.cached_thoughts('agent-mazda', 'conv-freezer')
 
     assert time.monotonic() - started < 0.1
     assert rows == [{'text': 'cached'}]
+
+
+def test_cached_thoughts_keys_full_history_by_agent(monkeypatch):
+    """Two different agents with no active scan conversation (conversation_id='')
+    must not share one cache entry - the old scanner-only key was just the
+    conversation_id, so both fell into the same '' bucket."""
+    class FakeProxy:
+        def get(self, key, *args, default=None):
+            return key
+
+    monkeypatch.setattr(server, '_thoughts_proxy', FakeProxy())
+
+    assert server.cached_thoughts('agent-mazda', '') != server.cached_thoughts('agent-suzuki', '')
 
 
 def test_scanner_intake_archive_path_resolves_receipt_from_expense_row(monkeypatch):

@@ -7354,13 +7354,20 @@ def letta_thoughts(agent_id, conversation_id=''):
     return select_thoughts(msgs, _msg_text, _msg_date)
 
 
-_scanner_thoughts_proxy = BackgroundResultProxy(
-    loader=letta_thoughts, refresh_seconds=3, name='scanner-thoughts')
+_thoughts_proxy = BackgroundResultProxy(
+    loader=letta_thoughts, refresh_seconds=3, name='thoughts')
 
 
-def scanner_thoughts(agent_id, conversation_id):
-    return _scanner_thoughts_proxy.get(
-        conversation_id, agent_id, conversation_id, default=[])
+def cached_thoughts(agent_id, conversation_id=''):
+    """Non-blocking `letta_thoughts` — serves the last-known value while a
+    background refresh runs, rather than blocking the request thread on the
+    live Letta call (which can take 10-25s over the Tailscale DERP relay,
+    close enough to the browser's 30s fetch abort to look like a hang).
+    Applies whether or not the agent has an isolated scan conversation,
+    since a full agent-history fetch (conversation_id='') is exactly as
+    slow as a conversation-scoped one."""
+    return _thoughts_proxy.get(
+        (agent_id, conversation_id), agent_id, conversation_id, default=[])
 
 MESSAGES_MAX_AGE_SECONDS = 5 * 3600  # only show messages from the last 5 hours
 
@@ -10223,10 +10230,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 intake = get_scanner_intake(scanner_key) if scanner_key else None
                 conversation_id = str(
                     (intake or {}).get('conversation_id') or '').strip()
-                return self.json_response(
-                    scanner_thoughts(lid, conversation_id)
-                    if conversation_id
-                    else letta_thoughts(lid))
+                return self.json_response(cached_thoughts(lid, conversation_id))
             return self.json_response([])
 
         if path == '/api/messages':
