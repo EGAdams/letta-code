@@ -77,7 +77,8 @@ def transactions_table_html(rows, *, source_document_url='', empty_note=''):
             'data-vendor-key="%s" data-description="%s" '
             'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
             'title="Click row to set category / view receipt">'
-            '<td>%s</td><td class="number">%s</td><td>%s</td><td>%s</td></tr>' % (
+            '<td>%s</td><td class="number">%s</td><td>%s</td>'
+            '<td class="category-cell" data-category-cell="true">%s</td></tr>' % (
                 row['cat_class'], ' duplicate-row' if row['duplicate'] else '',
                 ' has-receipt' if source_document_url else '',
                 row['id'],

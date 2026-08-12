@@ -49,6 +49,7 @@ from document_annotation import (
 )
 from agent_thoughts import message_text as _msg_text, select_thoughts
 from background_result_proxy import BackgroundResultProxy
+from category_picker import category_row_css, render_assets
 from recent_intake_view import collapse_check_evidence_rows
 import intake_report_model
 import intake_report_page
@@ -1521,20 +1522,15 @@ def build_recent_report_html():
                 'document and this page will show its Verified Transactions.</p>')
     if recent.get('mode') == 'intake':
         return build_recent_intake_html(recent['intake'])
-    with open(recent['file'], encoding='utf-8', errors='replace') as f:
-        html = f.read()
-    base_href = recent['url'].rsplit('/', 1)[0] + '/'
-    base_tag = f'<base href="{base_href}">'
-    m = re.search(r'<head[^>]*>', html, re.I)
-    if m:
-        return html[:m.end()] + base_tag + html[m.end():]
-    return base_tag + html
+    return _embed_report_html(recent['url'], recent['file'])
 
 
 def _embed_report_html(report_url, report_file):
-    """Return one report.html with a <base href> injected for dashboard use."""
-    with open(report_file, encoding='utf-8', errors='replace') as f:
-        html = f.read()
+    """Return a current picker report with a <base href> for dashboard use."""
+    # Existing reports are static artifacts. Refresh the replaceable picker
+    # block in memory so scanner tabs receive the current UI without requiring
+    # every archived report to be regenerated on disk.
+    html = _report_html_with_current_picker(report_file)
     base_href = report_url.rsplit('/', 1)[0] + '/'
     base_tag = f'<base href="{base_href}">'
     m = re.search(r'<head[^>]*>', html, re.I)
@@ -5931,10 +5927,8 @@ def _receipt_only_picker_assets():
     left the dialog with no categories to render. Always render it through
     render_picker_block() with this process's category list.
     """
-    rv = _picker_module()
-    return (rv.CATEGORY_PICKER_CSS,
-            rv.render_picker_block(_rol_finance_categories()),
-            rv.CLICKABLE_ROW_CSS)
+    assets = render_assets(_picker_module(), _rol_finance_categories())
+    return assets.css, assets.html, assets.clickable_row_css
 
 
 def _report_html_with_current_picker(report_file):
@@ -5947,13 +5941,7 @@ def _report_html_with_current_picker(report_file):
 
 
 def _receipt_only_cat_css():
-    lines = []
-    for name, cls in REPORTING_CATEGORY_CLASS.items():
-        bg, fg = REPORTING_CATEGORY_STYLE.get(name, ('#BFBFBF', '#000000'))
-        lines.append(
-            '    #verified-transactions tbody tr.%s td { background:%s; color:%s; }'
-            % (cls, bg, fg))
-    return '\n'.join(lines)
+    return category_row_css(_rol_finance_categories())
 
 
 def build_receipt_only_report_html(month_key=None):
