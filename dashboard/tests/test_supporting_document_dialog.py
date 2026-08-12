@@ -338,6 +338,59 @@ def test_open_document_uses_annotation_service_and_reports_highlight(
     assert result["url"] == "/supporting-document/477/source#page=3"
 
 
+def test_interactive_open_queues_annotation_without_waiting(
+    tmp_path, monkeypatch
+):
+    statement = tmp_path / "statement.jpg"
+    statement.write_bytes(b"image")
+    row = {
+        "id": 478,
+        "expense_date": "2025-01-13",
+        "amount": "25.00",
+        "id_light": "shop_01_13_25_25_00",
+        "description": "Shop",
+        "receipt_url": None,
+        "document_url": str(statement),
+        "moms_ledger": None,
+    }
+    monkeypatch.setattr(server, "_lookup_expense_row", lambda *a, **kw: row)
+    monkeypatch.setattr(
+        server, "_resolve_local_supporting_document", lambda ref, kind: str(statement)
+    )
+    monkeypatch.setattr(
+        server, "_background_annotation_result", lambda *a, **kw: None
+    )
+
+    result = server.open_supporting_document(
+        "2025-01-13", "-25.00", "shop", "source",
+        expense_id=478, wait_for_highlight=False,
+    )
+
+    assert result["ok"] is True
+    assert result["url"] == "/supporting-document/478/source"
+    assert result["highlighted"] is False
+    assert result["highlight_pending"] is True
+
+
+def test_viewer_serves_original_while_background_annotation_is_pending(
+    tmp_path, monkeypatch
+):
+    statement = tmp_path / "statement.jpg"
+    statement.write_bytes(b"image")
+    row = {"id": 479, "document_url": str(statement)}
+    monkeypatch.setattr(server, "_lookup_expense_row", lambda *a, **kw: row)
+    monkeypatch.setattr(
+        server, "_resolve_local_supporting_document", lambda ref, kind: str(statement)
+    )
+    monkeypatch.setattr(
+        server, "_background_annotation_result", lambda *a, **kw: None
+    )
+
+    viewed = server._supporting_document_view_for_expense(479, "source")
+
+    assert viewed == str(statement)
+
+
 def test_local_pdf_source_preserves_page_fragment(tmp_path, monkeypatch):
     statement = tmp_path / "statement.pdf"
     statement.write_bytes(b"%PDF-1.4\n")

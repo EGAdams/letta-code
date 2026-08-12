@@ -577,8 +577,9 @@ body.startup-loading .sidebar {
   background: #3a5de3;
 }
 
-.tab.active {
-  background: var(--tab-active);
+.sidebar .tab.active:not(.tab-alert):not(.tab-alert-red) {
+  background: #fff !important;
+  color: var(--tab) !important;
   font-weight: 700;
 }
 

@@ -1,5 +1,6 @@
 import { ListenerState } from "../abstract/continuous-listener.interface.js";
 import { DetailRenderer } from "../abstract/detail-renderer.interface.js";
+import { ReceptionistTranscriptController } from "../abstract/receptionist-transcript-controller.js";
 import { TextUtils } from "../abstract/text-utils.js";
 import { mergeFinalChunk } from "../abstract/transcript-merge.js";
 import { RecorderState } from "../abstract/voice-recorder.interface.js";
@@ -845,6 +846,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     recorderFactory = (opts) => new MediaRecorderVoiceRecorder(opts),
     terminalFactory = (opts) => attachTerminalPanel(opts),
     listener = null,
+    receptionistIntentPolicy = null,
   }) {
     super();
     if (!http) throw new Error("InputOptionsRenderer requires an HttpClient");
@@ -858,6 +860,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     this._recorderFactory = recorderFactory;
     this._terminalFactory = terminalFactory;
     this._listener = listener;
+    this._receptionistIntentPolicy = receptionistIntentPolicy;
   }
 
   _el(tag, props = {}) {
@@ -1110,15 +1113,18 @@ export class InputOptionsRenderer extends DetailRenderer {
     const terminal = null;
 
     // ── Send: forwards text into the letta-code session above ──────────────
-    const send = async () => {
+    const send = async ({
+      textOverride = null,
+      preserveInput = false,
+    } = {}) => {
       if (sendBtn.disabled) return;
-      const text = textEl.value;
+      const text = textOverride ?? textEl.value;
       if (!text.trim()) {
         showStatus("Nothing to send.", true);
         return;
       }
       sendBtn.disabled = true;
-      textEl.value = "";
+      if (!preserveInput) textEl.value = "";
       const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
       this._onStatus(id, "active");
       try {
@@ -1200,7 +1206,14 @@ export class InputOptionsRenderer extends DetailRenderer {
     });
 
     // ── Start Listening (continuous, browser-native) — opt-in only ─────────
-    let committedListen = "";
+    const transcript = new ReceptionistTranscriptController({
+      onChange: ({ text }) => {
+        textEl.value = text;
+      },
+    });
+    let intentQueue = Promise.resolve();
+    let lastIntentText = "";
+    let autoSentText = "";
     if (this._listener && listenBtn) {
       const syncListenBtn = (state) => {
         const listening = state === ListenerState.LISTENING;
@@ -1213,11 +1226,34 @@ export class InputOptionsRenderer extends DetailRenderer {
       this._listener.setCallbacks({
         onStateChange: syncListenBtn,
         onResult: (text, isFinal) => {
-          if (!isFinal) return;
-          committedListen = mergeFinalChunk(committedListen, text);
-          textEl.value = committedListen;
-          committedListen = "";
-          send();
+          const snapshot = transcript.accept(text, isFinal);
+          if (!isFinal || !this._receptionistIntentPolicy) return;
+          // The policy sees the accumulated finalized transcript, not merely
+          // the latest recognition fragment.
+          const candidate = snapshot.committed.trim();
+          if (
+            !candidate ||
+            candidate === lastIntentText ||
+            candidate === autoSentText
+          )
+            return;
+          lastIntentText = candidate;
+          intentQueue = intentQueue.then(async () => {
+            let decision;
+            try {
+              decision =
+                await this._receptionistIntentPolicy.evaluate(candidate);
+            } catch {
+              return;
+            }
+            if (!decision?.addressed || !decision.cleaned_text?.trim()) return;
+            if (candidate === autoSentText) return;
+            autoSentText = candidate;
+            await send({
+              textOverride: decision.cleaned_text.trim(),
+              preserveInput: true,
+            });
+          });
         },
         onError: (message) => showStatus(message, true),
       });

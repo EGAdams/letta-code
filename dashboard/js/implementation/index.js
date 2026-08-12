@@ -10,6 +10,7 @@ export {
   FEMALE_VOICE_RE,
   MALE_VOICE_RE,
 } from "../abstract/agent-voice-catalog.interface.js";
+export { ReceptionistTranscriptController } from "../abstract/receptionist-transcript-controller.js";
 export { ActivePoller } from "./active-poller.js";
 export { AgentActivityPoller } from "./agent-activity-poller.js";
 export { AgentHealthPoller } from "./agent-health-poller.js";

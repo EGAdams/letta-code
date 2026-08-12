@@ -222,6 +222,10 @@ export async function auditRedBoxesForRun(
         opened = await postJson("/api/open-supporting-document", {
           expense_id: expenseId,
           document_type: documentType,
+          // Browser clicks open immediately and prepare highlights in the
+          // background. The Trainer explicitly waits because it grades the
+          // annotation itself, not interactive viewer latency.
+          wait_for_highlight: true,
         });
       } catch (error) {
         failures.push({

@@ -628,7 +628,7 @@ if (
             `#${tab.dataset.target}-mazda-detail`,
           );
           if (detailContainer) {
-            AM.renderMazdaThoughtsInto(detailContainer);
+            AM.renderMazdaThoughtsInto(detailContainer, scannerKey);
           }
           // Monitor for scan completion and show archive verification terminal
           const terminalContainer = `#${tab.dataset.target}-archive-terminal`;
@@ -997,6 +997,12 @@ function renderModelStats(d) {
   }
   if (d.model) h += `<p><b>Model:</b> <code>${esc(d.model)}</code></p>`;
   if (d.detail) h += `<p class="am-dim">${esc(d.detail)}</p>`;
+  if (d.windows_stale) {
+    const sampled = d.usage_as_of
+      ? new Date(d.usage_as_of * 1000).toLocaleString()
+      : "the last successful check";
+    h += `<p class="am-warn">Quota bars show the last successful reading (${esc(sampled)}) while live usage reporting is throttled.</p>`;
+  }
   for (const w of d.windows || []) {
     if (w.unavailable) {
       h += `<div class="ms-window"><div class="ms-window-head"><span>${esc(w.label)}</span><span class="am-dim">${esc(w.note || "not reported")}</span></div></div>`;
@@ -1380,6 +1386,10 @@ const renderAgentsRouter = (target) =>
  * moment the dashboard loads.
  */
 const receptionistListener = new BrowserSpeechRecognitionListener();
+const receptionistIntentPolicy = {
+  evaluate: (text) =>
+    http.postJSON("/api/receptionist-intent", { text }, { timeout: 15000 }),
+};
 
 const startReceptionist = async () => {
   let agentId;
@@ -1396,6 +1406,7 @@ const startReceptionist = async () => {
     agentName: "Toyota",
     agentId,
     listener: receptionistListener,
+    receptionistIntentPolicy,
   }).render("receptionist-box", agentId);
 };
 startReceptionist();
@@ -1576,7 +1587,7 @@ const AM = {
   },
 
   // Render Mazda's Thoughts into a specific DOM container (for scanner report tabs).
-  renderMazdaThoughtsInto(container) {
+  renderMazdaThoughtsInto(container, scannerKey = "") {
     if (!container) return;
     const mazdaId = "agent-6b536cf4-ec88-4290-b595-fed21d14bd8e";
     container.innerHTML = "";
@@ -1596,7 +1607,9 @@ const AM = {
     const controller = new AgentStreamController({
       http,
       view: consoleView,
-      url: `/api/thoughts?agent=${encodeURIComponent(mazdaId)}`,
+      url: scannerKey
+        ? `/api/thoughts?scanner=${encodeURIComponent(scannerKey)}`
+        : "/api/thoughts",
       agentId: mazdaId,
       label: "thoughts",
       intervalMs: 3000,
@@ -1643,8 +1656,8 @@ const AM = {
       .postJSON("/api/scanner-archive-path", { scanner: scannerKey })
       .then((data) => {
         if (!data.ok || !data.archive_path) {
-          container.innerHTML =
-            '<div class="msi-line err">! Could not determine archive path.</div>';
+          container.classList.remove("hidden");
+          container.innerHTML = `<div class="msi-line err">! Archive verification unavailable: ${esc(data.error || "archive path not found")}</div>`;
           return;
         }
         container.classList.remove("hidden");

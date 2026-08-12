@@ -38,95 +38,6 @@ def test_letta_thoughts_does_not_truncate_entries(monkeypatch, message, expected
         assert rows[0]['type'] == expected_type
 
 
-def test_letta_thoughts_reads_isolated_conversation(monkeypatch):
-    seen = {}
-
-    def fake_get(path, timeout=0):
-        seen.update(path=path, timeout=timeout)
-        return [{
-            'message_type': 'reasoning_message',
-            'created_at': '2026-08-12T19:07:44Z',
-            'reasoning': 'I am processing this Window scan.',
-        }]
-
-    monkeypatch.setattr(server, 'letta_get', fake_get)
-    monkeypatch.setattr(
-        server, 'letta_messages',
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError('agent-wide messages must not be used')))
-
-    result = server.letta_thoughts('agent-mazda', 'conv-window')
-
-    assert seen == {
-        'path': '/v1/conversations/conv-window/messages?limit=80',
-        'timeout': 25,
-    }
-    assert result == [{
-        'date': '2026-08-12T19:07:44',
-        'type': 'thought',
-        'text': 'I am processing this Window scan.',
-    }]
-
-
-def test_scanner_thoughts_returns_cache_while_refresh_runs(monkeypatch):
-    class FakeProxy:
-        def get(self, key, *args, default=None):
-            assert key == 'conv-freezer'
-            assert args == ('agent-mazda', 'conv-freezer')
-            return [{'text': 'cached'}]
-
-    monkeypatch.setattr(server, '_scanner_thoughts_proxy', FakeProxy())
-
-    started = time.monotonic()
-    rows = server.scanner_thoughts('agent-mazda', 'conv-freezer')
-
-    assert time.monotonic() - started < 0.1
-    assert rows == [{'text': 'cached'}]
-
-
-def test_scanner_intake_archive_path_resolves_receipt_from_expense_row(monkeypatch):
-    archived = '/archive/2025/april/receipt.jpg'
-    monkeypatch.setattr(
-        server, '_associated_source_paths',
-        lambda _rows: ('', archived))
-
-    result = server.scanner_intake_archive_path(
-        {'doc_kind': 'receipt', 'archive_paths': []},
-        [{'receipt_url': 'receipt.jpg'}])
-
-    assert result == archived
-
-
-def test_scanner_intake_archive_path_falls_back_to_db_statement_evidence(
-        tmp_path, monkeypatch):
-    archived = tmp_path / 'american_express_4007_may_21__june_02.jpg'
-    archived.write_bytes(b'scan')
-    monkeypatch.setattr(server, '_statement_archive_path', lambda *_args, **_kwargs: '')
-    monkeypatch.setattr(
-        server, '_associated_evidence_paths',
-        lambda _rows: (str(archived), ''))
-
-    result = server.scanner_intake_archive_path(
-        {'doc_kind': 'statement', 'archive_paths': []},
-        [{'scanned_statement_url': str(archived)}])
-
-    assert result == str(archived)
-
-
-def test_scanner_intake_archive_path_rejects_missing_statement_evidence(monkeypatch):
-    monkeypatch.setattr(server, '_statement_archive_path', lambda *_args, **_kwargs: '')
-    monkeypatch.setattr(
-        server, '_associated_evidence_paths',
-        lambda _rows: ('/archive/missing-statement.jpg', ''))
-    monkeypatch.setattr(server, '_associated_source_paths', lambda _rows: ('', ''))
-
-    result = server.scanner_intake_archive_path(
-        {'doc_kind': 'statement', 'archive_paths': []},
-        [{'scanned_statement_url': '/archive/missing-statement.jpg'}])
-
-    assert result == ''
-
-
 class _CompletedProcess:
     def __init__(self, returncode=0, stdout='', stderr=''):
         self.returncode = returncode
@@ -328,7 +239,6 @@ def _clear_model_stats_cache(tmp_path, monkeypatch):
     # leak-detector snapshots, and tests must never write fake percentages into
     # the real MODEL_USAGE_HISTORY_FILE (it would poison the live leak detector).
     monkeypatch.setattr(server, 'MODEL_USAGE_HISTORY_FILE', str(tmp_path / 'usage_history.json'))
-    monkeypatch.setattr(server, 'MODEL_STATS_LAST_GOOD_FILE', str(tmp_path / 'model_stats_last_good.json'))
     monkeypatch.setattr(server, '_usage_history', {})
 
 
@@ -1044,38 +954,6 @@ def test_model_stats_claude_live_windows(monkeypatch):
     assert [w['used_percent'] for w in d['windows']] == [19.0, 12.0]
 
 
-def test_model_stats_claude_rate_limit_keeps_last_good_bars(monkeypatch):
-    responses = iter([
-        {'recent_model': 'claude-opus-4-8', 'as_of': 100.0,
-         'usage': {'five_hour': {'utilization': 19.0, 'resets_at': None},
-                   'seven_day': {'utilization': 12.0, 'resets_at': None}}},
-        {'recent_model': 'claude-opus-4-8', 'as_of': 200.0,
-         'error': 'HTTP 429', 'retry_after': 60},
-    ])
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: next(responses))
-    first = server.model_stats('r46-claude')
-    server._model_stats_cache.clear()
-    limited = server.model_stats('r46-claude')
-    assert [w['used_percent'] for w in first['windows']] == [19.0, 12.0]
-    assert [w['used_percent'] for w in limited['windows']] == [19.0, 12.0]
-    assert limited['windows_stale'] is True
-    assert limited['usage_as_of'] == 100.0
-    assert limited['rate_limited'] is True
-
-
-def test_model_stats_claude_rate_limit_restores_primary_history(monkeypatch):
-    with open(server.MODEL_USAGE_HISTORY_FILE, 'w', encoding='utf-8') as fh:
-        json.dump({'r46-claude': [[100.0, 51.0]]}, fh)
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
-        'as_of': 200.0, 'error': 'HTTP 429', 'retry_after': 60})
-    limited = server.model_stats('r46-claude')
-    assert limited['windows'][0]['label'] == '5-hour'
-    assert limited['windows'][0]['used_percent'] == 51.0
-    assert limited['windows'][1]['label'] == 'weekly'
-    assert limited['windows'][1]['unavailable'] is True
-    assert limited['windows_stale'] is True
-
-
 def test_model_stats_claude_rate_limited_is_red_with_reset(monkeypatch):
     # A provider-side 429 (the R46 Claude incident, 2026-07-15) must be RED
     # with an absolute reset epoch, not yellow "usage unavailable".
@@ -1326,28 +1204,17 @@ def test_scanner_diag_freezer_device_blocker_is_red():
     r = server.build_scanner_diagnostics('freezer', True, ps, device)
     dev = _diag_by_id(r, 'device')
     assert dev['state'] == 'bad'
-    assert dev['label'] == 'Scanner Hardware'
     assert dev['detail'] == device['blocker']
     assert r['overall'] == 'bad'
 
 
-def test_scanner_diag_freezer_hides_print_only_status_entirely():
+def test_scanner_diag_freezer_print_only_note_is_yellow_not_red():
     ps = {'stisvc': 'Running', 'stale_scans': 0,
           'driver_present': True, 'driver_status': 'OK', 'wia': 'present'}
     device = {'reachable': True, 'categories': ['inputTrayEmpty'], 'blocker': None,
               'note': 'it is out of paper (printing only — scanning works without paper)'}
     r = server.build_scanner_diagnostics('freezer', True, ps, device)
-    assert not any(check['id'] == 'device' for check in r['checks'])
-    assert r['overall'] == 'ok'
-
-
-def test_airscan_freezer_hides_print_only_status_entirely():
-    device = {'reachable': True, 'categories': ['inputTrayEmpty'], 'blocker': None,
-              'note': 'it is out of paper (printing only — scanning works without paper)'}
-    r = server.build_scanner_diagnostics(
-        'freezer', False, None, device, airscan_ready=True)
-    assert not any(check['id'] == 'device' for check in r['checks'])
-    assert r['overall'] == 'ok'
+    assert _diag_by_id(r, 'device')['state'] == 'warn'
 
 
 def test_scanner_diag_unknown_scanner_errors():
@@ -3540,89 +3407,6 @@ def test_scan_message_round_trips_through_notify(monkeypatch):
     assert captured['body']['streaming'] is False
 
 
-def test_scan_notify_timeout_is_success_when_conversation_received_message(monkeypatch):
-    """A slow synchronous agent run must not be reported as delivery failure."""
-    monkeypatch.setattr(
-        server.urllib.request, 'urlopen',
-        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError('timed out')))
-    monkeypatch.setattr(
-        server, 'letta_get',
-        lambda path, timeout: {'in_context_message_ids': ['message-user']})
-
-    assert server._notify_mazda_of_scan(
-        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
-        'conv-freezer') is True
-
-
-def test_scan_notify_failure_remains_failure_when_conversation_is_empty(monkeypatch):
-    monkeypatch.setattr(
-        server.urllib.request, 'urlopen',
-        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError('timed out')))
-    monkeypatch.setattr(
-        server, 'letta_get',
-        lambda path, timeout: {'in_context_message_ids': []})
-
-    assert server._notify_mazda_of_scan(
-        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
-        'conv-freezer') is False
-
-
-def test_scan_notify_failure_marks_exact_intake_terminal(tmp_path, monkeypatch):
-    _recent_report_env(tmp_path, monkeypatch)
-    server.record_recent_intake(
-        '/staged/window.jpg', 'Window Scanner',
-        conversation_id='conv-window', dispatched_at=1234)
-    monkeypatch.setattr(server, '_notify_mazda_of_scan', lambda *a, **k: False)
-
-    assert server._notify_mazda_of_scan_and_record_failure(
-        '/staged/window.jpg', 'Window Scanner', {}, 'conv-window', 1234) is False
-
-    intake = server._read_recent_pointer_file()['scanner_intakes']['Window Scanner']
-    assert intake['status'] == 'fail'
-    assert intake['status_source'] == 'transport'
-    assert 'Mazda could not be reached' in intake['status_detail']
-
-
-def test_success_callback_clears_only_provisional_transport_failure(tmp_path, monkeypatch):
-    _recent_report_env(tmp_path, monkeypatch)
-    server.record_recent_intake(
-        '/staged/freezer.jpg', 'Freezer Scanner',
-        conversation_id='conv-freezer', dispatched_at=1234)
-    server.merge_recent_intake_status({
-        'conversation_id': 'conv-freezer',
-        'status': 'fail',
-        'status_source': 'transport',
-        'detail': 'Mazda could not be reached',
-    })
-
-    assert server.merge_recent_intake_event({
-        'conversation_id': 'conv-freezer',
-        'dispatched_at': 1234,
-        'parsed': 11,
-        'stored': 0,
-        'expense_ids': [981],
-    })
-
-    intake = server._read_recent_pointer_file()['scanner_intakes']['Freezer Scanner']
-    assert intake['status'] == 'complete'
-    assert intake['status_detail'] == ''
-    assert intake['status_source'] == 'callback'
-
-
-def test_mazda_progress_does_not_block_report_for_full_letta_timeout(monkeypatch):
-    captured = {}
-
-    def _fake_get(path, timeout):
-        captured.update(path=path, timeout=timeout)
-        return None
-
-    monkeypatch.setattr(server, 'letta_get', _fake_get)
-    progress = server.mazda_intake_progress({'conversation_id': 'conv-window'})
-
-    assert captured['timeout'] == 3
-    assert progress['percent'] == 0
-
-
 def test_create_mazda_conversation_uses_agent_query_and_returns_id(monkeypatch):
     captured = {}
 
@@ -4940,40 +4724,6 @@ def test_process_scanned_document_second_call_does_not_redispatch(
     assert second['mazda_dispatched'] is True  # frontend still renders delegated stages
 
 
-def test_failed_scan_fingerprint_can_be_retried_after_restart(
-        tmp_path, monkeypatch):
-    """Duplicate suppression must not permanently burn a failed document."""
-    scan = tmp_path / 'window_scan.jpg'
-    scan.write_bytes(b'legitimate-statement')
-    digest = server._scan_content_sha256(str(scan))
-    monkeypatch.setattr(server, 'SCANNERS', {
-        'window': {'name': 'Window Scanner', 'output': scan.name},
-    })
-    monkeypatch.setattr(server, 'get_scanner_intake', lambda key: {
-        'content_sha256': digest,
-        'status': 'fail',
-    })
-    server._scan_dispatch_claims.clear()
-
-    assert server._claim_scan_dispatch('window', str(scan), digest) is True
-
-
-def test_completed_scan_fingerprint_remains_suppressed(tmp_path, monkeypatch):
-    scan = tmp_path / 'window_scan.jpg'
-    scan.write_bytes(b'already-processed-statement')
-    digest = server._scan_content_sha256(str(scan))
-    monkeypatch.setattr(server, 'SCANNERS', {
-        'window': {'name': 'Window Scanner', 'output': scan.name},
-    })
-    monkeypatch.setattr(server, 'get_scanner_intake', lambda key: {
-        'content_sha256': digest,
-        'status': 'complete',
-    })
-    server._scan_dispatch_claims.clear()
-
-    assert server._claim_scan_dispatch('window', str(scan), digest) is False
-
-
 def test_failed_staging_releases_the_dispatch_claim(tmp_path, monkeypatch):
     """A staging failure must not burn the claim — the retry has to dispatch."""
     scan_dir = tmp_path / 'scans'
@@ -5149,10 +4899,8 @@ def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('/*css*/', '<div id="rol-category-picker"></div>', '/*rowcss*/'))
     html = server.build_recent_report_html()
-    # The document is named by its filename; the staging directory it is
-    # being processed in is still never exposed.
-    assert 'Most Recent Document: scan_freezer.jpg' in html
-    assert '/staged/' not in html
+    assert 'scan_freezer.jpg' not in html
+    assert 'Archived scan image unavailable' in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'rol-category-picker' in html
@@ -5251,23 +4999,6 @@ def test_late_expense_callback_does_not_relock_trainer_pass(
 
     intake = server.get_scanner_intake('window')
     assert intake['status'] == 'pass'
-    assert server._scanner_intake_in_progress('window') is False
-
-
-def test_completed_intake_does_not_keep_scanner_locked(tmp_path, monkeypatch):
-    _recent_report_env(tmp_path, monkeypatch, docs=())
-    server.record_recent_intake(
-        '/staged/window_scan.jpg', 'Window Scanner', dispatched_at=time.time())
-    assert server._scanner_intake_in_progress('window') is True
-
-    server.merge_recent_intake_event({
-        'document_path': '/staged/window_scan.jpg',
-        'parsed': 1,
-        'stored': 1,
-    })
-
-    intake = server.get_scanner_intake('window')
-    assert intake['status'] == 'complete'
     assert server._scanner_intake_in_progress('window') is False
 
 
@@ -5651,8 +5382,8 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
         'cat_class': 'cat-travel-and-vehicle', 'receipt_url': '',
     }])
     html = server.build_scanner_report_html('window')
-    assert 'Most Recent Document: window_scan.jpg' in html
-    assert '/staged/' not in html
+    assert 'window_scan.jpg' not in html
+    assert 'Archived scan image unavailable' in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'class="cat-travel-and-vehicle has-receipt"' in html
@@ -5706,7 +5437,7 @@ def test_known_statement_dispatch_is_statement_only():
     assert 'dispatched_at=123.5' in message
     assert 'parse_and_categorize.py' not in message
     assert 'check_vendor_key' not in message
-    assert server._document_type_label('unknown', None) == 'Not yet identified'
+    assert server._document_type_label('unknown', None) == 'Unknown'
     assert server._document_type_label(None, 'chase') == 'Chase'
 
 
@@ -5763,10 +5494,8 @@ def test_recent_intake_html_shows_document_metadata(tmp_path, monkeypatch):
     html = server.build_recent_report_html()
     assert 'Document Type: Chase Bank Statement' in html
     assert 'Month Range: May 30, 2025 &gt;&gt;---&gt; June 23, 2025' in html
-    # Fields with nothing to say are omitted rather than printed as a column
-    # of dashes that buries the lines that do carry information.
-    assert 'Associated PDF' not in html
-    assert 'Associated Receipt' not in html
+    assert 'Associated PDF: --' in html
+    assert 'Associated Receipt: --' in html
 
 
 def test_recent_intake_html_pdf_shows_this(tmp_path, monkeypatch):
@@ -5842,10 +5571,10 @@ def test_scanner_report_hides_staged_image_when_archive_is_missing(
 
     html = server.build_scanner_report_html('freezer')
 
-    assert 'Archived Scan Image' not in html
+    assert 'Archived Scan Image: --' in html
     assert 'Staged Scan Image:' not in html
     assert '/staged/scan_freezer.jpg' not in html
-    assert 'Most Recent Document: scan_freezer.jpg' in html
+    assert 'Archived scan image unavailable' in html
 
 
 def test_report_pointer_newer_than_intake_wins(tmp_path, monkeypatch):
@@ -6454,34 +6183,3 @@ def test_vision_tile_flags_unrecovered_vision_fallback(monkeypatch, tmp_path):
 
     summary = server.vision_provider_fallbacks()
     assert 'unrecovered vision fallback' in summary
-
-
-def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
-    """A stalled scan (the Last Freezer/Window Scan pages' worst case) must
-    still name its document, flag the failure loudly, and explain the empty
-    Verified Transactions table instead of rendering a wall of '--'."""
-    _recent_report_env(tmp_path, monkeypatch, docs=())
-    _scanner_registry(monkeypatch)
-    server.record_recent_intake(
-        '/staged/scan_freezer_1786536321_7340d041.jpg', 'Freezer Scanner')
-    server.merge_recent_intake_event({
-        'expense_ids': [], 'parsed': None, 'stored': None,
-        'doc_kind': 'unknown', 'vendor': 'unknown', 'status': 'stalled',
-        'status_detail': 'Verification lock cleared manually.',
-    })
-    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
-    monkeypatch.setattr(server, '_receipt_only_picker_assets',
-                        lambda: ('', '', ''))
-
-    html = server.build_scanner_report_html('freezer')
-
-    assert ('Most Recent Document: '
-            'scan_freezer_1786536321_7340d041.jpg') in html
-    assert 'unavailable' not in html
-    assert '/staged/' not in html
-    assert 'Document Type: Not yet identified' in html
-    assert 'Month Range' not in html
-    assert 'Associated PDF' not in html
-    assert 'class="status-banner status-bad"' in html
-    assert 'Mazda Trainer reported STALLED' in html
-    assert 'stopped before any transactions were stored' in html

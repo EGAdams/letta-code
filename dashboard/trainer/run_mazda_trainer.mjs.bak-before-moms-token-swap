@@ -19,10 +19,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claude } from '/home/adamsl/claude-code-sdk-ts/dist/index.js';
 import {
-  ClaudeAttemptCompletionObservedError,
-  runWithAbortTimeout,
-} from "./claude-attempt.ts";
-import {
   applyRedBoxAuditToReport,
   auditRedBoxesForRun,
   collectExpenseIds,
@@ -48,11 +44,6 @@ const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL || 'http://localhost:8
 const MAZDA_AGENT_ID =
   process.env.MAZDA_AGENT_ID || 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e';
 const TRAINER_MODEL = process.env.TRAINER_MODEL || 'sonnet';
-// Keep the Trainer's Claude OAuth account isolated from the dashboard host's
-// interactive Claude login. The live deployment populates this directory with
-// mom's credential; callers can override it for another account/home.
-const TRAINER_CLAUDE_HOME =
-  process.env.TRAINER_CLAUDE_HOME || '/home/adamsl/trainer-claude-home';
 // Fallback when the Claude session itself fails; gpt-5.4-mini is the vetted
 // ChatGPT-OAuth mini handle (plain gpt-5-mini is rejected by the provider).
 const TRAINER_CODEX_MODEL = process.env.TRAINER_CODEX_MODEL || 'gpt-5.4-mini';
@@ -140,21 +131,14 @@ function buildTaskMessage(args) {
   ].join('\n');
 }
 
-// `.withTimeout()` is a no-op in claude-code-sdk-ts@0.3.3 — `options.timeout` is
-// stored and never read, so only `.withSignal()` can actually stop a stuck
-// `claude` child. runWithAbortTimeout supplies that signal AND a hard deadline,
-// so a hung session raises instead of parking the watchdog forever (see
-// claude-attempt.ts).
-async function runClaudeAttempt(prompt, timeoutMs, args, completionObserved) {
-  return runWithAbortTimeout((signal) => claude()
+async function runClaudeAttempt(prompt, timeoutMs, args) {
+  return claude()
     .withModel(TRAINER_MODEL)
     .allowTools('Bash', 'Read', 'Write')
     .skipPermissions()
     .inDirectory(HERE)
-    .withSignal(signal)
+    .withTimeout(timeoutMs)
     .withEnv({
-      HOME: TRAINER_CLAUDE_HOME,
-      CLAUDE_CONFIG_DIR: `${TRAINER_CLAUDE_HOME}/.claude`,
       LETTA_BASE_URL,
       MAZDA_AGENT_ID,
       MAZDA_CONVERSATION_ID: args.conversationId,
@@ -164,7 +148,7 @@ async function runClaudeAttempt(prompt, timeoutMs, args, completionObserved) {
       console.log(`[trainer] tool: ${tool.name} ${JSON.stringify(tool.input).slice(0, 300)}`);
     })
     .query(prompt)
-    .asText(), timeoutMs, completionObserved);
+    .asText();
 }
 
 async function runCodexAttempt(prompt, timeoutMs, attempt, args) {
@@ -230,7 +214,12 @@ async function notifyDashboardStatus(args) {
   const match = report.match(/Verdict[^A-Za-z]*(PASS|CORRECTED|FAIL|STALLED)/i);
   const status = (match?.[1] || 'STALLED').toLowerCase();
   const diagnosis = report.match(/## (?:Diagnosis|Wrapper Defect)\s+([\s\S]*?)(?=\n## |$)/i);
-  const detail = (diagnosis?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  let detail = (diagnosis?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  // A "Wrapper Defect"/"Diagnosis" section that says there was no defect (the
+  // common case on a clean PASS) is not failure detail — publishing it next
+  // to a FAILED/STALLED label produces a self-contradictory dashboard message
+  // like "reported FAILED. None. No coaching was necessary...".
+  if (/^none\b/i.test(detail)) detail = '';
   try {
     const response = await fetch(`${DASHBOARD_BASE_URL}/api/intake-status`, {
       method: 'POST',
@@ -269,9 +258,6 @@ async function fetchJson(url, options = undefined) {
 
 async function enforceDeterministicRedBoxGate(args) {
   let audit;
-  let facade = {};
-  try { facade = JSON.parse(args.facade || '{}'); }
-  catch { facade = {}; }
   try {
     const [messages, events] = await Promise.all([
       fetchJson(
@@ -287,26 +273,12 @@ async function enforceDeterministicRedBoxGate(args) {
       Number(args.dispatchedAt),
       args.conversationId,
     );
-    const facadeDocKind =
-      typeof facade?.doc_kind === 'string'
-        ? facade.doc_kind
-        : (typeof facade?.docKind === 'string' ? facade.docKind : '');
-    const facadeReason =
-      typeof facade?.reason === 'string'
-        ? facade.reason
-        : (typeof facade?.status === 'string' ? facade.status : '');
     audit = await auditRedBoxesForRun(expenseIds, (path, body) =>
       fetchJson(`${DASHBOARD_BASE_URL}${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-      }), {
-        docKind: facadeDocKind,
-        reason: facadeReason,
-        events,
-        dispatchedAt: Number(args.dispatchedAt),
-        conversationId: args.conversationId,
-      });
+      }));
     console.log(`[trainer] deterministic red-box gate: checked=${audit.checked} ` +
       `failures=${audit.failures.length} expense_ids=${expenseIds.join(',') || '(none)'}`);
   } catch (err) {
@@ -383,13 +355,9 @@ foreground Bash sleep loop.`;
     try {
       const summary = useCodex
         ? await runCodexAttempt(attemptPrompt, attemptTimeoutMs, attempt, args)
-        : await runClaudeAttempt(
-          attemptPrompt, attemptTimeoutMs, args, reportWritten);
+        : await runClaudeAttempt(attemptPrompt, attemptTimeoutMs, args);
       console.log(`[trainer] attempt ${attempt} (${useCodex ? 'codex' : 'claude'}) summary:\n` + summary);
     } catch (err) {
-      if (err instanceof ClaudeAttemptCompletionObservedError) {
-        console.log('[trainer] report observer stopped the completed model session.');
-      } else {
       // A session that times out or crashes AFTER writing the report still
       // fulfilled the contract — the report is the deliverable, the final
       // summary is garnish. Fall through to the reportWritten() check.
@@ -400,7 +368,6 @@ foreground Bash sleep loop.`;
         useCodex = true;
         console.log(`[trainer] Claude session failed — falling back to codex ` +
           `(${TRAINER_CODEX_MODEL}) for remaining attempts.`);
-      }
       }
     }
     if (reportWritten()) {
