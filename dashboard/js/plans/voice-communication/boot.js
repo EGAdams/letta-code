@@ -25,4 +25,4 @@ const workspace = new InterfaceWorkspace({
 // while the Project Plans tab is still hidden. MermaidView defers each diagram
 // until the document actually has layout — a hidden `.view` measures as zero
 // width, and Mermaid turns that into a bogus "Syntax error in text".
-workspace.mount("workspace-nav", "workspace-content");
+workspace.mount(null, "workspace-content");

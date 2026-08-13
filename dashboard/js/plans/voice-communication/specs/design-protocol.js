@@ -126,5 +126,20 @@ merely duplicates Pipecat frames.`,
     "Write the dependency-rule test the plan asks for.",
     "Build one shared contract suite over the five Letta strategies.",
     "Start filling in pattern decision cards for changes to the voice system.",
+    "Commit WIP before it collides. The 2026-08-13 merge cost real reconciliation work purely because two agents built the same feature in the same file with neither side committing — see Gotchas above.",
+  ],
+  gotchas: [
+    {
+      title: "Two drivers, one async render (2026-08-13)",
+      body: "This workspace can be driven from two places at once: the dashboard's Voice Communication sub-nav calls InterfaceWorkspace.show() AND sets the iframe's hash, which fires the workspace's own hashchange listener into show() a second time. render() is async — it awaits Mermaid — so the two calls interleaved: the second cleared the container mid-flight and both then appended, producing duplicated numbered sections and an uncaught \"matrix is not invertible\" from pan/zoom attaching to detached SVGs. Fix: show() is now a no-op when the requested spec is already current. Two regression tests in interface-workspace.test.js fail without that guard. Neither side's tests caught it alone — it only exists at the seam where the two navigations meet.",
+    },
+    {
+      title: "The plan HTML is a real file now, not a symlink",
+      body: "voice_communication_plan.html and _v1.html used to be symlinks into ~/talking_agent_parts/, which meant they never travelled with a git push and a handoff to another machine silently got the old document. They are versioned files in dashboard/ as of 2026-08-13. Do not reintroduce the symlink.",
+    },
+    {
+      title: "Mermaid traps on Project Plans pages",
+      body: "`Note` is a reserved word in sequenceDiagram — a participant named Note fails to parse. A single failed diagram injects a GLOBAL error element into document.body that survives tab switches, so one broken diagram makes every later tab look broken; validate sources with mermaid.parse() rather than eyeballing. Never top-level-await visibility in the boot module: the tab's iframe starts hidden, so its load event would never fire. And svg-pan-zoom measures at construction, before layout settles — the deferred requestAnimationFrame re-fit is why diagrams are centred.",
+    },
   ],
 };

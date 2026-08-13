@@ -100,7 +100,7 @@ NoteDocument   js/abstract/note-document.interface.js
       "Every finalized speech fragment costs one LLM round-trip for the completeness check — the dominant latency and cost in the loop.",
       "A rejected command explains itself but cannot ask a clarifying question; 'Add a heading' is rejected rather than answered with 'what heading?'.",
       "No undo. An applied edit replaces the note with no history.",
-      "BLOCKED in production by the shared worker agent's dead LLM handle.",
+      "Live and working since 2026-08-13 on chatgpt-plus-pro/gpt-5.6-luna. The earlier lc-gemini 401 that had this failing closed is resolved — see the LettaAgentAdapter tab.",
     ],
   },
   tests: {

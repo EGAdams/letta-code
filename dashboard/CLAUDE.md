@@ -226,7 +226,7 @@ files from both `HERE` (`/home/adamsl/letta-code/dashboard`) and `REPO_ROOT`
 | Codebase Rewrite | `notes_plans_handoffs/codebase_rewrite.html` | `/notes_plans_handoffs/codebase_rewrite.html` |
 | Mazda Dev Status | `notes_plans_handoffs/mazda_dev_status.html` | `/notes_plans_handoffs/mazda_dev_status.html` |
 | Audio Input | `dashboard/audio_input/audio_plan.html` | `/audio_input/audio_plan.html` |
-| Voice Communication | `dashboard/voice_communication_plan.html` → **symlink** to `~/talking_agent_parts/` | `/voice_communication_plan.html` |
+| Voice Communication | `dashboard/voice_communication_plan.html` (versioned file) + `js/plans/` modules | `/voice_communication_plan.html` |
 
 **`Mazda Dev Status` is the canonical current-direction doc** (Mazda is the orchestrator herself,
 with minions that drive the Claude Agent SDK). `team_construction_plan.html` (repo root) describes
@@ -242,9 +242,11 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8765/notes_plans_hando
 
 #### Voice Communication is an interface *workspace*, not a document
 
-It is the one Project Plans tab that is a data-driven SPA. `voice_communication_plan.html` is a
-~45-line shell (and a **symlink** into `~/talking_agent_parts/` — `test_project_plans.py` enforces
-that); all content lives in modules:
+It is the one Project Plans tab that is a data-driven SPA, and it is the **living development
+guide** — open it before changing anything in `voice/` or the voice JS. `voice_communication_plan.html`
+is a ~19-line content-only shell; the tabs live in the dashboard's own `#nav-voice-communication`
+sub-nav (built from the same specs that render each page, so tabs cannot drift from content), and
+all content lives in modules:
 
 | Module | Role |
 |---|---|

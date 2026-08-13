@@ -45,31 +45,35 @@ export class InterfaceWorkspace {
 
   /** Build the nav into `navTarget` and mount pages into `contentTarget`. */
   mount(navTarget, contentTarget) {
-    const nav = this._doc.getElementById(navTarget);
     const content = this._doc.getElementById(contentTarget);
-    if (!nav || !content) return null;
+    if (!content) return null;
     this._content = content;
-    nav.innerHTML = "";
 
-    let group = null;
-    for (const spec of this._specs) {
-      if (spec.group && spec.group !== group) {
-        group = spec.group;
-        nav.append(this._el("div", "nav-group", { textContent: group }));
+    if (navTarget) {
+      const nav = this._doc.getElementById(navTarget);
+      if (!nav) return null;
+      nav.innerHTML = "";
+
+      let group = null;
+      for (const spec of this._specs) {
+        if (spec.group && spec.group !== group) {
+          group = spec.group;
+          nav.append(this._el("div", "nav-group", { textContent: group }));
+        }
+        const button = this._el("button", "nav-item", {
+          type: "button",
+          textContent: spec.name,
+        });
+        button.dataset.specId = spec.id;
+        button.append(
+          this._el("span", `dot status-${spec.status}`, {
+            title: STATUS_LABELS[spec.status],
+          }),
+        );
+        button.addEventListener("click", () => this.show(spec.id));
+        nav.append(button);
+        this._navButtons.set(spec.id, button);
       }
-      const button = this._el("button", "nav-item", {
-        type: "button",
-        textContent: spec.name,
-      });
-      button.dataset.specId = spec.id;
-      button.append(
-        this._el("span", `dot status-${spec.status}`, {
-          title: STATUS_LABELS[spec.status],
-        }),
-      );
-      button.addEventListener("click", () => this.show(spec.id));
-      nav.append(button);
-      this._navButtons.set(spec.id, button);
     }
 
     this._win.addEventListener?.("hashchange", () => this._showFromHash());
@@ -88,6 +92,18 @@ export class InterfaceWorkspace {
   async show(id, { updateHash = true } = {}) {
     const spec = this._specs.find((s) => s.id === id);
     if (!spec || !this._content) return null;
+
+    // Showing the tab that is already open is a no-op, and that guard is what
+    // keeps the page correct rather than merely saving work: this workspace can
+    // be driven from two places at once — the dashboard's own Voice
+    // Communication sub-nav calls show() AND sets the iframe's hash, which
+    // fires our hashchange listener and calls show() a second time for the same
+    // spec. render() is async (it awaits Mermaid), so two overlapping calls
+    // used to interleave: the second cleared the container mid-flight and both
+    // then appended, producing duplicated "2 · Contract … 7 · Next work"
+    // sections and pan/zoom attached to detached SVGs ("matrix is not
+    // invertible"). One render per tab, always.
+    if (this._currentId === spec.id) return spec;
 
     // Old diagrams keep window resize listeners and pan/zoom instances alive;
     // drop them before the DOM they point at is replaced.

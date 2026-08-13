@@ -92,7 +92,7 @@ LettaAgentAdapter   (proposed — not implemented)
       "No cancellation — a Letta call runs to completion or times out.",
       "No generation identity on any call, so a late reply cannot be fenced.",
       "resolve_agent_id fetches up to 200 agents and scans linearly on every cold build.",
-      "BLOCKED: the default agent for cleanup/receptionist/note-commands runs on lc-gemini, which now returns 401 UNAUTHENTICATED. Every one of these adapters is currently failing closed in production.",
+      "A provider auth failure is indistinguishable from 'still thinking' at the UI. The lc-gemini 401 below went unnoticed for a day because every adapter correctly failed closed and the dashboard simply looked idle.",
     ],
   },
   tests: {
@@ -181,7 +181,7 @@ LettaAgentAdapter   (proposed — not implemented)
     {
       title: "One adapter call, including the current failure",
       caption:
-        "The 401 is real and happening now: the shared worker agent sits on a dead Gemini BYOK handle, so every adapter returns its fail-closed value and the UI simply looks idle.",
+        "How the 2026-08-12 outage looked from inside: the shared worker agent sat on a dead Gemini BYOK handle, so every adapter returned its fail-closed value and the UI simply looked idle. Fixed by moving the agent to chatgpt-plus-pro/gpt-5.6-luna; kept here because the failure MODE is permanent even though this instance is resolved.",
       code: `sequenceDiagram
   participant S as LettaCommandCompletenessStrategy
   participant LC as LettaClient
@@ -203,7 +203,7 @@ LettaAgentAdapter   (proposed — not implemented)
     },
   ],
   nextWork: [
-    "Repoint transcript-cleanup-agent to chatgpt-plus-pro/gpt-5.4-mini and re-run the live check. This unblocks three shipped features.",
+    "Surface provider auth failures distinctly from 'still thinking'. A dead LLM should light up the dashboard, not look like silence — this is the single highest-value gap on this tab.",
     "Surface provider auth failures distinctly from 'still thinking', so a dead LLM is visible in the dashboard rather than looking like silence.",
     "Add a direct LettaClient test with a stubbed urlopen.",
     "Once IConversationAgent exists, build LettaAgentAdapter against it — streaming first, cancellation second.",

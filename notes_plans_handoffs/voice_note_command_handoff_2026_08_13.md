@@ -1,64 +1,24 @@
 # Handoff — Voice note/command channel + Voice Communication workspace (2026-08-13)
 
-Written on **DESKTOP-SHDBATI**. Nothing here has been deployed to the live box.
+Written on **DESKTOP-SHDBATI**, updated after merging with the live box's parallel work.
 
-## 1. Read this first: one thing does NOT arrive via git
+**Where the truth lives:** this file is a snapshot. The living guide is
+**Project Plans → Voice Communication** on the dashboard — 13 tabs, each with the same eight
+sections (Responsibility → Contract → Implementations → Dependencies → Development status → Tests →
+Gotchas → Next work). Read the tab before changing the thing it documents; update the tab in the
+same commit that changes it. That guide, not this file, is what keeps us from drifting again.
 
-`dashboard/voice_communication_plan.html` is tracked as a **symlink** (mode 120000) pointing to
-`~/talking_agent_parts/voice_communication_plan.html`. That target directory is a **separate git
-repo with no remote**, so the two HTML files there did not travel with this push.
+## 1. Read this first: the symlink gap is CLOSED
 
-Everything else — all the JS modules, CSS, Python, and tests — is in this repo and arrives normally.
+An earlier revision of this handoff told you to hand-copy the plan HTML because
+`dashboard/voice_communication_plan.html` was a **symlink** into `~/talking_agent_parts/` (a repo
+with no remote), so it never travelled with a push. **That is fixed.** Both
+`voice_communication_plan.html` and `voice_communication_plan_v1.html` are now ordinary versioned
+files under `dashboard/`. A plain `git pull` gets you the whole guide — no manual step, and
+`~/talking_agent_parts/` is no longer on the serving path at all.
 
-**On the other machine, before opening the tab, run:**
-
-```bash
-cd ~/talking_agent_parts
-# The file currently there IS the original plan. Preserve it as v1 first.
-cp voice_communication_plan.html voice_communication_plan_v1.html
-# Then replace the original with the SPA shell below.
-```
-
-Then write this exact content to `~/talking_agent_parts/voice_communication_plan.html`:
-
-```html
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Voice Communication — Interface Workspace</title>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
-<link rel="stylesheet" href="/css/plan-workspace.css" />
-</head>
-<body>
-  <div class="workspace">
-    <aside class="workspace-sidebar">
-      <div class="workspace-brand">
-        <div class="kicker">Project Plans</div>
-        <h1>Voice Communication</h1>
-        <p>Living development guide, organised by interface. Dots show status.</p>
-      </div>
-      <nav id="workspace-nav"></nav>
-    </aside>
-    <main class="workspace-content" id="workspace-content">
-      <p class="note">Loading workspace…</p>
-    </main>
-  </div>
-  <script type="module" src="/js/plans/voice-communication/boot.js"></script>
-</body>
-</html>
-```
-
-Verify with `.venv/bin/python -m pytest tests/test_project_plans.py` — it asserts both symlinks
-resolve and that the shell stays a shell.
-
-**Worth deciding:** whether the canonical plan file should keep living outside this repo at all.
-Splitting a 46-line shell (unversioned remotely) from its JS modules (pushed here) is what caused
-this gap. Moving it into `dashboard/` and flipping the symlink direction would make the handoff
-self-contained, but `test_project_plans.py` currently encodes the opposite choice on purpose, so
-I left it alone.
+`test_project_plans.py` enforces the new arrangement (`VOICE_COMMUNICATION_PLAN.is_file()`), so it
+cannot silently regress to a symlink.
 
 ## 2. What shipped
 
@@ -177,6 +137,10 @@ preserve did not exist on the old tip (`transcript-merge.js` was missing, its te
    characterization test first.
 5. `lc-gemini` is still dead for anything else on it (the rol_finances categorizer's tier 1 will be
    falling through to its Codex fallback).
-6. **Deploy.** SSH to the live box (`100.102.209.100`) returned `Permission denied
-   (publickey,password)` from here, so none of this is on `DESKTOP-2OBSQMC` yet. Use the
-   base64-piped script method in `dashboard/CLAUDE.md` § "Which machine is live".
+6. **Deploy.** SSH to the live box works — `ssh adamsl@100.102.209.100` (user is `adamsl`, NOT
+   `NewUser`, and there is no `wsl.exe` hop; the earlier `Permission denied (publickey,password)`
+   was purely the wrong username). The live checkout still carried ~390 lines of uncommitted WIP
+   at merge time, so `git status` there and diff the overlap before pulling.
+7. **Commit WIP promptly.** This merge existed only because two agents built a note-taking UI in
+   `detail-renderers.js` within 30 minutes of each other with neither side committing. See
+   Design Protocol → Gotchas.

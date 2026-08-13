@@ -8,20 +8,10 @@ DASHBOARD_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = DASHBOARD_DIR.parent
 DASHBOARD_HTML = DASHBOARD_DIR / "dashboard.html"
 SERVER_REWRITE_PLAN = REPO_ROOT / "notes_plans_handoffs" / "codebase_rewrite.html"
-VOICE_COMMUNICATION_PLAN = (
-    REPO_ROOT.parent / "talking_agent_parts" / "voice_communication_plan.html"
-)
-VOICE_COMMUNICATION_DASHBOARD_LINK = (
-    DASHBOARD_DIR / "voice_communication_plan.html"
-)
+VOICE_COMMUNICATION_PLAN = DASHBOARD_DIR / "voice_communication_plan.html"
 # The original single-document plan, preserved verbatim when the tab became an
 # interface workspace. Linked from the workspace's Overview and Design Protocol.
-VOICE_COMMUNICATION_PLAN_V1 = (
-    REPO_ROOT.parent / "talking_agent_parts" / "voice_communication_plan_v1.html"
-)
-VOICE_COMMUNICATION_V1_DASHBOARD_LINK = (
-    DASHBOARD_DIR / "voice_communication_plan_v1.html"
-)
+VOICE_COMMUNICATION_PLAN_V1 = DASHBOARD_DIR / "voice_communication_plan_v1.html"
 VOICE_WORKSPACE_DIR = DASHBOARD_DIR / "js" / "plans" / "voice-communication"
 PLAN_MODULES_DIR = DASHBOARD_DIR / "js" / "plans"
 
@@ -33,7 +23,7 @@ def _voice_workspace_source() -> str:
     )
 
 
-def test_voice_communication_tab_targets_the_external_plan_source():
+def test_voice_communication_tab_targets_the_versioned_plan_source():
     dashboard = DASHBOARD_HTML.read_text(encoding="utf-8")
 
     assert (
@@ -49,10 +39,22 @@ def test_voice_communication_tab_targets_the_external_plan_source():
     assert 'id="voice-communication-plan-frame"' in section.group(1)
     assert 'class="plan-frame"' in section.group(1)
     assert 'src="/voice_communication_plan.html"' in section.group(1)
-    assert VOICE_COMMUNICATION_DASHBOARD_LINK.is_symlink()
-    assert (
-        VOICE_COMMUNICATION_DASHBOARD_LINK.resolve()
-        == VOICE_COMMUNICATION_PLAN.resolve()
+    assert VOICE_COMMUNICATION_PLAN.is_file()
+
+
+def test_voice_communication_uses_the_dashboard_subnav_with_back():
+    dashboard = DASHBOARD_HTML.read_text(encoding="utf-8")
+    nav = re.search(
+        r'<nav id="nav-voice-communication" class="hidden">(.*?)</nav>',
+        dashboard,
+        re.DOTALL,
+    )
+
+    assert nav is not None
+    assert 'id="btn-back-voice-communication">Back' in nav.group(1)
+    assert 'class="nav-item"' not in nav.group(1)
+    assert 'id="workspace-nav"' not in VOICE_COMMUNICATION_PLAN.read_text(
+        encoding="utf-8"
     )
 
 
@@ -60,7 +62,6 @@ def test_voice_communication_page_is_an_spa_shell_not_a_document():
     """The tab is a workspace shell; its content lives in reusable modules."""
     plan = VOICE_COMMUNICATION_PLAN.read_text(encoding="utf-8")
 
-    assert 'id="workspace-nav"' in plan
     assert 'id="workspace-content"' in plan
     assert '/js/plans/voice-communication/boot.js' in plan
     assert '/css/plan-workspace.css' in plan
@@ -74,11 +75,6 @@ def test_voice_communication_page_is_an_spa_shell_not_a_document():
 
 def test_the_original_plan_document_is_preserved_and_reachable():
     assert VOICE_COMMUNICATION_PLAN_V1.is_file()
-    assert VOICE_COMMUNICATION_V1_DASHBOARD_LINK.is_symlink()
-    assert (
-        VOICE_COMMUNICATION_V1_DASHBOARD_LINK.resolve()
-        == VOICE_COMMUNICATION_PLAN_V1.resolve()
-    )
     v1 = VOICE_COMMUNICATION_PLAN_V1.read_text(encoding="utf-8")
     assert "SOLID Change Protocol" in v1
     assert "Gang of Four First" in v1

@@ -29,9 +29,6 @@ body {
 
 /* ── Shell ───────────────────────────────────────────────────────────────── */
 .workspace {
-  display: grid;
-  grid-template-columns: 268px minmax(0, 1fr);
-  gap: 0;
   height: 100vh;
 }
 
@@ -79,10 +76,8 @@ body {
 .dot.status-refactor   { background: #b8323f; }
 .dot.status-superseded { background: #b3aea3; }
 
-.workspace-content { overflow-y: auto; padding: 34px 46px 90px; background: var(--paper); }
+.workspace-content { height: 100vh; overflow-y: auto; padding: 34px 46px 90px; background: var(--paper); }
 @media (max-width: 900px) {
-  .workspace { grid-template-columns: 1fr; height: auto; }
-  .workspace-sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
   .workspace-content { padding: 22px 18px 60px; }
 }
 
