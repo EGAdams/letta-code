@@ -54,6 +54,12 @@ from supporting_document_service import (
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 from finance.expense_schema import InformationSchemaProbe, ShowColumnsProbe
 from finance.report_page import ReportPageRoutes
+from finance import intake_report_model, intake_report_page
+from finance.intake_report_model import (
+    META_EMPTY,
+    document_type_label as _document_type_label,
+    format_month_range as _format_month_range,
+)
 from finance.supporting_documents import (
     IIntakePageLookup,
     SupportingDocumentPageResolver,
@@ -1263,47 +1269,6 @@ def _recent_intake_archive_path(intake, rows, receipt_path=''):
     return ''
 
 
-_DOC_KIND_LABELS = {
-    'statement': 'Bank Statement',
-    'bank_statement': 'Bank Statement',
-    'receipt': 'Receipt',
-    'tax_document': 'Tax Document',
-    'invoice': 'Invoice (awaiting payment counterpart)',
-    'other': 'Blank or non-financial document',
-}
-
-
-def _document_type_label(doc_kind, vendor):
-    """Human label for the 'Document Type' field, e.g. 'Chase Bank Statement'.
-
-    doc_kind/vendor come from whichever document classifier ran (the
-    deterministic facade's doc_kind/vendor for text-extractable PDFs, or
-    Mazda's classify_scan.py vision result — doc_type/merchant — for scanned
-    images, folded into the intake record by merge_recent_intake_event)."""
-    kind_label = _DOC_KIND_LABELS.get((doc_kind or '').strip().lower())
-    vendor = (vendor or '').strip()
-    if vendor and vendor.lower() not in ('unknown', 'none'):
-        vendor_label = vendor.replace('_', ' ').title()
-        return f'{vendor_label} {kind_label}' if kind_label else vendor_label
-    return kind_label or 'Unknown'
-
-
-def _format_month_range(rows):
-    """'May 30, 2025 >>---> June 23, 2025' from the earliest/latest expense_date
-    among rows, or '--' when there's nothing to show a range for."""
-    dates = sorted({r['date'] for r in (rows or []) if r.get('date')})
-    if not dates:
-        return '--'
-    def _fmt(d):
-        try:
-            return datetime.strptime(d, '%Y-%m-%d').strftime('%B %-d, %Y')
-        except ValueError:
-            return d
-    if len(dates) == 1 or dates[0] == dates[-1]:
-        return _fmt(dates[0])
-    return f'{_fmt(dates[0])} >>---> {_fmt(dates[-1])}'
-
-
 _MAZDA_PROGRESS_LABELS = (
     'STEP 0 — Load learned wrapper',
     'STEP 1 — Classify and parse document',
@@ -1430,9 +1395,12 @@ def build_recent_intake_html(intake):
     MySQL but never generate a report file). Mirrors the Receipt Only page:
     a #verified-transactions table of the intake's expenses with the same
     embedded category-picker dialog, so recategorize / view-receipt work
-    exactly like on a real report."""
+    exactly like on a real report.
+
+    This function's one job is to gather the intake's data. What that data
+    *means* belongs to finance.intake_report_model, and how it looks belongs
+    to finance.intake_report_page."""
     from html import escape as _esc
-    doc = intake.get('document') or 'document'
     label = intake.get('label') or ''
     dispatched_at = intake.get('dispatched_at')
     when = ''
@@ -1440,9 +1408,6 @@ def build_recent_intake_html(intake):
         when = datetime.fromtimestamp(float(dispatched_at)).strftime('%Y-%m-%d %H:%M')
     reported = intake.get('reported_at')
     intake_status = str(intake.get('status') or 'processing').lower()
-    status_detail = str(intake.get('status_detail') or '').strip()
-    parsed = intake.get('parsed')
-    stored = intake.get('stored')
     duplicate_ids = {
         int(i) for i in (intake.get('duplicate_expense_ids') or [])
         if str(i).isdigit()
@@ -1457,18 +1422,13 @@ def build_recent_intake_html(intake):
     except Exception as exc:
         row_error = str(exc)
 
-    doc_type_label = _document_type_label(intake.get('doc_kind'), intake.get('vendor'))
-    month_range = _format_month_range(rows)
     pdf_path, receipt_path = _associated_source_paths(rows)
     if intake.get('kind') == 'pdf':
         # Rule 2: the currently-processed document IS the PDF — it's the
         # source regardless of what (date, amount) matching finds elsewhere.
         pdf_display = '<b>this.</b>'
-    elif pdf_path:
-        pdf_display = _esc(pdf_path)
     else:
-        pdf_display = '--'
-    receipt_display = _esc(receipt_path) if receipt_path else '--'
+        pdf_display = _esc(pdf_path) if pdf_path else META_EMPTY
     scanned_statement_path, moms_ledger_path = _associated_evidence_paths(rows)
     # Prefer the canonically-named bank_statements/ archive copy over
     # whatever raw scan filename scanned_statement_url happens to carry —
@@ -1479,42 +1439,22 @@ def build_recent_intake_html(intake):
     if (archive_path and str(intake.get('doc_kind') or '').lower()
             in {'statement', 'bank_statement', 'credit_card_statement'}):
         scanned_statement_path = archive_path
-    scanned_statement_display = (
-        _esc(scanned_statement_path) if scanned_statement_path else '--')
-    archived_scan_display = _esc(archive_path) if archive_path else '--'
-    moms_ledger_display = _esc(moms_ledger_path) if moms_ledger_path else '--'
     staged_scan_path = _intake_source_document(intake)
-    staged_scan_display = _esc(staged_scan_path) if staged_scan_path else '--'
-    display_doc = os.path.basename(archive_path) if archive_path else doc
 
-    if intake_status in ('fail', 'stalled'):
-        label_text = 'FAILED' if intake_status == 'fail' else 'STALLED'
-        status = f'Mazda Trainer reported {label_text}.'
-        if status_detail:
-            status += f' {status_detail}'
-    elif rows:
-        if stored == 0 and parsed:
-            status = (f'Mazda parsed {parsed} transaction(s); all were already in the '
-                      f'database from an earlier run of this document. The {len(rows)} '
-                      'matching rows are shown below — click one to (re)categorize it.')
-        else:
-            status = (f'{len(rows)} transaction(s) recorded by this intake. '
-                      'Click a row to set its category.')
-    elif row_error:
-        status = f'Could not load this intake’s transactions from the database: {row_error}'
-    elif reported:
-        if str(intake.get('doc_kind') or '').lower() == 'other':
-            status = (
-                'Mazda confirmed this scan is blank or non-financial. '
-                'No transactions were expected.')
-        elif parsed and not stored:
-            status = (f'Mazda parsed {parsed} transaction(s); all were already in the '
-                      'database (duplicates of an earlier run of this document) — '
-                      'nothing new was stored.')
-        else:
-            status = 'Mazda finished this intake without storing new transactions.'
-    else:
-        status = 'Dispatched to Mazda — processing… this page refreshes automatically.'
+    def _path_field(path):
+        return _esc(path) if path else META_EMPTY
+
+    meta_fields = [
+        ('Document Type', _esc(_document_type_label(
+            intake.get('doc_kind'), intake.get('vendor')))),
+        ('Month Range', _esc(_format_month_range(rows))),
+        ('Associated PDF', pdf_display),
+        ('Associated Receipt', _path_field(receipt_path)),
+        ('Associated Scanned Statement', _path_field(scanned_statement_path)),
+        ('Archived Scan Copy', _path_field(archive_path)),
+        ('Associated Mom’s Ledger', _path_field(moms_ledger_path)),
+        ('Staged Scan Image', _path_field(staged_scan_path)),
+    ]
 
     picker_css, picker_html, click_css = '', '', ''
     try:
@@ -1527,109 +1467,34 @@ def build_recent_intake_html(intake):
     source_document_url = (
         f'{INTAKE_DOCUMENT_URL_PREFIX}?scanner={scanner_key}'
         if intake.get('kind') == 'scan' and scanner_key else '')
-    trs = []
-    for r in rows:
-        row_id = r.get('id')
-        is_duplicate = row_id in duplicate_ids or (stored == 0 and bool(parsed))
-        duplicate_badge = (' <strong class="duplicate-badge">DUPLICATE</strong>'
-                           if is_duplicate else '')
-        trs.append(
-            '<tr class="%s%s%s" data-expense-id="%s" '
-            'data-source-document="%s" data-is-duplicate="%s" '
-            'data-vendor-key="%s" data-description="%s" '
-            'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
-            'title="Click row to set category / view receipt">'
-            '<td>%s</td><td class="number">%s</td><td>%s</td><td>%s</td></tr>' % (
-                r['cat_class'], ' duplicate-row' if is_duplicate else '',
-                ' has-receipt' if source_document_url else '',
-                row_id or '',
-                _esc(source_document_url, quote=True),
-                'true' if is_duplicate else 'false',
-                _esc(r['vendor_key'], quote=True),
-                _esc(r['description'], quote=True),
-                _esc(r['amount'], quote=True),
-                _esc(r['date'], quote=True),
-                _esc(r['description']) + duplicate_badge,
-                _esc(r['amount']), _esc(r['date']),
-                _esc(r['reporting_category']),
-            ))
-    body_rows = '\n'.join(trs)
-    if not body_rows:
-        body_rows = (
-            '<tr><td colspan="4" class="muted">There is nothing to verify for '
-            'this document.</td></tr>')
-    table = (
-        '  <h2>Verified Transactions</h2>\n'
-        '  <table id="verified-transactions"><thead><tr>'
-        '<th>Description</th><th class="number">Amount</th><th>Date</th>'
-        '<th>Category</th></tr></thead><tbody>\n'
-        + body_rows + '\n</tbody></table>\n')
     # Refresh while we're still waiting on Mazda's STEP 8 report-back.
     terminal = intake_status in _TERMINAL_INTAKE_STATUSES
-    refresh = '' if (rows or reported or terminal) else '<meta http-equiv="refresh" content="30">'
-    working = ''
-    if not reported and not terminal:
-        progress = mazda_intake_progress(intake)
-        progress_rows = ''.join(
-            '<li class="mazda-step-%s">%s</li>' % (
-                _esc(step.get('status') or 'pending'),
-                _esc(step.get('label') or ''))
-            for step in progress.get('steps', []))
-        working = (
-            '<div class="mazda-working"><h2>Mazda Working</h2>'
-            '<div class="mazda-progress-shell">'
-            f'<div class="mazda-progress-bar" style="width:{int(progress.get("percent", 0))}%"></div>'
-            '</div>'
-            f'<p>{int(progress.get("completed", 0))} of '
-            f'{int(progress.get("required", 0))} required steps complete</p>'
-            f'<ul>{progress_rows}</ul></div>')
-    sub = f'{label} — ' if label else ''
-    return (
-        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        + refresh +
-        '<title>Recent Report</title><style>\n'
-        '    body { font-family: Arial, sans-serif; margin:0; padding:20px; '
-        'background:#f1f5f9; color:#0f172a; }\n'
-        '    section.card { background:#fff; border-radius:12px; padding:18px 20px; '
-        'margin:0 auto; max-width:1100px; box-shadow:0 1px 3px rgba(0,0,0,.08); }\n'
-        '    h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:18px 0 8px; }\n'
-        '    table { width:100%; border-collapse:collapse; overflow:hidden; '
-        'border-radius:12px; font-size:0.95rem; }\n'
-        '    th, td { padding:8px 10px; border-bottom:1px solid #e5e7eb; text-align:left; }\n'
-        '    th { background:#0f172a; color:#fff; }\n'
-        '    th.number, td.number { text-align:right; }\n'
-        '    .muted { color:#6b7280; }\n'
-        '    .duplicate-row td { box-shadow:inset 0 2px #b91c1c,inset 0 -2px #b91c1c; }\n'
-        '    .duplicate-badge { display:inline-block; margin-left:8px; padding:2px 7px; '
-        'border-radius:999px; background:#b91c1c; color:#fff; font-size:.72rem; letter-spacing:.04em; }\n'
-        '    .mazda-working { margin:16px 0; padding:12px; border:1px solid #3b4654; border-radius:10px; background:#000; color:#ffe761; }\n'
-        '    .mazda-working h2 { color:#fff; }\n'
-        '    .mazda-progress-shell { height:10px; overflow:hidden; border-radius:999px; background:rgba(10,16,24,.8); }\n'
-        '    .mazda-progress-bar { height:100%; background:#f4b400; }\n'
-        '    .mazda-working ul { margin:8px 0 0; padding-left:20px; }\n'
-        '    .mazda-step-done { color:#4ade80; } .mazda-step-active { color:#ffe761; font-weight:700; }\n'
-        '    .mazda-step-skipped, .mazda-step-pending { color:#9aa5b1; }\n'
-        + _receipt_only_cat_css() + '\n'
-        + click_css + '\n'
-        + picker_css + '\n'
-        '  </style></head><body>\n'
-        '<section class="card">\n'
-        f'  <h1>Most Recent Document: {_esc(display_doc)}</h1>\n'
-        f'  <p class="muted">{_esc(sub)}dispatched {_esc(when)}</p>\n'
-        '  <p class="doc-meta">'
-        f'Document Type: {_esc(doc_type_label)}<br>'
-        f'Month Range: {_esc(month_range)}<br>'
-        f'Associated PDF: {pdf_display}<br>'
-        f'Associated Receipt: {receipt_display}<br>'
-        f'Associated Scanned Statement: {scanned_statement_display}<br>'
-        f'Archived Scan Copy: {archived_scan_display}<br>'
-        f'Associated Mom’s Ledger: {moms_ledger_display}<br>'
-        f'Staged Scan Image: {staged_scan_display}</p>\n'
-        f'  <p>{_esc(status)}</p>\n'
-        + working +
-        table +
-        '</section>\n' + picker_html + '\n</body></html>')
+    working = ('' if (reported or terminal)
+               else intake_report_page.mazda_working_html(
+                   mazda_intake_progress(intake)))
+    return intake_report_page.render_intake_report(
+        headline=intake_report_model.display_document_name(
+            archive_path, intake.get('document') or 'document'),
+        subtitle=(f'{label} — ' if label else '') + f'dispatched {when}',
+        meta_fields=meta_fields,
+        status_text=intake_report_model.status_sentence(
+            intake, rows, row_error=row_error,
+            status_detail=intake.get('status_detail')),
+        status_tone=intake_report_model.status_tone(
+            intake_status, reported, rows),
+        table_html=intake_report_page.transactions_table_html(
+            intake_report_model.presentation_rows(
+                rows, duplicate_ids,
+                stored=intake.get('stored'), parsed=intake.get('parsed')),
+            source_document_url=source_document_url,
+            empty_note=intake_report_model.empty_table_note(
+                intake_status, reported)),
+        working_html=working,
+        auto_refresh=not (rows or reported or terminal),
+        extra_css=('\n' + _receipt_only_cat_css() + '\n' + click_css + '\n'
+                   + picker_css + '\n'),
+        picker_html=picker_html,
+    )
 
 
 def build_recent_report_html():

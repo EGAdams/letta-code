@@ -5757,6 +5757,58 @@ def test_scanner_statement_report_falls_back_to_synthetic_when_no_archive_match(
     assert 'KFC K980120 GRAND RAPIDS ,MI' in html
 
 
+def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
+    """A stalled scan (the Last Freezer/Window Scan pages' worst case) must
+    still name its document, flag the failure loudly, and explain the empty
+    Verified Transactions table instead of rendering a wall of '--'."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake(
+        '/incoming_scans/scan_freezer_1786536321_7340d041.jpg',
+        'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'parsed': None, 'stored': None,
+        'doc_kind': 'unknown', 'vendor': 'unknown', 'status': 'stalled',
+        'status_detail': 'Verification lock cleared manually.',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '', ''))
+
+    html = server.build_scanner_report_html('freezer')
+
+    # The document is named, never replaced by an "unavailable" sentence, and
+    # only its filename is shown (the staging directory stays private).
+    assert ('Most Recent Document: '
+            'scan_freezer_1786536321_7340d041.jpg') in html
+    assert 'unavailable' not in html
+    assert '/incoming_scans/' not in html
+    # No dash-filled metadata rows.
+    assert 'Month Range' not in html
+    assert 'Associated PDF' not in html
+    # The failure is a banner, and the empty table says why it is empty.
+    assert 'class="status-banner status-bad"' in html
+    assert 'Mazda Trainer reported STALLED' in html
+    assert 'stopped before any transactions were stored' in html
+
+
+def test_recent_intake_html_unclassified_scan_reads_as_state(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'parsed': None, 'stored': None,
+        'status': 'stalled', 'status_detail': '',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
+    monkeypatch.setattr(server, '_intake_source_document', lambda intake: '')
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '', ''))
+
+    html = server.build_scanner_report_html('window')
+
+    assert 'Document Type: Not yet identified' in html
+    assert 'Document Type: Unknown' not in html
+
+
 def test_scanner_report_path_resolves_as_synthetic_db_backed_page():
     assert server._resolve_report_path_alias('/scanner_report.html') == ''
     # The picker now posts location.search as well, so the alias must match on
@@ -5801,7 +5853,7 @@ def test_known_statement_dispatch_is_statement_only():
     assert 'dispatched_at=123.5' in message
     assert 'parse_and_categorize.py' not in message
     assert 'check_vendor_key' not in message
-    assert server._document_type_label('unknown', None) == 'Unknown'
+    assert server._document_type_label('unknown', None) == 'Not yet identified'
     assert server._document_type_label(None, 'chase') == 'Chase'
 
 
@@ -5913,9 +5965,11 @@ def test_recent_intake_html_shows_document_metadata(tmp_path, monkeypatch):
     html = server.build_recent_report_html()
     assert 'Document Type: Chase Bank Statement' in html
     assert 'Month Range: May 30, 2025 &gt;&gt;---&gt; June 23, 2025' in html
-    assert 'Associated PDF: --' in html
-    assert 'Associated Receipt: --' in html
-    assert 'Archived Scan Copy: --' in html
+    # Fields with nothing to say are omitted rather than printed as a column
+    # of dashes that buries the lines that do carry information.
+    assert 'Associated PDF' not in html
+    assert 'Associated Receipt' not in html
+    assert 'Archived Scan Copy' not in html
 
 
 def test_statement_archive_path_finds_canonically_named_copy(tmp_path, monkeypatch):
@@ -6076,7 +6130,7 @@ def test_recent_receipt_uses_canonical_archive_name_and_not_statement_slot(
             'intercessors_for_america_03_18_25_30_50.jpg') in html
     assert f'Associated Receipt: {archived}' in html
     assert f'Archived Scan Copy: {archived}' in html
-    assert 'Associated Scanned Statement: --' in html
+    assert 'Associated Scanned Statement' not in html
     assert 'Staged Scan Image: /staged/window_scan.jpg' in html
 
 
