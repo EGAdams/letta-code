@@ -111,6 +111,14 @@ describe("InterfaceWorkspace", () => {
     ).toBe(true);
   });
 
+  test("can mount content-only when the dashboard owns navigation", async () => {
+    const ctx = setup();
+    await ctx.workspace.mount(null, "content");
+    expect(ctx.workspace.currentId).toBe("alpha");
+    expect(ctx.nav.children.length).toBe(0);
+    expect(ctx.content.querySelector(".spec-header")).toBeTruthy();
+  });
+
   test("honours a deep link to a specific interface", async () => {
     const ctx = setup({ hash: "#beta" });
     await ctx.workspace.mount("nav", "content");

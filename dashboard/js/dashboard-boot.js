@@ -44,6 +44,8 @@ import {
   VendorReviewController,
   VisionHaltAlert,
 } from "./implementation/index.js";
+import { VoiceCommunicationNavigationController } from "./implementation/voice-communication-navigation-controller.js";
+import { voiceCommunicationSpecs } from "./plans/voice-communication/index.js";
 
 // One shared HttpClient (Adapter over fetch) used by AM / SM / SSHM / RF.
 const http = new FetchHttpClient();
@@ -65,6 +67,9 @@ const navAgentDetail = document.getElementById("nav-agent-detail");
 const navServers = document.getElementById("nav-servers");
 const navSSH = document.getElementById("nav-ssh-connections");
 const navPlans = document.getElementById("nav-plans");
+const navVoiceCommunication = document.getElementById(
+  "nav-voice-communication",
+);
 const navRolFinance = document.getElementById("nav-rol-finance");
 const navRolFinanceReports = document.getElementById("nav-rol-finance-reports");
 const navScanners = document.getElementById("nav-scanners");
@@ -415,6 +420,19 @@ function setAgentDetailContent(agentName) {
 
 setAgentDetailContent("Agent");
 
+const voiceCommunicationNavigation = new VoiceCommunicationNavigationController(
+  {
+    plansNav: navPlans,
+    voiceNav: navVoiceCommunication,
+    frame: document.getElementById("voice-communication-plan-frame"),
+    specs: voiceCommunicationSpecs,
+    activateView: safeActivateView,
+    setActive: safeSetActive,
+    doc: document,
+  },
+);
+voiceCommunicationNavigation.bind();
+
 if (
   navMain &&
   navStatus &&
@@ -423,6 +441,7 @@ if (
   navServers &&
   navSSH &&
   navPlans &&
+  navVoiceCommunication &&
   navRolFinance &&
   navRolFinanceReports
 ) {
@@ -523,6 +542,10 @@ if (
     .forEach((tab) => {
       tab.addEventListener("click", () => {
         safeSetActive(navPlans, '[data-nav="plans"][data-target]', tab);
+        if (tab.dataset.target === "plans-voice-communication") {
+          voiceCommunicationNavigation.open();
+          return;
+        }
         safeActivateView(tab.dataset.target);
       });
     });

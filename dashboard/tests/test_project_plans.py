@@ -42,11 +42,26 @@ def test_voice_communication_tab_targets_the_versioned_plan_source():
     assert VOICE_COMMUNICATION_PLAN.is_file()
 
 
+def test_voice_communication_uses_the_dashboard_subnav_with_back():
+    dashboard = DASHBOARD_HTML.read_text(encoding="utf-8")
+    nav = re.search(
+        r'<nav id="nav-voice-communication" class="hidden">(.*?)</nav>',
+        dashboard,
+        re.DOTALL,
+    )
+
+    assert nav is not None
+    assert 'id="btn-back-voice-communication">Back' in nav.group(1)
+    assert 'class="nav-item"' not in nav.group(1)
+    assert 'id="workspace-nav"' not in VOICE_COMMUNICATION_PLAN.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_voice_communication_page_is_an_spa_shell_not_a_document():
     """The tab is a workspace shell; its content lives in reusable modules."""
     plan = VOICE_COMMUNICATION_PLAN.read_text(encoding="utf-8")
 
-    assert 'id="workspace-nav"' in plan
     assert 'id="workspace-content"' in plan
     assert '/js/plans/voice-communication/boot.js' in plan
     assert '/css/plan-workspace.css' in plan

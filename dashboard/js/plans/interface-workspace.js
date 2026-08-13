@@ -45,31 +45,35 @@ export class InterfaceWorkspace {
 
   /** Build the nav into `navTarget` and mount pages into `contentTarget`. */
   mount(navTarget, contentTarget) {
-    const nav = this._doc.getElementById(navTarget);
     const content = this._doc.getElementById(contentTarget);
-    if (!nav || !content) return null;
+    if (!content) return null;
     this._content = content;
-    nav.innerHTML = "";
 
-    let group = null;
-    for (const spec of this._specs) {
-      if (spec.group && spec.group !== group) {
-        group = spec.group;
-        nav.append(this._el("div", "nav-group", { textContent: group }));
+    if (navTarget) {
+      const nav = this._doc.getElementById(navTarget);
+      if (!nav) return null;
+      nav.innerHTML = "";
+
+      let group = null;
+      for (const spec of this._specs) {
+        if (spec.group && spec.group !== group) {
+          group = spec.group;
+          nav.append(this._el("div", "nav-group", { textContent: group }));
+        }
+        const button = this._el("button", "nav-item", {
+          type: "button",
+          textContent: spec.name,
+        });
+        button.dataset.specId = spec.id;
+        button.append(
+          this._el("span", `dot status-${spec.status}`, {
+            title: STATUS_LABELS[spec.status],
+          }),
+        );
+        button.addEventListener("click", () => this.show(spec.id));
+        nav.append(button);
+        this._navButtons.set(spec.id, button);
       }
-      const button = this._el("button", "nav-item", {
-        type: "button",
-        textContent: spec.name,
-      });
-      button.dataset.specId = spec.id;
-      button.append(
-        this._el("span", `dot status-${spec.status}`, {
-          title: STATUS_LABELS[spec.status],
-        }),
-      );
-      button.addEventListener("click", () => this.show(spec.id));
-      nav.append(button);
-      this._navButtons.set(spec.id, button);
     }
 
     this._win.addEventListener?.("hashchange", () => this._showFromHash());

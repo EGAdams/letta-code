@@ -161,7 +161,7 @@ Other Project Plans notes:
   its doc `/team_construction_plan.html` is kept (with a SUPERSEDED banner) as design history only.
 - **Project Plans → Verification Tracker** (`/notes_plans_handoffs/verification_tracker.html`) mirrors the January statement verification tracker markdown as a dashboard-readable HTML page.
 - **Project Plans → Pipecat Voice** (`/notes_plans_handoffs/pipecat_letta_voice_plan.html`) records the proposed future integration that uses Pipecat for real-time voice/media while Letta remains the agent runtime and memory source of truth.
-- **Project Plans → Voice Communication** (`/voice_communication_plan.html`) is the team’s version-controlled voice development guide. It is a 13-tab, interface-oriented workspace under `dashboard/js/plans/voice-communication/`; the original single-page plan remains available at `/voice_communication_plan_v1.html`.
+- **Project Plans → Voice Communication** (`/voice_communication_plan.html`) is the team’s version-controlled voice development guide. Its 13 interface choices use the dashboard’s standard blue submenu and Back bar; the iframe contains only the university-style guide page. Specs live under `dashboard/js/plans/voice-communication/`, and the original single-page plan remains available at `/voice_communication_plan_v1.html`.
 - The old Tool Fix plan was removed; `/agent_self_improvement/mazda_tool_fix_plan.html`
   should return 404.
 - Frita can advise on dashboard deployment details at Letta agent id
