@@ -1,0 +1,191 @@
+/* Styling for the interface-workspace SPA (js/plans/). Kept out of the page
+   shell so a second project workspace can reuse it unchanged. */
+:root {
+  --paper: #fbfaf6;
+  --paper-deep: #f0ece2;
+  --ink: #182026;
+  --muted: #5c6670;
+  --line: #d5d0c4;
+  --navy: #173b57;
+  --blue: #235f85;
+  --green: #21643d;
+  --amber: #9a6200;
+  --red: #8c2f39;
+  --code: #202a31;
+  --code-ink: #edf4f7;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #e5e8e9;
+  color: var(--ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Shell ───────────────────────────────────────────────────────────────── */
+.workspace {
+  display: grid;
+  grid-template-columns: 268px minmax(0, 1fr);
+  gap: 0;
+  height: 100vh;
+}
+
+.workspace-sidebar {
+  background: var(--paper-deep);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 18px 0 40px;
+}
+
+.workspace-brand { padding: 0 18px 14px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.workspace-brand .kicker {
+  text-transform: uppercase; letter-spacing: .28em; font-size: 10.5px;
+  color: var(--blue); font-weight: 700;
+}
+.workspace-brand h1 { font-size: 19px; margin: 4px 0 2px; line-height: 1.2; }
+.workspace-brand p { font-size: 12.5px; color: var(--muted); margin: 0; line-height: 1.45; }
+
+.nav-group {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .16em;
+  color: var(--muted); font-weight: 700; padding: 16px 18px 5px;
+}
+
+.nav-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; text-align: left; background: none; border: 0;
+  border-left: 3px solid transparent;
+  padding: 8px 18px; font: inherit; font-size: 14px; color: var(--ink);
+  cursor: pointer;
+}
+.nav-item:hover { background: rgba(35, 95, 133, .07); }
+.nav-item.active {
+  background: var(--paper); border-left-color: var(--blue);
+  font-weight: 600; color: var(--navy);
+}
+
+/* Solid fills: at 9px a pale pill background reads as "empty circle" for every
+   status, which defeats the point of an at-a-glance status column. */
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; border: 1px solid rgba(0,0,0,.22); }
+.dot.status-finished   { background: #2f8a4e; }
+.dot.status-working    { background: #2f6fa8; }
+.dot.status-partial    { background: #d9a01e; }
+.dot.status-planned    { background: #fbfaf6; }
+.dot.status-blocked    { background: #b8323f; }
+.dot.status-refactor   { background: #b8323f; }
+.dot.status-superseded { background: #b3aea3; }
+
+.workspace-content { overflow-y: auto; padding: 34px 46px 90px; background: var(--paper); }
+@media (max-width: 900px) {
+  .workspace { grid-template-columns: 1fr; height: auto; }
+  .workspace-sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+  .workspace-content { padding: 22px 18px 60px; }
+}
+
+/* ── Status colours (shared by pills and nav dots) ───────────────────────── */
+.status-finished   { background: #dff0e4; color: var(--green);  border-color: #9bbf9b; }
+.status-working    { background: #e9eff7; color: var(--navy);   border-color: #9fb3cc; }
+.status-partial    { background: #f7f1df; color: var(--amber);  border-color: #cdb87a; }
+.status-planned    { background: #efeae2; color: var(--muted);  border-color: #cfc7b6; }
+.status-blocked    { background: #f7ebe9; color: var(--red);    border-color: #d8a6a0; }
+.status-refactor   { background: #f7ebe9; color: var(--red);    border-color: #d8a6a0; }
+.status-superseded { background: #ecebe8; color: #6c6a63;       border-color: #c9c6bd; }
+
+/* ── Page ────────────────────────────────────────────────────────────────── */
+.spec-header { border-bottom: 2px solid var(--line); padding-bottom: 14px; margin-bottom: 6px; }
+.spec-header h1 { font-size: 34px; margin: 0 0 4px; letter-spacing: -.01em; }
+.spec-tagline { font-size: 17px; color: var(--muted); margin: 0 0 10px; font-style: italic; }
+.spec-status-row { margin: 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.spec-status-note { font-size: 13.5px; color: var(--muted); }
+
+.pill {
+  display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; padding: 3px 11px; border-radius: 999px; border: 1px solid;
+}
+
+.spec-section { margin: 30px 0; }
+.spec-section > h2 {
+  font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--blue);
+  border-bottom: 1px solid var(--line); padding-bottom: 6px; margin: 0 0 12px;
+}
+.spec-section h3 { font-size: 15px; color: var(--navy); margin: 18px 0 6px; }
+.spec-section p { margin: 10px 0; max-width: 78ch; }
+.spec-section ul, .spec-section ol { margin: 8px 0; padding-left: 22px; max-width: 78ch; }
+.spec-section li { margin: 5px 0; }
+.note { font-size: 14px; color: var(--muted); font-style: italic; }
+
+pre {
+  background: var(--code); color: var(--code-ink); border-radius: 8px;
+  padding: 15px 17px; overflow-x: auto; margin: 12px 0;
+  font-size: 13px; line-height: 1.6; border: 1px solid #38424a;
+}
+pre code { font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; background: none; color: inherit; }
+code {
+  font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; font-size: .86em;
+  background: #eae4d8; color: #5a3030; padding: 1px 5px; border-radius: 3px;
+}
+
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+thead th { border-bottom: 2px solid var(--ink); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); width: 4em; }
+.impl-name { width: 30%; }
+.impl-file { font-family: Consolas, monospace; font-size: 12px; color: var(--muted); width: 28%; }
+tr.impl-deprecated .impl-name code { opacity: .62; text-decoration: line-through; }
+tr.impl-planned .impl-name code { opacity: .72; }
+
+.box {
+  border: 1px solid var(--line); border-left: 4px solid var(--navy);
+  background: var(--paper-deep); padding: 12px 16px; margin: 14px 0; border-radius: 0 6px 6px 0;
+}
+.box .h { text-transform: uppercase; letter-spacing: .1em; font-size: 11px; font-weight: 700; margin-bottom: 4px; }
+.box.good { border-left-color: var(--green); background: #eef6ee; }
+.box.good .h { color: var(--green); }
+.box.warn { border-left-color: var(--amber); background: #f7f1df; }
+.box.warn .h { color: var(--amber); }
+.box.bad { border-left-color: var(--red); background: #f7ebe9; }
+.box.bad .h { color: var(--red); }
+
+.next-work ol { counter-reset: none; }
+.next-work li { margin: 8px 0; }
+
+/* ── Diagrams (pan/zoom viewport) ────────────────────────────────────────── */
+.diagram { margin: 20px 0; }
+.diagram-title {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--muted); font-weight: 700; margin-bottom: 6px;
+}
+.diagram-caption { font-size: 13.5px; color: var(--muted); margin: 8px 0 0; max-width: 78ch; }
+
+/* Fixed height + overflow hidden: svg-pan-zoom's fit/center need a bounded box. */
+.mermaid-wrap {
+  position: relative; background: var(--paper-deep);
+  border: 1px solid var(--line); border-radius: 8px;
+  height: 460px; overflow: hidden;
+}
+.mermaid-wrap .mermaid { padding: 14px; text-align: center; height: 100%; }
+.mermaid-wrap svg { width: 100%; height: 100%; cursor: grab; }
+.mermaid-wrap svg:active { cursor: grabbing; }
+.mermaid-wrap.mermaid-failed { height: auto; }
+.mermaid-error {
+  margin: 0; border-radius: 0; font-size: 12px; white-space: pre-wrap;
+  background: #3a2723; color: #f3d7d2;
+}
+
+.mermaid-hint {
+  position: absolute; top: 8px; right: 10px; font-size: 11px; color: var(--muted);
+  background: rgba(251, 250, 246, .9); border: 1px solid var(--line); border-radius: 4px;
+  padding: 2px 7px; pointer-events: none;
+  font-family: "SF Mono", Consolas, monospace; letter-spacing: .02em;
+}
+.mermaid-controls { position: absolute; bottom: 8px; right: 10px; display: flex; gap: 4px; }
+.mermaid-btn {
+  font: inherit; font-size: 12px; line-height: 1; color: var(--muted);
+  background: var(--paper); border: 1px solid var(--line); border-radius: 4px;
+  padding: 5px 9px; cursor: pointer; min-width: 30px;
+}
+.mermaid-btn:hover { color: var(--ink); border-color: var(--blue); background: #fff; }
