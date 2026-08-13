@@ -16,7 +16,7 @@ class AgentModelOptionsResponse(StrictBoundaryModel):
     current: str = ''
     options: tuple[str, ...] = Field(default_factory=tuple)
 
-    def to_http(self) -> dict:
+    def to_http(self) -> dict[str, object]:
         return {
             'ok': self.ok,
             'current': self.current,

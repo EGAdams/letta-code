@@ -21,7 +21,11 @@ class FakeMediaRecorder {
   }
 }
 
-function makeDeps({ canOpen = true, voiceResult = { ok: true } } = {}) {
+function makeDeps({
+  canOpen = true,
+  voiceResult = { ok: true },
+  denyError = new Error("denied"),
+} = {}) {
   const tracks = [
     {
       stop: () => {
@@ -33,7 +37,7 @@ function makeDeps({ canOpen = true, voiceResult = { ok: true } } = {}) {
     navigator: {
       mediaDevices: {
         getUserMedia: async () => {
-          if (!canOpen) throw new Error("denied");
+          if (!canOpen) throw denyError;
           return { getTracks: () => tracks };
         },
       },
@@ -74,15 +78,32 @@ describe("MediaRecorderVoiceRecorder (concrete VoiceRecorder)", () => {
     ]);
   });
 
-  test("openStream returns false when getUserMedia is unavailable", async () => {
+  test("openStream returns false when getUserMedia is unavailable, with a secure-context lastError", async () => {
     const r = new MediaRecorderVoiceRecorder({ navigator: {} });
     expect(await r.start()).toBe(false);
     expect(r.state).toBe(RecorderState.IDLE);
+    expect(r.lastError).toMatch(/secure context/i);
   });
 
-  test("openStream returns false when permission is denied", async () => {
-    const r = new MediaRecorderVoiceRecorder(makeDeps({ canOpen: false }));
+  test("openStream returns false with a permission-denied lastError on NotAllowedError", async () => {
+    const err = new Error("denied");
+    err.name = "NotAllowedError";
+    const r = new MediaRecorderVoiceRecorder(
+      makeDeps({ canOpen: false, denyError: err }),
+    );
     expect(await r.start()).toBe(false);
+    expect(r.lastError).toMatch(/permission was denied/i);
+  });
+
+  test("openStream distinguishes a generic getUserMedia failure from permission-denied", async () => {
+    const err = new Error("device busy");
+    err.name = "NotReadableError";
+    const r = new MediaRecorderVoiceRecorder(
+      makeDeps({ canOpen: false, denyError: err }),
+    );
+    expect(await r.start()).toBe(false);
+    expect(r.lastError).not.toMatch(/permission was denied/i);
+    expect(r.lastError).toContain("device busy");
   });
 
   test("transcribe throws when the server reports failure", async () => {

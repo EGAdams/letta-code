@@ -884,3 +884,81 @@ def test_a_receipt_reference_outside_the_allowed_roots_stays_unavailable(
 
     assert server._resolve_local_supporting_document(
         str(stray), "receipt") is None
+
+
+def test_interactive_open_queues_annotation_without_waiting(
+    tmp_path, monkeypatch
+):
+    statement = tmp_path / "statement.jpg"
+    statement.write_bytes(b"image")
+    row = {
+        "id": 478,
+        "expense_date": "2025-01-13",
+        "amount": "25.00",
+        "id_light": "shop_01_13_25_25_00",
+        "description": "Shop",
+        "receipt_url": None,
+        "document_url": str(statement),
+        "moms_ledger": None,
+    }
+    monkeypatch.setattr(server, "_lookup_expense_row", lambda *a, **kw: row)
+    monkeypatch.setattr(
+        server, "_resolve_local_supporting_document", lambda ref, kind: str(statement)
+    )
+    monkeypatch.setattr(
+        server, "_background_annotation_result", lambda *a, **kw: None
+    )
+
+    result = server.open_supporting_document(
+        "2025-01-13", "-25.00", "shop", "source",
+        expense_id=478, wait_for_highlight=False,
+    )
+
+    assert result["ok"] is True
+    assert result["url"] == "/supporting-document/478/source"
+    assert result["highlighted"] is False
+    assert result["highlight_pending"] is True
+
+
+def test_viewer_serves_original_while_background_annotation_is_pending(
+    tmp_path, monkeypatch
+):
+    statement = tmp_path / "statement.jpg"
+    statement.write_bytes(b"image")
+    row = {"id": 479, "document_url": str(statement)}
+    monkeypatch.setattr(server, "_lookup_expense_row", lambda *a, **kw: row)
+    monkeypatch.setattr(
+        server, "_resolve_local_supporting_document", lambda ref, kind: str(statement)
+    )
+    monkeypatch.setattr(
+        server, "_background_annotation_result", lambda *a, **kw: None
+    )
+
+    viewed = server._supporting_document_view_for_expense(479, "source")
+
+    assert viewed == str(statement)
+
+
+def test_receipt_scan_never_offers_itself_as_a_source_document(tmp_path, monkeypatch):
+    """A receipt/invoice scan has no separate source document.
+
+    The scan image already appears as "View Receipt"; offering it again under
+    "View Source Document" is a redundant, misleading duplicate button — that
+    label is reserved for a genuine downloaded/scanned statement covering
+    several transactions, distinct from any one row's own receipt.
+    """
+    scan = tmp_path / "scan_freezer_1785370278642285445_af131e077dc3.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server,
+        "get_scanner_intake",
+        lambda key: {"image_path": str(scan), "doc_kind": "receipt"},
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": "", "moms_ledger": ""}
+    report_path = "/scanner_report.html?scanner=freezer"
+
+    assert server._source_document_reference(row, report_path) == ""
+    documents = server._supporting_document_descriptors(row, report_path)
+    assert documents[1]["available"] is False

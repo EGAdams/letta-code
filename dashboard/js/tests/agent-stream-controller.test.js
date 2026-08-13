@@ -49,6 +49,22 @@ describe("AgentStreamController (concrete PollingController)", () => {
     expect(view.buffer).toContain("no thoughts recorded yet");
   });
 
+  test("preserves query parameters and replaces a duplicate agent", async () => {
+    const view = new BufferConsole();
+    const http = fakeHttp([[]]);
+    const c = new AgentStreamController({
+      http,
+      view,
+      url: "/api/thoughts?scope=scan&agent=stale",
+      agentId: "agent with spaces",
+    });
+
+    await c.poll();
+    expect(http.calls[0]).toBe(
+      "/api/thoughts?scope=scan&agent=agent+with+spaces",
+    );
+  });
+
   test("formats and dedups rows across polls", async () => {
     const view = new BufferConsole();
     const row = {

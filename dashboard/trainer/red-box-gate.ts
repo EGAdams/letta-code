@@ -86,12 +86,31 @@ function collectIdsFromValue(
     if (text.startsWith("{") || text.startsWith("[")) {
       try {
         collectIdsFromValue(JSON.parse(text), ids, depth + 1);
+        return;
       } catch {
-        collectIdsFromLooseText(text, ids);
+        // Fall through to per-line parsing below — a Bash tool_return's
+        // `stdout` field is captured CLI output, not a bare JSON document:
+        // parse_and_categorize.py --save prints prose/log lines (including
+        // Python dict reprs with single quotes, e.g. "Receipt metadata
+        // create kwargs: {'expense_id': 1980, ...}") followed by exactly one
+        // trailing JSON line. A whole-string parse failure here doesn't mean
+        // no JSON is present.
       }
-    } else {
-      collectIdsFromLooseText(text, ids);
     }
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) continue;
+      try {
+        collectIdsFromValue(JSON.parse(trimmed), ids, depth + 1);
+      } catch {
+        // Not JSON (e.g. the single-quoted Python repr line above) — skip.
+      }
+    }
+    // Regex fallback: catches expense-id patterns embedded in text that
+    // never parses cleanly as JSON, whole or per-line (malformed fragments,
+    // single-quoted Python reprs). Purely additive — never removes ids
+    // already found above.
+    collectIdsFromLooseText(text, ids);
     return;
   }
   if (Array.isArray(value)) {
@@ -330,6 +349,10 @@ export async function auditRedBoxesForRun(
         opened = await postJson("/api/open-supporting-document", {
           expense_id: expenseId,
           document_type: documentType,
+          // Browser clicks open immediately and prepare highlights in the
+          // background. The Trainer explicitly waits because it grades the
+          // annotation itself, not interactive viewer latency.
+          wait_for_highlight: true,
         });
       } catch (error) {
         failures.push({

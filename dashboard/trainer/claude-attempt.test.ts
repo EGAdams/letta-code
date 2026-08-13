@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ClaudeAttemptCompletionObservedError,
   ClaudeAttemptTimeoutError,
   runWithAbortTimeout,
 } from "./claude-attempt.ts";
@@ -69,5 +70,26 @@ describe("Trainer Claude attempt deadline", () => {
 
   test("a non-positive deadline means no deadline", async () => {
     expect(await runWithAbortTimeout(async () => "ok", 0)).toBe("ok");
+  });
+});
+
+describe("runWithAbortTimeout completion observer", () => {
+  test("aborts a model session as soon as its deliverable exists", async () => {
+    let complete = false;
+    let aborted = false;
+    const run = (signal: AbortSignal) =>
+      new Promise<string>(() => {
+        signal.addEventListener("abort", () => {
+          aborted = true;
+        });
+      });
+    setTimeout(() => {
+      complete = true;
+    }, 10);
+
+    await expect(
+      runWithAbortTimeout(run, 5_000, () => complete),
+    ).rejects.toBeInstanceOf(ClaudeAttemptCompletionObservedError);
+    expect(aborted).toBe(true);
   });
 });

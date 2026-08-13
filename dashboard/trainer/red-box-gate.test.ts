@@ -81,6 +81,39 @@ describe("Trainer deterministic red-box gate", () => {
     ).toEqual([1705]);
   });
 
+  test("finds an expense id in a Bash tool_return's captured stdout, not just bare JSON", () => {
+    // Real shape from the 2026-08-02 Dermatology Associates freezer scan
+    // (expense 1980): parse_and_categorize.py --save prints a Python dict
+    // repr line ("Receipt metadata create kwargs: {'expense_id': 1980, ...}",
+    // single-quoted — not JSON) followed by log/warning lines, then exactly
+    // one trailing JSON line with the real result. Before this fix,
+    // collectIdsFromValue only parsed a tool_return string when the *entire*
+    // trimmed string was JSON, so this run's stdout was skipped outright and
+    // the deterministic gate reported "PASS — 0 checked" instead of catching
+    // that the receipt was never red-boxed.
+    const stdout =
+      "Receipt metadata create kwargs: {'expense_id': 1980, 'model_name': 'gemini'}\n" +
+      "Receipt metadata row: {'id': 132, 'expense_id': 1980}\n" +
+      `${JSON.stringify({ success: true, expense_id: 1980, duplicate: false })}\n`;
+    const messages = [
+      {
+        date: "2026-08-02T01:54:23+00:00",
+        message_type: "tool_return_message",
+        status: "success",
+        tool_return: JSON.stringify({
+          returncode: 0,
+          stdout,
+          stderr: "WARNING:__main__:Source-counterpart lookup failed\n",
+          cwd_resolved: "/home/adamsl/rol_finances",
+        }),
+      },
+    ];
+
+    expect(collectExpenseIds(messages, [], 1785635468, "conv-freezer")).toEqual(
+      [1980],
+    );
+  });
+
   test("audits every available viewer and reports an unboxed child", async () => {
     const calls: Array<[string, unknown]> = [];
     const postJson = async (path: string, body: unknown): Promise<unknown> => {

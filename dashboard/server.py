@@ -31,6 +31,7 @@ from agents.model_options import AgentModelOptionsService, select_model_options
 from agents.urllib_letta_gateway import UrllibLettaGateway
 
 from voice.pipeline import build_pipeline, handle_voice_upload
+from voice.receptionist import build_receptionist_strategy
 from voice.synthesis import EdgeTtsSynthesizer, cache_path as synthesis_cache_path
 from category_taxonomy import FallbackCategoryTaxonomy, MySqlCategoryTaxonomy
 from category_taxonomy_seed import LEGACY_TAXONOMY
@@ -44,7 +45,11 @@ from document_annotation import (
     ExpenseEvidence,
     IExpenseDocumentAnnotationService,
     build_document_annotation_service,
+    render_excel_for_browser,
 )
+from agent_thoughts import message_text as _msg_text, select_thoughts
+from background_result_proxy import BackgroundResultProxy
+from category_picker import category_row_css, render_assets
 from recent_intake_view import collapse_check_evidence_rows
 from supporting_document_service import (
     normalize_supporting_document_reference,
@@ -71,6 +76,7 @@ from supporting_document_application import (
     SupportingDocumentRequest,
     SupportingDocumentService,
 )
+from scanner_state import intake_is_in_progress
 import statement_review
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -722,6 +728,14 @@ def _fold_event_into_intake(intake, event):
     # service restart.
     if event_status:
         intake['status'] = event_status
+    elif intake.get('status_source') == 'transport':
+        # A synchronous Letta POST can time out after the isolated
+        # conversation accepted the message. Its later STEP 8 callback is
+        # authoritative proof of delivery; clear only that provisional
+        # transport failure, never a Trainer verdict.
+        intake['status'] = 'complete'
+        intake['status_detail'] = ''
+        intake['status_source'] = 'callback'
     elif str(intake.get('status') or '').lower() not in {
             'pass', 'corrected', 'fail', 'stalled'}:
         intake['status'] = 'complete'
@@ -871,6 +885,8 @@ def merge_recent_intake_status(update):
                 intake['status'] = status
                 intake['status_detail'] = str(
                     update.get('detail') or '').strip()
+            intake['status_source'] = str(
+                update.get('status_source') or 'trainer').strip()
             intake['trainer_report'] = str(update.get('report_path') or '').strip()
             intake['reported_at'] = time.time()
         return _write_recent_pointer_file(data)
@@ -1269,6 +1285,30 @@ def _recent_intake_archive_path(intake, rows, receipt_path=''):
     return ''
 
 
+def scanner_intake_archive_path(intake, rows):
+    """Resolve the durable archive file used by scanner verification.
+
+    Prefer the canonical ``bank_statements`` copy for statements. Older and
+    corrected duplicate-only intakes may only have the DB-backed
+    ``scanned_statement_url`` copy, so use that existing file as a safe
+    fallback instead of reporting that no archive exists.
+    """
+    doc_kind = str((intake or {}).get('doc_kind') or '').strip().lower()
+    archive_file = ''
+    if doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}:
+        archive_file = _statement_archive_path(
+            rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
+    if archive_file:
+        return archive_file
+    if doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}:
+        scanned_statement_path, _moms_ledger_path = _associated_evidence_paths(rows)
+        if scanned_statement_path and os.path.isfile(scanned_statement_path):
+            return scanned_statement_path
+    _pdf_path, receipt_path = _associated_source_paths(rows)
+    return _recent_intake_archive_path(
+        intake or {}, rows, receipt_path=receipt_path)
+
+
 _MAZDA_PROGRESS_LABELS = (
     'STEP 0 — Load learned wrapper',
     'STEP 1 — Classify and parse document',
@@ -1382,7 +1422,9 @@ def mazda_intake_progress(intake):
         return _mazda_progress_from_messages(intake, [])
     data = letta_get(
         f'/v1/conversations/{quote(conversation_id, safe="")}/messages?limit=200',
-        timeout=25)
+        # This runs while rendering the scanner report.  Letta being down must
+        # not leave the iframe blank for most of its 30-second refresh cycle.
+        timeout=3)
     messages = (
         data if isinstance(data, list)
         else (data or {}).get('messages', (data or {}).get('results', [])))
@@ -1430,16 +1472,18 @@ def build_recent_intake_html(intake):
     else:
         pdf_display = _esc(pdf_path) if pdf_path else META_EMPTY
     scanned_statement_path, moms_ledger_path = _associated_evidence_paths(rows)
-    # Prefer the canonically-named bank_statements/ archive copy over
-    # whatever raw scan filename scanned_statement_url happens to carry —
-    # legacy rows still point at the staging path even once a properly
-    # named copy has been filed. See _statement_archive_path.
+    # Resolve the durable archive copy once: it is the ONLY scan-image path the
+    # report is allowed to print. The intake's own image_path is a temporary
+    # staging location, so showing it advertises a path that will not exist
+    # tomorrow (and leaks the staging tree) — the file name still appears as
+    # "Most Recent Document", which is the part a reader can act on.
     archive_path = _recent_intake_archive_path(
         intake, rows, receipt_path=receipt_path)
-    if (archive_path and str(intake.get('doc_kind') or '').lower()
-            in {'statement', 'bank_statement', 'credit_card_statement'}):
-        scanned_statement_path = archive_path
-    staged_scan_path = _intake_source_document(intake)
+    # The scanned statement is its own evidence slot, but for statement intakes
+    # it resolves to the same archived copy — print it only when it adds a path
+    # the reader cannot already see.
+    if archive_path and scanned_statement_path == archive_path:
+        scanned_statement_path = ''
 
     def _path_field(path):
         return _esc(path) if path else META_EMPTY
@@ -1451,9 +1495,8 @@ def build_recent_intake_html(intake):
         ('Associated PDF', pdf_display),
         ('Associated Receipt', _path_field(receipt_path)),
         ('Associated Scanned Statement', _path_field(scanned_statement_path)),
-        ('Archived Scan Copy', _path_field(archive_path)),
+        ('Archived Scan Image', _path_field(archive_path)),
         ('Associated Mom’s Ledger', _path_field(moms_ledger_path)),
-        ('Staged Scan Image', _path_field(staged_scan_path)),
     ]
 
     picker_css, picker_html, click_css = '', '', ''
@@ -1514,20 +1557,15 @@ def build_recent_report_html():
                 'document and this page will show its Verified Transactions.</p>')
     if recent.get('mode') == 'intake':
         return build_recent_intake_html(recent['intake'])
-    with open(recent['file'], encoding='utf-8', errors='replace') as f:
-        html = f.read()
-    base_href = recent['url'].rsplit('/', 1)[0] + '/'
-    base_tag = f'<base href="{base_href}">'
-    m = re.search(r'<head[^>]*>', html, re.I)
-    if m:
-        return html[:m.end()] + base_tag + html[m.end():]
-    return base_tag + html
+    return _embed_report_html(recent['url'], recent['file'])
 
 
 def _embed_report_html(report_url, report_file):
-    """Return one report.html with a <base href> injected for dashboard use."""
-    with open(report_file, encoding='utf-8', errors='replace') as f:
-        html = f.read()
+    """Return a current picker report with a <base href> for dashboard use."""
+    # Existing reports are static artifacts. Refresh the replaceable picker
+    # block in memory so scanner tabs receive the current UI without requiring
+    # every archived report to be regenerated on disk.
+    html = _report_html_with_current_picker(report_file)
     base_href = report_url.rsplit('/', 1)[0] + '/'
     base_tag = f'<base href="{base_href}">'
     m = re.search(r'<head[^>]*>', html, re.I)
@@ -2867,24 +2905,14 @@ def build_scanner_diagnostics(
                 'stale', 'No Stuck Scans', 'ok',
                 'The direct scanner backend has no Windows scan processes to leak.'),
         ])
-        if key == 'freezer' and device_status is not None:
-            if device_status.get('blocker'):
-                checks.append(_diag_check(
-                    'device', 'Printer Device', 'bad', device_status['blocker']))
-            elif not device_status.get('reachable'):
-                checks.append(_diag_check(
-                    'device', 'Printer Device', 'warn',
-                    'The printer status service did not answer, although its '
-                    'scanner interface is available.'))
-            elif device_status.get('note'):
-                checks.append(_diag_check(
-                    'device', 'Printer Device', 'warn',
-                    f'The printer is up, but {device_status["note"]} '
-                    '(scanning still works).'))
-            else:
-                checks.append(_diag_check(
-                    'device', 'Printer Device', 'ok',
-                    'The printer hardware reports it is ready.'))
+        # This DeskJet is scanner-only. Suppress its printing subsystem state
+        # (paper, ink, tray and printer-status reachability); none of it affects
+        # AirScan and surfacing it makes a healthy scanner look unhealthy.
+        # Retain only device-wide blockers that can prevent scanning too.
+        if (key == 'freezer' and device_status is not None
+                and device_status.get('blocker')):
+            checks.append(_diag_check(
+                'device', 'Scanner Hardware', 'bad', device_status['blocker']))
         states = [c['state'] for c in checks]
         overall = 'bad' if 'bad' in states else (
             'warn' if 'warn' in states or 'unknown' in states else 'ok')
@@ -3038,23 +3066,12 @@ def build_scanner_diagnostics(
             f'{stale} stuck scan process(es) are leaked. They are cleared before '
             'the next scan, but repeated leaks wedge the imaging service.'))
 
-    # 6. Freezer only — the DeskJet answers over the LAN with honest device
-    #    state (Windows' spooler permanently reports "Normal"). No interop needed.
-    if key == 'freezer' and device_status is not None:
-        if device_status.get('blocker'):
-            checks.append(_diag_check('device', 'Printer Device', 'bad',
-                device_status['blocker']))
-        elif not device_status.get('reachable'):
-            checks.append(_diag_check('device', 'Printer Device', 'warn',
-                'The printer did not answer over the network. Scanning may still '
-                'work, but check that it is on and on Wi-Fi.'))
-        elif device_status.get('note'):
-            checks.append(_diag_check('device', 'Printer Device', 'warn',
-                f'The printer is up, but {device_status["note"]} '
-                '(scanning still works).'))
-        else:
-            checks.append(_diag_check('device', 'Printer Device', 'ok',
-                'The printer hardware reports it is ready.'))
+    # Freezer is scanner-only: show only hardware faults that can block scans,
+    # never printing-only paper/ink/tray status.
+    if (key == 'freezer' and device_status is not None
+            and device_status.get('blocker')):
+        checks.append(_diag_check('device', 'Scanner Hardware', 'bad',
+            device_status['blocker']))
 
     states = [c['state'] for c in checks]
     if 'bad' in states:
@@ -3767,6 +3784,28 @@ def _create_mazda_conversation():
         return None
 
 
+def _mazda_dispatch_was_accepted(conversation_id):
+    """Confirm that a timed-out synchronous POST reached its conversation.
+
+    Letta 0.16.7 keeps the non-streaming messages request open while the agent
+    works.  A document intake can therefore outlive our HTTP timeout even
+    though Letta accepted it and immediately populated the new, isolated
+    conversation.  The conversation is created empty, so any in-context
+    message id is unambiguous acknowledgement of this dispatch.
+    """
+    if not conversation_id:
+        return False
+    try:
+        conversation = letta_get(
+            f'/v1/conversations/{quote(conversation_id, safe="")}', timeout=10)
+    except Exception:
+        return False
+    return bool(
+        isinstance(conversation, dict)
+        and conversation.get('in_context_message_ids')
+    )
+
+
 def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None,
                           conversation_id=None, dispatched_at=None):
     """Background: send the scanned document to Mazda for intake processing.
@@ -3796,8 +3835,35 @@ def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None,
                   f'HTTP {resp.status}; conversation={conversation_id}')
         return True
     except Exception as exc:
+        if _mazda_dispatch_was_accepted(conversation_id):
+            print(f'[scan→mazda] Mazda accepted scan ({scanner_name}); '
+                  f'the synchronous response ended late: {exc}; '
+                  f'conversation={conversation_id}')
+            return True
         print(f'[scan→mazda] Failed to notify Mazda: {exc}')
         return False
+
+
+def _notify_mazda_of_scan_and_record_failure(
+        scan_image_path, scanner_name, facade_result=None,
+        conversation_id=None, dispatched_at=None):
+    """Dispatch a scan and make a transport failure visible in its report."""
+    notified = _notify_mazda_of_scan(
+        scan_image_path, scanner_name, facade_result,
+        conversation_id, dispatched_at)
+    if notified:
+        return True
+    merge_recent_intake_status({
+        'conversation_id': conversation_id,
+        'document_path': scan_image_path,
+        'dispatched_at': dispatched_at,
+        'status': 'fail',
+        'status_source': 'transport',
+        'detail': ('Mazda could not be reached after the scan was staged. '
+                   'No transactions were stored; retry this scan when the '
+                   'Letta server is available.'),
+    })
+    return False
 
 
 # ── Mazda Trainer ────────────────────────────────────────────────────────────
@@ -3942,6 +4008,18 @@ def _scan_content_sha256(image_path):
         return ''
 
 
+def _may_retry_terminal_scan(previous, content_sha256):
+    """Retry-policy Strategy for a byte-identical scanner document.
+
+    A successful or active intake owns its fingerprint.  A terminal failure
+    does not: operators must be able to retry the same legitimate page after
+    its infrastructure or orchestration failure is repaired.
+    """
+    if not previous or previous.get('content_sha256') != content_sha256:
+        return True
+    return str(previous.get('status') or '').lower() in {'fail', 'stalled'}
+
+
 def _claim_scan_dispatch(key, image_path, content_sha256=None):
     """Claim a scanner image once, including across dashboard restarts."""
     try:
@@ -3958,8 +4036,8 @@ def _claim_scan_dispatch(key, image_path, content_sha256=None):
         # browser cannot redispatch the same output file after the restart.
         cfg = SCANNERS.get(key) or {}
         previous = get_scanner_intake(key)
-        if (content_sha256 and previous and
-                previous.get('content_sha256') == content_sha256):
+        if (content_sha256 and
+                not _may_retry_terminal_scan(previous, content_sha256)):
             return False
         _scan_dispatch_claims[key] = claim
         return True
@@ -3979,15 +4057,8 @@ _scanner_runtime_status_lock = threading.Lock()
 
 
 def _scanner_intake_in_progress(key, max_age_seconds=35 * 60):
-    """True while this scanner's previous Mazda/Trainer run is unfinished."""
-    intake = get_scanner_intake(key)
-    if not intake or intake.get('status') not in ('processing', 'complete'):
-        return False
-    try:
-        age = time.time() - float(intake.get('dispatched_at') or 0)
-    except (TypeError, ValueError):
-        return False
-    return 0 <= age < max_age_seconds
+    return intake_is_in_progress(
+        get_scanner_intake(key), max_age_seconds=max_age_seconds)
 
 
 def run_scanner(key):
@@ -4529,8 +4600,15 @@ def process_scanned_document(
             conversation_id = _create_mazda_conversation()
             if conversation_id:
                 dispatched_at = time.time()
+                # Persist first: a fast transport failure in the worker must
+                # have an exact intake record to mark terminal.
+                record_recent_intake(
+                    remote_image_path, cfg.get('name', key), kind='scan',
+                    facade=facade, conversation_id=conversation_id,
+                    dispatched_at=dispatched_at,
+                    content_sha256=content_sha256)
                 threading.Thread(
-                    target=_notify_mazda_of_scan,
+                    target=_notify_mazda_of_scan_and_record_failure,
                     args=(remote_image_path, cfg.get('name', key), facade,
                           conversation_id, dispatched_at),
                     daemon=True,
@@ -4539,11 +4617,6 @@ def process_scanned_document(
                 trainer_dispatched = _notify_trainer_of_scan(
                     remote_image_path, cfg.get('name', key), facade,
                     conversation_id, dispatched_at)
-                record_recent_intake(
-                    remote_image_path, cfg.get('name', key), kind='scan',
-                    facade=facade, conversation_id=conversation_id,
-                    dispatched_at=dispatched_at,
-                    content_sha256=content_sha256)
             else:
                 _release_scan_dispatch(key, image_path)
                 stage_error = ('Could not create an isolated Mazda conversation; '
@@ -4978,6 +5051,27 @@ def _prepare_supporting_document_view(chosen, source_path, document_type=''):
         source_path, _expense_annotation_evidence(chosen, document_type))
 
 
+def _annotation_job_key(chosen, source_path, document_type=''):
+    """Identify annotation work, including source revisions and row evidence."""
+    try:
+        stat = os.stat(source_path)
+        revision = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        revision = (None, None)
+    evidence = _expense_annotation_evidence(chosen, document_type)
+    return (os.path.abspath(source_path), revision, evidence, document_type)
+
+
+_annotation_proxy = BackgroundResultProxy(
+    loader=_prepare_supporting_document_view, name='document-annotation')
+
+
+def _background_annotation_result(chosen, source_path, document_type=''):
+    key = _annotation_job_key(chosen, source_path, document_type)
+    return _annotation_proxy.get(
+        key, dict(chosen), source_path, document_type, default=None)
+
+
 def _usable_document_reference(value):
     value = str(value or '').strip()
     if not value or value.lower() in _DOCUMENT_PLACEHOLDERS:
@@ -5209,6 +5303,9 @@ def _supporting_document_service() -> ISupportingDocumentService:
                 prepare_view=lambda chosen, path, kind: _prepare_supporting_document_view(
                     chosen, path, kind
                 ),
+                background_prepare_view=lambda chosen, path, kind: _background_annotation_result(
+                    chosen, path, kind
+                ),
                 document_url_prefix=SUPPORTING_DOCUMENT_URL_PREFIX,
             )
         )
@@ -5227,11 +5324,13 @@ def lookup_supporting_documents(date_str, signed_amount, vendor_key,
 
 
 def open_supporting_document(date_str, signed_amount, vendor_key, document_type,
-                             description='', expense_id=None, report_path=''):
+                             description='', expense_id=None, report_path='',
+                             wait_for_highlight=True):
     request = SupportingDocumentRequest(
         date=date_str, signed_amount=signed_amount, vendor_key=vendor_key,
         document_type=document_type, description=description,
         expense_id=expense_id, report_path=report_path,
+        wait_for_highlight=wait_for_highlight,
     )
     return _supporting_document_service().open(request).model_dump()
 
@@ -5248,6 +5347,7 @@ def _supporting_document_view_for_expense(
     return _supporting_document_service().view_for_expense(
         int(expense_id), document_type, report_path
     )
+
 
 
 def _source_document_path(report_path, receipt_path=None):
@@ -5811,10 +5911,8 @@ def _receipt_only_picker_assets():
     left the dialog with no categories to render. Always render it through
     render_picker_block() with this process's category list.
     """
-    rv = _picker_module()
-    return (rv.CATEGORY_PICKER_CSS,
-            rv.render_picker_block(_rol_finance_categories()),
-            rv.CLICKABLE_ROW_CSS)
+    assets = render_assets(_picker_module(), _rol_finance_categories())
+    return assets.css, assets.html, assets.clickable_row_css
 
 
 def _report_html_with_current_picker(report_file):
@@ -5827,13 +5925,7 @@ def _report_html_with_current_picker(report_file):
 
 
 def _receipt_only_cat_css():
-    lines = []
-    for name, cls in REPORTING_CATEGORY_CLASS.items():
-        bg, fg = REPORTING_CATEGORY_STYLE.get(name, ('#BFBFBF', '#000000'))
-        lines.append(
-            '    #verified-transactions tbody tr.%s td { background:%s; color:%s; }'
-            % (cls, bg, fg))
-    return '\n'.join(lines)
+    return category_row_css(_rol_finance_categories())
 
 
 def build_receipt_only_report_html(month_key=None):
@@ -6017,8 +6109,11 @@ _MAZDA_TOOLS = [
 CHATGPT_PLUS_PRO = 'chatgpt-plus-pro'
 
 LETTA_AGENTS = [
+    {'name': 'Toyota',   'id': 'agent-38cf768e-e1eb-4c29-978a-c6bb64282d25'},
     {'name': 'Scissari', 'id': 'agent-5955b0c2-7922-4ffe-9e43-b116053b80fa'},
     {'name': 'Frita',    'id': 'agent-881a883f-edd0-4963-bf67-6ef178b8f018', 'uses_claude_sdk': True},
+    {'name': 'Shelia',   'id': 'agent-1c2e170c-a67a-4364-b370-16a6b48c0770'},
+    {'name': 'Shelia',   'id': 'agent-1c2e170c-a67a-4364-b370-16a6b48c0770'},
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
     {'name': 'Jeri',     'id': None},
     {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'orchestrator': True},
@@ -6088,6 +6183,40 @@ AGENT_CARDS = {
             'host file and process inspection',
         ],
         'memory_summary': 'Keeps operational knowledge about the Win10 dashboard environment, serving paths, and tunnel setup.',
+    },
+    'Shelia': {
+        'identity': 'Shelia',
+        'role': 'Narrow, evidence-based Rosemary46 Windows/WSL/Tailscale recovery operator.',
+        'responsibilities': [
+            'Inspect Rosemary46 host, WSL, keepalive-task, and Tailscale evidence',
+            'Start the fixed WSL keepalive and restart tailscaled when evidence requires it',
+            'Verify real Tailscale and SSH recovery without hiding dashboard failures',
+        ],
+        'tools': [
+            'shelia_status',
+            'shelia_start_keepalive',
+            'shelia_restart_tailscale',
+            'shelia_reauth_instructions',
+            'shelia_verify_recovery',
+        ],
+        'memory_summary': 'Maintains a strict recovery sequence and reports unreachable, authentication, WSL, and SSH failures separately.',
+    },
+    'Shelia': {
+        'identity': 'Shelia',
+        'role': 'Narrow, evidence-based Rosemary46 Windows/WSL/Tailscale recovery operator.',
+        'responsibilities': [
+            'Inspect Rosemary46 host, WSL, keepalive-task, and Tailscale evidence',
+            'Start the fixed WSL keepalive and restart tailscaled when evidence requires it',
+            'Verify real Tailscale and SSH recovery without hiding dashboard failures',
+        ],
+        'tools': [
+            'shelia_status',
+            'shelia_start_keepalive',
+            'shelia_restart_tailscale',
+            'shelia_reauth_instructions',
+            'shelia_verify_recovery',
+        ],
+        'memory_summary': 'Maintains a strict recovery sequence and reports unreachable, authentication, WSL, and SSH failures separately.',
     },
     'Hailey': {
         'identity': 'Hailey',
@@ -7189,96 +7318,40 @@ def _msg_date(m):
     return str(m.get('created_at') or m.get('date') or '')[:19]
 
 
-def _msg_text(m):
-    """Extract display text from a Letta message object."""
-    # assistant_message / user_message: content is a string
-    content = m.get('content', '')
-    if isinstance(content, list):
-        content = ' '.join(c.get('text', '') for c in content if isinstance(c, dict))
-    # tool_call_message: tool_call.name + arguments
-    tc = m.get('tool_call', {})
-    if tc:
-        args = tc.get('arguments', {})
-        if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except Exception:
-                pass
-        arg_str = ', '.join(f'{k}={str(v)[:80]}' for k, v in (args.items() if isinstance(args, dict) else []))
-        return f'{tc.get("name", "?")}({arg_str})'
-    # tool_return_message
-    tr = m.get('tool_return', '')
-    if tr:
-        if isinstance(tr, dict):
-            return str(tr.get('content', ''))[:300]
-        return str(tr)[:300]
-    # approval_request_message
-    approvals = m.get('tool_calls') or []
-    if approvals and isinstance(approvals, list):
-        names = [tc.get('name', '?') for tc in approvals if isinstance(tc, dict)]
-        if names:
-            return 'approval requested: ' + ', '.join(names)
-    # reasoning_message
-    reasoning = m.get('reasoning', '')
-    if reasoning:
-        return reasoning
-    return str(content)
+def _letta_conversation_messages(conversation_id, limit=80):
+    """Fetch messages from an isolated intake conversation."""
+    data = letta_get(
+        f'/v1/conversations/{quote(conversation_id, safe="")}/messages?limit={limit}',
+        timeout=25,
+    )
+    if isinstance(data, list):
+        return data
+    return (data or {}).get('messages', (data or {}).get('results', []))
 
-def letta_thoughts(agent_id):
-    msgs = letta_messages(agent_id, limit=200)
-    rows = []
-    for m in msgs:
-        mt = m.get('message_type', '')
-        if mt != 'reasoning_message':
-            continue
-        text = _msg_text(m)
-        if not text.strip():
-            continue
-        rows.append({
-            'date': _msg_date(m),
-            'type': 'thought',
-            'text': text[:500],
-        })
-    if rows:
-        return rows
 
-    # Fallback for agents whose API stream does not expose reasoning_message.
-    # Prefer assistant content as the closest proxy for visible "thoughts".
-    assistant_rows = []
-    for m in msgs:
-        if m.get('message_type') != 'assistant_message':
-            continue
-        text = _msg_text(m)
-        if not text.strip():
-            continue
-        assistant_rows.append({
-            'date': _msg_date(m),
-            'text': text[:500],
-        })
-    if assistant_rows:
-        return assistant_rows
+def letta_thoughts(agent_id, conversation_id=''):
+    msgs = (
+        _letta_conversation_messages(conversation_id)
+        if conversation_id
+        else letta_messages(agent_id, limit=200)
+    )
+    return select_thoughts(msgs, _msg_text, _msg_date)
 
-    # Final fallback only when there is no assistant/reasoning content at all.
-    fallback_types = {
-        'tool_call_message': 'tool',
-        'tool_return_message': 'tool',
-        'approval_request_message': 'approval',
-        'approval_response_message': 'approval',
-        'user_message': 'user',
-    }
-    for m in msgs:
-        mt = m.get('message_type', '')
-        if mt not in fallback_types:
-            continue
-        text = _msg_text(m)
-        if not text.strip():
-            continue
-        rows.append({
-            'date': _msg_date(m),
-            'type': fallback_types[mt],
-            'text': text[:500],
-        })
-    return rows
+
+_thoughts_proxy = BackgroundResultProxy(
+    loader=letta_thoughts, refresh_seconds=3, name='thoughts')
+
+
+def cached_thoughts(agent_id, conversation_id=''):
+    """Non-blocking `letta_thoughts` — serves the last-known value while a
+    background refresh runs, rather than blocking the request thread on the
+    live Letta call (which can take 10-25s over the Tailscale DERP relay,
+    close enough to the browser's 30s fetch abort to look like a hang).
+    Applies whether or not the agent has an isolated scan conversation,
+    since a full agent-history fetch (conversation_id='') is exactly as
+    slow as a conversation-scoped one."""
+    return _thoughts_proxy.get(
+        (agent_id, conversation_id), agent_id, conversation_id, default=[])
 
 MESSAGES_MAX_AGE_SECONDS = 5 * 3600  # only show messages from the last 5 hours
 
@@ -7601,11 +7674,96 @@ def document_vision_health(timeout=None):
         return {'ok': False,
                 'text': 'ALL vision tiers down — Mazda cannot classify or read '
                         'scanned documents. ' + text}
-    return {'ok': True, 'concern': n_up == 1, 'text': text}
+
+    # Credential presence alone can't see a tier that authenticates but then
+    # fails every real call, so also surface unrecovered vision fallbacks from
+    # the shared provider_health event log. These used to land on the
+    # Categorizer tile, which owns a different chain and a different remedy.
+    vision_fallbacks = vision_provider_fallbacks()
+    if vision_fallbacks:
+        text += f' {vision_fallbacks}'
+    return {'ok': True, 'concern': n_up == 1 or bool(vision_fallbacks), 'text': text}
+
+
+def vision_provider_fallbacks():
+    """Summary of unrecovered vision-tier fallbacks, or '' when there are none.
+
+    Read-only and best-effort: a missing/corrupt event log must never turn the
+    Document Vision tile red on its own — the credential checks above are the
+    tile's primary signal."""
+    try:
+        with open(MAZDA_PROVIDER_HEALTH_PATH) as f:
+            state = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return ''
+    all_accounts, fallback_events = split_provider_health_state(state)
+    events = unresolved_fallbacks(
+        all_accounts, fallback_events,
+        time.time() - MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS, want_vision=True)
+    if not events:
+        return ''
+    summary = '; '.join(
+        f'{provider} {ev["from"]}->{ev["to"]} ({classify_failure(ev.get("error", ""))[1]})'
+        for provider, ev in events[-5:]
+    )
+    return f'{len(events)} unrecovered vision fallback(s) in last 24h: {summary}'
 
 
 MAZDA_PROVIDER_HEALTH_PATH = os.path.expanduser('~/.mazda/provider_health.json')
 MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS = 24 * 3600
+
+# provider_health.json is one shared event log covering two INDEPENDENT LLM
+# chains, each owned by its own dashboard tile: the vendor-categorization chain
+# (Categorizer tile) and the scan-classification chain (Document Vision tile).
+# Only the vision providers are self-identifying; `gemini`/`anthropic`/`openai`
+# are recorded under bare keys because the recorder in rol_finances doesn't tag
+# which chain called them, so they stay with the Categorizer tile as before.
+VISION_PROVIDER_PREFIX = 'chatgpt-oauth-vision'
+
+
+def provider_belongs_to_vision(provider):
+    """True for providers the Document Vision tile owns."""
+    return provider.startswith(VISION_PROVIDER_PREFIX)
+
+
+def split_provider_health_state(state):
+    """Split a raw provider_health.json mapping into
+    ({account_key: entry}, {provider: [event, ...]})."""
+    account_entries = {}
+    fallback_events = {}
+    for key, entry in state.items():
+        if key.endswith(':_fallbacks'):
+            fallback_events[key.rsplit(':', 1)[0]] = list(entry.get('events', []))
+        else:
+            account_entries[key] = entry
+    return account_entries, fallback_events
+
+
+def unresolved_fallbacks(account_entries, fallback_events, cutoff, want_vision):
+    """Fallback events inside the window that are still worth alerting on.
+
+    A fallback is *resolved* — and therefore NOT alert-worthy — once the account
+    it fell back FROM has recorded a success later than the fallback itself.
+    Without this check a single rate-limit blip kept the tile yellow for a full
+    24h even though the very next call succeeded seconds later (observed
+    2026-08-08: EG's ChatGPT cap reset, the primary tier recovered 11s after the
+    fallback, and the tile still read NEEDS ATTENTION ~16h afterwards). Alerting
+    on an already-recovered condition trains the operator to ignore the tile,
+    which is exactly the blindness this tile was built to prevent.
+    """
+    out = []
+    for provider, events in fallback_events.items():
+        if provider_belongs_to_vision(provider) != want_vision:
+            continue
+        for ev in events:
+            when = ev.get('time', 0)
+            if when < cutoff:
+                continue
+            origin = account_entries.get(f'{provider}:{ev.get("from")}', {})
+            if origin.get('last_success', 0) > when:
+                continue  # primary tier already recovered
+            out.append((provider, ev))
+    return out
 
 
 def mazda_categorizer_fallback_health(timeout=None):
@@ -7634,16 +7792,16 @@ def mazda_categorizer_fallback_health(timeout=None):
     now = time.time()
     cutoff = now - MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS
 
-    recent_fallbacks = []
-    account_entries = {}
-    for key, entry in state.items():
-        if key.endswith(':_fallbacks'):
-            provider = key.rsplit(':', 1)[0]
-            for ev in entry.get('events', []):
-                if ev.get('time', 0) >= cutoff:
-                    recent_fallbacks.append((provider, ev))
-            continue
-        account_entries[key] = entry
+    all_accounts, fallback_events = split_provider_health_state(state)
+    # Vision providers are the Document Vision tile's business, not this one's —
+    # a vision-tier fallback lighting up the Categorizer tile sends the operator
+    # to the wrong runbook.
+    account_entries = {
+        key: entry for key, entry in all_accounts.items()
+        if not provider_belongs_to_vision(key)
+    }
+    recent_fallbacks = unresolved_fallbacks(
+        all_accounts, fallback_events, cutoff, want_vision=False)
 
     if not account_entries:
         return {'ok': True, 'text': 'no categorizer LLM calls logged yet'}
@@ -7674,7 +7832,7 @@ def mazda_categorizer_fallback_health(timeout=None):
             for provider, ev in recent_fallbacks[-5:]
         )
         return {'ok': True, 'concern': True,
-                'text': f'{len(recent_fallbacks)} fallback(s) in last 24h: {summary}'}
+                'text': f'{len(recent_fallbacks)} unrecovered fallback(s) in last 24h: {summary}'}
 
     return {'ok': True, 'text': f'{len(account_entries)} provider account(s) healthy on primary tier'}
 
@@ -8848,6 +9006,16 @@ def _cli_refresh():
 out = {"as_of": time.time()}
 try:
     d = json.load(open(CRED)); o = d["claudeAiOauth"]
+    # A logged-out host leaves the credential file in place with BLANK tokens
+    # (accessToken == refreshToken == "", expiresAt == 0). Sending
+    # "Authorization: Bearer " unauthenticated gets a 429 from Anthropic's edge,
+    # which used to render as "usage stats RATE LIMITED" — a yellow tile blaming
+    # a throttle that would never clear on its own. Detect it before any network
+    # call and report the condition by name.
+    if not (o.get("accessToken") or "").strip() and not (o.get("refreshToken") or "").strip():
+        out["condition"] = "logged_out"
+        out["error"] = "logged out (no OAuth token on this host)"
+        print(json.dumps(out)); raise SystemExit(0)
     expired = bool(o.get("expiresAt")) and o["expiresAt"] / 1000 < time.time() + 60
     try:
         if expired:
@@ -8855,12 +9023,16 @@ try:
         else:
             out["usage"] = _usage(o["accessToken"])
     except urllib.error.HTTPError as e:
-        if e.code in (401, 429):
+        # A 401 means the credential needs refreshing. A 429 comes from the
+        # separate usage endpoint and must be surfaced without running Claude
+        # (which only adds traffic while quota reporting is throttled).
+        if e.code == 401:
             out["usage"] = _usage(_refresh(d)); out["refreshed"] = True
         else:
             raise
 except urllib.error.HTTPError as e:
     out["error"] = "HTTP %d" % e.code
+    out["condition"] = "rate_limited" if e.code == 429 else "unknown"
     ra = e.headers.get("Retry-After") if e.headers else None
     if ra:
         try:
@@ -8887,22 +9059,72 @@ print(json.dumps(out))
 # daily request cap (loadCodeAssist) as the limit, and today's count of
 # `streamGenerateContent` calls in agy's session logs as "used".
 _ANTIGRAVITY_EXTRACT_PY = r'''
-import json, os, glob, datetime, urllib.request, urllib.error
+import json, os, glob, datetime, urllib.parse, urllib.request, urllib.error
 HOME = os.path.expanduser("~")
 AG = os.path.join(HOME, ".gemini", "antigravity-cli")
 out = {"account": None, "tier": None, "tier_id": None, "limit": None,
        "used": None, "resets_at": None, "logged_in": False, "error": None}
 TOKEN = os.path.join(AG, "antigravity-oauth-token")
-try:
-    at = json.load(open(TOKEN))["token"]["access_token"]
-    out["logged_in"] = True
-    # Tier + daily request cap.
+# Keep OAuth client credentials out of source control. They are only needed when
+# an expired access token must be refreshed; the existing token remains usable
+# without them until then.
+OAUTH_CLIENT_ID = os.environ.get("ANTIGRAVITY_OAUTH_CLIENT_ID")
+OAUTH_CLIENT_SECRET = os.environ.get("ANTIGRAVITY_OAUTH_CLIENT_SECRET")
+
+def refresh_access_token(token_doc):
+    token = token_doc.get("token") or {}
+    refresh_token = token.get("refresh_token")
+    if not refresh_token:
+        raise RuntimeError("access token expired and no refresh token is available")
+    if not OAUTH_CLIENT_ID or not OAUTH_CLIENT_SECRET:
+        raise RuntimeError("access token expired and Antigravity OAuth client credentials are not configured")
+    body = urllib.parse.urlencode({
+        "client_id": OAUTH_CLIENT_ID,
+        "client_secret": OAUTH_CLIENT_SECRET,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    }).encode()
+    req = urllib.request.Request("https://oauth2.googleapis.com/token", data=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"})
+    renewed = json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+    access_token = renewed.get("access_token")
+    if not access_token:
+        raise RuntimeError("OAuth refresh returned no access token")
+    token["access_token"] = access_token
+    token["token_type"] = renewed.get("token_type", token.get("token_type", "Bearer"))
+    token["expiry"] = (datetime.datetime.now(datetime.timezone.utc) +
+        datetime.timedelta(seconds=int(renewed.get("expires_in", 3600)))).isoformat()
+    if renewed.get("refresh_token"):
+        token["refresh_token"] = renewed["refresh_token"]
+    token_doc["token"] = token
+    tmp = TOKEN + ".tmp.%d" % os.getpid()
+    with open(tmp, "w") as fh:
+        json.dump(token_doc, fh, indent=2)
+        fh.write("\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, TOKEN)
+    return access_token
+
+def load_code_assist(access_token):
     req = urllib.request.Request(
         "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
         data=json.dumps({"metadata": {"ideType": "IDE_UNSPECIFIED",
             "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"}}).encode(),
-        headers={"Authorization": "Bearer " + at, "Content-Type": "application/json"})
-    d = json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+        headers={"Authorization": "Bearer " + access_token, "Content-Type": "application/json"})
+    return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+
+try:
+    token_doc = json.load(open(TOKEN))
+    at = token_doc["token"]["access_token"]
+    out["logged_in"] = True
+    # Tier + daily request cap.
+    try:
+        d = load_code_assist(at)
+    except urllib.error.HTTPError as e:
+        if e.code != 401:
+            raise
+        at = refresh_access_token(token_doc)
+        d = load_code_assist(at)
     ct = d.get("currentTier") or {}
     out["tier"] = ct.get("name"); out["tier_id"] = ct.get("id")
     # Free Code Assist for individuals = 1000 req/day; paid tiers = 1500 req/day.
@@ -8985,6 +9207,70 @@ def _human_reset(when):
 
 _model_stats_cache = {}   # key → (timestamp, result)
 MODEL_STATS_CACHE_TTL = 120  # seconds – prevent 429s from rapid polling
+MODEL_STATS_LAST_GOOD_FILE = os.environ.get(
+    'MODEL_STATS_LAST_GOOD_FILE', '/tmp/dashboard_model_stats_last_good.json')
+_model_stats_last_good_lock = threading.Lock()
+
+
+def _save_model_stats_last_good(source_key, out):
+    """Persist non-secret quota bars so a transient stats 429 cannot erase them."""
+    if not out.get('windows'):
+        return
+    with _model_stats_last_good_lock:
+        try:
+            data = {}
+            if os.path.isfile(MODEL_STATS_LAST_GOOD_FILE):
+                with open(MODEL_STATS_LAST_GOOD_FILE, encoding='utf-8') as fh:
+                    data = json.load(fh)
+            data[source_key] = {
+                'windows': out['windows'],
+                'model': out.get('model'),
+                'as_of': out.get('as_of') or time.time(),
+            }
+            tmp = f'{MODEL_STATS_LAST_GOOD_FILE}.tmp.{os.getpid()}'
+            with open(tmp, 'w', encoding='utf-8') as fh:
+                json.dump(data, fh)
+            os.replace(tmp, MODEL_STATS_LAST_GOOD_FILE)
+        except Exception as exc:
+            print(f'[model-stats] could not save last-good snapshot: {exc}')
+
+
+def _restore_model_stats_last_good(source_key, out):
+    """Add the last real quota bars to an otherwise bar-less error response."""
+    if out.get('windows'):
+        return out
+    with _model_stats_last_good_lock:
+        try:
+            with open(MODEL_STATS_LAST_GOOD_FILE, encoding='utf-8') as fh:
+                saved = (json.load(fh) or {}).get(source_key) or {}
+        except (OSError, ValueError, TypeError):
+            saved = {}
+    if not saved.get('windows'):
+        # Older dashboard versions persisted only the primary usage percentage
+        # for burn-rate history. Use that real reading after an upgrade/restart
+        # until the next successful live response seeds both quota windows.
+        try:
+            with open(MODEL_USAGE_HISTORY_FILE, encoding='utf-8') as fh:
+                history = (json.load(fh) or {}).get(source_key) or []
+            sampled_at, used_percent = history[-1]
+            saved = {
+                'as_of': sampled_at,
+                'windows': [
+                    {'label': '5-hour', 'used_percent': used_percent,
+                     'resets_at': None, 'resets_in': None},
+                    {'label': 'weekly', 'used_percent': None,
+                     'resets_at': None, 'resets_in': None,
+                     'unavailable': True,
+                     'note': 'waiting for the next successful live reading'},
+                ],
+            }
+        except (OSError, ValueError, TypeError, IndexError):
+            return out
+    out['windows'] = saved['windows']
+    out['model'] = out.get('model') or saved.get('model')
+    out['usage_as_of'] = saved.get('as_of')
+    out['windows_stale'] = True
+    return out
 
 # Codex rate-limit windows are labeled by their duration (limit_window_seconds),
 # not by position in the payload, so a single-window response still labels correctly.
@@ -9015,6 +9301,11 @@ def model_stats(source_key):
     if not src:
         return {'ok': False, 'error': f'unknown source {source_key}'}
     out = _model_stats_uncached(source_key, src)
+    if src['kind'] == 'claude':
+        if out.get('windows'):
+            _save_model_stats_last_good(source_key, out)
+        elif out.get('rate_limited'):
+            _restore_model_stats_last_good(source_key, out)
     try:
         _attach_usage_metrics(source_key, out)   # rate-of-change bar + leak detector
     except Exception as e:
@@ -9054,6 +9345,52 @@ def _fill_rate_limited(out, d, err, severity='down'):
     return out
 
 
+def _looks_like_login_problem(err):
+    t = str(err).lower()
+    return 'expired' in t or 'token' in t or 'unauthor' in t or '401' in t
+
+
+def _failure_condition(d, err):
+    """Name the condition behind a usage-less extractor payload.
+
+    The extractor is the only party that actually observes the condition, so it
+    SHOULD name one in `condition`. Payloads that don't (the Codex extractor,
+    older mocks) fall back to inferring it from the error text — which is how a
+    logged-out host used to be mistaken for a throttle: an unauthenticated
+    request gets a 429 from Anthropic's edge, and '429' in the string was the
+    only evidence anyone looked at. New failure modes belong in the extractor,
+    named, rather than as another pattern to grep for here."""
+    return d.get('condition') or ('rate_limited' if _looks_rate_limited(err) else 'unknown')
+
+
+def _fill_extractor_failure(out, src, d, rate_limit_severity='down', login_hint=''):
+    """Explain, in terms the reader can act on, why a source reported no usage.
+
+    Shared by every OAuth-backed source so a new condition is described once
+    instead of once per provider. `rate_limit_severity` is the provider's own
+    judgement of what a 429 means for it (see _fill_rate_limited)."""
+    err = d.get('error') or 'no data'
+    condition = _failure_condition(d, err)
+
+    if condition == 'rate_limited':
+        return _fill_rate_limited(out, d, err, severity=rate_limit_severity)
+
+    if condition == 'logged_out':
+        # Neither a quota problem nor self-healing: the credential file is
+        # present but empty, and only an interactive login on that host
+        # restores it. Red, and it names the command.
+        out['status'] = 'down'
+        out['logged_out'] = True
+        where = src.get('host') or 'this box'
+        out['detail'] = f'LOGGED OUT — no OAuth token on {where}. Fix: {login_hint or "log in on that host"}.'
+        return out
+
+    out['status'] = 'concern'
+    hint = f' — {login_hint}' if login_hint and _looks_like_login_problem(err) else ''
+    out['detail'] = f'usage unavailable: {err}{hint}'
+    return out
+
+
 def _model_stats_uncached(source_key, src):
     out = {'ok': True, 'key': source_key, 'label': src['label'], 'kind': src['kind'],
            'windows': [], 'status': 'up', 'detail': ''}
@@ -9064,13 +9401,8 @@ def _model_stats_uncached(source_key, src):
         out['as_of'] = d.get('as_of')
         u = d.get('usage') or {}
         if d.get('error') or not u:
-            err = d.get('error', 'no data')
-            if _looks_rate_limited(err):
-                return _fill_rate_limited(out, d, err)
-            out['status'] = 'concern'
-            hint = ' — run `codex login`' if 'expired' in str(err) or 'token' in str(err) else ''
-            out['detail'] = f'usage unavailable: {err}{hint}'
-            return out
+            return _fill_extractor_failure(out, src, d, rate_limit_severity='down',
+                                           login_hint='run `codex login` there')
         rl = u.get('rate_limit') or {}
         out['detail'] = f'plan: {u.get("plan_type", "?")}'
         worst = 0.0
@@ -9123,12 +9455,8 @@ def _model_stats_uncached(source_key, src):
         out['model'] = d.get('recent_model') or 'Claude subscription'
         u = d.get('usage') or {}
         if d.get('error') or not u:
-            err = d.get('error', 'no data')
-            if _looks_rate_limited(err):
-                return _fill_rate_limited(out, d, err, severity='concern')
-            out['status'] = 'concern'
-            out['detail'] = f'usage unavailable: {err}'
-            return out
+            return _fill_extractor_failure(out, src, d, rate_limit_severity='concern',
+                                           login_hint='run `claude` there and complete /login')
         worst = 0.0
         for key, label in (('five_hour', '5-hour'), ('seven_day', 'weekly')):
             w = u.get(key) or {}
@@ -9648,19 +9976,20 @@ def _terminal_reap(pid):
 # frontend can draw progress bars and blink the tab yellow when any metric
 # crosses its alert threshold. Collection runs a tiny POSIX-shell snippet on
 # the target (locally for this box, over the existing key-auth SSH for the
-# others) and parses the /proc + df output here, so the remote machines need
-# nothing installed. Caveat: the Windows boxes are sampled through their WSL
-# distro, so RAM reflects the WSL VM and network the VM's NICs. Disk samples
-# the real Windows C: drive via the /mnt/c drvfs mount (falling back to / on
-# a box without one) — the WSL VHD's sparse 1TB root was misleading.
+# others) and parses the output here. Windows RAM is queried through PowerShell
+# from WSL so it reflects the physical host rather than the WSL VM's memory
+# limit. Network still reflects the WSL VM's NICs. Disk samples the real
+# Windows C: drive via the /mnt/c drvfs mount (falling back to / on a box
+# without one) — the WSL VHD's sparse 1TB root was misleading.
 #
 # Tuning: thresholds and the network bar's full-scale capacity are env vars —
 # override in dashboard-server.service, no code change needed.
 PC_MONITORS = {
-    'win11': {'label': 'Windows 11', 'host': None,
-              'note': 'This machine — the live dashboard box, sampled via its WSL distro.'},
+    'win11': {'label': 'Windows 11', 'host': None, 'memory_source': 'windows',
+              'note': 'This machine — Windows RAM and C: drive; network sampled via WSL.'},
     'win10': {'label': 'Windows 10', 'host': LETTA_DOCKER_HOST,
-              'note': 'The Letta box (100.80.49.10), sampled via its WSL distro.'},
+              'memory_source': 'windows',
+              'note': 'The Letta box (100.80.49.10) — Windows RAM and C: drive; network sampled via WSL.'},
     'moms46': {'label': 'Moms 46', 'host': R46_SSH_HOST,
                'note': "Mom's Rosemary46 Linux box (100.72.34.38)."},
 }
@@ -9676,11 +10005,26 @@ PC_ALERT_THRESHOLDS = {
 # Full scale for the Network Traffic bar: 100% = this many Mbit/s of rx+tx.
 PC_NET_CAPACITY_MBPS = float(os.environ.get('PC_NET_CAPACITY_MBPS', '100'))
 
-_PC_METRICS_SH = (
-    "echo ===MEM===; grep -E 'MemTotal|MemAvailable' /proc/meminfo; "
+_PC_LINUX_MEM_SH = "grep -E 'MemTotal|MemAvailable' /proc/meminfo"
+_WINDOWS_POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+_PC_WINDOWS_MEM_SH = (
+    f"{_WINDOWS_POWERSHELL} -NoProfile -NonInteractive -Command '"
+    "$os = Get-CimInstance Win32_OperatingSystem; "
+    "\"MemTotal: $($os.TotalVisibleMemorySize) kB\"; "
+    "\"MemAvailable: $($os.FreePhysicalMemory) kB\"' | tr -d '\\r'"
+)
+_PC_METRICS_SH_TEMPLATE = (
+    "echo ===MEM===; {memory_command}; "
     "echo ===DISK===; df -kP /mnt/c 2>/dev/null || df -kP /; "
     "echo ===NET===; cat /proc/net/dev"
 )
+
+
+def pc_metrics_collector_command(cfg):
+    """Build the WSL/Linux collector command for a configured PC."""
+    memory_command = (_PC_WINDOWS_MEM_SH if cfg.get('memory_source') == 'windows'
+                      else _PC_LINUX_MEM_SH)
+    return _PC_METRICS_SH_TEMPLATE.format(memory_command=memory_command)
 
 
 def parse_pc_metrics_output(text):
@@ -9797,12 +10141,13 @@ def pc_metrics(key):
     if cached and time.time() - cached[0] < PC_METRICS_CACHE_TTL:
         return cached[1]
     host = cfg.get('host')
+    collector = pc_metrics_collector_command(cfg)
     if host:
         cmd = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
                '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2',
-               host, _PC_METRICS_SH]
+               host, collector]
     else:
-        cmd = ['sh', '-c', _PC_METRICS_SH]
+        cmd = ['sh', '-c', collector]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
         if not (r.stdout or '').strip():
@@ -9860,6 +10205,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response({'ok': False, 'error': 'router agent not found'})
             return self.json_response({'ok': True, 'agent_id': strategy.agent_id})
 
+        if path == '/api/receptionist-agent':
+            cfg = next((a for a in LETTA_AGENTS if a['name'] == 'Toyota'), None)
+            rid = get_letta_id(cfg) if cfg else None
+            if not rid:
+                return self.json_response({'ok': False, 'error': 'receptionist agent not found'})
+            return self.json_response({'ok': True, 'agent_id': rid, 'name': 'Toyota'})
+
         if path == '/api/agent-voice':
             return self.json_response(agent_voice_payload(agent_id))
 
@@ -9906,7 +10258,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response([])   # Claude Code doesn't have thoughts
             lid = letta_id_for(agent_id)
             if lid:
-                return self.json_response(letta_thoughts(lid))
+                scanner_key = query.get('scanner', [''])[0]
+                intake = get_scanner_intake(scanner_key) if scanner_key else None
+                conversation_id = str(
+                    (intake or {}).get('conversation_id') or '').strip()
+                return self.json_response(cached_thoughts(lid, conversation_id))
             return self.json_response([])
 
         if path == '/api/messages':
@@ -10256,6 +10612,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return self.json_response(
                 scanner_diagnostics(query.get('scanner', [''])[0]))
 
+        if path == '/api/scanner-intake-status':
+            key = query.get('scanner', [''])[0]
+            intake = get_scanner_intake(key)
+            if intake:
+                status = str(intake.get('status') or 'processing').lower()
+                return self.json_response({'ok': True, 'status': status})
+            return self.json_response({'ok': True, 'status': 'idle'})
+
         if path == SCANNER_IMAGE_URL_PREFIX:
             key = query.get('scanner', [''])[0]
             cfg = SCANNERS.get(key)
@@ -10308,7 +10672,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             )
             if document_path:
                 ext = os.path.splitext(document_path)[1].lower()
+                if ext in {'.xlsx', '.xlsm'}:
+                    browser_path = os.path.join(
+                        SUPPORTING_DOCUMENT_ANNOTATION_CACHE,
+                        os.path.basename(document_path) + '.html',
+                    )
+                    try:
+                        document_path = render_excel_for_browser(
+                            document_path, browser_path)
+                        ext = '.html'
+                    except Exception as exc:
+                        print(f'[supporting-document] Excel render failed: {exc}')
+                        self.send_error(500, 'Could not render spreadsheet')
+                        return
                 ctype = {
+                    '.html': 'text/html; charset=utf-8',
                     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
                     '.gif': 'image/gif', '.webp': 'image/webp',
                     '.pdf': 'application/pdf',
@@ -10429,6 +10807,30 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             result = clear_scanner_verification_lock(data.get('scanner', ''))
             return self.json_response(result)
 
+        if path == '/api/scanner-archive-path':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            scanner_key = data.get('scanner', '')
+            intake = get_scanner_intake(scanner_key)
+            if not intake:
+                return self.json_response({'ok': False, 'error': 'No intake found'})
+            rows = _fetch_expenses_by_ids(intake.get('expense_ids') or [])
+            archive_file = scanner_intake_archive_path(intake, rows)
+            # The result above is the specific filed document (a file, not a
+            # directory) - the archive-verification terminal needs to `cd`
+            # into its containing folder to `ls -a` the sibling documents/
+            # receipts, not the file itself.
+            archive_path = os.path.dirname(archive_file) if archive_file else ''
+            if archive_path and os.path.isdir(archive_path):
+                return self.json_response({
+                    'ok': True,
+                    'archive_path': archive_path,
+                    'archive_name': os.path.basename(archive_file),
+                })
+            return self.json_response({'ok': False, 'error': 'Archive path not found'})
+
         if path == '/api/fix-printer':
             return self.json_response(fix_deskjet_printer())
 
@@ -10514,6 +10916,16 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             from router.classify import build_router_strategy
             result = build_router_strategy().classify(data.get('text', ''))
             return self.json_response({'ok': True, **result})
+
+        if path == '/api/receptionist-intent':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            transcript = data.get('text', '')
+            if not isinstance(transcript, str):
+                return self.error_response('text must be a string', 400)
+            return self.json_response(build_receptionist_strategy().evaluate(transcript))
 
         if path == '/api/agent-model':
             try:
@@ -10722,6 +11134,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 data.get('description', ''),
                 data.get('expense_id'),
                 data.get('report_path', ''),  # raw — see /api/supporting-documents
+                bool(data.get('wait_for_highlight', False)),
             ))
 
         if path == '/api/receipts-present':

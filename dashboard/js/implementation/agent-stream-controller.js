@@ -41,9 +41,16 @@ export class AgentStreamController extends PollingController {
   async poll() {
     let rows;
     try {
-      rows = await this._http.getJSON(
-        `${this._url}?agent=${encodeURIComponent(this._agentId)}`,
+      const [urlWithoutHash, hash = ""] = this._url.split("#", 2);
+      const queryAt = urlWithoutHash.indexOf("?");
+      const path =
+        queryAt < 0 ? urlWithoutHash : urlWithoutHash.slice(0, queryAt);
+      const params = new URLSearchParams(
+        queryAt < 0 ? "" : urlWithoutHash.slice(queryAt + 1),
       );
+      params.set("agent", this._agentId);
+      const requestUrl = `${path}?${params.toString()}${hash ? `#${hash}` : ""}`;
+      rows = await this._http.getJSON(requestUrl);
     } catch (e) {
       this._view.writeHtml(
         `<div class="msi-line err">! ${TextUtils.esc(e.message)}</div>`,

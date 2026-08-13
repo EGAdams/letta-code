@@ -192,6 +192,21 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    plus payee. Do not coach Mazda to "fix" this and never suggest re-storing or
    editing the expense to make a box appear — file it as a dashboard defect in
    your report.
+   **Update 2026-08-08**: the specific "No high-confidence expense row was found
+   in the image" failure on check-style/handwritten receipts (previously seen on
+   expenses 2004 and 2006 in your own reports) is now FIXED —
+   `ImageExpenseDocumentAnnotator` in `document_annotation.py` has a fallback
+   matcher (`CodexCliImageRegionFallbackMatcher`, `dashboard/
+   codex_image_region_fallback.py`) for exactly this document class, built via a
+   SwarmForge six-pack run (commits `9beea7d8`→`bc2bbfa2`; see
+   `mazda_suzuki_escalation_contract.md` §4a for how that pipeline actually
+   operates, prerequisites, and model tuning, if a future run needs one). A
+   recurrence of that exact failure message from here on is a genuine
+   regression, not a known/tolerated gap — escalate it fresh rather than citing
+   this note as an excuse to downgrade severity. A *different* unboxed-receipt
+   reason (e.g. `available:false` from a broken `receipt_url`/`source_file`
+   path) is unrelated — that class of bug and its fix are documented in
+   `tools/maintenance/backfill_source_file.py`'s docstring, in `rol_finances`.
    When the dispatch names an authoritative `*.statement.json` produced by the
    dashboard's validated preflight, Mazda MUST give that exact file to the store
    command and MUST NOT run `parse_statement_scan.py` again. A second vision pass
@@ -259,7 +274,15 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    `bank_statements/_needs_review/` — the statement is parked there with a JSON
    sidecar, never left only in `incoming_scans/`.
    The final four digits come from the operator, the statement itself, or the
-   `Known_Credit_Cards_and_Banks.xlsx` B/C columns — never a guess. When none of
+   `Known_Credit_Cards_and_Banks.xlsx` B/C columns — never a guess. The workbook
+   is authoritative whenever the statement's primary branded card/product
+   letterhead matches exactly one row. For example, a visible **Choice
+   Privileges** letterhead matches the sole `choice_7580` row and therefore
+   resolves to account 7580 even when marked-over account digits are unreadable
+   or vision claims a different four digits. The issuing/servicing-bank name
+   (for example Wells Fargo) must not replace the visible branded product
+   identity for this lookup. Require `last4_source="known_cards_workbook"` and
+   `workbook_matched_names` evidence for such a resolution. When none of
    the three resolves, the correct outcome is a rejection carrying
    `needs_workbook_entry: true` so EG is asked to add a workbook row and the run is
    retried; a `workbook_ambiguous_last4` list (two cards sharing one name) is also a
@@ -423,6 +446,14 @@ Grade the run against the contract above. Specifically confirm:
   return that quietly carries fewer rows than were parsed means lines were dropped, which is a
   FAIL even when `problems` is empty. Confirm `account_last4_source` is one of `operator`,
   `statement`, or `known_cards_workbook` — never absent or `unknown` on a stored run.
+  Independently resolve the visible primary card/product letterhead against
+  `/home/adamsl/rol_finances/readable_documents/Known_Credit_Cards_and_Banks.xlsx`
+  on every statement run. If it uniquely resolves, compare that value with the
+  preflight, store return, archive directory, report path, trace, and callback.
+  Any mismatch is a FAIL even when `judge_trace` says PASS. Coach Mazda to rerun
+  storage with the workbook account, produce the correctly named archive/report,
+  remove the obsolete wrong-account archive only after the corrected copy is
+  verified, re-record/re-judge, and repeat the callback.
 - For statements, confirm `<source statement directory>/report.html` exists because Mazda
   created it in this run, covers the complete parsed/store result (including duplicates
   and deposits/credits), and has successful restructurer and auditor tool returns. Inspect
@@ -451,6 +482,37 @@ Grade the run against the contract above. Specifically confirm:
 
 ## When something went wrong — teach
 
+0. **Classify before you coach: wrapper defect or application defect?** Ask: *would fixing
+   this require editing application source* (dashboard `server.py`/`js/*`, or
+   `rol_finances` tool code)? If **no** — an ambiguous instruction, a tool she misused, a
+   missing guard, a memory gap — it's a **wrapper defect**; go to step 1, coach her
+   directly, never escalate it. If **yes** — a traceback, a missing/broken endpoint, a
+   box that structurally cannot render (see the unboxed-receipt case above), duplicated
+   logic, or a fix that would need to touch several unrelated components — it's an
+   **application defect**. Do not coach Mazda to work around it and do not tell her to
+   retry; she cannot fix code. Instead fill out the `escalation` block in your report
+   (see Report section below) with everything Suzuki's `BugHuntRequest` needs:
+   `repo_path`, a precise `bug_description` (what you observed, expected vs. actual,
+   exact traceback/stderr if any, suspected files), and any `metadata` (failing command,
+   document path). **You do not invoke Suzuki yourself** — your Bash allowlist stays
+   exactly as written below; filing the escalation block in the report is the whole job.
+   See `notes_plans_handoffs/mazda_suzuki_escalation_contract.md` for the full contract
+   and how the escalation block maps to Suzuki's `suzuki_run_bug_hunt.py --live` call.
+
+   **A `halted:true` (or `"halted": true`) result from any `--save`/store command is the
+   canonical application-defect signal — always escalate it, never coach.** As of
+   2026-08-02 the receipt/statement save path is fail-loud: when an intake step crashes
+   unexpectedly (e.g. a counterpart lookup raising a `TypeError`), it HALTS and returns
+   `{"success": false, "halted": true, "halt": {...}}` instead of silently degrading to a
+   "no match" and inserting a possibly-duplicate row (the 2026-08-02 Vision For Israel
+   double-count, expenses 1534/1981). This means: **Mazda did nothing wrong** — she ran the
+   correct sequence and the tool itself broke. Grade the run **NEEDS_REVIEW/CORRECTED, never
+   a Mazda FAIL**, copy the `halt` block's `step`/`cause`/`exception_type`/`document_path`
+   verbatim into your `## Escalation` block, and do **not** send Mazda a corrective lesson or
+   tell her to retry. Confirm she recorded the halt honestly in her STEP 5 evidence
+   (`intake_halted:true`, `stored:false`, `expense_id:null`) and reported it to the dashboard;
+   the intake judge already treats `intake_halted` as NEEDS_REVIEW, so a judge PASS/NEEDS_REVIEW
+   here is correct — a judge FAIL that blamed Mazda would be a rubric defect worth its own note.
 1. **Diagnose in wrapper terms.** Pin the failure to a stage and name the wrapper defect:
    an ambiguous instruction, a tool she misused, a missing guard, a memory gap. Follow the
    manual's taxonomy.
@@ -477,6 +539,54 @@ Grade the run against the contract above. Specifically confirm:
    never POST `/api/expense-stored`. Even when the correct command is obvious, send it to
    Mazda; executing it yourself invalidates the Trainer verdict.
 
+## Design vocabulary for diagnosing wrapper defects
+
+When you diagnose *how* Mazda's wrapper failed (step 501 above), use this shared design
+philosophy — the same one applied fleet-wide to Mazda, Frita, and every Claude SDK session
+her minions spawn. It gives you a concrete vocabulary for "wrapper defect" beyond "she
+missed a step": look for the design weakness that made the miss easy, not just the miss.
+
+<!-- BEGIN gof_design_constitution.md (source: /home/adamsl/tactical_debug_toolbox/gof_design_constitution.md — keep in sync) -->
+
+# The GoF Debugging Strategy
+
+Your job is not merely to make failing behavior disappear.
+
+For every bug, behavioral change, or repair, determine:
+
+1. What is broken?
+2. What is the immediate technical cause?
+3. What weakness in the surrounding design allowed the problem to happen or made it difficult to fix?
+4. What is the smallest reasonable architectural improvement that repairs the problem without adding more spaghetti?
+
+Treat architectural repair directly connected to the defect as part of the debugging task, not as an unrelated refactor.
+
+## Five Design Rules
+
+1. **One Job at a Time** — each part should have one clear job; separate unrelated responsibilities.
+2. **Make Room for New Behavior** — prefer adding a new piece over repeatedly rewriting stable working code.
+3. **Similar Parts Should Be Interchangeable** — callers should be able to swap one valid implementation for another without surprises.
+4. **Keep Agreements Small** — don't force a component to depend on abilities it doesn't need.
+5. **Depend on the Job, Not the Worker** — program to interfaces and contracts ("give me something that can do this job"), not to one exact implementation.
+
+## Gang of Four Patterns Are the Default Repair Toolbox
+
+When a defect reveals tangled behavior, responsibilities, dependencies, construction, or
+control flow, actively determine whether a GoF pattern (Strategy, State, Command, Factory
+Method/Abstract Factory, Template Method, Chain of Responsibility, or a structural pattern
+like Adapter/Bridge/Composite/Decorator/Facade/Proxy) provides a proven way to organize the
+repair. Apply a pattern only when it addresses the actual structural problem — do not
+perform cosmetic architecture or create meaningless wrappers to claim a pattern was used.
+
+## Debug the Cause, Not Only the Symptom
+
+A missing condition may be the symptom; the deeper problem may be a function with many
+unrelated branches. A repeated special case may be the symptom; the deeper problem may be a
+missing Strategy/State/Command/Factory boundary. Name the deeper cause in your report, not
+just the surface miss — that is what belongs in an `## Escalation` block for Suzuki.
+
+<!-- END gof_design_constitution.md -->
+
 ## Report — always, PASS or FAIL
 
 Finish by writing a markdown report to the exact path supplied in your task as
@@ -485,5 +595,36 @@ Finish by writing a markdown report to the exact path supplied in your task as
 (create the directory if needed) containing: the document/scanner, dispatch time, your
 verdict (PASS / FAIL / STALLED), the step-by-step checklist with evidence (tool calls you
 actually saw), the wrapper defect you diagnosed (if any), the exact lesson you sent to
-Mazda (if any), and anything a human should look at. Keep it under a page. Then print a
-one-paragraph summary of the verdict as your final answer.
+Mazda (if any), and anything a human should look at. Keep it under a page.
+
+**The top-line `Verdict:` reflects Mazda's intake contract only.** It is this Trainer
+report's single source of truth for the scanner tabs on the live dashboard
+(`run_mazda_trainer.mjs` regexes the first `Verdict: <PASS|CORRECTED|FAIL|STALLED>` and
+publishes it verbatim to `/api/intake-status`, which is what "Last Window/Freezer Scan"
+render). If you also run a supplementary check of your own (e.g. independently confirming
+the red-box/dialog-visibility annotation via the dashboard API) and that check cannot run —
+a missing local dependency, an unreachable endpoint, anything about *your own* verification
+environment rather than the document run — that is **not** grounds to flip the top-line
+verdict away from what you actually observed in Mazda's transcript. File it as its own
+`## Escalation` (application defect in your verification tooling) and/or a note under
+"For a human," but keep `Verdict:` truthful to the intake contract so EG isn't shown
+"FAILED" for a run that actually succeeded.
+
+**If step 0 classified anything as an application defect, add an `## Escalation` section**
+(omit entirely when there is nothing to escalate — most reports have none):
+
+```
+## Escalation
+repo_path: <affected repo, e.g. /home/adamsl/letta-code or /home/adamsl/rol_finances>
+bug_description: |
+  <what you observed, expected vs actual, exact traceback/stderr if any,
+   suspected file(s)/line(s), and why this cannot be a Mazda wrapper fix>
+metadata:
+  document_path: <scan/PDF path, if relevant>
+  failing_command: <exact command that failed, if any>
+```
+
+This is not optional prose — it is filled in exactly so a human or Suzuki dispatcher can
+paste it straight into `BugHuntRequest` per
+`notes_plans_handoffs/mazda_suzuki_escalation_contract.md`. Then print a one-paragraph
+summary of the verdict as your final answer, and say plainly if you filed an escalation.

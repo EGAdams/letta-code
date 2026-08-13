@@ -55,6 +55,7 @@ bower_components
 
 # Compiled binary addons (https://nodejs.org/api/addons.html)
 build/Release
+/build/acceptance/
 
 # Dependency directories
 node_modules/
@@ -181,3 +182,4 @@ dev-debug.log
 # Task files
 # tasks.json
 # tasks/
+scan_freezer.jpg

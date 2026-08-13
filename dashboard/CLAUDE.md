@@ -29,8 +29,17 @@ bun test js/tests                             # JS GoF interface/implementation 
 `tests/conftest.py` puts the dashboard dir on `sys.path` and has an autouse fixture that disables
 the Trainer and redirects `recent_report.json` to a tmp path.
 
-Phone/mic access needs HTTPS (`getUserMedia` blocks on plain http over Tailscale IP):
-`tailscale serve --bg 8765`, then open the **hostname** (not the IP) on the phone.
+### Phone / microphone access (HTTPS required)
+`getUserMedia()` (mic capture) only works in a secure context (https or localhost). Plain
+`http://<tailscale-ip>:8765` silently blocks the mic on Android. Front the server with a real
+cert via Tailscale Serve:
+```bash
+tailscale serve --bg 8765   # one-time; persists across reboots (needs --operator=$USER once)
+```
+Then open `https://desktop-2obsqmc.tailb8fc54.ts.net/` on the phone — use the **hostname**,
+not the IP, or the cert won't validate. Note: this is `desktop-2obsqmc` (the primary Linux
+node), **not** `desktop-2obsqmc-24` (the WSL node — goes offline when its distro terminates;
+check `tailscale status` if unsure which one is currently up).
 
 ## Debugging strategy: rebuild the design, don't patch the symptom
 
@@ -94,10 +103,32 @@ commit — `forEach(x => { x.remove(); })`, not `forEach(x => x.remove())`.
 
 `MediaRecorder → POST /api/voice → whisper.cpp → cleanup agent → fills message box → /api/test`.
 GoF: Strategy (transcription/cleanup swap), Adapter (`LettaClient`), Factory (`build_*`), Pipeline
-(`VoicePipeline`), State (recorder idle→recording→processing). Reuses lettabot's whisper-cli/model/
-ffmpeg binaries (paths overridable via env). Every call logs `{date, raw, cleaned}` to
-`voice_transcripts.json` — compare to diagnose mis-heard agent names; `WHISPER_PROMPT` biases
-whisper toward real names.
+(`VoicePipeline`), State (recorder idle→recording→processing).
+
+| File | Role |
+|---|---|
+| `voice/config.py` | paths/ids from env; bakes in lettabot's whisper defaults; `KNOWN_AGENT_NAMES` |
+| `voice/transcription.py` | `WhisperCppTranscriber` (ffmpeg → 16k wav → `whisper-cli`) |
+| `voice/cleanup.py` | `LettaAgentCleanup` — clears the cleanup agent's history each call; raw-text fallback |
+| `voice/letta_client.py` | thin Letta HTTP adapter |
+| `voice/pipeline.py` | `VoicePipeline.process` + `handle_voice_upload` (the `/api/voice` handler logic) |
+
+It reuses lettabot's binaries rather than reinventing them — `whisper-cli` at
+`~/whisper.cpp/build/bin/whisper-cli`, model `~/whisper.cpp/models/ggml-small.en.bin` (upgraded
+2026-08-08 from `base.en` for better accuracy on agent names; adds a bit of latency per
+transcription, acceptable given transcription already runs ~5s). ffmpeg from lettabot's bundled
+`imageio_ffmpeg`. All overridable via env (`WHISPER_CPP_BIN`, `WHISPER_MODEL_PATH`, `FFMPEG_BIN`,
+`WHISPER_LANGUAGE`, `WHISPER_THREADS`, `WHISPER_PROMPT`).
+
+Every successful `/api/voice` call appends `{date, raw, cleaned}` to `voice_transcripts.json`
+(gitignored) — compare `raw` (what whisper heard) vs `cleaned` (what the cleanup agent produced)
+to diagnose a mis-delivered agent name. Whisper's `small.en` model still can mishear an agent name
+as a common word too far off for the cleanup agent to rescue; the fix is
+`config.WHISPER_PROMPT` biasing whisper up front with the real agent names (disable with
+`WHISPER_PROMPT=""`).
+
+Plan/design doc: `audio_input/audio_plan.html` (viewable in-dashboard under Project Plans →
+Audio Input); original spec `audio_input/audio_input.md`.
 
 ### Agents-home voice/text router (`router/`)
 
@@ -130,10 +161,29 @@ failure — check `GET /api/messages?agent=<id>` before concluding the agent mis
 
 ### Project Plans tab
 
-Serves static plan pages from both `HERE` and `REPO_ROOT`. Canonical current-direction doc:
-`notes_plans_handoffs/mazda_dev_status.html` (Mazda = orchestrator driving the Claude Agent SDK
-directly; minions/`team_construction_plan.html` are abandoned history). Frita
-(`agent-881a883f-edd0-4963-bf67-6ef178b8f018`) knows the deployment if unclear.
+The live dashboard source is the `letta-code` repo at `/home/adamsl/letta-code` **on the live box**
+(see "Which machine is live" below — that is not necessarily this machine). `server.py` serves static
+files from both `HERE` (`/home/adamsl/letta-code/dashboard`) and `REPO_ROOT`
+(`/home/adamsl/letta-code`), so repo-root plan pages are valid dashboard URLs:
+
+| Tab | File | Served URL |
+|---|---|---|
+| Self Evolving | `notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` | `/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` |
+| Codebase Rewrite | `notes_plans_handoffs/codebase_rewrite.html` | `/notes_plans_handoffs/codebase_rewrite.html` |
+| Mazda Dev Status | `notes_plans_handoffs/mazda_dev_status.html` | `/notes_plans_handoffs/mazda_dev_status.html` |
+| Audio Input | `dashboard/audio_input/audio_plan.html` | `/audio_input/audio_plan.html` |
+
+**`Mazda Dev Status` is the canonical current-direction doc** (Mazda is the orchestrator herself,
+with minions that drive the Claude Agent SDK). `team_construction_plan.html` (repo root) describes
+a discarded earlier design and is kept only as history, no longer linked from the Project Plans
+tab. If deployment details are unclear, Frita knows the dashboard setup and can be messaged at
+Letta agent id `agent-881a883f-edd0-4963-bf67-6ef178b8f018`.
+
+After editing Project Plans, sanity-check with:
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8765/notes_plans_handoffs/mazda_dev_status.html
+.venv/bin/python -m pytest tests/
+```
 
 ### ROL Finance Reports (Project Plans → ROL Finance → Reports)
 
@@ -168,15 +218,75 @@ statements — a duplicate-only event with no ids falls back to resolving them f
 Dispatch is server-side and deduped: `run_scanner()` spawns intake processing itself the instant a
 scan reports ready; `_claim_scan_dispatch()` prevents double-dispatch from the frontend's own POST.
 
-### Scanners (Project Plans → ROL Finance → Scanners)
+### Scanners — physical document scanners (Project Plans → ROL Finance → Scanners)
 
-Window (HP OfficeJet 8120e) and Freezer (HP DeskJet 4100), driven via native `sane-airscan`/eSCL
-(static addresses in `scanner_scripts/airscan.conf` — WSL multicast discovery is unreliable), **not
-Windows WIA**. `scan_airscan.sh` does a 300dpi flatbed JPEG scan. `SCANNERS`/`_invoke_scanner()` in
-`server.py`. Health LEDs (`/api/scanner-diagnostics`) use a read-only `_airscan_ready()` capability
-probe — stale Windows WIA/WSD state must not turn these red; WIA/WSD is legacy fallback only. Auto-
-poll is gated by `MONITORED_SCANNERS` (currently empty — both sit idle until "Start Scan" is
-pressed; constant polling itself caused false "busy" states via WIA-service contention).
+Two HP scanners attached to the live box: **Window** = HPI297BEA (HP OfficeJet 8120e),
+**Freezer** = HP063E28 (HP DeskJet 4100). Since 2026-07-24 they are driven directly from WSL
+through native `sane-airscan`/eSCL — **not Windows WIA**:
+
+- Window: `airscan:e0:Window Scanner` → `https://10.0.0.26/eSCL`
+- Freezer: `airscan:e1:Freezer Scanner` → `http://10.0.0.243/eSCL`
+
+WSL multicast discovery is unreliable, so the addresses are static in
+`scanner_scripts/airscan.conf` (installed at `/etc/sane.d/airscan.conf`). The shared
+`scanner_scripts/scan_airscan.sh` performs a 300-dpi flatbed JPEG scan with an 85-second timeout
+and preserves the existing `SCANNER_BUSY` / `SCANNER_OFFLINE` / `Saved:` output contract.
+`run_scan_window.sh` writes `window_scan.jpg`; `run_scan_freezer.sh` writes `scan_freezer.jpg`.
+All three scripts are deployed to `~/planner/nonprofit_finance_db/receipt_scanning_tools/`.
+`SCANNERS` + `_invoke_scanner()`/`classify_scan_result()` live in `server.py`.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/scanner-scan` `{scanner}` | One-shot manual scan → `{status, ok, image_url\|error}` |
+| `GET /api/scanner-status?scanner=` | Legacy endpoint that performs a real scan; do NOT use as a health probe |
+| `GET /api/scanner-image?scanner=` | Serves the scanned JPEG |
+| `GET /api/scanner-diagnostics?scanner=` | Read-only health LEDs (see below) → `{overall, checks:[{id,label,state,detail}]}` |
+
+**Scanner Health LEDs** — `scanner_diagnostics()` first calls `_airscan_ready()`, a read-only
+capability query (`scanimage -d <device> --help`; never transfers a scan). A ready direct backend
+renders the actual live chain: **Scanner Backend → Scanner Service → Driver Health → Scanner
+Online → Scanner Access → No Stuck Scans**. Stale Windows WIA/WSD state must not turn these LEDs
+red. The Freezer also keeps its direct LEDM hardware check at
+`http://10.0.0.243/DevMgmt/ProductStatusDyn.xml`: door/jam/offline are red; paper/ink are
+printing-only yellow warnings and never block scanning.
+
+`scanner_diag.ps1`, WIA, stisvc, and WSL interop remain a legacy fallback only when AirScan is
+unavailable. Front end: `ScannerDiagnosticsController`
+(`js/implementation/scanner-diagnostics-controller.js`); server-side
+`build_scanner_diagnostics()` owns the mapping.
+
+`status` ∈ ready/busy/offline/error. Auto-poll is gated by `MONITORED_SCANNERS` (a `Set` in
+`setupScanners` in `dashboard-boot.js`) — currently empty, so neither scanner auto-polls; both sit
+idle until "Start Scan" is pressed (constant auto-polling was itself found to cause the Window
+scanner reporting "busy" from shared WIA-service contention).
+
+**Root cause/history:** on 2026-07-24 both scanners' own eSCL interfaces reported `Idle` while
+Windows retained their WSD Image records as `Present:false, Problem:45`. Even elevated
+`fdPHost`/`upnphost`/`stisvc` restarts plus `pnputil /scan-devices` did not reconnect them. This
+explained the recurring busy/offline/power-cycle class of failures. Earlier HP Scan Doctor,
+open-cover, leaked-process, and missing-interop incidents were real but are no longer on the live
+scan path. Full current runbook: memory `dashboard_scanner_airscan_wia_bypass_2026_07_24`;
+`dashboard_scanner_wsl_interop` is legacy history.
+
+Install/deploy/verify:
+
+```bash
+sudo apt-get install -y sane-airscan sane-utils
+sudo install -m 0644 scanner_scripts/airscan.conf /etc/sane.d/airscan.conf
+install -m 0755 scanner_scripts/{scan_airscan,run_scan_window,run_scan_freezer}.sh \
+  ~/planner/nonprofit_finance_db/receipt_scanning_tools/
+scanimage -L
+systemctl --user restart dashboard-server.service
+# Restart Executor after every dashboard restart:
+curl -sS -H 'Content-Type: application/json' \
+  -d '{"server":"executor","action":"start"}' http://localhost:8765/api/server-action
+curl -sS 'http://localhost:8765/api/scanner-diagnostics?scanner=window'
+curl -sS 'http://localhost:8765/api/scanner-diagnostics?scanner=freezer'
+.venv/bin/python -m pytest tests/ -q
+```
+
+Both scanners completed direct 300-dpi test scans on 2026-07-24 (Window ≈22s, Freezer ≈19s).
+Browser blinking-red state can be stale after repair; hard-refresh with `Ctrl+Shift+R`.
 
 ### Scan → Mazda intake pipeline
 
@@ -204,6 +314,16 @@ ends its turn to "wait" (must Bash `sleep`-loop + report before finishing); the 
 reaches the child process, so `trainer/claude-attempt.ts` supplies its own AbortSignal + hard
 deadline. A 0-byte trainer log means "still running" (bun block-buffers stdout to a file), not
 "never started" — check `systemctl --user list-units 'mazda-trainer-*'`.
+
+**Wrapper defect vs. application defect (2026-08-01).** Before coaching, the Trainer now
+classifies the failure: a *wrapper defect* (Mazda's instructions/tools/memory — coach her,
+unchanged) or an *application defect* (a real bug in this repo's or `rol_finances`' code —
+she cannot fix it by retrying). Application defects get a structured `## Escalation` block
+in the report (`repo_path`, `bug_description`, `metadata`) instead of a buried sentence. The
+Trainer still never executes anything under `rol_finances` and never invokes Suzuki itself —
+a human (or a future report-grepping dispatcher) turns that block into Suzuki's
+`BugHuntRequest`. Full contract, routing rule, and exact Suzuki invocation:
+`notes_plans_handoffs/mazda_suzuki_escalation_contract.md`.
 
 ### Statement review dialog (Scanner screen)
 

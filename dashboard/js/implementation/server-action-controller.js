@@ -38,13 +38,15 @@ export class ServerActionController {
   }
 
   /**
-   * Start a server. Returns the backend's {ok, text} on success; on transport
-   * failure returns {ok:false, text:<error>} so the caller never has to catch.
-   * @param {string} [serverKey]
+   * Dispatch one lifecycle action. Returns the backend's {ok, text} on success;
+   * on transport failure returns {ok:false, text:<error>} so the caller never
+   * has to catch. All public verbs funnel through here.
+   * @param {string} verb  e.g. "start" | "restart" | "deploy"
+   * @param {string} serverKey
    * @returns {Promise<{ok:boolean, text:string}>}
    */
-  async start(serverKey = "executor") {
-    const { body } = buildServerActionRequest(serverKey, "start");
+  async _action(verb, serverKey) {
+    const { body } = buildServerActionRequest(serverKey, verb);
     try {
       const res = await this._http.postJSON(this._url, body);
       return { ok: res.ok !== false, text: res.text || "" };
@@ -53,13 +55,23 @@ export class ServerActionController {
     }
   }
 
+  /** Start a server (default: the executor). */
+  async start(serverKey = "executor") {
+    return this._action("start", serverKey);
+  }
+
+  /** Restart a server (default: this dashboard) — re-runs the SAME code. */
   async restart(serverKey = "dashboard") {
-    const { body } = buildServerActionRequest(serverKey, "restart");
-    try {
-      const res = await this._http.postJSON(this._url, body);
-      return { ok: res.ok !== false, text: res.text || "" };
-    } catch (e) {
-      return { ok: false, text: e.message };
-    }
+    return this._action("restart", serverKey);
+  }
+
+  /**
+   * Deploy: pull the latest code for the checked-out branch, then self-restart.
+   * The keyboard-free path so the system is never dead in the water — callable by
+   * Frita over Tailscale or by a one-tap dashboard button. Only "dashboard" has a
+   * backend deploy handler today.
+   */
+  async deploy(serverKey = "dashboard") {
+    return this._action("deploy", serverKey);
   }
 }

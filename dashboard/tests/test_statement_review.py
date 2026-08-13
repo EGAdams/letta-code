@@ -111,6 +111,29 @@ def test_many_row_errors_collapse_to_one_consolidated_question():
     assert 'checking the archived clean statement PDF' in message
 
 
+def test_diagnostic_rows_are_not_described_as_unreadable_transactions():
+    packet = _packet(
+        bank_name=None,
+        reason='Parser/store schema mismatch: debit charges were treated as credits.',
+        required_resolution='Normalize the workbook debit signs and re-run intake.',
+        row_errors=[{
+            'index': 0,
+            'date': '2025-10-25',
+            'description': 'SUNMART',
+            'amount': 68.48,
+            'problem': 'debit charge misclassified as credit',
+        }],
+    )
+
+    item = statement_review.build_review_item('/review/mismatch.json', packet)
+
+    assert item['kind'] == 'unsupported'
+    assert 'Parser/store schema mismatch' in item['message']
+    assert 'Normalize the workbook debit signs' in item['message']
+    assert 'unreadable' not in item['message']
+    assert 'this this account' not in item['message']
+
+
 def test_two_row_errors_still_enumerate_individually():
     row_errors = [
         {'index': 0, 'missing': ['date'], 'date': None, 'description': 'ROW A'},

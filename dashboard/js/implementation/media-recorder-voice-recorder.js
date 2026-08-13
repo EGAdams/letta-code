@@ -37,11 +37,21 @@ export class MediaRecorderVoiceRecorder extends VoiceRecorder {
   /** @override Acquire a mic stream and arm a MediaRecorder. */
   async openStream() {
     const media = this._navigator?.mediaDevices;
-    if (!media || !media.getUserMedia) return false; // needs a secure context
+    if (!media || !media.getUserMedia) {
+      this._lastError =
+        "Microphone needs a secure context (https). Open this dashboard via the Tailscale https URL.";
+      return false;
+    }
     try {
       this._stream = await media.getUserMedia({ audio: true });
-    } catch {
-      return false; // permission denied / unavailable
+    } catch (e) {
+      this._lastError =
+        e?.name === "NotAllowedError" || e?.name === "SecurityError"
+          ? "Microphone permission was denied. Check Chrome's site permission and, on Android, Settings → Apps → Chrome → Permissions → Microphone."
+          : e?.name === "NotFoundError"
+            ? "No microphone was found."
+            : `Microphone unavailable: ${e?.message || e?.name || "unknown error"}`;
+      return false;
     }
     this._recorder = new this._Recorder(this._stream);
     return true;

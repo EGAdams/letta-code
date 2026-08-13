@@ -22,10 +22,21 @@ export class VoiceRecorder {
   constructor({ onStateChange = () => {} } = {}) {
     this._state = RecorderState.IDLE;
     this._onStateChange = onStateChange;
+    this._lastError = null;
   }
 
   get state() {
     return this._state;
+  }
+
+  /**
+   * Human-readable reason the most recent start() failed, e.g. distinguishing
+   * "no secure context" from "permission denied" — both surface as openStream
+   * returning false, but callers need the real reason to show a useful
+   * message instead of a generic guess. Set by the concrete openStream().
+   */
+  get lastError() {
+    return this._lastError;
   }
 
   get isRecording() {
@@ -63,6 +74,7 @@ export class VoiceRecorder {
    */
   async start() {
     if (this._state !== RecorderState.IDLE) return false;
+    this._lastError = null;
     const ok = await this.openStream();
     if (!ok) return false;
     this.beginCapture();

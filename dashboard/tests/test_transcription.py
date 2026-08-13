@@ -17,7 +17,7 @@ from voice.transcription import (
 
 def test_default_whisper_model_matches_installed_dashboard_model():
     assert config.DEFAULT_WHISPER_MODEL_PATH.endswith(
-        "/whisper.cpp/models/ggml-base.en.bin"
+        "/whisper.cpp/models/ggml-small.en.bin"
     )
 
 

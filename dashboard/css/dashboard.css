@@ -577,8 +577,9 @@ body.startup-loading .sidebar {
   background: #3a5de3;
 }
 
-.tab.active {
-  background: var(--tab-active);
+.sidebar .tab.active:not(.tab-alert):not(.tab-alert-red) {
+  background: #fff !important;
+  color: var(--tab) !important;
   font-weight: 700;
 }
 
@@ -1983,6 +1984,7 @@ summary {
   font-size: 0.85em;
   color: #666;
   margin-top: 8px;
+  white-space: pre-line;
 }
 
 /* ── Statement review dialog (Scanner screen) ──────────────────────────────
@@ -2136,4 +2138,42 @@ summary {
 .statement-review-overlay .srd-ok[disabled] {
   background: #93c5fd;
   cursor: not-allowed;
+}
+
+/* Detail sections stacked below the scanner report iframe (Mazda's
+   Thoughts, archive-verification terminal) need a visible gap from the
+   iframe above them - the fullbleed .content wrapper has padding:0. */
+.agent-detail-section {
+  margin-top: 20px;
+  padding: 0 16px;
+}
+.archive-terminal-section {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+/* Archive terminal section (shown after scan completes) */
+.archive-terminal-section {
+  margin-top: 20px;
+  padding: 16px;
+  background: #0b0e14;
+  border-radius: 8px;
+}
+.archive-terminal-section.hidden {
+  display: none;
+}
+.archive-terminal-section h3 {
+  margin: 0 0 12px;
+  color: #fff;
+  font-size: 1rem;
+}
+.archive-terminal-section .terminal-host {
+  height: 300px;
+  border-radius: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #000;
+}
+.archive-terminal-section .terminal-host .xterm {
+  min-width: max-content;
 }

@@ -10,6 +10,7 @@ import os
 import re
 import time
 import types
+import urllib.error
 
 import pytest
 import server
@@ -34,6 +35,128 @@ def write_scan_image(path):
     path = str(path)
     img.save(path, format='JPEG')
     return path
+
+
+@pytest.mark.parametrize(
+    ('message', 'expected_type'),
+    [
+        ({'message_type': 'reasoning_message', 'reasoning': 'x' * 700}, 'thought'),
+        ({'message_type': 'assistant_message', 'content': 'x' * 700}, None),
+        ({'message_type': 'user_message', 'content': 'x' * 700}, 'user'),
+    ],
+)
+def test_letta_thoughts_does_not_truncate_entries(monkeypatch, message, expected_type):
+    monkeypatch.setattr(server, 'letta_messages', lambda _agent_id, limit: [message])
+
+    rows = server.letta_thoughts('agent-test')
+
+    assert rows[0]['text'] == 'x' * 700
+    if expected_type is None:
+        assert 'type' not in rows[0]
+    else:
+        assert rows[0]['type'] == expected_type
+
+
+def test_letta_thoughts_reads_isolated_conversation(monkeypatch):
+    seen = {}
+
+    def fake_get(path, timeout=0):
+        seen.update(path=path, timeout=timeout)
+        return [{
+            'message_type': 'reasoning_message',
+            'created_at': '2026-08-12T19:07:44Z',
+            'reasoning': 'I am processing this Window scan.',
+        }]
+
+    monkeypatch.setattr(server, 'letta_get', fake_get)
+    monkeypatch.setattr(
+        server, 'letta_messages',
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError('agent-wide messages must not be used')))
+
+    result = server.letta_thoughts('agent-mazda', 'conv-window')
+
+    assert seen == {
+        'path': '/v1/conversations/conv-window/messages?limit=80',
+        'timeout': 25,
+    }
+    assert result == [{
+        'date': '2026-08-12T19:07:44',
+        'type': 'thought',
+        'text': 'I am processing this Window scan.',
+    }]
+
+
+def test_cached_thoughts_returns_cache_while_refresh_runs(monkeypatch):
+    class FakeProxy:
+        def get(self, key, *args, default=None):
+            assert key == ('agent-mazda', 'conv-freezer')
+            assert args == ('agent-mazda', 'conv-freezer')
+            return [{'text': 'cached'}]
+
+    monkeypatch.setattr(server, '_thoughts_proxy', FakeProxy())
+
+    started = time.monotonic()
+    rows = server.cached_thoughts('agent-mazda', 'conv-freezer')
+
+    assert time.monotonic() - started < 0.1
+    assert rows == [{'text': 'cached'}]
+
+
+def test_cached_thoughts_keys_full_history_by_agent(monkeypatch):
+    """Two different agents with no active scan conversation (conversation_id='')
+    must not share one cache entry - the old scanner-only key was just the
+    conversation_id, so both fell into the same '' bucket."""
+    class FakeProxy:
+        def get(self, key, *args, default=None):
+            return key
+
+    monkeypatch.setattr(server, '_thoughts_proxy', FakeProxy())
+
+    assert server.cached_thoughts('agent-mazda', '') != server.cached_thoughts('agent-suzuki', '')
+
+
+def test_scanner_intake_archive_path_resolves_receipt_from_expense_row(monkeypatch):
+    archived = '/archive/2025/april/receipt.jpg'
+    monkeypatch.setattr(
+        server, '_associated_source_paths',
+        lambda _rows: ('', archived))
+
+    result = server.scanner_intake_archive_path(
+        {'doc_kind': 'receipt', 'archive_paths': []},
+        [{'receipt_url': 'receipt.jpg'}])
+
+    assert result == archived
+
+
+def test_scanner_intake_archive_path_falls_back_to_db_statement_evidence(
+        tmp_path, monkeypatch):
+    archived = tmp_path / 'american_express_4007_may_21__june_02.jpg'
+    archived.write_bytes(b'scan')
+    monkeypatch.setattr(server, '_statement_archive_path', lambda *_args, **_kwargs: '')
+    monkeypatch.setattr(
+        server, '_associated_evidence_paths',
+        lambda _rows: (str(archived), ''))
+
+    result = server.scanner_intake_archive_path(
+        {'doc_kind': 'statement', 'archive_paths': []},
+        [{'scanned_statement_url': str(archived)}])
+
+    assert result == str(archived)
+
+
+def test_scanner_intake_archive_path_rejects_missing_statement_evidence(monkeypatch):
+    monkeypatch.setattr(server, '_statement_archive_path', lambda *_args, **_kwargs: '')
+    monkeypatch.setattr(
+        server, '_associated_evidence_paths',
+        lambda _rows: ('/archive/missing-statement.jpg', ''))
+    monkeypatch.setattr(server, '_associated_source_paths', lambda _rows: ('', ''))
+
+    result = server.scanner_intake_archive_path(
+        {'doc_kind': 'statement', 'archive_paths': []},
+        [{'scanned_statement_url': '/archive/missing-statement.jpg'}])
+
+    assert result == ''
 
 
 class _CompletedProcess:
@@ -237,6 +360,7 @@ def _clear_model_stats_cache(tmp_path, monkeypatch):
     # leak-detector snapshots, and tests must never write fake percentages into
     # the real MODEL_USAGE_HISTORY_FILE (it would poison the live leak detector).
     monkeypatch.setattr(server, 'MODEL_USAGE_HISTORY_FILE', str(tmp_path / 'usage_history.json'))
+    monkeypatch.setattr(server, 'MODEL_STATS_LAST_GOOD_FILE', str(tmp_path / 'model_stats_last_good.json'))
     monkeypatch.setattr(server, '_usage_history', {})
 
 
@@ -901,6 +1025,59 @@ def test_model_stats_sources_cover_w11_r46_gemini():
     assert {'w11-codex', 'r46-codex', 'w11-claude', 'r46-claude', 'gemini'} <= keys
 
 
+def test_antigravity_extractor_refreshes_expired_token_and_retries(
+        monkeypatch, tmp_path, capsys):
+    token_dir = tmp_path / '.gemini' / 'antigravity-cli'
+    token_dir.mkdir(parents=True)
+    token_file = token_dir / 'antigravity-oauth-token'
+    token_file.write_text(json.dumps({
+        'auth_method': 'oauth-personal',
+        'token': {
+            'access_token': 'expired-access',
+            'refresh_token': 'durable-refresh',
+            'expiry': '2020-01-01T00:00:00+00:00',
+            'token_type': 'Bearer',
+        },
+    }))
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setenv('ANTIGRAVITY_OAUTH_CLIENT_ID', 'test-client-id')
+    monkeypatch.setenv('ANTIGRAVITY_OAUTH_CLIENT_SECRET', 'test-client-secret')
+    calls = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(request)
+        url = request.full_url
+        authorization = request.headers.get('Authorization')
+        if url.endswith('loadCodeAssist') and authorization == 'Bearer expired-access':
+            raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, None)
+        if url == 'https://oauth2.googleapis.com/token':
+            assert b'refresh_token=durable-refresh' in request.data
+            return _FakeResponse(json.dumps({
+                'access_token': 'renewed-access',
+                'expires_in': 3600,
+                'token_type': 'Bearer',
+            }).encode())
+        if url.endswith('loadCodeAssist') and authorization == 'Bearer renewed-access':
+            return _FakeResponse(json.dumps({
+                'currentTier': {'id': 'free-tier', 'name': 'Free'},
+            }).encode())
+        if url.startswith('https://www.googleapis.com/oauth2/v1/userinfo'):
+            return _FakeResponse(b'{"email":"eg1972@gmail.com"}')
+        raise AssertionError(f'unexpected request: {url} {authorization}')
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', fake_urlopen)
+    exec(server._ANTIGRAVITY_EXTRACT_PY, {})
+
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    saved = json.loads(token_file.read_text())['token']
+    assert result['error'] is None
+    assert result['tier_id'] == 'free-tier'
+    assert result['account'] == 'eg1972@gmail.com'
+    assert saved['access_token'] == 'renewed-access'
+    assert saved['refresh_token'] == 'durable-refresh'
+    assert len(calls) == 4
+
+
 def _codex_usage(primary, secondary=0, reached=False):
     return {'model': 'gpt-5.5', 'as_of': 1.0, 'usage': {
         'plan_type': 'plus',
@@ -952,14 +1129,114 @@ def test_model_stats_claude_live_windows(monkeypatch):
     assert [w['used_percent'] for w in d['windows']] == [19.0, 12.0]
 
 
-def test_model_stats_claude_rate_limited_is_red_with_reset(monkeypatch):
-    # A provider-side 429 (the R46 Claude incident, 2026-07-15) must be RED
-    # with an absolute reset epoch, not yellow "usage unavailable".
+def test_model_stats_claude_rate_limit_keeps_last_good_bars(monkeypatch):
+    responses = iter([
+        {'recent_model': 'claude-opus-4-8', 'as_of': 100.0,
+         'usage': {'five_hour': {'utilization': 19.0, 'resets_at': None},
+                   'seven_day': {'utilization': 12.0, 'resets_at': None}}},
+        {'recent_model': 'claude-opus-4-8', 'as_of': 200.0,
+         'error': 'HTTP 429', 'retry_after': 60},
+    ])
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: next(responses))
+    first = server.model_stats('r46-claude')
+    server._model_stats_cache.clear()
+    limited = server.model_stats('r46-claude')
+    assert [w['used_percent'] for w in first['windows']] == [19.0, 12.0]
+    assert [w['used_percent'] for w in limited['windows']] == [19.0, 12.0]
+    assert limited['windows_stale'] is True
+    assert limited['usage_as_of'] == 100.0
+    assert limited['rate_limited'] is True
+
+
+def test_claude_extractor_names_logged_out_before_any_request(tmp_path, monkeypatch, capsys):
+    """Blank tokens are a logged-out host, not a throttle.
+
+    R46 sat with accessToken == refreshToken == "" (a `claude` logout leaves the
+    file behind), so every poll sent `Authorization: Bearer ` and Anthropic's
+    edge answered 429 — which the dashboard then reported as a rate limit that
+    would never clear. The extractor must recognise it locally, name the
+    condition, and make no request at all."""
+    cred_dir = tmp_path / '.claude'
+    cred_dir.mkdir()
+    (cred_dir / '.credentials.json').write_text(json.dumps({'claudeAiOauth': {
+        'accessToken': '', 'refreshToken': '', 'expiresAt': 0,
+        'subscriptionType': 'pro'}}))
+    monkeypatch.setenv('HOME', str(tmp_path))
+
+    def fail_urlopen(*a, **k):
+        raise AssertionError('logged-out host must not be probed over the network')
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', fail_urlopen)
+    with pytest.raises(SystemExit):
+        exec(server._CLAUDE_EXTRACT_PY, {})
+
+    d = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert d['condition'] == 'logged_out'
+    assert 'usage' not in d
+
+
+def test_model_stats_claude_logged_out_is_red_with_login_instruction(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'as_of': 1.0, 'condition': 'logged_out', 'error': 'logged out (no OAuth token on this host)'})
+    d = server.model_stats('r46-claude')
+    assert d['status'] == 'down'                    # red, not a yellow "throttled"
+    assert d['logged_out'] is True
+    assert not d.get('rate_limited')
+    assert server.R46_SSH_HOST in d['detail']       # says WHICH host to log into
+    assert 'claude' in d['detail'] and '/login' in d['detail']
+
+
+def test_model_stats_claude_logged_out_does_not_show_stale_bars(monkeypatch):
+    """Last-good bars are restored only for a throttle. A logged-out host has
+    no live quota reading at all, so showing yesterday's bars would hide it."""
+    responses = iter([
+        {'as_of': 100.0, 'usage': {'five_hour': {'utilization': 19.0, 'resets_at': None},
+                                   'seven_day': {'utilization': 12.0, 'resets_at': None}}},
+        {'as_of': 200.0, 'condition': 'logged_out', 'error': 'logged out (no OAuth token on this host)'},
+    ])
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: next(responses))
+    server.model_stats('r46-claude')
+    server._model_stats_cache.clear()
+    out = server.model_stats('r46-claude')
+    assert out['windows'] == []
+    assert out['status'] == 'down'
+
+
+def test_model_stats_codex_logged_out_reuses_shared_explanation(monkeypatch):
+    """The condition is described once, not once per provider."""
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'model': 'gpt-5.5', 'condition': 'logged_out', 'error': 'no auth.json'})
+    d = server.model_stats('w11-codex')
+    assert d['status'] == 'down' and d['logged_out'] is True
+    assert 'codex login' in d['detail']
+    assert 'this box' in d['detail']                # local source names itself
+
+
+def test_model_stats_claude_rate_limit_restores_primary_history(monkeypatch):
+    with open(server.MODEL_USAGE_HISTORY_FILE, 'w', encoding='utf-8') as fh:
+        json.dump({'r46-claude': [[100.0, 51.0]]}, fh)
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'as_of': 200.0, 'error': 'HTTP 429', 'retry_after': 60})
+    limited = server.model_stats('r46-claude')
+    assert limited['windows'][0]['label'] == '5-hour'
+    assert limited['windows'][0]['used_percent'] == 51.0
+    assert limited['windows'][1]['label'] == 'weekly'
+    assert limited['windows'][1]['unavailable'] is True
+    assert limited['windows_stale'] is True
+
+
+def test_model_stats_claude_rate_limited_is_flagged_with_reset(monkeypatch):
+    # A provider-side 429 (the R46 Claude incident, 2026-07-15) must be flagged
+    # with an absolute reset epoch, not a bare yellow "usage unavailable".
+    # Claude's severity is 'concern', not 'down': the usage-stats endpoint
+    # throttles independently of the chat API, so Claude itself may still work
+    # (see _fill_rate_limited). These two assertions were left at 'down' when
+    # that severity changed, and had been failing since.
     monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
         'as_of': 1000.0, 'error': 'HTTP 429', 'retry_after': 2627,
         'recent_model': 'claude-opus-4-8'})
     d = server.model_stats('r46-claude')
-    assert d['status'] == 'down'
+    assert d['status'] == 'concern'
     assert d['rate_limited'] is True
     assert d['rate_limited_until'] == 1000.0 + 2627
     assert 'RATE LIMITED' in d['detail']
@@ -969,7 +1246,7 @@ def test_model_stats_claude_rate_limited_without_retry_after(monkeypatch):
     monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
         'as_of': 1000.0, 'error': 'HTTP 429'})
     d = server.model_stats('w11-claude')
-    assert d['status'] == 'down' and d['rate_limited'] is True
+    assert d['status'] == 'concern' and d['rate_limited'] is True
     assert 'rate_limited_until' not in d
     assert 'reset time not reported' in d['detail']
 
@@ -1203,17 +1480,28 @@ def test_scanner_diag_freezer_device_blocker_is_red():
     r = server.build_scanner_diagnostics('freezer', True, ps, device)
     dev = _diag_by_id(r, 'device')
     assert dev['state'] == 'bad'
+    assert dev['label'] == 'Scanner Hardware'
     assert dev['detail'] == device['blocker']
     assert r['overall'] == 'bad'
 
 
-def test_scanner_diag_freezer_print_only_note_is_yellow_not_red():
+def test_scanner_diag_freezer_hides_print_only_status_entirely():
     ps = {'stisvc': 'Running', 'stale_scans': 0,
           'driver_present': True, 'driver_status': 'OK', 'wia': 'present'}
     device = {'reachable': True, 'categories': ['inputTrayEmpty'], 'blocker': None,
               'note': 'it is out of paper (printing only — scanning works without paper)'}
     r = server.build_scanner_diagnostics('freezer', True, ps, device)
-    assert _diag_by_id(r, 'device')['state'] == 'warn'
+    assert not any(check['id'] == 'device' for check in r['checks'])
+    assert r['overall'] == 'ok'
+
+
+def test_airscan_freezer_hides_print_only_status_entirely():
+    device = {'reachable': True, 'categories': ['inputTrayEmpty'], 'blocker': None,
+              'note': 'it is out of paper (printing only — scanning works without paper)'}
+    r = server.build_scanner_diagnostics(
+        'freezer', False, None, device, airscan_ready=True)
+    assert not any(check['id'] == 'device' for check in r['checks'])
+    assert r['overall'] == 'ok'
 
 
 def test_scanner_diag_unknown_scanner_errors():
@@ -1779,6 +2067,11 @@ def test_document_vision_health_two_tiers_up_is_green_not_concern(monkeypatch, t
     auth_path.write_text(json.dumps({'tokens': {'access_token': fake_jwt}}))
     monkeypatch.setattr(server.os.path, 'expanduser',
                          lambda p: str(auth_path) if p == '~/.codex/auth.json' else p)
+
+    # Isolate the shared provider-health event log: this test pins the
+    # credential-presence signal only, not fallback history.
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH',
+                        str(tmp_path / 'absent.json'))
 
     health = server.document_vision_health()
     assert health['ok'] is True
@@ -2431,7 +2724,11 @@ def _ssh_cfg():
     return {'key': '__test_ssh_conn', 'name': 'Test Conn', 'host': '0.0.0.0', 'user': 'nobody'}
 
 
-def test_ssh_test_uses_configured_identity_file(monkeypatch, tmp_path):
+@pytest.mark.parametrize('identity_key', ['identity_files', 'identity_file'])
+def test_ssh_test_uses_configured_identity_file(monkeypatch, tmp_path, identity_key):
+    """`identity_files` is the current contract; the singular `identity_file`
+    key is still accepted for older connection configs, so both must reach the
+    same `-i` invocation."""
     identity = tmp_path / 'id_ed25519'
     identity.write_text('test key')
     calls = []
@@ -2445,7 +2742,8 @@ def test_ssh_test_uses_configured_identity_file(monkeypatch, tmp_path):
         })()
 
     monkeypatch.setattr(server.subprocess, 'run', fake_run)
-    result = server.ssh_test({**_ssh_cfg(), 'identity_file': str(identity)}, timeout=5)
+    cfg_value = (str(identity),) if identity_key == 'identity_files' else str(identity)
+    result = server.ssh_test({**_ssh_cfg(), identity_key: cfg_value}, timeout=5)
 
     assert result['ok'] is True
     assert calls == [[
@@ -3584,6 +3882,89 @@ def test_scan_message_round_trips_through_notify(monkeypatch):
     assert captured['body']['streaming'] is False
 
 
+def test_scan_notify_timeout_is_success_when_conversation_received_message(monkeypatch):
+    """A slow synchronous agent run must not be reported as delivery failure."""
+    monkeypatch.setattr(
+        server.urllib.request, 'urlopen',
+        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError('timed out')))
+    monkeypatch.setattr(
+        server, 'letta_get',
+        lambda path, timeout: {'in_context_message_ids': ['message-user']})
+
+    assert server._notify_mazda_of_scan(
+        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
+        'conv-freezer') is True
+
+
+def test_scan_notify_failure_remains_failure_when_conversation_is_empty(monkeypatch):
+    monkeypatch.setattr(
+        server.urllib.request, 'urlopen',
+        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError('timed out')))
+    monkeypatch.setattr(
+        server, 'letta_get',
+        lambda path, timeout: {'in_context_message_ids': []})
+
+    assert server._notify_mazda_of_scan(
+        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
+        'conv-freezer') is False
+
+
+def test_scan_notify_failure_marks_exact_intake_terminal(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch)
+    server.record_recent_intake(
+        '/staged/window.jpg', 'Window Scanner',
+        conversation_id='conv-window', dispatched_at=1234)
+    monkeypatch.setattr(server, '_notify_mazda_of_scan', lambda *a, **k: False)
+
+    assert server._notify_mazda_of_scan_and_record_failure(
+        '/staged/window.jpg', 'Window Scanner', {}, 'conv-window', 1234) is False
+
+    intake = server._read_recent_pointer_file()['scanner_intakes']['Window Scanner']
+    assert intake['status'] == 'fail'
+    assert intake['status_source'] == 'transport'
+    assert 'Mazda could not be reached' in intake['status_detail']
+
+
+def test_success_callback_clears_only_provisional_transport_failure(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch)
+    server.record_recent_intake(
+        '/staged/freezer.jpg', 'Freezer Scanner',
+        conversation_id='conv-freezer', dispatched_at=1234)
+    server.merge_recent_intake_status({
+        'conversation_id': 'conv-freezer',
+        'status': 'fail',
+        'status_source': 'transport',
+        'detail': 'Mazda could not be reached',
+    })
+
+    assert server.merge_recent_intake_event({
+        'conversation_id': 'conv-freezer',
+        'dispatched_at': 1234,
+        'parsed': 11,
+        'stored': 0,
+        'expense_ids': [981],
+    })
+
+    intake = server._read_recent_pointer_file()['scanner_intakes']['Freezer Scanner']
+    assert intake['status'] == 'complete'
+    assert intake['status_detail'] == ''
+    assert intake['status_source'] == 'callback'
+
+
+def test_mazda_progress_does_not_block_report_for_full_letta_timeout(monkeypatch):
+    captured = {}
+
+    def _fake_get(path, timeout):
+        captured.update(path=path, timeout=timeout)
+        return None
+
+    monkeypatch.setattr(server, 'letta_get', _fake_get)
+    progress = server.mazda_intake_progress({'conversation_id': 'conv-window'})
+
+    assert captured['timeout'] == 3
+    assert progress['percent'] == 0
+
+
 def test_create_mazda_conversation_uses_agent_query_and_returns_id(monkeypatch):
     captured = {}
 
@@ -3933,6 +4314,73 @@ def test_fetch_expenses_by_ids_omits_childless_parent(monkeypatch):
     assert server._fetch_expenses_by_ids([1521]) == []
 
 
+def test_fetch_expenses_by_ids_reports_each_child_once_when_parent_also_listed(
+        monkeypatch):
+    """STEP 8 reports the PARENT anchor *and* every child it created.
+
+    The expansion pass drops the anchor and splices its children in, so a
+    child that was already in the requested id list used to be emitted twice
+    — once bare from the first query, once parent-prefixed from the expansion.
+    That is what put 22 rows on a 12-expense Window report.  Each child must
+    appear exactly once, keeping the prefixed copy so the vendor stays
+    readable.
+    """
+    def router(sql, params):
+        if 'FROM categories' in sql:
+            return [{'id': 204, 'parent_id': None}]
+        if 'parent_expense_id IN' in sql:
+            return [
+                {
+                    'id': 1685, 'expense_date': '2025-12-22', 'amount': '25.00',
+                    'id_light': 'rtl_12_22_25_247_70-item-1',
+                    'description': '12/22/2025 Contribution', 'category_id': 204,
+                    'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                    'expense_role': 'LINE_ITEM', 'parent_expense_id': 1684,
+                },
+                {
+                    'id': 1686, 'expense_date': '2025-12-22', 'amount': '25.00',
+                    'id_light': 'rtl_12_22_25_247_70-item-2',
+                    'description': '11/17/2025 Contribution', 'category_id': 204,
+                    'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                    'expense_role': 'LINE_ITEM', 'parent_expense_id': 1684,
+                },
+            ]
+        return [
+            {
+                'id': 1684, 'expense_date': '2025-12-22', 'amount': '50.00',
+                'id_light': 'rtl_12_22_25_247_70',
+                'description': 'Right to Life of Michigan Educational Fund',
+                'category_id': None, 'receipt_url': '', 'document_url': '',
+                'moms_ledger': None, 'expense_role': 'PARENT',
+            },
+            {
+                'id': 1685, 'expense_date': '2025-12-22', 'amount': '25.00',
+                'id_light': 'rtl_12_22_25_247_70-item-1',
+                'description': '12/22/2025 Contribution', 'category_id': 204,
+                'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                'expense_role': 'LINE_ITEM',
+            },
+            {
+                'id': 1686, 'expense_date': '2025-12-22', 'amount': '25.00',
+                'id_light': 'rtl_12_22_25_247_70-item-2',
+                'description': '11/17/2025 Contribution', 'category_id': 204,
+                'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                'expense_role': 'LINE_ITEM',
+            },
+        ]
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+
+    rows = server._fetch_expenses_by_ids([1684, 1685, 1686])
+
+    assert [r['id'] for r in rows] == [1685, 1686]
+    assert rows[0]['description'] == (
+        'Right to Life of Michigan Educational Fund — 12/22/2025 Contribution')
+    assert rows[1]['description'] == (
+        'Right to Life of Michigan Educational Fund — 11/17/2025 Contribution')
+
+
 def test_is_uncategorized_flags_null_and_legacy_ids():
     assert server._is_uncategorized(None) is True
     assert server._is_uncategorized(1) is True
@@ -4256,6 +4704,21 @@ def test_parse_pc_metrics_output_reads_all_three_sections():
     # loopback excluded; eth0 + eth1 summed
     assert parsed['net_rx_bytes'] == 1500000
     assert parsed['net_tx_bytes'] == 2500000
+
+
+def test_pc_metrics_collector_uses_powershell_for_windows_ram():
+    command = server.pc_metrics_collector_command(server.PC_MONITORS['win11'])
+    assert server._WINDOWS_POWERSHELL in command
+    assert 'Get-CimInstance Win32_OperatingSystem' in command
+    assert 'TotalVisibleMemorySize' in command
+    assert 'FreePhysicalMemory' in command
+    assert '/proc/meminfo' not in command
+
+
+def test_pc_metrics_collector_keeps_proc_memory_for_linux():
+    command = server.pc_metrics_collector_command(server.PC_MONITORS['moms46'])
+    assert "grep -E 'MemTotal|MemAvailable' /proc/meminfo" in command
+    assert 'Get-CimInstance' not in command
 
 
 def test_parse_pc_metrics_output_falls_back_to_root_mount():
@@ -4900,6 +5363,40 @@ def test_process_scanned_document_second_call_does_not_redispatch(
     assert second['mazda_dispatched'] is True  # frontend still renders delegated stages
 
 
+def test_failed_scan_fingerprint_can_be_retried_after_restart(
+        tmp_path, monkeypatch):
+    """Duplicate suppression must not permanently burn a failed document."""
+    scan = tmp_path / 'window_scan.jpg'
+    scan.write_bytes(b'legitimate-statement')
+    digest = server._scan_content_sha256(str(scan))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': scan.name},
+    })
+    monkeypatch.setattr(server, 'get_scanner_intake', lambda key: {
+        'content_sha256': digest,
+        'status': 'fail',
+    })
+    server._scan_dispatch_claims.clear()
+
+    assert server._claim_scan_dispatch('window', str(scan), digest) is True
+
+
+def test_completed_scan_fingerprint_remains_suppressed(tmp_path, monkeypatch):
+    scan = tmp_path / 'window_scan.jpg'
+    scan.write_bytes(b'already-processed-statement')
+    digest = server._scan_content_sha256(str(scan))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': scan.name},
+    })
+    monkeypatch.setattr(server, 'get_scanner_intake', lambda key: {
+        'content_sha256': digest,
+        'status': 'complete',
+    })
+    server._scan_dispatch_claims.clear()
+
+    assert server._claim_scan_dispatch('window', str(scan), digest) is False
+
+
 def test_failed_staging_releases_the_dispatch_claim(tmp_path, monkeypatch):
     """A staging failure must not burn the claim — the retry has to dispatch."""
     scan_dir = tmp_path / 'scans'
@@ -5107,7 +5604,10 @@ def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('/*css*/', '<div id="rol-category-picker"></div>', '/*rowcss*/'))
     html = server.build_recent_report_html()
-    assert 'scan_freezer.jpg' in html
+    # The document is named by its filename; the staging directory it is
+    # being processed in is still never exposed.
+    assert 'Most Recent Document: scan_freezer.jpg' in html
+    assert '/staged/' not in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'rol-category-picker' in html
@@ -5207,6 +5707,55 @@ def test_late_expense_callback_does_not_relock_trainer_pass(
     intake = server.get_scanner_intake('window')
     assert intake['status'] == 'pass'
     assert server._scanner_intake_in_progress('window') is False
+
+
+def test_completed_intake_does_not_keep_scanner_locked(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake(
+        '/staged/window_scan.jpg', 'Window Scanner', dispatched_at=time.time())
+    assert server._scanner_intake_in_progress('window') is True
+
+    server.merge_recent_intake_event({
+        'document_path': '/staged/window_scan.jpg',
+        'parsed': 1,
+        'stored': 1,
+    })
+
+    intake = server.get_scanner_intake('window')
+    assert intake['status'] == 'complete'
+    assert server._scanner_intake_in_progress('window') is False
+
+
+def test_intake_halt_record_read_and_acknowledge(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'INTAKE_HALT_FILE', str(tmp_path / 'intake_halt.json'))
+
+    # Nothing recorded yet.
+    assert server.read_intake_halt() == {'ok': True, 'active': False}
+
+    # rol_finances' DashboardIntakeHaltNotifier POSTs a halt.
+    assert server.record_intake_halt({
+        'step': 'source-counterpart-lookup',
+        'cause': 'not enough arguments for format string',
+        'exception_type': 'TypeError',
+        'document_path': '/scan.jpg',
+        'repo_path': '/home/adamsl/rol_finances',
+        'metadata': {'amount': '100.00'},
+    }) == {'ok': True, 'active': True}
+
+    state = server.read_intake_halt()
+    assert state['active'] is True
+    assert state['event']['step'] == 'source-counterpart-lookup'
+    assert state['event']['exception_type'] == 'TypeError'
+    assert state['event']['metadata'] == {'amount': '100.00'}
+
+    # A human acknowledges — the alert clears but the record persists.
+    assert server.acknowledge_intake_halt() == {'ok': True, 'active': False}
+    assert server.read_intake_halt() == {'ok': True, 'active': False}
+
+
+def test_intake_halt_acknowledge_with_no_record_is_safe(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'INTAKE_HALT_FILE', str(tmp_path / 'missing.json'))
+    assert server.acknowledge_intake_halt() == {'ok': True, 'active': False}
 
 
 def test_mazda_progress_uses_successful_tool_returns_not_calls():
@@ -5652,7 +6201,8 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
         'cat_class': 'cat-travel-and-vehicle', 'receipt_url': '',
     }])
     html = server.build_scanner_report_html('window')
-    assert 'window_scan.jpg' in html
+    assert 'Most Recent Document: window_scan.jpg' in html
+    assert '/staged/' not in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'class="cat-travel-and-vehicle has-receipt"' in html
@@ -5969,7 +6519,7 @@ def test_recent_intake_html_shows_document_metadata(tmp_path, monkeypatch):
     # of dashes that buries the lines that do carry information.
     assert 'Associated PDF' not in html
     assert 'Associated Receipt' not in html
-    assert 'Archived Scan Copy' not in html
+    assert 'Archived Scan Image' not in html
 
 
 def test_statement_archive_path_finds_canonically_named_copy(tmp_path, monkeypatch):
@@ -6040,7 +6590,9 @@ def test_recent_intake_html_prefers_statement_archive_over_raw_scan_url(
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
     html = server.build_recent_report_html()
-    assert f'Associated Scanned Statement: {archive_file}' in html
+    # The archive copy is the one scan-image path the page prints; the stale
+    # raw scanned_statement_url must not appear anywhere.
+    assert f'Archived Scan Image: {archive_file}' in html
     assert str(raw_scan) not in html
 
 
@@ -6090,8 +6642,9 @@ def test_recent_intake_html_shows_archived_scan_copy_from_callback(tmp_path, mon
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
     html = server.build_recent_report_html()
-    assert f'Archived Scan Copy: {archived}' in html
-    assert f'Staged Scan Image: {staged}' in html
+    assert f'Archived Scan Image: {archived}' in html
+    assert 'Staged Scan Image' not in html
+    assert str(staged) not in html
 
 
 def test_recent_receipt_uses_canonical_archive_name_and_not_statement_slot(
@@ -6129,9 +6682,10 @@ def test_recent_receipt_uses_canonical_archive_name_and_not_statement_slot(
     assert ('Most Recent Document: '
             'intercessors_for_america_03_18_25_30_50.jpg') in html
     assert f'Associated Receipt: {archived}' in html
-    assert f'Archived Scan Copy: {archived}' in html
+    assert f'Archived Scan Image: {archived}' in html
     assert 'Associated Scanned Statement' not in html
-    assert 'Staged Scan Image: /staged/window_scan.jpg' in html
+    assert 'Staged Scan Image' not in html
+    assert '/staged/window_scan.jpg' not in html
 
 
 def test_recent_intake_html_falls_back_to_derived_archived_scan_copy(tmp_path, monkeypatch):
@@ -6156,7 +6710,28 @@ def test_recent_intake_html_falls_back_to_derived_archived_scan_copy(tmp_path, m
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
     html = server.build_recent_report_html()
-    assert f'Archived Scan Copy: {derived}' in html
+    assert f'Archived Scan Image: {derived}' in html
+
+
+def test_scanner_report_hides_staged_image_when_archive_is_missing(
+        tmp_path, monkeypatch):
+    """A scanner report must not advertise its temporary processing image."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    _scanner_registry(monkeypatch)
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'parsed': 0, 'stored': 0, 'doc_kind': 'statement',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+
+    html = server.build_scanner_report_html('freezer')
+
+    assert 'Archived Scan Image' not in html
+    assert 'Staged Scan Image:' not in html
+    assert '/staged/scan_freezer.jpg' not in html
+    assert 'Most Recent Document: scan_freezer.jpg' in html
 
 
 def test_report_pointer_newer_than_intake_wins(tmp_path, monkeypatch):
@@ -6486,6 +7061,57 @@ def test_statement_preflight_resolves_missing_last4_from_workbook(monkeypatch):
     assert result.get('needs_statement_metadata') is not True
 
 
+def test_statement_preflight_prefers_unique_letterhead_workbook_match_over_vision_digits(
+        monkeypatch):
+    """A branded card letterhead is safer than obscured account-number OCR.
+
+    The Choice Privileges scan on 2026-07-27 was visibly branded Choice but
+    vision guessed 4884 from marked-over digits.  The workbook has exactly one
+    Choice row (7580), so preflight must use that authoritative match rather
+    than archive and dispatch the statement under the guessed digits.
+    """
+    _stub_statement_parser(monkeypatch, {
+        'ok': True, 'statements': [{
+            'bank_name': 'Wells Fargo',
+            'account_number': '4884',
+            'transactions': _STMT_ROWS,
+        }],
+    })
+
+    class ChoiceDirectory:
+        def lookup_last4(self, name):
+            if name == 'Choice Privileges Mastercard':
+                return types.SimpleNamespace(
+                    last4='7580', ambiguous_last4=(),
+                    matched_names=('choice_7580',))
+            return types.SimpleNamespace(
+                last4=None, ambiguous_last4=(), matched_names=())
+
+    result = server.run_statement_preflight(
+        '/scan.jpg',
+        dict(_STMT_FACADE, vendor='Choice Privileges Mastercard'),
+        account_directory=ChoiceDirectory())
+
+    assert result['ok'] is True
+    assert result['bank_name'] == 'Choice Privileges Mastercard'
+    assert result['account_last4'] == '7580'
+    assert result['last4_source'] == 'known_cards_workbook'
+    assert result['workbook_matched_names'] == ['choice_7580']
+    message = server.build_mazda_scan_message(
+        '/staged/choice.jpg', 'Window Scanner',
+        {
+            'ok': True,
+            'doc_kind': 'statement',
+            'vendor': result['bank_name'],
+            'confidence': 1.0,
+            'statement_preflight': result,
+        })
+    assert "--bank-name 'Choice Privileges Mastercard'" in message
+    assert '--account-last4 7580' in message
+    assert '--account-last4-source known_cards_workbook' in message
+    assert '4884' not in message
+
+
 def test_statement_preflight_fails_closed_on_ambiguous_workbook_match(
         monkeypatch):
     # A bank with several cards on file must NOT be resolved to one of them —
@@ -6538,3 +7164,238 @@ def test_statement_preflight_rejects_envelope_with_no_transactions(monkeypatch):
 
     assert result['ok'] is False and result['rejected'] is True
     assert 'no complete transaction' in result['error']
+
+
+# ── Keyboard-free deploy (resilience path) ────────────────────────────────────
+# deploy_dashboard() is the "never dead in the water" path: Frita (or EG from a
+# phone) triggers a git fast-forward + self-restart over HTTP, no keyboard/SSH.
+# The load-bearing guarantee is fail-loud: a bad pull must NOT restart the box.
+
+def _fake_git(monkeypatch, results):
+    """Drive server.deploy_dashboard's inner `git -C REPO_ROOT <args>` calls.
+
+    `results` maps a git subcommand (the first arg after -C REPO_ROOT) to a
+    (returncode, stdout, stderr) tuple. rev-parse is disambiguated by its flag.
+    """
+    def run(cmd, capture_output=True, text=True, timeout=None):
+        sub = cmd[3]  # ['git', '-C', REPO_ROOT, <sub>, ...]
+        if sub == 'rev-parse':
+            key = 'branch' if '--abbrev-ref' in cmd else 'sha'
+        else:
+            key = sub
+        rc, out, err = results[key]
+        return types.SimpleNamespace(returncode=rc, stdout=out, stderr=err)
+    monkeypatch.setattr(server.subprocess, 'run', run)
+
+
+def test_deploy_dashboard_fast_forwards_then_restarts(monkeypatch):
+    shas = iter(['aaaaaaa', 'bbbbbbb'])  # before, after
+    monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: None)
+    _fake_git(monkeypatch, {
+        'branch': (0, 'main\n', ''),
+        'sha': (0, '', ''),   # overridden below
+        'fetch': (0, '', ''),
+        'pull': (0, 'Updating aaaaaaa..bbbbbbb\n', ''),
+    })
+    # rev-parse --short returns before then after
+    orig = server.subprocess.run
+    def run(cmd, **k):
+        r = orig(cmd, **k)
+        if cmd[3] == 'rev-parse' and '--short' in cmd:
+            return types.SimpleNamespace(returncode=0, stdout=next(shas) + '\n', stderr='')
+        return r
+    monkeypatch.setattr(server.subprocess, 'run', run)
+
+    called = {}
+    def fake_restart():
+        called['restart'] = True
+        return {'ok': True, 'text': 'Restarting…'}
+    monkeypatch.setattr(server, 'restart_dashboard_server', fake_restart)
+
+    result = server.deploy_dashboard()
+    assert called.get('restart') is True
+    assert result['ok'] is True
+    assert 'aaaaaaa -> bbbbbbb' in result['text']
+
+
+def test_deploy_dashboard_fails_loud_and_skips_restart_on_non_ff(monkeypatch):
+    _fake_git(monkeypatch, {
+        'branch': (0, 'main\n', ''),
+        'sha': (0, 'aaaaaaa\n', ''),
+        'fetch': (0, '', ''),
+        'pull': (1, '', 'fatal: Not possible to fast-forward, aborting.'),
+    })
+    called = {}
+    monkeypatch.setattr(server, 'restart_dashboard_server',
+                        lambda: called.setdefault('restart', True))
+
+    result = server.deploy_dashboard()
+    assert 'restart' not in called          # a dirty/divergent tree is never activated
+    assert result['ok'] is False
+    assert 'NOT restarted' in result['text']
+    assert 'fast-forward' in result['text']
+
+
+def test_deploy_dashboard_fails_loud_when_fetch_fails(monkeypatch):
+    _fake_git(monkeypatch, {
+        'branch': (0, 'main\n', ''),
+        'sha': (0, 'aaaaaaa\n', ''),
+        'fetch': (1, '', 'fatal: could not read from remote'),
+        'pull': (0, '', ''),
+    })
+    called = {}
+    monkeypatch.setattr(server, 'restart_dashboard_server',
+                        lambda: called.setdefault('restart', True))
+
+    result = server.deploy_dashboard()
+    assert 'restart' not in called
+    assert result['ok'] is False
+    assert 'git fetch' in result['text'] and 'NOT restarted' in result['text']
+
+
+# ── provider-health fallback classification ──────────────────────────────────
+
+def _fallback_state(*, cat_last_success=0, vision_last_success=0):
+    """provider_health.json shape: one categorizer + one vision fallback at t=100."""
+    return {
+        'chatgpt-oauth-categorizer:eg': {
+            'last_success': cat_last_success, 'last_failure': 99},
+        'chatgpt-oauth-vision:eg': {
+            'last_success': vision_last_success, 'last_failure': 99},
+        'chatgpt-oauth-categorizer:_fallbacks': {
+            'events': [{'time': 100, 'from': 'eg', 'to': 'moms', 'error': '429'}]},
+        'chatgpt-oauth-vision:_fallbacks': {
+            'events': [{'time': 100, 'from': 'eg', 'to': 'moms', 'error': '429'}]},
+    }
+
+
+def test_split_provider_health_state_separates_accounts_from_fallbacks():
+    accounts, fallbacks = server.split_provider_health_state(_fallback_state())
+    assert set(accounts) == {
+        'chatgpt-oauth-categorizer:eg', 'chatgpt-oauth-vision:eg'}
+    assert set(fallbacks) == {
+        'chatgpt-oauth-categorizer', 'chatgpt-oauth-vision'}
+    assert len(fallbacks['chatgpt-oauth-vision']) == 1
+
+
+def test_unresolved_fallbacks_skips_events_the_account_recovered_from():
+    # primary succeeded at t=150, after the t=100 fallback → resolved, no alert
+    accounts, fallbacks = server.split_provider_health_state(
+        _fallback_state(cat_last_success=150))
+    assert server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=False) == []
+
+
+def test_unresolved_fallbacks_keeps_events_with_no_later_success():
+    accounts, fallbacks = server.split_provider_health_state(
+        _fallback_state(cat_last_success=50))
+    events = server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=False)
+    assert [p for p, _ in events] == ['chatgpt-oauth-categorizer']
+
+
+def test_unresolved_fallbacks_honours_the_time_window():
+    accounts, fallbacks = server.split_provider_health_state(_fallback_state())
+    assert server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=500, want_vision=False) == []
+
+
+def test_unresolved_fallbacks_separates_vision_from_categorizer():
+    """Each chain belongs to its own tile — they must not bleed into each other."""
+    accounts, fallbacks = server.split_provider_health_state(_fallback_state())
+    cat = server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=False)
+    vis = server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=True)
+    assert [p for p, _ in cat] == ['chatgpt-oauth-categorizer']
+    assert [p for p, _ in vis] == ['chatgpt-oauth-vision']
+
+
+def test_categorizer_tile_ignores_vision_fallbacks(monkeypatch, tmp_path):
+    """A vision-only fallback must leave the Categorizer tile green."""
+    path = tmp_path / 'provider_health.json'
+    state = {
+        'chatgpt-oauth-categorizer:eg': {'last_success': 200, 'last_failure': 99},
+        'chatgpt-oauth-vision:_fallbacks': {
+            'events': [{'time': time.time(), 'from': 'eg', 'to': 'moms',
+                        'error': '429'}]},
+    }
+    path.write_text(json.dumps(state))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    health = server.mazda_categorizer_fallback_health()
+    assert health['ok'] is True
+    assert not health.get('concern')
+
+
+def test_categorizer_tile_flags_its_own_unrecovered_fallback(monkeypatch, tmp_path):
+    path = tmp_path / 'provider_health.json'
+    state = {
+        'chatgpt-oauth-categorizer:eg': {'last_success': 0, 'last_failure': 99},
+        # a healthy tier, so this exercises the yellow path rather than the
+        # "every tier is failing" red path
+        'chatgpt-oauth-categorizer:moms': {'last_success': 200, 'last_failure': 0},
+        'chatgpt-oauth-categorizer:_fallbacks': {
+            'events': [{'time': time.time(), 'from': 'eg', 'to': 'moms',
+                        'error': '429'}]},
+    }
+    path.write_text(json.dumps(state))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    health = server.mazda_categorizer_fallback_health()
+    assert health.get('concern') is True
+    assert 'unrecovered' in health['text']
+
+
+def test_vision_provider_fallbacks_survives_a_missing_event_log(monkeypatch, tmp_path):
+    """A missing log must never be the thing that colours the vision tile."""
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH',
+                        str(tmp_path / 'nope.json'))
+    assert server.vision_provider_fallbacks() == ''
+
+
+def test_vision_tile_flags_unrecovered_vision_fallback(monkeypatch, tmp_path):
+    """Credential checks pass but real calls keep failing over — the Document
+    Vision tile (not the Categorizer tile) must be the one that says so."""
+    path = tmp_path / 'provider_health.json'
+    path.write_text(json.dumps({
+        'chatgpt-oauth-vision:eg': {'last_success': 0, 'last_failure': 99},
+        'chatgpt-oauth-vision:_fallbacks': {
+            'events': [{'time': time.time(), 'from': 'eg', 'to': 'moms',
+                        'error': '429'}]},
+    }))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    summary = server.vision_provider_fallbacks()
+    assert 'unrecovered vision fallback' in summary
+
+
+def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
+    """A stalled scan (the Last Freezer/Window Scan pages' worst case) must
+    still name its document, flag the failure loudly, and explain the empty
+    Verified Transactions table instead of rendering a wall of '--'."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    _scanner_registry(monkeypatch)
+    server.record_recent_intake(
+        '/staged/scan_freezer_1786536321_7340d041.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'parsed': None, 'stored': None,
+        'doc_kind': 'unknown', 'vendor': 'unknown', 'status': 'stalled',
+        'status_detail': 'Verification lock cleared manually.',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '', ''))
+
+    html = server.build_scanner_report_html('freezer')
+
+    assert ('Most Recent Document: '
+            'scan_freezer_1786536321_7340d041.jpg') in html
+    assert 'unavailable' not in html
+    assert '/staged/' not in html
+    assert 'Document Type: Not yet identified' in html
+    assert 'Month Range' not in html
+    assert 'Associated PDF' not in html
+    assert 'class="status-banner status-bad"' in html
+    assert 'Mazda Trainer reported STALLED' in html
+    assert 'stopped before any transactions were stored' in html

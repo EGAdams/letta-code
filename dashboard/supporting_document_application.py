@@ -25,6 +25,7 @@ class SupportingDocumentRequest(StrictBoundaryModel):
     description: str = ""
     expense_id: int | None = None
     report_path: str = ""
+    wait_for_highlight: bool = True
 
 
 class SupportingDocumentDescriptor(StrictBoundaryModel):
@@ -50,6 +51,7 @@ class SupportingDocumentOpenResponse(StrictBoundaryModel):
     ok: bool
     url: str | None = None
     highlighted: bool = False
+    highlight_pending: bool = False
     highlight_note: str | None = None
     error: str | None = None
 
@@ -72,6 +74,7 @@ class SupportingDocumentPorts:
         document_url_prefix: str,
         reference_for: Callable[[Mapping[str, Any] | None, str, str], str] | None = None,
         describe_documents: Callable[[Mapping[str, Any], str], list[dict[str, Any]]] | None = None,
+        background_prepare_view: Callable[[Mapping[str, Any], str, str], Any] | None = None,
     ) -> None:
         self.lookup_expense = lookup_expense
         self.normalize_amount = normalize_amount
@@ -85,6 +88,10 @@ class SupportingDocumentPorts:
         self.prepare_view = prepare_view
         self.document_url_prefix = document_url_prefix
         self.describe_documents = describe_documents
+        # Optional: queue annotation in the background and return None
+        # immediately instead of blocking the click on `prepare_view`. Falls
+        # back to the synchronous `prepare_view` when not supplied.
+        self.background_prepare_view = background_prepare_view
 
 
 class ISupportingDocumentService(ABC):
@@ -201,16 +208,26 @@ class SupportingDocumentService(ISupportingDocumentService):
             return SupportingDocumentOpenResponse(ok=False, error=self._not_found_error(request.document_type))
         if not self._ports.viewable(reference, path):
             return SupportingDocumentOpenResponse(ok=False, error=self._not_viewable_error(request.document_type))
-        prepared = self._ports.prepare_view(chosen or {}, path, request.document_type)
+        if not request.wait_for_highlight and self._ports.background_prepare_view is not None:
+            prepared = self._ports.background_prepare_view(chosen or {}, path, request.document_type)
+        else:
+            prepared = self._ports.prepare_view(chosen or {}, path, request.document_type)
         fragment = parsed.fragment
-        if prepared.highlighted and prepared.page:
+        if prepared and prepared.highlighted and prepared.page:
             fragment = f"page={prepared.page}"
         page_fragment = f"#{fragment}" if re.fullmatch(r"page=[1-9][0-9]*", fragment or "") else ""
         viewer_url = f"{self._ports.document_url_prefix}/{int(chosen['id'])}/{request.document_type}"
         if source_from_report:
             viewer_url += f"?report_path={quote(request.report_path, safe='')}"
-        return SupportingDocumentOpenResponse(ok=True, url=viewer_url + page_fragment,
-            highlighted=prepared.highlighted, highlight_note=prepared.reason)
+        return SupportingDocumentOpenResponse(
+            ok=True, url=viewer_url + page_fragment,
+            highlighted=bool(prepared and prepared.highlighted),
+            highlight_pending=prepared is None,
+            highlight_note=(
+                prepared.reason if prepared
+                else "The document opened immediately; highlighting is preparing in the background."
+            ),
+        )
 
     def path_for_expense(self, expense_id: int, document_type: str, report_path: str = ""):
         if not self._ports.catalog.slot_for_kind(document_type):
@@ -239,7 +256,15 @@ class SupportingDocumentService(ISupportingDocumentService):
         source_path = self.path_for_expense(expense_id, document_type, report_path)
         if not chosen or not source_path:
             return None
-        result = self._ports.prepare_view(chosen, source_path, document_type)
+        # Serving the viewer URL must never block on annotation: when a
+        # background port is wired, an unfinished job returns None and the
+        # caller gets the un-annotated file immediately.
+        if self._ports.background_prepare_view is not None:
+            result = self._ports.background_prepare_view(chosen, source_path, document_type)
+        else:
+            result = self._ports.prepare_view(chosen, source_path, document_type)
+        if result is None:
+            return source_path
         if not result.highlighted:
             print(f"[supporting-document] opened without highlight expense_id={expense_id} type={document_type} reason={result.reason}")
         return result.path

@@ -28,6 +28,13 @@ export class ClaudeAttemptTimeoutError extends Error {
   }
 }
 
+export class ClaudeAttemptCompletionObservedError extends Error {
+  constructor() {
+    super("Claude Trainer deliverable was observed before the session exited");
+    this.name = "ClaudeAttemptCompletionObservedError";
+  }
+}
+
 export type AbortableRun<T> = (signal: AbortSignal) => Promise<T>;
 
 /**
@@ -41,6 +48,7 @@ export type AbortableRun<T> = (signal: AbortSignal) => Promise<T>;
 export function runWithAbortTimeout<T>(
   run: AbortableRun<T>,
   timeoutMs: number,
+  completionObserved?: () => boolean,
 ): Promise<T> {
   const controller = new AbortController();
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -48,6 +56,7 @@ export function runWithAbortTimeout<T>(
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let completionTimer: ReturnType<typeof setInterval> | undefined;
   let timedOut = false;
 
   const deadline = new Promise<never>((_resolve, reject) => {
@@ -59,6 +68,15 @@ export function runWithAbortTimeout<T>(
     }, timeoutMs);
   });
 
+  const completion = new Promise<never>((_resolve, reject) => {
+    if (!completionObserved) return;
+    completionTimer = setInterval(() => {
+      if (!completionObserved()) return;
+      controller.abort();
+      reject(new ClaudeAttemptCompletionObservedError());
+    }, 500);
+  });
+
   // A rejection arriving after we already reported the timeout (the SDK's own
   // AbortError, typically) would otherwise surface as an unhandled rejection.
   const attempt = run(controller.signal).catch((err) => {
@@ -67,7 +85,8 @@ export function runWithAbortTimeout<T>(
   });
   attempt.catch(() => {});
 
-  return Promise.race([attempt, deadline]).finally(() => {
+  return Promise.race([attempt, deadline, completion]).finally(() => {
     if (timer !== undefined) clearTimeout(timer);
+    if (completionTimer !== undefined) clearInterval(completionTimer);
   });
 }

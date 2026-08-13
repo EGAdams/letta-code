@@ -1,5 +1,23 @@
 import { ContinuousListener } from "../abstract/continuous-listener.interface.js";
 
+// SpeechRecognitionErrorEvent.error codes that mean the session can never
+// recover on its own — everything else (e.g. "no-speech", "aborted") is
+// transient and left to the existing onend auto-restart.
+const FATAL_ERRORS = new Set([
+  "not-allowed",
+  "service-not-allowed",
+  "audio-capture",
+  "network",
+]);
+
+const FATAL_ERROR_MESSAGES = {
+  "not-allowed": "Microphone permission was denied.",
+  "service-not-allowed": "Microphone permission was denied.",
+  "audio-capture": "No microphone was found.",
+  network:
+    "Speech recognition lost its connection (it needs network access to the browser's cloud recognizer).",
+};
+
 /**
  * BrowserSpeechRecognitionListener — concrete ContinuousListener bound to the
  * browser's native (Chrome-family) SpeechRecognition API.
@@ -17,12 +35,13 @@ export class BrowserSpeechRecognitionListener extends ContinuousListener {
   constructor({
     onStateChange,
     onResult,
+    onError,
     window: win = globalThis,
     SpeechRecognition: Recognition = globalThis.SpeechRecognition ||
       globalThis.webkitSpeechRecognition,
     lang = "en-US",
   } = {}) {
-    super({ onStateChange, onResult });
+    super({ onStateChange, onResult, onError });
     this._window = win;
     this._Recognition = Recognition;
     this._lang = lang;
@@ -52,7 +71,8 @@ export class BrowserSpeechRecognitionListener extends ContinuousListener {
     };
 
     // The native API stops itself after a silence gap; restart it unless we
-    // intentionally called stop() (see closeListening).
+    // intentionally called stop() (see closeListening) or a fatal error just
+    // ended the session (see onerror below).
     this._recognition.onend = () => {
       if (!this._stopping && this.isListening) {
         try {
@@ -61,6 +81,15 @@ export class BrowserSpeechRecognitionListener extends ContinuousListener {
           // already starting/started — ignore
         }
       }
+    };
+
+    this._recognition.onerror = (event) => {
+      if (!FATAL_ERRORS.has(event.error)) return; // transient — onend will restart
+      this._stopping = true;
+      this._fail(
+        FATAL_ERROR_MESSAGES[event.error] ??
+          `Speech recognition error: ${event.error}`,
+      );
     };
 
     try {

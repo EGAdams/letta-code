@@ -14,6 +14,7 @@ import {
   AgentActivityPoller,
   AgentCardRenderer,
   AgentHealthPoller,
+  AgentStreamController,
   AgentsRouterRenderer,
   BrowserSpeechRecognitionListener,
   ChatDetailRenderer,
@@ -29,6 +30,9 @@ import {
   EdgeTtsSpeechSynthesizer,
   FetchHttpClient,
   InputOptionsRenderer,
+  IntakeHaltAlert,
+  ModelStatsHealthMonitor,
+  mountTerminal,
   PrinterRepairController,
   RolFinanceReportsController,
   ScannerDiagnosticsController,
@@ -56,7 +60,6 @@ const tabFactory = new DomTabFactory();
 const mainContent = document.getElementById("main-content");
 const navMain = document.getElementById("nav-main");
 const navStatus = document.getElementById("nav-status");
-const navTools = document.getElementById("nav-tools");
 const navAgents = document.getElementById("nav-agents");
 const navAgentDetail = document.getElementById("nav-agent-detail");
 const navServers = document.getElementById("nav-servers");
@@ -347,35 +350,6 @@ const agentGate = (() => {
   };
 })();
 
-// Leave empty to auto-use the current host/origin.
-// Set this if you need to pin links to a specific public URL.
-const WINDOWS_10_PUBLIC_URL = "";
-
-function getWindows10BaseUrl() {
-  const configured =
-    typeof WINDOWS_10_PUBLIC_URL === "string"
-      ? WINDOWS_10_PUBLIC_URL.trim()
-      : "";
-  if (configured) return configured.replace(/\/$/, "");
-  return window.location.origin.replace(/\/$/, "");
-}
-
-function applyInstructionLinks() {
-  const base = getWindows10BaseUrl();
-  const guide = `${base}/americanjewelry_live_upload_guide.html`;
-  const mgmt = `${base}/windows_10_dashboard_management.html`;
-  const guideEl = document.getElementById("instructions-guide-link");
-  const mgmtEl = document.getElementById("instructions-mgmt-link");
-  if (guideEl) {
-    guideEl.href = guide;
-    guideEl.textContent = guide;
-  }
-  if (mgmtEl) {
-    mgmtEl.href = mgmt;
-    mgmtEl.textContent = mgmt;
-  }
-}
-
 function clearActive(navEl, selector) {
   if (!navEl) return;
   navEl.querySelectorAll(selector).forEach((el) => {
@@ -418,6 +392,19 @@ function safeSetActive(navEl, selector, target) {
   target.classList.add("active");
 }
 
+// Server Management / SSH Connections / Model Stats / PC Monitor are all
+// nested one level under the System Status tab, so their own "Back" buttons
+// land one level up in navStatus (not all the way out to navMain/home).
+function returnToStatus(statusTarget) {
+  navStatus.classList.remove("hidden");
+  const tab = navStatus.querySelector(
+    `[data-nav="status"][data-target="${statusTarget}"]`,
+  );
+  if (tab) safeSetActive(navStatus, '[data-nav="status"][data-target]', tab);
+  else clearActive(navStatus, '[data-nav="status"][data-target]');
+  safeActivateView("status-home");
+}
+
 function setAgentDetailContent(agentName) {
   const name = (agentName || "Agent").trim();
   const titleEl = document.getElementById("agent-detail-title");
@@ -426,13 +413,11 @@ function setAgentDetailContent(agentName) {
   if (homeEl) homeEl.textContent = `Choose a tab above to view ${name}'s data.`;
 }
 
-applyInstructionLinks();
 setAgentDetailContent("Agent");
 
 if (
   navMain &&
   navStatus &&
-  navTools &&
   navAgents &&
   navAgentDetail &&
   navServers &&
@@ -449,28 +434,8 @@ if (
       if (target === "status") {
         navMain.classList.add("hidden");
         navStatus.classList.remove("hidden");
-        const statusHome = navStatus.querySelector(
-          '[data-nav="status"][data-target="status-home"]',
-        );
-        if (statusHome)
-          safeSetActive(
-            navStatus,
-            '[data-nav="status"][data-target]',
-            statusHome,
-          );
+        clearActive(navStatus, '[data-nav="status"][data-target]');
         safeActivateView("status-home");
-        return;
-      }
-
-      if (target === "tool-management") {
-        navMain.classList.add("hidden");
-        navTools.classList.remove("hidden");
-        const toolsHome = navTools.querySelector(
-          '[data-nav="tools"][data-target="tools-home"]',
-        );
-        if (toolsHome)
-          safeSetActive(navTools, '[data-nav="tools"][data-target]', toolsHome);
-        safeActivateView("tools-home");
         return;
       }
 
@@ -478,36 +443,6 @@ if (
         navMain.classList.add("hidden");
         navAgents.classList.remove("hidden");
         AM.showAgentsHome();
-        return;
-      }
-
-      if (target === "server-management") {
-        navMain.classList.add("hidden");
-        navServers.classList.remove("hidden");
-        SM.showServersHome();
-        return;
-      }
-
-      if (target === "ssh-connections") {
-        navMain.classList.add("hidden");
-        navSSH.classList.remove("hidden");
-        SSHM.showConnectionsHome();
-        return;
-      }
-
-      if (target === "model-stats" && navModelStats) {
-        navMain.classList.add("hidden");
-        navModelStats.classList.remove("hidden");
-        safeActivateView("model-stats");
-        MS.open();
-        return;
-      }
-
-      if (target === "pc-monitor" && navPcMonitor) {
-        navMain.classList.add("hidden");
-        navPcMonitor.classList.remove("hidden");
-        safeActivateView("pc-monitor");
-        PCM.open();
         return;
       }
 
@@ -548,20 +483,38 @@ if (
     .querySelectorAll('[data-nav="status"][data-target]')
     .forEach((tab) => {
       tab.addEventListener("click", () => {
+        const target = tab.dataset.target;
         safeSetActive(navStatus, '[data-nav="status"][data-target]', tab);
-        safeActivateView(tab.dataset.target);
-        if (tab.dataset.target === "status-servers") {
-          void loadServersSummary();
-        }
-      });
-    });
 
-  navTools
-    .querySelectorAll('[data-nav="tools"][data-target]')
-    .forEach((tab) => {
-      tab.addEventListener("click", () => {
-        safeSetActive(navTools, '[data-nav="tools"][data-target]', tab);
-        safeActivateView(tab.dataset.target);
+        if (target === "server-management") {
+          navStatus.classList.add("hidden");
+          navServers.classList.remove("hidden");
+          SM.showServersHome();
+          return;
+        }
+
+        if (target === "ssh-connections") {
+          navStatus.classList.add("hidden");
+          navSSH.classList.remove("hidden");
+          SSHM.showConnectionsHome();
+          return;
+        }
+
+        if (target === "model-stats" && navModelStats) {
+          navStatus.classList.add("hidden");
+          navModelStats.classList.remove("hidden");
+          safeActivateView("model-stats");
+          MS.open();
+          return;
+        }
+
+        if (target === "pc-monitor" && navPcMonitor) {
+          navStatus.classList.add("hidden");
+          navPcMonitor.classList.remove("hidden");
+          safeActivateView("pc-monitor");
+          PCM.open();
+          return;
+        }
       });
     });
 
@@ -665,10 +618,47 @@ if (
           vendorReviewController?.refresh();
         }
         if (tab.dataset.scannerReport) {
+          const scannerKey = tab.dataset.scannerReport;
           const iframe = document.querySelector(
             `#${tab.dataset.target} iframe`,
           );
           RF.loadScannerReportInto(iframe, tab.dataset.scannerReport);
+          // Render Mazda's Thoughts below the progress indicators
+          const detailContainer = document.querySelector(
+            `#${tab.dataset.target}-mazda-detail`,
+          );
+          if (detailContainer) {
+            AM.renderMazdaThoughtsInto(detailContainer, scannerKey);
+          }
+          // Monitor for scan completion and show archive verification terminal
+          const terminalContainer = `#${tab.dataset.target}-archive-terminal`;
+          const pollCompletion = () => {
+            http
+              .getJSON(
+                `/api/scanner-intake-status?scanner=${encodeURIComponent(scannerKey)}`,
+              )
+              .then((data) => {
+                if (
+                  data &&
+                  data.status &&
+                  ["complete", "pass", "corrected", "fail", "stalled"].includes(
+                    data.status,
+                  )
+                ) {
+                  // Scan is complete, show archive terminal
+                  AM.showArchiveTerminalForScanner(
+                    scannerKey,
+                    terminalContainer,
+                  );
+                  clearInterval(completionPoll);
+                }
+              })
+              .catch(() => {
+                // Ignore errors and keep polling
+              });
+          };
+          const completionPoll = setInterval(pollCompletion, 5000); // Check every 5 seconds
+          pollCompletion(); // Initial check
         }
       });
     });
@@ -727,13 +717,7 @@ if (
     backServers.addEventListener("click", () => {
       SM.stopPoll();
       navServers.classList.add("hidden");
-      navMain.classList.remove("hidden");
-      const homeTab = navMain.querySelector(
-        '[data-nav="main"][data-target="home"]',
-      );
-      if (homeTab)
-        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
-      safeActivateView("home");
+      returnToStatus("server-management");
     });
   }
 
@@ -755,27 +739,7 @@ if (
     backSSH.addEventListener("click", () => {
       SSHM.stopPoll();
       navSSH.classList.add("hidden");
-      navMain.classList.remove("hidden");
-      const homeTab = navMain.querySelector(
-        '[data-nav="main"][data-target="home"]',
-      );
-      if (homeTab)
-        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
-      safeActivateView("home");
-    });
-  }
-
-  const backTools = document.getElementById("btn-back-tools");
-  if (backTools) {
-    backTools.addEventListener("click", () => {
-      navTools.classList.add("hidden");
-      navMain.classList.remove("hidden");
-      const homeTab = navMain.querySelector(
-        '[data-nav="main"][data-target="home"]',
-      );
-      if (homeTab)
-        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
-      safeActivateView("home");
+      returnToStatus("ssh-connections");
     });
   }
 
@@ -891,6 +855,46 @@ if (
 /* =====================  Utilities  ===================== */
 const esc = TextUtils.esc; // HTML-escape — now sourced from the library.
 
+// Roll the worst known status subsection up to the top-level System Status
+// tab. A healthy roll-up is solid green; any warning/error blinks so hidden
+// problems remain visible from the dashboard home screen.
+function updateSystemStatusTab() {
+  const systemTab = document.getElementById("btn-system-status");
+  if (!systemTab) return;
+  const children = [
+    "btn-server-mgmt",
+    "btn-ssh-connections",
+    "btn-model-stats",
+    "btn-pc-monitor",
+  ]
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+  const down = children.some(
+    (tab) =>
+      tab.classList.contains("server-down") ||
+      tab.classList.contains("tab-alert-red"),
+  );
+  const concern = children.some(
+    (tab) =>
+      tab.classList.contains("server-concern") ||
+      tab.classList.contains("server-starting") ||
+      tab.classList.contains("tab-alert"),
+  );
+  const allKnown =
+    children.length === 4 &&
+    children.every((tab) =>
+      ["server-up", "server-concern", "server-down", "server-starting"].some(
+        (name) => tab.classList.contains(name),
+      ),
+    );
+  systemTab.classList.remove("server-up", "server-concern", "server-down");
+  systemTab.classList.toggle("tab-alert-red", down);
+  systemTab.classList.toggle("tab-alert", !down && concern);
+  if (down) systemTab.classList.add("server-down");
+  else if (concern) systemTab.classList.add("server-concern");
+  else if (allKnown) systemTab.classList.add("server-up");
+}
+
 /* =====================  Model Stats  =====================
        Per-OAuth/CLI session token usage. Sub-nav tab per source; each shows
        usage windows as progress bars (red at 100% with reset time), plus a
@@ -993,6 +997,12 @@ function renderModelStats(d) {
   }
   if (d.model) h += `<p><b>Model:</b> <code>${esc(d.model)}</code></p>`;
   if (d.detail) h += `<p class="am-dim">${esc(d.detail)}</p>`;
+  if (d.windows_stale) {
+    const sampled = d.usage_as_of
+      ? new Date(d.usage_as_of * 1000).toLocaleString()
+      : "the last successful check";
+    h += `<p class="am-warn">Quota bars show the last successful reading (${esc(sampled)}) while live usage reporting is throttled.</p>`;
+  }
   for (const w of d.windows || []) {
     if (w.unavailable) {
       h += `<div class="ms-window"><div class="ms-window-head"><span>${esc(w.label)}</span><span class="am-dim">${esc(w.note || "not reported")}</span></div></div>`;
@@ -1075,25 +1085,15 @@ const MS = {
     }
   },
   async pollColors() {
-    if (!navModelStats) return;
-    const tabs = [...navModelStats.querySelectorAll("[data-source]")];
-    await Promise.all(
-      tabs.map(async (t) => {
-        try {
-          const d = await http.getJSON(
-            `/api/model-stats?source=${encodeURIComponent(t.dataset.source)}`,
-          );
-          t.classList.remove("server-up", "server-concern", "server-down");
-          if (d.status === "down") t.classList.add("server-down");
-          else if (d.status === "concern") t.classList.add("server-concern");
-          else t.classList.add("server-up");
-        } catch {
-          /* leave tab uncolored on transient error */
-        }
-      }),
-    );
+    await modelStatsHealth.poll();
   },
 };
+
+const modelStatsHealth = new ModelStatsHealthMonitor({
+  http,
+  onStatus: updateSystemStatusTab,
+});
+modelStatsHealth.start();
 
 if (navModelStats) {
   navModelStats.querySelectorAll("[data-source]").forEach((tab) => {
@@ -1112,14 +1112,7 @@ if (navModelStats) {
     backMS.addEventListener("click", () => {
       MS.stopPoll();
       navModelStats.classList.add("hidden");
-      navMain.classList.remove("hidden");
-      const homeTab = navMain.querySelector(
-        '[data-nav="main"][data-target="home"]',
-      );
-      if (homeTab) {
-        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
-      }
-      safeActivateView("home");
+      returnToStatus("model-stats");
     });
   }
 }
@@ -1219,7 +1212,7 @@ const PCM = {
   async pollTabs() {
     if (!navPcMonitor) return;
     const tabs = [...navPcMonitor.querySelectorAll("[data-pc]")];
-    await Promise.all(
+    const levels = await Promise.all(
       tabs.map(async (t) => {
         try {
           const d = await http.getJSON(
@@ -1228,13 +1221,42 @@ const PCM = {
           const level = d.level || (d.alert ? "warn" : "ok");
           t.classList.toggle("tab-alert", level === "warn");
           t.classList.toggle("tab-alert-red", level === "crit");
+          return level;
         } catch {
           /* leave the tab unflagged on transient error */
+          return null;
         }
       }),
     );
+    const parent = document.getElementById("btn-pc-monitor");
+    const known = levels.filter(Boolean);
+    const level = known.includes("crit")
+      ? "crit"
+      : known.includes("warn")
+        ? "warn"
+        : known.length
+          ? "ok"
+          : null;
+    if (parent && level) {
+      parent.classList.remove("server-up", "server-concern", "server-down");
+      parent.classList.add(
+        level === "crit"
+          ? "server-down"
+          : level === "warn"
+            ? "server-concern"
+            : "server-up",
+      );
+      parent.classList.toggle("tab-alert", level === "warn");
+      parent.classList.toggle("tab-alert-red", level === "crit");
+      updateSystemStatusTab();
+    }
   },
 };
+
+// PC health contributes to the top-level status even if PC Monitor has never
+// been opened during this browser session.
+void PCM.pollTabs();
+setInterval(() => void PCM.pollTabs(), 15000);
 
 if (navPcMonitor) {
   navPcMonitor.querySelectorAll("[data-pc]").forEach((tab) => {
@@ -1249,14 +1271,7 @@ if (navPcMonitor) {
     backPcMonitor.addEventListener("click", () => {
       PCM.stopPoll();
       navPcMonitor.classList.add("hidden");
-      navMain.classList.remove("hidden");
-      const homeTab = navMain.querySelector(
-        '[data-nav="main"][data-target="home"]',
-      );
-      if (homeTab) {
-        safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
-      }
-      safeActivateView("home");
+      returnToStatus("pc-monitor");
     });
   }
 }
@@ -1359,6 +1374,43 @@ const renderAgentsRouter = (target) =>
     onStatus: setAgentTabStatus,
   }).render(target);
 
+/* ─────────────────  Toyota (Home screen receptionist)  ──────────────────
+ * Same Input Options widget as any agent's Agent Management page (reuses
+ * InputOptionsRenderer as-is), but pinned to the fixed "Toyota" agent and
+ * paired with its own ContinuousListener — separate from routerListener
+ * above, since that one lives on the Agents tab's router page. Listening is
+ * opt-in via the "Start Listening" button InputOptionsRenderer renders when
+ * given a listener (no name-detection hand-off; this box only ever talks to
+ * Toyota): every final recognized chunk while listening is sent straight to
+ * her, exactly as before — the only change is it no longer starts itself the
+ * moment the dashboard loads.
+ */
+const receptionistListener = new BrowserSpeechRecognitionListener();
+const receptionistIntentPolicy = {
+  evaluate: (text) =>
+    http.postJSON("/api/receptionist-intent", { text }, { timeout: 15000 }),
+};
+
+const startReceptionist = async () => {
+  let agentId;
+  try {
+    const d = await http.getJSON("/api/receptionist-agent");
+    if (!d?.ok || !d.agent_id) return;
+    agentId = d.agent_id;
+  } catch {
+    return;
+  }
+  new InputOptionsRenderer({
+    http,
+    speech: Speech,
+    agentName: "Toyota",
+    agentId,
+    listener: receptionistListener,
+    receptionistIntentPolicy,
+  }).render("receptionist-box", agentId);
+};
+startReceptionist();
+
 // Maps an agent-detail view id to how its content is rendered.
 const DETAIL_RENDERERS = {
   "agent-detail-thoughts": (am, id) =>
@@ -1372,6 +1424,13 @@ const DETAIL_RENDERERS = {
   "agent-detail-tests": (am, id) => renderChat(am, id),
   "agent-detail-input-options": (am, id) => renderInputOptions(am, id),
 };
+
+// xterm.js's DOM renderer only reliably paints one live Terminal instance
+// per page - a second concurrent instance (e.g. switching from "Last Window
+// Scan" to "Last Freezer Scan") writes to its internal buffer correctly but
+// never repaints the DOM, even under an explicit term.refresh(). Keep at
+// most one archive-verification terminal mounted at a time.
+let _archiveTerminalSession = null;
 
 const AM = {
   current: null, // { id, name }
@@ -1526,6 +1585,115 @@ const AM = {
     }
     return undefined;
   },
+
+  // Render Mazda's Thoughts into a specific DOM container (for scanner report tabs).
+  renderMazdaThoughtsInto(container, scannerKey = "") {
+    if (!container) return;
+    const mazdaId = "agent-6b536cf4-ec88-4290-b595-fed21d14bd8e";
+    container.innerHTML = "";
+    const heading = document.createElement("h2");
+    heading.textContent = "Mazda's Thoughts";
+    heading.style.cssText = "margin-top:20px;margin-bottom:10px;";
+    container.appendChild(heading);
+    // DomConsoleView.mount() clears its container via innerHTML - mount it
+    // into a dedicated child so it doesn't wipe out the heading above.
+    const consoleHost = document.createElement("div");
+    container.appendChild(consoleHost);
+    const consoleView = DomConsoleView.mount(
+      consoleHost,
+      "mazda-thoughts-console",
+      document,
+    );
+    const controller = new AgentStreamController({
+      http,
+      view: consoleView,
+      url: scannerKey
+        ? `/api/thoughts?scanner=${encodeURIComponent(scannerKey)}`
+        : "/api/thoughts",
+      agentId: mazdaId,
+      label: "thoughts",
+      intervalMs: 3000,
+    });
+    // Don't use the shared poller; run independently with error handling
+    let pollTimer = null;
+    const poll = async () => {
+      try {
+        await controller.poll();
+      } catch (e) {
+        consoleView.replaceHtml(
+          `<div class="msi-line err">! Failed to load thoughts: ${esc(e.message)}</div>`,
+        );
+      }
+    };
+    pollTimer = setInterval(poll, controller.intervalMs || 3000);
+    poll(); // Initial poll
+  },
+
+  // Show archive verification terminal for a completed scanner report.
+  showArchiveTerminalForScanner(scannerKey, containerSelector) {
+    const container = document.querySelector(containerSelector);
+    if (!container) return;
+
+    // Dispose any previously-mounted archive terminal AND remove its DOM
+    // element (see _archiveTerminalSession comment) - disposing the xterm
+    // session alone leaves the old .terminal-host element in the document,
+    // which is enough to stop a newly-mounted instance's DOM renderer from
+    // ever painting, even though it keeps writing into its own buffer fine.
+    if (_archiveTerminalSession) {
+      try {
+        _archiveTerminalSession.session.dispose();
+      } catch {
+        /* already disposed */
+      }
+      _archiveTerminalSession.hostEl.remove();
+      _archiveTerminalSession = null;
+    }
+    // Clear this container too, in case the same tab is revisited.
+    container.innerHTML = "";
+
+    // Fetch archive path from server
+    http
+      .postJSON("/api/scanner-archive-path", { scanner: scannerKey })
+      .then((data) => {
+        if (!data.ok || !data.archive_path) {
+          container.classList.remove("hidden");
+          container.innerHTML = `<div class="msi-line err">! Archive verification unavailable: ${esc(data.error || "archive path not found")}</div>`;
+          return;
+        }
+        container.classList.remove("hidden");
+        const heading = document.createElement("h3");
+        heading.textContent = `Archive Verification (${data.archive_path})`;
+        container.appendChild(heading);
+        const hostEl = document.createElement("div");
+        hostEl.className = "terminal-host";
+        container.appendChild(hostEl);
+
+        mountTerminal({
+          hostEl,
+          doc: document,
+          onStatus: () => {},
+        }).then((session) => {
+          _archiveTerminalSession = { session, hostEl };
+          if (session && session.sendLine) {
+            const archivePath = data.archive_path;
+            const archiveName = data.archive_name || "";
+            const shellQuote = (value) =>
+              `'${String(value).replaceAll("'", `'"'"'`)}'`;
+            // -1 forces one entry per line instead of ls's default
+            // multi-column layout, which was wrapping across several rows.
+            // ANSI 102 is a light-green background; the exact durable archive
+            // file returned by the server is highlighted in the listing.
+            session.sendLine(
+              `cd ${shellQuote(archivePath)} && ls -a1 | awk -v target=${shellQuote(archiveName)} '{ if ($0 == target) printf "\\033[102;30m%s\\033[0m\\n", $0; else print }'`,
+            );
+          }
+        });
+      })
+      .catch((e) => {
+        container.classList.remove("hidden");
+        container.innerHTML = `<div class="msi-line err">! Error: ${esc(e.message)}</div>`;
+      });
+  },
 };
 
 /* =====================  Server Manager  ===================== */
@@ -1547,6 +1715,7 @@ serverHealth.subscribe((health) => {
   else if (st === "concern") tab.classList.add("server-concern");
   else if (st === "down") tab.classList.add("server-down");
   else if (st === "up") tab.classList.add("server-up");
+  updateSystemStatusTab();
 });
 serverHealth.subscribe((health) => {
   if (!health) return;
@@ -1583,64 +1752,6 @@ function fmtDownFor(sec) {
   if (sec < 60) return `${sec}s`;
   if (sec < 3600) return `${Math.floor(sec / 60)}m`;
   return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
-}
-
-function renderServerSkills(skills) {
-  if (!Array.isArray(skills) || skills.length === 0) {
-    return '<span class="srv-summary-stamp">-</span>';
-  }
-  return (
-    '<ul class="srv-skills">' +
-    skills.map((skill) => `<li>${esc(skill)}</li>`).join("") +
-    "</ul>"
-  );
-}
-
-async function loadServersSummary() {
-  const list = document.getElementById("servers-list");
-  const stamp = document.getElementById("servers-last-updated");
-  if (!list) return;
-  list.innerHTML = '<p class="am-dim">Checking&hellip;</p>';
-  try {
-    const [servers, health] = await Promise.all([
-      http.getJSON("/api/servers"),
-      http.getJSON("/api/server-health"),
-    ]);
-    const healthByKey = new Map(
-      (health?.servers || []).map((server) => [server.key, server.status]),
-    );
-    if (!servers.length) {
-      list.innerHTML = '<p class="am-dim">No servers registered.</p>';
-      return;
-    }
-    const rows = servers
-      .map((server) => {
-        const status = healthByKey.get(server.key) || "unknown";
-        const badge = `<span class="srv-badge ${status}">${esc(status.toUpperCase())}</span>`;
-        const url = server.url || server.health_url || "";
-        const link = url
-          ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>`
-          : '<span class="srv-summary-stamp">-</span>';
-        return (
-          "<tr>" +
-          `<td>${badge}</td>` +
-          `<td><strong>${esc(server.name)}</strong><br><span class="srv-summary-stamp">${esc(server.note || "")}</span></td>` +
-          `<td>${link}</td>` +
-          `<td>${renderServerSkills(server.skills)}</td>` +
-          "</tr>"
-        );
-      })
-      .join("");
-    list.innerHTML =
-      '<table class="srv-table"><thead><tr>' +
-      "<th>Status</th><th>Server</th><th>URL</th><th>Skills</th>" +
-      `</tr></thead><tbody>${rows}</tbody></table>`;
-    if (stamp) {
-      stamp.textContent = `Updated ${new Date().toLocaleTimeString()}`;
-    }
-  } catch (e) {
-    list.innerHTML = `<p class="msi-line err">Error: ${esc(e.message)}</p>`;
-  }
 }
 
 const SM = {
@@ -1709,6 +1820,12 @@ const SM = {
       '<div class="srv-status starting" id="srv-status"><span class="srv-led"></span><span id="srv-status-text">checking…</span></div>' +
       '<input class="srv-filter" id="srv-filter" placeholder="Filter log lines (e.g. error)…" />' +
       `<button class="srv-start-btn" id="srv-restart-btn">Restart ${esc(name)}</button>` +
+      // The dashboard can deploy ITSELF (git pull the live checkout + restart) —
+      // the keyboard-free path so we're never dead in the water. Only this server
+      // has a backend deploy handler, so the button is dashboard-only.
+      (key === "dashboard"
+        ? '<button class="srv-start-btn" id="srv-deploy-btn">Deploy latest</button>'
+        : "") +
       '<div id="srv-console-host"></div>';
     safeActivateView("servers-detail");
 
@@ -1716,6 +1833,7 @@ const SM = {
     const statusText = body.querySelector("#srv-status-text");
     const filterEl = body.querySelector("#srv-filter");
     const restartBtn = body.querySelector("#srv-restart-btn");
+    const deployBtn = body.querySelector("#srv-deploy-btn");
     const view = DomConsoleView.mount(
       body.querySelector("#srv-console-host"),
       "srv",
@@ -1752,6 +1870,30 @@ const SM = {
       restartBtn.disabled = false;
     });
 
+    if (deployBtn) {
+      deployBtn.addEventListener("click", async () => {
+        deployBtn.disabled = true;
+        restartBtn.disabled = true;
+        statusEl.className = "srv-status starting";
+        statusText.textContent = `DEPLOYING... — ${name.toLowerCase()}`;
+        const res = await serverAction.deploy(key);
+        if (res.ok) {
+          view.writeHtml(
+            '<div class="msi-entry"><span class="hdr">deploy action</span> ' +
+              esc(res.text || "OK") +
+              "</div>",
+          );
+          view.scrollToBottom();
+        } else {
+          // Fail loud: a bad pull did NOT restart the box — show why.
+          statusText.textContent = `DEPLOY FAILED — ${esc(res.text)}`;
+          statusEl.className = "srv-status down";
+        }
+        deployBtn.disabled = false;
+        restartBtn.disabled = false;
+      });
+    }
+
     // The ServerLogController polls /api/server-logs (3s, dedup by seq) and
     // reports health via onStatus → the detail-panel LED. The Restart button
     // stays enabled regardless of status (the user can always restart).
@@ -1785,6 +1927,7 @@ connHealth.subscribe((health) => {
   tab.classList.remove("server-up", "server-down", "server-starting");
   if (!health) return;
   tab.classList.add(health.any_down ? "server-down" : "server-up");
+  updateSystemStatusTab();
 });
 connHealth.subscribe((health) => {
   if (!health) return;
@@ -2064,10 +2207,6 @@ async function preloadStartupChecks() {
   SSHM.healthPollTimer = setInterval(() => SSHM.pollHealth(), 15000);
 }
 
-document
-  .getElementById("servers-refresh-btn")
-  ?.addEventListener("click", () => void loadServersSummary());
-
 /* =====================  ROL Finance Reports  =====================
        One tab per report directory under ~/rol_finances/readable_documents/
        bank_statements/january/. Tabs + views are built once from
@@ -2140,6 +2279,7 @@ new CodeChangeAlert({ http }).start();
 // ALL down (polls /api/server-health's 'document-vision' entry every 20s).
 // Mirrors the server-side halt in process_scanned_document().
 new VisionHaltAlert({ http }).start();
+new IntakeHaltAlert({ http }).start();
 
 /* =====================  Scanners  =====================
    ROL Finance > Scanners > {Window,Freezer} Scanner. Each `.scanner-dialog`

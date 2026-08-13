@@ -10,6 +10,7 @@ class FakeSpeechRecognition {
     this.lang = "";
     this.onresult = null;
     this.onend = null;
+    this.onerror = null;
     this.started = 0;
     this.stopped = 0;
   }
@@ -30,6 +31,11 @@ class FakeSpeechRecognition {
         ),
       });
     }
+  }
+  /** Test helper: simulate a SpeechRecognitionErrorEvent, then the native onend that follows it. */
+  fireError(error) {
+    if (this.onerror) this.onerror({ error });
+    if (this.onend) this.onend();
   }
 }
 
@@ -97,5 +103,36 @@ describe("BrowserSpeechRecognitionListener (concrete ContinuousListener)", () =>
     expect(recognition.stopped).toBe(1);
     expect(recognition.started).toBe(1); // no restart after a real stop
     expect(l.state).toBe(ListenerState.IDLE);
+  });
+
+  test("not-allowed error forces state back to idle, reports reason, and does not auto-restart", async () => {
+    const errors = [];
+    const l = makeListener({ onError: (m) => errors.push(m) });
+    await l.start();
+    const recognition = l._recognition;
+    recognition.fireError("not-allowed");
+    expect(errors).toEqual(["Microphone permission was denied."]);
+    expect(l.state).toBe(ListenerState.IDLE);
+    expect(recognition.started).toBe(1); // no silent forever-retry
+  });
+
+  test("network error also forces idle and reports reason", async () => {
+    const errors = [];
+    const l = makeListener({ onError: (m) => errors.push(m) });
+    await l.start();
+    l._recognition.fireError("network");
+    expect(errors.length).toBe(1);
+    expect(l.state).toBe(ListenerState.IDLE);
+  });
+
+  test("transient no-speech error is ignored and the session keeps auto-restarting", async () => {
+    const errors = [];
+    const l = makeListener({ onError: (m) => errors.push(m) });
+    await l.start();
+    const recognition = l._recognition;
+    recognition.fireError("no-speech");
+    expect(errors).toEqual([]);
+    expect(l.state).toBe(ListenerState.LISTENING);
+    expect(recognition.started).toBe(2); // onend still restarted it
   });
 });

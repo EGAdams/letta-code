@@ -1,14 +1,21 @@
 from pathlib import Path
 
+import pytest
+
 from document_annotation import (
     AnnotationResult,
+    CodexCliImageRegionFallbackMatcher,
     ExcelExpenseDocumentAnnotator,
     ExpenseDocumentAnnotationService,
     ExpenseEvidence,
+    ImageExpenseDocumentAnnotator,
+    ImageRegionMatch,
     IExpenseDocumentAnnotator,
     IExpenseDocumentAnnotationService,
+    IImageRegionFallbackMatcher,
     PdfCheckNumberResolver,
     PdfExpenseDocumentAnnotator,
+    render_excel_for_browser,
 )
 
 
@@ -34,6 +41,187 @@ def evidence():
         description="MEIJER STORE",
         vendor_key="meijer",
     )
+
+
+class FakeImageRegionFallbackMatcher(IImageRegionFallbackMatcher):
+    def __init__(self, match):
+        self.match = match
+        self.calls = []
+
+    def find_region(self, source_path, evidence):
+        self.calls.append((source_path, evidence))
+        return self.match
+
+
+class UnavailableImageRegionFallbackMatcher(IImageRegionFallbackMatcher):
+    def find_region(self, source_path, evidence):
+        raise OSError("matching service offline")
+
+
+def test_image_strategy_uses_confident_fallback_when_established_match_is_absent(
+    tmp_path,
+    monkeypatch,
+):
+    from PIL import Image
+    import pytesseract
+
+    source = tmp_path / "check.png"
+    Image.new("RGB", (200, 120), "white").save(source)
+    output = tmp_path / "annotated.png"
+    fallback = FakeImageRegionFallbackMatcher(
+        ImageRegionMatch(region=(20, 30, 180, 90), confidence=0.99)
+    )
+    monkeypatch.setattr(
+        pytesseract,
+        "image_to_data",
+        lambda *args, **kwargs: {"text": []},
+    )
+
+    result = ImageExpenseDocumentAnnotator(
+        fallback_matcher=fallback,
+    ).annotate(str(source), str(output), evidence())
+
+    assert fallback.calls == [(str(source), evidence())]
+    assert result.highlighted is True
+    assert result.path == str(output)
+    annotated = Image.open(output)
+    red_pixels = [
+        (x, y)
+        for y in range(annotated.height)
+        for x in range(annotated.width)
+        if annotated.getpixel((x, y))[0] > 200
+        and annotated.getpixel((x, y))[1] < 80
+        and annotated.getpixel((x, y))[2] < 80
+    ]
+    annotated.close()
+    assert red_pixels
+    assert min(x for x, _y in red_pixels) < 20
+    assert max(x for x, _y in red_pixels) > 180
+    assert min(y for _x, y in red_pixels) < 30
+    assert max(y for _x, y in red_pixels) > 90
+
+
+@pytest.mark.parametrize(
+    "fallback_match",
+    [
+        None,
+        ImageRegionMatch(region=(20, 30, 180, 90), confidence=0.5),
+        ImageRegionMatch(region=(-1, 30, 180, 90), confidence=0.99),
+    ],
+)
+def test_image_strategy_fails_closed_for_uncertain_fallback_results(
+    tmp_path,
+    monkeypatch,
+    fallback_match,
+):
+    from PIL import Image
+    import pytesseract
+
+    source = tmp_path / "check.png"
+    Image.new("RGB", (200, 120), "white").save(source)
+    output = tmp_path / "annotated.png"
+    monkeypatch.setattr(
+        pytesseract,
+        "image_to_data",
+        lambda *args, **kwargs: {"text": []},
+    )
+
+    result = ImageExpenseDocumentAnnotator(
+        fallback_matcher=FakeImageRegionFallbackMatcher(fallback_match),
+    ).annotate(str(source), str(output), evidence())
+
+    assert result.highlighted is False
+    assert result.path == str(source)
+    assert output.exists() is False
+
+
+def test_image_strategy_fails_closed_when_fallback_service_is_unavailable(
+    tmp_path,
+    monkeypatch,
+):
+    from PIL import Image
+    import pytesseract
+
+    source = tmp_path / "check.png"
+    Image.new("RGB", (200, 120), "white").save(source)
+    output = tmp_path / "annotated.png"
+    monkeypatch.setattr(
+        pytesseract,
+        "image_to_data",
+        lambda *args, **kwargs: {"text": []},
+    )
+
+    result = ImageExpenseDocumentAnnotator(
+        fallback_matcher=UnavailableImageRegionFallbackMatcher(),
+    ).annotate(str(source), str(output), evidence())
+
+    assert result.highlighted is False
+    assert result.path == str(source)
+    assert "unavailable" in result.reason.lower()
+    assert output.exists() is False
+
+
+def test_codex_fallback_requests_one_payment_region_in_original_pixels():
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs))
+
+        class Completed:
+            returncode = 0
+            stdout = (
+                '{"confidence":0.98,"regions":['
+                '{"left":100,"top":80,"right":900,"bottom":420}]}'
+            )
+            stderr = ""
+
+        return Completed()
+
+    target = ExpenseEvidence(
+        expense_id=2004,
+        expense_date="2025-09-08",
+        amount="125.00",
+        description="John Roark",
+        vendor_key="john_roark",
+    )
+
+    match = CodexCliImageRegionFallbackMatcher(
+        codex_path="/opt/codex",
+        runner=runner,
+    ).find_region("/receipts/check.jpg", target)
+
+    assert match == ImageRegionMatch(
+        region=(100.0, 80.0, 900.0, 420.0),
+        confidence=0.98,
+    )
+    command, kwargs = calls[0]
+    assert command[:2] == ["/opt/codex", "exec"]
+    assert command[command.index("--image") + 1] == "/receipts/check.jpg"
+    assert "125.00" in kwargs["input"]
+    assert "John Roark" in kwargs["input"]
+    assert "posting" in kwargs["input"].lower()
+    assert kwargs["timeout"] > 0
+
+
+def test_codex_fallback_rejects_multiple_candidate_regions():
+    def runner(command, **kwargs):
+        class Completed:
+            returncode = 0
+            stdout = (
+                '{"confidence":0.99,"regions":['
+                '{"left":10,"top":20,"right":100,"bottom":80},'
+                '{"left":10,"top":100,"right":100,"bottom":160}]}'
+            )
+            stderr = ""
+
+        return Completed()
+
+    matcher = CodexCliImageRegionFallbackMatcher(
+        codex_path="/opt/codex",
+        runner=runner,
+    )
+
+    assert matcher.find_region("/receipts/check.jpg", evidence()) is None
 
 
 def test_service_programs_to_interface_and_caches_annotated_copy(tmp_path):
@@ -132,6 +320,30 @@ def test_pdf_strategy_boxes_only_the_matching_side_by_side_check(tmp_path):
     assert red_rects[0].width < 180
 
 
+def test_check_number_in_description_counts_as_reference_identity():
+    from document_annotation import _best_line
+
+    target = ExpenseEvidence(
+        expense_id=1996,
+        expense_date="2026-01-06",
+        amount="303.00",
+        description="Donation (Check # 1107)",
+        vendor_key="childrens_vision_int_inc",
+    )
+
+    region, score, text = _best_line(
+        [
+            ("8/16/2023 1107 303.00 2,111.00", "target-row"),
+            ("4/22/2025 1071 303.00 1,203.50", "other-row"),
+        ],
+        target,
+    )
+
+    assert region == "target-row"
+    assert score >= 12
+    assert "1107" in text
+
+
 def test_pdf_reference_resolver_derives_check_number(tmp_path):
     import fitz
 
@@ -171,12 +383,14 @@ def test_image_strategy_boxes_the_matching_ocr_line(tmp_path):
     draw.text((30, 135), "01/22/2025 MEIJER STORE $18.40", fill="black", font=font)
     image.save(source)
     output = tmp_path / "annotated.png"
+    fallback = FakeImageRegionFallbackMatcher(None)
 
-    result = ImageExpenseDocumentAnnotator().annotate(
+    result = ImageExpenseDocumentAnnotator(fallback_matcher=fallback).annotate(
         str(source), str(output), evidence()
     )
 
     assert result.highlighted is True
+    assert fallback.calls == []
     assert output.exists()
     annotated = Image.open(output)
     # A pixel just outside the OCR text row should belong to the red rectangle.
@@ -448,6 +662,81 @@ def test_illegible_amount_match_rejects_two_rows_of_the_same_payee_and_date():
     assert _best_line(lines, evidence())[0] is None
 
 
+def test_unique_amount_boxes_a_total_line_with_no_date_or_payee_on_it():
+    from document_annotation import _best_line
+
+    # AT&T-bill / single-item-receipt shape: the "Total due" line carries no
+    # date or vendor text, so it can't clear the normal score-7 bar on its
+    # own — but $171.17 appears nowhere else in the document, so there is no
+    # rival row it could be confused with.
+    target = ExpenseEvidence(
+        expense_id=1975,
+        expense_date="2025-03-01",
+        amount="171.17",
+        description="AT&T",
+        vendor_key="at_t",
+    )
+    lines = [
+        ("Bill date 03/01/25", "header"),
+        ("Total due $171.17", "total-row"),
+        ("Account charges $15.00", "line-1"),
+    ]
+
+    region, score, text = _best_line(lines, target)
+
+    assert region == "total-row"
+    assert score < 7
+
+
+def test_repeated_amount_still_rejects_the_ambiguous_total_line():
+    from document_annotation import _best_line
+
+    # Same shape, but the amount is not unique in the document (it also
+    # appears as an unrelated line item) — uniqueness can't rescue this one.
+    target = ExpenseEvidence(
+        expense_id=1975,
+        expense_date="2025-03-01",
+        amount="15.00",
+        description="AT&T",
+        vendor_key="at_t",
+    )
+    lines = [
+        ("Bill date 03/01/25", "header"),
+        ("Total due $15.00", "total-row"),
+        ("Late fee $15.00", "other-row"),
+    ]
+
+    assert _best_line(lines, target)[0] is None
+
+
+def test_repeated_total_restatement_boxes_the_bottom_most_line():
+    from document_annotation import _best_line
+
+    # Payment-slip shape (Dermatology Associates freezer scan, 2026-08-02):
+    # a single total is printed twice — a labeled field, then a footer
+    # confirmation — with no date or payee on either line. Both disjoint
+    # regions carry the word "total", so this is the receipt restating its
+    # one figure, not two coincidentally-equal line items; the bottom-most
+    # restatement (closest to the signature/copy line) wins.
+    target = ExpenseEvidence(
+        expense_id=1980,
+        expense_date="2025-04-08",
+        amount="150.00",
+        description="Dermatology Associates of West Michigan",
+        vendor_key="dermatology_associates_of_west_michigan_dawm",
+    )
+    lines = [
+        ("Total Amount 150.00", (30, 400, 300, 430)),
+        ("Total $150.00", (30, 500, 260, 530)),
+    ]
+
+    region, score, text = _best_line(lines, target)
+
+    assert region == (30, 500, 260, 530)
+    assert score < 7
+
+
+
 def test_image_strategy_boxes_the_amount_column_when_ocr_loses_it(tmp_path):
     from PIL import Image, ImageDraw, ImageFont
 
@@ -514,6 +803,28 @@ def test_excel_strategy_boxes_only_the_matching_row(tmp_path):
     assert highlighted.active["C3"].border.right.color.rgb == "FFFF0000"
     assert highlighted.active["A2"].border.left.style is None
     highlighted.close()
+
+
+def test_render_excel_for_browser_preserves_red_highlight(tmp_path):
+    from openpyxl import Workbook
+
+    source = tmp_path / 'annotated.xlsx'
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(['Date', 'Description', 'Amount'])
+    sheet.append(['01/21/2025', 'TRINITY HEALTH CORP-LIVONIA MI', 225.00])
+    from openpyxl.styles import Border, Side
+    red = Side(style='thick', color='FFFF0000')
+    sheet['B2'].border = Border(left=red, right=red, top=red, bottom=red)
+    workbook.save(source)
+    output = tmp_path / 'view.html'
+
+    render_excel_for_browser(str(source), str(output))
+
+    html = output.read_text()
+    assert 'TRINITY HEALTH CORP-LIVONIA MI' in html
+    assert 'class=\'highlight\'' in html
+
 
 
 def test_card_statement_row_identifies_by_bare_month_day_and_payee_head():

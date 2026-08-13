@@ -18,7 +18,10 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claude } from '/home/adamsl/claude-code-sdk-ts/dist/index.js';
-import { runWithAbortTimeout } from "./claude-attempt.ts";
+import {
+  ClaudeAttemptCompletionObservedError,
+  runWithAbortTimeout,
+} from "./claude-attempt.ts";
 import {
   applyRedBoxAuditToReport,
   auditRedBoxesForRun,
@@ -142,7 +145,7 @@ function buildTaskMessage(args) {
 // `claude` child. runWithAbortTimeout supplies that signal AND a hard deadline,
 // so a hung session raises instead of parking the watchdog forever (see
 // claude-attempt.ts).
-async function runClaudeAttempt(prompt, timeoutMs, args) {
+async function runClaudeAttempt(prompt, timeoutMs, args, completionObserved) {
   return runWithAbortTimeout((signal) => claude()
     .withModel(TRAINER_MODEL)
     .allowTools('Bash', 'Read', 'Write')
@@ -161,7 +164,7 @@ async function runClaudeAttempt(prompt, timeoutMs, args) {
       console.log(`[trainer] tool: ${tool.name} ${JSON.stringify(tool.input).slice(0, 300)}`);
     })
     .query(prompt)
-    .asText(), timeoutMs);
+    .asText(), timeoutMs, completionObserved);
 }
 
 async function runCodexAttempt(prompt, timeoutMs, attempt, args) {
@@ -380,9 +383,13 @@ foreground Bash sleep loop.`;
     try {
       const summary = useCodex
         ? await runCodexAttempt(attemptPrompt, attemptTimeoutMs, attempt, args)
-        : await runClaudeAttempt(attemptPrompt, attemptTimeoutMs, args);
+        : await runClaudeAttempt(
+          attemptPrompt, attemptTimeoutMs, args, reportWritten);
       console.log(`[trainer] attempt ${attempt} (${useCodex ? 'codex' : 'claude'}) summary:\n` + summary);
     } catch (err) {
+      if (err instanceof ClaudeAttemptCompletionObservedError) {
+        console.log('[trainer] report observer stopped the completed model session.');
+      } else {
       // A session that times out or crashes AFTER writing the report still
       // fulfilled the contract — the report is the deliverable, the final
       // summary is garnish. Fall through to the reportWritten() check.
@@ -393,6 +400,7 @@ foreground Bash sleep loop.`;
         useCodex = true;
         console.log(`[trainer] Claude session failed — falling back to codex ` +
           `(${TRAINER_CODEX_MODEL}) for remaining attempts.`);
+      }
       }
     }
     if (reportWritten()) {

@@ -31,6 +31,7 @@ export {
   ChatDetailRenderer,
   composeSpokenText,
   InputOptionsRenderer,
+  mountTerminal,
   renderReplyRows,
   StreamDetailRenderer,
 } from "./detail-renderers.js";
@@ -48,7 +49,9 @@ export { DomTabFactory } from "./dom-tab-factory.js";
 export { DomVendorReviewView } from "./dom-vendor-review-view.js";
 export { EdgeTtsSpeechSynthesizer } from "./edge-tts-speech-synthesizer.js";
 export { FetchHttpClient } from "./fetch-http-client.js";
+export { IntakeHaltAlert } from "./intake-halt-alert.js";
 export { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
+export { ModelStatsHealthMonitor } from "./model-stats-health-monitor.js";
 export {
   buildPrinterRepairRequest,
   PrinterRepairController,
