@@ -465,26 +465,34 @@ Executor (the restart kills it).
 
 The checkout you're editing is often **not** the one serving the dashboard.
 
-- **Live host:** `DESKTOP-2OBSQMC`, distro **`Ubuntu-26.04`** specifically. That box runs two WSL
-  distros sharing one network namespace; the older `Ubuntu-24.04` is a stub that still owns
-  `tailscaled`/`sshd`, so a bare SSH can land in the *wrong* distro even though `hostname` matches.
-  Always name the distro explicitly: `ssh NewUser@<ip> 'wsl.exe -d Ubuntu-26.04 -e bash -lc "<cmd>"'`.
+- **Live host:** `DESKTOP-2OBSQMC`, distro **`Ubuntu-26.04`** (codename `resolute`). SSH straight
+  into WSL — **no `wsl.exe` hop, and the user is `adamsl`, not `NewUser`**:
+  ```bash
+  ssh adamsl@100.102.209.100 'cd ~/letta-code && git status'
+  ```
+  `NewUser` is the *Windows* account and only applied to the old `ssh → wsl.exe -d …` route. That
+  route died on 2026-08-05 when `Ubuntu-24.04` was unregistered and Ubuntu-26.04 got its own
+  `openssh-server` + `tailscale`. Using the stale `NewUser@` form fails with
+  `Permission denied (publickey,password)`, which looks like a broken key but is just a bad user.
+  Sanity-check you landed on the right distro:
+  `ssh adamsl@100.102.209.100 'grep VERSION_CODENAME /etc/os-release'` must print `resolute`.
+  Canonical details live in the `windows11-ssh-connect` skill — trust it over this file.
 - **`DESKTOP-SHDBATI`** (Letta server box) has no `dashboard-server.service` — its `:8765` is
   `dashboard-proxy.service` forwarding to the live box, so a local `curl` succeeding there proves
   nothing about your edits being deployed.
-- **Verification must go through a base64-piped script, not inline quoting** — the nested
-  `ssh → wsl.exe → bash -lc` hop mangles inline `$(...)` substitutions and can report a genuinely
-  `enabled`/`active` unit as `not-found`. Write the script locally, then:
+- **The live checkout carries real uncommitted WIP.** As of 2026-08-13 it sat on
+  `reconcile/category-taxonomy-x-intake-duplicate-rows` with ~360 changed lines across 12 files
+  from concurrent agents. **Run `git status` there and diff the overlap before any pull/merge** —
+  never blind-`scp` whole files or `git pull` over it. For surgical edits, base64-pipe a script
+  rather than inline quoting (nested shells mangle `$(...)`):
   ```bash
   B64=$(base64 -w0 script.sh)
-  ssh NewUser@<ip> "wsl.exe -d Ubuntu-26.04 -e bash -lc \"echo $B64 | base64 -d > /tmp/s.sh && bash /tmp/s.sh\""
+  ssh adamsl@100.102.209.100 "echo $B64 | base64 -d > /tmp/s.sh && bash /tmp/s.sh"
   ```
-  Same pattern for edits — the live checkout is diverged from this repo; verify each anchor string
-  is unique, back it up, then string-replace. Never blind-`scp` whole files or `git pull` over it.
-- **`Address already in use` on :8765 during restart** = the `Ubuntu-24.04` stub also runs (and
-  wins the port race for) its own `dashboard-server.service`. Fix: stop+disable that unit in
-  `Ubuntu-24.04` (never shut the distro down — it owns tailscaled/sshd), then restart the real one
-  in `Ubuntu-26.04`. Verify the real unit's `MainPID` matches `ss -tlnp`'s owner of :8765.
+- **`Address already in use` on :8765 during restart** — historically the `Ubuntu-24.04` stub also
+  ran its own `dashboard-server.service` and won the port race. That distro is gone as of
+  2026-08-05, so if this recurs, find the real owner with `ss -tlnp` and check it matches the
+  unit's `MainPID` rather than assuming the old cause.
 
 ## Boot autostart (systemd `--user` services)
 
