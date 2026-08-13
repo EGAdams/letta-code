@@ -1,240 +1,5 @@
 [
   {
-    "date": "2026-08-11T22:09:03",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_transcript.json'))\nmsgs = data if isinstance(data,list) else data.get('messages',data)\nmsgs2 = sorted(msgs, key=lambda m: m.get('date') or '')"
-  },
-  {
-    "date": "2026-08-11T22:09:15",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_transcript.json'))\nmsgs = data if isinstance(data,list) else data.get('messages',data)\nmsgs2 = sorted(msgs, key=lambda m: m.get('date') or '')"
-  },
-  {
-    "date": "2026-08-11T22:09:37",
-    "type": "Bash",
-    "text": "for i in $(seq 1 10); do\n  sleep 30\n  N=$(curl -s \"http://100.80.49.10:8283/v1/conversations/conv-86b413c5-b47c-467d-89d4-7bd676fd0ed9/messages?limit=60\" | python3 -c \"\nimport json,sys\ndata=json.load("
-  },
-  {
-    "date": "2026-08-11T22:10:44",
-    "type": "Bash",
-    "text": "curl -s -X POST \"http://100.80.49.10:8283/v1/conversations/conv-8cca0d4d-22f2-44cb-8b89-e88379cce981/messages\" -H 'Content-Type: application/json' -d '{\n\"messages\":[{\"role\":\"user\",\"content\":\"TRAINER C"
-  },
-  {
-    "date": "2026-08-11T22:10:50",
-    "type": "Bash",
-    "text": "curl -s -X POST \"http://100.80.49.10:8283/v1/conversations/conv-8cca0d4d-22f2-44cb-8b89-e88379cce981/messages\" -H 'Content-Type: application/json' -d '{\n\"messages\":[{\"role\":\"user\",\"content\":\"TRAINER C"
-  },
-  {
-    "date": "2026-08-11T22:10:56",
-    "type": "Bash",
-    "text": "curl -s --max-time 60 -X POST \"http://100.80.49.10:8283/v1/conversations/conv-8cca0d4d-22f2-44cb-8b89-e88379cce981/messages\" -H 'Content-Type: application/json' -d '{\n\"messages\":[{\"role\":\"user\",\"conte"
-  },
-  {
-    "date": "2026-08-11T22:11:03",
-    "type": "Bash",
-    "text": "curl -s --max-time 45 -w \"\\nHTTP:%{http_code} TIME:%{time_total}\\n\" \"http://100.80.49.10:8283/v1/conversations/conv-8cca0d4d-22f2-44cb-8b89-e88379cce981/messages?limit=1\"\necho \"=== dashboard health =="
-  },
-  {
-    "date": "2026-08-11T22:11:22",
-    "type": "Bash",
-    "text": "curl -s --max-time 10 http://localhost:8765/api/server-health 2>&1 | python3 -m json.tool 2>&1 | head -60"
-  },
-  {
-    "date": "2026-08-11T22:13:28",
-    "type": "Bash",
-    "text": "for i in $(seq 1 8); do\n  sleep 15\n  STATUS=$(curl -s --max-time 10 http://localhost:8765/api/server-health | python3 -c \"\nimport json,sys\ntry:\n    d=json.load(sys.stdin)\n    for s in d.get('servers',"
-  },
-  {
-    "date": "2026-08-11T22:13:47",
-    "type": "Bash",
-    "text": "curl -s --max-time 45 -X POST \"http://100.80.49.10:8283/v1/conversations/conv-8cca0d4d-22f2-44cb-8b89-e88379cce981/messages\" -H 'Content-Type: application/json' -d '{\n\"messages\":[{\"role\":\"user\",\"conte"
-  },
-  {
-    "date": "2026-08-11T22:13:50",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\nd=json.load(open('/tmp/coach_resp.json'))\nfor m in d['messages']:\n    t=m.get('message_type')\n    if t=='tool_return_message':\n        print(t, m.get('tool_return'))\n    elif "
-  },
-  {
-    "date": "2026-08-11T22:13:52",
-    "type": "Bash",
-    "text": "mkdir -p /home/adamsl/letta-code/dashboard/trainer/reports"
-  },
-  {
-    "date": "2026-08-11T22:14:24",
-    "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/trainer/reports/20260811-220422_Window_Scanner_d1786485862.md\n\u2192 # Trainer Report \u2014 Window Scanner  **Verdict: FAIL**  - Scanner: Window Scanner - Scanned image: `/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/window_scan_178648585888085389"
-  },
-  {
-    "date": "2026-08-11T22:16:26",
-    "type": "Bash",
-    "text": "for i in $(seq 1 10); do\n  sleep 30\n  curl -s --max-time 10 http://localhost:8765/api/server-health -o /tmp/health.json 2>/dev/null\n  STATUS=$(python3 -c \"\nimport json\ntry:\n    d=json.load(open('/tmp/"
-  },
-  {
-    "date": "2026-08-11T22:16:33",
-    "type": "Bash",
-    "text": "curl -s --max-time 15 \"http://100.80.49.10:8283/v1/conversations/conv-86b413c5-b47c-467d-89d4-7bd676fd0ed9/messages?limit=100\" -o /tmp/mazda_msgs.json\npython3 -c \"\nimport json\ndata=json.load(open('/tm"
-  },
-  {
-    "date": "2026-08-11T22:17:22",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_msgs.json'))\nmsgs = data if isinstance(data,list) else data.get('messages',[])\nfor m in msgs:\n    t = m.get('message_type') or m.get('type')\n  "
-  },
-  {
-    "date": "2026-08-11T22:18:15",
-    "type": "Bash",
-    "text": "curl -s --max-time 15 -X POST \"http://100.80.49.10:8283/v1/conversations/conv-86b413c5-b47c-467d-89d4-7bd676fd0ed9/messages\" \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"messages\":[{\"role\":\"user\""
-  },
-  {
-    "date": "2026-08-11T22:20:23",
-    "type": "Bash",
-    "text": "for i in $(seq 1 6); do\n  sleep 20\n  N=$(curl -s --max-time 15 \"http://100.80.49.10:8283/v1/conversations/conv-86b413c5-b47c-467d-89d4-7bd676fd0ed9/messages?limit=100\" -o /tmp/mazda_msgs2.json && pyth"
-  },
-  {
-    "date": "2026-08-11T22:20:28",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_msgs2.json'))\nmsgs = data if isinstance(data,list) else data.get('messages',[])\nfor m in msgs[:6]:\n    t = m.get('message_type') or m.get('type"
-  },
-  {
-    "date": "2026-08-11T22:20:34",
-    "type": "Bash",
-    "text": "curl -s --max-time 15 http://localhost:8765/api/supporting-documents -X POST -H 'Content-Type: application/json' -d '{\"expense_ids\":[2015]}' 2>&1 | head -c 2000\necho\necho \"---\"\ncurl -s --max-time 15 -"
-  },
-  {
-    "date": "2026-08-11T22:20:39",
-    "type": "Bash",
-    "text": "grep -n \"def api_supporting_documents\\|/api/supporting-documents\\|supporting-document/\" /home/adamsl/letta-code/dashboard/server.py | head -30"
-  },
-  {
-    "date": "2026-08-11T22:20:41",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-08-11T22:20:45",
-    "type": "Bash",
-    "text": "curl -s --max-time 15 http://localhost:8765/api/supporting-documents -X POST -H 'Content-Type: application/json' \\\n  -d '{\"date\":\"2025-04-18\",\"signed_amount\":\"-26.03\",\"vendor_key\":\"family_fare\",\"descr"
-  },
-  {
-    "date": "2026-08-11T22:20:51",
-    "type": "Bash",
-    "text": "tail -100 /tmp/dashboard_8765.log 2>/dev/null | grep -i \"supporting-document\\|highlight\\|annotat\" | tail -20\necho \"---cache---\"\nfind /home/adamsl/letta-code/dashboard/.cache/document-annotations -newe"
-  },
-  {
-    "date": "2026-08-11T22:20:55",
-    "type": "Bash",
-    "text": "grep -c \"^\" /tmp/receipt_headers.txt; identify /tmp/receipt_view.bin 2>/dev/null || file /tmp/receipt_view.bin\nls -la /home/adamsl/letta-code/dashboard/.cache/document-annotations/expense-2015-309ecf3"
-  },
-  {
-    "date": "2026-08-11T22:21:24",
-    "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/trainer/reports/20260811-220339_Freezer_Scanner_d1786485819.md\n\u2192 # Mazda Trainer Report \u2014 Freezer Scanner  **Verdict: PASS**  - Scanner: Freezer Scanner - Document: `scan_freezer_1786485816670745045_4711f2c62478.jpg` - Dispatch: 2026-08-11T22:03:39Z - Mazda conve"
-  },
-  {
-    "date": "2026-08-11T22:21:38",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-e06c6924-09e7-4da8-aa7e-74fb396c094f/messages?limit=60\" | python3 -c \"\nimport json,sys\ndata = json.load(sys.stdin)\nmsgs = data if isinstance(dat"
-  },
-  {
-    "date": "2026-08-11T22:22:16",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-af44b54f-d07c-407d-9aa3-99466bbcc332/messages?limit=60\" | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\nmsgs = d if isinstance(d,list) els"
-  },
-  {
-    "date": "2026-08-11T22:22:18",
-    "type": "Bash",
-    "text": "for i in $(seq 1 10); do\n  sleep 30\n  COUNT=$(curl -s \"http://100.80.49.10:8283/v1/conversations/conv-e06c6924-09e7-4da8-aa7e-74fb396c094f/messages?limit=100\" | python3 -c \"\nimport json,sys\ndata = jso"
-  },
-  {
-    "date": "2026-08-11T22:22:22",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-e06c6924-09e7-4da8-aa7e-74fb396c094f/messages?limit=100\" | python3 -c \"\nimport json,sys\ndata = json.load(sys.stdin)\nmsgs = data if isinstance(da"
-  },
-  {
-    "date": "2026-08-11T22:24:03",
-    "type": "Bash",
-    "text": "for i in $(seq 1 10); do\n  sleep 30\n  OUT=$(curl -s \"http://100.80.49.10:8283/v1/conversations/conv-e06c6924-09e7-4da8-aa7e-74fb396c094f/messages?limit=100\")\n  COUNT=$(echo \"$OUT\" | python3 -c \"\nimpor"
-  },
-  {
-    "date": "2026-08-11T22:24:07",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-e06c6924-09e7-4da8-aa7e-74fb396c094f/messages?limit=100\" | python3 -c \"\nimport json,sys\ndata = json.load(sys.stdin)\nmsgs = data if isinstance(da"
-  },
-  {
-    "date": "2026-08-11T22:24:18",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-e06c6924-09e7-4da8-aa7e-74fb396c094f/messages?limit=100\" | python3 -c \"\nimport json,sys\ndata = json.load(sys.stdin)\nmsgs = data if isinstance(da"
-  },
-  {
-    "date": "2026-08-11T22:24:51",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-e06c6924-09e7-4da8-aa7e-74fb396c094f/messages?limit=100\" | python3 -c \"\nimport json,sys\ndata = json.load(sys.stdin)\nmsgs = data if isinstance(da"
-  },
-  {
-    "date": "2026-08-11T22:24:58",
-    "type": "Bash",
-    "text": "for i in $(seq 1 10); do\n  sleep 30\n  RESP=$(curl -s \"http://100.80.49.10:8283/v1/conversations/conv-af44b54f-d07c-407d-9aa3-99466bbcc332/messages?limit=80\")\n  echo \"$RESP\" > /tmp/mazda_freezer_178648"
-  },
-  {
-    "date": "2026-08-11T22:25:03",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\nd=json.load(open('/tmp/mazda_freezer_1786486927.json'))\nmsgs = d if isinstance(d,list) else d.get('messages',[])\nmsgs = sorted(msgs, key=lambda m: m.get('date',''))\nfor m in m"
-  },
-  {
-    "date": "2026-08-11T22:25:08",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/api/expense-stored-events?since=1786486927\" | python3 -m json.tool 2>/dev/null | head -80"
-  },
-  {
-    "date": "2026-08-11T22:26:23",
-    "type": "Bash",
-    "text": "RAW=/home/adamsl/rol_finances/readable_documents/receipts/2025/january/january_04/mr_burger_restaurant_1_04_10_25_31_40.jpg\ncurl -s -o /tmp/raw_bytes.jpg \"http://localhost:8765/rol_finances_receipts/2"
-  },
-  {
-    "date": "2026-08-11T22:26:28",
-    "type": "Bash",
-    "text": "ls -la /home/adamsl/letta-code/dashboard/.cache/document-annotations/ 2>/dev/null | grep -i 2016\nfind /home/adamsl/letta-code/dashboard/.cache/document-annotations/ -newer /tmp/raw_bytes.jpg 2>/dev/nu"
-  },
-  {
-    "date": "2026-08-11T22:26:33",
-    "type": "Bash",
-    "text": "rm -f /tmp/receipt_2017.jpg\ncurl -s -o /tmp/receipt_2017.jpg -w '%{http_code}\\n' \"http://localhost:8765/supporting-document/2017/receipt\"\nls -la /tmp/receipt_2017.jpg\nORIG=\"/home/adamsl/rol_finances/r"
-  },
-  {
-    "date": "2026-08-11T22:26:50",
-    "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/trainer/reports/20260811-222127_Window_Scanner_d1786486887.md\n\u2192 Verdict: PASS  **Scanner:** Window Scanner **Document:** `window_scan_1786486883256194729_692ce9ca4b60.jpg` **Dispatch:** 2026-08-11T22:21:27Z **Conversation:** conv-e06c6924-09e7-4da8-aa7e-74fb396c09"
-  },
-  {
-    "date": "2026-08-11T22:26:52",
-    "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/trainer/reports/20260811-222207_Freezer_Scanner_d1786486927.md\n\u2192 Verdict: PASS  ## Run - Scanner: Freezer Scanner - Document: `/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/scan_freezer_1786486923001092093_3a9a921df7c0.jpg` - Dispatched: 202"
-  },
-  {
-    "date": "2026-08-11T22:29:06",
-    "type": "Bash",
-    "text": "curl -s \"http://100.80.49.10:8283/v1/conversations/conv-04bca703-ac37-4096-88c3-f432c8f30fe8/messages?limit=60\" | python3 -c \"\nimport json,sys\ndata=json.load(sys.stdin)\nmsgs=data if isinstance(data,li"
-  },
-  {
-    "date": "2026-08-11T22:29:49",
-    "type": "Bash",
-    "text": "for i in $(seq 1 10); do\n  sleep 30\n  RESULT=$(curl -s \"http://100.80.49.10:8283/v1/conversations/conv-04bca703-ac37-4096-88c3-f432c8f30fe8/messages?limit=80\")\n  echo \"$RESULT\" > /tmp/mazda_freezer_po"
-  },
-  {
-    "date": "2026-08-11T22:29:53",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_freezer_poll.json'))\nmsgs=data if isinstance(data,list) else data.get('messages',[])\nfor m in msgs:\n    t=m.get('created_at') or m.get('date') "
-  },
-  {
-    "date": "2026-08-11T22:30:05",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_freezer_poll.json'))\nmsgs=data if isinstance(data,list) else data.get('messages',[])\nfor m in msgs:\n    if m.get('message_type')=='user_message"
-  },
-  {
-    "date": "2026-08-11T22:30:16",
-    "type": "Bash",
-    "text": "python3 -c \"\nimport json\ndata=json.load(open('/tmp/mazda_freezer_poll.json'))\nmsgs=data if isinstance(data,list) else data.get('messages',[])\nfor m in msgs:\n    if m.get('message_type')=='tool_call_me"
-  },
-  {
     "date": "2026-08-11T22:30:53",
     "type": "Bash",
     "text": "for i in $(seq 1 6); do\n  sleep 30\n  RESULT=$(curl -s \"http://100.80.49.10:8283/v1/conversations/conv-04bca703-ac37-4096-88c3-f432c8f30fe8/messages?limit=100\")\n  echo \"$RESULT\" > /tmp/mazda_freezer_po"
@@ -998,5 +763,240 @@
     "date": "2026-08-12T22:42:27",
     "type": "Bash",
     "text": "git push"
+  },
+  {
+    "date": "2026-08-12T23:40:18",
+    "type": "Bash",
+    "text": "grep -rn \"R46 Claude OAuth\\|W11 Claude OAuth\" --include=*.js --include=*.html --include=*.py --include=*.ts -l | head -50"
+  },
+  {
+    "date": "2026-08-12T23:40:18",
+    "type": "Bash",
+    "text": "grep -rni \"r46.*oauth\\|claude oauth\" --include=* -l 2>/dev/null | grep -v node_modules | grep -v \"\\.git/\" | head -50"
+  },
+  {
+    "date": "2026-08-12T23:40:21",
+    "type": "Bash",
+    "text": "grep -n \"R46 Claude OAuth\\|W11 Claude OAuth\\|r46_claude\\|w11_claude\" dashboard/dashboard.html dashboard/server.py | head -60"
+  },
+  {
+    "date": "2026-08-12T23:40:23",
+    "type": "Bash",
+    "text": "sed -n 8840,9060p dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:40:26",
+    "type": "Bash",
+    "text": "grep -n \"model-stats\\|model_stats\" dashboard/server.py | head -40"
+  },
+  {
+    "date": "2026-08-12T23:40:29",
+    "type": "Bash",
+    "text": "timeout 90 curl -s \"http://localhost:8765/api/model-stats?source=r46-claude\" | head -c 3000; echo; echo \"=== W11 ===\"; timeout 90 curl -s \"http://localhost:8765/api/model-stats?source=w11-claude\" | he"
+  },
+  {
+    "date": "2026-08-12T23:40:39",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=15 adamsl@100.72.34.38 'python3 - <<\"EOF\"\nimport json,os,time,urllib.request,urllib.error\nhome=os.path.expanduser(\"~\")\nCRED=os.path.join(home,\".claude\",\".credentials.j"
+  },
+  {
+    "date": "2026-08-12T23:40:54",
+    "type": "Bash",
+    "text": "timeout 90 ssh -o ConnectTimeout=15 adamsl@100.72.34.38 'python3 - <<\"EOF\"\nimport json,os,time,urllib.request,urllib.error\nhome=os.path.expanduser(\"~\")\nCRED=os.path.join(home,\".claude\",\".credentials.j"
+  },
+  {
+    "date": "2026-08-12T23:41:02",
+    "type": "Bash",
+    "text": "sed -n 9290,9360p dashboard/server.py; grep -n \"MODEL_STATS_TTL\\|_MODEL_STATS\" dashboard/server.py | head"
+  },
+  {
+    "date": "2026-08-12T23:41:05",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=15 adamsl@100.72.34.38 'ls -la ~/.claude/.credentials.json*; crontab -l 2>/dev/null | head -20; ls ~/*.sh ~/bin 2>/dev/null | head -20'"
+  },
+  {
+    "date": "2026-08-12T23:41:16",
+    "type": "Bash",
+    "text": "git log --oneline -20 -- dashboard/server.py | head -20; echo ---; git log --oneline --all -15 --grep=\"r46\" -i"
+  },
+  {
+    "date": "2026-08-12T23:41:20",
+    "type": "Bash",
+    "text": "cat /tmp/dashboard_model_stats_last_good.json 2>/dev/null | head -c 2000; echo; echo \"=== creds shape R46 ===\"; timeout 40 ssh -o ConnectTimeout=15 adamsl@100.72.34.38 'python3 -c \"import json;d=json."
+  },
+  {
+    "date": "2026-08-12T23:41:33",
+    "type": "Bash",
+    "text": "timeout 40 ssh -o ConnectTimeout=15 adamsl@100.72.34.38 'python3 - <<\"EOF\"\nimport json\nd=json.load(open(\"/home/adamsl/.claude/.credentials.json\"))[\"claudeAiOauth\"]\nfor k in (\"accessToken\",\"refreshToke"
+  },
+  {
+    "date": "2026-08-12T23:41:48",
+    "type": "Bash",
+    "text": "ls ~/.claude/skills/ 2>/dev/null | head -40; ls ~/.letta/skills/ 2>/dev/null | grep -i oauth"
+  },
+  {
+    "date": "2026-08-12T23:41:48",
+    "type": "Bash",
+    "text": "grep -rn \"credentials.json\" --include=*.py --include=*.sh --include=*.mjs --include=*.ps1 dashboard/ scripts/ 2>/dev/null | grep -vi bak | head -20"
+  },
+  {
+    "date": "2026-08-12T23:41:57",
+    "type": "Bash",
+    "text": "sed -n 9400,9520p dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:42:03",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:42:13",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:42:25",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:42:30",
+    "type": "Bash",
+    "text": "hostname; grep -q Ubuntu /etc/os-release && . /etc/os-release && echo \"$PRETTY_NAME\"; systemctl --user is-active dashboard-server.service 2>&1; ss -tlnp 2>/dev/null | grep 8765"
+  },
+  {
+    "date": "2026-08-12T23:42:40",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard && python3 -c \"import ast,sys; ast.parse(open('server.py').read())\" && systemctl --user restart dashboard-server.service && sleep 6 && curl -sS -H 'Content-Type: a"
+  },
+  {
+    "date": "2026-08-12T23:42:42",
+    "type": "Bash",
+    "text": "timeout 90 curl -s \"http://localhost:8765/api/model-stats?source=r46-claude\""
+  },
+  {
+    "date": "2026-08-12T23:42:54",
+    "type": "Bash",
+    "text": "timeout 40 ssh -o ConnectTimeout=15 adamsl@100.72.34.38 'bash -lc \"which claude; claude --version; claude --help 2>&1 | grep -i -A2 \\\"setup-token\\|login\\\" | head -20\"'"
+  },
+  {
+    "date": "2026-08-12T23:42:58",
+    "type": "Bash",
+    "text": "timeout 60 ssh -o ConnectTimeout=15 adamsl@100.80.49.10 'cat ~/tactical_debug_toolbox/gof_debug_tacticts.md' 2>&1 | head -200"
+  },
+  {
+    "date": "2026-08-12T23:43:24",
+    "type": "Bash",
+    "text": "grep -n \"_looks_rate_limited\\|_fill_rate_limited\" server.py"
+  },
+  {
+    "date": "2026-08-12T23:43:24",
+    "type": "Bash",
+    "text": "sed -n 9375,9400p server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:04",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:18",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:23",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:29",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:36",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:39",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:44",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:47",
+    "type": "Bash",
+    "text": "grep -n \"model_stats\\|_fill_rate_limited\\|_looks_rate_limited\" tests/*.py | head -20"
+  },
+  {
+    "date": "2026-08-12T23:44:49",
+    "type": "Bash",
+    "text": "sed -n 995,1090p tests/test_server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:53",
+    "type": "Bash",
+    "text": "grep -n \"_CLAUDE_EXTRACT_PY\" tests/test_server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:56",
+    "type": "Bash",
+    "text": "sed -n 960,996p tests/test_server.py"
+  },
+  {
+    "date": "2026-08-12T23:44:59",
+    "type": "Bash",
+    "text": "grep -n \"def test_model_stats_claude_rate_limit_restores_primary_history\" tests/test_server.py"
+  },
+  {
+    "date": "2026-08-12T23:45:15",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-08-12T23:45:19",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -q -k \"model_stats or claude_extractor\" 2>&1 | tail -20"
+  },
+  {
+    "date": "2026-08-12T23:45:26",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git stash push -- dashboard/server.py dashboard/tests/test_server.py >/dev/null && cd dashboard && .venv/bin/python -m pytest tests/test_server.py -q -k \"rate_limited_is_"
+  },
+  {
+    "date": "2026-08-12T23:45:34",
+    "type": "Bash",
+    "text": "sed -n 1150,1180p /home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-08-12T23:45:47",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-08-12T23:46:12",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard && .venv/bin/python -m pytest tests/ -q 2>&1 | tail -8"
+  },
+  {
+    "date": "2026-08-12T23:46:25",
+    "type": "Bash",
+    "text": "systemctl --user restart dashboard-server.service && sleep 6 && curl -sS -H 'Content-Type: application/json' -d '{\"server\":\"executor\",\"action\":\"start\"}' http://localhost:8765/api/server-action >/dev/n"
+  },
+  {
+    "date": "2026-08-12T23:46:27",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git diff --stat dashboard/server.py dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-08-13T00:03:36",
+    "type": "Bash",
+    "text": "timeout 60 curl -s \"http://localhost:8765/api/model-stats?source=r46-claude\" | python3 -c \"import json,sys;d=json.load(sys.stdin);print('status:', d['status']);print('model:', d.get('model'));print('w"
   }
 ]

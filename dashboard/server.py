@@ -9022,6 +9022,16 @@ def _cli_refresh():
 out = {"as_of": time.time()}
 try:
     d = json.load(open(CRED)); o = d["claudeAiOauth"]
+    # A logged-out host leaves the credential file in place with BLANK tokens
+    # (accessToken == refreshToken == "", expiresAt == 0). Sending
+    # "Authorization: Bearer " unauthenticated gets a 429 from Anthropic's edge,
+    # which used to render as "usage stats RATE LIMITED" — a yellow tile blaming
+    # a throttle that would never clear on its own. Detect it before any network
+    # call and report the condition by name.
+    if not (o.get("accessToken") or "").strip() and not (o.get("refreshToken") or "").strip():
+        out["condition"] = "logged_out"
+        out["error"] = "logged out (no OAuth token on this host)"
+        print(json.dumps(out)); raise SystemExit(0)
     expired = bool(o.get("expiresAt")) and o["expiresAt"] / 1000 < time.time() + 60
     try:
         if expired:
@@ -9038,6 +9048,7 @@ try:
             raise
 except urllib.error.HTTPError as e:
     out["error"] = "HTTP %d" % e.code
+    out["condition"] = "rate_limited" if e.code == 429 else "unknown"
     ra = e.headers.get("Retry-After") if e.headers else None
     if ra:
         try:
@@ -9350,6 +9361,52 @@ def _fill_rate_limited(out, d, err, severity='down'):
     return out
 
 
+def _looks_like_login_problem(err):
+    t = str(err).lower()
+    return 'expired' in t or 'token' in t or 'unauthor' in t or '401' in t
+
+
+def _failure_condition(d, err):
+    """Name the condition behind a usage-less extractor payload.
+
+    The extractor is the only party that actually observes the condition, so it
+    SHOULD name one in `condition`. Payloads that don't (the Codex extractor,
+    older mocks) fall back to inferring it from the error text — which is how a
+    logged-out host used to be mistaken for a throttle: an unauthenticated
+    request gets a 429 from Anthropic's edge, and '429' in the string was the
+    only evidence anyone looked at. New failure modes belong in the extractor,
+    named, rather than as another pattern to grep for here."""
+    return d.get('condition') or ('rate_limited' if _looks_rate_limited(err) else 'unknown')
+
+
+def _fill_extractor_failure(out, src, d, rate_limit_severity='down', login_hint=''):
+    """Explain, in terms the reader can act on, why a source reported no usage.
+
+    Shared by every OAuth-backed source so a new condition is described once
+    instead of once per provider. `rate_limit_severity` is the provider's own
+    judgement of what a 429 means for it (see _fill_rate_limited)."""
+    err = d.get('error') or 'no data'
+    condition = _failure_condition(d, err)
+
+    if condition == 'rate_limited':
+        return _fill_rate_limited(out, d, err, severity=rate_limit_severity)
+
+    if condition == 'logged_out':
+        # Neither a quota problem nor self-healing: the credential file is
+        # present but empty, and only an interactive login on that host
+        # restores it. Red, and it names the command.
+        out['status'] = 'down'
+        out['logged_out'] = True
+        where = src.get('host') or 'this box'
+        out['detail'] = f'LOGGED OUT — no OAuth token on {where}. Fix: {login_hint or "log in on that host"}.'
+        return out
+
+    out['status'] = 'concern'
+    hint = f' — {login_hint}' if login_hint and _looks_like_login_problem(err) else ''
+    out['detail'] = f'usage unavailable: {err}{hint}'
+    return out
+
+
 def _model_stats_uncached(source_key, src):
     out = {'ok': True, 'key': source_key, 'label': src['label'], 'kind': src['kind'],
            'windows': [], 'status': 'up', 'detail': ''}
@@ -9360,13 +9417,8 @@ def _model_stats_uncached(source_key, src):
         out['as_of'] = d.get('as_of')
         u = d.get('usage') or {}
         if d.get('error') or not u:
-            err = d.get('error', 'no data')
-            if _looks_rate_limited(err):
-                return _fill_rate_limited(out, d, err)
-            out['status'] = 'concern'
-            hint = ' — run `codex login`' if 'expired' in str(err) or 'token' in str(err) else ''
-            out['detail'] = f'usage unavailable: {err}{hint}'
-            return out
+            return _fill_extractor_failure(out, src, d, rate_limit_severity='down',
+                                           login_hint='run `codex login` there')
         rl = u.get('rate_limit') or {}
         out['detail'] = f'plan: {u.get("plan_type", "?")}'
         worst = 0.0
@@ -9419,12 +9471,8 @@ def _model_stats_uncached(source_key, src):
         out['model'] = d.get('recent_model') or 'Claude subscription'
         u = d.get('usage') or {}
         if d.get('error') or not u:
-            err = d.get('error', 'no data')
-            if _looks_rate_limited(err):
-                return _fill_rate_limited(out, d, err, severity='concern')
-            out['status'] = 'concern'
-            out['detail'] = f'usage unavailable: {err}'
-            return out
+            return _fill_extractor_failure(out, src, d, rate_limit_severity='concern',
+                                           login_hint='run `claude` there and complete /login')
         worst = 0.0
         for key, label in (('five_hour', '5-hour'), ('seven_day', 'weekly')):
             w = u.get(key) or {}

@@ -1076,6 +1076,70 @@ def test_model_stats_claude_rate_limit_keeps_last_good_bars(monkeypatch):
     assert limited['rate_limited'] is True
 
 
+def test_claude_extractor_names_logged_out_before_any_request(tmp_path, monkeypatch, capsys):
+    """Blank tokens are a logged-out host, not a throttle.
+
+    R46 sat with accessToken == refreshToken == "" (a `claude` logout leaves the
+    file behind), so every poll sent `Authorization: Bearer ` and Anthropic's
+    edge answered 429 — which the dashboard then reported as a rate limit that
+    would never clear. The extractor must recognise it locally, name the
+    condition, and make no request at all."""
+    cred_dir = tmp_path / '.claude'
+    cred_dir.mkdir()
+    (cred_dir / '.credentials.json').write_text(json.dumps({'claudeAiOauth': {
+        'accessToken': '', 'refreshToken': '', 'expiresAt': 0,
+        'subscriptionType': 'pro'}}))
+    monkeypatch.setenv('HOME', str(tmp_path))
+
+    def fail_urlopen(*a, **k):
+        raise AssertionError('logged-out host must not be probed over the network')
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', fail_urlopen)
+    with pytest.raises(SystemExit):
+        exec(server._CLAUDE_EXTRACT_PY, {})
+
+    d = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert d['condition'] == 'logged_out'
+    assert 'usage' not in d
+
+
+def test_model_stats_claude_logged_out_is_red_with_login_instruction(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'as_of': 1.0, 'condition': 'logged_out', 'error': 'logged out (no OAuth token on this host)'})
+    d = server.model_stats('r46-claude')
+    assert d['status'] == 'down'                    # red, not a yellow "throttled"
+    assert d['logged_out'] is True
+    assert not d.get('rate_limited')
+    assert server.R46_SSH_HOST in d['detail']       # says WHICH host to log into
+    assert 'claude' in d['detail'] and '/login' in d['detail']
+
+
+def test_model_stats_claude_logged_out_does_not_show_stale_bars(monkeypatch):
+    """Last-good bars are restored only for a throttle. A logged-out host has
+    no live quota reading at all, so showing yesterday's bars would hide it."""
+    responses = iter([
+        {'as_of': 100.0, 'usage': {'five_hour': {'utilization': 19.0, 'resets_at': None},
+                                   'seven_day': {'utilization': 12.0, 'resets_at': None}}},
+        {'as_of': 200.0, 'condition': 'logged_out', 'error': 'logged out (no OAuth token on this host)'},
+    ])
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: next(responses))
+    server.model_stats('r46-claude')
+    server._model_stats_cache.clear()
+    out = server.model_stats('r46-claude')
+    assert out['windows'] == []
+    assert out['status'] == 'down'
+
+
+def test_model_stats_codex_logged_out_reuses_shared_explanation(monkeypatch):
+    """The condition is described once, not once per provider."""
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'model': 'gpt-5.5', 'condition': 'logged_out', 'error': 'no auth.json'})
+    d = server.model_stats('w11-codex')
+    assert d['status'] == 'down' and d['logged_out'] is True
+    assert 'codex login' in d['detail']
+    assert 'this box' in d['detail']                # local source names itself
+
+
 def test_model_stats_claude_rate_limit_restores_primary_history(monkeypatch):
     with open(server.MODEL_USAGE_HISTORY_FILE, 'w', encoding='utf-8') as fh:
         json.dump({'r46-claude': [[100.0, 51.0]]}, fh)
@@ -1089,14 +1153,18 @@ def test_model_stats_claude_rate_limit_restores_primary_history(monkeypatch):
     assert limited['windows_stale'] is True
 
 
-def test_model_stats_claude_rate_limited_is_red_with_reset(monkeypatch):
-    # A provider-side 429 (the R46 Claude incident, 2026-07-15) must be RED
-    # with an absolute reset epoch, not yellow "usage unavailable".
+def test_model_stats_claude_rate_limited_is_flagged_with_reset(monkeypatch):
+    # A provider-side 429 (the R46 Claude incident, 2026-07-15) must be flagged
+    # with an absolute reset epoch, not a bare yellow "usage unavailable".
+    # Claude's severity is 'concern', not 'down': the usage-stats endpoint
+    # throttles independently of the chat API, so Claude itself may still work
+    # (see _fill_rate_limited). These two assertions were left at 'down' when
+    # that severity changed, and had been failing since.
     monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
         'as_of': 1000.0, 'error': 'HTTP 429', 'retry_after': 2627,
         'recent_model': 'claude-opus-4-8'})
     d = server.model_stats('r46-claude')
-    assert d['status'] == 'down'
+    assert d['status'] == 'concern'
     assert d['rate_limited'] is True
     assert d['rate_limited_until'] == 1000.0 + 2627
     assert 'RATE LIMITED' in d['detail']
@@ -1106,7 +1174,7 @@ def test_model_stats_claude_rate_limited_without_retry_after(monkeypatch):
     monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
         'as_of': 1000.0, 'error': 'HTTP 429'})
     d = server.model_stats('w11-claude')
-    assert d['status'] == 'down' and d['rate_limited'] is True
+    assert d['status'] == 'concern' and d['rate_limited'] is True
     assert 'rate_limited_until' not in d
     assert 'reset time not reported' in d['detail']
 
