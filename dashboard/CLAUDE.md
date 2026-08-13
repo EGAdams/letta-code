@@ -63,9 +63,15 @@ fix. Core points, condensed:
   style ports); extend that pattern rather than inventing a parallel one.
 
 **File-size rule:** any file over 250 lines gets split into smaller modules — prefer more small
-modules over one long file. In Python, split along Pydantic models (data/validation) vs Interfaces
-(ABC ports) vs implementations, mirroring the JS `abstract/`/`implementation/` split already used
-in `js/`.
+modules over one long file. Split along real seams (data shape / agreement / implementation), never
+at an arbitrary line count. In Python, that's Pydantic models (data+validation) vs Interfaces (ABC
+ports) vs implementations. In JS/TS, TypeScript plays Pydantic's role — declared shapes and
+`interface`s in their own module, implementations behind them — mirroring the `abstract/`/
+`implementation/` split already used in `js/`. Caveat: TS types vanish at runtime, so validate
+untrusted input (HTTP bodies, files, cross-process messages) with a runtime schema and derive the
+static type from it. Full version, including the plain-JS-without-a-build-step case:
+`~/tactical_debug_toolbox/gof_debug_tacticts.md` § *Keep Files Small, and Split Them Along Real
+Seams*. Don't convert working JS to TS as part of a fix — that's separate work.
 
 ## Architecture
 
@@ -130,6 +136,54 @@ as a common word too far off for the cleanup agent to rescue; the fix is
 Plan/design doc: `audio_input/audio_plan.html` (viewable in-dashboard under Project Plans →
 Audio Input); original spec `audio_input/audio_input.md`.
 
+### Toyota's note + voice command channel (home screen)
+
+Two boxes, two conversations. The **top** box is Toyota's note document — a `ReadOnlyNoteSurface`
+(white on black, `readOnly` not `disabled` so notes stay selectable), still fed by the existing
+`ReceptionistTranscriptController` streaming path. The **bottom** box (`#note-command-box`) is where
+you speak instructions *about* that note ("put a period at the end", "save this as meeting notes").
+
+The chain, each link replaceable:
+
+```
+ContinuousListener → TranscriptBuffer → CompletenessDetector → CommandInterpreter → NoteDocument
+```
+
+- **Completeness is judged from the accumulated text, never from a silence timer** — that is the
+  whole point. "Put a" comes back incomplete and the channel waits however long you pause; "Put a
+  period at the end" comes back complete and runs. `POST /api/note-command-complete`.
+- **Applying** a command is a separate call (`POST /api/note-command-apply`) that runs once per
+  finished instruction and returns a discriminated outcome: `edit` (whole revised note), `save`
+  (Toyota names the file if you didn't), or `none`.
+- **Everything fails closed.** A malformed reply, a 401, a dead connection → "keep waiting" /
+  "note unchanged". An `edit` carrying empty text is treated as malformed, never as "blank the
+  note" (checked in both `note_interpreter.py` and `note-command-contracts.js`).
+
+| Layer | Files |
+|---|---|
+| Data shapes (Pydantic) | `voice/note_models.py` |
+| Ports (ABCs) | `voice/note_ports.py` |
+| Strategies | `voice/note_completeness.py`, `voice/note_interpreter.py`, `voice/note_repository.py` |
+| Application policy | `voice/note_service.py` |
+| Composition root | `voice/note_factory.py` |
+| Browser contracts | `js/abstract/note-document.interface.js`, `note-command-contracts.js`, `transcript-buffer.js` |
+| Browser policy | `js/abstract/voice-command-channel.js` (no DOM in it) |
+| Browser wiring | `js/implementation/{textarea-note-surfaces,transcript-synced-note,http-note-command-services,note-command-panel}.js` |
+
+Non-obvious bits:
+
+- `TranscriptSyncedNote` (Decorator) exists because the note has **two writers** — the dictation
+  buffer and the command channel. Without the resync, "put a period at the end" appears to work and
+  is then silently undone by the next dictated sentence.
+- `InputOptionsRenderer` takes an injected `surfaceFactory`; the default is the editable message box
+  every agent page has always had. Send clears an *editable* surface only — clearing a read-only
+  note would delete the user's document.
+- Both boxes own **separate** `BrowserSpeechRecognitionListener`s and separate Start/Stop buttons.
+  Running two native recognizers at once is unreliable in Chrome; use one at a time.
+- The worker agent defaults to `transcript-cleanup-agent` (short strict-JSON calls, history cleared
+  each time). Override with `NOTE_COMMAND_AGENT_ID` / `NOTE_COMMAND_AGENT_NAME`; `NOTES_DIR`
+  (default `~/notes`) is where "save this" writes.
+
 ### Agents-home voice/text router (`router/`)
 
 `#agents-home` routes free speech/text to the right agent's Input Options page once a **known
@@ -172,6 +226,7 @@ files from both `HERE` (`/home/adamsl/letta-code/dashboard`) and `REPO_ROOT`
 | Codebase Rewrite | `notes_plans_handoffs/codebase_rewrite.html` | `/notes_plans_handoffs/codebase_rewrite.html` |
 | Mazda Dev Status | `notes_plans_handoffs/mazda_dev_status.html` | `/notes_plans_handoffs/mazda_dev_status.html` |
 | Audio Input | `dashboard/audio_input/audio_plan.html` | `/audio_input/audio_plan.html` |
+| Voice Communication | `dashboard/voice_communication_plan.html` → **symlink** to `~/talking_agent_parts/` | `/voice_communication_plan.html` |
 
 **`Mazda Dev Status` is the canonical current-direction doc** (Mazda is the orchestrator herself,
 with minions that drive the Claude Agent SDK). `team_construction_plan.html` (repo root) describes
@@ -184,6 +239,37 @@ After editing Project Plans, sanity-check with:
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8765/notes_plans_handoffs/mazda_dev_status.html
 .venv/bin/python -m pytest tests/
 ```
+
+#### Voice Communication is an interface *workspace*, not a document
+
+It is the one Project Plans tab that is a data-driven SPA. `voice_communication_plan.html` is a
+~45-line shell (and a **symlink** into `~/talking_agent_parts/` — `test_project_plans.py` enforces
+that); all content lives in modules:
+
+| Module | Role |
+|---|---|
+| `js/plans/interface-spec.js` | The `InterfaceSpec` contract + runtime validator + `Status` vocabulary |
+| `js/plans/mermaid-view.js` | Mermaid render + mermaid.live-style pan/zoom, used by every diagram |
+| `js/plans/interface-page.js` | Renders one spec into its 7 fixed sections |
+| `js/plans/interface-workspace.js` | Nav + hash routing shell |
+| `js/plans/voice-communication/*.js` | This project's specs + composition root |
+| `css/plan-workspace.css` | Shared styling |
+
+**Adding an interface = adding one spec object**, never markup. The four `js/plans/*.js` modules are
+project-agnostic and a test asserts they never mention Letta/Toyota/whisper/VoiceSession, so a second
+project workspace can reuse them. `validateSpecs()` throws on a malformed spec rather than rendering
+a blank tab.
+
+Mermaid gotchas that cost real time here (see also the `mermaid-pan-zoom-dashboard-plans` skill):
+
+- **`Note` is a reserved word in `sequenceDiagram`** — a participant named `Note` fails to parse.
+- One failed diagram injects a **global** error element into `document.body` that survives tab
+  switches, so a single broken diagram makes every later tab look broken too. Validate sources with
+  `mermaid.parse()` rather than eyeballing.
+- **Never top-level-`await` visibility in the boot module** — the tab's iframe is hidden, so the
+  `load` event never fires. `MermaidView.render()` awaits layout internally instead.
+- `svg-pan-zoom` measures at construction, before layout settles; the deferred `requestAnimationFrame`
+  re-`fit()`/`center()` in `_attachPanZoom` is why diagrams are centred rather than shoved right.
 
 ### ROL Finance Reports (Project Plans → ROL Finance → Reports)
 

@@ -2,11 +2,12 @@ import { ListenerState } from "../abstract/continuous-listener.interface.js";
 import { DetailRenderer } from "../abstract/detail-renderer.interface.js";
 import { ReceptionistTranscriptController } from "../abstract/receptionist-transcript-controller.js";
 import { TextUtils } from "../abstract/text-utils.js";
-import { mergeFinalChunk } from "../abstract/transcript-merge.js";
 import { RecorderState } from "../abstract/voice-recorder.interface.js";
 import { AgentStreamController } from "./agent-stream-controller.js";
 import { DomConsoleView } from "./dom-console-view.js";
 import { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
+import { EditableTextareaSurface } from "./textarea-note-surfaces.js";
+import { TranscriptSyncedNote } from "./transcript-synced-note.js";
 
 export const EDGE_TTS_EN_US_VOICES = [
   { value: "en-US-AnaNeural", label: "Ana", gender: "Female" },
@@ -847,6 +848,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     terminalFactory = (opts) => attachTerminalPanel(opts),
     listener = null,
     receptionistIntentPolicy = null,
+    surfaceFactory = (opts) => new EditableTextareaSurface(opts),
   }) {
     super();
     if (!http) throw new Error("InputOptionsRenderer requires an HttpClient");
@@ -861,6 +863,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     this._terminalFactory = terminalFactory;
     this._listener = listener;
     this._receptionistIntentPolicy = receptionistIntentPolicy;
+    this._surfaceFactory = surfaceFactory;
   }
 
   _el(tag, props = {}) {
@@ -887,11 +890,22 @@ export class InputOptionsRenderer extends DetailRenderer {
     col.style.cssText =
       "display:flex;flex-direction:column;gap:10px;max-width:320px;";
 
-    const textEl = this._el("textarea", {
-      className: "am-test-input",
-      placeholder: "Type or speak here…",
+    // The text surface is an injected NoteDocument, so this renderer no longer
+    // decides how the box looks. Agent pages get the editable message box they
+    // always had; Toyota's home screen passes a read-only note display.
+    const surface = this._surfaceFactory({ doc: this._doc });
+    const textEl = surface.element;
+
+    // The transcript buffer streams recognized speech into the surface; the
+    // decorator keeps the two in step when anything else rewrites the text
+    // (see transcript-synced-note.js). Everything below reads and writes the
+    // note through `note`, never through the raw surface.
+    const transcript = new ReceptionistTranscriptController({
+      onChange: ({ text }) => {
+        surface.setText(text);
+      },
     });
-    textEl.style.cssText = "min-height:100px;";
+    const note = new TranscriptSyncedNote({ surface, transcript });
 
     const sendBtn = this._el("button", { textContent: "Send" });
     sendBtn.style.cssText = `${bs}background:#4c6ef5;`;
@@ -1118,13 +1132,16 @@ export class InputOptionsRenderer extends DetailRenderer {
       preserveInput = false,
     } = {}) => {
       if (sendBtn.disabled) return;
-      const text = textOverride ?? textEl.value;
+      const text = textOverride ?? note.getText();
       if (!text.trim()) {
         showStatus("Nothing to send.", true);
         return;
       }
       sendBtn.disabled = true;
-      if (!preserveInput) textEl.value = "";
+      // Clearing an editable message box after sending is a reset. Doing it to
+      // a read-only note surface would delete the user's document, so the
+      // surface decides.
+      if (!preserveInput && note.editable) note.setText("");
       const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
       this._onStatus(id, "active");
       try {
@@ -1206,11 +1223,6 @@ export class InputOptionsRenderer extends DetailRenderer {
     });
 
     // ── Start Listening (continuous, browser-native) — opt-in only ─────────
-    const transcript = new ReceptionistTranscriptController({
-      onChange: ({ text }) => {
-        textEl.value = text;
-      },
-    });
     let intentQueue = Promise.resolve();
     let lastIntentText = "";
     let autoSentText = "";
@@ -1274,20 +1286,19 @@ export class InputOptionsRenderer extends DetailRenderer {
       });
     }
 
-    // Exposes the textarea (and a small append helper) so a caller that opens
-    // this page programmatically — e.g. AgentsRouterRenderer, after detecting
-    // this agent's name — can hand off text without reaching into internals.
+    // `note` is the NoteDocument contract, so a caller that opens this page
+    // programmatically can read and write the text without reaching into
+    // internals: AgentsRouterRenderer hands off the remainder after a detected
+    // agent name, and the home screen's command channel edits Toyota's note.
+    // setText/appendText/textarea stay as the names existing callers use.
     return {
       send,
       recorder,
       terminal,
+      note,
       textarea: textEl,
-      setText: (text) => {
-        textEl.value = text;
-      },
-      appendText: (text) => {
-        textEl.value = mergeFinalChunk(textEl.value, text);
-      },
+      setText: (text) => note.setText(text),
+      appendText: (text) => note.appendText(text),
     };
   }
 }

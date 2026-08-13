@@ -30,6 +30,10 @@ from agents.letta_gateway import ILettaGateway
 from agents.model_options import AgentModelOptionsService, select_model_options
 from agents.urllib_letta_gateway import UrllibLettaGateway
 
+from pydantic import ValidationError
+
+from voice.note_factory import note_command_service
+from voice.note_models import NoteEditRequest, PartialVoiceCommand
 from voice.pipeline import build_pipeline, handle_voice_upload
 from voice.receptionist import build_receptionist_strategy
 from voice.synthesis import EdgeTtsSynthesizer, cache_path as synthesis_cache_path
@@ -10926,6 +10930,37 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if not isinstance(transcript, str):
                 return self.error_response('text must be a string', 400)
             return self.json_response(build_receptionist_strategy().evaluate(transcript))
+
+        # ── Note-command channel (Toyota's command box) ──────────────────────
+        # Two stages, deliberately separate endpoints: the browser asks "is the
+        # instruction finished?" on every finalized speech fragment, then asks
+        # to apply it exactly once. See voice/note_service.py.
+        if path == '/api/note-command-complete':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            text = data.get('text', '')
+            if not isinstance(text, str):
+                return self.error_response('text must be a string', 400)
+            decision = note_command_service().assess(PartialVoiceCommand(text=text))
+            return self.json_response({'ok': True, **decision.model_dump()})
+
+        if path == '/api/note-command-apply':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            note = data.get('note', '')
+            command = data.get('command', '')
+            if not isinstance(note, str) or not isinstance(command, str):
+                return self.error_response('note and command must be strings', 400)
+            try:
+                request = NoteEditRequest(note=note, command=command)
+            except ValidationError:
+                return self.error_response('command must not be blank', 400)
+            outcome = note_command_service().apply(request)
+            return self.json_response({'ok': True, **outcome.model_dump()})
 
         if path == '/api/agent-model':
             try:
