@@ -21,10 +21,15 @@ export const ListenerState = Object.freeze({
  * start()/stop()/onResult() contract, with no caller-side changes.
  */
 export class ContinuousListener {
-  constructor({ onStateChange = () => {}, onResult = () => {} } = {}) {
+  constructor({
+    onStateChange = () => {},
+    onResult = () => {},
+    onError = () => {},
+  } = {}) {
     this._state = ListenerState.IDLE;
     this._onStateChange = onStateChange;
     this._onResult = onResult;
+    this._onError = onError;
   }
 
   get state() {
@@ -46,14 +51,29 @@ export class ContinuousListener {
    * a freshly-rendered view (e.g. after navigation rebuilds the DOM) without
    * losing continuity of the actual listening session.
    */
-  setCallbacks({ onStateChange, onResult } = {}) {
+  setCallbacks({ onStateChange, onResult, onError } = {}) {
     if (onStateChange) this._onStateChange = onStateChange;
     if (onResult) this._onResult = onResult;
+    if (onError) this._onError = onError;
   }
 
   /** Emit a recognized chunk of text. isFinal=false for live/interim display. */
   _emitResult(text, isFinal) {
     this._onResult(text, isFinal);
+  }
+
+  /**
+   * Concrete classes call this on a fatal, non-recoverable session error
+   * (e.g. mic permission denied, no network route to a cloud recognizer).
+   * Forces the state machine back to idle — instead of leaving the caller
+   * stuck on "Stop Listening" while a silent auto-restart loop spins forever
+   * behind it — and surfaces the reason via onError.
+   */
+  _fail(message) {
+    if (this._state === ListenerState.LISTENING) {
+      this._setState(ListenerState.IDLE);
+    }
+    this._onError(message);
   }
 
   /** Abstract: open the listening session; resolve true on success. */

@@ -10,6 +10,14 @@ export {
   FEMALE_VOICE_RE,
   MALE_VOICE_RE,
 } from "../abstract/agent-voice-catalog.interface.js";
+export {
+  parseCompletenessDecision,
+  parseNoteCommandOutcome,
+} from "../abstract/note-command-contracts.js";
+export { NoteDocument } from "../abstract/note-document.interface.js";
+export { ReceptionistTranscriptController } from "../abstract/receptionist-transcript-controller.js";
+export { TranscriptBuffer } from "../abstract/transcript-buffer.js";
+export { VoiceCommandChannel } from "../abstract/voice-command-channel.js";
 export { ActivePoller } from "./active-poller.js";
 export { AgentActivityPoller } from "./agent-activity-poller.js";
 export { AgentHealthPoller } from "./agent-health-poller.js";
@@ -30,6 +38,7 @@ export {
   ChatDetailRenderer,
   composeSpokenText,
   InputOptionsRenderer,
+  mountTerminal,
   renderReplyRows,
   StreamDetailRenderer,
 } from "./detail-renderers.js";
@@ -47,7 +56,14 @@ export { DomTabFactory } from "./dom-tab-factory.js";
 export { DomVendorReviewView } from "./dom-vendor-review-view.js";
 export { EdgeTtsSpeechSynthesizer } from "./edge-tts-speech-synthesizer.js";
 export { FetchHttpClient } from "./fetch-http-client.js";
+export {
+  HttpCompletenessDetector,
+  HttpNoteCommandInterpreter,
+} from "./http-note-command-services.js";
+export { IntakeHaltAlert } from "./intake-halt-alert.js";
 export { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
+export { ModelStatsHealthMonitor } from "./model-stats-health-monitor.js";
+export { NoteCommandPanelRenderer } from "./note-command-panel.js";
 export {
   buildPrinterRepairRequest,
   PrinterRepairController,
@@ -64,5 +80,10 @@ export {
   ServerLogController,
 } from "./server-log-controller.js";
 export { StatementReviewDialog } from "./statement-review-dialog.js";
+export {
+  EditableTextareaSurface,
+  ReadOnlyNoteSurface,
+} from "./textarea-note-surfaces.js";
+export { TranscriptSyncedNote } from "./transcript-synced-note.js";
 export { VendorReviewController } from "./vendor-review-controller.js";
 export { VisionHaltAlert } from "./vision-halt-alert.js";

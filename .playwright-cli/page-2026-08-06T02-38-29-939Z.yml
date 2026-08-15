@@ -1,0 +1,52 @@
+- generic [ref=e1]:
+  - complementary [ref=e10]:
+    - heading "Dashboard" [level=1] [ref=e11]
+    - navigation [ref=e40]:
+      - button "Back" [ref=e41] [cursor=pointer]
+      - button "Home" [ref=e42] [cursor=pointer]
+      - button "Thoughts" [ref=e43] [cursor=pointer]
+      - button "Messages" [ref=e44] [cursor=pointer]
+      - button "Tool Calls" [ref=e45] [cursor=pointer]
+      - button "Agent Card" [ref=e46] [cursor=pointer]
+      - button "Tests" [ref=e47] [cursor=pointer]
+      - button "Input Options" [ref=e48] [cursor=pointer]
+  - main [ref=e13]:
+    - generic [ref=e49]:
+      - paragraph [ref=e50]:
+        - text: Input options for
+        - strong [ref=e51]: Mazda
+        - text: ":"
+      - generic [ref=e52]:
+        - generic [ref=e53]:
+          - generic [ref=e54]: "Model:"
+          - combobox [ref=e55]:
+            - option "gpt-5.6-sol"
+            - option "gpt-5.6-terra"
+            - option "gpt-5.6-luna" [selected]
+            - option "gpt-5.5"
+            - option "gpt-5.4"
+            - option "gpt-5.4-mini"
+        - generic [ref=e56]:
+          - generic [ref=e57]: "Voice:"
+          - combobox [ref=e58]:
+            - option "Default (Sonia, UK)" [selected]
+            - option "Ana (Female)"
+            - option "Aria (Female)"
+            - option "Ava (Female)"
+            - option "Ava Multilingual (Female)"
+            - option "Emma (Female)"
+            - option "Emma Multilingual (Female)"
+            - option "Jenny (Female)"
+            - option "Michelle (Female)"
+            - option "Andrew (Male)"
+            - option "Brian (Male)"
+            - option "Christopher (Male)"
+            - option "Eric (Male)"
+            - option "Guy (Male)"
+            - option "Roger (Male)"
+            - option "Steffan (Male)"
+        - textbox "Type or speak here…" [active] [ref=e59]: "# Goal Help me resolve this statement review. Do not guess the card number. # Offending document /home/adamsl/rol_finances/readable_documents/bank_statements/_needs_review/choice_7580_year_parser_store_mismatch # Everything the dashboard knows { \"pending_review_id\": \"choice_7580_year_parser_store_mismatch.json\", \"quarantined_document_path\": \"/home/adamsl/rol_finances/readable_documents/bank_statements/_needs_review/choice_7580_year_parser_store_mismatch\", \"reason\": \"Parser/store schema mismatch: workbook-export rows are positive debit charges, but store_statement_transactions split_expenses_and_credits treated 154/156 rows as credits because the custom JSON used positive amounts for debits and the mixed-sign convention expects expenses negative, credits positive.\", \"source_file\": \"/home/adamsl/rol_finances/readable_documents/bank_statements/january/choice_7580_year/choice_7580_year.xlsx\", \"quarantined_copy\": \"/home/adamsl/rol_finances/readable_documents/bank_statements/_needs_review/choice_7580_year_parser_store_mismatch.xlsx\", \"row_errors\": [ { \"index\": 0, \"date\": \"2025-10-25\", \"amount\": 68.48, \"description\": \"SUNMART CONV STORE PCB PANAMA CITY B,FL\", \"problem\": \"debit charge misclassified as credit by sign convention\" }, { \"index\": 1, \"date\": \"2025-05-07\", \"amount\": 33.14, \"description\": \"CHEVRON 0382309 TAMPA ,FL\", \"problem\": \"debit charge misclassified as credit by sign convention\" }, { \"index\": 2, \"date\": \"2025-05-04\", \"amount\": 41.24, \"description\": \"SHELL OIL10011484036 MOUNT VERNON ,KY\", \"problem\": \"debit charge misclassified as credit by sign convention\" } ], \"sample_debit_rows_confirmed\": 12, \"negative_rows_in_source\": 2, \"store_result_summary\": { \"transactions_parsed\": 156, \"skipped_credits\": 154, \"stored\": 1, \"duplicates\": 1 }, \"required_resolution\": \"Do not accept this import. Reparse/normalize workbook export into the sign convention expected by store_statement_transactions or add a dedicated workbook path, then re-run intake.\" } # My question for Mazda"
+        - button "Send" [ref=e60] [cursor=pointer]
+        - button "Start" [ref=e62] [cursor=pointer]
+        - button "Auto Send" [ref=e63] [cursor=pointer]
+        - button "Copy to Clipboard" [ref=e64] [cursor=pointer]

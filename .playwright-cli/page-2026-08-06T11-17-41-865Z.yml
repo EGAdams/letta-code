@@ -1,0 +1,21 @@
+- generic [active] [ref=e1]:
+  - dialog [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: Dashboard Startup Checks
+      - generic [ref=e5]: Running Dashboard checks...
+      - generic [ref=e7]: "[7:17:41 AM] Checking server and SSH connections..."
+  - complementary [ref=e9]:
+    - heading "Dashboard" [level=1] [ref=e10]
+    - navigation [ref=e11]:
+      - button "Home"
+      - button "ROL Finance"
+      - button "Status"
+      - button "Instructions"
+      - button "Tool Management"
+      - button "Agent Management"
+      - button "Server Management"
+      - button "SSH Connections"
+      - button "Project Plans"
+      - button "Model Stats"
+      - button "PC Monitor"
+  - main [ref=e12]

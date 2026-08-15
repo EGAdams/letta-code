@@ -30,6 +30,37 @@ describe("getModelInfoForLlmConfig", () => {
 });
 
 describe("getReasoningTierOptionsForHandle", () => {
+  test.each([
+    ["gpt-5.6-sol", "low"],
+    ["gpt-5.6-terra", "medium"],
+    ["gpt-5.6-luna", "medium"],
+    ["gpt-5.5", "medium"],
+  ])(
+    "returns supported ChatGPT reasoning tiers for %s",
+    (modelName, defaultEffort) => {
+      const handle = `chatgpt-plus-pro/${modelName}`;
+      const options = getReasoningTierOptionsForHandle(handle);
+
+      expect(options.map((option) => option.effort)).toEqual([
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+      ]);
+      expect(options.map((option) => option.modelId)).toEqual([
+        `${modelName}-plus-pro-low`,
+        `${modelName}-plus-pro-medium`,
+        `${modelName}-plus-pro-high`,
+        `${modelName}-plus-pro-xhigh`,
+      ]);
+
+      const defaultInfo = getModelInfoForLlmConfig(handle, null);
+      expect(defaultInfo?.updateArgs.reasoning_effort).toBe(defaultEffort);
+      expect(defaultInfo?.updateArgs.context_window).toBe(272000);
+      expect(defaultInfo?.updateArgs.max_output_tokens).toBe(128000);
+    },
+  );
+
   test("returns ordered reasoning options for gpt-5.2-codex", () => {
     const options = getReasoningTierOptionsForHandle("openai/gpt-5.2-codex");
     expect(options.map((option) => option.effort)).toEqual([

@@ -1,0 +1,1159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plan for Scanned Statements</title>
+<style>
+  :root {
+    --bg: #eef2f6;
+    --paper: #ffffff;
+    --ink: #18212f;
+    --muted: #586576;
+    --rule: #d9e1ea;
+    --navy: #12355b;
+    --blue: #1769aa;
+    --blue-soft: #e6f1fa;
+    --green: #177245;
+    --green-soft: #e5f5ec;
+    --amber: #996515;
+    --amber-soft: #fff4d6;
+    --red: #a33a3a;
+    --red-soft: #fbeaea;
+    --code: #132235;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      linear-gradient(120deg, rgba(23, 105, 170, .08), transparent 34rem),
+      var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  }
+  .page { max-width: 1240px; margin: 0 auto; padding: 26px 22px 72px; }
+  .hero, .card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 15px;
+    box-shadow: 0 8px 26px rgba(18, 53, 91, .06);
+  }
+  .hero { position: relative; overflow: hidden; padding: 34px 38px; }
+  .hero::after {
+    content: "";
+    position: absolute;
+    width: 190px;
+    height: 190px;
+    right: -62px;
+    top: -74px;
+    border: 28px solid var(--blue-soft);
+    border-radius: 50%;
+  }
+  .kicker {
+    margin: 0 0 8px;
+    color: var(--blue);
+    font-size: .76rem;
+    font-weight: 800;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+  }
+  h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.05; }
+  .lede { max-width: 850px; margin: 14px 0 0; color: var(--muted); font-size: 1.06rem; }
+  .meta { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 20px; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: var(--blue-soft);
+    color: var(--navy);
+    font-size: .8rem;
+    font-weight: 700;
+  }
+  .card { margin-top: 18px; padding: 25px 29px; }
+  h2 { margin: 0 0 14px; color: var(--navy); font-size: 1.38rem; }
+  h3 { margin: 24px 0 9px; color: var(--navy); font-size: 1.05rem; }
+  h4 { margin: 18px 0 6px; color: var(--ink); font-size: .95rem; }
+  p { margin: 9px 0; }
+  code {
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: var(--blue-soft);
+    color: var(--navy);
+    font: .86em "SFMono-Regular", Consolas, monospace;
+  }
+  pre {
+    overflow-x: auto;
+    margin: 14px 0;
+    padding: 16px 18px;
+    border-radius: 10px;
+    background: var(--code);
+    color: #dbe9f7;
+    font: .84rem/1.55 "SFMono-Regular", Consolas, monospace;
+  }
+  pre code { padding: 0; background: none; color: inherit; }
+  a { color: var(--blue); }
+  ul, ol { margin: 9px 0; padding-left: 23px; }
+  li { margin: 5px 0; }
+  .callout {
+    margin: 14px 0;
+    padding: 13px 16px;
+    border-left: 4px solid var(--blue);
+    border-radius: 7px;
+    background: var(--blue-soft);
+  }
+  .callout.warn { border-color: var(--amber); background: var(--amber-soft); }
+  .callout.good { border-color: var(--green); background: var(--green-soft); }
+  .callout.bad { border-color: var(--red); background: var(--red-soft); }
+  .toc {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 8px;
+    padding: 0;
+    list-style: none;
+  }
+  .toc a {
+    display: block;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--blue-soft);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%;
+    min-width: 860px;
+    border-collapse: collapse;
+    font-size: .86rem;
+  }
+  th, td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--navy);
+    color: #fff;
+    font-size: .72rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  tbody tr:hover { background: #eef6fc; }
+  .phase td {
+    padding-top: 16px;
+    background: var(--blue-soft);
+    color: var(--navy);
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .todo {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #7b8795;
+    border-radius: 4px;
+    vertical-align: -3px;
+  }
+  .port { color: var(--navy); font-weight: 700; }
+  .object { color: var(--green); font-weight: 700; }
+  .slot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .slot {
+    padding: 13px 15px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: #f8fafc;
+  }
+  .slot.new { border-color: #b8dfc8; background: var(--green-soft); }
+  .slot strong { display: block; color: var(--navy); }
+  .slot code { background: #fff; }
+  .slot span { display: block; margin-top: 5px; color: var(--muted); font-size: .78rem; }
+  .decision { display: grid; grid-template-columns: 165px 1fr; gap: 7px 14px; margin: 0; }
+  .decision dt { color: var(--muted); font-weight: 700; }
+  .decision dd { margin: 0; }
+  footer { padding: 28px 4px 0; color: var(--muted); text-align: center; font-size: .8rem; }
+  @media (max-width: 720px) {
+    .page { padding: 12px 10px 50px; }
+    .hero, .card { padding: 21px 18px; border-radius: 10px; }
+    .decision { grid-template-columns: 1fr; gap: 2px 0; }
+  }
+</style>
+</head>
+<body>
+<main class="page" data-plan="scanned-statements">
+  <header class="hero">
+    <p class="kicker">ROL Finance &middot; Evidence Model &middot; Implementation Plan</p>
+    <h1>Plan for Scanned Statements</h1>
+    <p class="lede">
+      A scanned bank statement is <em>not</em> the bank's own file, and it is not a
+      receipt. It is a fourth, independent kind of evidence: proof that a paper
+      copy was printed and reviewed. Today the intake pipeline has nowhere to put
+      it, so it overwrites the real source document &mdash; or worse, invents a
+      duplicate expense. This plan gives it its own slot, its own archive
+      directory, its own <strong>View Scanned Statement</strong> button, and
+      replaces five hardcoded three-way conditionals with one registry so a fifth
+      kind is a one-line change.
+    </p>
+    <div class="meta">
+      <span class="pill">Drafted 2026-07-29</span>
+      <span class="pill">Status: awaiting failing tests</span>
+      <span class="pill">New field: scanned_statement_url</span>
+      <span class="pill">New kind: SCANNED_STATEMENT</span>
+      <span class="pill">14 interfaces</span>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>Contents</h2>
+    <ul class="toc">
+      <li><a href="#why">1. The incident that forced this</a></li>
+      <li><a href="#model">2. The four evidence slots</a></li>
+      <li><a href="#storage">3. Where files live</a></li>
+      <li><a href="#smell">4. The design smell being removed</a></li>
+      <li><a href="#interfaces">5. Interfaces</a></li>
+      <li><a href="#dedupe">6. Fixing duplicate identity</a></li>
+      <li><a href="#outcome">7. The EVIDENCE_ATTACHED outcome</a></li>
+      <li><a href="#ui">8. Dashboard &amp; dialog</a></li>
+      <li><a href="#migration">9. Migration &amp; backfill</a></li>
+      <li><a href="#tests">10. Failing tests to write first</a></li>
+      <li><a href="#phases">11. Phase checklist</a></li>
+      <li><a href="#decisions">12. Decisions on record</a></li>
+    </ul>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="why">
+    <h2>1. The incident that forced this</h2>
+    <p>
+      On <strong>2026-07-29 21:11</strong> the Freezer scanner scanned a printed
+      <strong>Choice Privileges Mastercard 7580</strong> statement covering
+      July&nbsp;31&nbsp;&ndash;&nbsp;August&nbsp;15. Those same transactions had
+      already been in the books since 2026-07-02, loaded from the bank's own
+      yearly workbook <code>choice_7580_year.xlsx</code>. Here is what the system
+      did with them:
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Statement row</th><th>Amount</th><th>What the run did</th><th>What it should have done</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>PAYMENT &mdash; THANK YOU</td><td>credit</td>
+            <td>Skipped &mdash; correct</td><td>Skipped</td>
+          </tr>
+          <tr>
+            <td>KFC K980120</td><td>$6.24</td>
+            <td>Matched expense 1366, then tried to overwrite its
+                <code>document_url</code> &rarr; <code>DocumentConflict</code></td>
+            <td>Attach the scan to <code>scanned_statement_url</code>, leave
+                <code>document_url</code> alone</td>
+          </tr>
+          <tr>
+            <td>MR BURGER RESTAURANT 1</td><td>$16.99</td>
+            <td>Matched expense 1390, same overwrite attempt</td>
+            <td>Same &mdash; attach, don't overwrite</td>
+          </tr>
+          <tr>
+            <td>COUNTRY INN &amp; SUITES &mdash; ELKHART</td><td>$179.08</td>
+            <td><strong>Not recognised.</strong> Queued as a brand-new expense.
+                Row <strong>1674</strong> had already been created this way by the
+                07-27 Window scan, on top of existing row <strong>1434</strong></td>
+            <td>Match row 1434 and attach the scan</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Then the whole batch rolled back on the KFC conflict, so the Country Inn row
+      appeared in <em>neither</em> <code>expense_ids</code> nor
+      <code>duplicate_expense_ids</code>. The scanner tab lists exactly the ids the
+      callback reports, so a $179.08 charge silently vanished from Verified
+      Transactions while sitting in the database twice.
+    </p>
+    <div class="callout bad">
+      <strong>Three distinct defects, one root cause.</strong> A scan had nowhere
+      to go except <code>document_url</code>, which was already occupied by the
+      authoritative file. Everything downstream &mdash; the conflict, the rollback,
+      the duplicate row, the missing table row &mdash; follows from that one
+      missing slot.
+    </div>
+    <div class="callout good">
+      <strong>Already landed (2026-07-29):</strong>
+      <code>supersedes_reference()</code> in
+      <code>e_two_e_processing/supporting_documents.py</code> now treats a
+      transient <code>incoming_scans/</code> path giving way to a durable archive
+      path as an <em>upgrade</em> rather than a conflict, at all three attach sites
+      in <code>expense_repository.py</code> (10 new tests, 39 passing). That stops
+      the rollback. It is a safety net, not the fix &mdash; under this plan a scan
+      never competes for <code>document_url</code> in the first place. Keep it:
+      staging paths are still transient and still must never win.
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="model">
+    <h2>2. The four evidence slots</h2>
+    <p>
+      An expense row can be corroborated by up to four <em>independent</em>
+      documents. Independent is the load-bearing word: they never substitute for
+      each other, they accumulate. Each has its own column, its own button, its own
+      archive root.
+    </p>
+    <div class="slot-grid">
+      <div class="slot">
+        <strong>RECEIPT</strong>
+        <code>receipt_url</code>
+        <span>&ldquo;View Receipt&rdquo; &mdash; the merchant's own slip. Usually one
+        expense; lately sometimes several (itemised parents).</span>
+      </div>
+      <div class="slot">
+        <strong>SOURCE</strong>
+        <code>document_url</code>
+        <span>&ldquo;View Source Document&rdquo; &mdash; the bank's own file, as
+        downloaded: PDF or <code>.xlsx</code>. The authoritative record.</span>
+      </div>
+      <div class="slot">
+        <strong>MOMS_LEDGER</strong>
+        <code>moms_ledger</code>
+        <span>&ldquo;View Mom's Ledger&rdquo; &mdash; Mom prints statements and
+        physically tapes them together. She has organised the checkbook this way
+        since the 1980s and never used a spreadsheet.</span>
+      </div>
+      <div class="slot new">
+        <strong>SCANNED_STATEMENT &mdash; NEW</strong>
+        <code>scanned_statement_url</code>
+        <span>&ldquo;View Scanned Statement&rdquo; &mdash; a scan of a
+        <em>printed</em> statement. Derived evidence: the paper implies a
+        downloadable original that may or may not be on file yet.</span>
+      </div>
+    </div>
+    <div class="callout">
+      <strong>The insight worth writing down.</strong> The very act of scanning
+      tells you the document was printed from some other source of truth at the
+      bank. So a scanned statement is always <em>secondary</em> evidence, and it
+      must never be allowed to occupy the <code>SOURCE</code> slot that the primary
+      artifact belongs in. Marking the slot
+      <code>is_derived_evidence = True</code> is what lets policy code reason about
+      this without hardcoding the kind's name.
+    </div>
+    <h3>Provenance, not file type, picks the slot</h3>
+    <p>
+      A <code>.jpg</code> is not automatically a receipt and a statement is not
+      automatically <code>SOURCE</code>. The deciding input is <em>how the
+      document arrived</em>:
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Classifier <code>doc_type</code></th><th>Arrived via</th><th>Slot</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>statement / bank_statement / credit_card_statement</td><td>download (PDF, xlsx)</td><td><code>SOURCE</code></td></tr>
+          <tr><td>statement / bank_statement / credit_card_statement</td><td><strong>scanner</strong></td><td><strong><code>SCANNED_STATEMENT</code></strong></td></tr>
+          <tr><td>receipt / invoice</td><td>scanner or download</td><td><code>RECEIPT</code></td></tr>
+          <tr><td>moms_ledger</td><td>scanner</td><td><code>MOMS_LEDGER</code></td></tr>
+          <tr><td>other</td><td>any</td><td>none &mdash; halt, unsupported</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="storage">
+    <h2>3. Where files live</h2>
+    <p>
+      Every database reference must name a <strong>durable, searchable</strong>
+      path &mdash; EG's attic rule: once the paper is filed away, the filename alone
+      has to be enough to find the scan. The scanner's
+      <code>incoming_scans/scan_freezer_&lt;ns&gt;_&lt;hash&gt;.jpg</code> fails both
+      halves: it is unsearchable, and it gets swept (a stray
+      <code>git add -A</code> destroyed two in-flight scans on 2026-07-29).
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Slot</th><th>Archive root</th><th>Layout</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>SOURCE</code></td>
+            <td><code>readable_documents/bank_statements/</code></td>
+            <td><code>{year}/{month}/{account}_{period}/</code> &mdash; unchanged</td>
+          </tr>
+          <tr>
+            <td><code>RECEIPT</code></td>
+            <td><code>readable_documents/receipts/</code></td>
+            <td><code>{year}/{month}/{day}/</code> &mdash; unchanged</td>
+          </tr>
+          <tr>
+            <td><code>MOMS_LEDGER</code></td>
+            <td><code>readable_documents/moms_ledger/</code></td>
+            <td>unchanged</td>
+          </tr>
+          <tr>
+            <td><strong><code>SCANNED_STATEMENT</code></strong></td>
+            <td><strong><code>readable_documents/scanned_statements/</code></strong></td>
+            <td><strong><code>{year}/</code></strong> &mdash; new; EG created
+                <code>scanned_statements/2025/</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>Filename contract</h3>
+    <p>
+      Same naming discipline as the statement archive, so the file is findable by
+      account and period rather than by timestamp:
+    </p>
+<pre><code>readable_documents/scanned_statements/2025/
+  choice_privileges_mastercard_7580_july_31__august_15_scan.jpg</code></pre>
+    <div class="callout good">
+      <strong>No security change needed.</strong>
+      <code>_supporting_document_roots()</code> in <code>dashboard/server.py</code>
+      already whitelists all of <code>~/rol_finances/readable_documents</code>, so
+      the new tree resolves and serves under the existing path-traversal check the
+      moment files appear in it. Do <em>not</em> add a root.
+    </div>
+    <div class="callout warn">
+      <strong>Copy, never move.</strong> Archiving must leave the staging file in
+      place; <code>incoming_scans/</code> cleanup is a separate, later concern. A
+      move would break any in-flight intake still holding the staged path (that is
+      how the dashboard's red-box annotation locates the image it boxes).
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="smell">
+    <h2>4. The design smell being removed</h2>
+    <p>
+      Adding a fourth kind by copy-paste means editing every one of these, and
+      missing one produces a button that renders but does not open, or a column that
+      stores but never displays:
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>File</th><th>Site</th><th>Shape today</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>rol_finances <code>supporting_documents.py</code></td><td><code>DocumentKind</code></td><td>3 enum members + alias dict</td></tr>
+          <tr><td>rol_finances <code>expense_repository.py</code></td><td><code>attach</code>, <code>attach_many</code>, <code>consolidate_counterpart</code></td><td><code>allowed = {"receipt_url", "document_url", "moms_ledger"}</code> &times;3</td></tr>
+          <tr><td>rol_finances <code>models.py</code></td><td><code>ExpenseRecord</code></td><td>3 optional str fields</td></tr>
+          <tr><td>dashboard <code>server.py</code></td><td><code>_supporting_document_descriptors</code></td><td>hardcoded 3-tuple <code>definitions</code></td></tr>
+          <tr><td>dashboard <code>server.py</code></td><td><code>open_supporting_document</code></td><td><code>field_by_type</code> dict literal</td></tr>
+          <tr><td>dashboard <code>server.py</code></td><td><code>_supporting_document_path_for_expense</code></td><td><code>field_by_type</code> dict literal (2nd copy)</td></tr>
+          <tr><td>dashboard <code>server.py</code></td><td><code>_supporting_document_view_for_expense</code></td><td><code>field_by_type</code> dict literal (3rd copy)</td></tr>
+          <tr><td>dashboard <code>server.py</code></td><td><code>_resolve_local_supporting_document</code></td><td><code>if document_type == 'receipt'</code> branch</td></tr>
+          <tr><td>dashboard <code>server.py</code></td><td><code>_matching_expense</code>, <code>lookup_supporting_documents</code>, report queries</td><td>3 field names spelled into &ge;6 <code>SELECT</code> lists</td></tr>
+          <tr><td>dashboard <code>rol-finance-reports-controller.js</code></td><td>line ~484</td><td><code>mk("button", "cp-view-receipt", "View Receipt")</code> hardcoded</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <strong>Program to the interface.</strong> The goal is not &ldquo;add a fourth
+      branch everywhere&rdquo;. It is: declare the kind <em>once</em> in a catalog,
+      and make all ten sites above read from that catalog. Then the fifth kind
+      (a wire-transfer confirmation? a cancelled cheque image?) costs one entry.
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="interfaces">
+    <h2>5. Interfaces</h2>
+    <p>
+      Ports are abstract (<code>ABC</code> in dashboard code, <code>Protocol</code>
+      where <code>rol_finances</code> already uses structural typing). Concretes are
+      wired <strong>only</strong> in composition roots &mdash;
+      <code>build_document_annotation_service()</code>,
+      <code>_get_supporting_document_annotation_service()</code>,
+      <code>js/dashboard-boot.js</code>. Nothing below imports a concrete sibling.
+    </p>
+
+    <h3>5.1 The catalog &mdash; single source of truth</h3>
+    <p>New module: <code>rol_finances/e_two_e_processing/supporting_document_catalog.py</code></p>
+<pre><code>class ISupportingDocumentSlot(Protocol):
+    """One kind of evidence an expense row can carry."""
+    kind: str                  # 'receipt' | 'source' | 'moms_ledger' | 'scanned_statement'
+    expense_field: str         # DB column
+    label: str                 # dialog button text
+    archive_subdir: str        # under readable_documents/
+    is_derived_evidence: bool  # True when the artifact implies a primary elsewhere
+
+class ISupportingDocumentCatalog(ABC):
+    """The only place a supporting-document kind is declared."""
+    @abstractmethod
+    def slots(self) -&gt; tuple[ISupportingDocumentSlot, ...]: ...
+    @abstractmethod
+    def slot_for_kind(self, kind: str) -&gt; ISupportingDocumentSlot | None: ...
+    @abstractmethod
+    def slot_for_field(self, field: str) -&gt; ISupportingDocumentSlot | None: ...
+    @abstractmethod
+    def fields(self) -&gt; tuple[str, ...]:
+        """Column names, in display order — for SELECT lists and INSERTs."""</code></pre>
+    <p>
+      Implementation <span class="object">DocumentKindCatalog</span> derives itself
+      from the extended <code>DocumentKind</code> enum, so the enum stays the
+      declaration and the catalog stays the query surface. No second list to keep
+      in sync.
+    </p>
+
+    <h3>5.2 Classification routing</h3>
+<pre><code>class Provenance(Enum):
+    DOWNLOADED = "downloaded"   # pulled from the bank's site
+    SCANNED    = "scanned"      # came off a physical scanner
+
+class IDocumentClassificationRouter(ABC):
+    """(doc_type, provenance) -&gt; the slot this artifact belongs in."""
+    @abstractmethod
+    def route(self, doc_type: str, provenance: Provenance) -&gt; ISupportingDocumentSlot | None:
+        """None means unsupported — the caller must halt, never guess."""</code></pre>
+    <p>
+      Implementation <span class="object">ProvenanceAwareRouter</span>. This is the
+      one place that knows &ldquo;a scanned statement is
+      <code>SCANNED_STATEMENT</code>, a downloaded one is <code>SOURCE</code>&rdquo;.
+      Fails closed, matching <code>router/classify.py</code>'s existing rule that a
+      wrong guess is worse than no guess.
+    </p>
+
+    <h3>5.3 Evidence upgrade policy</h3>
+    <p>
+      Generalises the <code>supersedes_reference()</code> function already landed
+      into an injected policy, so the repository stops hardcoding it:
+    </p>
+<pre><code>class IEvidenceUpgradePolicy(ABC):
+    @abstractmethod
+    def supersedes(self, existing: str, proposed: str) -&gt; bool:
+        """True when `proposed` is strictly better evidence for the same slot,
+        so replacing it is an upgrade rather than a human-resolvable conflict."""</code></pre>
+    <ul>
+      <li><span class="object">StagingToArchiveUpgradePolicy</span> &mdash; the rule
+          shipped 2026-07-29: transient <code>incoming_scans/</code> &rarr; durable
+          archive is an upgrade; the reverse never is; two durable references still
+          conflict.</li>
+      <li><span class="object">NeverUpgradePolicy</span> &mdash; strict fail-closed,
+          for tests and for slots where any replacement needs a human.</li>
+    </ul>
+    <p>
+      Inject into <code>ExpenseRepository</code> (default
+      <code>StagingToArchiveUpgradePolicy</code>) and replace the three direct
+      <code>supersedes_reference(...)</code> calls with
+      <code>self.upgrade_policy.supersedes(...)</code>.
+    </p>
+
+    <h3>5.4 Archiving</h3>
+<pre><code>@dataclass(frozen=True)
+class ArchivedDocument:
+    path: str          # durable absolute path — what goes in the DB
+    slot_kind: str
+    copied: bool       # False when an identical file was already archived
+
+class IDocumentArchiveLocator(ABC):
+    """Where a document of this slot, for this date, belongs."""
+    @abstractmethod
+    def archive_dir(self, slot: ISupportingDocumentSlot, when: date) -&gt; Path: ...
+    @abstractmethod
+    def archive_filename(self, slot: ISupportingDocumentSlot, meta: Mapping) -&gt; str:
+        """Searchable name: account + period, never a timestamp or hash."""
+
+class IDocumentArchiver(ABC):
+    @abstractmethod
+    def archive(self, staging_path: str, slot: ISupportingDocumentSlot,
+                meta: Mapping) -&gt; ArchivedDocument:
+        """COPY the file to its durable home. Idempotent by content hash."""</code></pre>
+    <ul>
+      <li><span class="object">BankStatementArchiveLocator</span> &mdash; wraps the
+          existing <code>{year}/{month}/</code> logic in
+          <code>statement_archive.py</code>; no behaviour change.</li>
+      <li><span class="object">ScannedStatementArchiveLocator</span> &mdash; new,
+          <code>scanned_statements/{year}/</code>.</li>
+      <li><span class="object">ReceiptArchiveLocator</span> &mdash; wraps the
+          existing <code>{year}/{month}/{day}/</code> receipt layout.</li>
+      <li><span class="object">CopyOnWriteArchiver</span> &mdash; the single
+          <code>IDocumentArchiver</code>, given a locator. Copies, hashes, returns
+          <code>copied=False</code> on a byte-identical re-scan.</li>
+    </ul>
+
+    <h3>5.5 Attaching evidence to an existing row</h3>
+<pre><code>class IEvidenceAttachmentService(ABC):
+    """Fortify an already-stored expense with additional evidence.
+
+    Distinct from SupportingDocumentService.attach: that answers 'put this
+    reference in that field'. This answers the intake question — 'this document
+    proves a row we already have; record that and store nothing new'.
+    """
+    @abstractmethod
+    def attach_evidence(self, expense_ids: Sequence[int],
+                        slot: ISupportingDocumentSlot,
+                        archived: ArchivedDocument) -&gt; EvidenceAttachmentReport: ...
+
+@dataclass(frozen=True)
+class EvidenceAttachmentReport:
+    attached_expense_ids: tuple[int, ...]
+    already_attached_ids: tuple[int, ...]
+    conflicted_ids: tuple[int, ...]      # needs a human — never overwritten
+    slot_kind: str</code></pre>
+
+    <h3>5.6 Dashboard resolution &amp; presentation</h3>
+    <p>New module: <code>dashboard/supporting_document_slots.py</code></p>
+<pre><code>class ISupportingDocumentResolver(ABC):
+    """A stored reference -&gt; a local file the viewer may serve, or None."""
+    @abstractmethod
+    def resolve(self, reference: str, slot: ISupportingDocumentSlot) -&gt; str | None: ...
+
+class IDocumentReferenceFallback(ABC):
+    """What else we know when the stored reference no longer resolves.
+
+    Currently only 'source' has one (_report_source_document_reference).
+    SCANNED_STATEMENT needs its own: the intake's staged scan image.
+    """
+    @abstractmethod
+    def fallback_reference(self, expense_row: Mapping, report_path: str) -&gt; str: ...
+
+class ISupportingDocumentDescriptorFactory(ABC):
+    """The dialog's button list. Driven by the catalog, not a literal tuple."""
+    @abstractmethod
+    def descriptors(self, expense_row: Mapping, report_path: str = "") -&gt; list[dict]: ...</code></pre>
+    <ul>
+      <li><span class="object">ReceiptIndexResolver</span> &mdash; the existing
+          <code>_resolve_receipt_url_path</code> filesystem index.</li>
+      <li><span class="object">AllowedRootsResolver</span> &mdash; the existing
+          generic path-traversal-checked resolution.</li>
+      <li><span class="object">ChainedResolver</span> &mdash; tries an ordered list;
+          replaces the <code>if document_type == 'receipt'</code> special case with
+          per-slot configuration.</li>
+      <li><span class="object">IntakeScanFallback</span> &mdash; for
+          <code>SCANNED_STATEMENT</code>: the intake pointer's immutable
+          <code>image_path</code>. Must <em>never</em> fall back to the scanner's
+          reusable <code>scan_freezer.jpg</code>, which by now holds a different
+          document.</li>
+      <li><span class="object">CatalogDescriptorFactory</span> &mdash; loops the
+          catalog; each slot may carry a fallback.</li>
+    </ul>
+    <div class="callout">
+      <strong>Annotation needs no new port.</strong>
+      <code>IExpenseDocumentAnnotationService</code> and
+      <code>IExpenseDocumentAnnotator</code> in
+      <code>dashboard/document_annotation.py</code> already dispatch by file type,
+      and a scanned statement is an image &mdash;
+      <code>ImageExpenseDocumentAnnotator</code> handles it as-is, including the
+      widened red box for rows whose amount EG's pen made unreadable. Register the
+      new kind in <code>build_document_annotation_service()</code> and stop.
+    </div>
+
+    <h3>5.7 Front end</h3>
+    <p>New: <code>js/abstract/supporting-document-slots.interface.js</code></p>
+<pre><code>// Pure: no DOM, no fetch. Unit-tested under js/tests/.
+export const SLOT_ORDER = ['receipt', 'source', 'scanned_statement', 'moms_ledger'];
+
+export class SupportingDocumentButtonPolicy {
+  /** descriptors (from the server) -&gt; ordered button specs.
+   *  Unknown kinds are dropped, not guessed: an older server that has never
+   *  heard of scanned_statement must still render the other three. */
+  buttonsFor(descriptors) { /* ... */ }
+}</code></pre>
+    <p>
+      <code>js/implementation/rol-finance-reports-controller.js</code> stops
+      constructing named buttons and renders whatever the policy returns. After
+      this, <strong>adding a fifth kind requires no JS change at all.</strong>
+    </p>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="dedupe">
+    <h2>6. Fixing duplicate identity</h2>
+    <p>
+      Row 1674 should never have existed. It exists because duplicate detection
+      keys on <em>description wording</em>, and the same charge is worded three
+      different ways by three different sources:
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Source</th><th>Description</th><th>Derived vendor key</th></tr></thead>
+        <tbody>
+          <tr><td>xlsx (row 1434)</td><td>COUNTRY INN &amp; SUITES - ELKHART&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;,IN</td><td><code>country_inn_by_carlson</code></td></tr>
+          <tr><td>07-27 scan (row 1674)</td><td>COUNTRY INN &amp; SUITES - ELKHART IN ARRIVE 08/14/25 DEPART 08/15/25 FOLIO#0834252978</td><td><code>country_inn_suites_elkhart_in_arrive_&hellip;</code></td></tr>
+          <tr><td>07-29 scan</td><td>(OCR variant again)</td><td>&mdash; matched neither</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <code>DuplicateChecker.is_duplicate</code> matches on exact
+      <code>id_light</code> or exact <code>(date, amount, description)</code>.
+      <code>find_fuzzy_duplicate</code> then requires one vendor key to be a
+      <em>prefix</em> of the other &mdash; <code>country_inn_by_carlson</code> and
+      <code>country_inn_suites_elkhart&hellip;</code> share the leading token
+      <code>country_inn</code> but neither prefixes the other, so it reports no
+      match.
+    </p>
+<pre><code>class IDuplicateIdentityStrategy(ABC):
+    """One way of asking 'is this printed transaction already in the books?'"""
+    @abstractmethod
+    def find_existing(self, candidate: TransactionIdentity) -&gt; DuplicateVerdict: ...
+
+@dataclass(frozen=True)
+class DuplicateVerdict:
+    expense_ids: tuple[int, ...]   # 0 = new, 1 = duplicate, &gt;1 = AMBIGUOUS
+    strategy: str                  # which rule fired — goes in the trace
+    decisive: bool                 # may this outrank a weaker strategy?</code></pre>
+    <p>Chain, strongest first, in <span class="object">ChainedDuplicateIdentity</span>:</p>
+    <ol>
+      <li><span class="object">ExactIdLightIdentity</span> &mdash; today's primary check.</li>
+      <li><span class="object">DateAmountDescriptionIdentity</span> &mdash; today's secondary.</li>
+      <li><span class="object">DateAmountPayeeHeadIdentity</span> &mdash; <em>new.</em>
+          Same date, same amount, and a shared leading payee token run. Reuses the
+          scoring already proven in <code>document_annotation.py</code>'s
+          <code>_payee_head_tokens</code>, which exists for exactly this problem on
+          the OCR side.</li>
+      <li><span class="object">DateAmountSoleCandidateIdentity</span> &mdash;
+          <em>new, non-decisive.</em> Same date, same amount, exactly one candidate
+          in the whole table &rarr; duplicate. Two or more &rarr;
+          <code>AMBIGUOUS</code>.</li>
+    </ol>
+    <div class="callout warn">
+      <strong>Fail closed, same as everywhere else.</strong>
+      <code>len(expense_ids) &gt; 1</code> is never resolved by picking one. It
+      quarantines to <code>_needs_review/</code> and raises a statement-review
+      dialog, exactly like an unreadable amount does today. Guessing wrong attaches
+      a document to the wrong charge, which is worse than asking.
+    </div>
+    <div class="callout">
+      <strong>Note for whoever writes this:</strong> row 1434 and row 1674
+      <em>both</em> carry (2025-08-15, 179.08). Until the merge in &sect;9 runs,
+      strategy 4 correctly reports <code>AMBIGUOUS</code> for that pair rather than
+      a duplicate. The merge is a prerequisite for a clean re-scan, not an
+      afterthought.
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="outcome">
+    <h2>7. The <code>EVIDENCE_ATTACHED</code> outcome</h2>
+    <p>
+      Today a statement run reports <code>stored</code> and <code>duplicates</code>.
+      A re-scan that attaches new evidence to known rows is neither &mdash; it is a
+      <em>successful</em> run that stored nothing and improved the books. It needs
+      its own name, or the judge keeps failing a correct outcome (which it did on
+      2026-07-29: verdict FAIL on <code>statement_transactions_stored</code> for a
+      run that behaved properly).
+    </p>
+<pre><code>{
+  "ok": true,
+  "outcome": "EVIDENCE_ATTACHED",
+  "transactions_parsed": 4,
+  "skipped_credits": 1,
+  "duplicates": 3,
+  "duplicate_expense_ids": [1366, 1390, 1434],
+  "stored": 0,
+  "expense_ids": [],
+  "scanned_statement_attached": [1366, 1390, 1434],
+  "scanned_statement_path": ".../scanned_statements/2025/choice_..._scan.jpg",
+  "conflicted_expense_ids": []
+}</code></pre>
+    <p>Consequences to implement:</p>
+    <ul>
+      <li><strong>STEP 8 template</strong> (<code>build_mazda_scan_message()</code>
+          in <code>dashboard/server.py</code>) must document the new field and the
+          new outcome, and must state that a scanned statement attaches to
+          <code>scanned_statement_url</code> &mdash; never
+          <code>document_url</code>. The existing STEP 8 wording that maps
+          &ldquo;statement &rarr; <code>document_url</code>&rdquo; is now wrong for
+          scans and is exactly the instruction that produced this incident.</li>
+      <li><strong>The intake judge rubric</strong>
+          (<code>rol_finances/tools/self_improving_agent</code>, served by
+          <code>mazda-tools-mcp.service</code> on <code>:8791</code>) must accept
+          <code>EVIDENCE_ATTACHED</code> as a pass. Restart that unit after editing
+          the rubric.</li>
+      <li><strong><code>_fold_event_into_intake</code></strong> must union
+          <code>scanned_statement_attached</code> into the intake's displayed ids,
+          so an attach-only run still renders its rows. This is the direct fix for
+          &ldquo;the Country Inn row is not even showing&rdquo;.</li>
+      <li><strong>Rolled-back rows must be reported.</strong> Add
+          <code>rolled_back_row_count</code>. A run that discards rows while
+          reporting only the survivors is how a $179.08 charge disappeared without
+          a trace; the page must be able to say &ldquo;3 parsed, 2 shown, 1 held
+          back&rdquo;.</li>
+    </ul>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="ui">
+    <h2>8. Dashboard &amp; dialog</h2>
+    <h3>Set Category dialog</h3>
+    <p>
+      The dialog gains a fourth button. Buttons render only when the document
+      actually resolves and is a viewable type &mdash; the existing
+      <code>available</code> flag rule is unchanged, just computed per catalog slot
+      instead of per hardcoded tuple entry.
+    </p>
+<pre><code>[ View Receipt ]  [ View Source Document ]  [ View Scanned Statement ]  [ View Mom's Ledger ]
+                                             ^^^^^^^^^^^^^^^^^^^^^^^^^ new</code></pre>
+    <p>Server endpoints &mdash; no new routes, all four kinds flow through the existing ones:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Endpoint</th><th>Change</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>POST /api/supporting-documents</code></td>
+            <td>Returns a 4th descriptor; adds <code>scanned_statement_url</code> to the payload</td>
+          </tr>
+          <tr>
+            <td><code>POST /api/open-supporting-document</code></td>
+            <td><code>document_type: 'scanned_statement'</code> resolves via the catalog</td>
+          </tr>
+          <tr>
+            <td><code>GET /supporting-document/&lt;id&gt;/scanned_statement</code></td>
+            <td>Works automatically once the catalog drives the type check</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>Verified Transactions</h3>
+    <p>
+      Rows already carry a receipt marker. A scanned-statement marker is the same
+      pattern &mdash; batch-probed like <code>/api/receipts-present</code> so the
+      table does not fire one request per row. Distinct glyph/corner from the
+      receipt marker; the point is telling at a glance which rows are backed by
+      paper EG has physically reviewed.
+    </p>
+    <h3>Project Plans tab</h3>
+    <p>Two edits in <code>dashboard/dashboard.html</code>, matching the existing plan tabs:</p>
+<pre><code>&lt;!-- sub-nav, beside "Mazda Dev Status" --&gt;
+&lt;button type="button" class="tab" data-nav="plans"
+        data-target="plans-scanned-statements"&gt;Scanned Statements&lt;/button&gt;
+
+&lt;!-- view --&gt;
+&lt;section id="plans-scanned-statements" class="view"&gt;
+  &lt;iframe id="scanned-statements-plan-frame" class="plan-frame"
+          src="/notes_plans_handoffs/scanned_statements_plan.html"&gt;&lt;/iframe&gt;
+&lt;/section&gt;</code></pre>
+    <p>
+      <code>server.py</code> already serves static files from
+      <code>REPO_ROOT</code>, so no route is needed. Verify with:
+    </p>
+<pre><code>curl -s -o /dev/null -w '%{http_code}\n' \
+  http://localhost:8765/notes_plans_handoffs/scanned_statements_plan.html</code></pre>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="migration">
+    <h2>9. Migration &amp; backfill</h2>
+    <h3>9.1 Schema</h3>
+    <p>
+      Next in sequence after <code>2026_07_29_004_report_categories.py</code>, both
+      directions, per the existing convention:
+    </p>
+<pre><code>-- migrations/2026_07_30_005_expenses_add_scanned_statement_url.sql
+ALTER TABLE expenses
+  ADD COLUMN scanned_statement_url VARCHAR(1024) NULL AFTER moms_ledger;
+
+-- migrations/2026_07_30_005_expenses_add_scanned_statement_url_down.sql
+ALTER TABLE expenses DROP COLUMN scanned_statement_url;</code></pre>
+    <p>
+      Nullable, no default, no backfill in the migration itself &mdash; the column
+      going in must not change a single existing row's meaning. Add the matching
+      optional field to <code>ExpenseRecord</code> in
+      <code>e_two_e_processing/models.py</code> and to the
+      <code>_insert_with_cursor</code> column list.
+    </p>
+
+    <h3>9.2 Merge the duplicated Country Inn charge</h3>
+    <div class="callout warn">
+      <strong>This reverses an earlier recommendation, and the reason matters.</strong>
+      Before this plan existed the newer row 1674 looked better: it had the fuller
+      description and a document attached. Under the evidence model the opposite is
+      true &mdash; <strong>row 1434 is the keeper</strong>, because it came from the
+      bank's own <code>choice_7580_year.xlsx</code>, which is precisely what the
+      <code>SOURCE</code> slot is for. Row 1674 is the row that, in EG's words,
+      &ldquo;should never have been created&rdquo;. Both already carry
+      <code>category_id 160</code>, so nothing is lost in the merge.
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Row</th><th>Fate</th><th>Ends up with</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>1434</strong> &mdash; from the xlsx</td>
+            <td>KEEP</td>
+            <td>
+              <code>document_url</code> &rarr; <code>&hellip;/january/choice_7580_year/choice_7580_year.xlsx</code><br>
+              <code>scanned_statement_url</code> &rarr; <code>&hellip;/scanned_statements/2025/choice_&hellip;_scan.jpg</code>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>1674</strong> &mdash; from the 07-27 scan</td>
+            <td>DELETE after folding its evidence into 1434</td>
+            <td>&mdash;</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Use the primitive that already exists rather than hand-written SQL:
+      <code>SupportingDocumentService.consolidate_counterpart(canonical_id=1434,
+      duplicate_id=1674)</code> atomically folds references and refuses if the
+      duplicate owns receipt metadata. Then delete 1674.
+    </p>
+    <div class="callout bad">
+      <strong>Requires EG's explicit go-ahead.</strong> This deletes a row and drops
+      recorded expenses by $179.08 &mdash; correct, since the charge was paid once,
+      but it is his money and his books. Do not run it as part of a code change.
+    </div>
+
+    <h3>9.3 Backfill: scans currently sitting in <code>document_url</code></h3>
+    <p>
+      Rows 1366, 1390, 1674 and roughly 64 legacy rows hold a scan path &mdash; many
+      of them a transient <code>incoming_scans/</code> path &mdash; in
+      <code>document_url</code>, the slot that belongs to the bank's own file. Each
+      needs its reference <em>moved</em>, not copied:
+    </p>
+<pre><code># For each row whose document_url names a scan rather than a bank download:
+service.reclassify(
+    expense_id=1366,
+    source_kind=DocumentKind.SOURCE,
+    target_kind=DocumentKind.SCANNED_STATEMENT,
+    reference=archived_scan_path,
+)
+# document_url is then free for the real downloaded statement.</code></pre>
+    <p>
+      <code>reclassify()</code> / <code>move_reference()</code> already exist and are
+      already atomic &mdash; this is the operation they were built for. Write the
+      backfill as a dry-run-first script with a JSON journal under
+      <code>backups/</code>, matching
+      <code>document_url_archive_backfill_&lt;stamp&gt;.json</code>.
+    </p>
+    <div class="callout">
+      <strong>Distinguishing a scan from a download, mechanically:</strong> a
+      reference under <code>incoming_scans/</code> or
+      <code>scanned_statements/</code>, or an image extension
+      (<code>.jpg</code>/<code>.png</code>) where the archive sibling is a
+      <code>.pdf</code>/<code>.xlsx</code>. Rows that are ambiguous go on a report
+      for EG rather than being moved on a guess.
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="tests">
+    <h2>10. Failing tests to write first</h2>
+    <p>
+      Stubs, grouped by suite. Each should fail for the right reason before any
+      implementation lands.
+    </p>
+
+    <h3><code>rol_finances/tests/test_supporting_document_catalog.py</code></h3>
+<pre><code>test_catalog_exposes_four_slots
+test_scanned_statement_slot_maps_to_scanned_statement_url
+test_scanned_statement_is_marked_derived_evidence
+test_source_slot_is_not_derived_evidence
+test_slot_for_field_round_trips_every_slot
+test_fields_order_is_stable_for_select_lists
+test_unknown_kind_returns_none_not_a_default   # fail closed
+test_document_kind_enum_and_catalog_cannot_drift</code></pre>
+
+    <h3><code>rol_finances/tests/test_document_classification_router.py</code></h3>
+<pre><code>test_downloaded_statement_routes_to_source
+test_scanned_statement_routes_to_scanned_statement
+test_scanned_receipt_routes_to_receipt
+test_downloaded_receipt_routes_to_receipt
+test_moms_ledger_routes_to_moms_ledger
+test_doc_type_other_routes_to_none
+test_unknown_doc_type_routes_to_none_never_guesses
+test_scanned_statement_never_routes_to_source   # the incident, pinned</code></pre>
+
+    <h3><code>rol_finances/tests/test_evidence_upgrade_policy.py</code></h3>
+<pre><code>test_archive_supersedes_staging
+test_staging_never_supersedes_archive
+test_two_durable_references_conflict
+test_identical_reference_is_not_an_upgrade
+test_never_upgrade_policy_rejects_everything
+test_repository_uses_injected_policy_not_module_function</code></pre>
+
+    <h3><code>rol_finances/tests/test_document_archiver.py</code></h3>
+<pre><code>test_scanned_statement_lands_under_scanned_statements_year
+test_bank_statement_still_lands_under_bank_statements_year_month
+test_archive_filename_is_account_and_period_not_timestamp
+test_archive_copies_and_leaves_staging_file_in_place
+test_reArchiving_identical_bytes_reports_copied_false
+test_archive_never_writes_outside_readable_documents</code></pre>
+
+    <h3><code>rol_finances/tests/test_duplicate_identity.py</code></h3>
+<pre><code>test_exact_id_light_matches
+test_date_amount_description_matches
+test_payee_head_matches_across_reworded_descriptions   # country_inn_by_carlson
+                                                       # vs country_inn_suites_elkhart
+test_sole_date_amount_candidate_matches
+test_two_candidates_same_date_amount_is_ambiguous_not_a_match
+test_ambiguous_verdict_quarantines_and_does_not_insert
+test_decisive_strategy_outranks_non_decisive
+test_no_candidate_reports_new_expense</code></pre>
+
+    <h3><code>rol_finances/tests/test_evidence_attachment_service.py</code></h3>
+<pre><code>test_attach_evidence_fills_empty_slot
+test_attach_evidence_is_idempotent_for_same_reference
+test_attach_evidence_never_overwrites_a_durable_reference
+test_conflicted_ids_are_reported_not_raised
+test_attaching_scanned_statement_leaves_document_url_untouched   # the incident
+test_attach_evidence_stores_no_new_expense_rows</code></pre>
+
+    <h3><code>rol_finances/tests/test_store_statement_evidence_outcome.py</code></h3>
+<pre><code>test_rescan_of_stored_statement_reports_evidence_attached
+test_evidence_attached_run_reports_ok_true
+test_evidence_attached_lists_every_touched_expense_id
+test_rolled_back_rows_are_counted_and_reported
+test_partial_conflict_does_not_discard_clean_rows   # the $179.08 loss
+test_credit_rows_still_skipped</code></pre>
+
+    <h3><code>dashboard/tests/test_supporting_document_dialog.py</code> (extend)</h3>
+<pre><code>test_dialog_offers_four_buttons_when_all_documents_present
+test_scanned_statement_button_label_is_view_scanned_statement
+test_scanned_statement_button_hidden_when_field_empty
+test_scanned_statement_button_hidden_when_file_missing_from_disk
+test_button_order_is_receipt_source_scanned_statement_moms_ledger
+test_descriptors_come_from_catalog_not_a_hardcoded_tuple
+test_unknown_slot_kind_is_dropped_not_rendered</code></pre>
+
+    <h3><code>dashboard/tests/test_scanned_statement_view.py</code> (new)</h3>
+<pre><code>test_open_scanned_statement_resolves_archive_path
+test_open_scanned_statement_falls_back_to_intake_staged_image
+test_fallback_never_uses_reusable_scan_freezer_jpg
+test_scanned_statement_is_annotated_by_image_annotator
+test_scanned_statement_outside_readable_documents_is_refused
+test_viewer_url_is_expense_scoped_and_stable</code></pre>
+
+    <h3><code>dashboard/tests/test_server.py</code> (extend)</h3>
+<pre><code>test_step8_template_routes_scanned_statement_to_its_own_field
+test_step8_template_forbids_statement_scan_in_document_url
+test_fold_event_unions_scanned_statement_attached_ids
+test_evidence_attached_intake_renders_verified_transactions
+test_intake_reports_rolled_back_row_count</code></pre>
+
+    <h3><code>dashboard/js/tests/supporting-document-slots.test.js</code> (new)</h3>
+<pre><code>buttonsFor returns descriptors in SLOT_ORDER
+buttonsFor omits unavailable descriptors
+buttonsFor drops unknown kinds instead of guessing a label
+buttonsFor tolerates a server that omits scanned_statement entirely
+buttonsFor returns an empty list for an expense with no evidence</code></pre>
+    <div class="callout">
+      Run Python suites with <code>.venv/bin/python -m pytest tests/</code> in each
+      repo; JS with <code>bun test js/tests</code>. The dashboard's
+      <code>conftest.py</code> autouse fixture already disables the Trainer and
+      redirects <code>recent_report.json</code>, so new intake tests inherit that.
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="phases">
+    <h2>11. Phase checklist</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th style="width:34px"></th><th>Step</th><th>Lands in</th></tr></thead>
+        <tbody>
+          <tr class="phase"><td colspan="3">Phase 0 &mdash; already done</td></tr>
+          <tr><td>&#10003;</td><td><code>supersedes_reference()</code> + 3 repository call sites; 10 tests</td><td>rol_finances</td></tr>
+          <tr><td>&#10003;</td><td><code>scanned_statements/2025/</code> directory created</td><td>rol_finances</td></tr>
+          <tr><td>&#10003;</td><td>This plan, linked from Project Plans</td><td>letta-code</td></tr>
+
+          <tr class="phase"><td colspan="3">Phase 1 &mdash; declare the kind (no behaviour change)</td></tr>
+          <tr><td><span class="todo"></span></td><td>Failing tests for catalog + router</td><td>rol_finances</td></tr>
+          <tr><td><span class="todo"></span></td><td><code>DocumentKind.SCANNED_STATEMENT</code> + aliases</td><td><code>supporting_documents.py</code></td></tr>
+          <tr><td><span class="todo"></span></td><td><code>ISupportingDocumentCatalog</code> + <code>DocumentKindCatalog</code></td><td>new module</td></tr>
+          <tr><td><span class="todo"></span></td><td>Migration 005 + <code>ExpenseRecord</code> field</td><td>rol_finances</td></tr>
+
+          <tr class="phase"><td colspan="3">Phase 2 &mdash; make the catalog authoritative</td></tr>
+          <tr><td><span class="todo"></span></td><td>Repository <code>allowed</code> sets read <code>catalog.fields()</code> (3 sites)</td><td><code>expense_repository.py</code></td></tr>
+          <tr><td><span class="todo"></span></td><td><code>IEvidenceUpgradePolicy</code> injected into the repository</td><td>rol_finances</td></tr>
+          <tr><td><span class="todo"></span></td><td>Dashboard: delete all 3 <code>field_by_type</code> literals</td><td><code>server.py</code></td></tr>
+          <tr><td><span class="todo"></span></td><td><code>ISupportingDocumentResolver</code> chain replaces the receipt <code>if</code></td><td><code>server.py</code></td></tr>
+          <tr><td><span class="todo"></span></td><td><code>CatalogDescriptorFactory</code> replaces the <code>definitions</code> tuple</td><td><code>server.py</code></td></tr>
+          <tr><td><span class="todo"></span></td><td>SELECT lists built from <code>catalog.fields()</code></td><td><code>server.py</code></td></tr>
+
+          <tr class="phase"><td colspan="3">Phase 3 &mdash; archiving &amp; attachment</td></tr>
+          <tr><td><span class="todo"></span></td><td><code>IDocumentArchiveLocator</code> + 3 locators; <code>CopyOnWriteArchiver</code></td><td>rol_finances</td></tr>
+          <tr><td><span class="todo"></span></td><td><code>IEvidenceAttachmentService</code></td><td>rol_finances</td></tr>
+          <tr><td><span class="todo"></span></td><td><code>statement_archive.py</code> delegates to the locators</td><td>rol_finances</td></tr>
+
+          <tr class="phase"><td colspan="3">Phase 4 &mdash; duplicate identity</td></tr>
+          <tr><td><span class="todo"></span></td><td><code>IDuplicateIdentityStrategy</code> + 4 strategies + chain</td><td>rol_finances</td></tr>
+          <tr><td><span class="todo"></span></td><td><code>DuplicateChecker</code> delegates to the chain</td><td>rol_finances</td></tr>
+          <tr><td><span class="todo"></span></td><td>Ambiguous verdict quarantines to <code>_needs_review/</code></td><td>rol_finances</td></tr>
+
+          <tr class="phase"><td colspan="3">Phase 5 &mdash; the pipeline outcome</td></tr>
+          <tr><td><span class="todo"></span></td><td><code>EVIDENCE_ATTACHED</code> in the store's report</td><td><code>store_statement_transactions.py</code></td></tr>
+          <tr><td><span class="todo"></span></td><td>Clean rows survive a conflict on a different row</td><td>rol_finances</td></tr>
+          <tr><td><span class="todo"></span></td><td>STEP 8 template rewritten for the 4-slot model</td><td><code>server.py</code></td></tr>
+          <tr><td><span class="todo"></span></td><td>Judge rubric accepts <code>EVIDENCE_ATTACHED</code>; restart <code>mazda-tools-mcp</code></td><td>rol_finances</td></tr>
+          <tr><td><span class="todo"></span></td><td><code>_fold_event_into_intake</code> unions attached ids + <code>rolled_back_row_count</code></td><td><code>server.py</code></td></tr>
+
+          <tr class="phase"><td colspan="3">Phase 6 &mdash; the button</td></tr>
+          <tr><td><span class="todo"></span></td><td><code>supporting-document-slots.interface.js</code> + bun tests</td><td><code>js/abstract/</code></td></tr>
+          <tr><td><span class="todo"></span></td><td>Dialog renders from descriptors, no named buttons</td><td><code>js/implementation/</code></td></tr>
+          <tr><td><span class="todo"></span></td><td>Scanned-statement row marker (batch-probed)</td><td>dashboard</td></tr>
+          <tr><td><span class="todo"></span></td><td>Injector re-run across all reports</td><td>rol_finances</td></tr>
+
+          <tr class="phase"><td colspan="3">Phase 7 &mdash; data (needs EG's go-ahead)</td></tr>
+          <tr><td><span class="todo"></span></td><td>Merge 1674 into 1434, delete 1674</td><td>MySQL</td></tr>
+          <tr><td><span class="todo"></span></td><td>Backfill ~64 scan references out of <code>document_url</code></td><td>MySQL</td></tr>
+          <tr><td><span class="todo"></span></td><td>Re-scan the Choice statement to prove the whole path</td><td>Freezer</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout warn">
+      <strong>Do not re-scan the Choice Privileges statement before Phase 7.</strong>
+      With the rollback fixed but duplicate identity not yet, a re-scan now
+      <em>succeeds</em> at inserting a third Country Inn row.
+    </div>
+  </section>
+
+  <!-- ================================================================= -->
+  <section class="card" id="decisions">
+    <h2>12. Decisions on record</h2>
+    <dl class="decision">
+      <dt>New column</dt>
+      <dd><code>scanned_statement_url VARCHAR(1024) NULL</code>, after <code>moms_ledger</code>.</dd>
+
+      <dt>New kind</dt>
+      <dd><code>SCANNED_STATEMENT</code>, classification string <code>scanned_statement</code>.</dd>
+
+      <dt>New button</dt>
+      <dd>&ldquo;View Scanned Statement&rdquo;, third of four, before Mom's Ledger.</dd>
+
+      <dt>New archive root</dt>
+      <dd><code>readable_documents/scanned_statements/{year}/</code>. Downloads stay
+          in <code>bank_statements/</code>.</dd>
+
+      <dt>Never overwrite</dt>
+      <dd>A scan is additive evidence. It fills its own slot or reports a conflict;
+          it never displaces the bank's own file.</dd>
+
+      <dt>Fail closed</dt>
+      <dd>Ambiguous duplicate, unroutable <code>doc_type</code>, unresolvable
+          reference &mdash; all halt for a human. A wrong attachment is worse than
+          a pause.</dd>
+
+      <dt>Keeper row</dt>
+      <dd>1434 (from the bank's xlsx), not 1674 (from the scan). Reverses the
+          earlier call &mdash; see &sect;9.2.</dd>
+
+      <dt>One registry</dt>
+      <dd>A fifth kind must cost one catalog entry and zero JS changes. If it costs
+          more, Phase 2 is not finished.</dd>
+    </dl>
+  </section>
+
+  <footer>
+    Plan for Scanned Statements &middot; drafted 2026-07-29 &middot;
+    prompted by the Freezer scan of Choice Privileges Mastercard 7580,
+    July&nbsp;31&nbsp;&ndash;&nbsp;August&nbsp;15
+  </footer>
+</main>
+</body>
+</html>

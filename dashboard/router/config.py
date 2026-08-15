@@ -15,6 +15,7 @@ ROUTER_AGENT_NAME = os.environ.get("ROUTER_AGENT_NAME", "dashboard-agent-router"
 ROUTER_AGENT_NAMES = [
     "Frita",
     "Scissari",
+    "Shelia",
     "Hailey",
     "Jeri",
     "Mazda",

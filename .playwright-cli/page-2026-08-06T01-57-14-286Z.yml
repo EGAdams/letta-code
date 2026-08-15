@@ -1,0 +1,83 @@
+- generic [ref=e1]:
+  - complementary [ref=e9]:
+    - heading "Dashboard" [level=1] [ref=e10]
+    - navigation [ref=e48]:
+      - button "Back" [ref=e49] [cursor=pointer]
+      - button "Recent Report" [ref=e50] [cursor=pointer]
+      - button "Window Scanner" [ref=e51] [cursor=pointer]
+      - button "Freezer Scanner" [active] [ref=e52] [cursor=pointer]
+      - button "January 2025" [ref=e53] [cursor=pointer]
+      - button "February 2025" [ref=e54] [cursor=pointer]
+      - button "March 2025" [ref=e55] [cursor=pointer]
+      - button "April 2025" [ref=e56] [cursor=pointer]
+  - main [ref=e12]:
+    - generic [ref=e60]:
+      - heading "New Records — 116 waiting" [level=3] [ref=e95]
+      - table [ref=e96]:
+        - rowgroup [ref=e97]:
+          - row [ref=e98]:
+            - columnheader "Date" [ref=e99]
+            - columnheader "Description" [ref=e100]
+            - columnheader "Amount" [ref=e101]
+            - columnheader "Category" [ref=e102]
+        - rowgroup [ref=e103]:
+          - button [ref=e104] [cursor=pointer]:
+            - cell "2026-07-31" [ref=e105]
+            - cell "PRESTIGE MOBILE MECHANIC" [ref=e106]
+            - cell "$50.00" [ref=e107]
+            - cell "Uncategorized" [ref=e108]
+          - button [ref=e109] [cursor=pointer]:
+            - cell "2025-12-06" [ref=e110]
+            - cell "Amazon.com*BI27K1281" [ref=e111]
+            - cell "$11.91" [ref=e112]
+            - cell "Uncategorized" [ref=e113]
+          - button [ref=e114] [cursor=pointer]:
+            - cell "2025-12-05" [ref=e115]
+            - cell "Amazon.com*BI1CR1MS1" [ref=e116]
+            - cell "$8.49" [ref=e117]
+            - cell "Uncategorized" [ref=e118]
+          - button [ref=e119] [cursor=pointer]:
+            - cell "2025-10-02" [ref=e120]
+            - cell "Amazon.com*NV7CJ2F91" [ref=e121]
+            - cell "$3.15" [ref=e122]
+            - cell "Uncategorized" [ref=e123]
+          - button [ref=e124] [cursor=pointer]:
+            - cell "2025-10-01" [ref=e125]
+            - cell "Amazon.com*NJ3VK2X52" [ref=e126]
+            - cell "$99.52" [ref=e127]
+            - cell "Uncategorized" [ref=e128]
+    - iframe [ref=e130]:
+      - generic [ref=f20e2]:
+        - 'heading "Most Recent Document: diners_club_0587_april_22__may_30.jpg" [level=1] [ref=f20e3]'
+        - paragraph [ref=f20e4]: Freezer Scanner — dispatched 2026-08-04 20:09
+        - paragraph [ref=f20e5]: "Document Type: Diners Club Bank StatementMonth Range: April 22, 2025 >>---> May 30, 2025Associated PDF: --Associated Receipt: --Associated Scanned Statement: /home/adamsl/rol_finances/readable_documents/scanned_statements/2025/diners_club_0587_april_22__may_30.jpgArchived Scan Copy: /home/adamsl/rol_finances/readable_documents/scanned_statements/2025/diners_club_0587_april_22__may_30.jpgAssociated Mom’s Ledger: --Staged Scan Image: /home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/scan_freezer_1785888585760484246_31b666659fa3.jpg"
+        - paragraph [ref=f20e6]: "Mazda Trainer reported FAILED. found and corrected in-run Mazda delegated report generation to `run_claude_code_sdk`, correctly instructing the sub-session to run the three canonical commands (`restructure_verified_transactions.py` → `hydrate_report_categories_from_db.py` → `audit_statement_reports.py`). The sub-session **did not follow that instruction** — it hand-authored `report.html` via a `cat > ... <<'HTML'` heredoc, then only ran `hydrate`/`audit` against its own hand-built table. The table had a fake `onclick=\"openCategoryPicker(this)\"` calling a function that didn't exist anywhere in the file — the real `<!-- rol-category-picker:start/end -->` marker block (the actual Set Category dialog HTML/JS) was never injected, because `restructure_verified_transactions.py` was never called. `hydrate`/`audit` both reported success because they only check category/expense-id data, not dialog markup, so the run looked clean by pure trace-string matching. **Lesson sent to Mazda** (in-conversation): re-run the three comman"
+        - heading "Verified Transactions" [level=2] [ref=f20e7]
+        - table [ref=f20e8]:
+          - rowgroup [ref=f20e9]:
+            - row [ref=f20e10]:
+              - columnheader "Description" [ref=f20e11]
+              - columnheader "Amount" [ref=f20e12]
+              - columnheader "Date" [ref=f20e13]
+              - columnheader "Category" [ref=f20e14]
+          - rowgroup [ref=f20e15]:
+            - row [ref=f20e16] [cursor=pointer]:
+              - cell "Walgreens Diners Club | x-0587" [ref=f20e17]
+              - cell "24.31" [ref=f20e18]
+              - cell "2025-04-22" [ref=f20e19]
+              - cell "Rosemary Priority Health" [ref=f20e20]
+            - row [ref=f20e21] [cursor=pointer]:
+              - cell "AFFORDABLE I STORE ... Diners Club | x-0587" [ref=f20e22]
+              - cell "61.80" [ref=f20e23]
+              - cell "2025-04-24" [ref=f20e24]
+              - cell "Office & Administration" [ref=f20e25]
+            - row [ref=f20e26] [cursor=pointer]:
+              - cell "AFFORDABLE I STORE ... Diners Club | x-0587" [ref=f20e27]
+              - cell "264.99" [ref=f20e28]
+              - cell "2025-04-24" [ref=f20e29]
+              - cell "Office & Administration" [ref=f20e30]
+            - row [ref=f20e31] [cursor=pointer]:
+              - cell "ANNUAL FEE Diners Club | x-0587" [ref=f20e32]
+              - cell "95.00" [ref=f20e33]
+              - cell "2025-05-30" [ref=f20e34]
+              - cell "Office & Administration" [ref=f20e35]

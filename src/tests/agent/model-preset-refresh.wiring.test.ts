@@ -203,7 +203,9 @@ describe("model preset refresh wiring", () => {
     expect(source).toContain("getResumeModelMigrationHandle");
     expect(source).toContain("resolveDefaultAgentModel");
     expect(source).toContain(
-      'detectSystemPromptPreset(agent.system) ?? "default"',
+      // "custom", not "default": an unrecognized system prompt is a deliberate
+      // customization, and auto-heal must not clobber it (see 595c23a3).
+      'detectSystemPromptPreset(agent.system) ?? "custom"',
     );
     expect(source).toContain("getModelPresetUpdateForAgent");
     expect(source).toContain(
@@ -230,7 +232,9 @@ describe("model preset refresh wiring", () => {
     expect(source).toContain("getResumeModelMigrationHandle");
     expect(source).toContain("resolveDefaultAgentModel");
     expect(source).toContain(
-      'detectSystemPromptPreset(agent.system) ?? "default"',
+      // "custom", not "default": an unrecognized system prompt is a deliberate
+      // customization, and auto-heal must not clobber it (see 595c23a3).
+      'detectSystemPromptPreset(agent.system) ?? "custom"',
     );
     expect(source).toContain("getModelPresetUpdateForAgent");
     expect(source).toContain(

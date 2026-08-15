@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   AUTO_MODEL_HANDLE,
   isFreeTierModelHandle,
+  providerPrefixOfHandle,
+  quotaFallbackDisallowedPrefixes,
   selectDefaultAgentModel,
 } from "../../agent/serverModelSelection";
 
@@ -54,9 +56,92 @@ describe("quota fallback model selection", () => {
     expect(result).toBeUndefined();
   });
 
+  // Incident 2026-08-02: the self-hosted server exposed a base google_ai/* set
+  // backed by a dead GEMINI_API_KEY alongside the working BYOK lc-gemini/* set.
+  // The quota fallback picked google_ai/gemini-2.0-flash (first non-auto handle)
+  // and every request died with API_KEY_INVALID. The working key lives on the
+  // lc-gemini BYOK provider, so google_ai/ must be prefix-blocked on this server.
+  test("skips handles matching a disallowed prefix (dead base provider key)", () => {
+    const result = selectDefaultAgentModel({
+      preferredModel: AUTO_MODEL_HANDLE,
+      isSelfHosted: true,
+      availableHandles: [
+        "google_ai/gemini-2.0-flash",
+        "lc-gemini/gemini-2.0-flash",
+      ],
+      disallowedHandlePrefixes: ["google_ai/"],
+    });
+
+    expect(result).toBe("lc-gemini/gemini-2.0-flash");
+  });
+
+  test("never selects a prefix-blocked handle even as the only real handle", () => {
+    const result = selectDefaultAgentModel({
+      preferredModel: AUTO_MODEL_HANDLE,
+      isSelfHosted: true,
+      availableHandles: ["google_ai/gemini-2.0-flash", "letta/letta-free"],
+      disallowedHandlePrefixes: ["google_ai/"],
+    });
+
+    // google_ai/* is dead; letta/letta-free is the last-resort survivor.
+    expect(result).toBe("letta/letta-free");
+  });
+
   test("identifies free-tier handles", () => {
     expect(isFreeTierModelHandle("letta/letta-free")).toBe(true);
     expect(isFreeTierModelHandle("chatgpt-plus-pro/gpt-5.4")).toBe(false);
     expect(isFreeTierModelHandle(undefined)).toBe(false);
+  });
+});
+
+// The quota-fallback prefix policy used to live inline in App.tsx (untestable
+// inside a 6000-line React component). It is now a pure function.
+describe("quotaFallbackDisallowedPrefixes", () => {
+  test("providerPrefixOfHandle extracts the provider segment", () => {
+    expect(providerPrefixOfHandle("chatgpt-plus-pro/gpt-5.4")).toBe(
+      "chatgpt-plus-pro/",
+    );
+    expect(providerPrefixOfHandle("lc-gemini/gemini-2.0-flash")).toBe(
+      "lc-gemini/",
+    );
+    expect(providerPrefixOfHandle("no-slash")).toBeUndefined();
+    expect(providerPrefixOfHandle("/leading")).toBeUndefined();
+    expect(providerPrefixOfHandle(undefined)).toBeUndefined();
+    expect(providerPrefixOfHandle(null)).toBeUndefined();
+  });
+
+  test("blocks the current provider so quota fallback escapes to another one", () => {
+    // Quota is account-scoped: falling back to a sibling model on the same
+    // provider would just re-hit the limit.
+    expect(
+      quotaFallbackDisallowedPrefixes({
+        currentModelLabel: "chatgpt-plus-pro/gpt-5.4",
+      }),
+    ).toEqual(["chatgpt-plus-pro/"]);
+  });
+
+  test("merges configured dead-provider prefixes with the current provider", () => {
+    expect(
+      quotaFallbackDisallowedPrefixes({
+        currentModelLabel: "chatgpt-plus-pro/gpt-5.4",
+        configuredDisabledPrefixes: ["google_ai/"],
+      }),
+    ).toEqual(["google_ai/", "chatgpt-plus-pro/"]);
+  });
+
+  test("dedups when the current provider is also configured-disabled", () => {
+    expect(
+      quotaFallbackDisallowedPrefixes({
+        currentModelLabel: "google_ai/gemini-2.0-flash",
+        configuredDisabledPrefixes: ["google_ai/"],
+      }),
+    ).toEqual(["google_ai/"]);
+  });
+
+  test("handles a missing/blank current model and empty config", () => {
+    expect(quotaFallbackDisallowedPrefixes({})).toEqual([]);
+    expect(
+      quotaFallbackDisallowedPrefixes({ currentModelLabel: undefined }),
+    ).toEqual([]);
   });
 });

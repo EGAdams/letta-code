@@ -37,6 +37,11 @@ export class StatementReviewDialog extends PollingController {
     actions,
     setInterval,
     clearInterval,
+    // The dashboard is a single page with many unrelated tabs (Agents,
+    // Server Management, ...); this dialog exists to gate the Scanner
+    // workflow, not the whole app. Defaults to always-relevant so existing
+    // callers/tests that don't care about scoping keep working unmodified.
+    isRelevantView = () => true,
   } = {}) {
     super({
       intervalMs: pollMs,
@@ -57,6 +62,7 @@ export class StatementReviewDialog extends PollingController {
     this.deferredIds = this._loadDeferredIds();
     this.busy = false;
     this.root = null;
+    this.isRelevantView = isRelevantView;
   }
 
   _loadDeferredIds() {
@@ -98,7 +104,13 @@ export class StatementReviewDialog extends PollingController {
         const stillQueued = reviews.some(
           (item) => reviewIdentity(item) === identity,
         );
-        if (!stillQueued) this.close();
+        if (!stillQueued) {
+          this.close();
+        } else {
+          // Re-sync visibility each tick as a fallback for the immediate
+          // syncVisibility() call other tabs' nav handlers make.
+          this.render();
+        }
         return;
       }
       const next = nextPendingReview(reviews, this.deferredIds);
@@ -111,6 +123,16 @@ export class StatementReviewDialog extends PollingController {
   /** Named alias retained for callers that request an immediate queue refresh. */
   async refresh() {
     return this.poll();
+  }
+
+  /**
+   * Re-check isRelevantView() without waiting for the next poll tick. The
+   * page's view-switch code calls this on every navigation so leaving the
+   * Scanner tab immediately frees up the rest of the app instead of leaving
+   * it blocked for up to POLL_MS.
+   */
+  syncVisibility() {
+    if (this.current) this.render();
   }
 
   open(item) {
@@ -141,9 +163,21 @@ export class StatementReviewDialog extends PollingController {
     return root;
   }
 
+  /** Detach the modal from the DOM without forgetting the queued item. */
+  _hideRoot() {
+    if (this.root) {
+      this.root.remove();
+      this.root = null;
+    }
+  }
+
   render(banner) {
     const item = this.current;
     if (!item) return;
+    if (!this.isRelevantView()) {
+      this._hideRoot();
+      return;
+    }
     const root = this._ensureRoot();
     const fields = answerableFields(item);
     const { errors } = collectCorrections(item, this.values);
@@ -177,10 +211,11 @@ export class StatementReviewDialog extends PollingController {
       .join("");
 
     const isWorkbook = item.kind === REVIEW_KIND.WORKBOOK;
+    const isUnsupported = item.kind === REVIEW_KIND.UNSUPPORTED;
     root.innerHTML = `
       <div class="srd-panel" role="dialog" aria-modal="true">
         <div class="srd-head">
-          <h3>${isWorkbook ? "Add this card to the sheet" : "I need one detail"}</h3>
+          <h3>${isWorkbook ? "Add this card to the sheet" : isUnsupported ? "Statement needs pipeline repair" : "I need one detail"}</h3>
           <p>${escapeHtml(item.bank_name || "Statement")}${
             item.account_last4 ? ` ····${escapeHtml(item.account_last4)}` : ""
           }</p>
@@ -200,9 +235,13 @@ export class StatementReviewDialog extends PollingController {
           <button type="button" class="srd-later">Leave for later</button>
           <button type="button" class="srd-ask-mazda">Ask Mazda</button>
           <button type="button" class="srd-show-document">Show Document</button>
-          <button type="button" class="srd-ok"${this.busy ? " disabled" : ""}>${
-            this.busy ? "Working…" : isWorkbook ? "OK" : "Save"
-          }</button>
+          ${
+            isUnsupported
+              ? ""
+              : `<button type="button" class="srd-ok"${this.busy ? " disabled" : ""}>${
+                  this.busy ? "Working…" : isWorkbook ? "OK" : "Save"
+                }</button>`
+          }
         </div>
       </div>`;
 
@@ -236,7 +275,7 @@ export class StatementReviewDialog extends PollingController {
         this.render(String(err?.message || err));
       }
     });
-    root.querySelector(".srd-ok").addEventListener("click", () => {
+    root.querySelector(".srd-ok")?.addEventListener("click", () => {
       this.submit();
     });
   }

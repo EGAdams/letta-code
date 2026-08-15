@@ -1,47 +1,33 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-A single-page dashboard (`dashboard.html`, served by `server.py`) for monitoring and operating
-Letta agents (roster in `LETTA_AGENTS` in `server.py` — currently Scissari, Frita, Hailey, Jeri,
-the Mazda orchestrator + her minions, and the Suzuki orchestrator + her minions) plus Claude
-Code — with browser **voice input** (push-to-talk → whisper.cpp → cleanup agent → send) and a
-**Server Management** tab that health-checks and restarts the surrounding infrastructure. It
-lives inside the `letta-code` repo but is a self-contained sub-project: a stdlib-only Python
-backend and a vanilla JS/CSS frontend (no build step, no node_modules here).
+A single-page dashboard (`dashboard.html` served by `server.py`) for monitoring/operating Letta
+agents (roster in `LETTA_AGENTS` in `server.py`) plus Claude Code — browser **voice input**
+(push-to-talk → whisper.cpp → cleanup agent → send) and a **Server Management** tab that
+health-checks/restarts surrounding infrastructure. Lives inside `letta-code` but is self-contained:
+stdlib-only Python backend, vanilla JS/CSS frontend, no build step, no node_modules.
 
 ## Commands
 
-### Run the dashboard
 ```bash
-./start.sh                 # frees port 8765, starts server.py (foreground; TUNNEL=1 for cloudflared)
-# or directly:
-python3 server.py          # PORT=9000 to override port; LETTA_BASE_URL to point at a different Letta server
+./start.sh                 # frees port 8765, starts server.py (TUNNEL=1 for cloudflared)
+python3 server.py          # PORT= to override; LETTA_BASE_URL to point elsewhere
 ```
-Serves on **http://localhost:8765/**, binds `0.0.0.0`. ⚠ Editing files here does not necessarily
-change what users see — read **"Which machine is live"** before deploying or restarting anything.
-`ReusableHTTPServer` is a
-`ThreadingHTTPServer` — slow requests (whisper transcription ~5s) don't block the dashboard's
-pollers. In production this also runs as a systemd `--user` service (`dashboard-server.service`)
-that autostarts on boot — see "Boot autostart" below.
+Serves `http://localhost:8765/`, binds `0.0.0.0`. **Editing files here doesn't necessarily change
+what users see** — read "Which machine is live" before deploying/restarting. `ReusableHTTPServer`
+is threaded so slow requests (whisper ~5s) don't block pollers. Also runs as a systemd `--user`
+service (`dashboard-server.service`) that autostarts on boot.
 
-### Tests
 ```bash
-# Python — server + voice pipeline
-python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # first time only
-.venv/bin/python -m pytest tests/
-.venv/bin/python -m pytest tests/test_server.py -k test_get_server_known_and_unknown  # single test
-
-# JS — GoF interface/implementation layer (run with bun, NOT pytest/jest)
-bun test js/tests
+# Tests
+.venv/bin/python -m pytest tests/            # Python (venv is for pytest only; server is stdlib)
+bun test js/tests                             # JS GoF interface/implementation layer
 ```
-System Python is PEP-668 externally-managed; the **server itself needs only the stdlib** — the
-venv exists solely to run pytest. `tests/conftest.py` adds the dashboard dir to `sys.path` so
-`import voice` and `import server` work from test files, and has an autouse fixture that disables
-the Trainer (see below) and redirects `recent_report.json` to a tmp path — any new test touching
-`process_scanned_document`/`process_pdf_document` inherits this automatically.
+`tests/conftest.py` puts the dashboard dir on `sys.path` and has an autouse fixture that disables
+the Trainer and redirects `recent_report.json` to a tmp path.
 
 ### Phone / microphone access (HTTPS required)
 `getUserMedia()` (mic capture) only works in a secure context (https or localhost). Plain
@@ -50,77 +36,80 @@ cert via Tailscale Serve:
 ```bash
 tailscale serve --bg 8765   # one-time; persists across reboots (needs --operator=$USER once)
 ```
-Then open `https://desktop-2obsqmc-24.tailb8fc54.ts.net/` on the phone — use the **hostname**,
-not the IP, or the cert won't validate.
+Then open `https://desktop-2obsqmc.tailb8fc54.ts.net/` on the phone — use the **hostname**,
+not the IP, or the cert won't validate. Note: this is `desktop-2obsqmc` (the primary Linux
+node), **not** `desktop-2obsqmc-24` (the WSL node — goes offline when its distro terminates;
+check `tailscale status` if unsure which one is currently up).
+
+## Debugging strategy: rebuild the design, don't patch the symptom
+
+Full doctrine: `~/tactical_debug_toolbox/gof_debug_tacticts.md`. Load it before any nontrivial
+fix. Core points, condensed:
+
+- **Debug by rebuilding, not by patching.** A bug is a signal that some nearby design is tangled
+  (mixed responsibilities, hidden coupling, a growing `if/elif` ladder, duplicated construction, a
+  fat interface). Fix the defect *and* the weakness that let it happen — don't stack another patch
+  on old patches.
+- **Process:** reproduce → locate → find immediate cause → inspect surrounding design for the five
+  smells above → decide if a GoF pattern untangles it (Strategy for interchangeable behavior, State
+  for mode-dependent behavior, Command for actions, Factory/Abstract Factory for construction,
+  Template Method for shared-process-with-varying-steps, Chain of Responsibility for multiple
+  handlers) → build the interface if it doesn't exist → fix through the improved structure →
+  verify old bug is gone and nothing else broke → delete now-obsolete patches/dead code.
+- **Guardrails:** don't add a pattern that doesn't solve a real structural problem here, and don't
+  redesign unrelated parts of the system. Every new interface must earn its keep (replaceability,
+  testability, clarity) — this project already leans hard on program-to-interface/GoF (see
+  `js/README.md`'s abstract/implementation split and Python's `IExpenseDocumentAnnotationService`-
+  style ports); extend that pattern rather than inventing a parallel one.
+
+**File-size rule:** any file over 250 lines gets split into smaller modules — prefer more small
+modules over one long file. Split along real seams (data shape / agreement / implementation), never
+at an arbitrary line count. In Python, that's Pydantic models (data+validation) vs Interfaces (ABC
+ports) vs implementations. In JS/TS, TypeScript plays Pydantic's role — declared shapes and
+`interface`s in their own module, implementations behind them — mirroring the `abstract/`/
+`implementation/` split already used in `js/`. Caveat: TS types vanish at runtime, so validate
+untrusted input (HTTP bodies, files, cross-process messages) with a runtime schema and derive the
+static type from it. Full version, including the plain-JS-without-a-build-step case:
+`~/tactical_debug_toolbox/gof_debug_tacticts.md` § *Keep Files Small, and Split Them Along Real
+Seams*. Don't convert working JS to TS as part of a fix — that's separate work.
 
 ## Architecture
 
-### `server.py` — the entire backend (stdlib `http.server`, no framework)
-One file, one `DashboardHandler(SimpleHTTPRequestHandler)`. Two registries drive most of the app
-and must stay in sync with the frontend / other repos when you add things:
+### `server.py` — the whole backend (stdlib `http.server`, no framework)
 
-- **`LETTA_AGENTS`** — `{'name', 'id'}` entries; `id: None` auto-discovers by name from the live
-  Letta API (cached in `_letta_id_cache`). Adding an agent here makes it appear in the sidebar
-  automatically. Keep in sync with `voice.config.KNOWN_AGENT_NAMES` (biases whisper transcription
-  toward real agent names). `/api/agents` is cached server-side for 5 minutes
-  (`AGENT_LIST_CACHE_TTL`); use `/api/agents?refresh=1` to bypass after editing the registry, and
-  `/api/agents` must always return a bare array, never `{"agents": [...]}`.
-- **`SERVERS`** (Server Management registry) — each entry describes one piece of infrastructure,
-  monitored via one of: `log_file` (tailed locally), `health_url` (HTTP up/down), `tcp_check`
-  `(host, port)` (non-HTTP servers like MCP proxies), or `check` (a custom body-aware probe fn in
-  `HEALTH_CHECKS` — use when "HTTP 200" isn't enough and you must inspect the response). Remote
-  hosts that can't be tailed locally are health-checked only. `/api/server-health` reports any
-  server with a `health_url`, `tcp_check`, or `check`; log-only servers are inspected via
-  `/api/server-logs` instead.
-  - **`frita-executor`** uses a `check` (`frita_executor_health`) rather than a plain `health_url`
-    because of a two-stack situation on the Win10 box: the Mazda minions reach an SDK-equipped
-    executor via a **host bridge on `:8799`**, and the check goes red when that isn't SDK-ready,
-    appending a `⚠ GHOST on :8797` warning if a stale no-SDK executor is shadowing it. Redeploy
-    via the **"Start" button** (`deploy_frita_executor.sh` on the Win10 box).
-  - **"Letta Server"** has a `log_file` despite running in Docker on the remote Win10 box
-    (`100.80.49.10`): a background daemon (`_letta_remote_log_pull_loop`) SSHes there every 30s
-    and appends new lines to a local cache that `tail_lines` reads like any other log. The pull
-    script content-sniffs recent `*-json.log` files for Letta's logging signature rather than
-    assuming the container named `letta-server` is the live one, because an untracked containerd
-    task on that box can keep serving `:8283` after the named container's stdout goes silent.
+One `DashboardHandler(SimpleHTTPRequestHandler)`. Two registries drive most of the app:
 
-Everything else proxies the live Letta API at `LETTA_BASE_URL` (default
-`http://100.80.49.10:8283`, override via env) — `letta_get`/`letta_messages`/`letta_thoughts`/
-`letta_toolcalls` map Letta's `reasoning_message`/`user_message`/`assistant_message`/
-`tool_call_message`/`tool_return_message` stream into the dashboard's Thoughts/Messages/Tool
-Calls tabs. Claude Code is wired differently — it has no Letta agent, so its messages/tool calls
-come from local JSON files (`claude_messages.json`, `claude_toolcalls.json`) written via
-`POST /api/claude-log` / `POST /api/claude-toollog` (a PostToolUse hook + the `dashboard-log`
-skill write to these).
+- **`LETTA_AGENTS`** — `{'name','id'}`; `id: None` auto-discovers by name (cached 5 min via
+  `AGENT_LIST_CACHE_TTL`, bypass with `?refresh=1`). Keep in sync with
+  `voice.config.KNOWN_AGENT_NAMES`. `/api/agents` must return a bare array.
+- **`SERVERS`** (Server Management) — each entry is monitored via `log_file`, `health_url`,
+  `tcp_check`, or a custom `check` fn in `HEALTH_CHECKS` (when "HTTP 200" isn't enough).
+  - `frita-executor` uses a `check` because of a two-stack situation on the Win10 box (SDK
+    executor bridged on `:8799`; warns `⚠ GHOST on :8797` if a stale no-SDK executor shadows it).
+  - "Letta Server" has a `log_file` despite running remotely — `_letta_remote_log_pull_loop` SSHes
+    every 30s and content-sniffs `*-json.log` for Letta's signature (don't assume the named
+    container is the live one).
+
+Everything else proxies the live Letta API (`LETTA_BASE_URL`, default `http://100.80.49.10:8283`).
+Claude Code has no Letta agent — its messages/tool calls are local JSON
+(`claude_messages.json`/`claude_toolcalls.json`) written via `/api/claude-log` /
+`/api/claude-toollog`.
 
 ### Frontend — GoF layering
-`dashboard.html` is pure markup (~328 lines); its only script is
-`<script type="module" src="/js/dashboard-boot.js">`. Per the Gang of Four playbook in
-`js/README.md`: CSS lives in `css/dashboard.css`; JS splits into `js/abstract/` (interfaces /
-Template-Method skeletons — no DOM, no `fetch`, collaborators injected so they're unit-testable
-in Node) and `js/implementation/` (concrete subclasses wiring those interfaces to real browser
-APIs: `FetchHttpClient`, `DomConsoleView`, `ServerHealthMonitor`, `AgentStreamController`,
-`DomTabFactory`, `MediaRecorderVoiceRecorder`, the detail renderers, the SSH/ROL/code-alert
-controllers — see `js/implementation/README.md` for the full interface ↔ concrete-class ↔
-GoF-pattern mapping). **`js/implementation/*` is the live code** — editing it changes runtime
-behaviour. `js/dashboard-boot.js` is the entry point that constructs those classes, binds them to
-the DOM, and holds page-specific navigation glue (sidebar tab transitions, the nested sub-nav
-chains for plans → ROL Finance → Reports and agents → agent-detail, the `AM`/`SM`/`SSHM`/`RF`
-facades, deep-linking) rather than forcing everything through `NavigationController`.
 
-No build step — `server.py` serves `js/*` as-is, so editing + reloading the browser is the whole
-loop. Verify in a real browser (Playwright against `http://localhost:8765/`; the only expected
-console error is a `favicon.ico` 404), and run `bun test js/tests` after any change.
-**Pre-commit gotcha:** husky/lint-staged runs `biome check --write` on staged `.js` files and an
-unfixable lint **error aborts the commit** — most often `useIterableCallbackReturn`: write
-`forEach(x => { x.remove(); })`, not `forEach(x => x.remove())`. Run
-`bunx --bun @biomejs/biome@2.2.5 check --write js/<file>.js` before committing to catch these.
+`dashboard.html` is markup only; its one script is `js/dashboard-boot.js`. Per `js/README.md`: CSS
+in `css/dashboard.css`; `js/abstract/` = interfaces/Template-Method skeletons (no DOM/fetch,
+injected collaborators, unit-testable in Node); `js/implementation/` = concrete subclasses wiring
+those interfaces to real browser APIs — **this is the live code**. `dashboard-boot.js` constructs
+those classes and holds page-specific nav glue. No build step — edit + reload. Verify in a real
+browser and run `bun test js/tests` after any change. **Pre-commit gotcha:** biome errors abort the
+commit — `forEach(x => { x.remove(); })`, not `forEach(x => x.remove())`.
 
 ### Voice pipeline (`voice/`)
-`browser MediaRecorder → POST /api/voice (raw audio body, X-Filename header) → whisper.cpp →
-transcript-cleanup-agent → fills the message box → POST /api/test sends it`. GoF: Strategy
-(transcription/cleanup swap), Adapter (`LettaClient`), Factory (`build_*`), Pipeline
-(`VoicePipeline`), front-end State machine (recorder idle→recording→processing).
+
+`MediaRecorder → POST /api/voice → whisper.cpp → cleanup agent → fills message box → /api/test`.
+GoF: Strategy (transcription/cleanup swap), Adapter (`LettaClient`), Factory (`build_*`), Pipeline
+(`VoicePipeline`), State (recorder idle→recording→processing).
 
 | File | Role |
 |---|---|
@@ -131,93 +120,98 @@ transcript-cleanup-agent → fills the message box → POST /api/test sends it`.
 | `voice/pipeline.py` | `VoicePipeline.process` + `handle_voice_upload` (the `/api/voice` handler logic) |
 
 It reuses lettabot's binaries rather than reinventing them — `whisper-cli` at
-`~/whisper.cpp/build/bin/whisper-cli`, model `~/whisper.cpp/models/ggml-base.en.bin`, ffmpeg from
-lettabot's bundled `imageio_ffmpeg`. All overridable via env (`WHISPER_CPP_BIN`,
-`WHISPER_MODEL_PATH`, `FFMPEG_BIN`, `WHISPER_LANGUAGE`, `WHISPER_THREADS`, `WHISPER_PROMPT`).
+`~/whisper.cpp/build/bin/whisper-cli`, model `~/whisper.cpp/models/ggml-small.en.bin` (upgraded
+2026-08-08 from `base.en` for better accuracy on agent names; adds a bit of latency per
+transcription, acceptable given transcription already runs ~5s). ffmpeg from lettabot's bundled
+`imageio_ffmpeg`. All overridable via env (`WHISPER_CPP_BIN`, `WHISPER_MODEL_PATH`, `FFMPEG_BIN`,
+`WHISPER_LANGUAGE`, `WHISPER_THREADS`, `WHISPER_PROMPT`).
 
 Every successful `/api/voice` call appends `{date, raw, cleaned}` to `voice_transcripts.json`
 (gitignored) — compare `raw` (what whisper heard) vs `cleaned` (what the cleanup agent produced)
-to diagnose a mis-delivered agent name. Whisper's `base.en` model can mishear an agent name as a
-common word too far off for the cleanup agent to rescue (e.g. "Mazda" → "Melissa"); the fix is
+to diagnose a mis-delivered agent name. Whisper's `small.en` model still can mishear an agent name
+as a common word too far off for the cleanup agent to rescue; the fix is
 `config.WHISPER_PROMPT` biasing whisper up front with the real agent names (disable with
 `WHISPER_PROMPT=""`).
 
 Plan/design doc: `audio_input/audio_plan.html` (viewable in-dashboard under Project Plans →
 Audio Input); original spec `audio_input/audio_input.md`.
 
+### Toyota's note + voice command channel (home screen)
+
+Two boxes, two conversations. The **top** box is Toyota's note document — a `ReadOnlyNoteSurface`
+(white on black, `readOnly` not `disabled` so notes stay selectable), still fed by the existing
+`ReceptionistTranscriptController` streaming path. The **bottom** box (`#note-command-box`) is where
+you speak instructions *about* that note ("put a period at the end", "save this as meeting notes").
+
+The chain, each link replaceable:
+
+```
+ContinuousListener → TranscriptBuffer → CompletenessDetector → CommandInterpreter → NoteDocument
+```
+
+- **Completeness is judged from the accumulated text, never from a silence timer** — that is the
+  whole point. "Put a" comes back incomplete and the channel waits however long you pause; "Put a
+  period at the end" comes back complete and runs. `POST /api/note-command-complete`.
+- **Applying** a command is a separate call (`POST /api/note-command-apply`) that runs once per
+  finished instruction and returns a discriminated outcome: `edit` (whole revised note), `save`
+  (Toyota names the file if you didn't), or `none`.
+- **Everything fails closed.** A malformed reply, a 401, a dead connection → "keep waiting" /
+  "note unchanged". An `edit` carrying empty text is treated as malformed, never as "blank the
+  note" (checked in both `note_interpreter.py` and `note-command-contracts.js`).
+
+| Layer | Files |
+|---|---|
+| Data shapes (Pydantic) | `voice/note_models.py` |
+| Ports (ABCs) | `voice/note_ports.py` |
+| Strategies | `voice/note_completeness.py`, `voice/note_interpreter.py`, `voice/note_repository.py` |
+| Application policy | `voice/note_service.py` |
+| Composition root | `voice/note_factory.py` |
+| Browser contracts | `js/abstract/note-document.interface.js`, `note-command-contracts.js`, `transcript-buffer.js` |
+| Browser policy | `js/abstract/voice-command-channel.js` (no DOM in it) |
+| Browser wiring | `js/implementation/{textarea-note-surfaces,transcript-synced-note,http-note-command-services,note-command-panel}.js` |
+
+Non-obvious bits:
+
+- `TranscriptSyncedNote` (Decorator) exists because the note has **two writers** — the dictation
+  buffer and the command channel. Without the resync, "put a period at the end" appears to work and
+  is then silently undone by the next dictated sentence.
+- `InputOptionsRenderer` takes an injected `surfaceFactory`; the default is the editable message box
+  every agent page has always had. Send clears an *editable* surface only — clearing a read-only
+  note would delete the user's document.
+- Both boxes own **separate** `BrowserSpeechRecognitionListener`s and separate Start/Stop buttons.
+  Running two native recognizers at once is unreliable in Chrome; use one at a time.
+- The worker agent defaults to `transcript-cleanup-agent` (short strict-JSON calls, history cleared
+  each time). Override with `NOTE_COMMAND_AGENT_ID` / `NOTE_COMMAND_AGENT_NAME`; `NOTES_DIR`
+  (default `~/notes`) is where "save this" writes.
+
 ### Agents-home voice/text router (`router/`)
 
-The Agents tab's home view (`#agents-home` in `dashboard.html`) is no longer a static "Loaded N
-agents…" message — it's a router (`AgentsRouterRenderer`,
-`js/implementation/agents-router-renderer.js`): the user talks or types, and as soon as a **known
-agent's name** is detected, the dashboard opens that agent's Input Options page and hands it only
-the text *after* the name, without interrupting listening. Routable names are deliberately a
-narrower list than `voice.config.KNOWN_AGENT_NAMES` — only the top-level roster (Frita, Scissari,
-Hailey, Jeri, Mazda, Suzuki), defined in `router/config.py`'s `ROUTER_AGENT_NAMES`, not Mazda's/
-Suzuki's sub-agents.
+`#agents-home` routes free speech/text to the right agent's Input Options page once a **known
+agent name** is detected, forwarding only the text after the name, without stopping listening.
+Routable names = top-level roster only (`router/config.py`'s `ROUTER_AGENT_NAMES`), not
+sub-agents. Two buttons: **Start Recording** (push-to-talk whisper flow) and **Start Listening**
+(continuous browser `SpeechRecognition`, `ListenerState` in `js/abstract/continuous-listener.
+interface.js` — a module-scope singleton in `dashboard-boot.js` so it survives navigation).
+Detection (`router/classify.py`) is two-tier: exact-name match first, then the
+`dashboard-agent-router` Letta agent for implied references — **fails closed always** (any
+ambiguity/error → "no agent detected", never a guess). `openWakeWord` was evaluated and
+deliberately deferred (real ML training work); `ContinuousListener` stays provider-agnostic so a
+future wake-word listener can be swapped in later.
 
-Two buttons, deliberately different tech, **both only on this page** (not on individual agents'
-Input Options pages):
-- **Start Recording** — the existing push-to-talk `MediaRecorderVoiceRecorder` → whisper.cpp flow
-  (see Voice pipeline above), unchanged, just relabeled here.
-- **Start Listening** — new: continuous browser-native `SpeechRecognition`
-  (`js/implementation/browser-speech-recognition-listener.js`, `ListenerState` in
-  `js/abstract/continuous-listener.interface.js`). Only *final* recognized chunks trigger
-  detection; interim chunks are live-preview only. The listener is a **module-scope singleton in
-  `dashboard-boot.js`** (not owned by the renderer, which is rebuilt fresh per-open like all other
-  detail renderers) so listening survives navigation to the detected agent's page — only its
-  callbacks get re-bound via `setCallbacks()` on each render.
+### Input Options "Send" → `/api/letta-code-message`
 
-Detection (`router/classify.py`, same Strategy shape as `voice/cleanup.py`'s `LettaAgentCleanup`)
-is two-tier: `detect_known_agent()` first tries a deterministic exact-name match (zero network,
-instant) before falling back to the `dashboard-agent-router` Letta agent
-(`agent-b2993865-228f-47a2-b436-d35e3aff50f0`, model `chatgpt-plus-pro/gpt-5.4-mini`, **not** in
-`LETTA_AGENTS` — stays out of the sidebar on purpose) for non-exact/implied references. **Fails
-closed always**: any parse/network failure or ambiguous phrasing returns "no agent detected"
-rather than guessing — a wrong guess would misroute a message, which is worse than not routing.
-`POST /api/route-detect` `{text}` → `{ok, agent, remainder}`; `GET /api/router-agent` → `{ok,
-agent_id}` (lets the frontend point the *existing* `/api/agent-model` dropdown at the router's own
-classifier agent — `letta_id_for()` is a pure `agent-<uuid>` format check, not a `LETTA_AGENTS`
-lookup, so no other backend changes were needed for that).
+Shells out to this checkout's `letta` CLI headlessly (`--output-format json --memfs-startup skip
+--permission-mode acceptEdits`). Two invariants (both from a 2026-07-22 failure where Mazda's
+correct answer looked like "no answer"):
 
-**openWakeWord was investigated and deliberately not used** (see `~/openWakeWord` if present) —
-training custom per-agent-name wake-word models is real ML work (synthetic TTS data + a training
-run per name) that was deferred. `ContinuousListener` is kept provider-agnostic specifically so a
-future `ServerWakeWordListener` (streaming audio to a server-side `openwakeword.Model`) could be
-swapped in later via `AgentsRouterRenderer`'s `listener` injection point with no renderer changes.
+1. Server budget is 900s but `FetchHttpClient`'s default abort is 30s — callers of long-running
+   endpoints must pass `{timeout: 930000}` explicitly rather than raising the global default.
+2. Headless mode auto-denies gated tools with nobody to approve them, so `--permission-mode
+   acceptEdits` is required (not `--yolo`/`bypassPermissions` — `acceptEdits` already auto-allows
+   Write/Edit/MultiEdit/Bash without handing blanket access to a `0.0.0.0`-bound endpoint).
 
-Tests: `tests/test_router_classify.py`, `js/tests/continuous-listener.test.js`,
-`js/tests/browser-speech-recognition-listener.test.js`, `js/tests/agents-router-renderer.test.js`.
-
-### Input Options "Send" → `/api/letta-code-message` (driving an agent for real work)
-
-The Send button on an agent's Input Options page does **not** use `/api/test` or the terminal — it
-POSTs to `/api/letta-code-message`, which `run_letta_code_message()` (`server.py`) services by
-shelling out to this checkout's letta CLI headlessly:
-`<bun run dev --|letta> --agent <id> --prompt <text> --output-format json --memfs-startup skip
---permission-mode acceptEdits`. Two non-obvious invariants, both learned from a 2026-07-22 failure
-where Mazda appeared to "give no answer" while actually answering correctly:
-
-1. **The client timeout must be overridden per-call.** The server budget is **330s** because a real
-   agent turn runs for minutes, but `FetchHttpClient`'s default abort is **30s**. Before the fix the
-   browser aborted and printed `Request timed out after 30s: /api/letta-code-message` while the
-   backend went on to produce a perfectly good reply that was then discarded. `HttpClient.getJSON/
-   postJSON` therefore take an `{timeout}` option (threaded into `request()`), and the caller in
-   `js/implementation/detail-renderers.js` passes `{ timeout: 360000 }`. **Any new endpoint with a
-   long server-side budget needs the same explicit override** — don't raise the 30s default globally,
-   it's correct for the rest of the dashboard.
-2. **Headless mode auto-DENIES gated tools, so the permission mode must be raised.** With nobody to
-   answer an approval prompt, the CLI denies with `"Tool requires approval (headless mode)"`
-   (`classifyApprovals`, `denyReasonForAsk`). Without `--permission-mode`, the agent can read and
-   reason but **every Edit/Write silently fails** — it then reports work it was never allowed to do.
-   `acceptEdits` is used deliberately instead of `--yolo`: in this codebase `acceptEdits`
-   (`src/permissions/mode.ts`) already auto-allows `Write`/`Edit`/`MultiEdit`/`apply_patch` **and
-   `Bash`**, while `bypassPermissions` would hand blanket tool access to an endpoint on a
-   `0.0.0.0`-bound server. `tests/test_server.py` pins both the mode and the absence of `--yolo`.
-
-**Debugging tip:** "the agent gave no answer" has twice been a dashboard-rendering failure, not an
-agent failure. Read the agent's real history first — `GET /api/messages?agent=<letta-agent-id>` —
-before concluding it misbehaved.
+**Debugging tip:** "agent gave no answer" has twice been a dashboard rendering bug, not an agent
+failure — check `GET /api/messages?agent=<id>` before concluding the agent misbehaved.
 
 ### Project Plans tab
 
@@ -229,8 +223,10 @@ files from both `HERE` (`/home/adamsl/letta-code/dashboard`) and `REPO_ROOT`
 | Tab | File | Served URL |
 |---|---|---|
 | Self Evolving | `notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` | `/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html` |
+| Codebase Rewrite | `notes_plans_handoffs/codebase_rewrite.html` | `/notes_plans_handoffs/codebase_rewrite.html` |
 | Mazda Dev Status | `notes_plans_handoffs/mazda_dev_status.html` | `/notes_plans_handoffs/mazda_dev_status.html` |
 | Audio Input | `dashboard/audio_input/audio_plan.html` | `/audio_input/audio_plan.html` |
+| Voice Communication | `dashboard/voice_communication_plan.html` (versioned file) + `js/plans/` modules | `/voice_communication_plan.html` |
 
 **`Mazda Dev Status` is the canonical current-direction doc** (Mazda is the orchestrator herself,
 with minions that drive the Claude Agent SDK). `team_construction_plan.html` (repo root) describes
@@ -244,108 +240,71 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8765/notes_plans_hando
 .venv/bin/python -m pytest tests/
 ```
 
+#### Voice Communication is an interface *workspace*, not a document
+
+It is the one Project Plans tab that is a data-driven SPA, and it is the **living development
+guide** — open it before changing anything in `voice/` or the voice JS. `voice_communication_plan.html`
+is a ~19-line content-only shell; the tabs live in the dashboard's own `#nav-voice-communication`
+sub-nav (built from the same specs that render each page, so tabs cannot drift from content), and
+all content lives in modules:
+
+| Module | Role |
+|---|---|
+| `js/plans/interface-spec.js` | The `InterfaceSpec` contract + runtime validator + `Status` vocabulary |
+| `js/plans/mermaid-view.js` | Mermaid render + mermaid.live-style pan/zoom, used by every diagram |
+| `js/plans/interface-page.js` | Renders one spec into its 7 fixed sections |
+| `js/plans/interface-workspace.js` | Nav + hash routing shell |
+| `js/plans/voice-communication/*.js` | This project's specs + composition root |
+| `css/plan-workspace.css` | Shared styling |
+
+**Adding an interface = adding one spec object**, never markup. The four `js/plans/*.js` modules are
+project-agnostic and a test asserts they never mention Letta/Toyota/whisper/VoiceSession, so a second
+project workspace can reuse them. `validateSpecs()` throws on a malformed spec rather than rendering
+a blank tab.
+
+Mermaid gotchas that cost real time here (see also the `mermaid-pan-zoom-dashboard-plans` skill):
+
+- **`Note` is a reserved word in `sequenceDiagram`** — a participant named `Note` fails to parse.
+- One failed diagram injects a **global** error element into `document.body` that survives tab
+  switches, so a single broken diagram makes every later tab look broken too. Validate sources with
+  `mermaid.parse()` rather than eyeballing.
+- **Never top-level-`await` visibility in the boot module** — the tab's iframe is hidden, so the
+  `load` event never fires. `MermaidView.render()` awaits layout internally instead.
+- `svg-pan-zoom` measures at construction, before layout settles; the deferred `requestAnimationFrame`
+  re-`fit()`/`center()` in `_attachPanZoom` is why diagrams are centred rather than shoved right.
+
 ### ROL Finance Reports (Project Plans → ROL Finance → Reports)
 
-Each report is a static `report.html` embedded in an iframe (built outside this repo under
-`~/rol_finances/readable_documents/bank_statements/**/report.html`, served via the
-`/rol_finances_reports/` URL prefix → `ROL_FINANCES_REPORTS_BASE`). The injector
-`~/rol_finances/tools/python_tasks/verification_lib/restructure_verified_transactions.py`
-rewrites the "Verified Transactions" table, stamping each `<tr>` with
-`data-vendor-key/description/signed-amount/date` and appending a marker-delimited
-(`<!-- rol-category-picker:start/end -->`) block holding the **Set Category dialog**. Re-running
-the injector is idempotent and *replaces* that block, so JS/CSS changes there propagate:
-`python3 restructure_verified_transactions.py $(find ~/rol_finances -name report.html)`.
+Each report is a static `report.html` built by `~/rol_finances`, with a category-picker block
+injected/re-injected idempotently by `restructure_verified_transactions.py`. Endpoints:
+`recategorize-expense`, `receipt-lookup`, `receipts-present`, `rol_finances_receipts/<rel>`.
+Receipt matching prefers (date, amount) parsed from filename over the DB's `receipt_url` string.
+**Injector gotcha:** head CSS is injected once and not refreshed on re-run; put dialog CSS changes
+in the marker-block `<style>` instead. `window.open(..., "noopener")` returns `null` by spec — not
+proof of a popup blocker.
 
-The dialog calls these `server.py` endpoints — keep them in sync with the injector's JS:
+Supporting-document opens (`document_annotation.py`) are non-destructive — annotate a cached copy,
+never the original. `IExpenseDocumentAnnotationService` is the port; PDF/OCR-image/Excel are
+strategies wired in `build_document_annotation_service()`. A match needs date+amount,
+description+amount, or a check number, else no box is drawn. On EG's handwritten scans, OCR often
+misreads the amount column, so `_line_score` accepts date+payee as a lower-priority tiebreaker that
+can't outrank a real amount match; `_same_row` compares vertical overlap so a row never ties (and
+cancels) against itself.
 
-| Endpoint | Purpose |
-|---|---|
-| `POST /api/recategorize-expense` | Sets a row's category in MySQL and rewrites the `cat-*` class on the `<tr>` on disk so the color survives refresh. |
-| `POST /api/receipt-lookup` | "View Receipt" → `{ok, receipt_url}` (a `/rol_finances_receipts/` URL) or `{ok:false, error}`. |
-| `POST /api/receipts-present` | Batch `{rows:[…]}` → `{present:[bool,…]}`, driving the red top-left receipt marker. |
-| `GET /rol_finances_receipts/<rel>` | Serves a receipt file (path-traversal checked; image/pdf content-types). |
+### Recent Report (Reports tab default view)
 
-**Receipt resolution** (`_resolve_receipt_path`, FS index cached 300s): files are named
-`<vendor>_MM_DD_YY_<dollars>_<cents>.<ext>` under `readable_documents/receipts/**`. Match order:
-**(date, amount) parsed from the filename** → `receipt_url` exact path → stem-flex (any
-extension) → basename anywhere — more reliable than the DB `expenses.receipt_url` string, which
-often differs by extension or vendor spelling. Rows ↔ expenses join on `expense_date` +
-`abs(amount)`, disambiguated by vendor_key prefix then exact description. Receipt files are
-synced between this box and mom's machine rosemary46, so all receipts are present locally.
+`GET /recent_report.html` shows whichever document was most recently dispatched to Mazda
+(`resolve_recent_report()`), in **report mode** (real `report.html` exists) or **intake mode**
+(scanned doc stored straight to MySQL, page rendered live from DB by
+`build_recent_intake_html()`). Bookkeeping in `dashboard/recent_report.json` (gitignored), folded
+by `merge_recent_intake_event()` / `_fold_event_into_intake`. Mazda's STEP 8 callback must fire even
+when `stored:0` (a correct re-scan of an already-processed statement) so the page shows real state
+instead of stale/empty data. `duplicate_expense_ids` applies to receipts/invoices too, not just
+statements — a duplicate-only event with no ids falls back to resolving them from the DB by
+`(expense_date, amount)`, bailing if >3 rows share that pair.
 
-**Injector gotchas:** the head `CATEGORY_PICKER_CSS` is injected once and guarded, so it does
-**not** refresh on re-run — put dialog CSS *changes* in the marker-block `<style>` instead (which
-IS strip+reinjected). And `window.open(url, "_blank", "noopener,noreferrer")` returns **`null` by
-spec** when `noopener` is set — don't treat a null return as "popup blocked".
-
-**Deploy:** after editing `server.py`, `systemctl --user restart dashboard-server.service`. After
-editing the injector, re-run it on all reports (command above). See the
-`rol_finance_view_receipt_fix` project memory.
-
-Supporting-document opens are non-destructive: `document_annotation.py` creates a
-cached annotated copy and leaves the PDF, image, or Excel workbook unchanged.
-`IExpenseDocumentAnnotationService` is the server-facing port; PDF, OCR-image,
-and Excel implementations are strategies wired only in
-`build_document_annotation_service()`. The match must include date+amount,
-description+amount, or a related check number; otherwise the original opens
-without a potentially misleading box. Mom's Ledger images can resolve their
-check number from the related statement before OCR matching. Runtime setup:
-`python3 -m pip install --user --break-system-packages -r dashboard/requirements.txt`
-and install the local `tesseract-ocr` package for image coordinates.
-
-### Recent Report — the Reports tab's default view
-
-Project Plans → ROL Finance → Reports opens on **Recent Report** (`GET /recent_report.html`),
-not a fixed month: it always shows whatever document was most recently dispatched to Mazda, in
-one of two modes chosen by `resolve_recent_report()` (newest of: an explicit report pointer, the
-newest `report.html` mtime, and the last intake dispatch):
-
-- **report mode** — the document has a real `report.html` (13 registered statement docs). Served
-  with an injected `<base href>` so the report's own table + category picker work unchanged; the
-  picker's POST is translated back to the real report URL by `_resolve_report_path_alias()`.
-- **intake mode** — no `report.html` exists (the normal case for a **scanned** document, which
-  stores straight to MySQL). `build_recent_intake_html()` renders a synthetic page live from the
-  DB, listing every expense id Mazda's STEP 8/9 callback reported — both newly stored
-  (`expense_ids`) and duplicate-matched-but-not-stored (`duplicate_expense_ids`) — as a clickable
-  table with the same picker. Under the "dispatched" line it also shows **Document Type**,
-  **Month Range**, **Associated PDF**, **Associated Receipt**, computed by reusing existing
-  primitives (`_find_matching_report_row` + `_source_document_path` for the PDF,
-  `_resolve_expense_receipt_path` for the receipt) rather than re-deriving linkage. `doc_kind`/
-  `vendor` are seeded `unknown` by the text-extraction facade for scanned JPEGs (no extractable
-  text) and overwritten once Mazda reports her own vision classification in STEP 8. Note the
-  naming divergence: `mazda_intake.py` uses `doc_kind`/`vendor`, while
-  `rol_finances/tools/classify_scan.py` (Mazda's vision classifier) uses `doc_type`/`merchant`;
-  the merge functions accept either.
-
-Bookkeeping lives in `dashboard/recent_report.json` (gitignored): `process_scanned_document`/
-`process_pdf_document` write an intake record the moment they dispatch Mazda, and
-`record_stored_expense` (the `/api/expense-stored` handler) folds in `expense_ids`/
-`duplicate_expense_ids`/`parsed`/`stored` via `merge_recent_intake_event()`. **Mazda's callback
-must fire even when `stored:0`** — a re-scan of an already-processed statement is a common,
-correct outcome, but without the callback the page would show stale or empty data instead of
-"here are the transactions this run touched."
-
-**`duplicate_expense_ids` is not statement-only.** The STEP 8 template once sourced it from
-`store_statement_transactions.py`, and Mazda (endorsed by her Trainer) generalised that to "the
-receipt/invoice branch sends `[]`" — so a duplicate invoice produced `parsed:1, stored:0,
-expense_ids:[], duplicate_expense_ids:[]` and the Recent Report page rendered the "already in
-the database" sentence with **no Verified Transactions table at all**, even though STEP 2b
-`check_duplicates` had reported the existing row's id. The template now says so explicitly, and
-`_fold_event_into_intake` has a last-resort net: a duplicate-only event naming no ids resolves
-them from the DB by the `(expense_date, amount)` it matched on
-(`_resolve_duplicate_expense_ids`), bailing out when more than 3 rows share that pair rather
-than showing a coincidental match. Note vendor_key can't tighten that lookup — `check_duplicates`
-reports the stored `id_light` (`consumers_energy_01_23_25_222_65`) while STEP 8 reports the
-normalized key (`consumers_7996`).
-
-Dispatch is server-side and deduped: `run_scanner()` spawns `process_scanned_document` itself the
-instant a scan reports `ready` (so closing the browser tab right after a scan can't lose the
-document); `_claim_scan_dispatch(key, image_path)` (keyed on scanner + path + mtime) prevents the
-frontend's `/api/process-document` POST from double-dispatching the same image.
-
-Tests: `tests/test_server.py` (recent-report pointer/resolve/html-building, intake-record + STEP
-8 merge, dispatch-claim dedup, `_resolve_report_path_alias`) +
-`js/tests/rol-finance-reports-controller.test.js`.
+Dispatch is server-side and deduped: `run_scanner()` spawns intake processing itself the instant a
+scan reports ready; `_claim_scan_dispatch()` prevents double-dispatch from the frontend's own POST.
 
 ### Scanners — physical document scanners (Project Plans → ROL Finance → Scanners)
 
@@ -419,201 +378,119 @@ Browser blinking-red state can be stale after repair; hard-refresh with `Ctrl+Sh
 
 ### Scan → Mazda intake pipeline
 
-When a scan finishes, `process_scanned_document` runs the deterministic text-extraction facade
-inline, then dispatches Mazda fire-and-forget via `_notify_mazda_of_scan`. The instruction Mazda
-gets is built by the pure function `build_mazda_scan_message()` (unit-tested with no network).
-Three load-bearing details:
+`process_scanned_document` runs a deterministic text-extraction facade inline, then dispatches
+Mazda fire-and-forget (`_notify_mazda_of_scan`, message built by pure `build_mazda_scan_message()`).
 
-1. The facade (`mazda_intake.py`) returns `ok:true` but `doc_kind:unknown, confidence:0` for
-   JPEG scans (no extractable text). `mazda_facade_identified()` therefore requires
-   `doc_kind!=unknown AND confidence>0 AND action!=reject` — not just `ok`. On unknown, Mazda is
-   routed to classify the image herself with `classify_scan.py` (Gemini vision) +
-   `parse_and_categorize.py --json`.
+1. The facade returns `ok:true, doc_kind:unknown, confidence:0` for JPEG scans (no extractable
+   text) — `mazda_facade_identified()` requires `doc_kind!=unknown AND confidence>0 AND
+   action!=reject`, not just `ok`. On unknown, Mazda classifies the image herself via vision.
 2. Every `rol_finances` command Mazda runs needs `PYTHONPATH=/home/adamsl/rol_finances` +
-   `/home/adamsl/rol_finances/.venv/bin/python3` (constants `MAZDA_RF_PYPATH`/`MAZDA_RF_VENV_PY`)
-   — bare `python3 tools/...` dies with `ModuleNotFoundError`. These run via Mazda's
-   `executor_run`, served by this same dev box (Letta reaches it at `10.0.0.7:8789`).
-3. STEP 5 has Mazda record the trace as `IntakeVerificationEvidence` JSON under
-   `task_name="document-intake"`, and STEP 6 judges every run (`judge_trace`), feeding the
-   autonomous self-improvement loop. The judge (the intake rubric in
-   `rol_finances/tools/self_improving_agent`) is served by this box's `mazda-tools-mcp.service`
-   (`http://10.0.0.7:8791/sse`) — restart it after a rubric/tool change. The message and the
-   evidence model share a field contract pinned by
-   `test_scan_message_instructs_structured_intake_evidence`.
+   its venv python — bare `python3 tools/...` dies with `ModuleNotFoundError`.
+3. STEP 5 records `IntakeVerificationEvidence` under `task_name="document-intake"`; STEP 6 has the
+   self-improvement judge score the trace (served by `mazda-tools-mcp.service` — restart after a
+   rubric/tool change).
 
 ### Scan → Trainer (Mazda's watcher)
 
-Every intake dispatch (scanner scan and PDF/reprocess) also spawns a **Trainer** — a Claude agent
-built per-run with `/home/adamsl/claude-code-sdk-ts` that watches Mazda's transcript, verifies the
-STEP 1–8 contract against successful tool returns (not her prose claims), coaches her via a
-corrective Letta message on failure, and always writes a report to
-`trainer/reports/<UTC ts>_<scanner>.md`. Wiring: `_notify_trainer_of_scan` (fire-and-forget
-detached Popen — a broken Trainer never blocks intake). Files: `trainer/mazda_trainer_instructions.md`
-(system instructions), `trainer/run_mazda_trainer.mjs` (bun runner; `--dry-run` verifies prompt
-assembly for free). Logs: `/tmp/mazda_trainer_<ts>.log`. Env: `MAZDA_TRAINER_ENABLED=0` kill
-switch, `TRAINER_MODEL` (default sonnet), `TRAINER_TIMEOUT_MS` (default 25 min). Non-obvious
-invariants (details in the `mazda-trainer-ops` skill): the trainer session dies if it ends its
-turn to "wait" (instructions mandate Bash `sleep` loops + report-before-finish); the `.mjs` strips
-`ANTHROPIC_API_KEY`/`CLAUDECODE`/`CLAUDE_CODE_ENTRYPOINT` so an inherited API key can't outrank
-the OAuth login; the dashboard service's PATH lacks bun/claude so the Popen prepends
-`~/.bun/bin:~/.local/bin`. Tests: `tests/test_server.py -k trainer` — the pytest conftest fixture
-disables the Trainer so test runs never spawn a real ~25-minute Claude session.
+Every intake dispatch also spawns a Trainer — a Claude agent (via `~/claude-code-sdk-ts`) that
+watches Mazda's transcript, verifies the STEP 1–8 contract against actual tool returns (not her
+prose), coaches her via a corrective Letta message on failure, and always writes a report
+(`trainer/reports/<ts>_<scanner>.md`). Fire-and-forget detached Popen — a broken Trainer never
+blocks intake. `MAZDA_TRAINER_ENABLED=0` kill switch. Non-obvious: the Trainer session dies if it
+ends its turn to "wait" (must Bash `sleep`-loop + report before finishing); the SDK's
+`.withTimeout()` is a no-op in `@instantlyeasy/claude-code-sdk-ts@0.3.3` — only `.withSignal()`
+reaches the child process, so `trainer/claude-attempt.ts` supplies its own AbortSignal + hard
+deadline. A 0-byte trainer log means "still running" (bun block-buffers stdout to a file), not
+"never started" — check `systemctl --user list-units 'mazda-trainer-*'`.
+
+**Wrapper defect vs. application defect (2026-08-01).** Before coaching, the Trainer now
+classifies the failure: a *wrapper defect* (Mazda's instructions/tools/memory — coach her,
+unchanged) or an *application defect* (a real bug in this repo's or `rol_finances`' code —
+she cannot fix it by retrying). Application defects get a structured `## Escalation` block
+in the report (`repo_path`, `bug_description`, `metadata`) instead of a buried sentence. The
+Trainer still never executes anything under `rol_finances` and never invokes Suzuki itself —
+a human (or a future report-grepping dispatcher) turns that block into Suzuki's
+`BugHuntRequest`. Full contract, routing rule, and exact Suzuki invocation:
+`notes_plans_handoffs/mazda_suzuki_escalation_contract.md`.
 
 ### Statement review dialog (Scanner screen)
 
-A scanned statement that `store_statement_transactions.py` refuses is parked in
-`~/rol_finances/readable_documents/bank_statements/_needs_review/` beside a JSON sidecar.
-Before 2026-07-22 nothing surfaced those — the run just ended and the document sat there.
-`statement_review.py` turns the sidecars into review items and the Scanner screen pops a
-dialog for each, polling every 15s (`StatementReviewDialog`, started from `setupScanners`
-and held at module scope in `dashboard-boot.js` so it survives tab navigation).
+A statement `store_statement_transactions.py` refuses is quarantined to `_needs_review/` with a
+JSON sidecar; `statement_review.py` + `StatementReviewDialog` poll `/api/statement-reviews` every
+15s and let EG resolve it via `/api/statement-review-resolve`. Two item kinds, both fail-closed:
+**workbook** (unresolved last-4 digits — add a row to the known-accounts spreadsheet; a still-
+failing resolve deliberately leaves the sidecar so the dialog reappears) and **amounts** (unreadable
+rows — one prefilled input per row; a blank entry is an error, never a silent skip). The sidecar is
+a self-contained retry packet, so resolving replays the store without re-scanning.
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/statement-reviews` | `{ok, reviews:[…]}` — pending quarantined statements, newest first |
-| `POST /api/statement-review-resolve` `{id, amounts?}` | Re-runs the store with human-supplied amounts; clears the queue on success |
+### Categorizer LLM fallback chain + provider health
 
-Two kinds of item, both fail-closed by design:
-- **`workbook`** — the account's last 4 digits couldn't be resolved. The dialog asks EG to
-  add a row to `Known_Credit_Cards_and_Banks.xlsx` and press OK; resolving just re-runs
-  (the workbook is re-read on every lookup). **A still-failing resolve leaves the sidecar
-  in place so the dialog reappears** — that recurrence is EG's explicit requirement, not a
-  bug. A bank with several cards on file reports `workbook_ambiguous_last4` and halts
-  rather than picking one.
-- **`amounts`** — one or more rows were unreadable. One input per bad row, prefilled with
-  the server's `suggested_amount` (computed as `printed_total − sum(readable)`, and only
-  when exactly one amount is missing — two unknowns or no printed total yields no
-  suggestion rather than a wrong one). A blank entry is an error, never a silent skip:
-  skipping would resubmit the same hole and re-quarantine the statement.
-
-The sidecar is a **self-contained retry packet** (rows, total, suggestions, workbook state,
-archive root, env path), so resolving replays the store without re-scanning or re-parsing —
-deliberately retry-after-the-fact rather than pausing Mazda mid-run and holding state.
-
-GoF split as usual: all decision logic is pure in
-`js/abstract/statement-review.interface.js` (15 bun tests); the dialog class is DOM+fetch
-only; the server side injects its store subprocess (`runner=`) so
-`tests/test_statement_review.py` runs offline. Full background — archive layout, halt
-rules, the workbook's Excel traps, and the upstream parser bug that made the halt rule
-unreachable — is in `notes_plans_handoffs/bank_statement_storage_handoff_2026_07_21.md`.
-
-### Categorizer LLM fallback chain + provider health alerting
-
-`tools/categorizer/categorizer_main.py` (STEP 3 of receipt intake — vendor→category, in
-`rol_finances`, not this repo) tries providers in order: `gemini` → `chatgpt-oauth` → `anthropic`.
-Built 2026-07-20 after the `gemini` CLI broke silently for 3+ days (missing binary, then daily
-quota exhaustion) with no alert anywhere — every receipt just degraded to a null-category
-pending-review row.
-
-- **`chatgpt-oauth`** (`find_category/chatgpt_oauth_provider.py`) tries EG's own Codex OAuth
-  session (`~/.codex/auth.json`) first, then **mom's** (`~/.codex-moms/auth.json`, kept fresh by
-  `server_tools/sync_moms_codex_token.sh` + `codex-moms-token-sync.timer`, every 20 min — mom has
-  agreed her token can be used this way). `anthropic` has no second account, just EG's existing
-  `ANTHROPIC_API_KEY` — there's no proven OAuth path for Anthropic in this codebase to mirror.
-- Every provider call (all 4: gemini/chatgpt-oauth/anthropic/openai) logs success/failure/fallback
-  through an injected `IProviderHealthRecorder` port (`find_category/health_recorder.py`) to
-  `~/.mazda/provider_health.json` (`tools/provider_health.py`) — GoF-style: providers depend on the
-  abstraction, not on the JSON file directly.
-- **Dashboard tile**: Server Management → "LLM Provider Fallbacks (Categorizer)"
-  (`mazda_categorizer_fallback_health`, distinct from the "Document Vision" tile above, which only
-  checks credential *presence* for the earlier vision-classification step, not real call outcomes).
-  Yellow = a fallback fired in the last 24h (still working). Red = every tracked tier's last
-  attempt failed. Restart button re-syncs mom's token and re-reports.
-- **Not yet covered** (comments left in place pointing back here): `parsing_router/` (its own
-  `env_loader.get_api_key`) and `e_two_e_processing/row_sources/_pdf_utils.py` — both have their
-  own single-account Codex OAuth resolution already, `e_two_e_processing/row_sources/
-  llm_pdf_parser.py` also shells to a bare `gemini` CLI, and neither has mom's-account fallback,
-  an Anthropic path, or any health logging. Port the same pattern there if a failure is ever
-  traced to either.
+`rol_finances/tools/categorizer/categorizer_main.py` (STEP 3) tries `gemini` → `chatgpt-oauth`
+(EG's Codex OAuth, then mom's, synced by `codex-moms-token-sync.timer`) → `anthropic`. Every call
+logs through `IProviderHealthRecorder` to `~/.mazda/provider_health.json`. Dashboard tile: Server
+Management → "LLM Provider Fallbacks (Categorizer)" (yellow = fallback fired in 24h, red = every
+tier's last attempt failed). **Not yet covered** by this pattern: `parsing_router/` and
+`e_two_e_processing/row_sources/{_pdf_utils,llm_pdf_parser}.py` — port the same pattern there if a
+failure traces to either.
 
 ### Statement Codex CLI vision fallback
 
-Both `rol_finances/tools/receipt_scanning_tools/parse_statement_scan.py` (transaction extraction)
-and `apply_statement_annotations.py` (EG's handwritten notes after storage) use the vision order
-Gemini → **OpenAI Codex CLI** → legacy direct ChatGPT-OAuth → standalone OpenAI. The Codex leg is implemented by
-`rol_finances/tools/codex_cli_vision.py`: PDFs are rendered to PNG pages with `pdftoppm`
-(`poppler-utils`) and attached to a non-interactive `codex exec --image` call. Never send a raw
-`application/pdf` as a ChatGPT `input_image`; that backend rejects it. This path uses the existing
-Codex OAuth subscription (EG first, then mom's approved synced account), never `OPENAI_API_KEY`.
-Successful tool output includes `annotation_provider: "codex-cli"`.
+`parse_statement_scan.py` / `apply_statement_annotations.py` try Gemini → OpenAI Codex CLI → legacy
+ChatGPT-OAuth → standalone OpenAI. The Codex leg (`codex_cli_vision.py`) renders PDF pages to PNG
+via `pdftoppm` before attaching — never send a raw PDF to the ChatGPT `input_image` backend, it's
+rejected. Uses the existing Codex OAuth subscription, never `OPENAI_API_KEY`.
 
-## Server health indicators, restart, and Model Stats
+## Server health, restart, Model Stats
 
-- **4-state server status** via `compute_server_status()`/`server_status_kind()`:
-  `up`/`concern`(yellow)/`starting`/`down`. Both `/api/server-health` (sidebar) and
-  `/api/server-logs` call the same function so they never disagree. `concern` = reachable but
-  degraded, dependency-down, down-but-restartable, or recently-restarted.
-- **Win10 node root-cause tile** — `SERVERS` key `win10-node` (TCP :22 probe). Dependent servers
-  (`letta`, `logger-api`, `frita-executor`, `dashboard-proxy`) carry `depends_on: 'win10-node'`
-  and surface `blocked_by: win10-node` when it's down, collapsing many reds into one cause. Its
-  Restart button revives the WSL node by restarting `tailscaled` via the Windows host. If the node
-  *flaps* (up then dies within a minute), the WSL VM itself is cycling — fix with a
-  `wsl --compact`/reset on the Windows side, not repeated tailscaled restarts.
-- **Restart-any-server** — `RESTART_HANDLERS`/`restart_server(key)` covers every server; every
-  detail panel has an always-enabled Restart button (`POST /api/server-action` `action:restart`).
-  Local units restart via `systemctl --user restart <unit>`; frita-executor first runs
-  `ensure_win10_docker` (removes a stale `/var/run/docker.pid` and starts docker).
-- **Mass yellow ("concern") across many unrelated tiles at once** (`executor`, `mcp-proxy`,
-  `lettabot`, `thought-bridge`, `mazda-tools-mcp`, `document-vision`, all with the same
-  `down_for_seconds` and `failure_class: "refused"`) is not several independent bugs — it's the
-  live box's **`user@1000.service` cgroup wedge** (`Active: failed (Result: resources)`, log line
-  `Failed to spawn executor: Device or resource busy`) taking down every `systemd --user` unit at
-  once. `dashboard`/`dashboard-proxy` themselves often still show `up` even mid-wedge (a leftover
-  process can keep answering `curl`, or the dashboard's own unit restarts faster than the others).
-  **Fix** (from `Ubuntu-26.04`, needs the base64-pipe hop above; `adamsl` has passwordless sudo):
+- 4-state status (`compute_server_status()`): `up`/`concern`/`starting`/`down`, shared by both
+  `/api/server-health` and `/api/server-logs` so they never disagree.
+- `win10-node` (TCP :22 probe) is the root-cause tile for dependents (`depends_on:'win10-node'`) —
+  collapses many reds into one cause. If it *flaps* (up then dies within a minute), the WSL VM
+  itself is cycling — fix with `wsl --compact`/reset on Windows, not repeated tailscaled restarts.
+- Every server has an always-enabled Restart button (`POST /api/server-action`,
+  `RESTART_HANDLERS`/`restart_server(key)`).
+- **Mass yellow across many unrelated tiles at once** (same `down_for_seconds`/`failure_class:
+  "refused"`) = the live box's `user@1000.service` cgroup wedge, not several independent bugs:
   ```bash
   echo 1 | sudo tee /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/cgroup.kill
-  sudo systemctl reset-failed user@1000.service
-  sudo systemctl start user@1000.service
-  systemctl --user is-active dashboard-server lettabot thought-bridge mazda-tools-mcp mazda-executor
+  sudo systemctl reset-failed user@1000.service && sudo systemctl start user@1000.service
   ```
-  **Verified 2026-07-22: it can re-wedge within ~60s of the first fix** (`Stopped` then wedged
-  again inside a minute) — re-check `sudo systemctl status user@1000.service` after ~90s before
-  declaring it fixed, and re-run the same three commands if it shows `failed` again. Confirm via
-  `curl -s http://localhost:8765/api/server-health | python3 -m json.tool` (or the same URL through
-  the public Tailscale hostname) — every tile should read `up`.
-- **Model Stats tab** — `/api/model-stats?source=` (+ `-sources`). Sub-nav: this box and mom's
-  (rosemary46, via SSH) × Claude/Codex/Antigravity CLI. Antigravity has no quota API for free
-  accounts, so its daily-request window is derived from the `loadCodeAssist` tier cap vs today's
-  local `streamGenerateContent` log count; an expired token needs a manual `agy` re-auth (no
-  self-heal). Claude/Codex use the **live** usage APIs (`api.anthropic.com/api/oauth/usage`,
-  `chatgpt.com/backend-api/wham/usage`) — not the local rollout/stats-cache files, which are
-  stale. Extractors self-heal on 401 by refreshing the stored OAuth token; if a raw refresh from a
-  headless box gets WAF-blocked (429), running the real `claude`/`codex` CLI once
-  (`ssh <box> bash -lc 'claude -p "ok"'`) is the reliable manual fix.
+  Can re-wedge within ~60s of the fix — re-check after ~90s before declaring it fixed.
+- Model Stats (`/api/model-stats`) uses the **live** usage APIs, not local rollout/stats-cache files
+  (which are stale). Antigravity has no quota API for free accounts, so its window is derived from
+  the tier cap vs local log count; an expired token needs manual `agy` re-auth (no self-heal).
 
-After editing `server.py`: `systemctl --user restart dashboard-server.service` (then re-Start the
-Executor — the restart kills it). Tests: `tests/test_server.py`; `bun test js/tests` for the JS
-reducers/controllers. **That restart command assumes you are ON the live box** — see below.
+After editing `server.py`: `systemctl --user restart dashboard-server.service`, then re-Start the
+Executor (the restart kills it).
 
 ## Which machine is live (read before deploying or restarting)
 
-The checkout you are editing is often **not** the one serving the dashboard.
+The checkout you're editing is often **not** the one serving the dashboard.
 
-- **Live host:** `DESKTOP-2OBSQMC`, and specifically its **`Ubuntu-26.04`** WSL distro. That box runs
-  **two** WSL distros sharing one network namespace; the older **`Ubuntu-24.04`** is a stub whose
-  `rol_finances` is a `tools/`-only shell, but it owns `tailscaled`/`sshd`, so a bare
-  `ssh adamsl@100.72.158.63` lands in the **wrong** distro while `hostname` looks identical.
-  Reliable path — always name the distro explicitly:
+- **Live host:** `DESKTOP-2OBSQMC`, distro **`Ubuntu-26.04`** (codename `resolute`). SSH straight
+  into WSL — **no `wsl.exe` hop, and the user is `adamsl`, not `NewUser`**:
   ```bash
-  ssh NewUser@100.118.122.75 'wsl.exe -d Ubuntu-26.04 -e bash -lc "<command>"'
+  ssh adamsl@100.102.209.100 'cd ~/letta-code && git status'
   ```
-- **`DESKTOP-SHDBATI`** (the Letta server box, Tailscale `100.80.49.10`) has **no**
-  `dashboard-server.service`. Its `localhost:8765` is `dashboard-proxy.service`, a TCP forwarder to
-  the live box — so a local `curl` succeeding proves nothing about your edits being deployed.
-
-**Verification must go through a base64-piped script, not inline quoting.** The nested
-`ssh → wsl.exe → bash -lc "…"` hop mangles arguments: inline
-`$(systemctl --user is-enabled dashboard-server.service)` returned `not-found` for a unit that was
-genuinely `enabled`/`active`, which nearly triggered a bogus investigation. Write the script locally,
-then:
-```bash
-B64=$(base64 -w0 script.sh)
-ssh NewUser@100.118.122.75 "wsl.exe -d Ubuntu-26.04 -e bash -lc \"echo $B64 | base64 -d > /tmp/s.sh && bash /tmp/s.sh\""
-```
-Use the same pattern for edits — the live checkout is **diverged** from this repo, so patch by
-verifying each anchor string occurs exactly once, taking a `.bak-<stamp>` copy, then string-replacing;
-never blind-`scp` whole files or `git pull` over it.
+  `NewUser` is the *Windows* account and only applied to the old `ssh → wsl.exe -d …` route. That
+  route died on 2026-08-05 when `Ubuntu-24.04` was unregistered and Ubuntu-26.04 got its own
+  `openssh-server` + `tailscale`. Using the stale `NewUser@` form fails with
+  `Permission denied (publickey,password)`, which looks like a broken key but is just a bad user.
+  Sanity-check you landed on the right distro:
+  `ssh adamsl@100.102.209.100 'grep VERSION_CODENAME /etc/os-release'` must print `resolute`.
+  Canonical details live in the `windows11-ssh-connect` skill — trust it over this file.
+- **`DESKTOP-SHDBATI`** (Letta server box) has no `dashboard-server.service` — its `:8765` is
+  `dashboard-proxy.service` forwarding to the live box, so a local `curl` succeeding there proves
+  nothing about your edits being deployed.
+- **The live checkout carries real uncommitted WIP.** As of 2026-08-13 it sat on
+  `reconcile/category-taxonomy-x-intake-duplicate-rows` with ~360 changed lines across 12 files
+  from concurrent agents. **Run `git status` there and diff the overlap before any pull/merge** —
+  never blind-`scp` whole files or `git pull` over it. For surgical edits, base64-pipe a script
+  rather than inline quoting (nested shells mangle `$(...)`):
+  ```bash
+  B64=$(base64 -w0 script.sh)
+  ssh adamsl@100.102.209.100 "echo $B64 | base64 -d > /tmp/s.sh && bash /tmp/s.sh"
+  ```
 
 ### After any edit: verify the live dashboard (mandatory check)
 
@@ -629,58 +506,29 @@ actual live URL (`http://100.80.49.10:8765/`) and fails loud if your marker is n
 the edit reached the serving machine, not a decoy checkout. A failed check means your edit tool was
 working on a different filesystem; consult the **"Which machine is live"** section above and use
 **Frita** (agent `881a883f-edd0-4963-bf67-6ef178b8f018`) for direct access to the real box.
-
-### Known problem: restart fails with `Address already in use` on :8765
-
-- **Symptom:** `systemctl --user restart dashboard-server.service` in `Ubuntu-26.04` reports
-  *"failed because of unavailable resources"*, and `/tmp/dashboard_8765.log` shows
-  `OSError: [Errno 98] Address already in use`; the service then crash-loops.
-- **Cause:** the `Ubuntu-24.04` stub ran its **own** enabled `dashboard-server.service`. Both distros
-  share one port 8765, so the stub — perpetually losing the bind race — **wins the port the moment the
-  real service releases it on restart**, and the real one can never come back. Tell: `ps -eo
-  pid,etimes,cmd | grep server.py` in the stub shows a process only seconds old, matching your restart.
-- **Fix (narrow — never shut the 24.04 distro down, it owns tailscaled/sshd):** stop and disable only
-  that unit, then restart the real one.
-  ```bash
-  ssh NewUser@100.118.122.75 'wsl.exe -d Ubuntu-24.04 -e bash -lc "systemctl --user stop dashboard-server.service && systemctl --user disable dashboard-server.service"'
-  ssh NewUser@100.118.122.75 'wsl.exe -d Ubuntu-26.04 -e bash -lc "systemctl --user restart dashboard-server.service"'
-  ```
-- **Verification:** done 2026-07-22; the stub's unit is now stopped **and disabled**, so this should
-  not recur. Confirm the real unit's `MainPID` equals the `ss -tlnp` owner of :8765 and that the
-  process path is `/home/adamsl/letta-code/dashboard/server.py`. A `200` from `curl` alone is not
-  proof — a leftover process in another namespace can serve stale code (see the same warning under
-  the `user@1000` cgroup wedge in the project memory).
+- **`Address already in use` on :8765 during restart** — historically the `Ubuntu-24.04` stub also
+  ran its own `dashboard-server.service` and won the port race. That distro is gone as of
+  2026-08-05, so if this recurs, find the real owner with `ss -tlnp` and check it matches the
+  unit's `MainPID` rather than assuming the old cause.
 
 ## Boot autostart (systemd `--user` services)
 
-The dashboard and its locally-hosted companion servers autostart on boot via systemd `--user`
-units in `~/.config/systemd/user/` (this account has `Linger=yes`, so user services start at boot
-without a login session):
+`~/.config/systemd/user/` (account has `Linger=yes`, so these start at boot without a login):
 
 | Unit | Runs | Port |
 |---|---|---|
-| `dashboard-server.service` | `python3 server.py` (stdout/stderr → `/tmp/dashboard_8765.log`; needs `PYTHONUNBUFFERED=1` so the Server Management "Dashboard Server" log tab has anything to tail in real time) | 8765 |
-| `lettabot.service` | `~/lettabot/start_scissari_bot.sh` (Scissari Telegram bot; has its own internal restart-loop supervisor — systemd is outer defense) | API :8091 |
-| `thought-bridge.service` | `~/a2a_communicating_agents/thought_bridge.py` via `~/ws-venv` | **8766** |
+| `dashboard-server.service` | `python3 server.py` (needs `PYTHONUNBUFFERED=1` for live log tailing) | 8765 |
+| `lettabot.service` | Scissari Telegram bot (has its own restart loop; systemd is outer defense) | 8091 |
+| `thought-bridge.service` | `~/a2a_communicating_agents/thought_bridge.py` | **8766** (moved off 8765) |
 | `thought-bridge-monitor.service` | `~/a2a_communicating_agents/serve_monitor.py` | 8899 |
-| `dashboard-browser.service` | `open-in-browser.sh` — polls `localhost:8765`, then `exec google-chrome --app=...` (needs `Type=simple`, since it execs into a long-running process, plus explicit `DISPLAY`/`WAYLAND_DISPLAY`/`XDG_RUNTIME_DIR` — systemd `--user` doesn't inherit the WSLg graphical session at boot) | — |
+| `dashboard-browser.service` | polls `localhost:8765` then execs `google-chrome --app=...` (`Type=simple`, explicit `DISPLAY`/`WAYLAND_DISPLAY`/`XDG_RUNTIME_DIR`) | — |
 
-**Port 8765 is reserved for this dashboard** — the Thought Bridge originally hardcoded the same
-port and was moved to **8766**. If you add another locally-run server to `SERVERS`, make sure its
-port doesn't collide with 8765.
-
-Genuinely-remote servers in `SERVERS` (Letta Server, Logger API) can't be autostarted from here
-and are health-checked/log-pulled over SSH instead (see the `_letta_remote_log_pull_loop` note
-above). **Logger API's "Start" button self-heals** a docker-compose v1.29.2 bug: it `docker rm`s
-any `logger-api*` container stuck in `Created` state before running the normal start script.
-**"Executor Server" runs locally** on this same machine (not remote Docker on Win10, despite an
-old note claiming otherwise) — started via `~/server_tools/start_executor_server.sh`
-(REST executor on `:8787` with `/health`, MCP front door on `:8789` via `mcp-proxy`, run in the
-foreground forever, so it must be launched detached). `start_executor_server()` in `server.py`
-launches it via `subprocess.Popen(..., start_new_session=True)` and tails output to
+Port 8765 is reserved for this dashboard — don't collide a new local server with it. Remote
+servers (Letta Server, Logger API) are health-checked/log-pulled over SSH instead of autostarted.
+"Executor Server" runs locally via `~/server_tools/start_executor_server.sh` (REST `:8787`, MCP
+front door `:8789`), launched detached (`start_new_session=True`) with output tailed to
 `/tmp/executor_startup.log`.
 
-Verify everything is up:
 ```bash
 systemctl --user is-active dashboard-server lettabot thought-bridge thought-bridge-monitor dashboard-browser
 curl -s http://localhost:8765/api/server-health | python3 -m json.tool

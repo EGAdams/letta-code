@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "task-master-ai": {
+      "command": "task-master-ai",
+      "env": {
+        "TASK_MASTER_TOOLS": "standard",
+        "CODEX_HOME": "/home/adamsl/.codex",
+        "CODEX_CONFIG": "/home/adamsl/.codex/config.toml",
+        "CODEX_AUTH": "/home/adamsl/.codex/auth.json",
+        "CODEX_MODEL": "gpt-5.2-codex"
+      }
+    }
+  }
+}

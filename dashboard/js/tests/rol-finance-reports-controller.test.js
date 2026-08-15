@@ -799,6 +799,40 @@ describe("RolFinanceReportsController", () => {
     expect(rf._pollTimer).toBeNull();
   });
 
+  test("intake-state changes reload open report iframes without an expense event", async () => {
+    let token = "intake-a";
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/expense-stored-events")) return [];
+      if (url === "/api/intake-state") return { token };
+      if (url.startsWith("/api/rol-finance-month-status"))
+        return { months: [] };
+      if (url.startsWith("/api/rol-finance-recent-scans")) {
+        return { rows: [], queue_total: 0 };
+      }
+      return [];
+    });
+    await ctx.rf.openReports();
+    const iframe = ctx.doc.createElement("iframe");
+    iframe.className = "plan-frame";
+    ctx.viewsContainer.appendChild(iframe);
+    iframe.contentDocument = {};
+    let assignments = 0;
+    let src = iframe.src;
+    Object.defineProperty(iframe, "src", {
+      get: () => src,
+      set: (value) => {
+        assignments += 1;
+        src = value;
+      },
+    });
+
+    await ctx.rf._pollStoredExpenses();
+    expect(assignments).toBe(0); // first token establishes the baseline
+    token = "intake-b";
+    await ctx.rf._pollStoredExpenses();
+    expect(assignments).toBe(1);
+  });
+
   test("refreshStatus colors month tabs green (done) / yellow (work to do)", async () => {
     const ctx = setup((url) => {
       if (url.startsWith("/api/rol-finance-month-status")) {

@@ -14,8 +14,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT="${PORT:-8765}"
 
-# Pick a Python interpreter.
-if command -v python3 >/dev/null 2>&1; then
+# Pick a Python interpreter. Prefer the project environment because runtime
+# boundary models and document adapters are installed from requirements.txt.
+if [ -x "$HERE/.venv/bin/python" ]; then
+  PY="$HERE/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
   PY=python3
 elif command -v python >/dev/null 2>&1; then
   PY=python

@@ -50,7 +50,15 @@ def needs_review_dir(archive_root=None):
 
 
 def _kind(packet):
-    return 'workbook' if packet.get('needs_workbook_entry') else 'amounts'
+    if packet.get('needs_workbook_entry'):
+        return 'workbook'
+    row_errors = packet.get('row_errors') or []
+    if any(row.get('missing') for row in row_errors):
+        return 'amounts'
+    # Some pipeline halts use row_errors as diagnostic examples rather than
+    # unreadable-field retry rows (for example a parser/store sign mismatch).
+    # Those cannot be repaired by the human correction form.
+    return 'unsupported'
 
 
 def build_review_item(sidecar_path, packet):
@@ -116,6 +124,14 @@ def review_message(packet):
         )
 
     row_errors = packet.get('row_errors') or []
+    if _kind(packet) == 'unsupported':
+        reason = str(packet.get('reason') or '').strip()
+        resolution = str(packet.get('required_resolution') or '').strip()
+        message = reason or 'This statement was quarantined by the intake pipeline.'
+        if resolution:
+            message += f" Required resolution: {resolution}"
+        return message
+
     # store_statement_transactions.py already tries the clean archived PDF for
     # this account/period before quarantining anything (see RowGapResolver) --
     # reaching here with a long list means that lookup found nothing, not that
@@ -179,6 +195,11 @@ def list_reviews(archive_root=None):
             with open(path, 'r', encoding='utf-8') as handle:
                 packet = json.load(handle)
         except (OSError, ValueError):
+            continue
+        # Validate the document file still exists before showing the review.
+        # Stale entries (files moved or archived) should not resurface in the dialog.
+        document = path[:-len('.json')]
+        if not os.path.isfile(document):
             continue
         items.append(build_review_item(path, packet))
     return items

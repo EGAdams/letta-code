@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mazda's Responsibilities &mdash; ROL Finance</title>
+<style>
+  :root{
+    --paper:#fbf9f4; --ink:#1c1a17; --muted:#6b6358; --rule:#d9d2c5;
+    --accent:#7a1f1f; --accent2:#1f4e7a; --good:#2f6b35; --gold:#9a7b22;
+    --code-bg:#11151c; --code-ink:#dfe6ef; --next:#1f4e7a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    line-height:1.6;font-size:17px;}
+  .wrap{max-width:920px;margin:0 auto;padding:0 26px 80px;}
+  header.cover{background:linear-gradient(180deg,#fbf9f4,#f3eee3);
+    border-bottom:3px double var(--rule);padding:44px 0 30px;}
+  .kicker{letter-spacing:.3em;text-transform:uppercase;font-size:12px;
+    color:var(--accent);font-weight:700;}
+  h1{font-size:2.6rem;margin:.2em 0 .1em;letter-spacing:-.01em;}
+  h1 .sub{display:block;font-style:italic;font-weight:400;font-size:.4em;
+    color:var(--muted);margin-top:.5em;}
+  .byline{color:var(--muted);font-size:14px;margin-top:14px;}
+  h2{font-size:1.6rem;margin:1.8em 0 .3em;padding-bottom:.15em;
+    border-bottom:2px solid var(--ink);}
+  h3{font-size:1.15rem;margin:1.3em 0 .3em;color:#2a2620;}
+  p{margin:.6em 0;}
+  code{font-family:"SFMono-Regular",Consolas,monospace;font-size:.86em;
+    background:#efe9dc;color:#5a3120;padding:1px 6px;border-radius:5px;}
+  .pill{display:inline-block;font-size:.66rem;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;padding:2px 9px;border-radius:999px;vertical-align:middle;
+    margin-right:6px;}
+  .pill.done{background:#d6ead8;color:#235a2a;}
+  .pill.next{background:#dfe7f1;color:#234a72;}
+  .pill.partial{background:#f7eccf;color:#7a5a12;}
+  .abstract{background:#f1ece1;border-left:4px solid var(--accent);
+    padding:16px 20px;border-radius:0 10px 10px 0;margin:22px 0;font-size:1.02rem;}
+  ol.steps{counter-reset:s;list-style:none;padding-left:0;}
+  ol.steps>li{counter-increment:s;position:relative;padding:8px 0 8px 46px;
+    margin:.3em 0;border-bottom:1px dotted var(--rule);}
+  ol.steps>li::before{content:counter(s);position:absolute;left:0;top:8px;
+    width:30px;height:30px;background:var(--accent);color:#fff;border-radius:50%;
+    text-align:center;line-height:30px;font-weight:700;font-family:Georgia,serif;
+    font-size:.9rem;}
+  ol.steps.zero{counter-reset:s -1;}
+  ul.next{list-style:none;padding-left:0;}
+  ul.next>li{padding:10px 0 10px 16px;border-left:3px solid var(--next);
+    background:#eef3f8;margin:10px 0;border-radius:0 8px 8px 0;padding-right:14px;}
+  ul.next>li b{color:var(--accent2);}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.92rem;}
+  th,td{border:1px solid var(--rule);padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:#efe9dc;}
+  .foot{margin-top:50px;padding-top:16px;border-top:3px double var(--rule);
+    color:var(--muted);font-size:.85rem;font-style:italic;}
+  .note{border-left:5px solid var(--gold);background:#fbf4e6;padding:12px 16px;
+    border-radius:0 8px 8px 0;margin:16px 0;font-size:.95rem;}
+  .rule-card{background:#fff;border:1px solid var(--rule);border-radius:10px;
+    padding:4px 18px;margin:14px 0;}
+  .rule-card h3{margin-top:.9em;}
+</style>
+</head>
+<body>
+<header class="cover">
+  <div class="wrap">
+    <div class="kicker">ROL Finance &middot; Roles &amp; Responsibilities</div>
+    <h1>What Mazda Does
+      <span class="sub">The bookkeeping agent, and how she keeps us on the ROL Finance Plan</span></h1>
+    <div class="byline">Self-hosted Letta deployment &middot; Agent
+      <code>agent-6b536cf4-&hellip;</code> &middot; Written 2026-08-04</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="abstract">
+  Mazda is the agent who turns paper into bookkeeping. Every scanned receipt and
+  every bank statement that comes through the scanner is handed to her, and she is
+  responsible for reading it, matching it to a vendor, categorizing it, checking it
+  is not already recorded, filing the image somewhere permanent, and storing the
+  result in the finance database &mdash; with a written trace of what she did. She is
+  the reason the 2025 numbers have documents behind them instead of memory behind
+  them.
+</div>
+
+<h2>1. Who she is</h2>
+
+<p>Mazda is a persistent Letta agent, not a chat session. She keeps her own memory
+between runs, so what she learns about a vendor or a statement layout in March is
+still with her in August. She orchestrates &mdash; her own model is small and cheap,
+and she hands the heavy reading and coding work to Claude through the SDK. That
+keeps her running cost low enough to process hundreds of documents.</p>
+
+<p>She does not work alone. A second agent, the <b>Trainer</b>, is launched
+automatically alongside every single scan she processes. The Trainer watches her run,
+checks her work against the intake contract, and coaches her by message when she gets
+something wrong. Her work is graded, every time, without anyone having to watch.</p>
+
+<h2>2. Her responsibilities, step by step</h2>
+
+<p>Every document she touches goes through the same nine steps. The dashboard shows
+these live as she works, so you can see exactly where a scan is.</p>
+
+<ol class="steps zero">
+  <li><b>Load learned wrapper.</b> Pick up the current version of her own
+      instructions &mdash; including any corrections the Trainer taught her since the
+      last run.</li>
+  <li><b>Classify and parse.</b> Decide what the document is (bank statement, receipt,
+      printed statement photo) and pull out dates, amounts, descriptions and line
+      items. Cheapest reliable tool first; a model only when the deterministic parser
+      cannot do it.</li>
+  <li><b>Check vendor and duplicates.</b> Collapse merchant name variants to one
+      canonical vendor, then check whether this charge is already in the books.</li>
+  <li><b>Categorize.</b> Look the vendor up in the chart of accounts. Only ask a model
+      when there is no reliable lookup.</li>
+  <li><b>Store.</b> Write the expense rows to the finance database and attach the
+      supporting document.</li>
+  <li><b>Record trace.</b> Write down what she actually did, with evidence.</li>
+  <li><b>Judge trace.</b> Score her own run against the contract.</li>
+  <li><b>Propose improvement.</b> If she failed, propose a fix to her own instructions
+      rather than repeating the mistake next time.</li>
+  <li><b>Notify dashboard.</b> Publish the result so it appears in the reports and the
+      scanner tabs.</li>
+</ol>
+
+<h3>Evidence: four slots, and they accumulate</h3>
+
+<p>An expense can carry up to four independent supporting documents, and a new one
+never replaces an old one:</p>
+
+<table>
+  <tr><th>Slot</th><th>What it is</th></tr>
+  <tr><td>Receipt</td><td>The scanned till receipt or invoice.</td></tr>
+  <tr><td>Source document</td><td>The statement the bank itself issued and we downloaded.</td></tr>
+  <tr><td>Mom's ledger</td><td>The handwritten ledger page.</td></tr>
+  <tr><td>Scanned statement</td><td>A photograph of a printed statement, archived by year.</td></tr>
+</table>
+
+<p>Everything is filed to a permanent path with a findable name, and the database row
+points at that permanent copy &mdash; never at the temporary scanner folder. The rule
+behind this is simple: if you have to go back to a document a year from now, it has to
+still be where the row says it is.</p>
+
+<h2>3. How this carries out the ROL Finance Plan</h2>
+
+<p>The plan sets out what a nonprofit's finances have to be able to do. Mazda is the
+part that makes several of those requirements actually happen day to day rather than
+existing on paper.</p>
+
+<table>
+  <tr><th>Plan requirement</th><th>What Mazda contributes</th></tr>
+  <tr>
+    <td><b>Expense management</b> &mdash; process and track all expenses with proper
+        documentation</td>
+    <td>Every expense she stores is created <i>from</i> a document, so the
+        documentation is never a separate chore that falls behind.</td>
+  </tr>
+  <tr>
+    <td><b>Audit trail</b> &mdash; a clear record of every transaction</td>
+    <td>Each run writes a trace: what was read, what was decided, what evidence
+        supported it. The Trainer's report sits alongside it as an independent check.</td>
+  </tr>
+  <tr>
+    <td><b>Receipts / invoices mandatory</b></td>
+    <td>The four evidence slots, plus the dashboard's corner markers, make it visible
+        at a glance which rows still have nothing behind them.</td>
+  </tr>
+  <tr>
+    <td><b>Bank reconciliation</b></td>
+    <td>Statement totals are verified against the rows she stored; a statement that
+        does not add up is flagged rather than filed.</td>
+  </tr>
+  <tr>
+    <td><b>Chart of accounts</b></td>
+    <td>Categories live in the database behind a single interface, so the accounts
+        structure can be corrected in one place and every report follows.</td>
+  </tr>
+  <tr>
+    <td><b>Reporting</b></td>
+    <td>Her output feeds the verified-transaction reports the dashboard publishes, which
+        are what a finance committee or an accountant would actually read.</td>
+  </tr>
+  <tr>
+    <td><b>Form 990 readiness</b></td>
+    <td>Categorized, documented, deduplicated rows are exactly the raw material an
+        annual filing needs. The crosswalk from our categories to IRS lines is
+        drafted but not yet blessed by an accountant.</td>
+  </tr>
+</table>
+
+<h2>4. The rules she is held to</h2>
+
+<div class="rule-card">
+  <h3>Never invent anything</h3>
+  <p>No transaction, total, or database match may be fabricated. If a parse is
+  incomplete, it is reported incomplete.</p>
+
+  <h3>Ambiguous beats wrong</h3>
+  <p>When two existing rows could both be the same charge, she reports
+  <b>ambiguous</b> instead of picking one. Same for the medical expenses that cannot be
+  attributed to Robert or Rosemary &mdash; they go to a visible <i>unassigned</i>
+  bucket, never a guess.</p>
+
+  <h3>Money movement is not spending</h3>
+  <p>Transfers between accounts and credit-card payoffs sit in the same table as real
+  expenses but must not be counted as expenses &mdash; at one point they inflated the
+  raw total by roughly half. They are classified by <b>payee</b>, never by keyword,
+  because paying a real vendor through online bill pay is a real expense. Rows are
+  never deleted, only reclassified, so the totals can still be tied back to the
+  statements.</p>
+
+  <h3>One bad row does not sink the statement</h3>
+  <p>A single unparseable line is excluded on its own; the rest of the statement still
+  files. A statement with a genuinely unsafe row goes to a review folder instead.</p>
+
+  <h3>She never blocks</h3>
+  <p>If the Trainer or any supporting service fails, intake still completes. The safety
+  net is not allowed to become the failure.</p>
+</div>
+
+<h2>5. What's left to finish the 2025 report</h2>
+
+<p>The pipeline works and the bulk of 2025 is in. What remains is mostly accuracy and
+presentation, not new machinery.</p>
+
+<ul class="next">
+  <li><b>Finish importing the remaining statements.</b> Bank statements are still being
+      downloaded and scanned. Choice Privileges 7580 was blocked by a duplicate-row
+      ambiguity; that has been resolved, so it can be re-scanned now.</li>
+  <li><b>Re-run the money-movement pass after the last import.</b> It is idempotent and
+      must be run after every statement import, or transfers and card payoffs will
+      count as spending in the final numbers.</li>
+  <li><b>Teach the grand total to skip excluded buckets.</b> The spreadsheet still sums
+      every reporting bucket, so Money Movement shows up as a line inside the total
+      instead of being left out of it. Small fix, visible effect on the headline
+      number.</li>
+  <li><b>Fix the known-wrong category rollups.</b> Four are documented and deliberately
+      left in place pending a dry-run approval &mdash; most importantly around
+      thirty-two of Rosemary's medical expenses currently defaulting to Robert.</li>
+  <li><b>Decide the Personal question.</b> Whether category 3 (Personal) is excluded
+      from the nonprofit totals is still open, and it changes the reported figure.</li>
+  <li><b>Resolve the eight unknown card rows.</b> Roughly $1,500 across two card
+      numbers nobody recognises, left counting as spending until Mom can confirm what
+      they were. These should not be guessed.</li>
+  <li><b>Get an accountant's sign-off on the category&rarr;IRS mapping.</b> No filing
+      conclusion is final without the church's accountant reviewing the crosswalk.</li>
+</ul>
+
+<div class="note">
+  <b>Ordering note.</b> The last statement import, then the money-movement re-run, then
+  the rollup fixes, then the totals &mdash; in that order. Re-running money movement
+  before the final import just means running it again.
+</div>
+
+<div class="foot">
+  Written 2026-08-04 for ROL Finance. Companion documents: <i>Mazda's Training
+  Process</i>, <i>Scanned Statements</i>, and <i>Mazda Dev Status</i> in Project Plans.
+  Figures quoted here are from the project notes, not a live query of the finance
+  database.
+</div>
+
+</div>
+</body>
+</html>

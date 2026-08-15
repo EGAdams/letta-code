@@ -1,0 +1,74 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - 'heading "Most Recent Document: diners_club_0587_april_22__may_30.jpg" [level=1] [ref=e3]'
+    - paragraph [ref=e4]: Freezer Scanner — dispatched 2026-08-04 20:09
+    - paragraph [ref=e5]: "Document Type: Diners Club Bank StatementMonth Range: April 22, 2025 >>---> May 30, 2025Associated PDF: --Associated Receipt: --Associated Scanned Statement: /home/adamsl/rol_finances/readable_documents/scanned_statements/2025/diners_club_0587_april_22__may_30.jpgArchived Scan Copy: /home/adamsl/rol_finances/readable_documents/scanned_statements/2025/diners_club_0587_april_22__may_30.jpgAssociated Mom’s Ledger: --Staged Scan Image: /home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/scan_freezer_1785888585760484246_31b666659fa3.jpg"
+    - paragraph [ref=e6]: "Mazda Trainer reported FAILED. found and corrected in-run Mazda delegated report generation to `run_claude_code_sdk`, correctly instructing the sub-session to run the three canonical commands (`restructure_verified_transactions.py` → `hydrate_report_categories_from_db.py` → `audit_statement_reports.py`). The sub-session **did not follow that instruction** — it hand-authored `report.html` via a `cat > ... <<'HTML'` heredoc, then only ran `hydrate`/`audit` against its own hand-built table. The table had a fake `onclick=\"openCategoryPicker(this)\"` calling a function that didn't exist anywhere in the file — the real `<!-- rol-category-picker:start/end -->` marker block (the actual Set Category dialog HTML/JS) was never injected, because `restructure_verified_transactions.py` was never called. `hydrate`/`audit` both reported success because they only check category/expense-id data, not dialog markup, so the run looked clean by pure trace-string matching. **Lesson sent to Mazda** (in-conversation): re-run the three comman"
+    - heading "Verified Transactions" [level=2] [ref=e7]
+    - table [ref=e8]:
+      - rowgroup [ref=e9]:
+        - row [ref=e10]:
+          - columnheader "Description" [ref=e11]
+          - columnheader "Amount" [ref=e12]
+          - columnheader "Date" [ref=e13]
+          - columnheader "Category" [ref=e14]
+      - rowgroup [ref=e15]:
+        - row [ref=e16] [cursor=pointer]:
+          - cell "Walgreens Diners Club | x-0587" [ref=e17]
+          - cell "24.31" [ref=e18]
+          - cell "2025-04-22" [ref=e19]
+          - cell "Rosemary Priority Health" [ref=e20]
+        - row [ref=e21] [cursor=pointer]:
+          - cell "AFFORDABLE I STORE ... Diners Club | x-0587" [ref=e22]
+          - cell "61.80" [ref=e23]
+          - cell "2025-04-24" [ref=e24]
+          - cell "Office & Administration" [ref=e25]
+        - row [ref=e26] [cursor=pointer]:
+          - cell "AFFORDABLE I STORE ... Diners Club | x-0587" [ref=e27]
+          - cell "264.99" [ref=e28]
+          - cell "2025-04-24" [ref=e29]
+          - cell "Office & Administration" [ref=e30]
+        - row [ref=e31] [cursor=pointer]:
+          - cell "ANNUAL FEE Diners Club | x-0587" [ref=e32]
+          - cell "95.00" [ref=e33]
+          - cell "2025-05-30" [ref=e34]
+          - cell "Office & Administration" [ref=e35]
+  - dialog [ref=e36]:
+    - generic [ref=e37]:
+      - generic [ref=e38]:
+        - heading "Set Category" [level=3] [ref=e39]
+        - button "Close Set Category dialog" [ref=e40] [cursor=pointer]: ×
+      - paragraph [ref=e42]: AFFORDABLE I STORE ... Diners Club | x-0587 • 264.99 • 2025-04-24 • Office & Administration
+      - generic [ref=e43]:
+        - generic [ref=e77] [cursor=pointer]: Church Facility Payments
+        - generic [ref=e78] [cursor=pointer]: Church Facility Upkeep
+        - generic [ref=e79] [cursor=pointer]: Church Utilities
+        - generic [ref=e80] [cursor=pointer]: Ministry & Worship
+        - generic [ref=e81] [cursor=pointer]: Education, Music & Media
+        - generic [ref=e82] [cursor=pointer]: Office & Administration
+        - generic [ref=e83] [cursor=pointer]: Information Technology & Software
+        - generic [ref=e84] [cursor=pointer]: Professional Services
+        - generic [ref=e85] [cursor=pointer]: Food & Hospitality
+        - generic [ref=e86] [cursor=pointer]: Gifts & Love Offerings
+        - generic [ref=e87] [cursor=pointer]: Robert Benefits & Medical
+        - generic [ref=e88] [cursor=pointer]: Robert Priority Health
+        - generic [ref=e89] [cursor=pointer]: Rosemary Benefits & Medical
+        - generic [ref=e90] [cursor=pointer]: Rosemary Priority Health
+        - generic [ref=e91] [cursor=pointer]: Senior Pastors Medical — Unassigned
+        - generic [ref=e92] [cursor=pointer]: Travel & Vehicle
+        - generic [ref=e93] [cursor=pointer]: Insurance, Taxes & Fees
+        - generic [ref=e94] [cursor=pointer]: Housing Payment & Upkeep
+        - generic [ref=e95] [cursor=pointer]: Fundraising
+        - generic [ref=e96] [cursor=pointer]: Bank & Payment Processing Fees
+        - generic [ref=e97] [cursor=pointer]: Money Movement — Not an Expense
+        - generic [ref=e98] [cursor=pointer]: Personal / Non-Church — Review Required
+        - generic [ref=e99] [cursor=pointer]: Uncategorized
+      - generic [ref=e67]:
+        - generic [ref=e68]: Notes
+        - textbox "Add a note…" [ref=e69]
+      - generic [ref=e70]:
+        - button "View Scanned Statement" [ref=e100] [cursor=pointer]
+        - generic [ref=e73]:
+          - button "Ask Mazda" [ref=e74] [cursor=pointer]
+          - button "Undo Last Action" [disabled] [ref=e75]
+          - button "Close this Dialog" [ref=e76] [cursor=pointer]

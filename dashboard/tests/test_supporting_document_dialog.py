@@ -1,5 +1,47 @@
+import os
+
+import pytest
+
 import server
 from document_annotation import AnnotationResult
+
+
+def test_matching_expense_supports_receipt_only_finance_schema():
+    """A missing optional dashboard column cannot prevent red-box preparation."""
+    queries = []
+
+    class Cursor:
+        def execute(self, sql, params=None):
+            queries.append((sql, params))
+
+        def fetchall(self):
+            if len(queries) == 1:
+                return [
+                    {"Field": name}
+                    for name in ("id", "description", "receipt_url", "expense_date", "amount")
+                ]
+            return [{
+                "id": 1120,
+                "description": "MEIJER STORE #020 GRAND RAPIDS MI",
+                "receipt_url": "/receipts/meijer_12_29_24_53_06.jpg",
+                "expense_date": "2024-12-29",
+                "amount": "53.06",
+                "id_light": None,
+                "document_url": None,
+                "scanned_statement_url": None,
+                "moms_ledger": None,
+                "notes": None,
+            }]
+
+    chosen = server._matching_expense(
+        Cursor(), "", "", "meijer", "MEIJER STORE #020 GRAND RAPIDS MI", 1120
+    )
+
+    assert chosen["id"] == 1120
+    assert chosen["receipt_url"].endswith("53_06.jpg")
+    select_sql = queries[1][0]
+    assert "NULL AS `id_light`" in select_sql
+    assert "NULL AS `document_url`" in select_sql
 
 
 def test_lookup_exposes_all_three_document_fields(monkeypatch):
@@ -52,10 +94,18 @@ def test_picker_has_two_rows_and_no_receipt_fallback():
     assert "document_url || metadata.receipt_url" not in html
     assert "moms_ledger || metadata.receipt_url" not in html
     descriptors = server._supporting_document_descriptors(
-        {"receipt_url": "", "document_url": "", "moms_ledger": ""}
+        {
+            "receipt_url": "",
+            "document_url": "",
+            "scanned_statement_url": "",
+            "moms_ledger": "",
+        }
     )
     assert [item["label"] for item in descriptors] == [
-        "View Receipt", "View Source Document", "View Mom’s Ledger"
+        "View Receipt",
+        "View Source Document",
+        "View Scanned Statement",
+        "View Mom’s Ledger",
     ]
 
 
@@ -142,6 +192,70 @@ def test_generated_html_report_is_not_a_source_document(
     }
 
 
+def test_source_document_is_unavailable_when_it_resolves_to_same_file_as_receipt(
+    tmp_path, monkeypatch
+):
+    receipt = tmp_path / "receipts" / "tikun_03_18_25_300_00.jpg"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_bytes(b"\xff\xd8\xff")
+    relative_receipt = os.path.relpath(receipt, server.READABLE_DOCS_BASE)
+
+    def _resolve(reference, kind):
+        if not reference:
+            return None
+        raw = str(reference).split("#", 1)[0]
+        if raw == str(receipt) or raw == relative_receipt:
+            return str(receipt)
+        return None
+
+    monkeypatch.setattr(server, "_resolve_local_supporting_document", _resolve)
+
+    documents = server._supporting_document_descriptors(
+        {
+            "receipt_url": relative_receipt,
+            "document_url": str(receipt),
+            "moms_ledger": "",
+        },
+        "/scanner_report.html?scanner=freezer",
+    )
+
+    assert documents[0]["available"] is True
+    assert documents[1] == {
+        "type": "source",
+        "label": "View Source Document",
+        "field": "document_url",
+        "available": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("receipt_url", "document_url"),
+    [
+        ("/receipts/tikun.jpg", "/receipts/tikun.jpg#page=2"),
+        ("receipt:/receipts/tikun.jpg", "/receipts/tikun.jpg"),
+        ({"source_document_id": "abc"}, {"id": "abc"}),
+    ],
+)
+def test_source_document_is_unavailable_for_equivalent_targets(receipt_url, document_url, monkeypatch):
+    monkeypatch.setattr(
+        server,
+        "_resolve_local_supporting_document",
+        lambda reference, kind: "/tmp/shared.pdf" if reference and kind in {"receipt", "source"} else None,
+    )
+
+    documents = server._supporting_document_descriptors(
+        {
+            "receipt_url": receipt_url,
+            "document_url": document_url,
+            "moms_ledger": "",
+        },
+        "/scanner_report.html?scanner=freezer",
+    )
+
+    assert documents[0]["available"] is True
+    assert documents[1]["available"] is False
+
+
 def test_report_statement_is_available_when_document_url_is_missing(
     tmp_path, monkeypatch
 ):
@@ -170,6 +284,34 @@ def test_report_statement_is_available_when_document_url_is_missing(
         "label": "View Source Document",
         "field": "document_url",
         "available": True,
+    }
+
+
+def test_source_document_is_unavailable_when_it_only_repeats_receipt(
+    monkeypatch,
+):
+    receipt = "/receipts/tikun_03_18_25_300_00.jpg"
+    monkeypatch.setattr(
+        server,
+        "_resolve_local_supporting_document",
+        lambda reference, kind: receipt if kind == "receipt" and reference == receipt else None,
+    )
+
+    documents = server._supporting_document_descriptors(
+        {
+            "receipt_url": receipt,
+            "document_url": receipt,
+            "moms_ledger": "",
+        },
+        "/scanner_report.html?scanner=freezer",
+    )
+
+    assert documents[0]["available"] is True
+    assert documents[1] == {
+        "type": "source",
+        "label": "View Source Document",
+        "field": "document_url",
+        "available": False,
     }
 
 
@@ -382,3 +524,441 @@ def test_stable_supporting_document_url_resolves_current_database_path(
 
     assert first == str(statement)
     assert second == str(statement)
+
+
+def _resolve_if_on_disk(monkeypatch):
+    """Stand in for the allowed-roots resolver: any real file resolves."""
+    monkeypatch.setattr(
+        server,
+        "_resolve_local_supporting_document",
+        lambda reference, kind: (
+            str(reference)
+            if reference and os.path.isfile(str(reference).split("#", 1)[0])
+            else None
+        ),
+    )
+
+
+def test_scanner_report_offers_its_own_scan_when_stored_path_is_gone(
+    tmp_path, monkeypatch
+):
+    """A paper scan is not a downloaded source document, even if it remains staged."""
+    scan = tmp_path / "scan_freezer_1785370278642285445_af131e077dc3.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    deleted = tmp_path / "scan_freezer_deleted_by_git_add.jpg"
+    monkeypatch.setattr(
+        server,
+        "get_scanner_intake",
+        lambda key: {"image_path": str(scan), "doc_kind": "statement"}
+        if key == "freezer" else None,
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": str(deleted), "moms_ledger": ""}
+    report_path = "/scanner_report.html?scanner=freezer"
+
+    assert server._source_document_reference(row, report_path) == ""
+    documents = server._supporting_document_descriptors(row, report_path)
+    assert documents[1]["available"] is False
+
+
+def test_scanner_report_never_borrows_the_other_scanner_or_a_reused_output(
+    tmp_path, monkeypatch
+):
+    """The fallback is intake-scoped, and only the immutable staged path counts.
+
+    The scanner's own output file (scan_freezer.jpg) is overwritten by the next
+    scan, so offering it would show a different document under the label
+    "View Source Document" — the legacy-document_url bug all over again.
+    """
+    window_scan = tmp_path / "window_scan_1785370237366238893_a1c87d8f3be6.jpg"
+    window_scan.write_bytes(b"\xff\xd8\xff")
+    reusable_output = tmp_path / "scan_freezer.jpg"
+    reusable_output.write_bytes(b"\xff\xd8\xff")
+    intakes = {
+        "window": {"image_path": str(window_scan)},
+        "freezer": {},  # dispatched before staging existed: no immutable path
+    }
+    monkeypatch.setattr(server, "get_scanner_intake", intakes.get)
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": "", "moms_ledger": ""}
+
+    assert server._source_document_reference(
+        row, "/scanner_report.html?scanner=window") == ""
+    assert server._source_document_reference(
+        row, "/scanner_report.html?scanner=freezer") == ""
+    assert server._supporting_document_descriptors(
+        row, "/scanner_report.html?scanner=freezer")[1]["available"] is False
+
+
+def test_recent_report_intake_mode_offers_the_dispatched_scan(
+    tmp_path, monkeypatch
+):
+    scan = tmp_path / "window_scan_1785370237366238893_a1c87d8f3be6.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server,
+        "resolve_recent_report",
+        lambda: {"mode": "intake", "intake": {"image_path": str(scan)}},
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": "", "moms_ledger": ""}
+
+    assert server._source_document_reference(
+        row, server.RECENT_REPORT_PATH) == ""
+
+
+def test_scanned_statement_never_appears_as_downloaded_source(
+    tmp_path, monkeypatch
+):
+    scan = tmp_path / "fubo_statement_scan.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server,
+        "_resolve_local_supporting_document",
+        lambda reference, kind: str(scan)
+        if reference and kind in {"source", "scanned_statement"} else None,
+    )
+
+    documents = server._supporting_document_descriptors(
+        {
+            "receipt_url": "",
+            "document_url": str(scan),
+            "scanned_statement_url": str(scan),
+            "moms_ledger": "",
+        },
+        "/scanner_report.html?scanner=freezer",
+    )
+
+    assert documents[1]["available"] is False
+    assert documents[2]["available"] is True
+
+
+def test_last_freezer_scan_appears_only_as_scanned_statement(
+    tmp_path, monkeypatch
+):
+    scan = tmp_path / "last_freezer_scan.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server,
+        "get_scanner_intake",
+        lambda key: {"image_path": str(scan), "doc_kind": None}
+        if key == "freezer" else None,
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {
+        "receipt_url": "",
+        "document_url": "",
+        "scanned_statement_url": "",
+        "moms_ledger": "",
+    }
+    documents = server._supporting_document_descriptors(
+        row, "/scanner_report.html?scanner=freezer"
+    )
+
+    assert documents[1]["available"] is False
+    assert documents[2]["available"] is True
+
+
+def test_stored_document_url_still_wins_while_it_resolves(tmp_path, monkeypatch):
+    stored = tmp_path / "statement.pdf"
+    stored.write_bytes(b"%PDF-1.4\n")
+    scan = tmp_path / "scan_freezer_1785370278642285445_af131e077dc3.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server, "get_scanner_intake", lambda key: {"image_path": str(scan)}
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": str(stored), "moms_ledger": ""}
+
+    assert server._source_document_reference(
+        row, "/scanner_report.html?scanner=freezer") == str(stored)
+
+
+def test_picker_reports_the_page_query_so_a_scanner_can_be_identified():
+    """/scanner_report.html is one path for two scanners."""
+    _css, html, _click_css = server._receipt_only_picker_assets()
+
+    assert "report_path: location.pathname + location.search" in html
+
+
+def test_last_freezer_scan_keeps_source_pdf_and_scanned_statement_separate(
+    tmp_path, monkeypatch,
+):
+    """The Diners Club freezer intake has two different supporting documents.
+
+    The downloaded statement is the Source Document; the photograph Mazda
+    archived from paper is the Scanned Statement. A missing ``document_url``
+    must not make the source viewer borrow ``scanned_statement_url`` (or make
+    the scanned-statement slot disappear).
+    """
+    source_pdf = (
+        "/home/adamsl/rol_finances/readable_documents/bank_statements/"
+        "january/diners_0587_whole_year_2025/diners_0587_year_2025.pdf"
+    )
+    scanned_statement = tmp_path / "diners_club_0587_april_22__may_30.jpg"
+    scanned_statement.write_bytes(b"\xff\xd8\xff")
+    report_path = (
+        "/rol_finances_reports/jan-2025/"
+        "diners_0587_whole_year_2025/report.html"
+    )
+    row = {
+        "id": 2000,
+        "expense_date": "2025-05-30",
+        "amount": "95.00",
+        "id_light": "diners_club_0587_05_30_25_95_00",
+        "description": "ANNUAL FEE Diners Club | x-0587",
+        "receipt_url": None,
+        "document_url": None,
+        "scanned_statement_url": str(scanned_statement),
+        "moms_ledger": None,
+    }
+    monkeypatch.setattr(
+        server, "_lookup_expense_row", lambda *args, **kwargs: row
+    )
+    monkeypatch.setattr(
+        server,
+        "_supporting_document_roots",
+        lambda: [str(tmp_path), server.READABLE_DOCS_BASE],
+    )
+
+    result = server.lookup_supporting_documents(
+        "2025-05-30",
+        "-95.00",
+        "diners_club_0587",
+        row["description"],
+        report_path,
+        2000,
+    )
+
+    assert result["ok"] is True
+    assert result["document_url"] is None
+    assert result["scanned_statement_url"] == str(scanned_statement)
+    source = next(item for item in result["documents"] if item["type"] == "source")
+    scanned = next(
+        item for item in result["documents"]
+        if item["type"] == "scanned_statement"
+    )
+    assert source["available"] is True
+    assert scanned["available"] is True
+    assert server._source_document_reference(row, report_path) == source_pdf
+    assert server._source_document_reference(row, report_path) != str(scanned_statement)
+
+
+def test_empty_source_does_not_borrow_same_freezer_scan_from_report_fallback(
+    tmp_path, monkeypatch,
+):
+    """A scanner JPG must appear only as View Scanned Statement.
+
+    This is the exact regression found while testing the Diners Club row: the
+    row had no downloaded ``document_url``, but the report fallback resolved to
+    the same JPG supplied by the scanner intake. The source button must be
+    omitted rather than opening the same image a second time.
+    """
+    scan = tmp_path / "diners_club_0587_freezer_scan.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server,
+        "_report_source_document_reference",
+        lambda report_path: str(scan),
+    )
+    monkeypatch.setattr(
+        server,
+        "_report_scanned_statement_reference",
+        lambda report_path: str(scan),
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {
+        "receipt_url": "",
+        "document_url": "",
+        "scanned_statement_url": "",
+        "moms_ledger": "",
+    }
+    documents = server._supporting_document_descriptors(
+        row, "/scanner_report.html?scanner=freezer"
+    )
+
+    source = next(item for item in documents if item["type"] == "source")
+    scanned = next(
+        item for item in documents if item["type"] == "scanned_statement"
+    )
+    assert source["available"] is False
+    assert scanned["available"] is True
+    assert server._source_document_reference(
+        row, "/scanner_report.html?scanner=freezer"
+    ) == ""
+
+
+def test_source_and_archived_scan_copies_are_same_underlying_document(
+    tmp_path, monkeypatch,
+):
+    """Separate staged/archive paths with identical bytes expose one action."""
+    staged = tmp_path / "incoming" / "scan_freezer.jpg"
+    archived = tmp_path / "scanned_statements" / "diners.jpg"
+    staged.parent.mkdir()
+    archived.parent.mkdir()
+    staged.write_bytes(b"same paper document")
+    archived.write_bytes(staged.read_bytes())
+
+    def resolve(reference, _kind):
+        if reference == str(staged):
+            return str(staged)
+        if reference == str(archived):
+            return str(archived)
+        return None
+
+    monkeypatch.setattr(server, "_resolve_local_supporting_document", resolve)
+    monkeypatch.setattr(
+        server,
+        "_report_source_document_reference",
+        lambda _report_path: str(staged),
+    )
+    monkeypatch.setattr(
+        server,
+        "_report_scanned_statement_reference",
+        lambda _report_path: str(archived),
+    )
+
+    row = {
+        "receipt_url": "",
+        "document_url": "",
+        "scanned_statement_url": str(archived),
+        "moms_ledger": "",
+    }
+    documents = server._supporting_document_descriptors(
+        row, "/scanner_report.html?scanner=freezer"
+    )
+
+    assert next(item for item in documents if item["type"] == "source")["available"] is False
+    assert next(item for item in documents if item["type"] == "scanned_statement")["available"] is True
+
+
+def test_scan_attached_to_a_duplicate_row_still_offers_view_receipt(
+    tmp_path, monkeypatch
+):
+    """A receipt that duplicated an existing statement line keeps its button.
+
+    Mazda attaches the scan itself as the row's receipt_url, so the reference
+    is the intake staging path — the receipt was never filed into the receipts
+    tree and the receipt index cannot see it.
+    """
+    staging = tmp_path / "incoming_scans"
+    staging.mkdir()
+    scan = staging / "window_scan_1785375180579246760_bf6820fdd860.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(server, "_resolve_receipt_url_path", lambda ref: None)
+    monkeypatch.setattr(
+        server, "_supporting_document_roots", lambda: [str(staging)]
+    )
+
+    assert server._resolve_local_supporting_document(
+        str(scan), "receipt") == str(scan)
+
+    row = {
+        "receipt_url": str(scan),
+        "document_url": "",
+        "moms_ledger": "",
+    }
+    receipt = server._supporting_document_descriptors(
+        row, "/scanner_report.html?scanner=window")[0]
+
+    assert receipt["label"] == "View Receipt"
+    assert receipt["available"] is True
+
+
+def test_a_receipt_reference_outside_the_allowed_roots_stays_unavailable(
+    tmp_path, monkeypatch
+):
+    stray = tmp_path / "elsewhere" / "scan.jpg"
+    stray.parent.mkdir()
+    stray.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(server, "_resolve_receipt_url_path", lambda ref: None)
+    monkeypatch.setattr(
+        server, "_supporting_document_roots", lambda: [str(tmp_path / "roots")]
+    )
+
+    assert server._resolve_local_supporting_document(
+        str(stray), "receipt") is None
+
+
+def test_interactive_open_queues_annotation_without_waiting(
+    tmp_path, monkeypatch
+):
+    statement = tmp_path / "statement.jpg"
+    statement.write_bytes(b"image")
+    row = {
+        "id": 478,
+        "expense_date": "2025-01-13",
+        "amount": "25.00",
+        "id_light": "shop_01_13_25_25_00",
+        "description": "Shop",
+        "receipt_url": None,
+        "document_url": str(statement),
+        "moms_ledger": None,
+    }
+    monkeypatch.setattr(server, "_lookup_expense_row", lambda *a, **kw: row)
+    monkeypatch.setattr(
+        server, "_resolve_local_supporting_document", lambda ref, kind: str(statement)
+    )
+    monkeypatch.setattr(
+        server, "_background_annotation_result", lambda *a, **kw: None
+    )
+
+    result = server.open_supporting_document(
+        "2025-01-13", "-25.00", "shop", "source",
+        expense_id=478, wait_for_highlight=False,
+    )
+
+    assert result["ok"] is True
+    assert result["url"] == "/supporting-document/478/source"
+    assert result["highlighted"] is False
+    assert result["highlight_pending"] is True
+
+
+def test_viewer_serves_original_while_background_annotation_is_pending(
+    tmp_path, monkeypatch
+):
+    statement = tmp_path / "statement.jpg"
+    statement.write_bytes(b"image")
+    row = {"id": 479, "document_url": str(statement)}
+    monkeypatch.setattr(server, "_lookup_expense_row", lambda *a, **kw: row)
+    monkeypatch.setattr(
+        server, "_resolve_local_supporting_document", lambda ref, kind: str(statement)
+    )
+    monkeypatch.setattr(
+        server, "_background_annotation_result", lambda *a, **kw: None
+    )
+
+    viewed = server._supporting_document_view_for_expense(479, "source")
+
+    assert viewed == str(statement)
+
+
+def test_receipt_scan_never_offers_itself_as_a_source_document(tmp_path, monkeypatch):
+    """A receipt/invoice scan has no separate source document.
+
+    The scan image already appears as "View Receipt"; offering it again under
+    "View Source Document" is a redundant, misleading duplicate button — that
+    label is reserved for a genuine downloaded/scanned statement covering
+    several transactions, distinct from any one row's own receipt.
+    """
+    scan = tmp_path / "scan_freezer_1785370278642285445_af131e077dc3.jpg"
+    scan.write_bytes(b"\xff\xd8\xff")
+    monkeypatch.setattr(
+        server,
+        "get_scanner_intake",
+        lambda key: {"image_path": str(scan), "doc_kind": "receipt"},
+    )
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {"receipt_url": "", "document_url": "", "moms_ledger": ""}
+    report_path = "/scanner_report.html?scanner=freezer"
+
+    assert server._source_document_reference(row, report_path) == ""
+    documents = server._supporting_document_descriptors(row, report_path)
+    assert documents[1]["available"] is False

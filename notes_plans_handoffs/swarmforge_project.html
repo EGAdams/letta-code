@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SwarmForge — Bugs &amp; Failure Modes</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+<style>
+  :root{
+    --paper:#fbf8f1; --paper2:#f3ede0; --ink:#1c1a17; --soft:#5b5447; --rule:#d8cfba;
+    --crimson:#7a1f2b; --crimson2:#9b2c39; --navy:#1f3a5f; --gold:#9a7b32;
+    --green:#166534; --amber:#9a6b00; --red:#9b2c39;
+    --code-bg:#2b2722; --code-ink:#ede4d3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#e7e0d2;color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 14px}
+  .leaf{background:var(--paper);border:1px solid var(--rule);
+    box-shadow:0 14px 40px rgba(28,26,23,.14);margin:22px 0;padding:46px 56px;border-radius:4px}
+  @media(max-width:760px){.leaf{padding:28px 20px}body{font-size:16px}}
+  h1{font-size:40px;line-height:1.08;margin:0 0 6px;letter-spacing:-.01em}
+  h2{font-size:26px;margin:38px 0 6px;border-bottom:2px solid var(--crimson);
+    padding-bottom:6px;display:inline-block}
+  h3{font-size:20px;margin:26px 0 6px;color:var(--navy)}
+  h4{font-size:16px;margin:18px 0 4px;color:var(--soft);text-transform:uppercase;letter-spacing:.08em}
+  .sub{font-style:italic;color:var(--soft);font-size:19px;margin:2px 0 10px}
+  .kicker{text-transform:uppercase;letter-spacing:.3em;font-size:12px;color:var(--crimson);font-weight:700}
+  p{margin:11px 0}
+  code{font-family:"SF Mono","JetBrains Mono",Consolas,monospace;font-size:.84em;
+    background:#efe8d8;color:#5a3030;padding:1px 5px;border-radius:3px}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:16px 18px;
+    overflow-x:auto;margin:14px 0;font-size:13.5px;line-height:1.55;border:1px solid #4a4036}
+  pre code{background:transparent;color:var(--code-ink);padding:0}
+  .filename{font-family:Consolas,monospace;font-size:12px;color:var(--soft);margin:14px 0 -8px;display:block}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px}
+  th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--rule)}
+  thead th{border-bottom:2px solid var(--ink);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  .box{border:1px solid var(--rule);border-left:4px solid var(--navy);background:var(--paper2);
+    padding:13px 17px;margin:18px 0;border-radius:0 6px 6px 0}
+  .box.good{border-left-color:var(--green);background:#eef6ee}
+  .box.warn{border-left-color:var(--amber);background:#f7f1df}
+  .box.bad{border-left-color:var(--red);background:#f7ebe9}
+  .box .h{text-transform:uppercase;letter-spacing:.1em;font-size:11.5px;font-weight:700;margin-bottom:3px}
+  .box.good .h{color:var(--green)} .box.warn .h{color:var(--amber)} .box.bad .h{color:var(--red)}
+  .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;padding:2px 9px;
+    border-radius:999px;border:1px solid;vertical-align:middle}
+  .p-live{color:var(--green);border-color:#9bbf9b;background:#eef6ee}
+  .p-part{color:var(--amber);border-color:#cdb87a;background:#f7f1df}
+  .p-gap{color:var(--red);border-color:#d8a6a0;background:#f7ebe9}
+  .p-fixed{color:var(--navy);border-color:#9fb3cc;background:#e9eff7}
+  .mermaid-wrap{position:relative;background:var(--paper2);border:1px solid var(--rule);border-radius:8px;
+    margin:16px 0;height:440px;overflow:hidden}
+  .mermaid-wrap .mermaid{padding:16px;text-align:center;height:100%}
+  .mermaid-wrap svg{width:100%;height:100%;cursor:grab}
+  .mermaid-hint{position:absolute;top:8px;right:10px;font-size:11px;color:var(--soft);
+    background:rgba(251,248,241,.85);border:1px solid var(--rule);border-radius:4px;
+    padding:2px 7px;pointer-events:none;font-family:"SF Mono","JetBrains Mono",Consolas,monospace;
+    letter-spacing:.02em}
+  .mermaid-reset{position:absolute;bottom:8px;right:10px;font-size:11px;color:var(--soft);
+    background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:3px 9px;
+    cursor:pointer;font-family:inherit}
+  .mermaid-reset:hover{color:var(--ink);border-color:var(--navy)}
+  ul,ol{margin:10px 0;padding-left:24px} li{margin:5px 0}
+  .meta{font-size:13px;color:var(--soft);margin-top:6px}
+  .legend span{margin-right:16px;font-size:13px}
+  hr{border:none;border-top:1px solid var(--rule);margin:30px 0}
+  .tier{font-variant:small-caps;font-weight:700;letter-spacing:.03em}
+  .toc{columns:2;column-gap:32px}
+  .toc li{break-inside:avoid;font-size:14.5px}
+  .num{display:inline-block;min-width:1.6em;font-weight:700;color:var(--crimson)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <section class="leaf">
+    <div class="kicker">SwarmForge · Six-Pack Pipeline · Operational Postmortem</div>
+    <h1>SwarmForge Bugs &amp; Failure Modes</h1>
+    <div class="sub">Everything that went wrong (or nearly went wrong) during the red-box-part4 run, and what it means for the tooling.</div>
+    <p class="meta">Source run: <code>fix/intake-duplicate-rows</code>, scratch clone <code>/home/adamsl/swarmforge-runs/red-box-part4</code> · Roles: specifier → coder → cleaner → architect → hardender → QA · Supervised by a background subagent standing in for EG's approval role.</p>
+
+    <div class="box">
+      <div class="h">The one-paragraph version</div>
+      <p>SwarmForge's six-role pipeline <strong>did</strong> land a working fix (94% mutation coverage, 20/20 acceptance scenarios, all six worktrees converged on QA's final commit). But it took direct human/supervisor intervention at least <strong>12 distinct times</strong> to get there: a silently-dead daemon, a role that skipped notifying two of its teammates, three separate instances of a role ignoring or diluting an explicit instruction, a stale status display masking real progress, an OOM cascade that killed unrelated production services, and a handoff format constraint nobody had hit before. None of these were fatal individually — the run still finished — but none of them were caught by SwarmForge itself either. Every catch below came from a human (or a human-directed supervisor) checking the actual filesystem/process state instead of trusting a role's self-report.</p>
+    </div>
+
+    <h3>Contents</h3>
+    <ul class="toc">
+      <li><span class="num">1</span> Handoff daemon silently dead (sleep-inhibit/polkit)</li>
+      <li><span class="num">2</span> Supervisor searched the wrong handoff directory</li>
+      <li><span class="num">3</span> Mutmut OOM cascade killed production services</li>
+      <li><span class="num">4</span> Mutation-testing cache corruption (JSON decode)</li>
+      <li><span class="num">5</span> Hardender ignored "stop" — twice, back to back</li>
+      <li><span class="num">6</span> Stale TUI percentage masked real progress</li>
+      <li><span class="num">7</span> Requested documentation silently dropped — twice</li>
+      <li><span class="num">8</span> Hardender drifted into a banned tangent</li>
+      <li><span class="num">9</span> Architect never notified coder/cleaner</li>
+      <li><span class="num">10</span> "Moved on" treated as "passed" (QA, repeatedly)</li>
+      <li><span class="num">11</span> Handoff format has no free-text body</li>
+      <li><span class="num">12</span> Simultaneous session-limit hit, same reset window</li>
+      <li><span class="num">13</span> Ghost/placeholder text in Ink-based TUI panes</li>
+      <li><span class="num">14</span> One-shot supervisor needs manual re-nudging</li>
+      <li><span class="num">15</span> Remember to toggle the checking cron on/off</li>
+    </ul>
+  </section>
+
+  <!-- ============ ARCHITECTURE OVERVIEW ============ -->
+  <section class="leaf">
+    <h2>0 · Pipeline shape, and where things broke</h2>
+    <p>Six roles, each its own git worktree and its own long-running <code>claude</code> CLI session, coordinate by dropping files into each other's <code>.swarmforge/handoffs/inbox</code> — moved by a background daemon, <code>handoffd</code>. There is no central scheduler; every role decides for itself when to check its inbox and what to do next. The diagram below marks every failure point found this run.</p>
+    <div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+  participant Spec as Specifier
+  participant Coder
+  participant Clean as Cleaner
+  participant Arch as Architect
+  participant Hard as Hardender
+  participant QA
+  participant Daemon as handoffd daemon
+
+  Note over Coder,Daemon: moves handoff files between every role's own inbox/outbox
+  Spec->>Coder: handoff
+  Coder->>Clean: handoff
+  Clean->>Arch: handoff
+  Arch->>Hard: handoff
+  Hard->>QA: handoff
+  QA->>Spec: broadcast handoff
+  QA->>Coder: broadcast handoff
+  QA->>Clean: broadcast handoff
+  QA->>Arch: broadcast handoff
+  QA->>Hard: broadcast handoff
+
+  rect rgb(247,235,233)
+  Note over QA,Daemon: ① BUG — daemon silently dead (systemd-inhibit/polkit)
+  end
+  rect rgb(247,235,233)
+  Note over Clean,Hard: ⑨ BUG — architect skipped notifying coder and cleaner
+  end
+  rect rgb(247,235,233)
+  Note over Coder,Hard: ③④⑤⑥⑦⑧ BUG — five separate incidents, all here
+  end
+  rect rgb(247,235,233)
+  Note over Hard,QA: ⑩⑪ BUG — dropped result text, format constraint
+  end
+    </div>
+      <div class="mermaid-hint">scroll to zoom &middot; drag to pan</div>
+      <button type="button" class="mermaid-reset" onclick="this.parentElement.__panzoom &amp;&amp; this.parentElement.__panzoom.reset()">Reset</button>
+    </div>
+    <p class="meta">Every arrow in this diagram is a place where one role's output becomes another role's input with no independent check in between — which is exactly why the incidents below all share the same shape: a role reports success, and the failure is only visible in the underlying files/processes.</p>
+  </section>
+
+  <!-- ============ 1 ============ -->
+  <section class="leaf">
+    <h3><span class="num">1</span> Handoff daemon silently dead <span class="pill p-fixed">FIXED</span></h3>
+    <p><code>handoffd</code> is wrapped in a sleep-inhibitor (<code>systemd-inhibit --what=sleep:idle</code>) so the box doesn't nap mid-run. Under WSL, <code>systemd-inhibit</code> fails non-interactively even when <code>systemctl is-system-running</code> reports <code>running</code> — polkit wants an interactive prompt that never comes. The daemon's own startup gate passes, then the actual inhibitor call fails, and the daemon never starts. Two roles (coder→cleaner, hardender→QA) had correctly written handoffs to disk — nothing was lost — but nothing was moving them.</p>
+    <div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+  participant Coder
+  participant Disk as outbox/inbox files
+  participant Daemon as handoffd
+  participant Cleaner
+
+  Note over Daemon: systemctl is-system-running → "running" (gate passes)
+  Daemon->>Daemon: systemd-inhibit --what=sleep:idle
+  Daemon--xDaemon: Access denied (interactive auth required)
+  Note over Daemon: daemon process never actually starts
+  Coder->>Disk: writes handoff (correct, on time)
+  Note over Disk,Cleaner: file sits in outbox — nothing is polling
+  Note over Coder,Cleaner: both roles report "handoff sent" — technically true, undelivered
+    </div>
+      <div class="mermaid-hint">scroll to zoom &middot; drag to pan</div>
+      <button type="button" class="mermaid-reset" onclick="this.parentElement.__panzoom &amp;&amp; this.parentElement.__panzoom.reset()">Reset</button>
+    </div>
+    <div class="box bad">
+      <div class="h">Root cause</div>
+      <p><code>swarmforge.bb</code>'s <code>sleep-inhibitor-prefix</code> gates on system-running state, not on whether the inhibitor call itself succeeds. A failed inhibitor call silently prevented the wrapped daemon from ever launching.</p>
+    </div>
+    <div class="box good">
+      <div class="h">Fix applied</div>
+      <p>Started <code>handoffd.bb</code> manually with <code>SWARMFORGE_PREVENT_SLEEP=0</code> — the script's own built-in escape hatch that skips the sleep-inhibitor wrapper entirely. Two stuck handoffs delivered within seconds.</p>
+      <pre><code>cd /home/adamsl/swarmforge-runs/red-box-part4 && rm -f .swarmforge/daemon/stop
+SWARMFORGE_PREVENT_SLEEP=0 nohup bb swarmforge/scripts/handoffd.bb "$(pwd)" \
+  > .swarmforge/daemon/handoffd.log 2>&1 &
+disown</code></pre>
+    </div>
+    <p><strong>Tooling backlog item:</strong> the inhibitor wrapper should fail loud (log + exit non-zero) instead of swallowing the polkit error, or default <code>SWARMFORGE_PREVENT_SLEEP=0</code> on WSL where interactive polkit is never available.</p>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section class="leaf">
+    <h3><span class="num">2</span> Supervisor searched the wrong handoff directory <span class="pill p-fixed">FIXED</span></h3>
+    <p>Each of the five non-specifier roles has its <em>own</em> <code>.swarmforge/handoffs/{inbox,outbox,sent}</code> inside its own worktree — there is no single shared handoff directory. The supervisor's first pass checked only the top-level path and reported two real, correctly-delivered handoffs as "not existing anywhere."</p>
+    <div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+  participant Sup as Supervisor
+  participant Root as repo-root/.swarmforge/handoffs/
+  participant CoderDir as worktrees/coder/.swarmforge/handoffs/
+  participant HardDir as worktrees/hardender/.swarmforge/handoffs/
+  participant EG
+
+  Sup->>Root: check for handoffs
+  Root-->>Sup: empty / stale
+  Sup-->>EG: "not existing anywhere"
+  EG->>CoderDir: find (direct check across every worktree)
+  CoderDir-->>EG: handoff actually here, correctly delivered
+  EG->>HardDir: find (direct check across every worktree)
+  HardDir-->>EG: handoff actually here, correctly delivered
+  Note over EG: ground truth — both fine, supervisor was checking the wrong path
+    </div>
+      <div class="mermaid-hint">scroll to zoom &middot; drag to pan</div>
+      <button type="button" class="mermaid-reset" onclick="this.parentElement.__panzoom &amp;&amp; this.parentElement.__panzoom.reset()">Reset</button>
+    </div>
+    <p>Corrected by direct <code>find</code> across every worktree; the supervisor applied the per-worktree-path rule for the rest of the run without recurrence.</p>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section class="leaf">
+    <h3><span class="num">3</span> Mutmut OOM cascade killed production services <span class="pill p-fixed">FIXED</span></h3>
+    <p>Hardender's <code>mutmut run --max-children 8</code> pushed the box into severe memory pressure (as low as 78Mi–376Mi free of 5.8GB, 0 swap). Linux's OOM killer doesn't scope to the offending cgroup here — it took down whatever process looked worst by its heuristic, which twice included unrelated live services.</p>
+    <div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+  participant Hard as Hardender
+  participant Mutmut as mutmut (8 workers)
+  participant Kernel as Linux OOM killer
+  participant Dash as dashboard-server
+  participant Bot as lettabot
+
+  Hard->>Mutmut: mutmut run --max-children 8
+  Mutmut->>Mutmut: free memory 5.8GB → 78-376Mi, 0 swap
+  Mutmut->>Kernel: memory pressure triggers OOM
+  Kernel->>Mutmut: kills several mutmut workers
+  Kernel->>Dash: kills dashboard-server (unrelated!)
+  Kernel->>Bot: kills lettabot (unrelated!)
+  Note over Dash,Bot: production services down, no connection to the SwarmForge run
+    </div>
+      <div class="mermaid-hint">scroll to zoom &middot; drag to pan</div>
+      <button type="button" class="mermaid-reset" onclick="this.parentElement.__panzoom &amp;&amp; this.parentElement.__panzoom.reset()">Reset</button>
+    </div>
+    <p>Fixed by dropping to <code>--max-children 2</code>; verified <code>dashboard-server</code> and <code>lettabot</code> both recovered.</p>
+    <p><strong>Tooling backlog item:</strong> heavy roles (mutation testing especially) should run under a memory-limited cgroup, or SwarmForge should document/enforce a <code>--max-children</code> ceiling based on available RAM rather than leaving it to each role's judgment.</p>
+  </section>
+
+  <!-- ============ 4 ============ -->
+  <section class="leaf">
+    <h3><span class="num">4</span> Mutation-testing cache corruption <span class="pill p-part">ACCEPTED, NOT FIXED</span></h3>
+    <p>A second, different mutmut failure — <code>json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)</code> — hit during mutant generation, most likely cache corruption from the repeated interrupted runs in item 3. It had already reached 94.0% (2796/2975, 328 stable survivors) before failing. Accepted as good enough; not chased further.</p>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section class="leaf">
+    <h3><span class="num">5</span> Hardender ignored "stop" — twice, back to back <span class="pill p-fixed">FIXED (killed manually)</span></h3>
+    <p>After accepting 94% and explicitly instructing hardender to stop, it launched a new ~3019-mutant scoped run instead. That run was killed directly (<code>kill -TERM</code> / <code>pkill -9</code>). A second re-launch started essentially <em>as the stop message was being delivered</em> — almost certainly a command queued before the instruction was processed. The supervisor caught and killed that one too.</p>
+    <div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+  participant EG
+  participant Sup as Supervisor
+  participant Hard as Hardender
+
+  EG->>Sup: "94% is good enough — stop"
+  Sup->>Hard: relays stop instruction
+  Hard->>Hard: launches NEW scoped mutmut run anyway
+  Note over Hard: ~45 min, worse survivor rate under memory pressure
+  Sup->>Hard: kill -TERM / pkill -9
+  Hard->>Hard: launches a THIRD run (queued before stop landed)
+  Sup->>Hard: kill -9 again
+  Note over Sup,Hard: two separate kills required for one "stop" instruction
+    </div>
+      <div class="mermaid-hint">scroll to zoom &middot; drag to pan</div>
+      <button type="button" class="mermaid-reset" onclick="this.parentElement.__panzoom &amp;&amp; this.parentElement.__panzoom.reset()">Reset</button>
+    </div>
+    <div class="box bad">
+      <div class="h">Why this matters</div>
+      <p>"Progressing steadily" is not the same as "complying with stop." The only reliable check is <code>ps</code> confirming the specific forbidden process is actually gone — a healthy-looking process tree can hide a role that quietly restarted the exact thing it was told to stop.</p>
+    </div>
+  </section>
+
+  <!-- ============ 6 ============ -->
+  <section class="leaf">
+    <h3><span class="num">6</span> Stale TUI percentage masked real progress <span class="pill p-fixed">FOUND, NOT A BLOCKER</span></h3>
+    <p>Hardender's pane reported <code>"Still running (1696/3019, ~56%)"</code> verbatim across six or seven separate <code>capture-pane</code> checks spanning roughly 15 minutes, while <code>ps</code>-visible worker processes kept advancing through different functions underneath. The real number — found by tailing the actual stdout task-output log directly — was 81% (2446/3019).</p>
+    <div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+  participant EG
+  participant Pane as Hardender's pane
+  participant Log as real task-output log
+
+  loop every ~3 min, 6-7 times over ~15 min
+    EG->>Pane: capture-pane
+    Pane-->>EG: "Still running (1696/3019, ~56%)"
+  end
+  EG->>Log: tail actual stdout directly
+  Log-->>EG: 2446/3019, 81% — real number
+  Note over Pane,Log: pane repeated the same stale % the whole time while real progress kept advancing underneath
+    </div>
+      <div class="mermaid-hint">scroll to zoom &middot; drag to pan</div>
+      <button type="button" class="mermaid-reset" onclick="this.parentElement.__panzoom &amp;&amp; this.parentElement.__panzoom.reset()">Reset</button>
+    </div>
+    <p><strong>Rule going forward:</strong> never trust a role's self-printed percentage for a long-running process. Tail the real stdout/task-output log file — found under <code>/tmp/claude-*/…/tasks/*.output</code> for background subagents.</p>
+  </section>
+
+  <!-- ============ 7 ============ -->
+  <section class="leaf">
+    <h3><span class="num">7</span> Requested documentation silently dropped — twice <span class="pill p-part">TOLERATED</span></h3>
+    <p>Told explicitly to write the final mutation numbers (94.0%, 2796/2975, 1378 killed, 328 survivors, ~737 timeouts) into its completion handoff, hardender acknowledged, correctly stopped, correctly committed, correctly sent a handoff — and the handoff body contained none of the numbers. This happened <em>twice in a row</em> after being asked again.</p>
+    <div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+  participant EG
+  participant Hard as Hardender
+  participant File as sent handoff file
+
+  EG->>Hard: "Include the final numbers in the handoff"
+  Hard-->>EG: acknowledges, stops mutation testing, commits
+  Hard->>File: writes handoff
+  Note over File: body = "Re-read your role and constitution.\nmerge_and_process hardender 322cd99bd8"
+  Note over File: zero mention of any number
+  EG->>Hard: asks again, explicitly
+  Hard-->>EG: acknowledges again
+  Hard->>File: writes second handoff
+  Note over File: numbers STILL missing
+    </div>
+      <div class="mermaid-hint">scroll to zoom &middot; drag to pan</div>
+      <button type="button" class="mermaid-reset" onclick="this.parentElement.__panzoom &amp;&amp; this.parentElement.__panzoom.reset()">Reset</button>
+    </div>
+    <div class="box bad">
+      <div class="h">Lesson</div>
+      <p>A role can genuinely comply with every <em>procedural</em> part of an instruction (stop, commit, send) while silently dropping the actual <em>content</em> requested. Verbal/pane acknowledgment is not proof content was written — the delivered file has to be read directly. On the second occurrence, EG chose to let it go since the numbers were already safe in the human-maintained memory file independently.</p>
+    </div>
+  </section>
+
+  <!-- ============ 8 ============ -->
+  <section class="leaf">
+    <h3><span class="num">8</span> Hardender drifted into a banned tangent <span class="pill p-fixed">CAUGHT, REDIRECTED</span></h3>
+    <p>While processing a new batch of architect handoffs, hardender began investigating and preparing to run <code>gherkin-mutator</code>/acceptance-mutation tooling from <code>.cache/acceptance-pipeline-specification</code> — the exact same unverified external repo EG had already told <em>cleaner</em> to skip earlier over unverified-fetch concerns. Not literally <code>mutmut</code>, but the same spirit of "keep testing past the point EG called it done." The supervisor flagged it proactively as a possible violation and redirected hardender to just write up the final numbers — which is the same instruction that then surfaced incident 7's second occurrence.</p>
+  </section>
+
+  <!-- ============ 9 ============ -->
+  <section class="leaf">
+    <h3><span class="num">9</span> Architect never notified coder/cleaner <span class="pill p-fixed">FIXED</span></h3>
+    <p>A genuine structural bug, not a timing/patience issue: architect's <code>done_with_current.sh</code> wrap-up step only ever sent its completion handoffs to hardender, never to coder or cleaner. Root-caused by checking actual inbox files across every worktree (not pane text, not self-reports) and finding nothing addressed to coder/cleaner from architect at all.</p>
+    <div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+  participant Arch as Architect (done_with_current.sh)
+  participant Hard as Hardender
+  participant Coder
+  participant Clean as Cleaner
+
+  Arch->>Hard: handoff
+  Arch--xCoder: MISSING — never sent
+  Arch--xClean: MISSING — never sent
+  Note over Coder,Clean: structural bug — done_with_current.sh only ever targeted hardender
+    </div>
+      <div class="mermaid-hint">scroll to zoom &middot; drag to pan</div>
+      <button type="button" class="mermaid-reset" onclick="this.parentElement.__panzoom &amp;&amp; this.parentElement.__panzoom.reset()">Reset</button>
+    </div>
+    <p>Fixed with an explicit instruction to architect to relay via <code>swarm_handoff.sh</code> to both coder and cleaner, the same mechanism already used for hardender. Confirmed resolved by diffing <code>git log</code> across all worktrees over the following passes.</p>
+  </section>
+
+  <!-- ============ 10 ============ -->
+  <section class="leaf">
+    <h3><span class="num">10</span> "Moved on" treated as "passed" <span class="pill p-fixed">RECURRING, CAUGHT EACH TIME</span></h3>
+    <p>This exact pattern recurred at least three times with QA: a test run (property tests, then a verbose rerun, then again) would finish with no printed pass/fail summary, and QA would simply move on to the next step (<code>acceptance/run.sh</code>, etc.) as if it had passed. No failure signal was ever actually seen — but "no failure signal" and "confirmed pass" are different claims, and only the second is safe to act on.</p>
+    <div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+  participant QA
+  participant Test as pytest property_tests/ -v
+  participant EG
+
+  QA->>Test: run
+  Test-->>QA: finishes — no printed pass/fail line
+  QA->>QA: moves on anyway (implicit pass)
+  EG->>Test: check directly (grep summary / tail log)
+  Test-->>EG: 3 passed / 0 failed
+  Note over QA,EG: risk — "no failure seen" was silently treated as "confirmed pass"
+    </div>
+      <div class="mermaid-hint">scroll to zoom &middot; drag to pan</div>
+      <button type="button" class="mermaid-reset" onclick="this.parentElement.__panzoom &amp;&amp; this.parentElement.__panzoom.reset()">Reset</button>
+    </div>
+    <p>Every time this was caught, the actual pytest summary line was findable — either in the pane text directly or by grepping a task-output log — and it did, in fact, pass. The gap is the habit, not (this time) a hidden failure.</p>
+  </section>
+
+  <!-- ============ 11 ============ -->
+  <section class="leaf">
+    <h3><span class="num">11</span> Handoff format has no free-text body <span class="pill p-fixed">DISCOVERED, WORKED AROUND</span></h3>
+    <p>After incident 7's pattern seemed to repeat with QA, direct investigation revealed something different: the <code>git_handoff</code> type is a hard 5-header format (<code>type/to/priority/task/commit</code>) with <strong>no free-text body field</strong> — not a role skipping the request, a genuine tool constraint. QA had correctly identified this itself when asked and offered two compliant options.</p>
+    <div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+  participant EG
+  participant QA
+  participant Fmt as git_handoff format
+
+  EG->>QA: put the test result in the handoff body
+  QA->>Fmt: check
+  Fmt-->>QA: 5 fixed headers only (type/to/priority/task/commit) — no body field
+  QA-->>EG: Option 1 — headers-only (number lives only in commit msg)
+  QA-->>EG: Option 2 — send git_handoff, THEN a separate type:note handoff with the number
+  EG->>QA: choose Option 2
+  Note over QA: satisfies the standard within the tool's real limits
+    </div>
+      <div class="mermaid-hint">scroll to zoom &middot; drag to pan</div>
+      <button type="button" class="mermaid-reset" onclick="this.parentElement.__panzoom &amp;&amp; this.parentElement.__panzoom.reset()">Reset</button>
+    </div>
+    <p><strong>Tooling backlog item:</strong> this is worth fixing at the source — either add an optional free-text field to <code>git_handoff</code>, or make the <code>type:note</code> companion-handoff pattern (option 2 above) a documented, first-class convention instead of something each role has to improvise when it hits the wall.</p>
+  </section>
+
+  <!-- ============ 12 ============ -->
+  <section class="leaf">
+    <h3><span class="num">12</span> Simultaneous session-limit hit <span class="pill p-part">OBSERVED</span></h3>
+    <p>Architect and hardender both hit the same Claude session-limit reset window (<code>resets 10:10pm America/New_York</code>) within the same run — architect showed a real stop-and-wait confirmation dialog, hardender showed a 99% context-usage warning shortly before. The supervisor's own background-subagent session was separately caught by the same limit mid-check, requiring a later resume. Not a SwarmForge defect per se, but worth tracking: if roles cluster their heavy work in the same time window, they'll tend to hit shared rate-limit walls together.</p>
+  </section>
+
+  <!-- ============ 13 ============ -->
+  <section class="leaf">
+    <h3><span class="num">13</span> Ghost/placeholder text in Ink-based TUI panes <span class="pill p-part">RECURRING, WATCH FOR IT</span></h3>
+    <p>Several roles' panes showed unsubmitted "self-suggestion" text that looked like real queued input but was a no-op — <code>Ctrl+U</code> did not reliably clear it, and Enter did not reliably submit it. The only reliable check is a follow-up <code>capture-pane</code> confirming the text actually left the input box and something changed, not assuming a keystroke worked.</p>
+  </section>
+
+  <!-- ============ 14 ============ -->
+  <section class="leaf">
+    <h3><span class="num">14</span> One-shot supervisor needs manual re-nudging <span class="pill p-part">EXPECTED BEHAVIOR, NOT A BUG</span></h3>
+    <p>The "supervisor" babysitting the six roles is not part of SwarmForge itself — it's a background subagent spawned ad hoc, standing in for EG's approval role. Background subagents run until they run out of queued work, then exit; that's documented, correct behavior, not a crash. It resumes cleanly via a message to its agent id each time, but this run needed on the order of <strong>40+ manual re-nudges</strong> across its lifetime, several times per approval cycle. Filed as a real usability gap even though it's not a defect: a recurring-cadence mechanism (a scheduled loop instead of ad hoc re-nudges) would remove the need for a human to notice and relay every blocked prompt individually.</p>
+  </section>
+
+  <!-- ============ 15 ============ -->
+  <section class="leaf">
+    <h3><span class="num">15</span> Remember: turn the "checking cron" on/off around each run <span class="pill p-part">PROCESS REMINDER</span></h3>
+    <p>Discovered live during this run's wind-down: a recurring cron job (fired every 2 minutes, re-enqueuing the exact same "nudge the supervisor" prompt) had been left running well after the run was wound down — it kept resurfacing the same message and made it look like a fresh request each time, when it was actually a stale scheduled job nobody had turned off.</p>
+    <div class="box warn">
+      <div class="h">Standing rule going forward</div>
+      <p><strong>Turn the checking cron ON</strong> when a SwarmForge run starts (so the supervisor gets nudged automatically without manual re-prompting — this is the fix for item 14 above). <strong>Turn it OFF</strong> the moment the run is wound down/converged — otherwise it keeps firing indefinitely and can be mistaken for a live, ongoing request. Check active jobs before assuming a repeated instruction is genuine.</p>
+    </div>
+  </section>
+
+  <!-- ============ SUMMARY TABLE ============ -->
+  <section class="leaf">
+    <h2>Summary</h2>
+    <table>
+      <thead><tr><th>#</th><th>Issue</th><th>Class</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Handoff daemon silently dead (polkit/sleep-inhibit)</td><td>Infra</td><td><span class="pill p-fixed">Fixed</span></td></tr>
+        <tr><td>2</td><td>Supervisor checked wrong handoff directory</td><td>Coordination</td><td><span class="pill p-fixed">Fixed</span></td></tr>
+        <tr><td>3</td><td>Mutmut OOM killed production services</td><td>Infra</td><td><span class="pill p-fixed">Fixed</span></td></tr>
+        <tr><td>4</td><td>Mutation cache JSON corruption</td><td>Infra</td><td><span class="pill p-part">Accepted</span></td></tr>
+        <tr><td>5</td><td>Hardender ignored "stop" twice</td><td>Trust / compliance</td><td><span class="pill p-fixed">Killed manually</span></td></tr>
+        <tr><td>6</td><td>Stale TUI progress percentage</td><td>Observability</td><td><span class="pill p-fixed">Worked around</span></td></tr>
+        <tr><td>7</td><td>Requested docs silently dropped, twice</td><td>Trust / compliance</td><td><span class="pill p-part">Tolerated</span></td></tr>
+        <tr><td>8</td><td>Hardender drifted into banned tangent</td><td>Trust / compliance</td><td><span class="pill p-fixed">Redirected</span></td></tr>
+        <tr><td>9</td><td>Architect never notified coder/cleaner</td><td>Coordination (structural)</td><td><span class="pill p-fixed">Fixed</span></td></tr>
+        <tr><td>10</td><td>"Moved on" treated as "passed"</td><td>Verification discipline</td><td><span class="pill p-fixed">Caught each time</span></td></tr>
+        <tr><td>11</td><td>Handoff format has no free-text body</td><td>Tooling gap</td><td><span class="pill p-fixed">Worked around</span></td></tr>
+        <tr><td>12</td><td>Simultaneous session-limit hit</td><td>Infra / scheduling</td><td><span class="pill p-part">Observed</span></td></tr>
+        <tr><td>13</td><td>Ghost/placeholder TUI text</td><td>Observability</td><td><span class="pill p-part">Recurring</span></td></tr>
+        <tr><td>14</td><td>One-shot supervisor needs re-nudging</td><td>Ergonomics</td><td><span class="pill p-part">Expected, not fixed</span></td></tr>
+        <tr><td>15</td><td>Checking cron left on after wind-down</td><td>Ergonomics / process</td><td><span class="pill p-part">Process reminder</span></td></tr>
+      </tbody>
+    </table>
+
+    <h3>Recommended tooling backlog</h3>
+    <ol>
+      <li>Make the sleep-inhibitor wrapper fail loud, or default off under WSL.</li>
+      <li>Memory-limit heavy roles (mutation testing) via cgroup, or document a safe <code>--max-children</code> ceiling.</li>
+      <li>Add an optional free-text body to <code>git_handoff</code>, or make the headers-plus-note-handoff pattern a documented convention.</li>
+      <li>Give roles a way to print a real progress heartbeat to their own task-output log, independent of the TUI's self-reported percentage.</li>
+      <li>Replace ad hoc supervisor re-nudging with a scheduled/looped cadence so a human doesn't have to notice and relay every blocked prompt.</li>
+    </ol>
+  </section>
+
+</div>
+<script>
+  // Sequence diagrams measure real SVG text/actor widths via getBBox(), which
+  // returns 0 while this page sits in a display:none iframe tab (Project Plans
+  // tabs are hidden until clicked) — that produces "translate(undefined, NaN)"
+  // and a "Syntax error in text" placeholder even though the diagram is valid.
+  // Defer rendering until the page actually has layout width.
+  mermaid.initialize({startOnLoad:false, theme:'neutral', securityLevel:'loose', sequence:{wrap:true}});
+  (function renderWhenVisible(){
+    if (document.body.offsetWidth > 0) {
+      mermaid.run().then(attachPanZoom);
+    } else {
+      setTimeout(renderWhenVisible, 150);
+    }
+  })();
+
+  // Mouse-wheel zoom + drag-to-pan on each diagram, like mermaid.live's editor.
+  function attachPanZoom(){
+    document.querySelectorAll('.mermaid-wrap').forEach(wrap => {
+      const svg = wrap.querySelector('svg');
+      if (!svg) return;
+      svg.removeAttribute('height');
+      svg.style.maxWidth = 'none';
+      const pz = svgPanZoom(svg, {
+        zoomEnabled: true,
+        panEnabled: true,
+        controlIconsEnabled: false,
+        mouseWheelZoomEnabled: true,
+        preventMouseEventsDefault: true,
+        fit: true,
+        center: true,
+        minZoom: 0.4,
+        maxZoom: 12,
+        zoomScaleSensitivity: 0.35
+      });
+      wrap.__panzoom = pz;
+      window.addEventListener('resize', () => { pz.resize(); pz.fit(); pz.center(); });
+    });
+  }
+</script>
+</body>
+</html>

@@ -40,14 +40,14 @@ describe("HealthMonitor.overallStatus", () => {
       }),
     ).toBe("up");
   });
-  test("concern (no down/starting) => concern", () => {
+  test("per-server concern does not downgrade the parent tab", () => {
     expect(
       HealthMonitor.overallStatus({
         any_down: false,
         any_concern: true,
         servers: [{ status: "up" }, { status: "concern" }],
       }),
-    ).toBe("concern");
+    ).toBe("up");
   });
   test("down beats concern", () => {
     expect(

@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice Communication - SOLID and GoF Object Plan</title>
+<style>
+  :root {
+    --paper: #fbfaf6;
+    --paper-deep: #f0ece2;
+    --ink: #182026;
+    --muted: #5c6670;
+    --line: #d5d0c4;
+    --navy: #173b57;
+    --blue: #235f85;
+    --green: #21643d;
+    --amber: #9a6200;
+    --red: #8c2f39;
+    --code: #202a31;
+    --code-ink: #edf4f7;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: #e5e8e9;
+    color: var(--ink);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 18px; }
+
+  main {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 18px 44px rgba(20, 32, 40, .12);
+    padding: 48px 58px 64px;
+  }
+
+  @media (max-width: 760px) {
+    .wrap { padding: 0; }
+    main { border: 0; border-radius: 0; padding: 28px 20px 48px; }
+    h1 { font-size: 36px !important; }
+  }
+
+  h1 { margin: 4px 0 8px; font-size: 48px; line-height: 1.04; color: var(--navy); }
+  h2 { margin: 42px 0 12px; font-size: 27px; color: var(--navy); border-bottom: 2px solid var(--blue); padding-bottom: 7px; }
+  h3 { margin: 26px 0 8px; font-size: 20px; color: var(--blue); }
+  p { margin: 10px 0; }
+  ul, ol { padding-left: 25px; }
+  li { margin: 6px 0; }
+  a { color: #0f5d8a; }
+  strong { color: #132f42; }
+
+  code {
+    background: #e9e5da;
+    color: #4c2b35;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: .88em;
+  }
+
+  pre {
+    margin: 16px 0;
+    padding: 18px 20px;
+    overflow-x: auto;
+    border-radius: 8px;
+    background: var(--code);
+    color: var(--code-ink);
+    font: 14px/1.55 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); padding: 10px 11px; }
+  th { color: var(--navy); background: var(--paper-deep); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+
+  .kicker { color: var(--red); text-transform: uppercase; letter-spacing: .2em; font-size: 12px; font-weight: 800; }
+  .subtitle { max-width: 850px; color: var(--muted); font-size: 20px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 24px; }
+  .tag { border-radius: 999px; padding: 4px 10px; background: #dce9ef; color: var(--navy); font-size: 12px; font-weight: 700; }
+  .tag.active { background: #dceedd; color: var(--green); }
+
+  .callout {
+    margin: 18px 0;
+    border: 1px solid var(--line);
+    border-left: 5px solid var(--blue);
+    border-radius: 6px;
+    background: var(--paper-deep);
+    padding: 14px 18px;
+  }
+
+  .callout.rule { border-left-color: var(--red); }
+  .callout.good { border-left-color: var(--green); }
+  .callout.warn { border-left-color: var(--amber); }
+  .small { color: var(--muted); font-size: 14px; }
+  .checklist li::marker { color: var(--green); }
+  .nowrap { white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<main>
+  <div class="kicker">Project Plans / Canonical Working Plan</div>
+  <h1>Voice Communication</h1>
+  <p class="subtitle">Build a real-time voice system from the useful parts of <code>voice_agent</code> and Pipecat, one tested object boundary at a time.</p>
+  <div class="meta">
+    <span class="tag active">Active design</span>
+    <span class="tag">Started August 1, 2026</span>
+    <span class="tag">Source: talking_agent_parts</span>
+    <span class="tag">Method: SOLID + Gang of Four</span>
+  </div>
+
+  <div class="callout rule">
+    <strong>New leaf rule.</strong> Every bug and alteration begins with a SOLID audit. The first design catalog we consult for a remedy is the Gang of Four book. We select a pattern only when it explains the forces and improves the object boundaries; pattern names are not permission to add ceremony.
+  </div>
+
+  <h2>Decision and boundaries</h2>
+  <p><strong>Pipecat is the real-time media framework.</strong> It owns frame flow, transports, turn detection integration, interruption propagation, STT/TTS service plumbing, and pipeline lifecycle.</p>
+  <p><strong>Our objects own application policy.</strong> They decide which agent receives a turn, what may be spoken, how one active run is enforced, how stale output is rejected, what a session means, and how providers are selected at the composition root.</p>
+  <p><strong>The existing <code>/home/adamsl/voice_agent</code> repository is evidence and a source of adapters.</strong> We preserve recordings, settings, environment knowledge, and behavior tests. We do not make the new domain depend on its synchronous orchestrator or concrete provider classes.</p>
+
+  <pre>Browser / phone / local microphone
+              |
+        Pipecat transport
+              |
+  turn strategy + STT processor
+              |
+     ConversationCoordinator
+       /       |          \
+ VoiceSession  |      SpokenOutputPolicy
+               |
+       IConversationAgent
+               |
+        LettaAgentAdapter
+               |
+   agent memory, tools, and skills
+              |
+        TTS + transport output</pre>
+
+  <h2>SOLID Change Protocol</h2>
+  <p>This protocol is required for every defect, feature request, and refactor in the new system.</p>
+  <ol class="checklist">
+    <li><strong>Reproduce first.</strong> Add the narrowest failing test or characterization test. Record the observed RED result.</li>
+    <li><strong>Audit all five principles.</strong> Name the violated boundary and cite the concrete dependency, responsibility, subtype behavior, or oversized interface that proves it.</li>
+    <li><strong>Open the GoF catalog.</strong> Compare the problem's forces with applicable patterns. Record the selected pattern or explicitly record why no pattern is needed.</li>
+    <li><strong>Change the smallest object boundary.</strong> Prefer moving a decision behind a port, injecting a collaborator, or splitting a responsibility over adding conditionals to an orchestrator.</li>
+    <li><strong>Run shared contract tests.</strong> Every adapter for a port must pass the same behavioral contract. Fakes are first-class adapters for offline tests.</li>
+    <li><strong>Refactor after GREEN.</strong> Remove obsolete branches and duplicated policy. Update this plan when an object, port, or pattern decision changes.</li>
+  </ol>
+
+  <table>
+    <thead><tr><th>Principle</th><th>Question asked before editing</th><th>Required evidence</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Single Responsibility Principle</strong></td><td>How many independent reasons can this object change?</td><td>Name the actors or policies currently mixed together.</td></tr>
+      <tr><td><strong>Open/Closed Principle</strong></td><td>Can the requested behavior be added through a new implementation?</td><td>Show whether existing conditionals must be edited for each provider or mode.</td></tr>
+      <tr><td><strong>Liskov Substitution Principle</strong></td><td>Can every implementation honor the port's preconditions, results, errors, cancellation, and ordering?</td><td>Run the same contract suite against every adapter.</td></tr>
+      <tr><td><strong>Interface Segregation Principle</strong></td><td>Is a client forced to depend on methods or events it does not use?</td><td>List each client and the smallest capability it needs.</td></tr>
+      <tr><td><strong>Dependency Inversion Principle</strong></td><td>Does application policy import Pipecat, Faster-Whisper, OpenAI, sounddevice, pyttsx3, or Letta directly?</td><td>Concrete construction appears only in adapters and the composition root.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Gang of Four First</h2>
+  <p>Use this short list as the first design search, not as a mandate to use every pattern.</p>
+  <table>
+    <thead><tr><th>Pattern</th><th>Use in this system</th><th>Force it resolves</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Strategy</strong></td><td>Turn policy, STT/TTS provider choice, spoken-output policy, retry policy.</td><td>Algorithms vary independently from the clients using them.</td></tr>
+      <tr><td><strong>Adapter</strong></td><td><code>LettaAgentAdapter</code>, optional legacy Whisper/Moonshine adapters, Pipecat frame bridges.</td><td>External APIs do not match our application ports.</td></tr>
+      <tr><td><strong>State</strong></td><td><code>VoiceSession</code>: idle, listening, thinking, speaking, interrupted, closed.</td><td>Valid behavior depends on lifecycle state and transitions must be explicit.</td></tr>
+      <tr><td><strong>Factory Method</strong></td><td><code>PipelineFactory</code> creates a configured pipeline from injected provider factories.</td><td>Construction varies while callers use one creation contract.</td></tr>
+      <tr><td><strong>Chain of Responsibility</strong></td><td><code>SpokenOutputPolicy</code> filters reasoning, tool calls, status events, stale generations, and unsafe commands.</td><td>Independent gates should compose without one giant conditional.</td></tr>
+      <tr><td><strong>Observer</strong></td><td>Session events feed transcripts, metrics, logs, and dashboard status.</td><td>Telemetry and UI react without coupling into conversation logic.</td></tr>
+      <tr><td><strong>Command</strong></td><td>Confirmed external actions and cancellable agent turns.</td><td>Requests need identity, validation, execution, cancellation, and audit.</td></tr>
+      <tr><td><strong>Decorator</strong></td><td>Metrics, tracing, retries, and redaction around a port.</td><td>Cross-cutting behavior should not contaminate provider adapters.</td></tr>
+      <tr><td><strong>Facade</strong></td><td><code>VoiceCommunicationApplication</code> exposes start, stop, and health to hosts.</td><td>Dashboard and CLI hosts need a small stable surface.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <strong>Patterns currently rejected.</strong> No global Singleton service locator, no general-purpose event bus before a second real consumer exists, no Abstract Factory until we truly need compatible product families, and no custom frame hierarchy that merely duplicates Pipecat frames.
+  </div>
+
+  <h3>Pattern decision card</h3>
+  <pre>Change / defect:
+Observed failing test:
+SOLID violation and evidence:
+Forces that must remain variable:
+GoF candidates considered:
+Selected pattern (or "none"):
+Port or object changed:
+Shared contract tests:
+Observed GREEN:
+Obsolete code removed:</pre>
+
+  <h2>Audit of the existing voice_agent objects</h2>
+  <table>
+    <thead><tr><th>Existing code</th><th>SOLID finding</th><th>Disposition</th></tr></thead>
+    <tbody>
+      <tr><td><code>VoiceAgent</code></td><td>Creates every concrete dependency and also controls capture, transcription, exits, conversation, speech, errors, status, and shutdown. SRP, OCP, and DIP are violated.</td><td>Do not port. Replace with a thin composition root plus <code>ConversationCoordinator</code>.</td></tr>
+      <tr><td><code>AudioCapture</code></td><td>Mixes device discovery, device probing, queue management, recording policy, formatting, timeout policy, and terminal presentation.</td><td>Keep its WSL/device discoveries as tests and operational notes. Let Pipecat transports own streaming audio.</td></tr>
+      <tr><td><code>DetectionInterface</code></td><td>Good early Strategy seam, but start policy, stop policy, reset lifecycle, and UI status are one interface. Keyboard detection is forced to accept unused audio arguments.</td><td>Split turn policy from presentation. Prefer Pipecat VAD and user-turn strategies.</td></tr>
+      <tr><td><code>RecordingProcess</code></td><td>Device selection, threading, storage, conversion, callbacks, and logging change for different reasons.</td><td>Use its mock audio generation and recordings as fixtures; do not recreate its queue beside Pipecat's pipeline.</td></tr>
+      <tr><td><code>SpeechToText</code></td><td>Model loading, normalization, quality checks, debug persistence, transcription, and console output are coupled.</td><td>Begin with Pipecat's built-in <code>WhisperSTTService</code>. Port only missing behavior behind a focused adapter.</td></tr>
+      <tr><td><code>LanguageProcessor</code></td><td>OpenAI client construction, prompt policy, history storage, token policy, error translation, and exit commands are one class.</td><td>Replace with <code>IConversationAgent</code>, session state, and separate command/output policies.</td></tr>
+      <tr><td><code>TextToSpeech</code></td><td>Driver detection, fallback selection, configuration, process execution, playback, enumeration, and diagnostics form a large conditional object. Some fallback paths leave <code>engine</code> absent while other methods assume it exists, weakening substitutability.</td><td>Use Pipecat TTS services through Strategy/service switching. Preserve eSpeak only as a narrow optional adapter.</td></tr>
+      <tr><td><code>app.py</code> Moonshine prototype</td><td>Useful sherpa-onnx model configuration and 16 kHz normalization are embedded in a Gradio/file workflow.</td><td>Extract only after a contract test proves Pipecat's built-in Whisper path is insufficient.</td></tr>
+      <tr><td><code>whisper.cpp/</code></td><td>Vendored source is not integrated with the Python pipeline.</td><td>Exclude from the first slice; reconsider as a later adapter or remove from the dependency story.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>First object model</h2>
+  <p>Names below are working contracts. Each object earns its place with a failing test and one reason to change.</p>
+  <table>
+    <thead><tr><th>Object / port</th><th>Responsibility</th><th>Pattern</th><th>First contract test</th></tr></thead>
+    <tbody>
+      <tr><td><code>VoiceSession</code></td><td>Own immutable session identity, active generation, and legal lifecycle transitions.</td><td>State</td><td>Reject speaking output from an interrupted or superseded generation.</td></tr>
+      <tr><td><code>ConversationCoordinator</code></td><td>Coordinate one finalized user turn with one agent run and one generation fence.</td><td>Mediator</td><td>Overlapping turns never produce overlapping spoken responses.</td></tr>
+      <tr><td><code>IConversationAgent</code></td><td>Submit a user turn, stream public assistant events, and cancel by run identity.</td><td>Port</td><td>Fake and Letta adapter obey ordering, cancellation, and terminal-event semantics.</td></tr>
+      <tr><td><code>LettaAgentAdapter</code></td><td>Translate the Letta messages API into <code>IConversationAgent</code> events.</td><td>Adapter</td><td>Tool/reasoning events remain typed but are never mislabeled as speakable text.</td></tr>
+      <tr><td><code>SpokenOutputPolicy</code></td><td>Pass only current-generation, assistant-facing, safe text to TTS.</td><td>Chain of Responsibility</td><td>Reasoning, tools, stale tokens, and unconfirmed destructive commands are rejected.</td></tr>
+      <tr><td><code>PipelineFactory</code></td><td>Assemble Pipecat transport, STT, turn management, coordinator bridge, TTS, and observers.</td><td>Factory Method</td><td>Changing STT or TTS requires only different injected factories.</td></tr>
+      <tr><td><code>VoiceCommunicationApplication</code></td><td>Expose a small host API: start session, stop session, health, and shutdown.</td><td>Facade</td><td>Dashboard and CLI host tests use the same facade contract.</td></tr>
+      <tr><td><code>ISessionObserver</code></td><td>Receive typed state, latency, transcript, interruption, and error events.</td><td>Observer</td><td>Adding a metrics observer changes no coordinator behavior.</td></tr>
+      <tr><td><code>IClock</code> / <code>IIdSource</code></td><td>Provide deterministic time and identities to tests.</td><td>Strategy</td><td>Latency and stale-generation tests run with no sleeps or randomness.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Proposed package layout</h2>
+  <pre>/home/adamsl/talking_agent_parts/
+  voice_communication_plan.html
+  pyproject.toml                         # created in Phase 1
+  src/voice_communication/
+    domain/
+      session.py                         # VoiceSession and state values
+      events.py                          # framework-free event value objects
+    application/
+      coordinator.py                     # ConversationCoordinator
+      spoken_output_policy.py            # composed output gates
+      facade.py                           # VoiceCommunicationApplication
+    ports/
+      conversation_agent.py              # IConversationAgent
+      session_observer.py                 # ISessionObserver
+      clock.py                            # IClock and IIdSource
+    adapters/
+      letta/agent.py                      # LettaAgentAdapter
+      pipecat/pipeline_factory.py         # PipelineFactory and frame bridge
+      telemetry/                          # observer decorators/adapters
+      legacy/                             # only adapters justified by tests
+    composition/
+      bootstrap.py                        # the only concrete wiring location
+  tests/
+    contracts/                            # shared port contracts
+    characterization/                     # preserved voice_agent behavior
+    unit/
+    integration/</pre>
+
+  <div class="callout good">
+    <strong>Dependency rule:</strong> <code>domain</code> imports no Pipecat, Letta, OpenAI, Faster-Whisper, sounddevice, pyttsx3, filesystem, network, or dashboard modules. <code>application</code> imports only domain values and ports. Concrete imports are restricted to <code>adapters</code> and <code>composition/bootstrap.py</code>.
+  </div>
+
+  <h2>Implementation plan</h2>
+  <h3>Phase 0 - Baseline and decision records</h3>
+  <ol>
+    <li>Record Python and target-host constraints; Pipecat currently requires Python 3.11 or later.</li>
+    <li>Pin a tested Pipecat version and provider extras in <code>pyproject.toml</code>.</li>
+    <li>Turn selected recordings in <code>voice_agent/recorded_audio/</code> into named characterization fixtures with expected transcript intent, not brittle punctuation.</li>
+    <li>Capture baseline end-of-speech to transcript and first-audio latency on the target machine.</li>
+    <li>Write ADR-001: Pipecat owns media; our application owns agent/session policy.</li>
+  </ol>
+
+  <h3>Phase 1 - Framework-free objects</h3>
+  <ol>
+    <li>Create failing tests for <code>VoiceSession</code> transitions and generation fencing.</li>
+    <li>Create the smallest immutable domain events required by those tests.</li>
+    <li>Create <code>IConversationAgent</code> and its fake through shared contract tests.</li>
+    <li>Create <code>SpokenOutputPolicy</code> as independently tested gates.</li>
+    <li>Create <code>ConversationCoordinator</code> only after its collaboration tests are RED.</li>
+  </ol>
+
+  <h3>Phase 2 - First Pipecat slice</h3>
+  <ol>
+    <li>Build a local browser transport pipeline using Pipecat's standard frames and pipeline lifecycle.</li>
+    <li>Use Pipecat's built-in <code>WhisperSTTService</code>, which already uses Faster-Whisper for local CPU/CUDA transcription, before writing a custom STT adapter.</li>
+    <li>Use Silero VAD and a Pipecat user-turn strategy. Compare Smart Turn with a measured speech-timeout strategy; make the choice an injected Strategy.</li>
+    <li>Use a Pipecat TTS service that produces streamable audio. Keep pyttsx3 out of the first real-time path.</li>
+    <li>Bridge finalized user turns to the fake conversation agent and prove barge-in suppresses stale output.</li>
+  </ol>
+
+  <h3>Phase 3 - Letta adapter</h3>
+  <ol>
+    <li>Write fixture-driven tests from representative Letta streaming events.</li>
+    <li>Implement <code>LettaAgentAdapter</code> without importing it into domain or application modules.</li>
+    <li>Separate public assistant text from thoughts, tool calls, tool results, and status events.</li>
+    <li>Assign every run a generation identity; cancel when supported and always fence late events.</li>
+    <li>Prove voice and dashboard text routes reach the same Letta agent memory and tools.</li>
+  </ol>
+
+  <h3>Phase 4 - Reliability and provider substitution</h3>
+  <ol>
+    <li>Run shared STT/TTS/agent contracts against every enabled adapter.</li>
+    <li>Add Pipecat service switching only after a real primary/fallback requirement exists.</li>
+    <li>Add Observer-based structured logs and latency metrics without coordinator edits.</li>
+    <li>Test disconnect, reconnect, timeout, cancellation, no-speech, and provider failure.</li>
+    <li>Benchmark local Whisper on the actual host and set measured P99 latency rather than relying on a generic default.</li>
+  </ol>
+
+  <h3>Phase 5 - Dashboard integration</h3>
+  <ol>
+    <li>Add a dashboard host adapter around <code>VoiceCommunicationApplication</code>.</li>
+    <li>Reuse the existing agent selector and show listening, thinking, tool-working, speaking, interrupted, and failed states.</li>
+    <li>Keep browser-specific code behind the dashboard's established abstract/implementation interfaces and injected HTTP/timer collaborators.</li>
+    <li>Require explicit confirmation before destructive or externally visible Commands execute from voice.</li>
+    <li>Deploy only after browser, Android secure-context, and interruption acceptance tests pass.</li>
+  </ol>
+
+  <h2>Definition of done for the first vertical slice</h2>
+  <ul class="checklist">
+    <li>A browser user completes ten turns with one selected Letta agent.</li>
+    <li>The user can interrupt speech; no token or audio from the old generation is heard afterward.</li>
+    <li>Tool calls execute through Letta, but thoughts, tool calls, tool results, and status events are never spoken.</li>
+    <li>Switching between fake and Letta conversation adapters changes only composition wiring.</li>
+    <li>Switching supported STT or TTS implementations changes only composition wiring.</li>
+    <li>Domain and application dependency rules are enforced by an automated test.</li>
+    <li>All adapters pass their shared contract suites.</li>
+    <li>Latency is measured from end-of-speech to finalized transcript and from finalized transcript to first output audio.</li>
+    <li>Every implemented object points back to a failing test and a recorded SOLID/GoF decision card.</li>
+  </ul>
+
+  <h2>Immediate next slice</h2>
+  <div class="callout good">
+    <strong>Create only three production objects first:</strong> <code>VoiceSession</code>, a fake-backed <code>IConversationAgent</code>, and <code>ConversationCoordinator</code>. Build their tests without Pipecat. Once generation fencing and one-run-at-a-time semantics are correct, add <code>PipelineFactory</code> as the first Pipecat adapter boundary.
+  </div>
+
+  <h2>Current reference notes</h2>
+  <ul>
+    <li><a href="https://docs.pipecat.ai/pipecat/learn/pipeline">Pipecat pipeline and frame processing</a> - standard processor order and frame flow.</li>
+    <li><a href="https://docs.pipecat.ai/pipecat/learn/speech-input">Pipecat speech input and turn detection</a> - VAD, Smart Turn, timeouts, and interruption behavior.</li>
+    <li><a href="https://docs.pipecat.ai/api-reference/server/services/stt/whisper">Pipecat local Whisper STT</a> - built-in Faster-Whisper service and current <code>Settings</code> API.</li>
+    <li><a href="https://docs.pipecat.ai/pipecat/fundamentals/stt-latency-tuning">Pipecat STT latency tuning</a> - benchmark and configure local P99 timing.</li>
+    <li><a href="https://docs.pipecat.ai/api-reference/server/utilities/service-switchers/service-switcher">Pipecat ServiceSwitcher</a> - defer until a measured failover requirement exists.</li>
+    <li>Legacy source: <code>/home/adamsl/voice_agent</code>.</li>
+    <li>New object workspace and canonical plan: <code>/home/adamsl/talking_agent_parts</code>.</li>
+  </ul>
+  <p class="small">This document supersedes the earlier high-level Pipecat Voice proposal as the working object-creation plan. The earlier dashboard tab remains useful design history until implementation begins.</p>
+</main>
+</div>
+</body>
+</html>

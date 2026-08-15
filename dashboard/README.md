@@ -35,8 +35,13 @@ tailscale serve --bg 8765   # one-time; persists across reboots
 ```
 
 Open on the phone (must be on the tailnet, MagicDNS on):
-**https://desktop-2obsqmc-24.tailb8fc54.ts.net/** — use the hostname, not the IP,
+**https://desktop-2obsqmc.tailb8fc54.ts.net/** — use the hostname, not the IP,
 or the cert won't validate. Turn off with `tailscale serve --https=443 off`.
+
+⚠ Don't confuse this with `desktop-2obsqmc-24` — that's the WSL node (goes
+offline when its distro terminates, see `dashboard_wsl_distro_termination`);
+the live dashboard runs on the primary Linux node, `desktop-2obsqmc` (no
+`-24`). Check `tailscale status` if unsure which is currently up.
 
 ## Service locations
 
@@ -44,8 +49,8 @@ or the cert won't validate. Turn off with `tailscale serve --https=443 off`.
 |---|---|
 | Dashboard server | `server.py`, port **8765** |
 | Letta API | `LETTA_BASE_URL`, default `http://100.80.49.10:8283` (Tailscale) |
-| Tailscale HTTPS (phone) | `https://desktop-2obsqmc-24.tailb8fc54.ts.net/` |
-| This host on tailnet | `desktop-2obsqmc-24` / `100.72.158.63` |
+| Tailscale HTTPS (phone) | `https://desktop-2obsqmc.tailb8fc54.ts.net/` |
+| This host on tailnet | `desktop-2obsqmc` / `100.102.209.100` |
 | Android test device | `samsung-sm-s156v` / `100.111.161.7` |
 
 ## Endpoints (POST)
@@ -73,7 +78,7 @@ GoF: **Strategy** (transcription, cleanup), **Adapter** (`LettaClient`),
 | `voice/pipeline.py` | `VoicePipeline.process` + `handle_voice_upload` (the `/api/voice` logic) |
 
 Reused from **lettabot** (don't reinvent): `whisper-cli` at
-`~/whisper.cpp/build/bin/whisper-cli`, model `~/whisper.cpp/models/ggml-base.en.bin`,
+`~/whisper.cpp/build/bin/whisper-cli`, model `~/whisper.cpp/models/ggml-small.en.bin`,
 ffmpeg from lettabot's bundled `imageio_ffmpeg` binary. All overridable via env
 (`WHISPER_CPP_BIN`, `WHISPER_MODEL_PATH`, `FFMPEG_BIN`, `WHISPER_LANGUAGE`,
 `WHISPER_THREADS`, `WHISPER_PROMPT`).
@@ -108,6 +113,7 @@ Management and come back. A forced refresh is available with
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # first time
 .venv/bin/python -m pytest tests/                                        # 21 tests
+.venv/bin/python -m pytest property_tests/                               # property tests
 ```
 
 A venv is used because system Python is PEP-668 externally-managed. The **server
@@ -155,6 +161,7 @@ Other Project Plans notes:
   its doc `/team_construction_plan.html` is kept (with a SUPERSEDED banner) as design history only.
 - **Project Plans → Verification Tracker** (`/notes_plans_handoffs/verification_tracker.html`) mirrors the January statement verification tracker markdown as a dashboard-readable HTML page.
 - **Project Plans → Pipecat Voice** (`/notes_plans_handoffs/pipecat_letta_voice_plan.html`) records the proposed future integration that uses Pipecat for real-time voice/media while Letta remains the agent runtime and memory source of truth.
+- **Project Plans → Voice Communication** (`/voice_communication_plan.html`) is the team’s version-controlled voice development guide. Its 13 interface choices use the dashboard’s standard blue submenu and Back bar; the iframe contains only the university-style guide page. Specs live under `dashboard/js/plans/voice-communication/`, and the original single-page plan remains available at `/voice_communication_plan_v1.html`.
 - The old Tool Fix plan was removed; `/agent_self_improvement/mazda_tool_fix_plan.html`
   should return 404.
 - Frita can advise on dashboard deployment details at Letta agent id

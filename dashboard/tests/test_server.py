@@ -10,11 +10,153 @@ import os
 import re
 import time
 import types
+import urllib.error
 
 import pytest
 import server
 
 REAL_CREATE_MAZDA_CONVERSATION = server._create_mazda_conversation
+
+
+def write_scan_image(path):
+    """Write a real, decodable, clearly non-blank JPEG at `path`.
+
+    process_scanned_document rejects anything inspect_scan_image_quality can't
+    decode, so a placeholder byte string is no longer a stand-in for "a scan
+    happened" — a dispatch/routing test using one would pass for the wrong
+    reason (or fail for a reason it isn't testing).
+    """
+    from PIL import Image, ImageDraw
+
+    img = Image.new('L', (600, 800), color=245)
+    draw = ImageDraw.Draw(img)
+    for offset in range(0, 800, 40):
+        draw.rectangle((40, offset + 8, 560, offset + 24), fill=30)
+    path = str(path)
+    img.save(path, format='JPEG')
+    return path
+
+
+@pytest.mark.parametrize(
+    ('message', 'expected_type'),
+    [
+        ({'message_type': 'reasoning_message', 'reasoning': 'x' * 700}, 'thought'),
+        ({'message_type': 'assistant_message', 'content': 'x' * 700}, None),
+        ({'message_type': 'user_message', 'content': 'x' * 700}, 'user'),
+    ],
+)
+def test_letta_thoughts_does_not_truncate_entries(monkeypatch, message, expected_type):
+    monkeypatch.setattr(server, 'letta_messages', lambda _agent_id, limit: [message])
+
+    rows = server.letta_thoughts('agent-test')
+
+    assert rows[0]['text'] == 'x' * 700
+    if expected_type is None:
+        assert 'type' not in rows[0]
+    else:
+        assert rows[0]['type'] == expected_type
+
+
+def test_letta_thoughts_reads_isolated_conversation(monkeypatch):
+    seen = {}
+
+    def fake_get(path, timeout=0):
+        seen.update(path=path, timeout=timeout)
+        return [{
+            'message_type': 'reasoning_message',
+            'created_at': '2026-08-12T19:07:44Z',
+            'reasoning': 'I am processing this Window scan.',
+        }]
+
+    monkeypatch.setattr(server, 'letta_get', fake_get)
+    monkeypatch.setattr(
+        server, 'letta_messages',
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError('agent-wide messages must not be used')))
+
+    result = server.letta_thoughts('agent-mazda', 'conv-window')
+
+    assert seen == {
+        'path': '/v1/conversations/conv-window/messages?limit=80',
+        'timeout': 25,
+    }
+    assert result == [{
+        'date': '2026-08-12T19:07:44',
+        'type': 'thought',
+        'text': 'I am processing this Window scan.',
+    }]
+
+
+def test_cached_thoughts_returns_cache_while_refresh_runs(monkeypatch):
+    class FakeProxy:
+        def get(self, key, *args, default=None):
+            assert key == ('agent-mazda', 'conv-freezer')
+            assert args == ('agent-mazda', 'conv-freezer')
+            return [{'text': 'cached'}]
+
+    monkeypatch.setattr(server, '_thoughts_proxy', FakeProxy())
+
+    started = time.monotonic()
+    rows = server.cached_thoughts('agent-mazda', 'conv-freezer')
+
+    assert time.monotonic() - started < 0.1
+    assert rows == [{'text': 'cached'}]
+
+
+def test_cached_thoughts_keys_full_history_by_agent(monkeypatch):
+    """Two different agents with no active scan conversation (conversation_id='')
+    must not share one cache entry - the old scanner-only key was just the
+    conversation_id, so both fell into the same '' bucket."""
+    class FakeProxy:
+        def get(self, key, *args, default=None):
+            return key
+
+    monkeypatch.setattr(server, '_thoughts_proxy', FakeProxy())
+
+    assert server.cached_thoughts('agent-mazda', '') != server.cached_thoughts('agent-suzuki', '')
+
+
+def test_scanner_intake_archive_path_resolves_receipt_from_expense_row(monkeypatch):
+    archived = '/archive/2025/april/receipt.jpg'
+    monkeypatch.setattr(
+        server, '_associated_source_paths',
+        lambda _rows: ('', archived))
+
+    result = server.scanner_intake_archive_path(
+        {'doc_kind': 'receipt', 'archive_paths': []},
+        [{'receipt_url': 'receipt.jpg'}])
+
+    assert result == archived
+
+
+def test_scanner_intake_archive_path_falls_back_to_db_statement_evidence(
+        tmp_path, monkeypatch):
+    archived = tmp_path / 'american_express_4007_may_21__june_02.jpg'
+    archived.write_bytes(b'scan')
+    monkeypatch.setattr(server, '_statement_archive_path', lambda *_args, **_kwargs: '')
+    monkeypatch.setattr(
+        server, '_associated_evidence_paths',
+        lambda _rows: (str(archived), ''))
+
+    result = server.scanner_intake_archive_path(
+        {'doc_kind': 'statement', 'archive_paths': []},
+        [{'scanned_statement_url': str(archived)}])
+
+    assert result == str(archived)
+
+
+def test_scanner_intake_archive_path_rejects_missing_statement_evidence(monkeypatch):
+    monkeypatch.setattr(server, '_statement_archive_path', lambda *_args, **_kwargs: '')
+    monkeypatch.setattr(
+        server, '_associated_evidence_paths',
+        lambda _rows: ('/archive/missing-statement.jpg', ''))
+    monkeypatch.setattr(server, '_associated_source_paths', lambda _rows: ('', ''))
+
+    result = server.scanner_intake_archive_path(
+        {'doc_kind': 'statement', 'archive_paths': []},
+        [{'scanned_statement_url': '/archive/missing-statement.jpg'}])
+
+    assert result == ''
 
 
 class _CompletedProcess:
@@ -218,6 +360,7 @@ def _clear_model_stats_cache(tmp_path, monkeypatch):
     # leak-detector snapshots, and tests must never write fake percentages into
     # the real MODEL_USAGE_HISTORY_FILE (it would poison the live leak detector).
     monkeypatch.setattr(server, 'MODEL_USAGE_HISTORY_FILE', str(tmp_path / 'usage_history.json'))
+    monkeypatch.setattr(server, 'MODEL_STATS_LAST_GOOD_FILE', str(tmp_path / 'model_stats_last_good.json'))
     monkeypatch.setattr(server, '_usage_history', {})
 
 
@@ -280,6 +423,18 @@ def test_rol_finance_reports_include_diners_annual_summary():
     assert report is not None
     assert report['key'] == 'diners-0587-year'
     assert report['label'] == 'Diners 0587 Year'
+
+
+def test_rol_finance_reports_include_amazon_marketplace():
+    report = next(
+        (r for r in server.ROL_FINANCE_REPORTS
+         if r['key'] == 'amazon-marketplace'),
+        None,
+    )
+    assert report is not None
+    assert report['label'] == 'Amazon Marketplace'
+    assert report['dir'] == 'amazon_marketplace_january_2025'
+    assert report.get('all_year') is not True
 
 
 def test_rol_finance_months_include_march_and_april_placeholders():
@@ -437,6 +592,47 @@ def test_receipts_present_is_scoped_to_each_matching_expense(monkeypatch):
             'signed_amount': '-14.96',
             'vendor_key': 'other_vendor',
             'description': 'OTHER VENDOR',
+        },
+    ])
+
+    assert result == {'ok': True, 'present': [False, True]}
+
+
+def test_scanned_statements_present_is_scoped_to_each_matching_expense(monkeypatch):
+    rows = [
+        {
+            'id': 1366,
+            'expense_date': '2025-07-31',
+            'amount': '6.24',
+            'id_light': 'kfc_k980120_07_31_25_6_24',
+            'description': 'KFC K980120',
+            'scanned_statement_url': '',
+        },
+        {
+            'id': 1434,
+            'expense_date': '2025-08-15',
+            'amount': '179.08',
+            'id_light': 'country_inn_by_carlson_08_15_25_179_08',
+            'description': 'COUNTRY INN & SUITES - ELKHART',
+            'scanned_statement_url':
+                '/scanned_statements/2025/choice_..._scan.jpg',
+        },
+    ]
+    monkeypatch.setattr(
+        server, '_rol_get_connection', lambda: _FakeConnection(rows))
+    monkeypatch.setattr(
+        server, '_resolve_local_supporting_document',
+        lambda reference, kind: '/x.jpg' if reference and kind == 'scanned_statement' else None)
+
+    result = server.scanned_statements_present([
+        {
+            'date': '2025-07-31', 'signed_amount': '-6.24',
+            'vendor_key': 'kfc_k980120', 'description': 'KFC K980120',
+        },
+        {
+            'date': '2025-08-15', 'signed_amount': '-179.08',
+            'vendor_key': 'country_inn_by_carlson',
+            'description': 'COUNTRY INN & SUITES - ELKHART',
         },
     ])
 
@@ -829,6 +1025,59 @@ def test_model_stats_sources_cover_w11_r46_gemini():
     assert {'w11-codex', 'r46-codex', 'w11-claude', 'r46-claude', 'gemini'} <= keys
 
 
+def test_antigravity_extractor_refreshes_expired_token_and_retries(
+        monkeypatch, tmp_path, capsys):
+    token_dir = tmp_path / '.gemini' / 'antigravity-cli'
+    token_dir.mkdir(parents=True)
+    token_file = token_dir / 'antigravity-oauth-token'
+    token_file.write_text(json.dumps({
+        'auth_method': 'oauth-personal',
+        'token': {
+            'access_token': 'expired-access',
+            'refresh_token': 'durable-refresh',
+            'expiry': '2020-01-01T00:00:00+00:00',
+            'token_type': 'Bearer',
+        },
+    }))
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setenv('ANTIGRAVITY_OAUTH_CLIENT_ID', 'test-client-id')
+    monkeypatch.setenv('ANTIGRAVITY_OAUTH_CLIENT_SECRET', 'test-client-secret')
+    calls = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(request)
+        url = request.full_url
+        authorization = request.headers.get('Authorization')
+        if url.endswith('loadCodeAssist') and authorization == 'Bearer expired-access':
+            raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, None)
+        if url == 'https://oauth2.googleapis.com/token':
+            assert b'refresh_token=durable-refresh' in request.data
+            return _FakeResponse(json.dumps({
+                'access_token': 'renewed-access',
+                'expires_in': 3600,
+                'token_type': 'Bearer',
+            }).encode())
+        if url.endswith('loadCodeAssist') and authorization == 'Bearer renewed-access':
+            return _FakeResponse(json.dumps({
+                'currentTier': {'id': 'free-tier', 'name': 'Free'},
+            }).encode())
+        if url.startswith('https://www.googleapis.com/oauth2/v1/userinfo'):
+            return _FakeResponse(b'{"email":"eg1972@gmail.com"}')
+        raise AssertionError(f'unexpected request: {url} {authorization}')
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', fake_urlopen)
+    exec(server._ANTIGRAVITY_EXTRACT_PY, {})
+
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    saved = json.loads(token_file.read_text())['token']
+    assert result['error'] is None
+    assert result['tier_id'] == 'free-tier'
+    assert result['account'] == 'eg1972@gmail.com'
+    assert saved['access_token'] == 'renewed-access'
+    assert saved['refresh_token'] == 'durable-refresh'
+    assert len(calls) == 4
+
+
 def _codex_usage(primary, secondary=0, reached=False):
     return {'model': 'gpt-5.5', 'as_of': 1.0, 'usage': {
         'plan_type': 'plus',
@@ -880,14 +1129,114 @@ def test_model_stats_claude_live_windows(monkeypatch):
     assert [w['used_percent'] for w in d['windows']] == [19.0, 12.0]
 
 
-def test_model_stats_claude_rate_limited_is_red_with_reset(monkeypatch):
-    # A provider-side 429 (the R46 Claude incident, 2026-07-15) must be RED
-    # with an absolute reset epoch, not yellow "usage unavailable".
+def test_model_stats_claude_rate_limit_keeps_last_good_bars(monkeypatch):
+    responses = iter([
+        {'recent_model': 'claude-opus-4-8', 'as_of': 100.0,
+         'usage': {'five_hour': {'utilization': 19.0, 'resets_at': None},
+                   'seven_day': {'utilization': 12.0, 'resets_at': None}}},
+        {'recent_model': 'claude-opus-4-8', 'as_of': 200.0,
+         'error': 'HTTP 429', 'retry_after': 60},
+    ])
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: next(responses))
+    first = server.model_stats('r46-claude')
+    server._model_stats_cache.clear()
+    limited = server.model_stats('r46-claude')
+    assert [w['used_percent'] for w in first['windows']] == [19.0, 12.0]
+    assert [w['used_percent'] for w in limited['windows']] == [19.0, 12.0]
+    assert limited['windows_stale'] is True
+    assert limited['usage_as_of'] == 100.0
+    assert limited['rate_limited'] is True
+
+
+def test_claude_extractor_names_logged_out_before_any_request(tmp_path, monkeypatch, capsys):
+    """Blank tokens are a logged-out host, not a throttle.
+
+    R46 sat with accessToken == refreshToken == "" (a `claude` logout leaves the
+    file behind), so every poll sent `Authorization: Bearer ` and Anthropic's
+    edge answered 429 — which the dashboard then reported as a rate limit that
+    would never clear. The extractor must recognise it locally, name the
+    condition, and make no request at all."""
+    cred_dir = tmp_path / '.claude'
+    cred_dir.mkdir()
+    (cred_dir / '.credentials.json').write_text(json.dumps({'claudeAiOauth': {
+        'accessToken': '', 'refreshToken': '', 'expiresAt': 0,
+        'subscriptionType': 'pro'}}))
+    monkeypatch.setenv('HOME', str(tmp_path))
+
+    def fail_urlopen(*a, **k):
+        raise AssertionError('logged-out host must not be probed over the network')
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', fail_urlopen)
+    with pytest.raises(SystemExit):
+        exec(server._CLAUDE_EXTRACT_PY, {})
+
+    d = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert d['condition'] == 'logged_out'
+    assert 'usage' not in d
+
+
+def test_model_stats_claude_logged_out_is_red_with_login_instruction(monkeypatch):
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'as_of': 1.0, 'condition': 'logged_out', 'error': 'logged out (no OAuth token on this host)'})
+    d = server.model_stats('r46-claude')
+    assert d['status'] == 'down'                    # red, not a yellow "throttled"
+    assert d['logged_out'] is True
+    assert not d.get('rate_limited')
+    assert server.R46_SSH_HOST in d['detail']       # says WHICH host to log into
+    assert 'claude' in d['detail'] and '/login' in d['detail']
+
+
+def test_model_stats_claude_logged_out_does_not_show_stale_bars(monkeypatch):
+    """Last-good bars are restored only for a throttle. A logged-out host has
+    no live quota reading at all, so showing yesterday's bars would hide it."""
+    responses = iter([
+        {'as_of': 100.0, 'usage': {'five_hour': {'utilization': 19.0, 'resets_at': None},
+                                   'seven_day': {'utilization': 12.0, 'resets_at': None}}},
+        {'as_of': 200.0, 'condition': 'logged_out', 'error': 'logged out (no OAuth token on this host)'},
+    ])
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: next(responses))
+    server.model_stats('r46-claude')
+    server._model_stats_cache.clear()
+    out = server.model_stats('r46-claude')
+    assert out['windows'] == []
+    assert out['status'] == 'down'
+
+
+def test_model_stats_codex_logged_out_reuses_shared_explanation(monkeypatch):
+    """The condition is described once, not once per provider."""
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'model': 'gpt-5.5', 'condition': 'logged_out', 'error': 'no auth.json'})
+    d = server.model_stats('w11-codex')
+    assert d['status'] == 'down' and d['logged_out'] is True
+    assert 'codex login' in d['detail']
+    assert 'this box' in d['detail']                # local source names itself
+
+
+def test_model_stats_claude_rate_limit_restores_primary_history(monkeypatch):
+    with open(server.MODEL_USAGE_HISTORY_FILE, 'w', encoding='utf-8') as fh:
+        json.dump({'r46-claude': [[100.0, 51.0]]}, fh)
+    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+        'as_of': 200.0, 'error': 'HTTP 429', 'retry_after': 60})
+    limited = server.model_stats('r46-claude')
+    assert limited['windows'][0]['label'] == '5-hour'
+    assert limited['windows'][0]['used_percent'] == 51.0
+    assert limited['windows'][1]['label'] == 'weekly'
+    assert limited['windows'][1]['unavailable'] is True
+    assert limited['windows_stale'] is True
+
+
+def test_model_stats_claude_rate_limited_is_flagged_with_reset(monkeypatch):
+    # A provider-side 429 (the R46 Claude incident, 2026-07-15) must be flagged
+    # with an absolute reset epoch, not a bare yellow "usage unavailable".
+    # Claude's severity is 'concern', not 'down': the usage-stats endpoint
+    # throttles independently of the chat API, so Claude itself may still work
+    # (see _fill_rate_limited). These two assertions were left at 'down' when
+    # that severity changed, and had been failing since.
     monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
         'as_of': 1000.0, 'error': 'HTTP 429', 'retry_after': 2627,
         'recent_model': 'claude-opus-4-8'})
     d = server.model_stats('r46-claude')
-    assert d['status'] == 'down'
+    assert d['status'] == 'concern'
     assert d['rate_limited'] is True
     assert d['rate_limited_until'] == 1000.0 + 2627
     assert 'RATE LIMITED' in d['detail']
@@ -897,7 +1246,7 @@ def test_model_stats_claude_rate_limited_without_retry_after(monkeypatch):
     monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
         'as_of': 1000.0, 'error': 'HTTP 429'})
     d = server.model_stats('w11-claude')
-    assert d['status'] == 'down' and d['rate_limited'] is True
+    assert d['status'] == 'concern' and d['rate_limited'] is True
     assert 'rate_limited_until' not in d
     assert 'reset time not reported' in d['detail']
 
@@ -955,6 +1304,7 @@ def test_run_letta_code_message_returns_only_final_result(monkeypatch):
         '/home/test/.bun/bin/bun', 'run', 'dev', '--']
     assert '--output-format' in seen['argv'] and 'json' in seen['argv']
     assert seen['cwd'] == server.REPO_ROOT
+    assert seen['timeout'] == 900
     assert seen['env']['PATH'].split(server.os.pathsep)[0] == '/home/test/.bun/bin'
     # Headless auto-denies gated tools, so without a raised permission mode the
     # agent can never apply an edit it says it made.
@@ -1130,17 +1480,28 @@ def test_scanner_diag_freezer_device_blocker_is_red():
     r = server.build_scanner_diagnostics('freezer', True, ps, device)
     dev = _diag_by_id(r, 'device')
     assert dev['state'] == 'bad'
+    assert dev['label'] == 'Scanner Hardware'
     assert dev['detail'] == device['blocker']
     assert r['overall'] == 'bad'
 
 
-def test_scanner_diag_freezer_print_only_note_is_yellow_not_red():
+def test_scanner_diag_freezer_hides_print_only_status_entirely():
     ps = {'stisvc': 'Running', 'stale_scans': 0,
           'driver_present': True, 'driver_status': 'OK', 'wia': 'present'}
     device = {'reachable': True, 'categories': ['inputTrayEmpty'], 'blocker': None,
               'note': 'it is out of paper (printing only — scanning works without paper)'}
     r = server.build_scanner_diagnostics('freezer', True, ps, device)
-    assert _diag_by_id(r, 'device')['state'] == 'warn'
+    assert not any(check['id'] == 'device' for check in r['checks'])
+    assert r['overall'] == 'ok'
+
+
+def test_airscan_freezer_hides_print_only_status_entirely():
+    device = {'reachable': True, 'categories': ['inputTrayEmpty'], 'blocker': None,
+              'note': 'it is out of paper (printing only — scanning works without paper)'}
+    r = server.build_scanner_diagnostics(
+        'freezer', False, None, device, airscan_ready=True)
+    assert not any(check['id'] == 'device' for check in r['checks'])
+    assert r['overall'] == 'ok'
 
 
 def test_scanner_diag_unknown_scanner_errors():
@@ -1241,7 +1602,7 @@ def test_process_scanned_statement_pauses_for_missing_bank_metadata(
         tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
+    write_scan_image(scan_dir / 'window_scan.jpg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'output': 'window_scan.jpg'},
@@ -1272,7 +1633,7 @@ def test_process_scanned_statement_resumes_with_user_metadata(
         tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
+    write_scan_image(scan_dir / 'window_scan.jpg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'output': 'window_scan.jpg'},
@@ -1310,7 +1671,7 @@ def test_process_scanned_statement_resumes_with_user_metadata(
 def test_process_scanned_statement_rejects_no_transactions(tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
+    write_scan_image(scan_dir / 'window_scan.jpg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'output': 'window_scan.jpg'},
@@ -1348,6 +1709,90 @@ def test_scan_output_must_be_a_nonempty_file(tmp_path):
     assert server._scan_output_ready(str(scan)) is False
     scan.write_bytes(b'jpeg bytes')
     assert server._scan_output_ready(str(scan)) is True
+
+
+def test_inspect_scan_image_quality_rejects_blank_white_page(tmp_path):
+    pil = pytest.importorskip('PIL.Image')
+    scan = tmp_path / 'blank.jpg'
+    pil.new('RGB', (300, 400), 'white').save(scan, format='JPEG')
+
+    result = server.inspect_scan_image_quality(str(scan))
+
+    assert result['ok'] is False
+    assert result['blank_like'] is True
+    assert 'blank or unreadable' in result['reason'].lower()
+
+
+def test_inspect_scan_image_quality_allows_nonblank_document_like_page(tmp_path):
+    pil = pytest.importorskip('PIL.Image')
+    draw = pytest.importorskip('PIL.ImageDraw')
+    scan = tmp_path / 'document.jpg'
+    img = pil.new('RGB', (600, 800), 'white')
+    pen = draw.Draw(img)
+    for y in range(60, 760, 36):
+        pen.rectangle((55, y, 540, y + 6), fill='black')
+    img.save(scan, format='JPEG', quality=90)
+
+    result = server.inspect_scan_image_quality(str(scan))
+
+    assert result['ok'] is True
+    assert result['blank_like'] is False
+
+
+def test_process_scanned_document_rejects_blank_scan_before_mazda_dispatch(
+        tmp_path, monkeypatch):
+    scan = tmp_path / 'window_scan.jpg'
+    scan.write_bytes(b'fake-image-bytes')
+    monkeypatch.setitem(server.SCANNERS, 'window', {'output': scan.name})
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(tmp_path))
+    monkeypatch.setattr(server, 'inspect_scan_image_quality', lambda _path: {
+        'ok': False,
+        'blank_like': True,
+        'reason': 'The scan appears blank or unreadable (nearly uniform page).',
+    })
+
+    result = server.process_scanned_document('window')
+
+    assert result['ok'] is False
+    assert result['mazda_dispatched'] is False
+    assert result['trainer_dispatched'] is False
+    assert 'blank or unreadable' in result['error'].lower()
+    assert 'image_quality' in result
+
+
+def test_inspect_scan_image_quality_rejects_blank_dark_page(tmp_path):
+    pil = pytest.importorskip('PIL.Image')
+    scan = tmp_path / 'dark.jpg'
+    pil.new('RGB', (300, 400), 'black').save(scan, format='JPEG')
+
+    result = server.inspect_scan_image_quality(str(scan))
+
+    assert result['ok'] is False
+    assert result['blank_like'] is True
+    assert 'blank or unreadable' in result['reason'].lower()
+
+
+def test_inspect_scan_image_quality_rejects_undecodable_file(tmp_path):
+    pytest.importorskip('PIL.Image')
+    scan = tmp_path / 'corrupt.jpg'
+    scan.write_bytes(b'not a real image')
+
+    result = server.inspect_scan_image_quality(str(scan))
+
+    assert result['ok'] is False
+    assert result['blank_like'] is True
+    assert 'could not be decoded' in result['reason'].lower()
+
+
+def test_inspect_scan_image_quality_skips_when_pillow_unavailable(monkeypatch):
+    monkeypatch.setattr(server, 'Image', None)
+    monkeypatch.setattr(server, 'ImageStat', None)
+
+    result = server.inspect_scan_image_quality('/tmp/does-not-matter.jpg')
+
+    assert result['ok'] is True
+    assert result['blank_like'] is False
+    assert 'pillow unavailable' in result['reason'].lower()
 
 
 def test_stage_scan_for_mazda_copies_locally_and_mirrors_to_win10(
@@ -1417,7 +1862,7 @@ def test_process_scanned_document_dispatches_mazda_with_staged_remote_path(
     the local scan path her executor tools can't reach."""
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
+    write_scan_image(scan_dir / 'window_scan.jpg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'run_scan_window.sh',
@@ -1426,6 +1871,10 @@ def test_process_scanned_document_dispatches_mazda_with_staged_remote_path(
     monkeypatch.setattr(server, 'run_intake_facade',
                          lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
     monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
+    monkeypatch.setattr(server, 'inspect_scan_image_quality',
+                        lambda *a, **kw: {'ok': True})
+    monkeypatch.setattr(server, 'inspect_scan_image_quality',
+                        lambda *a, **kw: {'ok': True})
     monkeypatch.setattr(server, '_stage_scan_for_mazda',
                          lambda local_path: '/home/adamsl/rol_finances/tools/'
                                              'receipt_scanning_tools/incoming_scans/window_scan.jpg')
@@ -1451,8 +1900,8 @@ def test_window_and_freezer_dispatch_to_distinct_conversations(
     """Concurrent scanners must never share Mazda context or Trainer scope."""
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'window_scan.jpg').write_bytes(b'window')
-    (scan_dir / 'scan_freezer.jpg').write_bytes(b'freezer')
+    write_scan_image(scan_dir / 'window_scan.jpg')
+    write_scan_image(scan_dir / 'scan_freezer.jpg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'window.sh',
@@ -1503,7 +1952,7 @@ def test_process_scanned_document_reports_stage_error_and_skips_mazda(
         tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
+    write_scan_image(scan_dir / 'window_scan.jpg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'run_scan_window.sh',
@@ -1530,7 +1979,7 @@ def test_process_scanned_document_fails_closed_when_conversation_creation_fails(
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
     image = scan_dir / 'window_scan.jpg'
-    image.write_bytes(b'fake-jpeg')
+    write_scan_image(image)
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'window.sh',
@@ -1561,7 +2010,7 @@ def test_process_scanned_document_halts_when_vision_all_down(tmp_path, monkeypat
     entirely, not just fail deep inside her trace."""
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
+    write_scan_image(scan_dir / 'window_scan.jpg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'run_scan_window.sh',
@@ -1619,6 +2068,11 @@ def test_document_vision_health_two_tiers_up_is_green_not_concern(monkeypatch, t
     monkeypatch.setattr(server.os.path, 'expanduser',
                          lambda p: str(auth_path) if p == '~/.codex/auth.json' else p)
 
+    # Isolate the shared provider-health event log: this test pins the
+    # credential-presence signal only, not fallback history.
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH',
+                        str(tmp_path / 'absent.json'))
+
     health = server.document_vision_health()
     assert health['ok'] is True
     assert not health.get('concern')
@@ -1637,6 +2091,50 @@ def test_document_vision_health_one_tier_up_is_concern(monkeypatch, tmp_path):
     health = server.document_vision_health()
     assert health['ok'] is True
     assert health.get('concern') is True
+
+
+def test_categorizer_health_ignores_document_vision_entries(monkeypatch, tmp_path):
+    """Vision outcomes in the shared file must not make categorizer yellow/red."""
+    path = tmp_path / 'provider_health.json'
+    path.write_text(json.dumps({
+        'chatgpt-oauth-vision:eg': {
+            'last_failure': time.time(),
+            'last_failure_detail': 'vision token missing',
+        },
+        'chatgpt-oauth-vision:moms': {
+            'last_failure': time.time(),
+            'last_failure_detail': 'vision token missing',
+        },
+    }))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    health = server.mazda_categorizer_fallback_health()
+
+    assert health == {'ok': True, 'text': 'no categorizer LLM calls logged yet'}
+
+
+def test_categorizer_health_keeps_categorizer_failure_with_vision_entries(
+        monkeypatch, tmp_path):
+    """Filtering unrelated entries must not hide a real categorizer failure."""
+    path = tmp_path / 'provider_health.json'
+    now = time.time()
+    path.write_text(json.dumps({
+        'chatgpt-oauth-vision:eg': {
+            'last_failure': now,
+            'last_failure_detail': 'vision token missing',
+        },
+        'gemini': {
+            'last_failure': now,
+            'last_failure_detail': 'gemini CLI timed out',
+        },
+    }))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    health = server.mazda_categorizer_fallback_health()
+
+    assert health['ok'] is False
+    assert health['hard'] is True
+    assert 'gemini: timeout' in health['text']
 
 
 class _NoopThread:
@@ -2224,6 +2722,86 @@ def test_recent_reports_needs_attention_flag_matches_status(tmp_path, monkeypatc
 
 def _ssh_cfg():
     return {'key': '__test_ssh_conn', 'name': 'Test Conn', 'host': '0.0.0.0', 'user': 'nobody'}
+
+
+@pytest.mark.parametrize('identity_key', ['identity_files', 'identity_file'])
+def test_ssh_test_uses_configured_identity_file(monkeypatch, tmp_path, identity_key):
+    """`identity_files` is the current contract; the singular `identity_file`
+    key is still accepted for older connection configs, so both must reach the
+    same `-i` invocation."""
+    identity = tmp_path / 'id_ed25519'
+    identity.write_text('test key')
+    calls = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        return type('Result', (), {
+            'returncode': 0,
+            'stdout': 'CONNECTED\nDESKTOP-SHDBATI\n',
+            'stderr': '',
+        })()
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    cfg_value = (str(identity),) if identity_key == 'identity_files' else str(identity)
+    result = server.ssh_test({**_ssh_cfg(), identity_key: cfg_value}, timeout=5)
+
+    assert result['ok'] is True
+    assert calls == [[
+        'ssh', '-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes',
+        '-o', 'StrictHostKeyChecking=accept-new', '-o', 'IdentitiesOnly=yes',
+        '-i', str(identity), 'nobody@0.0.0.0', 'echo CONNECTED && hostname',
+    ]]
+
+
+def test_ssh_test_falls_through_a_dead_preferred_key_to_a_working_one(monkeypatch, tmp_path):
+    # A key can exist on disk but no longer be authorized on the remote end
+    # (rotated/revoked). Picking "the first file that exists" would wedge on
+    # that dead key forever even though a later one in the list still works.
+    dead = tmp_path / 'id_dead'
+    dead.write_text('dead key')
+    live = tmp_path / 'id_live'
+    live.write_text('live key')
+    calls = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        if str(dead) in cmd:
+            return type('Result', (), {
+                'returncode': 255,
+                'stdout': '',
+                'stderr': 'nobody@0.0.0.0: Permission denied (publickey).',
+            })()
+        return type('Result', (), {
+            'returncode': 0,
+            'stdout': 'CONNECTED\nDESKTOP-SHDBATI\n',
+            'stderr': '',
+        })()
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    result = server.ssh_test(
+        {**_ssh_cfg(), 'identity_files': (str(dead), str(live))}, timeout=5,
+    )
+
+    assert result['ok'] is True
+    assert len(calls) == 2  # tried the dead key first, then fell through to the live one
+
+
+def test_ssh_test_reports_the_last_failure_when_every_identity_fails(monkeypatch, tmp_path):
+    dead = tmp_path / 'id_dead'
+    dead.write_text('dead key')
+
+    def fake_run(cmd, **_kwargs):
+        return type('Result', (), {
+            'returncode': 255,
+            'stdout': '',
+            'stderr': 'nobody@0.0.0.0: Permission denied (publickey).',
+        })()
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    result = server.ssh_test({**_ssh_cfg(), 'identity_files': (str(dead),)}, timeout=5)
+
+    assert result['ok'] is False
+    assert 'Permission denied' in result['text']
 
 
 def test_tailscale_test_accepts_ping_when_status_is_stale_offline(monkeypatch):
@@ -3304,6 +3882,89 @@ def test_scan_message_round_trips_through_notify(monkeypatch):
     assert captured['body']['streaming'] is False
 
 
+def test_scan_notify_timeout_is_success_when_conversation_received_message(monkeypatch):
+    """A slow synchronous agent run must not be reported as delivery failure."""
+    monkeypatch.setattr(
+        server.urllib.request, 'urlopen',
+        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError('timed out')))
+    monkeypatch.setattr(
+        server, 'letta_get',
+        lambda path, timeout: {'in_context_message_ids': ['message-user']})
+
+    assert server._notify_mazda_of_scan(
+        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
+        'conv-freezer') is True
+
+
+def test_scan_notify_failure_remains_failure_when_conversation_is_empty(monkeypatch):
+    monkeypatch.setattr(
+        server.urllib.request, 'urlopen',
+        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError('timed out')))
+    monkeypatch.setattr(
+        server, 'letta_get',
+        lambda path, timeout: {'in_context_message_ids': []})
+
+    assert server._notify_mazda_of_scan(
+        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
+        'conv-freezer') is False
+
+
+def test_scan_notify_failure_marks_exact_intake_terminal(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch)
+    server.record_recent_intake(
+        '/staged/window.jpg', 'Window Scanner',
+        conversation_id='conv-window', dispatched_at=1234)
+    monkeypatch.setattr(server, '_notify_mazda_of_scan', lambda *a, **k: False)
+
+    assert server._notify_mazda_of_scan_and_record_failure(
+        '/staged/window.jpg', 'Window Scanner', {}, 'conv-window', 1234) is False
+
+    intake = server._read_recent_pointer_file()['scanner_intakes']['Window Scanner']
+    assert intake['status'] == 'fail'
+    assert intake['status_source'] == 'transport'
+    assert 'Mazda could not be reached' in intake['status_detail']
+
+
+def test_success_callback_clears_only_provisional_transport_failure(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch)
+    server.record_recent_intake(
+        '/staged/freezer.jpg', 'Freezer Scanner',
+        conversation_id='conv-freezer', dispatched_at=1234)
+    server.merge_recent_intake_status({
+        'conversation_id': 'conv-freezer',
+        'status': 'fail',
+        'status_source': 'transport',
+        'detail': 'Mazda could not be reached',
+    })
+
+    assert server.merge_recent_intake_event({
+        'conversation_id': 'conv-freezer',
+        'dispatched_at': 1234,
+        'parsed': 11,
+        'stored': 0,
+        'expense_ids': [981],
+    })
+
+    intake = server._read_recent_pointer_file()['scanner_intakes']['Freezer Scanner']
+    assert intake['status'] == 'complete'
+    assert intake['status_detail'] == ''
+    assert intake['status_source'] == 'callback'
+
+
+def test_mazda_progress_does_not_block_report_for_full_letta_timeout(monkeypatch):
+    captured = {}
+
+    def _fake_get(path, timeout):
+        captured.update(path=path, timeout=timeout)
+        return None
+
+    monkeypatch.setattr(server, 'letta_get', _fake_get)
+    progress = server.mazda_intake_progress({'conversation_id': 'conv-window'})
+
+    assert captured['timeout'] == 3
+    assert progress['percent'] == 0
+
+
 def test_create_mazda_conversation_uses_agent_query_and_returns_id(monkeypatch):
     captured = {}
 
@@ -3345,6 +4006,9 @@ def test_scan_message_duplicate_ids_are_not_statement_only():
     msg = server.build_mazda_scan_message('/scans/x.jpg', 'Freezer Scanner')
     assert 'NOT statement-only' in msg
     assert 'exact_duplicate_expense_id' in msg
+    assert 'If duplicate → STILL run STEP 4 exactly once' in msg
+    assert 'without --allow-duplicate' in msg
+    assert 'receipt_archive_path' in msg
 
 
 # ── reprocess_report ──────────────────────────────────────────────────────────
@@ -3409,6 +4073,8 @@ def test_record_stored_expense_appends_event():
         'receipt_url': '/scans/scan.jpg',
         'conversation_id': 'conv-intake-42',
         'dispatched_at': 123.5,
+        'archive_paths': ['/receipts/2025/january/example.jpg'],
+        'archive_years': [2025],
     })
     assert result == {'ok': True}
 
@@ -3418,6 +4084,9 @@ def test_record_stored_expense_appends_event():
     assert events[0]['vendor_key'] == 'goodwill_cascade'
     assert events[0]['conversation_id'] == 'conv-intake-42'
     assert events[0]['dispatched_at'] == 123.5
+    assert events[0]['archive_paths'] == [
+        '/receipts/2025/january/example.jpg']
+    assert events[0]['archive_years'] == [2025]
     assert 'stored_at' in events[0]
     _clear_expense_events()
 
@@ -3438,6 +4107,42 @@ def test_duplicate_only_correction_replaces_superseded_expense_ids():
     assert intake['expense_ids'] == [1518]
     assert intake['duplicate_expense_ids'] == [1518]
     assert intake['stored'] == 0
+
+
+def test_fold_event_unions_scanned_statement_attached_ids():
+    """A re-scan that only fortifies existing rows (EVIDENCE_ATTACHED) must
+    still render those rows in Verified Transactions — the direct fix for the
+    Country Inn & Suites $179.08 charge disappearing from the scanner tab."""
+    intake = {'expense_ids': [], 'duplicate_expense_ids': [], 'stored': 0}
+
+    server._fold_event_into_intake(intake, {
+        'stored': 0,
+        'duplicate_expense_ids': [1366, 1390],
+        'scanned_statement_attached': [1366, 1390, 1434],
+        'outcome': 'EVIDENCE_ATTACHED',
+    })
+
+    assert set(intake['expense_ids']) == {1366, 1390, 1434}
+
+
+def test_intake_reports_rolled_back_row_count():
+    intake = {'expense_ids': [], 'duplicate_expense_ids': []}
+
+    server._fold_event_into_intake(intake, {
+        'stored': 0,
+        'parsed': 4,
+        'rolled_back_row_count': 2,
+    })
+
+    assert intake['rolled_back_row_count'] == 2
+
+
+def test_rolled_back_row_count_defaults_to_absent_when_not_reported():
+    intake = {'expense_ids': [], 'duplicate_expense_ids': []}
+
+    server._fold_event_into_intake(intake, {'stored': 0, 'parsed': 4})
+
+    assert 'rolled_back_row_count' not in intake
 
 
 def test_get_stored_expense_events_filters_by_since():
@@ -3503,6 +4208,10 @@ def test_fetch_expenses_by_ids_expands_parent_to_line_item_children(monkeypatch)
     def router(sql, params):
         if 'FROM categories' in sql:
             return [{'id': 120, 'parent_id': None}]
+        if "COLUMN_NAME IN ('id_light'" in sql:
+            return [{'COLUMN_NAME': name} for name in (
+                'id_light', 'receipt_url', 'document_url',
+                'scanned_statement_url', 'moms_ledger')]
         if 'parent_expense_id IN' in sql:
             return [{
                 'id': 1522, 'expense_date': '2025-01-23', 'amount': '222.65',
@@ -3534,6 +4243,8 @@ def test_fetch_expenses_by_ids_supports_legacy_schema_without_roles(monkeypatch)
     def router(sql, params):
         if 'FROM categories' in sql:
             return [{'id': 3, 'parent_id': None}]
+        if "COLUMN_NAME IN ('id_light'" in sql:
+            return [{'COLUMN_NAME': name} for name in ('id_light', 'receipt_url')]
         if 'INFORMATION_SCHEMA.COLUMNS' in sql:
             return []
         assert 'expense_role' not in sql
@@ -3553,12 +4264,42 @@ def test_fetch_expenses_by_ids_supports_legacy_schema_without_roles(monkeypatch)
     assert rows[0]['amount'] == '94.41'
 
 
+def test_fetch_expenses_by_ids_supports_minimal_live_expenses_schema(monkeypatch):
+    def router(sql, params):
+        if 'FROM categories' in sql:
+            return [{'id': 3, 'parent_id': None}]
+        if "COLUMN_NAME = 'expense_role'" in sql:
+            return []
+        if "COLUMN_NAME IN ('id_light'" in sql:
+            return [{'COLUMN_NAME': 'receipt_url'}]
+        assert 'NULL AS id_light' in sql
+        assert 'NULL AS document_url' in sql
+        return [{
+            'id': 7, 'expense_date': '2025-03-31', 'amount': '94.41',
+            'id_light': None, 'description': 'Meijer', 'category_id': 3,
+            'receipt_url': 'meijer.jpg', 'document_url': None,
+            'scanned_statement_url': None, 'moms_ledger': None,
+        }]
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+
+    rows = server._fetch_expenses_by_ids([7])
+
+    assert rows[0]['vendor_key'] == ''
+    assert rows[0]['receipt_url'] == 'meijer.jpg'
+
+
 def test_fetch_expenses_by_ids_omits_childless_parent(monkeypatch):
     """A PARENT with no LINE_ITEM children (a data anomaly) is dropped rather
     than surfaced as an uncategorizable dead row."""
     def router(sql, params):
         if 'FROM categories' in sql:
             return []
+        if "COLUMN_NAME IN ('id_light'" in sql:
+            return [{'COLUMN_NAME': name} for name in (
+                'id_light', 'receipt_url', 'document_url',
+                'scanned_statement_url', 'moms_ledger')]
         if 'parent_expense_id IN' in sql:
             return []
         return [{
@@ -3571,6 +4312,73 @@ def test_fetch_expenses_by_ids_omits_childless_parent(monkeypatch):
                         lambda: _RoutingConnection(router))
 
     assert server._fetch_expenses_by_ids([1521]) == []
+
+
+def test_fetch_expenses_by_ids_reports_each_child_once_when_parent_also_listed(
+        monkeypatch):
+    """STEP 8 reports the PARENT anchor *and* every child it created.
+
+    The expansion pass drops the anchor and splices its children in, so a
+    child that was already in the requested id list used to be emitted twice
+    — once bare from the first query, once parent-prefixed from the expansion.
+    That is what put 22 rows on a 12-expense Window report.  Each child must
+    appear exactly once, keeping the prefixed copy so the vendor stays
+    readable.
+    """
+    def router(sql, params):
+        if 'FROM categories' in sql:
+            return [{'id': 204, 'parent_id': None}]
+        if 'parent_expense_id IN' in sql:
+            return [
+                {
+                    'id': 1685, 'expense_date': '2025-12-22', 'amount': '25.00',
+                    'id_light': 'rtl_12_22_25_247_70-item-1',
+                    'description': '12/22/2025 Contribution', 'category_id': 204,
+                    'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                    'expense_role': 'LINE_ITEM', 'parent_expense_id': 1684,
+                },
+                {
+                    'id': 1686, 'expense_date': '2025-12-22', 'amount': '25.00',
+                    'id_light': 'rtl_12_22_25_247_70-item-2',
+                    'description': '11/17/2025 Contribution', 'category_id': 204,
+                    'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                    'expense_role': 'LINE_ITEM', 'parent_expense_id': 1684,
+                },
+            ]
+        return [
+            {
+                'id': 1684, 'expense_date': '2025-12-22', 'amount': '50.00',
+                'id_light': 'rtl_12_22_25_247_70',
+                'description': 'Right to Life of Michigan Educational Fund',
+                'category_id': None, 'receipt_url': '', 'document_url': '',
+                'moms_ledger': None, 'expense_role': 'PARENT',
+            },
+            {
+                'id': 1685, 'expense_date': '2025-12-22', 'amount': '25.00',
+                'id_light': 'rtl_12_22_25_247_70-item-1',
+                'description': '12/22/2025 Contribution', 'category_id': 204,
+                'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                'expense_role': 'LINE_ITEM',
+            },
+            {
+                'id': 1686, 'expense_date': '2025-12-22', 'amount': '25.00',
+                'id_light': 'rtl_12_22_25_247_70-item-2',
+                'description': '11/17/2025 Contribution', 'category_id': 204,
+                'receipt_url': '', 'document_url': '', 'moms_ledger': None,
+                'expense_role': 'LINE_ITEM',
+            },
+        ]
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+
+    rows = server._fetch_expenses_by_ids([1684, 1685, 1686])
+
+    assert [r['id'] for r in rows] == [1685, 1686]
+    assert rows[0]['description'] == (
+        'Right to Life of Michigan Educational Fund — 12/22/2025 Contribution')
+    assert rows[1]['description'] == (
+        'Right to Life of Michigan Educational Fund — 11/17/2025 Contribution')
 
 
 def test_is_uncategorized_flags_null_and_legacy_ids():
@@ -3898,6 +4706,21 @@ def test_parse_pc_metrics_output_reads_all_three_sections():
     assert parsed['net_tx_bytes'] == 2500000
 
 
+def test_pc_metrics_collector_uses_powershell_for_windows_ram():
+    command = server.pc_metrics_collector_command(server.PC_MONITORS['win11'])
+    assert server._WINDOWS_POWERSHELL in command
+    assert 'Get-CimInstance Win32_OperatingSystem' in command
+    assert 'TotalVisibleMemorySize' in command
+    assert 'FreePhysicalMemory' in command
+    assert '/proc/meminfo' not in command
+
+
+def test_pc_metrics_collector_keeps_proc_memory_for_linux():
+    command = server.pc_metrics_collector_command(server.PC_MONITORS['moms46'])
+    assert "grep -E 'MemTotal|MemAvailable' /proc/meminfo" in command
+    assert 'Get-CimInstance' not in command
+
+
 def test_parse_pc_metrics_output_falls_back_to_root_mount():
     # A box without /mnt/c (plain Linux): the collector's fallback df / row.
     sample = _PC_COLLECTOR_SAMPLE.replace(
@@ -4112,12 +4935,20 @@ def test_agent_model_options_empty_handle():
 
 
 def test_agent_model_options_only_vetted_codex_handles():
-    # Guards the probe result of 2026-07-08: gpt-5.3 / *-codex handles are
-    # rejected by the ChatGPT-account codex backend and must never be offered.
+    expected_models = {
+        'gpt-5.6-sol',
+        'gpt-5.6-terra',
+        'gpt-5.6-luna',
+        'gpt-5.5',
+        'gpt-5.4',
+        'gpt-5.4-mini',
+    }
     for handle in server.AGENT_MODEL_OPTIONS:
         assert handle.startswith('chatgpt-plus-pro/')
         model = handle.split('/', 1)[1]
-        assert model in ('gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini')
+        assert model in expected_models
+    assert {handle.split('/', 1)[1]
+            for handle in server.AGENT_MODEL_OPTIONS} == expected_models
 
 
 # ── /api/agent-voice — dashboard TTS preference in Letta metadata ────────────
@@ -4366,6 +5197,13 @@ def _recent_report_env(tmp_path, monkeypatch, docs=('doc_a', 'doc_b')):
         {'key': d, 'label': d, 'dir': d} for d in docs])
     monkeypatch.setattr(server, 'RECENT_REPORT_POINTER_FILE',
                         str(tmp_path / 'recent_report.json'))
+    # The intake page derives the canonical bank_statements archive copy by
+    # searching READABLE_DOCS_BASE. Left unisolated it searches the LIVE
+    # ~/rol_finances tree, so these tests pass or fail based on which real
+    # statements happen to be filed on the machine running them.
+    readable_docs = tmp_path / 'readable_documents'
+    readable_docs.mkdir(exist_ok=True)
+    monkeypatch.setattr(server, 'READABLE_DOCS_BASE', str(readable_docs))
     return parent
 
 
@@ -4465,7 +5303,7 @@ def test_resolve_report_path_alias_translates_recent_report(tmp_path, monkeypatc
 def test_process_scanned_document_records_recent_intake(tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
+    write_scan_image(scan_dir / 'window_scan.jpg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'window_scan.jpg'},
@@ -4473,6 +5311,8 @@ def test_process_scanned_document_records_recent_intake(tmp_path, monkeypatch):
     monkeypatch.setattr(server, 'run_intake_facade',
                         lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
     monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
+    monkeypatch.setattr(server, 'inspect_scan_image_quality',
+                        lambda _path: {'ok': True})
     staged = '/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans/window_scan.jpg'
     monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: staged)
     monkeypatch.setattr(server.threading, 'Thread',
@@ -4497,7 +5337,7 @@ def test_process_scanned_document_second_call_does_not_redispatch(
     process_scanned_document; the second must not send Mazda the same image."""
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
+    write_scan_image(scan_dir / 'window_scan.jpg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'window_scan.jpg'},
@@ -4523,11 +5363,45 @@ def test_process_scanned_document_second_call_does_not_redispatch(
     assert second['mazda_dispatched'] is True  # frontend still renders delegated stages
 
 
+def test_failed_scan_fingerprint_can_be_retried_after_restart(
+        tmp_path, monkeypatch):
+    """Duplicate suppression must not permanently burn a failed document."""
+    scan = tmp_path / 'window_scan.jpg'
+    scan.write_bytes(b'legitimate-statement')
+    digest = server._scan_content_sha256(str(scan))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': scan.name},
+    })
+    monkeypatch.setattr(server, 'get_scanner_intake', lambda key: {
+        'content_sha256': digest,
+        'status': 'fail',
+    })
+    server._scan_dispatch_claims.clear()
+
+    assert server._claim_scan_dispatch('window', str(scan), digest) is True
+
+
+def test_completed_scan_fingerprint_remains_suppressed(tmp_path, monkeypatch):
+    scan = tmp_path / 'window_scan.jpg'
+    scan.write_bytes(b'already-processed-statement')
+    digest = server._scan_content_sha256(str(scan))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': scan.name},
+    })
+    monkeypatch.setattr(server, 'get_scanner_intake', lambda key: {
+        'content_sha256': digest,
+        'status': 'complete',
+    })
+    server._scan_dispatch_claims.clear()
+
+    assert server._claim_scan_dispatch('window', str(scan), digest) is False
+
+
 def test_failed_staging_releases_the_dispatch_claim(tmp_path, monkeypatch):
     """A staging failure must not burn the claim — the retry has to dispatch."""
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
-    (scan_dir / 'window_scan.jpg').write_bytes(b'fake-jpeg')
+    write_scan_image(scan_dir / 'window_scan.jpg')
     monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
     monkeypatch.setattr(server, 'SCANNERS', {
         'window': {'name': 'Window Scanner', 'script': 'x.sh', 'output': 'window_scan.jpg'},
@@ -4572,6 +5446,38 @@ def test_run_scanner_does_not_dispatch_on_busy(monkeypatch):
     result = server.run_scanner('window')
     assert result['ok'] is False
     assert spawned == []
+
+
+def test_classify_scan_result_explains_empty_successful_output():
+    result = server.classify_scan_result(0, '', False)
+
+    assert result['status'] == 'error'
+    assert result['empty_output'] is True
+    assert 'missing or empty' in result['error']
+
+
+def test_run_scanner_publishes_empty_output_as_failed_intake(monkeypatch):
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': 'window_scan.jpg'},
+    })
+    monkeypatch.setattr(server, '_scanner_intake_in_progress', lambda _key: False)
+    monkeypatch.setattr(server, '_invoke_scanner', lambda _key: {
+        'status': 'error',
+        'error': 'scanner output is missing or empty',
+        'empty_output': True,
+    })
+    recorded = []
+    monkeypatch.setattr(
+        server, 'record_recent_intake',
+        lambda *args, **kwargs: recorded.append((args, kwargs)) or True,
+    )
+
+    result = server.run_scanner('window')
+
+    assert result['ok'] is False
+    assert recorded[0][0][1] == 'Window Scanner'
+    assert recorded[0][1]['status'] == 'fail'
+    assert recorded[0][1]['status_detail'] == result['error']
 
 
 def test_scanner_status_is_read_only(monkeypatch):
@@ -4698,7 +5604,10 @@ def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('/*css*/', '<div id="rol-category-picker"></div>', '/*rowcss*/'))
     html = server.build_recent_report_html()
-    assert 'scan_freezer.jpg' in html
+    # The document is named by its filename; the staging directory it is
+    # being processed in is still never exposed.
+    assert 'Most Recent Document: scan_freezer.jpg' in html
+    assert '/staged/' not in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'rol-category-picker' in html
@@ -4798,6 +5707,55 @@ def test_late_expense_callback_does_not_relock_trainer_pass(
     intake = server.get_scanner_intake('window')
     assert intake['status'] == 'pass'
     assert server._scanner_intake_in_progress('window') is False
+
+
+def test_completed_intake_does_not_keep_scanner_locked(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake(
+        '/staged/window_scan.jpg', 'Window Scanner', dispatched_at=time.time())
+    assert server._scanner_intake_in_progress('window') is True
+
+    server.merge_recent_intake_event({
+        'document_path': '/staged/window_scan.jpg',
+        'parsed': 1,
+        'stored': 1,
+    })
+
+    intake = server.get_scanner_intake('window')
+    assert intake['status'] == 'complete'
+    assert server._scanner_intake_in_progress('window') is False
+
+
+def test_intake_halt_record_read_and_acknowledge(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'INTAKE_HALT_FILE', str(tmp_path / 'intake_halt.json'))
+
+    # Nothing recorded yet.
+    assert server.read_intake_halt() == {'ok': True, 'active': False}
+
+    # rol_finances' DashboardIntakeHaltNotifier POSTs a halt.
+    assert server.record_intake_halt({
+        'step': 'source-counterpart-lookup',
+        'cause': 'not enough arguments for format string',
+        'exception_type': 'TypeError',
+        'document_path': '/scan.jpg',
+        'repo_path': '/home/adamsl/rol_finances',
+        'metadata': {'amount': '100.00'},
+    }) == {'ok': True, 'active': True}
+
+    state = server.read_intake_halt()
+    assert state['active'] is True
+    assert state['event']['step'] == 'source-counterpart-lookup'
+    assert state['event']['exception_type'] == 'TypeError'
+    assert state['event']['metadata'] == {'amount': '100.00'}
+
+    # A human acknowledges — the alert clears but the record persists.
+    assert server.acknowledge_intake_halt() == {'ok': True, 'active': False}
+    assert server.read_intake_halt() == {'ok': True, 'active': False}
+
+
+def test_intake_halt_acknowledge_with_no_record_is_safe(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'INTAKE_HALT_FILE', str(tmp_path / 'missing.json'))
+    assert server.acknowledge_intake_halt() == {'ok': True, 'active': False}
 
 
 def test_mazda_progress_uses_successful_tool_returns_not_calls():
@@ -4979,6 +5937,50 @@ def test_record_recent_intake_keeps_per_scanner_records(tmp_path, monkeypatch):
     assert set(data['scanner_intakes']) == {'Window Scanner', 'Freezer Scanner'}
 
 
+def test_blank_scan_publishes_failed_intake_to_its_own_scanner(
+        tmp_path, monkeypatch):
+    """A blank/unreadable capture must replace that scanner's own last intake.
+
+    Without this the rejection is invisible to the pointer file, so Last Window
+    Scan keeps rendering the PREVIOUS document and a failed capture reads as a
+    stuck scanner rather than a failed one. The other scanner's tab must be
+    untouched.
+    """
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    # A genuinely blank page: uniform white, nothing to read.
+    from PIL import Image
+    Image.new('L', (600, 800), color=255).save(
+        str(scan_dir / 'window_scan.jpg'), format='JPEG')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'script': 'window.sh',
+                   'output': 'window_scan.jpg'},
+        'freezer': {'name': 'Freezer Scanner', 'script': 'freezer.sh',
+                    'output': 'scan_freezer.jpg'},
+    })
+    monkeypatch.setattr(server, 'run_intake_facade', _unexpected_facade_call)
+    server.record_recent_intake('/staged/prior_window.jpg', 'Window Scanner')
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+
+    result = server.process_scanned_document('window')
+
+    assert result['ok'] is False
+    assert result['mazda_dispatched'] is False
+    window = server.get_scanner_intake('window')
+    assert window['status'] == 'fail'
+    assert window['image_path'].endswith('window_scan.jpg')
+    assert 'blank' in window['status_detail'].lower()
+    # The Freezer tab is a different physical scanner and must not move.
+    assert (server.get_scanner_intake('freezer')['image_path']
+            == '/staged/scan_freezer.jpg')
+
+
+def _unexpected_facade_call(*_args, **_kwargs):
+    raise AssertionError('a blank scan must be rejected before the facade runs')
+
+
 def test_merge_routes_event_to_matching_scanner_intake(tmp_path, monkeypatch):
     """Two scanners running concurrently: a STEP 8 event carrying its source
     document path folds ONLY into the scan it belongs to, even after the other
@@ -5100,6 +6102,51 @@ def test_merge_identified_event_routes_by_conversation_and_dispatch(
     assert intake['expense_ids'] == [1507]
 
 
+def test_merge_dispatch_only_event_does_not_cross_concurrent_scanners(
+        tmp_path, monkeypatch):
+    """Window and Freezer dispatched inside the 2s window; a STEP 8 callback
+    that carries dispatched_at but no conversation_id (older message template)
+    must land only on the scanner whose document it names — otherwise Last
+    Window Scan shows the Freezer's transactions."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake(
+        '/staged/window_scan.jpg', 'Window Scanner',
+        conversation_id='conv-window', dispatched_at=100.0)
+    server.record_recent_intake(
+        '/staged/scan_freezer.jpg', 'Freezer Scanner',
+        conversation_id='conv-freezer', dispatched_at=101.0)
+
+    assert server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
+        'dispatched_at': 101.0,
+        'expense_ids': [4242], 'parsed': 1, 'stored': 1,
+    }) is True
+
+    assert server.get_scanner_intake('freezer')['expense_ids'] == [4242]
+    assert server.get_scanner_intake('window')['expense_ids'] == []
+
+
+def test_merge_dispatch_only_event_keeps_mirror_when_path_is_unrecognized(
+        tmp_path, monkeypatch):
+    """The document path is a tie-breaker, never a filter. A callback naming a
+    renamed/archived copy still updates the dispatch it was correlated to."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake(
+        '/staged/scan_freezer.jpg', 'Freezer Scanner',
+        conversation_id='conv-freezer', dispatched_at=300.0)
+
+    assert server.merge_recent_intake_event({
+        'document_path': '/archive/2025/03/consumers_energy_03_11_25.jpg',
+        'conversation_id': 'conv-freezer',
+        'dispatched_at': 300.0,
+        'expense_ids': [4243], 'parsed': 1, 'stored': 1,
+    }) is True
+
+    assert server.get_scanner_intake('freezer')['expense_ids'] == [4243]
+    data = server._read_recent_pointer_file()
+    assert data['intake']['expense_ids'] == [4243]
+
+
 def test_merge_without_document_path_updates_intake_and_its_mirror(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
@@ -5135,6 +6182,12 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
     _scanner_registry(monkeypatch)
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    monkeypatch.setattr(server, '_intake_source_document',
+                        lambda intake: intake.get('image_path', ''))
+    monkeypatch.setattr(server, '_intake_source_document',
+                        lambda intake: intake.get('image_path', ''))
+    monkeypatch.setattr(server, '_intake_source_document',
+                        lambda intake: intake.get('image_path', ''))
     assert 'Unknown scanner' in server.build_scanner_report_html('nope')
     html = server.build_scanner_report_html('window')
     assert 'No document has been scanned on the Window Scanner yet' in html
@@ -5148,7 +6201,8 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
         'cat_class': 'cat-travel-and-vehicle', 'receipt_url': '',
     }])
     html = server.build_scanner_report_html('window')
-    assert 'window_scan.jpg' in html
+    assert 'Most Recent Document: window_scan.jpg' in html
+    assert '/staged/' not in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'class="cat-travel-and-vehicle has-receipt"' in html
@@ -5158,8 +6212,163 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
             in server.build_scanner_report_html('freezer'))
 
 
+def test_scanner_statement_report_uses_duplicate_ids_when_expense_ids_empty(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=('choice_7580_year',))
+    _scanner_registry(monkeypatch)
+    report_file = (tmp_path / 'reports' / 'january' / 'choice_7580_year'
+                   / 'report.html')
+    report_file.write_text(
+        '<html><head><title>choice</title></head><body>'
+        '<table id="verified-transactions"><tbody>'
+        '<tr data-expense-id="1674" data-vendor-key="country_inn">'
+        '<td>COUNTRY INN</td><td>-179.08</td><td>2025-08-15</td></tr>'
+        '</tbody></table></body></html>')
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
+        'expense_ids': [],
+        'duplicate_expense_ids': [1674],
+        'parsed': 4,
+        'stored': 0,
+        'doc_kind': 'statement',
+        'vendor': 'Choice Privileges Mastercard',
+    })
+
+    html = server.build_scanner_report_html('freezer')
+
+    assert '<base href="/rol_finances_reports/jan-2025/choice_7580_year/">' in html
+    assert 'COUNTRY INN' in html
+
+
+def test_scanner_statement_report_prefers_canonical_archived_report(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=('choice_7580_year',))
+    _scanner_registry(monkeypatch)
+    report_url = '/rol_finances_reports/jan-2025/choice_7580_year/report.html'
+    report_file = (tmp_path / 'reports' / 'january' / 'choice_7580_year'
+                   / 'report.html')
+    report_file.write_text(
+        '<html><head><title>choice</title></head><body>'
+        '<table id="verified-transactions"><tbody>'
+        '<tr data-expense-id="1366" data-vendor-key="kfc">'
+        '<td>KFC</td><td>-6.24</td><td>2025-07-31</td></tr>'
+        '<tr data-expense-id="1390" data-vendor-key="mr_burger">'
+        '<td>MR BURGER</td><td>-16.99</td><td>2025-08-15</td></tr>'
+        '<tr data-expense-id="1674" data-vendor-key="country_inn">'
+        '<td>COUNTRY INN</td><td>-179.08</td><td>2025-08-15</td></tr>'
+        '</tbody></table></body></html>')
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
+        'expense_ids': [1366, 1390],
+        'duplicate_expense_ids': [1366, 1390],
+        'parsed': 4,
+        'stored': 0,
+        'doc_kind': 'statement',
+        'vendor': 'Choice Privileges Mastercard',
+    })
+
+    html = server.build_scanner_report_html('freezer')
+
+    assert '<base href="/rol_finances_reports/jan-2025/choice_7580_year/">' in html
+    assert 'COUNTRY INN' in html
+    assert 'data-expense-id="1674"' in html
+    assert 'Most Recent Document:' not in html
+
+
+def test_scanner_statement_report_falls_back_to_synthetic_when_no_archive_match(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    _scanner_registry(monkeypatch)
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
+        'expense_ids': [1366, 1390],
+        'duplicate_expense_ids': [1366, 1390],
+        'parsed': 4,
+        'stored': 0,
+        'doc_kind': 'statement',
+        'vendor': 'Choice Privileges Mastercard',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
+        'id': 1366, 'date': '2025-07-31', 'amount': '6.24',
+        'vendor_key': 'kfc_07_31_25_6_24',
+        'description': 'KFC K980120 GRAND RAPIDS ,MI',
+        'reporting_category': 'Personal / Non-Church — Review Required',
+        'cat_class': 'cat-personal', 'receipt_url': '',
+    }])
+
+    html = server.build_scanner_report_html('freezer')
+
+    assert 'Most Recent Document: scan_freezer.jpg' in html
+    assert 'KFC K980120 GRAND RAPIDS ,MI' in html
+
+
+def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
+    """A stalled scan (the Last Freezer/Window Scan pages' worst case) must
+    still name its document, flag the failure loudly, and explain the empty
+    Verified Transactions table instead of rendering a wall of '--'."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake(
+        '/incoming_scans/scan_freezer_1786536321_7340d041.jpg',
+        'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'parsed': None, 'stored': None,
+        'doc_kind': 'unknown', 'vendor': 'unknown', 'status': 'stalled',
+        'status_detail': 'Verification lock cleared manually.',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '', ''))
+
+    html = server.build_scanner_report_html('freezer')
+
+    # The document is named, never replaced by an "unavailable" sentence, and
+    # only its filename is shown (the staging directory stays private).
+    assert ('Most Recent Document: '
+            'scan_freezer_1786536321_7340d041.jpg') in html
+    assert 'unavailable' not in html
+    assert '/incoming_scans/' not in html
+    # No dash-filled metadata rows.
+    assert 'Month Range' not in html
+    assert 'Associated PDF' not in html
+    # The failure is a banner, and the empty table says why it is empty.
+    assert 'class="status-banner status-bad"' in html
+    assert 'Mazda Trainer reported STALLED' in html
+    assert 'stopped before any transactions were stored' in html
+
+
+def test_recent_intake_html_unclassified_scan_reads_as_state(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'parsed': None, 'stored': None,
+        'status': 'stalled', 'status_detail': '',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
+    monkeypatch.setattr(server, '_intake_source_document', lambda intake: '')
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '', ''))
+
+    html = server.build_scanner_report_html('window')
+
+    assert 'Document Type: Not yet identified' in html
+    assert 'Document Type: Unknown' not in html
+
+
 def test_scanner_report_path_resolves_as_synthetic_db_backed_page():
     assert server._resolve_report_path_alias('/scanner_report.html') == ''
+    # The picker now posts location.search as well, so the alias must match on
+    # the path alone — otherwise recategorize would treat the querystring page
+    # as a real report.html on disk and fail to find it.
+    assert server._resolve_report_path_alias(
+        '/scanner_report.html?scanner=freezer') == ''
+    assert server._resolve_report_path_alias(
+        server.RECEIPT_ONLY_REPORT_PATH + '?month=january'
+    ) == server.RECEIPT_ONLY_REPORT_PATH
 
 
 def test_scanner_intake_document_path_prefers_recorded_scan(tmp_path, monkeypatch):
@@ -5194,7 +6403,7 @@ def test_known_statement_dispatch_is_statement_only():
     assert 'dispatched_at=123.5' in message
     assert 'parse_and_categorize.py' not in message
     assert 'check_vendor_key' not in message
-    assert server._document_type_label('unknown', None) == 'Unknown'
+    assert server._document_type_label('unknown', None) == 'Not yet identified'
     assert server._document_type_label(None, 'chase') == 'Chase'
 
 
@@ -5228,6 +6437,61 @@ def test_associated_source_paths_none_found(monkeypatch):
     assert pdf_path == '' and receipt_path == ''
 
 
+def test_recent_intake_collapses_check_evidence_row_into_real_expense(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/freezer_scan.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [101, 102],
+        'duplicate_expense_ids': [102],
+        'parsed': 1,
+        'stored': 0,
+        'doc_kind': 'receipt',
+        'vendor': 'Tikun International',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [
+        {
+            'id': 101,
+            'date': '2025-03-18',
+            'amount': '300.00',
+            'vendor_key': 'tikun_international_03_18_25_300_00',
+            'description': 'Tikun International',
+            'reporting_category': 'Gifts & Love Offerings',
+            'cat_class': 'cat-gifts-and-love-offerings',
+            'receipt_url': '/receipts/tikun_03_18_25_300_00.jpg',
+            'document_url': '',
+            'scanned_statement_url': '',
+            'moms_ledger': '',
+        },
+        {
+            'id': 102,
+            'date': '2025-03-18',
+            'amount': '300.00',
+            'vendor_key': 'check_11049_03_18_25_300_00',
+            'description': 'Check 11049',
+            'reporting_category': 'Gifts & Love Offerings',
+            'cat_class': 'cat-gifts-and-love-offerings',
+            'receipt_url': '',
+            'document_url': '/docs/tikun-check.pdf',
+            'scanned_statement_url': '',
+            'moms_ledger': '',
+        },
+    ])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    monkeypatch.setattr(server, '_associated_source_paths',
+                        lambda rows: ('/docs/tikun-check.pdf', '/receipts/tikun_03_18_25_300_00.jpg'))
+    monkeypatch.setattr(server, '_associated_evidence_paths', lambda rows: ('', ''))
+
+    html = server.build_recent_report_html()
+
+    assert html.count('data-expense-id="101"') == 1
+    assert 'data-expense-id="102"' not in html
+    assert 'data-description="Tikun International"' in html
+    assert '<td>Tikun International' in html
+    assert 'data-description="Check 11049"' not in html
+    assert '<td>Check 11049' not in html
+
+
 def test_recent_intake_html_shows_document_metadata(tmp_path, monkeypatch):
     """The Most Recent Document page shows Document Type / Month Range /
     Associated PDF / Associated Receipt above the status paragraph."""
@@ -5251,8 +6515,85 @@ def test_recent_intake_html_shows_document_metadata(tmp_path, monkeypatch):
     html = server.build_recent_report_html()
     assert 'Document Type: Chase Bank Statement' in html
     assert 'Month Range: May 30, 2025 &gt;&gt;---&gt; June 23, 2025' in html
-    assert 'Associated PDF: --' in html
-    assert 'Associated Receipt: --' in html
+    # Fields with nothing to say are omitted rather than printed as a column
+    # of dashes that buries the lines that do carry information.
+    assert 'Associated PDF' not in html
+    assert 'Associated Receipt' not in html
+    assert 'Archived Scan Image' not in html
+
+
+def test_statement_archive_path_finds_canonically_named_copy(tmp_path, monkeypatch):
+    """A scanned statement's canonically-named bank_statements/ archive copy
+    (bank_statements/<year>/<month>/<vendor>_<slug>/<vendor>_<slug>.jpg) is
+    findable from the statement's own date range even though scanned_statement_url
+    never points at it — a duplicate rescan's DB rows still only carry the raw
+    scan filename from whichever run first stored them."""
+    base = tmp_path / 'readable_documents'
+    folder = (base / 'bank_statements' / '2025' / 'july'
+              / 'choice_privileges_mastercard_7580_july_31__august_15')
+    folder.mkdir(parents=True)
+    (folder / 'choice_privileges_mastercard_7580_july_31__august_15.jpg').write_bytes(b'x')
+    monkeypatch.setattr(server, 'READABLE_DOCS_BASE', str(base))
+    rows = [
+        {'date': '2025-07-31', 'amount': '6.24', 'vendor_key': 'choice_privileges_7580'},
+        {'date': '2025-08-15', 'amount': '16.99', 'vendor_key': 'choice_privileges_7580'},
+        {'date': '2025-08-15', 'amount': '179.08', 'vendor_key': 'choice_privileges_7580'},
+    ]
+    found = server._statement_archive_path(rows, vendor_key='choice_privileges_7580')
+    assert found == str(
+        folder / 'choice_privileges_mastercard_7580_july_31__august_15.jpg')
+
+
+def test_statement_archive_path_no_match_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'READABLE_DOCS_BASE', str(tmp_path / 'readable_documents'))
+    rows = [{'date': '2025-07-31', 'amount': '6.24', 'vendor_key': 'choice_privileges_7580'}]
+    assert server._statement_archive_path(rows) == ''
+    assert server._statement_archive_path([]) == ''
+
+
+def test_recent_intake_html_prefers_statement_archive_over_raw_scan_url(
+        tmp_path, monkeypatch):
+    """The 'Associated Scanned Statement' field on the Recent Report intake
+    page must show the canonically-named bank_statements/ archive copy when
+    one exists, not the stale raw scan filename recorded in scanned_statement_url."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    base = tmp_path / 'readable_documents'
+    folder = (base / 'bank_statements' / '2025' / 'july'
+              / 'choice_privileges_mastercard_7580_july_31__august_15')
+    folder.mkdir(parents=True)
+    archive_file = folder / 'choice_privileges_mastercard_7580_july_31__august_15.jpg'
+    archive_file.write_bytes(b'x')
+    monkeypatch.setattr(server, 'READABLE_DOCS_BASE', str(base))
+    monkeypatch.setattr(server, '_supporting_document_roots', lambda: [str(base)])
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'duplicate_expense_ids': [1, 2, 3], 'parsed': 5, 'stored': 0,
+    })
+    raw_scan = base / 'scanned_statements' / '2025' / 'window_scan_raw.jpg'
+    raw_scan.parent.mkdir(parents=True)
+    raw_scan.write_bytes(b'x')
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [
+        {'date': '2025-07-31', 'amount': '6.24', 'vendor_key': 'choice_privileges_7580',
+         'description': 'KFC', 'reporting_category': 'Uncategorized',
+         'cat_class': 'cat-uncategorized', 'receipt_url': '',
+         'scanned_statement_url': str(raw_scan)},
+        {'date': '2025-08-15', 'amount': '16.99', 'vendor_key': 'choice_privileges_7580',
+         'description': 'MR BURGER', 'reporting_category': 'Uncategorized',
+         'cat_class': 'cat-uncategorized', 'receipt_url': '',
+         'scanned_statement_url': str(raw_scan)},
+        {'date': '2025-08-15', 'amount': '179.08', 'vendor_key': 'choice_privileges_7580',
+         'description': 'COUNTRY INN', 'reporting_category': 'Uncategorized',
+         'cat_class': 'cat-uncategorized', 'receipt_url': '',
+         'scanned_statement_url': str(raw_scan)},
+    ])
+    monkeypatch.setattr(server, '_find_matching_report_row', lambda *a, **k: None)
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    html = server.build_recent_report_html()
+    # The archive copy is the one scan-image path the page prints; the stale
+    # raw scanned_statement_url must not appear anywhere.
+    assert f'Archived Scan Image: {archive_file}' in html
+    assert str(raw_scan) not in html
 
 
 def test_recent_intake_html_pdf_shows_this(tmp_path, monkeypatch):
@@ -5270,6 +6611,127 @@ def test_recent_intake_html_pdf_shows_this(tmp_path, monkeypatch):
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
     html = server.build_recent_report_html()
     assert 'Associated PDF: <b>this.</b>' in html
+
+
+def test_recent_intake_html_shows_archived_scan_copy_from_callback(tmp_path, monkeypatch):
+    base = _recent_report_env(tmp_path, monkeypatch, docs=())
+    archived = ('/home/adamsl/rol_finances/readable_documents/bank_statements/'
+                '2025/march/chase_6285_march_18__march_18/'
+                'chase_6285_march_18__march_18.jpg')
+    # The staged path must exist: _intake_source_document deliberately drops a
+    # staged path it cannot resolve, so that "View Source Document" can never
+    # offer an image that is gone.
+    staged = tmp_path / 'incoming_scans' / 'window_scan.jpg'
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    write_scan_image(staged)
+    monkeypatch.setattr(server, '_supporting_document_roots',
+                        lambda: [str(tmp_path), str(base)])
+    server.record_recent_intake(str(staged), 'Window Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [7], 'parsed': 1, 'stored': 1,
+        'doc_kind': 'statement', 'vendor': 'chase',
+        'archive_paths': [archived],
+        'archive_years': [2025],
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
+        'date': '2025-03-18', 'amount': '-30.50', 'vendor_key': 'check_11051',
+        'description': 'Check 11051', 'reporting_category': 'Gifts & Love Offerings',
+        'cat_class': 'cat-gifts-and-love-offerings', 'receipt_url': '',
+        'document_url': '', 'scanned_statement_url': '', 'moms_ledger': '',
+    }])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    html = server.build_recent_report_html()
+    assert f'Archived Scan Image: {archived}' in html
+    assert 'Staged Scan Image' not in html
+    assert str(staged) not in html
+
+
+def test_recent_receipt_uses_canonical_archive_name_and_not_statement_slot(
+        tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    archived = (
+        '/home/adamsl/rol_finances/readable_documents/receipts/2025/march/'
+        'march_18/intercessors_for_america_03_18_25_30_50.jpg')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'duplicate_expense_ids': [1547],
+        'parsed': 1, 'stored': 0, 'doc_kind': 'receipt',
+        'vendor': 'Intercessors for America',
+        'archive_paths': [archived], 'archive_years': [2025],
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
+        'id': 1547, 'date': '2025-03-18', 'amount': '30.50',
+        'vendor_key': 'check_11051_03_18_25_30_50',
+        'description': 'Check 11051',
+        'reporting_category': 'Gifts & Love Offerings',
+        'cat_class': 'cat-gifts-and-love-offerings',
+        'receipt_url': archived, 'document_url': '/docs/statement.pdf',
+        'scanned_statement_url': '', 'moms_ledger': '',
+    }])
+    monkeypatch.setattr(
+        server, '_associated_source_paths', lambda rows: ('', archived))
+    monkeypatch.setattr(
+        server, '_intake_source_document',
+        lambda intake: '/staged/window_scan.jpg')
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+
+    html = server.build_recent_report_html()
+
+    assert ('Most Recent Document: '
+            'intercessors_for_america_03_18_25_30_50.jpg') in html
+    assert f'Associated Receipt: {archived}' in html
+    assert f'Archived Scan Image: {archived}' in html
+    assert 'Associated Scanned Statement' not in html
+    assert 'Staged Scan Image' not in html
+    assert '/staged/window_scan.jpg' not in html
+
+
+def test_recent_intake_html_falls_back_to_derived_archived_scan_copy(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    derived = ('/home/adamsl/rol_finances/readable_documents/bank_statements/'
+               '2025/march/chase_6285_march_18__march_18/'
+               'chase_6285_march_18__march_18.jpg')
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [7], 'parsed': 1, 'stored': 1,
+        'doc_kind': 'statement', 'vendor': 'chase',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
+        'date': '2025-03-18', 'amount': '-30.50', 'vendor_key': 'chase_6285',
+        'description': 'Check 11051', 'reporting_category': 'Gifts & Love Offerings',
+        'cat_class': 'cat-gifts-and-love-offerings', 'receipt_url': '',
+        'document_url': '', 'scanned_statement_url': '', 'moms_ledger': '',
+    }])
+    monkeypatch.setattr(
+        server, '_recent_intake_archive_path',
+        lambda intake, rows, receipt_path='': derived)
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+    html = server.build_recent_report_html()
+    assert f'Archived Scan Image: {derived}' in html
+
+
+def test_scanner_report_hides_staged_image_when_archive_is_missing(
+        tmp_path, monkeypatch):
+    """A scanner report must not advertise its temporary processing image."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    _scanner_registry(monkeypatch)
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'parsed': 0, 'stored': 0, 'doc_kind': 'statement',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+
+    html = server.build_scanner_report_html('freezer')
+
+    assert 'Archived Scan Image' not in html
+    assert 'Staged Scan Image:' not in html
+    assert '/staged/scan_freezer.jpg' not in html
+    assert 'Most Recent Document: scan_freezer.jpg' in html
 
 
 def test_report_pointer_newer_than_intake_wins(tmp_path, monkeypatch):
@@ -5382,6 +6844,34 @@ def test_recent_intake_html_duplicates_run_still_lists_rows(tmp_path, monkeypatc
     assert '<table id="verified-transactions"' in html
     assert 'data-vendor-key="amazon_com"' in html
     assert 'already in the' in html and 'shown below' in html
+
+
+def test_recent_intake_html_collapses_equivalent_duplicate_ids(tmp_path, monkeypatch):
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
+    server.merge_recent_intake_event({
+        'duplicate_expense_ids': [561, 1519], 'parsed': 1, 'stored': 0})
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [
+        {
+            'id': 561, 'date': '2025-02-20', 'amount': '33.13',
+            'vendor_key': 'mr_burger', 'description': 'MR BURGER RESTAURANT 1',
+            'reporting_category': 'Food & Hospitality',
+            'cat_class': 'cat-food-and-hospitality', 'receipt_url': 'canonical.jpg',
+        },
+        {
+            'id': 1519, 'date': '2025-02-20', 'amount': '33.13',
+            'vendor_key': 'mr_burger_restaurant', 'description': 'MR BURGER RESTAURANT',
+            'reporting_category': 'Food & Hospitality',
+            'cat_class': 'cat-food-and-hospitality', 'receipt_url': 'duplicate.png',
+        },
+    ])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
+
+    html = server.build_recent_report_html()
+
+    assert html.count('data-expense-id="561"') == 1
+    assert 'data-expense-id="1519"' not in html
 
 
 def test_compute_server_status_hard_failure_stays_red():
@@ -5571,6 +7061,57 @@ def test_statement_preflight_resolves_missing_last4_from_workbook(monkeypatch):
     assert result.get('needs_statement_metadata') is not True
 
 
+def test_statement_preflight_prefers_unique_letterhead_workbook_match_over_vision_digits(
+        monkeypatch):
+    """A branded card letterhead is safer than obscured account-number OCR.
+
+    The Choice Privileges scan on 2026-07-27 was visibly branded Choice but
+    vision guessed 4884 from marked-over digits.  The workbook has exactly one
+    Choice row (7580), so preflight must use that authoritative match rather
+    than archive and dispatch the statement under the guessed digits.
+    """
+    _stub_statement_parser(monkeypatch, {
+        'ok': True, 'statements': [{
+            'bank_name': 'Wells Fargo',
+            'account_number': '4884',
+            'transactions': _STMT_ROWS,
+        }],
+    })
+
+    class ChoiceDirectory:
+        def lookup_last4(self, name):
+            if name == 'Choice Privileges Mastercard':
+                return types.SimpleNamespace(
+                    last4='7580', ambiguous_last4=(),
+                    matched_names=('choice_7580',))
+            return types.SimpleNamespace(
+                last4=None, ambiguous_last4=(), matched_names=())
+
+    result = server.run_statement_preflight(
+        '/scan.jpg',
+        dict(_STMT_FACADE, vendor='Choice Privileges Mastercard'),
+        account_directory=ChoiceDirectory())
+
+    assert result['ok'] is True
+    assert result['bank_name'] == 'Choice Privileges Mastercard'
+    assert result['account_last4'] == '7580'
+    assert result['last4_source'] == 'known_cards_workbook'
+    assert result['workbook_matched_names'] == ['choice_7580']
+    message = server.build_mazda_scan_message(
+        '/staged/choice.jpg', 'Window Scanner',
+        {
+            'ok': True,
+            'doc_kind': 'statement',
+            'vendor': result['bank_name'],
+            'confidence': 1.0,
+            'statement_preflight': result,
+        })
+    assert "--bank-name 'Choice Privileges Mastercard'" in message
+    assert '--account-last4 7580' in message
+    assert '--account-last4-source known_cards_workbook' in message
+    assert '4884' not in message
+
+
 def test_statement_preflight_fails_closed_on_ambiguous_workbook_match(
         monkeypatch):
     # A bank with several cards on file must NOT be resolved to one of them —
@@ -5623,3 +7164,238 @@ def test_statement_preflight_rejects_envelope_with_no_transactions(monkeypatch):
 
     assert result['ok'] is False and result['rejected'] is True
     assert 'no complete transaction' in result['error']
+
+
+# ── Keyboard-free deploy (resilience path) ────────────────────────────────────
+# deploy_dashboard() is the "never dead in the water" path: Frita (or EG from a
+# phone) triggers a git fast-forward + self-restart over HTTP, no keyboard/SSH.
+# The load-bearing guarantee is fail-loud: a bad pull must NOT restart the box.
+
+def _fake_git(monkeypatch, results):
+    """Drive server.deploy_dashboard's inner `git -C REPO_ROOT <args>` calls.
+
+    `results` maps a git subcommand (the first arg after -C REPO_ROOT) to a
+    (returncode, stdout, stderr) tuple. rev-parse is disambiguated by its flag.
+    """
+    def run(cmd, capture_output=True, text=True, timeout=None):
+        sub = cmd[3]  # ['git', '-C', REPO_ROOT, <sub>, ...]
+        if sub == 'rev-parse':
+            key = 'branch' if '--abbrev-ref' in cmd else 'sha'
+        else:
+            key = sub
+        rc, out, err = results[key]
+        return types.SimpleNamespace(returncode=rc, stdout=out, stderr=err)
+    monkeypatch.setattr(server.subprocess, 'run', run)
+
+
+def test_deploy_dashboard_fast_forwards_then_restarts(monkeypatch):
+    shas = iter(['aaaaaaa', 'bbbbbbb'])  # before, after
+    monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: None)
+    _fake_git(monkeypatch, {
+        'branch': (0, 'main\n', ''),
+        'sha': (0, '', ''),   # overridden below
+        'fetch': (0, '', ''),
+        'pull': (0, 'Updating aaaaaaa..bbbbbbb\n', ''),
+    })
+    # rev-parse --short returns before then after
+    orig = server.subprocess.run
+    def run(cmd, **k):
+        r = orig(cmd, **k)
+        if cmd[3] == 'rev-parse' and '--short' in cmd:
+            return types.SimpleNamespace(returncode=0, stdout=next(shas) + '\n', stderr='')
+        return r
+    monkeypatch.setattr(server.subprocess, 'run', run)
+
+    called = {}
+    def fake_restart():
+        called['restart'] = True
+        return {'ok': True, 'text': 'Restarting…'}
+    monkeypatch.setattr(server, 'restart_dashboard_server', fake_restart)
+
+    result = server.deploy_dashboard()
+    assert called.get('restart') is True
+    assert result['ok'] is True
+    assert 'aaaaaaa -> bbbbbbb' in result['text']
+
+
+def test_deploy_dashboard_fails_loud_and_skips_restart_on_non_ff(monkeypatch):
+    _fake_git(monkeypatch, {
+        'branch': (0, 'main\n', ''),
+        'sha': (0, 'aaaaaaa\n', ''),
+        'fetch': (0, '', ''),
+        'pull': (1, '', 'fatal: Not possible to fast-forward, aborting.'),
+    })
+    called = {}
+    monkeypatch.setattr(server, 'restart_dashboard_server',
+                        lambda: called.setdefault('restart', True))
+
+    result = server.deploy_dashboard()
+    assert 'restart' not in called          # a dirty/divergent tree is never activated
+    assert result['ok'] is False
+    assert 'NOT restarted' in result['text']
+    assert 'fast-forward' in result['text']
+
+
+def test_deploy_dashboard_fails_loud_when_fetch_fails(monkeypatch):
+    _fake_git(monkeypatch, {
+        'branch': (0, 'main\n', ''),
+        'sha': (0, 'aaaaaaa\n', ''),
+        'fetch': (1, '', 'fatal: could not read from remote'),
+        'pull': (0, '', ''),
+    })
+    called = {}
+    monkeypatch.setattr(server, 'restart_dashboard_server',
+                        lambda: called.setdefault('restart', True))
+
+    result = server.deploy_dashboard()
+    assert 'restart' not in called
+    assert result['ok'] is False
+    assert 'git fetch' in result['text'] and 'NOT restarted' in result['text']
+
+
+# ── provider-health fallback classification ──────────────────────────────────
+
+def _fallback_state(*, cat_last_success=0, vision_last_success=0):
+    """provider_health.json shape: one categorizer + one vision fallback at t=100."""
+    return {
+        'chatgpt-oauth-categorizer:eg': {
+            'last_success': cat_last_success, 'last_failure': 99},
+        'chatgpt-oauth-vision:eg': {
+            'last_success': vision_last_success, 'last_failure': 99},
+        'chatgpt-oauth-categorizer:_fallbacks': {
+            'events': [{'time': 100, 'from': 'eg', 'to': 'moms', 'error': '429'}]},
+        'chatgpt-oauth-vision:_fallbacks': {
+            'events': [{'time': 100, 'from': 'eg', 'to': 'moms', 'error': '429'}]},
+    }
+
+
+def test_split_provider_health_state_separates_accounts_from_fallbacks():
+    accounts, fallbacks = server.split_provider_health_state(_fallback_state())
+    assert set(accounts) == {
+        'chatgpt-oauth-categorizer:eg', 'chatgpt-oauth-vision:eg'}
+    assert set(fallbacks) == {
+        'chatgpt-oauth-categorizer', 'chatgpt-oauth-vision'}
+    assert len(fallbacks['chatgpt-oauth-vision']) == 1
+
+
+def test_unresolved_fallbacks_skips_events_the_account_recovered_from():
+    # primary succeeded at t=150, after the t=100 fallback → resolved, no alert
+    accounts, fallbacks = server.split_provider_health_state(
+        _fallback_state(cat_last_success=150))
+    assert server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=False) == []
+
+
+def test_unresolved_fallbacks_keeps_events_with_no_later_success():
+    accounts, fallbacks = server.split_provider_health_state(
+        _fallback_state(cat_last_success=50))
+    events = server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=False)
+    assert [p for p, _ in events] == ['chatgpt-oauth-categorizer']
+
+
+def test_unresolved_fallbacks_honours_the_time_window():
+    accounts, fallbacks = server.split_provider_health_state(_fallback_state())
+    assert server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=500, want_vision=False) == []
+
+
+def test_unresolved_fallbacks_separates_vision_from_categorizer():
+    """Each chain belongs to its own tile — they must not bleed into each other."""
+    accounts, fallbacks = server.split_provider_health_state(_fallback_state())
+    cat = server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=False)
+    vis = server.unresolved_fallbacks(
+        accounts, fallbacks, cutoff=0, want_vision=True)
+    assert [p for p, _ in cat] == ['chatgpt-oauth-categorizer']
+    assert [p for p, _ in vis] == ['chatgpt-oauth-vision']
+
+
+def test_categorizer_tile_ignores_vision_fallbacks(monkeypatch, tmp_path):
+    """A vision-only fallback must leave the Categorizer tile green."""
+    path = tmp_path / 'provider_health.json'
+    state = {
+        'chatgpt-oauth-categorizer:eg': {'last_success': 200, 'last_failure': 99},
+        'chatgpt-oauth-vision:_fallbacks': {
+            'events': [{'time': time.time(), 'from': 'eg', 'to': 'moms',
+                        'error': '429'}]},
+    }
+    path.write_text(json.dumps(state))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    health = server.mazda_categorizer_fallback_health()
+    assert health['ok'] is True
+    assert not health.get('concern')
+
+
+def test_categorizer_tile_flags_its_own_unrecovered_fallback(monkeypatch, tmp_path):
+    path = tmp_path / 'provider_health.json'
+    state = {
+        'chatgpt-oauth-categorizer:eg': {'last_success': 0, 'last_failure': 99},
+        # a healthy tier, so this exercises the yellow path rather than the
+        # "every tier is failing" red path
+        'chatgpt-oauth-categorizer:moms': {'last_success': 200, 'last_failure': 0},
+        'chatgpt-oauth-categorizer:_fallbacks': {
+            'events': [{'time': time.time(), 'from': 'eg', 'to': 'moms',
+                        'error': '429'}]},
+    }
+    path.write_text(json.dumps(state))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    health = server.mazda_categorizer_fallback_health()
+    assert health.get('concern') is True
+    assert 'unrecovered' in health['text']
+
+
+def test_vision_provider_fallbacks_survives_a_missing_event_log(monkeypatch, tmp_path):
+    """A missing log must never be the thing that colours the vision tile."""
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH',
+                        str(tmp_path / 'nope.json'))
+    assert server.vision_provider_fallbacks() == ''
+
+
+def test_vision_tile_flags_unrecovered_vision_fallback(monkeypatch, tmp_path):
+    """Credential checks pass but real calls keep failing over — the Document
+    Vision tile (not the Categorizer tile) must be the one that says so."""
+    path = tmp_path / 'provider_health.json'
+    path.write_text(json.dumps({
+        'chatgpt-oauth-vision:eg': {'last_success': 0, 'last_failure': 99},
+        'chatgpt-oauth-vision:_fallbacks': {
+            'events': [{'time': time.time(), 'from': 'eg', 'to': 'moms',
+                        'error': '429'}]},
+    }))
+    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+
+    summary = server.vision_provider_fallbacks()
+    assert 'unrecovered vision fallback' in summary
+
+
+def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
+    """A stalled scan (the Last Freezer/Window Scan pages' worst case) must
+    still name its document, flag the failure loudly, and explain the empty
+    Verified Transactions table instead of rendering a wall of '--'."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    _scanner_registry(monkeypatch)
+    server.record_recent_intake(
+        '/staged/scan_freezer_1786536321_7340d041.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({
+        'expense_ids': [], 'parsed': None, 'stored': None,
+        'doc_kind': 'unknown', 'vendor': 'unknown', 'status': 'stalled',
+        'status_detail': 'Verification lock cleared manually.',
+    })
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('', '', ''))
+
+    html = server.build_scanner_report_html('freezer')
+
+    assert ('Most Recent Document: '
+            'scan_freezer_1786536321_7340d041.jpg') in html
+    assert 'unavailable' not in html
+    assert '/staged/' not in html
+    assert 'Document Type: Not yet identified' in html
+    assert 'Month Range' not in html
+    assert 'Associated PDF' not in html
+    assert 'class="status-banner status-bad"' in html
+    assert 'Mazda Trainer reported STALLED' in html
+    assert 'stopped before any transactions were stored' in html

@@ -902,14 +902,15 @@ python3 mazda_verify_receipt.py -f receipt.json --db /tmp/run.sqlite3 --output o
   <section class="leaf" id="supporting-documents-contract">
     <div class="runninghead"><span>Document Intake</span><span>Supporting Evidence</span></div>
     <p class="chapnum">Operational Addendum</p>
-    <h1 class="chap">Three Independent Supporting Documents</h1>
+    <h1 class="chap">Four Independent Supporting Documents</h1>
     <div class="chap-rule"></div>
-    <p>Each nonprofit expense may retain three independent references:
-      <code>receipt_url</code> for a receipt, <code>document_url</code> for the
-      source statement or other non-receipt document, and
+    <p>Each nonprofit expense may retain four independent references:
+      <code>receipt_url</code> for a receipt, <code>document_url</code> for a
+      bank-downloaded source statement or other primary document,
+      <code>scanned_statement_url</code> for a paper statement scan, and
       <code>moms_ledger</code> for Mom’s composite ledger image.</p>
     <p><strong>Supporting-document contract.</strong> Attach only the field
-      corresponding to the current classification and preserve the other two.
+      corresponding to the current classification and preserve the other three.
       Documents may arrive in any order and must converge on one matching
       expense rather than create duplicates. An identical reference is an
       idempotent success. A different non-empty same-type reference must never
@@ -920,6 +921,7 @@ python3 mazda_verify_receipt.py -f receipt.json --db /tmp/run.sqlite3 --output o
     <p><strong>Evidence roots and matching.</strong> Reconcile across
       <code>readable_documents/receipts/</code>,
       <code>readable_documents/bank_statements/</code>, and
+      <code>readable_documents/scanned_statements/</code>, and
       <code>readable_documents/ledger_documents/</code>. A ledger check number
       joined to the statement paid date/amount and receipt payee/date/amount is
       strong evidence for one expense; amount alone is insufficient. All
@@ -948,6 +950,29 @@ python3 mazda_verify_receipt.py -f receipt.json --db /tmp/run.sqlite3 --output o
       from a report directory only to keep legacy records usable. The Trainer
       checks every returned expense ID and fails a run when a resolvable stored
       reference does not produce its corresponding available action.</p>
+    <p><strong>Two dashboard/pipeline defects fixed 2026-08-08 — neither was a
+      Mazda reasoning error, both were environment bugs upstream or downstream
+      of intake.</strong> First: a year-folder archive migration
+      (<code>migrate_receipts_to_year_folders.py</code>,
+      <code>migrate_bank_statements_to_year_folders.py</code> in
+      <code>rol_finances</code>) moved files on disk without ever updating the
+      matching <code>expenses.source_file</code>/<code>receipt_url</code> rows,
+      so a correctly-stored reference could silently stop resolving to a real
+      file months later with no code change on Mazda's side. A manual audit
+      found and fixed 106 drifted rows across five months (Jan/Feb/Mar 2025 plus
+      spot-checks of April–Sept 2025, Dec 2024, and Jan 2026); the same
+      reconciliation is now built into <code>tools/maintenance/
+      backfill_source_file.py</code> and runs automatically at the end of both
+      migration scripts, so this should not recur silently again. Second: the
+      "No high-confidence expense row was found in the image" failure on
+      check-style/handwritten receipts (a document layout the OCR-only red-box
+      matcher had no strategy for) is fixed — see the note in the Trainer's own
+      instructions and <code>mazda_suzuki_escalation_contract.md</code> §4a for
+      the fix and how it was built (a SwarmForge six-pack run). Both failure
+      modes were already correctly routed away from Mazda coaching by the
+      Trainer's existing "Do not coach Mazda... file it as a dashboard defect"
+      rule — that classification was right the whole time; only the underlying
+      code has changed.</p>
     <div class="folio">· 77 ·</div>
   </section>
 </div>

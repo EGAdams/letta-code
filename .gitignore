@@ -55,6 +55,7 @@ bower_components
 
 # Compiled binary addons (https://nodejs.org/api/addons.html)
 build/Release
+/build/acceptance/
 
 # Dependency directories
 node_modules/
@@ -166,3 +167,19 @@ browser_tools/*
 
 .claude/scheduled_tasks.lock
 dashboard/.playwright-mcp/page-*.yml
+
+dev-debug.log
+# Environment variables
+# Editor directories and files
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# OS specific
+
+# Task files
+# tasks.json
+# tasks/
+scan_freezer.jpg

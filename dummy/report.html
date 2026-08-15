@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dummy Verification Report</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --line: #d9e1ec;
+      --header: #0f172a;
+      --success: #15803d;
+      --success-bg: #dcfce7;
+      --warning: #b45309;
+      --warning-bg: #fff7ed;
+      --danger: #b91c1c;
+      --danger-bg: #fee2e2;
+      --code-bg: #0b1020;
+      --code-ink: #dbeafe;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.5; }
+    .page { max-width: 1280px; margin: 0 auto; padding: 32px 18px 56px; }
+    .hero { background: linear-gradient(135deg, #0f172a, #1e3a8a); color: #ffffff; border-radius: 22px; padding: 34px; box-shadow: var(--shadow); margin-bottom: 24px; }
+    .hero h1 { margin: 0 0 10px; font-size: 2rem; letter-spacing: -0.02em; }
+    .hero p { margin: 5px 0; color: #dbeafe; }
+    .badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 13px; border-radius: 999px; background: var(--success-bg); color: var(--success); font-weight: 700; margin-top: 18px; }
+    .badge-danger { background: var(--danger-bg); color: var(--danger); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 24px; box-shadow: var(--shadow); margin-bottom: 20px; }
+    .card h2 { margin: 0 0 14px; color: var(--header); font-size: 1.35rem; }
+    .card h3 { margin: 18px 0 10px; color: var(--header); font-size: 1.05rem; }
+    .summary-box { border-left: 5px solid var(--success); background: var(--success-bg); padding: 18px 20px; border-radius: 14px; font-size: 1.05rem; }
+    .summary-box.fail { border-left-color: var(--danger); background: var(--danger-bg); }
+    .notice-box { border-left: 5px solid var(--warning); background: var(--warning-bg); padding: 16px 18px; border-radius: 14px; }
+    table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 12px; font-size: 0.95rem; }
+    th, td { border-bottom: 1px solid var(--line); padding: 11px 12px; text-align: left; vertical-align: top; }
+    th { background: #eef4ff; color: #172554; font-weight: 700; }
+    tr:last-child td { border-bottom: none; }
+    .number { text-align: right; white-space: nowrap; }
+    .center { text-align: center; white-space: nowrap; }
+    .status-pass { display: inline-block; padding: 4px 9px; border-radius: 999px; background: var(--success-bg); color: var(--success); font-weight: 700; font-size: 0.86rem; }
+    .status-fail { display: inline-block; padding: 4px 9px; border-radius: 999px; background: var(--danger-bg); color: var(--danger); font-weight: 700; font-size: 0.86rem; }
+    .muted { color: var(--muted); }
+    ul { margin: 0; padding-left: 22px; }
+    li { margin: 8px 0; }
+    code.inline-code { background: #eef2ff; color: #3730a3; padding: 2px 5px; border-radius: 5px; font-size: 0.92em; }
+    details { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; box-shadow: var(--shadow); margin-bottom: 20px; }
+    summary { cursor: pointer; font-weight: 700; color: var(--header); font-size: 1.15rem; }
+    pre { background: var(--code-bg); color: var(--code-ink); padding: 18px; border-radius: 14px; overflow-x: auto; font-size: 0.88rem; line-height: 1.45; margin-top: 16px; }
+    .footer { margin-top: 22px; text-align: center; color: var(--muted); font-size: 0.9rem; }
+    @media print { body { background: white; } .page { padding: 0; } .hero, .card, details { box-shadow: none; } details[open] pre { max-height: none; } }
+    @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } .hero { padding: 24px; } .hero h1 { font-size: 1.55rem; } .card { padding: 18px; } table { display: block; overflow-x: auto; white-space: nowrap; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <h1>Dummy Verification Report</h1>
+      <p><strong>Source PDF:</strong> dummy.xlsx</p>
+      <p><strong>Original iterated rows file:</strong> iterated_rows.md</p>
+      <p><strong>Statement period:</strong> 2025-01-21 to 2025-01-21</p>
+      <p><strong>Transaction rows:</strong> 1</p>
+      <p><strong>Total charges:</strong> $225.00</p>
+      <div class="badge badge-danger">FAIL - Vendor keys and categories verified</div>
+    </section>
+
+    <section class="card">
+      <h2>Overall Result</h2>
+      <div class="summary-box fail">
+        <strong>FAIL</strong> - The transaction rows reconcile, but at least one blocking vendor key or category issue remains.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Verification Summary</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Check</th>
+            <th class="number">Value</th>
+            <th class="center">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Source PDF read</td><td class="number">dummy.xlsx</td><td class="center"><span class="status-pass">PASS</span></td></tr>
+          <tr><td>Iterated rows markdown found</td><td class="number">iterated_rows.md</td><td class="center"><span class="status-pass">PASS</span></td></tr>
+          <tr><td>Transaction rows extracted</td><td class="number">1</td><td class="center"><span class="status-pass">PASS</span></td></tr>
+          <tr><td>Statement total verified</td><td class="number">$225.00</td><td class="center"><span class="status-pass">PASS</span></td></tr>
+          <tr><td>Database presence check</td><td class="number">0 of 1 rows matched existing DB entries</td><td class="center"><span class="status-pass">PASS</span></td></tr>
+          <tr><td>Duplicate entry check</td><td class="number">0 exact duplicates reviewed</td><td class="center"><span class="status-pass">PASS</span></td></tr>
+          <tr><td>Receipt association review</td><td class="number">1 associated receipts found</td><td class="center"><span class="status-pass">PASS</span></td></tr>
+          <tr><td>Vendor key verification</td><td class="number">0 canonical / 1 fallback</td><td class="center"><span class="status-fail">FAIL</span></td></tr>
+          <tr><td>Expense category verification</td><td class="number">1 of 1 rows categorized; 0 unresolved</td><td class="center"><span class="status-pass">PASS</span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <h2>Totals by Vendor Key</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Vendor Key</th>
+              <th class="number">Rows</th>
+              <th class="number">Total</th>
+              <th class="number">Category ID</th>
+              <th class="center">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code class="inline-code">trinity_health</code></td><td class="number">1</td><td class="number">$225.00</td><td class="number">365</td><td class="center"><span class="status-fail">FAIL</span></td></tr>
+            <tr><td><strong>Total</strong></td><td class="number"><strong>1</strong></td><td class="number"><strong>$225.00</strong></td><td class="number"><strong>1 populated</strong></td><td class="center"><span class="status-fail">FAIL</span></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Duplicate Review</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th class="number">Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Exact duplicate matches</td><td class="number">0</td></tr>
+            <tr><td>Fuzzy duplicate alerts</td><td class="number">0</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+
+    <section class="card">
+      <h2>Verified Transactions</h2>
+      <p class="muted">Transaction rows verified against the PDF and rendered with canonical vendor keys so the report matches the strict vendor-key workflow.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Vendor Key</th>
+            <th>Description</th>
+            <th class="number">Signed Amount</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Purchase</td><td class="center"><button type="button" class="vendor-key-button" onclick='alert("Vendor Key: trinity_health")'>OK</button></td><td>TRINITY HEALTH CORP-LIVONIA             MI</td><td class="number">-225.00</td><td>2025-01-21</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <h2>Expense Category Verification</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Vendor Key</th>
+              <th class="number">Category ID</th>
+              <th>Notes</th>
+              <th class="center">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code class="inline-code">trinity_health</code></td><td class="number">365</td><td>Vendor key resolved via fallback</td><td class="center"><span class="status-fail">FAIL</span></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Receipt Association Review</h2>
+        <div class="notice-box">
+          Receipt association is checked as part of the report build. Rows with matching receipts are counted in the summary, but this statement did not require receipt linkage to verify the vendor keys.
+        </div>
+        <h3>Review Notes</h3>
+        <ul>
+          <li>No vendor key fallback rows remained in the final report.</li>
+          <li>The report is intended to let the agent inspect vendor-key confidence directly from the table and the vendor-key summary.</li>
+        </ul>
+      </section>
+    </section>
+
+    <section class="card">
+      <h2>Problems Found</h2>
+      <ul>
+        <li>Fallback vendor key used for row 2025-01-21: trinity_health</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Notes</h2>
+      <ul>
+        <li>The report now includes the strict <code class="inline-code">Vendor Key</code> column required by the statement verification workflow.</li>
+        <li>The report is generated from processed rows so canonical vendor keys, duplicate review, and category resolution are visible together.</li>
+        <li>Vendor key confidence is easiest to inspect in the <strong>Verified Transactions</strong> table and the <strong>Totals by Vendor Key</strong> section.</li>
+      </ul>
+    </section>
+
+    <details open>
+      <summary>Machine-Readable Extracted Statement JSON</summary>
+      <pre><code>{
+  &quot;source_pdf&quot;: &quot;dummy.xlsx&quot;,
+  &quot;statement&quot;: {
+    &quot;statement_period&quot;: &quot;2025-01-21 to 2025-01-21&quot;,
+    &quot;transaction_count&quot;: 1,
+    &quot;statement_total&quot;: &quot;225.00&quot;
+  },
+  &quot;summary&quot;: {
+    &quot;processed&quot;: 1,
+    &quot;inserted&quot;: 1,
+    &quot;skipped_duplicate&quot;: 0,
+    &quot;uncategorized&quot;: 0,
+    &quot;categorized_rows&quot;: 1,
+    &quot;unresolved_categories&quot;: 0,
+    &quot;canonical_vendor_rows&quot;: 0,
+    &quot;fallback_vendor_rows&quot;: 1,
+    &quot;db_match_rows&quot;: 0,
+    &quot;duplicate_rows&quot;: 0,
+    &quot;receipt_associated_rows&quot;: 1
+  },
+  &quot;vendor_keys&quot;: [
+    {
+      &quot;vendor_key&quot;: &quot;trinity_health&quot;,
+      &quot;count&quot;: 1,
+      &quot;total&quot;: &quot;225.00&quot;,
+      &quot;category_id&quot;: 365,
+      &quot;status&quot;: &quot;FAIL&quot;,
+      &quot;notes&quot;: &quot;Vendor key resolved via fallback&quot;
+    }
+  ],
+  &quot;transactions&quot;: [
+    {
+      &quot;date&quot;: &quot;2025-01-21&quot;,
+      &quot;type&quot;: &quot;Purchase&quot;,
+      &quot;vendor_key&quot;: &quot;trinity_health&quot;,
+      &quot;vendor_key_source&quot;: &quot;fallback&quot;,
+      &quot;description&quot;: &quot;TRINITY HEALTH CORP-LIVONIA             MI&quot;,
+      &quot;signed_amount&quot;: &quot;-225.00&quot;,
+      &quot;status&quot;: &quot;FAIL&quot;,
+      &quot;category_id&quot;: 365,
+      &quot;receipt_url&quot;: &quot;january/january_21/trinity_health__01_21_25__225_00.jpeg&quot;
+    }
+  ]
+}</code></pre>
+    </details>
+
+    <p class="footer">Generated as a statement verification report with strict vendor-key handling.</p>
+  </main>
+</body>
+</html>

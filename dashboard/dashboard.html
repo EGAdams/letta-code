@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard</title>
-  <link rel="stylesheet" href="/css/dashboard.css?v=20260708c" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=20260812a" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -24,15 +24,9 @@
     <nav id="nav-main">
       <button type="button" class="tab active" data-nav="main" data-target="home">Home</button>
       <button type="button" class="tab" data-nav="main" data-target="rol-finance">ROL Finance</button>
-      <button type="button" class="tab" data-nav="main" data-target="status">Status</button>
-      <button type="button" class="tab" data-nav="main" data-target="instructions">Instructions</button>
-      <button type="button" class="tab" data-nav="main" data-target="tool-management">Tool Management</button>
+      <button type="button" class="tab" data-nav="main" data-target="status" id="btn-system-status">System Status</button>
       <button type="button" class="tab" data-nav="main" data-target="agent-management" id="btn-agent-mgmt">Agent Management</button>
-      <button type="button" class="tab" data-nav="main" data-target="server-management" id="btn-server-mgmt">Server Management</button>
-      <button type="button" class="tab" data-nav="main" data-target="ssh-connections" id="btn-ssh-connections">SSH Connections</button>
       <button type="button" class="tab" data-nav="main" data-target="project-plans">Project Plans</button>
-      <button type="button" class="tab" data-nav="main" data-target="model-stats" id="btn-model-stats">Model Stats</button>
-      <button type="button" class="tab" data-nav="main" data-target="pc-monitor" id="btn-pc-monitor">PC Monitor</button>
     </nav>
 
     <!-- PC Monitor sub-nav -->
@@ -56,22 +50,10 @@
     <!-- Status sub-nav -->
     <nav id="nav-status" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back">Back</button>
-      <button type="button" class="tab active" data-nav="status" data-target="status-home">Home</button>
-      <button type="button" class="tab" data-nav="status" data-target="status-agents">Agents</button>
-      <button type="button" class="tab" data-nav="status" data-target="status-process-monitors">Process Monitors</button>
-      <button type="button" class="tab" data-nav="status" data-target="status-servers">Servers</button>
-      <button type="button" class="tab" data-nav="status" data-target="status-pc-monitor">PC Monitor</button>
-    </nav>
-
-    <!-- Tool management sub-nav -->
-    <nav id="nav-tools" class="hidden">
-      <button type="button" class="tab back-tab" id="btn-back-tools">Back</button>
-      <button type="button" class="tab active" data-nav="tools" data-target="tools-home">Home</button>
-      <button type="button" class="tab" data-nav="tools" data-target="tools-web-search">web_search_exa</button>
-      <button type="button" class="tab" data-nav="tools" data-target="tools-web-fetch">web_fetch_exa</button>
-      <button type="button" class="tab" data-nav="tools" data-target="tools-executor-run">executor_run</button>
-      <button type="button" class="tab" data-nav="tools" data-target="tools-send-message">send_message_to_agent</button>
-      <button type="button" class="tab" data-nav="tools" data-target="tools-memory">memory</button>
+      <button type="button" class="tab" data-nav="status" data-target="server-management" id="btn-server-mgmt">Server Management</button>
+      <button type="button" class="tab" data-nav="status" data-target="ssh-connections" id="btn-ssh-connections">SSH Connections</button>
+      <button type="button" class="tab" data-nav="status" data-target="model-stats" id="btn-model-stats">Model Stats</button>
+      <button type="button" class="tab" data-nav="status" data-target="pc-monitor" id="btn-pc-monitor">PC Monitor</button>
     </nav>
 
     <!-- Agent management sub-nav -->
@@ -84,9 +66,12 @@
     <nav id="nav-plans" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-plans">Back</button>
       <button type="button" class="tab active" data-nav="plans" data-target="plans-self-evolving">Self Evolving</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-codebase-rewrite">Codebase Rewrite</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-server-rewrite">Server Rewrite</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-divide-conquer">Divide Conquer</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-audio-input">Audio Input</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-dev-status">Mazda Dev Status</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-scanned-statements">Scanned Statements</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-training">Mazda Training</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-verification-tracker">Verification Tracker</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-self-improvement">Self Improvement Plan</button>
@@ -95,6 +80,13 @@
       <button type="button" class="tab" data-nav="plans" data-target="plans-archon-workflows">Archon Workflows</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-expense-itemization">Expense Itemization</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-pipecat-voice">Pipecat Voice</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-voice-communication">Voice Communication</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-swarmforge-project">SwarmForge Project</button>
+    </nav>
+
+    <!-- Voice Communication interface sub-nav -->
+    <nav id="nav-voice-communication" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-voice-communication">Back</button>
     </nav>
 
     <!-- ROL Finance sub-nav -->
@@ -106,6 +98,7 @@
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-reports">Reports</button>
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-scanners">Scanners</button>
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-mazda-objects">Mazda Objects</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-red-box-project">Red Box Project</button>
     </nav>
 
     <!-- ROL Finance Reports sub-nav (report tabs injected dynamically) -->
@@ -120,7 +113,7 @@
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-window">Window Scanner</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-pdf">Process PDF</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-vendor-review">Needs Vendor Review</button>
-      <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-window" data-scanner-report="window">Last Windows Scan</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-window" data-scanner-report="window">Last Window Scan</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-freezer" data-scanner-report="freezer">Last Freezer Scan</button>
     </nav>
 
@@ -150,96 +143,17 @@
   <main class="content" id="main-content">
     <!-- Main views -->
     <section id="home" class="view active">
-      <!-- Intentionally left empty for now -->
+      <h2>Toyota</h2>
+      <p>Your receptionist. Press Start Listening when you're ready to talk to her, or just type.</p>
+      <div id="receptionist-box"></div>
+      <!-- Command channel: spoken instructions about the note above. -->
+      <div id="note-command-box"></div>
     </section>
 
-    <section id="instructions" class="view">
-      <h2>Instructions</h2>
-
-      <h3>SSH into this machine</h3>
-      <p>
-        This box is <strong>DESKTOP-SHDBATI</strong> — a <strong>Windows 10 Home</strong> host running
-        <strong>WSL Ubuntu 24.04</strong>. There are two separate SSH targets, each with its own user.
-        Almost everything (Letta server, agents, <code>/home/adamsl</code>, the code) lives inside
-        <strong>WSL Ubuntu</strong> — that's the one you usually want.
-      </p>
-
-      <div class="note">
-        <strong>Always connect over Tailscale, never the LAN IP.</strong> The <code>10.0.0.x</code> LAN
-        address is DHCP and changes on reboot (it shifted <code>10.0.0.143 → 10.0.0.142</code> on
-        2026-05-30, which is part of why connections broke). Tailscale IPs never change. Both ends must be
-        on the same Tailnet — run <code>tailscale status</code> to confirm.
-      </div>
-
-      <table class="kv">
-        <tr><th>Target</th><th>Connect (Tailscale — use this)</th><th>User</th><th>LAN fallback (drifts!)</th></tr>
-        <tr>
-          <td><strong>WSL Ubuntu</strong><br/>(Letta, agents, code)</td>
-          <td><code>ssh adamsl@100.80.49.10</code></td>
-          <td><code>adamsl</code></td>
-          <td>not on LAN directly</td>
-        </tr>
-        <tr>
-          <td><strong>Windows 10 host</strong></td>
-          <td><code>ssh NewUser@100.69.80.89</code></td>
-          <td><code>NewUser</code></td>
-          <td><code>ssh NewUser@10.0.0.142</code></td>
-        </tr>
-      </table>
-      <p>Both run OpenSSH on port 22.</p>
-
-      <h3>Why SSH broke on 2026-05-30 — and how it's fixed</h3>
-      <p>After the Windows reboot at 17:00, two things went wrong:</p>
-      <ol>
-        <li><strong>WSL's sshd did not auto-start.</strong> The <code>ssh.service</code> was set to
-          <code>disabled</code>, so it stayed down from the 17:00 reboot until someone started it manually at
-          19:13 — anyone trying to connect in that window got "connection refused."</li>
-        <li><strong>The LAN IP drifted</strong> <code>10.0.0.143 → 10.0.0.142</code> via DHCP, so anyone
-          using the old LAN address was hitting a dead host.</li>
-      </ol>
-
-      <div class="ok">
-        <strong>Permanent fix — run once in WSL</strong> so sshd always comes back after a reboot:
-        <pre><code>sudo systemctl enable ssh
-sudo systemctl start ssh</code></pre>
-        After that, always connect over Tailscale (<code>adamsl@100.80.49.10</code> for WSL) — that address
-        never changes, so reboots can't break it.
-      </div>
-
-      <h3>Troubleshooting checklist</h3>
-      <details>
-        <summary>"Connection refused" or "timed out"</summary>
-        <pre><code># On the WSL host, confirm sshd is up and set to auto-start:
-systemctl is-active ssh        # want: active
-systemctl is-enabled ssh       # want: enabled
-ss -tlnp | grep :22            # want: 0.0.0.0:22 listening
-
-# Confirm Tailscale is connected (run on BOTH ends):
-tailscale status
-tailscale ip -4                # WSL should report 100.80.49.10
-
-# End-to-end reachability (proves the box answers over Tailscale):
-curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pre>
-      </details>
-
-      <hr style="margin:20px 0;border:none;border-top:1px solid #ddd;" />
-
-      <h3>Reference pages</h3>
-      <p>
-        Live upload/instructions page:<br />
-        <a id="instructions-guide-link" href="/americanjewelry_live_upload_guide.html" target="_blank" rel="noopener noreferrer">
-          /americanjewelry_live_upload_guide.html
-        </a>
-      </p>
-      <p>
-        Windows 10 management:<br />
-        <a id="instructions-mgmt-link" href="/windows_10_dashboard_management.html" target="_blank" rel="noopener noreferrer">
-          /windows_10_dashboard_management.html
-        </a>
-      </p>
+    <section id="status-home" class="view">
+      <h2>System Status</h2>
+      <p>Select a section above.</p>
     </section>
-
-
 
     <section id="model-stats" class="view">
       <h2>Model Stats</h2>
@@ -252,20 +166,6 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <p class="srv-note">RAM, hard-drive, and network usage per machine. A tab blinking yellow means one of that PC's metrics crossed its alert threshold.</p>
       <div id="pc-monitor-body"><p class="am-dim">Select a PC&hellip;</p></div>
     </section>
-
-    <section id="tool-management" class="view">
-      <h2>Tool Management</h2>
-      <p>Use the left tool tabs to view tool notes.</p>
-    </section>
-
-    <section id="tools-home" class="view">
-      <h2>Tools Home</h2><p>Placeholder for tool management overview.</p>
-    </section>
-    <section id="tools-web-search" class="view"><p>web_search_exa placeholder.</p></section>
-    <section id="tools-web-fetch" class="view"><p>web_fetch_exa placeholder.</p></section>
-    <section id="tools-executor-run" class="view"><p>executor_run placeholder.</p></section>
-    <section id="tools-send-message" class="view"><p>send_message_to_agent placeholder.</p></section>
-    <section id="tools-memory" class="view"><p>memory placeholder.</p></section>
 
     <section id="agent-management" class="view">
       <h2>Agent Management</h2>
@@ -308,42 +208,17 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     <section id="agent-detail-tests" class="view"></section>
     <section id="agent-detail-input-options" class="view"></section>
 
-    <!-- Status sub-views -->
-    <section id="status-home" class="view">
-      <h2>Status</h2>
-      <p>
-        Live status page:<br />
-        <a href="/status.html" target="_blank" rel="noopener noreferrer">
-          /status.html
-        </a>
-      </p>
-    </section>
-
-    <section id="status-agents" class="view">
-      <h2>Agents</h2>
-      <p>Live status page for agents monitoring.</p>
-    </section>
-
-    <section id="status-process-monitors" class="view">
-      <p>Process Monitors</p>
-    </section>
-
-    <section id="status-servers" class="view">
-      <h2>Servers</h2>
-      <div class="srv-summary-toolbar">
-        <button type="button" class="am-btn" id="servers-refresh-btn">Refresh</button>
-        <span id="servers-last-updated" class="srv-summary-stamp"></span>
-      </div>
-      <div id="servers-list"><p class="am-dim">Loading&hellip;</p></div>
-    </section>
-
-    <section id="status-pc-monitor" class="view">
-      <p>PC monitors</p>
-    </section>
-
     <!-- Project Plans views -->
     <section id="plans-self-evolving" class="view">
       <iframe id="self-evolving-plan-frame" class="plan-frame" src="/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html"></iframe>
+    </section>
+
+    <section id="plans-codebase-rewrite" class="view">
+      <iframe id="codebase-rewrite-plan-frame" class="plan-frame" src="/notes_plans_handoffs/codebase_rewrite.html"></iframe>
+    </section>
+
+    <section id="plans-server-rewrite" class="view">
+      <iframe id="server-rewrite-plan-frame" class="plan-frame" src="/notes_plans_handoffs/server_rewrite.html"></iframe>
     </section>
 
     <section id="plans-divide-conquer" class="view">
@@ -356,6 +231,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
 
     <section id="plans-mazda-dev-status" class="view">
       <iframe id="mazda-dev-status-plan-frame" class="plan-frame" src="/notes_plans_handoffs/mazda_dev_status.html"></iframe>
+    </section>
+
+    <section id="plans-scanned-statements" class="view">
+      <iframe id="scanned-statements-plan-frame" class="plan-frame" src="/notes_plans_handoffs/scanned_statements_plan.html"></iframe>
     </section>
 
     <section id="plans-mazda-training" class="view">
@@ -390,6 +269,14 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       <iframe id="pipecat-voice-plan-frame" class="plan-frame" src="/notes_plans_handoffs/pipecat_letta_voice_plan.html"></iframe>
     </section>
 
+    <section id="plans-voice-communication" class="view">
+      <iframe id="voice-communication-plan-frame" class="plan-frame" src="/voice_communication_plan.html"></iframe>
+    </section>
+
+    <section id="plans-swarmforge-project" class="view">
+      <iframe id="swarmforge-project-plan-frame" class="plan-frame" src="/notes_plans_handoffs/swarmforge_project.html"></iframe>
+    </section>
+
     <!-- ROL Finance views -->
     <section id="rol-finance-plan" class="view">
       <iframe id="rol-finance-plan-frame" class="plan-frame" src="/rol_finances/tools/plan.html"></iframe>
@@ -403,6 +290,10 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     <section id="rol-finance-taxes" class="view">
       <h2>Taxes</h2>
       <p>Taxes content coming soon.</p>
+    </section>
+
+    <section id="rol-finance-red-box-project" class="view">
+      <iframe id="rol-finance-red-box-project-frame" class="plan-frame" src="/red_box_project.html"></iframe>
     </section>
 
     <section id="rol-finance-reports" class="view">
@@ -503,10 +394,18 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
       </div>
     </section>
     <section id="scanners-last-window" class="view">
-      <iframe class="plan-frame" title="Last Windows Scan"></iframe>
+      <iframe class="plan-frame" title="Last Window Scan"></iframe>
+      <div id="scanners-last-window-archive-terminal" class="archive-terminal-section hidden"></div>
+      <div id="scanners-last-window-mazda-detail" class="agent-detail-section"></div>
     </section>
     <section id="scanners-last-freezer" class="view">
       <iframe class="plan-frame" title="Last Freezer Scan"></iframe>
+      <div id="scanners-last-freezer-archive-terminal" class="archive-terminal-section hidden"></div>
+      <div id="scanners-last-freezer-mazda-detail" class="agent-detail-section"></div>
+    </section>
+
+    <section id="rol-finance-mazda-objects" class="view">
+      <iframe class="plan-frame" src="/notes_plans_handoffs/mazda_objects.html"></iframe>
     </section>
 
     <section id="rol-finance-mazda-objects" class="view">
@@ -540,6 +439,21 @@ curl -s http://100.80.49.10:8283/v1/health/   # want: {"status":"ok"}</code></pr
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20260710a"></script>
+  <div id="intake-halted-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <p><strong>Intake halted — cannot continue.</strong> An intake step
+      crashed unexpectedly, so the pipeline stopped instead of silently
+      degrading to a "no match" result and inserting a possibly-duplicate
+      expense. This is an application-code fault that needs a fix — it has been
+      escalated to Suzuki. Acknowledging clears this alert but not the
+      underlying bug.</p>
+      <p id="intake-halted-detail" class="vision-halted-detail"></p>
+      <div class="modal-actions">
+        <button type="button" class="am-btn am-copy" id="intake-halted-ack">Acknowledge</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/js/dashboard-boot.js?v=20260813voice1"></script>
 </body>
 </html>

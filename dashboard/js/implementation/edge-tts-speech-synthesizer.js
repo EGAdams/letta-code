@@ -7,10 +7,10 @@ import { BrowserSpeechSynthesizer } from "./browser-speech-synthesizer.js";
  *
  * GoF: Decorator over the BrowserSpeechSynthesizer facade — same surface
  * (`supported` / `speak(text, agentName)` / `cancel()` / `bindVoiceChanges()`),
- * but `speak` first tries the server voice and only falls back to the
- * inherited Web Speech path when the server can't produce audio (offline,
- * edge-tts missing, non-audio reply). The cancel-before-speak "replies never
- * overlap" policy is preserved across both engines via a generation counter:
+ * but `speak` is deliberately server-only. A failed request or blocked audio
+ * playback stays silent instead of substituting the browser's robotic local
+ * voice for the configured edge-tts identity. The cancel-before-speak
+ * "replies never overlap" policy is preserved via a generation counter:
  * a newer speak() or cancel() invalidates any in-flight fetch/playback.
  *
  * `fetchFn` and `audioFactory` are injected so tests never touch the network
@@ -18,7 +18,7 @@ import { BrowserSpeechSynthesizer } from "./browser-speech-synthesizer.js";
  */
 export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
   /**
-   * @param {Window|object} [win] passed to the browser fallback.
+   * @param {Window|object} [win] supplies fetch, Audio, and URL browser APIs.
    * @param {object} [opts]
    * @param {typeof fetch} [opts.fetchFn]
    * @param {(url:string)=>{play:Function,pause:Function}} [opts.audioFactory]
@@ -55,15 +55,15 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     return this._voice;
   }
 
-  /** Server TTS works without Web Speech; either engine makes us supported. */
+  /** This adapter is supported only when the server-audio path is available. */
   get supported() {
-    return !!(this._fetchFn && this._audioFactory) || super.supported;
+    return !!(this._fetchFn && this._audioFactory);
   }
 
   /**
-   * Speak via the server voice, falling back to the browser engine. Returns a
+   * Speak via the server voice. Returns a
    * `{ text, pending }` token synchronously; `pending` resolves to the engine
-   * that actually spoke ("edge-tts" | "browser" | null).
+   * that actually spoke ("edge-tts" | null).
    */
   speak(text, agentName = null) {
     if (!this.supported) return null;
@@ -73,10 +73,7 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     const generation = this._generation;
     const pending = this._speakRemote(say, generation, agentName).catch(() => {
       if (generation !== this._generation) return null;
-      // super.speak/cancel dereference the Web Speech engine unguarded (our
-      // `supported` override is true without one), so gate on the engine.
-      if (!this._engine) return null;
-      return super.speak(text, agentName) ? "browser" : null;
+      return null;
     });
     return { text: say, pending };
   }

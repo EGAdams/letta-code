@@ -1,0 +1,35 @@
+- generic [active] [ref=e1]:
+  - dialog [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: Dashboard Startup Checks
+      - generic [ref=e5]: Running Dashboard checks...
+      - generic [ref=e7]: "[4:34:48 AM] Checking server and SSH connections..."
+  - complementary [ref=e9]:
+    - heading "Dashboard" [level=1] [ref=e10]
+    - navigation [ref=e11]:
+      - button "Home"
+      - button "ROL Finance"
+      - button "Status"
+      - button "Instructions"
+      - button "Tool Management"
+      - button "Agent Management"
+      - button "Server Management"
+      - button "SSH Connections"
+      - button "Project Plans"
+      - button "Model Stats"
+      - button "PC Monitor"
+  - main [ref=e12]
+  - dialog [ref=e14]:
+    - generic [ref=e15]:
+      - heading "I need one detail" [level=3] [ref=e16]
+      - paragraph [ref=e17]: Statement
+    - generic [ref=e18]:
+      - paragraph [ref=e19]: 3 transactions on this this account statement still have an unreadable date, description, or amount after checking the archived clean statement PDF for this account and period. Please open the document and fill in what you can read, or attach the correct statement PDF if one isn't archived yet.
+      - generic [ref=e20]:
+        - generic [ref=e21]: Offending document
+        - code [ref=e22]: /home/adamsl/rol_finances/readable_documents/bank_statements/_needs_review/choice_7580_year_parser_store_mismatch
+    - generic [ref=e23]:
+      - button "Leave for later"
+      - button "Ask Mazda"
+      - button "Show Document"
+      - button "Save"

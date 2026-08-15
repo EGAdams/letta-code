@@ -18,6 +18,15 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claude } from '/home/adamsl/claude-code-sdk-ts/dist/index.js';
+import {
+  ClaudeAttemptCompletionObservedError,
+  runWithAbortTimeout,
+} from "./claude-attempt.ts";
+import {
+  applyRedBoxAuditToReport,
+  auditRedBoxesForRun,
+  collectExpenseIds,
+} from "./red-box-gate.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -39,6 +48,11 @@ const DASHBOARD_BASE_URL = process.env.DASHBOARD_BASE_URL || 'http://localhost:8
 const MAZDA_AGENT_ID =
   process.env.MAZDA_AGENT_ID || 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e';
 const TRAINER_MODEL = process.env.TRAINER_MODEL || 'sonnet';
+// Keep the Trainer's Claude OAuth account isolated from the dashboard host's
+// interactive Claude login. The live deployment populates this directory with
+// mom's credential; callers can override it for another account/home.
+const TRAINER_CLAUDE_HOME =
+  process.env.TRAINER_CLAUDE_HOME || '/home/adamsl/trainer-claude-home';
 // Fallback when the Claude session itself fails; gpt-5.4-mini is the vetted
 // ChatGPT-OAuth mini handle (plain gpt-5-mini is rejected by the provider).
 const TRAINER_CODEX_MODEL = process.env.TRAINER_CODEX_MODEL || 'gpt-5.4-mini';
@@ -126,14 +140,21 @@ function buildTaskMessage(args) {
   ].join('\n');
 }
 
-async function runClaudeAttempt(prompt, timeoutMs, args) {
-  return claude()
+// `.withTimeout()` is a no-op in claude-code-sdk-ts@0.3.3 — `options.timeout` is
+// stored and never read, so only `.withSignal()` can actually stop a stuck
+// `claude` child. runWithAbortTimeout supplies that signal AND a hard deadline,
+// so a hung session raises instead of parking the watchdog forever (see
+// claude-attempt.ts).
+async function runClaudeAttempt(prompt, timeoutMs, args, completionObserved) {
+  return runWithAbortTimeout((signal) => claude()
     .withModel(TRAINER_MODEL)
     .allowTools('Bash', 'Read', 'Write')
     .skipPermissions()
     .inDirectory(HERE)
-    .withTimeout(timeoutMs)
+    .withSignal(signal)
     .withEnv({
+      HOME: TRAINER_CLAUDE_HOME,
+      CLAUDE_CONFIG_DIR: `${TRAINER_CLAUDE_HOME}/.claude`,
       LETTA_BASE_URL,
       MAZDA_AGENT_ID,
       MAZDA_CONVERSATION_ID: args.conversationId,
@@ -143,7 +164,7 @@ async function runClaudeAttempt(prompt, timeoutMs, args) {
       console.log(`[trainer] tool: ${tool.name} ${JSON.stringify(tool.input).slice(0, 300)}`);
     })
     .query(prompt)
-    .asText();
+    .asText(), timeoutMs, completionObserved);
 }
 
 async function runCodexAttempt(prompt, timeoutMs, attempt, args) {
@@ -236,6 +257,74 @@ async function notifyDashboardStatus(args) {
   }
 }
 
+async function fetchJson(url, options = undefined) {
+  const response = await fetch(url, options);
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${body.slice(0, 300)}`);
+  }
+  try { return JSON.parse(body); }
+  catch { throw new Error(`Expected JSON from ${url}: ${body.slice(0, 300)}`); }
+}
+
+async function enforceDeterministicRedBoxGate(args) {
+  let audit;
+  let facade = {};
+  try { facade = JSON.parse(args.facade || '{}'); }
+  catch { facade = {}; }
+  try {
+    const [messages, events] = await Promise.all([
+      fetchJson(
+        `${LETTA_BASE_URL}/v1/conversations/${args.conversationId}/messages?limit=200`,
+      ),
+      fetchJson(
+        `${DASHBOARD_BASE_URL}/api/expense-stored-events?since=${args.dispatchedAt}`,
+      ),
+    ]);
+    const expenseIds = collectExpenseIds(
+      messages,
+      events,
+      Number(args.dispatchedAt),
+      args.conversationId,
+    );
+    const facadeDocKind =
+      typeof facade?.doc_kind === 'string'
+        ? facade.doc_kind
+        : (typeof facade?.docKind === 'string' ? facade.docKind : '');
+    const facadeReason =
+      typeof facade?.reason === 'string'
+        ? facade.reason
+        : (typeof facade?.status === 'string' ? facade.status : '');
+    audit = await auditRedBoxesForRun(expenseIds, (path, body) =>
+      fetchJson(`${DASHBOARD_BASE_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }), {
+        docKind: facadeDocKind,
+        reason: facadeReason,
+        events,
+        dispatchedAt: Number(args.dispatchedAt),
+        conversationId: args.conversationId,
+      });
+    console.log(`[trainer] deterministic red-box gate: checked=${audit.checked} ` +
+      `failures=${audit.failures.length} expense_ids=${expenseIds.join(',') || '(none)'}`);
+  } catch (err) {
+    audit = {
+      ok: false,
+      checked: 0,
+      failures: [{
+        expenseId: null,
+        documentType: 'audit',
+        reason: `Deterministic red-box audit could not complete: ${err?.message || err}`,
+      }],
+    };
+  }
+  const report = readFileSync(args.reportPath, 'utf8');
+  writeFileSync(args.reportPath, applyRedBoxAuditToReport(report, audit));
+  return audit.ok;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   args.reportPath = buildReportPath(args);
@@ -294,9 +383,13 @@ foreground Bash sleep loop.`;
     try {
       const summary = useCodex
         ? await runCodexAttempt(attemptPrompt, attemptTimeoutMs, attempt, args)
-        : await runClaudeAttempt(attemptPrompt, attemptTimeoutMs, args);
+        : await runClaudeAttempt(
+          attemptPrompt, attemptTimeoutMs, args, reportWritten);
       console.log(`[trainer] attempt ${attempt} (${useCodex ? 'codex' : 'claude'}) summary:\n` + summary);
     } catch (err) {
+      if (err instanceof ClaudeAttemptCompletionObservedError) {
+        console.log('[trainer] report observer stopped the completed model session.');
+      } else {
       // A session that times out or crashes AFTER writing the report still
       // fulfilled the contract — the report is the deliverable, the final
       // summary is garnish. Fall through to the reportWritten() check.
@@ -308,8 +401,10 @@ foreground Bash sleep loop.`;
         console.log(`[trainer] Claude session failed — falling back to codex ` +
           `(${TRAINER_CODEX_MODEL}) for remaining attempts.`);
       }
+      }
     }
     if (reportWritten()) {
+      await enforceDeterministicRedBoxGate(args);
       await notifyDashboardStatus(args);
       console.log('[trainer] report file written — done.');
       return;

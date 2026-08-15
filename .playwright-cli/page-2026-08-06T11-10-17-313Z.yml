@@ -1,0 +1,56 @@
+- generic [active] [ref=e1]:
+  - dialog [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: Dashboard Startup Checks
+      - generic [ref=e5]: Running Dashboard checks...
+      - generic [ref=e8]:
+        - generic [ref=e9]: "[7:10:14 AM] Checking server and SSH connections..."
+        - generic [ref=e10]: "[7:10:14 AM] Calling /api/server-health..."
+        - generic [ref=e11]: "[7:10:15 AM] Loaded 14 server definitions."
+        - generic [ref=e12]: "[7:10:15 AM] Loaded 6 SSH connections."
+        - generic [ref=e13]: "[7:10:15 AM] Calling /api/ssh-connection-health..."
+        - generic [ref=e14]: "[7:10:15 AM] SSH health check finished: 5/6 reachable."
+        - generic [ref=e15]: "[7:10:15 AM] Server health check finished: 14/14 up."
+        - generic [ref=e16]: "[7:10:15 AM] Got response from /api/ssh-connection-health"
+        - generic [ref=e17]: "[7:10:15 AM] SSH Windows 11 Host: down"
+        - generic [ref=e18]: "[7:10:15 AM] SSH Win10 WSL (Letta Docker Host): up"
+        - generic [ref=e19]: "[7:10:15 AM] SSH Win11 (Lettabot/Dashboard): up"
+        - generic [ref=e20]: "[7:10:15 AM] SSH Rosemary46: up"
+        - generic [ref=e21]: "[7:10:15 AM] SSH Android Phone (Samsung): up"
+        - generic [ref=e22]: "[7:10:15 AM] SSH ChromeBook A13: up"
+        - generic [ref=e23]: "[7:10:15 AM] Got response from /api/server-health"
+        - generic [ref=e24]: "[7:10:15 AM] Server Win10 WSL Node: up"
+        - generic [ref=e25]: "[7:10:15 AM] Server Letta Server: up"
+        - generic [ref=e26]: "[7:10:15 AM] Server ChatGPT Provider (Mazda LLM): up"
+        - generic [ref=e27]: "[7:10:16 AM] Server Executor Server: up"
+        - generic [ref=e28]: "[7:10:17 AM] Server MCP Executor Bridge: up"
+        - generic [ref=e29]: "[7:10:17 AM] Server Dashboard Server: up"
+  - complementary [ref=e30]:
+    - heading "Dashboard" [level=1] [ref=e31]
+    - navigation [ref=e32]:
+      - button "Home"
+      - button "ROL Finance"
+      - button "Status"
+      - button "Instructions"
+      - button "Tool Management"
+      - button "Agent Management"
+      - button "Server Management"
+      - button "SSH Connections"
+      - button "Project Plans"
+      - button "Model Stats"
+      - button "PC Monitor"
+  - main [ref=e33]
+  - dialog [ref=e35]:
+    - generic [ref=e36]:
+      - heading "I need one detail" [level=3] [ref=e37]
+      - paragraph [ref=e38]: Statement
+    - generic [ref=e39]:
+      - paragraph [ref=e40]: 3 transactions on this this account statement still have an unreadable date, description, or amount after checking the archived clean statement PDF for this account and period. Please open the document and fill in what you can read, or attach the correct statement PDF if one isn't archived yet.
+      - generic [ref=e41]:
+        - generic [ref=e42]: Offending document
+        - code [ref=e43]: /home/adamsl/rol_finances/readable_documents/bank_statements/_needs_review/choice_7580_year_parser_store_mismatch
+    - generic [ref=e44]:
+      - button "Leave for later"
+      - button "Ask Mazda"
+      - button "Show Document"
+      - button "Save"

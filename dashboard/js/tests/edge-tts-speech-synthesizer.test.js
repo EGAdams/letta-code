@@ -178,7 +178,7 @@ describe("EdgeTtsSpeechSynthesizer", () => {
     expect(JSON.parse(calls[1].opts.body).voice).toBe("en-GB-SoniaNeural");
   });
 
-  test("falls back to the browser engine when the server replies non-audio", async () => {
+  test("does not substitute a browser voice when the server replies non-audio", async () => {
     const win = fakeSpeechWindow();
     const { factory } = fakeAudioFactory();
     const s = new EdgeTtsSpeechSynthesizer(win, {
@@ -191,12 +191,11 @@ describe("EdgeTtsSpeechSynthesizer", () => {
       audioFactory: factory,
     });
     const token = s.speak("hello");
-    expect(await token.pending).toBe("browser");
-    expect(win.spoken.length).toBe(1);
-    expect(win.spoken[0].text).toBe("hello");
+    expect(await token.pending).toBeNull();
+    expect(win.spoken.length).toBe(0);
   });
 
-  test("falls back to the browser engine when fetch rejects", async () => {
+  test("does not substitute a browser voice when fetch rejects", async () => {
     const win = fakeSpeechWindow();
     const { factory } = fakeAudioFactory();
     const s = new EdgeTtsSpeechSynthesizer(win, {
@@ -205,8 +204,21 @@ describe("EdgeTtsSpeechSynthesizer", () => {
       },
       audioFactory: factory,
     });
-    expect(await s.speak("hello").pending).toBe("browser");
-    expect(win.spoken.length).toBe(1);
+    expect(await s.speak("hello").pending).toBeNull();
+    expect(win.spoken.length).toBe(0);
+  });
+
+  test("does not substitute a browser voice when Sonia playback is blocked", async () => {
+    const win = fakeSpeechWindow();
+    const s = new EdgeTtsSpeechSynthesizer(win, {
+      fetchFn: async () => okAudioResponse(),
+      audioFactory: () => ({
+        play: () => Promise.reject(new Error("autoplay blocked")),
+        pause: () => {},
+      }),
+    });
+    expect(await s.speak("hello", "Mazda").pending).toBeNull();
+    expect(win.spoken.length).toBe(0);
   });
 
   test("cancel stops current audio and a newer speak supersedes an in-flight one", async () => {

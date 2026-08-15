@@ -12,7 +12,7 @@ WHISPER_CPP_BIN = os.environ.get(
     "WHISPER_CPP_BIN", os.path.join(HOME, "whisper.cpp", "build", "bin", "whisper-cli")
 )
 DEFAULT_WHISPER_MODEL_PATH = os.path.join(
-    HOME, "whisper.cpp", "models", "ggml-base.en.bin"
+    HOME, "whisper.cpp", "models", "ggml-small.en.bin"
 )
 WHISPER_MODEL_PATH = os.environ.get(
     "WHISPER_MODEL_PATH", DEFAULT_WHISPER_MODEL_PATH
@@ -35,11 +35,23 @@ CLEANUP_AGENT_ID = os.environ.get("CLEANUP_AGENT_ID")  # if None, resolve by nam
 CLEANUP_AGENT_NAME = os.environ.get("CLEANUP_AGENT_NAME", "transcript-cleanup-agent")
 CLEANUP_MODEL = os.environ.get("CLEANUP_MODEL", "gemini-2.5-flash-lite")
 
+# ── Note-command channel (Toyota's second/command text box) ───────────────────
+# Both the completeness detector and the command interpreter are short,
+# strict-JSON, history-cleared calls — the same shape the cleanup agent already
+# serves — so they default to it rather than requiring a new agent.
+NOTE_COMMAND_AGENT_ID = os.environ.get("NOTE_COMMAND_AGENT_ID")
+NOTE_COMMAND_AGENT_NAME = os.environ.get(
+    "NOTE_COMMAND_AGENT_NAME", CLEANUP_AGENT_NAME
+)
+# Where "save this" writes to. Outside the repo by default.
+NOTES_DIR = os.environ.get("NOTES_DIR", os.path.join(HOME, "notes"))
+
 # Known agent names fed to the cleanup model so it can fix mishears (Friday -> Frita).
 # Kept in sync with LETTA_AGENTS in server.py.
 KNOWN_AGENT_NAMES = [
     "Scissari",
     "Frita",
+    "Shelia",
     "Hailey",
     "Jeri",
     "Mazda",

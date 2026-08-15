@@ -1,4 +1,5 @@
 import { ListenerState } from "../abstract/continuous-listener.interface.js";
+import { mergeFinalChunk } from "../abstract/transcript-merge.js";
 import { RecorderState } from "../abstract/voice-recorder.interface.js";
 import { buildModelRow } from "./detail-renderers.js";
 import { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
@@ -218,7 +219,8 @@ export class AgentsRouterRenderer {
         const ok = await recorder.start();
         if (!ok) {
           showStatus(
-            "Microphone needs a secure context (https). Open this dashboard via the Tailscale https URL.",
+            recorder.lastError ||
+              "Microphone needs a secure context (https). Open this dashboard via the Tailscale https URL.",
             true,
           );
         }
@@ -241,13 +243,14 @@ export class AgentsRouterRenderer {
         textEl.value = committed ? `${committed} ${text}` : text;
         return;
       }
-      committed = committed ? `${committed} ${text}` : text;
+      committed = mergeFinalChunk(committed, text);
       textEl.value = committed;
       runDetection(committed, { manual: false });
     };
     this._listener.setCallbacks({
       onStateChange: syncListenBtn,
       onResult: handleResult,
+      onError: (message) => showStatus(message, true),
     });
     syncListenBtn(this._listener.state); // reflect state if already listening
     listenBtn.addEventListener("click", async () => {

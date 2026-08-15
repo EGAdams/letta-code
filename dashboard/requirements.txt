@@ -2,4 +2,10 @@
 PyMuPDF>=1.26
 Pillow>=12
 openpyxl>=3.1
+pydantic>=2.11,<3
 pytesseract>=0.3.13
+# DB access for the /api/supporting-documents red-box gate and other
+# MySQL-backed endpoints (rol_finances' get_connection() imports this).
+# The dashboard-server systemd unit runs server.py from .venv, which does
+# not inherit system site-packages, so this must be listed explicitly.
+PyMySQL>=1.1,<2
