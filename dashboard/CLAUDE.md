@@ -615,6 +615,21 @@ Use the same pattern for edits — the live checkout is **diverged** from this r
 verifying each anchor string occurs exactly once, taking a `.bak-<stamp>` copy, then string-replacing;
 never blind-`scp` whole files or `git pull` over it.
 
+### After any edit: verify the live dashboard (mandatory check)
+
+**Always run this after modifying `dashboard.html` or related files.** It catches the "wrong machine" trap:
+
+```bash
+cd /home/adamsl/letta-code/dashboard
+./verify-live.sh "your-marker-string"
+```
+
+Example: after adding a Mazda Objects tab, run `./verify-live.sh "mazda-objects"`. The script curls the
+actual live URL (`http://100.80.49.10:8765/`) and fails loud if your marker is not there — this proves
+the edit reached the serving machine, not a decoy checkout. A failed check means your edit tool was
+working on a different filesystem; consult the **"Which machine is live"** section above and use
+**Frita** (agent `881a883f-edd0-4963-bf67-6ef178b8f018`) for direct access to the real box.
+
 ### Known problem: restart fails with `Address already in use` on :8765
 
 - **Symptom:** `systemctl --user restart dashboard-server.service` in `Ubuntu-26.04` reports
