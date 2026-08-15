@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "string",
+      "description": "The user message to send to ChatGPT."
+    },
+    "browser_server_url": {
+      "type": "string",
+      "description": "Optional browser server base URL from the executor side. Default auto-detects http://127.0.0.1:5001 first."
+    },
+    "executor_url": {
+      "type": "string",
+      "description": "Optional executor_server.py base URL. Leave empty to use EXECUTOR_URL or common reachable executor URLs."
+    },
+    "executor_token": {
+      "type": "string",
+      "description": "Optional executor_server.py bearer token. Leave empty to use EXECUTOR_TOKEN or the standard local executor token."
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "description": "Seconds to wait without response progress before timing out. Default 180."
+    },
+    "poll_seconds": {
+      "type": "integer",
+      "description": "Seconds between read_thread polls. Default 10."
+    },
+    "stability_checks": {
+      "type": "integer",
+      "description": "Consecutive identical assistant reads required before treating the answer as finished. Default 2."
+    },
+    "max_total_seconds": {
+      "type": "integer",
+      "description": "Absolute cap for the relay call in seconds. Default 600."
+    }
+  },
+  "required": ["message"],
+  "additionalProperties": false,
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

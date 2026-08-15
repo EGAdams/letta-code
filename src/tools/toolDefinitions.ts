@@ -22,6 +22,7 @@ import ReadFileCodexDescription from "./descriptions/ReadFileCodex.md";
 import ReadFileGeminiDescription from "./descriptions/ReadFileGemini.md";
 import ReadLSPDescription from "./descriptions/ReadLSP.md";
 import ReadManyFilesGeminiDescription from "./descriptions/ReadManyFilesGemini.md";
+import RelayMessageToChatGptDescription from "./descriptions/RelayMessageToChatGpt.md";
 import ReplaceGeminiDescription from "./descriptions/ReplaceGemini.md";
 import RunShellCommandGeminiDescription from "./descriptions/RunShellCommandGemini.md";
 import SearchFileContentGeminiDescription from "./descriptions/SearchFileContentGemini.md";
@@ -61,6 +62,7 @@ import { read_file } from "./impl/ReadFileCodex";
 import { read_file_gemini } from "./impl/ReadFileGemini";
 import { read_lsp } from "./impl/ReadLSP";
 import { read_many_files } from "./impl/ReadManyFilesGemini";
+import { relay_message_to_chatgpt } from "./impl/RelayMessageToChatGpt";
 import { replace } from "./impl/ReplaceGemini";
 import { run_shell_command } from "./impl/RunShellCommandGemini";
 import { search_file_content } from "./impl/SearchFileContentGemini";
@@ -101,6 +103,7 @@ import ReadFileCodexSchema from "./schemas/ReadFileCodex.json";
 import ReadFileGeminiSchema from "./schemas/ReadFileGemini.json";
 import ReadLSPSchema from "./schemas/ReadLSP.json";
 import ReadManyFilesGeminiSchema from "./schemas/ReadManyFilesGemini.json";
+import RelayMessageToChatGptSchema from "./schemas/RelayMessageToChatGpt.json";
 import ReplaceGeminiSchema from "./schemas/ReplaceGemini.json";
 import RunShellCommandGeminiSchema from "./schemas/RunShellCommandGemini.json";
 import SearchFileContentGeminiSchema from "./schemas/SearchFileContentGemini.json";
@@ -410,6 +413,11 @@ const toolDefinitions = {
     schema: ReadManyFilesGeminiSchema,
     description: ReadManyFilesGeminiDescription.trim(),
     impl: read_many_files as unknown as ToolImplementation,
+  },
+  relay_message_to_chatgpt: {
+    schema: RelayMessageToChatGptSchema,
+    description: RelayMessageToChatGptDescription.trim(),
+    impl: relay_message_to_chatgpt as unknown as ToolImplementation,
   },
 } as const satisfies Record<string, ToolAssets>;
 

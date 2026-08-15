@@ -245,6 +245,7 @@ const TOOL_PERMISSIONS: Record<ToolName, { requiresApproval: boolean }> = {
   WriteFileGemini: { requiresApproval: true },
   WriteTodos: { requiresApproval: false },
   ReadManyFiles: { requiresApproval: false },
+  relay_message_to_chatgpt: { requiresApproval: true },
 };
 
 interface JsonSchema {
