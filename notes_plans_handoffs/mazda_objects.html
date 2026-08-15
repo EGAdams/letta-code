@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mazda Objects</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+      color: #333;
+    }
+    h1 {
+      border-bottom: 3px solid #0066cc;
+      padding-bottom: 10px;
+    }
+    h2 {
+      margin-top: 40px;
+      color: #0066cc;
+      border-left: 4px solid #0066cc;
+      padding-left: 12px;
+    }
+    h3 {
+      color: #555;
+      margin-top: 20px;
+    }
+    .section {
+      margin-bottom: 30px;
+      padding: 15px;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      background: #fafafa;
+    }
+    .field-list {
+      margin: 15px 0;
+      padding-left: 20px;
+    }
+    .field-item {
+      margin: 8px 0;
+      font-family: "Courier New", monospace;
+      font-size: 0.95em;
+    }
+    .field-name {
+      color: #0066cc;
+      font-weight: bold;
+    }
+    code {
+      background: #f0f0f0;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-family: "Courier New", monospace;
+    }
+    .note {
+      background: #fffbea;
+      border-left: 4px solid #ffa500;
+      padding: 12px;
+      margin: 15px 0;
+      border-radius: 2px;
+    }
+    .example {
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      padding: 10px;
+      border-radius: 3px;
+      margin: 10px 0;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>Mazda Objects Reference</h1>
+  <p>Documentation of the primary data structures and objects Mazda uses during document intake and processing workflows.</p>
+
+  <section class="section">
+    <h2>Core Data Objects</h2>
+
+    <h3>IntakeVerificationEvidence</h3>
+    <p>A structured JSON object that Mazda records at STEP 5 of the document intake pipeline to persist evidence for the self-improvement loop.</p>
+    <div class="note">
+      <strong>Purpose:</strong> Provides deterministic, verifiable records of what Mazda did, what tools returned, and what decisions were made.
+      Used by the judge (STEP 6) to assess whether the run succeeded or failed.
+    </div>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">task_name</span>: string — always <code>"document-intake"</code></div>
+      <div class="field-item"><span class="field-name">wrapper_revision</span>: string — loaded via <code>load_wrapper_revision</code>; her active learned rules at this moment</div>
+      <div class="field-item"><span class="field-name">tool_calls</span>: array — every tool invocation with arguments and return values</div>
+      <div class="field-item"><span class="field-name">step_results</span>: object — outcome of each STEP (1–9), including success/failure and why</div>
+      <div class="field-item"><span class="field-name">trace_id</span>: integer — returned by <code>record_trace</code>; used as a key for rollback/proposal filing</div>
+    </div>
+
+    <h3>Expense</h3>
+    <p>The fundamental record in the ROL Finance database representing a single financial transaction.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">id</span>: integer — primary key in MySQL</div>
+      <div class="field-item"><span class="field-name">expense_date</span>: date — transaction date (YYYY-MM-DD)</div>
+      <div class="field-item"><span class="field-name">amount</span>: decimal — transaction amount (signed; negative = refund)</div>
+      <div class="field-item"><span class="field-name">vendor_key</span>: string — standardized vendor identifier (e.g., <code>consumers_7996</code>)</div>
+      <div class="field-item"><span class="field-name">description</span>: string — human-readable transaction text</div>
+      <div class="field-item"><span class="field-name">category</span>: string — expense category (e.g., <code>utilities</code>, <code>meals</code>); null if unknown</div>
+      <div class="field-item"><span class="field-name">receipt_url</span>: string — optional path to receipt file</div>
+    </div>
+
+    <h3>Statement Transaction Row</h3>
+    <p>A single transaction extracted from a bank statement, before deduplication and storage.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">date</span>: date — when the transaction posted</div>
+      <div class="field-item"><span class="field-name">amount</span>: decimal — transaction amount</div>
+      <div class="field-item"><span class="field-name">description</span>: string — bank's description (may contain merchant name, reference, etc.)</div>
+      <div class="field-item"><span class="field-name">status</span>: string — "readable" or "unknown" (if the amount couldn't be parsed)</div>
+    </div>
+
+    <h3>DocumentIntakeResult</h3>
+    <p>Returned by the deterministic text-extraction facade (<code>mazda_intake.py</code>) after analyzing a scanned document.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">ok</span>: boolean — true if extraction succeeded</div>
+      <div class="field-item"><span class="field-name">doc_kind</span>: string — document classification: <code>statement</code>, <code>receipt</code>, <code>invoice</code>, or <code>unknown</code></div>
+      <div class="field-item"><span class="field-name">confidence</span>: float — 0.0–1.0; how certain the facade is about the classification</div>
+      <div class="field-item"><span class="field-name">action</span>: string — recommended next step: <code>store</code>, <code>reject</code>, <code>manual_review</code></div>
+      <div class="field-item"><span class="field-name">extracted_data</span>: object (optional) — raw text or structured fields extracted from the document</div>
+      <div class="field-item"><span class="field-name">vendor</span>: string (optional) — detected vendor/merchant name (for receipts/invoices)</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Processing Pipeline Objects</h2>
+
+    <h3>MazdalntakeFacade</h3>
+    <p>The deterministic text-extraction strategy interface; abstracts away the choice of OCR, vision model, or direct PDF parsing.</p>
+    <div class="note">
+      <strong>Key invariant:</strong> Returns <code>ok:true, doc_kind:unknown, confidence:0</code> for scanned JPEGs with no extractable text.
+      When <code>doc_kind==unknown OR confidence==0</code>, Mazda is routed to classify the image herself.
+    </div>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">process(file_path)</span>: method → <code>DocumentIntakeResult</code></div>
+      <div class="field-item"><span class="field-name">supports_format(ext)</span>: method → boolean (checks if facade can handle JPG, PDF, PNG, etc.)</div>
+    </div>
+
+    <h3>Document Classification Result</h3>
+    <p>Returned when Mazda runs vision classification (Gemini) on a scanned image to determine <code>doc_kind</code> and <code>vendor</code>.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">doc_type</span> or <span class="field-name">doc_kind</span>: string — vision model's best guess at document type</div>
+      <div class="field-item"><span class="field-name">merchant</span> or <span class="field-name">vendor</span>: string — inferred vendor/merchant name</div>
+      <div class="field-item"><span class="field-name">confidence</span>: float — model's confidence in the classification</div>
+      <div class="field-item"><span class="field-name">key_details</span>: object (optional) — any structured fields the model extracted (amounts, dates, etc.)</div>
+    </div>
+    <div class="note">
+      <strong>Naming divergence:</strong> <code>mazda_intake.py</code> uses <code>doc_kind</code>/<code>vendor</code>, while
+      <code>rol_finances/tools/classify_scan.py</code> (Mazda's vision classifier) uses <code>doc_type</code>/<code>merchant</code>.
+      Merge functions accept either.
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Verification Objects</h2>
+
+    <h3>Duplicate Check Result</h3>
+    <p>Returned by <code>check_duplicates</code> after querying the database for existing matching rows.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">matches</span>: array of objects — rows in the DB matching on (expense_date, amount)</div>
+      <div class="field-item"><span class="field-name">match[].id</span>: integer — existing expense ID</div>
+      <div class="field-item"><span class="field-name">match[].id_light</span>: string — normalized key (e.g., <code>consumers_energy_01_23_25_222_65</code>)</div>
+      <div class="field-item"><span class="field-name">match[].vendor_key</span>: string — vendor prefix from the stored row</div>
+      <div class="field-item"><span class="field-name">is_duplicate</span>: boolean — true if an exact or fuzzy match exists</div>
+    </div>
+
+    <h3>Vendor Validation Result</h3>
+    <p>Returned by <code>check_vendor_key</code> after looking up a vendor in the standard vendor map.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">recognized</span>: boolean — true if vendor_key exists in the map</div>
+      <div class="field-item"><span class="field-name">vendor_key</span>: string — the normalized key</div>
+      <div class="field-item"><span class="field-name">expected_category</span>: string — what category this vendor typically uses</div>
+      <div class="field-item"><span class="field-name">aliases</span>: array (optional) — alternative names this vendor goes by</div>
+    </div>
+
+    <h3>Category Validation Result</h3>
+    <p>Returned by <code>check_category</code> after verifying that an expense category matches the vendor's expectations.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">matches_vendor</span>: boolean — true if the category is acceptable for this vendor</div>
+      <div class="field-item"><span class="field-name">expected_category</span>: string — what the vendor map says</div>
+      <div class="field-item"><span class="field-name">provided_category</span>: string — what was submitted</div>
+      <div class="field-item"><span class="field-name">suggestion</span>: string (optional) — if mismatch, a better category choice</div>
+    </div>
+
+    <h3>Statement Totals Verification</h3>
+    <p>Returned by <code>verify_statement_totals</code> after checking that individual transaction amounts sum to the reported total.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">ok</span>: boolean — true if sum of rows == reported total (within rounding)</div>
+      <div class="field-item"><span class="field-name">reported_total</span>: decimal — what the statement header claims</div>
+      <div class="field-item"><span class="field-name">computed_total</span>: decimal — sum of all transaction amounts</div>
+      <div class="field-item"><span class="field-name">difference</span>: decimal — reported − computed (should be ~0)</div>
+      <div class="field-item"><span class="field-name">message</span>: string — human-readable explanation of the result</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Self-Improvement & Governance Objects</h2>
+
+    <h3>Wrapper Revision</h3>
+    <p>Loaded at the start of a run via <code>load_wrapper_revision</code>; contains Mazda's accumulated learned rules and configuration.</p>
+    <div class="note">
+      <strong>Key invariant:</strong> Load this once at STEP 1 and keep the returned revision IDs for <code>record_trace</code>.
+      The instructions block is immutable; a new revision is created when a proposal is activated.
+    </div>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">found</span>: boolean — whether the agent/revision exists</div>
+      <div class="field-item"><span class="field-name">wrapper_revision</span>: string — unique ID for this revision snapshot</div>
+      <div class="field-item"><span class="field-name">system_message_revision</span>: string — ID of the system prompt this revision uses</div>
+      <div class="field-item"><span class="field-name">toolset_revision</span>: string — ID of the tool set</div>
+      <div class="field-item"><span class="field-name">is_active</span>: boolean — whether this is the currently-active revision</div>
+      <div class="field-item"><span class="field-name">instructions</span>: string — the accumulated LEARNED RULES; must be read and applied at every relevant step</div>
+    </div>
+
+    <h3>Trace Record</h3>
+    <p>Persisted via <code>record_trace</code> to the self-improvement SQLite database; contains the complete evidence of a run.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">trace_id</span>: integer — primary key; returned immediately after record</div>
+      <div class="field-item"><span class="field-name">agent_name</span>: string — always <code>"Mazda"</code></div>
+      <div class="field-item"><span class="field-name">evidence_json</span>: JSON — the <code>IntakeVerificationEvidence</code> object serialized</div>
+      <div class="field-item"><span class="field-name">verdict</span>: string — PASS, FAIL, or NEEDS_REVIEW (set by the judge in STEP 6)</div>
+      <div class="field-item"><span class="field-name">created_at</span>: datetime — when the record was filed</div>
+    </div>
+
+    <h3>Improvement Proposal</h3>
+    <p>Filed via <code>propose_improvement</code> when a run fails; describes what went wrong and suggests a fix.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">proposal_id</span>: integer — unique identifier</div>
+      <div class="field-item"><span class="field-name">trace_id</span>: integer — links back to the failed run's evidence</div>
+      <div class="field-item"><span class="field-name">agent_name</span>: string — <code>"Mazda"</code></div>
+      <div class="field-item"><span class="field-name">problem_description</span>: string — what went wrong</div>
+      <div class="field-item"><span class="field-name">suggested_instruction</span>: string — one imperative rule that would have prevented this</div>
+      <div class="field-item"><span class="field-name">risk_level</span>: string — low, medium, or high</div>
+      <div class="field-item"><span class="field-name">status</span>: string — PENDING, ACTIVATED, REJECTED, or PENDING_APPROVAL</div>
+    </div>
+    <div class="note">
+      <strong>Example instruction:</strong> "For doc_kind=statement, always run parse_statement_scan.py then store_statement_transactions.py"
+    </div>
+
+    <h3>4-Gate Chain</h3>
+    <p>A governance pipeline that validates proposals before they become active rules. Accessed via <code>gate_check</code>, <code>apply_proposal</code>, and <code>activate_wrapper</code>.</p>
+    <div class="field-list">
+      <div class="field-item"><span class="field-name">Safety Gate</span>: Blocks proposals that could harm data integrity or violate compliance constraints</div>
+      <div class="field-item"><span class="field-name">Cost Gate</span>: Estimates the cost of the new rule (e.g., additional API calls) and warns if high</div>
+      <div class="field-item"><span class="field-name">Regression Gate</span>: Runs A/B experiments to ensure the new rule doesn't break passing cases</div>
+      <div class="field-item"><span class="field-name">Usefulness Gate</span>: Verifies the rule actually solves the reported problem</div>
+    </div>
+    <div class="note">
+      When all gates ALLOW, the proposal is automatically activated and appended to the learned rules.
+      High-risk or gate-blocked proposals require human approval (pending_approval=true).
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Related Tool Interfaces</h2>
+    <p>These tools produce or consume the objects above:</p>
+    <ul>
+      <li><strong><code>run_claude_code_sdk</code></strong> — Invokes the Claude Code SDK agent; used for complex parsing, categorization, and vision tasks</li>
+      <li><strong><code>executor_run</code></strong> — Runs shell commands and Python scripts on the executor; interfaces with the rol_finances toolset</li>
+      <li><strong><code>check_duplicates</code></strong> — Queries the DB; returns <code>Duplicate Check Result</code></li>
+      <li><strong><code>check_vendor_key</code></strong> — Validates against the vendor map; returns <code>Vendor Validation Result</code></li>
+      <li><strong><code>check_category</code></strong> — Verifies category/vendor match; returns <code>Category Validation Result</code></li>
+      <li><strong><code>verify_statement_totals</code></strong> — Checks transaction sum; returns <code>Statement Totals Verification</code></li>
+      <li><strong><code>itemize_existing_expense</code></strong> — Attempts parent/line-item atomic itemization of an existing expense</li>
+      <li><strong><code>load_wrapper_revision</code></strong> — Loads active learned rules; returns <code>Wrapper Revision</code></li>
+      <li><strong><code>record_trace</code></strong> — Persists evidence; returns <code>Trace Record</code> with trace_id</li>
+      <li><strong><code>propose_improvement</code></strong> — Files a proposal; returns <code>Improvement Proposal</code></li>
+      <li><strong><code>gate_check</code></strong> — Runs the 4-gate chain on a proposal</li>
+      <li><strong><code>apply_proposal</code></strong> — Activates a proposal after gates allow; creates a new wrapper revision</li>
+      <li><strong><code>judge_trace</code></strong> — Runs the deterministic verdict judge; returns PASS, FAIL, or NEEDS_REVIEW</li>
+    </ul>
+  </section>
+
+</body>
+</html>
