@@ -20,10 +20,17 @@ describe("inactivityStopMessage", () => {
     expect(msg).toContain("letta --new");
   });
 
+  test("a stalled tool names the tool budget, not the reasoning one", () => {
+    const msg = inactivityStopMessage("stalled_tool", true);
+    expect(msg).toContain("15 minutes waiting for a tool that never returned");
+    expect(msg).not.toContain("reasoning");
+  });
+
   test("the wording follows the thresholds that actually fired", () => {
     const msg = inactivityStopMessage("no_content", true, {
       noContentMs: 45_000,
       noToolProgressMs: 120_000,
+      stalledToolMs: 240_000,
       pollIntervalMs: 5_000,
     });
     expect(msg).toContain("45 seconds");

@@ -35,6 +35,30 @@ export const EDGE_TTS_EN_US_VOICES = [
 ];
 export const DEFAULT_EDGE_TTS_VOICE = "en-GB-SoniaNeural";
 
+// Start Listening idle/active backgrounds. Green when idle so it reads as the
+// "go" control at the top of the note-taking stack; red (blinking, via the
+// `listen-blink` keyframes) while the transcript is streaming in.
+export const LISTEN_IDLE_BG = "#28a745";
+export const LISTEN_ACTIVE_BG = "#c62828";
+
+/**
+ * Paint a green "start" button as its blinking-red "stop" counterpart (or back
+ * again). Shared by Start Listening and Start Editing so the two read as the
+ * same kind of control.
+ *
+ * The colours go on inline because these buttons carry an inline background,
+ * which beats the .voice-btn.recording class rule; the pulse is the
+ * `listen-blink` keyframes, and animated properties do beat inline styles.
+ */
+export function setToggleButtonActive(btn, active, { idleLabel, activeLabel }) {
+  if (!btn) return;
+  btn.classList.toggle("recording", active);
+  btn.textContent = active ? activeLabel : idleLabel;
+  btn.style.color = "#fff";
+  btn.style.background = active ? LISTEN_ACTIVE_BG : LISTEN_IDLE_BG;
+  btn.style.animation = active ? "listen-blink 1s step-end infinite" : "";
+}
+
 /**
  * Lazy-load the vendored xterm.js UMD bundle + fit addon + stylesheet (served
  * locally from /vendor/xterm — the live box is firewalled, so no CDN). Resolves
@@ -916,14 +940,32 @@ export class InputOptionsRenderer extends DetailRenderer {
     // ContinuousListener is injected (Toyota's receptionist box; see
     // dashboard-boot.js). Off by default: the user starts/stops it
     // explicitly rather than it running the moment the page loads.
+    // It sits at the very top of the stack (above Send) and is the same
+    // full width as Start, because note-taking starts here.
     let listenBtn = null;
+    let editTextEl = null;
+    let saveNoteBtn = null;
+    let editBtn = null;
     if (this._listener) {
       listenBtn = this._el("button", {
         className: "voice-btn",
         textContent: "Start Listening",
       });
-      listenBtn.style.cssText = `${bs}flex:1;background:#17a2b8;`;
-      voiceRow.append(listenBtn);
+      listenBtn.style.cssText = `${bs}background:${LISTEN_IDLE_BG};`;
+      // Second box: what the user tells Toyota *about* the note above, kept
+      // separate so dictating an edit never lands in the note itself.
+      editTextEl = this._el("textarea", {
+        className: "am-edit-input",
+        placeholder: "Tell Toyota how to edit the note…",
+      });
+      editTextEl.style.cssText = "min-height:70px;";
+      saveNoteBtn = this._el("button", { textContent: "Save Note" });
+      saveNoteBtn.style.cssText = `${bs}background:#6c757d;`;
+      editBtn = this._el("button", {
+        className: "voice-btn",
+        textContent: "Start Editing",
+      });
+      editBtn.style.cssText = `${bs}background:${LISTEN_IDLE_BG};`;
     }
 
     const autoSendBtn = this._el("button", { textContent: "Auto Send" });
@@ -934,14 +976,23 @@ export class InputOptionsRenderer extends DetailRenderer {
     statusEl.style.cssText = "min-height:1.4em;font-size:0.9rem;color:#555;";
     const outEl = this._el("div", { className: "am-test-out" });
 
+    // Note-taking order: listen first, then Send, then the note actions, and
+    // only then the one-shot recorder. Buttons absent outside receptionist
+    // mode collapse out of the list.
     col.append(
-      textEl,
-      sendBtn,
-      voiceRow,
-      autoSendBtn,
-      copyBtn,
-      statusEl,
-      outEl,
+      ...[
+        textEl,
+        listenBtn,
+        editTextEl,
+        sendBtn,
+        saveNoteBtn,
+        editBtn,
+        voiceRow,
+        autoSendBtn,
+        copyBtn,
+        statusEl,
+        outEl,
+      ].filter(Boolean),
     );
     container.append(heading, col);
 
@@ -1211,16 +1262,17 @@ export class InputOptionsRenderer extends DetailRenderer {
         textEl.value = text;
       },
     });
+    let editing = false;
     let intentQueue = Promise.resolve();
     let lastIntentText = "";
     let autoSentText = "";
     if (this._listener && listenBtn) {
       const syncListenBtn = (state) => {
         const listening = state === ListenerState.LISTENING;
-        listenBtn.classList.toggle("recording", listening);
-        listenBtn.textContent = listening
-          ? "Stop Listening"
-          : "Start Listening";
+        setToggleButtonActive(listenBtn, listening, {
+          idleLabel: "Start Listening",
+          activeLabel: "Stop Listening",
+        });
         startBtn.disabled = listening;
       };
       this._listener.setCallbacks({
@@ -1258,6 +1310,31 @@ export class InputOptionsRenderer extends DetailRenderer {
         onError: (message) => showStatus(message, true),
       });
       syncListenBtn(this._listener.state);
+
+      // Save Note is laid out now and wired to Toyota next; it says so rather
+      // than failing silently on a click.
+      saveNoteBtn?.addEventListener("click", () => {
+        showStatus("Save Note isn't wired up yet.");
+      });
+
+      // Start/Stop Editing — presentation only so far. It owns just the
+      // toggle, so the behaviour it eventually gates can be dropped in
+      // without touching the button's look.
+      setToggleButtonActive(editBtn, editing, {
+        idleLabel: "Start Editing",
+        activeLabel: "Stop Editing",
+      });
+      editBtn?.addEventListener("click", () => {
+        editing = !editing;
+        setToggleButtonActive(editBtn, editing, {
+          idleLabel: "Start Editing",
+          activeLabel: "Stop Editing",
+        });
+        showStatus(
+          editing ? "Editing mode on — not wired up yet." : "Editing mode off.",
+        );
+      });
+
       listenBtn.addEventListener("click", async () => {
         if (this._listener.isListening) {
           this._listener.stop();
@@ -1282,6 +1359,7 @@ export class InputOptionsRenderer extends DetailRenderer {
       recorder,
       terminal,
       textarea: textEl,
+      editTextarea: editTextEl,
       setText: (text) => {
         textEl.value = text;
       },

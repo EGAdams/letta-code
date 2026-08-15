@@ -412,7 +412,9 @@ export async function drainStream(
 
       // Report liveness to the watchdog. Model output keeps the run alive
       // against the short deadline; only real tool execution clears the long
-      // no-tool-progress deadline that catches planning loops.
+      // no-tool-progress deadline that catches planning loops. A tool call
+      // also opens a window in which silence is expected (the tool is
+      // running) — see ActivityMarks.toolInFlight.
       const activity = classifyStreamActivity(chunk.message_type);
       if (activity) {
         watchdog.record(activity);

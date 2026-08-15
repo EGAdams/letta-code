@@ -56,6 +56,15 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    reports `handwritten_arithmetic_total` and demotes this case in deterministic code, so a
    surviving `marked_items` store on a page whose handwritten total equals the printed total
    means that guard was bypassed or the field was misread; say so explicitly.
+   **A retailer savings summary is not another discount.** Labels such as `MEIJER
+   SAVINGS`, `SAVINGS TOTAL`, `YOU SAVED`, loyalty savings, and year-to-date savings
+   describe savings already reflected in the displayed item prices. Never subtract that
+   summary from the item sum or printed total. Require it in
+   `totals.savings_summary_amount`, not `totals.discount_amount`, unless a distinct
+   coupon/discount line and a separately printed final charge prove the subtraction.
+   Independently add visible selected item rows. For the 2025-04-13 Meijer regression,
+   `$9.99 + $11.09 + $16.99 = $38.07`; the nearby `$7.92 SAVINGS TOTAL` must not turn
+   that into `$30.15`. Treating it as a second discount is a FAIL requiring correction.
    Statements use the statement branch. `moms_ledger` uses the Mom-ledger reconciliation
    branch described below. Explicit `doc_type` routing overrides generic
    learned prose about emails/bills: an email screenshot containing an invoice is still
@@ -475,9 +484,11 @@ Grade the run against the contract above. Specifically confirm:
 - For receipts, check for same-merchant/same-date nearby files or metadata with a close
   but different amount. Matching receipt number, transaction identity, and visible
   document means an OCR anomaly, not a second purchase. Require Mazda to reread printed
-  subtotal/tax/total, keep the amount that reconciles arithmetically, and quarantine or
-  repair the conflicting file/database record. A file whose extension disagrees with its
-  detected content type is also an anomaly. Do not award PASS while such a conflict remains.
+  item prices/subtotal/tax/total, classify an informational savings summary separately,
+  keep the amount that reconciles arithmetically without subtracting savings twice, and
+  quarantine or repair the conflicting file/database record. A file whose extension
+  disagrees with its detected content type is also an anomaly. Do not award PASS while
+  such a conflict remains.
 - On FAIL she called `propose_improvement` with the trace_id and a sensible failure_type.
 
 ## When something went wrong — teach

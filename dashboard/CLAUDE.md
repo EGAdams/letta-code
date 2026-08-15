@@ -63,9 +63,15 @@ fix. Core points, condensed:
   style ports); extend that pattern rather than inventing a parallel one.
 
 **File-size rule:** any file over 250 lines gets split into smaller modules — prefer more small
-modules over one long file. In Python, split along Pydantic models (data/validation) vs Interfaces
-(ABC ports) vs implementations, mirroring the JS `abstract/`/`implementation/` split already used
-in `js/`.
+modules over one long file. Split along real seams (data shape / agreement / implementation), never
+at an arbitrary line count. In Python, that's Pydantic models (data+validation) vs Interfaces (ABC
+ports) vs implementations. In JS/TS, TypeScript plays Pydantic's role — declared shapes and
+`interface`s in their own module, implementations behind them — mirroring the `abstract/`/
+`implementation/` split already used in `js/`. Caveat: TS types vanish at runtime, so validate
+untrusted input (HTTP bodies, files, cross-process messages) with a runtime schema and derive the
+static type from it. Full version, including the plain-JS-without-a-build-step case:
+`~/tactical_debug_toolbox/gof_debug_tacticts.md` § *Keep Files Small, and Split Them Along Real
+Seams*. Don't convert working JS to TS as part of a fix — that's separate work.
 
 ## Architecture
 
@@ -302,13 +308,18 @@ Mazda fire-and-forget (`_notify_mazda_of_scan`, message built by pure `build_maz
    self-improvement judge score the trace (served by `mazda-tools-mcp.service` — restart after a
    rubric/tool change).
 
-### Scan → Trainer (Mazda's watcher)
+### Failed scan → Trainer (Mazda's watcher)
 
-Every intake dispatch also spawns a Trainer — a Claude agent (via `~/claude-code-sdk-ts`) that
+Normal intake does not start a Trainer model session. `intake/trainer_escalation.py` arms a cheap
+in-process deadline and evaluates Mazda's STEP 8 callback through strict Pydantic contracts. A
+zero/incomplete result, explicit FAIL/STALLED callback, or a missing callback after 15 minutes
+summons the Trainer. Valid stored and exact-duplicate outcomes cancel the deadline. The Trainer
+watches are rebuilt from persisted `processing` intakes after a dashboard restart; intakes that
+already persisted `trainer_dispatched:true` are never launched twice. The Trainer
 watches Mazda's transcript, verifies the STEP 1–8 contract against actual tool returns (not her
-prose), coaches her via a corrective Letta message on failure, and always writes a report
-(`trainer/reports/<ts>_<scanner>.md`). Fire-and-forget detached Popen — a broken Trainer never
-blocks intake. `MAZDA_TRAINER_ENABLED=0` kill switch. Non-obvious: the Trainer session dies if it
+prose), coaches her on failure, and writes a report (`trainer/reports/<ts>_<scanner>.md`).
+`MAZDA_TRAINER_ENABLED=0` remains an emergency kill switch;
+`MAZDA_TRAINER_CALLBACK_TIMEOUT_SECONDS` adjusts the default 900-second deadline. Non-obvious: the Trainer session dies if it
 ends its turn to "wait" (must Bash `sleep`-loop + report before finishing); the SDK's
 `.withTimeout()` is a no-op in `@instantlyeasy/claude-code-sdk-ts@0.3.3` — only `.withSignal()`
 reaches the child process, so `trainer/claude-attempt.ts` supplies its own AbortSignal + hard

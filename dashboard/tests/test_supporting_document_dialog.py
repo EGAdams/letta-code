@@ -81,6 +81,54 @@ def test_lookup_exposes_all_three_document_fields(monkeypatch):
     ]
 
 
+def test_lookup_accepts_browser_string_expense_id(monkeypatch):
+    row = {
+        "id": 2048,
+        "expense_date": "2025-04-12",
+        "amount": "78.60",
+        "description": "Priority Health",
+        "receipt_url": "receipt.jpg",
+        "document_url": "",
+        "scanned_statement_url": "",
+        "moms_ledger": "",
+    }
+    seen = []
+    monkeypatch.setattr(
+        server,
+        "_lookup_expense_row",
+        lambda *args, **kwargs: seen.append(args[-1]) or row,
+    )
+    monkeypatch.setattr(server, "_supporting_document_descriptors", lambda *args: [])
+
+    result = server.lookup_supporting_documents(
+        "2025-04-12", "78.60", "priority_health", "Priority Health", "", "2048"
+    )
+
+    assert result["ok"] is True
+    assert result["expense_id"] == 2048
+    assert seen == [2048]
+
+
+def test_lookup_treats_empty_browser_expense_id_as_missing(monkeypatch):
+    monkeypatch.setattr(server, "_lookup_expense_row", lambda *args: None)
+
+    result = server.lookup_supporting_documents(
+        "2025-04-12", "78.60", "priority_health", "Priority Health", "", ""
+    )
+
+    assert result == {
+        "ok": False,
+        "expense_id": None,
+        "receipt_url": None,
+        "document_url": None,
+        "scanned_statement_url": None,
+        "moms_ledger": None,
+        "notes": "",
+        "documents": [],
+        "error": "No matching expense in DB.",
+    }
+
+
 def test_picker_has_two_rows_and_no_receipt_fallback():
     _css, html, _click_css = server._receipt_only_picker_assets()
     assert 'class="cp-document-actions"' in html

@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { ListenerState } from "../abstract/continuous-listener.interface.js";
 import { RecorderState } from "../abstract/voice-recorder.interface.js";
-import { InputOptionsRenderer } from "../implementation/detail-renderers.js";
+import {
+  InputOptionsRenderer,
+  LISTEN_ACTIVE_BG,
+  LISTEN_IDLE_BG,
+} from "../implementation/detail-renderers.js";
 import { FakeDocument } from "./_fake-dom.js";
 
 class FakeListener {
@@ -22,6 +26,11 @@ class FakeListener {
 
   emit(text, isFinal) {
     this._onResult(text, isFinal);
+  }
+
+  setState(state) {
+    this.state = state;
+    this._onStateChange(state);
   }
 }
 
@@ -113,5 +122,54 @@ describe("Toyota receptionist renderer", () => {
     expect(ctx.container.querySelector(".am-test-input").value).toBe(
       "I was thinking about Mazda",
     );
+  });
+});
+
+describe("Toyota note-taking controls", () => {
+  const buttonNamed = (container, label) =>
+    container.querySelectorAll("button").find((b) => b.textContent === label) ||
+    null;
+
+  test("gives the editing conversation its own text box, separate from the note", () => {
+    const ctx = setup();
+    const note = ctx.container.querySelector(".am-test-input");
+    const edit = ctx.container.querySelector(".am-edit-input");
+
+    expect(edit).not.toBeNull();
+    expect(edit).not.toBe(note);
+    // Dictation must never leak into the box the user talks to Toyota in.
+    ctx.listener.emit("buy milk", true);
+    expect(note.value).toBe("buy milk");
+    expect(edit.value).toBeFalsy();
+  });
+
+  test("Start Editing toggles to a blinking red Stop Editing and back", () => {
+    const ctx = setup();
+    const editBtn = buttonNamed(ctx.container, "Start Editing");
+
+    expect(editBtn).not.toBeNull();
+    expect(editBtn.style.background).toBe(LISTEN_IDLE_BG);
+    expect(editBtn.style.animation).toBeFalsy();
+
+    editBtn.click();
+    expect(editBtn.textContent).toBe("Stop Editing");
+    expect(editBtn.style.background).toBe(LISTEN_ACTIVE_BG);
+    expect(editBtn.style.animation).toContain("listen-blink");
+
+    editBtn.click();
+    expect(editBtn.textContent).toBe("Start Editing");
+    expect(editBtn.style.background).toBe(LISTEN_IDLE_BG);
+    expect(editBtn.style.animation).toBeFalsy();
+  });
+
+  test("Start Listening uses the same green-to-blinking-red treatment", () => {
+    const ctx = setup();
+    const listenBtn = buttonNamed(ctx.container, "Start Listening");
+
+    expect(listenBtn.style.background).toBe(LISTEN_IDLE_BG);
+    ctx.listener.setState(ListenerState.LISTENING);
+    expect(listenBtn.textContent).toBe("Stop Listening");
+    expect(listenBtn.style.background).toBe(LISTEN_ACTIVE_BG);
+    expect(listenBtn.style.animation).toContain("listen-blink");
   });
 });

@@ -60,7 +60,7 @@ const specB = {
   nextWork: ["start it"],
 };
 
-function setup({ hash = "" } = {}) {
+function setup({ hash = "", mermaid = null } = {}) {
   const doc = new FakeDocument();
   const nav = doc.createElement("nav");
   nav.id = "nav";
@@ -69,7 +69,7 @@ function setup({ hash = "" } = {}) {
   doc.add(nav);
   doc.add(content);
   const win = { location: { hash }, addEventListener: () => {} };
-  const mermaid = new FakeMermaid();
+  mermaid ||= new FakeMermaid();
   const workspace = new InterfaceWorkspace({
     specs: [specA, specB],
     pageRenderer: new InterfacePageRenderer({ mermaidView: mermaid, doc }),
@@ -253,5 +253,32 @@ describe("InterfacePageRenderer", () => {
     await ctx.workspace.show("beta");
     expect(text(ctx.content)).toContain("Beta is not built.");
     expect(text(ctx.content)).not.toContain("Alpha owns one job.");
+  });
+
+  test("a completed stale render cannot append into the newly selected tab", async () => {
+    let releaseFirst;
+    class DeferredMermaid extends FakeMermaid {
+      async render(parent, diagram) {
+        this.rendered.push(diagram.title);
+        if (diagram.title === "Alpha one")
+          await new Promise((resolve) => {
+            releaseFirst = resolve;
+          });
+        const el = parent._doc
+          ? parent._doc.createElement("figure")
+          : { tagName: "FIGURE" };
+        parent.append(el);
+        return el;
+      }
+    }
+
+    const ctx = setup({ mermaid: new DeferredMermaid() });
+    const firstRender = ctx.workspace.mount("nav", "content");
+    while (!releaseFirst) await Promise.resolve();
+    await ctx.workspace.show("beta");
+    releaseFirst();
+    await firstRender;
+    expect(text(ctx.content)).toContain("Beta is not built.");
+    expect(text(ctx.content)).not.toContain("AlphaImpl");
   });
 });

@@ -1,34 +1,55 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import {
+  classifyStreamActivity,
+  DEFAULT_INACTIVITY_THRESHOLDS,
+  evaluateInactivity,
+} from "../cli/helpers/stream-activity";
 
+const T = DEFAULT_INACTIVITY_THRESHOLDS;
+
+/**
+ * Both hangs this policy exists to prevent, asserted against the real module.
+ *
+ * This used to grep stream.ts for a literal `if (chunk.message_type === ...)`.
+ * That assertion broke the moment the policy was extracted into
+ * ./stream-activity — it was testing where the code lived, not what it does,
+ * so it failed while the behavior it guarded was perfectly intact. The rules
+ * below are the actual contract.
+ */
 describe("stream inactivity regression", () => {
-  test("inactivity timer only resets on tool execution, not reasoning/assistant output", () => {
-    const currentFile = fileURLToPath(import.meta.url);
-    const source = readFileSync(
-      resolve(dirname(currentFile), "../cli/helpers/stream.ts"),
-      "utf8",
-    );
+  test("planning loops: reasoning alone never clears the tool-progress deadline", () => {
+    // The original hang — the model reasons for hours without calling a tool.
+    // Only real tool execution counts as progress against the long deadline.
+    expect(classifyStreamActivity("reasoning_message")).toBe("content");
+    expect(classifyStreamActivity("assistant_message")).toBe("content");
 
-    // The fix for planning mode hangs: only tool execution (tool_call_message
-    // and tool_return_message) resets the inactivity timer. reasoning_message
-    // and assistant_message intentionally do NOT reset the timer, because
-    // resetting them causes infinite loops when model is stuck in planning
-    // without executing tools (2+ hour hangs).
-    expect(source).toContain('chunk.message_type === "tool_call_message"');
-    expect(source).toContain('chunk.message_type === "tool_return_message"');
+    const now = T.noToolProgressMs + 2;
+    expect(
+      evaluateInactivity(
+        now,
+        {
+          lastContentMs: now - 1000, // still reasoning right up to now
+          lastToolProgressMs: 0, // but no tool has ever run
+          toolInFlight: false,
+        },
+        T,
+      ),
+    ).toBe("no_tool_progress");
+  });
 
-    // Ensure reasoning/assistant are NOT in the timer reset condition
-    const timerResetSection = source.match(
-      /if\s*\(\s*chunk\.message_type === "tool_call_message"/s,
-    );
-    expect(timerResetSection).toBeTruthy();
+  test("slow tools: silence during a tool call is not a dead stream", () => {
+    // The Mazda hang — run_claude_code_sdk executes remotely for minutes and
+    // emits nothing. The short deadline must stay suspended until it returns.
+    expect(classifyStreamActivity("tool_call_message")).toBe("tool_started");
+    expect(classifyStreamActivity("tool_return_message")).toBe("tool_finished");
 
-    // Verify the comment explaining why we exclude reasoning/assistant
-    expect(source).toContain("only on actual tool execution progress");
-    expect(source).toContain(
-      "reasoning_message and assistant_message are intentionally excluded",
-    );
+    const now = T.noContentMs * 3;
+    expect(
+      evaluateInactivity(
+        now,
+        { lastContentMs: 0, lastToolProgressMs: 0, toolInFlight: true },
+        T,
+      ),
+    ).not.toBe("no_content");
   });
 });

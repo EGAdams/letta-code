@@ -13,13 +13,28 @@ function describeDuration(ms: number): string {
   return `${seconds} second${seconds === 1 ? "" : "s"}`;
 }
 
+/**
+ * One sentence per reason. A total record rather than a chain of ternaries:
+ * adding an `InactivityReason` is a table edit, and omitting its text is a
+ * compile error instead of a silently wrong message.
+ */
+const CAUSE_TEXT: Record<
+  InactivityReason,
+  (thresholds: InactivityThresholds) => string
+> = {
+  no_content: (t) =>
+    `Stopped after ${describeDuration(t.noContentMs)} without a response from the model.`,
+  no_tool_progress: (t) =>
+    `Stopped after ${describeDuration(t.noToolProgressMs)} of reasoning without running a tool.`,
+  stalled_tool: (t) =>
+    `Stopped after ${describeDuration(t.stalledToolMs)} waiting for a tool that never returned.`,
+};
+
 function describeCause(
   reason: InactivityReason,
   thresholds: InactivityThresholds,
 ): string {
-  return reason === "no_content"
-    ? `Stopped after ${describeDuration(thresholds.noContentMs)} without a response from the model.`
-    : `Stopped after ${describeDuration(thresholds.noToolProgressMs)} of reasoning without running a tool.`;
+  return CAUSE_TEXT[reason](thresholds);
 }
 
 /**

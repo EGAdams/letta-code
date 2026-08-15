@@ -49,6 +49,7 @@ export class MermaidView {
     this._win = win;
     this._instances = [];
     this._visible = null;
+    this._renderQueue = Promise.resolve();
     this._mermaid.initialize({ ...DEFAULT_MERMAID_CONFIG, ...config });
   }
 
@@ -61,19 +62,36 @@ export class MermaidView {
    * while the tab is hidden, which in turn holds the iframe's `load` event open
    * for as long as the user never opens the tab.
    */
-  whenVisible({ intervalMs = 150, tries = 80 } = {}) {
+  whenVisible({ intervalMs = 150 } = {}) {
     if (this._visible) return this._visible;
     this._visible = new Promise((resolve) => {
-      const check = (left) => {
-        if ((this._doc.body?.offsetWidth || 0) > 0 || left <= 0) {
+      const check = () => {
+        if ((this._doc.body?.offsetWidth || 0) > 0) {
           resolve();
           return;
         }
-        this._win.setTimeout(() => check(left - 1), intervalMs);
+        this._win.setTimeout(check, intervalMs);
       };
-      check(tries);
+      check();
     });
     return this._visible;
+  }
+
+  /**
+   * Mermaid keeps parser/render state in its singleton. Hash changes can ask
+   * two tabs to render at once, so serialize calls instead of letting that
+   * shared state report a bogus parse failure for otherwise valid source.
+   */
+  _renderDiagram(code) {
+    const job = this._renderQueue.then(() =>
+      this._mermaid.render(nextId(), code),
+    );
+    // A failed diagram must not poison the queue for every diagram after it.
+    this._renderQueue = job.then(
+      () => undefined,
+      () => undefined,
+    );
+    return job;
   }
 
   _el(tag, className, props = {}) {
@@ -111,7 +129,7 @@ export class MermaidView {
 
     try {
       await this.whenVisible();
-      const { svg } = await this._mermaid.render(nextId(), code);
+      const { svg } = await this._renderDiagram(code);
       host.innerHTML = svg;
     } catch (error) {
       // A broken diagram must not take the rest of the tab down with it.

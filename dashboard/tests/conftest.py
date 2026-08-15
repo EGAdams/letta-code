@@ -28,10 +28,13 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
       conversations unless they explicitly replace this stub.
     """
     import server
+    from intake.trainer_escalation import NullTrainerEscalationService
     monkeypatch.setattr(
         server, 'RECENT_REPORT_POINTER_FILE',
         str(tmp_path / 'recent_report_pointer.json'))
     monkeypatch.setattr(server, 'TRAINER_ENABLED', False)
+    monkeypatch.setattr(
+        server, '_trainer_escalation_service', NullTrainerEscalationService())
     monkeypatch.setattr(server, '_create_mazda_conversation',
                         lambda: 'conv-test-isolated')
     server._scan_dispatch_claims.clear()

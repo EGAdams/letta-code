@@ -41,8 +41,9 @@ function fakePanZoom() {
   return fn;
 }
 
-function setup({ fail = false, withPanZoom = true } = {}) {
+function setup({ fail = false, withPanZoom = true, mermaid = null } = {}) {
   const doc = new FakeDocument();
+  doc.body = { offsetWidth: 1200 };
   const parent = doc.createElement("div");
   doc.add(parent);
   const listeners = [];
@@ -54,7 +55,7 @@ function setup({ fail = false, withPanZoom = true } = {}) {
       if (i >= 0) listeners.splice(i, 1);
     },
   };
-  const mermaid = new FakeMermaidLib({ fail });
+  mermaid ||= new FakeMermaidLib({ fail });
   const panZoom = withPanZoom ? fakePanZoom() : null;
   const view = new MermaidView({ mermaid, svgPanZoom: panZoom, doc, win });
   return { doc, parent, view, mermaid, panZoom, listeners };
@@ -190,17 +191,67 @@ describe("MermaidView", () => {
     expect(ctx.view.whenVisible()).toBe(first);
   });
 
-  test("whenVisible waits for the document to have layout", async () => {
+  test("whenVisible never gives up while the document remains hidden", async () => {
     const ctx = setup();
     ctx.doc.body = { offsetWidth: 0 };
+    const polls = [];
+    ctx.view._win.setTimeout = (fn) => polls.push(fn);
     let resolved = false;
-    const pending = ctx.view.whenVisible({ tries: 3 }).then(() => {
+    const pending = ctx.view.whenVisible().then(() => {
       resolved = true;
     });
-    // The fake setTimeout runs synchronously, so all tries are exhausted and it
-    // resolves rather than hanging forever — the deliberate give-up behaviour.
+    expect(polls.length).toBe(1);
+    polls.shift()();
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    expect(polls.length).toBe(1);
+    ctx.doc.body.offsetWidth = 1200;
+    polls.shift()();
     await pending;
     expect(resolved).toBe(true);
+  });
+
+  test("serializes Mermaid calls when two tabs render at once", async () => {
+    let releaseFirst;
+    class ConcurrencySensitiveMermaid extends FakeMermaidLib {
+      constructor() {
+        super();
+        this.active = 0;
+      }
+      async render(id, code) {
+        this.rendered.push({ id, code });
+        this.active += 1;
+        if (this.active > 1) throw new Error("Syntax error in text");
+        if (this.rendered.length === 1)
+          await new Promise((resolve) => {
+            releaseFirst = resolve;
+          });
+        this.active -= 1;
+        return { svg: "<svg></svg>" };
+      }
+    }
+
+    const mermaid = new ConcurrencySensitiveMermaid();
+    const ctx = setup({ mermaid });
+    const first = ctx.view.render(ctx.parent, {
+      code: "flowchart LR\n A-->B",
+    });
+    while (!releaseFirst) await Promise.resolve();
+    const second = ctx.view.render(ctx.parent, {
+      code: "flowchart LR\n C-->D",
+    });
+    await Promise.resolve();
+    expect(mermaid.rendered.length).toBe(1);
+    releaseFirst();
+    const figures = await Promise.all([first, second]);
+    expect(mermaid.rendered.length).toBe(2);
+    expect(
+      figures.some((figure) =>
+        figure
+          .querySelector(".mermaid-wrap")
+          .classList.contains("mermaid-failed"),
+      ),
+    ).toBe(false);
   });
 
   test("renders without a pan/zoom library rather than throwing", async () => {

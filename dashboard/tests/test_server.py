@@ -1919,18 +1919,18 @@ def test_window_and_freezer_dispatch_to_distinct_conversations(
     monkeypatch.setattr(server, '_create_mazda_conversation',
                         lambda: next(conversations))
     mazda_dispatches = []
-    trainer_dispatches = []
+    trainer_watches = []
 
     def _fake_thread(target, args, daemon):
         mazda_dispatches.append(args)
         return _NoopThread()
 
-    def _fake_trainer(path, name, facade, conversation_id, dispatched_at):
-        trainer_dispatches.append((name, conversation_id, dispatched_at))
+    def _fake_watch(path, name, facade, conversation_id, dispatched_at):
+        trainer_watches.append((name, conversation_id, dispatched_at))
         return True
 
     monkeypatch.setattr(server.threading, 'Thread', _fake_thread)
-    monkeypatch.setattr(server, '_notify_trainer_of_scan', _fake_trainer)
+    monkeypatch.setattr(server, '_watch_intake_for_problems', _fake_watch)
 
     window = server.process_scanned_document('window')
     freezer = server.process_scanned_document('freezer')
@@ -1939,10 +1939,12 @@ def test_window_and_freezer_dispatch_to_distinct_conversations(
     assert freezer['conversation_id'] == 'conv-freezer'
     assert [args[3] for args in mazda_dispatches] == [
         'conv-window', 'conv-freezer']
-    assert [(name, conv) for name, conv, _ in trainer_dispatches] == [
+    assert [(name, conv) for name, conv, _ in trainer_watches] == [
         ('Window Scanner', 'conv-window'),
         ('Freezer Scanner', 'conv-freezer'),
     ]
+    assert window['trainer_dispatched'] is False
+    assert freezer['trainer_dispatched'] is False
     pointer = server._read_recent_pointer_file()
     assert pointer['scanner_intakes']['Window Scanner']['conversation_id'] == 'conv-window'
     assert pointer['scanner_intakes']['Freezer Scanner']['conversation_id'] == 'conv-freezer'
@@ -5064,87 +5066,8 @@ def test_failover_ignores_non_rate_limit_errors():
             text, now_ts=10_000, last_swap_ts=0, min_interval=1800)
 
 
-# ── Mazda Trainer dispatch (scan → trainer agent) ────────────────────────────
-
-def test_build_trainer_command_carries_scan_context():
-    cmd = server.build_trainer_command(
-        '/remote/incoming_scans/window_scan.jpg', 'Window Scanner',
-        {'ok': True, 'doc_kind': 'receipt'}, dispatched_at=1752170000,
-        conversation_id='conv-window')
-    assert cmd[0] == server.TRAINER_RUNNER
-    assert cmd[1] == server.TRAINER_SCRIPT
-    assert cmd[cmd.index('--scan-path') + 1] == '/remote/incoming_scans/window_scan.jpg'
-    assert cmd[cmd.index('--scanner') + 1] == 'Window Scanner'
-    assert json.loads(cmd[cmd.index('--facade') + 1]) == {
-        'ok': True, 'doc_kind': 'receipt'}
-    assert cmd[cmd.index('--dispatched-at') + 1] == '1752170000'
-    assert cmd[cmd.index('--conversation-id') + 1] == 'conv-window'
-
-
-def test_build_trainer_command_defaults_empty_facade_no_timestamp():
-    cmd = server.build_trainer_command('/tmp/scan.jpg', 'Freezer')
-    assert json.loads(cmd[cmd.index('--facade') + 1]) == {}
-    assert '--dispatched-at' not in cmd
-
-
-def test_notify_trainer_disabled_is_noop(monkeypatch):
-    monkeypatch.setattr(server, 'TRAINER_ENABLED', False)
-    calls = []
-    monkeypatch.setattr(server.subprocess, 'Popen',
-                        lambda *a, **k: calls.append(a))
-    assert server._notify_trainer_of_scan('/tmp/scan.jpg', 'Window Scanner') is False
-    assert calls == []
-
-
-def test_notify_trainer_missing_script_is_graceful(monkeypatch):
-    monkeypatch.setattr(server, 'TRAINER_ENABLED', True)
-    monkeypatch.setattr(server, 'TRAINER_SCRIPT', '/nonexistent/trainer.mjs')
-    assert server._notify_trainer_of_scan('/tmp/scan.jpg', 'Window Scanner') is False
-
-
-def test_notify_trainer_spawns_detached_with_path(monkeypatch, tmp_path):
-    script = tmp_path / 'run_mazda_trainer.mjs'
-    script.write_text('// stub')
-    monkeypatch.setattr(server, 'TRAINER_ENABLED', True)
-    monkeypatch.setattr(server, 'TRAINER_SCRIPT', str(script))
-    spawned = {}
-
-    def fake_popen(cmd, **kwargs):
-        spawned['cmd'] = cmd
-        spawned['kwargs'] = kwargs
-
-    monkeypatch.setattr(server.subprocess, 'Popen', fake_popen)
-    assert server._notify_trainer_of_scan(
-        '/remote/scan.jpg', 'Window Scanner', {'ok': True},
-        'conv-window') is True
-    # The Trainer must be launched in its own systemd-run --scope, outside
-    # dashboard-server.service's cgroup, so restarting the service (a routine
-    # deploy) can't silently kill an in-flight Trainer run (2026-07-25).
-    assert spawned['cmd'][0] == 'systemd-run'
-    assert '--scope' in spawned['cmd']
-    assert str(script) in spawned['cmd']
-    assert spawned['kwargs']['start_new_session'] is True
-    assert '.bun/bin' in spawned['kwargs']['env']['PATH']
-    assert '.npm-global/bin' in spawned['kwargs']['env']['PATH']
-    assert spawned['cmd'][spawned['cmd'].index('--conversation-id') + 1] == 'conv-window'
-
-
-def test_notify_trainer_popen_failure_never_raises(monkeypatch, tmp_path):
-    script = tmp_path / 'run_mazda_trainer.mjs'
-    script.write_text('// stub')
-    monkeypatch.setattr(server, 'TRAINER_ENABLED', True)
-    monkeypatch.setattr(server, 'TRAINER_SCRIPT', str(script))
-
-    def boom(*a, **k):
-        raise OSError('bun not found')
-
-    monkeypatch.setattr(server.subprocess, 'Popen', boom)
-    assert server._notify_trainer_of_scan(
-        '/tmp/scan.jpg', 'Freezer', conversation_id='conv-freezer') is False
-
-
-def test_process_pdf_document_dispatches_trainer(monkeypatch, tmp_path):
-    """The PDF/reprocess intake path must spawn the Trainer too, not just scans."""
+def test_process_pdf_document_arms_problem_only_trainer(monkeypatch, tmp_path):
+    """PDF intake is watched without launching a Trainer during normal work."""
     pdf_dir = tmp_path / 'rol'
     pdf_dir.mkdir()
     pdf = pdf_dir / 'statement.pdf'
@@ -5162,13 +5085,13 @@ def test_process_pdf_document_dispatches_trainer(monkeypatch, tmp_path):
     monkeypatch.setattr(server.threading, 'Thread', fake_thread)
     seen = {}
 
-    def fake_trainer(path, name, facade, conversation_id, dispatched_at):
+    def fake_watch(path, name, facade, conversation_id, dispatched_at):
         seen['args'] = (path, name, facade, conversation_id, dispatched_at)
         return True
 
-    monkeypatch.setattr(server, '_notify_trainer_of_scan', fake_trainer)
+    monkeypatch.setattr(server, '_watch_intake_for_problems', fake_watch)
     result = server.process_pdf_document(str(pdf), label='Jan Statement')
-    assert result['trainer_dispatched'] is True
+    assert result['trainer_dispatched'] is False
     path, name, facade, conversation_id, dispatched_at = seen['args']
     assert path == str(pdf)
     assert 'Jan Statement' in name

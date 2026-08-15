@@ -93,6 +93,18 @@ export class InterfaceWorkspace {
     const spec = this._specs.find((s) => s.id === id);
     if (!spec || !this._content) return null;
 
+    // Showing the tab that is already open is a no-op, and that guard is what
+    // keeps the page correct rather than merely saving work: this workspace can
+    // be driven from two places at once — the dashboard's own Voice
+    // Communication sub-nav calls show() AND sets the iframe's hash, which
+    // fires our hashchange listener and calls show() a second time for the same
+    // spec. render() is async (it awaits Mermaid), so two overlapping calls
+    // used to interleave: the second cleared the container mid-flight and both
+    // then appended, producing duplicated "2 · Contract … 7 · Next work"
+    // sections and pan/zoom attached to detached SVGs ("matrix is not
+    // invertible"). One render per tab, always.
+    if (this._currentId === spec.id) return spec;
+
     // Old diagrams keep window resize listeners and pan/zoom instances alive;
     // drop them before the DOM they point at is replaced.
     this._mermaid?.destroyAll();

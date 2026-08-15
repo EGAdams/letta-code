@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { classifyStreamActivity } from "../../../cli/helpers/stream-activity";
 
 describe("classifyStreamActivity", () => {
-  test("tool chunks are tool progress", () => {
-    expect(classifyStreamActivity("tool_call_message")).toBe("tool_progress");
-    expect(classifyStreamActivity("tool_return_message")).toBe("tool_progress");
+  test("the two ends of a tool call are distinguished", () => {
+    // The gap between them is the tool executing — legitimate silence that
+    // must not read as a dead stream, so they cannot collapse to one kind.
+    expect(classifyStreamActivity("tool_call_message")).toBe("tool_started");
+    expect(classifyStreamActivity("tool_return_message")).toBe("tool_finished");
   });
 
   test("model output is content, not tool progress", () => {

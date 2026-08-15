@@ -9,29 +9,44 @@ import {
   type Ticker,
 } from "./ports";
 
-/** The two timestamps the policy decides from. */
+/** The state the policy decides from: two timestamps and whether a tool is running. */
 export interface ActivityMarks {
   readonly lastContentMs: number;
   readonly lastToolProgressMs: number;
+  /**
+   * True between a `tool_call_message` and its `tool_return_message`. A tool
+   * executing remotely produces no chunks, so this suspends the short
+   * no-content deadline — otherwise a legitimately slow tool reads as a dead
+   * stream and the run is killed mid-call.
+   */
+  readonly toolInFlight: boolean;
 }
 
 /**
  * The whole decision, as a pure function — no clock, no timer, no stream.
  *
- * A run is abandoned when the model has gone silent (`no_content`) or when it
+ * A run is abandoned when the model has gone silent (`no_content`), when it
  * has been talking for a very long time without executing anything
- * (`no_tool_progress`). Continuous reasoning keeps a run alive up to the long
- * deadline; it no longer trips the short one.
+ * (`no_tool_progress`), or when a dispatched tool never came back
+ * (`stalled_tool`). Continuous reasoning keeps a run alive up to the long
+ * deadline; it no longer trips the short one. Neither does a tool that is
+ * still executing — but the long deadline stays armed as its backstop, so a
+ * genuinely wedged tool is still caught.
  */
 export function evaluateInactivity(
   now: number,
   marks: ActivityMarks,
   thresholds: InactivityThresholds,
 ): InactivityReason | null {
+  const sinceToolProgress = now - marks.lastToolProgressMs;
+  if (marks.toolInFlight) {
+    // A tool is running: silence is expected, so only the stall budget applies.
+    return sinceToolProgress > thresholds.stalledToolMs ? "stalled_tool" : null;
+  }
   if (now - marks.lastContentMs > thresholds.noContentMs) {
     return "no_content";
   }
-  if (now - marks.lastToolProgressMs > thresholds.noToolProgressMs) {
+  if (sinceToolProgress > thresholds.noToolProgressMs) {
     return "no_tool_progress";
   }
   return null;
@@ -57,6 +72,14 @@ export class ProgressWatchdog implements InactivityWatchdog {
 
   private lastContentMs: number;
   private lastToolProgressMs: number;
+  /**
+   * Tools outstanding right now. A counter rather than a flag because a turn
+   * can dispatch several tool calls before any of them returns; the run is
+   * only "idle" again once the last one is back. Clamped at zero so an
+   * unmatched return (a replayed or out-of-order chunk) cannot make the
+   * watchdog think fewer tools are running than actually are.
+   */
+  private toolsInFlight = 0;
   private stopTicker: StopTicker | null = null;
   private fired: InactivityReason | null = null;
 
@@ -72,9 +95,15 @@ export class ProgressWatchdog implements InactivityWatchdog {
   record(kind: StreamActivityKind): void {
     const now = this.clock.now();
     this.lastContentMs = now;
-    if (kind === "tool_progress") {
-      this.lastToolProgressMs = now;
+    if (kind === "content") {
+      return;
     }
+    // Both ends of a tool call are real execution progress.
+    this.lastToolProgressMs = now;
+    this.toolsInFlight =
+      kind === "tool_started"
+        ? this.toolsInFlight + 1
+        : Math.max(0, this.toolsInFlight - 1);
   }
 
   start(onTimeout: (reason: InactivityReason) => void): void {
@@ -90,6 +119,7 @@ export class ProgressWatchdog implements InactivityWatchdog {
         {
           lastContentMs: this.lastContentMs,
           lastToolProgressMs: this.lastToolProgressMs,
+          toolInFlight: this.toolsInFlight > 0,
         },
         this.thresholds,
       );

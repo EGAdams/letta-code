@@ -8,7 +8,7 @@ import re
 from typing import Any
 from urllib.parse import quote, urlparse
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from supporting_document_slots import SupportingDocumentCatalog
 
@@ -26,6 +26,30 @@ class SupportingDocumentRequest(StrictBoundaryModel):
     expense_id: int | None = None
     report_path: str = ""
     wait_for_highlight: bool = True
+
+    @field_validator("expense_id", mode="before")
+    @classmethod
+    def _normalize_browser_expense_id(cls, value: Any) -> int | None:
+        """Accept the string values emitted by ``HTMLElement.dataset``.
+
+        The category picker reads ``data-expense-id`` from the DOM, so even
+        numeric IDs arrive at this HTTP boundary as strings.  Keep the
+        application model strict after this one boundary normalization, and
+        treat an empty data attribute as the absence of an ID.
+        """
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError("expense_id must be an integer")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip()
+            if not normalized:
+                return None
+            if normalized.lstrip("+-").isdigit():
+                return int(normalized)
+        raise ValueError("expense_id must be an integer")
 
 
 class SupportingDocumentDescriptor(StrictBoundaryModel):

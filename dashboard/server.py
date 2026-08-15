@@ -34,6 +34,20 @@ from voice.pipeline import build_pipeline, handle_voice_upload
 from voice.receptionist import build_receptionist_strategy
 from voice.synthesis import EdgeTtsSynthesizer, cache_path as synthesis_cache_path
 from category_taxonomy import FallbackCategoryTaxonomy, MySqlCategoryTaxonomy
+from chatgpt_provider_accounts import PROVIDER_ACCOUNT_SOURCES
+from chatgpt_provider_status import (
+    ChatGptProviderSwapRequest,
+    chatgpt_provider_account_status,
+)
+from codex_sync_status import (
+    CodexSyncRequest,
+    CodexSyncToggleRequest,
+    codex_sync_status,
+    run_codex_sync_now,
+    toggle_codex_sync,
+)
+from model_stats_mute import ModelStatsMuteRequest, apply_mute_overlay, set_muted
+from pydantic import ValidationError
 from category_taxonomy_seed import LEGACY_TAXONOMY
 from category_undo import (
     CategoryChange,
@@ -77,6 +91,17 @@ from supporting_document_application import (
     SupportingDocumentService,
 )
 from scanner_state import intake_is_in_progress
+from intake.trainer_contracts import IntakeCallback, TrainerLaunchRequest
+from intake.trainer_escalation import (
+    CallbackTrainerEscalationRecorder,
+    NullTrainerEscalationService,
+    ProblemOnlyTrainerEscalationService,
+    ThreadingDeadlineScheduler,
+)
+from intake.trainer_notifier import (
+    DetachedTrainerNotifier,
+)
+from intake.trainer_recovery import recover_pending_trainer_watches
 import statement_review
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
@@ -97,6 +122,7 @@ SERVER_START_TIME = time.time()
 CODE_WATCH_PATHS = [
     os.path.join(HERE, 'server.py'),
     os.path.join(HERE, 'agents'),
+    os.path.join(HERE, 'intake'),
     os.path.join(HERE, 'document_annotation.py'),
     os.path.join(HERE, 'voice'),
 ]
@@ -165,9 +191,8 @@ ROL_FINANCES_REPORTS_BASE = os.path.join(
     ROL_FINANCES_REPORTS_PARENT, ROL_FINANCES_REPORTS_MONTHS[ROL_FINANCES_REPORTS_DEFAULT_MONTH])
 ROL_FINANCES_REPORTS_URL_PREFIX = '/rol_finances_reports'
 ROL_FINANCE_REPORTS = [
-    {'key': 'amex-61006',        'label': 'Amex 61006',         'dir': 'amex_personal_january_25'},
     {'key': 'fnbo-4851',         'label': 'FNBO 4851',          'dir': 'january_fnbo_2025_account_4851'},
-    {'key': 'amex-personal-year','label': 'Amex Personal Year', 'dir': 'amex_personal_whole_2025', 'all_year': True},
+    {'key': 'amex-personal-year','label': 'Amex 1006',          'dir': 'amex_personal_whole_2025', 'all_year': True},
     {'key': 'bank-5938-pdf1',    'label': 'Bank 5938 PDF 1',    'dir': 'december_january_personal_bank_statement'},
     {'key': 'bank-6285-pdf1',    'label': 'Bank 6285 PDF 1',    'dir': 'non_profit_rol_Statement_december_january_6285'},
     {'key': 'bank-6285-pdf2',    'label': 'Bank 6285 PDF 2',    'dir': 'business_january_february_6285'},
@@ -741,6 +766,11 @@ def _fold_event_into_intake(intake, event):
         intake['status'] = 'complete'
     if event.get('status_detail'):
         intake['status_detail'] = str(event['status_detail'])
+    if event.get('trainer_dispatched') is not None:
+        intake['trainer_dispatched'] = bool(event['trainer_dispatched'])
+    if event.get('trainer_escalation_reason'):
+        intake['trainer_escalation_reason'] = str(
+            event['trainer_escalation_reason'])
 
 
 def _event_document_path(event):
@@ -3853,7 +3883,7 @@ def _notify_mazda_of_scan_and_record_failure(
         conversation_id, dispatched_at)
     if notified:
         return True
-    merge_recent_intake_status({
+    failure = {
         'conversation_id': conversation_id,
         'document_path': scan_image_path,
         'dispatched_at': dispatched_at,
@@ -3862,92 +3892,59 @@ def _notify_mazda_of_scan_and_record_failure(
         'detail': ('Mazda could not be reached after the scan was staged. '
                    'No transactions were stored; retry this scan when the '
                    'Letta server is available.'),
-    })
+    }
+    _observe_intake_callback(failure)
+    merge_recent_intake_status(failure)
     return False
 
 
 # ── Mazda Trainer ────────────────────────────────────────────────────────────
-# Every scan dispatched to Mazda also spawns a Codex Trainer agent that watches
-# the run, verifies the document was
-# processed correctly, and coaches Mazda on failures. Mazda runs on a cheap mini
-# model while her self-improvement harness is validated — the Trainer is the
-# safety net that makes that acceptable. Fire-and-forget, like the Mazda
-# dispatch itself: a broken/missing trainer must never block intake.
+# Normal intake runs without a Trainer. Callback evidence or a missing callback
+# summons one through the typed escalation policy in intake/trainer_escalation.
 TRAINER_SCRIPT = os.path.join(HERE, 'trainer', 'run_mazda_trainer.mjs')
 TRAINER_RUNNER = os.environ.get(
     'MAZDA_TRAINER_RUNNER', os.path.expanduser('~/.bun/bin/bun'))
 TRAINER_ENABLED = os.environ.get(
     'MAZDA_TRAINER_ENABLED', '1').lower() not in ('0', 'false', 'no')
+TRAINER_CALLBACK_TIMEOUT_SECONDS = float(os.environ.get(
+    'MAZDA_TRAINER_CALLBACK_TIMEOUT_SECONDS', '900'))
 
 
-def build_trainer_command(scan_image_path, scanner_name, facade_result=None,
-                          dispatched_at=None, conversation_id=None):
-    """Pure builder for the Trainer launch argv — no I/O, unit-tested."""
-    cmd = [
-        TRAINER_RUNNER, TRAINER_SCRIPT,
-        '--scan-path', scan_image_path,
-        '--scanner', scanner_name,
-        '--facade', json.dumps(facade_result or {}, default=str),
-    ]
-    if dispatched_at is not None:
-        cmd += ['--dispatched-at', str(int(dispatched_at))]
-    if conversation_id:
-        cmd += ['--conversation-id', conversation_id]
-    return cmd
-
-
-def _notify_trainer_of_scan(scan_image_path, scanner_name, facade_result=None,
-                            conversation_id=None, dispatched_at=None):
-    """Fire-and-forget: launch the Trainer agent to watch this Mazda run.
-
-    Returns True when the trainer process was spawned. Never raises — the
-    trainer is an observer; intake must proceed identically without it.
-    """
+def _build_trainer_escalation_service():
     if not TRAINER_ENABLED:
-        return False
-    if not conversation_id:
-        print('[scan→trainer] Refusing to watch a shared/default conversation')
-        return False
-    if not os.path.isfile(TRAINER_SCRIPT):
-        print(f'[scan→trainer] Trainer script missing: {TRAINER_SCRIPT}')
-        return False
-    dispatched_at = int(dispatched_at or time.time())
-    scanner_slug = re.sub(r'[^A-Za-z0-9]+', '_', scanner_name).strip('_') or 'scanner'
-    conversation_slug = re.sub(r'[^A-Za-z0-9]+', '', conversation_id)[-12:]
-    log_path = (f'/tmp/mazda_trainer_{dispatched_at}_{scanner_slug}_'
-                f'{conversation_slug}.log')
-    cmd = build_trainer_command(
-        scan_image_path, scanner_name, facade_result, dispatched_at,
-        conversation_id)
-    env = dict(os.environ)
-    # The systemd --user service's PATH lacks bun/codex; the runner spawns the
-    # `codex` CLI, so both bins must be reachable from the child.
-    env['PATH'] = ':'.join([
-        os.path.expanduser('~/.bun/bin'), os.path.expanduser('~/.local/bin'),
-        os.path.expanduser('~/.npm-global/bin'),
-        env.get('PATH', '/usr/bin:/bin'),
-    ])
-    # 2026-07-25: a plain subprocess.Popen(..., start_new_session=True) escapes
-    # the process GROUP but not the CGROUP — dashboard-server.service's default
-    # KillMode=control-group means restarting the service (a routine deploy)
-    # silently SIGKILLs every in-flight Trainer too, mid-run, with no error and
-    # no report. systemd-run --scope launches the Trainer in its own transient
-    # scope unit outside dashboard-server.service's cgroup, so a dashboard
-    # restart can no longer take it down.
-    unit_name = f'mazda-trainer-{dispatched_at}-{scanner_slug}-{conversation_slug}'
-    cmd = ['systemd-run', '--user', '--scope', '--collect', '--quiet',
-           f'--unit={unit_name}'] + cmd
-    try:
-        with open(log_path, 'ab') as log:
-            subprocess.Popen(
-                cmd, stdout=log, stderr=log, env=env,
-                cwd=os.path.dirname(TRAINER_SCRIPT), start_new_session=True)
-        print(f'[scan→trainer] Trainer watching {scanner_name} scan; '
-              f'log: {log_path}')
-        return True
-    except Exception as exc:
-        print(f'[scan→trainer] Failed to launch trainer: {exc}')
-        return False
+        return NullTrainerEscalationService()
+    return ProblemOnlyTrainerEscalationService(
+        notifier=DetachedTrainerNotifier(TRAINER_RUNNER, TRAINER_SCRIPT),
+        scheduler=ThreadingDeadlineScheduler(),
+        callback_timeout_seconds=TRAINER_CALLBACK_TIMEOUT_SECONDS,
+        recorder=CallbackTrainerEscalationRecorder(merge_recent_intake_event),
+    )
+
+
+_trainer_escalation_service = _build_trainer_escalation_service()
+
+
+def _recover_trainer_escalations():
+    return recover_pending_trainer_watches(
+        _read_recent_pointer_file(), _trainer_escalation_service)
+
+
+def _watch_intake_for_problems(scan_path, scanner_name, facade_result,
+                               conversation_id, dispatched_at):
+    return _trainer_escalation_service.watch(TrainerLaunchRequest(
+        scan_path=scan_path,
+        scanner_name=scanner_name,
+        facade_result=dict(facade_result or {}),
+        conversation_id=conversation_id,
+        dispatched_at=float(dispatched_at),
+    ))
+
+
+def _observe_intake_callback(payload):
+    callback = IntakeCallback.from_mapping(payload)
+    if callback is None:
+        return None
+    return _trainer_escalation_service.observe(callback)
 
 
 def _notify_mazda_of_pdf(file_path, label=None, conversation_id=None,
@@ -4102,7 +4099,8 @@ def scanner_status(key):
             'status': 'intake_busy',
             'ok': False,
             'error': ('The previous document from this scanner is still being '
-                      'verified. Wait for its Trainer PASS/FAIL before scanning another.'),
+                      'verified. Wait for intake completion or a problem-triggered '
+                      'Trainer verdict before scanning another.'),
         }
     with _scanner_runtime_status_lock:
         return dict(_scanner_runtime_status.get(key, {'status': 'idle', 'ok': True}))
@@ -4607,6 +4605,9 @@ def process_scanned_document(
                     facade=facade, conversation_id=conversation_id,
                     dispatched_at=dispatched_at,
                     content_sha256=content_sha256)
+                _watch_intake_for_problems(
+                    remote_image_path, cfg.get('name', key), facade,
+                    conversation_id, dispatched_at)
                 threading.Thread(
                     target=_notify_mazda_of_scan_and_record_failure,
                     args=(remote_image_path, cfg.get('name', key), facade,
@@ -4614,9 +4615,6 @@ def process_scanned_document(
                     daemon=True,
                 ).start()
                 mazda_dispatched = True
-                trainer_dispatched = _notify_trainer_of_scan(
-                    remote_image_path, cfg.get('name', key), facade,
-                    conversation_id, dispatched_at)
             else:
                 _release_scan_dispatch(key, image_path)
                 stage_error = ('Could not create an isolated Mazda conversation; '
@@ -4674,22 +4672,22 @@ def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
         result['label'] = doc_label
         return result
     dispatched_at = time.time()
-    threading.Thread(
-        target=_notify_mazda_of_pdf,
-        args=(real, doc_label, conversation_id, dispatched_at, facade),
-        daemon=True,
-    ).start()
     record_recent_intake(real, doc_label, kind='pdf', facade=facade,
                          conversation_id=conversation_id,
                          dispatched_at=dispatched_at)
     # PDFs already live inside ROL_FINANCES_DIR (enforced above), so no staging
     # is needed — executor_run on this box reads them directly. This also
     # covers reprocess_report, which delegates here.
-    trainer_dispatched = _notify_trainer_of_scan(
+    _watch_intake_for_problems(
         real, f'PDF intake ({doc_label})', facade, conversation_id,
         dispatched_at)
+    threading.Thread(
+        target=_notify_mazda_of_pdf,
+        args=(real, doc_label, conversation_id, dispatched_at, facade),
+        daemon=True,
+    ).start()
     result = build_pipeline_result(facade, mazda_dispatched=True)
-    result['trainer_dispatched'] = trainer_dispatched
+    result['trainer_dispatched'] = False
     result['file_path'] = real
     result['label'] = doc_label
     result['conversation_id'] = conversation_id
@@ -4785,6 +4783,16 @@ def record_stored_expense(data):
         'conversation_id': data.get('conversation_id', ''),
         'dispatched_at': data.get('dispatched_at'),
     }
+    escalation = _observe_intake_callback(event)
+    if escalation and escalation.summon_required:
+        event['trainer_dispatched'] = escalation.summoned
+        event['trainer_escalation_reason'] = escalation.reason
+        event['status'] = 'processing' if escalation.summoned else 'fail'
+        event['status_detail'] = (
+            f'Trainer summoned: {escalation.reason}'
+            if escalation.summoned
+            else f'Trainer launch failed: {escalation.reason}'
+        )
     with _stored_expense_lock:
         _stored_expense_events.append(event)
     # Keep /recent_report.html current. Best-effort: the callback must succeed
@@ -7153,6 +7161,35 @@ def restart_chatgpt_provider():
     except Exception:
         pass
     return {'ok': True, 'text': f'provider token swapped to standby — {note}'}
+
+
+def set_chatgpt_provider_account(source):
+    """Install a SPECIFIC account's token as the live chatgpt-plus-pro
+    provider row (unlike restart_chatgpt_provider, which only ping-pongs to
+    whatever the standby happens to hold). Returns ChatGptProviderAccountStatus."""
+    strategy = PROVIDER_ACCOUNT_SOURCES.get(source)
+    if strategy is None:
+        status = get_chatgpt_provider_account_status()
+        return status.model_copy(update={'ran': True, 'ok': False,
+                                          'text': f'unknown account source: {source!r}', 'source': source})
+    _log_restart(f'chatgpt-provider: set to {strategy.label}')
+    ok, note = strategy.install()
+    if ok:
+        try:
+            _poll_chatgpt_provider_once()  # refresh the fleet's send-errors now, not in 90s
+        except Exception:
+            pass
+    status = get_chatgpt_provider_account_status()
+    return status.model_copy(update={'ran': True, 'ok': ok, 'text': note, 'source': source})
+
+
+def get_chatgpt_provider_account_status():
+    """Current live-row account + the accounts it can be swapped to."""
+    try:
+        creds, _ptype = _fetch_provider_oauth_creds(CHATGPT_PLUS_PRO)
+    except Exception:
+        creds = None
+    return chatgpt_provider_account_status(creds)
 
 
 RESTART_HANDLERS = {
@@ -10235,7 +10272,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/model-stats':
             src = query.get('source', [''])[0]
-            return self.json_response(model_stats(src))
+            return self.json_response(apply_mute_overlay(model_stats(src), src))
+
+        if path == '/api/codex-sync-status':
+            return self.json_response(codex_sync_status().model_dump(mode='json'))
+
+        if path == '/api/chatgpt-provider-account-status':
+            return self.json_response(get_chatgpt_provider_account_status().model_dump(mode='json'))
 
         if path == '/api/pc-monitors':
             return self.json_response([
@@ -10744,6 +10787,35 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response({'ok': True})
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
+
+        if path == '/api/codex-sync-now':
+            try:
+                req = CodexSyncRequest.model_validate(json.loads(body) if body.strip() else {})
+            except (json.JSONDecodeError, ValidationError) as exc:
+                return self.error_response(f'invalid request: {exc}', 400)
+            return self.json_response(run_codex_sync_now(req.source).model_dump(mode='json'))
+
+        if path == '/api/codex-sync-toggle':
+            try:
+                req = CodexSyncToggleRequest.model_validate(json.loads(body) if body.strip() else {})
+            except (json.JSONDecodeError, ValidationError) as exc:
+                return self.error_response(f'invalid request: {exc}', 400)
+            return self.json_response(toggle_codex_sync(req.enabled).model_dump(mode='json'))
+
+        if path == '/api/chatgpt-provider-account':
+            try:
+                req = ChatGptProviderSwapRequest.model_validate(json.loads(body) if body.strip() else {})
+            except (json.JSONDecodeError, ValidationError) as exc:
+                return self.error_response(f'invalid request: {exc}', 400)
+            return self.json_response(set_chatgpt_provider_account(req.source).model_dump(mode='json'))
+
+        if path == '/api/model-stats-mute':
+            try:
+                req = ModelStatsMuteRequest.model_validate(json.loads(body) if body.strip() else {})
+            except (json.JSONDecodeError, ValidationError) as exc:
+                return self.error_response(f'invalid request: {exc}', 400)
+            set_muted(req.source, req.muted)
+            return self.json_response(apply_mute_overlay(model_stats(req.source), req.source))
 
         if path == '/api/server-action':
             try:
@@ -11346,6 +11418,8 @@ if __name__ == '__main__':
     server = ReusableHTTPServer(('0.0.0.0', port), DashboardHandler)
     print(f'Dashboard server on http://localhost:{port}/')
     print(f'Letta API: {LETTA_BASE_URL}')
+    recovered_trainer_watches = _recover_trainer_escalations()
+    print(f'Recovered {recovered_trainer_watches} pending Trainer escalation watches')
     threading.Thread(target=_letta_remote_log_pull_loop, daemon=True).start()
     print(f'Pulling Letta server logs over SSH from {LETTA_DOCKER_HOST} every '
           f'{LETTA_REMOTE_LOG_PULL_INTERVAL}s -> {LETTA_REMOTE_LOG_CACHE}')

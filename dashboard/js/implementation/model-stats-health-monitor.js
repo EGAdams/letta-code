@@ -40,7 +40,7 @@ export class ModelStatsHealthMonitor {
           const status = ["down", "concern"].includes(result.status)
             ? result.status
             : "up";
-          this._setSourceState(tab, status);
+          this._setSourceState(tab, status, result.muted);
           return status;
         } catch {
           // Preserve the last known state during a transient request failure.
@@ -61,17 +61,19 @@ export class ModelStatsHealthMonitor {
     if (worst) this._onStatus(worst);
   }
 
-  _setSourceState(tab, status) {
+  _setSourceState(tab, status, muted = false) {
     tab.classList.remove(
       "server-up",
       "server-concern",
       "server-down",
       "tab-alert",
       "tab-alert-red",
+      "muted",
     );
     tab.classList.add(`server-${status}`);
     tab.classList.toggle("tab-alert", status === "concern");
     tab.classList.toggle("tab-alert-red", status === "down");
+    tab.classList.toggle("muted", muted);
   }
 
   _setAggregateState(status) {

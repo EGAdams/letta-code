@@ -3,10 +3,14 @@ import type { StreamActivityKind } from "./ports";
 /**
  * Chunk types that prove a tool actually ran. These are the only ones that
  * clear the long no-tool-progress deadline.
+ *
+ * The call and the return are kept distinct because the gap between them is
+ * legitimate silence — the tool is executing — and must not count against the
+ * short no-content deadline.
  */
-const TOOL_PROGRESS_MESSAGE_TYPES: ReadonlySet<string> = new Set([
-  "tool_call_message",
-  "tool_return_message",
+const TOOL_MESSAGE_TYPES: ReadonlyMap<string, StreamActivityKind> = new Map([
+  ["tool_call_message", "tool_started" as const],
+  ["tool_return_message", "tool_finished" as const],
 ]);
 
 /**
@@ -38,8 +42,9 @@ export function classifyStreamActivity(
   if (!messageType) {
     return null;
   }
-  if (TOOL_PROGRESS_MESSAGE_TYPES.has(messageType)) {
-    return "tool_progress";
+  const toolKind = TOOL_MESSAGE_TYPES.get(messageType);
+  if (toolKind) {
+    return toolKind;
   }
   if (CONTENT_MESSAGE_TYPES.has(messageType)) {
     return "content";

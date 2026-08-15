@@ -1126,6 +1126,16 @@ summary {
   background: #f57f17;
   color: #000;
 }
+/* Muted — warning disabled (e.g., unused model deliberately silenced). */
+.tab.muted {
+  background: #6b7280;
+  color: #fff;
+  font-weight: 700;
+}
+.tab.muted:hover,
+.tab.muted:focus-visible {
+  background: #4b5563;
+}
 /* ---- Model Stats ---- */
 .ms-card {
   max-width: 560px;
@@ -1180,6 +1190,82 @@ summary {
   color: #f9a825;
   font-weight: 600;
   margin: 8px 0 0;
+}
+/* ---- Codex moms-token sync panel (always visible on Model Stats) ---- */
+.cs-panel {
+  max-width: 560px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #333;
+}
+.cs-panel h4 {
+  margin: 0;
+}
+.cs-panel-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cs-toggle-btn {
+  font-size: 0.82rem;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+/* Greyed out while the automatic timer is disabled — a glance confirms the
+   4h pull isn't running, without hiding the manual override buttons. */
+.cs-panel-body-disabled {
+  opacity: 0.5;
+  filter: grayscale(1);
+  background: rgba(128, 128, 128, 0.12);
+  border-radius: 6px;
+  padding: 8px;
+  margin: -8px;
+}
+.cs-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  margin-bottom: 4px;
+}
+.cs-panel-actions {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.cs-swap-btn {
+  font-size: 0.82rem;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.cs-swap-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* The W11-copy action deliberately collapses the dual-account fallback onto
+   one account — mark it visually distinct from the safe R46 default. */
+.cs-swap-btn-danger {
+  border-color: #e53935;
+  color: #e53935;
+}
+.cs-rows {
+  margin-top: 10px;
+  font-size: 0.86rem;
+}
+.cs-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px dashed #333;
+}
+.cs-row:last-child {
+  border-bottom: none;
+}
+.cs-row-email {
+  font-family: monospace;
 }
 
 /* ---- PC Monitor ---- */
@@ -2176,4 +2262,18 @@ summary {
 }
 .archive-terminal-section .terminal-host .xterm {
   min-width: max-content;
+}
+
+/* Start/Stop Listening pulse. The button carries an inline background (set by
+   InputOptionsRenderer), which a plain class rule could not override — an
+   animation can, so the red pulse is expressed as keyframes. */
+@keyframes listen-blink {
+  0%,
+  49% {
+    background: #c62828;
+  }
+  50%,
+  100% {
+    background: #7f1d1d;
+  }
 }

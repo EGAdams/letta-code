@@ -17,8 +17,9 @@ dispatched to her to classify, dedupe, categorize, and store in the
 `nonprofit_finance` MySQL DB. She runs on a cheap mini model, so her runs are
 expected to be flawed.
 
-The **Trainer** is a one-shot watcher agent spawned automatically for EVERY
-intake dispatch (scanner scan, PDF, and reprocess). It:
+The **Trainer** is a one-shot watcher agent summoned only when an intake reports
+a problem or misses its callback deadline. Healthy scanner, PDF, and reprocess
+runs do not launch a Trainer model session. When summoned, it:
 
 1. Watches Mazda's live transcript (Letta API) for that ONE run,
 2. verifies her STEP 1–8 intake contract against **successful tool returns**
@@ -42,7 +43,10 @@ lesson.
 | `trainer/mazda_trainer_instructions.md` | The Trainer's system instructions — the STEP 1–8 contract, polling rules, coaching rules, report format. Edit THIS to change how Mazda is trained/graded. |
 | `../notes_plans_handoffs/mazda_dev_status.html` | Mazda's developer manual; tag-stripped and appended to the Trainer's system message at launch. The canonical current-direction doc for Mazda. |
 | `trainer/reports/` | One markdown report per watched run. Read the newest to see how Mazda's last run went. |
-| `server.py` (`build_trainer_command`, `_notify_trainer_of_scan`, ~line 1817) | Fire-and-forget detached Popen wiring from both `process_scanned_document` and `process_pdf_document`. A broken Trainer never blocks intake. |
+| `intake/trainer_contracts.py` | Strict Pydantic requests/results and the notifier, scheduler, and escalation Interfaces. |
+| `intake/trainer_escalation.py` | Problem-only callback policy and missing-callback deadline coordinator. |
+| `intake/trainer_notifier.py` | Detached `systemd-run --scope` Trainer adapter. |
+| `intake/trainer_recovery.py` | Rebuilds pending watches after restart without duplicating an already-launched Trainer. |
 
 ### The intake contract the Trainer verifies
 
@@ -78,7 +82,8 @@ cd /home/adamsl/letta-code/dashboard/trainer
 To re-grade a finished run, pass the original dispatch timestamp (see
 `recent_report.json` or `/tmp/dashboard_8765.log`).
 
-Env vars: `MAZDA_TRAINER_ENABLED=0` (kill switch, read by server.py),
+Env vars: `MAZDA_TRAINER_ENABLED=0` (emergency kill switch),
+`MAZDA_TRAINER_CALLBACK_TIMEOUT_SECONDS` (default 900; healthy callbacks cancel it),
 `TRAINER_MODEL` (default sonnet), `TRAINER_CODEX_MODEL` (default gpt-5.4-mini —
 plain `gpt-5-mini` is rejected by the provider), `TRAINER_TIMEOUT_MS` (default
 35 min overall), `TRAINER_ATTEMPT_TIMEOUT_MS` (default 20 min per session),
@@ -123,7 +128,7 @@ patches. Its only writes are coaching messages to Mazda and its report file.
   document identity comes only from THIS run's transcript evidence, never the
   filename.
 - **pytest must never spawn real Trainers** — `tests/conftest.py` has an
-  autouse fixture forcing `TRAINER_ENABLED = False`; any new test touching
+  autouse fixture injecting `NullTrainerEscalationService`; any new test touching
   `process_scanned_document`/`process_pdf_document` inherits it. If a report
   claims an "infrastructure delivery failure", check its timestamp against a
   concurrent `pytest tests/` run before believing it.

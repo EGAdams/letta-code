@@ -15,6 +15,7 @@ export class InterfacePageRenderer {
   constructor({ mermaidView = null, doc = globalThis.document } = {}) {
     this._mermaid = mermaidView;
     this._doc = doc;
+    this._renderGeneration = 0;
   }
 
   _el(tag, className, props = {}) {
@@ -45,14 +46,17 @@ export class InterfacePageRenderer {
    * @returns {Promise<Element>} the container
    */
   async render(container, spec) {
+    const generation = ++this._renderGeneration;
     container.innerHTML = "";
     this._renderHeader(container, spec);
     this._renderResponsibility(container, spec);
     await this._renderDiagrams(container, spec, 0, 1);
+    if (generation !== this._renderGeneration) return container;
     this._renderContract(container, spec);
     this._renderImplementations(container, spec);
     this._renderDependencies(container, spec);
     await this._renderDiagrams(container, spec, 1);
+    if (generation !== this._renderGeneration) return container;
     this._renderDevelopmentStatus(container, spec);
     this._renderTests(container, spec);
     this._renderNextWork(container, spec);
