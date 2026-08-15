@@ -59,6 +59,7 @@ export class InterfacePageRenderer {
     if (generation !== this._renderGeneration) return container;
     this._renderDevelopmentStatus(container, spec);
     this._renderTests(container, spec);
+    this._renderGotchas(container, spec);
     this._renderNextWork(container, spec);
     return container;
   }
@@ -258,9 +259,25 @@ export class InterfacePageRenderer {
     for (const diagram of slice) await this._mermaid.render(section, diagram);
   }
 
+  /**
+   * Traps that already cost someone time. Rendered next to the interface they
+   * bite rather than in a separate document, because a gotcha filed somewhere
+   * else is a gotcha nobody reads before touching the code.
+   */
+  _renderGotchas(parent, spec) {
+    if (!spec.gotchas?.length) return;
+    const section = this._section(parent, "7 · Gotchas", "gotchas");
+    for (const gotcha of spec.gotchas) {
+      const box = this._el("div", "box warn");
+      box.append(this._el("div", "h", { textContent: gotcha.title }));
+      box.append(this._el("p", null, { textContent: gotcha.body }));
+      section.append(box);
+    }
+  }
+
   _renderNextWork(parent, spec) {
     if (!spec.nextWork?.length) return;
-    const section = this._section(parent, "7 · Next work", "next-work");
+    const section = this._section(parent, "8 · Next work", "next-work");
     const ol = this._el("ol");
     for (const item of spec.nextWork)
       ol.append(this._el("li", null, { textContent: item }));

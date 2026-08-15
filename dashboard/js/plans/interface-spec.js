@@ -36,6 +36,8 @@
  * @property {{done?: string[], gaps?: string[]}} [developmentStatus]
  * @property {{files?: TestFile[], untested?: string[], next?: string[]}} [tests]
  * @property {Diagram[]} [diagrams]
+ * @property {{title: string, body: string}[]} [gotchas]  hard-won traps, kept
+ *   next to the interface they bite, so the next person does not rediscover them
  * @property {string[]} [nextWork]
  * @property {{label: string, href: string}[]} [links]  shown under the heading
  */
@@ -96,6 +98,10 @@ export function validateInterfaceSpec(spec) {
   for (const file of spec.tests?.files || []) {
     if (!file?.path || !file?.proves)
       fail("every test file needs a path and what it proves");
+  }
+  for (const gotcha of spec.gotchas || []) {
+    if (!gotcha?.title || !gotcha?.body)
+      fail("every gotcha needs a title and a body");
   }
   for (const link of spec.links || []) {
     if (!link?.label || !link?.href) fail("every link needs a label and href");

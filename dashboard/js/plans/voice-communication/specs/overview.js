@@ -90,6 +90,8 @@ Planned, not built (talking_agent_parts/ contains only the plan document)
       "The note + command channel is complete end-to-end, including LLM-judged command completeness and agent-chosen save filenames.",
       "Speech synthesis works server-side (edge-tts) with a per-agent voice catalog.",
       "Every port has an ABC/base class, at least one implementation, and unit tests with injected collaborators.",
+      "The shared worker agent (transcript-cleanup-agent) runs on chatgpt-plus-pro/gpt-5.6-luna as of 2026-08-13, replacing the dead lc-gemini handle that had been silently failing every voice-cleanup, receptionist and note-command call. Verified live end to end.",
+      "This guide is the shipped documentation: 13 tabs served at Project Plans → Voice Communication, navigated from the dashboard's own sub-nav, with the interface list driven by the same specs that render each page so the tabs cannot drift from the content.",
     ],
     gaps: [
       "There is no session object. Nothing owns 'one conversation' — state is split across ListenerState, RecorderState and per-render closures.",
@@ -97,7 +99,7 @@ Planned, not built (talking_agent_parts/ contains only the plan document)
       "There is no IConversationAgent port. Renderers call POST /api/letta-code-message directly, so a non-Letta conversation engine cannot be substituted.",
       "Nothing is cancellable. Every Letta call runs to completion or times out.",
       "The Letta adapter is request/response only — no streaming, so replies arrive in one lump after up to 900 seconds.",
-      "BLOCKER: the transcript-cleanup-agent runs on lc-gemini, which now returns 401. Voice cleanup, the receptionist intent policy and the note-command channel all default to that agent and are failing closed right now.",
+      "Every finalized speech fragment costs one 3-6s LLM round-trip to the completeness detector. That, not model choice, is the dominant latency in the loop — see the Note Command Channel tab.",
     ],
   },
   tests: {
@@ -231,8 +233,8 @@ Planned, not built (talking_agent_parts/ contains only the plan document)
     },
   ],
   nextWork: [
-    "Unblock the LLM: repoint transcript-cleanup-agent off the dead lc-gemini handle onto chatgpt-plus-pro/gpt-5.4-mini. Three shipped features are failing closed until this is done.",
     "Build VoiceSession — the smallest object that owns one conversation's identity, state and current generation. Everything else on this page is blocked behind it.",
+    "Cut the completeness round-trip: a cheap local pre-filter that skips the LLM for obviously-incomplete fragments would remove most of the 3-6s wait per spoken pause.",
     "Extract IConversationAgent from the direct /api/letta-code-message calls, with the existing Letta path as its first adapter.",
     "Decide, explicitly, whether the Pipecat rebuild is still the direction or whether the shipped dashboard stack is now the system. Right now the plan and the code disagree, and that ambiguity is itself a risk.",
   ],

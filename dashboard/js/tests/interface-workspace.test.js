@@ -156,6 +156,33 @@ describe("InterfaceWorkspace", () => {
     expect(ctx.workspace.currentId).toBe("alpha");
   });
 
+  test("re-showing the open tab does not render it a second time", async () => {
+    // The dashboard sub-nav calls show() and also sets the hash, which fires
+    // our hashchange listener into show() again for the same spec. render() is
+    // async, so without this guard the two passes interleave and the page ends
+    // up with duplicated sections.
+    const ctx = setup();
+    await ctx.workspace.mount("nav", "content");
+    const first = ctx.mermaid.rendered.length;
+    await ctx.workspace.show("alpha");
+    expect(ctx.mermaid.rendered.length).toBe(first);
+  });
+
+  test("two concurrent shows of the same tab render its sections once", async () => {
+    const ctx = setup();
+    await ctx.workspace.mount("nav", "content");
+    // Simulate both drivers firing for the same spec without awaiting between.
+    const a = ctx.workspace.show("beta");
+    const b = ctx.workspace.show("beta");
+    await Promise.all([a, b]);
+    const headings = ctx.content
+      .querySelectorAll(".spec-section")
+      .map((s) => s.children[0]?.textContent)
+      .filter(Boolean);
+    expect(headings).toEqual([...new Set(headings)]);
+    expect(ctx.content.querySelectorAll(".spec-header").length).toBe(1);
+  });
+
   test("refuses to build without a page renderer", () => {
     expect(() => new InterfaceWorkspace({ specs: [specA] })).toThrow(
       "page renderer",
@@ -188,7 +215,7 @@ describe("InterfacePageRenderer", () => {
       "4 · Dependencies",
       "5 · Development status",
       "6 · Tests",
-      "7 · Next work",
+      "8 · Next work",
     ]);
   });
 
@@ -230,6 +257,24 @@ describe("InterfacePageRenderer", () => {
     const warn = ctx.content.querySelector(".box.warn");
     expect(text(good)).toContain("it works");
     expect(text(warn)).toContain("no cancel");
+  });
+
+  test("renders gotchas as their own section, next to the interface they bite", async () => {
+    const doc = new (await import("./_fake-dom.js")).FakeDocument();
+    const content = doc.createElement("main");
+    content.id = "content";
+    doc.add(content);
+    await new InterfacePageRenderer({ doc }).render(content, {
+      ...specA,
+      gotchas: [{ title: "Two drivers", body: "one async render" }],
+    });
+    const headings = content
+      .querySelectorAll(".spec-section")
+      .map((s) => s.children[0]?.textContent)
+      .filter(Boolean);
+    expect(headings).toContain("7 · Gotchas");
+    expect(text(content)).toContain("Two drivers");
+    expect(text(content)).toContain("one async render");
   });
 
   test("says so plainly when an interface has no tests", async () => {

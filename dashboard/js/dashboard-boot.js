@@ -32,11 +32,15 @@ import {
   DomVendorReviewView,
   EdgeTtsSpeechSynthesizer,
   FetchHttpClient,
+  HttpCompletenessDetector,
+  HttpNoteCommandInterpreter,
   InputOptionsRenderer,
   IntakeHaltAlert,
   ModelStatsHealthMonitor,
   mountTerminal,
+  NoteCommandPanelRenderer,
   PrinterRepairController,
+  ReadOnlyNoteSurface,
   RolFinanceReportsController,
   ScannerDiagnosticsController,
   ServerActionController,
@@ -1473,6 +1477,18 @@ const receptionistIntentPolicy = {
     http.postJSON("/api/receptionist-intent", { text }, { timeout: 15000 }),
 };
 
+/* The command channel below the note.
+ *
+ * Its own ContinuousListener, separate from receptionistListener above: the two
+ * boxes are two conversations (dictate the note / instruct Toyota about it), so
+ * they start and stop independently. The channel's collaborators are the two
+ * HTTP adapters — swapping either for a local implementation is a change here
+ * and nowhere else. See js/abstract/voice-command-channel.js.
+ */
+const noteCommandListener = new BrowserSpeechRecognitionListener();
+const completenessDetector = new HttpCompletenessDetector({ http });
+const commandInterpreter = new HttpNoteCommandInterpreter({ http });
+
 const startReceptionist = async () => {
   let agentId;
   try {
@@ -1482,14 +1498,25 @@ const startReceptionist = async () => {
   } catch {
     return;
   }
-  new InputOptionsRenderer({
+  const api = new InputOptionsRenderer({
     http,
     speech: Speech,
     agentName: "Toyota",
     agentId,
     listener: receptionistListener,
     receptionistIntentPolicy,
+    // Toyota's box is a note document, not a message box: read-only, white on
+    // black. Editing it happens by voice through the command channel below.
+    surfaceFactory: (opts) => new ReadOnlyNoteSurface(opts),
   }).render("receptionist-box", agentId);
+  if (!api) return;
+
+  new NoteCommandPanelRenderer({
+    note: api.note,
+    listener: noteCommandListener,
+    completenessDetector,
+    commandInterpreter,
+  }).render("note-command-box");
 };
 startReceptionist();
 
