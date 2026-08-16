@@ -30,7 +30,9 @@ from agents.letta_gateway import ILettaGateway
 from agents.model_options import AgentModelOptionsService, select_model_options
 from agents.urllib_letta_gateway import UrllibLettaGateway
 
-from pydantic import ValidationError
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from voice.note_factory import note_command_service
 from voice.note_models import NoteEditRequest, PartialVoiceCommand
@@ -76,8 +78,8 @@ from supporting_document_service import (
 )
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 from finance.expense_schema import InformationSchemaProbe, ShowColumnsProbe
-from finance.report_page import ReportPageRoutes
-from finance import intake_report_model, intake_report_page
+from finance.report_page import ReportPageRoutes, ReportRowMatch
+from finance import archive_path, intake_report_model, intake_report_page, manual_entry
 from finance.intake_report_model import (
     META_EMPTY,
     document_type_label as _document_type_label,
@@ -576,6 +578,7 @@ def record_recent_intake(image_path, label, kind='scan', facade=None,
             'archive_years': [],
             'status': 'processing',
             'status_detail': '',
+            'execution_mode': EXECUTION_MODE,
         }
         data['intake'] = intake
         # Scans are ALSO recorded per-scanner (keyed by the scanner's human
@@ -867,6 +870,9 @@ _TERMINAL_INTAKE_STATUSES = {
     # stop the Recent Report page's 30s auto-refresh, same as any other
     # finished run (see list_pending_vendor_review()/set_receipt_vendor()).
     'awaiting_vendor_review',
+    # MAZDA_DECISION_MODE=human_only: Mazda's turn never started at all, so
+    # there is no STEP 8 report-back to wait for — stop auto-refresh here too.
+    'needs_human_review',
 }
 
 
@@ -930,6 +936,105 @@ def record_intake_status(data):
     """Dashboard endpoint used by the Trainer runner after writing its report."""
     merged = merge_recent_intake_status(data or {})
     return {'ok': merged, 'status': (data or {}).get('status', '')}
+
+
+def submit_manual_receipt_entry(data):
+    """POST /api/manual-receipt-entry: the needs_human_review form's Save button.
+
+    Stores the human-entered fields through manual_entry.py (the exact tool
+    Mazda's own pipeline uses, just with --engine local instead of her LLM
+    turn), then folds a STEP-8-shaped event into the intake record — same as
+    Mazda's own /api/expense-stored callback — so expense_ids populate (the
+    Verified Transactions table and the archive-verification terminal both
+    key off that), and status flips from needs_human_review to complete. A
+    failure leaves the intake queued so the form reappears, same as the
+    statement review dialog's "pops up again" contract.
+    """
+    data = data or {}
+    # HTTP JSON is untrusted shape, not just untrusted value: coerce here, at
+    # the boundary, before the strict Pydantic model — ManualReceiptEntry's
+    # strict=True deliberately rejects a numeric field arriving as a string
+    # rather than silently coercing it.
+    try:
+        total_amount = float(data.get('total_amount'))
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'total_amount must be a number'}
+    category_name = str(data.get('category_name') or '').strip()
+    category_id = None
+    if category_name:
+        category_id, category_cls = _resolve_reporting_category(category_name)
+        if category_cls is None:
+            return {'ok': False, 'error': f'Unknown category: {category_name!r}'}
+    try:
+        org_id = int(data.get('org_id') or 1)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'org_id must be an integer'}
+    try:
+        entry = manual_entry.ManualReceiptEntry(
+            image_path=data.get('image_path', ''),
+            merchant_name=data.get('merchant_name', ''),
+            transaction_date=data.get('transaction_date', ''),
+            total_amount=total_amount,
+            category_id=category_id,
+            org_id=org_id,
+        )
+    except ValidationError as exc:
+        return {'ok': False, 'error': str(exc)}
+
+    ok, payload = manual_entry.submit_manual_receipt_entry(entry)
+    if not ok:
+        return {'ok': False, **payload}
+
+    # A successful --save just moved a receipt file into readable_documents/
+    # out-of-process (the parse_and_categorize.py subprocess), invisible to
+    # this process's in-memory index until the 300s TTL expires. Without this,
+    # the archive-verification terminal and the View Receipt button that fire
+    # immediately after this call see a stale index and report no receipt at
+    # all -- same as record_stored_expense (Mazda's callback) and
+    # reprocess_report already do for their own out-of-process receipt writes.
+    _invalidate_receipt_index()
+    report = payload.get('report') or {}
+    expense_id = report.get('expense_id')
+    duplicate = bool(report.get('duplicate'))
+    conversation_id = str(data.get('conversation_id') or '').strip()
+    merge_recent_intake_event({
+        'conversation_id': conversation_id,
+        'document_path': entry.image_path,
+        'expense_ids': [] if expense_id is None else [expense_id],
+        'duplicate_expense_ids': [expense_id] if duplicate and expense_id is not None else [],
+        'parsed': 1,
+        'stored': 0 if duplicate else 1,
+        'doc_kind': 'receipt',
+        'vendor': entry.merchant_name,
+        'status': 'complete',
+        'status_detail': (f'Entered manually by operator — expense_id={expense_id}'
+                          if not duplicate
+                          else f'Matched an existing expense (id={expense_id}); not double-entered.'),
+    })
+    return {'ok': True, 'expense_id': expense_id, 'duplicate': duplicate}
+
+
+def preview_manual_entry_archive_path(data):
+    """POST /api/manual-receipt-entry-archive-preview: live path preview as
+    the operator fills in vendor/date/amount, so they can see where a Save
+    will file the document before pressing it."""
+    data = data or {}
+    try:
+        total_amount = float(data.get('total_amount'))
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'total_amount must be a number'}
+    try:
+        result = archive_path.preview_archive_path(
+            data.get('image_path', ''),
+            data.get('merchant_name', ''),
+            data.get('transaction_date', ''),
+            total_amount,
+            data.get('archive_kind') or 'receipt',
+            custom_root=data.get('custom_archive_root'),
+        )
+    except ValueError as exc:
+        return {'ok': False, 'error': str(exc)}
+    return {'ok': True, **result}
 
 
 def record_intake_halt(data):
@@ -1151,7 +1256,7 @@ def _resolve_duplicate_expense_ids(expense_date, amount, limit=3):
     duplicate-only callback named no ids at all. Deliberately narrow:
 
     - (date, amount) is the same join this codebase already trusts for
-      receipt↔row linkage (see _resolve_receipt_path), and it is the only
+      receipt↔row linkage (see _resolve_expense_receipt_path), and it is the only
       identifying pair a duplicate callback reliably carries — vendor_key is
       NOT usable here, because check_duplicates reports the stored row's
       id_light (e.g. consumers_energy_01_23_25_222_65) while STEP 8 reports the
@@ -1210,7 +1315,7 @@ def _associated_source_paths(rows):
             match = _find_matching_report_row(
                 r.get('date'), r.get('amount'), r.get('vendor_key'))
             if match:
-                pdf_path = _source_document_path(match['report_path']) or ''
+                pdf_path = _source_document_path(match.report_path) or ''
             if not pdf_path:
                 # No report.html traces back to this row, but the expense may
                 # still carry its own document_url (e.g. a bank-downloaded
@@ -1549,6 +1654,10 @@ def build_recent_intake_html(intake):
     working = ('' if (reported or terminal)
                else intake_report_page.mazda_working_html(
                    mazda_intake_progress(intake)))
+    manual_entry_html = (
+        intake_report_page.manual_entry_form_html(
+            intake.get('image_path'), intake.get('conversation_id'), scanner_key)
+        if intake_status == 'needs_human_review' else '')
     return intake_report_page.render_intake_report(
         headline=intake_report_model.display_document_name(
             archive_path, intake.get('document') or 'document'),
@@ -1571,6 +1680,7 @@ def build_recent_intake_html(intake):
         extra_css=('\n' + _receipt_only_cat_css() + '\n' + click_css + '\n'
                    + picker_css + '\n'),
         picker_html=picker_html,
+        manual_entry_html=manual_entry_html,
     )
 
 
@@ -1641,9 +1751,9 @@ def _scanner_statement_report(scanner_key, intake):
         found = _find_matching_report_row('', '', expense_id=expense_id)
         if not found:
             continue
-        report_file = _report_file_for_url(found.get('report_path', ''))
+        report_file = _report_file_for_url(found.report_path)
         if report_file:
-            return {'url': found['report_path'], 'file': report_file, 'expense_id': expense_id}
+            return {'url': found.report_path, 'file': report_file, 'expense_id': expense_id}
     return None
 
 
@@ -1806,16 +1916,16 @@ def _find_matching_report_row(date_str, amount_str, vendor_key='', expense_id=No
     vs 'kum_go_2608r_walker'), so vendor_key is NOT required to match — only used
     to disambiguate when more than one row shares the same date+amount.
 
-    Returns {'report_path', 'label', 'row_vendor_key'} for exactly one match, or
-    None when zero or unresolvably-many rows matched (leaves report files alone
-    in the ambiguous case rather than guessing wrong).
+    Returns a ReportRowMatch for exactly one match, or None when zero or
+    unresolvably-many rows matched (leaves report files alone in the
+    ambiguous case rather than guessing wrong).
     """
     d = (date_str or '').strip()
     a = (amount_str or '').strip()
     eid = str(expense_id or '').strip()
     if not eid and (not d or not a):
         return None
-    matches = []
+    matches: list[ReportRowMatch] = []
     for url, file_path, label in _iter_existing_report_files():
         try:
             with open(file_path, encoding='utf-8', errors='replace') as f:
@@ -1832,15 +1942,15 @@ def _find_matching_report_row(date_str, amount_str, vendor_key='', expense_id=No
                     continue
             elif ('>%s<' % d) not in inner or ('>%s<' % a) not in inner:
                 continue
-            matches.append({
-                'report_path': url, 'label': label, 'row_vendor_key': vk_m.group(1),
-            })
+            matches.append(ReportRowMatch(
+                report_path=url, label=label, row_vendor_key=vk_m.group(1),
+            ))
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1 and vendor_key:
         vk = vendor_key.strip()
-        narrowed = [mch for mch in matches if mch['row_vendor_key'] and (
-            vk.startswith(mch['row_vendor_key']) or mch['row_vendor_key'].startswith(vk))]
+        narrowed = [mch for mch in matches if mch.row_vendor_key and (
+            vk.startswith(mch.row_vendor_key) or mch.row_vendor_key.startswith(vk))]
         if len(narrowed) == 1:
             return narrowed[0]
     return None
@@ -2111,11 +2221,11 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
                 date_str, signed_amount, vendor_key, report_expense_id) if new_cls else None
             if found:
                 if _update_report_row_color(
-                        found['report_path'], found['row_vendor_key'],
+                        found.report_path, found.row_vendor_key,
                         date_str, signed_amount, new_cls,
                         expense_id=report_expense_id):
                     file_updated = True
-                    matched_report = {'report_path': found['report_path'], 'label': found['label']}
+                    matched_report = {'report_path': found.report_path, 'label': found.label}
         except Exception:
             pass
         if not matched_report:
@@ -2216,8 +2326,8 @@ def undo_recategorize_expense(token):
         )
         if found:
             file_updated = _update_report_row_color(
-                found['report_path'],
-                found['row_vendor_key'],
+                found.report_path,
+                found.row_vendor_key,
                 action.get('date', ''),
                 action.get('signed_amount', ''),
                 previous_class,
@@ -3840,6 +3950,104 @@ def _mazda_dispatch_was_accepted(conversation_id):
     )
 
 
+# ── Execution mode (human-only decision gate) ──────────────────────────────
+# MAZDA_DECISION_MODE gates whether a scan/PDF dispatch may construct Mazda
+# and the Trainer at all. This is the single fork point for every LLM call
+# the intake pipeline can make: every deeper LLM call (categorizer, vision,
+# parser selection) only happens INSIDE Mazda's own agent turn, so never
+# starting that turn blocks all of them at once — there is no way to reach
+# in and intercept a call three layers inside her reasoning.
+class InvalidExecutionMode(ValueError):
+    """MAZDA_DECISION_MODE held something other than 'auto'/'human_only'."""
+
+
+class ExecutionModeConfig(BaseModel):
+    """MAZDA_DECISION_MODE, validated once at process start.
+
+    The exact-lowercase constraint and fail-closed-on-anything-else
+    requirement are validation rules, not control flow — Pydantic's
+    ``Literal`` + ``strict=True`` enforces both without a hand-rolled
+    if/raise, matching the StrictBoundaryModel convention already used for
+    other typed boundaries (see agents/letta_gateway.py).
+    """
+    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
+    mode: Literal['auto', 'human_only'] = 'auto'
+
+
+def resolve_execution_mode(raw=None):
+    """Pure parser — no I/O, unit-tested.
+
+    Unset -> 'auto' (preserves current production behavior). Any other value
+    must be exactly 'auto' or 'human_only' (lowercase); anything else fails
+    closed so a typo can never silently spend LLM tokens or silently disable
+    Mazda.
+    """
+    if raw is None:
+        raw = os.environ.get('MAZDA_DECISION_MODE')
+    if raw is None:
+        return ExecutionModeConfig().mode
+    try:
+        return ExecutionModeConfig(mode=raw).mode
+    except ValidationError as exc:
+        raise InvalidExecutionMode(
+            "MAZDA_DECISION_MODE must be 'auto' or 'human_only' (exact lowercase), "
+            f'got {raw!r}') from exc
+
+
+# Resolved once at process start, like TRAINER_ENABLED below — an env change
+# never alters an already-running process; restart dashboard-server.service
+# to pick up a new value (in-flight/pending runs are unaffected either way).
+EXECUTION_MODE = resolve_execution_mode()
+
+HUMAN_ONLY_MODE_STAGE_MESSAGE = (
+    'MAZDA_DECISION_MODE=human_only: Mazda and the Trainer were not started '
+    'for this document. Process it manually — see /recent_report.html.')
+
+
+def _block_dispatch_for_human_only_mode(document_path, conversation_id, dispatched_at):
+    """human_only mode: the single point that replaces Mazda+Trainer construction.
+
+    Records the same terminal-status shape a Trainer failure would, so the
+    document surfaces on /recent_report.html as needing a human instead of
+    silently vanishing — the operator still sees every scanned/PDF document,
+    just routed to manual processing instead of Mazda's LLM turn. Never
+    registers a Trainer watch either: with Mazda never dispatched, a deadline
+    watch would eventually fire the ProblemOnlyTrainerEscalationService for a
+    callback that can never arrive, spending exactly the tokens this mode
+    exists to save.
+    """
+    merge_recent_intake_status({
+        'conversation_id': conversation_id,
+        'document_path': document_path,
+        'dispatched_at': dispatched_at,
+        'status': 'needs_human_review',
+        'status_source': 'human_only_mode',
+        'detail': HUMAN_ONLY_MODE_STAGE_MESSAGE,
+    })
+
+
+def _dispatch_mazda_or_block(document_path, label, facade, conversation_id,
+                             dispatched_at, mazda_thread_target, mazda_thread_args):
+    """The one fork point between Mazda's LLM turn and human-only blocking.
+
+    process_scanned_document and process_pdf_document each used to carry this
+    branch independently — duplicated mode-dependent logic. Returns
+    mazda_dispatched. The Trainer is never dispatched synchronously from
+    here in either mode: ProblemOnlyTrainerEscalationService (registered via
+    _watch_intake_for_problems) decides later, off a callback deadline,
+    whether a run ever needed one — human_only skips registering that watch
+    too, since Mazda never starting means no callback will ever arrive.
+    """
+    if EXECUTION_MODE == 'human_only':
+        _block_dispatch_for_human_only_mode(document_path, conversation_id, dispatched_at)
+        return False
+    _watch_intake_for_problems(
+        document_path, label, facade, conversation_id, dispatched_at)
+    threading.Thread(
+        target=mazda_thread_target, args=mazda_thread_args, daemon=True).start()
+    return True
+
+
 def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None,
                           conversation_id=None, dispatched_at=None):
     """Background: send the scanned document to Mazda for intake processing.
@@ -4542,6 +4750,7 @@ def process_scanned_document(
     mazda_dispatched = False
     trainer_dispatched = False
     stage_error = None
+    conversation_id = None
     vision_health = document_vision_health()
     if not vision_health.get('ok'):
         # All 3 classify_scan.py vision tiers are down — dispatching Mazda would
@@ -4609,16 +4818,14 @@ def process_scanned_document(
                     facade=facade, conversation_id=conversation_id,
                     dispatched_at=dispatched_at,
                     content_sha256=content_sha256)
-                _watch_intake_for_problems(
+                mazda_dispatched = _dispatch_mazda_or_block(
                     remote_image_path, cfg.get('name', key), facade,
-                    conversation_id, dispatched_at)
-                threading.Thread(
-                    target=_notify_mazda_of_scan_and_record_failure,
-                    args=(remote_image_path, cfg.get('name', key), facade,
-                          conversation_id, dispatched_at),
-                    daemon=True,
-                ).start()
-                mazda_dispatched = True
+                    conversation_id, dispatched_at,
+                    _notify_mazda_of_scan_and_record_failure,
+                    (remote_image_path, cfg.get('name', key), facade,
+                     conversation_id, dispatched_at))
+                if not mazda_dispatched:
+                    stage_error = HUMAN_ONLY_MODE_STAGE_MESSAGE
             else:
                 _release_scan_dispatch(key, image_path)
                 stage_error = ('Could not create an isolated Mazda conversation; '
@@ -4629,7 +4836,8 @@ def process_scanned_document(
                             '(SSH/copy to the executor machine failed) — Mazda was not notified.')
     result = build_pipeline_result(facade, mazda_dispatched)
     result['trainer_dispatched'] = trainer_dispatched
-    if mazda_dispatched:
+    result['execution_mode'] = EXECUTION_MODE
+    if conversation_id:
         result['conversation_id'] = conversation_id
     if stage_error:
         result['stage_error'] = stage_error
@@ -4682,19 +4890,18 @@ def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
     # PDFs already live inside ROL_FINANCES_DIR (enforced above), so no staging
     # is needed — executor_run on this box reads them directly. This also
     # covers reprocess_report, which delegates here.
-    _watch_intake_for_problems(
-        real, f'PDF intake ({doc_label})', facade, conversation_id,
-        dispatched_at)
-    threading.Thread(
-        target=_notify_mazda_of_pdf,
-        args=(real, doc_label, conversation_id, dispatched_at, facade),
-        daemon=True,
-    ).start()
-    result = build_pipeline_result(facade, mazda_dispatched=True)
+    mazda_dispatched = _dispatch_mazda_or_block(
+        real, f'PDF intake ({doc_label})', facade, conversation_id, dispatched_at,
+        _notify_mazda_of_pdf,
+        (real, doc_label, conversation_id, dispatched_at, facade))
+    result = build_pipeline_result(facade, mazda_dispatched)
     result['trainer_dispatched'] = False
+    result['execution_mode'] = EXECUTION_MODE
     result['file_path'] = real
     result['label'] = doc_label
     result['conversation_id'] = conversation_id
+    if not mazda_dispatched:
+        result['stage_error'] = HUMAN_ONLY_MODE_STAGE_MESSAGE
     return result
 
 
@@ -4829,8 +5036,7 @@ def get_stored_expense_events(since_ts=0.0):
 
 
 def _build_receipt_index():
-    import re as _re
-    name_re = _re.compile(r'_(\d{2})_(\d{2})_(\d{2})_(\d+)_(\d{2})\.[A-Za-z0-9]+$')
+    from finance.receipt_filename import parse_receipt_filename
     by_da, by_stem = {}, {}
     seen = set()
     # Walk every receipt index subtree (canonical readable_documents/receipts plus
@@ -4848,11 +5054,9 @@ def _build_receipt_index():
                     continue
                 seen.add(rp)
                 by_stem.setdefault(os.path.splitext(fn)[0].lower(), []).append(fp)
-                m = name_re.search(fn)
-                if m:
-                    mm, dd, yy, dol, cents = m.groups()
-                    key = ('20%s-%s-%s' % (yy, mm, dd), '%s.%s' % (dol, cents))
-                    by_da.setdefault(key, []).append(fp)
+                match = parse_receipt_filename(fn)
+                if match:
+                    by_da.setdefault(match.index_key(), []).append(fp)
     return by_da, by_stem
 
 
@@ -4901,23 +5105,16 @@ def _resolve_receipt_url_path(receipt_url):
     return None
 
 
-def _resolve_receipt_path(date_str, amount_str, receipt_url=None):
-    """Legacy receipt-file resolver used by non-record-specific maintenance code."""
-    by_da, _by_stem = _receipt_index()
-    if date_str and amount_str:
-        hits = by_da.get((date_str, amount_str))
-        if hits:
-            return hits[0]
-    return _resolve_receipt_url_path(receipt_url)
-
-
 def _resolve_expense_receipt_path(date_str, amount_str, receipt_url):
     """Resolve a receipt only for an expense that owns a non-empty receipt_url.
 
     Stored receipt_url values are not always byte-for-byte file paths, so after
     trying the URL directly we retain the established date/amount filename
     fallback. The non-empty URL guard is what prevents a receipt from leaking
-    onto a different or receipt-less expense.
+    onto a different or receipt-less expense: a bare (date, amount) collision
+    is common (e.g. two same-day purchases of the same round amount), and only
+    an expense that is itself known to own a receipt (non-empty receipt_url)
+    is allowed to use that weaker match as a second attempt.
     """
     if not (receipt_url or '').strip():
         return None
@@ -5154,20 +5351,6 @@ def _intake_source_document(intake):
     return ''
 
 
-def _intake_scan_is_a_source_document(intake):
-    """Whether this intake's scan image is a *separate* source document from
-    its receipt — e.g. a scanned multi-transaction bank/credit-card statement.
-
-    A receipt or invoice scan has no separate downloaded source: the scan IS
-    the receipt, already offered via "View Receipt", so offering it again as
-    "View Source Document" is misleading (same image, redundant button). Only
-    statement-type scans — which cover many transactions distinct from any
-    one row's own receipt — should populate that button from the scan image.
-    """
-    doc_kind = str((intake or {}).get('doc_kind') or '').strip().lower()
-    return doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}
-
-
 def _report_source_document_reference(report_path):
     """The document the report page holding this row was built from.
 
@@ -5259,6 +5442,21 @@ def _source_document_reference(chosen, report_path=''):
             urlparse(source_reference).scheme in {'http', 'https'}
             or _resolve_local_supporting_document(source_reference, 'source'))):
         source_reference = _report_source_document_reference(report_path) or ''
+
+    if not source_reference:
+        # Scanner and Recent-Report intake pages are synthetic - they have no
+        # report.html of their own, so _report_source_document_reference always
+        # comes back empty for them (see SupportingDocumentPageResolver). But
+        # the row's own (date, amount) may still match an existing month
+        # report's transaction row - the exact match _associated_source_paths
+        # already uses to print "Associated PDF" on the intake page header.
+        # Reuse it here instead of leaving a real downloaded statement
+        # undiscoverable just because this row surfaced via a scan.
+        match = _find_matching_report_row(
+            str(chosen.get('expense_date') or ''),
+            str(chosen.get('amount') or ''))
+        if match:
+            source_reference = _source_document_path(match.report_path) or ''
 
     if references_same_underlying_document(
             source_reference,
@@ -5619,7 +5817,7 @@ def scanned_statements_present(rows):
 # individual document's report.html (they have no document association); they live
 # only on this synthetic page.
 #
-# Membership requires an ACTUAL receipt file to resolve (via _resolve_receipt_path —
+# Membership requires an ACTUAL receipt file to resolve (via _resolve_expense_receipt_path —
 # the same test that drives the red "has-receipt" corner marker), NOT merely a
 # non-empty expenses.receipt_url: ~48 rows carry a receipt_url whose file is missing
 # on disk (the known data gap) and must be excluded so every row shown has a receipt
@@ -6009,6 +6207,9 @@ AGENT_MODEL_OPTIONS = [
     'chatgpt-plus-pro/gpt-5.5',
     'chatgpt-plus-pro/gpt-5.4',
     'chatgpt-plus-pro/gpt-5.4-mini',
+    'claude-pro-max/claude-haiku-4-5-20251001',
+    'claude-pro-max/claude-sonnet-5',
+    'claude-pro-max/claude-opus-5',
 ]
 
 _LETTA_GATEWAY: ILettaGateway = UrllibLettaGateway(LETTA_BASE_URL)
@@ -6112,13 +6313,25 @@ _MAZDA_TOOLS = [
     'itemize_existing_expense',
 ]
 
-# Mazda + all 5 minions run on the same chatgpt-plus-pro OAuth account, so a
+# Suzuki + her 6 minions run on the same chatgpt-plus-pro OAuth account, so a
 # ChatGPT/Codex rate limit (HTTP 429 from chatgpt.com/backend-api/codex/responses)
 # hits all of them simultaneously — see mazda_chatgpt_429_rate_limit_2026_06_18
-# memory. Tagging them lets _poll_chatgpt_provider_once() turn every one of
-# their tabs red from a single canary probe instead of needing a manual Test
-# send against each agent first.
+# memory. _poll_chatgpt_provider_once() checks the provider's token once and
+# propagates ok/error to every agent tagged with this provider, so no per-agent
+# canary flag is actually needed for that to work.
 CHATGPT_PLUS_PRO = 'chatgpt-plus-pro'
+
+# BYOK provider backed by this box's (Rosemary46) Claude subscription OAuth
+# token -- never an ANTHROPIC_API_KEY. The provider row itself only holds a
+# raw Bearer access token (no refresh_token handling server-side), so
+# shell_scripts/sync_mazda_claude_token.sh re-pushes the current token from
+# ~/.claude/.credentials.json hourly via cron on this box, the same way
+# sync_frita_claude_token.sh keeps Frita's local credentials fresh -- this
+# box's own interactive `claude` CLI usage refreshes it and passes the WAF,
+# where the Letta server's own refresh attempts do not. The whole Mazda fleet
+# (Mazda + her 5 minions) now runs on this provider; Suzuki's fleet remains on
+# chatgpt-plus-pro.
+CLAUDE_PRO_MAX = 'claude-pro-max'
 
 LETTA_AGENTS = [
     {'name': 'Toyota',   'id': 'agent-38cf768e-e1eb-4c29-978a-c6bb64282d25'},
@@ -6128,12 +6341,12 @@ LETTA_AGENTS = [
     {'name': 'Shelia',   'id': 'agent-1c2e170c-a67a-4364-b370-16a6b48c0770'},
     {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
     {'name': 'Jeri',     'id': None},
-    {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'orchestrator': True},
-    {'name': 'Mazda Router',           'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'provider_canary': True},
-    {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CHATGPT_PLUS_PRO, 'provider_canary': True},
+    {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CLAUDE_PRO_MAX, 'orchestrator': True},
+    {'name': 'Mazda Router',           'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b', 'required_tools': _MINION_TOOLS, 'llm_provider': CLAUDE_PRO_MAX},
+    {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS, 'llm_provider': CLAUDE_PRO_MAX},
+    {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS, 'llm_provider': CLAUDE_PRO_MAX},
+    {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS, 'llm_provider': CLAUDE_PRO_MAX},
+    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CLAUDE_PRO_MAX},
     {'name': 'Suzuki',                 'id': 'agent-c4e58e29-8c06-4ca9-a18d-b8536442af13', 'orchestrator': True, 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Suzuki Router',          'id': 'agent-df4deb48-3a46-4fe4-887a-6aeb95ddc6d6', 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Suzuki Reproducer',      'id': 'agent-ad0c3e39-bd14-4f79-af95-140e4cf21325', 'llm_provider': CHATGPT_PLUS_PRO},
@@ -6468,6 +6681,17 @@ SERVERS = [
         'health_url': 'http://127.0.0.1:8787/health',
         'log_file': EXECUTOR_STARTUP_LOG,
         'note': 'executor_run REST backend — runs locally on this machine (:8787)',
+    },
+    {
+        'key': 'browser-server',
+        'name': 'ChatGPT Browser Server',
+        'health_url': 'http://100.80.49.10:5001/health',
+        'remote': True,
+        'depends_on': 'win10-node',
+        'note': 'Browser automation server for relay_message_to_chatgpt tool — controls '
+                'a logged-in ChatGPT browser session on the Win10 box (:5001). RED = not '
+                'running or Chrome not logged into chatgpt.com. See '
+                'dashboard/BROWSER_SERVER_INTEGRATION.md.',
     },
     {
         'key': 'mcp-proxy',
@@ -7196,6 +7420,42 @@ def get_chatgpt_provider_account_status():
     return chatgpt_provider_account_status(creds)
 
 
+def start_browser_server():
+    """Start browser_server.py on the Win10 box (100.80.49.10) over SSH if not already
+    running. Requires Flask, undetected-chromedriver, and Chrome logged into chatgpt.com
+    there — this dashboard host has no display for Chrome itself."""
+    _log_restart('browser-server: starting browser_server.py on Win10 box (:5001)')
+    try:
+        urllib.request.urlopen('http://100.80.49.10:5001/health', timeout=3)
+        return {'ok': True, 'text': 'browser_server already running on 100.80.49.10:5001'}
+    except Exception:
+        pass
+
+    cmd = (
+        "cd ~/letta-code/browser_tools && "
+        "kill $(cat /tmp/browser_server.pid 2>/dev/null) 2>/dev/null; sleep 1; "
+        "source .venv/bin/activate 2>/dev/null && "
+        "BROWSER_SERVER_HOST=0.0.0.0 nohup python3 browser_server.py "
+        ">/tmp/browser_server.log 2>&1 & echo $! > /tmp/browser_server.pid"
+    )
+    try:
+        result = subprocess.run(
+            ['ssh', '-o', 'ConnectTimeout=10', 'adamsl@100.80.49.10', cmd],
+            capture_output=True, text=True, timeout=20,
+        )
+    except Exception as e:
+        return {'ok': False, 'text': f'SSH to Win10 box failed: {e}'}
+
+    time.sleep(4)
+    try:
+        urllib.request.urlopen('http://100.80.49.10:5001/health', timeout=5)
+        return {'ok': True, 'text': 'browser_server started on 100.80.49.10:5001 '
+                                     '(Chrome launches lazily on first relay message)'}
+    except Exception as e:
+        return {'ok': False, 'text': f'browser_server did not come up after start attempt: {e} '
+                                      f'(stderr: {result.stderr[-300:] if result.stderr else ""})'}
+
+
 RESTART_HANDLERS = {
     'win10-node': restart_win10_node,          # revive WSL node via the Windows host
     'executor': start_executor_server,        # script frees the port + relaunches
@@ -7203,6 +7463,7 @@ RESTART_HANDLERS = {
     'dashboard': restart_dashboard_server,
     'logger-api': start_logger_api,            # idempotent self-healing compose up
     'frita-executor': restart_frita_executor,  # docker recovery + idempotent deploy
+    'browser-server': start_browser_server,    # browser automation for relay_message_to_chatgpt
     'lettabot': lambda: _restart_user_unit('lettabot', 'lettabot.service'),
     'thought-bridge': lambda: _restart_user_unit('thought-bridge', 'thought-bridge.service'),
     'mazda-tools-mcp': lambda: _restart_user_unit('mazda-tools-mcp', 'mazda-tools-mcp.service'),
@@ -10265,6 +10526,11 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if path == '/api/vendor-keys':
             return self.json_response(list_vendor_keys())
 
+        if path == '/api/rol-finance-categories':
+            return self.json_response(
+                {'ok': True,
+                 'categories': [c['name'] for c in _rol_finance_categories()]})
+
         if path == '/api/pending-vendor-review':
             return self.json_response(list_pending_vendor_review())
 
@@ -10966,6 +11232,31 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 merge_statement_review_result(payload)
             return self.json_response({'ok': ok, **payload})
 
+        if path == '/api/manual-receipt-entry':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(submit_manual_receipt_entry(data))
+
+        if path == '/api/manual-receipt-entry-preview':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            image_path = str(data.get('image_path') or '').strip()
+            if not image_path:
+                return self.error_response('Missing image_path', 400)
+            ok, payload = manual_entry.preview_receipt_parse(image_path)
+            return self.json_response({'ok': ok, **payload})
+
+        if path == '/api/manual-receipt-entry-archive-preview':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(preview_manual_entry_archive_path(data))
+
         if path == '/api/intake-status':
             try:
                 data = json.loads(body)
@@ -11469,7 +11760,9 @@ if __name__ == '__main__':
     print(f'Polling {len(SSH_CONNECTIONS)} SSH connections every {SSH_HEALTH_POLL_INTERVAL}s')
     threading.Thread(target=_chatgpt_provider_poll_loop, daemon=True).start()
     print(f'Polling chatgpt-plus-pro provider health every {CHATGPT_PROVIDER_POLL_INTERVAL}s '
-          f'(Mazda + {len(_provider_agent_ids(CHATGPT_PLUS_PRO)) - 1} minions)')
+          f'({len(_provider_agent_ids(CHATGPT_PLUS_PRO))} Suzuki-fleet agents; the whole '
+          f'Mazda fleet ({len(_provider_agent_ids(CLAUDE_PRO_MAX))} agents) is now on '
+          f'{CLAUDE_PRO_MAX})')
     threading.Thread(target=_model_usage_sample_loop, daemon=True).start()
     print(f'Sampling model usage every {MODEL_USAGE_SAMPLE_INTERVAL}s '
           f'(rate warn ≥{RATE_WARN_BURN_MULTIPLE}x sustainable; leak: '

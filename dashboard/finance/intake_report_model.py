@@ -24,6 +24,12 @@ META_EMPTY = '--'
 #: STEP 8 report-back — the page must stop waiting for one.
 FAILED_STATUSES = frozenset({'fail', 'stalled'})
 
+#: MAZDA_DECISION_MODE=human_only: Mazda's turn never started, so — like
+#: FAILED_STATUSES — there is no STEP 8 report-back to wait for. Kept
+#: distinct from FAILED_STATUSES because this isn't a failure: the document
+#: was deliberately routed to a human instead of Mazda's LLM turn.
+HUMAN_REVIEW_STATUSES = frozenset({'needs_human_review'})
+
 _DOC_KIND_LABELS = {
     'statement': 'Bank Statement',
     'bank_statement': 'Bank Statement',
@@ -88,6 +94,8 @@ def status_sentence(intake, rows, *, row_error='', status_detail=''):
     parsed, stored = intake.get('parsed'), intake.get('stored')
     reported = intake.get('reported_at')
     detail = str(status_detail or '').strip()
+    if status in HUMAN_REVIEW_STATUSES:
+        return 'HUMAN-ONLY MODE.' + (f' {detail}' if detail else '')
     if status in FAILED_STATUSES:
         label = 'FAILED' if status == 'fail' else 'STALLED'
         return f'Mazda Trainer reported {label}.' + (f' {detail}' if detail else '')
@@ -114,11 +122,14 @@ def status_sentence(intake, rows, *, row_error='', status_detail=''):
 
 
 def status_tone(intake_status, reported, rows):
-    """Banner tone for the status sentence: bad (failed or stalled), ok
-    (transactions recorded), info (finished with nothing to store), or working
-    (still waiting on Mazda). The page styles the banner from this."""
+    """Banner tone for the status sentence: bad (failed or stalled), attention
+    (routed to a human, not a failure), ok (transactions recorded), info
+    (finished with nothing to store), or working (still waiting on Mazda).
+    The page styles the banner from this."""
     if intake_status in FAILED_STATUSES:
         return 'bad'
+    if intake_status in HUMAN_REVIEW_STATUSES:
+        return 'attention'
     if rows:
         return 'ok'
     return 'info' if reported else 'working'
@@ -131,6 +142,10 @@ def empty_table_note(intake_status, reported):
         return ('This scan stopped before any transactions were stored, so '
                 'there is nothing to verify for this document. Re-scan it to '
                 'try again.')
+    if intake_status in HUMAN_REVIEW_STATUSES:
+        return ('MAZDA_DECISION_MODE=human_only — this document was not sent '
+                'to Mazda. Process it manually from the Scanners/ROL Finance '
+                'tabs.')
     if not reported:
         return ('Mazda is still reading this document — verified transactions '
                 'appear here as they are stored.')

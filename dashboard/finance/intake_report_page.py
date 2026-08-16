@@ -19,29 +19,42 @@ from html import escape as _esc
 from .intake_report_model import META_EMPTY
 
 _PAGE_CSS = """
-    body { font-family: Arial, sans-serif; margin:0; padding:20px; background:#f1f5f9; color:#0f172a; }
-    section.card { background:#fff; border-radius:12px; padding:18px 20px; margin:0 auto; max-width:1100px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
-    h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:18px 0 8px; }
-    table { width:100%; border-collapse:collapse; overflow:hidden; border-radius:12px; font-size:0.95rem; }
-    th, td { padding:8px 10px; border-bottom:1px solid #e5e7eb; text-align:left; }
-    th { background:#0f172a; color:#fff; }
+    body { margin:0; padding:24px; background:#008080; }
+    section.card { padding:0; margin:0 auto; max-width:1100px; }
+    section.card > .window-body { max-height:calc(100vh - 100px); overflow:auto; }
+    h1 { font-size:1.15rem; margin:0 0 4px; } h2 { font-size:1rem; margin:18px 0 8px; }
+    table { width:100%; font-size:0.85rem; }
     th.number, td.number { text-align:right; }
     .muted { color:#6b7280; }
     .duplicate-row td { box-shadow:inset 0 2px #b91c1c,inset 0 -2px #b91c1c; }
-    .duplicate-badge { display:inline-block; margin-left:8px; padding:2px 7px; border-radius:999px; background:#b91c1c; color:#fff; font-size:.72rem; letter-spacing:.04em; }
-    .mazda-working { margin:16px 0; padding:12px; border:1px solid #3b4654; border-radius:10px; background:#000; color:#ffe761; }
+    .duplicate-badge { display:inline-block; margin-left:8px; padding:2px 7px; background:#b91c1c; color:#fff; font-size:.72rem; letter-spacing:.04em; }
+    .mazda-working { margin:16px 0; padding:12px; background:#000; color:#ffe761; }
     .mazda-working h2 { color:#fff; }
-    .mazda-progress-shell { height:10px; overflow:hidden; border-radius:999px; background:rgba(10,16,24,.8); }
+    .mazda-progress-shell { height:10px; overflow:hidden; background:rgba(10,16,24,.8); }
     .mazda-progress-bar { height:100%; background:#f4b400; }
     .mazda-working ul { margin:8px 0 0; padding-left:20px; }
     .mazda-step-done { color:#4ade80; } .mazda-step-active { color:#ffe761; font-weight:700; }
     .mazda-step-skipped, .mazda-step-pending { color:#9aa5b1; }
-    .doc-meta { margin:12px 0; display:grid; gap:2px; font-size:0.92rem; }
+    .doc-meta { margin:12px 0; display:grid; gap:2px; font-size:0.85rem; }
     .doc-meta-row { overflow-wrap:anywhere; }
-    .status-banner { margin:14px 0 0; padding:10px 12px; border-radius:10px; border-left:4px solid #94a3b8; background:#f8fafc; }
-    .status-bad { border-left-color:#b91c1c; background:#fef2f2; color:#7f1d1d; font-weight:600; }
-    .status-ok { border-left-color:#15803d; background:#f0fdf4; }
-    .status-working { border-left-color:#f4b400; background:#fffbeb; }
+    .status-banner { margin:14px 0 0; padding:8px 10px; border:2px inset #808080; background:#c0c0c0; }
+    .status-bad { background:#ff8080; color:#7f1d1d; font-weight:600; }
+    .status-ok { background:#a0ffa0; }
+    .status-working { background:#fffbeb; }
+    .status-attention { background:#ffdca0; color:#78350f; font-weight:600; }
+    .manual-entry-form { margin:16px 0; padding:10px 12px; border:2px groove #c0c0c0; background:#c0c0c0; }
+    .manual-entry-form h2 { margin-top:0; }
+    .manual-entry-field { margin:8px 0; }
+    .manual-entry-field label { display:block; font-size:0.85rem; margin-bottom:2px; }
+    .manual-entry-field input, .manual-entry-field select { width:100%; max-width:320px; }
+    .manual-entry-form button { margin:8px 8px 8px 0; }
+    .manual-entry-form button.is-pressed { box-shadow:inset -1px -1px #fff,inset 1px 1px #0a0a0a,inset -2px -2px #dfdfdf,inset 2px 2px grey; }
+    .manual-entry-item-nav { margin:10px 0; padding:8px 0; border-top:1px solid #808080; border-bottom:1px solid #fff; display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+    .manual-entry-item-nav span { margin:0 8px; font-weight:600; }
+    .manual-entry-archive-path { margin-top:2px; padding:4px 6px; background:#fff; border:2px inset #808080; font-family:"Courier New",monospace; font-size:0.82rem; word-break:break-all; }
+    .manual-entry-errors { color:#b91c1c; font-weight:600; min-height:1.2em; }
+    .manual-entry-status { min-height:1.2em; }
+    .terminal-host { height:220px; margin-top:8px; overflow:hidden; }
 """
 
 
@@ -117,9 +130,32 @@ def mazda_working_html(progress):
             f'<ul>{steps}</ul></div>')
 
 
+def manual_entry_form_html(image_path, conversation_id, scanner_key=''):
+    """The needs_human_review Save-by-hand form's mount point.
+
+    All rendering and behavior live in js/implementation/manual-entry-form.js
+    (backed by js/abstract/manual-entry.interface.js) — this only emits the
+    mount point and the data it needs, matching how every other page-level
+    widget in this app splits abstract/implementation. Python owns the
+    server-rendered shell; the browser owns the form once it mounts.
+
+    scanner_key (blank for a PDF-kind intake, no scanner involved) lets the
+    form's post-save archive-verification terminal reuse the exact same
+    /api/scanner-archive-path lookup the Scanner tabs already use.
+    """
+    return (
+        '<div id="manual-entry-root" '
+        f'data-image-path="{_esc(image_path or "", quote=True)}" '
+        f'data-conversation-id="{_esc(conversation_id or "", quote=True)}" '
+        f'data-scanner-key="{_esc(scanner_key or "", quote=True)}"></div>\n'
+        '<script type="module" src="/js/implementation/manual-entry-form.js"></script>\n'
+    )
+
+
 def render_intake_report(*, headline, subtitle, meta_fields, status_text,
                          status_tone, table_html, working_html='',
-                         auto_refresh=False, extra_css='', picker_html=''):
+                         auto_refresh=False, extra_css='', picker_html='',
+                         manual_entry_html=''):
     """Assemble the page. Every argument is already-decided content, so this
     function only ever answers "where does it go on the page?"."""
     refresh = '<meta http-equiv="refresh" content="30">' if auto_refresh else ''
@@ -127,14 +163,26 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         + refresh +
-        '<title>Recent Report</title><style>'
+        '<title>Recent Report</title>'
+        '<link rel="stylesheet" href="/css/vendor/98css/98.css">'
+        '<style>'
         + _PAGE_CSS + extra_css +
         '\n  </style></head><body>\n'
-        '<section class="card">\n'
+        '<section class="card window">\n'
+        '  <div class="title-bar">\n'
+        '    <div class="title-bar-text">Recent Report</div>\n'
+        '    <div class="title-bar-controls">'
+        '<button aria-label="Minimize"></button>'
+        '<button aria-label="Maximize"></button>'
+        '<button aria-label="Close"></button></div>\n'
+        '  </div>\n'
+        '  <div class="window-body">\n'
         f'  <h1>Most Recent Document: {_esc(headline)}</h1>\n'
         f'  <p class="muted">{_esc(subtitle)}</p>\n'
         + document_meta_html(meta_fields)
         + f'  <p class="status-banner status-{status_tone}">{_esc(status_text)}</p>\n'
         + working_html
+        + manual_entry_html
         + table_html
-        + '</section>\n' + picker_html + '\n</body></html>')
+        + '  </div>\n'
+        '</section>\n' + picker_html + '\n</body></html>')

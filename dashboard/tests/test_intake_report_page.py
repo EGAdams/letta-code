@@ -49,6 +49,21 @@ def test_empty_table_note_explains_which_kind_of_empty():
         'There is nothing to verify for this document.')
 
 
+def test_status_sentence_and_tone_for_needs_human_review():
+    """MAZDA_DECISION_MODE=human_only: distinct from a failure — Mazda's turn
+    never started, it wasn't a crash — so it gets its own sentence/tone/empty
+    note rather than falling into FAILED_STATUSES or the default 'still
+    processing' branch (which would be actively misleading: Mazda is never
+    coming back to report on this one)."""
+    intake = {'status': 'needs_human_review', 'status_detail': ''}
+    sentence = model.status_sentence(
+        intake, [], status_detail='MAZDA_DECISION_MODE=human_only: ...')
+    assert 'HUMAN-ONLY MODE' in sentence
+    assert 'MAZDA_DECISION_MODE=human_only' in sentence
+    assert model.status_tone('needs_human_review', None, []) == 'attention'
+    assert 'human_only' in model.empty_table_note('needs_human_review', None)
+
+
 def test_presentation_rows_mark_a_duplicate_only_run():
     rows = [{'id': 7, 'cat_class': 'cat-x', 'vendor_key': 'v',
              'description': 'd', 'amount': '-1.00', 'date': '2025-06-01',
@@ -105,3 +120,32 @@ def test_render_intake_report_places_the_banner_and_headline():
         headline='x', subtitle='', meta_fields=[], status_text='',
         status_tone='working', table_html='', auto_refresh=True,
     ).count('http-equiv="refresh"') == 1
+
+
+def test_manual_entry_form_html_carries_the_intake_reference():
+    html = page.manual_entry_form_html(
+        '/staged/scan_freezer.jpg', 'conv-abc123', 'freezer')
+    assert 'id="manual-entry-root"' in html
+    assert 'data-image-path="/staged/scan_freezer.jpg"' in html
+    assert 'data-conversation-id="conv-abc123"' in html
+    assert 'data-scanner-key="freezer"' in html
+    assert 'src="/js/implementation/manual-entry-form.js"' in html
+
+
+def test_manual_entry_form_html_scanner_key_defaults_blank_for_pdf_intakes():
+    html = page.manual_entry_form_html('/staged/statement.pdf', 'conv-xyz')
+    assert 'data-scanner-key=""' in html
+
+
+def test_manual_entry_form_html_escapes_attribute_values():
+    html = page.manual_entry_form_html('/staged/"onmouseover=alert(1).jpg', 'c')
+    assert '"onmouseover=alert(1)' not in html
+
+
+def test_render_intake_report_places_manual_entry_form_before_the_table():
+    html = page.render_intake_report(
+        headline='x', subtitle='', meta_fields=[], status_text='',
+        status_tone='attention', table_html='<table id="verified-transactions"></table>',
+        manual_entry_html='<div id="manual-entry-root"></div>',
+    )
+    assert html.index('manual-entry-root') < html.index('verified-transactions')

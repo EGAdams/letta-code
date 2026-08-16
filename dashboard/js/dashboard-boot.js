@@ -8,7 +8,10 @@
 // behaviour lives in the unit-tested classes under ./implementation/; this file
 // only binds them to the DOM. See clean_up_dashboard_html.md for the cutover.
 
-import { assertModelStatsMuteFields } from "./abstract/model-stats-mute.js";
+import {
+  buildArchiveVerifyCommand,
+  readArchivePathResponse,
+} from "./abstract/archive-verify-command.js";
 import { TextUtils } from "./abstract/text-utils.js";
 import {
   ActivePoller,
@@ -24,8 +27,6 @@ import {
   ConnectionTestController,
   DashboardStatementReviewActions,
   DocumentPipelineController,
-  DomChatGptProviderAccountController,
-  DomCodexSyncController,
   DomConsoleView,
   DomDocumentPipelineView,
   DomTabFactory,
@@ -1068,10 +1069,6 @@ function renderModelStats(d) {
   if (d.as_of) {
     h += `<p class="am-dim">as of ${new Date(d.as_of * 1000).toLocaleString()}</p>`;
   }
-  h += '<div class="ms-window-head">';
-  h += "<span>Warning Silencer</span>";
-  h += `<button type="button" class="cs-swap-btn" id="ms-mute-btn" data-ms-mute-source="${esc(d.key || "")}">${d.muted ? "Enable Warning" : "Ignore Warning"}</button>`;
-  h += "</div>";
   h += "</div>";
   return h;
 }
@@ -1101,14 +1098,6 @@ const MS = {
       if (this.current) this.show(this.current);
       this.pollColors();
     }, 120000);
-    if (!this._codexSyncMounted) {
-      codexSyncController.mount("codex-sync-panel");
-      chatgptProviderAccountController.mount("chatgpt-provider-account-panel");
-      this._codexSyncMounted = true;
-    } else {
-      void codexSyncController.refresh();
-      void chatgptProviderAccountController.refresh();
-    }
   },
   async show(key) {
     const body = document.getElementById("model-stats-body");
@@ -1119,52 +1108,12 @@ const MS = {
       const d = await http.getJSON(
         `/api/model-stats?source=${encodeURIComponent(key)}`,
       );
-      assertModelStatsMuteFields(d); // fail loud on a malformed payload rather than render a wrong toggle
       if (this.current !== key) return; // a newer selection won the race
       body.innerHTML = renderModelStats(d);
-      this._wireMuteButton(body);
     } catch (e) {
       if (this.current !== key) return;
       body.innerHTML = `<p class="am-warn">Failed to load: ${esc(e.message)}</p>`;
     }
-  },
-  _wireMuteButton(body) {
-    const btn = body.querySelector("[data-ms-mute-source]");
-    if (!btn) return;
-    btn.addEventListener(
-      "click",
-      () => void this.toggleMute(btn.dataset.msMuteSource),
-    );
-  },
-  /* Ignore/Enable Warning — silences a source's tab-blinking concern/down
-     status server-side (persisted) without hiding its real usage data. */
-  async toggleMute(source) {
-    if (!source) return;
-    const body = document.getElementById("model-stats-body");
-    const btn = body?.querySelector("[data-ms-mute-source]");
-    const nextMuted = btn?.textContent !== "Enable Warning"; // "Ignore Warning" showing → about to mute
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "Working…";
-    }
-    try {
-      const d = await http.postJSON("/api/model-stats-mute", {
-        source,
-        muted: nextMuted,
-      });
-      assertModelStatsMuteFields(d); // fail loud on a malformed payload rather than render a wrong toggle
-      if (this.current === source && body) {
-        body.innerHTML = renderModelStats(d);
-        this._wireMuteButton(body);
-      }
-    } catch (e) {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = nextMuted ? "Ignore Warning" : "Enable Warning";
-      }
-      alert(`Failed to toggle warning: ${e.message}`);
-    }
-    void this.pollColors();
   },
   async pollColors() {
     await modelStatsHealth.poll();
@@ -1176,10 +1125,6 @@ const modelStatsHealth = new ModelStatsHealthMonitor({
   onStatus: updateSystemStatusTab,
 });
 modelStatsHealth.start();
-
-const codexSyncController = new DomCodexSyncController({ http });
-const chatgptProviderAccountController =
-  new DomChatGptProviderAccountController({ http });
 
 if (navModelStats) {
   navModelStats.querySelectorAll("[data-source]").forEach((tab) => {
@@ -1763,15 +1708,16 @@ const AM = {
     // Fetch archive path from server
     http
       .postJSON("/api/scanner-archive-path", { scanner: scannerKey })
-      .then((data) => {
-        if (!data.ok || !data.archive_path) {
+      .then((json) => {
+        const result = readArchivePathResponse(json);
+        if (!result.ok) {
           container.classList.remove("hidden");
-          container.innerHTML = `<div class="msi-line err">! Archive verification unavailable: ${esc(data.error || "archive path not found")}</div>`;
+          container.innerHTML = `<div class="msi-line err">! Archive verification unavailable: ${esc(result.error)}</div>`;
           return;
         }
         container.classList.remove("hidden");
         const heading = document.createElement("h3");
-        heading.textContent = `Archive Verification (${data.archive_path})`;
+        heading.textContent = `Archive Verification (${result.archivePath})`;
         container.appendChild(heading);
         const hostEl = document.createElement("div");
         hostEl.className = "terminal-host";
@@ -1784,16 +1730,12 @@ const AM = {
         }).then((session) => {
           _archiveTerminalSession = { session, hostEl };
           if (session && session.sendLine) {
-            const archivePath = data.archive_path;
-            const archiveName = data.archive_name || "";
-            const shellQuote = (value) =>
-              `'${String(value).replaceAll("'", `'"'"'`)}'`;
-            // -1 forces one entry per line instead of ls's default
+            // -a1 forces one entry per line instead of ls's default
             // multi-column layout, which was wrapping across several rows.
             // ANSI 102 is a light-green background; the exact durable archive
             // file returned by the server is highlighted in the listing.
             session.sendLine(
-              `cd ${shellQuote(archivePath)} && ls -a1 | awk -v target=${shellQuote(archiveName)} '{ if ($0 == target) printf "\\033[102;30m%s\\033[0m\\n", $0; else print }'`,
+              buildArchiveVerifyCommand(result.archivePath, result.archiveName),
             );
           }
         });

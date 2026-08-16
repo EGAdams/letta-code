@@ -1,1002 +1,1002 @@
 [
   {
-    "date": "2026-08-14T16:24:16",
-    "type": "mcp__playwright__browser_find",
-    "text": "text: Model Stats"
-  },
-  {
-    "date": "2026-08-14T16:24:19",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Model Stats nav button"
-  },
-  {
-    "date": "2026-08-14T16:24:21",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-08-14T16:24:29",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Set to Mom's account (R46) button"
-  },
-  {
-    "date": "2026-08-14T16:24:31",
-    "type": "mcp__playwright__browser_find",
-    "text": "text: Currently:"
-  },
-  {
-    "date": "2026-08-14T16:24:39",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Set to EG's account (W11) button"
-  },
-  {
-    "date": "2026-08-14T16:24:41",
-    "type": "mcp__playwright__browser_find",
-    "text": "text: Currently:"
-  },
-  {
-    "date": "2026-08-14T16:24:44",
+    "date": "2026-08-16T14:16:14",
     "type": "Bash",
-    "text": "cat /home/adamsl/letta-code/dashboard/.playwright-mcp/console-2026-08-14T16-24-02-507Z.log 2>/dev/null || find /home/adamsl/letta-code -name \"console-2026-08-14T16-24-02*\" 2>/dev/null"
+    "text": "python3 << 'EOF'\nimport os\nimport re\n\nREADABLE_DOCS_BASE = os.path.expanduser('~/rol_finances/readable_documents')\nRECEIPT_MOUNTS = [\n    ('rol_finances_receipts', READABLE_DOCS_BASE + '/receipts', RE"
   },
   {
-    "date": "2026-08-14T16:24:46",
+    "date": "2026-08-16T14:16:19",
     "type": "Bash",
-    "text": "cat /home/adamsl/letta-code/.playwright-mcp/console-2026-08-14T16-24-02-507Z.log"
+    "text": "curl -s -X POST http://localhost:8765/api/scanner-archive-path -H \"Content-Type: application/json\" -d '{\"scanner\":\"freezer\"}' | python3 -m json.tool"
   },
   {
-    "date": "2026-08-14T16:33:42",
+    "date": "2026-08-16T14:16:43",
     "type": "Bash",
-    "text": "cat /tmp/claude-1000/-home-adamsl-rol-finances/b7176859-e74d-4331-8ec0-971387ce2065/tasks/bb0t9881e.output 2>/dev/null | head -40"
+    "text": "ls ~/tactical_debug_toolbox/gof_debug_tacticts.md 2>&1"
   },
   {
-    "date": "2026-08-14T16:33:55",
-    "type": "Bash",
-    "text": "stat -c '%d:%i %n' /mnt/wslg/distro/home/adamsl/letta-code/src/cli/helpers/stream-activity/ports.ts /home/adamsl/letta-code/src/cli/helpers/stream-activity/ports.ts 2>/dev/null; echo \"=== does the wsl"
-  },
-  {
-    "date": "2026-08-14T16:34:02",
-    "type": "Bash",
-    "text": "find /home/adamsl -maxdepth 4 -name \"letta.js\" -not -path \"*/node_modules/*\" 2>/dev/null | while read f; do echo \"$(ls -la \"$f\" | awk '{print $5, $6, $7, $8}') | stalledToolMs=$(grep -c stalledToolMs "
-  },
-  {
-    "date": "2026-08-14T16:34:04",
-    "type": "Bash",
-    "text": "head -20 /home/adamsl/letta-code/bin/letta.js"
-  },
-  {
-    "date": "2026-08-14T17:39:23",
-    "type": "Bash",
-    "text": "find / -iname \"*agent_self_improvement*\" -not -path \"*/node_modules/*\" 2>/dev/null | head -50"
-  },
-  {
-    "date": "2026-08-14T17:39:25",
-    "type": "Bash",
-    "text": "find /home/adamsl -maxdepth 4 -iname \"*self_improvement*\" 2>/dev/null; echo ---; find /home/adamsl -maxdepth 3 -iname \"*mazda*\" 2>/dev/null"
-  },
-  {
-    "date": "2026-08-14T17:39:29",
-    "type": "Bash",
-    "text": "find /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement -iname \"*.py\" | xargs grep -l \"IEvaluationFactory\\|expense_stored\\|judge_trace\" 2>/dev/null"
-  },
-  {
-    "date": "2026-08-14T17:39:31",
+    "date": "2026-08-16T14:16:45",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/intake_verdict.py"
+    "text": "/home/adamsl/tactical_debug_toolbox/gof_debug_tacticts.md"
   },
   {
-    "date": "2026-08-14T17:39:36",
+    "date": "2026-08-16T14:17:00",
     "type": "Bash",
-    "text": "grep -rl \"awaiting payment counterpart\\|linked_counterpart\\|payment_counterpart\" /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement 2>/dev/null"
+    "text": "grep -n \"_resolve_receipt_url_path\\|_resolve_receipt_path\\|_resolve_expense_receipt_path\\|_receipt_index\\|_build_receipt_index\" server.py"
   },
   {
-    "date": "2026-08-14T17:39:39",
+    "date": "2026-08-16T14:17:02",
     "type": "Bash",
-    "text": "grep -n \"linked_counterpart\\|payment_counterpart\" /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/models.py /home/adamsl/rol_finances/tools/self_improving_agent/a"
+    "text": "grep -n \"_resolve_receipt_path(\" server.py"
   },
   {
-    "date": "2026-08-14T17:39:46",
+    "date": "2026-08-16T14:17:06",
     "type": "Bash",
-    "text": "git diff dashboard/trainer/mazda_trainer_instructions.md | head -150"
+    "text": "grep -rn \"_resolve_receipt_path\\b\" /home/adamsl/letta-code/dashboard --include=\"*.py\" | grep -v \"_resolve_receipt_url_path\\|_resolve_expense_receipt_path\""
   },
   {
-    "date": "2026-08-14T17:39:51",
-    "type": "Bash",
-    "text": "grep -rl \"wrap-v076\\|wrap_v076\\|proposal 246\\|proposal_246\" /home/adamsl/rol_finances /home/adamsl/.mazda 2>/dev/null | grep -v \".sqlite3\""
-  },
-  {
-    "date": "2026-08-14T17:39:54",
-    "type": "Bash",
-    "text": "cd /home/adamsl/.mazda && sqlite3 self_improvement.sqlite3 \".tables\" 2>&1 | head -30"
-  },
-  {
-    "date": "2026-08-14T17:39:56",
-    "type": "Bash",
-    "text": "python3 - <<'EOF'\nimport sqlite3\ncon = sqlite3.connect(\"/home/adamsl/.mazda/self_improvement.sqlite3\")\ncur = con.cursor()\ncur.execute(\"SELECT name FROM sqlite_master WHERE type='table'\")\nfor r in cur."
-  },
-  {
-    "date": "2026-08-14T17:40:04",
-    "type": "Bash",
-    "text": "python3 - <<'EOF'\nimport sqlite3\ncon = sqlite3.connect(\"/home/adamsl/.mazda/self_improvement.sqlite3\")\ncur = con.cursor()\nfor t in [\"agent_wrapper_revision\", \"improvement_proposal\"]:\n    cur.execute(f"
-  },
-  {
-    "date": "2026-08-14T17:40:07",
-    "type": "Bash",
-    "text": "python3 - <<'EOF'\nimport sqlite3\ncon = sqlite3.connect(\"/home/adamsl/.mazda/self_improvement.sqlite3\")\ncur = con.cursor()\ncur.execute(\"SELECT id, rationale, created_at, status FROM improvement_proposa"
-  },
-  {
-    "date": "2026-08-14T17:40:16",
-    "type": "Bash",
-    "text": "grep -n \"class IntakeVerificationEvidence\" -A 60 /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/models.py"
-  },
-  {
-    "date": "2026-08-14T17:40:20",
-    "type": "Bash",
-    "text": "sed -n '1,200p' /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/intake_evidence.py"
-  },
-  {
-    "date": "2026-08-14T17:40:24",
-    "type": "Bash",
-    "text": "python3 - <<'EOF'\nimport sqlite3, json\ncon = sqlite3.connect(\"/home/adamsl/.mazda/self_improvement.sqlite3\")\ncur = con.cursor()\ncur.execute(\"SELECT id, agent_output FROM agent_run_trace WHERE id=401\")"
-  },
-  {
-    "date": "2026-08-14T17:40:43",
-    "type": "Bash",
-    "text": "grep -rln \"IntakeVerificationEvidence(\" /home/adamsl/rol_finances --include=\"*.py\" | grep -v /tests/"
-  },
-  {
-    "date": "2026-08-14T17:40:53",
-    "type": "Bash",
-    "text": "grep -n \"Rule 55\\|non-positive\\|credit balance\" /home/adamsl/letta-code/dashboard/trainer/mazda_trainer_instructions.md /home/adamsl/rol_finances -r 2>/dev/null | grep -v \".sqlite3\""
-  },
-  {
-    "date": "2026-08-14T17:41:03",
-    "type": "Bash",
-    "text": "python3 - <<'EOF'\nimport sqlite3\ncon = sqlite3.connect(\"/home/adamsl/.mazda/self_improvement.sqlite3\")\ncur = con.cursor()\ncur.execute(\"SELECT id, revision, body, rationale FROM prompt_artifact WHERE r"
-  },
-  {
-    "date": "2026-08-14T17:41:08",
-    "type": "Bash",
-    "text": "python3 - <<'EOF'\nimport sqlite3\ncon = sqlite3.connect(\"/home/adamsl/.mazda/self_improvement.sqlite3\")\ncur = con.cursor()\ncur.execute(\"SELECT body FROM prompt_artifact WHERE revision='wrap-v076-sys'\")"
-  },
-  {
-    "date": "2026-08-14T17:41:12",
-    "type": "Bash",
-    "text": "python3 - <<'EOF'\nimport sqlite3\ncon = sqlite3.connect(\"/home/adamsl/.mazda/self_improvement.sqlite3\")\ncur = con.cursor()\ncur.execute(\"SELECT body FROM prompt_artifact WHERE revision='wrap-v076-sys'\")"
-  },
-  {
-    "date": "2026-08-14T17:41:18",
-    "type": "Bash",
-    "text": "grep -n \"blocked\\|parse_blocked\" /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/models.py /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improve"
-  },
-  {
-    "date": "2026-08-14T17:41:22",
+    "date": "2026-08-16T14:17:32",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/models.py"
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-14T17:41:47",
-    "type": "Bash",
-    "text": "python3 - <<'EOF'\nimport sqlite3\ncon = sqlite3.connect(\"/home/adamsl/.mazda/self_improvement.sqlite3\")\ncur = con.cursor()\ncur.execute(\"SELECT body FROM prompt_artifact WHERE revision='wrap-v076-sys'\")"
-  },
-  {
-    "date": "2026-08-14T17:42:07",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/contracts/models.py"
-  },
-  {
-    "date": "2026-08-14T17:42:17",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/intake_verdict.py"
-  },
-  {
-    "date": "2026-08-14T17:42:25",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/intake_verdict.py"
-  },
-  {
-    "date": "2026-08-14T17:42:28",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/self_improving_agent && python3 -m pytest agent_self_improvement/tests/test_phase_14_intake_verdict_rubric.py -q 2>&1 | tail -30"
-  },
-  {
-    "date": "2026-08-14T17:42:36",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && source .venv/bin/activate && cd tools/self_improving_agent && python -m pytest agent_self_improvement/tests/test_phase_14_intake_verdict_rubric.py -q 2>&1 | tail -40"
-  },
-  {
-    "date": "2026-08-14T17:42:39",
-    "type": "Bash",
-    "text": "sed -n '1,60p' /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_phase_14_intake_verdict_rubric.py"
-  },
-  {
-    "date": "2026-08-14T17:42:43",
-    "type": "Bash",
-    "text": "grep -n \"def test_duplicate\\|dup_skip\\|is_duplicate=True\\|def test_linked_counterpart\\|linked_counterpart=True\" /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_p"
-  },
-  {
-    "date": "2026-08-14T17:42:46",
-    "type": "Bash",
-    "text": "grep -n \"^def test_\\|duplicate\" /home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_phase_14_intake_verdict_rubric.py | head -60"
-  },
-  {
-    "date": "2026-08-14T17:42:52",
+    "date": "2026-08-16T14:17:56",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_phase_14_intake_verdict_rubric.py"
+    "text": "/home/adamsl/letta-code/dashboard/js/abstract/manual-entry.interface.js"
   },
   {
-    "date": "2026-08-14T17:43:00",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_phase_14_intake_verdict_rubric.py"
-  },
-  {
-    "date": "2026-08-14T17:43:04",
+    "date": "2026-08-16T14:18:00",
     "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && source .venv/bin/activate && cd tools/self_improving_agent && python -m pytest agent_self_improvement/tests/test_phase_14_intake_verdict_rubric.py -q 2>&1 | tail -20"
+    "text": "grep -rn \"scanner-archive-path\\|archive_path\\|archive_name\" /home/adamsl/letta-code/dashboard/js --include=\"*.js\" | grep -v \".test.js\""
   },
   {
-    "date": "2026-08-14T17:45:07",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && source .venv/bin/activate && cd tools/self_improving_agent && python -m pytest agent_self_improvement/tests -q 2>&1 | tail -30"
-  },
-  {
-    "date": "2026-08-14T17:45:24",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/intake_verdict.py"
-  },
-  {
-    "date": "2026-08-14T17:45:31",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/intake_verdict.py"
-  },
-  {
-    "date": "2026-08-14T17:45:34",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/implementations/evaluation/intake_verdict.py"
-  },
-  {
-    "date": "2026-08-14T17:45:41",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/self_improving_agent && source ../../.venv/bin/activate && python3 - <<'EOF'\nimport sqlite3, sys\nsys.path.insert(0, \".\")\nfrom agent_self_improvement.contracts.models"
-  },
-  {
-    "date": "2026-08-14T17:45:49",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/self_improving_agent/agent_self_improvement/tests/test_phase_14_intake_verdict_rubric.py"
-  },
-  {
-    "date": "2026-08-14T17:45:53",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && source .venv/bin/activate && cd tools/self_improving_agent && python -m pytest agent_self_improvement/tests/test_phase_14_intake_verdict_rubric.py -q 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-08-14T17:45:57",
-    "type": "Read",
-    "text": "/tmp/claude-1000/-home-adamsl-letta-code/20a2298b-5009-4dfa-926c-3f0baf34d431/tasks/b7sxodg5q.output"
-  },
-  {
-    "date": "2026-08-14T17:46:06",
-    "type": "Bash",
-    "text": "sleep 5; cat /tmp/claude-1000/-home-adamsl-letta-code/20a2298b-5009-4dfa-926c-3f0baf34d431/tasks/b7sxodg5q.output 2>&1 | tail -60"
-  },
-  {
-    "date": "2026-08-14T17:48:10",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/self_improving_agent && source ../../.venv/bin/activate && python -m pytest agent_self_improvement/tests -q 2>&1 | tail -40"
-  },
-  {
-    "date": "2026-08-14T17:48:15",
-    "type": "ToolSearch",
-    "text": "query: Monitor"
-  },
-  {
-    "date": "2026-08-14T17:48:20",
-    "type": "Monitor",
-    "text": "description: wait for full agent_self_improvement pytest suite to finish"
-  },
-  {
-    "date": "2026-08-14T17:48:23",
-    "type": "Bash",
-    "text": "echo waiting"
-  },
-  {
-    "date": "2026-08-14T17:48:26",
-    "type": "Bash",
-    "text": "true"
-  },
-  {
-    "date": "2026-08-14T17:49:35",
-    "type": "Read",
-    "text": "/tmp/claude-1000/-home-adamsl-letta-code/20a2298b-5009-4dfa-926c-3f0baf34d431/tasks/b7sxodg5q.output"
-  },
-  {
-    "date": "2026-08-14T17:49:38",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && git status --short tools/self_improving_agent/agent_self_improvement/ | head -20"
-  },
-  {
-    "date": "2026-08-14T23:42:17",
-    "type": "Bash",
-    "text": "grep -rn \"as of\\|renderModelStats\" js/dashboard-boot.js js/implementation/*.js | head -20"
-  },
-  {
-    "date": "2026-08-14T23:42:20",
+    "date": "2026-08-16T14:18:06",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
   },
   {
-    "date": "2026-08-14T23:42:24",
+    "date": "2026-08-16T14:18:08",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/model-stats-health-monitor.js"
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
   },
   {
-    "date": "2026-08-14T23:42:30",
-    "type": "Bash",
-    "text": "grep -n \"^def model_stats\\|MODEL_STAT_SOURCES\\|'status':\" server.py | head -40"
-  },
-  {
-    "date": "2026-08-14T23:42:33",
+    "date": "2026-08-16T14:18:15",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-14T23:42:41",
-    "type": "Bash",
-    "text": "grep -n \"^def _load_json\\|^def _save_json\\|^def _read_json_file\\|^def _write_json_file\\|json.dump(.*open(\" server.py | head -20"
-  },
-  {
-    "date": "2026-08-14T23:42:44",
+    "date": "2026-08-16T14:18:18",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-14T23:42:59",
-    "type": "Bash",
-    "text": "grep -n \"MODEL_STATS_CACHE_TTL\" server.py"
+    "date": "2026-08-16T14:18:21",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-14T23:43:29",
+    "date": "2026-08-16T14:18:24",
+    "type": "Bash",
+    "text": "grep -rn \"_resolve_receipt_path\\|_resolve_expense_receipt_path\\|_resolve_receipt_url_path\\|_receipt_index\\|_build_receipt_index\\|RECEIPT_MOUNTS\" /home/adamsl/letta-code/dashboard/tests/*.py"
+  },
+  {
+    "date": "2026-08-16T14:19:01",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_archive_path.py"
+  },
+  {
+    "date": "2026-08-16T14:19:05",
+    "type": "Bash",
+    "text": "grep -n \"pydantic\" /home/adamsl/letta-code/dashboard/requirements.txt; echo \"---\"; grep -rn \"from pydantic\\|import pydantic\" /home/adamsl/letta-code/dashboard/finance/*.py"
+  },
+  {
+    "date": "2026-08-16T14:19:16",
     "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/model_stats_mute.py\n\u2192 \"\"\"Per-source Model Stats warning silencer.  Lets EG mute a source's tab-blinking concern/down warning (e.g. R46's Codex OAuth deliberately parked unused, so its quota-exhaustion warning is noise, not"
+    "text": "/home/adamsl/letta-code/dashboard/finance/receipt_filename.py\n\u2192 \"\"\"Parsing for receipt filenames the intake pipeline writes.  Pure parsing only -- no I/O, no subprocess -- mirroring finance/archive_path.py's split (which builds this same <vendor>_MM_DD_YY_<dollars"
   },
   {
-    "date": "2026-08-14T23:43:32",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-08-14T23:43:35",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-08-14T23:43:40",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-08-14T23:43:43",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/server.py"
-  },
-  {
-    "date": "2026-08-14T23:43:49",
-    "type": "Bash",
-    "text": ".venv/bin/python -c \"\nimport server\nprint('import ok')\nprint(server.model_stats_mute if False else 'ok')\nimport model_stats_mute as m\nprint(m.is_muted('r46-codex'))\nprint(server.apply_mute_overlay({'s"
-  },
-  {
-    "date": "2026-08-14T23:43:52",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-08-14T23:43:58",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-08-14T23:44:01",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-08-14T23:44:09",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-08-14T23:44:20",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
-  },
-  {
-    "date": "2026-08-14T23:44:29",
-    "type": "Bash",
-    "text": "grep -n \"^import\\|from \\\"\\./\" js/dashboard-boot.js | head -20"
-  },
-  {
-    "date": "2026-08-14T23:44:36",
+    "date": "2026-08-16T14:19:25",
     "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/js/abstract/model-stats-mute.js\n\u2192 /**  * Model Stats warning-silencer \u2014 shape guard for the `muted`/`raw_status`  * fields POST /api/model-stats-mute (and GET /api/model-stats) attach to a  * model_stats payload. Pure validation, no"
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_receipt_filename.py\n\u2192 \"\"\"Tests for finance/receipt_filename.py -- pure receipt-filename parsing.  Companion to test_archive_path.py: archive_path builds this filename shape from a date/amount, this module recovers the date"
   },
   {
-    "date": "2026-08-14T23:44:40",
+    "date": "2026-08-16T14:19:30",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_receipt_filename.py -v 2>&1 | tail -30"
+  },
+  {
+    "date": "2026-08-16T14:19:39",
     "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-14T23:44:43",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
+    "date": "2026-08-16T14:19:43",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git status dashboard/server.py && echo \"---diff---\" && git diff dashboard/server.py | grep \"^+++\\|^---\\|^@@\" | head -5"
   },
   {
-    "date": "2026-08-14T23:44:46",
+    "date": "2026-08-16T14:19:46",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-14T23:44:57",
+    "date": "2026-08-16T14:19:50",
     "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-14T23:44:59",
+    "date": "2026-08-16T14:19:53",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:19:56",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:19:58",
     "type": "Bash",
-    "text": "grep -n \"\\.ms-window-head\\|\\.cs-swap-btn\" css/dashboard.css | head -10"
+    "text": "grep -n \"_resolve_receipt_path\\b\" /home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-14T23:45:03",
+    "date": "2026-08-16T14:20:01",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:20:04",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:20:07",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && bunx biome check dashboard/js/dashboard-boot.js dashboard/js/abstract/model-stats-mute.js; echo \"EXIT: $?\""
+    "text": "rm -f /home/adamsl/letta-code/dashboard/diagnose_receipt_paths.py && echo removed"
   },
   {
-    "date": "2026-08-14T23:45:06",
+    "date": "2026-08-16T14:20:11",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && .venv/bin/python -c \"\nimport ast\nast.parse(open('model_stats_mute.py').read())\nast.parse(open('server.py').read())\nprint('syntax ok')\n\"\n.venv/bin/python -c \"\nim"
+    "text": ".venv/bin/python -m pytest tests/test_server.py -k \"receipt\" -v 2>&1 | tail -60"
   },
   {
-    "date": "2026-08-14T23:45:09",
+    "date": "2026-08-16T14:20:17",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-08-16T14:20:35",
     "type": "Bash",
-    "text": "grep -n \"def test_codex_sync\\|SYNC_SOURCES\\|monkeypatch.setattr.*codex_sync\" tests/test_server.py | head -10"
+    "text": "grep -n \"receipt_url\" ~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py 2>/dev/null | head -20"
   },
   {
-    "date": "2026-08-14T23:45:13",
+    "date": "2026-08-16T14:20:43",
     "type": "Bash",
-    "text": "grep -n \"autouse\\|monkeypatch\" tests/conftest.py | head -20"
+    "text": "curl -s -X POST http://localhost:8765/api/supporting-documents -H \"Content-Type: application/json\" -d '{\"expense_id\": 2160, \"date\":\"2025-05-12\",\"signed_amount\":\"117.00\",\"vendor_key\":\"gardner_clinic\"}'"
   },
   {
-    "date": "2026-08-14T23:45:23",
-    "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_model_stats_mute.py\n\u2192 import model_stats_mute as msm import pytest from pydantic import ValidationError   @pytest.fixture(autouse=True) def _isolate_mute_file(tmp_path, monkeypatch):     monkeypatch.setattr(msm, 'MODEL_STA"
-  },
-  {
-    "date": "2026-08-14T23:45:26",
+    "date": "2026-08-16T14:21:00",
     "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/test_model_stats_mute.py -q 2>&1 | tail -30"
+    "text": "cd /home/adamsl/letta-code && git log --oneline -- dashboard/server.py | head -5\necho \"---\"\ngit log -p --all -S \"_resolve_expense_receipt_path\" -- dashboard/server.py 2>/dev/null | grep -B2 -A 15 \"^\\+"
   },
   {
-    "date": "2026-08-14T23:45:29",
+    "date": "2026-08-16T14:21:04",
     "type": "Bash",
-    "text": "grep -n \"def test_.*codex.sync\\|/api/codex-sync-toggle\\|def test_.*chatgpt.provider.account\\b\" tests/test_server.py | head -10"
+    "text": "cd /home/adamsl/letta-code && git log --oneline -S \"_resolve_expense_receipt_path\" -- dashboard/server.py 2>/dev/null | head -10"
   },
   {
-    "date": "2026-08-14T23:46:00",
+    "date": "2026-08-16T14:21:07",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git show 80ddcad5 --stat | head -20 && echo \"===\" && git log -1 --format=\"%ci\" 80ddcad5"
+  },
+  {
+    "date": "2026-08-16T14:21:11",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git show dcc61dfb -- dashboard/server.py | grep -B5 -A 20 \"_resolve_expense_receipt_path\" | head -80"
+  },
+  {
+    "date": "2026-08-16T14:21:14",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git log --oneline --all -S \"prevents a receipt from leaking\" -- dashboard/server.py 2>/dev/null | head -5"
+  },
+  {
+    "date": "2026-08-16T14:21:17",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git log -1 --format=\"%ci %s\" 0918b734 && git show 0918b734 -- dashboard/server.py | grep -B10 -A 25 \"def _resolve_expense_receipt_path\""
+  },
+  {
+    "date": "2026-08-16T14:21:25",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:21:33",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:21:37",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -k \"receipt\" -v 2>&1 | tail -35"
+  },
+  {
+    "date": "2026-08-16T14:21:42",
+    "type": "Bash",
+    "text": "grep -n \"def get_scanner_intake\\b\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:21:45",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:22:12",
+    "type": "Bash",
+    "text": "grep -n \"def submit_manual_receipt_entry\\|def.*manual.*entry\" /home/adamsl/letta-code/dashboard/server.py | head -10"
+  },
+  {
+    "date": "2026-08-16T14:22:14",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:22:21",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:22:52",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/finance/manual_entry.py"
+  },
+  {
+    "date": "2026-08-16T14:23:15",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:23:20",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T14:23:24",
+    "type": "Bash",
+    "text": "grep -n \"def test_submit_manual_receipt_entry\" /home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-08-16T14:23:26",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-08-16T14:23:31",
+    "type": "Bash",
+    "text": "grep -n \"_invalidate_receipt_index\" /home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-08-16T14:23:41",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_server.py"
+  },
+  {
+    "date": "2026-08-16T14:23:48",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -k \"invalidates_receipt_index or does_not_invalidate_index or submit_manual_receipt_entry\" -v 2>&1 | tail -20"
+  },
+  {
+    "date": "2026-08-16T14:23:53",
+    "type": "Bash",
+    "text": "python3 -c \"\nimport re\nwith open('server.py') as f:\n    content = f.read()\nold = '''    # A successful --save just moved a receipt file into readable_documents/\n    # out-of-process (the parse_and_cat"
+  },
+  {
+    "date": "2026-08-16T14:23:58",
+    "type": "Bash",
+    "text": "cp server.py /tmp/server_fixed.py && cp /tmp/server_reverted.py server.py && .venv/bin/python -m pytest tests/test_server.py -k \"invalidates_receipt_index or does_not_invalidate_index\" -v 2>&1 | tail "
+  },
+  {
+    "date": "2026-08-16T14:24:02",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/test_server.py -k \"invalidates_receipt_index or does_not_invalidate_index\" -v 2>&1 | tail -10 && rm -f /tmp/server_reverted.py /tmp/server_fixed.py"
+  },
+  {
+    "date": "2026-08-16T14:24:47",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -40"
+  },
+  {
+    "date": "2026-08-16T14:25:06",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git checkout -- dashboard/claude_toolcalls.json && git stash pop"
+  },
+  {
+    "date": "2026-08-16T14:25:15",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git diff --stat dashboard/finance/report_page.py dashboard/tests/test_supporting_document_dialog.py"
+  },
+  {
+    "date": "2026-08-16T14:26:09",
     "type": "Bash",
     "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -20"
   },
   {
-    "date": "2026-08-14T23:46:04",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && bun test dashboard/js/tests 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-08-14T23:46:09",
-    "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 2 && curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8765/"
-  },
-  {
-    "date": "2026-08-14T23:46:14",
-    "type": "mcp__playwright__browser_navigate",
-    "text": "url: http://localhost:8765/"
-  },
-  {
-    "date": "2026-08-14T23:46:17",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-08-14T23:46:20",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: System Status nav button"
-  },
-  {
-    "date": "2026-08-14T23:46:23",
-    "type": "mcp__playwright__browser_find",
-    "text": "text: System Status"
-  },
-  {
-    "date": "2026-08-14T23:46:25",
-    "type": "mcp__playwright__browser_find",
-    "text": "text: Model Stats"
-  },
-  {
-    "date": "2026-08-14T23:46:28",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Model Stats nav button"
-  },
-  {
-    "date": "2026-08-14T23:46:30",
-    "type": "mcp__playwright__browser_find",
-    "text": "text: R46 Codex OAuth"
-  },
-  {
-    "date": "2026-08-14T23:46:33",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: R46 Codex OAuth tab button"
-  },
-  {
-    "date": "2026-08-14T23:46:35",
-    "type": "mcp__playwright__browser_find",
-    "text": "text: Warning Silencer"
-  },
-  {
-    "date": "2026-08-14T23:46:39",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Ignore Warning button"
-  },
-  {
-    "date": "2026-08-14T23:46:41",
-    "type": "mcp__playwright__browser_find",
-    "text": "text: Warning Silencer"
-  },
-  {
-    "date": "2026-08-14T23:46:44",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/api/model-stats?source=r46-codex\" | python3 -m json.tool | grep -E \"status|muted|raw_status\""
-  },
-  {
-    "date": "2026-08-14T23:46:46",
-    "type": "mcp__playwright__browser_snapshot",
-    "text": "null: null"
-  },
-  {
-    "date": "2026-08-14T23:46:53",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/chatgpt-provider-account-status | python3 -m json.tool"
-  },
-  {
-    "date": "2026-08-14T23:47:03",
-    "type": "Bash",
-    "text": "curl -s -X POST http://localhost:8765/api/chatgpt-provider-account -H 'Content-Type: application/json' -d '{\"source\":\"w11\"}' | python3 -m json.tool"
-  },
-  {
-    "date": "2026-08-14T23:47:08",
-    "type": "mcp__playwright__browser_run_code_unsafe",
-    "text": "code: async (page) => {\n  const tab = await page.$('[data-nav=\"model-stats\"][data-source=\"r46-codex\"]');\n  return tab ? await tab.getAttribute('class') : 'not found';\n}"
-  },
-  {
-    "date": "2026-08-14T23:47:12",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Enable Warning button"
-  },
-  {
-    "date": "2026-08-14T23:47:16",
-    "type": "mcp__playwright__browser_find",
-    "text": "text: Warning Silencer"
-  },
-  {
-    "date": "2026-08-14T23:47:20",
-    "type": "mcp__playwright__browser_click",
-    "text": "element: Ignore Warning button"
-  },
-  {
-    "date": "2026-08-14T23:47:22",
-    "type": "Bash",
-    "text": "curl -s \"http://localhost:8765/api/model-stats?source=r46-codex\" | python3 -c \"import json,sys;d=json.load(sys.stdin);print('muted:',d['muted'],'status:',d['status'])\""
-  },
-  {
-    "date": "2026-08-14T23:47:26",
-    "type": "Bash",
-    "text": "curl -s http://localhost:8765/api/chatgpt-provider-account-status | python3 -c \"import json,sys;print(json.load(sys.stdin)['active_email'])\""
-  },
-  {
-    "date": "2026-08-15T11:32:19",
-    "type": "Bash",
-    "text": "find /home/adamsl/letta-code/dashboard -name \"*model*stat*\" -o -name \"*stats*\" | head -20"
-  },
-  {
-    "date": "2026-08-15T11:32:22",
-    "type": "Bash",
-    "text": "grep -n \"disabled\" /home/adamsl/letta-code/dashboard/css/dashboard.css | head -20"
-  },
-  {
-    "date": "2026-08-15T11:32:25",
-    "type": "Bash",
-    "text": "grep -n \"model.*stat\\|tab\\|green\" /home/adamsl/letta-code/dashboard/css/dashboard.css | grep -i \"model\\|tab\\|warning\" | head -30"
-  },
-  {
-    "date": "2026-08-15T11:32:28",
+    "date": "2026-08-16T14:26:13",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/model-stats-health-monitor.js"
+    "text": "/home/adamsl/letta-code/dashboard/js/tests/archive-verify-command.test.js"
   },
   {
-    "date": "2026-08-15T11:32:31",
+    "date": "2026-08-16T14:26:27",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/js/abstract/archive-verify-command.js"
+  },
+  {
+    "date": "2026-08-16T14:26:30",
+    "type": "Bash",
+    "text": "grep -n \"buildArchiveVerifyCommand\\|^import\" /home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js | head -10"
+  },
+  {
+    "date": "2026-08-16T14:26:33",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
+  },
+  {
+    "date": "2026-08-16T14:26:37",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/abstract/model-stats-mute.js"
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
   },
   {
-    "date": "2026-08-15T11:32:33",
+    "date": "2026-08-16T14:26:44",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
+  },
+  {
+    "date": "2026-08-16T14:26:47",
     "type": "Bash",
-    "text": "grep -n \"mute\\|muted\" /home/adamsl/letta-code/dashboard/css/dashboard.css"
+    "text": "grep -n \"buildArchiveVerifyCommand\\|from \\\"./abstract/archive-verify-command\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
   },
   {
-    "date": "2026-08-15T11:32:36",
-    "type": "Bash",
-    "text": "grep -n \"model.*stat\\|warning.*disabled\\|#d9f5ff\\|#1e7c8d\" /home/adamsl/letta-code/dashboard/css/dashboard.css | head -20"
+    "date": "2026-08-16T14:26:50",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
   },
   {
-    "date": "2026-08-15T11:32:39",
-    "type": "Bash",
-    "text": "find /home/adamsl/letta-code/dashboard -name \"*.js\" -type f | xargs grep -l \"muted\\|model.*stat\" | head -10"
-  },
-  {
-    "date": "2026-08-15T11:32:41",
-    "type": "Bash",
-    "text": "grep -n \"muted\\|model.*stat\" /home/adamsl/letta-code/dashboard/js/implementation/index.js | head -20"
-  },
-  {
-    "date": "2026-08-15T11:32:43",
-    "type": "Bash",
-    "text": "grep -n -A5 -B5 \"muted\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -50"
-  },
-  {
-    "date": "2026-08-15T11:32:45",
-    "type": "Bash",
-    "text": "grep -n \"muted.*class\\|className.*muted\\|data-muted\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -30"
-  },
-  {
-    "date": "2026-08-15T11:32:47",
-    "type": "Bash",
-    "text": "grep -n \"ms-tab\\|model-stat.*tab\\|nav.*model\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | head -20"
-  },
-  {
-    "date": "2026-08-15T11:32:49",
+    "date": "2026-08-16T14:26:54",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
+    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
   },
   {
-    "date": "2026-08-15T11:32:53",
+    "date": "2026-08-16T14:27:02",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
+  },
+  {
+    "date": "2026-08-16T14:27:06",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/js/tests/archive-verify-command.test.js"
+  },
+  {
+    "date": "2026-08-16T14:27:14",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/js/tests/archive-verify-command.test.js"
+  },
+  {
+    "date": "2026-08-16T14:27:18",
     "type": "Bash",
-    "text": "grep -n -A10 \"muted\\|data-source\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js | grep -A10 -B10 \"muted\\|style\\|class\" | head -60"
+    "text": "bun test js/tests 2>&1 | tail -60"
   },
   {
-    "date": "2026-08-15T11:32:55",
+    "date": "2026-08-16T14:27:21",
     "type": "Bash",
-    "text": "grep -n \"pollColors\\|muted.*style\\|data-source.*style\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js -A10 | head -60"
+    "text": "cd /home/adamsl/letta-code && which biome npx 2>&1; find . -maxdepth 2 -iname \"biome*\" 2>/dev/null | head -5"
   },
   {
-    "date": "2026-08-15T11:32:58",
+    "date": "2026-08-16T14:27:29",
     "type": "Bash",
-    "text": "grep -n \"\\[.*muted\\]\\|\\[data-muted\\]\" /home/adamsl/letta-code/dashboard/css/dashboard.css"
+    "text": "cd /home/adamsl/letta-code && npx biome check dashboard/js/abstract/archive-verify-command.js dashboard/js/implementation/manual-entry-form.js dashboard/js/dashboard-boot.js dashboard/js/tests/archive"
   },
   {
-    "date": "2026-08-15T11:33:00",
+    "date": "2026-08-16T14:28:19",
     "type": "Bash",
-    "text": "grep -rn \"data-muted\\|muted.*tab\\|tab.*muted\" /home/adamsl/letta-code/dashboard/js/"
+    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -20"
   },
   {
-    "date": "2026-08-15T11:33:02",
+    "date": "2026-08-16T14:28:23",
     "type": "Bash",
-    "text": "grep -n \"muted\" /home/adamsl/letta-code/dashboard/server.py"
+    "text": ".venv/bin/python -m pytest tests/test_receipt_filename.py tests/test_server.py -k \"receipt_index or invalidat\" -q 2>&1 | tail -15"
   },
   {
-    "date": "2026-08-15T11:33:04",
+    "date": "2026-08-16T14:28:36",
     "type": "Bash",
-    "text": "grep -n \"model-stats-mute\\|/api/model-stats\" /home/adamsl/letta-code/dashboard/server.py | head -20"
+    "text": "systemctl --user restart dashboard-server.service && sleep 3 && curl -s \"http://localhost:8765/api/server-health\" | python3 -c \"import json,sys; d=json.load(sys.stdin); print('dashboard status:', [s['"
   },
   {
-    "date": "2026-08-15T11:33:06",
+    "date": "2026-08-16T14:28:42",
+    "type": "Bash",
+    "text": "curl -s -X POST http://localhost:8765/api/scanner-archive-path -H \"Content-Type: application/json\" -d '{\"scanner\":\"freezer\"}' | python3 -m json.tool\necho \"---\"\ncurl -s \"http://localhost:8765/api/rol-f"
+  },
+  {
+    "date": "2026-08-16T14:29:30",
+    "type": "Bash",
+    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -3 && echo \"===JS===\" && bun test js/tests 2>&1 | tail -5"
+  },
+  {
+    "date": "2026-08-16T14:29:34",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git diff --stat dashboard/server.py dashboard/finance/ dashboard/js/abstract/archive-verify-command.js dashboard/js/implementation/manual-entry-form.js dashboard/js/dashb"
+  },
+  {
+    "date": "2026-08-16T14:29:39",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code && git diff dashboard/server.py | grep -A 15 \"_invalidate_receipt_index()\\s*$\" | head -30"
+  },
+  {
+    "date": "2026-08-16T14:29:42",
+    "type": "Bash",
+    "text": "grep -n \"from finance.receipt_filename import\\|def _build_receipt_index\\|def _resolve_receipt_path\\b\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T15:01:43",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_receipt_index_cache_invalidation_gap_2026_08_16.md\n\u2192 --- name: dashboard_receipt_index_cache_invalidation_gap_2026_08_16 description: \"Manual receipt entry (needs_human_review form) didn't invalidate the in-memory receipt index after saving, causing tra"
+  },
+  {
+    "date": "2026-08-16T15:01:55",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/reference_dashboard_db_inspection_without_mysql_connector_2026_08_16.md\n\u2192 --- name: reference_dashboard_db_inspection_without_mysql_connector_2026_08_16 description: \"mysql-connector-python isn't installed for dashboard/.venv or bare python3 on this box \u2014 inspect the fina"
+  },
+  {
+    "date": "2026-08-16T15:01:58",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-08-16T15:02:04",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-08-16T15:10:07",
+    "type": "Agent",
+    "text": "Locate Prefill from OCR button code"
+  },
+  {
+    "date": "2026-08-16T15:10:10",
+    "type": "Bash",
+    "text": "grep -rn \"Prefill\" dashboard/ --include=*.js --include=*.py --include=*.html -i 2>/dev/null"
+  },
+  {
+    "date": "2026-08-16T15:10:14",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
+  },
+  {
+    "date": "2026-08-16T15:10:21",
+    "type": "Bash",
+    "text": "grep -n \"new Date()\" -r /home/adamsl/letta-code/dashboard/js/ /home/adamsl/letta-code/dashboard/finance/ 2>/dev/null\necho \"---interface---\"\nsed -n '1,140p' /home/adamsl/letta-code/dashboard/js/abstrac"
+  },
+  {
+    "date": "2026-08-16T15:10:26",
+    "type": "Bash",
+    "text": "grep -rn \"Last Window Scan\\|archive.verif\\|Archive Verif\" /home/adamsl/letta-code/dashboard/ --include=*.js --include=*.py --include=*.html -i | grep -v tests/ | grep -v node_modules"
+  },
+  {
+    "date": "2026-08-16T15:10:33",
+    "type": "Bash",
+    "text": "grep -n \"blankManualEntryFields\" -A 12 /home/adamsl/letta-code/dashboard/js/abstract/manual-entry.interface.js\necho \"---manual_entry.py---\"\nsed -n '1,230p' /home/adamsl/letta-code/dashboard/finance/ma"
+  },
+  {
+    "date": "2026-08-16T15:10:40",
+    "type": "Bash",
+    "text": "grep -n \"manual-receipt-entry-preview\\|manual_receipt_entry_preview\\|preview_receipt_parse\" /home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-16T15:10:41",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-15T11:33:09",
+    "date": "2026-08-16T15:10:45",
     "type": "Bash",
-    "text": "grep -n \"model-stats-sources\\|MODEL_STAT_SOURCES\" /home/adamsl/letta-code/dashboard/js/dashboard-boot.js"
+    "text": "grep -n \"transaction_date\\|date.today\\|datetime.now\\|strftime\" /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py 2>/dev/null | head -60"
   },
   {
-    "date": "2026-08-15T11:33:11",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/model_stats_mute.py"
-  },
-  {
-    "date": "2026-08-15T11:33:14",
+    "date": "2026-08-16T15:10:49",
     "type": "Bash",
-    "text": "grep -n \"server-up\\|server-down\\|server-concern\" /home/adamsl/letta-code/dashboard/css/dashboard.css"
+    "text": "sed -n '880,950p' /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
   },
   {
-    "date": "2026-08-15T11:33:16",
+    "date": "2026-08-16T15:10:55",
+    "type": "Bash",
+    "text": "grep -n \"_parse_receipt\\|engine == .local.\\|engine_local\\|def _parse_receipt\\|local_ocr\\|pytesseract\\|tesseract\" /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_"
+  },
+  {
+    "date": "2026-08-16T15:10:57",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
   },
   {
-    "date": "2026-08-15T11:33:21",
+    "date": "2026-08-16T15:11:01",
+    "type": "Bash",
+    "text": "grep -rn \"class LocalFallbackEngine\" -A 60 /home/adamsl/rol_finances/ --include=*.py | head -120"
+  },
+  {
+    "date": "2026-08-16T15:11:07",
+    "type": "Bash",
+    "text": "sed -n '120,220p' /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:11:18",
+    "type": "Bash",
+    "text": "grep -n \"<link\\|stylesheet\\|\\.css\" /home/adamsl/letta-code/dashboard/dashboard.html\necho \"---manual-entry-form css class refs---\"\ngrep -rn \"manual-entry\" /home/adamsl/letta-code/dashboard/css/*.css\nec"
+  },
+  {
+    "date": "2026-08-16T15:11:23",
+    "type": "Bash",
+    "text": "grep -n \"^button\\|^\\.manual-entry\\| button {\" /home/adamsl/letta-code/dashboard/css/dashboard.css | head -30\necho \"---disabled pattern in JS---\"\ngrep -rn \"\\.disabled = true\\|disabled=true\\|setAttribut"
+  },
+  {
+    "date": "2026-08-16T15:11:27",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/model-stats-health-monitor.js"
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
   },
   {
-    "date": "2026-08-15T11:33:28",
+    "date": "2026-08-16T15:11:31",
+    "type": "Bash",
+    "text": "grep -n \"\\.on\\b\\|\\.on {\" /home/adamsl/letta-code/dashboard/css/dashboard.css | head -10"
+  },
+  {
+    "date": "2026-08-16T15:11:59",
+    "type": "Bash",
+    "text": "ls -la ~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py 2>&1 | head -5"
+  },
+  {
+    "date": "2026-08-16T15:12:02",
+    "type": "Bash",
+    "text": "grep -n \"txn_date\\|date.today\\|def parse_receipt\" -A2 -B2 ~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py | sed -n '1,120p'"
+  },
+  {
+    "date": "2026-08-16T15:12:04",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/model-stats-health-monitor.js"
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
   },
   {
-    "date": "2026-08-15T11:33:35",
+    "date": "2026-08-16T15:12:14",
     "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/model-stats-health-monitor.js"
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
   },
   {
-    "date": "2026-08-15T11:33:39",
+    "date": "2026-08-16T15:14:18",
+    "type": "Bash",
+    "text": "find / -name \"parse_receipt_cli.py\" 2>/dev/null"
+  },
+  {
+    "date": "2026-08-16T15:14:21",
+    "type": "ToolSearch",
+    "text": "query: WebFetch"
+  },
+  {
+    "date": "2026-08-16T15:14:30",
+    "type": "Bash",
+    "text": "curl -sL -o /tmp/claude-1000/-home-adamsl-letta-code/e7a83e40-7c19-4f45-84b4-d06963cef3ef/scratchpad/98.css https://unpkg.com/98.css@0.1.20/dist/98.css -w \"HTTP:%{http_code} SIZE:%{size_download}\\n\""
+  },
+  {
+    "date": "2026-08-16T15:14:34",
+    "type": "Bash",
+    "text": "ls /home/adamsl/letta-code/dashboard/css/ 2>&1; head -20 /tmp/claude-1000/-home-adamsl-letta-code/e7a83e40-7c19-4f45-84b4-d06963cef3ef/scratchpad/98.css"
+  },
+  {
+    "date": "2026-08-16T15:14:42",
+    "type": "Bash",
+    "text": "cd /tmp/claude-1000/-home-adamsl-letta-code/e7a83e40-7c19-4f45-84b4-d06963cef3ef/scratchpad\nfor f in ms_sans_serif.woff ms_sans_serif.woff2 ms_sans_serif_bold.woff ms_sans_serif_bold.woff2; do\n  curl "
+  },
+  {
+    "date": "2026-08-16T15:14:47",
+    "type": "Bash",
+    "text": "mkdir -p /home/adamsl/letta-code/dashboard/css/vendor/98css\ncp /tmp/claude-1000/-home-adamsl-letta-code/e7a83e40-7c19-4f45-84b4-d06963cef3ef/scratchpad/98.css /home/adamsl/letta-code/dashboard/css/ven"
+  },
+  {
+    "date": "2026-08-16T15:14:51",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
+  },
+  {
+    "date": "2026-08-16T15:15:17",
+    "type": "Bash",
+    "text": "grep -n \"stylesheet\\|<head>\\|</head>\" /home/adamsl/letta-code/dashboard/dashboard.html | head -20"
+  },
+  {
+    "date": "2026-08-16T15:15:21",
+    "type": "Bash",
+    "text": "grep -n \"stylesheet\\|<head\\|</head\\|manual_entry_form_html\\|<html\\|def build\\|css\" /home/adamsl/letta-code/dashboard/finance/intake_report_page.py | head -40"
+  },
+  {
+    "date": "2026-08-16T15:15:24",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/finance/intake_report_page.py"
+  },
+  {
+    "date": "2026-08-16T15:15:46",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/finance/intake_report_page.py"
+  },
+  {
+    "date": "2026-08-16T15:15:49",
+    "type": "Bash",
+    "text": "grep -n \"card\\|_PAGE_CSS\\|window\\|manual-entry-form\\|class=\\|render_intake_report(\" /home/adamsl/letta-code/dashboard/tests/test_intake_report_page.py | head -60"
+  },
+  {
+    "date": "2026-08-16T15:16:12",
     "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/model-stats-health-monitor.js"
+    "text": "/home/adamsl/letta-code/dashboard/finance/intake_report_page.py"
   },
   {
-    "date": "2026-08-15T11:33:42",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
-  },
-  {
-    "date": "2026-08-15T11:33:46",
+    "date": "2026-08-16T15:16:21",
     "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/css/dashboard.css"
+    "text": "/home/adamsl/letta-code/dashboard/finance/intake_report_page.py"
   },
   {
-    "date": "2026-08-15T11:33:48",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && bun test js/tests/model-stats-health-monitor.test.js"
-  },
-  {
-    "date": "2026-08-15T11:33:55",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && bun run build 2>&1 | tail -20"
-  },
-  {
-    "date": "2026-08-15T11:33:57",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/model-stats-health-monitor.test.js"
-  },
-  {
-    "date": "2026-08-15T15:29:09",
-    "type": "Bash",
-    "text": "git status"
-  },
-  {
-    "date": "2026-08-15T15:29:12",
-    "type": "Bash",
-    "text": "git log -1 --stat | head -30; echo \"---\"; git diff HEAD~1 HEAD -- dashboard/js/implementation/model-stats-health-monitor.js dashboard/css/dashboard.css | head -100"
-  },
-  {
-    "date": "2026-08-15T15:29:16",
-    "type": "Bash",
-    "text": "git diff HEAD~1 HEAD -- dashboard/js/implementation/model-stats-health-monitor.js\necho \"---LOG---\"\ngit log --oneline -5\necho \"---DIVERGE---\"\ngit log --oneline HEAD..origin/reconcile/category-taxonomy-"
-  },
-  {
-    "date": "2026-08-15T15:29:22",
-    "type": "Bash",
-    "text": "grep -n \"^<<<<<<<\\|^=======\\|^>>>>>>>\" /home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
-  },
-  {
-    "date": "2026-08-15T15:29:24",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
-  },
-  {
-    "date": "2026-08-15T15:29:29",
-    "type": "Bash",
-    "text": "git show HEAD:dashboard/js/implementation/detail-renderers.js | sed -n '1,40p' | grep -n \"class\\|function renderInputOptions\\|note\\s*=\\|ReceptionistTranscriptController\\|editTextEl\" \necho \"---\"\ngit sh"
-  },
-  {
-    "date": "2026-08-15T15:29:31",
-    "type": "Bash",
-    "text": "git show origin/reconcile/category-taxonomy-x-intake-duplicate-rows:dashboard/js/implementation/detail-renderers.js | grep -n \"ReceptionistTranscriptController\\|editTextEl\\|const note\\|note\\.\\|import."
-  },
-  {
-    "date": "2026-08-15T15:29:43",
-    "type": "Bash",
-    "text": "git show origin/reconcile/category-taxonomy-x-intake-duplicate-rows:dashboard/js/implementation/detail-renderers.js | sed -n '890,1000p'"
-  },
-  {
-    "date": "2026-08-15T15:29:47",
-    "type": "Bash",
-    "text": "git show HEAD:dashboard/js/implementation/detail-renderers.js | sed -n '860,1000p'"
-  },
-  {
-    "date": "2026-08-15T15:29:59",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\nMB=$(git merge-base HEAD origin/reconcile/category-taxonomy-x-intake-duplicate-rows)\necho \"merge-base: $MB\"\ngit diff $MB HEAD -- dashboard/js/implementation/detail-renderers"
-  },
-  {
-    "date": "2026-08-15T15:30:02",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\nMB=$(git merge-base HEAD origin/reconcile/category-taxonomy-x-intake-duplicate-rows)\ngit diff $MB HEAD -- dashboard/js/implementation/detail-renderers.js"
-  },
-  {
-    "date": "2026-08-15T15:30:07",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\nMB=$(git merge-base HEAD origin/reconcile/category-taxonomy-x-intake-duplicate-rows)\ngit diff $MB origin/reconcile/category-taxonomy-x-intake-duplicate-rows -- dashboard/js/"
-  },
-  {
-    "date": "2026-08-15T15:30:19",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngrep -rn \"editTextarea\\|saveNoteBtn\\|editBtn\\b\\|LISTEN_IDLE_BG\\|LISTEN_ACTIVE_BG\\|setToggleButtonActive\" dashboard/js/dashboard-boot.js dashboard/js/tests/ 2>/dev/null\necho "
-  },
-  {
-    "date": "2026-08-15T15:30:24",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit show origin/reconcile/category-taxonomy-x-intake-duplicate-rows:dashboard/js/tests/receptionist-renderer.test.js > /tmp/origin_recep_test.js 2>&1 && echo \"EXISTS IN ORIG"
-  },
-  {
-    "date": "2026-08-15T15:30:30",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\nMB=$(git merge-base HEAD origin/reconcile/category-taxonomy-x-intake-duplicate-rows)\ngit diff $MB origin/reconcile/category-taxonomy-x-intake-duplicate-rows -- dashboard/js/"
-  },
-  {
-    "date": "2026-08-15T15:30:37",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit show HEAD:dashboard/js/implementation/detail-renderers.js > /tmp/local_dr.js\ngit show origin/reconcile/category-taxonomy-x-intake-duplicate-rows:dashboard/js/implementat"
-  },
-  {
-    "date": "2026-08-15T15:30:41",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit show HEAD:dashboard/js/tests/receptionist-renderer.test.js | sed -n '1,175p'"
-  },
-  {
-    "date": "2026-08-15T15:30:46",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit show origin/reconcile/category-taxonomy-x-intake-duplicate-rows:dashboard/js/implementation/textarea-note-surfaces.js\necho \"---transcript-synced-note---\"\ngit show origin"
-  },
-  {
-    "date": "2026-08-15T15:30:55",
-    "type": "Bash",
-    "text": "sed -n '895,1000p' /tmp/origin_dr.js"
-  },
-  {
-    "date": "2026-08-15T15:31:06",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
-  },
-  {
-    "date": "2026-08-15T15:31:11",
-    "type": "Bash",
-    "text": "grep -n \"const textEl\\|const surface\\|const note \\|const transcript\\|listenBtn\\|editTextEl\\|saveNoteBtn\\|editBtn\\|voiceRow.append\\|col.append\" /home/adamsl/letta-code/dashboard/js/implementation/detai"
-  },
-  {
-    "date": "2026-08-15T15:31:16",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
-  },
-  {
-    "date": "2026-08-15T15:31:20",
-    "type": "Bash",
-    "text": "grep -n \"note.getText\\|note.editable\\|textEl.value\" /home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
-  },
-  {
-    "date": "2026-08-15T15:31:22",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
-  },
-  {
-    "date": "2026-08-15T15:31:27",
+    "date": "2026-08-16T15:16:26",
     "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
   },
   {
-    "date": "2026-08-15T15:31:30",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
-  },
-  {
-    "date": "2026-08-15T15:31:34",
+    "date": "2026-08-16T15:16:36",
     "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
   },
   {
-    "date": "2026-08-15T15:31:38",
-    "type": "Bash",
-    "text": "grep -n \"^<<<<<<<\\|^=======\\|^>>>>>>>\" /home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js\necho \"---mergeFinalChunk usage---\"\ngrep -n \"mergeFinalChunk\" /home/adamsl/letta-code/dash"
-  },
-  {
-    "date": "2026-08-15T15:31:41",
-    "type": "Bash",
-    "text": "grep -n \"^export class\\|^class \" /home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
-  },
-  {
-    "date": "2026-08-15T15:31:44",
+    "date": "2026-08-16T15:16:40",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
+    "text": "/home/adamsl/letta-code/dashboard/finance/manual_entry.py"
   },
   {
-    "date": "2026-08-15T15:31:50",
+    "date": "2026-08-16T15:16:44",
+    "type": "Bash",
+    "text": "grep -n \"LocalFallbackEngine\\|parse_receipt_cli\\|--engine\\|engine ==\\|'local'\" ~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py | head -30"
+  },
+  {
+    "date": "2026-08-16T15:16:48",
+    "type": "Bash",
+    "text": "grep -rn \"manual-entry-root\\|manual_entry_form_html\" /home/adamsl/letta-code/dashboard/dashboard.html /home/adamsl/letta-code/dashboard/server.py 2>/dev/null"
+  },
+  {
+    "date": "2026-08-16T15:16:56",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard && .venv/bin/python -m pytest tests/test_intake_report_page.py tests/test_manual_entry.py tests/test_supporting_document_dialog.py -q 2>&1 | tail -40"
+  },
+  {
+    "date": "2026-08-16T15:17:00",
+    "type": "Bash",
+    "text": "bun test js/tests 2>&1 | tail -60"
+  },
+  {
+    "date": "2026-08-16T15:17:05",
+    "type": "Bash",
+    "text": "grep -n \"HERE\\s*=\\|REPO_ROOT\\s*=\\|SimpleHTTPRequestHandler\\|directory=\" server.py | head -20"
+  },
+  {
+    "date": "2026-08-16T15:17:10",
+    "type": "Bash",
+    "text": "hostname; grep VERSION_CODENAME /etc/os-release 2>/dev/null; systemctl --user is-active dashboard-server 2>&1"
+  },
+  {
+    "date": "2026-08-16T15:17:14",
+    "type": "Bash",
+    "text": "cat /tmp/claude-1000/-home-adamsl-letta-code/e7a83e40-7c19-4f45-84b4-d06963cef3ef/tasks/byzfeidnz.output 2>&1 | tail -20"
+  },
+  {
+    "date": "2026-08-16T15:17:23",
+    "type": "Bash",
+    "text": "diff /home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py; echo \"---diff2---\"; diff /h"
+  },
+  {
+    "date": "2026-08-16T15:17:26",
     "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/detail-renderers.js"
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py"
   },
   {
-    "date": "2026-08-15T15:31:54",
-    "type": "Bash",
-    "text": "grep -n \"^<<<<<<<\\|^=======\\|^>>>>>>>\" -r /home/adamsl/letta-code/dashboard/ 2>/dev/null | grep -v node_modules\ngit status --short | grep \"^UU\\|^AA\\|^DD\""
+    "date": "2026-08-16T15:17:32",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py"
   },
   {
-    "date": "2026-08-15T15:31:57",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && bun test js/tests/receptionist-renderer.test.js js/tests/interface-workspace.test.js js/tests/mermaid-view.test.js js/tests/model-stats-health-monitor.test.js 2"
+    "date": "2026-08-16T15:17:34",
+    "type": "Read",
+    "text": "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
   },
   {
-    "date": "2026-08-15T15:32:00",
-    "type": "Bash",
-    "text": "bun test js/tests 2>&1 | tail -40"
+    "date": "2026-08-16T15:17:40",
+    "type": "Edit",
+    "text": "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
   },
   {
-    "date": "2026-08-15T15:32:32",
+    "date": "2026-08-16T15:17:43",
     "type": "Bash",
-    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -60"
+    "text": "curl -s -o /dev/null -w \"%{http_code}\\n\" http://localhost:8765/css/vendor/98css/98.css\ncurl -s -o /dev/null -w \"%{http_code}\\n\" http://localhost:8765/css/vendor/98css/ms_sans_serif.woff2"
   },
   {
-    "date": "2026-08-15T15:32:36",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit stash\ngit worktree list 2>&1 | head -5"
+    "date": "2026-08-16T15:17:45",
+    "type": "ToolSearch",
+    "text": "query: playwright browser navigate screenshot"
   },
   {
-    "date": "2026-08-15T15:32:42",
+    "date": "2026-08-16T15:17:48",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit diff --stat HEAD -- dashboard/server.py | tail -5\necho \"---check if these funcs exist---\"\ngrep -n \"def inspect_scan_image_quality\\|def _inspect_scan_image_quality\\|rejec"
+    "text": "grep -n \"scanner_report\\|recent_report.html\\|manual_entry_form_html(\" server.py | head -20"
   },
   {
-    "date": "2026-08-15T15:32:45",
+    "date": "2026-08-16T15:18:10",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard\nsed -n '1700,1745p' tests/test_server.py"
+    "text": "curl -s \"http://localhost:8765/scanner_report.html?scanner=window\" | head -c 3000"
   },
   {
-    "date": "2026-08-15T15:32:49",
+    "date": "2026-08-16T15:18:17",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\necho \"--- HEAD (local, before merge) had this func? ---\"\ngit show HEAD:dashboard/server.py | grep -n \"def inspect_scan_image_quality\"\necho \"--- origin had this func? ---\"\ngi"
+    "text": "systemctl --user restart dashboard-server.service && sleep 2 && systemctl --user is-active dashboard-server.service"
   },
   {
-    "date": "2026-08-15T15:32:53",
+    "date": "2026-08-16T15:18:21",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit show HEAD:dashboard/tests/test_server.py | grep -n \"def test_inspect_scan_image_quality_rejects_blank_white_page\""
+    "text": "curl -s \"http://localhost:8765/scanner_report.html?scanner=window\" | head -c 1200"
   },
   {
-    "date": "2026-08-15T15:32:56",
+    "date": "2026-08-16T15:18:23",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit status --short | head -20"
+    "text": "curl -s \"http://localhost:8765/scanner_report.html?scanner=window\" | grep -o '<section class=\"card window\">.\\{0,400\\}'"
   },
   {
-    "date": "2026-08-15T15:32:59",
+    "date": "2026-08-16T15:18:25",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit add dashboard/js/implementation/detail-renderers.js\ngit status --short | grep \"^UU\\|^AA\\|^DD\"\necho \"clean of conflicts: $?\""
+    "text": "curl -sS -H 'Content-Type: application/json' -d '{\"server\":\"executor\",\"action\":\"start\"}' http://localhost:8765/api/server-action"
   },
   {
-    "date": "2026-08-15T15:33:02",
+    "date": "2026-08-16T15:19:06",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && bun test js/tests 2>&1 | tail -10"
+    "text": ".venv/bin/python -m pytest tests/ -q 2>&1 | tail -20"
   },
   {
-    "date": "2026-08-15T15:33:23",
+    "date": "2026-08-16T15:19:23",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && git commit --no-edit 2>&1 | tail -20"
+    "text": "cd /home/adamsl/letta-code && git status --short dashboard/finance/intake_report_page.py\ngrep -n \"008080\" dashboard/finance/intake_report_page.py | head -3"
   },
   {
-    "date": "2026-08-15T15:33:25",
+    "date": "2026-08-16T15:19:58",
     "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit log --oneline -3\ngit status --short | head -5"
+    "text": "cd /home/adamsl/letta-code/dashboard && .venv/bin/python -m pytest tests/ -q 2>&1 | tail -5"
   },
   {
-    "date": "2026-08-15T15:33:28",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code\ngit diff --stat dashboard/claude_toolcalls.json"
+    "date": "2026-08-16T15:22:29",
+    "type": "Read",
+    "text": "/home/adamsl/tactical_debug_toolbox/gof_debug_tacticts.md"
   },
   {
-    "date": "2026-08-15T15:33:33",
+    "date": "2026-08-16T15:23:02",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/abstract/manual-entry.interface.js"
+  },
+  {
+    "date": "2026-08-16T15:23:11",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:23:36",
     "type": "Bash",
-    "text": "git push origin reconcile/category-taxonomy-x-intake-duplicate-rows 2>&1"
+    "text": "find ~/rol_finances -iname \"*test*parse_receipt*\" -o -iname \"*parse_receipt*test*\" 2>/dev/null | grep -v node_modules\necho \"---\"\nfind ~/rol_finances -maxdepth 2 -iname \"test*\" -o -iname \"*tests*\" 2>/d"
+  },
+  {
+    "date": "2026-08-16T15:23:39",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tests/test_itemization_dates.py"
+  },
+  {
+    "date": "2026-08-16T15:23:49",
+    "type": "Bash",
+    "text": "grep -n \"class TolerantDateTextParser\\|def parse\\|_FORMATS\\|strptime\\|class \\|def \" ~/rol_finances/tools/itemization/dates.py | head -50"
+  },
+  {
+    "date": "2026-08-16T15:23:52",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/itemization/dates.py"
+  },
+  {
+    "date": "2026-08-16T15:24:13",
+    "type": "Bash",
+    "text": "grep -n \"RF_VENV_PY\\s*=\\|RF_PYPATH\\s*=\" ~/letta-code/dashboard/finance/*.py ~/letta-code/dashboard/*.py 2>/dev/null | grep -v \"\\.pyc\""
+  },
+  {
+    "date": "2026-08-16T15:24:18",
+    "type": "Bash",
+    "text": "/home/adamsl/rol_finances/.venv/bin/python3 -c \"\nimport sys, time\nsys.path.insert(0, '/home/adamsl/rol_finances')\nt=time.time()\nfrom tools.itemization.dates import TolerantDateTextParser\nprint('import"
+  },
+  {
+    "date": "2026-08-16T15:24:38",
+    "type": "Bash",
+    "text": "cat ~/rol_finances/pytest.ini ~/rol_finances/pyproject.toml ~/rol_finances/setup.cfg 2>/dev/null | grep -A5 \"pytest\\|testpaths\\|rootdir\"\necho ---\nfind ~/rol_finances -maxdepth 1 -iname \"conftest.py\"\ne"
+  },
+  {
+    "date": "2026-08-16T15:24:41",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tests/test_receipt_parser_copy_drift.py"
+  },
+  {
+    "date": "2026-08-16T15:25:02",
+    "type": "Bash",
+    "text": "sed -n '1,30p' ~/rol_finances/tests/conftest.py 2>/dev/null | head -30\necho \"---venv check for pytest---\"\n~/rol_finances/.venv/bin/python3 -m pytest --version 2>&1 | head -3"
+  },
+  {
+    "date": "2026-08-16T15:25:07",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:09",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:18",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:22",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:26",
+    "type": "Read",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:31",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:33",
+    "type": "Bash",
+    "text": "grep -n \"^class LocalFallbackEngine\" /home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:40",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:44",
+    "type": "Edit",
+    "text": "/home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:47",
+    "type": "Read",
+    "text": "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:50",
+    "type": "Edit",
+    "text": "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:25:57",
+    "type": "Edit",
+    "text": "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:26:01",
+    "type": "Edit",
+    "text": "/home/adamsl/planner/nonprofit_finance_db/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:26:05",
+    "type": "Bash",
+    "text": "for f in \\\n  /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py \\\n  /home/adamsl/rol_finances/receipt_parsing_tools/parse_receipt_cli.py \\\n  /home/adamsl"
+  },
+  {
+    "date": "2026-08-16T15:26:21",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tests/test_receipt_parser_cli_copy_drift.py\n\u2192 \"\"\"Guard against a one-sided edit to the duplicated OCR fallback parser.  ``parse_receipt_cli.py`` exists twice in this repo (same drift risk as ``parse_and_categorize.py`` -- see ``test_receipt_parse"
+  },
+  {
+    "date": "2026-08-16T15:26:31",
+    "type": "Write",
+    "text": "/home/adamsl/rol_finances/tests/test_parse_receipt_cli_local_engine.py\n\u2192 \"\"\"Regression cover for LocalFallbackEngine's OCR date extraction.  2026-08-16 defect: ``_extract_transaction_date`` (formerly an inline loop in ``LocalFallbackEngine.parse_receipt()``) stopped scanni"
+  },
+  {
+    "date": "2026-08-16T15:26:35",
+    "type": "Bash",
+    "text": "tail -30 /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_receipt_cli.py"
+  },
+  {
+    "date": "2026-08-16T15:26:42",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && .venv/bin/python -m pytest tests/test_parse_receipt_cli_local_engine.py tests/test_receipt_parser_cli_copy_drift.py tests/test_receipt_parser_copy_drift.py -v 2>&1 | tail -40"
+  },
+  {
+    "date": "2026-08-16T15:26:47",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && git status --short receipt_parsing_tools/parse_and_categorize.py tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py 2>&1\ngit log -1 --format=%H -- receipt_"
+  },
+  {
+    "date": "2026-08-16T15:27:00",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && .venv/bin/python -m pytest tests/ -k \"receipt or itemization_dates\" -q 2>&1 | tail -25"
+  },
+  {
+    "date": "2026-08-16T15:27:09",
+    "type": "Bash",
+    "text": "cd ~/rol_finances && .venv/bin/python3 -c \"\nimport asyncio, sys\nsys.path.insert(0, 'tools/receipt_scanning_tools/receipt_parsing_tools')\nsys.path.insert(0, 'tools/receipt_scanning_tools')\nfrom parse_r"
+  },
+  {
+    "date": "2026-08-16T15:27:50",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard && .venv/bin/python -m pytest tests/ -q 2>&1 | tail -8\nbun test js/tests 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-08-16T15:27:53",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
+  },
+  {
+    "date": "2026-08-16T15:28:05",
+    "type": "Bash",
+    "text": "grep -n \"prefill\\|is-pressed\\|disabled\" /home/adamsl/letta-code/dashboard/js/tests/manual-entry-form.test.js | head -30"
+  },
+  {
+    "date": "2026-08-16T15:28:08",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/tests/manual-entry-form.test.js"
+  },
+  {
+    "date": "2026-08-16T15:28:13",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/js/tests/manual-entry-form.test.js"
+  },
+  {
+    "date": "2026-08-16T15:28:17",
+    "type": "Bash",
+    "text": "grep -n \"classList\" /home/adamsl/letta-code/dashboard/js/tests/_fake-dom.js"
+  },
+  {
+    "date": "2026-08-16T15:28:24",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/js/tests/manual-entry-form.test.js"
+  },
+  {
+    "date": "2026-08-16T15:28:26",
+    "type": "Bash",
+    "text": "bun test js/tests/manual-entry-form.test.js 2>&1 | tail -30"
+  },
+  {
+    "date": "2026-08-16T15:29:12",
+    "type": "Bash",
+    "text": "bun test js/tests 2>&1 | tail -8\necho \"---\"\n.venv/bin/python -m pytest tests/ -q 2>&1 | tail -5\necho \"---rol_finances---\"\ncd ~/rol_finances && .venv/bin/python -m pytest tests/test_parse_receipt_cli_l"
+  },
+  {
+    "date": "2026-08-16T15:29:19",
+    "type": "Bash",
+    "text": "cd /home/adamsl/letta-code/dashboard && systemctl --user restart dashboard-server.service && sleep 2 && systemctl --user is-active dashboard-server.service\ncurl -sS -H 'Content-Type: application/json'"
+  },
+  {
+    "date": "2026-08-16T15:33:58",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/rol_finances_ocr_date_bug_and_cleanup_2026_08_16.md\n\u2192 --- name: rol_finances_ocr_date_bug_and_cleanup_2026_08_16 description: \"Fixed the \\\"Prefill from OCR\\\" always-shows-today's-date bug in LocalFallbackEngine.parse_receipt() (3 divergent parse_receipt_"
+  },
+  {
+    "date": "2026-08-16T15:34:13",
+    "type": "Write",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/dashboard_win98_theme_and_prefill_button_2026_08_16.md\n\u2192 --- name: dashboard_win98_theme_and_prefill_button_2026_08_16 description: Vendored 98.css into the dashboard and reskinned the standalone Recent Report / Last Window-Freezer Scan page; Prefill from O"
+  },
+  {
+    "date": "2026-08-16T15:34:15",
+    "type": "Read",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
+  },
+  {
+    "date": "2026-08-16T15:34:20",
+    "type": "Edit",
+    "text": "/home/adamsl/.claude/projects/-home-adamsl-letta-code/memory/MEMORY.md"
   }
 ]

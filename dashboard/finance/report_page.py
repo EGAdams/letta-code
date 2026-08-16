@@ -79,6 +79,20 @@ def parse_report_page(
     return MonthReportPage(report_path=str(report_path or ''))
 
 
+class ReportRowMatch(StrictModel):
+    """One <tr> found by scanning every report.html for a (date, amount).
+
+    Replaces the plain dict _find_matching_report_row used to return: a typed
+    boundary makes a missing/renamed key a load-time AttributeError instead of
+    a silent None spreading through recategorization and source-document
+    lookups.
+    """
+
+    report_path: str
+    label: str
+    row_vendor_key: str
+
+
 #: Intake kinds whose scan is the receipt itself, not a statement page.
 NON_STATEMENT_INTAKE_KINDS = frozenset({'receipt', 'invoice'})
 

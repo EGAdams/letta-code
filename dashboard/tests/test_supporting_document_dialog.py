@@ -797,6 +797,65 @@ def test_last_freezer_scan_keeps_source_pdf_and_scanned_statement_separate(
     assert server._source_document_reference(row, report_path) != str(scanned_statement)
 
 
+def test_scanner_row_offers_source_document_matched_from_an_existing_report(
+    tmp_path, monkeypatch,
+):
+    """A receipt scanned on the Freezer can still have a real downloaded source.
+
+    Gardner Clinic 05/12/25 was scanned as a receipt (View Receipt covers the
+    jpg), but that same transaction already has a row in an existing month
+    report backed by a real downloaded statement (the credit-card xlsx). The
+    synthetic scanner page has no report.html of its own, so
+    _report_source_document_reference always returns '' for it — the dialog
+    must still find the statement via the same (date, amount) match that
+    already powers the page's "Associated PDF" header field, rather than
+    silently dropping a document that plainly exists.
+    """
+    reports = tmp_path / "bank_statements"
+    february = reports / "february" / "platinum_year"
+    february.mkdir(parents=True)
+    statement = february / "platinum_year.xlsx"
+    statement.write_bytes(b"PK\x03\x04")
+    (february / "report.html").write_text(
+        '<table><tbody>'
+        '<tr class="cat-x" data-vendor-key="the_gardner_clinic">'
+        '<td>THE GARDNER CLINIC</td><td class="number">117.00</td>'
+        '<td>2025-05-12</td></tr>'
+        '</tbody></table>'
+    )
+    monkeypatch.setattr(server, "ROL_FINANCES_REPORTS_PARENT", str(reports))
+    monkeypatch.setattr(
+        server, "ROL_FINANCES_REPORTS_MONTHS",
+        # The default-month entry must point at a *different* (empty) dir —
+        # otherwise the same report.html is reachable under two month keys
+        # and _find_matching_report_row sees it as an ambiguous double match.
+        {server.ROL_FINANCES_REPORTS_DEFAULT_MONTH: "january", "feb-2025": "february"})
+    monkeypatch.setattr(
+        server, "ROL_FINANCE_REPORTS",
+        [{"key": "platinum-year", "label": "Platinum Year", "dir": "platinum_year"}])
+    monkeypatch.setattr(server, "get_scanner_intake", lambda key: {
+        "image_path": "", "doc_kind": "receipt"} if key == "freezer" else None)
+    monkeypatch.setattr(server, "resolve_recent_report", lambda: {})
+    _resolve_if_on_disk(monkeypatch)
+
+    row = {
+        "id": 2160,
+        "expense_date": "2025-05-12",
+        "amount": "117.00",
+        "receipt_url": "gardner_clinic_05_12_25_117_00.jpg",
+        "document_url": None,
+        "scanned_statement_url": None,
+        "moms_ledger": None,
+    }
+
+    assert server._source_document_reference(
+        row, "/scanner_report.html?scanner=freezer") == str(statement)
+    documents = server._supporting_document_descriptors(
+        row, "/scanner_report.html?scanner=freezer")
+    source = next(item for item in documents if item["type"] == "source")
+    assert source["available"] is True
+
+
 def test_empty_source_does_not_borrow_same_freezer_scan_from_report_fallback(
     tmp_path, monkeypatch,
 ):
