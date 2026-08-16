@@ -126,9 +126,8 @@ export async function mountTerminal({
   const term = new Term({
     cursorBlink: false,
     disableStdin: true,
-    fontSize: 13,
-    fontFamily:
-      'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
+    fontSize: 18,
+    fontFamily: '"Courier New", Courier, monospace',
     theme: { background: "#0b0e14", foreground: "#d3d7de" },
   });
   const fit = new Fit();

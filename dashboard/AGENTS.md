@@ -2,7 +2,8 @@
 
 This file is for Codex CLI sessions working in `dashboard/`. The canonical,
 always-current architecture doc for this sub-project is `dashboard/CLAUDE.md` —
-read it for the server, frontend, voice pipeline, scanners, and deploy notes.
+read it for the server, frontend, and deploy notes, plus `dashboard/docs/`
+(`voice.md`, `finance-intake.md`, `operations.md`) for subsystem detail.
 This file covers what Codex most often needs here and is NOT in the repo-root
 `AGENTS.md`: **the Mazda Trainer — what it is, how to use it, and how to train
 Mazda with it.**

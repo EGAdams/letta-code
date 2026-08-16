@@ -18,44 +18,11 @@ from html import escape as _esc
 
 from .intake_report_model import META_EMPTY
 
-_PAGE_CSS = """
-    body { margin:0; padding:24px; background:#008080; }
-    section.card { padding:0; margin:0 auto; max-width:1100px; }
-    section.card > .window-body { max-height:calc(100vh - 100px); overflow:auto; }
-    h1 { font-size:1.15rem; margin:0 0 4px; } h2 { font-size:1rem; margin:18px 0 8px; }
-    table { width:100%; font-size:0.85rem; }
-    th.number, td.number { text-align:right; }
-    .muted { color:#6b7280; }
-    .duplicate-row td { box-shadow:inset 0 2px #b91c1c,inset 0 -2px #b91c1c; }
-    .duplicate-badge { display:inline-block; margin-left:8px; padding:2px 7px; background:#b91c1c; color:#fff; font-size:.72rem; letter-spacing:.04em; }
-    .mazda-working { margin:16px 0; padding:12px; background:#000; color:#ffe761; }
-    .mazda-working h2 { color:#fff; }
-    .mazda-progress-shell { height:10px; overflow:hidden; background:rgba(10,16,24,.8); }
-    .mazda-progress-bar { height:100%; background:#f4b400; }
-    .mazda-working ul { margin:8px 0 0; padding-left:20px; }
-    .mazda-step-done { color:#4ade80; } .mazda-step-active { color:#ffe761; font-weight:700; }
-    .mazda-step-skipped, .mazda-step-pending { color:#9aa5b1; }
-    .doc-meta { margin:12px 0; display:grid; gap:2px; font-size:0.85rem; }
-    .doc-meta-row { overflow-wrap:anywhere; }
-    .status-banner { margin:14px 0 0; padding:8px 10px; border:2px inset #808080; background:#c0c0c0; }
-    .status-bad { background:#ff8080; color:#7f1d1d; font-weight:600; }
-    .status-ok { background:#a0ffa0; }
-    .status-working { background:#fffbeb; }
-    .status-attention { background:#ffdca0; color:#78350f; font-weight:600; }
-    .manual-entry-form { margin:16px 0; padding:10px 12px; border:2px groove #c0c0c0; background:#c0c0c0; }
-    .manual-entry-form h2 { margin-top:0; }
-    .manual-entry-field { margin:8px 0; }
-    .manual-entry-field label { display:block; font-size:0.85rem; margin-bottom:2px; }
-    .manual-entry-field input, .manual-entry-field select { width:100%; max-width:320px; }
-    .manual-entry-form button { margin:8px 8px 8px 0; }
-    .manual-entry-form button.is-pressed { box-shadow:inset -1px -1px #fff,inset 1px 1px #0a0a0a,inset -2px -2px #dfdfdf,inset 2px 2px grey; }
-    .manual-entry-item-nav { margin:10px 0; padding:8px 0; border-top:1px solid #808080; border-bottom:1px solid #fff; display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
-    .manual-entry-item-nav span { margin:0 8px; font-weight:600; }
-    .manual-entry-archive-path { margin-top:2px; padding:4px 6px; background:#fff; border:2px inset #808080; font-family:"Courier New",monospace; font-size:0.82rem; word-break:break-all; }
-    .manual-entry-errors { color:#b91c1c; font-weight:600; min-height:1.2em; }
-    .manual-entry-status { min-height:1.2em; }
-    .terminal-host { height:220px; margin-top:8px; overflow:hidden; }
-"""
+# Static, page-wide rules live in css/finance/intake_report.css (served as a
+# real stylesheet — see the server's generic /<path> static-file fallback).
+# extra_css stays inline below because it's generated per-call (e.g. category
+# colors), not something a static file can hold.
+_PAGE_CSS_LINK = '<link rel="stylesheet" href="/css/finance/intake_report.css">'
 
 
 def document_meta_html(fields):
@@ -165,8 +132,9 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
         + refresh +
         '<title>Recent Report</title>'
         '<link rel="stylesheet" href="/css/vendor/98css/98.css">'
+        + _PAGE_CSS_LINK +
         '<style>'
-        + _PAGE_CSS + extra_css +
+        + extra_css +
         '\n  </style></head><body>\n'
         '<section class="card window">\n'
         '  <div class="title-bar">\n'
