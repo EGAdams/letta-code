@@ -14,6 +14,7 @@ import urllib.error
 
 import pytest
 import server
+from finance.report_page import ReportRowMatch
 
 REAL_CREATE_MAZDA_CONVERSATION = server._create_mazda_conversation
 
@@ -2436,23 +2437,37 @@ def test_agent_health_check_all_tools_present_is_healthy(monkeypatch):
 # proactively turns every agent on the provider red.
 
 def test_mazda_and_minions_tagged_with_shared_llm_provider():
-    fleet_names = {
+    # The whole Mazda fleet (her + her 5 minions) moved to the shared
+    # claude-pro-max OAuth provider (this box's Claude subscription token,
+    # never an ANTHROPIC_API_KEY); Suzuki's fleet stays on chatgpt-plus-pro.
+    mazda_fleet_names = {
         'Mazda', 'Mazda Router', 'Mazda Parser', 'Mazda Vendor Identity',
         'Mazda Receipt Linker', 'Mazda Categorization',
     }
     for cfg in server.LETTA_AGENTS:
-        if cfg['name'] in fleet_names:
-            assert cfg.get('llm_provider') == server.CHATGPT_PLUS_PRO, cfg['name']
+        if cfg['name'] in mazda_fleet_names:
+            assert cfg.get('llm_provider') == server.CLAUDE_PRO_MAX, cfg['name']
 
 
 def test_provider_agent_ids_returns_real_ids_for_tagged_agents():
     ids = server._provider_agent_ids(server.CHATGPT_PLUS_PRO)
-    # Mazda fleet (6) + Suzuki fleet (7) = 13 tagged agents
-    assert len(ids) == 13
+    # Suzuki fleet only (7); the whole Mazda fleet moved to claude-pro-max
+    assert len(ids) == 7
     mazda = next(cfg for cfg in server.LETTA_AGENTS if cfg['name'] == 'Mazda')
-    assert mazda['id'] in ids
+    assert mazda['id'] not in ids
     suzuki = next(cfg for cfg in server.LETTA_AGENTS if cfg['name'] == 'Suzuki')
     assert suzuki['id'] in ids
+
+
+def test_mazda_fleet_tagged_with_claude_pro_max_provider():
+    ids = set(server._provider_agent_ids(server.CLAUDE_PRO_MAX))
+    mazda_fleet_names = {
+        'Mazda', 'Mazda Router', 'Mazda Parser', 'Mazda Vendor Identity',
+        'Mazda Receipt Linker', 'Mazda Categorization',
+    }
+    expected = {cfg['id'] for cfg in server.LETTA_AGENTS if cfg['name'] in mazda_fleet_names}
+    assert ids == expected
+    assert len(ids) == 6
 
 
 def _patch_provider_probe(monkeypatch, probe_result, calls=None):
@@ -3223,9 +3238,9 @@ def test_find_matching_report_row_ignores_vendor_key_mismatch(tmp_path, monkeypa
     found = server._find_matching_report_row('2025-04-03', '28.10', 'kum_go_2608r')
 
     assert found is not None
-    assert found['label'] == 'Platinum Year'
-    assert found['row_vendor_key'] == 'kum_go_2608r_walker'
-    assert found['report_path'] == '/rol_finances_reports/feb-2025/platinum_year/report.html'
+    assert found.label == 'Platinum Year'
+    assert found.row_vendor_key == 'kum_go_2608r_walker'
+    assert found.report_path == '/rol_finances_reports/feb-2025/platinum_year/report.html'
 
 
 def test_find_matching_report_row_returns_none_when_no_row_matches(tmp_path, monkeypatch):
@@ -3272,7 +3287,7 @@ def test_find_matching_report_row_disambiguates_via_vendor_key_prefix(tmp_path, 
 
     found = server._find_matching_report_row('2025-04-03', '28.10', 'kum_go_2608r')
     assert found is not None
-    assert found['label'] == 'Report A'
+    assert found.label == 'Report A'
 
 
 def test_recategorize_expense_no_report_path_finds_and_patches_matching_report(tmp_path, monkeypatch):
@@ -4934,21 +4949,30 @@ def test_agent_model_options_empty_handle():
     assert server.agent_model_options('') == server.AGENT_MODEL_OPTIONS
 
 
-def test_agent_model_options_only_vetted_codex_handles():
-    expected_models = {
-        'gpt-5.6-sol',
-        'gpt-5.6-terra',
-        'gpt-5.6-luna',
-        'gpt-5.5',
-        'gpt-5.4',
-        'gpt-5.4-mini',
+def test_agent_model_options_only_vetted_codex_and_claude_handles():
+    expected_by_prefix = {
+        'chatgpt-plus-pro': {
+            'gpt-5.6-sol',
+            'gpt-5.6-terra',
+            'gpt-5.6-luna',
+            'gpt-5.5',
+            'gpt-5.4',
+            'gpt-5.4-mini',
+        },
+        'claude-pro-max': {
+            'claude-haiku-4-5-20251001',
+            'claude-sonnet-5',
+            'claude-opus-5',
+        },
     }
     for handle in server.AGENT_MODEL_OPTIONS:
-        assert handle.startswith('chatgpt-plus-pro/')
-        model = handle.split('/', 1)[1]
-        assert model in expected_models
-    assert {handle.split('/', 1)[1]
-            for handle in server.AGENT_MODEL_OPTIONS} == expected_models
+        provider, model = handle.split('/', 1)
+        assert provider in expected_by_prefix, handle
+        assert model in expected_by_prefix[provider], handle
+    for provider, expected_models in expected_by_prefix.items():
+        actual = {handle.split('/', 1)[1] for handle in server.AGENT_MODEL_OPTIONS
+                  if handle.startswith(f'{provider}/')}
+        assert actual == expected_models, provider
 
 
 # ── /api/agent-voice — dashboard TTS preference in Letta metadata ────────────
@@ -5141,6 +5165,262 @@ def test_notify_trainer_popen_failure_never_raises(monkeypatch, tmp_path):
     monkeypatch.setattr(server.subprocess, 'Popen', boom)
     assert server._notify_trainer_of_scan(
         '/tmp/scan.jpg', 'Freezer', conversation_id='conv-freezer') is False
+
+
+def test_resolve_execution_mode_unset_defaults_to_auto(monkeypatch):
+    monkeypatch.delenv('MAZDA_DECISION_MODE', raising=False)
+    assert server.resolve_execution_mode() == 'auto'
+
+
+def test_resolve_execution_mode_parses_auto_and_human_only():
+    assert server.resolve_execution_mode('auto') == 'auto'
+    assert server.resolve_execution_mode('human_only') == 'human_only'
+
+
+@pytest.mark.parametrize('bad', [
+    'Auto', 'HUMAN_ONLY', 'human-only', 'humanonly', 'llm_only', '',
+    ' auto', 'auto ', 'None',
+])
+def test_resolve_execution_mode_fails_closed_on_invalid_value(bad):
+    """A typo must never silently fall back to 'auto' (could spend tokens
+    unexpectedly) or silently disable Mazda — it must fail startup instead."""
+    with pytest.raises(server.InvalidExecutionMode):
+        server.resolve_execution_mode(bad)
+
+
+def test_process_scanned_document_human_only_mode_never_dispatches_mazda_or_trainer(
+        tmp_path, monkeypatch):
+    """The single fork point: human_only must construct neither Mazda nor the
+    Trainer, and must leave the document visible as needing a human instead
+    of silently dropping it."""
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    write_scan_image(scan_dir / 'window_scan.jpg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'script': 'run_scan_window.sh',
+                   'output': 'window_scan.jpg'},
+    })
+    monkeypatch.setattr(server, 'run_intake_facade',
+                        lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown', 'confidence': 0})
+    monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
+    monkeypatch.setattr(server, '_stage_scan_for_mazda',
+                        lambda local_path: '/staged/window_scan.jpg')
+    monkeypatch.setattr(server, 'EXECUTION_MODE', 'human_only')
+    threads_started = []
+    monkeypatch.setattr(
+        server.threading, 'Thread',
+        lambda *a, **k: threads_started.append((a, k)) or _NoopThread())
+    trainer_calls = []
+    monkeypatch.setattr(server, '_notify_trainer_of_scan',
+                        lambda *a, **k: trainer_calls.append((a, k)) or True)
+
+    result = server.process_scanned_document('window')
+
+    assert threads_started == []
+    assert trainer_calls == []
+    assert result['mazda_dispatched'] is False
+    assert result['trainer_dispatched'] is False
+    assert result['execution_mode'] == 'human_only'
+    assert result['conversation_id'] == 'conv-test-isolated'
+    assert 'human_only' in result['stage_error']
+    pointer = server._read_recent_pointer_file()
+    intake = pointer['scanner_intakes']['Window Scanner']
+    assert intake['status'] == 'needs_human_review'
+    assert intake['status_source'] == 'human_only_mode'
+    assert intake['execution_mode'] == 'human_only'
+
+
+def test_process_pdf_document_human_only_mode_never_dispatches_mazda_or_trainer(
+        tmp_path, monkeypatch):
+    pdf_dir = tmp_path / 'rol'
+    pdf_dir.mkdir()
+    pdf = pdf_dir / 'statement.pdf'
+    pdf.write_bytes(b'%PDF-fake')
+    monkeypatch.setattr(server, 'ROL_FINANCES_DIR', str(pdf_dir))
+    monkeypatch.setattr(server, 'run_intake_facade',
+                        lambda path, org_id=1, engine='gemini': {'ok': True})
+    monkeypatch.setattr(server, 'document_vision_health', lambda: {'ok': True})
+    monkeypatch.setattr(server, 'EXECUTION_MODE', 'human_only')
+    threads_started = []
+    monkeypatch.setattr(
+        server.threading, 'Thread',
+        lambda *a, **k: threads_started.append((a, k)) or _NoopThread())
+    trainer_calls = []
+    monkeypatch.setattr(server, '_notify_trainer_of_scan',
+                        lambda *a, **k: trainer_calls.append((a, k)) or True)
+
+    result = server.process_pdf_document(str(pdf), label='Jan Statement')
+
+    assert threads_started == []
+    assert trainer_calls == []
+    assert result['mazda_dispatched'] is False
+    assert result['trainer_dispatched'] is False
+    assert result['execution_mode'] == 'human_only'
+    assert result['conversation_id'] == 'conv-test-isolated'
+    pointer = server._read_recent_pointer_file()
+    assert pointer['intake']['status'] == 'needs_human_review'
+    assert pointer['intake']['status_source'] == 'human_only_mode'
+
+
+def test_submit_manual_receipt_entry_populates_expense_ids(tmp_path, monkeypatch):
+    """A successful save must fold a STEP-8-shaped event, not just flip a
+    status string -- expense_ids is what the Verified Transactions table and
+    the archive-verification terminal both key off."""
+    monkeypatch.setattr(
+        server, 'RECENT_REPORT_POINTER_FILE', str(tmp_path / 'recent_report.json'))
+    server.record_recent_intake(
+        '/staged/scan_freezer.jpg', 'Freezer Scanner', kind='scan',
+        conversation_id='conv-freezer-1', dispatched_at=100.0)
+    monkeypatch.setattr(
+        server.manual_entry, 'submit_manual_receipt_entry',
+        lambda entry: (True, {'report': {'success': True, 'expense_id': 9001,
+                                         'duplicate': False}}))
+
+    result = server.submit_manual_receipt_entry({
+        'image_path': '/staged/scan_freezer.jpg',
+        'conversation_id': 'conv-freezer-1',
+        'merchant_name': 'Kroger',
+        'transaction_date': '2026-08-15',
+        'total_amount': 12.34,
+    })
+
+    assert result == {'ok': True, 'expense_id': 9001, 'duplicate': False}
+    pointer = server._read_recent_pointer_file()
+    intake = pointer['scanner_intakes']['Freezer Scanner']
+    assert intake['expense_ids'] == [9001]
+    assert intake['status'] == 'complete'
+    assert intake['doc_kind'] == 'receipt'
+    assert intake['vendor'] == 'Kroger'
+
+
+def test_submit_manual_receipt_entry_duplicate_does_not_double_enter(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        server, 'RECENT_REPORT_POINTER_FILE', str(tmp_path / 'recent_report.json'))
+    server.record_recent_intake(
+        '/staged/scan_freezer.jpg', 'Freezer Scanner', kind='scan',
+        conversation_id='conv-freezer-2', dispatched_at=100.0)
+    monkeypatch.setattr(
+        server.manual_entry, 'submit_manual_receipt_entry',
+        lambda entry: (True, {'report': {'success': True, 'expense_id': 42,
+                                         'duplicate': True}}))
+
+    result = server.submit_manual_receipt_entry({
+        'image_path': '/staged/scan_freezer.jpg',
+        'conversation_id': 'conv-freezer-2',
+        'merchant_name': 'Kroger',
+        'transaction_date': '2026-08-15',
+        'total_amount': 12.34,
+    })
+
+    assert result == {'ok': True, 'expense_id': 42, 'duplicate': True}
+    pointer = server._read_recent_pointer_file()
+    intake = pointer['scanner_intakes']['Freezer Scanner']
+    assert intake['duplicate_expense_ids'] == [42]
+    assert intake['stored'] == 0
+
+
+def test_submit_manual_receipt_entry_resolves_category_name(monkeypatch):
+    captured = {}
+
+    def fake_submit(entry):
+        captured['category_id'] = entry.category_id
+        return True, {'report': {'success': True, 'expense_id': 1, 'duplicate': False}}
+
+    monkeypatch.setattr(
+        server, '_resolve_reporting_category',
+        lambda name: (77, 'cat-food') if name == 'Food' else (None, None))
+    monkeypatch.setattr(server.manual_entry, 'submit_manual_receipt_entry', fake_submit)
+    monkeypatch.setattr(server, 'merge_recent_intake_event', lambda event: True)
+
+    result = server.submit_manual_receipt_entry({
+        'image_path': '/staged/x.jpg', 'conversation_id': 'c',
+        'merchant_name': 'Kroger', 'transaction_date': '2026-08-15',
+        'total_amount': 1.0, 'category_name': 'Food',
+    })
+
+    assert result['ok'] is True
+    assert captured['category_id'] == 77
+
+
+def test_submit_manual_receipt_entry_rejects_unknown_category_name(monkeypatch):
+    monkeypatch.setattr(
+        server, '_resolve_reporting_category', lambda name: (None, None))
+    result = server.submit_manual_receipt_entry({
+        'image_path': '/staged/x.jpg', 'conversation_id': 'c',
+        'merchant_name': 'Kroger', 'transaction_date': '2026-08-15',
+        'total_amount': 1.0, 'category_name': 'Not A Real Category',
+    })
+    assert result['ok'] is False
+    assert 'category' in result['error'].lower()
+
+
+def test_submit_manual_receipt_entry_save_failure_leaves_intake_pending(
+        tmp_path, monkeypatch):
+    """A failed save must not flip needs_human_review to complete -- the
+    form has to reappear, same as the statement review dialog's contract."""
+    monkeypatch.setattr(
+        server, 'RECENT_REPORT_POINTER_FILE', str(tmp_path / 'recent_report.json'))
+    server.record_recent_intake(
+        '/staged/scan_freezer.jpg', 'Freezer Scanner', kind='scan',
+        conversation_id='conv-freezer-3', dispatched_at=100.0)
+    server.merge_recent_intake_status({
+        'conversation_id': 'conv-freezer-3', 'status': 'needs_human_review',
+        'status_source': 'human_only_mode',
+    })
+    monkeypatch.setattr(
+        server.manual_entry, 'submit_manual_receipt_entry',
+        lambda entry: (False, {'error': 'A verified merchant/counterparty is required'}))
+
+    result = server.submit_manual_receipt_entry({
+        'image_path': '/staged/scan_freezer.jpg',
+        'conversation_id': 'conv-freezer-3',
+        'merchant_name': 'receipt', 'transaction_date': '2026-08-15',
+        'total_amount': 1.0,
+    })
+
+    assert result['ok'] is False
+    pointer = server._read_recent_pointer_file()
+    assert pointer['scanner_intakes']['Freezer Scanner']['status'] == 'needs_human_review'
+
+
+def test_preview_manual_entry_archive_path_receipt_is_a_real_destination():
+    result = server.preview_manual_entry_archive_path({
+        'image_path': '/staged/scan.jpg', 'merchant_name': 'Kroger',
+        'transaction_date': '2026-08-15', 'total_amount': 12.34,
+        'archive_kind': 'receipt',
+    })
+    assert result['ok'] is True
+    assert result['is_real_destination'] is True
+    assert result['path'].endswith(
+        'readable_documents/receipts/2026/august/august_15/kroger_08_15_26_12_34.jpg')
+
+
+def test_preview_manual_entry_archive_path_scanned_document_is_preview_only():
+    result = server.preview_manual_entry_archive_path({
+        'image_path': '/staged/scan.jpg', 'merchant_name': 'Kroger',
+        'transaction_date': '2026-08-15', 'total_amount': 12.34,
+        'archive_kind': 'scanned_document',
+    })
+    assert result['ok'] is True
+    assert result['is_real_destination'] is False
+
+
+def test_preview_manual_entry_archive_path_rejects_non_numeric_amount():
+    result = server.preview_manual_entry_archive_path({
+        'image_path': '/staged/scan.jpg', 'merchant_name': 'Kroger',
+        'transaction_date': '2026-08-15', 'total_amount': 'not-a-number',
+    })
+    assert result['ok'] is False
+
+
+def test_preview_manual_entry_archive_path_rejects_bad_date():
+    result = server.preview_manual_entry_archive_path({
+        'image_path': '/staged/scan.jpg', 'merchant_name': 'Kroger',
+        'transaction_date': 'not-a-date', 'total_amount': 12.34,
+    })
+    assert result['ok'] is False
 
 
 def test_process_pdf_document_dispatches_trainer(monkeypatch, tmp_path):
@@ -6416,7 +6696,8 @@ def test_format_month_range():
 
 def test_associated_source_paths_finds_pdf_and_receipt(monkeypatch):
     monkeypatch.setattr(server, '_find_matching_report_row', lambda d, a, v: (
-        {'report_path': '/rol_finances_reports/jan-2025/doc_a/report.html'}
+        ReportRowMatch(report_path='/rol_finances_reports/jan-2025/doc_a/report.html',
+                       label='Doc A', row_vendor_key='kum_go')
         if d == '2025-06-01' else None))
     monkeypatch.setattr(server, '_source_document_path',
                         lambda rp: '/home/adamsl/rol_finances/readable_documents/'

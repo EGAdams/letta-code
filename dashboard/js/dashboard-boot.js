@@ -8,6 +8,7 @@
 // behaviour lives in the unit-tested classes under ./implementation/; this file
 // only binds them to the DOM. See clean_up_dashboard_html.md for the cutover.
 
+import { buildArchiveVerifyCommand } from "./abstract/archive-verify-command.js";
 import { TextUtils } from "./abstract/text-utils.js";
 import {
   ActivePoller,
@@ -1725,16 +1726,15 @@ const AM = {
         }).then((session) => {
           _archiveTerminalSession = { session, hostEl };
           if (session && session.sendLine) {
-            const archivePath = data.archive_path;
-            const archiveName = data.archive_name || "";
-            const shellQuote = (value) =>
-              `'${String(value).replaceAll("'", `'"'"'`)}'`;
-            // -1 forces one entry per line instead of ls's default
+            // -a1 forces one entry per line instead of ls's default
             // multi-column layout, which was wrapping across several rows.
             // ANSI 102 is a light-green background; the exact durable archive
             // file returned by the server is highlighted in the listing.
             session.sendLine(
-              `cd ${shellQuote(archivePath)} && ls -a1 | awk -v target=${shellQuote(archiveName)} '{ if ($0 == target) printf "\\033[102;30m%s\\033[0m\\n", $0; else print }'`,
+              buildArchiveVerifyCommand(
+                data.archive_path,
+                data.archive_name || "",
+              ),
             );
           }
         });

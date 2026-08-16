@@ -89,6 +89,12 @@ One `DashboardHandler(SimpleHTTPRequestHandler)`. Two registries drive most of t
   - "Letta Server" has a `log_file` despite running remotely — `_letta_remote_log_pull_loop` SSHes
     every 30s and content-sniffs `*-json.log` for Letta's signature (don't assume the named
     container is the live one).
+  - **`browser-server`** (ChatGPT Browser Server) — Flask server on `:5001` that drives a real
+    Chrome/Chromium window logged into chatgpt.com using `undetected_chromedriver`. Provides
+    HTTP API endpoints (`/health`, `/type`, `/send`, `/read_thread`) for the `relay_message_to_chatgpt`
+    tool. Red = not running or Chrome not logged into ChatGPT. Start from dashboard Server Management
+    tab or use skill `relaying-messages-to-chatgpt`. See `BROWSER_SERVER_INTEGRATION.md` for setup,
+    API reference, and troubleshooting. Implementation: `browser_tools/browser_server.py`.
 
 Everything else proxies the live Letta API (`LETTA_BASE_URL`, default `http://100.80.49.10:8283`).
 Claude Code has no Letta agent — its messages/tool calls are local JSON

@@ -26,6 +26,10 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
       clear it so tests never inherit a claim from an earlier test.
     - _create_mazda_conversation: intake tests must not create live Letta
       conversations unless they explicitly replace this stub.
+    - EXECUTION_MODE: resolved once at import time from MAZDA_DECISION_MODE,
+      so a developer's shell exporting human_only would otherwise silently
+      change what every dispatch test exercises. Tests for human_only itself
+      override this explicitly.
     """
     import server
     monkeypatch.setattr(
@@ -34,6 +38,7 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
     monkeypatch.setattr(server, 'TRAINER_ENABLED', False)
     monkeypatch.setattr(server, '_create_mazda_conversation',
                         lambda: 'conv-test-isolated')
+    monkeypatch.setattr(server, 'EXECUTION_MODE', 'auto')
     server._scan_dispatch_claims.clear()
     yield
     server._scan_dispatch_claims.clear()

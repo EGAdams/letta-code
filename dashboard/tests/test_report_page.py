@@ -13,6 +13,7 @@ from finance.report_page import (
     RecentIntakePage,
     RecentReportPage,
     ReportPageRoutes,
+    ReportRowMatch,
     ScannerReportPage,
     parse_report_page,
 )
@@ -112,3 +113,12 @@ class TestStrictness:
         page = ScannerReportPage(scanner_key='window')
         with pytest.raises(ValidationError):
             page.scanner_key = 'freezer'
+
+    def test_report_row_match_is_a_strict_frozen_model(self):
+        match = ReportRowMatch(
+            report_path='/x/report.html', label='X', row_vendor_key='vendor')
+        assert match.report_path == '/x/report.html'
+        with pytest.raises(ValidationError):
+            ReportRowMatch(report_path='/x/report.html', label='X')  # missing field
+        with pytest.raises(ValidationError):
+            match.label = 'Y'

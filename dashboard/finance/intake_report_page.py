@@ -42,6 +42,21 @@ _PAGE_CSS = """
     .status-bad { border-left-color:#b91c1c; background:#fef2f2; color:#7f1d1d; font-weight:600; }
     .status-ok { border-left-color:#15803d; background:#f0fdf4; }
     .status-working { border-left-color:#f4b400; background:#fffbeb; }
+    .status-attention { border-left-color:#b45309; background:#fffbeb; color:#78350f; font-weight:600; }
+    .manual-entry-form { margin:16px 0; padding:14px 16px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; }
+    .manual-entry-form h2 { margin-top:0; }
+    .manual-entry-field { margin:8px 0; }
+    .manual-entry-field label { display:block; font-size:0.85rem; color:#334155; }
+    .manual-entry-field input, .manual-entry-field select { width:100%; max-width:320px; padding:6px 8px; margin-top:2px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.95rem; }
+    .manual-entry-field input[type="text"] { margin-top:6px; }
+    .manual-entry-form button { margin:8px 8px 8px 0; padding:7px 14px; border-radius:6px; border:1px solid #334155; background:#0f172a; color:#fff; cursor:pointer; }
+    .manual-entry-form button:hover { background:#1e293b; }
+    .manual-entry-item-nav { margin:10px 0; padding:8px 0; border-top:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+    .manual-entry-item-nav span { margin:0 8px; font-weight:600; color:#334155; }
+    .manual-entry-archive-path { margin-top:2px; padding:6px 8px; background:#eef2f7; border-radius:6px; font-family:ui-monospace,monospace; font-size:0.85rem; word-break:break-all; color:#334155; }
+    .manual-entry-errors { color:#b91c1c; font-weight:600; min-height:1.2em; }
+    .manual-entry-status { color:#334155; min-height:1.2em; }
+    .terminal-host { height:220px; margin-top:8px; border-radius:8px; overflow:hidden; }
 """
 
 
@@ -117,9 +132,32 @@ def mazda_working_html(progress):
             f'<ul>{steps}</ul></div>')
 
 
+def manual_entry_form_html(image_path, conversation_id, scanner_key=''):
+    """The needs_human_review Save-by-hand form's mount point.
+
+    All rendering and behavior live in js/implementation/manual-entry-form.js
+    (backed by js/abstract/manual-entry.interface.js) — this only emits the
+    mount point and the data it needs, matching how every other page-level
+    widget in this app splits abstract/implementation. Python owns the
+    server-rendered shell; the browser owns the form once it mounts.
+
+    scanner_key (blank for a PDF-kind intake, no scanner involved) lets the
+    form's post-save archive-verification terminal reuse the exact same
+    /api/scanner-archive-path lookup the Scanner tabs already use.
+    """
+    return (
+        '<div id="manual-entry-root" '
+        f'data-image-path="{_esc(image_path or "", quote=True)}" '
+        f'data-conversation-id="{_esc(conversation_id or "", quote=True)}" '
+        f'data-scanner-key="{_esc(scanner_key or "", quote=True)}"></div>\n'
+        '<script type="module" src="/js/implementation/manual-entry-form.js"></script>\n'
+    )
+
+
 def render_intake_report(*, headline, subtitle, meta_fields, status_text,
                          status_tone, table_html, working_html='',
-                         auto_refresh=False, extra_css='', picker_html=''):
+                         auto_refresh=False, extra_css='', picker_html='',
+                         manual_entry_html=''):
     """Assemble the page. Every argument is already-decided content, so this
     function only ever answers "where does it go on the page?"."""
     refresh = '<meta http-equiv="refresh" content="30">' if auto_refresh else ''
@@ -136,5 +174,6 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
         + document_meta_html(meta_fields)
         + f'  <p class="status-banner status-{status_tone}">{_esc(status_text)}</p>\n'
         + working_html
+        + manual_entry_html
         + table_html
         + '</section>\n' + picker_html + '\n</body></html>')

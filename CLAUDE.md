@@ -110,6 +110,7 @@ Default to using Bun instead of Node.js.
 ### Tools layer (`src/tools/`)
 - `toolDefinitions.ts` - Central registry mapping tool names to implementations and markdown descriptions. Supports multiple toolsets for different providers (Anthropic, Gemini, Codex).
 - `impl/` - Individual tool implementations (Bash, Read, Edit, Write, Glob, Grep, etc.).
+  - `RelayMessageToChatGpt.ts` - Sends messages to a controlled ChatGPT browser session via `browser_server.py` (requires port 5001); auto-discovers browser server via URL candidates or executor gateway.
 - `descriptions/` - Markdown files that serve as tool descriptions sent to the model.
 - `manager.ts` - Loads tools, manages pre/post-tool-use hooks, handles provider-specific tool name mappings.
 - Multiple toolsets exist for different AI providers with name mappings (e.g., `glob_gemini` -> `glob`).

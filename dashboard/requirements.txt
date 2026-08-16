@@ -9,3 +9,8 @@ pytesseract>=0.3.13
 # The dashboard-server systemd unit runs server.py from .venv, which does
 # not inherit system site-packages, so this must be listed explicitly.
 PyMySQL>=1.1,<2
+# vendor_category_lookup.py (rol_finances/tools/categorizer/python_libary/)
+# is imported straight into this process by _vendor_category_lookup() for
+# the "pick a vendor" dropdown (/api/vendor-keys) -- same .venv-isolation
+# reason as PyMySQL above.
+PyYAML>=6.0,<7
