@@ -79,6 +79,7 @@ from supporting_document_service import (
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 from finance.expense_schema import InformationSchemaProbe, ShowColumnsProbe
 from finance.expense_edit_model import ExpenseEdit, ExpenseNotFound
+from finance.http_coercion import as_float, as_int
 from finance.expense_edit_repository import (
     ICategoryNamer,
     MySqlExpenseRecordRepository,
@@ -964,9 +965,9 @@ def submit_manual_receipt_entry(data):
     # strict=True deliberately rejects a numeric field arriving as a string
     # rather than silently coercing it.
     try:
-        total_amount = float(data.get('total_amount'))
-    except (TypeError, ValueError):
-        return {'ok': False, 'error': 'total_amount must be a number'}
+        total_amount = as_float(data.get('total_amount'), 'total_amount')
+    except ValueError as exc:
+        return {'ok': False, 'error': str(exc)}
     category_name = str(data.get('category_name') or '').strip()
     category_id = None
     if category_name:
@@ -974,9 +975,9 @@ def submit_manual_receipt_entry(data):
         if category_cls is None:
             return {'ok': False, 'error': f'Unknown category: {category_name!r}'}
     try:
-        org_id = int(data.get('org_id') or 1)
-    except (TypeError, ValueError):
-        return {'ok': False, 'error': 'org_id must be an integer'}
+        org_id = as_int(data.get('org_id') or 1, 'org_id')
+    except ValueError as exc:
+        return {'ok': False, 'error': str(exc)}
     try:
         entry = manual_entry.ManualReceiptEntry(
             image_path=data.get('image_path', ''),
@@ -1033,9 +1034,9 @@ def preview_manual_entry_archive_path(data):
     will file the document before pressing it."""
     data = data or {}
     try:
-        total_amount = float(data.get('total_amount'))
-    except (TypeError, ValueError):
-        return {'ok': False, 'error': 'total_amount must be a number'}
+        total_amount = as_float(data.get('total_amount'), 'total_amount')
+    except ValueError as exc:
+        return {'ok': False, 'error': str(exc)}
     try:
         result = archive_path.preview_archive_path(
             data.get('image_path', ''),
@@ -1116,14 +1117,8 @@ def edit_stored_expense(data, repository=None, namer=None):
     repo = repository or _get_expense_edit_repository()
     resolver = namer or TaxonomyCategoryNamer()
     try:
-        expense_id = int(data.get('expense_id'))
-    except (TypeError, ValueError):
-        return {'ok': False, 'error': 'expense_id must be an integer'}
-    try:
-        total_amount = float(data.get('total_amount'))
-    except (TypeError, ValueError):
-        return {'ok': False, 'error': 'total_amount must be a number'}
-    try:
+        expense_id = as_int(data.get('expense_id'), 'expense_id')
+        total_amount = as_float(data.get('total_amount'), 'total_amount')
         category_id = resolver.id_for(data.get('category_name'))
     except ValueError as exc:
         return {'ok': False, 'error': str(exc)}

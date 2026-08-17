@@ -31,6 +31,7 @@ from finance.expense_edit_model import (
 )
 from finance.category_naming import ICategoryNamer
 from finance.expense_schema import InformationSchemaProbe, IExpenseSchemaProbe
+from finance.http_coercion import as_optional_float, as_optional_int
 
 #: Columns the search reads only if the live table actually has them.
 OPTIONAL_COLUMNS = ('id_light',)
@@ -210,17 +211,8 @@ def search_criteria_from_request(data: dict) -> ExpenseSearchCriteria:
     for the insert path.
     """
     data = data or {}
-    amount_raw = data.get('amount')
-    amount = None
-    if amount_raw not in (None, ''):
-        try:
-            amount = float(amount_raw)
-        except (TypeError, ValueError):
-            raise ValueError('amount must be a number')
-    try:
-        limit = int(data.get('limit') or 0) or None
-    except (TypeError, ValueError):
-        raise ValueError('limit must be an integer')
+    amount = as_optional_float(data.get('amount'), 'amount')
+    limit = as_optional_int(data.get('limit') or None, 'limit')
     fields: dict[str, Any] = {
         'merchant': str(data.get('merchant') or ''),
         'date_from': _optional_text(data.get('date_from')),

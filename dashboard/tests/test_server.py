@@ -7753,3 +7753,63 @@ def test_expense_edit_invalidates_the_receipt_index(monkeypatch):
     repo = _StubEditRepository(result=_edit_result())
     server.edit_stored_expense(_edit_body(), repository=repo, namer=_StubNamer())
     assert calls == [1]
+
+
+# ---------------------------------------------------------------------------
+# Boolean coercion at the HTTP boundary (found 2026-08-17)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('field', ['expense_id', 'total_amount'])
+def test_expense_edit_refuses_a_json_boolean_as_a_number(field):
+    # bool subclasses int, so int(True) == 1: {"expense_id": true} used to be
+    # accepted and went on to edit expense row 1.
+    repo = _StubEditRepository(result=_edit_result())
+    out = server.edit_stored_expense(
+        _edit_body(**{field: True}), repository=repo, namer=_StubNamer())
+    assert out['ok'] is False
+    assert 'boolean' in out['error']
+    assert repo.edits == []
+
+
+def test_expense_search_refuses_a_json_boolean_amount():
+    repo = _StubEditRepository(records=[])
+    out = server.search_stored_expenses({'amount': True}, repository=repo)
+    assert out['ok'] is False
+    assert 'boolean' in out['error']
+
+
+def test_expense_search_refuses_a_json_boolean_limit():
+    repo = _StubEditRepository(records=[])
+    out = server.search_stored_expenses(
+        {'merchant': 'Kroger', 'limit': True}, repository=repo)
+    assert out['ok'] is False
+    assert 'boolean' in out['error']
+
+
+def test_manual_receipt_entry_refuses_a_json_boolean_amount():
+    out = server.submit_manual_receipt_entry({
+        'image_path': '/staged/scan.jpg', 'merchant_name': 'Kroger',
+        'transaction_date': '2026-08-15', 'total_amount': True,
+    })
+    assert out['ok'] is False
+    assert 'boolean' in out['error']
+
+
+def test_archive_preview_refuses_a_json_boolean_amount():
+    out = server.preview_manual_entry_archive_path({
+        'image_path': '/staged/scan.jpg', 'merchant_name': 'Kroger',
+        'transaction_date': '2026-08-15', 'total_amount': True,
+    })
+    assert out['ok'] is False
+    assert 'boolean' in out['error']
+
+
+def test_a_numeric_string_is_still_accepted_after_the_boolean_guard():
+    # The guard must not have tightened the ordinary string coercion the
+    # strict Pydantic models depend on.
+    repo = _StubEditRepository(result=_edit_result())
+    out = server.edit_stored_expense(
+        _edit_body(expense_id='501', total_amount='20.00'),
+        repository=repo, namer=_StubNamer())
+    assert out['ok'] is True
+    assert repo.edits[0].expense_id == 501
