@@ -6,11 +6,14 @@ import {
   buildPreviewPayload,
   buildSubmitPayload,
   defaultArchiveKind,
+  PREVIEW_ENGINE,
   readArchivePreviewResponse,
   readCategoriesResponse,
   readPrefillResponse,
   readSubmitResponse,
+  readVendorCandidates,
   readVendorKeysResponse,
+  readVendorRememberedResponse,
   validateManualEntry,
 } from "../abstract/manual-entry.interface.js";
 
@@ -93,11 +96,21 @@ describe("buildSubmitPayload", () => {
 });
 
 describe("buildPreviewPayload", () => {
-  test("carries only the image path", () => {
+  test("defaults to the zero-token local engine", () => {
     expect(
       buildPreviewPayload({ imagePath: "/x.jpg", conversationId: "c" }),
     ).toEqual({
       image_path: "/x.jpg",
+      engine: "local",
+    });
+  });
+
+  test("carries an explicit engine through", () => {
+    expect(
+      buildPreviewPayload({ imagePath: "/x.jpg" }, PREVIEW_ENGINE.GEMINI_ONLY),
+    ).toEqual({
+      image_path: "/x.jpg",
+      engine: "gemini-only",
     });
   });
 });
@@ -116,8 +129,23 @@ describe("readPrefillResponse", () => {
       merchantName: "Kroger",
       transactionDate: "2026-08-15",
       totalAmount: 12.34,
+      vendorAmbiguous: false,
+      vendorCandidates: [],
+      vendorKey: null,
+      categoryName: null,
       error: null,
     });
+  });
+
+  test("reads a matched vendor_key + category alongside the OCR fields", () => {
+    const result = readPrefillResponse({
+      ok: true,
+      merchant_name: "Samaritans Purse",
+      vendor_key: "samaritans_purse",
+      category_name: "Samaritans Purse",
+    });
+    expect(result.vendorKey).toBe("samaritans_purse");
+    expect(result.categoryName).toBe("Samaritans Purse");
   });
 
   test("partial OCR results still surface whatever was found", () => {
@@ -125,6 +153,8 @@ describe("readPrefillResponse", () => {
     expect(result.merchantName).toBe("Kroger");
     expect(result.transactionDate).toBeNull();
     expect(result.totalAmount).toBeNull();
+    expect(result.vendorKey).toBeNull();
+    expect(result.categoryName).toBeNull();
   });
 
   test.each([[null], [undefined], ["a string"], [42], [[]]])(
@@ -152,6 +182,23 @@ describe("readSubmitResponse", () => {
       ok: true,
       expenseId: 9001,
       duplicate: false,
+      vendorRemembered: null,
+    });
+  });
+
+  test("reads a successful save that remembered a new vendor", () => {
+    expect(
+      readSubmitResponse({
+        ok: true,
+        expense_id: 9001,
+        duplicate: false,
+        vendor_remembered: { remembered: true, vendor_key: "samaritans_purse" },
+      }),
+    ).toEqual({
+      ok: true,
+      expenseId: 9001,
+      duplicate: false,
+      vendorRemembered: { remembered: true, vendorKey: "samaritans_purse" },
     });
   });
 
@@ -203,6 +250,35 @@ describe("readVendorKeysResponse", () => {
     expect(() => readVendorKeysResponse(bad)).not.toThrow();
     expect(readVendorKeysResponse(bad)).toEqual([]);
   });
+});
+
+describe("readVendorRememberedResponse", () => {
+  test("reads a remembered vendor", () => {
+    expect(
+      readVendorRememberedResponse({
+        remembered: true,
+        vendor_key: "samaritans_purse",
+      }),
+    ).toEqual({ remembered: true, vendorKey: "samaritans_purse" });
+  });
+
+  test("reads a not-remembered result (already known)", () => {
+    expect(
+      readVendorRememberedResponse({
+        remembered: false,
+        vendor_key: "samaritans_purse",
+        reason: "vendor_key already known",
+      }),
+    ).toEqual({ remembered: false, vendorKey: "samaritans_purse" });
+  });
+
+  test.each([[null], [undefined], ["not-an-object"]])(
+    "malformed input %p returns null instead of throwing",
+    (bad) => {
+      expect(() => readVendorRememberedResponse(bad)).not.toThrow();
+      expect(readVendorRememberedResponse(bad)).toBeNull();
+    },
+  );
 });
 
 describe("readCategoriesResponse", () => {
@@ -365,4 +441,69 @@ describe("readArchivePreviewResponse", () => {
       expect(readArchivePreviewResponse(bad).ok).toBe(false);
     },
   );
+});
+
+describe("readVendorCandidates / ambiguous prefill", () => {
+  test("reads the candidate list a DTE-style ambiguous prefill carries", () => {
+    const prefill = readPrefillResponse({
+      ok: true,
+      merchant_name: "DTE Energy",
+      vendor_key: null,
+      category_name: null,
+      vendor_ambiguous: true,
+      vendor_candidates: [
+        { vendor_key: "dte_energy_0544", category_name: "Housing Gas Bill" },
+        {
+          vendor_key: "dte_energy_0020",
+          category_name: "Church Electric Bill",
+        },
+      ],
+    });
+    expect(prefill.vendorAmbiguous).toBe(true);
+    expect(prefill.vendorKey).toBe(null);
+    expect(prefill.categoryName).toBe(null);
+    expect(prefill.vendorCandidates).toEqual([
+      { vendorKey: "dte_energy_0544", categoryName: "Housing Gas Bill" },
+      { vendorKey: "dte_energy_0020", categoryName: "Church Electric Bill" },
+    ]);
+  });
+
+  test("an ordinary prefill reports no ambiguity and no candidates", () => {
+    const prefill = readPrefillResponse({
+      ok: true,
+      merchant_name: "Kroger",
+      vendor_key: "kroger",
+      category_name: "Food",
+    });
+    expect(prefill.vendorAmbiguous).toBe(false);
+    expect(prefill.vendorCandidates).toEqual([]);
+  });
+
+  test.each([
+    ["a non-array", "nope"],
+    ["null", null],
+    ["undefined", undefined],
+  ])("degrades safely when vendor_candidates is %s", (_label, value) => {
+    expect(readVendorCandidates(value)).toEqual([]);
+  });
+
+  test("drops entries with no usable vendor key rather than showing blanks", () => {
+    expect(
+      readVendorCandidates([
+        { vendor_key: "dte_energy_0544", category_name: "Housing Gas Bill" },
+        { vendor_key: "" },
+        { category_name: "orphan" },
+        null,
+        "nope",
+      ]),
+    ).toEqual([
+      { vendorKey: "dte_energy_0544", categoryName: "Housing Gas Bill" },
+    ]);
+  });
+
+  test("a candidate with no category still reads, with a null category", () => {
+    expect(readVendorCandidates([{ vendor_key: "dte_energy_0020" }])).toEqual([
+      { vendorKey: "dte_energy_0020", categoryName: null },
+    ]);
+  });
 });

@@ -74,11 +74,13 @@ def transactions_table_html(rows, *, source_document_url='', empty_note=''):
             ))
     body_rows = '\n'.join(trs) or (
         '<tr><td colspan="4" class="muted">%s</td></tr>' % _esc(empty_note))
-    return ('  <h2>Verified Transactions</h2>\n'
+    return ('  <div class="dialog-panel">\n'
+            '  <h2>Verified Transactions</h2>\n'
             '  <table id="verified-transactions"><thead><tr>'
             '<th>Description</th><th class="number">Amount</th><th>Date</th>'
             '<th>Category</th></tr></thead><tbody>\n'
-            + body_rows + '\n</tbody></table>\n')
+            + body_rows + '\n</tbody></table>\n'
+            '  </div>\n')
 
 
 def mazda_working_html(progress):
@@ -145,10 +147,7 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
         '<button aria-label="Close"></button></div>\n'
         '  </div>\n'
         '  <div class="window-body">\n'
-        f'  <h1>Most Recent Document: {_esc(headline)}</h1>\n'
-        f'  <p class="muted">{_esc(subtitle)}</p>\n'
-        + document_meta_html(meta_fields)
-        + f'  <p class="status-banner status-{status_tone}">{_esc(status_text)}</p>\n'
+        f'  <p class="status-banner status-{status_tone}">{_esc(status_text)}</p>\n'
         + working_html
         + manual_entry_html
         + table_html

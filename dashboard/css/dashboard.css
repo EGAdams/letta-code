@@ -535,7 +535,7 @@ body.startup-loading .sidebar {
   position: fixed;
   top: 30px;
   left: 0;
-  width: 170px;
+  width: 136px; /* 170px * 0.8 -- freed width goes to .content, see its comment */
   height: calc(100vh - 60px);
   background: var(--sidebar);
   padding: 12px;
@@ -607,8 +607,16 @@ body.startup-loading .sidebar {
 }
 
 .content {
-  max-width: 1100px;
-  margin: 20px auto 20px 220px;
+  /* left margin butts straight up against .sidebar's fixed 136px width --
+     .sidebar ignores body's 30px margin (it's position:fixed to the
+     viewport), so 136px here lands .content's border-box exactly at the
+     sidebar's right edge with zero extra gap at this layer. The remaining
+     ~1/3in of breathing room comes from .content's own 22px padding plus
+     the report page's own body padding (see intake_report.css). max-width
+     grows by the same amount the margin shrank, so the panel keeps the same
+     right-hand edge it always had. */
+  max-width: 1214px;
+  margin: 20px auto 20px 106px;
   background: var(--card);
   border-radius: 4px;
   padding: 22px;
@@ -650,6 +658,17 @@ a:hover {
   height: calc(100vh - 60px);
   border: none;
   display: block;
+}
+
+/* Recent Report / scanner report dialog only -- both views' ids start with
+   "rol-finance-report-" (see rol-finance-reports-controller.js), so this
+   leaves the many other unrelated .plan-frame iframes (project plans, Mazda
+   objects, etc.) untouched. 20% taller overall: top moves up ~3vh (negative
+   margin) and, since height grows by 20vh from that raised top, the bottom
+   edge lands ~17vh lower than before -- net +20vh top-to-bottom. */
+.view[id^="rol-finance-report-"] .plan-frame {
+  height: calc(100vh - 60px + 20vh);
+  margin-top: -3vh;
 }
 
 .reprocess-bar {

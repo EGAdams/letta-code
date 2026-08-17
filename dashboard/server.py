@@ -78,8 +78,16 @@ from supporting_document_service import (
 )
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 from finance.expense_schema import InformationSchemaProbe, ShowColumnsProbe
+from finance.expense_edit_model import ExpenseEdit, ExpenseNotFound
+from finance.expense_edit_repository import (
+    ICategoryNamer,
+    MySqlExpenseRecordRepository,
+    readable_validation_error,
+    records_as_json,
+    search_criteria_from_request,
+)
 from finance.report_page import ReportPageRoutes, ReportRowMatch
-from finance import archive_path, intake_report_model, intake_report_page, manual_entry
+from finance import archive_path, intake_report_model, intake_report_page, manual_entry, vendor_lookup
 from finance.intake_report_model import (
     META_EMPTY,
     document_type_label as _document_type_label,
@@ -1011,7 +1019,12 @@ def submit_manual_receipt_entry(data):
                           if not duplicate
                           else f'Matched an existing expense (id={expense_id}); not double-entered.'),
     })
-    return {'ok': True, 'expense_id': expense_id, 'duplicate': duplicate}
+    return {
+        'ok': True,
+        'expense_id': expense_id,
+        'duplicate': duplicate,
+        'vendor_remembered': report.get('vendor_remembered'),
+    }
 
 
 def preview_manual_entry_archive_path(data):
@@ -1035,6 +1048,111 @@ def preview_manual_entry_archive_path(data):
     except ValueError as exc:
         return {'ok': False, 'error': str(exc)}
     return {'ok': True, **result}
+
+
+class TaxonomyCategoryNamer(ICategoryNamer):
+    """Adapter: the Edit Expense repository's two-method view of the taxonomy.
+
+    Both directions already exist on this module (the Set Category dialog uses
+    them); this exposes exactly those two and nothing else, so the repository
+    depends on the job rather than on the whole taxonomy object. Resolved per
+    call so a test replacing either function is honoured.
+    """
+
+    def name_for(self, category_id):
+        return _reporting_category_for_id(category_id) or ''
+
+    def id_for(self, category_name):
+        name = str(category_name or '').strip()
+        if not name:
+            return None
+        target_id, target_cls = _resolve_reporting_category(name)
+        if target_cls is None:
+            raise ValueError(f'Unknown category: {name!r}')
+        return target_id
+
+
+_expense_edit_repository = None
+_expense_edit_repository_lock = threading.Lock()
+
+
+def _get_expense_edit_repository():
+    """Composition root for the Edit Expense search/update boundary."""
+    global _expense_edit_repository
+    with _expense_edit_repository_lock:
+        if _expense_edit_repository is None:
+            _expense_edit_repository = MySqlExpenseRecordRepository(
+                lambda: _rol_get_connection(), TaxonomyCategoryNamer())
+    return _expense_edit_repository
+
+
+def search_stored_expenses(data, repository=None):
+    """POST /api/expense-search: rows behind the Edit Expense button.
+
+    Read-only. A criteria error is the operator's to fix ("enter a merchant, a
+    date range, or an amount"), so it comes back as a message rather than a
+    500; a database failure does not, so it is reported as itself.
+    """
+    repo = repository or _get_expense_edit_repository()
+    try:
+        criteria = search_criteria_from_request(data)
+    except (ValueError, ValidationError) as exc:
+        return {'ok': False, 'error': readable_validation_error(exc)}
+    try:
+        records = repo.search(criteria)
+    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
+        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
+    return {'ok': True, 'records': records_as_json(records)}
+
+
+def edit_stored_expense(data, repository=None, namer=None):
+    """POST /api/expense-edit: write one correction to one stored row.
+
+    Mirrors submit_manual_receipt_entry's boundary discipline exactly -- coerce
+    the untrusted JSON shape here, then let the strict Pydantic model be the
+    single place the three field rules are enforced.
+    """
+    data = data or {}
+    repo = repository or _get_expense_edit_repository()
+    resolver = namer or TaxonomyCategoryNamer()
+    try:
+        expense_id = int(data.get('expense_id'))
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'expense_id must be an integer'}
+    try:
+        total_amount = float(data.get('total_amount'))
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'total_amount must be a number'}
+    try:
+        category_id = resolver.id_for(data.get('category_name'))
+    except ValueError as exc:
+        return {'ok': False, 'error': str(exc)}
+    try:
+        edit = ExpenseEdit(
+            expense_id=expense_id,
+            merchant_name=data.get('merchant_name', ''),
+            transaction_date=data.get('transaction_date', ''),
+            total_amount=total_amount,
+            category_id=category_id,
+        )
+    except ValidationError as exc:
+        return {'ok': False, 'error': readable_validation_error(exc)}
+    try:
+        result = repo.apply_edit(edit)
+    except ExpenseNotFound as exc:
+        return {'ok': False, 'error': str(exc)}
+    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
+        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
+    # An edit can move a row's date/amount, which is what every report.html
+    # row and the receipt index key off -- drop the cached index so "View
+    # Receipt" re-resolves against the new values, same as a fresh save does.
+    _invalidate_receipt_index()
+    return {
+        'ok': True,
+        'record': records_as_json([result.record])[0],
+        'changed_fields': list(result.changed_fields),
+        'warnings': list(result.warnings),
+    }
 
 
 def record_intake_halt(data):
@@ -2354,15 +2472,7 @@ def undo_recategorize_expense(token):
 # expense_status='NEEDS_VENDOR_KEY' (see save_receipt_pending_vendor_review() in
 # rol_finances) instead of dropping the document. These three functions back the
 # dashboard's "pick a vendor" dialog that finishes the save later.
-CATEGORIZER_LIB_DIR = os.path.expanduser('~/rol_finances/tools/categorizer/python_libary')
-
-
-def _vendor_category_lookup():
-    import sys as _sys
-    if CATEGORIZER_LIB_DIR not in _sys.path:
-        _sys.path.insert(0, CATEGORIZER_LIB_DIR)
-    from vendor_category_lookup import VendorCategoryLookup  # type: ignore
-    return VendorCategoryLookup()
+_vendor_category_lookup = vendor_lookup.vendor_category_lookup
 
 
 def list_vendor_keys():
@@ -9182,7 +9292,10 @@ MODEL_STAT_SOURCES = {
     'r46-codex':  {'label': 'R46 Codex OAuth',  'kind': 'codex',  'host': R46_SSH_HOST},
     'w11-claude': {'label': 'W11 Claude OAuth', 'kind': 'claude', 'host': None},
     'r46-claude': {'label': 'R46 Claude OAuth', 'kind': 'claude', 'host': R46_SSH_HOST},
-    'gemini':     {'label': 'Antigravity CLI',  'kind': 'gemini', 'host': None},
+    # 2026-08-16: replaced Antigravity CLI monitoring with the Gemini API key
+    # ("Gemini Flash Fill" button's engine) -- different Google products, see
+    # _GEMINI_FLASH_FILL_EXTRACT_PY's docstring for why they were conflated.
+    'gemini':     {'label': 'Gemini API (receipts)', 'kind': 'gemini', 'host': None},
 }
 
 # Extractors run on the target machine (locally or piped over SSH). Each prints a
@@ -9355,100 +9468,67 @@ except Exception:
 print(json.dumps(out))
 '''
 
-# Gemini CLI was shut off for individual accounts on 2026-06-18 and replaced by
-# Google's Antigravity CLI (`agy`). Antigravity has no dedicated real-time quota
-# API for free consumer accounts, so we derive a daily-requests window: the tier's
-# daily request cap (loadCodeAssist) as the limit, and today's count of
-# `streamGenerateContent` calls in agy's session logs as "used".
-_ANTIGRAVITY_EXTRACT_PY = r'''
-import json, os, glob, datetime, urllib.parse, urllib.request, urllib.error
-HOME = os.path.expanduser("~")
-AG = os.path.join(HOME, ".gemini", "antigravity-cli")
-out = {"account": None, "tier": None, "tier_id": None, "limit": None,
-       "used": None, "resets_at": None, "logged_in": False, "error": None}
-TOKEN = os.path.join(AG, "antigravity-oauth-token")
-# Keep OAuth client credentials out of source control. They are only needed when
-# an expired access token must be refreshed; the existing token remains usable
-# without them until then.
-OAUTH_CLIENT_ID = os.environ.get("ANTIGRAVITY_OAUTH_CLIENT_ID")
-OAUTH_CLIENT_SECRET = os.environ.get("ANTIGRAVITY_OAUTH_CLIENT_SECRET")
+# 2026-08-16: this card used to monitor Google's Antigravity CLI (`agy`), an
+# entirely different product from the Gemini *API* (generativelanguage.
+# googleapis.com) that GEMINI_API_KEY authenticates against and that the
+# dashboard's own "Gemini Flash Fill" button (finance/manual_entry.py's
+# gemini-only preview engine) actually spends -- EG initially assumed Gemini
+# itself had been deprecated in favor of Antigravity; confirmed via search
+# that's wrong (the retired product was the old Gemini *CLI*, a chat/coding
+# tool; Antigravity is its replacement and now runs *on top of* the still-
+# current Gemini API, not instead of it). Antigravity CLI usage was never the
+# thing this dashboard actually spends, so it's replaced here with real
+# monitoring for the key that is: the same "count real calls seen in a local
+# log" approach as Antigravity used, applied to
+# parse_and_categorize.py's own GEMINI_API_USAGE_LOG (~/.gemini/
+# receipt_api_usage.log), written by _log_gemini_api_call() on every actual
+# API attempt. There is no usage-query endpoint for a bare API key the way
+# Antigravity's OAuth session has loadCodeAssist, so unlike that card's real
+# Google-reported tier/limit, the "limit" here is a locally-configured
+# estimate (GEMINI_FLASH_FILL_DAILY_LIMIT env var, default 250 -- Google's
+# published free-tier gemini-2.5-flash RPD as of this writing), not
+# authoritative -- flagged as such in the card's detail text.
+_GEMINI_FLASH_FILL_EXTRACT_PY = r'''
+import datetime, json, os
+USAGE_LOG = os.path.expanduser("~/.gemini/receipt_api_usage.log")
+DAILY_LIMIT = int(os.environ.get("GEMINI_FLASH_FILL_DAILY_LIMIT", "250"))
+out = {"configured": False, "used": 0, "limit": DAILY_LIMIT, "resets_at": None, "error": None}
 
-def refresh_access_token(token_doc):
-    token = token_doc.get("token") or {}
-    refresh_token = token.get("refresh_token")
-    if not refresh_token:
-        raise RuntimeError("access token expired and no refresh token is available")
-    if not OAUTH_CLIENT_ID or not OAUTH_CLIENT_SECRET:
-        raise RuntimeError("access token expired and Antigravity OAuth client credentials are not configured")
-    body = urllib.parse.urlencode({
-        "client_id": OAUTH_CLIENT_ID,
-        "client_secret": OAUTH_CLIENT_SECRET,
-        "refresh_token": refresh_token,
-        "grant_type": "refresh_token",
-    }).encode()
-    req = urllib.request.Request("https://oauth2.googleapis.com/token", data=body,
-        headers={"Content-Type": "application/x-www-form-urlencoded"})
-    renewed = json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
-    access_token = renewed.get("access_token")
-    if not access_token:
-        raise RuntimeError("OAuth refresh returned no access token")
-    token["access_token"] = access_token
-    token["token_type"] = renewed.get("token_type", token.get("token_type", "Bearer"))
-    token["expiry"] = (datetime.datetime.now(datetime.timezone.utc) +
-        datetime.timedelta(seconds=int(renewed.get("expires_in", 3600)))).isoformat()
-    if renewed.get("refresh_token"):
-        token["refresh_token"] = renewed["refresh_token"]
-    token_doc["token"] = token
-    tmp = TOKEN + ".tmp.%d" % os.getpid()
-    with open(tmp, "w") as fh:
-        json.dump(token_doc, fh, indent=2)
-        fh.write("\n")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, TOKEN)
-    return access_token
-
-def load_code_assist(access_token):
-    req = urllib.request.Request(
-        "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
-        data=json.dumps({"metadata": {"ideType": "IDE_UNSPECIFIED",
-            "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"}}).encode(),
-        headers={"Authorization": "Bearer " + access_token, "Content-Type": "application/json"})
-    return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
-
-try:
-    token_doc = json.load(open(TOKEN))
-    at = token_doc["token"]["access_token"]
-    out["logged_in"] = True
-    # Tier + daily request cap.
+def _find_gemini_key():
+    key = os.environ.get("GEMINI_API_KEY")
+    if key:
+        return key
     try:
-        d = load_code_assist(at)
-    except urllib.error.HTTPError as e:
-        if e.code != 401:
-            raise
-        at = refresh_access_token(token_doc)
-        d = load_code_assist(at)
-    ct = d.get("currentTier") or {}
-    out["tier"] = ct.get("name"); out["tier_id"] = ct.get("id")
-    # Free Code Assist for individuals = 1000 req/day; paid tiers = 1500 req/day.
-    out["limit"] = 1000 if ct.get("id") == "free-tier" else 1500
-    # Account email (best-effort).
-    try:
-        ureq = urllib.request.Request("https://www.googleapis.com/oauth2/v1/userinfo",
-            headers={"Authorization": "Bearer " + at})
-        out["account"] = json.loads(urllib.request.urlopen(ureq, timeout=15).read().decode()).get("email")
-    except Exception:
+        with open(os.path.expanduser("~/rol_finances/.env")) as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith("GEMINI_API_KEY="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
         pass
-    # Used today = streamGenerateContent calls across today's session logs.
-    today = datetime.date.today().strftime("%Y%m%d")
+    return None
+
+key = _find_gemini_key()
+out["configured"] = bool(key)
+if not key:
+    out["error"] = "GEMINI_API_KEY not set (~/rol_finances/.env)"
+else:
+    today = datetime.date.today()
     used = 0
-    for f in glob.glob(os.path.join(AG, "log", "cli-%s_*.log" % today)):
-        try:
-            with open(f, errors="ignore") as fh:
-                used += sum(1 for ln in fh if "streamGenerateContent" in ln)
-        except Exception:
-            pass
+    try:
+        with open(USAGE_LOG) as fh:
+            for line in fh:
+                try:
+                    ts = json.loads(line).get("ts")
+                except Exception:
+                    continue
+                if ts and datetime.datetime.fromtimestamp(ts).date() == today:
+                    used += 1
+    except FileNotFoundError:
+        pass  # no calls logged yet today (or ever) -- used stays 0, not an error
     out["used"] = used
-    # Google quota resets at midnight Pacific.
+    # Same reset convention as every other Google per-day cap on this card
+    # (Antigravity/Code Assist included): midnight Pacific.
     try:
         from zoneinfo import ZoneInfo
         pt = ZoneInfo("America/Los_Angeles")
@@ -9457,12 +9537,6 @@ try:
         out["resets_at"] = nxt.astimezone(datetime.timezone.utc).isoformat()
     except Exception:
         pass
-except FileNotFoundError:
-    out["error"] = "not logged in (run `agy` and sign in)"
-except urllib.error.HTTPError as e:
-    out["error"] = "HTTP %d" % e.code
-except Exception as e:
-    out["error"] = str(e)[:160]
 print(json.dumps(out))
 '''
 
@@ -9782,14 +9856,16 @@ def _model_stats_uncached(source_key, src):
         return out
 
     if src['kind'] == 'gemini':
-        # Gemini CLI is retired; this reads Google's Antigravity CLI (`agy`).
-        d = _run_extractor(_ANTIGRAVITY_EXTRACT_PY, src['host'], timeout=45)
-        out['model'] = 'Antigravity (Code Assist)'
-        if d.get('error') or not d.get('logged_in'):
+        # Tracks the Gemini API key ("Gemini Flash Fill" button's engine),
+        # not Antigravity CLI -- see _GEMINI_FLASH_FILL_EXTRACT_PY's comment
+        # for why those are different Google products.
+        d = _run_extractor(_GEMINI_FLASH_FILL_EXTRACT_PY, src['host'], timeout=15)
+        out['model'] = 'gemini-2.5-flash (receipts)'
+        if d.get('error') or not d.get('configured'):
             out['status'] = 'concern'
             out['detail'] = f'usage unavailable: {d.get("error", "no data")}'
             return out
-        limit = d.get('limit') or 1000
+        limit = d.get('limit') or 250
         used = d.get('used') or 0
         up = (100.0 * used / limit) if limit else 0.0
         out['windows'].append({
@@ -9798,9 +9874,10 @@ def _model_stats_uncached(source_key, src):
             'resets_at': d.get('resets_at'),
             'resets_in': _human_reset(d.get('resets_at')),
         })
-        acct = d.get('account') or '?'
-        tier = d.get('tier') or '?'
-        out['detail'] = f'{acct} — {tier} — {used}/{limit} requests today'
+        # Unlike Antigravity's real Google-reported tier/limit, this "limit" is
+        # a locally-configured estimate (no usage-query endpoint exists for a
+        # bare API key) -- said plainly here so it never reads as authoritative.
+        out['detail'] = f'{used}/{limit} requests today (estimate, self-tracked)'
         if up >= 100:
             out['status'] = 'down'
         elif up >= 80:
@@ -11239,6 +11316,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(submit_manual_receipt_entry(data))
 
+        # The Edit Expense button's two calls: find an already-stored row, then
+        # correct it. Save All only ever inserts, so these are the write path
+        # for everything that was typed wrong the first time.
+        if path == '/api/expense-search':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(search_stored_expenses(data))
+
+        if path == '/api/expense-edit':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(edit_stored_expense(data))
+
         if path == '/api/manual-receipt-entry-preview':
             try:
                 data = json.loads(body)
@@ -11247,7 +11341,16 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             image_path = str(data.get('image_path') or '').strip()
             if not image_path:
                 return self.error_response('Missing image_path', 400)
-            ok, payload = manual_entry.preview_receipt_parse(image_path)
+            engine = str(data.get('engine') or 'local').strip()
+            if engine not in manual_entry.PREVIEW_ENGINES:
+                return self.error_response(f'Unsupported engine: {engine}', 400)
+            # TaxonomyCategoryNamer translates the vendor's leaf category
+            # ("Housing Gas Bill") into the reporting-bucket label the form's
+            # dropdown is built from ("Housing Payment & Upkeep"). Without it
+            # the dropdown silently ignored a correctly-resolved category.
+            ok, payload = manual_entry.preview_receipt_parse(
+                image_path, engine=engine,
+                category_namer=TaxonomyCategoryNamer())
             return self.json_response({'ok': ok, **payload})
 
         if path == '/api/manual-receipt-entry-archive-preview':

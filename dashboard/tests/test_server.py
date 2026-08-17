@@ -1026,57 +1026,49 @@ def test_model_stats_sources_cover_w11_r46_gemini():
     assert {'w11-codex', 'r46-codex', 'w11-claude', 'r46-claude', 'gemini'} <= keys
 
 
-def test_antigravity_extractor_refreshes_expired_token_and_retries(
+def test_gemini_flash_fill_extractor_counts_only_todays_calls(
         monkeypatch, tmp_path, capsys):
-    token_dir = tmp_path / '.gemini' / 'antigravity-cli'
-    token_dir.mkdir(parents=True)
-    token_file = token_dir / 'antigravity-oauth-token'
-    token_file.write_text(json.dumps({
-        'auth_method': 'oauth-personal',
-        'token': {
-            'access_token': 'expired-access',
-            'refresh_token': 'durable-refresh',
-            'expiry': '2020-01-01T00:00:00+00:00',
-            'token_type': 'Bearer',
-        },
-    }))
-    monkeypatch.setenv('HOME', str(tmp_path))
-    monkeypatch.setenv('ANTIGRAVITY_OAUTH_CLIENT_ID', 'test-client-id')
-    monkeypatch.setenv('ANTIGRAVITY_OAUTH_CLIENT_SECRET', 'test-client-secret')
-    calls = []
+    # 2026-08-16: replaces the old Antigravity-CLI-token-refresh test -- that
+    # card now monitors the Gemini API key (GEMINI_API_KEY, what "Gemini
+    # Flash Fill" spends), which has no OAuth session to refresh; it just
+    # counts today's lines in parse_and_categorize.py's self-written usage
+    # log (see _log_gemini_api_call in that file).
+    home = tmp_path
+    (home / 'rol_finances').mkdir()
+    (home / 'rol_finances' / '.env').write_text('GEMINI_API_KEY=test-key-123\n')
+    monkeypatch.setenv('HOME', str(home))
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    monkeypatch.delenv('GEMINI_FLASH_FILL_DAILY_LIMIT', raising=False)
 
-    def fake_urlopen(request, timeout=None):
-        calls.append(request)
-        url = request.full_url
-        authorization = request.headers.get('Authorization')
-        if url.endswith('loadCodeAssist') and authorization == 'Bearer expired-access':
-            raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, None)
-        if url == 'https://oauth2.googleapis.com/token':
-            assert b'refresh_token=durable-refresh' in request.data
-            return _FakeResponse(json.dumps({
-                'access_token': 'renewed-access',
-                'expires_in': 3600,
-                'token_type': 'Bearer',
-            }).encode())
-        if url.endswith('loadCodeAssist') and authorization == 'Bearer renewed-access':
-            return _FakeResponse(json.dumps({
-                'currentTier': {'id': 'free-tier', 'name': 'Free'},
-            }).encode())
-        if url.startswith('https://www.googleapis.com/oauth2/v1/userinfo'):
-            return _FakeResponse(b'{"email":"eg1972@gmail.com"}')
-        raise AssertionError(f'unexpected request: {url} {authorization}')
+    import datetime
+    today = datetime.date.today()
+    yesterday = today - datetime.timedelta(days=1)
+    log_dir = home / '.gemini'
+    log_dir.mkdir()
+    log_file = log_dir / 'receipt_api_usage.log'
+    log_file.write_text('\n'.join(json.dumps({'ts': datetime.datetime.combine(
+        d, datetime.time(12, 0)).timestamp()}) for d in (today, today, yesterday)) + '\n')
 
-    monkeypatch.setattr(server.urllib.request, 'urlopen', fake_urlopen)
-    exec(server._ANTIGRAVITY_EXTRACT_PY, {})
+    exec(server._GEMINI_FLASH_FILL_EXTRACT_PY, {})
 
     result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    saved = json.loads(token_file.read_text())['token']
     assert result['error'] is None
-    assert result['tier_id'] == 'free-tier'
-    assert result['account'] == 'eg1972@gmail.com'
-    assert saved['access_token'] == 'renewed-access'
-    assert saved['refresh_token'] == 'durable-refresh'
-    assert len(calls) == 4
+    assert result['configured'] is True
+    assert result['used'] == 2  # only today's two entries, not yesterday's
+    assert result['limit'] == 250
+    assert result['resets_at']
+
+
+def test_gemini_flash_fill_extractor_reports_unconfigured_without_a_key(
+        monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+
+    exec(server._GEMINI_FLASH_FILL_EXTRACT_PY, {})
+
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert result['configured'] is False
+    assert result['error']
 
 
 def _codex_usage(primary, secondary=0, reached=False):
@@ -5551,9 +5543,7 @@ def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('/*css*/', '<div id="rol-category-picker"></div>', '/*rowcss*/'))
     html = server.build_recent_report_html()
-    # The document is named by its filename; the staging directory it is
-    # being processed in is still never exposed.
-    assert 'Most Recent Document: scan_freezer.jpg' in html
+    # The staging directory a document is being processed in is never exposed.
     assert '/staged/' not in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
@@ -6148,7 +6138,6 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
         'cat_class': 'cat-travel-and-vehicle', 'receipt_url': '',
     }])
     html = server.build_scanner_report_html('window')
-    assert 'Most Recent Document: window_scan.jpg' in html
     assert '/staged/' not in html
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
@@ -6250,7 +6239,6 @@ def test_scanner_statement_report_falls_back_to_synthetic_when_no_archive_match(
 
     html = server.build_scanner_report_html('freezer')
 
-    assert 'Most Recent Document: scan_freezer.jpg' in html
     assert 'KFC K980120 GRAND RAPIDS ,MI' in html
 
 
@@ -6273,10 +6261,8 @@ def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
 
     html = server.build_scanner_report_html('freezer')
 
-    # The document is named, never replaced by an "unavailable" sentence, and
-    # only its filename is shown (the staging directory stays private).
-    assert ('Most Recent Document: '
-            'scan_freezer_1786536321_7340d041.jpg') in html
+    # Never replaced by an "unavailable" sentence, and the staging directory
+    # stays private.
     assert 'unavailable' not in html
     assert '/incoming_scans/' not in html
     # No dash-filled metadata rows.
@@ -6286,24 +6272,6 @@ def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
     assert 'class="status-banner status-bad"' in html
     assert 'Mazda Trainer reported STALLED' in html
     assert 'stopped before any transactions were stored' in html
-
-
-def test_recent_intake_html_unclassified_scan_reads_as_state(tmp_path, monkeypatch):
-    _recent_report_env(tmp_path, monkeypatch, docs=())
-    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
-    server.merge_recent_intake_event({
-        'expense_ids': [], 'parsed': None, 'stored': None,
-        'status': 'stalled', 'status_detail': '',
-    })
-    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
-    monkeypatch.setattr(server, '_intake_source_document', lambda intake: '')
-    monkeypatch.setattr(server, '_receipt_only_picker_assets',
-                        lambda: ('', '', ''))
-
-    html = server.build_scanner_report_html('window')
-
-    assert 'Document Type: Not yet identified' in html
-    assert 'Document Type: Unknown' not in html
 
 
 def test_scanner_report_path_resolves_as_synthetic_db_backed_page():
@@ -6440,9 +6408,10 @@ def test_recent_intake_collapses_check_evidence_row_into_real_expense(tmp_path, 
     assert '<td>Check 11049' not in html
 
 
-def test_recent_intake_html_shows_document_metadata(tmp_path, monkeypatch):
-    """The Most Recent Document page shows Document Type / Month Range /
-    Associated PDF / Associated Receipt above the status paragraph."""
+def test_recent_intake_html_omits_document_metadata(tmp_path, monkeypatch):
+    """The Most Recent Document headline and Document Type / Month Range /
+    Associated PDF / Associated Receipt block were removed from the top of
+    the dialog by request -- this guards against them silently coming back."""
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
@@ -6461,10 +6430,9 @@ def test_recent_intake_html_shows_document_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
     html = server.build_recent_report_html()
-    assert 'Document Type: Chase Bank Statement' in html
-    assert 'Month Range: May 30, 2025 &gt;&gt;---&gt; June 23, 2025' in html
-    # Fields with nothing to say are omitted rather than printed as a column
-    # of dashes that buries the lines that do carry information.
+    assert 'Most Recent Document' not in html
+    assert 'Document Type' not in html
+    assert 'Month Range' not in html
     assert 'Associated PDF' not in html
     assert 'Associated Receipt' not in html
     assert 'Archived Scan Image' not in html
@@ -6544,23 +6512,6 @@ def test_recent_intake_html_prefers_statement_archive_over_raw_scan_url(
     assert str(raw_scan) not in html
 
 
-def test_recent_intake_html_pdf_shows_this(tmp_path, monkeypatch):
-    """Rule 2: when the currently-processed document is itself a PDF, the
-    Associated PDF field reads 'this.' rather than searching report rows."""
-    _recent_report_env(tmp_path, monkeypatch, docs=())
-    server.record_recent_intake('/pdf/statement.pdf', 'PDF intake', kind='pdf')
-    server.merge_recent_intake_event({'expense_ids': [7], 'parsed': 1, 'stored': 1})
-    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
-        'date': '2025-06-01', 'amount': '-12.34', 'vendor_key': 'kum_go',
-        'description': 'Kum & Go', 'reporting_category': 'Travel & Vehicle',
-        'cat_class': 'cat-travel-and-vehicle', 'receipt_url': '',
-    }])
-    monkeypatch.setattr(server, '_receipt_only_picker_assets',
-                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
-    html = server.build_recent_report_html()
-    assert 'Associated PDF: <b>this.</b>' in html
-
-
 def test_recent_intake_html_shows_archived_scan_copy_from_callback(tmp_path, monkeypatch):
     base = _recent_report_env(tmp_path, monkeypatch, docs=())
     archived = ('/home/adamsl/rol_finances/readable_documents/bank_statements/'
@@ -6590,7 +6541,6 @@ def test_recent_intake_html_shows_archived_scan_copy_from_callback(tmp_path, mon
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
     html = server.build_recent_report_html()
-    assert f'Archived Scan Image: {archived}' in html
     assert 'Staged Scan Image' not in html
     assert str(staged) not in html
 
@@ -6627,38 +6577,8 @@ def test_recent_receipt_uses_canonical_archive_name_and_not_statement_slot(
 
     html = server.build_recent_report_html()
 
-    assert ('Most Recent Document: '
-            'intercessors_for_america_03_18_25_30_50.jpg') in html
-    assert f'Associated Receipt: {archived}' in html
-    assert f'Archived Scan Image: {archived}' in html
-    assert 'Associated Scanned Statement' not in html
     assert 'Staged Scan Image' not in html
     assert '/staged/window_scan.jpg' not in html
-
-
-def test_recent_intake_html_falls_back_to_derived_archived_scan_copy(tmp_path, monkeypatch):
-    _recent_report_env(tmp_path, monkeypatch, docs=())
-    derived = ('/home/adamsl/rol_finances/readable_documents/bank_statements/'
-               '2025/march/chase_6285_march_18__march_18/'
-               'chase_6285_march_18__march_18.jpg')
-    server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
-    server.merge_recent_intake_event({
-        'expense_ids': [7], 'parsed': 1, 'stored': 1,
-        'doc_kind': 'statement', 'vendor': 'chase',
-    })
-    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
-        'date': '2025-03-18', 'amount': '-30.50', 'vendor_key': 'chase_6285',
-        'description': 'Check 11051', 'reporting_category': 'Gifts & Love Offerings',
-        'cat_class': 'cat-gifts-and-love-offerings', 'receipt_url': '',
-        'document_url': '', 'scanned_statement_url': '', 'moms_ledger': '',
-    }])
-    monkeypatch.setattr(
-        server, '_recent_intake_archive_path',
-        lambda intake, rows, receipt_path='': derived)
-    monkeypatch.setattr(server, '_receipt_only_picker_assets',
-                        lambda: ('', '<div id="rol-category-picker"></div>', ''))
-    html = server.build_recent_report_html()
-    assert f'Archived Scan Image: {derived}' in html
 
 
 def test_scanner_report_hides_staged_image_when_archive_is_missing(
@@ -6679,7 +6599,6 @@ def test_scanner_report_hides_staged_image_when_archive_is_missing(
     assert 'Archived Scan Image' not in html
     assert 'Staged Scan Image:' not in html
     assert '/staged/scan_freezer.jpg' not in html
-    assert 'Most Recent Document: scan_freezer.jpg' in html
 
 
 def test_report_pointer_newer_than_intake_wins(tmp_path, monkeypatch):
@@ -7337,13 +7256,8 @@ def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
 
     html = server.build_scanner_report_html('freezer')
 
-    assert ('Most Recent Document: '
-            'scan_freezer_1786536321_7340d041.jpg') in html
     assert 'unavailable' not in html
     assert '/staged/' not in html
-    assert 'Document Type: Not yet identified' in html
-    assert 'Month Range' not in html
-    assert 'Associated PDF' not in html
     assert 'class="status-banner status-bad"' in html
     assert 'Mazda Trainer reported STALLED' in html
     assert 'stopped before any transactions were stored' in html
@@ -7467,13 +7381,45 @@ def test_submit_manual_receipt_entry_populates_expense_ids(tmp_path, monkeypatch
         'total_amount': 12.34,
     })
 
-    assert result == {'ok': True, 'expense_id': 9001, 'duplicate': False}
+    assert result == {'ok': True, 'expense_id': 9001, 'duplicate': False,
+                       'vendor_remembered': None}
     pointer = server._read_recent_pointer_file()
     intake = pointer['scanner_intakes']['Freezer Scanner']
     assert intake['expense_ids'] == [9001]
     assert intake['status'] == 'complete'
     assert intake['doc_kind'] == 'receipt'
     assert intake['vendor'] == 'Kroger'
+
+
+def test_submit_manual_receipt_entry_surfaces_vendor_remembered(tmp_path, monkeypatch):
+    """When parse_and_categorize.py's --save persisted a brand-new vendor_key
+    (see remember_new_vendor / VendorCategoryLookup.remember), that result
+    must reach the client -- otherwise "+ Add new vendor" looks like it did
+    nothing even when the yaml write actually succeeded."""
+    monkeypatch.setattr(
+        server, 'RECENT_REPORT_POINTER_FILE', str(tmp_path / 'recent_report.json'))
+    server.record_recent_intake(
+        '/staged/scan.jpg', 'Freezer Scanner', kind='scan',
+        conversation_id='conv-new-vendor', dispatched_at=100.0)
+    monkeypatch.setattr(
+        server.manual_entry, 'submit_manual_receipt_entry',
+        lambda entry: (True, {'report': {
+            'success': True, 'expense_id': 55, 'duplicate': False,
+            'vendor_remembered': {'remembered': True, 'vendor_key': 'samaritans_purse',
+                                   'reason': None},
+        }}))
+
+    result = server.submit_manual_receipt_entry({
+        'image_path': '/staged/scan.jpg',
+        'conversation_id': 'conv-new-vendor',
+        'merchant_name': 'Samaritans Purse',
+        'transaction_date': '2026-08-16',
+        'total_amount': 50.0,
+    })
+
+    assert result['vendor_remembered'] == {
+        'remembered': True, 'vendor_key': 'samaritans_purse', 'reason': None,
+    }
 
 
 def test_submit_manual_receipt_entry_invalidates_receipt_index_on_success(
@@ -7541,7 +7487,8 @@ def test_submit_manual_receipt_entry_duplicate_does_not_double_enter(
         'total_amount': 12.34,
     })
 
-    assert result == {'ok': True, 'expense_id': 42, 'duplicate': True}
+    assert result == {'ok': True, 'expense_id': 42, 'duplicate': True,
+                       'vendor_remembered': None}
     pointer = server._read_recent_pointer_file()
     intake = pointer['scanner_intakes']['Freezer Scanner']
     assert intake['duplicate_expense_ids'] == [42]
@@ -7648,3 +7595,161 @@ def test_preview_manual_entry_archive_path_rejects_bad_date():
         'transaction_date': 'not-a-date', 'total_amount': 12.34,
     })
     assert result['ok'] is False
+
+
+# ---------------------------------------------------------------------------
+# Edit Expense handlers (/api/expense-search, /api/expense-edit)
+# ---------------------------------------------------------------------------
+
+class _StubEditRepository:
+    """Stands in for MySqlExpenseRecordRepository so the handlers can be tested
+    without a finance DB -- the repository's own behaviour is covered by
+    tests/test_expense_edit.py."""
+
+    def __init__(self, records=(), result=None, error=None):
+        self._records = list(records)
+        self._result = result
+        self._error = error
+        self.edits = []
+
+    def search(self, criteria):
+        if self._error:
+            raise self._error
+        self.criteria = criteria
+        return self._records
+
+    def apply_edit(self, edit):
+        if self._error:
+            raise self._error
+        self.edits.append(edit)
+        return self._result
+
+
+class _StubNamer:
+    def __init__(self, mapping=None):
+        self._mapping = mapping or {'Office': 140}
+
+    def name_for(self, category_id):
+        for name, cid in self._mapping.items():
+            if cid == category_id:
+                return name
+        return ''
+
+    def id_for(self, category_name):
+        name = (category_name or '').strip()
+        if not name:
+            return None
+        if name not in self._mapping:
+            raise ValueError(f'Unknown category: {name!r}')
+        return self._mapping[name]
+
+
+def _stub_record(**overrides):
+    from finance.expense_edit_model import ExpenseRecord
+    fields = dict(id=501, transaction_date='2026-08-15', total_amount=12.34,
+                  description='Kroger', vendor_key='kroger_08_15_26_12_34',
+                  category_id=140, category_name='Office')
+    fields.update(overrides)
+    return ExpenseRecord(**fields)
+
+
+def test_expense_search_returns_records_as_json():
+    repo = _StubEditRepository(records=[_stub_record()])
+    out = server.search_stored_expenses({'merchant': 'Kroger'}, repository=repo)
+    assert out['ok'] is True
+    assert out['records'][0]['id'] == 501
+    assert out['records'][0]['category_name'] == 'Office'
+
+
+def test_expense_search_reports_an_empty_criteria_set_as_a_message():
+    repo = _StubEditRepository()
+    out = server.search_stored_expenses({}, repository=repo)
+    assert out['ok'] is False
+    assert 'merchant' in out['error']
+
+
+def test_expense_search_surfaces_a_database_failure_verbatim():
+    repo = _StubEditRepository(error=RuntimeError('connection refused'))
+    out = server.search_stored_expenses({'merchant': 'Kroger'}, repository=repo)
+    assert out['ok'] is False
+    assert 'connection refused' in out['error']
+
+
+def _edit_body(**overrides):
+    body = dict(expense_id=501, merchant_name='Kroger Fuel',
+                transaction_date='2026-08-15', total_amount=20.0,
+                category_name='Office')
+    body.update(overrides)
+    return body
+
+
+def _edit_result(**overrides):
+    from finance.expense_edit_model import ExpenseEditResult
+    fields = dict(record=_stub_record(description='Kroger Fuel',
+                                      total_amount=20.0),
+                  changed_fields=('description', 'amount'),
+                  warnings=('vendor key is stale',))
+    fields.update(overrides)
+    return ExpenseEditResult(**fields)
+
+
+def test_expense_edit_resolves_the_category_name_to_an_id(monkeypatch):
+    monkeypatch.setattr(server, '_invalidate_receipt_index', lambda: None)
+    repo = _StubEditRepository(result=_edit_result())
+    out = server.edit_stored_expense(
+        _edit_body(), repository=repo, namer=_StubNamer())
+    assert out['ok'] is True
+    assert repo.edits[0].category_id == 140
+    assert out['changed_fields'] == ['description', 'amount']
+    assert out['warnings'] == ['vendor key is stale']
+
+
+def test_expense_edit_rejects_an_unknown_category():
+    repo = _StubEditRepository(result=_edit_result())
+    out = server.edit_stored_expense(
+        _edit_body(category_name='Not A Category'),
+        repository=repo, namer=_StubNamer())
+    assert out['ok'] is False
+    assert 'Unknown category' in out['error']
+    assert repo.edits == []
+
+
+def test_expense_edit_coerces_a_string_amount_at_the_boundary(monkeypatch):
+    monkeypatch.setattr(server, '_invalidate_receipt_index', lambda: None)
+    repo = _StubEditRepository(result=_edit_result())
+    out = server.edit_stored_expense(
+        _edit_body(total_amount='20.00'), repository=repo, namer=_StubNamer())
+    assert out['ok'] is True
+    assert repo.edits[0].total_amount == 20.0
+
+
+@pytest.mark.parametrize('overrides', [
+    {'expense_id': 'abc'},
+    {'total_amount': 'twenty'},
+    {'merchant_name': '   '},
+    {'transaction_date': '08/15/2026'},
+])
+def test_expense_edit_refuses_a_malformed_body_without_writing(overrides):
+    repo = _StubEditRepository(result=_edit_result())
+    out = server.edit_stored_expense(
+        _edit_body(**overrides), repository=repo, namer=_StubNamer())
+    assert out['ok'] is False
+    assert repo.edits == []
+
+
+def test_expense_edit_reports_a_missing_row_as_a_message():
+    from finance.expense_edit_model import ExpenseNotFound
+    repo = _StubEditRepository(error=ExpenseNotFound('no expense with id 501'))
+    out = server.edit_stored_expense(
+        _edit_body(), repository=repo, namer=_StubNamer())
+    assert out['ok'] is False
+    assert 'no expense with id 501' in out['error']
+
+
+def test_expense_edit_invalidates_the_receipt_index(monkeypatch):
+    calls = []
+    monkeypatch.setattr(server, '_invalidate_receipt_index',
+                        lambda: calls.append(1))
+    repo = _StubEditRepository(result=_edit_result())
+    server.edit_stored_expense(_edit_body(), repository=repo, namer=_StubNamer())
+    assert calls == [1]

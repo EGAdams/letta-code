@@ -28,11 +28,21 @@
  * @property {?string} transactionDate
  * @property {?number} totalAmount
  * @property {?string} error
+ * @property {?string} vendorKey     an exact vendor_category.yaml match for
+ *   merchantName, if any -- lets the form preselect the "known vendor"
+ *   dropdown instead of leaving it on the free-text merchant name alone
+ * @property {?string} categoryName  the matched vendor's (or a fuzzy
+ *   category-only match's) category, prefilled even when vendorKey is null
  *
  * @typedef {Object} VendorOption
  * @property {string} vendorKey
  * @property {?string} categoryName  the vendor's known category, if any -- lets
  *   picking a vendor also prefill the category dropdown
+ *
+ * @typedef {Object} VendorRememberedResult
+ * @property {boolean} remembered  true if a brand-new vendor_key was just
+ *   written to vendor_category.yaml
+ * @property {?string} vendorKey   the slug it was (or would be) stored under
  */
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -87,9 +97,22 @@ export function buildSubmitPayload(fields, intakeRef) {
   };
 }
 
-/** @param {IntakeRef} intakeRef */
-export function buildPreviewPayload(intakeRef) {
-  return { image_path: intakeRef.imagePath };
+//: The two engines POST /api/manual-receipt-entry-preview accepts -- the
+//: server's own PREVIEW_ENGINES allow-list is the enforcement point (never
+//: trust the client alone), this just keeps a caller from typing a stray
+//: engine name that would only ever bounce as a 400.
+export const PREVIEW_ENGINE = Object.freeze({
+  LOCAL: "local",
+  GEMINI_ONLY: "gemini-only",
+});
+
+/**
+ * @param {IntakeRef} intakeRef
+ * @param {string} [engine] one of PREVIEW_ENGINE's values; defaults to the
+ *   zero-token local OCR pass ("Prefill from OCR" button's engine)
+ */
+export function buildPreviewPayload(intakeRef, engine = PREVIEW_ENGINE.LOCAL) {
+  return { image_path: intakeRef.imagePath, engine };
 }
 
 /**
@@ -107,6 +130,8 @@ export function readPrefillResponse(json) {
     merchantName: null,
     transactionDate: null,
     totalAmount: null,
+    vendorKey: null,
+    categoryName: null,
     error: "malformed response",
   };
   if (typeof json !== "object" || json === null) return blank;
@@ -118,12 +143,59 @@ export function readPrefillResponse(json) {
     typeof json.total_amount === "number" && Number.isFinite(json.total_amount)
       ? json.total_amount
       : null;
+  const vendorKey =
+    typeof json.vendor_key === "string" ? json.vendor_key : null;
+  const categoryName =
+    typeof json.category_name === "string" ? json.category_name : null;
   return {
     ok: json.ok === true,
     merchantName,
     transactionDate,
     totalAmount,
+    vendorKey,
+    categoryName,
+    vendorAmbiguous: json.vendor_ambiguous === true,
+    vendorCandidates: readVendorCandidates(json.vendor_candidates),
     error: typeof json.error === "string" ? json.error : null,
+  };
+}
+
+/**
+ * Boundary check for the `vendor_candidates` list a prefill carries when the
+ * merchant name matched several stored vendors that disagree about the
+ * category (e.g. "DTE Energy" -> the house's account or the church's). The
+ * server prefills nothing in that case; these are what the operator picks
+ * from instead. A malformed entry is dropped rather than shown as a blank
+ * choice — an unlabelled option in this list would be worse than no option.
+ * @param {unknown} value
+ * @returns {VendorOption[]}
+ */
+export function readVendorCandidates(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (row) => row && typeof row.vendor_key === "string" && row.vendor_key,
+    )
+    .map((row) => ({
+      vendorKey: row.vendor_key,
+      categoryName:
+        typeof row.category_name === "string" ? row.category_name : null,
+    }));
+}
+
+/**
+ * Boundary check for the nested vendor_remembered object POST
+ * /api/manual-receipt-entry's response carries on success. Malformed or
+ * absent input is a normal "nothing to report" case (an existing vendor
+ * was picked, so nothing new needed remembering) -- never an error.
+ * @param {unknown} json
+ * @returns {?VendorRememberedResult}
+ */
+export function readVendorRememberedResponse(json) {
+  if (typeof json !== "object" || json === null) return null;
+  return {
+    remembered: json.remembered === true,
+    vendorKey: typeof json.vendor_key === "string" ? json.vendor_key : null,
   };
 }
 
@@ -141,6 +213,7 @@ export function readSubmitResponse(json) {
       ok: true,
       expenseId: typeof json.expense_id === "number" ? json.expense_id : null,
       duplicate: json.duplicate === true,
+      vendorRemembered: readVendorRememberedResponse(json.vendor_remembered),
     };
   }
   return {
@@ -181,6 +254,21 @@ export function readCategoriesResponse(json) {
   if (typeof json !== "object" || json === null || json.ok !== true) return [];
   const names = Array.isArray(json.categories) ? json.categories : [];
   return names.filter((name) => typeof name === "string" && name);
+}
+
+/**
+ * Amount display formatting: always two decimal places (e.g. "12" or "12.5"
+ * -> "12.00" / "12.50"), so the field reads as money instead of a bare
+ * number. Anything that isn't a finite number yet (blank, "-", mid-typing)
+ * is returned unchanged -- formatting only applies once there's a real
+ * number to format, so an operator isn't fought while typing.
+ * @param {string} value
+ * @returns {string}
+ */
+export function formatAmountForDisplay(value) {
+  const amount = Number(value);
+  if (value === "" || !Number.isFinite(amount)) return value;
+  return amount.toFixed(2);
 }
 
 /** A single blank line item for the multi-expense-per-document form. */

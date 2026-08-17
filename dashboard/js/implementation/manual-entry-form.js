@@ -31,6 +31,8 @@ import {
   buildPreviewPayload,
   buildSubmitPayload,
   defaultArchiveKind,
+  formatAmountForDisplay,
+  PREVIEW_ENGINE,
   readArchivePreviewResponse,
   readCategoriesResponse,
   readPrefillResponse,
@@ -39,6 +41,7 @@ import {
   validateManualEntry,
 } from "../abstract/manual-entry.interface.js";
 import { mountTerminal } from "./detail-renderers.js";
+import { ExpenseEditDialog } from "./expense-edit-dialog.js";
 import { FetchHttpClient } from "./fetch-http-client.js";
 
 const NEW_VENDOR_OPTION = "__new__";
@@ -53,12 +56,14 @@ export class ManualEntryForm {
     root,
     doc = document,
     mountTerminal: mountTerminalFn = mountTerminal,
+    EditDialog = ExpenseEditDialog,
   }) {
     if (!root) throw new TypeError("ManualEntryForm requires a mount element");
     this.http = http;
     this.root = root;
     this.doc = doc;
     this._mountTerminal = mountTerminalFn;
+    this._EditDialog = EditDialog;
     this.conversationId = root.dataset.conversationId || "";
     this.scannerKey = root.dataset.scannerKey || "";
     this.items = [blankManualEntryFields()];
@@ -75,27 +80,57 @@ export class ManualEntryForm {
     const shell = this.doc.createElement("div");
     shell.className = "manual-entry-form";
 
-    shell.appendChild(this._el("h2", { text: "Enter This Document By Hand" }));
-    shell.appendChild(
-      this._el("p", {
-        className: "muted",
-        text:
-          "Mazda did not run for this document. Fill in what the receipt says " +
-          "(or try Prefill, then correct it) and Save All.",
-      }),
-    );
-
-    this.imagePathInput = this._labeledInput(
-      shell,
-      "Image path (auto-detected, editable if wrong)",
-      {
-        type: "text",
-      },
-    );
+    const imagePathWrap = this._el("div", { className: "manual-entry-field" });
+    shell.appendChild(imagePathWrap);
+    imagePathWrap.appendChild(this._el("label", { text: "Image path" }));
+    this.imagePathInput = this._el("input");
+    this.imagePathInput.type = "text";
+    // Full-width like .manual-entry-archive-path (a path is exactly the kind
+    // of value the 320px cap on ordinary fields was too narrow for).
+    this.imagePathInput.classList.add("manual-entry-field-wide");
+    this.imagePathInput.placeholder =
+      "/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans";
     this.imagePathInput.value = this.root.dataset.imagePath || "";
+    imagePathWrap.appendChild(this.imagePathInput);
+    this.showImageButton = this._button(
+      imagePathWrap,
+      "Show Image",
+      "show-image",
+    );
+    // Auto-detected means "from this scanner's own staged scan" -- there's no
+    // scanner for a PDF-kind intake (scannerKey is "" there, see
+    // manual_entry_form_html's docstring), so there's nothing this button can
+    // open.
+    this.showImageButton.disabled = !this.scannerKey;
+    this.showImageButton.addEventListener("click", () => {
+      const win = this.doc.defaultView || globalThis;
+      win.open(
+        `/api/intake-document?scanner=${encodeURIComponent(this.scannerKey)}`,
+        "_blank",
+      );
+    });
 
     this.prefillButton = this._button(shell, "Prefill from OCR", "prefill");
-    this.prefillButton.addEventListener("click", () => this._prefill());
+    this.prefillButton.addEventListener("click", () =>
+      this._prefill(PREVIEW_ENGINE.LOCAL, this.prefillButton, "local OCR"),
+    );
+
+    // Opt-in only -- unlike "Prefill from OCR" (zero-token, always safe to
+    // run automatically), this spends a Gemini Flash free-tier call, so it
+    // stays a separate button the operator chooses per EG's request rather
+    // than folding into the local pass.
+    this.geminiFillButton = this._button(
+      shell,
+      "Gemini Flash Fill",
+      "gemini-fill",
+    );
+    this.geminiFillButton.addEventListener("click", () =>
+      this._prefill(
+        PREVIEW_ENGINE.GEMINI_ONLY,
+        this.geminiFillButton,
+        "Gemini Flash",
+      ),
+    );
 
     const nav = this._el("div", { className: "manual-entry-item-nav" });
     shell.appendChild(nav);
@@ -119,6 +154,14 @@ export class ManualEntryForm {
     this.merchantNameInput.placeholder = "Type or pick above";
     this.merchantNameInput.dataset.field = "merchantName";
     vendorWrap.appendChild(this.merchantNameInput);
+    // Shown only when OCR's merchant name matched several stored vendors that
+    // disagree about the category. Nothing is prefilled in that case, so this
+    // is how the operator resolves it -- see readVendorCandidates.
+    this._vendorCandidatesEl = this._el("div", {
+      className: "manual-entry-vendor-candidates",
+    });
+    this._vendorCandidatesEl.style.display = "none";
+    vendorWrap.appendChild(this._vendorCandidatesEl);
 
     this.transactionDateInput = this._labeledInput(shell, "Date", {
       type: "date",
@@ -172,6 +215,48 @@ export class ManualEntryForm {
     shell.appendChild(this._errorsEl);
     const saveButton = this._button(shell, "Save All", "save-all");
     saveButton.addEventListener("click", () => this._saveAll());
+    // Save All only ever inserts. Editing an already-saved row is a different
+    // job, so it gets its own panel (ExpenseEditDialog) rather than a mode
+    // switch inside this form's save path.
+    const editButton = this._button(shell, "Edit Expense", "edit-expense");
+    editButton.addEventListener("click", () => {
+      editButton.classList.toggle("is-pressed", this.editDialog.toggle());
+    });
+
+    // Quick expense lookup, next to Edit Expense: shows the number of
+    // whichever stored expense is currently loaded in the Edit panel (if
+    // any), or -- via the date search -- swaps that number box for a
+    // dropdown of that date's expense numbers. Picking one loads it into
+    // the Edit panel the same way clicking a search result there does.
+    const expenseLookupWrap = this._el("div", {
+      className: "manual-entry-item-nav",
+    });
+    shell.appendChild(expenseLookupWrap);
+    expenseLookupWrap.appendChild(this._el("label", { text: "Expense #" }));
+    this.currentExpenseInput = this._el("input");
+    this.currentExpenseInput.type = "text";
+    this.currentExpenseInput.readOnly = true;
+    expenseLookupWrap.appendChild(this.currentExpenseInput);
+    this.expenseDateResultsSelect = this._el("select");
+    this.expenseDateResultsSelect.style.display = "none";
+    expenseLookupWrap.appendChild(this.expenseDateResultsSelect);
+    expenseLookupWrap.appendChild(
+      this._el("label", { text: "Search by date" }),
+    );
+    this.expenseDateSearchInput = this._el("input");
+    this.expenseDateSearchInput.type = "date";
+    expenseLookupWrap.appendChild(this.expenseDateSearchInput);
+
+    this.expenseDateSearchInput.addEventListener("change", () =>
+      this._searchExpensesByDate(),
+    );
+    this.expenseDateResultsSelect.addEventListener("change", () => {
+      const id = Number(this.expenseDateResultsSelect.value);
+      if (id) this.editDialog.selectStoredExpense(id);
+      this.expenseDateSearchInput.value = "";
+      this._showCurrentExpenseNumber();
+    });
+
     this._statusEl = this._el("div", { className: "manual-entry-status" });
     shell.appendChild(this._statusEl);
     this._archiveTerminalEl = this._el("div");
@@ -189,6 +274,15 @@ export class ManualEntryForm {
       input.addEventListener("input", () => this._captureCurrentItem());
       input.addEventListener("blur", () => this._updateArchivePathPreview());
     }
+    // Two decimal places on blur, not on every keystroke -- reformatting
+    // "12.5" to "12.50" while the operator is still typing "12.50" would
+    // fight them for the cursor.
+    this.totalAmountInput.addEventListener("blur", () => {
+      this.totalAmountInput.value = formatAmountForDisplay(
+        this.totalAmountInput.value,
+      );
+      this._captureCurrentItem();
+    });
     this.categorySelect.addEventListener("change", () =>
       this._captureCurrentItem(),
     );
@@ -207,8 +301,56 @@ export class ManualEntryForm {
     this.archiveKindSelect.value = this.archiveKind;
     this.root.appendChild(shell);
 
+    // Constructed here, not in the constructor, so it mounts into the same
+    // root and reads the taxonomy this form loads below -- one fetch of
+    // /api/rol-finance-categories serves both panels.
+    this.editDialog = new this._EditDialog({
+      http: this.http,
+      root: this.root,
+      doc: this.doc,
+      categoryNames: () => this.categoryNames,
+      onSelected: () => this._showCurrentExpenseNumber(),
+    });
+    this.editDialog.render();
+    this._showCurrentExpenseNumber();
+
     await this._loadDropdownOptions();
     this._renderCurrentItem();
+  }
+
+  async _searchExpensesByDate() {
+    const date = this.expenseDateSearchInput.value;
+    if (!date) {
+      this._showCurrentExpenseNumber();
+      return;
+    }
+    const records = await this.editDialog.searchByDate(date);
+    this._renderExpenseDateResults(records);
+  }
+
+  _renderExpenseDateResults(records) {
+    this.expenseDateResultsSelect.innerHTML = "";
+    if (!records.length) {
+      const opt = this._el("option", { text: "No expenses on that date" });
+      opt.value = "";
+      this.expenseDateResultsSelect.appendChild(opt);
+    } else {
+      for (const record of records) {
+        const opt = this._el("option", { text: `#${record.id}` });
+        opt.value = String(record.id);
+        this.expenseDateResultsSelect.appendChild(opt);
+      }
+    }
+    this.currentExpenseInput.style.display = "none";
+    this.expenseDateResultsSelect.style.display = "";
+  }
+
+  _showCurrentExpenseNumber() {
+    this.expenseDateResultsSelect.style.display = "none";
+    this.currentExpenseInput.style.display = "";
+    this.currentExpenseInput.value = this.editDialog.selectedId
+      ? `#${this.editDialog.selectedId}`
+      : "";
   }
 
   _el(tag, { className, text } = {}) {
@@ -299,6 +441,95 @@ export class ManualEntryForm {
     this._captureCurrentItem();
   }
 
+  /**
+   * Preselect the vendor dropdown/category from an OCR prefill's vendor
+   * match, without touching merchantNameInput -- unlike _applyVendorSelection
+   * (a manual dropdown pick), OCR already put a human-readable name there
+   * ("Consumers Energy"), which reads better than overwriting it with the
+   * vendor_key slug.
+   * @param {import("../abstract/manual-entry.interface.js").ManualEntryPrefill} prefill
+   * @returns {boolean} whether anything was matched
+   */
+  _applyVendorMatch(prefill) {
+    let matched = false;
+    if (
+      prefill.vendorKey &&
+      this.vendorOptions.some((opt) => opt.vendorKey === prefill.vendorKey)
+    ) {
+      this.vendorSelect.value = prefill.vendorKey;
+      matched = true;
+    }
+    if (
+      prefill.categoryName &&
+      this.categoryNames.includes(prefill.categoryName)
+    ) {
+      this.categorySelect.value = prefill.categoryName;
+      matched = true;
+    }
+    return matched;
+  }
+
+  /**
+   * Render the "which of these vendors is it?" choices for an ambiguous
+   * prefill, or clear them. Returns whether any were shown.
+   * @param {import("../abstract/manual-entry.interface.js").ManualEntryPrefill} prefill
+   * @returns {boolean}
+   */
+  _renderVendorCandidates(prefill) {
+    this._vendorCandidatesEl.innerHTML = "";
+    const candidates = prefill.vendorCandidates || [];
+    if (!prefill.vendorAmbiguous || !candidates.length) {
+      this._vendorCandidatesEl.style.display = "none";
+      return false;
+    }
+    this._vendorCandidatesEl.style.display = "";
+    this._vendorCandidatesEl.appendChild(
+      this._el("label", {
+        text: `"${prefill.merchantName || "This vendor"}" matches ${candidates.length} stored vendors — pick the right one:`,
+      }),
+    );
+    for (const candidate of candidates) {
+      const button = this._el("button", {
+        text: `${candidate.vendorKey} — ${candidate.categoryName || "Uncategorized"}`,
+      });
+      button.type = "button";
+      button.dataset.action = "vendor-candidate";
+      button.dataset.vendorKey = candidate.vendorKey;
+      button.addEventListener("click", () =>
+        this._chooseVendorCandidate(candidate),
+      );
+      this._vendorCandidatesEl.appendChild(button);
+    }
+    return true;
+  }
+
+  /**
+   * Apply one operator-chosen candidate. This is the only path that resolves
+   * an ambiguous vendor -- the server deliberately refuses to pick one, so a
+   * human choice is what turns it into a real answer.
+   * @param {import("../abstract/manual-entry.interface.js").VendorOption} candidate
+   */
+  _chooseVendorCandidate(candidate) {
+    if (
+      this.vendorOptions.some((opt) => opt.vendorKey === candidate.vendorKey)
+    ) {
+      this.vendorSelect.value = candidate.vendorKey;
+    }
+    this.merchantNameInput.value = candidate.vendorKey;
+    if (
+      candidate.categoryName &&
+      this.categoryNames.includes(candidate.categoryName)
+    ) {
+      this.categorySelect.value = candidate.categoryName;
+    }
+    this._captureCurrentItem();
+    this._renderVendorCandidates({ vendorAmbiguous: false });
+    this._setStatus(
+      `Vendor set to ${candidate.vendorKey}${candidate.categoryName ? ` (${candidate.categoryName})` : ""}.`,
+    );
+    this._updateArchivePathPreview();
+  }
+
   _currentItem() {
     return this.items[this.currentIndex];
   }
@@ -316,7 +547,7 @@ export class ManualEntryForm {
     const item = this._currentItem();
     this.merchantNameInput.value = item.merchantName;
     this.transactionDateInput.value = item.transactionDate;
-    this.totalAmountInput.value = item.totalAmount;
+    this.totalAmountInput.value = formatAmountForDisplay(item.totalAmount);
     this.categorySelect.value = this.categoryNames.includes(item.categoryName)
       ? item.categoryName
       : NO_CATEGORY_OPTION;
@@ -350,14 +581,25 @@ export class ManualEntryForm {
     this._updateArchivePathPreview();
   }
 
-  async _prefill() {
-    this.prefillButton.disabled = true;
-    this.prefillButton.classList.add("is-pressed");
-    this._setStatus("Reading with local OCR…");
+  /**
+   * @param {string} engine one of PREVIEW_ENGINE's values
+   * @param {HTMLButtonElement} button the button that triggered this pass,
+   *   for the pressed/disabled state -- so the *other* prefill button stays
+   *   clickable while this one is in flight
+   * @param {string} sourceLabel human-readable name for status messages
+   */
+  async _prefill(
+    engine = PREVIEW_ENGINE.LOCAL,
+    button = this.prefillButton,
+    sourceLabel = "local OCR",
+  ) {
+    button.disabled = true;
+    button.classList.add("is-pressed");
+    this._setStatus(`Reading with ${sourceLabel}…`);
     try {
       const json = await this.http.postJSON(
         "/api/manual-receipt-entry-preview",
-        buildPreviewPayload({ imagePath: this.imagePathInput.value }),
+        buildPreviewPayload({ imagePath: this.imagePathInput.value }, engine),
       );
       const prefill = readPrefillResponse(json);
       if (prefill.merchantName)
@@ -365,20 +607,29 @@ export class ManualEntryForm {
       if (prefill.transactionDate)
         this.transactionDateInput.value = prefill.transactionDate;
       if (prefill.totalAmount !== null)
-        this.totalAmountInput.value = String(prefill.totalAmount);
+        this.totalAmountInput.value = formatAmountForDisplay(
+          String(prefill.totalAmount),
+        );
+      const vendorMatched = this._applyVendorMatch(prefill);
+      const needsVendorChoice = this._renderVendorCandidates(prefill);
       this._captureCurrentItem();
       this._setStatus(
         prefill.ok
-          ? "Prefilled from OCR — check every field before saving."
-          : `OCR could not read this document (${prefill.error || "no result"}); fields left blank.`,
+          ? `Prefilled from ${sourceLabel} — check every field before saving.` +
+              (vendorMatched ? " Vendor/category matched too." : "") +
+              (needsVendorChoice
+                ? " More than one stored vendor answers to this name, so no" +
+                  " vendor or category was guessed — pick one below."
+                : "")
+          : `${sourceLabel} could not read this document (${prefill.error || "no result"}); fields left blank.`,
       );
     } catch (err) {
       this._setStatus(
         `Prefill request failed: ${err && err.message ? err.message : err}`,
       );
     } finally {
-      this.prefillButton.disabled = false;
-      this.prefillButton.classList.remove("is-pressed");
+      button.disabled = false;
+      button.classList.remove("is-pressed");
     }
     // The archive path is built from vendor+date+amount -- refresh it the
     // moment OCR has (or hasn't) filled those in, per EG's request, rather
@@ -462,7 +713,21 @@ export class ManualEntryForm {
       );
       return;
     }
-    this._setStatus(`All ${results.length} expense(s) saved.`);
+    let statusText = `All ${results.length} expense(s) saved.`;
+    const newVendorKeys = results
+      .map((r) => r.vendorRemembered)
+      .filter((v) => v && v.remembered && v.vendorKey)
+      .map((v) => v.vendorKey);
+    if (newVendorKeys.length) {
+      statusText += ` Remembered new vendor(s): ${newVendorKeys.join(", ")}.`;
+      // The dropdown was built from the /api/vendor-keys snapshot at mount
+      // time, before this save added to vendor_category.yaml -- reload it
+      // now so the vendor just typed is immediately pickable, not just on
+      // the next page load.
+      await this._loadDropdownOptions();
+      this._renderCurrentItem();
+    }
+    this._setStatus(statusText);
     await this._showArchiveVerification();
     this._showReloadButton();
   }

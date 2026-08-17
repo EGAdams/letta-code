@@ -19,32 +19,40 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import date
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import field_validator
 
+from finance.expense_fields import ExpenseFieldRules
+from finance.vendor_lookup import vendor_category_lookup
 from statement_review import RF_PYPATH, RF_VENV_PY
 
 PARSE_AND_CATEGORIZE_SCRIPT = os.path.expanduser(
     '~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/'
     'parse_and_categorize.py')
 MANUAL_ENTRY_TIMEOUT_SEC = 90
+#: Preview-only engines the "Prefill from OCR" (local, zero-token) and
+#: "Gemini Flash Fill" (gemini-only, free-tier) buttons may request.
+#: Deliberately excludes "auto"/"gemini" (parse_and_categorize.py's CLI
+#: quirk: "gemini" is an alias for the FULL auto chain, including the
+#: chatgpt-oauth/openai paid tiers on Gemini failure -- not a Gemini-only
+#: mode) and "chatgpt-oauth"/"openai" outright, so a preview request can
+#: never reach a paid tier no matter what a caller passes.
+PREVIEW_ENGINES = frozenset({'local', 'gemini-only'})
 
 
-class ManualReceiptEntry(BaseModel):
+class ManualReceiptEntry(ExpenseFieldRules):
     """One human-entered receipt line item.
 
-    Validation mirrors statement_review.py's apply_corrections(): non-empty
-    merchant, ISO date, positive amount -- the same three fields, the same
-    rules, applied here instead of to an existing parsed row.
+    The merchant/date/amount rules come from ExpenseFieldRules -- the same
+    three checks statement_review.py's apply_corrections() applies to a parsed
+    row, and the same ones finance/expense_edit_model.ExpenseEdit applies to a
+    correction -- so a hand-typed insert and a later edit can never disagree
+    about what a valid field looks like. Only the fields specific to *storing a
+    new document* live here.
     """
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
 
     image_path: str
-    merchant_name: str
-    transaction_date: str
-    total_amount: float
     category_id: Optional[int] = None
     org_id: int = 1
 
@@ -55,38 +63,20 @@ class ManualReceiptEntry(BaseModel):
             raise ValueError('image_path is required')
         return value
 
-    @field_validator('merchant_name')
-    @classmethod
-    def _merchant_non_empty(cls, value):
-        cleaned = ' '.join(value.split())
-        if not cleaned:
-            raise ValueError('merchant_name is required')
-        return cleaned
 
-    @field_validator('transaction_date')
-    @classmethod
-    def _date_is_iso(cls, value):
-        date.fromisoformat(value)
-        return value
+def build_preview_command(image_path: str, engine: str = 'local') -> list[str]:
+    """Pure builder for a read-only OCR/AI preview -- no --save, no I/O here.
 
-    @field_validator('total_amount')
-    @classmethod
-    def _amount_is_positive(cls, value):
-        if value <= 0:
-            raise ValueError('total_amount must be positive')
-        return value
-
-
-def build_preview_command(image_path: str) -> list[str]:
-    """Pure builder for a read-only OCR preview -- no --save, no I/O here.
-
-    Same --engine local as the save command: this is the local-OCR pass
-    parse_and_categorize.py always runs before applying overrides, run here
-    on its own with --json so the form can prefill from it instead of
-    starting blank.
+    `engine` must be one of PREVIEW_ENGINES: 'local' (the zero-token OCR
+    pass parse_and_categorize.py always runs before applying overrides) or
+    'gemini-only' (a real Gemini-only tier, falling back to local on
+    failure -- never chatgpt-oauth/openai). Raises ValueError on anything
+    else, so a preview request can never be turned into a paid-tier call.
     """
+    if engine not in PREVIEW_ENGINES:
+        raise ValueError(f'unsupported preview engine: {engine!r}')
     return [RF_VENV_PY, PARSE_AND_CATEGORIZE_SCRIPT,
-            '--file', image_path, '--engine', 'local', '--json']
+            '--file', image_path, '--engine', engine, '--json']
 
 
 def build_save_command(entry: ManualReceiptEntry) -> list[str]:
@@ -188,16 +178,119 @@ def _extract_prefill(payload: dict) -> dict:
     }
 
 
-def preview_receipt_parse(image_path: str, runner=None):
-    """Run the local-OCR-only pass so the form can prefill instead of
-    starting blank. Returns (ok, payload). ok=False just means the form
-    stays blank -- OCR here is a convenience, never a requirement: the same
-    --engine local guarantee (zero LLM/vision calls) applies as for save.
+def _document_text(payload: dict) -> str:
+    """The document's raw OCR text, if the parse payload carried any.
+
+    parse_and_categorize.py puts it at meta.raw_text. It is passed to the
+    vendor lookup purely to disambiguate a merchant name that matches more
+    than one stored vendor -- a DTE bill names its own account number, which
+    is what says whether it is the house's or the church's.
     """
-    result = (runner or _run_parse_and_categorize)(build_preview_command(image_path))
+    meta = payload.get('meta') or {}
+    if not isinstance(meta, dict):
+        return ''
+    text = meta.get('raw_text')
+    return text if isinstance(text, str) else ''
+
+
+def _reporting_label(category_id, category_namer, fallback: str | None):
+    """A category name the form's dropdown can actually select.
+
+    VendorCategoryLookup answers in categories_tree.txt's *leaf* vocabulary
+    ("Housing Gas Bill"); the dropdown is built from the taxonomy's *reporting
+    bucket* labels ("Housing Payment & Upkeep"). Handing the form a leaf name
+    silently did nothing -- a <select> ignores a value matching no option --
+    so a perfectly resolved vendor still left Category blank with no error
+    anywhere (found 2026-08-17). Translating through ICategoryNamer is what
+    makes "found the vendor" also mean "guessed the category".
+
+    Falls back to the leaf name only when no namer was injected (offline
+    tests): callers that want a selectable label always pass one.
+    """
+    if category_namer is None or category_id is None:
+        return fallback
+    try:
+        return category_namer.name_for(category_id) or None
+    except Exception:
+        # Same fail-soft posture as the rest of prefill -- a taxonomy blip
+        # leaves the dropdown for the operator, it never breaks the read.
+        return None
+
+
+def _resolve_vendor_match(merchant_name: str | None, lookup_fn=None,
+                          document_text: str = '',
+                          category_namer=None) -> dict:
+    """Best-effort vendor_key/category lookup for an OCR'd merchant name, so
+    the form can preselect the vendor dropdown (and its category) instead of
+    only filling the free-text merchant field. A lookup failure here must
+    never break OCR prefill -- same fail-soft posture as OCR itself -- so
+    any exception just means "no match", not an error surfaced to the form.
+
+    When the name matches several stored vendors that disagree about the
+    category, nothing is prefilled and `vendor_candidates` comes back for the
+    operator to choose from -- see vendor_disambiguation.py for why guessing
+    one was a real defect ("DTE Energy" -> the house's 0544 account or the
+    church's 0020 account, resolved by vendor_category.yaml ordering).
+
+    `lookup_fn` mirrors `preview_receipt_parse`'s `runner` injection point --
+    tests pass a fake so they don't depend on the real vendor_category.yaml.
+    """
+    blank = {'vendor_key': None, 'category_name': None,
+             'vendor_ambiguous': False, 'vendor_candidates': []}
+    if not merchant_name:
+        return blank
+    try:
+        match = (lookup_fn or vendor_category_lookup)().find_vendor_match(
+            merchant_name, document_text=document_text)
+    except Exception:
+        return blank
+    return {
+        'vendor_key': match.vendor_key,
+        'category_name': _reporting_label(
+            getattr(match, 'category_id', None), category_namer,
+            match.category_name),
+        'vendor_ambiguous': bool(getattr(match, 'ambiguous', False)),
+        'vendor_candidates': [
+            {'vendor_key': c.vendor_key,
+             'category_name': _reporting_label(
+                 getattr(c, 'category_id', None), category_namer,
+                 c.category_name)}
+            for c in getattr(match, 'candidates', []) or []
+        ],
+    }
+
+
+def preview_receipt_parse(image_path: str, engine: str = 'local', runner=None,
+                           vendor_lookup_fn=None, category_namer=None):
+    """Run a read-only parse pass so the form can prefill instead of
+    starting blank. Returns (ok, payload). ok=False just means the form
+    stays blank -- this is a convenience, never a requirement.
+
+    `engine='local'` (default) keeps the zero-LLM/vision-call guarantee
+    documented at module level. `engine='gemini-only'` is the dashboard's
+    opt-in "Gemini Flash Fill" button -- see PREVIEW_ENGINES/
+    build_preview_command for why it can't reach a paid tier even on
+    failure.
+    """
+    try:
+        command = build_preview_command(image_path, engine)
+    except ValueError as exc:
+        return False, {'error': str(exc)}
+    result = (runner or _run_parse_and_categorize)(command)
     if result.get('returncode') != 0:
         return False, {'error': result.get('stderr') or 'preview failed'}
     report = result.get('report') or {}
     if not report:
         return False, {'error': 'could not parse OCR output'}
-    return True, _extract_prefill(report)
+    prefill = _extract_prefill(report)
+    # Every field can legitimately come back None now that the local OCR
+    # fallback leaves unreadable fields blank instead of guessing (today's
+    # date, a $0.00 total) -- that's a real "couldn't read this" result,
+    # not a successful prefill with nothing in it.
+    if not any(prefill.values()):
+        return False, {'error': 'OCR could not read any fields from this document', **prefill}
+    prefill.update(_resolve_vendor_match(
+        prefill.get('merchant_name'), vendor_lookup_fn,
+        document_text=_document_text(report),
+        category_namer=category_namer))
+    return True, prefill

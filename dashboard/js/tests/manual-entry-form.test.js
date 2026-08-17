@@ -161,6 +161,69 @@ describe("ManualEntryForm._prefill", () => {
     expect(form.totalAmountInput.value).toBe("12.34");
   });
 
+  test("preselects the vendor dropdown and category from a matched vendor_key", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": {
+        ok: true,
+        vendor_keys: [
+          {
+            vendor_key: "consumers_energy",
+            category_id: 55,
+            category_name: "Utilities",
+          },
+        ],
+      },
+      "/api/rol-finance-categories": { ok: true, categories: ["Utilities"] },
+      "/api/manual-receipt-entry-preview": {
+        ok: true,
+        merchant_name: "Consumers Energy",
+        vendor_key: "consumers_energy",
+        category_name: "Utilities",
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    await form._prefill();
+    // The readable OCR name stays in the free-text field -- only the
+    // dropdown/category get preselected, not overwritten to the slug.
+    expect(form.merchantNameInput.value).toBe("Consumers Energy");
+    expect(form.vendorSelect.value).toBe("consumers_energy");
+    expect(form.categorySelect.value).toBe("Utilities");
+    expect(form._statusEl.textContent).toContain("Vendor/category matched too");
+  });
+
+  test("a category-only fuzzy match prefills the category without touching the vendor dropdown", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: ["Restaurants"] },
+      "/api/manual-receipt-entry-preview": {
+        ok: true,
+        merchant_name: "Mr Burger Restaurant",
+        category_name: "Restaurants",
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    await form._prefill();
+    expect(form.vendorSelect.value).toBe("");
+    expect(form.categorySelect.value).toBe("Restaurants");
+  });
+
+  test("no vendor/category match leaves the dropdowns alone and doesn't claim a match", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/manual-receipt-entry-preview": {
+        ok: true,
+        merchant_name: "Totally Unknown Vendor",
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    await form._prefill();
+    expect(form._statusEl.textContent).not.toContain("Vendor/category matched");
+  });
+
   test("disables and visually presses the button only while the OCR request is in flight", async () => {
     let stateDuringRequest = null;
     const http = fakeHttp({
@@ -197,6 +260,48 @@ describe("ManualEntryForm._prefill", () => {
     expect(form.prefillButton.disabled).toBe(false);
     expect(form.prefillButton.classList.contains("is-pressed")).toBe(false);
     expect(form._statusEl.textContent).toContain("Prefill request failed");
+  });
+
+  test("Gemini Flash Fill button requests the gemini-only engine and reports its own source", async () => {
+    let requestedEngine = null;
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/manual-receipt-entry-preview": (body) => {
+        requestedEngine = body.engine;
+        return { ok: true, merchant_name: "DTE Energy" };
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    await form._prefill("gemini-only", form.geminiFillButton, "Gemini Flash");
+    expect(requestedEngine).toBe("gemini-only");
+    expect(form.merchantNameInput.value).toBe("DTE Energy");
+    expect(form._statusEl.textContent).toContain("Prefilled from Gemini Flash");
+  });
+
+  test("Gemini Flash Fill only disables/presses its own button, not Prefill from OCR", async () => {
+    let stateDuringRequest = null;
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/manual-receipt-entry-preview": () => {
+        stateDuringRequest = {
+          geminiPressed: form.geminiFillButton.classList.contains("is-pressed"),
+          prefillDisabled: form.prefillButton.disabled,
+        };
+        return { ok: true, merchant_name: "DTE Energy" };
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    await form._prefill("gemini-only", form.geminiFillButton, "Gemini Flash");
+    expect(stateDuringRequest).toEqual({
+      geminiPressed: true,
+      prefillDisabled: false,
+    });
+    expect(form.geminiFillButton.disabled).toBe(false);
+    expect(form.geminiFillButton.classList.contains("is-pressed")).toBe(false);
   });
 });
 
@@ -255,6 +360,59 @@ describe("ManualEntryForm._saveAll", () => {
     expect(submitCalls[0].merchant_name).toBe("Kroger");
     expect(submitCalls[1].merchant_name).toBe("Walgreens");
     expect(form._statusEl.textContent).toContain("All 2 expense(s) saved");
+  });
+
+  test("a newly-remembered vendor is reported and the dropdown is reloaded", async () => {
+    let vendorKeysCallCount = 0;
+    const http = {
+      calls: [],
+      async getJSON(url) {
+        this.calls.push(["GET", url]);
+        if (url === "/api/vendor-keys") {
+          vendorKeysCallCount += 1;
+          return vendorKeysCallCount === 1
+            ? { ok: true, vendor_keys: [] }
+            : {
+                ok: true,
+                vendor_keys: [
+                  {
+                    vendor_key: "samaritans_purse",
+                    category_id: 215,
+                    category_name: "Samaritans Purse",
+                  },
+                ],
+              };
+        }
+        return { ok: true, categories: [] };
+      },
+      async postJSON(url, body) {
+        this.calls.push(["POST", url, body]);
+        if (url === "/api/manual-receipt-entry") {
+          return {
+            ok: true,
+            expense_id: 1,
+            duplicate: false,
+            vendor_remembered: {
+              remembered: true,
+              vendor_key: "samaritans_purse",
+            },
+          };
+        }
+        return { ok: true };
+      },
+    };
+    const { form } = setup({ http });
+    await form.mount();
+    form.items = [validItem({ merchantName: "Samaritans Purse" })];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+    await form._saveAll();
+    expect(form._statusEl.textContent).toContain(
+      "Remembered new vendor(s): samaritans_purse",
+    );
+    expect(
+      form.vendorOptions.some((v) => v.vendorKey === "samaritans_purse"),
+    ).toBe(true);
   });
 
   test("a save failure reports which item failed and does not offer reload", async () => {
@@ -426,5 +584,114 @@ describe("ManualEntryForm archive path preview", () => {
     await form.mount();
     await form._prefill();
     expect(form._archivePathEl.textContent).toContain("Kroger");
+  });
+});
+
+describe("ambiguous vendor pick-list (DTE repro)", () => {
+  const AMBIGUOUS_PREFILL = {
+    ok: true,
+    merchant_name: "DTE Energy",
+    transaction_date: "2025-05-12",
+    total_amount: 90.34,
+    vendor_key: null,
+    category_name: null,
+    vendor_ambiguous: true,
+    vendor_candidates: [
+      { vendor_key: "dte_energy_0544", category_name: "Housing Gas Bill" },
+      { vendor_key: "dte_energy_0020", category_name: "Church Electric Bill" },
+    ],
+  };
+
+  function ambiguousHttp(prefill = AMBIGUOUS_PREFILL) {
+    return fakeHttp({
+      "/api/vendor-keys": {
+        ok: true,
+        vendor_keys: [
+          { vendor_key: "dte_energy_0544", category_name: "Housing Gas Bill" },
+          {
+            vendor_key: "dte_energy_0020",
+            category_name: "Church Electric Bill",
+          },
+        ],
+      },
+      "/api/rol-finance-categories": {
+        ok: true,
+        categories: ["Housing Gas Bill", "Church Electric Bill"],
+      },
+      "/api/manual-receipt-entry-preview": prefill,
+      "/api/manual-receipt-entry-archive-preview": { ok: false, error: "n/a" },
+    });
+  }
+
+  async function prefilled(prefill) {
+    const ctx = setup({ http: ambiguousHttp(prefill) });
+    await ctx.form.mount();
+    await ctx.form._prefill();
+    return ctx;
+  }
+
+  test("prefills neither vendor nor category, and offers both accounts", async () => {
+    const { form, root } = await prefilled();
+    expect(form.vendorSelect.value).toBe("");
+    expect(form.categorySelect.value).toBe("");
+    const choices = root.querySelectorAll('[data-action="vendor-candidate"]');
+    expect(choices).toHaveLength(2);
+    expect(choices[0].textContent).toContain("dte_energy_0544");
+    expect(choices[0].textContent).toContain("Housing Gas Bill");
+  });
+
+  test("the status explains why nothing was guessed", async () => {
+    const { form } = await prefilled();
+    expect(form._statusEl.textContent).toContain("More than one stored vendor");
+  });
+
+  test("the merchant name is still prefilled so the operator sees the read", async () => {
+    const { form } = await prefilled();
+    expect(form.merchantNameInput.value).toBe("DTE Energy");
+    expect(form.totalAmountInput.value).toBe("90.34");
+  });
+
+  test("picking a candidate resolves the vendor and its category", async () => {
+    const { form, root } = await prefilled();
+    const choice = root.querySelectorAll('[data-action="vendor-candidate"]')[0];
+    await choice._listeners.click[0]();
+    expect(form.vendorSelect.value).toBe("dte_energy_0544");
+    expect(form.categorySelect.value).toBe("Housing Gas Bill");
+    expect(form.merchantNameInput.value).toBe("dte_energy_0544");
+    expect(form.items[0].categoryName).toBe("Housing Gas Bill");
+  });
+
+  test("picking a candidate clears the pick-list", async () => {
+    const { root } = await prefilled();
+    await root
+      .querySelectorAll('[data-action="vendor-candidate"]')[0]
+      ._listeners.click[0]();
+    expect(
+      root.querySelectorAll('[data-action="vendor-candidate"]'),
+    ).toHaveLength(0);
+  });
+
+  test("an unambiguous prefill shows no pick-list at all", async () => {
+    const { root } = await prefilled({
+      ok: true,
+      merchant_name: "Kroger",
+      transaction_date: "2026-08-15",
+      total_amount: 12.34,
+      vendor_key: null,
+      category_name: null,
+    });
+    expect(
+      root.querySelectorAll('[data-action="vendor-candidate"]'),
+    ).toHaveLength(0);
+  });
+
+  test("ambiguous:true with an empty candidate list shows no pick-list", async () => {
+    const { root } = await prefilled({
+      ...AMBIGUOUS_PREFILL,
+      vendor_candidates: [],
+    });
+    expect(
+      root.querySelectorAll('[data-action="vendor-candidate"]'),
+    ).toHaveLength(0);
   });
 });

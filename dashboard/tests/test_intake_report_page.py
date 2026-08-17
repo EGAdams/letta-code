@@ -104,7 +104,7 @@ def test_transactions_table_marks_category_text_for_picker_updates():
     assert 'class="category-cell" data-category-cell="true">Food</td>' in html
 
 
-def test_render_intake_report_places_the_banner_and_headline():
+def test_render_intake_report_places_the_banner_and_omits_the_headline():
     html = page.render_intake_report(
         headline='scan_freezer.jpg',
         subtitle='Freezer Scanner — dispatched 2026-08-12 08:05',
@@ -113,7 +113,7 @@ def test_render_intake_report_places_the_banner_and_headline():
         status_tone='bad',
         table_html='<table id="verified-transactions"></table>',
     )
-    assert 'Most Recent Document: scan_freezer.jpg' in html
+    assert 'Most Recent Document: scan_freezer.jpg' not in html
     assert 'class="status-banner status-bad"' in html
     assert 'http-equiv="refresh"' not in html
     assert page.render_intake_report(

@@ -1,0 +1,151 @@
+/* Styles for the synthetic intake report page (Recent Report / Last Window
+   Scan / Last Freezer Scan tabs). Rendered by finance/intake_report_page.py,
+   which links this file instead of inlining CSS. */
+
+/* Left padding cut to 10px (from the vendor-default-ish 24px kept on the
+   other 3 sides) -- this iframe sits right against .content's left edge, so
+   its own left padding is the last layer standing between the dialog and the
+   nav column; trimming it is what gets that gap down to ~1/3in total. */
+body { margin:0; padding:24px 24px 24px 10px; background:#008080; }
+/* Matches .content's max-width in dashboard.css -- this page renders inside
+   that div's iframe, so its own cap has to grow in lockstep or the dialog
+   would stay narrow even though its container widened. */
+section.card { padding:0; margin:0 auto; max-width:1214px; }
+/* height, not max-height/auto -- with max-height the box only got as tall as
+   its content needed, so the .plan-frame growth in dashboard.css (the "20%
+   taller" ask) had nothing to visibly push against. A set height makes the
+   dialog always fill the space its iframe now has, scrolling internally
+   past that instead of shrinking to fit. */
+section.card > .window-body { height:calc(100vh - 100px); overflow:auto; }
+h1 { font-size:1.15rem; margin:0 0 4px; } h2 { font-size:1rem; margin:18px 0 8px; }
+table { width:100%; font-size:0.85rem; }
+th.number, td.number { text-align:right; }
+/* 98.css declares font-family directly on <table>, which beats a
+   .dialog-panel ancestor's inherited font-family regardless of specificity
+   — override it here so the Verified Transactions table actually matches
+   the rest of the dialog's Courier New instead of the vendor's pixel font. */
+.dialog-panel table { font-family:"Courier New",Courier,monospace; }
+.muted { color:#6b7280; }
+/* 98.css gives table cells only padding:0 6px and height:14px — fine for a
+   dense one-line data row, but the empty-table explanation (e.g.
+   "MAZDA_DECISION_MODE=human_only — ...") is a full sentence that reads as
+   cramped against the cell edges without room to breathe. */
+td.muted { padding:10px 12px; height:auto; }
+.duplicate-row td { box-shadow:inset 0 2px #b91c1c,inset 0 -2px #b91c1c; }
+.duplicate-badge { display:inline-block; margin-left:8px; padding:2px 7px; background:#b91c1c; color:#fff; font-size:.72rem; letter-spacing:.04em; }
+.mazda-working { margin:16px 0; padding:12px; background:#000; color:#ffe761; }
+.mazda-working h2 { color:#fff; }
+.mazda-progress-shell { height:10px; overflow:hidden; background:rgba(10,16,24,.8); }
+.mazda-progress-bar { height:100%; background:#f4b400; }
+.mazda-working ul { margin:8px 0 0; padding-left:20px; }
+.mazda-step-done { color:#4ade80; } .mazda-step-active { color:#ffe761; font-weight:700; }
+.mazda-step-skipped, .mazda-step-pending { color:#9aa5b1; }
+.doc-meta { margin:12px 0; display:grid; gap:2px; font-size:0.85rem; }
+.doc-meta-row { overflow-wrap:anywhere; }
+.status-banner { margin:14px 0 0; padding:8px 10px; border:2px inset #808080; background:#c0c0c0; }
+.status-bad { background:#ff8080; color:#7f1d1d; font-weight:600; }
+.status-ok { background:#a0ffa0; }
+.status-working { background:#fffbeb; }
+.status-attention { background:#ffdca0; color:#78350f; font-weight:600; }
+/* Shared Win98 panel look (groove border, silver-gray fill) — every section
+   of this dialog box (the manual-entry form, Verified Transactions) shares
+   this one rule so they read as the same style instead of drifting apart as
+   separate copies of the same properties. manual-entry-form.js sets only
+   the "manual-entry-form" class, so it's kept in the selector alongside the
+   new .dialog-panel wrapper rather than touching the JS to add a second class. */
+.manual-entry-form, .dialog-panel { margin:16px 0; padding:10px 12px; border:2px groove #c0c0c0; background:#c0c0c0; font-family:"Courier New",Courier,monospace; }
+.manual-entry-form h2, .dialog-panel h2 { margin-top:0; }
+.manual-entry-field {
+    margin:8px 0;
+    /* Single source of truth for field height — everything that depends on
+       it (the select's square arrow button, its clearance padding) derives
+       from this instead of repeating the number. Change height here only. */
+    --field-height:28px;
+    --field-arrow-gap:8px;
+}
+.manual-entry-field label { display:block; font-size:18px; font-family:"Courier New",Courier,monospace; color:black; margin-bottom:2px; }
+.manual-entry-field input, .manual-entry-field select { width:100%; max-width:320px; padding:6px 4px; min-height:var(--field-height); font-size:18px; font-family:"Courier New",Courier,monospace; }
+/* Drops the 320px cap so this field matches .manual-entry-archive-path's
+   width -- both are plain block-level elements filling the same
+   .manual-entry-field container, so removing one side's cap is enough to
+   make them line up without duplicating a width number in either rule. */
+.manual-entry-field input.manual-entry-field-wide { max-width:none; }
+/* Options render in the browser's native dropdown popup, not this stylesheet's
+   box model — only font properties actually apply, so they get their own rule
+   rather than inheriting width/padding/min-height that would be meaningless. */
+.manual-entry-field select option { font-size:18px; font-family:"Courier New",Courier,monospace; }
+/* 98.css draws the dropdown arrow as a fixed 16x17 SVG button pinned to
+   `top 2px right 2px`, sized for its own fixed 21px input height. A real
+   Win98 list box's arrow button is flush with the box, spans its full
+   height, and is square — not a thin sliver. Size the button to match
+   --field-height (not the vendor's 17px) and widen padding-right so text
+   clears it. */
+.manual-entry-field select {
+    background-position:top right;
+    background-size:var(--field-height) 100%;
+    padding-right:calc(var(--field-height) + var(--field-arrow-gap));
+}
+/* transform:scale grows every button 20% regardless of label length — a
+   padding/min-width bump only widens buttons still sitting at 98.css's
+   75px floor, not longer ones like "+ Add Another Expense" whose width is
+   already set by their text. Scale is paint-only, though: it doesn't push
+   layout siblings away, so origin is pinned top-left (grow right/down only,
+   away from the label before it) and margin-right/bottom are padded out to
+   cover the reserved growth so buttons don't visually collide. */
+.manual-entry-form button {
+    margin:8px calc(8px + 15px) calc(8px + 5px) 0;
+    transform:scale(1.2);
+    transform-origin:left top;
+}
+.manual-entry-form button.is-pressed { box-shadow:inset -1px -1px #fff,inset 1px 1px #0a0a0a,inset -2px -2px #dfdfdf,inset 2px 2px grey; }
+.manual-entry-item-nav { margin:10px 0; padding:8px 0; border-top:1px solid #808080; border-bottom:1px solid #fff; display:flex; align-items:center; gap:calc(4px + 15px); flex-wrap:wrap; }
+.manual-entry-item-nav span { margin:0 8px; font-weight:600; }
+/* A plain div, not an input/select, so it doesn't pick up the shared field
+   rule above — match its box (--field-height, padding, font) by hand so it
+   doesn't read as thinner/smaller than the real fields around it. */
+.manual-entry-archive-path { box-sizing:border-box; margin-top:2px; padding:6px 4px; min-height:var(--field-height); background:#fff; border:2px inset #808080; font-family:"Courier New",monospace; font-size:18px; word-break:break-all; }
+.manual-entry-errors { color:#b91c1c; font-weight:600; min-height:1.2em; }
+.manual-entry-status { min-height:1.2em; }
+.terminal-host { height:220px; margin-top:8px; overflow:hidden; }
+
+/* Edit Expense panel. It reuses .manual-entry-form for the Windows 98 chrome
+   and .manual-entry-field for its inputs, so only the two things that have no
+   counterpart in the entry form are defined here: the search row's wider
+   layout and the results list. */
+.expense-edit-panel .manual-entry-item-nav { align-items:flex-end; }
+.expense-edit-results { display:flex; flex-direction:column; align-items:flex-start; max-height:280px; overflow-y:auto; }
+/* Result rows are full-width, monospace, left-aligned records — not the
+   chunky scaled-up action buttons the shared .manual-entry-form button rule
+   produces — so they undo that scale and read as a list. */
+.expense-edit-results button {
+    margin:2px 0;
+    transform:none;
+    width:100%;
+    text-align:left;
+    font-family:"Courier New",Courier,monospace;
+    font-size:16px;
+    white-space:normal;
+    word-break:break-word;
+}
+.expense-edit-fields { margin-top:10px; padding-top:8px; border-top:1px solid #808080; }
+
+/* Ambiguous-vendor pick-list. Only rendered when OCR's merchant name matched
+   several stored vendors that disagree about the category (two DTE accounts,
+   say), in which case nothing is prefilled and one of these must be chosen.
+   Bordered and inset so it reads as a question being asked, not as more
+   fields to fill in. */
+.manual-entry-vendor-candidates {
+    margin-top:6px;
+    padding:6px 8px;
+    border:2px inset #808080;
+    background:#efefc8;
+}
+.manual-entry-vendor-candidates label { margin-bottom:4px; font-weight:600; }
+.manual-entry-vendor-candidates button {
+    display:block;
+    margin:4px 0;
+    transform:none;
+    text-align:left;
+    font-family:"Courier New",Courier,monospace;
+    font-size:16px;
+}
