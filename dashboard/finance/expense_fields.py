@@ -39,8 +39,14 @@ class ExpenseFieldRules(StrictModel):
     @field_validator('transaction_date')
     @classmethod
     def _date_is_iso(cls, value: str) -> str:
-        date.fromisoformat(value)
-        return value
+        """Validate, and normalise to canonical yyyy-mm-dd.
+
+        ``date.fromisoformat`` also accepts ISO *basic* format ("20260815"),
+        which used to be stored verbatim. Two spellings of one day then compare
+        unequal as strings, so describe_changes reported a date edit that
+        changed nothing. Round-tripping through ``date`` gives one spelling.
+        """
+        return date.fromisoformat(value).isoformat()
 
     @field_validator('total_amount')
     @classmethod

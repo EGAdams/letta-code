@@ -261,3 +261,164 @@ describe("saving an edit", () => {
     expect(dialog.saveButton.disabled).toBe(false);
   });
 });
+
+// ===========================================================================
+// Edge cases
+// ===========================================================================
+
+const OTHER_RECORD = {
+  id: 777,
+  transaction_date: "2026-07-01",
+  total_amount: 5.0,
+  description: "Meijer",
+  vendor_key: "meijer_07_01_26_5_00",
+  category_name: "Office",
+};
+
+describe("stale selection after a new search", () => {
+  async function pickThenSearchAgain(secondResults) {
+    let results = [RECORD];
+    const http = fakeHttp({
+      "/api/expense-search": () => ({ ok: true, records: results }),
+    });
+    const doc = new FakeDocument();
+    const root = doc.createElement("div");
+    doc.add(root);
+    const dialog = new ExpenseEditDialog({
+      http,
+      root,
+      doc,
+      categoryNames: () => ["Office"],
+    });
+    dialog.render();
+    dialog.merchantInput.value = "Kroger";
+    await dialog._search();
+    click(root.querySelector('[data-action="expense-pick"]'));
+    results = secondResults;
+    await dialog._search();
+    return { dialog, http, root };
+  }
+
+  test("a search that no longer contains the picked row clears the selection", async () => {
+    // Otherwise the edit fields kept showing the old row and Save would
+    // silently correct a row the operator was no longer looking at.
+    const { dialog } = await pickThenSearchAgain([OTHER_RECORD]);
+    expect(dialog.selectedId).toBe(null);
+    expect(dialog.editEl.style.display).toBe("none");
+  });
+
+  test("saving after the selection was cleared asks for a row instead of writing", async () => {
+    const { dialog, http } = await pickThenSearchAgain([OTHER_RECORD]);
+    const before = http.calls.length;
+    await dialog._save();
+    expect(http.calls).toHaveLength(before);
+    expect(dialog.statusEl.textContent).toContain("Pick a row");
+  });
+
+  test("a search that still contains the picked row keeps editing it", async () => {
+    const { dialog } = await pickThenSearchAgain([RECORD, OTHER_RECORD]);
+    expect(dialog.selectedId).toBe(501);
+    expect(dialog.editEl.style.display).toBe("");
+  });
+
+  test("an empty second search clears the selection too", async () => {
+    const { dialog } = await pickThenSearchAgain([]);
+    expect(dialog.selectedId).toBe(null);
+  });
+});
+
+describe("dialog input edge cases", () => {
+  test("the amount field is formatted to cents on blur", () => {
+    const { dialog } = setup();
+    dialog.editAmountInput.value = "12.5";
+    dialog.editAmountInput._listeners.blur[0]();
+    expect(dialog.editAmountInput.value).toBe("12.50");
+  });
+
+  test("a not-yet-numeric amount is left alone rather than fought", () => {
+    const { dialog } = setup();
+    for (const partial of ["", "-", "1.2.3", "abc"]) {
+      dialog.editAmountInput.value = partial;
+      dialog.editAmountInput._listeners.blur[0]();
+      expect(dialog.editAmountInput.value).toBe(partial);
+    }
+  });
+
+  test("a trailing decimal point is a finished number and gets formatted", () => {
+    // Number("12.") is 12, so this is a complete value, not mid-typing.
+    const { dialog } = setup();
+    dialog.editAmountInput.value = "12.";
+    dialog.editAmountInput._listeners.blur[0]();
+    expect(dialog.editAmountInput.value).toBe("12.00");
+  });
+
+  test("a search whose only criterion is whitespace never reaches the network", async () => {
+    const { dialog, http } = setup();
+    dialog.merchantInput.value = "   ";
+    await dialog._search();
+    expect(http.calls).toEqual([]);
+  });
+
+  test("an invalid edit does not clear the operator's typing", async () => {
+    const ctx = setup({
+      responses: { "/api/expense-search": { ok: true, records: [RECORD] } },
+    });
+    ctx.dialog.merchantInput.value = "Kroger";
+    await ctx.dialog._search();
+    click(ctx.root.querySelector('[data-action="expense-pick"]'));
+    ctx.dialog.editAmountInput.value = "-5";
+    await ctx.dialog._save();
+    expect(ctx.dialog.editAmountInput.value).toBe("-5");
+    expect(ctx.dialog.errorsEl.textContent).toContain("positive");
+  });
+
+  test("a successful save clears a previously shown validation error", async () => {
+    const ctx = setup({
+      responses: {
+        "/api/expense-search": { ok: true, records: [RECORD] },
+        "/api/expense-edit": {
+          ok: true,
+          record: RECORD,
+          changed_fields: [],
+          warnings: [],
+        },
+      },
+    });
+    ctx.dialog.merchantInput.value = "Kroger";
+    await ctx.dialog._search();
+    click(ctx.root.querySelector('[data-action="expense-pick"]'));
+    ctx.dialog.editMerchantInput.value = "  ";
+    await ctx.dialog._save();
+    expect(ctx.dialog.errorsEl.textContent).toBeTruthy();
+    ctx.dialog.editMerchantInput.value = "Kroger";
+    await ctx.dialog._save();
+    expect(ctx.dialog.errorsEl.textContent).toBe("");
+  });
+
+  test("re-rendering the category list keeps the current pick", () => {
+    const { dialog } = setup();
+    dialog._renderCategoryOptions();
+    dialog.editCategorySelect.value = "Rosemary";
+    dialog._renderCategoryOptions();
+    expect(dialog.editCategorySelect.value).toBe("Rosemary");
+  });
+
+  test("an unchanged save is reported as a no-op rather than as a write", async () => {
+    const ctx = setup({
+      responses: {
+        "/api/expense-search": { ok: true, records: [RECORD] },
+        "/api/expense-edit": {
+          ok: true,
+          record: RECORD,
+          changed_fields: [],
+          warnings: [],
+        },
+      },
+    });
+    ctx.dialog.merchantInput.value = "Kroger";
+    await ctx.dialog._search();
+    click(ctx.root.querySelector('[data-action="expense-pick"]'));
+    await ctx.dialog._save();
+    expect(ctx.dialog.statusEl.textContent).toContain("No changes");
+  });
+});

@@ -294,3 +294,176 @@ describe("formatRecordLabel", () => {
     expect(formatRecordLabel(bare)).toContain("Uncategorized");
   });
 });
+
+// ===========================================================================
+// Edge cases
+// ===========================================================================
+
+describe("numeric edge cases", () => {
+  test.each([
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY],
+    ["-Infinity", Number.NEGATIVE_INFINITY],
+  ])("a %s amount is rejected, not rendered", (_label, amount) => {
+    expect(readExpenseRecord({ ...RECORD_JSON, total_amount: amount })).toBe(
+      null,
+    );
+  });
+
+  test("an id of 0 is rejected — no expense has row id 0", () => {
+    // 0 is finite, so only an explicit check keeps it out.
+    const record = readExpenseRecord({ ...RECORD_JSON, id: 0 });
+    expect(
+      record === null || buildEditPayload(record.id, recordToFields(record)),
+    ).toBeFalsy();
+  });
+
+  test("a zero amount record is read but cannot be saved", () => {
+    const record = readExpenseRecord({ ...RECORD_JSON, total_amount: 0 });
+    expect(record.totalAmount).toBe(0);
+    expect(buildEditPayload(record.id, recordToFields(record))).toBe(null);
+  });
+
+  test("exponent notation in the amount box is accepted as the number it is", () => {
+    expect(validateSearchCriteria(criteria({ amount: "1e2" })).valid).toBe(
+      true,
+    );
+    expect(buildSearchPayload(criteria({ amount: "1e2" })).amount).toBe(100);
+  });
+
+  test("a whitespace-only amount is treated as absent, not as zero", () => {
+    expect(
+      validateSearchCriteria(criteria({ merchant: "K", amount: "  " })).valid,
+    ).toBe(true);
+    expect(
+      buildSearchPayload(criteria({ merchant: "K", amount: "  " })).amount,
+    ).toBe(null);
+  });
+
+  test("a very large amount survives the round trip", () => {
+    const record = readExpenseRecord({
+      ...RECORD_JSON,
+      total_amount: 1234567.89,
+    });
+    expect(recordToFields(record).totalAmount).toBe("1234567.89");
+    expect(buildEditPayload(501, recordToFields(record)).total_amount).toBe(
+      1234567.89,
+    );
+  });
+
+  test("more than two decimals are shown rounded to cents", () => {
+    const record = readExpenseRecord({ ...RECORD_JSON, total_amount: 12.345 });
+    expect(recordToFields(record).totalAmount).toBe("12.35");
+  });
+});
+
+describe("date edge cases", () => {
+  test.each([
+    ["a well-formed but impossible day", "2026-02-30"],
+    ["month 13", "2026-13-01"],
+  ])("%s passes the shape check — the server is the authority", (_l, date) => {
+    // The client regex checks shape only; ExpenseFieldRules rejects the value.
+    expect(validateSearchCriteria(criteria({ dateFrom: date })).valid).toBe(
+      true,
+    );
+  });
+
+  test.each([
+    ["unpadded", "2026-1-5"],
+    ["no separators", "20260815"],
+    ["with a time", "2026-08-15T00:00:00"],
+  ])("a %s date fails the shape check", (_l, date) => {
+    expect(validateSearchCriteria(criteria({ dateFrom: date })).valid).toBe(
+      false,
+    );
+    expect(readExpenseRecord({ ...RECORD_JSON, transaction_date: date })).toBe(
+      null,
+    );
+  });
+
+  test("an equal from/to date is a valid single-day search", () => {
+    expect(
+      validateSearchCriteria(
+        criteria({ dateFrom: "2026-08-15", dateTo: "2026-08-15" }),
+      ).valid,
+    ).toBe(true);
+  });
+
+  test("a reversed range is not reported twice as two separate errors", () => {
+    const result = validateSearchCriteria(
+      criteria({ dateFrom: "2026-08-20", dateTo: "2026-08-01" }),
+    );
+    expect(Object.keys(result.errors)).toEqual(["dateTo"]);
+  });
+});
+
+describe("text edge cases", () => {
+  test("a unicode merchant name is preserved, not stripped", () => {
+    const payload = buildSearchPayload(
+      criteria({ merchant: " Café Münster " }),
+    );
+    expect(payload.merchant).toBe("Café Münster");
+  });
+
+  test("LIKE metacharacters are passed through untouched for the server to escape", () => {
+    // Escaping is the server's job (finance/expense_edit_repository.escape_like);
+    // mangling them here would double-escape.
+    expect(buildSearchPayload(criteria({ merchant: "50%" })).merchant).toBe(
+      "50%",
+    );
+  });
+
+  test("a record label survives a description containing the separator", () => {
+    const record = readExpenseRecord({
+      ...RECORD_JSON,
+      description: "Kroger · Fuel · #12",
+    });
+    expect(formatRecordLabel(record)).toContain("Kroger · Fuel · #12");
+    expect(formatRecordLabel(record).startsWith("#501 ·")).toBe(true);
+  });
+
+  test("a whitespace-only merchant in an edit is refused", () => {
+    const fields = recordToFields(readExpenseRecord(RECORD_JSON));
+    expect(buildEditPayload(501, { ...fields, merchantName: " \t\n " })).toBe(
+      null,
+    );
+  });
+});
+
+describe("response edge cases", () => {
+  test("ok:true with no record at all still reports success without crashing", () => {
+    const result = readEditResponse({ ok: true, changed_fields: ["amount"] });
+    expect(result.ok).toBe(true);
+    expect(result.record).toBe(null);
+    expect(describeEditResult(result)).toContain("updated amount");
+  });
+
+  test("a success carrying a malformed record degrades to a null record", () => {
+    const result = readEditResponse({ ok: true, record: { id: "bad" } });
+    expect(result.ok).toBe(true);
+    expect(result.record).toBe(null);
+  });
+
+  test("an error field that is not a string falls back to a default message", () => {
+    expect(readSearchResponse({ ok: false, error: 42 }).error).toBe(
+      "search failed",
+    );
+    expect(readEditResponse({ ok: false, error: null }).error).toBe(
+      "edit failed",
+    );
+  });
+
+  test("ok expressed as a truthy non-true value is not treated as success", () => {
+    // Strict === true, so "true", 1, and {} are all failures.
+    for (const ok of ["true", 1, {}]) {
+      expect(readSearchResponse({ ok, records: [RECORD_JSON] }).ok).toBe(false);
+      expect(readEditResponse({ ok, record: RECORD_JSON }).ok).toBe(false);
+    }
+  });
+
+  test("an empty successful search is a success, not an error", () => {
+    const result = readSearchResponse({ ok: true, records: [] });
+    expect(result.ok).toBe(true);
+    expect(result.error).toBe(null);
+  });
+});

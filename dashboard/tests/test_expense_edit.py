@@ -182,14 +182,15 @@ def test_request_treats_blank_dates_as_absent():
 def test_merchant_search_covers_vendor_key_when_the_column_exists():
     clauses, params = _where_clauses(
         ExpenseSearchCriteria(merchant='Kroger'), has_vendor_key=True)
-    assert clauses == ['(description LIKE %s OR id_light LIKE %s)']
+    assert clauses == ["(description LIKE %s ESCAPE '!' "
+                       "OR id_light LIKE %s ESCAPE '!')"]
     assert params == ['%Kroger%', '%Kroger%']
 
 
 def test_merchant_search_drops_vendor_key_on_a_narrower_schema():
     clauses, params = _where_clauses(
         ExpenseSearchCriteria(merchant='Kroger'), has_vendor_key=False)
-    assert clauses == ['description LIKE %s']
+    assert clauses == ["description LIKE %s ESCAPE '!'"]
     assert params == ['%Kroger%']
 
 
@@ -377,3 +378,205 @@ def test_a_plain_exception_falls_back_to_its_own_message():
     from finance.expense_edit_repository import readable_validation_error
     assert readable_validation_error(ValueError('amount must be a number')) == (
         'amount must be a number')
+
+
+# ==========================================================================
+# Edge cases
+# ==========================================================================
+
+# --- LIKE metacharacters ---------------------------------------------------
+#
+# `%` and `_` are LIKE pattern syntax, not text. Binding the value stops
+# injection but not this: an unescaped search for "50%" became `%50%%`, which
+# matches anything merely starting with 50, and "a_b" matched "axb".
+
+def test_percent_in_a_merchant_search_is_matched_literally():
+    from finance.expense_edit_repository import escape_like
+    clauses, params = _where_clauses(
+        ExpenseSearchCriteria(merchant='50%'), has_vendor_key=False)
+    assert params == ['%50!%%']
+    assert "ESCAPE '!'" in clauses[0]
+    assert escape_like('50%') == '50!%'
+
+
+def test_underscore_in_a_merchant_search_is_matched_literally():
+    clauses, params = _where_clauses(
+        ExpenseSearchCriteria(merchant='a_b'), has_vendor_key=False)
+    assert params == ['%a!_b%']
+
+
+def test_the_escape_character_itself_is_escaped_first():
+    from finance.expense_edit_repository import escape_like
+    # Otherwise escaping would corrupt a merchant name containing '!'.
+    assert escape_like('Wow!') == 'Wow!!'
+    assert escape_like('!%') == '!!!%'
+
+
+def test_both_columns_get_their_own_escape_clause():
+    clauses, params = _where_clauses(
+        ExpenseSearchCriteria(merchant='50%'), has_vendor_key=True)
+    assert clauses[0].count("ESCAPE '!'") == 2
+    assert params == ['%50!%%', '%50!%%']
+
+
+def test_an_ordinary_merchant_is_unchanged_by_escaping():
+    from finance.expense_edit_repository import escape_like
+    assert escape_like('Kroger') == 'Kroger'
+
+
+# --- Amount tolerance boundaries -------------------------------------------
+
+@pytest.mark.parametrize('delta,expected', [
+    (0.0,    ()),            # identical
+    (0.004,  ()),            # inside the half-cent tolerance
+    (0.005,  ('amount',)),   # exactly at it -- counts as a change
+    (0.01,   ('amount',)),   # a whole cent
+])
+def test_amount_change_detection_at_the_tolerance_boundary(delta, expected):
+    assert describe_changes(_record(), _edit(
+        merchant_name='Kroger', total_amount=12.34 + delta)) == expected
+
+
+def test_a_sign_flip_of_the_same_magnitude_is_not_an_amount_change():
+    # ExpenseRecord always carries the absolute value, so an edit resubmitting
+    # the same magnitude must not read as a change just because the row is
+    # stored negative.
+    assert 'amount' not in describe_changes(
+        _record(total_amount=12.34), _edit(merchant_name='Kroger',
+                                           total_amount=12.34))
+
+
+# --- Unicode / odd text ----------------------------------------------------
+
+def test_a_unicode_merchant_name_survives_the_round_trip():
+    edit = _edit(merchant_name='Café Münster — naïve')
+    assert edit.merchant_name == 'Café Münster — naïve'
+
+
+def test_merchant_whitespace_is_collapsed_not_just_trimmed():
+    assert _edit(merchant_name='  Kum \t\n  Go  ').merchant_name == 'Kum Go'
+
+
+def test_an_emoji_only_merchant_name_is_kept_not_treated_as_empty():
+    assert _edit(merchant_name='🛒').merchant_name == '🛒'
+
+
+# --- Date validity ---------------------------------------------------------
+
+@pytest.mark.parametrize('bad_date', [
+    '2026-02-30',   # well-formed but not a real day
+    '2026-13-01',   # month 13
+    '2026-1-5',     # not zero-padded
+    '2026-08-15T00:00:00',
+    '',
+])
+def test_impossible_and_malformed_dates_are_rejected(bad_date):
+    with pytest.raises(ValidationError):
+        _edit(transaction_date=bad_date)
+
+
+def test_iso_basic_format_is_normalised_to_the_canonical_spelling():
+    # date.fromisoformat accepts "20260815"; storing it verbatim meant two
+    # spellings of one day compared unequal, so describe_changes reported a
+    # date edit that changed nothing.
+    assert _edit(transaction_date='20260815').transaction_date == '2026-08-15'
+
+
+def test_a_normalised_date_is_not_reported_as_a_change():
+    assert describe_changes(
+        _record(transaction_date='2026-08-15'),
+        _edit(merchant_name='Kroger', transaction_date='20260815')) == ()
+
+
+def test_a_real_leap_day_is_accepted():
+    assert _edit(transaction_date='2024-02-29').transaction_date == '2024-02-29'
+
+
+# --- Search criteria boundaries --------------------------------------------
+
+def test_a_single_day_range_is_valid():
+    c = ExpenseSearchCriteria(date_from='2026-08-15', date_to='2026-08-15')
+    assert c.date_from == c.date_to
+
+
+@pytest.mark.parametrize('limit,expected', [
+    (1, 1), (100, 100), (101, 100), (-5, 1),
+])
+def test_limit_clamping_at_the_boundaries(limit, expected):
+    assert ExpenseSearchCriteria(merchant='x', limit=limit).limit == expected
+
+
+def test_a_merchant_of_only_whitespace_is_not_a_criterion():
+    # It collapses to empty, so on its own it must fail the "at least one
+    # criterion" rule rather than searching the whole table for ''.
+    with pytest.raises(ValidationError):
+        ExpenseSearchCriteria(merchant='   \t  ')
+
+
+def test_a_very_small_positive_amount_is_allowed():
+    assert ExpenseSearchCriteria(amount=0.01).amount == pytest.approx(0.01)
+
+
+def test_strict_mode_rejects_an_amount_that_arrives_as_a_string():
+    # The HTTP boundary coerces; the model itself must not.
+    with pytest.raises(ValidationError):
+        ExpenseSearchCriteria(amount='12.34')
+
+
+def test_unknown_fields_are_rejected_rather_than_silently_ignored():
+    with pytest.raises(ValidationError):
+        ExpenseSearchCriteria(merchant='x', typo_field='oops')
+
+
+# --- Repository edge cases -------------------------------------------------
+
+def test_a_row_whose_description_is_null_reads_as_empty_not_none():
+    repo, _ = _repo([_row(description=None, id_light=None)])
+    record = repo.search(ExpenseSearchCriteria(merchant='x'))[0]
+    assert record.description == ''
+    assert record.vendor_key == ''
+
+
+def test_a_row_with_no_category_gets_an_empty_category_name():
+    repo, _ = _repo([_row(category_id=None)])
+    record = repo.search(ExpenseSearchCriteria(merchant='x'))[0]
+    assert record.category_id is None
+    assert record.category_name == ''
+
+
+def test_search_on_a_table_with_no_id_light_column_still_works():
+    repo, _ = _repo([_row(id_light=None)], probe=_FakeProbe(available=()))
+    records = repo.search(ExpenseSearchCriteria(merchant='Kroger'))
+    assert records[0].vendor_key == ''
+
+
+def test_clearing_a_category_is_a_real_change():
+    repo, connection = _repo([_row()])
+    result = repo.apply_edit(_edit(merchant_name='Kroger', category_id=None))
+    assert result.changed_fields == ('category_id',)
+    assert connection.commits == 1
+
+
+def test_an_edit_moving_only_the_date_warns_about_the_vendor_key():
+    repo, _ = _repo([_row()])
+    result = repo.apply_edit(
+        _edit(merchant_name='Kroger', transaction_date='2026-09-01'))
+    assert result.changed_fields == ('expense_date',)
+    assert result.warnings and 'expense_date' in result.warnings[0]
+
+
+def test_moving_both_date_and_amount_names_both_in_one_warning():
+    repo, _ = _repo([_row()])
+    result = repo.apply_edit(_edit(
+        merchant_name='Kroger', transaction_date='2026-09-01',
+        total_amount=99.99))
+    assert len(result.warnings) == 1
+    assert 'expense_date and amount' in result.warnings[0]
+
+
+def test_an_edit_of_a_zero_amount_row_still_keeps_a_positive_sign():
+    # 0.0 is falsy; the sign check must not treat it as "negative".
+    repo, connection = _repo([_row(amount=0.0)])
+    repo.apply_edit(_edit(merchant_name='Kroger', total_amount=5.0))
+    update = [p for sql, p in connection.cur.executed if sql.startswith('UPDATE')]
+    assert update[0][2] == pytest.approx(5.0)

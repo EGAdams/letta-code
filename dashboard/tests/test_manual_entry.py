@@ -532,3 +532,64 @@ def test_an_unmapped_category_id_yields_no_label_rather_than_a_bad_one():
     out = manual_entry._resolve_vendor_match(
         'X', lambda: lookup, category_namer=_FakeNamer())
     assert out['category_name'] is None
+
+
+# ---------------------------------------------------------------------------
+# Edge cases
+# ---------------------------------------------------------------------------
+
+def test_a_candidate_with_no_category_id_keeps_its_own_name_as_a_label():
+    # The label is display-only on the pick-list button, so falling back to
+    # whatever name the candidate carried beats showing the operator nothing.
+    # _chooseVendorCandidate still only sets the dropdown for a selectable one.
+    lookup = _FakeLookup(_FakeMatch(ambiguous=True, candidates=DTE_CANDIDATES))
+    out = manual_entry._resolve_vendor_match(
+        'DTE Energy', lambda: lookup, category_namer=_FakeNamer())
+    assert [c['category_name'] for c in out['vendor_candidates']] == [
+        'Housing Gas Bill', 'Church Electric Bill']
+    assert [c['vendor_key'] for c in out['vendor_candidates']] == [
+        'dte_energy_0544', 'dte_energy_0020']
+
+
+class _OldMatch:
+    """A VendorMatch from before ambiguous/candidates existed."""
+    vendor_key = 'kroger'
+    category_id = None
+    category_name = 'Food'
+
+
+def test_a_match_object_without_the_new_attributes_still_works():
+    # getattr defaults keep the boundary tolerant of a stale library rather
+    # than raising AttributeError in the middle of a prefill.
+    lookup = _FakeLookup(_OldMatch())
+    out = manual_entry._resolve_vendor_match('Kroger', lambda: lookup)
+    assert out['vendor_ambiguous'] is False
+    assert out['vendor_candidates'] == []
+    assert out['vendor_key'] == 'kroger'
+
+
+@pytest.mark.parametrize('name', ['', '   ', None])
+def test_a_blank_merchant_name_skips_the_lookup_entirely(name):
+    lookup = _FakeLookup(_FakeMatch(vendor_key='should_not_be_used'))
+    out = manual_entry._resolve_vendor_match(name, lambda: lookup)
+    assert out['vendor_key'] is None
+    assert lookup.calls == []
+
+
+def test_document_text_defaults_to_empty_when_the_payload_has_no_meta():
+    lookup = _FakeLookup(_FakeMatch(vendor_key='kroger'))
+    manual_entry.preview_receipt_parse(
+        '/x.jpg',
+        runner=lambda c: {'returncode': 0, 'report': {
+            'party': {'merchant_name': 'Kroger'}}},
+        vendor_lookup_fn=lambda: lookup)
+    assert lookup.calls == [('Kroger', '')]
+
+
+def test_a_very_large_raw_text_is_passed_through_unchanged():
+    big = 'Account Number 0544 ' + ('x' * 50_000)
+    assert manual_entry._document_text({'meta': {'raw_text': big}}) == big
+
+
+def test_an_empty_raw_text_string_is_returned_as_empty():
+    assert manual_entry._document_text({'meta': {'raw_text': ''}}) == ''

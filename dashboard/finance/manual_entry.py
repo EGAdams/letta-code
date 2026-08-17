@@ -237,7 +237,9 @@ def _resolve_vendor_match(merchant_name: str | None, lookup_fn=None,
     """
     blank = {'vendor_key': None, 'category_name': None,
              'vendor_ambiguous': False, 'vendor_candidates': []}
-    if not merchant_name:
+    # `.strip()`: a whitespace-only name is truthy in Python, so without it the
+    # lookup was called with "   " and relied on _slugify to shrug it off.
+    if not (merchant_name or '').strip():
         return blank
     try:
         match = (lookup_fn or vendor_category_lookup)().find_vendor_match(

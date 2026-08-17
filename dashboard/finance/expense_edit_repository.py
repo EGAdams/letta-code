@@ -50,6 +50,26 @@ class IExpenseRecordRepository(ABC):
         """Write one correction. Raises ExpenseNotFound for an unknown id."""
 
 
+#: Escape character for LIKE patterns. Not backslash: under the
+#: NO_BACKSLASH_ESCAPES sql_mode a backslash is not an escape at all, and this
+#: has to behave the same either way.
+LIKE_ESCAPE = '!'
+
+
+def escape_like(text: str) -> str:
+    """Neutralise LIKE's wildcards in a literal search term.
+
+    `%` and `_` are pattern syntax, not text, so an unescaped search for "50%"
+    became `%50%%` -- matching anything that merely starts with 50 -- and "a_b"
+    matched "axb". Parameterising the value prevents injection but does nothing
+    about this: the metacharacters are inside the bound string. The escape
+    character itself has to be escaped first, or escaping would corrupt a
+    merchant name that legitimately contains it.
+    """
+    out = text.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2)
+    return out.replace('%', f'{LIKE_ESCAPE}%').replace('_', f'{LIKE_ESCAPE}_')
+
+
 def _where_clauses(criteria: ExpenseSearchCriteria,
                    has_vendor_key: bool) -> tuple[list[str], list[Any]]:
     """Criteria -> (SQL fragments, bind params). Always parameterized.
@@ -61,12 +81,14 @@ def _where_clauses(criteria: ExpenseSearchCriteria,
     clauses: list[str] = []
     params: list[Any] = []
     if criteria.merchant:
-        like = f'%{criteria.merchant}%'
+        like = f'%{escape_like(criteria.merchant)}%'
+        escape = f" ESCAPE '{LIKE_ESCAPE}'"
         if has_vendor_key:
-            clauses.append('(description LIKE %s OR id_light LIKE %s)')
+            clauses.append(
+                f'(description LIKE %s{escape} OR id_light LIKE %s{escape})')
             params += [like, like]
         else:
-            clauses.append('description LIKE %s')
+            clauses.append(f'description LIKE %s{escape}')
             params.append(like)
     if criteria.date_from:
         clauses.append('expense_date >= %s')

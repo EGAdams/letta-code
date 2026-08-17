@@ -171,8 +171,7 @@ export class ExpenseEditDialog {
         this._setStatus(`Search failed: ${result.error}`);
         return;
       }
-      this.records = result.records;
-      this._renderResults();
+      this._setRecords(result.records);
       this._setStatus(
         result.records.length
           ? `${result.records.length} match(es). Pick one to edit.`
@@ -184,6 +183,28 @@ export class ExpenseEditDialog {
       this.searchButton.disabled = false;
       this.searchButton.classList.remove("is-pressed");
     }
+  }
+
+  /**
+   * Replace the result list, dropping a selection the new results no longer
+   * contain. Both search paths go through here: leaving a stale selectedId
+   * behind meant the edit fields kept showing the previously-picked row after
+   * a fresh search, so Save would silently correct a row the operator was no
+   * longer looking at. A row still present in the new results stays selected,
+   * since re-finding what you are editing is not a surprise.
+   * @param {import("../abstract/expense-edit.interface.js").ExpenseRecord[]} records
+   */
+  _setRecords(records) {
+    this.records = records;
+    if (
+      this.selectedId !== null &&
+      !records.some((r) => r.id === this.selectedId)
+    ) {
+      this.selectedId = null;
+      this.editEl.style.display = "none";
+      this.errorsEl.textContent = "";
+    }
+    this._renderResults();
   }
 
   /**
@@ -206,8 +227,7 @@ export class ExpenseEditDialog {
         ),
       );
       if (!result.ok) return [];
-      this.records = result.records;
-      this._renderResults();
+      this._setRecords(result.records);
       return result.records;
     } catch {
       return [];
