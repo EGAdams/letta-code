@@ -58,8 +58,11 @@ def test_build_save_command_uses_local_engine_and_overrides():
     assert cmd[cmd.index('--engine') + 1] == 'local'
     assert '--no-pick' in cmd
     assert '--save' in cmd
-    assert cmd[cmd.index('--file') + 1] == '/staged/scan_freezer.jpg'
-    assert cmd[cmd.index('--merchant-name-override') + 1] == 'Kroger'
+    # The two free-text values use the `--opt=value` form (see
+    # build_save_command): argparse rejects a separate value starting with a
+    # dash, which a merchant name can legitimately do.
+    assert '--file=/staged/scan_freezer.jpg' in cmd
+    assert '--merchant-name-override=Kroger' in cmd
     assert cmd[cmd.index('--transaction-date-override') + 1] == '2026-08-15'
     assert cmd[cmd.index('--total-amount-override') + 1] == '12.34'
     assert cmd[cmd.index('--org-id') + 1] == '1'
@@ -593,3 +596,81 @@ def test_a_very_large_raw_text_is_passed_through_unchanged():
 
 def test_an_empty_raw_text_string_is_returned_as_empty():
     assert manual_entry._document_text({'meta': {'raw_text': ''}}) == ''
+
+
+# ---------------------------------------------------------------------------
+# argv safety: values that look like options
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('merchant', ['-Kroger', '-5Below', '--save', '-'])
+def test_a_merchant_name_that_looks_like_a_flag_stays_one_argv_token(merchant):
+    # `--opt value` with a dash-leading value is read by argparse as an unknown
+    # option and the save fails; `--opt=value` is always taken as the value.
+    cmd = manual_entry.build_save_command(_entry(merchant_name=merchant))
+    assert f'--merchant-name-override={merchant}' in cmd
+    # The bare option name never appears, so there is no separate value for
+    # argparse to mistake for an option in the first place.
+    assert '--merchant-name-override' not in cmd
+
+
+def test_a_dash_leading_image_path_is_also_pinned_to_its_option():
+    cmd = manual_entry.build_save_command(_entry(image_path='-weird.jpg'))
+    assert '--file=-weird.jpg' in cmd
+
+
+def test_a_merchant_name_with_spaces_and_quotes_stays_a_single_token():
+    # The command is a list, never a shell string, so nothing needs quoting --
+    # but it must still arrive as exactly one element.
+    name = 'Bob\'s "Big" Boy & Co'
+    cmd = manual_entry.build_save_command(_entry(merchant_name=name))
+    assert cmd.count(f'--merchant-name-override={name}') == 1
+
+
+# ---------------------------------------------------------------------------
+# _extract_json_result: the store subprocess's real result
+# ---------------------------------------------------------------------------
+#
+# Load-bearing and previously the site of a real defect (a first-match scan
+# grabbed an unrelated debug dict and reported a successful save as a failure).
+
+def test_a_brace_inside_a_string_value_does_not_fool_the_scanner():
+    out = '{"note": "a { brace", "success": true, "expense_id": 7}'
+    assert manual_entry._extract_json_result(out, 'success')['expense_id'] == 7
+
+
+def test_a_debug_dict_printed_before_the_result_is_skipped():
+    out = '{"debug": 1}\n{"success": true, "expense_id": 9}'
+    assert manual_entry._extract_json_result(out, 'success')['expense_id'] == 9
+
+
+def test_trailing_noise_after_the_result_does_not_lose_it():
+    out = '{"success": true, "expense_id": 3}\nWarning: deprecated'
+    assert manual_entry._extract_json_result(out, 'success')['expense_id'] == 3
+
+
+def test_the_last_result_wins_when_several_carry_the_key():
+    out = '{"success": false}\n{"success": true, "expense_id": 5}'
+    assert manual_entry._extract_json_result(out, 'success')['expense_id'] == 5
+
+
+def test_a_nested_object_is_not_rescanned_as_its_own_candidate():
+    out = '{"success": true, "party": {"merchant_name": "Kroger"}}'
+    result = manual_entry._extract_json_result(out, 'success')
+    assert result['party'] == {'merchant_name': 'Kroger'}
+
+
+@pytest.mark.parametrize('out', [
+    '{"success": true, ',       # truncated
+    'Traceback: boom',          # no JSON at all
+    '',                         # nothing
+    None,                       # not even a string
+    '[1, 2, 3]',                # JSON, but not an object
+    '{"other": 1}',             # an object, but without the required key
+])
+def test_output_with_no_usable_result_is_an_empty_dict_not_a_crash(out):
+    assert manual_entry._extract_json_result(out, 'success') == {}
+
+
+def test_without_a_required_key_the_last_object_of_any_shape_wins():
+    out = '{"a": 1}\n{"b": 2}'
+    assert manual_entry._extract_json_result(out) == {'b': 2}

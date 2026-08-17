@@ -580,3 +580,38 @@ def test_an_edit_of_a_zero_amount_row_still_keeps_a_positive_sign():
     repo.apply_edit(_edit(merchant_name='Kroger', total_amount=5.0))
     update = [p for sql, p in connection.cur.executed if sql.startswith('UPDATE')]
     assert update[0][2] == pytest.approx(5.0)
+
+
+# --- SQL shape invariants ---------------------------------------------------
+#
+# A clause and its bind params are built in the same breath; if the two ever
+# drift the query fails at execute() with a mismatched-parameter error, which
+# is a poor way to find out.
+
+@pytest.mark.parametrize('criteria', [
+    ExpenseSearchCriteria(merchant='Kroger'),
+    ExpenseSearchCriteria(amount=12.34),
+    ExpenseSearchCriteria(date_from='2026-08-01'),
+    ExpenseSearchCriteria(date_from='2026-08-01', date_to='2026-08-31'),
+    ExpenseSearchCriteria(merchant='K', date_from='2026-08-01',
+                          date_to='2026-08-31', amount=12.34),
+])
+@pytest.mark.parametrize('has_vendor_key', [True, False])
+def test_placeholder_count_always_matches_param_count(criteria, has_vendor_key):
+    clauses, params = _where_clauses(criteria, has_vendor_key)
+    assert ' '.join(clauses).count('%s') == len(params)
+
+
+def test_every_criterion_contributes_at_least_one_clause():
+    clauses, _ = _where_clauses(
+        ExpenseSearchCriteria(merchant='K', date_from='2026-08-01',
+                              date_to='2026-08-31', amount=12.34),
+        has_vendor_key=True)
+    assert len(clauses) == 4
+
+
+def test_the_amount_tolerance_is_bound_not_inlined():
+    _clauses, params = _where_clauses(
+        ExpenseSearchCriteria(amount=12.34), has_vendor_key=False)
+    assert params == [12.34, 0.005]
+

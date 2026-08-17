@@ -81,13 +81,18 @@ def build_preview_command(image_path: str, engine: str = 'local') -> list[str]:
 
 def build_save_command(entry: ManualReceiptEntry) -> list[str]:
     """Pure builder for the parse_and_categorize.py argv -- no I/O, unit-tested."""
+    # The two free-text values use `--opt=value` rather than `--opt value`:
+    # argparse refuses a separate value beginning with a dash ("-Kroger" is
+    # read as an unknown option, and the save fails), while the equals form is
+    # always taken as the value. The remaining options carry validated numbers
+    # and ISO dates, which cannot start with a dash.
     cmd = [
         RF_VENV_PY, PARSE_AND_CATEGORIZE_SCRIPT,
-        '--file', entry.image_path,
+        f'--file={entry.image_path}',
         '--engine', 'local',
         '--no-pick',
         '--save',
-        '--merchant-name-override', entry.merchant_name,
+        f'--merchant-name-override={entry.merchant_name}',
         '--transaction-date-override', entry.transaction_date,
         '--total-amount-override', str(entry.total_amount),
         '--org-id', str(entry.org_id),
