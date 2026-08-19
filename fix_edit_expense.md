@@ -1,6 +1,15 @@
 # FIX NEEDED: the Edit Expense button can never be used
 
-**Status: diagnosed, NOT fixed. Nobody has written any code for this yet.**
+**Status: FIXED and live, 2026-08-19, commit `6b7e773a`.** The recommended fix
+below is what was built. Verified on the serving box:
+`/scanner_report.html?scanner=freezer` (status `complete`) now carries
+`expense-edit-root`, and the `window` page still shows exactly one Edit Expense
+button. All three machines are on `origin/main` at `6b7e773a`.
+
+The only open item left in this file is the last section — the 13 failing
+scanner-intake tests, still failing, still uninvestigated. They are unrelated
+to this fix (confirmed by `git stash`: identical 17 failures with and without
+the change).
 
 Written 2026-08-19. Everything below was verified against the running
 dashboard, not guessed.
