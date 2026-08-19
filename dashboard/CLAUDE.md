@@ -40,7 +40,8 @@ so every `dashboard/` change gets deployed, not just committed.
   ssh adamsl@100.102.209.100 'cd ~/letta-code && git status'
   ssh adamsl@100.102.209.100 'grep VERSION_CODENAME /etc/os-release'   # must print: resolute
   ```
-  Canonical details live in the `windows11-ssh-connect` skill — trust it over this file.
+  Canonical machine list lives in the `sync-all` skill — trust it over this file. (An earlier
+  `windows11-ssh-connect` skill is cited in older notes; it was never created.)
 - **The live checkout carries real uncommitted WIP** from concurrent agents. Run `git status` there
   and diff the overlap before any pull/merge — never blind-`scp` whole files or `git pull` over it.
   For surgical edits, base64-pipe a script rather than inline quoting (nested shells mangle `$(...)`):
