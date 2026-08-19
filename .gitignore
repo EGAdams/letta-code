@@ -159,11 +159,12 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 __pycache__/
 .last_letta_conversation_id
-browser_tools/C:/Users/YourName/AppData/Local/Google/Chrome/User Data/Default/Safe Browsing Cookies-journal
-browser_tools/C:/Users/*
 .playwright-mcp/page*
 
+# browser_tools: ignore Chrome runtime/profile data and screenshots, keep tracked source
 browser_tools/*
+!browser_tools/*.py
+!browser_tools/*.md
 
 .claude/scheduled_tasks.lock
 dashboard/.playwright-mcp/page-*.yml

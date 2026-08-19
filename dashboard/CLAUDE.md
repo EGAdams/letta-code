@@ -90,6 +90,11 @@ One `DashboardHandler(SimpleHTTPRequestHandler)`. Two registries drive most of t
   bridged on `:8799`; warns `⚠ GHOST on :8797` if a stale no-SDK executor shadows it). "Letta
   Server" has a `log_file` despite running remotely — `_letta_remote_log_pull_loop` SSHes every 30s
   and content-sniffs `*-json.log` for Letta's signature (don't assume the named container is live).
+  `browser-server` (ChatGPT Browser Server) is a Flask server on `:5001` driving a real
+  Chrome window already logged into chatgpt.com via `undetected_chromedriver` — it backs the
+  `relay_message_to_chatgpt` tool, so red means Chrome is down or logged out rather than a
+  bad key. Start it from the Server Management tab; setup and API in
+  `BROWSER_SERVER_INTEGRATION.md`, implementation in `browser_tools/browser_server.py`.
 
 Everything else proxies the live Letta API (`LETTA_BASE_URL`, default `http://100.80.49.10:8283`).
 Claude Code has no Letta agent — its messages/tool calls are local JSON
