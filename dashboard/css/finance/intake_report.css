@@ -113,6 +113,9 @@ td.muted { padding:10px 12px; height:auto; }
    counterpart in the entry form are defined here: the search row's wider
    layout and the results list. */
 .expense-edit-panel .manual-entry-item-nav { align-items:flex-end; }
+/* The standalone launcher (expense-edit-panel.js) holds one button and
+   nothing else, so it needs none of the entry form's field spacing. */
+.expense-edit-launcher { padding:4px 12px; }
 .expense-edit-results { display:flex; flex-direction:column; align-items:flex-start; max-height:280px; overflow-y:auto; }
 /* Result rows are full-width, monospace, left-aligned records — not the
    chunky scaled-up action buttons the shared .manual-entry-form button rule

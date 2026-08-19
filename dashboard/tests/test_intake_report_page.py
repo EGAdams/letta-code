@@ -149,3 +149,30 @@ def test_render_intake_report_places_manual_entry_form_before_the_table():
         manual_entry_html='<div id="manual-entry-root"></div>',
     )
     assert html.index('manual-entry-root') < html.index('verified-transactions')
+
+
+def test_expense_edit_panel_html_mounts_the_standalone_edit_dialog():
+    html = page.expense_edit_panel_html()
+    assert 'id="expense-edit-root"' in html
+    assert 'src="/js/implementation/expense-edit-panel.js"' in html
+
+
+def test_render_intake_report_places_the_edit_panel_before_the_table():
+    html = page.render_intake_report(
+        headline='x', subtitle='', meta_fields=[], status_text='',
+        status_tone='ok', table_html='<table id="verified-transactions"></table>',
+        expense_edit_html=page.expense_edit_panel_html(),
+    )
+    assert html.index('expense-edit-root') < html.index('verified-transactions')
+
+
+def test_render_intake_report_can_show_the_edit_panel_without_the_entry_form():
+    """The whole point of the split: a saved scan gets Edit Expense and no
+    Save All."""
+    html = page.render_intake_report(
+        headline='x', subtitle='', meta_fields=[], status_text='',
+        status_tone='ok', table_html='',
+        expense_edit_html=page.expense_edit_panel_html(),
+    )
+    assert 'expense-edit-root' in html
+    assert 'manual-entry-root' not in html

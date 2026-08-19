@@ -1779,6 +1779,11 @@ def build_recent_intake_html(intake):
         intake_report_page.manual_entry_form_html(
             intake.get('image_path'), intake.get('conversation_id'), scanner_key)
         if intake_status == 'needs_human_review' else '')
+    # Unconditional, unlike the form above. Save All inserts, so it belongs
+    # only to a scan nobody has typed in yet; Edit Expense corrects a row that
+    # is already stored, so gating it on the same status made it unreachable
+    # at exactly the moment it was needed.
+    expense_edit_html = intake_report_page.expense_edit_panel_html()
     return intake_report_page.render_intake_report(
         headline=intake_report_model.display_document_name(
             archive_path, intake.get('document') or 'document'),
@@ -1797,6 +1802,7 @@ def build_recent_intake_html(intake):
             empty_note=intake_report_model.empty_table_note(
                 intake_status, reported)),
         working_html=working,
+        expense_edit_html=expense_edit_html,
         auto_refresh=not (rows or reported or terminal),
         extra_css=('\n' + _receipt_only_cat_css() + '\n' + click_css + '\n'
                    + picker_css + '\n'),

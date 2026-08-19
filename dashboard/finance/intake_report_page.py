@@ -121,10 +121,31 @@ def manual_entry_form_html(image_path, conversation_id, scanner_key=''):
     )
 
 
+def expense_edit_panel_html():
+    """The Edit Expense panel's own mount point, rendered on every report page.
+
+    Save All only ever *inserts*, so its form stays limited to a scan still in
+    needs_human_review. Correcting an already-stored row is the opposite job —
+    it only becomes useful once a row exists — so the edit panel is mounted
+    separately and shown unconditionally. Both endpoints behind it
+    (/api/expense-search, /api/expense-edit) already answer on any intake; only
+    the browser-side button was missing.
+
+    js/implementation/expense-edit-panel.js declines to mount when the full
+    entry form is also on the page, since that form carries its own copy of
+    this dialog — a needs_human_review scan still shows exactly one
+    Edit Expense button.
+    """
+    return (
+        '<div id="expense-edit-root"></div>\n'
+        '<script type="module" src="/js/implementation/expense-edit-panel.js"></script>\n'
+    )
+
+
 def render_intake_report(*, headline, subtitle, meta_fields, status_text,
                          status_tone, table_html, working_html='',
                          auto_refresh=False, extra_css='', picker_html='',
-                         manual_entry_html=''):
+                         manual_entry_html='', expense_edit_html=''):
     """Assemble the page. Every argument is already-decided content, so this
     function only ever answers "where does it go on the page?"."""
     refresh = '<meta http-equiv="refresh" content="30">' if auto_refresh else ''
@@ -150,6 +171,7 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
         f'  <p class="status-banner status-{status_tone}">{_esc(status_text)}</p>\n'
         + working_html
         + manual_entry_html
+        + expense_edit_html
         + table_html
         + '  </div>\n'
         '</section>\n' + picker_html + '\n</body></html>')
