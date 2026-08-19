@@ -33,6 +33,11 @@
  *   dropdown instead of leaving it on the free-text merchant name alone
  * @property {?string} categoryName  the matched vendor's (or a fuzzy
  *   category-only match's) category, prefilled even when vendorKey is null
+ * @property {boolean} possibleStatement  the zero-cost local-OCR pass's raw
+ *   text reads like a statement's transaction table (see
+ *   finance/statement_heuristic.py), not one receipt -- the form uses this to
+ *   nudge the operator toward Break Up Document instead of silently filling
+ *   one field and hiding the rest of the page
  *
  * @typedef {Object} VendorOption
  * @property {string} vendorKey
@@ -45,12 +50,7 @@
  * @property {?string} vendorKey   the slug it was (or would be) stored under
  */
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** @param {string} value */
-function isNonEmptyString(value) {
-  return typeof value === "string" && value.trim().length > 0;
-}
+import { ISO_DATE_RE, isNonEmptyString } from "./field-validation.js";
 
 /**
  * The three rules finance/manual_entry.py's ManualReceiptEntry enforces,
@@ -97,13 +97,14 @@ export function buildSubmitPayload(fields, intakeRef) {
   };
 }
 
-//: The two engines POST /api/manual-receipt-entry-preview accepts -- the
+//: The three engines POST /api/manual-receipt-entry-preview accepts -- the
 //: server's own PREVIEW_ENGINES allow-list is the enforcement point (never
 //: trust the client alone), this just keeps a caller from typing a stray
 //: engine name that would only ever bounce as a 400.
 export const PREVIEW_ENGINE = Object.freeze({
   LOCAL: "local",
   GEMINI_ONLY: "gemini-only",
+  HAIKU_ONLY: "haiku-only",
 });
 
 /**
@@ -132,6 +133,7 @@ export function readPrefillResponse(json) {
     totalAmount: null,
     vendorKey: null,
     categoryName: null,
+    possibleStatement: false,
     error: "malformed response",
   };
   if (typeof json !== "object" || json === null) return blank;
@@ -156,6 +158,7 @@ export function readPrefillResponse(json) {
     categoryName,
     vendorAmbiguous: json.vendor_ambiguous === true,
     vendorCandidates: readVendorCandidates(json.vendor_candidates),
+    possibleStatement: json.possible_statement === true,
     error: typeof json.error === "string" ? json.error : null,
   };
 }

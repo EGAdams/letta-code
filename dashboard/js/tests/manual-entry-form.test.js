@@ -10,8 +10,8 @@ function fakeHttp(responses) {
       calls.push(["GET", url]);
       return responses[url] ?? { ok: true };
     },
-    async postJSON(url, body) {
-      calls.push(["POST", url, body]);
+    async postJSON(url, body, opts) {
+      calls.push(["POST", url, body, opts]);
       const entry = responses[url];
       if (typeof entry === "function") return entry(body);
       return entry ?? { ok: true };
@@ -302,6 +302,208 @@ describe("ManualEntryForm._prefill", () => {
     });
     expect(form.geminiFillButton.disabled).toBe(false);
     expect(form.geminiFillButton.classList.contains("is-pressed")).toBe(false);
+  });
+
+  test("Gemini Flash Fill requests a longer fetch timeout than the browser default", async () => {
+    // fetch-http-client.js's default is 30s; a real call through Gemini's
+    // model-fallback chain measured at 18-25s, close enough that a slightly
+    // larger image could cross it and abort client-side while the (90s
+    // server-side budget) request was still working. Local OCR never leaves
+    // the box, so it must NOT get the same override.
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/manual-receipt-entry-preview": {
+        ok: true,
+        merchant_name: "DTE Energy",
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+
+    await form._prefill("gemini-only", form.geminiFillButton, "Gemini Flash");
+    const [, , , geminiOpts] = http.calls.at(-1);
+    expect(geminiOpts).toEqual({ timeout: 95000 });
+
+    await form._prefill();
+    const [, , , localOpts] = http.calls.at(-1);
+    expect(localOpts).toBeUndefined();
+  });
+
+  test("Fill with Haiku button requests the haiku-only engine and reports its own source", async () => {
+    let requestedEngine = null;
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/manual-receipt-entry-preview": (body) => {
+        requestedEngine = body.engine;
+        return { ok: true, merchant_name: "DTE Energy" };
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    await form._prefill("haiku-only", form.haikuFillButton, "Claude Haiku");
+    expect(requestedEngine).toBe("haiku-only");
+    expect(form.merchantNameInput.value).toBe("DTE Energy");
+    expect(form._statusEl.textContent).toContain("Prefilled from Claude Haiku");
+  });
+
+  test("Fill with Haiku only disables/presses its own button, not Prefill from OCR", async () => {
+    let stateDuringRequest = null;
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/manual-receipt-entry-preview": () => {
+        stateDuringRequest = {
+          haikuPressed: form.haikuFillButton.classList.contains("is-pressed"),
+          prefillDisabled: form.prefillButton.disabled,
+        };
+        return { ok: true, merchant_name: "DTE Energy" };
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    await form._prefill("haiku-only", form.haikuFillButton, "Claude Haiku");
+    expect(stateDuringRequest).toEqual({
+      haikuPressed: true,
+      prefillDisabled: false,
+    });
+    expect(form.haikuFillButton.disabled).toBe(false);
+    expect(form.haikuFillButton.classList.contains("is-pressed")).toBe(false);
+  });
+
+  test("Fill with Haiku requests a longer fetch timeout than the browser default", async () => {
+    // Same reasoning as Gemini Flash Fill's timeout override -- an OAuth
+    // refresh (occasionally a `claude -p "ok"` subprocess call) can push the
+    // real Messages API call close to the 30s browser default.
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/manual-receipt-entry-preview": {
+        ok: true,
+        merchant_name: "DTE Energy",
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+
+    await form._prefill("haiku-only", form.haikuFillButton, "Claude Haiku");
+    const [, , , haikuOpts] = http.calls.at(-1);
+    expect(haikuOpts).toEqual({ timeout: 95000 });
+  });
+});
+
+describe("ManualEntryForm._routeAsStatement", () => {
+  test("first click requests doc_kind_override without metadata", async () => {
+    let sentBody = null;
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/process-document": (body) => {
+        sentBody = body;
+        return { ok: true, mazda_dispatched: true };
+      },
+    });
+    const { form } = setup({ http, dataset: { scannerKey: "window" } });
+    await form.mount();
+
+    await form._routeAsStatement();
+
+    expect(sentBody).toEqual({
+      scanner: "window",
+      doc_kind_override: "statement",
+    });
+    expect(form._statusEl.textContent).toContain("Routed to statement intake");
+    expect(form._statusEl.textContent).toContain(
+      "investigate/categorize/store",
+    );
+  });
+
+  test("a missing-metadata response opens the bank/account prompt", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/process-document": {
+        ok: false,
+        needs_statement_metadata: true,
+        missing_fields: ["account_last4"],
+      },
+    });
+    const { form } = setup({ http, dataset: { scannerKey: "window" } });
+    await form.mount();
+
+    await form._routeAsStatement();
+
+    expect(form.statementMetadataPrompt.style.display).toBe("");
+    expect(form._statusEl.textContent).toContain("account_last4");
+  });
+
+  test("Submit resends the operator-typed bank/account and closes the prompt on success", async () => {
+    let sentBody = null;
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/process-document": (body) => {
+        sentBody = body;
+        return { ok: true, mazda_dispatched: true };
+      },
+    });
+    const { form } = setup({ http, dataset: { scannerKey: "window" } });
+    await form.mount();
+    form.statementBankNameInput.value = "Chase";
+    form.statementAccountLast4Input.value = "1234";
+
+    await form._routeAsStatement({
+      bankName: form.statementBankNameInput.value,
+      accountLast4: form.statementAccountLast4Input.value,
+    });
+
+    expect(sentBody).toEqual({
+      scanner: "window",
+      doc_kind_override: "statement",
+      statement_metadata: { bank_name: "Chase", account_last4: "1234" },
+    });
+    expect(form.statementMetadataPrompt.style.display).toBe("none");
+  });
+
+  test("a rejected statement (e.g. two accounts on one scan) shows the reason and does not reopen the prompt", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/process-document": {
+        ok: false,
+        statement_rejected: true,
+        error: "Statement rejected: this scan holds 2 separate statements.",
+      },
+    });
+    const { form } = setup({ http, dataset: { scannerKey: "window" } });
+    await form.mount();
+
+    await form._routeAsStatement();
+
+    expect(form._statusEl.textContent).toContain("2 separate statements");
+    expect(form.statementMetadataPrompt.style.display).toBe("none");
+  });
+
+  test("does nothing when there is no scanner (PDF-kind intake)", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+    });
+    const { form } = setup({ http, dataset: { scannerKey: "" } });
+    await form.mount();
+
+    await form._routeAsStatement();
+
+    expect(http.calls.some(([, url]) => url === "/api/process-document")).toBe(
+      false,
+    );
+  });
+
+  test("the button is disabled when there is no scanner, matching Show Image", async () => {
+    const { form } = setup({ dataset: { scannerKey: "" } });
+    await form.mount();
+    expect(form.statementButton.disabled).toBe(true);
   });
 });
 

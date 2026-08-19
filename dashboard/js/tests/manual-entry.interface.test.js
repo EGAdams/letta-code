@@ -113,6 +113,15 @@ describe("buildPreviewPayload", () => {
       engine: "gemini-only",
     });
   });
+
+  test("carries the haiku-only engine through", () => {
+    expect(
+      buildPreviewPayload({ imagePath: "/x.jpg" }, PREVIEW_ENGINE.HAIKU_ONLY),
+    ).toEqual({
+      image_path: "/x.jpg",
+      engine: "haiku-only",
+    });
+  });
 });
 
 describe("readPrefillResponse", () => {
@@ -133,6 +142,7 @@ describe("readPrefillResponse", () => {
       vendorCandidates: [],
       vendorKey: null,
       categoryName: null,
+      possibleStatement: false,
       error: null,
     });
   });

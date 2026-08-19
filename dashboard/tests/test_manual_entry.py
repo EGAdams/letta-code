@@ -130,6 +130,11 @@ def test_build_preview_command_accepts_gemini_only_engine():
     assert cmd[cmd.index('--engine') + 1] == 'gemini-only'
 
 
+def test_build_preview_command_accepts_haiku_only_engine():
+    cmd = manual_entry.build_preview_command('/staged/scan.jpg', engine='haiku-only')
+    assert cmd[cmd.index('--engine') + 1] == 'haiku-only'
+
+
 def test_build_preview_command_rejects_any_other_engine():
     # PREVIEW_ENGINES is a hard allow-list -- 'gemini'/'chatgpt-oauth'/'openai'
     # must never reach a preview request, since 'gemini' is parse_and_categorize.py's
@@ -182,7 +187,50 @@ def test_preview_receipt_parse_extracts_prefill_fields():
         'category_name': None,
         'vendor_ambiguous': False,
         'vendor_candidates': [],
+        'possible_statement': False,
     }
+
+
+def test_preview_receipt_parse_flags_a_statement_shaped_document():
+    """Prefill from OCR runs for free before the operator touches anything --
+    if the raw text it already read looks like a multi-transaction statement
+    table, the form should know that without a second call."""
+    def fake_runner(command):
+        return {
+            'returncode': 0, 'stdout': '', 'stderr': '',
+            'report': {
+                'party': {'merchant_name': None},
+                'transaction_date': None,
+                'totals': {'total_amount': None},
+                'meta': {'raw_text': (
+                    '05/22 QUALITY INNS JASPER TN $93.99\n'
+                    '05/23 ECONO LODGE VALDOSTA GA $87.80\n'
+                )},
+            },
+        }
+
+    ok, prefill = manual_entry.preview_receipt_parse(
+        '/staged/scan.jpg', runner=fake_runner)
+    assert ok is False  # no receipt-shaped field was readable
+    assert prefill['possible_statement'] is True
+
+
+def test_preview_receipt_parse_does_not_flag_an_ordinary_receipt():
+    def fake_runner(command):
+        return {
+            'returncode': 0, 'stdout': '', 'stderr': '',
+            'report': {
+                'party': {'merchant_name': 'Kroger'},
+                'transaction_date': '2026-08-15',
+                'totals': {'total_amount': 12.34},
+                'meta': {'raw_text': 'KROGER\n06/15/2025\nMILK $3.49\nBREAD $2.99\n'},
+            },
+        }
+
+    ok, prefill = manual_entry.preview_receipt_parse(
+        '/staged/scan.jpg', runner=fake_runner, vendor_lookup_fn=_no_vendor_match)
+    assert ok is True
+    assert prefill['possible_statement'] is False
 
 
 def test_preview_receipt_parse_partial_fields_still_prefill_what_was_found():
@@ -278,6 +326,67 @@ def test_preview_receipt_parse_ocr_process_failure_is_reported_not_raised():
     ok, payload = manual_entry.preview_receipt_parse('/staged/scan.jpg', runner=boom_runner)
     assert ok is False
     assert 'tesseract' in payload['error']
+
+
+def test_preview_receipt_parse_gemini_only_surfaces_an_auth_failure_not_a_generic_blank():
+    """A bad/expired GEMINI_API_KEY makes _try_gemini_parse fail and fall back
+    to the zero-token local parser, which (for a receipt local OCR truly
+    can't read) returns an empty report -- same shape as a plain unreadable
+    scan. Without pulling parse_and_categorize.py's own stderr line into the
+    error, an operator can't tell "rotate the key" from "rescan the receipt"."""
+    def fake_runner(command):
+        return {
+            'returncode': 0,
+            'stdout': '{"transaction_date": null, "party": {}, "totals": {}, "meta": {}}',
+            'stderr': (
+                "Gemini parsing failed: 401 Request had invalid authentication "
+                "credentials.\nFalling back to local parser after AI engine failure."
+            ),
+            'report': {'transaction_date': None, 'party': {}, 'totals': {}, 'meta': {}},
+        }
+
+    ok, payload = manual_entry.preview_receipt_parse(
+        '/staged/scan.jpg', engine='gemini-only', runner=fake_runner)
+    assert ok is False
+    assert 'Gemini parsing failed: 401' in payload['error']
+
+
+def test_preview_receipt_parse_haiku_only_surfaces_a_logged_out_failure_not_a_generic_blank():
+    """A logged-out ~/.claude/.credentials.json makes _try_haiku_parse fail and
+    fall back to the zero-token local parser, same "auth failure looks like a
+    blank scan" gap gemini-only's test above covers."""
+    def fake_runner(command):
+        return {
+            'returncode': 0,
+            'stdout': '{"transaction_date": null, "party": {}, "totals": {}, "meta": {}}',
+            'stderr': (
+                "Claude parsing failed: logged out (no OAuth token on this host)\n"
+                "Falling back to local parser after AI engine failure."
+            ),
+            'report': {'transaction_date': None, 'party': {}, 'totals': {}, 'meta': {}},
+        }
+
+    ok, payload = manual_entry.preview_receipt_parse(
+        '/staged/scan.jpg', engine='haiku-only', runner=fake_runner)
+    assert ok is False
+    assert 'Claude parsing failed: logged out' in payload['error']
+
+
+def test_preview_receipt_parse_local_engine_never_reports_ai_stderr_noise():
+    """engine='local' never runs an AI tier, so even if its stderr happened to
+    contain an unrelated "parsing failed" line, it must not be attributed to
+    an engine that was never asked to run."""
+    def fake_runner(command):
+        return {
+            'returncode': 0,
+            'stdout': '{"transaction_date": null, "party": {}, "totals": {}, "meta": {}}',
+            'stderr': 'some unrelated parsing failed message',
+            'report': {'transaction_date': None, 'party': {}, 'totals': {}, 'meta': {}},
+        }
+
+    ok, payload = manual_entry.preview_receipt_parse('/staged/scan.jpg', runner=fake_runner)
+    assert ok is False
+    assert payload['error'] == 'OCR could not read any fields from this document'
 
 
 # ── _extract_json_result: regression coverage for the 2026-08-16 bug ────────

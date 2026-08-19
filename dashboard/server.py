@@ -118,6 +118,14 @@ from intake.trainer_notifier import (
 )
 from intake.trainer_recovery import recover_pending_trainer_watches
 import statement_review
+from finance.statement_dashboard_adapters import (
+    CallableStatementPreflight,
+    CallbackStatementIntakeRecorder,
+)
+from finance.statement_extraction_adapter import PreflightStatementExtractor
+from finance.statement_models import StatementBreakupRequest, StatementStoreRequest
+from finance.statement_service import StatementBreakupService
+from finance.statement_store import ScriptStatementStore
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HERE)
 LETTA_CODE_BUN = os.environ.get(
@@ -4622,8 +4630,17 @@ def _statement_records_summary(statements):
 
 
 def run_statement_preflight(
-        image_path, facade_result, metadata=None, account_directory=None):
-    """Extract and validate statement metadata before dispatch or storage."""
+        image_path, facade_result, metadata=None, account_directory=None,
+        engine='auto'):
+    """Extract and validate statement metadata before dispatch or storage.
+
+    `engine`: 'auto' (default, unchanged behavior) is parse_statement_scan.py's
+    own full Gemini/Codex/ChatGPT/OpenAI fallback chain, used for every
+    automatic Mazda dispatch. 'gemini-only'/'haiku-only' name one provider with
+    no fallback -- the dashboard's "Read with Gemini"/"Read with Haiku"
+    buttons, where an operator who chose a provider must get exactly that one,
+    not a silent fallback to a different one on failure.
+    """
     if (facade_result or {}).get('doc_kind') not in ('statement', 'bank_statement'):
         return None
     metadata = metadata if isinstance(metadata, dict) else {}
@@ -4634,6 +4651,8 @@ def run_statement_preflight(
         command.extend(['--bank-name', bank_override])
     if last4_override:
         command.extend(['--account-last4', last4_override])
+    if engine and engine != 'auto':
+        command.extend(['--engine', engine])
     try:
         proc = subprocess.run(
             command, cwd=ROL_FINANCES_DIR, capture_output=True, text=True,
@@ -4815,12 +4834,93 @@ def _write_statement_preflight_payload(image_path, preflight):
     return payload_path
 
 
+#: doc_kind values run_statement_preflight() will actually act on -- kept in
+#: sync with its own `(facade_result or {}).get('doc_kind') not in (...)`
+#: check so an operator's override can only ever route into that same branch,
+#: never invent a doc_kind the rest of the pipeline doesn't understand.
+STATEMENT_DOC_KINDS = ('statement', 'bank_statement')
+
+
+def _human_override_facade(doc_kind):
+    """A synthetic facade result for doc_kind_override, standing in for
+    run_intake_facade()'s real (paid, vision-based) classify call.
+
+    The operator has already looked at the document -- the manual-entry
+    form's "Show Image" button exists for exactly this -- and knows it isn't
+    a receipt. Re-deriving that with a Gemini vision call would spend a token
+    MAZDA_DECISION_MODE=human_only exists specifically to avoid (see
+    finance/manual_entry.py's module docstring). `parsed` stays None just
+    like a real statement classification: run_statement_preflight() is the
+    thing that actually reads the document's contents, via its own
+    STATEMENT_PARSE_SCRIPT call, which is unavoidable -- a statement's
+    several transactions have to be read somehow -- but skipping the
+    classify step still saves one full vision call per document.
+    """
+    return {
+        'ok': True, 'error': None, 'doc_kind': doc_kind,
+        'routing_key': f'{doc_kind}.human_override', 'vendor': None,
+        'confidence': 1.0, 'classification_method': 'human_override',
+        'recommended_action': 'auto', 'parsed': None,
+    }
+
+
+# Composition root for the statement-breakup path: which concrete satisfies
+# each port is decided here and nowhere else. The adapters themselves live in
+# finance/statement_dashboard_adapters.py, built from these functions alone.
+_STATEMENT_BREAKUP_SERVICE = StatementBreakupService(
+    PreflightStatementExtractor(CallableStatementPreflight(
+        run_statement_preflight,
+        _statement_preflight_payload,
+        _human_override_facade,
+    )),
+    ScriptStatementStore(),
+    CallbackStatementIntakeRecorder(
+        merge_recent_intake_event, _invalidate_receipt_index),
+)
+
+
+def break_up_statement_document(data):
+    """POST /api/manual-statement-breakup: the "Break Up Document" button.
+
+    A receipt carries one expense and every fill button asks the receipt
+    parser, so a statement page holding five transactions filled a single row
+    and left the form's Prev/Next navigation nothing to walk. This runs the
+    statement parser instead — the same preflight the automatic pipeline runs —
+    and answers with one row per transaction.
+    """
+    try:
+        request = StatementBreakupRequest.from_http(data)
+    except (ValidationError, ValueError) as exc:
+        return {'ok': False, 'error': str(exc)}
+    return _STATEMENT_BREAKUP_SERVICE.break_up(request).to_http()
+
+
+def submit_manual_statement_entry(data):
+    """POST /api/manual-statement-entry: Save All, in statement mode.
+
+    Stores the corrected rows through store_statement_transactions.py — the
+    same tool Mazda's STATEMENT BRANCH runs, so duplicate detection, the
+    credit/payment split (a "PAYMENT - THANK YOU" line is not an expense),
+    vendor resolution to NEEDS_VENDOR_KEY, and the scanned-statement archive
+    all apply unchanged. Nothing here reimplements any of that.
+    """
+    try:
+        request = StatementStoreRequest.from_http(data)
+    except (ValidationError, ValueError) as exc:
+        return {'ok': False, 'error': str(exc)}
+    return _STATEMENT_BREAKUP_SERVICE.store(request).to_http()
+
+
 def process_scanned_document(
-        key, org_id=1, engine='gemini', statement_metadata=None):
+        key, org_id=1, engine='gemini', statement_metadata=None,
+        doc_kind_override=None):
     """Orchestrate the Process Document action for one scanner's latest image.
 
     1. Resolve the scanner's output image.
-    2. Run the deterministic facade (classify + parse) for the inline result.
+    2. Run the deterministic facade (classify + parse) for the inline result
+       -- or, when `doc_kind_override` names a statement kind, skip that paid
+       classify call and use the operator's own assertion instead (see
+       _human_override_facade).
     3. Dispatch Mazda fire-and-forget for investigate → categorize → store.
     No polling: the deeper stages run in Mazda's own time and surface in her
     own agent transcript, not here.
@@ -4851,7 +4951,18 @@ def process_scanned_document(
             'trainer_dispatched': False,
             'stages': [],
         }
-    facade = run_intake_facade(image_path, org_id=org_id, engine=engine)
+    if doc_kind_override is not None:
+        if doc_kind_override not in STATEMENT_DOC_KINDS:
+            return {
+                'ok': False,
+                'error': f'Unsupported doc_kind_override: {doc_kind_override}',
+                'scanner': key, 'image_path': image_path,
+                'mazda_dispatched': False, 'trainer_dispatched': False,
+                'stages': [],
+            }
+        facade = _human_override_facade(doc_kind_override)
+    else:
+        facade = run_intake_facade(image_path, org_id=org_id, engine=engine)
     mazda_dispatched = False
     trainer_dispatched = False
     stage_error = None
@@ -7475,10 +7586,16 @@ def chatgpt_provider_health(timeout=None):
     probe = probe_fn(creds, timeout=timeout or 8)
     if probe['ok']:
         return {'ok': True, 'text': f'{CHATGPT_PLUS_PRO} token valid — usage {probe["text"]}'}
+    # The background failover poller has already asked the standby account
+    # whether a swap would even help; show that verdict instead of promising a
+    # Restart that can't work (both accounts capped, standby needing re-auth…).
+    note = _chatgpt_failover.get('last_note')
+    remedy = (f'auto-failover: {note}' if note
+              else 'Restart swaps to the standby account token')
     return {'ok': False, 'hard': True,  # a restart click can't revive a dead token by itself
             'text': f'{CHATGPT_PLUS_PRO} token UNUSABLE — {probe["text"]} — Mazda + fleet '
                     f'cannot run a single LLM step (dispatches fail HTTP 401); '
-                    f'Restart swaps to the standby account token'}
+                    f'{remedy}'}
 
 
 def restart_chatgpt_provider():
@@ -8911,17 +9028,35 @@ def _fetch_provider_oauth_creds(provider_name):
     return None, None
 
 
+def codex_window_label(window, fallback):
+    """Pure: name a usage window by its real duration. The payload identifies
+    its windows only by position (primary/secondary), but carries the length in
+    `limit_window_seconds` — and the positions do move: on 2026-08-19
+    `primary_window` was a 7-day window with no secondary, so the tile read
+    "5h window 100% used, resets in 13h 16m", which is impossible on its face
+    and sent a reader looking for a bug that wasn't there."""
+    secs = window.get('limit_window_seconds')
+    if not secs:
+        return fallback
+    hours = float(secs) / 3600
+    if hours < 24:
+        return f'{hours:g}h'
+    days = round(hours / 24)
+    return 'weekly' if days == 7 else f'{days}d'
+
+
 def _classify_codex_usage(usage):
     """Pure: map a chatgpt.com/backend-api/wham/usage payload to the probe's
     {'ok', 'text'} contract. Error text starts with 'llm_rate_limit:' so
     classify_failure() labels it 'rate-limited' like the old LLM probe did."""
     rl = usage.get('rate_limit') or {}
     windows = []
-    for wkey, wlabel in (('primary_window', '5h'), ('secondary_window', 'weekly')):
+    for wkey, wfallback in (('primary_window', '5h'), ('secondary_window', 'weekly')):
         w = rl.get(wkey)
         if isinstance(w, dict):
             pct = float(w.get('used_percent') or 0)
-            windows.append((wlabel, pct, _human_reset(w.get('reset_at')) or '?'))
+            windows.append((codex_window_label(w, wfallback), pct,
+                            _human_reset(w.get('reset_at')) or '?'))
     maxed = [f'{lbl} window {pct:.0f}% used, resets {reset}'
              for lbl, pct, reset in windows if pct >= 100]
     if rl.get('limit_reached') or maxed or not rl.get('allowed', True):
@@ -9022,22 +9157,145 @@ def failover_should_trigger(probe_text, now_ts, last_swap_ts,
     return (now_ts - last_swap_ts) >= min_interval
 
 
-def _standby_has_headroom():
-    """Read the standby token off the Letta box and probe its usage API.
-    Returns (ok, note); ok=True only when the standby is NOT rate-limited."""
+CODEX_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
+CODEX_LOCAL_AUTH = os.path.expanduser('~/.codex/auth.json')
+
+
+def standby_probe_verdict(probe):
+    """Pure: what a standby probe result means for failover. A rate-limited
+    standby is a real "both accounts are capped" answer; a *rejected* token is
+    not — it says the parked bundle went stale, which is fixable. Collapsing the
+    two (the old code called any failure 'standby also limited') hid a dead
+    safety net: on 2026-08-19 both the swap and the diagnosis were unavailable
+    because the standby's access token had simply expired.
+    Returns 'headroom' | 'limited' | 'stale'."""
+    if probe['ok']:
+        return 'headroom'
+    return 'limited' if str(probe.get('text', '')).startswith('llm_rate_limit') else 'stale'
+
+
+def codex_refresh_candidates(standby_creds, auth_bundles):
+    """Pure: refresh tokens worth trying for the standby account, freshest
+    first. Codex refresh tokens are single-use/rotating, so the standby file's
+    own copy dies the moment anything else refreshes the SAME account — which is
+    exactly what this box's own codex login does every few days. Its
+    ~/.codex/auth.json (and the backups the CLI leaves behind) is then the only
+    place a live token for that account survives. `auth_bundles` is a list of
+    parsed auth.json dicts; bundles for a different account are skipped so a
+    heal can never park the wrong account's token as standby."""
+    account = standby_creds.get('account_id')
+    ordered = [standby_creds.get('refresh_token')]
+    for data in auth_bundles:
+        tokens = (data or {}).get('tokens') or {}
+        if account and tokens.get('account_id') != account:
+            continue
+        ordered.append(tokens.get('refresh_token'))
+    seen, out = set(), []
+    for rt in ordered:
+        if rt and rt not in seen:
+            seen.add(rt)
+            out.append(rt)
+    return out
+
+
+def _local_codex_bundles():
+    """This box's own codex auth files — live one first, then backups newest
+    first (same self-heal source the Model Stats extractor walks)."""
+    backups = sorted((p for p in glob.glob(CODEX_LOCAL_AUTH + '*') if p != CODEX_LOCAL_AUTH),
+                     reverse=True)
+    bundles = []
+    for path in [CODEX_LOCAL_AUTH] + backups:
+        try:
+            with open(path) as f:
+                bundles.append(json.load(f))
+        except Exception:
+            continue
+    return bundles
+
+
+def _codex_refresh(refresh_token, timeout=25):
+    """Exchange a Codex refresh token for a fresh access token."""
+    body = json.dumps({'grant_type': 'refresh_token', 'client_id': CODEX_OAUTH_CLIENT_ID,
+                       'refresh_token': refresh_token, 'scope': 'openid profile email'}).encode()
+    req = urllib.request.Request('https://auth.openai.com/oauth/token', data=body,
+                                 headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _read_standby_creds():
+    """(creds, err) — the OAuth bundle parked on the Letta box."""
     try:
         r = subprocess.run(['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
                             CHATGPT_FAILOVER_HOST, f'cat {CHATGPT_FAILOVER_STANDBY_FILE}'],
                            capture_output=True, text=True, timeout=20)
         if r.returncode != 0 or not r.stdout.strip():
-            return False, 'standby token file missing/unreadable'
-        creds = json.loads(r.stdout.strip())
+            return None, 'standby token file missing/unreadable'
+        return json.loads(r.stdout.strip()), None
     except Exception as e:
-        return False, f'standby read failed: {e}'
+        return None, f'standby read failed: {e}'
+
+
+def _write_standby_creds(creds):
+    """Park a bundle back in the standby file on the Letta box (write-to-temp
+    then rename, so the swap script never reads a half-written file)."""
+    tmp = CHATGPT_FAILOVER_STANDBY_FILE + '.new'
+    try:
+        r = subprocess.run(['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
+                            CHATGPT_FAILOVER_HOST,
+                            f'umask 077 && cat > {tmp} && mv {tmp} {CHATGPT_FAILOVER_STANDBY_FILE}'],
+                           input=json.dumps(creds), capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            return False, ((r.stderr or '').strip()[:120] or f'ssh exited {r.returncode}')
+        return True, 'ok'
+    except Exception as e:
+        return False, str(e)
+
+
+def _heal_standby_token(creds):
+    """Refresh the parked standby bundle in place and write it back.
+    Returns (creds, note); creds is None when no refresh token anywhere still
+    works — that account then needs an interactive `codex login`."""
+    for rt in codex_refresh_candidates(creds, _local_codex_bundles()):
+        try:
+            fresh = _codex_refresh(rt)
+        except Exception:
+            continue
+        healed = dict(creds)
+        healed['access_token'] = fresh.get('access_token', creds.get('access_token'))
+        if fresh.get('refresh_token'):
+            healed['refresh_token'] = fresh['refresh_token']
+        healed['expires_at'] = str(int(time.time()) + int(fresh.get('expires_in', 3600)))
+        ok, note = _write_standby_creds(healed)
+        if not ok:
+            return None, f'standby token refreshed but write-back failed: {note}'
+        print('[chatgpt-failover] standby token refreshed in place', flush=True)
+        return healed, 'standby token refreshed'
+    return None, ('standby token expired and no refresh token still works — '
+                  'that account needs an interactive `codex login`')
+
+
+def _standby_has_headroom():
+    """Read the standby token off the Letta box and probe its usage API.
+    Returns (ok, note); ok=True only when the standby is NOT rate-limited. A
+    standby whose access token has merely expired gets refreshed and re-probed
+    first, so a stale parked bundle can't masquerade as a capped account and
+    leave the fleet down while the other login still has quota."""
+    creds, err = _read_standby_creds()
+    if err:
+        return False, err
     probe = _probe_codex_usage(creds)
-    if probe['ok']:
+    if standby_probe_verdict(probe) == 'stale':
+        healed, note = _heal_standby_token(creds)
+        if healed is None:
+            return False, note
+        probe = _probe_codex_usage(healed)
+    verdict = standby_probe_verdict(probe)
+    if verdict == 'headroom':
         return True, f"standby has headroom ({probe['text']})"
-    return False, f"standby also limited ({probe['text'][:80]})"
+    if verdict == 'limited':
+        return False, f"standby also limited ({probe['text'][:80]})"
+    return False, f"standby token unusable after refresh ({probe['text'][:80]})"
 
 
 def _run_chatgpt_failover_swap():
@@ -11258,6 +11516,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 org_id=data.get('org_id', 1),
                 engine=data.get('engine', 'gemini'),
                 statement_metadata=data.get('statement_metadata'),
+                doc_kind_override=data.get('doc_kind_override'),
             ))
 
         if path == '/api/process-pdf':
@@ -11347,6 +11606,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 image_path, engine=engine,
                 category_namer=TaxonomyCategoryNamer())
             return self.json_response({'ok': ok, **payload})
+
+        # The statement pair, alongside the receipt endpoints above: the same
+        # form serves both document kinds, and which pair it calls is decided
+        # by what the document IS, not by how many rows are on screen.
+        if path == '/api/manual-statement-breakup':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(break_up_statement_document(data))
+
+        if path == '/api/manual-statement-entry':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(submit_manual_statement_entry(data))
 
         if path == '/api/manual-receipt-entry-archive-preview':
             try:

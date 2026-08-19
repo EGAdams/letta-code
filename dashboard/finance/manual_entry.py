@@ -24,6 +24,7 @@ from typing import Optional
 from pydantic import field_validator
 
 from finance.expense_fields import ExpenseFieldRules
+from finance.statement_heuristic import looks_like_multiple_transactions
 from finance.vendor_lookup import vendor_category_lookup
 from statement_review import RF_PYPATH, RF_VENV_PY
 
@@ -31,14 +32,16 @@ PARSE_AND_CATEGORIZE_SCRIPT = os.path.expanduser(
     '~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/'
     'parse_and_categorize.py')
 MANUAL_ENTRY_TIMEOUT_SEC = 90
-#: Preview-only engines the "Prefill from OCR" (local, zero-token) and
-#: "Gemini Flash Fill" (gemini-only, free-tier) buttons may request.
+#: Preview-only engines the "Prefill from OCR" (local, zero-token), "Gemini
+#: Flash Fill" (gemini-only, free-tier), and "Fill with Haiku" (haiku-only,
+#: this box's Claude Code subscription OAuth session -- never an
+#: ANTHROPIC_API_KEY, see claude_oauth_client.py) buttons may request.
 #: Deliberately excludes "auto"/"gemini" (parse_and_categorize.py's CLI
 #: quirk: "gemini" is an alias for the FULL auto chain, including the
 #: chatgpt-oauth/openai paid tiers on Gemini failure -- not a Gemini-only
 #: mode) and "chatgpt-oauth"/"openai" outright, so a preview request can
 #: never reach a paid tier no matter what a caller passes.
-PREVIEW_ENGINES = frozenset({'local', 'gemini-only'})
+PREVIEW_ENGINES = frozenset({'local', 'gemini-only', 'haiku-only'})
 
 
 class ManualReceiptEntry(ExpenseFieldRules):
@@ -68,10 +71,13 @@ def build_preview_command(image_path: str, engine: str = 'local') -> list[str]:
     """Pure builder for a read-only OCR/AI preview -- no --save, no I/O here.
 
     `engine` must be one of PREVIEW_ENGINES: 'local' (the zero-token OCR
-    pass parse_and_categorize.py always runs before applying overrides) or
+    pass parse_and_categorize.py always runs before applying overrides),
     'gemini-only' (a real Gemini-only tier, falling back to local on
-    failure -- never chatgpt-oauth/openai). Raises ValueError on anything
-    else, so a preview request can never be turned into a paid-tier call.
+    failure -- never chatgpt-oauth/openai), or 'haiku-only' (Claude Haiku via
+    this box's Claude Code subscription OAuth session, falling back to local
+    on failure -- never a metered ANTHROPIC_API_KEY). Raises ValueError on
+    anything else, so a preview request can never be turned into a paid-tier
+    call.
     """
     if engine not in PREVIEW_ENGINES:
         raise ValueError(f'unsupported preview engine: {engine!r}')
@@ -267,6 +273,29 @@ def _resolve_vendor_match(merchant_name: str | None, lookup_fn=None,
     }
 
 
+def _engine_failure_detail(stderr: str | None, engine: str) -> str | None:
+    """Pull the AI engine's own failure line out of parse_and_categorize.py's
+    stderr, when a non-local engine returned a blank prefill.
+
+    _parse_receipt() always falls back to the zero-token local parser on any
+    AI-engine exception, so an auth failure (a malformed API key, say) and an
+    unreadable photo both dead-end at the same generic "OCR could not read
+    any fields" result -- the operator saw a wrong key and a scan of an empty
+    table produce an identical error and has no way to tell "rotate the key"
+    from "rescan the receipt" apart. The engine's own tier function already
+    prints one line naming the real cause before it falls back; surfacing
+    that line closes the gap without changing the always-fall-back behavior
+    itself (a token key going bad must never block receipt intake).
+    """
+    if engine == 'local' or not stderr:
+        return None
+    for line in stderr.splitlines():
+        lowered = line.lower()
+        if 'parsing failed' in lowered or 'not available' in lowered or 'not set' in lowered:
+            return line.strip()
+    return None
+
+
 def preview_receipt_parse(image_path: str, engine: str = 'local', runner=None,
                            vendor_lookup_fn=None, category_namer=None):
     """Run a read-only parse pass so the form can prefill instead of
@@ -275,9 +304,9 @@ def preview_receipt_parse(image_path: str, engine: str = 'local', runner=None,
 
     `engine='local'` (default) keeps the zero-LLM/vision-call guarantee
     documented at module level. `engine='gemini-only'` is the dashboard's
-    opt-in "Gemini Flash Fill" button -- see PREVIEW_ENGINES/
-    build_preview_command for why it can't reach a paid tier even on
-    failure.
+    opt-in "Gemini Flash Fill" button and `engine='haiku-only'` is the
+    "Fill with Haiku" button -- see PREVIEW_ENGINES/build_preview_command for
+    why neither can reach a paid tier even on failure.
     """
     try:
         command = build_preview_command(image_path, engine)
@@ -290,14 +319,23 @@ def preview_receipt_parse(image_path: str, engine: str = 'local', runner=None,
     if not report:
         return False, {'error': 'could not parse OCR output'}
     prefill = _extract_prefill(report)
+    # Computed unconditionally, success or failure: a page that reads as a
+    # statement's transaction table is worth flagging even when none of the
+    # three receipt-shaped fields below happened to come back readable.
+    possible_statement = looks_like_multiple_transactions(_document_text(report))
     # Every field can legitimately come back None now that the local OCR
     # fallback leaves unreadable fields blank instead of guessing (today's
     # date, a $0.00 total) -- that's a real "couldn't read this" result,
     # not a successful prefill with nothing in it.
     if not any(prefill.values()):
-        return False, {'error': 'OCR could not read any fields from this document', **prefill}
+        error = 'OCR could not read any fields from this document'
+        detail = _engine_failure_detail(result.get('stderr'), engine)
+        if detail:
+            error = f'{error} ({detail})'
+        return False, {'error': error, 'possible_statement': possible_statement, **prefill}
     prefill.update(_resolve_vendor_match(
         prefill.get('merchant_name'), vendor_lookup_fn,
         document_text=_document_text(report),
         category_namer=category_namer))
+    prefill['possible_statement'] = possible_statement
     return True, prefill

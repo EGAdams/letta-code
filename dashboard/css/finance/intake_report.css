@@ -149,3 +149,47 @@ td.muted { padding:10px 12px; height:auto; }
     font-family:"Courier New",Courier,monospace;
     font-size:16px;
 }
+
+/* "Break up Document into separate expenses" group box. A <fieldset> is
+   98.css's own thin-groove-line "group box" (see 98.css's fieldset/legend
+   rule) -- reused here rather than hand-drawing a border, so the two Read
+   with Gemini/Haiku buttons read as one labeled unit against the rest of the
+   form's flat groove panel. */
+.manual-entry-breakup-fieldset {
+    margin:14px 0;
+    background:#c0c0c0;
+    font-family:"Courier New",Courier,monospace;
+}
+.manual-entry-breakup-fieldset legend {
+    font-family:"Courier New",Courier,monospace;
+    font-size:16px;
+    font-weight:600;
+    padding:0 6px;
+}
+/* Same scaled-button look the rest of this form's buttons use, so the pair
+   inside the fieldset doesn't read as a smaller, different control set. */
+.manual-entry-breakup-fieldset button {
+    margin:8px calc(8px + 15px) calc(8px + 5px) 0;
+    transform:scale(1.2);
+    transform-origin:left top;
+}
+.manual-entry-breakup-fieldset button.is-pressed {
+    box-shadow:inset -1px -1px #fff,inset 1px 1px #0a0a0a,inset -2px -2px #dfdfdf,inset 2px 2px grey;
+}
+
+/* Info dialog -- a plain win98 message box (title bar + one message + OK),
+   dimmed backdrop so it reads as modal without a second full-screen skin. */
+.info-dialog-overlay {
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.35);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:9999;
+    font-family:"Courier New",Courier,monospace;
+}
+.info-dialog-window { width:min(360px, 86vw); }
+.info-dialog-body { font-size:16px; }
+.info-dialog-body p { margin:0 0 12px; }
+.info-dialog-footer { display:flex; justify-content:flex-end; }

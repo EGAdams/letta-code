@@ -1661,6 +1661,74 @@ def test_process_scanned_statement_resumes_with_user_metadata(
     assert dispatches[0][2]['statement_preflight']['account_last4'] == '1234'
 
 
+def test_process_scanned_document_doc_kind_override_skips_the_paid_classify_call(
+        tmp_path, monkeypatch):
+    """The 'Not a receipt -- process as statement' escape hatch: the operator
+    already looked at the document (Show Image), so run_intake_facade's real
+    (paid, vision-based) classify call must never run -- only
+    run_statement_preflight, which still has to read the document's own
+    transactions and can't be skipped."""
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    write_scan_image(scan_dir / 'window_scan.jpg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': 'window_scan.jpg'},
+    })
+    facade_calls = []
+    monkeypatch.setattr(
+        server, 'run_intake_facade',
+        lambda *a, **kw: facade_calls.append((a, kw)) or {'ok': True})
+    monkeypatch.setattr(server, 'document_vision_health', lambda: {'ok': True})
+    preflight_calls = []
+
+    def _preflight(path, facade_result, metadata=None):
+        preflight_calls.append(facade_result)
+        return {
+            'ok': True, 'bank_name': 'Chase', 'account_last4': '1234',
+            'transactions': [
+                {'date': '2025-01-04', 'description': 'STORE', 'amount': -10}
+            ],
+        }
+
+    monkeypatch.setattr(server, 'run_statement_preflight', _preflight)
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda p: '/staged/window_scan.jpg')
+    monkeypatch.setattr(
+        server.threading, 'Thread',
+        lambda target, args, daemon: _NoopThread())
+
+    result = server.process_scanned_document(
+        'window', doc_kind_override='statement',
+        statement_metadata={'bank_name': 'Chase', 'account_last4': '1234'})
+
+    assert facade_calls == []
+    assert preflight_calls[0]['doc_kind'] == 'statement'
+    assert preflight_calls[0]['classification_method'] == 'human_override'
+    assert preflight_calls[0]['parsed'] is None
+    assert result['mazda_dispatched'] is True
+
+
+def test_process_scanned_document_rejects_an_unsupported_doc_kind_override(
+        tmp_path, monkeypatch):
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    write_scan_image(scan_dir / 'window_scan.jpg')
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': 'window_scan.jpg'},
+    })
+    facade_calls = []
+    monkeypatch.setattr(
+        server, 'run_intake_facade',
+        lambda *a, **kw: facade_calls.append(a) or {'ok': True})
+
+    result = server.process_scanned_document('window', doc_kind_override='receipt')
+
+    assert result['ok'] is False
+    assert 'Unsupported doc_kind_override' in result['error']
+    assert facade_calls == []
+
+
 def test_process_scanned_statement_rejects_no_transactions(tmp_path, monkeypatch):
     scan_dir = tmp_path / 'scans'
     scan_dir.mkdir()
@@ -2542,6 +2610,26 @@ def test_classify_codex_usage_flags_maxed_window_as_rate_limit():
     assert r['ok'] is False
     assert r['text'].startswith('llm_rate_limit:')
     assert server.classify_failure(r['text'])[1] == 'rate-limited'
+
+
+def test_codex_window_label_uses_the_declared_duration():
+    assert server.codex_window_label({'limit_window_seconds': 18000}, '?') == '5h'
+    assert server.codex_window_label({'limit_window_seconds': 604800}, '?') == 'weekly'
+    assert server.codex_window_label({'limit_window_seconds': 86400}, '?') == '1d'
+    # No duration in the payload — keep the positional name rather than guess.
+    assert server.codex_window_label({}, '5h') == '5h'
+
+
+def test_classify_codex_usage_labels_a_weekly_primary_window_weekly():
+    # The 2026-08-19 shape: one primary window that is actually 7 days long.
+    usage = {'rate_limit': {'allowed': False, 'limit_reached': True,
+                            'primary_window': {'used_percent': 100, 'reset_at': 4102444800,
+                                               'limit_window_seconds': 604800},
+                            'secondary_window': None}}
+    r = server._classify_codex_usage(usage)
+    assert r['ok'] is False
+    assert 'weekly window 100% used' in r['text']
+    assert '5h window' not in r['text']
 
 
 def test_classify_codex_usage_respects_limit_reached_flag():
@@ -5082,6 +5170,33 @@ def test_failover_ignores_non_rate_limit_errors():
             text, now_ts=10_000, last_swap_ts=0, min_interval=1800)
 
 
+def test_standby_verdict_separates_a_capped_account_from_a_stale_token():
+    assert server.standby_probe_verdict({'ok': True, 'text': '5h 12%'}) == 'headroom'
+    assert server.standby_probe_verdict(
+        {'ok': False, 'text': 'llm_rate_limit: 5h window 100% used'}) == 'limited'
+    # The bug this fixes: an expired parked token used to read as "also limited",
+    # so a healable standby looked like a genuinely exhausted second account.
+    assert server.standby_probe_verdict(
+        {'ok': False, 'text': 'provider OAuth token rejected (HTTP 401)'}) == 'stale'
+
+
+def test_codex_refresh_candidates_prefers_standby_then_matching_local_logins():
+    standby = {'account_id': 'acct-a', 'refresh_token': 'rt-standby'}
+    bundles = [
+        {'tokens': {'account_id': 'acct-a', 'refresh_token': 'rt-live'}},
+        {'tokens': {'account_id': 'acct-b', 'refresh_token': 'rt-other-account'}},
+        {'tokens': {'account_id': 'acct-a', 'refresh_token': 'rt-standby'}},  # dup
+        {'tokens': {'account_id': 'acct-a'}},                                 # no token
+    ]
+    assert server.codex_refresh_candidates(standby, bundles) == ['rt-standby', 'rt-live']
+
+
+def test_codex_refresh_candidates_never_parks_another_accounts_token():
+    standby = {'account_id': 'acct-a', 'refresh_token': None}
+    bundles = [{'tokens': {'account_id': 'acct-b', 'refresh_token': 'rt-other-account'}}]
+    assert server.codex_refresh_candidates(standby, bundles) == []
+
+
 def test_process_pdf_document_arms_problem_only_trainer(monkeypatch, tmp_path):
     """PDF intake is watched without launching a Trainer during normal work."""
     pdf_dir = tmp_path / 'rol'
@@ -6857,6 +6972,48 @@ def test_statement_preflight_still_reads_legacy_flat_shape(monkeypatch):
     assert result['ok'] is True
     assert result['bank_name'] == 'Wells Fargo'
     assert result['account_last4'] == '7580'
+
+
+def test_statement_preflight_omits_engine_flag_for_auto(monkeypatch):
+    """Mazda's own automatic dispatch never passes `engine` -- the constructed
+    command must stay textually identical to before the flag existed, since
+    'auto' is parse_statement_scan.py's own default."""
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured['command'] = command
+        return types.SimpleNamespace(
+            returncode=0, stdout=json.dumps({
+                'ok': True, 'doc_kind': 'statement', 'statement_count': 1,
+                'statements': [{'bank_name': 'Chase', 'account_number': '1234',
+                                'transactions': _STMT_ROWS}],
+            }), stderr='')
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    server.run_statement_preflight('/scan.jpg', _STMT_FACADE)
+    assert '--engine' not in captured['command']
+
+
+def test_statement_preflight_passes_the_chosen_engine_flag(monkeypatch):
+    """The dashboard's "Read with Haiku"/"Read with Gemini" buttons must reach
+    parse_statement_scan.py's own --engine flag exactly, with no fallback."""
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured['command'] = command
+        return types.SimpleNamespace(
+            returncode=0, stdout=json.dumps({
+                'ok': True, 'doc_kind': 'statement', 'statement_count': 1,
+                'statements': [{'bank_name': 'Chase', 'account_number': '1234',
+                                'transactions': _STMT_ROWS}],
+            }), stderr='')
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    server.run_statement_preflight(
+        '/scan.jpg', _STMT_FACADE, engine='haiku-only')
+    command = captured['command']
+    assert '--engine' in command
+    assert command[command.index('--engine') + 1] == 'haiku-only'
 
 
 def test_statement_preflight_uses_last_four_of_full_printed_account(monkeypatch):

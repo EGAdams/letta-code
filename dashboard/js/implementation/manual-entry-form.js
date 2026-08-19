@@ -11,6 +11,14 @@
  * / Next / Add Another Expense cycle through a list of line items, each
  * independently valid, submitted together by Save All.
  *
+ * Two documents, two tools, one form. A receipt fills one row and Save All
+ * stores it through parse_and_categorize.py. A STATEMENT page carries several
+ * expenses at once, so "Break Up Document" reads them all with
+ * parse_statement_scan.py, hands Prev/Next one item per transaction, and Save
+ * All stores the whole page through store_statement_transactions.py. Both are
+ * the tools Mazda herself runs — this form is how a human runs them while
+ * MAZDA_DECISION_MODE=human_only means no agent will.
+ *
  * All field/response validation lives in
  * ../abstract/manual-entry.interface.js so it is testable without a browser.
  * This class builds its DOM via createElement/appendChild rather than an
@@ -40,9 +48,23 @@ import {
   readVendorKeysResponse,
   validateManualEntry,
 } from "../abstract/manual-entry.interface.js";
+import {
+  buildStatementBreakupPayload,
+  buildStatementEntryPayload,
+  buildStatementRoutePayload,
+  POSSIBLE_STATEMENT_INFO_MESSAGE,
+  readStatementBreakupResponse,
+  readStatementEntryResponse,
+  readStatementRouteResponse,
+  STATEMENT_ENGINE_OPTIONS,
+  summarizeExcludedStatementRows,
+  summarizeStatementStore,
+  validateStatementRow,
+} from "../abstract/statement-breakup.interface.js";
 import { mountTerminal } from "./detail-renderers.js";
 import { ExpenseEditDialog } from "./expense-edit-dialog.js";
 import { FetchHttpClient } from "./fetch-http-client.js";
+import { InfoDialog } from "./info-dialog.js";
 
 const NEW_VENDOR_OPTION = "__new__";
 const NO_CATEGORY_OPTION = "";
@@ -68,6 +90,21 @@ export class ManualEntryForm {
     this.scannerKey = root.dataset.scannerKey || "";
     this.items = [blankManualEntryFields()];
     this.currentIndex = 0;
+    // null = the ordinary receipt mode this form was built for. Set by "Break
+    // Up Document", it holds the one bank/account identity every row on the
+    // page shares, and switches Save All to the statement store -- rows off a
+    // statement are not receipts and must not be filed as any.
+    this.statementHeader = null;
+    // Rows the extractor read but flagged as a payment/credit/$0.00 line, not
+    // an expense -- never shown on Prev/Next, but still merged back into the
+    // statement store submission (see buildStatementSubmitRows), because the
+    // store needs the complete page to reach the same verdict itself.
+    this.statementExcludedRows = [];
+    // Which STATEMENT_ENGINE the operator's button chose -- set on the first
+    // Read with Gemini/Haiku click, reused by the bank/account resubmit
+    // continuation so Submit re-reads with the SAME provider, never a silent
+    // switch to the other one.
+    this._statementBreakupEngine = null;
     this.vendorOptions = [];
     this.categoryNames = [];
     this.archiveKind = defaultArchiveKind(this.items.length);
@@ -110,6 +147,62 @@ export class ManualEntryForm {
       );
     });
 
+    // Escape hatch for a document Mazda would classify as doc_kind='statement'
+    // (found 2026-08-17: a bank statement page and a check/account-summary
+    // screenshot both landed in a receipt scanner's queue and Gemini Flash
+    // Fill confidently mis-extracted a single "expense" from each). Mazda's
+    // own classify step is a paid vision call this button skips -- the
+    // operator has already looked via Show Image, so re-deriving "is this a
+    // statement" would just spend a token MAZDA_DECISION_MODE=human_only
+    // exists to avoid. Routes into the SAME statement-preflight pipeline a
+    // normal auto-classified statement scan uses (server.py's
+    // process_scanned_document/run_statement_preflight) via
+    // doc_kind_override, not a separate reimplementation.
+    this.statementButton = this._button(
+      imagePathWrap,
+      "Not a receipt — process as statement",
+      "route-as-statement",
+    );
+    this.statementButton.disabled = !this.scannerKey;
+    this.statementButton.addEventListener("click", () =>
+      this._routeAsStatement(),
+    );
+    this.statementMetadataPrompt = this._el("div", {
+      className: "manual-entry-field",
+    });
+    this.statementMetadataPrompt.style.display = "none";
+    imagePathWrap.appendChild(this.statementMetadataPrompt);
+    this.statementMetadataPrompt.appendChild(
+      this._el("label", { text: "Bank name" }),
+    );
+    this.statementBankNameInput = this._el("input");
+    this.statementBankNameInput.type = "text";
+    this.statementMetadataPrompt.appendChild(this.statementBankNameInput);
+    this.statementMetadataPrompt.appendChild(
+      this._el("label", { text: "Account last 4 digits" }),
+    );
+    this.statementAccountLast4Input = this._el("input");
+    this.statementAccountLast4Input.type = "text";
+    this.statementMetadataPrompt.appendChild(this.statementAccountLast4Input);
+    this.statementMetadataSubmit = this._button(
+      this.statementMetadataPrompt,
+      "Submit",
+      "route-as-statement-submit",
+    );
+    // Two different flows can ask for the bank/last-four -- routing the page to
+    // Mazda, and breaking it up here by hand -- and both ask for exactly the
+    // same two values. One prompt serves both: whichever flow opened it sets
+    // the resubmit handler, so Submit continues the flow the operator is
+    // actually in rather than silently restarting the other one.
+    this._resubmitWithStatementMetadata = (metadata) =>
+      this._routeAsStatement(metadata);
+    this.statementMetadataSubmit.addEventListener("click", () =>
+      this._resubmitWithStatementMetadata({
+        bankName: this.statementBankNameInput.value,
+        accountLast4: this.statementAccountLast4Input.value,
+      }),
+    );
+
     this.prefillButton = this._button(shell, "Prefill from OCR", "prefill");
     this.prefillButton.addEventListener("click", () =>
       this._prefill(PREVIEW_ENGINE.LOCAL, this.prefillButton, "local OCR"),
@@ -132,6 +225,55 @@ export class ManualEntryForm {
       ),
     );
 
+    // Same opt-in posture as Gemini Flash Fill: spends a Claude Haiku call
+    // through this box's own Claude Code subscription OAuth session (never
+    // a metered ANTHROPIC_API_KEY -- see claude_oauth_client.py), so it's a
+    // separate button rather than an automatic fallback. Primarily useful
+    // once Gemini's free-tier 20-requests/day-per-model quota is exhausted.
+    this.haikuFillButton = this._button(shell, "Fill with Haiku", "haiku-fill");
+    this.haikuFillButton.addEventListener("click", () =>
+      this._prefill(
+        PREVIEW_ENGINE.HAIKU_ONLY,
+        this.haikuFillButton,
+        "Claude Haiku",
+      ),
+    );
+
+    // The fill buttons above all ask the RECEIPT parser, which answers with one
+    // merchant/date/amount because a receipt has one -- so a statement page
+    // holding five transactions filled a single row and left Prev/Next with
+    // nothing to walk (2026-08-19, the Choice Privileges page on the Last
+    // Window Scan). These buttons ask the statement parser instead: the same
+    // parse_statement_scan.py preflight the automatic pipeline runs, which is
+    // the tool that knows how to break one page into many expenses. Two
+    // buttons, not one -- gemini-only/haiku-only name a single provider with
+    // no fallback (see STATEMENT_ENGINE_OPTIONS), so an operator who picks a
+    // provider gets exactly that one, not a silent swap to the other on
+    // failure. A <fieldset> (98.css's own thin-groove-line "group box") makes
+    // the pair read as one labeled unit rather than two loose buttons.
+    const breakUpFieldset = this._el("fieldset", {
+      className: "manual-entry-breakup-fieldset",
+    });
+    shell.appendChild(breakUpFieldset);
+    breakUpFieldset.appendChild(
+      this._el("legend", { text: "Break up Document into separate expenses" }),
+    );
+    // engine -> its button, so the click handler and the finally-block
+    // disable/pressed reset can both address "whichever button is in
+    // flight" without an if/else per engine.
+    this.breakUpButtons = {};
+    for (const { engine, label } of STATEMENT_ENGINE_OPTIONS) {
+      const button = this._button(
+        breakUpFieldset,
+        label,
+        `break-up-document-${engine}`,
+      );
+      button.addEventListener("click", () =>
+        this._breakUpDocument(undefined, engine),
+      );
+      this.breakUpButtons[engine] = button;
+    }
+
     const nav = this._el("div", { className: "manual-entry-item-nav" });
     shell.appendChild(nav);
     const prevButton = this._button(nav, "← Prev", "prev");
@@ -142,6 +284,17 @@ export class ManualEntryForm {
     nextButton.addEventListener("click", () => this._navigate(1));
     const addButton = this._button(nav, "+ Add Another Expense", "add-item");
     addButton.addEventListener("click", () => this._addItem());
+    // Breaking up a document produces rows the operator must be able to drop,
+    // not just edit: the Choice Privileges page's "Interest Charge on
+    // Purchases $0.00" is a real printed line and not an expense, and without
+    // this the only ways past it were to invent an amount for it or abandon
+    // the whole page.
+    const removeButton = this._button(
+      nav,
+      "− Remove This Expense",
+      "remove-item",
+    );
+    removeButton.addEventListener("click", () => this._removeItem());
 
     const vendorWrap = this._el("div", { className: "manual-entry-field" });
     shell.appendChild(vendorWrap);
@@ -300,6 +453,10 @@ export class ManualEntryForm {
 
     this.archiveKindSelect.value = this.archiveKind;
     this.root.appendChild(shell);
+
+    // One shared Info box for the whole form -- see _prefill's
+    // possibleStatement check, the only trigger today.
+    this._infoDialog = new InfoDialog({ root: this.root, doc: this.doc });
 
     // Constructed here, not in the constructor, so it mounts into the same
     // root and reads the taxonomy this form loads below -- one fetch of
@@ -556,8 +713,24 @@ export class ManualEntryForm {
     )
       ? item.merchantName
       : "";
-    this._positionEl.textContent = `Expense ${this.currentIndex + 1} of ${this.items.length}`;
+    this._positionEl.textContent = this._positionText();
     this._renderErrors({});
+  }
+
+  /**
+   * The Prev/Next readout. In statement mode it also names the account every
+   * row belongs to: five rows off one page are only meaningful as "five
+   * transactions on Choice Privileges 5596", and the operator walking them
+   * needs to see they are still on the same statement.
+   */
+  _positionText() {
+    const position = `${this.currentIndex + 1} of ${this.items.length}`;
+    if (!this.statementHeader) return `Expense ${position}`;
+    const { bankName, accountLast4 } = this.statementHeader;
+    const account = [bankName, accountLast4 ? `****${accountLast4}` : ""]
+      .filter(Boolean)
+      .join(" ");
+    return `Transaction ${position}${account ? ` — ${account}` : ""}`;
   }
 
   _navigate(delta) {
@@ -582,6 +755,31 @@ export class ManualEntryForm {
   }
 
   /**
+   * Drop the row on screen. The list never empties: removing the last one
+   * leaves a blank item (and, in statement mode, leaves statement mode) rather
+   * than a form with no fields and no way back.
+   */
+  _removeItem() {
+    const removedLabel = this.statementHeader ? "Transaction" : "Expense";
+    const removedPosition = this.currentIndex + 1;
+    const total = this.items.length;
+    this.items.splice(this.currentIndex, 1);
+    if (!this.items.length) {
+      this.items = [blankManualEntryFields()];
+      this.statementHeader = null;
+      this.statementExcludedRows = [];
+      this._statementBreakupEngine = null;
+    }
+    this.currentIndex = Math.min(this.currentIndex, this.items.length - 1);
+    this._renderCurrentItem();
+    this._setStatus(
+      `Removed ${removedLabel.toLowerCase()} ${removedPosition} of ${total} —` +
+        ` ${this.items.length} left to save.`,
+    );
+    this._updateArchivePathPreview();
+  }
+
+  /**
    * @param {string} engine one of PREVIEW_ENGINE's values
    * @param {HTMLButtonElement} button the button that triggered this pass,
    *   for the pressed/disabled state -- so the *other* prefill button stays
@@ -600,6 +798,23 @@ export class ManualEntryForm {
       const json = await this.http.postJSON(
         "/api/manual-receipt-entry-preview",
         buildPreviewPayload({ imagePath: this.imagePathInput.value }, engine),
+        // fetch-http-client.js's default fetch timeout is 30s. Gemini Flash
+        // Fill's server side (finance/manual_entry.py's
+        // MANUAL_ENTRY_TIMEOUT_SEC) allows up to 90s -- a real call through
+        // GeminiReceiptEngine's model fallback chain (each retired/blocked
+        // model has to fail before the next is tried) measured at 18-25s on
+        // its own, close enough to 30s that a slightly larger image aborted
+        // client-side with nothing to show for it while the server was still
+        // working. Haiku's own OAuth-authenticated call gets the same
+        // server-side allowance and the same generous client timeout --
+        // an expired ~/.claude/.credentials.json triggers a refresh (one
+        // extra network round-trip, occasionally a `claude -p "ok"`
+        // subprocess call) before the real Messages API request even
+        // starts. Local OCR never leaves this box, so it keeps the default.
+        engine === PREVIEW_ENGINE.GEMINI_ONLY ||
+          engine === PREVIEW_ENGINE.HAIKU_ONLY
+          ? { timeout: 95000 }
+          : undefined,
       );
       const prefill = readPrefillResponse(json);
       if (prefill.merchantName)
@@ -623,6 +838,15 @@ export class ManualEntryForm {
                 : "")
           : `${sourceLabel} could not read this document (${prefill.error || "no result"}); fields left blank.`,
       );
+      // Zero extra cost: this reads the SAME raw OCR text every fill engine
+      // already produced, just checked for a statement's shape (multiple
+      // dated rows) instead of one receipt's. Shown regardless of whether the
+      // receipt-shaped fields above happened to come back readable -- a
+      // statement's own merchant/date/total rarely mean anything as "the"
+      // expense, so the nudge matters most exactly when prefill looks thin.
+      if (prefill.possibleStatement) {
+        this._infoDialog.show(POSSIBLE_STATEMENT_INFO_MESSAGE);
+      }
     } catch (err) {
       this._setStatus(
         `Prefill request failed: ${err && err.message ? err.message : err}`,
@@ -637,7 +861,176 @@ export class ManualEntryForm {
     await this._updateArchivePathPreview();
   }
 
+  /**
+   * "Read with Gemini" / "Read with Haiku" button/resubmit handler.
+   *
+   * Replaces the item list wholesale with one item per transaction found on
+   * the page, so Prev/Next walk the real expenses instead of the single row a
+   * receipt-shaped fill leaves behind. The rows are read by the same
+   * parse_statement_scan.py preflight the automatic pipeline uses, and Save All
+   * hands them to the same store_statement_transactions.py Mazda would -- being
+   * Mazda by hand, not a second implementation of her.
+   *
+   * @param {?{bankName: string, accountLast4: string}} [statementMetadata]
+   *   omitted on the first click; passed back in from the inline prompt once
+   *   the server reports it could not resolve the bank/account on its own
+   * @param {string} [engine] one of STATEMENT_ENGINE's values -- required on
+   *   the first (button) call; omitted on the resubmit continuation, which
+   *   reuses whichever engine that first call recorded, so Submit reads with
+   *   the SAME provider the operator originally chose
+   */
+  async _breakUpDocument(statementMetadata, engine) {
+    if (engine) this._statementBreakupEngine = engine;
+    const button = this.breakUpButtons[this._statementBreakupEngine];
+    button.disabled = true;
+    button.classList.add("is-pressed");
+    this.statementMetadataSubmit.disabled = true;
+    this._setStatus("Reading every transaction off this document…");
+    try {
+      const json = await this.http.postJSON(
+        "/api/manual-statement-breakup",
+        buildStatementBreakupPayload(
+          { imagePath: this.imagePathInput.value },
+          statementMetadata,
+          this._statementBreakupEngine,
+        ),
+        // Vision extraction of a whole statement page is the slowest call this
+        // form makes -- give it the same generous allowance the Gemini/Haiku
+        // fills get rather than aborting client-side on a page the server is
+        // still reading.
+        { timeout: 180000 },
+      );
+      const result = readStatementBreakupResponse(json);
+      // Rows first, error second: a needs-metadata answer still carries every
+      // transaction, and showing them while the operator types the bank in is
+      // the whole reason this response is shaped that way.
+      if (result.items.length) this._loadStatementItems(result);
+      if (result.needsStatementMetadata) {
+        this._resubmitWithStatementMetadata = (metadata) =>
+          this._breakUpDocument(metadata);
+        this.statementBankNameInput.value = result.header.bankName;
+        this.statementAccountLast4Input.value = result.header.accountLast4;
+        this.statementMetadataPrompt.style.display = "";
+        this._setStatus(
+          `Read ${result.items.length} transaction(s), but the bank/account` +
+            ` couldn't be resolved automatically (missing: ${
+              result.missingFields.join(", ") || "bank/account"
+            }) — fill in the fields above and Submit before saving.`,
+        );
+        return;
+      }
+      this.statementMetadataPrompt.style.display = "none";
+      this._resubmitWithStatementMetadata = (metadata) =>
+        this._routeAsStatement(metadata);
+      if (!result.ok) {
+        this._setStatus(
+          `Could not break up this document: ${result.error || "unknown error"}.`,
+        );
+        return;
+      }
+      const excludedNote = summarizeExcludedStatementRows(
+        this.statementExcludedRows,
+      );
+      this._setStatus(
+        `Found ${this.items.length} transaction(s) — walk them with Prev/Next,` +
+          " correct anything misread, then Save All. Categories are left to" +
+          " the store: statement rows enter the New Records queue." +
+          (excludedNote ? ` ${excludedNote}` : ""),
+      );
+    } catch (err) {
+      this._setStatus(
+        `Break Up Document failed: ${err && err.message ? err.message : err}`,
+      );
+    } finally {
+      button.disabled = false;
+      button.classList.remove("is-pressed");
+      this.statementMetadataSubmit.disabled = false;
+    }
+  }
+
+  /**
+   * Adopt an extraction's rows as the item list and remember the account.
+   * @param {import("../abstract/manual-entry.interface.js").StatementBreakupResult} result
+   */
+  _loadStatementItems(result) {
+    this.items = result.items;
+    this.currentIndex = 0;
+    this.statementHeader = result.header;
+    this.statementExcludedRows = result.excludedRows;
+    if (!this._archiveKindManuallySet) {
+      // A statement is never "a receipt", whatever the item count says. The
+      // statement store does its own archiving under bank_statements/, so this
+      // only keeps the form's own preview from claiming a Receipts path.
+      this.archiveKind = ARCHIVE_KIND.SCANNED_DOCUMENT;
+      this.archiveKindSelect.value = this.archiveKind;
+    }
+    this._renderCurrentItem();
+  }
+
+  /**
+   * "Not a receipt — process as statement" button/resubmit handler.
+   * @param {?{bankName: string, accountLast4: string}} [statementMetadata]
+   *   omitted on the first click; passed back in from the inline prompt once
+   *   the server reports it couldn't resolve the bank/account on its own
+   */
+  async _routeAsStatement(statementMetadata) {
+    if (!this.scannerKey) return;
+    this.statementButton.disabled = true;
+    this.statementButton.classList.add("is-pressed");
+    this.statementMetadataSubmit.disabled = true;
+    this._setStatus("Routing to statement intake…");
+    try {
+      const json = await this.http.postJSON(
+        "/api/process-document",
+        buildStatementRoutePayload(this.scannerKey, statementMetadata),
+      );
+      const result = readStatementRouteResponse(json);
+      if (result.needsStatementMetadata) {
+        this.statementMetadataPrompt.style.display = "";
+        this._setStatus(
+          "This is a statement, but the bank/account couldn't be resolved" +
+            ` automatically (missing: ${result.missingFields.join(", ") || "bank/account"})` +
+            " — fill in the fields below and Submit.",
+        );
+        return;
+      }
+      this.statementMetadataPrompt.style.display = "none";
+      if (result.rejected) {
+        this._setStatus(
+          `Statement rejected: ${result.error || "unknown reason"}.`,
+        );
+        return;
+      }
+      this._setStatus(
+        result.ok
+          ? "Routed to statement intake." +
+              (result.mazdaDispatched
+                ? " Mazda will investigate/categorize/store it."
+                : ` ${result.error || "Mazda was not dispatched."}`)
+          : `Could not route as a statement: ${result.error || "unknown error"}.`,
+      );
+    } catch (err) {
+      this._setStatus(
+        `Statement routing request failed: ${err && err.message ? err.message : err}`,
+      );
+    } finally {
+      this.statementButton.disabled = false;
+      this.statementButton.classList.remove("is-pressed");
+      this.statementMetadataSubmit.disabled = false;
+    }
+  }
+
   async _updateArchivePathPreview() {
+    if (this.statementHeader) {
+      // This preview answers "where would the Receipts archive file this?",
+      // which is the wrong question for a statement: store_statement_
+      // transactions.py files the page under the scanned-statement archive by
+      // year itself. Showing a receipt path here would be a confident lie.
+      this._archivePathEl.textContent =
+        "(statement mode — the statement store files this page under the" +
+        " bank-statements archive itself)";
+      return;
+    }
     const intakeRef = {
       imagePath: this.imagePathInput.value,
       conversationId: this.conversationId,
@@ -673,16 +1066,25 @@ export class ManualEntryForm {
 
   async _saveAll() {
     this._captureCurrentItem();
-    const invalidIndex = this.items.findIndex(
-      (item) => !validateManualEntry(item).valid,
-    );
+    // Which rules apply is decided by what the document IS, not by how many
+    // rows are on screen: a statement's credits are legitimately negative and
+    // its rows are stored by a different tool.
+    const validate = this.statementHeader
+      ? validateStatementRow
+      : validateManualEntry;
+    const label = this.statementHeader ? "transaction" : "expense";
+    const invalidIndex = this.items.findIndex((item) => !validate(item).valid);
     if (invalidIndex !== -1) {
       this.currentIndex = invalidIndex;
       this._renderCurrentItem();
-      this._renderErrors(validateManualEntry(this.items[invalidIndex]).errors);
+      this._renderErrors(validate(this.items[invalidIndex]).errors);
       this._setStatus(
-        `Fix expense ${invalidIndex + 1} of ${this.items.length} before saving.`,
+        `Fix ${label} ${invalidIndex + 1} of ${this.items.length} before saving.`,
       );
+      return;
+    }
+    if (this.statementHeader) {
+      await this._saveStatement();
       return;
     }
     const intakeRef = {
@@ -729,6 +1131,64 @@ export class ManualEntryForm {
     }
     this._setStatus(statusText);
     await this._showArchiveVerification();
+    this._showReloadButton();
+  }
+
+  /**
+   * Save All, in statement mode: every corrected row in one call.
+   *
+   * The counts reported back are the store's own -- it is the thing that knows
+   * a "PAYMENT - THANK YOU" line is not an expense and that two of these rows
+   * are already on file from their receipts. Reporting anything the form
+   * computed itself would be a second, weaker opinion about the same rows.
+   */
+  async _saveStatement() {
+    this._setStatus(
+      `Storing ${this.items.length} transaction(s) through the statement store…`,
+    );
+    let result;
+    try {
+      const json = await this.http.postJSON(
+        "/api/manual-statement-entry",
+        buildStatementEntryPayload(
+          // The store's split_expenses_and_credits needs the WHOLE page's
+          // signs to classify a borderline row correctly -- submitting only
+          // the reviewable rows would change a mixed-sign page into an
+          // all-negative one and could flip its verdict on a row that was
+          // never touched. The excluded rows ride along unedited; the store
+          // reaches the same "not an expense" verdict on them either way and
+          // reports them back as skipped_credits.
+          [...this.items, ...this.statementExcludedRows],
+          {
+            imagePath: this.imagePathInput.value,
+            conversationId: this.conversationId,
+          },
+          this.statementHeader,
+        ),
+        // Duplicate-checking, vendor resolution and the archive move for a
+        // whole page run inside one request.
+        { timeout: 180000 },
+      );
+      result = readStatementEntryResponse(json);
+    } catch (err) {
+      this._setStatus(
+        `Statement save failed: ${err && err.message ? err.message : err}`,
+      );
+      return;
+    }
+    const summary = summarizeStatementStore(result);
+    if (!result.ok) {
+      this._setStatus(
+        `Statement not stored: ${result.error || "unknown error"} (${summary})` +
+          (result.problems.length ? ` ${result.problems.join("; ")}` : ""),
+      );
+      return;
+    }
+    this._setStatus(
+      `${summary}${
+        result.problems.length ? ` Notes: ${result.problems.join("; ")}` : ""
+      }`,
+    );
     this._showReloadButton();
   }
 
