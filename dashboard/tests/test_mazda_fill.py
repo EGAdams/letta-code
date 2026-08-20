@@ -307,21 +307,38 @@ def test_an_engine_that_never_answered_is_not_re_read():
     assert statements.requests == []
 
 
-def test_a_faded_receipt_is_not_re_read_as_a_statement():
-    """The model answered and found no date, but the page's own text holds no
-    transaction table. That is an unreadable receipt."""
+def test_the_ocr_heuristic_cannot_veto_the_second_read():
+    """It said False about the live window scan, a page that is plainly a
+    statement. The retry happens on the model's answer alone."""
     payload = {**ANSWERED_NOT_A_RECEIPT, 'possible_statement': False}
     service, statements, _ = build_service(
         doc_kind='unknown', receipt=(False, payload))
-    assert service.fill(
-        MazdaFillRequest(image_path='/x.jpg')).shape == SHAPE_ONE_EXPENSE
-    assert statements.requests == []
+    response = service.fill(MazdaFillRequest(image_path='/x.jpg'))
+    assert response.shape == SHAPE_MANY_EXPENSES
+    assert len(statements.requests) == 1
+
+
+def test_an_unreadable_receipt_keeps_the_receipt_readers_answer():
+    """Both readers came back empty, so the page really was a receipt nobody
+    could read. Showing a statement extractor's complaint about a page that was
+    never a statement would be the less useful of the two answers."""
+    empty = FakeStatements(statement_response(ok=False, transactions=[],
+                                              error='no transactions found'))
+    service, statements, _ = build_service(
+        doc_kind='unknown', receipt=(False, ANSWERED_NOT_A_RECEIPT),
+        statements=empty)
+    response = service.fill(MazdaFillRequest(image_path='/x.jpg'))
+    assert response.shape == SHAPE_ONE_EXPENSE
+    assert response.error == ANSWERED_NOT_A_RECEIPT['engine_failure']['message']
+    assert len(statements.requests) == 1  # it was asked, and had nothing
 
 
 def test_the_failing_read_reports_the_models_own_sentence():
     """Not the generic wrapper, and emphatically not a quota error from an
     unrelated model further down the ladder."""
-    payload = {**ANSWERED_NOT_A_RECEIPT, 'possible_statement': False}
-    service, _, _ = build_service(doc_kind='unknown', receipt=(False, payload))
+    empty = FakeStatements(statement_response(ok=False, transactions=[]))
+    service, _, _ = build_service(
+        doc_kind='unknown', receipt=(False, ANSWERED_NOT_A_RECEIPT),
+        statements=empty)
     response = service.fill(MazdaFillRequest(image_path='/x.jpg'))
-    assert response.error == payload['engine_failure']['message']
+    assert response.error == ANSWERED_NOT_A_RECEIPT['engine_failure']['message']

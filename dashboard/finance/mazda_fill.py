@@ -180,6 +180,18 @@ class IReceiptReader(ABC):
         ...
 
 
+def _carries_transactions(response: 'MazdaFillResponse') -> bool:
+    """Did the statement read actually come back with rows?
+
+    The only question that settles whether a re-read was worth keeping. A
+    needs_statement_metadata answer counts: every transaction was read and only
+    the account identity is missing, which is a form the operator can finish.
+    """
+    payload = response.statement or {}
+    rows = payload.get('transactions')
+    return bool(isinstance(rows, (list, tuple)) and rows)
+
+
 class MazdaFillService:
     """Classify, then hand the page to the reader built for its kind."""
 
@@ -243,9 +255,20 @@ class MazdaFillService:
         # before reading, and then ignoring what the read said, is the weakness
         # that made a statement come back as an empty form and a quota error
         # from a model further down Gemini's ladder.
-        if outcome.suggests_statement:
-            return self._fill_statement(
+        #
+        # Ask, then keep whichever answer has something in it. Nothing here
+        # decides the page IS a statement -- the statement reader settles that
+        # by finding transactions or not, which is more than any heuristic on
+        # this side can honestly claim.
+        if outcome.warrants_statement_retry:
+            statement = self._fill_statement(
                 request, doc_kind, reread_after=outcome.best_error)
+            if _carries_transactions(statement):
+                return statement
+            # Neither reader found anything: the page really is an unreadable
+            # receipt, so the operator should see what the RECEIPT reader said
+            # about it, not a statement extractor's complaint about a page that
+            # was never a statement.
         return MazdaFillResponse(
             ok=bool(ok),
             shape=SHAPE_ONE_EXPENSE,

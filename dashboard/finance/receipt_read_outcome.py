@@ -14,18 +14,24 @@ from a *later* model in the ladder. Deciding shape before reading and then
 ignoring what the read said is exactly the weakness the five-reading-buttons
 redesign was meant to remove; it survived here in a smaller form.
 
-So shape becomes revisable rather than final. The rule needs two facts that
-live on opposite sides of a process boundary, which is why it is a type here
-and not an `if` in the service:
+So shape becomes revisable rather than final, on one fact: the model ANSWERED
+and still could not name a date or a merchant (`engine_failure`, from
+receipt_engine.py's ReceiptShapeMismatch). That is worth *re-reading* the page
+as a statement -- not concluding it is one.
 
-* the model ANSWERED and still could not name a date or a merchant
-  (`engine_failure`, from receipt_engine.py's ReceiptShapeMismatch), and
-* the page's own text reads as a transaction table (`possible_statement`).
+The conclusion belongs to the statement reader, which is the only thing that
+can settle it by finding transactions or not. An earlier version of this module
+required `possible_statement` -- the OCR keyword heuristic -- to agree before
+retrying, and on the live window scan that heuristic said False about a page
+that is unmistakably a statement, blocking the retry entirely. It is the same
+heuristic that scored the DTE gas bill 0. Asking a weak guess for permission to
+consult the authority is how the original defect worked; `possible_statement`
+is kept as corroborating detail and given no vote.
 
-Either alone is a bad reason to re-read a page as a statement. A faded receipt
-with an unreadable date satisfies the first; a receipt printed with several
-line items can satisfy the second. Together they are the signature of a page
-carrying many transactions.
+The cost of retrying and being wrong is one reader call and a slightly less
+specific message on a genuinely unreadable receipt. The cost of not retrying is
+an operator staring at an empty form holding a page full of transactions. The
+asymmetry decides it.
 """
 
 from __future__ import annotations
@@ -93,6 +99,8 @@ class ReceiptReadOutcome(StrictBoundaryModel):
 
     ok: bool
     error: str = ''
+    #: The OCR keyword heuristic's opinion. Reported, never obeyed -- see
+    #: warrants_statement_retry.
     possible_statement: bool = False
     engine_failure: Optional[EngineFailure] = None
 
@@ -107,17 +115,22 @@ class ReceiptReadOutcome(StrictBoundaryModel):
         )
 
     @property
-    def suggests_statement(self) -> bool:
-        """Both signals, never one.
+    def warrants_statement_retry(self) -> bool:
+        """Worth reading again as a statement -- not proof that it is one.
 
-        A successful read is never second-guessed here: if the model produced a
-        merchant, a date and a total, the page is a receipt and the operator
-        can see for themselves whether it isn't.
+        Deliberately does NOT consult `possible_statement`. That heuristic
+        answered False for the live window scan, a page that is plainly a
+        statement, and scored the DTE gas bill 0 before it. Letting it veto the
+        retry would put a weak guess in charge of whether the authority ever
+        gets asked.
+
+        A successful read is never second-guessed: if the model produced a
+        merchant, a date and a total, the page is a receipt.
         """
         if self.ok:
             return False
         failure = self.engine_failure
-        return bool(failure and failure.answered and self.possible_statement)
+        return bool(failure and failure.answered)
 
     @property
     def best_error(self) -> str:

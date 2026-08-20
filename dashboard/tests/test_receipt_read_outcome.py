@@ -61,7 +61,7 @@ def test_missing_survives_junk_entries():
     assert failure.missing == ('a',)
 
 
-# ── the two-signal rule ────────────────────────────────────────────────────
+# ── when a second read is warranted ────────────────────────────────────────
 
 def _outcome(*, ok=False, possible_statement=True, failure=LIVE_ENGINE_FAILURE):
     payload = {'error': 'something', 'possible_statement': possible_statement}
@@ -70,25 +70,27 @@ def _outcome(*, ok=False, possible_statement=True, failure=LIVE_ENGINE_FAILURE):
     return ReceiptReadOutcome.from_reader(ok, payload)
 
 
-def test_both_signals_means_read_it_again_as_a_statement():
-    assert _outcome().suggests_statement is True
+def test_an_answer_without_receipt_identity_is_worth_a_second_read():
+    assert _outcome().warrants_statement_retry is True
 
 
 def test_a_model_that_never_answered_is_not_evidence_of_anything():
     """A 429, a 503 or a missing key mean nobody read the page. Re-reading it
     with the statement extractor on that basis would be a guess, and guessing
     the shape is the whole defect."""
-    assert _outcome(failure=None).suggests_statement is False
+    assert _outcome(failure=None).warrants_statement_retry is False
 
 
-def test_a_faded_receipt_is_not_a_statement():
-    """The model answered and could not find a date -- but the page's text has
-    no transaction table. That is an unreadable receipt, not a statement."""
-    assert _outcome(possible_statement=False).suggests_statement is False
+def test_the_ocr_heuristic_gets_no_vote():
+    """It answered False for the live window scan -- a page that is plainly a
+    statement -- and scored the DTE gas bill 0 before that. Letting it veto the
+    retry would put a weak guess in charge of whether the reader that can
+    actually settle the question ever gets asked."""
+    assert _outcome(possible_statement=False).warrants_statement_retry is True
 
 
 def test_a_successful_read_is_never_second_guessed():
-    assert _outcome(ok=True).suggests_statement is False
+    assert _outcome(ok=True).warrants_statement_retry is False
 
 
 # ── which sentence the operator sees ───────────────────────────────────────
@@ -109,4 +111,4 @@ def test_a_reader_payload_that_is_not_a_mapping_is_survivable():
     outcome = ReceiptReadOutcome.from_reader(False, None)
     assert outcome.ok is False
     assert outcome.best_error == ''
-    assert outcome.suggests_statement is False
+    assert outcome.warrants_statement_retry is False

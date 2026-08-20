@@ -156,8 +156,14 @@ td.muted { padding:10px 12px; height:auto; }
 /* The Mazda Fill model dropdown sits immediately right of its button, so the
    two read as one control: "read it — with this". Scaled to match the
    form's buttons (they are transform:scale(1.2)) rather than sitting a size
-   smaller beside them. */
+   smaller beside them.
+
+   max-width cut from the inherited 320px (.manual-entry-field select, line
+   67) to 224px -- 30% narrower -- so the Automatic/Semi-Automatic switch
+   beside it has room; the model names are short enough that 224px still
+   shows them in full. */
 .manual-entry-form select[data-field="mazdaModel"] {
+    max-width:224px;
     margin-left:15px;
     transform:scale(1.2);
     transform-origin:left center;
