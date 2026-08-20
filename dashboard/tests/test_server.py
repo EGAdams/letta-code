@@ -5730,6 +5730,26 @@ def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
     assert 'openCategoryPicker' in html
 
 
+def test_picker_module_imports_for_real():
+    """Regression: _picker_module() only added VERIFICATION_LIB to sys.path,
+    so restructure_verified_transactions' own `from tools.python_tasks...`
+    import had nowhere to find the `tools` package — every report.html 500'd
+    with ModuleNotFoundError. It only appeared to work when some unrelated
+    request had already put ROL_FINANCES_DIR on this (process-global,
+    restart-cleared) sys.path first. Every other test exercising this path
+    monkeypatches _picker_module/_receipt_only_picker_assets away, so none of
+    them would have caught it — this one calls the real import."""
+    module = server._picker_module()
+    assert hasattr(module, 'add_category_picker')
+
+
+def test_default_statement_account_directory_imports_for_real():
+    """Same sys.path shape as _picker_module (see _ensure_sys_path): a
+    real, unpatched call must resolve `tools.receipt_scanning_tools...`."""
+    workbook = server._default_statement_account_directory()
+    assert workbook is not None
+
+
 def test_recent_intake_html_duplicates_note_when_nothing_stored(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())

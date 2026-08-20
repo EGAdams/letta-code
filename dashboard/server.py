@@ -4744,8 +4744,7 @@ def _statement_last4(value):
 
 def _default_statement_account_directory():
     """Build the workbook-backed last-four resolver without a hard import."""
-    if ROL_FINANCES_DIR not in sys.path:
-        sys.path.insert(0, ROL_FINANCES_DIR)
+    _ensure_sys_path(ROL_FINANCES_DIR)
     from tools.receipt_scanning_tools.known_accounts import KnownCardsWorkbook
     return KnownCardsWorkbook()
 
@@ -6549,11 +6548,33 @@ def _fetch_month_status():
     return result
 
 
+def _ensure_sys_path(*dirs):
+    """Insert each directory into sys.path once, if not already present.
+
+    rol_finances scripts import as `tools.python_tasks....` (absolute,
+    rooted at ROL_FINANCES_DIR) rather than relative to whatever directory
+    actually holds the file being imported, so a caller reaching into one of
+    its submodules needs BOTH dirs on sys.path: ROL_FINANCES_DIR for the
+    `tools` package root, and the submodule's own directory to resolve the
+    top-level `import_module('some_file')` call itself. Getting only one of
+    the two is exactly what made _picker_module 500 on every report.html —
+    VERIFICATION_LIB alone resolved `restructure_verified_transactions` but
+    left its own `from tools.python_tasks...` import with nowhere to find
+    `tools`. sys.path mutation is process-global and was previously
+    duplicated ad hoc per call site (see _default_statement_account_
+    directory); this is the one place that needs to get the set right.
+    """
+    for d in dirs:
+        if d not in sys.path:
+            sys.path.insert(0, d)
+
+
 def _picker_module():
+    """Import restructure_verified_transactions from VERIFICATION_LIB, which
+    itself does `from tools.python_tasks.verification_lib... import ...` —
+    hence needing ROL_FINANCES_DIR on sys.path too. See _ensure_sys_path."""
     import importlib
-    import sys as _sys
-    if VERIFICATION_LIB not in _sys.path:
-        _sys.path.insert(0, VERIFICATION_LIB)
+    _ensure_sys_path(ROL_FINANCES_DIR, VERIFICATION_LIB)
     return importlib.import_module('restructure_verified_transactions')
 
 
