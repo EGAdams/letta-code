@@ -167,6 +167,15 @@ td.muted { padding:10px 12px; height:auto; }
    and their visual center sits lower on the row than a center-origin
    element's does. Without this the dropdown reads as sitting a bit high
    next to Mazda Fill / Show Image. */
+.mazda-fill-progress {
+    margin-left:15px;
+    margin-top:4px;
+    height:4px;
+    width:0%;
+    background:#4ade80;
+    border-radius:2px;
+}
+
 .manual-entry-form select[data-field="mazdaModel"] {
     max-width:224px;
     margin-left:15px;

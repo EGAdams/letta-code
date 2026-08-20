@@ -171,6 +171,12 @@ export class ManualEntryForm {
       "mazda-fill",
     );
     this.mazdaFillButton.addEventListener("click", () => this._mazdaFill());
+    // Progress bar under Mazda Fill — fills over 15 seconds when the button
+    // is clicked, visual feedback that a read is underway.
+    this.mazdaFillProgressBar = this._el("div", {
+      className: "mazda-fill-progress",
+    });
+    imagePathWrap.appendChild(this.mazdaFillProgressBar);
     // Model, not engine: the operator is choosing who reads the page, and both
     // choices are cheap on purpose (see MAZDA_FILL_MODEL_OPTIONS). Driven off
     // that one list so adding a model never means editing markup.
@@ -818,6 +824,7 @@ export class ManualEntryForm {
     this.mazdaFillButton.disabled = true;
     this.mazdaFillButton.classList.add("is-pressed");
     this.statementMetadataSubmit.disabled = true;
+    this._startMazdaFillProgress();
     this._setStatus(`Mazda is reading this page with ${modelLabel}…`);
     try {
       const json = await this.http.postJSON(
@@ -847,6 +854,7 @@ export class ManualEntryForm {
       this.mazdaFillButton.disabled = false;
       this.mazdaFillButton.classList.remove("is-pressed");
       this.statementMetadataSubmit.disabled = false;
+      this._resetMazdaFillProgress();
     }
     // The archive path is built from vendor+date+amount — refresh it the
     // moment the fill has (or hasn't) filled those in, per EG's request,
@@ -1167,6 +1175,21 @@ export class ManualEntryForm {
 
   _setStatus(text) {
     this._statusEl.textContent = text;
+  }
+
+  _startMazdaFillProgress() {
+    this.mazdaFillProgressBar.style.width = "0%";
+    this.mazdaFillProgressBar.style.transition = "none";
+    // Force reflow to apply the initial state before starting animation.
+    // biome-ignore lint: reflow trigger
+    this.mazdaFillProgressBar.offsetHeight;
+    this.mazdaFillProgressBar.style.transition = "width 15s linear";
+    this.mazdaFillProgressBar.style.width = "100%";
+  }
+
+  _resetMazdaFillProgress() {
+    this.mazdaFillProgressBar.style.transition = "none";
+    this.mazdaFillProgressBar.style.width = "0%";
   }
 }
 
