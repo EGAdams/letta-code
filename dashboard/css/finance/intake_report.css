@@ -193,7 +193,10 @@ td.muted { padding:10px 12px; height:auto; }
        as something crowding it. Scaled up by 1.2 below like everything else in
        this row, so the rendered gap is a little over 16px. */
     gap:14px;
-    margin-left:calc(15px + 15px);
+    /* +48px (~1/2in) past the base 30px gap after the model dropdown, so the
+       track and its label clear the now-narrower dropdown with room to
+       spare rather than crowding its right edge. */
+    margin-left:calc(15px + 15px + 48px);
     transform:scale(1.2);
     transform-origin:left center;
     font-family:"Courier New",Courier,monospace;
