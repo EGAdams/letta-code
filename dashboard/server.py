@@ -60,6 +60,7 @@ from codex_sync_status import (
     toggle_codex_sync,
 )
 from model_stats_mute import ModelStatsMuteRequest, apply_mute_overlay, set_muted
+from intake.dispatch_evidence import DispatchEvidence
 from intake.mazda_mode import (
     JsonFileMazdaModeStore,
     MazdaModeService,
@@ -4181,25 +4182,25 @@ def _create_mazda_conversation():
 
 
 def _mazda_dispatch_was_accepted(conversation_id):
-    """Confirm that a timed-out synchronous POST reached its conversation.
+    """Confirm that a failed synchronous POST still reached its conversation.
 
-    Letta 0.16.7 keeps the non-streaming messages request open while the agent
-    works.  A document intake can therefore outlive our HTTP timeout even
-    though Letta accepted it and immediately populated the new, isolated
-    conversation.  The conversation is created empty, so any in-context
-    message id is unambiguous acknowledgement of this dispatch.
+    Letta keeps the non-streaming messages request open while the agent works,
+    so an intake can outlive our HTTP timeout even though Letta accepted it.
+    That is the case this exists for, and it still answers True there.
+
+    It reads the conversation's MESSAGES rather than the conversation object's
+    `in_context_message_ids`. The old check counted those ids and treated any
+    of them as acknowledgement, on the premise that a new conversation is
+    empty. It never is -- it carries its system prompt -- so the check answered
+    "accepted" for a conversation nothing had ever been posted to. See
+    intake/dispatch_evidence.py for what that cost on 2026-08-19.
     """
     if not conversation_id:
         return False
-    try:
-        conversation = letta_get(
-            f'/v1/conversations/{quote(conversation_id, safe="")}', timeout=10)
-    except Exception:
-        return False
-    return bool(
-        isinstance(conversation, dict)
-        and conversation.get('in_context_message_ids')
-    )
+    messages = letta_get(
+        f'/v1/conversations/{quote(conversation_id, safe="")}/messages?limit=5',
+        timeout=10)
+    return DispatchEvidence.from_payload(messages).dispatch_landed
 
 
 # ── Execution mode (human-only decision gate) ──────────────────────────────

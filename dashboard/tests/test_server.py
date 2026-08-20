@@ -4002,14 +4002,21 @@ def test_scan_message_round_trips_through_notify(monkeypatch):
     assert captured['body']['streaming'] is False
 
 
+#: What Letta returns for a conversation nothing was ever posted to: the system
+#: prompt it is born with. Reproduced from the live stalled intake
+#: (conv-8f235c63, 2026-08-19) -- the old probe read this as "delivered".
+_ONLY_THE_SYSTEM_PROMPT = [{'role': None, 'message_type': 'system_message'}]
+_DISPATCH_DELIVERED = _ONLY_THE_SYSTEM_PROMPT + [
+    {'role': 'user', 'message_type': 'user_message'}]
+
+
 def test_scan_notify_timeout_is_success_when_conversation_received_message(monkeypatch):
     """A slow synchronous agent run must not be reported as delivery failure."""
     monkeypatch.setattr(
         server.urllib.request, 'urlopen',
         lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError('timed out')))
     monkeypatch.setattr(
-        server, 'letta_get',
-        lambda path, timeout: {'in_context_message_ids': ['message-user']})
+        server, 'letta_get', lambda path, timeout: _DISPATCH_DELIVERED)
 
     assert server._notify_mazda_of_scan(
         '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
@@ -4020,13 +4027,31 @@ def test_scan_notify_failure_remains_failure_when_conversation_is_empty(monkeypa
     monkeypatch.setattr(
         server.urllib.request, 'urlopen',
         lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError('timed out')))
-    monkeypatch.setattr(
-        server, 'letta_get',
-        lambda path, timeout: {'in_context_message_ids': []})
+    monkeypatch.setattr(server, 'letta_get', lambda path, timeout: [])
 
     assert server._notify_mazda_of_scan(
         '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
         'conv-freezer') is False
+
+
+def test_a_rejected_dispatch_is_reported_as_a_failure(monkeypatch):
+    """The 2026-08-19 defect, at the level the operator feels it.
+
+    The POST was rejected with HTTP 429 -- nothing was queued -- and the probe
+    saw the system prompt every conversation is born with and called it
+    delivered. The scan was recorded `processing` and hung until the Trainer
+    reported it as an infrastructure problem.
+    """
+    monkeypatch.setattr(
+        server.urllib.request, 'urlopen',
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            urllib.error.HTTPError('u', 429, 'Too Many Requests', {}, None)))
+    monkeypatch.setattr(
+        server, 'letta_get', lambda path, timeout: _ONLY_THE_SYSTEM_PROMPT)
+
+    assert server._notify_mazda_of_scan(
+        '/scans/x.jpg', 'Window Scanner', _FACADE_JPEG_UNKNOWN,
+        'conv-8f235c63') is False
 
 
 def test_scan_notify_failure_marks_exact_intake_terminal(tmp_path, monkeypatch):
