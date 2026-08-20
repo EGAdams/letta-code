@@ -1162,6 +1162,9 @@ summary {
 .ms-card h3 {
   margin: 0 0 8px;
 }
+.ms-mute-btn {
+  margin: 0 0 10px;
+}
 .ms-window {
   margin: 12px 0;
 }

@@ -1009,6 +1009,10 @@ function renderModelStats(d) {
         : "#43a047";
   let h = '<div class="ms-card">';
   h += `<h3>${esc(d.label)} <span style="color:${dot}">●</span></h3>`;
+  h += `<button type="button" class="am-btn ms-mute-btn" data-mute-source="${esc(d.key)}" data-muted="${d.muted ? "1" : "0"}">${d.muted ? "Unmute warning" : "Mute warning"}</button>`;
+  if (d.muted) {
+    h += `<p class="am-dim">Warning silenced — actual status: ${esc(d.raw_status || d.status)}. Click Unmute once this is resolved.</p>`;
+  }
   if (d.rate_limited) {
     // Provider-side 429: say so loudly, with the local reset time and a live
     // countdown — the whole point is never having to diagnose this from a
@@ -1144,6 +1148,26 @@ if (navModelStats) {
       MS.stopPoll();
       navModelStats.classList.add("hidden");
       returnToStatus("model-stats");
+    });
+  }
+  const msBody = document.getElementById("model-stats-body");
+  if (msBody) {
+    msBody.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-mute-source]");
+      if (!btn) return;
+      const source = btn.dataset.muteSource;
+      const nextMuted = btn.dataset.muted !== "1";
+      btn.disabled = true;
+      try {
+        await http.postJSON("/api/model-stats-mute", {
+          source,
+          muted: nextMuted,
+        });
+      } catch (e2) {
+        console.error("model-stats-mute failed", e2);
+      }
+      if (MS.current === source) await MS.show(source);
+      MS.pollColors();
     });
   }
 }
