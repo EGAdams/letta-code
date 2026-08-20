@@ -32,16 +32,28 @@ PARSE_AND_CATEGORIZE_SCRIPT = os.path.expanduser(
     '~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/'
     'parse_and_categorize.py')
 MANUAL_ENTRY_TIMEOUT_SEC = 90
-#: Preview-only engines the "Prefill from OCR" (local, zero-token), "Gemini
-#: Flash Fill" (gemini-only, free-tier), and "Fill with Haiku" (haiku-only,
-#: this box's Claude Code subscription OAuth session -- never an
-#: ANTHROPIC_API_KEY, see claude_oauth_client.py) buttons may request.
-#: Deliberately excludes "auto"/"gemini" (parse_and_categorize.py's CLI
-#: quirk: "gemini" is an alias for the FULL auto chain, including the
-#: chatgpt-oauth/openai paid tiers on Gemini failure -- not a Gemini-only
-#: mode) and "chatgpt-oauth"/"openai" outright, so a preview request can
-#: never reach a paid tier no matter what a caller passes.
-PREVIEW_ENGINES = frozenset({'local', 'gemini-only', 'haiku-only'})
+#: Preview-only engines a read of one document may request: 'local' (the
+#: zero-token OCR pass, no longer offered by any button -- see
+#: finance/mazda_fill.py) plus the three single-provider, no-fallback models
+#: the Mazda Fill dropdown offers. Each names ONE subscription this house
+#: already pays a flat fee for: Gemini's free tier, Claude Haiku through this
+#: box's Claude Code OAuth session (never an ANTHROPIC_API_KEY, see
+#: claude_oauth_client.py), and the ChatGPT/Codex subscription through the
+#: installed Codex CLI.
+#:
+#: Deliberately excludes "auto"/"gemini" (parse_and_categorize.py's CLI quirk:
+#: "gemini" is an alias for the FULL auto chain, including the paid tiers on
+#: Gemini failure -- not a Gemini-only mode) and "openai" outright, so a
+#: preview request can never reach a metered tier no matter what a caller
+#: passes. "chatgpt-oauth" is likewise left off: it is the same subscription
+#: as 'codex-only' reached through a different endpoint and a different
+#: default model, and offering both would mean two dropdown entries that read
+#: the same page with two different models.
+PREVIEW_ENGINES = frozenset({'local', 'gemini-only', 'haiku-only', 'codex-only'})
+
+#: What parse_and_categorize.py stamps meta.model_name with when every named
+#: engine failed and free local OCR answered in its place.
+LOCAL_FALLBACK_MODEL_NAME = 'local-fallback'
 
 
 class ManualReceiptEntry(ExpenseFieldRules):
@@ -189,6 +201,29 @@ def _extract_prefill(payload: dict) -> dict:
     }
 
 
+def _answered_by_local_fallback(payload: dict, engine: str) -> bool:
+    """Did free OCR answer a question that was asked of a named model?
+
+    parse_and_categorize.py falls back to local OCR whenever the engine it was
+    given fails, and returns that result as a normal success. For the auto
+    chain that is right. For a named model it is not: the operator picked
+    Gemini/Haiku/Codex, and a quota-exhausted account (verified 2026-08-19:
+    both Codex accounts, one out of weekly usage and one with a dead refresh
+    token) would otherwise fill the form with OCR's guess under that model's
+    name. On the DTE gas bill that guess is the merchant "Account Number".
+
+    Reporting it as the failure it is costs the operator nothing -- they can
+    pick the other model, or type three fields -- and is the difference
+    between "Mazda read this" and "something read this".
+    """
+    if engine == 'local':
+        return False
+    meta = payload.get('meta') or {}
+    if not isinstance(meta, dict):
+        return False
+    return meta.get('model_name') == LOCAL_FALLBACK_MODEL_NAME
+
+
 def _document_text(payload: dict) -> str:
     """The document's raw OCR text, if the parse payload carried any.
 
@@ -318,6 +353,16 @@ def preview_receipt_parse(image_path: str, engine: str = 'local', runner=None,
     report = result.get('report') or {}
     if not report:
         return False, {'error': 'could not parse OCR output'}
+    # Deliberately BEFORE _extract_prefill: an OCR guess must not reach the
+    # form's fields wearing the chosen model's name.
+    if _answered_by_local_fallback(report, engine):
+        return False, {
+            'error': (f'{engine} did not answer, so nothing was read from this '
+                      'document (local OCR is not used to fill this form). Try '
+                      'the other model, or type the fields in.'),
+            'possible_statement': looks_like_multiple_transactions(
+                _document_text(report)),
+        }
     prefill = _extract_prefill(report)
     # Computed unconditionally, success or failure: a page that reads as a
     # statement's transaction table is worth flagging even when none of the

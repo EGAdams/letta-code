@@ -94,7 +94,9 @@ class StatementRow(StrictBoundaryModel):
 #: the process boundary as a literal CLI argument, so a name added on one side
 #: without the other would surface as a cryptic argparse failure instead of a
 #: clear 400 here.
-STATEMENT_ENGINES = frozenset({"auto", "gemini-only", "haiku-only"})
+STATEMENT_ENGINES = frozenset(
+    {"auto", "gemini-only", "haiku-only", "codex-only"}
+)
 
 
 class StatementBreakupRequest(StrictBoundaryModel):

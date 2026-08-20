@@ -49,6 +49,11 @@ from finance.statement_models import (
 MAZDA_FILL_MODELS: dict[str, str] = {
     'gemini-only': 'Gemini Flash',
     'haiku-only': 'Claude Haiku',
+    # The ChatGPT/Codex subscription, read through the installed Codex CLI
+    # (codex_cli_vision, EG's account then Mom's). "luna" is the model that
+    # actually runs: the CLI's default is gpt-5.4-mini, which ~/.codex/
+    # config.toml migrates to gpt-5.6-luna.
+    'codex-only': 'Codex (luna)',
 }
 
 DEFAULT_MAZDA_FILL_MODEL = 'gemini-only'

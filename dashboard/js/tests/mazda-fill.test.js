@@ -70,7 +70,7 @@ function posts(http, url) {
 describe("MAZDA_FILL_MODEL_OPTIONS", () => {
   test("offers only models BOTH readers accept, and no free-OCR tier", () => {
     const models = MAZDA_FILL_MODEL_OPTIONS.map((opt) => opt.model);
-    expect(models).toEqual(["gemini-only", "haiku-only"]);
+    expect(models).toEqual(["gemini-only", "haiku-only", "codex-only"]);
     // finance/mazda_fill.assert_models_are_supported() enforces the
     // intersection server-side; these two are the guard against the list
     // quietly regaining the tiers it exists to exclude.
@@ -87,6 +87,7 @@ describe("MAZDA_FILL_MODEL_OPTIONS", () => {
   test("every model has a label a human would recognize", () => {
     expect(mazdaFillModelLabel("gemini-only")).toBe("Gemini Flash");
     expect(mazdaFillModelLabel("haiku-only")).toBe("Claude Haiku");
+    expect(mazdaFillModelLabel("codex-only")).toBe("Codex (luna)");
     // An unknown value must still read as something, not "undefined": the
     // label goes straight into the operator's status line.
     expect(mazdaFillModelLabel("something-new")).toBe("something-new");

@@ -110,6 +110,22 @@ def test_the_js_dropdown_offers_exactly_the_same_models():
     assert sorted(re.findall(r'model:\s*"([^"]+)"', block)) == sorted(MAZDA_FILL_MODELS)
 
 
+def test_codex_is_offered_and_names_the_model_that_actually_runs():
+    # "Codex luna": codex_cli_vision's default is gpt-5.4-mini, which
+    # ~/.codex/config.toml migrates to gpt-5.6-luna. The label says luna
+    # because that is what answers, and the operator picks by model, not by
+    # which CLI flag happens to be passed.
+    assert MAZDA_FILL_MODELS['codex-only'] == 'Codex (luna)'
+
+
+def test_every_offered_model_names_one_flat_fee_subscription():
+    # None of the three can reach a metered tier: 'openai' (an API key) and
+    # 'auto' (falls through to it) are both absent by construction.
+    assert sorted(MAZDA_FILL_MODELS) == ['codex-only', 'gemini-only', 'haiku-only']
+    assert 'openai' not in MAZDA_FILL_MODELS
+    assert 'chatgpt-oauth' not in MAZDA_FILL_MODELS
+
+
 # ── the request boundary ──────────────────────────────────────────────────
 def test_an_unknown_model_is_refused_at_the_boundary():
     with pytest.raises(ValidationError):

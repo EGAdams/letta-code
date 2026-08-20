@@ -38,6 +38,10 @@ export const FILL_SHAPE = Object.freeze({
 export const MAZDA_FILL_MODEL_OPTIONS = Object.freeze([
   { model: "gemini-only", label: "Gemini Flash" },
   { model: "haiku-only", label: "Claude Haiku" },
+  // The ChatGPT/Codex subscription via the installed Codex CLI. "luna" names
+  // the model that actually runs: the CLI default is gpt-5.4-mini, which
+  // ~/.codex/config.toml migrates to gpt-5.6-luna.
+  { model: "codex-only", label: "Codex (luna)" },
 ]);
 
 export const DEFAULT_MAZDA_FILL_MODEL = "gemini-only";

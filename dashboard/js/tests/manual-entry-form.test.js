@@ -311,7 +311,7 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     const offered = Array.from(form.mazdaModelSelect.children).map(
       (option) => option.value,
     );
-    expect(offered).toEqual(["gemini-only", "haiku-only"]);
+    expect(offered).toEqual(["gemini-only", "haiku-only", "codex-only"]);
     // No 'local': the OCR pass this replaced is exactly what read the DTE gas
     // bill as one $28.07 expense. No 'auto': its later tiers are paid.
     expect(offered).not.toContain("local");
