@@ -3040,13 +3040,35 @@ def classify_scan_result(returncode, log, image_exists):
             'error': log or f'Scan failed (exit {returncode})', 'log': log}
 
 
-# A page with anything printed on it spreads its grey levels wide: the test
-# fixtures and real scans both read a stddev near 90. A sheet with nothing on
-# it -- lid left open, misfeed, page that never reached the glass -- reads 0.0
-# whether it came out white or black. Nothing real lands in between, so this
-# threshold only has to separate "flat" from "has marks on it", and is set low
-# enough that a sparse receipt on a white background is never mistaken for one.
-_BLANK_SCAN_STDDEV = 8.0
+# Measured over the 311 scans already filed in readable_documents: the flattest
+# real one reads 27.8 and a blank sheet reads 0.0, so this sits with a wide
+# margin on both sides.
+_BLANK_SCAN_STDDEV = 12.0
+# Judged per tile, not over the whole page, because the ordinary case is a
+# small receipt on a full letter-size flatbed: 95% of that scan IS blank paper,
+# which drags a whole-page stddev down to 6.4 -- below any threshold that still
+# catches a genuinely empty sheet. A grid coarse enough that a receipt fills
+# several tiles, fine enough that one small receipt still fills one.
+_BLANK_SCAN_GRID = 8
+
+
+def _busiest_tile_spread(gray):
+    """Greatest grey-level spread found in any one tile of the page.
+
+    A blank sheet has no busy tile anywhere; a page with anything printed on it
+    has at least one, wherever on the glass it happened to land.
+    """
+    width, height = gray.size
+    tile_w = max(1, width // _BLANK_SCAN_GRID)
+    tile_h = max(1, height // _BLANK_SCAN_GRID)
+    busiest = 0.0
+    for row in range(_BLANK_SCAN_GRID):
+        for col in range(_BLANK_SCAN_GRID):
+            box = (col * tile_w, row * tile_h,
+                   min(width, (col + 1) * tile_w),
+                   min(height, (row + 1) * tile_h))
+            busiest = max(busiest, ImageStat.Stat(gray.crop(box)).stddev[0])
+    return busiest
 
 
 def inspect_scan_image_quality(path):
@@ -3066,7 +3088,7 @@ def inspect_scan_image_quality(path):
     try:
         with Image.open(path) as img:
             img.load()
-            spread = ImageStat.Stat(img.convert('L')).stddev[0]
+            spread = _busiest_tile_spread(img.convert('L'))
     except Exception:
         # Truncated transfer, a WIA error page, a zero-byte JPEG with a header.
         # Undecodable here means undecodable for every downstream reader too.

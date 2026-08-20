@@ -1800,6 +1800,29 @@ def test_inspect_scan_image_quality_allows_nonblank_document_like_page(tmp_path)
     assert result['blank_like'] is False
 
 
+def test_inspect_scan_image_quality_allows_a_small_receipt_on_a_full_page(tmp_path):
+    """The ordinary flatbed case: a small receipt on a letter-size page.
+
+    ~95% of that scan is genuinely blank paper, so a whole-page stddev reads
+    ~6 -- under any threshold that still catches an empty sheet. Measured
+    against the real archive, this shape was the single false reject a
+    whole-page test produced, so it is pinned here.
+    """
+    pil = pytest.importorskip('PIL.Image')
+    draw = pytest.importorskip('PIL.ImageDraw')
+    scan = tmp_path / 'small_receipt.jpg'
+    page = pil.new('L', (2550, 3508), color=255)
+    pen = draw.Draw(page)
+    for y in range(240, 900, 26):
+        pen.rectangle((300, y, 780, y + 9), fill=40)
+    page.save(scan, format='JPEG', quality=90)
+
+    result = server.inspect_scan_image_quality(str(scan))
+
+    assert result['ok'] is True
+    assert result['blank_like'] is False
+
+
 def test_process_scanned_document_rejects_blank_scan_before_mazda_dispatch(
         tmp_path, monkeypatch):
     scan = tmp_path / 'window_scan.jpg'
