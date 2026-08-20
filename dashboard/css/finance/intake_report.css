@@ -196,7 +196,10 @@ td.muted { padding:10px 12px; height:auto; }
 .mazda-mode-switch {
     display:inline-flex;
     align-items:center;
-    gap:8px;
+    /* Wide enough that the words read as a caption FOR the switch rather than
+       as something crowding it. Scaled up by 1.2 below like everything else in
+       this row, so the rendered gap is a little over 16px. */
+    gap:14px;
     margin-left:calc(15px + 15px);
     transform:scale(1.2);
     transform-origin:left center;
@@ -215,12 +218,18 @@ td.muted { padding:10px 12px; height:auto; }
     clip:rect(0 0 0 0);
     white-space:nowrap;
 }
+/* The track is colored, not gray: this switch is a status light as much as a
+   control, and which mode the box is in is the thing worth spotting from
+   across the room. Yellow = Semi-Automatic, a document is sitting here waiting
+   for a human. Green = Automatic, Mazda is filing them herself. Both are taken
+   from the palette already in this file (.mazda-progress-bar's amber), so the
+   dialog doesn't gain a third yellow. */
 .mazda-mode-track {
     position:relative;
     flex:0 0 auto;
     width:42px;
     height:20px;
-    background:#808080;
+    background:#f4b400;
     border:2px inset #c0c0c0;
     box-shadow:inset -1px -1px #dfdfdf,inset 1px 1px #0a0a0a;
 }
@@ -236,8 +245,6 @@ td.muted { padding:10px 12px; height:auto; }
     background:#c0c0c0;
     box-shadow:inset -1px -1px #0a0a0a,inset 1px 1px #fff,inset -2px -2px grey,inset 2px 2px #dfdfdf;
 }
-/* Automatic = Mazda is driving. Green because it means something is running
-   unattended, which is the state worth spotting from across the room. */
 .mazda-mode-switch input[type="checkbox"]:checked + .mazda-mode-track {
     background:#008000;
 }
