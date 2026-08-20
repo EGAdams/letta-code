@@ -67,7 +67,7 @@ def test_a_fallback_preview_fills_nothing_and_says_which_model_went_quiet():
     ok, payload = preview_receipt_parse(
         '/scan.jpg', engine='codex-only', runner=runner_for(DTE_FALLBACK_REPORT))
     assert ok is False
-    assert 'codex-only did not answer' in payload['error']
+    assert 'codex-only did not return a usable reading' in payload['error']
     # The junk fields never reach the form. "Account Number" as a merchant is
     # exactly the confident-looking wrong answer this guard exists to stop.
     assert 'merchant_name' not in payload
@@ -127,16 +127,20 @@ def test_the_operator_reads_what_the_model_said_not_the_generic_line():
         '/staged/window.jpg', engine='gemini-only',
         runner=runner_for(STATEMENT_FALLBACK_REPORT))
     assert payload['error'] == ANSWERED_NOT_A_RECEIPT['message']
-    assert 'did not answer' not in payload['error']
+    assert 'did not return a usable reading' not in payload['error']
 
 
-def test_a_model_that_never_answered_still_gets_the_generic_line():
-    """No engine_failure means a 429/503/missing key -- nobody looked at the
-    document, and there is nothing more specific to say."""
+def test_without_a_reason_the_wording_stays_true_of_every_failure():
+    """No engine_failure covers two different events that arrive by the same
+    route: a 429/503/missing key (nobody looked) and a model that answered with
+    unusable output. Verified live 2026-08-19 -- haiku-only spent 4,071 input
+    tokens on the window scan and returned something that was not valid JSON.
+    "did not answer" would be false for the second, so nothing claims it."""
     _, payload = preview_receipt_parse(
         '/staged/dte.jpg', engine='gemini-only',
         runner=runner_for(DTE_FALLBACK_REPORT))
-    assert 'did not answer' in payload['error']
+    assert 'did not return a usable reading' in payload['error']
+    assert 'did not answer' not in payload['error']
     assert 'engine_failure' not in payload
 
 

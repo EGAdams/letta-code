@@ -377,10 +377,15 @@ def preview_receipt_parse(image_path: str, engine: str = 'local', runner=None,
         # The model's own sentence when it has one -- it answered, and said
         # something specific and useful. The generic wording below is for the
         # case where nobody looked at the document at all.
+        # "did not answer" would be a lie for half of these. Verified live
+        # 2026-08-19: haiku-only spent 4,071 input tokens on a window scan and
+        # replied with output that was not valid JSON at all -- it answered,
+        # just uselessly. A 429 and a garbled reply reach this line by the same
+        # route, so the wording has to be true of both.
         error = engine_failure.get('message') or (
-            f'{engine} did not answer, so nothing was read from this '
-            'document (local OCR is not used to fill this form). Try '
-            'the other model, or type the fields in.')
+            f'{engine} did not return a usable reading of this document '
+            '(local OCR is not used to fill this form). Try the other model, '
+            'or type the fields in.')
         failed = {
             'error': error,
             'possible_statement': looks_like_multiple_transactions(
