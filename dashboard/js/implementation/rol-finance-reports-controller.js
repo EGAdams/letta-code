@@ -2,6 +2,22 @@ import { TextUtils } from "../abstract/text-utils.js";
 import { describePipelineStage } from "./document-pipeline-controller.js";
 
 /**
+ * @typedef {Object} RolFinanceReport
+ * @property {string} key - Stable id, e.g. "bank-5938-pdf1".
+ * @property {string} label - Tab label, e.g. "Bank 5938 PDF 1".
+ * @property {boolean} exists - Whether report.html exists on disk.
+ * @property {"pass"|"review"|"fail"|null} status - null for the synthetic
+ *   receipt-only row, which carries no verification status of its own.
+ * @property {string} url - report.html URL (or the receipt-only API URL).
+ * @property {{badge?: string, summary?: string, issues?: Array<{section:
+ *   string, status: string, text: string}>, recommended_action?: string}}
+ *   [attention_detail] - Present only when status is "review" or "fail"
+ *   (see RolFinanceReportsController.needsAttention); server-extracted from
+ *   report.html's hero badge / summary-box / failing verification sections.
+ * @property {number} [receipt_count] - Only on the receipt-only row.
+ */
+
+/**
  * RolFinanceReportsController — builds the Project Plans → ROL Finance →
  * Reports tabs. The reports are grouped by month/year: a row of "month tabs"
  * (January 2025, February 2025, …) is injected once, and selecting a month
@@ -11,8 +27,11 @@ import { describePipelineStage } from "./document-pipeline-controller.js";
  * Each document section contains:
  *   1. A reprocess bar (button + inline status) so the user can re-run the
  *      full Mazda intake pipeline on the underlying source document at any time.
- *   2. An iframe loading the report.html, collapsed to the Verified Transactions
- *      card via showOnlyVerifiedTransactions on load.
+ *   2. An iframe loading the report.html. A "pass" report is collapsed to
+ *      the Verified Transactions card via showOnlyVerifiedTransactions on
+ *      load; a "review"/"fail" report is left full — see
+ *      RolFinanceReportsController.needsAttention — because that's where the
+ *      human-facing explanation of what's blocking it actually lives.
  *
  * The controller polls expense events and the intake-state token every 15 s
  * (when polling is enabled by injecting setInterval / clearInterval). Open
@@ -857,7 +876,25 @@ export class RolFinanceReportsController {
     this.openOverview();
   }
 
-  /** Map a report's status to a CSS class + human label for the overview row. */
+  /**
+   * Whether a report's status means a human still needs to look at it
+   * (review/fail) rather than a finished pass. Single source of truth for
+   * the "needs attention" condition, shared by renderAttentionReasonHtml
+   * (which section to show above the iframe) and buildTabsAndViews (whether
+   * to collapse the iframe to Verified Transactions only) — see the design
+   * note on showOnlyVerifiedTransactions.
+   * @param {RolFinanceReport["status"]} status
+   * @returns {boolean}
+   */
+  static needsAttention(status) {
+    return status === "fail" || status === "review";
+  }
+
+  /**
+   * Map a report's status to a CSS class + human label for the overview row.
+   * @param {RolFinanceReport["status"]} status
+   * @returns {{cls: string, label: string}|null}
+   */
   static statusInfo(status) {
     switch (status) {
       case "pass":
@@ -975,6 +1012,7 @@ export class RolFinanceReportsController {
    * Inject one tab + one view per report.
    * Existing reports get a reprocess bar above the iframe.
    * Missing reports get a red tab + placeholder.
+   * @param {RolFinanceReport[]} reports
    */
   buildTabsAndViews(reports) {
     for (const r of reports) {
@@ -1010,19 +1048,23 @@ export class RolFinanceReportsController {
         // hides the report's own Overall Result / verification sections.
         const attentionHtml = this.renderAttentionReasonHtml(r);
         if (attentionHtml) view.insertAdjacentHTML("beforeend", attentionHtml);
-        // Keep the iframe in innerHTML so querySelectorAll on the view
-        // can find it in the real DOM while the bar stays queryable via
-        // the children tree (the FakeElement pattern this codebase uses).
-        view.insertAdjacentHTML(
-          "beforeend",
-          `<iframe class="plan-frame" src="${TextUtils.esc(r.url)}"></iframe>`,
-        );
-        const iframe = view.querySelector("iframe");
-        if (iframe) {
+        const iframe = this._doc.createElement("iframe");
+        iframe.className = "plan-frame";
+        iframe.src = r.url;
+        // A review/fail report is left uncollapsed: the attention box above
+        // (renderAttentionReasonHtml) only carries free-text badge/summary/
+        // issues the server could regex out of the page, which misses
+        // context that lives solely in prose (e.g. an Overall Result
+        // paragraph with no status-fail/status-warn span). The full report —
+        // Overall Result, Verification Summary, Account Reconciliation, etc.
+        // — is what actually explains a yellow/red tab, so it must stay
+        // visible instead of being hidden behind Verified Transactions only.
+        if (!RolFinanceReportsController.needsAttention(r.status)) {
           iframe.addEventListener("load", () =>
             this.showOnlyVerifiedTransactions(iframe),
           );
         }
+        view.appendChild(iframe);
       } else {
         view.innerHTML = "<p>Missing report.html for this report.</p>";
       }
@@ -1030,9 +1072,13 @@ export class RolFinanceReportsController {
     }
   }
 
-  /** Render the reason and next action for a red or yellow report. */
+  /**
+   * Render the reason and next action for a red or yellow report.
+   * @param {RolFinanceReport} r
+   * @returns {string}
+   */
   renderAttentionReasonHtml(r) {
-    if (!r || !["fail", "review"].includes(r.status)) return "";
+    if (!r || !RolFinanceReportsController.needsAttention(r.status)) return "";
     const d = r.attention_detail || r.failure_detail;
     if (!d) return "";
     const isReview = r.status === "review";

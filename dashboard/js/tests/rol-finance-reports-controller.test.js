@@ -140,7 +140,7 @@ describe("RolFinanceReportsController", () => {
       (v) => v.id !== "rol-finance-reports-overview",
     );
     expect(docViews[0].id).toBe("rol-finance-report-jan");
-    expect(docViews[0].innerHTML).toContain("/r/jan.html");
+    expect(docViews[0].querySelector("iframe").src).toBe("/r/jan.html");
     expect(docViews[1].innerHTML).toContain("Missing report.html");
 
     // Month + Recent Report tabs hide; the Back tab shows.
@@ -353,17 +353,19 @@ describe("RolFinanceReportsController", () => {
       "/api/rol-finance-reports?month=feb-2025",
     ]);
     expect(
-      ctx.viewsContainer.querySelector("#rol-finance-report-platinum-year")
-        .innerHTML,
-    ).toContain("/r/feb-platinum.html");
+      ctx.viewsContainer
+        .querySelector("#rol-finance-report-platinum-year")
+        .querySelector("iframe").src,
+    ).toBe("/r/feb-platinum.html");
 
     // Re-selecting January doesn't refetch.
     await ctx.rf.openMonth("jan-2025");
     expect(ctx.requestedUrls.length).toBe(2);
     expect(
-      ctx.viewsContainer.querySelector("#rol-finance-report-platinum-year")
-        .innerHTML,
-    ).toContain("/r/jan-platinum.html");
+      ctx.viewsContainer
+        .querySelector("#rol-finance-report-platinum-year")
+        .querySelector("iframe").src,
+    ).toBe("/r/jan-platinum.html");
   });
 
   test("selecting a report from the overview/tab highlights its tab and opens its view", async () => {
@@ -704,10 +706,11 @@ describe("RolFinanceReportsController", () => {
     expect(badView.innerHTML).toContain("Document Failure Reason");
     expect(badView.innerHTML).toContain("FAIL - DB issues remain");
     expect(badView.innerHTML).toContain("Database Presence Verification");
-    // The failure section renders before the Verified Transactions iframe.
-    expect(badView.innerHTML.indexOf("doc-failure-reason")).toBeLessThan(
-      badView.innerHTML.indexOf("<iframe"),
-    );
+    // The failure section (string-inserted before the iframe is built) is
+    // followed by the iframe as the view's last real DOM child.
+    const badIframe = badView.querySelector("iframe");
+    expect(badIframe).not.toBeNull();
+    expect(badView.children[badView.children.length - 1]).toBe(badIframe);
   });
 
   test.skip("legacy refreshRecentReports fetches and fills the placeholder", async () => {
@@ -1215,5 +1218,50 @@ describe("RolFinanceReportsController", () => {
     expect(scannerTabs.every((t) => !t.classList.contains("active"))).toBe(
       true,
     );
+  });
+
+  test("buildTabsAndViews leaves a review/fail report's iframe uncollapsed, but still collapses pass reports to Verified Transactions", async () => {
+    const ctx = setup([
+      {
+        key: "ok",
+        label: "OK Report",
+        exists: true,
+        status: "pass",
+        url: "/r/ok.html",
+      },
+      {
+        key: "needs-review",
+        label: "Needs Review Report",
+        exists: true,
+        status: "review",
+        url: "/r/review.html",
+        attention_detail: {
+          badge: "REVIEW NEEDED",
+          summary: "Category policy remains.",
+        },
+      },
+    ]);
+    let collapseCalls = 0;
+    ctx.rf.showOnlyVerifiedTransactions = () => {
+      collapseCalls += 1;
+    };
+    await ctx.rf.openReports();
+    await ctx.rf.openMonth("jan-2025");
+
+    const okIframe = ctx.viewsContainer
+      .querySelector("#rol-finance-report-ok")
+      .querySelector("iframe");
+    okIframe.dispatch("load");
+    expect(collapseCalls).toBe(1);
+
+    // A review report keeps its own Overall Result / Verification Summary
+    // sections visible — that's the only place the "why is this yellow"
+    // explanation for a report with no status-fail/status-warn span (e.g. a
+    // prose-only Overall Result paragraph) actually lives.
+    const reviewIframe = ctx.viewsContainer
+      .querySelector("#rol-finance-report-needs-review")
+      .querySelector("iframe");
+    reviewIframe.dispatch("load");
+    expect(collapseCalls).toBe(1);
   });
 });
