@@ -420,3 +420,51 @@ export const STATEMENT_ENGINE_OPTIONS = Object.freeze([
 export const POSSIBLE_STATEMENT_INFO_MESSAGE =
   "This document may contain more than one expense. Use the Break up " +
   "Document buttons below to read every transaction on the page.";
+
+/**
+ * @typedef {"one-expense"|"many-expenses"|"unknown"} DocumentShape
+ */
+
+//: Which of the form's two button groups a document wants. The form asks the
+//: server for this the moment it opens, using the SAME free local-OCR pass
+//: "Prefill from OCR" runs -- the operator should not have to click a
+//: receipt-shaped button first just to be told the page wasn't a receipt
+//: (2026-08-19: the DTE gas bill, headed MULTIPLE BILL STATEMENTS ENCLOSED,
+//: was hand-entered as one $28.07 expense because nothing on screen said
+//: otherwise until after a fill).
+export const DOCUMENT_SHAPE = Object.freeze({
+  ONE_EXPENSE: "one-expense",
+  MANY_EXPENSES: "many-expenses",
+  UNKNOWN: "unknown",
+});
+
+/**
+ * Pure: read a prefill response into the shape recommendation the form shows.
+ * A failed OCR pass answers UNKNOWN rather than guessing ONE_EXPENSE -- "we
+ * could not read this" must never look like "this is a simple receipt".
+ *
+ * @param {{ok?: boolean, possibleStatement?: boolean}|null} prefill
+ * @returns {DocumentShape}
+ */
+export function recommendedDocumentShape(prefill) {
+  if (typeof prefill !== "object" || prefill === null) {
+    return DOCUMENT_SHAPE.UNKNOWN;
+  }
+  if (prefill.possibleStatement === true) return DOCUMENT_SHAPE.MANY_EXPENSES;
+  if (prefill.ok === true) return DOCUMENT_SHAPE.ONE_EXPENSE;
+  return DOCUMENT_SHAPE.UNKNOWN;
+}
+
+//: The one-line verdict printed above the button groups. Deliberately says
+//: what to DO, not what was detected -- "what button do I press" was the
+//: actual question this whole classify-on-open step exists to answer.
+export const DOCUMENT_SHAPE_GUIDANCE = Object.freeze({
+  [DOCUMENT_SHAPE.ONE_EXPENSE]:
+    "This page looks like ONE expense. Use a Fill button below.",
+  [DOCUMENT_SHAPE.MANY_EXPENSES]:
+    "This page looks like MANY expenses. Use a Read button below to get " +
+    "every transaction — a Fill button would keep only one of them.",
+  [DOCUMENT_SHAPE.UNKNOWN]:
+    "Could not tell how many expenses are on this page. Open Show Image and " +
+    "pick a group below.",
+});

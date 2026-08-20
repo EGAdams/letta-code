@@ -52,10 +52,13 @@ import {
   buildStatementBreakupPayload,
   buildStatementEntryPayload,
   buildStatementRoutePayload,
+  DOCUMENT_SHAPE,
+  DOCUMENT_SHAPE_GUIDANCE,
   POSSIBLE_STATEMENT_INFO_MESSAGE,
   readStatementBreakupResponse,
   readStatementEntryResponse,
   readStatementRouteResponse,
+  recommendedDocumentShape,
   STATEMENT_ENGINE_OPTIONS,
   summarizeExcludedStatementRows,
   summarizeStatementStore,
@@ -203,7 +206,30 @@ export class ManualEntryForm {
       }),
     );
 
-    this.prefillButton = this._button(shell, "Prefill from OCR", "prefill");
+    // The five reading buttons split into exactly two groups, because that is
+    // the only question the operator actually has to answer: does this page
+    // hold one expense or several? Ungrouped, all five read as alternatives to
+    // each other and the receipt-shaped three silently discard every
+    // transaction but one on a page that had many.
+    this.documentShapeEl = this._el("p", {
+      className: "manual-entry-shape-verdict",
+      text: "Checking how many expenses are on this page…",
+    });
+    shell.appendChild(this.documentShapeEl);
+
+    this.oneExpenseFieldset = this._el("fieldset", {
+      className: "manual-entry-shape-fieldset",
+    });
+    shell.appendChild(this.oneExpenseFieldset);
+    this.oneExpenseFieldset.appendChild(
+      this._el("legend", { text: "This page is ONE expense" }),
+    );
+
+    this.prefillButton = this._button(
+      this.oneExpenseFieldset,
+      "Prefill from OCR",
+      "prefill",
+    );
     this.prefillButton.addEventListener("click", () =>
       this._prefill(PREVIEW_ENGINE.LOCAL, this.prefillButton, "local OCR"),
     );
@@ -213,7 +239,7 @@ export class ManualEntryForm {
     // stays a separate button the operator chooses per EG's request rather
     // than folding into the local pass.
     this.geminiFillButton = this._button(
-      shell,
+      this.oneExpenseFieldset,
       "Gemini Flash Fill",
       "gemini-fill",
     );
@@ -230,7 +256,11 @@ export class ManualEntryForm {
     // a metered ANTHROPIC_API_KEY -- see claude_oauth_client.py), so it's a
     // separate button rather than an automatic fallback. Primarily useful
     // once Gemini's free-tier 20-requests/day-per-model quota is exhausted.
-    this.haikuFillButton = this._button(shell, "Fill with Haiku", "haiku-fill");
+    this.haikuFillButton = this._button(
+      this.oneExpenseFieldset,
+      "Fill with Haiku",
+      "haiku-fill",
+    );
     this.haikuFillButton.addEventListener("click", () =>
       this._prefill(
         PREVIEW_ENGINE.HAIKU_ONLY,
@@ -254,9 +284,14 @@ export class ManualEntryForm {
     const breakUpFieldset = this._el("fieldset", {
       className: "manual-entry-breakup-fieldset",
     });
+    // Held so the classify-on-open step can mark whichever group it
+    // recommends (see _classifyDocumentShape).
+    this.manyExpensesFieldset = breakUpFieldset;
     shell.appendChild(breakUpFieldset);
     breakUpFieldset.appendChild(
-      this._el("legend", { text: "Break up Document into separate expenses" }),
+      this._el("legend", {
+        text: "This page has MANY expenses — break it up",
+      }),
     );
     // engine -> its button, so the click handler and the finally-block
     // disable/pressed reset can both address "whichever button is in
@@ -473,6 +508,69 @@ export class ManualEntryForm {
 
     await this._loadDropdownOptions();
     this._renderCurrentItem();
+    await this._classifyDocumentShape();
+  }
+
+  /**
+   * Ask the free local-OCR pass which button group this page wants, the
+   * moment the form opens.
+   *
+   * Costs nothing -- engine 'local' is the same zero-token tesseract pass
+   * "Prefill from OCR" runs, and the server computes possible_statement from
+   * its raw text either way (finance/manual_entry.py). Deliberately does NOT
+   * write any field: this answers "which tool" only, so an operator who
+   * disagrees with the verdict finds the form exactly as blank as before.
+   * That separation is also why a failure here is swallowed -- the form is
+   * fully usable without a recommendation, and a dead OCR pass must not stop
+   * a human from typing an expense in by hand.
+   */
+  async _classifyDocumentShape() {
+    if (!this.documentShapeEl) return;
+    if (!this.imagePathInput.value) {
+      this._setDocumentShape(DOCUMENT_SHAPE.UNKNOWN);
+      return;
+    }
+    try {
+      const json = await this.http.postJSON(
+        "/api/manual-receipt-entry-preview",
+        buildPreviewPayload(
+          { imagePath: this.imagePathInput.value },
+          PREVIEW_ENGINE.LOCAL,
+        ),
+      );
+      const prefill = readPrefillResponse(json);
+      this._setDocumentShape(recommendedDocumentShape(prefill));
+      // The same dialog a fill would have raised, only now it arrives BEFORE
+      // the operator picks a button instead of after.
+      if (prefill.possibleStatement) {
+        this._infoDialog.show(POSSIBLE_STATEMENT_INFO_MESSAGE);
+      }
+    } catch {
+      this._setDocumentShape(DOCUMENT_SHAPE.UNKNOWN);
+    }
+  }
+
+  /** Print the verdict and mark the group it points at. */
+  _setDocumentShape(shape) {
+    this.documentShape = shape;
+    if (this.documentShapeEl) {
+      this.documentShapeEl.textContent = DOCUMENT_SHAPE_GUIDANCE[shape] || "";
+      this.documentShapeEl.dataset.shape = shape;
+    }
+    const pairs = [
+      [this.oneExpenseFieldset, DOCUMENT_SHAPE.ONE_EXPENSE],
+      [this.manyExpensesFieldset, DOCUMENT_SHAPE.MANY_EXPENSES],
+    ];
+    for (const [fieldset, matching] of pairs) {
+      if (!fieldset) continue;
+      // classList over a style write so the look stays in dashboard.css with
+      // the rest of the 98.css theme.
+      if (shape === matching) {
+        fieldset.classList.add("is-recommended");
+      } else {
+        fieldset.classList.remove("is-recommended");
+      }
+    }
   }
 
   async _searchExpensesByDate() {

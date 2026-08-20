@@ -18,9 +18,12 @@ import {
   buildStatementBreakupPayload,
   buildStatementEntryPayload,
   buildStatementRoutePayload,
+  DOCUMENT_SHAPE,
+  DOCUMENT_SHAPE_GUIDANCE,
   readStatementBreakupResponse,
   readStatementEntryResponse,
   readStatementRouteResponse,
+  recommendedDocumentShape,
   STATEMENT_ENGINE_OPTIONS,
   summarizeExcludedStatementRows,
   summarizeStatementStore,
@@ -714,5 +717,129 @@ describe("ManualEntryForm possible-statement Info dialog", () => {
     expect(form._infoDialog._okButton.textContent).toBe("OK");
     form._infoDialog._okButton._listeners.click[0]();
     expect(form._infoDialog._el.style.display).toBe("none");
+  });
+});
+
+describe("recommendedDocumentShape", () => {
+  test("a statement-shaped page recommends the many-expenses group", () => {
+    expect(
+      recommendedDocumentShape({ ok: true, possibleStatement: true }),
+    ).toBe(DOCUMENT_SHAPE.MANY_EXPENSES);
+  });
+
+  test("a readable receipt recommends the one-expense group", () => {
+    expect(
+      recommendedDocumentShape({ ok: true, possibleStatement: false }),
+    ).toBe(DOCUMENT_SHAPE.ONE_EXPENSE);
+  });
+
+  test("possibleStatement wins even when the receipt fields failed to read", () => {
+    // The DTE bill's shape: the receipt-shaped fields come back thin or
+    // empty, which is exactly when the nudge matters most.
+    expect(
+      recommendedDocumentShape({ ok: false, possibleStatement: true }),
+    ).toBe(DOCUMENT_SHAPE.MANY_EXPENSES);
+  });
+
+  test("an unreadable page is UNKNOWN, never ONE_EXPENSE", () => {
+    // "We could not read this" must not look like "this is a simple receipt"
+    // -- that would point the operator at a Fill button on a page nobody
+    // has established anything about.
+    expect(
+      recommendedDocumentShape({ ok: false, possibleStatement: false }),
+    ).toBe(DOCUMENT_SHAPE.UNKNOWN);
+    expect(recommendedDocumentShape(null)).toBe(DOCUMENT_SHAPE.UNKNOWN);
+    expect(recommendedDocumentShape(undefined)).toBe(DOCUMENT_SHAPE.UNKNOWN);
+  });
+
+  test("every shape has guidance naming what to press", () => {
+    for (const shape of Object.values(DOCUMENT_SHAPE)) {
+      expect(typeof DOCUMENT_SHAPE_GUIDANCE[shape]).toBe("string");
+      expect(DOCUMENT_SHAPE_GUIDANCE[shape].length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("ManualEntryForm classify-on-open", () => {
+  test("runs the free local pass once, unprompted, when the form opens", async () => {
+    const { form, http } = setup({
+      "/api/manual-receipt-entry-preview": {
+        ok: true,
+        possible_statement: true,
+      },
+    });
+    await form.mount();
+    const previews = posts(http, "/api/manual-receipt-entry-preview");
+    expect(previews.length).toBe(1);
+    // Zero-cost engine only -- classify must never spend a Gemini or Haiku
+    // call just to decide which button group to point at.
+    expect(previews[0][2].engine).toBe("local");
+  });
+
+  test("a statement-shaped page marks the many-expenses group and raises the nudge", async () => {
+    const shown = [];
+    const { form } = setup({
+      "/api/manual-receipt-entry-preview": {
+        ok: true,
+        possible_statement: true,
+      },
+    });
+    await form.mount();
+    form._infoDialog = { show: (m) => shown.push(m) };
+    await form._classifyDocumentShape();
+    expect(form.documentShape).toBe(DOCUMENT_SHAPE.MANY_EXPENSES);
+    expect(form.manyExpensesFieldset.classList.contains("is-recommended")).toBe(
+      true,
+    );
+    expect(form.oneExpenseFieldset.classList.contains("is-recommended")).toBe(
+      false,
+    );
+    expect(shown.length).toBe(1);
+  });
+
+  test("a receipt marks the one-expense group and raises nothing", async () => {
+    const shown = [];
+    const { form } = setup({
+      "/api/manual-receipt-entry-preview": {
+        ok: true,
+        possible_statement: false,
+        merchant_name: "KROGER",
+      },
+    });
+    await form.mount();
+    form._infoDialog = { show: (m) => shown.push(m) };
+    await form._classifyDocumentShape();
+    expect(form.documentShape).toBe(DOCUMENT_SHAPE.ONE_EXPENSE);
+    expect(form.oneExpenseFieldset.classList.contains("is-recommended")).toBe(
+      true,
+    );
+    expect(shown.length).toBe(0);
+  });
+
+  test("classify never writes a field -- it answers which tool, not what the values are", async () => {
+    const { form } = setup({
+      "/api/manual-receipt-entry-preview": {
+        ok: true,
+        possible_statement: false,
+        merchant_name: "KROGER",
+        total_amount: 21.89,
+      },
+    });
+    await form.mount();
+    expect(form.merchantNameInput.value).toBe("");
+    expect(form.totalAmountInput.value).toBe("");
+  });
+
+  test("a dead OCR pass leaves the form fully usable", async () => {
+    const { form } = setup({
+      "/api/manual-receipt-entry-preview": () => {
+        throw new Error("tesseract exploded");
+      },
+    });
+    await form.mount();
+    expect(form.documentShape).toBe(DOCUMENT_SHAPE.UNKNOWN);
+    expect(form.documentShapeEl.textContent).toBe(
+      DOCUMENT_SHAPE_GUIDANCE[DOCUMENT_SHAPE.UNKNOWN],
+    );
   });
 });
