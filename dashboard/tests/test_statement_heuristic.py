@@ -37,6 +37,26 @@ REAL_STATEMENT_RAW_TEXT = (
     "Continued on next page\n"
 )
 
+# Captured verbatim (tesseract, --engine local) from the real 2026-08-19 Last
+# Freezer Scan -- the DTE gas bill that scored ZERO dated lines and got no
+# nudge, which is what sent EG looking for the missing dialog. Every date on
+# the page is spelled out; the Summary of Charges column prints bare decimals.
+DTE_BILL_RAW_TEXT = (
+    "MULTIPLE BILL STATEMENTS ENCLOSED F octiciees IF'op News coat\n"
+    "42667 1 AV 0.495\"\u2014T155*2*P00*M08**AUTO**SCH 5-DIGIT 4950 "
+    "Due September 05, 2025 $28.08\n\n"
+    "RIVER OF LIFE Total Due: $28.07\n\n"
+    "GRAND RAPIDS MI 49504-2674 Mail Payments to: S\n"
+    "\u2014\u2014 Summary of Snarges [Atcount Number 9100 210 8054 4]\n"
+    "Account Balance as of Jul 14, 2025 24.16\n"
+    "Payment Received Jul 26, 2025 Thank You! \u2014 24.15\n\n"
+    "Balance Prior to Current Charges 0.01\n\n"
+    "Total Current Charges 28.06\n"
+    "Account Balance as of August 14, 2025 $28.07\n\n"
+    "Your current charges are due on September 05, 2025. A 2% late payment "
+    "charge will be applied if paid after the due date.\n"
+)
+
 SINGLE_ITEM_RECEIPT_RAW_TEXT = (
     "MR BURGER RESTAURANT\n"
     "02/20/2025 6:41 PM\n\n"
@@ -105,4 +125,28 @@ def test_amount_without_dollar_sign_does_not_count():
     # A bare number could be a reference number, a quantity, or a percentage
     # -- requiring the '$' keeps this from over-triggering on those.
     text = "05/23 A 93.99\n05/24 B 87.80\n"
+    assert looks_like_multiple_transactions(text) is False
+
+
+def test_dte_bill_with_month_name_dates_triggers():
+    # The regression this whole month-name branch exists for: a real utility
+    # bill whose every date is spelled out. Before it, this page scored 0 and
+    # the operator saw no "Break up Document" nudge at all -- so one $28.07
+    # expense got entered by hand for a page headed MULTIPLE BILL STATEMENTS
+    # ENCLOSED.
+    assert count_dated_amount_lines(DTE_BILL_RAW_TEXT) >= 2
+    assert looks_like_multiple_transactions(DTE_BILL_RAW_TEXT) is True
+
+
+def test_month_name_dates_are_recognized_in_both_forms():
+    abbreviated = "Jul 14, 2025 A $1.00\nAug 14, 2025 B $2.00\n"
+    spelled_out = "September 05, 2025 A $1.00\nOctober 5 2025 B $2.00\n"
+    assert looks_like_multiple_transactions(abbreviated) is True
+    assert looks_like_multiple_transactions(spelled_out) is True
+
+
+def test_month_name_alone_without_a_day_is_not_a_date():
+    # A bare month name is a heading ("August Charges"), not a transaction
+    # date -- requiring a day number after it keeps those from counting.
+    text = "August Charges $1.00\nSeptember Charges $2.00\n"
     assert looks_like_multiple_transactions(text) is False

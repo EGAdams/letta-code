@@ -12,12 +12,32 @@ total) but rarely a DATE next to more than one of them -- a statement's
 transaction table is the opposite: every row repeats a date beside its own
 amount. Requiring both on the SAME line, over at least two separate lines, is
 what keeps this from firing on an ordinary itemized grocery receipt.
+
+The date half is the discriminating half, so it has to recognize every way a
+date gets printed. It originally knew only 05/23 and 2025-05-23, which meant a
+utility bill spelling its dates out ("Due September 05, 2025 $28.08") scored
+zero and got no nudge at all.
 """
 from __future__ import annotations
 
 import re
 
-_DATE_PATTERN = re.compile(r'\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b|\b\d{4}-\d{2}-\d{2}\b')
+#: Month names, full or abbreviated, so a bill that spells its dates out
+#: ("Jul 14, 2025", "August 14, 2025") is read the same as one that prints
+#: them numerically. Without this the whole DTE gas bill scored ZERO dated
+#: lines and the Break Up Document nudge never fired -- see
+#: test_dte_bill_with_month_name_dates_triggers.
+_MONTH_NAMES = (
+    r'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|'
+    r'jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|'
+    r'nov(?:ember)?|dec(?:ember)?'
+)
+_DATE_PATTERN = re.compile(
+    r'\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b'
+    r'|\b\d{4}-\d{2}-\d{2}\b'
+    rf'|\b(?:{_MONTH_NAMES})\.?\s+\d{{1,2}}(?:,?\s*\d{{4}})?\b',
+    re.IGNORECASE,
+)
 _AMOUNT_PATTERN = re.compile(r'\$\s?\d{1,3}(?:,\d{3})*\.\d{2}\b')
 
 #: Two qualifying lines is enough to say "this isn't one transaction" --
