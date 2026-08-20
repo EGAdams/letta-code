@@ -1850,6 +1850,7 @@ def build_recent_intake_html(intake):
                 intake_status, reported)),
         working_html=working,
         expense_edit_html=expense_edit_html,
+        archive_path=archive_path,
         auto_refresh=not (rows or reported or terminal),
         extra_css=('\n' + _receipt_only_cat_css() + '\n' + click_css + '\n'
                    + picker_css + '\n'),

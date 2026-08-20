@@ -43,6 +43,21 @@ def document_meta_html(fields):
             + '</div>\n')
 
 
+def archive_evidence_html(archive_path):
+    """The one metadata line kept on the page: where this document was filed.
+
+    The rest of that block -- Most Recent Document, Document Type, Month Range,
+    Associated PDF/Receipt -- was removed from the dialog by request. This line
+    came back because it answers the question actually being asked at the
+    moment the paper goes into the attic: does a durable archived copy of this
+    page exist, and where? Blank when no archive has been resolved, since
+    there is then nothing to promise.
+    """
+    if not archive_path:
+        return ''
+    return document_meta_html([('Archived Scan Image', _esc(archive_path))])
+
+
 def transactions_table_html(rows, *, source_document_url='', empty_note=''):
     """The Verified Transactions table. `rows` are presentation rows (see
     intake_report_model.presentation_rows); an empty list still renders the
@@ -145,7 +160,8 @@ def expense_edit_panel_html():
 def render_intake_report(*, headline, subtitle, meta_fields, status_text,
                          status_tone, table_html, working_html='',
                          auto_refresh=False, extra_css='', picker_html='',
-                         manual_entry_html='', expense_edit_html=''):
+                         manual_entry_html='', expense_edit_html='',
+                         archive_path=''):
     """Assemble the page. Every argument is already-decided content, so this
     function only ever answers "where does it go on the page?".
 
@@ -153,7 +169,9 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
     rendered: the "Most Recent Document" heading and the Document Type / Month
     Range / Associated-document block were removed from the top of the dialog
     by request. Do not "restore" them -- guarded by
-    test_recent_intake_html_omits_document_metadata.
+    test_recent_intake_html_omits_document_metadata. The single exception is
+    the archived-copy path, which comes in as `archive_path` and is filing
+    evidence rather than metadata -- see archive_evidence_html.
     """
     refresh = '<meta http-equiv="refresh" content="30">' if auto_refresh else ''
     return (
@@ -176,6 +194,7 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
         '  </div>\n'
         '  <div class="window-body">\n'
         f'  <p class="status-banner status-{status_tone}">{_esc(status_text)}</p>\n'
+        + archive_evidence_html(archive_path)
         + working_html
         + manual_entry_html
         + expense_edit_html
