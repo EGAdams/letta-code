@@ -6582,11 +6582,17 @@ def test_statement_archive_path_no_match_returns_empty(tmp_path, monkeypatch):
     assert server._statement_archive_path([]) == ''
 
 
-def test_recent_intake_html_prefers_statement_archive_over_raw_scan_url(
+def test_recent_intake_prefers_statement_archive_over_raw_scan_url(
         tmp_path, monkeypatch):
-    """The 'Associated Scanned Statement' field on the Recent Report intake
-    page must show the canonically-named bank_statements/ archive copy when
-    one exists, not the stale raw scan filename recorded in scanned_statement_url."""
+    """An intake resolves to the canonically-named bank_statements/ archive
+    copy, not the stale raw scan filename recorded in scanned_statement_url --
+    and the page never prints that raw filename.
+
+    This used to assert on the page's 'Associated Scanned Statement' field.
+    That whole metadata block was removed from the dialog by request (see
+    test_recent_intake_html_omits_document_metadata), so the preference is
+    asserted where it now lives: the resolver every consumer shares, including
+    scanner archive verification."""
     _recent_report_env(tmp_path, monkeypatch, docs=())
     base = tmp_path / 'readable_documents'
     folder = (base / 'bank_statements' / '2025' / 'july'
@@ -6620,11 +6626,14 @@ def test_recent_intake_html_prefers_statement_archive_over_raw_scan_url(
     monkeypatch.setattr(server, '_find_matching_report_row', lambda *a, **k: None)
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
-    html = server.build_recent_report_html()
-    # The archive copy is the one scan-image path the page prints; the stale
-    # raw scanned_statement_url must not appear anywhere.
-    assert f'Archived Scan Image: {archive_file}' in html
-    assert str(raw_scan) not in html
+    intake = server._read_recent_pointer_file()['intake']
+    rows = server._fetch_expenses_by_ids([])
+    # doc_kind was never recorded (a duplicates-only intake records none), so
+    # the rows themselves have to identify the document.
+    assert not intake.get('doc_kind')
+    assert server._recent_intake_archive_path(intake, rows) == str(archive_file)
+    # And the stale raw scan filename reaches the page nowhere.
+    assert str(raw_scan) not in server.build_recent_report_html()
 
 
 def test_recent_intake_html_shows_archived_scan_copy_from_callback(tmp_path, monkeypatch):

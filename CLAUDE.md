@@ -1,130 +1,88 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
-## About This Project
+## Answering style
 
-Letta Code is a CLI tool (`letta`) for interacting with stateful Letta agents from the terminal. It is a memory-first coding harness built on top of the Letta API. Unlike session-based tools, each session is tied to a persisted agent that accumulates memory over time.
+**Keep replies to about a quarter of their natural length.** Short answer
+first, then only what the user cannot infer. Skip preamble, restatements of
+the request, and summaries of work the diff already shows. Tables and bullet
+lists over paragraphs. Flag real risks in one line, not a section.
+
+## About this project
+
+Letta Code is a CLI (`letta`) for driving stateful Letta agents from the
+terminal — a memory-first coding harness on the Letta API. Each session is
+tied to a persisted agent that accumulates memory, rather than starting cold.
+
+`dashboard/` is a separate app in the same repo with its own `CLAUDE.md`.
+Read that before touching anything under it.
 
 ## Commands
 
 ```bash
-# Development
-bun install           # Install deps
-bun run dev           # Run from TypeScript sources directly (no build required)
-bun run dev -- -p "Hello world"  # Run with args
-
-# Build
-bun run build         # Bundle src/index.ts -> letta.js + copy skills/ + generate types
-
-# Linting & type checking
-bun run lint          # Check with Biome
-bun run fix           # Auto-fix with Biome
-bun run typecheck     # TypeScript type checking (tsc --noEmit)
-bun run check         # Custom check script (scripts/check.js)
-
-# Testing
+bun install
+bun run dev                      # run from TS sources, no build
+bun run build                    # bundle -> letta.js, copy skills/, gen types
+bun run lint | fix | typecheck | check
 bun test
-bun run test:update-chain:manual
-bun run test:update-chain:startup
 ```
 
-After editing source files, run `bun run build` before using the linked `letta` binary.
+Run `bun run build` after editing sources if you use the linked `letta` binary.
 
-## Testing environment
+## Testing
 
 ```bash
-bun test src/tests              # unit tests (217 files) - safe to run offline
-bun test src/integration-tests  # needs live Letta server at http://100.80.49.10:8283
-LETTA_RUN_TOOL_ATTACH_TEST=1 bun test src/integration-tests/tool-attach.integration.test.ts
+bun test src/tests               # unit; safe offline
+bun test src/integration-tests   # needs the live Letta server
 ```
 
-**Pre-commit hook**: Husky runs `bunx lint-staged` (biome `--write` on staged `.ts` files) then `bun run typecheck`. Only `typecheck` gates the commit - biome lint-staged failures are non-fatal. Fix TypeScript errors first; use `// biome-ignore lint/<rule>: <reason>` for non-auto-fixable biome issues.
+- **~17 pre-existing failures** in `src/tests` (2193 pass) — environment-specific
+  or aspirational, not regressions. Startup/smoke tests expect a missing
+  `LETTA_API_KEY` but the live server is configured. Some (block-tagging,
+  TaskOutput, `waitForBackgroundSubagentLink`) fail only in the full parallel
+  run and pass alone. Confirm anything you suspect with
+  `git stash && bun test <file> && git stash pop`.
+- **Pre-commit**: husky runs lint-staged (biome `--write`) then `typecheck`.
+  Only typecheck gates the commit. Use
+  `// biome-ignore lint/<rule>: <reason>` where biome can't auto-fix.
+- **Live agents write to this tree.** Two `letta.js` processes run in `--yolo`.
+  Run `git status` before assuming the tree is clean.
 
-**Pre-existing failures** (as of 2026-05-25): `bun test src/tests` shows ~17 failures (2193 pass) - all environment-specific or aspirational tests, not regressions. Startup/smoke tests expect "Missing LETTA_API_KEY" but the live server is configured. `reconcileExistingAgentState > updates missing compaction model` expects `tools.list` calls that the implementation doesn't make (unimplemented feature). Some failures (block-tagging, TaskOutput, waitForBackgroundSubagentLink) only appear in the full parallel run - they pass in isolation. Verify pre-existing status via `git stash && bun test <file> && git stash pop`.
+## Git
 
-**Live agents**: Two letta.js processes run in `--yolo` mode and write to the working tree concurrently. Run `git status` before assuming the tree is clean.
+**Never branch. Everything lands on `origin/main`.** Run the `sync-all` skill
+at the start of any session touching `letta-code` or `dashboard/` — the box
+serving the dashboard is usually not the one you are typing on. That skill
+holds the canonical machine list. Mom's PC: `notes_plans_handoffs/rosemary46_wsl_tailscale.md`.
 
-**Rosemary46 WSL Tailscale access**: Mom's PC has Windows node `rosemary46-11`https://github.com/dscripka/openWakeWord?utm_source=chatgpt.comhttps://github.com/dscripka/openWakeWord?utm_source=chatgpt.com
-at `100.106.176.58` with SSH user `rbarn`, and WSL Ubuntu node
-`rosemary46-24` at `100.72.34.38` with SSH user `adamsl`. If the Linux node is
-offline but Windows is reachable, SSH to Windows and check `wsl -l -v` plus
-`wsl -e sh -lc "tailscale status"`. Known fix from 2026-06-25: `Ubuntu-24.04`
-was stopping after one-shot WSL commands, so `tailscaled` disappeared again. A
-Windows scheduled task named `Rosemary46 WSL Tailscale Keepalive` runs
-`C:\Users\rbarn\start-rosemary46-wsl-tailscale.ps1`, which keeps
-`Ubuntu-24.04` alive with a harmless `tailscale ip` loop. Verify with
-`Get-ScheduledTask -TaskName 'Rosemary46 WSL Tailscale Keepalive'` and direct
-`ssh adamsl@100.72.34.38 "echo LINUX_AUTH_OK && systemctl is-active tailscaled && tailscale ip -4"`.
+## Runtime — Bun, not Node
 
-## Runtime
+`bun <file>`, `bun test`, `bun build`, `bun install`, `bun run <script>`.
+Bun loads `.env` itself; no dotenv.
 
-Default to using Bun instead of Node.js.
-
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Bun automatically loads .env, so don't use dotenv.
-
-### APIs
-
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+Prefer built-ins over packages: `Bun.serve()` (not express), `bun:sqlite`,
+`Bun.redis`, `Bun.sql`, the global `WebSocket`, `Bun.file`, `` Bun.$`ls` ``.
 
 ## Architecture
 
-### Entry points
-- `src/index.ts` - CLI entry point (arg parsing, startup, agent resolution). Builds to `letta.js`.
-- `build.js` - Bun build script; bundles everything to `letta.js`, copies `src/skills/builtin/` -> `skills/`, and generates `dist/types/protocol.d.ts`.
+| Path | What lives there |
+|---|---|
+| `src/index.ts` | CLI entry: args, startup, agent resolution. Builds to `letta.js`. |
+| `build.js` | Bundles, copies `src/skills/builtin/` -> `skills/`, generates types. |
+| `src/cli/` | `App.tsx` drives the Ink REPL; `commands/` non-visual handlers; `subcommands/router.ts` routes `letta memfs\|agents\|messages\|blocks\|remote`. |
+| `src/agent/` | `client.ts` SDK wrapper, `create.ts`, `message.ts` (SSE), `memory.ts`, `model.ts`, `skills.ts`, `subagents/`. |
+| `src/tools/` | `toolDefinitions.ts` registry, `impl/` implementations, `descriptions/` markdown sent to the model, `manager.ts` hooks + per-provider name mapping. |
+| `src/skills/` | `builtin/` bundled, `custom/` project-local. |
+| `src/permissions/` | Modes `default\|acceptEdits\|plan\|bypassPermissions`; `~/.letta/settings.json` + `.letta/settings.local.json`. |
+| `src/hooks/` | Pre/post tool-use hooks loaded from `.letta/hooks/`. |
 
-### CLI layer (`src/cli/`)
-- `App.tsx` - Main React/Ink component that drives the interactive REPL (conversation state, tool approval UI, streaming).
-- `commands/` - Non-visual command handlers (e.g., `/connect`, `/model`, `/skill`).
-- `subcommands/router.ts` - Routes CLI subcommands: `letta memfs`, `letta agents`, `letta messages`, `letta blocks`, `letta remote`.
-- The UI is built with **Ink** (React for terminals) and **ink-spinner**, **ink-text-input**, etc.
+Agent memory files live at `~/.letta/agents/<agentId>/memory/`.
 
-### Agent layer (`src/agent/`)
-- `client.ts` - Wraps `@letta-ai/letta-client` SDK; connects to Letta Cloud or a self-hosted server.
-- `create.ts` - Creates new agents on the Letta backend with default memory blocks.
-- `message.ts` - Streams agent responses via Server-Sent Events.
-- `memory.ts` - Defines memory block labels: `persona` and `human` (global blocks). Memory files live at `~/.letta/agents/<agentId>/memory/`.
-- `memoryFilesystem.ts` - Helpers for `~/.letta/` directory structure.
-
-> **Memory authoring policy (self-hosted deployment).** The product code above is
-> unchanged - `memory.ts` still defines block labels. But on this server, agent memory is
-> authored as markdown files committed to the agent's memfs `state.git` (constant facts
-> under `system/`), **not** through raw `POST`/`PATCH /v1/blocks` calls. The server
-> projects `system/**` files into attached blocks, so blocks are a read-only projection of
-> the repository, not a write target. See `notes_plans_handoffs/memory_system_plan.html`.
-- `model.ts` - Model resolution and LLM config updates.
-- `skills.ts` / `skillSources.ts` - Skill loading and injection into agent context.
-- `subagents/` - Parallel subagent support.
-
-### Tools layer (`src/tools/`)
-- `toolDefinitions.ts` - Central registry mapping tool names to implementations and markdown descriptions. Supports multiple toolsets for different providers (Anthropic, Gemini, Codex).
-- `impl/` - Individual tool implementations (Bash, Read, Edit, Write, Glob, Grep, etc.).
-  - `RelayMessageToChatGpt.ts` - Sends messages to a controlled ChatGPT browser session via `browser_server.py` (requires port 5001); auto-discovers browser server via URL candidates or executor gateway.
-- `descriptions/` - Markdown files that serve as tool descriptions sent to the model.
-- `manager.ts` - Loads tools, manages pre/post-tool-use hooks, handles provider-specific tool name mappings.
-- Multiple toolsets exist for different AI providers with name mappings (e.g., `glob_gemini` -> `glob`).
-
-### Skills system (`src/skills/`)
-- `builtin/` - Built-in skills bundled with the CLI (copied to `skills/` at build time).
-- `custom/` - Project-local skills.
-- Skills are `.skill` files (markdown-based) that teach the agent reusable capabilities.
-
-### Permissions (`src/permissions/`)
-- Modes: `default`, `acceptEdits`, `plan`, `bypassPermissions`.
-- Settings stored in `~/.letta/settings.json` (global) and `.letta/settings.local.json` (project).
-
-### Hooks (`src/hooks/`)
-- `index.ts` - Orchestrates pre/post tool use hook execution.
-- `loader.ts` - Loads hook scripts from `.letta/hooks/` in the project directory.
-- Hook shell scripts in the repo's `hooks/` directory serve as examples.
+> **Memory authoring policy (this self-hosted deployment).** Product code is
+> unchanged — `memory.ts` still defines the block labels. But here, agent memory
+> is authored as markdown committed to the agent's memfs `state.git` (constant
+> facts under `system/`), **never** through raw `POST`/`PATCH /v1/blocks`. The
+> server projects `system/**` into attached blocks, so blocks are a read-only
+> projection of the repo, not a write target. See
+> `notes_plans_handoffs/memory_system_plan.html`.

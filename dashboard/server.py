@@ -39,6 +39,13 @@ from voice.note_models import NoteEditRequest, PartialVoiceCommand
 from voice.pipeline import build_pipeline, handle_voice_upload
 from voice.receptionist import build_receptionist_strategy
 from voice.synthesis import EdgeTtsSynthesizer, cache_path as synthesis_cache_path
+try:  # Pillow backs the blank-scan gate only. The server must still boot
+    # without it -- inspect_scan_image_quality degrades to "let it through".
+    from PIL import Image, ImageStat
+except Exception:  # pragma: no cover - exercised by monkeypatching both to None
+    Image = None
+    ImageStat = None
+
 from category_taxonomy import FallbackCategoryTaxonomy, MySqlCategoryTaxonomy
 from chatgpt_provider_accounts import PROVIDER_ACCOUNT_SOURCES
 from chatgpt_provider_status import (
@@ -563,7 +570,8 @@ def set_recent_report_pointer(report_path):
 
 def record_recent_intake(image_path, label, kind='scan', facade=None,
                          conversation_id=None, dispatched_at=None,
-                         content_sha256=None):
+                         content_sha256=None, status='processing',
+                         status_detail=''):
     """Record an intake dispatch (scan or PDF) the moment Mazda is notified,
     so /recent_report.html can show the document even before — or without —
     any report.html existing for it. Called from process_scanned_document /
@@ -593,8 +601,13 @@ def record_recent_intake(image_path, label, kind='scan', facade=None,
             'content_sha256': content_sha256 or '',
             'archive_paths': [],
             'archive_years': [],
-            'status': 'processing',
-            'status_detail': '',
+            # Usually 'processing' -- a dispatch that Mazda will report back
+            # on. A capture rejected before dispatch (blank page, empty scanner
+            # output) records its own terminal 'fail' here instead, so the
+            # scanner's tab shows the failure rather than going on displaying
+            # the previous document.
+            'status': status,
+            'status_detail': status_detail,
             'execution_mode': EXECUTION_MODE,
         }
         data['intake'] = intake
@@ -843,6 +856,16 @@ def merge_recent_intake_event(event):
                     except (TypeError, ValueError):
                         continue
                 targets.append(intake)
+            # Two scanners dispatched within 2s of each other both satisfy a
+            # dispatched_at-only callback, so it would fold the Freezer's
+            # transactions into Last Window Scan. The document path decides
+            # between them -- but only as a tie-breaker, never a filter: a
+            # callback naming a renamed or archived copy matches nothing here
+            # and must still update the dispatch it was correlated to.
+            if path and len(targets) > 1:
+                named = [i for i in targets if i.get('image_path') == path]
+                if named:
+                    targets = named
             # An identified callback must never fall through to filename-only
             # routing: scanner files are reused, so a late prior-run callback
             # would otherwise overwrite the current dispatch.
@@ -1484,6 +1507,18 @@ def _associated_evidence_paths(rows):
     return scanned_statement_path, moms_ledger_path
 
 
+STATEMENT_INTAKE_DOC_KINDS = {'statement', 'bank_statement', 'credit_card_statement'}
+
+
+def _rows_are_statement_rows(rows):
+    """Do these transactions come off a scanned statement page?
+
+    scanned_statement_url is set for statement rows and for nothing else, so it
+    identifies the document even when the intake record forgot to.
+    """
+    return any((r.get('scanned_statement_url') or '').strip() for r in rows or [])
+
+
 def _statement_archive_path(rows, vendor_key=''):
     """Locate the canonically-named bank_statements archive copy of a scanned
     statement — readable_documents/bank_statements/<year>/<month>/
@@ -1539,7 +1574,12 @@ def _recent_intake_archive_path(intake, rows, receipt_path=''):
     doc_kind = str(intake.get('doc_kind') or '').strip().lower()
     if doc_kind in {'receipt', 'invoice'}:
         return str(receipt_path or '').strip()
-    if doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}:
+    if doc_kind in STATEMENT_INTAKE_DOC_KINDS or _rows_are_statement_rows(rows):
+        # doc_kind is frequently absent: a scan dispatched with no facade, or
+        # one whose only outcome was duplicates, never records one. The rows
+        # themselves settle it -- scanned_statement_url is populated for
+        # statement transactions and nothing else -- so an unlabelled intake
+        # still finds its filed copy instead of showing no archive at all.
         return _statement_archive_path(
             rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
     return ''
@@ -1555,12 +1595,12 @@ def scanner_intake_archive_path(intake, rows):
     """
     doc_kind = str((intake or {}).get('doc_kind') or '').strip().lower()
     archive_file = ''
-    if doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}:
+    if doc_kind in STATEMENT_INTAKE_DOC_KINDS:
         archive_file = _statement_archive_path(
             rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
     if archive_file:
         return archive_file
-    if doc_kind in {'statement', 'bank_statement', 'credit_card_statement'}:
+    if doc_kind in STATEMENT_INTAKE_DOC_KINDS:
         scanned_statement_path, _moms_ledger_path = _associated_evidence_paths(rows)
         if scanned_statement_path and os.path.isfile(scanned_statement_path):
             return scanned_statement_path
@@ -1742,7 +1782,14 @@ def build_recent_intake_html(intake):
     # The scanned statement is its own evidence slot, but for statement intakes
     # it resolves to the same archived copy — print it only when it adds a path
     # the reader cannot already see.
-    if archive_path and scanned_statement_path == archive_path:
+    if archive_path and (
+            scanned_statement_path == archive_path
+            or archive_path == _statement_archive_path(
+                rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))):
+        # For a statement these are two names for one page: scanned_statement_url
+        # holds the raw scanner filename the DB happened to record, archive_path
+        # the canonically-named copy actually filed. Printing both offers the
+        # reader a stale path beside the real one.
         scanned_statement_path = ''
 
     def _path_field(path):
@@ -2974,6 +3021,13 @@ def classify_scan_result(returncode, log, image_exists):
     low = (log or '').lower()
     if returncode == 0 and image_exists:
         return {'status': 'ready', 'log': log}
+    if returncode == 0:
+        # The script believes it succeeded but wrote nothing readable. Flagged
+        # distinctly because the log is empty too, so the generic branch below
+        # would report "Scan failed (exit 0)" -- true and useless. run_scanner
+        # turns this into a visible failed intake.
+        return {'status': 'error', 'empty_output': True,
+                'error': 'The scanner output is missing or empty.', 'log': log}
     if ('scanner_busy' in low or 'device is busy' in low
             or 'device busy' in low or 'resource busy' in low):
         return {'status': 'busy', 'error': 'The scanner is busy.', 'log': log}
@@ -2983,6 +3037,45 @@ def classify_scan_result(returncode, log, image_exists):
                 'log': log}
     return {'status': 'error',
             'error': log or f'Scan failed (exit {returncode})', 'log': log}
+
+
+# A page with anything printed on it spreads its grey levels wide: the test
+# fixtures and real scans both read a stddev near 90. A sheet with nothing on
+# it -- lid left open, misfeed, page that never reached the glass -- reads 0.0
+# whether it came out white or black. Nothing real lands in between, so this
+# threshold only has to separate "flat" from "has marks on it", and is set low
+# enough that a sparse receipt on a white background is never mistaken for one.
+_BLANK_SCAN_STDDEV = 8.0
+
+
+def inspect_scan_image_quality(path):
+    """Is this scan worth spending Mazda's turn on? -> {ok, blank_like, reason}.
+
+    A blank capture used to travel the whole pipeline -- classify, parse, an
+    agent dispatch, a Trainer verdict -- before anyone noticed there was
+    nothing on the page. This is the cheap local check that stops it at the
+    door, in keeping with the pipeline's "cheapest reliable tool first" rule.
+
+    Fails OPEN in the one case it cannot judge: no Pillow, no opinion. A
+    missing optional dependency must never silently swallow real scans.
+    """
+    if Image is None or ImageStat is None:
+        return {'ok': True, 'blank_like': False,
+                'reason': 'Pillow unavailable; scan image quality was not checked.'}
+    try:
+        with Image.open(path) as img:
+            img.load()
+            spread = ImageStat.Stat(img.convert('L')).stddev[0]
+    except Exception:
+        # Truncated transfer, a WIA error page, a zero-byte JPEG with a header.
+        # Undecodable here means undecodable for every downstream reader too.
+        return {'ok': False, 'blank_like': True,
+                'reason': 'The scan could not be decoded as an image.'}
+    if spread < _BLANK_SCAN_STDDEV:
+        return {'ok': False, 'blank_like': True,
+                'reason': ('The scan appears blank or unreadable '
+                           '(nearly uniform page).')}
+    return {'ok': True, 'blank_like': False, 'reason': ''}
 
 
 def _scan_output_ready(path):
@@ -4408,6 +4501,14 @@ def run_scanner(key):
         }
     result = _invoke_scanner(key)
     result['ok'] = (result.get('status') == 'ready')
+    if result.get('empty_output'):
+        # Nothing was dispatched, so no STEP 8 callback is ever coming. Record
+        # the failure against this scanner ourselves -- same reason as the
+        # blank-page rejection in process_scanned_document.
+        record_recent_intake(
+            os.path.join(SCAN_TOOLS_DIR, (SCANNERS.get(key) or {}).get('output', '')),
+            (SCANNERS.get(key) or {}).get('name'),
+            status='fail', status_detail=result.get('error') or '')
     with _scanner_runtime_status_lock:
         # GET /api/scanner-status is observation-only. A completed scan is
         # represented as idle there; only this POST response carries `ready`
@@ -4953,6 +5054,28 @@ def process_scanned_document(
             'stage_error': 'The scanner output image is missing or empty.',
             'scanner': key,
             'image_path': image_path,
+            'mazda_dispatched': False,
+            'trainer_dispatched': False,
+            'stages': [],
+        }
+    image_quality = inspect_scan_image_quality(image_path)
+    if not image_quality.get('ok'):
+        # Before the facade, before vision health, before Mazda: a page with
+        # nothing on it cannot become an expense, and every stage past here
+        # costs either an API call or an agent's turn. Recorded as this
+        # scanner's own last intake so the rejection is visible on its tab --
+        # otherwise a failed capture reads as a stuck scanner still showing
+        # the previous document.
+        reason = image_quality.get('reason') or 'The scan is not readable.'
+        record_recent_intake(image_path, cfg.get('name'), status='fail',
+                             status_detail=reason)
+        return {
+            'ok': False,
+            'error': reason,
+            'stage_error': reason,
+            'scanner': key,
+            'image_path': image_path,
+            'image_quality': image_quality,
             'mazda_dispatched': False,
             'trainer_dispatched': False,
             'stages': [],

@@ -147,7 +147,14 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
                          auto_refresh=False, extra_css='', picker_html='',
                          manual_entry_html='', expense_edit_html=''):
     """Assemble the page. Every argument is already-decided content, so this
-    function only ever answers "where does it go on the page?"."""
+    function only ever answers "where does it go on the page?".
+
+    `headline`, `subtitle` and `meta_fields` are accepted but deliberately not
+    rendered: the "Most Recent Document" heading and the Document Type / Month
+    Range / Associated-document block were removed from the top of the dialog
+    by request. Do not "restore" them -- guarded by
+    test_recent_intake_html_omits_document_metadata.
+    """
     refresh = '<meta http-equiv="refresh" content="30">' if auto_refresh else ''
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
