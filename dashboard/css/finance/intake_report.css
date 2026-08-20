@@ -153,61 +153,16 @@ td.muted { padding:10px 12px; height:auto; }
     font-size:16px;
 }
 
-/* The classify-on-open verdict: one plain sentence naming the group to use,
-   printed above both of them. It is the answer to "what button do I press",
-   so it sits where the eye lands first rather than inside either group. */
-.manual-entry-shape-verdict {
-    margin:14px 0 6px;
-    font-family:"Courier New",Courier,monospace;
-    font-size:16px;
-    font-weight:600;
-}
-.manual-entry-shape-verdict[data-shape="many-expenses"] { color:#8b0000; }
-.manual-entry-shape-verdict[data-shape="unknown"] { color:#5a5a5a; }
-
-/* The recommended group gets a solid border against the other's default
-   thin groove -- the fieldsets stay side-by-side equals, one just reads as
-   the answer. Not a color-only cue: the border weight carries it for anyone
-   who cannot separate the two by hue. */
-.manual-entry-shape-fieldset.is-recommended,
-.manual-entry-breakup-fieldset.is-recommended {
-    border:2px solid #000080;
-}
-.manual-entry-shape-fieldset.is-recommended > legend,
-.manual-entry-breakup-fieldset.is-recommended > legend {
-    color:#000080;
-}
-
-/* The two document-shape group boxes. A <fieldset> is 98.css's own
-   thin-groove-line "group box" (see 98.css's fieldset/legend rule) -- reused
-   here rather than hand-drawing a border, so each group's buttons read as one
-   labeled unit against the rest of the form's flat groove panel. */
-.manual-entry-shape-fieldset,
-.manual-entry-breakup-fieldset {
-    margin:14px 0;
-    background:#c0c0c0;
-    font-family:"Courier New",Courier,monospace;
-}
-.manual-entry-shape-fieldset legend,
-.manual-entry-breakup-fieldset legend {
-    font-family:"Courier New",Courier,monospace;
-    font-size:16px;
-    font-weight:600;
-    padding:0 6px;
-}
-/* Same scaled-button look the rest of this form's buttons use, so the pair
-   inside the fieldset doesn't read as a smaller, different control set. */
-.manual-entry-shape-fieldset button,
-.manual-entry-breakup-fieldset button {
-    margin:8px calc(8px + 15px) calc(8px + 5px) 0;
+/* The Mazda Fill model dropdown sits immediately right of its button, so the
+   two read as one control: "read it — with this". Scaled to match the
+   form's buttons (they are transform:scale(1.2)) rather than sitting a size
+   smaller beside them. */
+.manual-entry-form select[data-field="mazdaModel"] {
+    margin-left:15px;
     transform:scale(1.2);
-    transform-origin:left top;
+    transform-origin:left center;
+    font-family:"Courier New",Courier,monospace;
 }
-.manual-entry-shape-fieldset button.is-pressed,
-.manual-entry-breakup-fieldset button.is-pressed {
-    box-shadow:inset -1px -1px #fff,inset 1px 1px #0a0a0a,inset -2px -2px #dfdfdf,inset 2px 2px grey;
-}
-
 /* Info dialog -- a plain win98 message box (title bar + one message + OK),
    dimmed backdrop so it reads as modal without a second full-screen skin. */
 .info-dialog-overlay {

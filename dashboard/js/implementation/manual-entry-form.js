@@ -3,24 +3,29 @@
  *
  * Mounts into #manual-entry-root (see finance/intake_report_page.py's
  * manual_entry_form_html) whenever MAZDA_DECISION_MODE=human_only routed a
- * scan/PDF to a human instead of Mazda. "Prefill from OCR" runs the same
- * local-only OCR pass parse_and_categorize.py always runs before saving, so
- * the operator edits/confirms rather than typing from a blank page; Save
- * stores through the identical tool Mazda's own pipeline uses. A document
- * can hold more than one expense (e.g. two receipts scanned together) — Prev
- * / Next / Add Another Expense cycle through a list of line items, each
- * independently valid, submitted together by Save All.
+ * scan/PDF to a human instead of Mazda. A document can hold more than one
+ * expense (two receipts scanned together, a statement page) — Prev / Next /
+ * Add Another Expense cycle through a list of line items, each independently
+ * valid, submitted together by Save All.
  *
- * Two documents, two tools, one form. A receipt fills one row and Save All
- * stores it through parse_and_categorize.py. A STATEMENT page carries several
- * expenses at once, so "Break Up Document" reads them all with
- * parse_statement_scan.py, hands Prev/Next one item per transaction, and Save
- * All stores the whole page through store_statement_transactions.py. Both are
- * the tools Mazda herself runs — this form is how a human runs them while
+ * SEMI-AUTOMATIC, one button. "Mazda Fill" asks the server to classify the
+ * page and read it with the cheap model chosen beside it, then drops the
+ * result into these fields for a human to check and Save. Both branches run
+ * the tools Mazda herself runs — parse_and_categorize.py for one expense,
+ * parse_statement_scan.py for many, and Save All stores through
+ * parse_and_categorize.py or store_statement_transactions.py to match. This
+ * form is how a human runs Mazda's own pipeline while
  * MAZDA_DECISION_MODE=human_only means no agent will.
  *
- * All field/response validation lives in
- * ../abstract/manual-entry.interface.js so it is testable without a browser.
+ * It replaced five reading buttons and a "which group do I press?" group box
+ * on 2026-08-19 (see ../abstract/mazda-fill.interface.js): every one of them
+ * required the operator to know the document's shape before pressing
+ * anything, and the local-OCR heuristic added to guess it for them read the
+ * DTE gas bill as a single $28.07 expense.
+ *
+ * All field/response validation lives in ../abstract/manual-entry.interface.js,
+ * ../abstract/statement-breakup.interface.js and
+ * ../abstract/mazda-fill.interface.js so it is testable without a browser.
  * This class builds its DOM via createElement/appendChild rather than an
  * innerHTML template string — matching statement-review-dialog.js's house
  * style — specifically so it stays unit-testable against js/tests/_fake-dom.js,
@@ -36,30 +41,26 @@ import {
   ARCHIVE_KIND,
   blankManualEntryFields,
   buildArchivePreviewPayload,
-  buildPreviewPayload,
   buildSubmitPayload,
   defaultArchiveKind,
   formatAmountForDisplay,
-  PREVIEW_ENGINE,
   readArchivePreviewResponse,
   readCategoriesResponse,
-  readPrefillResponse,
   readSubmitResponse,
   readVendorKeysResponse,
   validateManualEntry,
 } from "../abstract/manual-entry.interface.js";
 import {
-  buildStatementBreakupPayload,
+  buildMazdaFillPayload,
+  DEFAULT_MAZDA_FILL_MODEL,
+  FILL_SHAPE,
+  MAZDA_FILL_MODEL_OPTIONS,
+  mazdaFillModelLabel,
+  readMazdaFillResponse,
+} from "../abstract/mazda-fill.interface.js";
+import {
   buildStatementEntryPayload,
-  buildStatementRoutePayload,
-  DOCUMENT_SHAPE,
-  DOCUMENT_SHAPE_GUIDANCE,
-  POSSIBLE_STATEMENT_INFO_MESSAGE,
-  readStatementBreakupResponse,
   readStatementEntryResponse,
-  readStatementRouteResponse,
-  recommendedDocumentShape,
-  STATEMENT_ENGINE_OPTIONS,
   summarizeExcludedStatementRows,
   summarizeStatementStore,
   validateStatementRow,
@@ -67,7 +68,6 @@ import {
 import { mountTerminal } from "./detail-renderers.js";
 import { ExpenseEditDialog } from "./expense-edit-dialog.js";
 import { FetchHttpClient } from "./fetch-http-client.js";
-import { InfoDialog } from "./info-dialog.js";
 
 const NEW_VENDOR_OPTION = "__new__";
 const NO_CATEGORY_OPTION = "";
@@ -103,11 +103,6 @@ export class ManualEntryForm {
     // statement store submission (see buildStatementSubmitRows), because the
     // store needs the complete page to reach the same verdict itself.
     this.statementExcludedRows = [];
-    // Which STATEMENT_ENGINE the operator's button chose -- set on the first
-    // Read with Gemini/Haiku click, reused by the bank/account resubmit
-    // continuation so Submit re-reads with the SAME provider, never a silent
-    // switch to the other one.
-    this._statementBreakupEngine = null;
     this.vendorOptions = [];
     this.categoryNames = [];
     this.archiveKind = defaultArchiveKind(this.items.length);
@@ -150,26 +145,32 @@ export class ManualEntryForm {
       );
     });
 
-    // Escape hatch for a document Mazda would classify as doc_kind='statement'
-    // (found 2026-08-17: a bank statement page and a check/account-summary
-    // screenshot both landed in a receipt scanner's queue and Gemini Flash
-    // Fill confidently mis-extracted a single "expense" from each). Mazda's
-    // own classify step is a paid vision call this button skips -- the
-    // operator has already looked via Show Image, so re-deriving "is this a
-    // statement" would just spend a token MAZDA_DECISION_MODE=human_only
-    // exists to avoid. Routes into the SAME statement-preflight pipeline a
-    // normal auto-classified statement scan uses (server.py's
-    // process_scanned_document/run_statement_preflight) via
-    // doc_kind_override, not a separate reimplementation.
-    this.statementButton = this._button(
+    // "Mazda Fill" — the form's ONE reading button (2026-08-19; it replaced
+    // five). The operator no longer answers "is this one expense or several?"
+    // before pressing anything: the server runs the same deterministic
+    // classify the automatic pipeline runs (mazda_intake.py), then hands the
+    // page to the reader built for whatever it turned out to be, using the
+    // cheap model chosen beside this button. The answer lands in these fields
+    // for review — nothing is stored until the human presses Save. That is
+    // the whole of "semi-automatic": Mazda reads, a human decides.
+    this.mazdaFillButton = this._button(
       imagePathWrap,
-      "Not a receipt — process as statement",
-      "route-as-statement",
+      "Mazda Fill",
+      "mazda-fill",
     );
-    this.statementButton.disabled = !this.scannerKey;
-    this.statementButton.addEventListener("click", () =>
-      this._routeAsStatement(),
-    );
+    this.mazdaFillButton.addEventListener("click", () => this._mazdaFill());
+    // Model, not engine: the operator is choosing who reads the page, and both
+    // choices are cheap on purpose (see MAZDA_FILL_MODEL_OPTIONS). Driven off
+    // that one list so adding a model never means editing markup.
+    this.mazdaModelSelect = this._el("select");
+    this.mazdaModelSelect.dataset.field = "mazdaModel";
+    for (const { model, label } of MAZDA_FILL_MODEL_OPTIONS) {
+      const option = this._el("option", { text: label });
+      option.value = model;
+      this.mazdaModelSelect.appendChild(option);
+    }
+    this.mazdaModelSelect.value = DEFAULT_MAZDA_FILL_MODEL;
+    imagePathWrap.appendChild(this.mazdaModelSelect);
     this.statementMetadataPrompt = this._el("div", {
       className: "manual-entry-field",
     });
@@ -190,124 +191,18 @@ export class ManualEntryForm {
     this.statementMetadataSubmit = this._button(
       this.statementMetadataPrompt,
       "Submit",
-      "route-as-statement-submit",
+      "statement-metadata-submit",
     );
-    // Two different flows can ask for the bank/last-four -- routing the page to
-    // Mazda, and breaking it up here by hand -- and both ask for exactly the
-    // same two values. One prompt serves both: whichever flow opened it sets
-    // the resubmit handler, so Submit continues the flow the operator is
-    // actually in rather than silently restarting the other one.
-    this._resubmitWithStatementMetadata = (metadata) =>
-      this._routeAsStatement(metadata);
+    // Only ever opened by a statement fill that read every transaction but
+    // could not resolve WHOSE account they are. Submit re-runs the same fill
+    // with the two typed values, with the same model -- there is one reading
+    // flow now, so there is nothing for this to restart by mistake.
     this.statementMetadataSubmit.addEventListener("click", () =>
-      this._resubmitWithStatementMetadata({
+      this._mazdaFill({
         bankName: this.statementBankNameInput.value,
         accountLast4: this.statementAccountLast4Input.value,
       }),
     );
-
-    // The five reading buttons split into exactly two groups, because that is
-    // the only question the operator actually has to answer: does this page
-    // hold one expense or several? Ungrouped, all five read as alternatives to
-    // each other and the receipt-shaped three silently discard every
-    // transaction but one on a page that had many.
-    this.documentShapeEl = this._el("p", {
-      className: "manual-entry-shape-verdict",
-      text: "Checking how many expenses are on this page…",
-    });
-    shell.appendChild(this.documentShapeEl);
-
-    this.oneExpenseFieldset = this._el("fieldset", {
-      className: "manual-entry-shape-fieldset",
-    });
-    shell.appendChild(this.oneExpenseFieldset);
-    this.oneExpenseFieldset.appendChild(
-      this._el("legend", { text: "This page is ONE expense" }),
-    );
-
-    this.prefillButton = this._button(
-      this.oneExpenseFieldset,
-      "Prefill from OCR",
-      "prefill",
-    );
-    this.prefillButton.addEventListener("click", () =>
-      this._prefill(PREVIEW_ENGINE.LOCAL, this.prefillButton, "local OCR"),
-    );
-
-    // Opt-in only -- unlike "Prefill from OCR" (zero-token, always safe to
-    // run automatically), this spends a Gemini Flash free-tier call, so it
-    // stays a separate button the operator chooses per EG's request rather
-    // than folding into the local pass.
-    this.geminiFillButton = this._button(
-      this.oneExpenseFieldset,
-      "Gemini Flash Fill",
-      "gemini-fill",
-    );
-    this.geminiFillButton.addEventListener("click", () =>
-      this._prefill(
-        PREVIEW_ENGINE.GEMINI_ONLY,
-        this.geminiFillButton,
-        "Gemini Flash",
-      ),
-    );
-
-    // Same opt-in posture as Gemini Flash Fill: spends a Claude Haiku call
-    // through this box's own Claude Code subscription OAuth session (never
-    // a metered ANTHROPIC_API_KEY -- see claude_oauth_client.py), so it's a
-    // separate button rather than an automatic fallback. Primarily useful
-    // once Gemini's free-tier 20-requests/day-per-model quota is exhausted.
-    this.haikuFillButton = this._button(
-      this.oneExpenseFieldset,
-      "Fill with Haiku",
-      "haiku-fill",
-    );
-    this.haikuFillButton.addEventListener("click", () =>
-      this._prefill(
-        PREVIEW_ENGINE.HAIKU_ONLY,
-        this.haikuFillButton,
-        "Claude Haiku",
-      ),
-    );
-
-    // The fill buttons above all ask the RECEIPT parser, which answers with one
-    // merchant/date/amount because a receipt has one -- so a statement page
-    // holding five transactions filled a single row and left Prev/Next with
-    // nothing to walk (2026-08-19, the Choice Privileges page on the Last
-    // Window Scan). These buttons ask the statement parser instead: the same
-    // parse_statement_scan.py preflight the automatic pipeline runs, which is
-    // the tool that knows how to break one page into many expenses. Two
-    // buttons, not one -- gemini-only/haiku-only name a single provider with
-    // no fallback (see STATEMENT_ENGINE_OPTIONS), so an operator who picks a
-    // provider gets exactly that one, not a silent swap to the other on
-    // failure. A <fieldset> (98.css's own thin-groove-line "group box") makes
-    // the pair read as one labeled unit rather than two loose buttons.
-    const breakUpFieldset = this._el("fieldset", {
-      className: "manual-entry-breakup-fieldset",
-    });
-    // Held so the classify-on-open step can mark whichever group it
-    // recommends (see _classifyDocumentShape).
-    this.manyExpensesFieldset = breakUpFieldset;
-    shell.appendChild(breakUpFieldset);
-    breakUpFieldset.appendChild(
-      this._el("legend", {
-        text: "This page has MANY expenses — break it up",
-      }),
-    );
-    // engine -> its button, so the click handler and the finally-block
-    // disable/pressed reset can both address "whichever button is in
-    // flight" without an if/else per engine.
-    this.breakUpButtons = {};
-    for (const { engine, label } of STATEMENT_ENGINE_OPTIONS) {
-      const button = this._button(
-        breakUpFieldset,
-        label,
-        `break-up-document-${engine}`,
-      );
-      button.addEventListener("click", () =>
-        this._breakUpDocument(undefined, engine),
-      );
-      this.breakUpButtons[engine] = button;
-    }
 
     const nav = this._el("div", { className: "manual-entry-item-nav" });
     shell.appendChild(nav);
@@ -489,10 +384,6 @@ export class ManualEntryForm {
     this.archiveKindSelect.value = this.archiveKind;
     this.root.appendChild(shell);
 
-    // One shared Info box for the whole form -- see _prefill's
-    // possibleStatement check, the only trigger today.
-    this._infoDialog = new InfoDialog({ root: this.root, doc: this.doc });
-
     // Constructed here, not in the constructor, so it mounts into the same
     // root and reads the taxonomy this form loads below -- one fetch of
     // /api/rol-finance-categories serves both panels.
@@ -508,69 +399,6 @@ export class ManualEntryForm {
 
     await this._loadDropdownOptions();
     this._renderCurrentItem();
-    await this._classifyDocumentShape();
-  }
-
-  /**
-   * Ask the free local-OCR pass which button group this page wants, the
-   * moment the form opens.
-   *
-   * Costs nothing -- engine 'local' is the same zero-token tesseract pass
-   * "Prefill from OCR" runs, and the server computes possible_statement from
-   * its raw text either way (finance/manual_entry.py). Deliberately does NOT
-   * write any field: this answers "which tool" only, so an operator who
-   * disagrees with the verdict finds the form exactly as blank as before.
-   * That separation is also why a failure here is swallowed -- the form is
-   * fully usable without a recommendation, and a dead OCR pass must not stop
-   * a human from typing an expense in by hand.
-   */
-  async _classifyDocumentShape() {
-    if (!this.documentShapeEl) return;
-    if (!this.imagePathInput.value) {
-      this._setDocumentShape(DOCUMENT_SHAPE.UNKNOWN);
-      return;
-    }
-    try {
-      const json = await this.http.postJSON(
-        "/api/manual-receipt-entry-preview",
-        buildPreviewPayload(
-          { imagePath: this.imagePathInput.value },
-          PREVIEW_ENGINE.LOCAL,
-        ),
-      );
-      const prefill = readPrefillResponse(json);
-      this._setDocumentShape(recommendedDocumentShape(prefill));
-      // The same dialog a fill would have raised, only now it arrives BEFORE
-      // the operator picks a button instead of after.
-      if (prefill.possibleStatement) {
-        this._infoDialog.show(POSSIBLE_STATEMENT_INFO_MESSAGE);
-      }
-    } catch {
-      this._setDocumentShape(DOCUMENT_SHAPE.UNKNOWN);
-    }
-  }
-
-  /** Print the verdict and mark the group it points at. */
-  _setDocumentShape(shape) {
-    this.documentShape = shape;
-    if (this.documentShapeEl) {
-      this.documentShapeEl.textContent = DOCUMENT_SHAPE_GUIDANCE[shape] || "";
-      this.documentShapeEl.dataset.shape = shape;
-    }
-    const pairs = [
-      [this.oneExpenseFieldset, DOCUMENT_SHAPE.ONE_EXPENSE],
-      [this.manyExpensesFieldset, DOCUMENT_SHAPE.MANY_EXPENSES],
-    ];
-    for (const [fieldset, matching] of pairs) {
-      if (!fieldset) continue;
-      // classList over a style write so the look stays in dashboard.css with
-      // the rest of the 98.css theme.
-      if (shape === matching) {
-        fieldset.classList.add("is-recommended");
-      } else {
-        fieldset.classList.remove("is-recommended");
-      }
-    }
   }
 
   async _searchExpensesByDate() {
@@ -866,7 +694,6 @@ export class ManualEntryForm {
       this.items = [blankManualEntryFields()];
       this.statementHeader = null;
       this.statementExcludedRows = [];
-      this._statementBreakupEngine = null;
     }
     this.currentIndex = Math.min(this.currentIndex, this.items.length - 1);
     this._renderCurrentItem();
@@ -878,172 +705,133 @@ export class ManualEntryForm {
   }
 
   /**
-   * @param {string} engine one of PREVIEW_ENGINE's values
-   * @param {HTMLButtonElement} button the button that triggered this pass,
-   *   for the pressed/disabled state -- so the *other* prefill button stays
-   *   clickable while this one is in flight
-   * @param {string} sourceLabel human-readable name for status messages
+   * "Mazda Fill" — read this page with the chosen cheap model, then show the
+   * operator what it found.
+   *
+   * One handler for both document kinds because the operator now makes one
+   * decision, not two. The server classifies first (the same mazda_intake.py
+   * facade the automatic pipeline runs) and answers with the shape it FOUND:
+   * a receipt fills the three fields and resolves the vendor/category exactly
+   * as the old fill buttons did; a statement replaces the item list with one
+   * row per transaction, exactly as the old Break Up Document buttons did.
+   * Nothing is stored — Save/Save All is still the human's, which is the
+   * whole point of running Mazda semi-automatically.
+   *
+   * @param {?{bankName: string, accountLast4: string}} [statementMetadata]
+   *   omitted on the first press; sent back from the inline prompt after a
+   *   statement fill read every transaction but could not resolve whose
+   *   account they belong to. The model is NOT re-chosen on that retry — the
+   *   dropdown still holds whatever the operator picked.
    */
-  async _prefill(
-    engine = PREVIEW_ENGINE.LOCAL,
-    button = this.prefillButton,
-    sourceLabel = "local OCR",
-  ) {
-    button.disabled = true;
-    button.classList.add("is-pressed");
-    this._setStatus(`Reading with ${sourceLabel}…`);
+  async _mazdaFill(statementMetadata) {
+    const model = this.mazdaModelSelect.value;
+    const modelLabel = mazdaFillModelLabel(model);
+    this.mazdaFillButton.disabled = true;
+    this.mazdaFillButton.classList.add("is-pressed");
+    this.statementMetadataSubmit.disabled = true;
+    this._setStatus(`Mazda is reading this page with ${modelLabel}…`);
     try {
       const json = await this.http.postJSON(
-        "/api/manual-receipt-entry-preview",
-        buildPreviewPayload({ imagePath: this.imagePathInput.value }, engine),
-        // fetch-http-client.js's default fetch timeout is 30s. Gemini Flash
-        // Fill's server side (finance/manual_entry.py's
-        // MANUAL_ENTRY_TIMEOUT_SEC) allows up to 90s -- a real call through
-        // GeminiReceiptEngine's model fallback chain (each retired/blocked
-        // model has to fail before the next is tried) measured at 18-25s on
-        // its own, close enough to 30s that a slightly larger image aborted
-        // client-side with nothing to show for it while the server was still
-        // working. Haiku's own OAuth-authenticated call gets the same
-        // server-side allowance and the same generous client timeout --
-        // an expired ~/.claude/.credentials.json triggers a refresh (one
-        // extra network round-trip, occasionally a `claude -p "ok"`
-        // subprocess call) before the real Messages API request even
-        // starts. Local OCR never leaves this box, so it keeps the default.
-        engine === PREVIEW_ENGINE.GEMINI_ONLY ||
-          engine === PREVIEW_ENGINE.HAIKU_ONLY
-          ? { timeout: 95000 }
-          : undefined,
+        "/api/mazda-fill",
+        buildMazdaFillPayload(
+          { imagePath: this.imagePathInput.value },
+          model,
+          statementMetadata,
+        ),
+        // fetch-http-client.js defaults to 30s. A vision read of a whole
+        // statement page is the slowest call this form makes, and a classify
+        // pass now runs ahead of it — aborting client-side while the server
+        // is still reading would throw away work already paid for.
+        { timeout: 180000 },
       );
-      const prefill = readPrefillResponse(json);
-      if (prefill.merchantName)
-        this.merchantNameInput.value = prefill.merchantName;
-      if (prefill.transactionDate)
-        this.transactionDateInput.value = prefill.transactionDate;
-      if (prefill.totalAmount !== null)
-        this.totalAmountInput.value = formatAmountForDisplay(
-          String(prefill.totalAmount),
-        );
-      const vendorMatched = this._applyVendorMatch(prefill);
-      const needsVendorChoice = this._renderVendorCandidates(prefill);
-      this._captureCurrentItem();
-      this._setStatus(
-        prefill.ok
-          ? `Prefilled from ${sourceLabel} — check every field before saving.` +
-              (vendorMatched ? " Vendor/category matched too." : "") +
-              (needsVendorChoice
-                ? " More than one stored vendor answers to this name, so no" +
-                  " vendor or category was guessed — pick one below."
-                : "")
-          : `${sourceLabel} could not read this document (${prefill.error || "no result"}); fields left blank.`,
-      );
-      // Zero extra cost: this reads the SAME raw OCR text every fill engine
-      // already produced, just checked for a statement's shape (multiple
-      // dated rows) instead of one receipt's. Shown regardless of whether the
-      // receipt-shaped fields above happened to come back readable -- a
-      // statement's own merchant/date/total rarely mean anything as "the"
-      // expense, so the nudge matters most exactly when prefill looks thin.
-      if (prefill.possibleStatement) {
-        this._infoDialog.show(POSSIBLE_STATEMENT_INFO_MESSAGE);
+      const result = readMazdaFillResponse(json);
+      if (result.shape === FILL_SHAPE.MANY_EXPENSES) {
+        this._applyStatementFill(result, modelLabel);
+      } else {
+        this._applyReceiptFill(result, modelLabel);
       }
     } catch (err) {
       this._setStatus(
-        `Prefill request failed: ${err && err.message ? err.message : err}`,
+        `Mazda Fill failed: ${err && err.message ? err.message : err}`,
       );
     } finally {
-      button.disabled = false;
-      button.classList.remove("is-pressed");
+      this.mazdaFillButton.disabled = false;
+      this.mazdaFillButton.classList.remove("is-pressed");
+      this.statementMetadataSubmit.disabled = false;
     }
-    // The archive path is built from vendor+date+amount -- refresh it the
-    // moment OCR has (or hasn't) filled those in, per EG's request, rather
-    // than waiting for the operator to blur a field.
+    // The archive path is built from vendor+date+amount — refresh it the
+    // moment the fill has (or hasn't) filled those in, per EG's request,
+    // rather than waiting for the operator to blur a field.
     await this._updateArchivePathPreview();
   }
 
-  /**
-   * "Read with Gemini" / "Read with Haiku" button/resubmit handler.
-   *
-   * Replaces the item list wholesale with one item per transaction found on
-   * the page, so Prev/Next walk the real expenses instead of the single row a
-   * receipt-shaped fill leaves behind. The rows are read by the same
-   * parse_statement_scan.py preflight the automatic pipeline uses, and Save All
-   * hands them to the same store_statement_transactions.py Mazda would -- being
-   * Mazda by hand, not a second implementation of her.
-   *
-   * @param {?{bankName: string, accountLast4: string}} [statementMetadata]
-   *   omitted on the first click; passed back in from the inline prompt once
-   *   the server reports it could not resolve the bank/account on its own
-   * @param {string} [engine] one of STATEMENT_ENGINE's values -- required on
-   *   the first (button) call; omitted on the resubmit continuation, which
-   *   reuses whichever engine that first call recorded, so Submit reads with
-   *   the SAME provider the operator originally chose
-   */
-  async _breakUpDocument(statementMetadata, engine) {
-    if (engine) this._statementBreakupEngine = engine;
-    const button = this.breakUpButtons[this._statementBreakupEngine];
-    button.disabled = true;
-    button.classList.add("is-pressed");
-    this.statementMetadataSubmit.disabled = true;
-    this._setStatus("Reading every transaction off this document…");
-    try {
-      const json = await this.http.postJSON(
-        "/api/manual-statement-breakup",
-        buildStatementBreakupPayload(
-          { imagePath: this.imagePathInput.value },
-          statementMetadata,
-          this._statementBreakupEngine,
-        ),
-        // Vision extraction of a whole statement page is the slowest call this
-        // form makes -- give it the same generous allowance the Gemini/Haiku
-        // fills get rather than aborting client-side on a page the server is
-        // still reading.
-        { timeout: 180000 },
+  /** Mazda read ONE expense: fill the three fields and match the vendor. */
+  _applyReceiptFill(result, modelLabel) {
+    const prefill = result.prefill;
+    if (prefill.merchantName)
+      this.merchantNameInput.value = prefill.merchantName;
+    if (prefill.transactionDate)
+      this.transactionDateInput.value = prefill.transactionDate;
+    if (prefill.totalAmount !== null)
+      this.totalAmountInput.value = formatAmountForDisplay(
+        String(prefill.totalAmount),
       );
-      const result = readStatementBreakupResponse(json);
-      // Rows first, error second: a needs-metadata answer still carries every
-      // transaction, and showing them while the operator types the bank in is
-      // the whole reason this response is shaped that way.
-      if (result.items.length) this._loadStatementItems(result);
-      if (result.needsStatementMetadata) {
-        this._resubmitWithStatementMetadata = (metadata) =>
-          this._breakUpDocument(metadata);
-        this.statementBankNameInput.value = result.header.bankName;
-        this.statementAccountLast4Input.value = result.header.accountLast4;
-        this.statementMetadataPrompt.style.display = "";
-        this._setStatus(
-          `Read ${result.items.length} transaction(s), but the bank/account` +
-            ` couldn't be resolved automatically (missing: ${
-              result.missingFields.join(", ") || "bank/account"
-            }) — fill in the fields above and Submit before saving.`,
-        );
-        return;
-      }
-      this.statementMetadataPrompt.style.display = "none";
-      this._resubmitWithStatementMetadata = (metadata) =>
-        this._routeAsStatement(metadata);
-      if (!result.ok) {
-        this._setStatus(
-          `Could not break up this document: ${result.error || "unknown error"}.`,
-        );
-        return;
-      }
-      const excludedNote = summarizeExcludedStatementRows(
-        this.statementExcludedRows,
-      );
+    const vendorMatched = this._applyVendorMatch(prefill);
+    const needsVendorChoice = this._renderVendorCandidates(prefill);
+    this._captureCurrentItem();
+    this.statementMetadataPrompt.style.display = "none";
+    this._setStatus(
+      result.ok
+        ? `${modelLabel} read this as ONE expense — check every field before` +
+            " saving." +
+            (vendorMatched ? " Vendor/category matched too." : "") +
+            (needsVendorChoice
+              ? " More than one stored vendor answers to this name, so no" +
+                " vendor or category was guessed — pick one below."
+              : "")
+        : `${modelLabel} could not read this document (${
+            result.error || "no result"
+          }); fields left blank — type them in, or try the other model.`,
+    );
+  }
+
+  /** Mazda read MANY expenses: hand Prev/Next one row per transaction. */
+  _applyStatementFill(result, modelLabel) {
+    // Rows first, error second: a needs-metadata answer still carries every
+    // transaction, and showing them while the operator types the bank in is
+    // the whole reason the response is shaped that way.
+    if (result.items.length) this._loadStatementItems(result);
+    if (result.needsStatementMetadata) {
+      this.statementBankNameInput.value = result.header.bankName;
+      this.statementAccountLast4Input.value = result.header.accountLast4;
+      this.statementMetadataPrompt.style.display = "";
       this._setStatus(
-        `Found ${this.items.length} transaction(s) — walk them with Prev/Next,` +
-          " correct anything misread, then Save All. Categories are left to" +
-          " the store: statement rows enter the New Records queue." +
-          (excludedNote ? ` ${excludedNote}` : ""),
+        `${modelLabel} read ${result.items.length} transaction(s), but the` +
+          " bank/account couldn't be resolved automatically (missing: " +
+          `${result.missingFields.join(", ") || "bank/account"}) — fill in` +
+          " the fields above and Submit before saving.",
       );
-    } catch (err) {
-      this._setStatus(
-        `Break Up Document failed: ${err && err.message ? err.message : err}`,
-      );
-    } finally {
-      button.disabled = false;
-      button.classList.remove("is-pressed");
-      this.statementMetadataSubmit.disabled = false;
+      return;
     }
+    this.statementMetadataPrompt.style.display = "none";
+    if (!result.ok) {
+      this._setStatus(
+        `${modelLabel} could not break up this document: ${
+          result.error || "unknown error"
+        }.`,
+      );
+      return;
+    }
+    const excludedNote = summarizeExcludedStatementRows(
+      this.statementExcludedRows,
+    );
+    this._setStatus(
+      `${modelLabel} read this as MANY expenses — found ${this.items.length}` +
+        " transaction(s). Walk them with Prev/Next, correct anything misread," +
+        " then Save All. Categories are left to the store: statement rows" +
+        " enter the New Records queue." +
+        (excludedNote ? ` ${excludedNote}` : ""),
+    );
   }
 
   /**
@@ -1063,59 +851,6 @@ export class ManualEntryForm {
       this.archiveKindSelect.value = this.archiveKind;
     }
     this._renderCurrentItem();
-  }
-
-  /**
-   * "Not a receipt — process as statement" button/resubmit handler.
-   * @param {?{bankName: string, accountLast4: string}} [statementMetadata]
-   *   omitted on the first click; passed back in from the inline prompt once
-   *   the server reports it couldn't resolve the bank/account on its own
-   */
-  async _routeAsStatement(statementMetadata) {
-    if (!this.scannerKey) return;
-    this.statementButton.disabled = true;
-    this.statementButton.classList.add("is-pressed");
-    this.statementMetadataSubmit.disabled = true;
-    this._setStatus("Routing to statement intake…");
-    try {
-      const json = await this.http.postJSON(
-        "/api/process-document",
-        buildStatementRoutePayload(this.scannerKey, statementMetadata),
-      );
-      const result = readStatementRouteResponse(json);
-      if (result.needsStatementMetadata) {
-        this.statementMetadataPrompt.style.display = "";
-        this._setStatus(
-          "This is a statement, but the bank/account couldn't be resolved" +
-            ` automatically (missing: ${result.missingFields.join(", ") || "bank/account"})` +
-            " — fill in the fields below and Submit.",
-        );
-        return;
-      }
-      this.statementMetadataPrompt.style.display = "none";
-      if (result.rejected) {
-        this._setStatus(
-          `Statement rejected: ${result.error || "unknown reason"}.`,
-        );
-        return;
-      }
-      this._setStatus(
-        result.ok
-          ? "Routed to statement intake." +
-              (result.mazdaDispatched
-                ? " Mazda will investigate/categorize/store it."
-                : ` ${result.error || "Mazda was not dispatched."}`)
-          : `Could not route as a statement: ${result.error || "unknown error"}.`,
-      );
-    } catch (err) {
-      this._setStatus(
-        `Statement routing request failed: ${err && err.message ? err.message : err}`,
-      );
-    } finally {
-      this.statementButton.disabled = false;
-      this.statementButton.classList.remove("is-pressed");
-      this.statementMetadataSubmit.disabled = false;
-    }
   }
 
   async _updateArchivePathPreview() {

@@ -1,10 +1,19 @@
 /**
- * Pure decision logic for treating a scanned document as a STATEMENT rather
- * than a receipt: routing it to Mazda's automatic statement pipeline
- * ("Not a receipt — process as statement"), and reading/storing it entirely
- * by hand ("Break Up Document") when MAZDA_DECISION_MODE=human_only means no
- * agent will. No DOM, no fetch — js/implementation/manual-entry-form.js
- * renders whatever these return and owns the DOM/fetch side of the boundary.
+ * Pure decision logic for a scanned page that carries MANY expenses -- a
+ * statement, not a receipt: reading every transaction off it, and storing the
+ * corrected rows as one page.
+ *
+ * The reading half is triggered by "Mazda Fill" (see mazda-fill.interface.js),
+ * which classifies the document first and routes here only when the page
+ * really is a statement. Until 2026-08-19 the operator picked that by eye,
+ * from a "Break up Document" group box holding a Read with Gemini and a Read
+ * with Haiku button; those are gone, and so are the payload builders that fed
+ * them -- the server composes StatementBreakupRequest itself now. What
+ * remains is what the FORM still needs: reading the response, validating the
+ * rows a human corrected, and building the one Save All body.
+ *
+ * No DOM, no fetch -- js/implementation/manual-entry-form.js renders whatever
+ * these return and owns the DOM/fetch side of the boundary.
  *
  * Split out of manual-entry.interface.js (which keeps the single-expense
  * receipt concerns) once the statement half grew past a third of that file
@@ -21,81 +30,7 @@ import {
  * @typedef {Object} StatementMetadataInput
  * @property {string} bankName
  * @property {string} accountLast4
- *
- * @typedef {Object} StatementRouteResult
- * @property {boolean} ok
- * @property {boolean} needsStatementMetadata  true when the scan is a real
- *   statement but bank_name/account_last4 couldn't be resolved -- the caller
- *   should collect those and retry with statementMetadata set
- * @property {boolean} rejected  true when the scan can never be filed as-is
- *   (more than one account on the page, no complete transaction found) --
- *   retrying with different metadata will not help; the document itself
- *   needs to be rescanned or split
- * @property {string[]} missingFields
- * @property {boolean} mazdaDispatched
- * @property {?string} error
  */
-
-/**
- * "Not a receipt — process as statement" escape hatch: builds the POST
- * /api/process-document body with doc_kind_override='statement', so the
- * server skips Mazda's own (paid) vision classify call -- the operator has
- * already looked at the document (see the Show Image button) and knows what
- * it is, so paying to re-derive that is wasted spend in
- * MAZDA_DECISION_MODE=human_only, whose whole point is zero-token operation.
- * @param {string} scannerKey
- * @param {?StatementMetadataInput} [statementMetadata] omit on the first
- *   attempt; pass the operator-typed values back in only after a first
- *   response comes back with needsStatementMetadata:true
- */
-export function buildStatementRoutePayload(scannerKey, statementMetadata) {
-  const payload = { scanner: scannerKey, doc_kind_override: "statement" };
-  const bankName = (statementMetadata && statementMetadata.bankName) || "";
-  const accountLast4 =
-    (statementMetadata && statementMetadata.accountLast4) || "";
-  if (bankName.trim() || accountLast4.trim()) {
-    payload.statement_metadata = {
-      bank_name: bankName.trim(),
-      account_last4: accountLast4.trim(),
-    };
-  }
-  return payload;
-}
-
-/**
- * Boundary check for POST /api/process-document's response when routed via
- * doc_kind_override. Never trusts the shape blindly -- a stray key or a
- * proxy error page must read as ok:false with an error, not throw mid-render.
- * @param {unknown} json
- * @returns {StatementRouteResult}
- */
-export function readStatementRouteResponse(json) {
-  const blank = {
-    ok: false,
-    needsStatementMetadata: false,
-    rejected: false,
-    missingFields: [],
-    mazdaDispatched: false,
-    error: "malformed response",
-  };
-  if (typeof json !== "object" || json === null) return blank;
-  const missingFields = Array.isArray(json.missing_fields)
-    ? json.missing_fields.filter((f) => typeof f === "string" && f)
-    : [];
-  return {
-    ok: json.ok === true,
-    needsStatementMetadata: json.needs_statement_metadata === true,
-    rejected: json.statement_rejected === true,
-    missingFields,
-    mazdaDispatched: json.mazda_dispatched === true,
-    error:
-      typeof json.stage_error === "string"
-        ? json.stage_error
-        : typeof json.error === "string"
-          ? json.error
-          : null,
-  };
-}
 
 /**
  * @typedef {Object} StatementHeader
@@ -121,46 +56,7 @@ export function readStatementRouteResponse(json) {
  * @property {?string} error
  */
 
-/**
- * "Break Up Document": ask the server to read EVERY transaction off a scanned
- * statement, using the same parse_statement_scan.py preflight the automatic
- * pipeline runs. The receipt-shaped fill buttons can only ever answer with one
- * expense (a receipt has one), which is why a five-transaction statement page
- * came back as a single row.
- * @param {IntakeRef} intakeRef
- * @param {?StatementMetadataInput} [statementMetadata] operator-typed bank /
- *   last-four, sent back only after a first pass reported them missing
- * @param {string} [engine] one of STATEMENT_ENGINE's values -- which button
- *   the operator pressed. The server's own STATEMENT_ENGINES allow-list is
- *   the enforcement point (never trust the client alone); this default just
- *   keeps a caller from having to spell out "auto" for the common case.
- */
-export function buildStatementBreakupPayload(
-  intakeRef,
-  statementMetadata,
-  engine = "auto",
-) {
-  return {
-    image_path: intakeRef.imagePath,
-    bank_name: ((statementMetadata && statementMetadata.bankName) || "").trim(),
-    account_last4: (
-      (statementMetadata && statementMetadata.accountLast4) ||
-      ""
-    ).trim(),
-    engine,
-  };
-}
-
-/**
- * Boundary check for POST /api/manual-statement-breakup's response.
- *
- * Rows are returned even when ok is false: a needs_statement_metadata result
- * means the transactions were read and only the account identity is missing,
- * so the operator should be looking at the five expenses while typing the bank
- * in -- not at an empty form behind an error.
- * @param {unknown} json
- * @returns {StatementBreakupResult}
- */
+/** One parsed transaction -> one Prev/Next stop. */
 function statementRowToFields(row) {
   return {
     merchantName: typeof row.description === "string" ? row.description : "",
@@ -176,6 +72,16 @@ function statementRowToFields(row) {
   };
 }
 
+/**
+ * Boundary check for POST /api/manual-statement-breakup's response.
+ *
+ * Rows are returned even when ok is false: a needs_statement_metadata result
+ * means the transactions were read and only the account identity is missing,
+ * so the operator should be looking at the five expenses while typing the bank
+ * in -- not at an empty form behind an error.
+ * @param {unknown} json
+ * @returns {StatementBreakupResult}
+ */
 export function readStatementBreakupResponse(json) {
   const blank = {
     ok: false,
@@ -384,87 +290,3 @@ export function summarizeStatementStore(result) {
   if (result.failed) parts.push(`${result.failed} failed`);
   return `${parts.join(" · ")}.`;
 }
-
-//: The two single-provider, no-fallback engines the dashboard's own
-//: "Read with Gemini"/"Read with Haiku" buttons may request -- mirrors
-//: rol_finances' parse_statement_scan.py STATEMENT_PREVIEW_ENGINES ("auto" is
-//: a valid value there too, but never offered by these two buttons: an
-//: operator who already chose a provider must get exactly that one, with no
-//: silent fallback to a different one on failure).
-export const STATEMENT_ENGINE = Object.freeze({
-  GEMINI_ONLY: "gemini-only",
-  HAIKU_ONLY: "haiku-only",
-});
-
-/**
- * @typedef {Object} StatementEngineOption
- * @property {string} engine  one of STATEMENT_ENGINE's values
- * @property {string} label   the button text
- */
-
-//: Drives both the fieldset's two buttons and their POST bodies from one
-//: list, so adding or renaming an engine never has to touch two places.
-export const STATEMENT_ENGINE_OPTIONS = Object.freeze([
-  { engine: STATEMENT_ENGINE.GEMINI_ONLY, label: "Read with Gemini" },
-  { engine: STATEMENT_ENGINE.HAIKU_ONLY, label: "Read with Haiku" },
-]);
-
-//: Shown in the win98-styled Info dialog right after ANY receipt-shaped fill
-//: (Prefill from OCR / Gemini Flash Fill / Fill with Haiku) when the zero-cost
-//: local-OCR pass's own raw text looks like a statement's transaction table
-//: (see finance/statement_heuristic.py's looks_like_multiple_transactions,
-//: mirrored here only as the message text -- the server is the one place the
-//: actual detection runs). A receipt fill can only ever answer with one
-//: merchant/date/amount, so this is the nudge toward the tool built for more
-//: than one.
-export const POSSIBLE_STATEMENT_INFO_MESSAGE =
-  "This document may contain more than one expense. Use the Break up " +
-  "Document buttons below to read every transaction on the page.";
-
-/**
- * @typedef {"one-expense"|"many-expenses"|"unknown"} DocumentShape
- */
-
-//: Which of the form's two button groups a document wants. The form asks the
-//: server for this the moment it opens, using the SAME free local-OCR pass
-//: "Prefill from OCR" runs -- the operator should not have to click a
-//: receipt-shaped button first just to be told the page wasn't a receipt
-//: (2026-08-19: the DTE gas bill, headed MULTIPLE BILL STATEMENTS ENCLOSED,
-//: was hand-entered as one $28.07 expense because nothing on screen said
-//: otherwise until after a fill).
-export const DOCUMENT_SHAPE = Object.freeze({
-  ONE_EXPENSE: "one-expense",
-  MANY_EXPENSES: "many-expenses",
-  UNKNOWN: "unknown",
-});
-
-/**
- * Pure: read a prefill response into the shape recommendation the form shows.
- * A failed OCR pass answers UNKNOWN rather than guessing ONE_EXPENSE -- "we
- * could not read this" must never look like "this is a simple receipt".
- *
- * @param {{ok?: boolean, possibleStatement?: boolean}|null} prefill
- * @returns {DocumentShape}
- */
-export function recommendedDocumentShape(prefill) {
-  if (typeof prefill !== "object" || prefill === null) {
-    return DOCUMENT_SHAPE.UNKNOWN;
-  }
-  if (prefill.possibleStatement === true) return DOCUMENT_SHAPE.MANY_EXPENSES;
-  if (prefill.ok === true) return DOCUMENT_SHAPE.ONE_EXPENSE;
-  return DOCUMENT_SHAPE.UNKNOWN;
-}
-
-//: The one-line verdict printed above the button groups. Deliberately says
-//: what to DO, not what was detected -- "what button do I press" was the
-//: actual question this whole classify-on-open step exists to answer.
-export const DOCUMENT_SHAPE_GUIDANCE = Object.freeze({
-  [DOCUMENT_SHAPE.ONE_EXPENSE]:
-    "This page looks like ONE expense. Use a Fill button below.",
-  [DOCUMENT_SHAPE.MANY_EXPENSES]:
-    "This page looks like MANY expenses. Use a Read button below to get " +
-    "every transaction — a Fill button would keep only one of them.",
-  [DOCUMENT_SHAPE.UNKNOWN]:
-    "Could not tell how many expenses are on this page. Open Show Image and " +
-    "pick a group below.",
-});

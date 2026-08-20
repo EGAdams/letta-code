@@ -130,6 +130,12 @@ from finance.statement_dashboard_adapters import (
     CallbackStatementIntakeRecorder,
 )
 from finance.statement_extraction_adapter import PreflightStatementExtractor
+from finance.mazda_fill import (
+    CallableDocumentClassifier,
+    CallableReceiptReader,
+    MazdaFillRequest,
+    MazdaFillService,
+)
 from finance.statement_models import StatementBreakupRequest, StatementStoreRequest
 from finance.statement_service import StatementBreakupService
 from finance.statement_store import ScriptStatementStore
@@ -5007,6 +5013,40 @@ _STATEMENT_BREAKUP_SERVICE = StatementBreakupService(
     CallbackStatementIntakeRecorder(
         merge_recent_intake_event, _invalidate_receipt_index),
 )
+
+
+# Composition root for "Mazda Fill" -- the manual-entry form's one reading
+# button. Same arrangement as the statement service above: which concrete
+# satisfies each port is decided here and nowhere else.
+#
+# The classifier is the SAME deterministic facade the automatic pipeline runs
+# first (run_intake_facade -> mazda_intake.py), so "which reader does this page
+# want" is answered by the tool that already answers it for Mazda, not by a
+# local OCR heuristic and not by asking the operator to eyeball it.
+_MAZDA_FILL_SERVICE = MazdaFillService(
+    CallableDocumentClassifier(
+        lambda image_path: (run_intake_facade(image_path) or {}).get('doc_kind')),
+    CallableReceiptReader(
+        lambda image_path, model: manual_entry.preview_receipt_parse(
+            image_path, engine=model, category_namer=TaxonomyCategoryNamer())),
+    _STATEMENT_BREAKUP_SERVICE,
+    statement_doc_kinds=STATEMENT_DOC_KINDS,
+)
+
+
+def mazda_fill_document(data):
+    """POST /api/mazda-fill: read one scanned page with a cheap model.
+
+    Semi-automatic on purpose. Mazda's own classify+read tools run, and the
+    answer lands in the form for a human to check and Save -- nothing is
+    stored here. That is the whole difference between this and letting
+    MAZDA_DECISION_MODE=auto file the document unattended.
+    """
+    try:
+        request = MazdaFillRequest.from_http(data)
+    except (ValidationError, ValueError) as exc:
+        return {'ok': False, 'error': str(exc)}
+    return _MAZDA_FILL_SERVICE.fill(request).to_http()
 
 
 def break_up_statement_document(data):
@@ -11773,6 +11813,16 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         # The statement pair, alongside the receipt endpoints above: the same
         # form serves both document kinds, and which pair it calls is decided
         # by what the document IS, not by how many rows are on screen.
+        # "Mazda Fill": one button, one cheap model, both document kinds.
+        # Replaced the form's five reading buttons on 2026-08-19 -- see
+        # finance/mazda_fill.py for why picking the reader by eye was the bug.
+        if path == '/api/mazda-fill':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(mazda_fill_document(data))
+
         if path == '/api/manual-statement-breakup':
             try:
                 data = json.loads(body)

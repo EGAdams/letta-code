@@ -2,6 +2,21 @@ import { describe, expect, test } from "bun:test";
 import { ManualEntryForm } from "../implementation/manual-entry-form.js";
 import { FakeDocument } from "./_fake-dom.js";
 
+//: /api/mazda-fill's answer for a page the server classified as a receipt:
+//: the prefill body preview_receipt_parse already produced, wrapped in the
+//: one response shape both document kinds come back in (see
+//: finance/mazda_fill.MazdaFillResponse).
+function mazdaFillReceipt(receipt) {
+  return {
+    ok: Boolean(receipt.ok),
+    shape: "one-expense",
+    model: "gemini-only",
+    doc_kind: "receipt",
+    receipt,
+    error: receipt.error ?? null,
+  };
+}
+
 function fakeHttp(responses) {
   const calls = [];
   return {
@@ -141,21 +156,21 @@ describe("ManualEntryForm multi-item navigation", () => {
   });
 });
 
-describe("ManualEntryForm._prefill", () => {
-  test("fills blank fields from a successful OCR preview", async () => {
+describe("ManualEntryForm Mazda Fill (one expense)", () => {
+  test("fills blank fields from a successful one-expense read", async () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": {
+      "/api/mazda-fill": mazdaFillReceipt({
         ok: true,
         merchant_name: "Kroger",
         transaction_date: "2026-08-15",
         total_amount: 12.34,
-      },
+      }),
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._prefill();
+    await form._mazdaFill();
     expect(form.merchantNameInput.value).toBe("Kroger");
     expect(form.transactionDateInput.value).toBe("2026-08-15");
     expect(form.totalAmountInput.value).toBe("12.34");
@@ -174,17 +189,17 @@ describe("ManualEntryForm._prefill", () => {
         ],
       },
       "/api/rol-finance-categories": { ok: true, categories: ["Utilities"] },
-      "/api/manual-receipt-entry-preview": {
+      "/api/mazda-fill": mazdaFillReceipt({
         ok: true,
         merchant_name: "Consumers Energy",
         vendor_key: "consumers_energy",
         category_name: "Utilities",
-      },
+      }),
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._prefill();
-    // The readable OCR name stays in the free-text field -- only the
+    await form._mazdaFill();
+    // The readable merchant name stays in the free-text field -- only the
     // dropdown/category get preselected, not overwritten to the slug.
     expect(form.merchantNameInput.value).toBe("Consumers Energy");
     expect(form.vendorSelect.value).toBe("consumers_energy");
@@ -196,15 +211,15 @@ describe("ManualEntryForm._prefill", () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: ["Restaurants"] },
-      "/api/manual-receipt-entry-preview": {
+      "/api/mazda-fill": mazdaFillReceipt({
         ok: true,
         merchant_name: "Mr Burger Restaurant",
         category_name: "Restaurants",
-      },
+      }),
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._prefill();
+    await form._mazdaFill();
     expect(form.vendorSelect.value).toBe("");
     expect(form.categorySelect.value).toBe("Restaurants");
   });
@@ -213,297 +228,113 @@ describe("ManualEntryForm._prefill", () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": {
+      "/api/mazda-fill": mazdaFillReceipt({
         ok: true,
         merchant_name: "Totally Unknown Vendor",
-      },
+      }),
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._prefill();
+    await form._mazdaFill();
     expect(form._statusEl.textContent).not.toContain("Vendor/category matched");
   });
 
-  test("disables and visually presses the button only while the OCR request is in flight", async () => {
+  test("disables and visually presses the button only while the fill is in flight", async () => {
     let stateDuringRequest = null;
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": (body) => {
+      "/api/mazda-fill": (body) => {
         stateDuringRequest = {
-          disabled: form.prefillButton.disabled,
-          pressed: form.prefillButton.classList.contains("is-pressed"),
+          disabled: form.mazdaFillButton.disabled,
+          pressed: form.mazdaFillButton.classList.contains("is-pressed"),
         };
         return { ok: true, merchant_name: "Kroger" };
       },
     });
     const { form } = setup({ http });
     await form.mount();
-    expect(form.prefillButton.disabled).toBe(false);
-    await form._prefill();
+    expect(form.mazdaFillButton.disabled).toBe(false);
+    await form._mazdaFill();
     expect(stateDuringRequest).toEqual({ disabled: true, pressed: true });
-    expect(form.prefillButton.disabled).toBe(false);
-    expect(form.prefillButton.classList.contains("is-pressed")).toBe(false);
+    expect(form.mazdaFillButton.disabled).toBe(false);
+    expect(form.mazdaFillButton.classList.contains("is-pressed")).toBe(false);
   });
 
-  test("re-enables the button after a failed OCR request", async () => {
+  test("re-enables the button after a failed fill request", async () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": () => {
+      "/api/mazda-fill": () => {
         throw new Error("boom");
       },
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._prefill();
-    expect(form.prefillButton.disabled).toBe(false);
-    expect(form.prefillButton.classList.contains("is-pressed")).toBe(false);
-    expect(form._statusEl.textContent).toContain("Prefill request failed");
+    await form._mazdaFill();
+    expect(form.mazdaFillButton.disabled).toBe(false);
+    expect(form.mazdaFillButton.classList.contains("is-pressed")).toBe(false);
+    expect(form._statusEl.textContent).toContain("Mazda Fill failed");
   });
 
-  test("Gemini Flash Fill button requests the gemini-only engine and reports its own source", async () => {
-    let requestedEngine = null;
+  test("the model dropdown decides who reads the page", async () => {
+    // The five reading buttons collapsed into one on 2026-08-19: the operator
+    // chooses WHO reads, never which parser to aim at, because that second
+    // question can only be answered by reading the document.
+    let requestedModel = null;
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": (body) => {
-        requestedEngine = body.engine;
-        return { ok: true, merchant_name: "DTE Energy" };
+      "/api/mazda-fill": (body) => {
+        requestedModel = body.model;
+        return mazdaFillReceipt({ ok: true, merchant_name: "DTE Energy" });
       },
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._prefill("gemini-only", form.geminiFillButton, "Gemini Flash");
-    expect(requestedEngine).toBe("gemini-only");
+    expect(form.mazdaModelSelect.value).toBe("gemini-only");
+
+    await form._mazdaFill();
+    expect(requestedModel).toBe("gemini-only");
+    expect(form._statusEl.textContent).toContain("Gemini Flash read this");
+
+    form.mazdaModelSelect.value = "haiku-only";
+    await form._mazdaFill();
+    expect(requestedModel).toBe("haiku-only");
+    expect(form._statusEl.textContent).toContain("Claude Haiku read this");
     expect(form.merchantNameInput.value).toBe("DTE Energy");
-    expect(form._statusEl.textContent).toContain("Prefilled from Gemini Flash");
   });
 
-  test("Gemini Flash Fill only disables/presses its own button, not Prefill from OCR", async () => {
-    let stateDuringRequest = null;
-    const http = fakeHttp({
-      "/api/vendor-keys": { ok: true, vendor_keys: [] },
-      "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": () => {
-        stateDuringRequest = {
-          geminiPressed: form.geminiFillButton.classList.contains("is-pressed"),
-          prefillDisabled: form.prefillButton.disabled,
-        };
-        return { ok: true, merchant_name: "DTE Energy" };
-      },
-    });
-    const { form } = setup({ http });
+  test("the dropdown offers only the cheap models both readers accept", async () => {
+    const { form } = setup();
     await form.mount();
-    await form._prefill("gemini-only", form.geminiFillButton, "Gemini Flash");
-    expect(stateDuringRequest).toEqual({
-      geminiPressed: true,
-      prefillDisabled: false,
-    });
-    expect(form.geminiFillButton.disabled).toBe(false);
-    expect(form.geminiFillButton.classList.contains("is-pressed")).toBe(false);
+    const offered = Array.from(form.mazdaModelSelect.children).map(
+      (option) => option.value,
+    );
+    expect(offered).toEqual(["gemini-only", "haiku-only"]);
+    // No 'local': the OCR pass this replaced is exactly what read the DTE gas
+    // bill as one $28.07 expense. No 'auto': its later tiers are paid.
+    expect(offered).not.toContain("local");
+    expect(offered).not.toContain("auto");
   });
 
-  test("Gemini Flash Fill requests a longer fetch timeout than the browser default", async () => {
-    // fetch-http-client.js's default is 30s; a real call through Gemini's
-    // model-fallback chain measured at 18-25s, close enough that a slightly
-    // larger image could cross it and abort client-side while the (90s
-    // server-side budget) request was still working. Local OCR never leaves
-    // the box, so it must NOT get the same override.
+  test("a fill requests a longer fetch timeout than the browser default", async () => {
+    // fetch-http-client.js defaults to 30s. A classify pass now runs ahead of
+    // a vision read of the whole page, so aborting client-side would throw
+    // away work already paid for.
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": {
+      "/api/mazda-fill": mazdaFillReceipt({
         ok: true,
         merchant_name: "DTE Energy",
-      },
+      }),
     });
     const { form } = setup({ http });
     await form.mount();
-
-    await form._prefill("gemini-only", form.geminiFillButton, "Gemini Flash");
-    const [, , , geminiOpts] = http.calls.at(-1);
-    expect(geminiOpts).toEqual({ timeout: 95000 });
-
-    await form._prefill();
-    const [, , , localOpts] = http.calls.at(-1);
-    expect(localOpts).toBeUndefined();
-  });
-
-  test("Fill with Haiku button requests the haiku-only engine and reports its own source", async () => {
-    let requestedEngine = null;
-    const http = fakeHttp({
-      "/api/vendor-keys": { ok: true, vendor_keys: [] },
-      "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": (body) => {
-        requestedEngine = body.engine;
-        return { ok: true, merchant_name: "DTE Energy" };
-      },
-    });
-    const { form } = setup({ http });
-    await form.mount();
-    await form._prefill("haiku-only", form.haikuFillButton, "Claude Haiku");
-    expect(requestedEngine).toBe("haiku-only");
-    expect(form.merchantNameInput.value).toBe("DTE Energy");
-    expect(form._statusEl.textContent).toContain("Prefilled from Claude Haiku");
-  });
-
-  test("Fill with Haiku only disables/presses its own button, not Prefill from OCR", async () => {
-    let stateDuringRequest = null;
-    const http = fakeHttp({
-      "/api/vendor-keys": { ok: true, vendor_keys: [] },
-      "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": () => {
-        stateDuringRequest = {
-          haikuPressed: form.haikuFillButton.classList.contains("is-pressed"),
-          prefillDisabled: form.prefillButton.disabled,
-        };
-        return { ok: true, merchant_name: "DTE Energy" };
-      },
-    });
-    const { form } = setup({ http });
-    await form.mount();
-    await form._prefill("haiku-only", form.haikuFillButton, "Claude Haiku");
-    expect(stateDuringRequest).toEqual({
-      haikuPressed: true,
-      prefillDisabled: false,
-    });
-    expect(form.haikuFillButton.disabled).toBe(false);
-    expect(form.haikuFillButton.classList.contains("is-pressed")).toBe(false);
-  });
-
-  test("Fill with Haiku requests a longer fetch timeout than the browser default", async () => {
-    // Same reasoning as Gemini Flash Fill's timeout override -- an OAuth
-    // refresh (occasionally a `claude -p "ok"` subprocess call) can push the
-    // real Messages API call close to the 30s browser default.
-    const http = fakeHttp({
-      "/api/vendor-keys": { ok: true, vendor_keys: [] },
-      "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": {
-        ok: true,
-        merchant_name: "DTE Energy",
-      },
-    });
-    const { form } = setup({ http });
-    await form.mount();
-
-    await form._prefill("haiku-only", form.haikuFillButton, "Claude Haiku");
-    const [, , , haikuOpts] = http.calls.at(-1);
-    expect(haikuOpts).toEqual({ timeout: 95000 });
-  });
-});
-
-describe("ManualEntryForm._routeAsStatement", () => {
-  test("first click requests doc_kind_override without metadata", async () => {
-    let sentBody = null;
-    const http = fakeHttp({
-      "/api/vendor-keys": { ok: true, vendor_keys: [] },
-      "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/process-document": (body) => {
-        sentBody = body;
-        return { ok: true, mazda_dispatched: true };
-      },
-    });
-    const { form } = setup({ http, dataset: { scannerKey: "window" } });
-    await form.mount();
-
-    await form._routeAsStatement();
-
-    expect(sentBody).toEqual({
-      scanner: "window",
-      doc_kind_override: "statement",
-    });
-    expect(form._statusEl.textContent).toContain("Routed to statement intake");
-    expect(form._statusEl.textContent).toContain(
-      "investigate/categorize/store",
-    );
-  });
-
-  test("a missing-metadata response opens the bank/account prompt", async () => {
-    const http = fakeHttp({
-      "/api/vendor-keys": { ok: true, vendor_keys: [] },
-      "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/process-document": {
-        ok: false,
-        needs_statement_metadata: true,
-        missing_fields: ["account_last4"],
-      },
-    });
-    const { form } = setup({ http, dataset: { scannerKey: "window" } });
-    await form.mount();
-
-    await form._routeAsStatement();
-
-    expect(form.statementMetadataPrompt.style.display).toBe("");
-    expect(form._statusEl.textContent).toContain("account_last4");
-  });
-
-  test("Submit resends the operator-typed bank/account and closes the prompt on success", async () => {
-    let sentBody = null;
-    const http = fakeHttp({
-      "/api/vendor-keys": { ok: true, vendor_keys: [] },
-      "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/process-document": (body) => {
-        sentBody = body;
-        return { ok: true, mazda_dispatched: true };
-      },
-    });
-    const { form } = setup({ http, dataset: { scannerKey: "window" } });
-    await form.mount();
-    form.statementBankNameInput.value = "Chase";
-    form.statementAccountLast4Input.value = "1234";
-
-    await form._routeAsStatement({
-      bankName: form.statementBankNameInput.value,
-      accountLast4: form.statementAccountLast4Input.value,
-    });
-
-    expect(sentBody).toEqual({
-      scanner: "window",
-      doc_kind_override: "statement",
-      statement_metadata: { bank_name: "Chase", account_last4: "1234" },
-    });
-    expect(form.statementMetadataPrompt.style.display).toBe("none");
-  });
-
-  test("a rejected statement (e.g. two accounts on one scan) shows the reason and does not reopen the prompt", async () => {
-    const http = fakeHttp({
-      "/api/vendor-keys": { ok: true, vendor_keys: [] },
-      "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/process-document": {
-        ok: false,
-        statement_rejected: true,
-        error: "Statement rejected: this scan holds 2 separate statements.",
-      },
-    });
-    const { form } = setup({ http, dataset: { scannerKey: "window" } });
-    await form.mount();
-
-    await form._routeAsStatement();
-
-    expect(form._statusEl.textContent).toContain("2 separate statements");
-    expect(form.statementMetadataPrompt.style.display).toBe("none");
-  });
-
-  test("does nothing when there is no scanner (PDF-kind intake)", async () => {
-    const http = fakeHttp({
-      "/api/vendor-keys": { ok: true, vendor_keys: [] },
-      "/api/rol-finance-categories": { ok: true, categories: [] },
-    });
-    const { form } = setup({ http, dataset: { scannerKey: "" } });
-    await form.mount();
-
-    await form._routeAsStatement();
-
-    expect(http.calls.some(([, url]) => url === "/api/process-document")).toBe(
-      false,
-    );
-  });
-
-  test("the button is disabled when there is no scanner, matching Show Image", async () => {
-    const { form } = setup({ dataset: { scannerKey: "" } });
-    await form.mount();
-    expect(form.statementButton.disabled).toBe(true);
+    await form._mazdaFill();
+    const [, , , opts] = http.calls.at(-1);
+    expect(opts).toEqual({ timeout: 180000 });
   });
 });
 
@@ -766,16 +597,16 @@ describe("ManualEntryForm archive path preview", () => {
     expect(form._archivePathEl.textContent).toContain("pick a vendor");
   });
 
-  test("_prefill refreshes the archive path after OCR fills in fields", async () => {
+  test("Mazda Fill refreshes the archive path once it has filled the fields", async () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/manual-receipt-entry-preview": {
+      "/api/mazda-fill": mazdaFillReceipt({
         ok: true,
         merchant_name: "Kroger",
         transaction_date: "2026-08-15",
         total_amount: 12.34,
-      },
+      }),
       "/api/manual-receipt-entry-archive-preview": (body) => ({
         ok: true,
         path: `/archive/${body.merchant_name}.jpg`,
@@ -784,7 +615,7 @@ describe("ManualEntryForm archive path preview", () => {
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._prefill();
+    await form._mazdaFill();
     expect(form._archivePathEl.textContent).toContain("Kroger");
   });
 });
@@ -820,7 +651,7 @@ describe("ambiguous vendor pick-list (DTE repro)", () => {
         ok: true,
         categories: ["Housing Gas Bill", "Church Electric Bill"],
       },
-      "/api/manual-receipt-entry-preview": prefill,
+      "/api/mazda-fill": mazdaFillReceipt(prefill),
       "/api/manual-receipt-entry-archive-preview": { ok: false, error: "n/a" },
     });
   }
@@ -828,7 +659,7 @@ describe("ambiguous vendor pick-list (DTE repro)", () => {
   async function prefilled(prefill) {
     const ctx = setup({ http: ambiguousHttp(prefill) });
     await ctx.form.mount();
-    await ctx.form._prefill();
+    await ctx.form._mazdaFill();
     return ctx;
   }
 

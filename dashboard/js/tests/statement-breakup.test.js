@@ -1,10 +1,13 @@
 /**
- * "Break Up Document": one scanned statement page -> many walkable expenses.
+ * One scanned statement page -> many walkable expenses.
  *
- * The defect these cover: every fill button asks the RECEIPT parser, which
- * answers with one merchant/date/amount because a receipt has one -- so the
- * six-transaction Choice Privileges page on the 2026-08-19 Last Window Scan
- * filled a single row and left Prev/Next with nothing to walk. A second
+ * The defect these cover: a receipt parser answers with one
+ * merchant/date/amount because a receipt has one -- so the six-transaction
+ * Choice Privileges page on the 2026-08-19 Last Window Scan filled a single
+ * row and left Prev/Next with nothing to walk. "Mazda Fill" now classifies
+ * the page first and routes a statement here on its own (see
+ * mazda-fill.test.js for that decision); these cover what happens once it
+ * has: which rows become navigable, and what Save All submits. A second
  * defect surfaced once that was fixed: the page's $2,900 payment and its
  * $0.00 "Interest Charge on Purchases" line both showed up as navigable
  * items too, as if they needed a category -- store_statement_transactions.py
@@ -15,16 +18,9 @@
 import { describe, expect, test } from "bun:test";
 import { validateManualEntry } from "../abstract/manual-entry.interface.js";
 import {
-  buildStatementBreakupPayload,
   buildStatementEntryPayload,
-  buildStatementRoutePayload,
-  DOCUMENT_SHAPE,
-  DOCUMENT_SHAPE_GUIDANCE,
   readStatementBreakupResponse,
   readStatementEntryResponse,
-  readStatementRouteResponse,
-  recommendedDocumentShape,
-  STATEMENT_ENGINE_OPTIONS,
   summarizeExcludedStatementRows,
   summarizeStatementStore,
   validateStatementRow,
@@ -82,6 +78,22 @@ const BREAKUP_RESPONSE = {
   ],
 };
 
+//: /api/mazda-fill's answer for a page the server classified as a statement:
+//: the breakup body it already produced, wrapped in the one response shape
+//: both document kinds come back in (finance/mazda_fill.MazdaFillResponse).
+function mazdaFillStatement(statement) {
+  return {
+    ok: Boolean(statement.ok || statement.needs_statement_metadata),
+    shape: "many-expenses",
+    model: "gemini-only",
+    doc_kind: "statement",
+    statement,
+    error: statement.error ?? null,
+  };
+}
+
+const MAZDA_FILL_STATEMENT_RESPONSE = mazdaFillStatement(BREAKUP_RESPONSE);
+
 function fakeHttp(responses) {
   const calls = [];
   return {
@@ -111,7 +123,7 @@ function setup(responses = {}) {
   const http = fakeHttp({
     "/api/vendor-keys": { ok: true, vendor_keys: [] },
     "/api/rol-finance-categories": { ok: true, categories: ["Food"] },
-    "/api/manual-statement-breakup": BREAKUP_RESPONSE,
+    "/api/mazda-fill": MAZDA_FILL_STATEMENT_RESPONSE,
     ...responses,
   });
   const form = new ManualEntryForm({
@@ -306,7 +318,7 @@ describe("ManualEntryForm break-up flow", () => {
     const { form } = setup();
     await form.mount();
     expect(form.items).toHaveLength(1);
-    await form._breakUpDocument(undefined, "gemini-only");
+    await form._mazdaFill();
     expect(form.items).toHaveLength(4);
     expect(form.statementExcludedRows).toHaveLength(2);
     expect(form.currentIndex).toBe(0);
@@ -322,8 +334,8 @@ describe("ManualEntryForm break-up flow", () => {
   test("the break-up status names what was excluded and why", async () => {
     const { form } = setup();
     await form.mount();
-    await form._breakUpDocument(undefined, "gemini-only");
-    expect(form._statusEl.textContent).toContain("Found 4 transaction(s)");
+    await form._mazdaFill();
+    expect(form._statusEl.textContent).toContain("found 4 transaction(s)");
     expect(form._statusEl.textContent).toContain("PAYMENT - THANK YOU");
     expect(form._statusEl.textContent).toContain(
       "Interest Charge on Purchases",
@@ -333,7 +345,7 @@ describe("ManualEntryForm break-up flow", () => {
   test("the position readout names the account every row belongs to", async () => {
     const { form } = setup();
     await form.mount();
-    await form._breakUpDocument(undefined, "gemini-only");
+    await form._mazdaFill();
     expect(form._positionEl.textContent).toBe(
       "Transaction 1 of 4 — Choice Privileges Mastercard ****5596",
     );
@@ -357,7 +369,7 @@ describe("ManualEntryForm break-up flow", () => {
       },
     });
     await form.mount();
-    await form._breakUpDocument(undefined, "gemini-only");
+    await form._mazdaFill();
     await form._saveAll();
     expect(posts(http, "/api/manual-receipt-entry")).toHaveLength(0);
     const statementPosts = posts(http, "/api/manual-statement-entry");
@@ -379,7 +391,7 @@ describe("ManualEntryForm break-up flow", () => {
       "/api/manual-statement-entry": { ok: true, stored: 4 },
     });
     await form.mount();
-    await form._breakUpDocument(undefined, "gemini-only");
+    await form._mazdaFill();
     await form._saveAll();
     expect(posts(http, "/api/manual-statement-entry")).toHaveLength(1);
     expect(form._statusEl.textContent).not.toContain("Fix");
@@ -396,7 +408,7 @@ describe("ManualEntryForm break-up flow", () => {
       },
     });
     await form.mount();
-    await form._breakUpDocument(undefined, "gemini-only");
+    await form._mazdaFill();
     await form._saveAll();
     expect(form._statusEl.textContent).toContain("row 4 has no vendor");
     expect(form._statusEl.textContent).toContain("3 stored");
@@ -404,51 +416,52 @@ describe("ManualEntryForm break-up flow", () => {
 
   test("needs-metadata opens the bank/account prompt and keeps the reviewable rows", async () => {
     const { form, http } = setup({
-      "/api/manual-statement-breakup": {
+      "/api/mazda-fill": mazdaFillStatement({
         ...BREAKUP_RESPONSE,
         ok: false,
         account_last4: "",
         needs_statement_metadata: true,
         missing_fields: ["account_last4"],
-      },
+      }),
     });
     await form.mount();
-    await form._breakUpDocument(undefined, "gemini-only");
+    await form._mazdaFill();
     expect(form.items).toHaveLength(4);
     expect(form.statementExcludedRows).toHaveLength(2);
     expect(form.statementMetadataPrompt.style.display).toBe("");
-    // Submit must continue THIS flow, not restart "process as statement".
+    // Submit re-runs the same fill with the typed values -- there is one
+    // reading flow now, so there is nothing for it to restart by mistake.
     form.statementAccountLast4Input.value = "5596";
-    await form._resubmitWithStatementMetadata({
+    await form._mazdaFill({
       bankName: "Choice Privileges Mastercard",
       accountLast4: "5596",
     });
-    const breakupPosts = posts(http, "/api/manual-statement-breakup");
+    const breakupPosts = posts(http, "/api/mazda-fill");
     expect(breakupPosts).toHaveLength(2);
     expect(breakupPosts[1][2].account_last4).toBe("5596");
-    expect(posts(http, "/api/process-document")).toHaveLength(0);
+    expect(breakupPosts[1][2].model).toBe("gemini-only");
   });
 
   test("an extraction failure leaves the form usable and says why", async () => {
     const { form } = setup({
-      "/api/manual-statement-breakup": {
+      "/api/mazda-fill": mazdaFillStatement({
         ok: false,
         error: "Statement rejected: this scan holds 2 separate statements",
         transactions: [],
-      },
+      }),
     });
     await form.mount();
-    await form._breakUpDocument(undefined, "gemini-only");
+    await form._mazdaFill();
     expect(form.items).toHaveLength(1);
     expect(form.statementHeader).toBe(null);
     expect(form._statusEl.textContent).toContain("2 separate statements");
-    expect(form.breakUpButtons["gemini-only"].disabled).toBe(false);
+    expect(form.mazdaFillButton.disabled).toBe(false);
   });
 
   test("statement mode never claims a Receipts archive path", async () => {
     const { form, http } = setup();
     await form.mount();
-    await form._breakUpDocument(undefined, "gemini-only");
+    await form._mazdaFill();
     await form._updateArchivePathPreview();
     expect(
       posts(http, "/api/manual-receipt-entry-archive-preview"),
@@ -465,7 +478,7 @@ describe("ManualEntryForm break-up flow", () => {
       "/api/manual-statement-entry": { ok: true, stored: 3 },
     });
     await form.mount();
-    await form._breakUpDocument(undefined, "gemini-only");
+    await form._mazdaFill();
     form._navigate(2);
     expect(form.merchantNameInput.value).toBe(
       "CRACKER BARREL #428 CAVE CITY KY",
@@ -488,7 +501,7 @@ describe("ManualEntryForm break-up flow", () => {
   test("removing every reviewable row leaves a usable blank form, not an empty one", async () => {
     const { form } = setup();
     await form.mount();
-    await form._breakUpDocument(undefined, "gemini-only");
+    await form._mazdaFill();
     for (let i = 0; i < 4; i++) form._removeItem();
     expect(form.items).toHaveLength(1);
     expect(form.statementHeader).toBe(null);
@@ -497,349 +510,13 @@ describe("ManualEntryForm break-up flow", () => {
     expect(form.merchantNameInput.value).toBe("");
   });
 
-  test("the breakup request carries the image path the operator sees", async () => {
+  test("the fill request carries the image path the operator sees", async () => {
     const { form, http } = setup();
     await form.mount();
     form.imagePathInput.value = "/staged/other_scan.jpg";
-    await form._breakUpDocument(undefined, "gemini-only");
-    expect(posts(http, "/api/manual-statement-breakup")[0][2]).toEqual(
-      buildStatementBreakupPayload(
-        { imagePath: "/staged/other_scan.jpg" },
-        undefined,
-        "gemini-only",
-      ),
-    );
-  });
-});
-
-describe("buildStatementRoutePayload", () => {
-  test("first attempt (no metadata) omits statement_metadata entirely", () => {
-    expect(buildStatementRoutePayload("window")).toEqual({
-      scanner: "window",
-      doc_kind_override: "statement",
-    });
-  });
-
-  test("resubmit includes trimmed operator-typed bank/account", () => {
-    expect(
-      buildStatementRoutePayload("window", {
-        bankName: "  Chase  ",
-        accountLast4: " 1234 ",
-      }),
-    ).toEqual({
-      scanner: "window",
-      doc_kind_override: "statement",
-      statement_metadata: { bank_name: "Chase", account_last4: "1234" },
-    });
-  });
-
-  test("blank operator input is treated the same as no metadata", () => {
-    expect(
-      buildStatementRoutePayload("window", {
-        bankName: "  ",
-        accountLast4: "",
-      }),
-    ).toEqual({ scanner: "window", doc_kind_override: "statement" });
-  });
-});
-
-describe("readStatementRouteResponse", () => {
-  test("reads a successful dispatch", () => {
-    expect(
-      readStatementRouteResponse({ ok: true, mazda_dispatched: true }),
-    ).toEqual({
-      ok: true,
-      needsStatementMetadata: false,
-      rejected: false,
-      missingFields: [],
-      mazdaDispatched: true,
-      error: null,
-    });
-  });
-
-  test("reads a missing-bank-metadata pause", () => {
-    const result = readStatementRouteResponse({
-      ok: false,
-      needs_statement_metadata: true,
-      missing_fields: ["account_last4"],
-    });
-    expect(result.needsStatementMetadata).toBe(true);
-    expect(result.missingFields).toEqual(["account_last4"]);
-  });
-
-  test("reads a rejection (e.g. two statements on one scan)", () => {
-    const result = readStatementRouteResponse({
-      ok: false,
-      statement_rejected: true,
-      error: "Statement rejected: this scan holds 2 separate statements.",
-    });
-    expect(result.rejected).toBe(true);
-    expect(result.error).toContain("2 separate statements");
-  });
-
-  test("prefers stage_error over error, matching process_scanned_document's shape", () => {
-    const result = readStatementRouteResponse({
-      ok: false,
-      error: "generic",
-      stage_error: "Mazda was not dispatched (human_only mode).",
-    });
-    expect(result.error).toBe("Mazda was not dispatched (human_only mode).");
-  });
-
-  test.each([[null], [undefined], ["x"], [42]])(
-    "malformed response %p never throws",
-    (bad) => {
-      expect(() => readStatementRouteResponse(bad)).not.toThrow();
-      expect(readStatementRouteResponse(bad).ok).toBe(false);
-    },
-  );
-});
-
-describe("STATEMENT_ENGINE_OPTIONS", () => {
-  test("names exactly the two single-provider engines, no auto", () => {
-    // "auto" is a valid server-side value (the full fallback chain used for
-    // Mazda's own automatic dispatch) but is never one of the two buttons an
-    // operator sees -- a human who already picked a provider must get exactly
-    // that one, with no silent fallback to a different one on failure.
-    expect(STATEMENT_ENGINE_OPTIONS.map((o) => o.engine)).toEqual([
-      "gemini-only",
-      "haiku-only",
-    ]);
-  });
-});
-
-describe("ManualEntryForm break-up fieldset", () => {
-  test("renders one labeled group box with a button per engine", async () => {
-    const { form } = setup();
-    await form.mount();
-    expect(Object.keys(form.breakUpButtons)).toEqual([
-      "gemini-only",
-      "haiku-only",
-    ]);
-    expect(form.breakUpButtons["gemini-only"].textContent).toBe(
-      "Read with Gemini",
-    );
-    expect(form.breakUpButtons["haiku-only"].textContent).toBe(
-      "Read with Haiku",
-    );
-  });
-
-  test("Read with Haiku sends engine=haiku-only, not the other provider", async () => {
-    const { form, http } = setup();
-    await form.mount();
-    await form._breakUpDocument(undefined, "haiku-only");
-    const posts = http.calls.filter(
-      (c) => c[0] === "POST" && c[1] === "/api/manual-statement-breakup",
-    );
-    expect(posts[0][2].engine).toBe("haiku-only");
-  });
-
-  test("only the pressed engine's button is disabled while its request is in flight", async () => {
-    const { form } = setup();
-    await form.mount();
-    const pending = form._breakUpDocument(undefined, "gemini-only");
-    expect(form.breakUpButtons["gemini-only"].disabled).toBe(true);
-    expect(form.breakUpButtons["haiku-only"].disabled).toBe(false);
-    await pending;
-    expect(form.breakUpButtons["gemini-only"].disabled).toBe(false);
-  });
-
-  test("Submit after a needs-metadata pause re-reads with the SAME engine", async () => {
-    // Not "auto", and not the other button -- an operator who clicked Haiku
-    // must still be reading with Haiku after typing the bank in and hitting
-    // Submit, not silently switched to Gemini or the full fallback chain.
-    const { form, http } = setup({
-      "/api/manual-statement-breakup": {
-        ...BREAKUP_RESPONSE,
-        ok: false,
-        account_last4: "",
-        needs_statement_metadata: true,
-        missing_fields: ["account_last4"],
-      },
-    });
-    await form.mount();
-    await form._breakUpDocument(undefined, "haiku-only");
-    form.statementAccountLast4Input.value = "5596";
-    await form._resubmitWithStatementMetadata({
-      bankName: "Choice Privileges Mastercard",
-      accountLast4: "5596",
-    });
-    const posts = http.calls.filter(
-      (c) => c[0] === "POST" && c[1] === "/api/manual-statement-breakup",
-    );
-    expect(posts).toHaveLength(2);
-    expect(posts[1][2].engine).toBe("haiku-only");
-  });
-});
-
-describe("ManualEntryForm possible-statement Info dialog", () => {
-  test("a receipt-shaped fill that reads like a statement shows the Info dialog", async () => {
-    const { form } = setup({
-      "/api/manual-receipt-entry-preview": {
-        ok: false,
-        error: "OCR could not read any fields from this document",
-        possible_statement: true,
-      },
-    });
-    await form.mount();
-    await form._prefill();
-    expect(form._infoDialog._el.style.display).toBe("flex");
-    expect(form._infoDialog._messageEl.textContent).toContain(
-      "Break up Document",
-    );
-  });
-
-  test("an ordinary receipt fill never shows the Info dialog", async () => {
-    const { form } = setup({
-      "/api/manual-receipt-entry-preview": {
-        ok: true,
-        merchant_name: "Kroger",
-        transaction_date: "2026-08-15",
-        total_amount: 12.34,
-        possible_statement: false,
-      },
-    });
-    await form.mount();
-    await form._prefill();
-    expect(form._infoDialog._el).toBe(null);
-  });
-
-  test("OK closes the dialog", async () => {
-    const { form } = setup({
-      "/api/manual-receipt-entry-preview": {
-        ok: false,
-        error: "no result",
-        possible_statement: true,
-      },
-    });
-    await form.mount();
-    await form._prefill();
-    expect(form._infoDialog._okButton.textContent).toBe("OK");
-    form._infoDialog._okButton._listeners.click[0]();
-    expect(form._infoDialog._el.style.display).toBe("none");
-  });
-});
-
-describe("recommendedDocumentShape", () => {
-  test("a statement-shaped page recommends the many-expenses group", () => {
-    expect(
-      recommendedDocumentShape({ ok: true, possibleStatement: true }),
-    ).toBe(DOCUMENT_SHAPE.MANY_EXPENSES);
-  });
-
-  test("a readable receipt recommends the one-expense group", () => {
-    expect(
-      recommendedDocumentShape({ ok: true, possibleStatement: false }),
-    ).toBe(DOCUMENT_SHAPE.ONE_EXPENSE);
-  });
-
-  test("possibleStatement wins even when the receipt fields failed to read", () => {
-    // The DTE bill's shape: the receipt-shaped fields come back thin or
-    // empty, which is exactly when the nudge matters most.
-    expect(
-      recommendedDocumentShape({ ok: false, possibleStatement: true }),
-    ).toBe(DOCUMENT_SHAPE.MANY_EXPENSES);
-  });
-
-  test("an unreadable page is UNKNOWN, never ONE_EXPENSE", () => {
-    // "We could not read this" must not look like "this is a simple receipt"
-    // -- that would point the operator at a Fill button on a page nobody
-    // has established anything about.
-    expect(
-      recommendedDocumentShape({ ok: false, possibleStatement: false }),
-    ).toBe(DOCUMENT_SHAPE.UNKNOWN);
-    expect(recommendedDocumentShape(null)).toBe(DOCUMENT_SHAPE.UNKNOWN);
-    expect(recommendedDocumentShape(undefined)).toBe(DOCUMENT_SHAPE.UNKNOWN);
-  });
-
-  test("every shape has guidance naming what to press", () => {
-    for (const shape of Object.values(DOCUMENT_SHAPE)) {
-      expect(typeof DOCUMENT_SHAPE_GUIDANCE[shape]).toBe("string");
-      expect(DOCUMENT_SHAPE_GUIDANCE[shape].length).toBeGreaterThan(0);
-    }
-  });
-});
-
-describe("ManualEntryForm classify-on-open", () => {
-  test("runs the free local pass once, unprompted, when the form opens", async () => {
-    const { form, http } = setup({
-      "/api/manual-receipt-entry-preview": {
-        ok: true,
-        possible_statement: true,
-      },
-    });
-    await form.mount();
-    const previews = posts(http, "/api/manual-receipt-entry-preview");
-    expect(previews.length).toBe(1);
-    // Zero-cost engine only -- classify must never spend a Gemini or Haiku
-    // call just to decide which button group to point at.
-    expect(previews[0][2].engine).toBe("local");
-  });
-
-  test("a statement-shaped page marks the many-expenses group and raises the nudge", async () => {
-    const shown = [];
-    const { form } = setup({
-      "/api/manual-receipt-entry-preview": {
-        ok: true,
-        possible_statement: true,
-      },
-    });
-    await form.mount();
-    form._infoDialog = { show: (m) => shown.push(m) };
-    await form._classifyDocumentShape();
-    expect(form.documentShape).toBe(DOCUMENT_SHAPE.MANY_EXPENSES);
-    expect(form.manyExpensesFieldset.classList.contains("is-recommended")).toBe(
-      true,
-    );
-    expect(form.oneExpenseFieldset.classList.contains("is-recommended")).toBe(
-      false,
-    );
-    expect(shown.length).toBe(1);
-  });
-
-  test("a receipt marks the one-expense group and raises nothing", async () => {
-    const shown = [];
-    const { form } = setup({
-      "/api/manual-receipt-entry-preview": {
-        ok: true,
-        possible_statement: false,
-        merchant_name: "KROGER",
-      },
-    });
-    await form.mount();
-    form._infoDialog = { show: (m) => shown.push(m) };
-    await form._classifyDocumentShape();
-    expect(form.documentShape).toBe(DOCUMENT_SHAPE.ONE_EXPENSE);
-    expect(form.oneExpenseFieldset.classList.contains("is-recommended")).toBe(
-      true,
-    );
-    expect(shown.length).toBe(0);
-  });
-
-  test("classify never writes a field -- it answers which tool, not what the values are", async () => {
-    const { form } = setup({
-      "/api/manual-receipt-entry-preview": {
-        ok: true,
-        possible_statement: false,
-        merchant_name: "KROGER",
-        total_amount: 21.89,
-      },
-    });
-    await form.mount();
-    expect(form.merchantNameInput.value).toBe("");
-    expect(form.totalAmountInput.value).toBe("");
-  });
-
-  test("a dead OCR pass leaves the form fully usable", async () => {
-    const { form } = setup({
-      "/api/manual-receipt-entry-preview": () => {
-        throw new Error("tesseract exploded");
-      },
-    });
-    await form.mount();
-    expect(form.documentShape).toBe(DOCUMENT_SHAPE.UNKNOWN);
-    expect(form.documentShapeEl.textContent).toBe(
-      DOCUMENT_SHAPE_GUIDANCE[DOCUMENT_SHAPE.UNKNOWN],
+    await form._mazdaFill();
+    expect(posts(http, "/api/mazda-fill")[0][2].image_path).toBe(
+      "/staged/other_scan.jpg",
     );
   });
 });
