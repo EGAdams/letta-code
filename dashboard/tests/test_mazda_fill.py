@@ -239,3 +239,89 @@ def test_to_http_carries_both_halves_and_the_model_that_read_it():
     assert payload['model'] == 'haiku-only'
     assert payload['doc_kind'] == 'receipt'
     assert 'receipt' in payload and 'statement' in payload
+
+
+# ── the read overrules the classifier (2026-08-19) ────────────────────────
+# `mazda_intake.py` answers 'unknown' often, and 'unknown' lands here in the
+# receipt branch. The model that then READS the page knows more than the guess
+# that sent it there, and until now that knowledge was discarded: the window
+# scan came back as an empty form plus a 429 belonging to a different model
+# further down Gemini's ladder.
+
+#: What parse_and_categorize.py stamps on the local-fallback report when a
+#: model answered and could not give the page a receipt's identity. Copied
+#: from a live run against the window scan.
+ANSWERED_NOT_A_RECEIPT = {
+    'error': 'gemini-only did not answer',
+    'possible_statement': True,
+    'engine_failure': {
+        'kind': 'no_receipt_identity',
+        'model': 'gemini-3.6-flash',
+        'missing': ['transaction_date', 'party.merchant_name'],
+        'message': ('gemini-3.6-flash read this page and found no transaction '
+                    'date and no merchant name -- it does not look like a '
+                    'single receipt.'),
+    },
+}
+
+
+def test_a_page_the_model_says_is_not_a_receipt_is_read_again_as_a_statement():
+    service, statements, reads = build_service(
+        doc_kind='unknown', receipt=(False, ANSWERED_NOT_A_RECEIPT))
+    response = service.fill(MazdaFillRequest(image_path='/staged/window.jpg'))
+
+    assert response.shape == SHAPE_MANY_EXPENSES
+    assert response.ok is True
+    assert len(response.statement['transactions']) == 2
+    # Same page, same model -- the operator's choice is not quietly changed.
+    assert statements.requests[0].image_path == '/staged/window.jpg'
+    assert statements.requests[0].engine == reads[0][1]
+
+
+def test_the_re_read_says_why_it_happened():
+    """Silently answering a different question than the one asked is how an
+    operator stops trusting the button. The reason travels with the answer."""
+    service, _, _ = build_service(
+        doc_kind='unknown', receipt=(False, ANSWERED_NOT_A_RECEIPT))
+    response = service.fill(MazdaFillRequest(image_path='/staged/window.jpg'))
+    assert 'no transaction date' in response.reread_after
+
+
+def test_a_first_time_right_read_carries_no_re_read_note():
+    service, _, _ = build_service(doc_kind='receipt')
+    assert service.fill(MazdaFillRequest(image_path='/x.jpg')).reread_after == ''
+    service, _, _ = build_service(doc_kind='statement')
+    assert service.fill(MazdaFillRequest(image_path='/x.jpg')).reread_after == ''
+
+
+def test_an_engine_that_never_answered_is_not_re_read():
+    """A 429/503/missing key means nobody looked at the page. Re-reading it as
+    a statement on that basis would be a guess -- and guessing the shape is the
+    defect this whole module exists to remove."""
+    never_answered = {'error': 'gemini-only did not answer',
+                      'possible_statement': True}
+    service, statements, _ = build_service(
+        doc_kind='unknown', receipt=(False, never_answered))
+    response = service.fill(MazdaFillRequest(image_path='/x.jpg'))
+    assert response.shape == SHAPE_ONE_EXPENSE
+    assert statements.requests == []
+
+
+def test_a_faded_receipt_is_not_re_read_as_a_statement():
+    """The model answered and found no date, but the page's own text holds no
+    transaction table. That is an unreadable receipt."""
+    payload = {**ANSWERED_NOT_A_RECEIPT, 'possible_statement': False}
+    service, statements, _ = build_service(
+        doc_kind='unknown', receipt=(False, payload))
+    assert service.fill(
+        MazdaFillRequest(image_path='/x.jpg')).shape == SHAPE_ONE_EXPENSE
+    assert statements.requests == []
+
+
+def test_the_failing_read_reports_the_models_own_sentence():
+    """Not the generic wrapper, and emphatically not a quota error from an
+    unrelated model further down the ladder."""
+    payload = {**ANSWERED_NOT_A_RECEIPT, 'possible_statement': False}
+    service, _, _ = build_service(doc_kind='unknown', receipt=(False, payload))
+    response = service.fill(MazdaFillRequest(image_path='/x.jpg'))
+    assert response.error == payload['engine_failure']['message']

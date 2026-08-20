@@ -30,6 +30,7 @@ from typing import Any, Optional
 from pydantic import field_validator
 
 from finance.manual_entry import PREVIEW_ENGINES
+from finance.receipt_read_outcome import ReceiptReadOutcome
 from finance.statement_models import (
     STATEMENT_ENGINES,
     StatementBreakupRequest,
@@ -137,6 +138,12 @@ class MazdaFillResponse(StrictBoundaryModel):
     doc_kind: str = ''
     receipt: Optional[dict] = None
     statement: Optional[dict] = None
+    #: Set only when the receipt read was overruled and the page was read again
+    #: as a statement -- carries what the receipt reader said that changed the
+    #: verdict. Blank on a first-time-right read. The form shows it so the
+    #: operator can see the page was re-read and why, rather than silently
+    #: getting a different kind of answer than the one they asked for.
+    reread_after: str = ''
     error: Optional[str] = None
 
     def to_http(self) -> dict:
@@ -201,8 +208,8 @@ class MazdaFillService:
         except Exception:
             return ''
 
-    def _fill_statement(self, request: MazdaFillRequest,
-                        doc_kind: str) -> MazdaFillResponse:
+    def _fill_statement(self, request: MazdaFillRequest, doc_kind: str,
+                        reread_after: str = '') -> MazdaFillResponse:
         breakup: StatementBreakupResponse = self._statements.break_up(
             StatementBreakupRequest(
                 image_path=request.image_path,
@@ -221,19 +228,31 @@ class MazdaFillService:
             doc_kind=doc_kind,
             statement=payload,
             error=payload.get('error'),
+            reread_after=reread_after,
         )
 
     def _fill_receipt(self, request: MazdaFillRequest,
                       doc_kind: str) -> MazdaFillResponse:
         ok, payload = self._receipts.read(request.image_path, request.model)
         prefill = dict(payload or {})
+        outcome = ReceiptReadOutcome.from_reader(ok, prefill)
+        # The read is allowed to overrule the classifier. `mazda_intake.py` gets
+        # one look at the page and answers 'unknown' often enough that this
+        # branch is where most scans land; the model that then actually READS
+        # the page knows more than the guess that sent it here. Deciding shape
+        # before reading, and then ignoring what the read said, is the weakness
+        # that made a statement come back as an empty form and a quota error
+        # from a model further down Gemini's ladder.
+        if outcome.suggests_statement:
+            return self._fill_statement(
+                request, doc_kind, reread_after=outcome.best_error)
         return MazdaFillResponse(
             ok=bool(ok),
             shape=SHAPE_ONE_EXPENSE,
             model=request.model,
             doc_kind=doc_kind,
             receipt={'ok': bool(ok), **prefill},
-            error=prefill.get('error'),
+            error=outcome.best_error or None,
         )
 
 

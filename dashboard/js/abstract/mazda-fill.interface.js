@@ -79,7 +79,26 @@ export function buildMazdaFillPayload(intakeRef, model, statementMetadata) {
  * a blank prefill / an empty item list rather than undefined, so a form that
  * branches on `shape` can never trip over a missing key.
  *
+ * @typedef {Object} MazdaFillResult
+ * @property {boolean} ok
+ * @property {string} shape        one of FILL_SHAPE -- which half of this
+ *   object the form should read; never anything else
+ * @property {string} model        the model that read the page
+ * @property {string} docKind      the classifier's verdict, "" if it had none
+ * @property {ManualEntryFields} prefill      populated when shape is ONE_EXPENSE
+ * @property {ManualEntryFields[]} items      populated when shape is MANY_EXPENSES
+ * @property {ManualEntryFields[]} excludedRows  payment/credit/$0.00 lines,
+ *   shown to the operator but handled by the statement store itself
+ * @property {StatementHeader} header
+ * @property {boolean} needsStatementMetadata
+ * @property {string[]} missingFields
+ * @property {?string} error
+ * @property {string} rereadAfter  non-empty only when the receipt read was
+ *   overruled and the page was read again as a statement; carries what the
+ *   receipt reader said that changed the verdict
+ *
  * @param {unknown} json
+ * @returns {MazdaFillResult}
  */
 export function readMazdaFillResponse(json) {
   const object = typeof json === "object" && json !== null ? json : {};
@@ -104,5 +123,26 @@ export function readMazdaFillResponse(json) {
     needsStatementMetadata: statement.needsStatementMetadata,
     missingFields: statement.missingFields,
     error: typeof object.error === "string" ? object.error : null,
+    rereadAfter:
+      typeof object.reread_after === "string" ? object.reread_after : "",
   };
+}
+
+/**
+ * What the status line says when the page turned out to be a different shape
+ * than the one that was read first.
+ *
+ * Answering a different question than the one asked, silently, is how an
+ * operator stops trusting a button. The server re-reads a page as a statement
+ * only when the receipt reader ANSWERED that it has no one date and no one
+ * merchant, and the page's own text holds a transaction table -- so there is
+ * always a specific reason, and it is worth showing.
+ *
+ * Returns "" when nothing was re-read, so callers can append it unconditionally.
+ * @param {MazdaFillResult} result
+ * @returns {string}
+ */
+export function summarizeMazdaReread(result) {
+  if (!result || !result.rereadAfter) return "";
+  return ` Read as a receipt first, then re-read as a statement: ${result.rereadAfter}`;
 }

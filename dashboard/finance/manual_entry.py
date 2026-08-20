@@ -201,6 +201,23 @@ def _extract_prefill(payload: dict) -> dict:
     }
 
 
+def _engine_failure_of(report: dict) -> dict:
+    """The chosen model's own account of why it did not fill the form.
+
+    parse_and_categorize.py stamps this onto the local-fallback report when a
+    model ANSWERED and still could not give the page a receipt's identity (see
+    receipt_engine.py's ReceiptShapeMismatch). Absent for a 429/503/missing
+    key, because those mean nobody read the document. Passing it through
+    unchanged is what lets MazdaFillService re-read the page as a statement
+    instead of handing back an empty form -- and what lets the operator read
+    "found no transaction date" instead of a quota error from an unrelated
+    model further down the ladder.
+    """
+    meta = report.get('meta')
+    failure = meta.get('engine_failure') if isinstance(meta, dict) else None
+    return failure if isinstance(failure, dict) else {}
+
+
 def _answered_by_local_fallback(payload: dict, engine: str) -> bool:
     """Did free OCR answer a question that was asked of a named model?
 
@@ -356,13 +373,22 @@ def preview_receipt_parse(image_path: str, engine: str = 'local', runner=None,
     # Deliberately BEFORE _extract_prefill: an OCR guess must not reach the
     # form's fields wearing the chosen model's name.
     if _answered_by_local_fallback(report, engine):
-        return False, {
-            'error': (f'{engine} did not answer, so nothing was read from this '
-                      'document (local OCR is not used to fill this form). Try '
-                      'the other model, or type the fields in.'),
+        engine_failure = _engine_failure_of(report)
+        # The model's own sentence when it has one -- it answered, and said
+        # something specific and useful. The generic wording below is for the
+        # case where nobody looked at the document at all.
+        error = engine_failure.get('message') or (
+            f'{engine} did not answer, so nothing was read from this '
+            'document (local OCR is not used to fill this form). Try '
+            'the other model, or type the fields in.')
+        failed = {
+            'error': error,
             'possible_statement': looks_like_multiple_transactions(
                 _document_text(report)),
         }
+        if engine_failure:
+            failed['engine_failure'] = engine_failure
+        return False, failed
     prefill = _extract_prefill(report)
     # Computed unconditionally, success or failure: a page that reads as a
     # statement's transaction table is worth flagging even when none of the

@@ -61,6 +61,7 @@ import {
   MAZDA_FILL_MODEL_OPTIONS,
   mazdaFillModelLabel,
   readMazdaFillResponse,
+  summarizeMazdaReread,
 } from "../abstract/mazda-fill.interface.js";
 import {
   buildMazdaModePayload,
@@ -897,7 +898,8 @@ export class ManualEntryForm {
         `${modelLabel} read ${result.items.length} transaction(s), but the` +
           " bank/account couldn't be resolved automatically (missing: " +
           `${result.missingFields.join(", ") || "bank/account"}) — fill in` +
-          " the fields above and Submit before saving.",
+          " the fields above and Submit before saving." +
+          summarizeMazdaReread(result),
       );
       return;
     }
@@ -918,7 +920,11 @@ export class ManualEntryForm {
         " transaction(s). Walk them with Prev/Next, correct anything misread," +
         " then Save All. Categories are left to the store: statement rows" +
         " enter the New Records queue." +
-        (excludedNote ? ` ${excludedNote}` : ""),
+        (excludedNote ? ` ${excludedNote}` : "") +
+        // Said out loud when the server overruled its own classifier and read
+        // the page a second time. Quietly answering a different question than
+        // the one asked is how an operator stops trusting the button.
+        summarizeMazdaReread(result),
     );
   }
 

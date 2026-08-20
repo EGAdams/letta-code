@@ -163,22 +163,6 @@ td.muted { padding:10px 12px; height:auto; }
     transform-origin:left center;
     font-family:"Courier New",Courier,monospace;
 }
-/* Info dialog -- a plain win98 message box (title bar + one message + OK),
-   dimmed backdrop so it reads as modal without a second full-screen skin. */
-.info-dialog-overlay {
-    position:fixed;
-    inset:0;
-    background:rgba(0,0,0,.35);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    z-index:9999;
-    font-family:"Courier New",Courier,monospace;
-}
-.info-dialog-window { width:min(360px, 86vw); }
-.info-dialog-body { font-size:16px; }
-.info-dialog-body p { margin:0 0 12px; }
-.info-dialog-footer { display:flex; justify-content:flex-end; }
 
 /* Mazda Automatic / Semi-Automatic switch. Sits immediately right of the
    Mazda Fill model dropdown, finishing that row's one sentence: "read it —

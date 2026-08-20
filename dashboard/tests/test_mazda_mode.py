@@ -253,3 +253,25 @@ def test_javascript_mode_values_match_python():
     assert block
     js_modes = set(re.findall(r'"([^"]+)"', block.group(1)))
     assert js_modes == {AUTOMATIC, SEMI_AUTOMATIC}
+
+
+# ── one gate, both document kinds ─────────────────────────────────────────
+
+def test_only_one_place_decides_whether_mazda_runs():
+    """Scans and PDFs must not be able to drift apart.
+
+    Both entry points call _dispatch_mazda_or_block, and it is the only thing
+    that reads the mode. A second gate comparing the module-level
+    EXECUTION_MODE would still be resolved at process start, so the switch
+    would appear to work while one kind of document quietly ignored it.
+    """
+    import inspect
+
+    import server
+    source = inspect.getsource(server)
+    assert source.count('current_execution_mode() ==') == 1
+    # The constant may be read as the DEFAULT (a lambda handed to the service),
+    # never compared directly to decide a dispatch.
+    assert "EXECUTION_MODE == 'human_only'" not in source
+    assert "EXECUTION_MODE == 'auto'" not in source
+    assert source.count('_dispatch_mazda_or_block(') >= 3  # def + scan + pdf

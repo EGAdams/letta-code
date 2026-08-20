@@ -90,3 +90,60 @@ def test_a_genuine_read_is_untouched_by_the_guard():
     assert ok is True
     assert payload['merchant_name'] == 'DTE Energy'
     assert payload['total_amount'] == 28.07
+
+
+# ── carrying the model's own reason across (2026-08-19) ───────────────────
+# When the model ANSWERED and still could not give the page a receipt's
+# identity, parse_and_categorize.py stamps that reason onto the local-fallback
+# report. Passing it through unchanged is what lets MazdaFillService re-read
+# the page as a statement, and what lets the operator read what the model
+# actually said instead of a quota error from a different model.
+
+ANSWERED_NOT_A_RECEIPT = {
+    'kind': 'no_receipt_identity',
+    'model': 'gemini-3.6-flash',
+    'missing': ['transaction_date', 'party.merchant_name'],
+    'message': ('gemini-3.6-flash read this page and found no transaction date '
+                'and no merchant name -- it does not look like a single receipt.'),
+}
+
+STATEMENT_FALLBACK_REPORT = {
+    **DTE_FALLBACK_REPORT,
+    'meta': {**DTE_FALLBACK_REPORT['meta'],
+             'engine_failure': ANSWERED_NOT_A_RECEIPT},
+}
+
+
+def test_the_engines_own_reason_reaches_the_caller():
+    ok, payload = preview_receipt_parse(
+        '/staged/window.jpg', engine='gemini-only',
+        runner=runner_for(STATEMENT_FALLBACK_REPORT))
+    assert ok is False
+    assert payload['engine_failure'] == ANSWERED_NOT_A_RECEIPT
+
+
+def test_the_operator_reads_what_the_model_said_not_the_generic_line():
+    _, payload = preview_receipt_parse(
+        '/staged/window.jpg', engine='gemini-only',
+        runner=runner_for(STATEMENT_FALLBACK_REPORT))
+    assert payload['error'] == ANSWERED_NOT_A_RECEIPT['message']
+    assert 'did not answer' not in payload['error']
+
+
+def test_a_model_that_never_answered_still_gets_the_generic_line():
+    """No engine_failure means a 429/503/missing key -- nobody looked at the
+    document, and there is nothing more specific to say."""
+    _, payload = preview_receipt_parse(
+        '/staged/dte.jpg', engine='gemini-only',
+        runner=runner_for(DTE_FALLBACK_REPORT))
+    assert 'did not answer' in payload['error']
+    assert 'engine_failure' not in payload
+
+
+def test_the_form_is_still_never_filled_from_local_ocr():
+    """The guard this file exists for is unchanged by any of the above."""
+    for report in (DTE_FALLBACK_REPORT, STATEMENT_FALLBACK_REPORT):
+        ok, payload = preview_receipt_parse(
+            '/staged/x.jpg', engine='gemini-only', runner=runner_for(report))
+        assert ok is False
+        assert 'merchant_name' not in payload

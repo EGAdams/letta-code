@@ -18,6 +18,7 @@ import {
   MAZDA_FILL_MODEL_OPTIONS,
   mazdaFillModelLabel,
   readMazdaFillResponse,
+  summarizeMazdaReread,
 } from "../abstract/mazda-fill.interface.js";
 import { ManualEntryForm } from "../implementation/manual-entry-form.js";
 import { FakeDocument } from "./_fake-dom.js";
@@ -332,5 +333,78 @@ describe("ManualEntryForm Mazda Fill routing", () => {
     await form._mazdaFill();
     expect(form.merchantNameInput.value).toBe("Gas service");
     expect(form.totalAmountInput.value).toBe("-28.07");
+  });
+});
+
+// ── the read overrules the classifier (2026-08-19) ─────────────────────────
+// The server re-reads a page as a statement when the receipt reader ANSWERED
+// that it has no one date and no one merchant AND the page's text holds a
+// transaction table. The form must say so: quietly answering a different
+// question than the one asked is how an operator stops trusting the button.
+
+describe("readMazdaFillResponse — reread_after", () => {
+  test("carries the reason the page was read a second time", () => {
+    const result = readMazdaFillResponse({
+      ok: true,
+      shape: "many-expenses",
+      model: "gemini-only",
+      reread_after: "gemini-3.6-flash found no transaction date",
+      statement: { ok: true, transactions: [] },
+    });
+    expect(result.rereadAfter).toBe(
+      "gemini-3.6-flash found no transaction date",
+    );
+  });
+
+  test("is empty on a first-time-right read, and on junk", () => {
+    expect(
+      readMazdaFillResponse({ ok: true, shape: "one-expense" }).rereadAfter,
+    ).toBe("");
+    expect(readMazdaFillResponse({ reread_after: 7 }).rereadAfter).toBe("");
+    expect(readMazdaFillResponse(null).rereadAfter).toBe("");
+  });
+});
+
+describe("summarizeMazdaReread", () => {
+  test("says both what happened and why", () => {
+    const sentence = summarizeMazdaReread({
+      rereadAfter: "gemini-3.6-flash found no transaction date",
+    });
+    expect(sentence).toContain("re-read as a statement");
+    expect(sentence).toContain("no transaction date");
+  });
+
+  test("says nothing when nothing was re-read", () => {
+    expect(summarizeMazdaReread({ rereadAfter: "" })).toBe("");
+    expect(summarizeMazdaReread(null)).toBe("");
+  });
+});
+
+describe("the form after a re-read", () => {
+  test("the status line tells the operator the page was re-read", async () => {
+    const { form } = setup({
+      "/api/mazda-fill": {
+        ok: true,
+        shape: "many-expenses",
+        model: "gemini-only",
+        reread_after: "gemini-3.6-flash found no transaction date",
+        statement: {
+          ok: true,
+          bank_name: "Chase",
+          account_last4: "5783",
+          transactions: [
+            {
+              transaction_date: "2025-03-18",
+              description: "Check 11051",
+              amount: -30.5,
+            },
+          ],
+        },
+      },
+    });
+    await form.mount();
+    await form._mazdaFill();
+    expect(form._statusEl.textContent).toContain("re-read as a statement");
+    expect(form._statusEl.textContent).toContain("no transaction date");
   });
 });
