@@ -162,10 +162,15 @@ td.muted { padding:10px 12px; height:auto; }
    67) to 224px -- 30% narrower -- so the Automatic/Semi-Automatic switch
    beside it has room; the model names are short enough that 224px still
    shows them in full. */
+/* translateY nudges it down 6px: the buttons beside it scale from
+   transform-origin:left TOP (line 98), so scaling grows them straight down
+   and their visual center sits lower on the row than a center-origin
+   element's does. Without this the dropdown reads as sitting a bit high
+   next to Mazda Fill / Show Image. */
 .manual-entry-form select[data-field="mazdaModel"] {
     max-width:224px;
     margin-left:15px;
-    transform:scale(1.2);
+    transform:translateY(6px) scale(1.2);
     transform-origin:left center;
     font-family:"Courier New",Courier,monospace;
 }
@@ -197,7 +202,12 @@ td.muted { padding:10px 12px; height:auto; }
        track and its label clear the now-narrower dropdown with room to
        spare rather than crowding its right edge. */
     margin-left:calc(15px + 15px + 48px);
-    transform:scale(1.2);
+    /* Same 6px downward nudge as the model dropdown beside it, and for the
+       same reason: the row's buttons scale from transform-origin:left TOP
+       (line 98) and grow straight down, so a center-origin element like this
+       one visually sits high next to them without it. Moves the track and
+       its label together since both are inside this one flex box. */
+    transform:translateY(6px) scale(1.2);
     transform-origin:left center;
     font-family:"Courier New",Courier,monospace;
     font-size:15px;
