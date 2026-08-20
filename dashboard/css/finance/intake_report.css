@@ -186,14 +186,17 @@ td.muted { padding:10px 12px; height:auto; }
 
    Windows 98 had no toggle switch, so this borrows the era's vocabulary
    instead of a modern pill: an inset track (a recess cut into the dialog) with
-   a raised silver knob riding in it, same bevels as the buttons above. The
-   real checkbox stays in the DOM and keeps its focus/keyboard behavior — it is
-   moved off-screen rather than display:none'd, which would take it out of the
-   tab order and off screen readers.
+   a raised silver knob riding in it, same bevels as the buttons above.
 
    Scaled to 1.2 like the buttons and the dropdown beside it (see
    .manual-entry-form button) so the row reads as one set of controls. */
-.mazda-mode-switch {
+/* Selector carries `label` and the ancestor on purpose. `.manual-entry-field
+   label` (line 66) is display:block and one point MORE specific than a bare
+   `.mazda-mode-switch`, so the flex layout below silently lost: the track
+   became an inline <span>, inline boxes ignore width/height, and the switch
+   collapsed to nothing -- no colored background, and a knob positioned against
+   a zero-width box that jumped as the label text changed length. */
+.manual-entry-field label.mazda-mode-switch {
     display:inline-flex;
     align-items:center;
     /* Wide enough that the words read as a caption FOR the switch rather than
@@ -208,10 +211,14 @@ td.muted { padding:10px 12px; height:auto; }
     cursor:pointer;
     user-select:none;
 }
-.mazda-mode-switch input[type="checkbox"] {
+/* Moved off-screen rather than display:none'd, which would take the checkbox
+   out of the tab order and off screen readers. min-height:0 undoes the 28px
+   floor `.manual-entry-field input` puts on every field in this box. */
+.manual-entry-field label.mazda-mode-switch input[type="checkbox"] {
     position:absolute;
     width:1px;
     height:1px;
+    min-height:0;
     margin:-1px;
     padding:0;
     overflow:hidden;
@@ -225,6 +232,9 @@ td.muted { padding:10px 12px; height:auto; }
    from the palette already in this file (.mazda-progress-bar's amber), so the
    dialog doesn't gain a third yellow. */
 .mazda-mode-track {
+    /* Explicit, not merely inherited from being a flex item: this is the one
+       property whose loss makes the whole control invisible. */
+    display:block;
     position:relative;
     flex:0 0 auto;
     width:42px;
@@ -245,19 +255,30 @@ td.muted { padding:10px 12px; height:auto; }
     background:#c0c0c0;
     box-shadow:inset -1px -1px #0a0a0a,inset 1px 1px #fff,inset -2px -2px grey,inset 2px 2px #dfdfdf;
 }
-.mazda-mode-switch input[type="checkbox"]:checked + .mazda-mode-track {
+.manual-entry-field label.mazda-mode-switch input[type="checkbox"]:checked + .mazda-mode-track {
     background:#008000;
 }
-.mazda-mode-switch input[type="checkbox"]:checked + .mazda-mode-track::before {
+.manual-entry-field label.mazda-mode-switch input[type="checkbox"]:checked + .mazda-mode-track::before {
     left:calc(100% - 18px);
 }
 /* 98.css's dotted focus ring, on the track, since the input itself is
    off-screen — keyboard users get the same affordance as the buttons. */
-.mazda-mode-switch input[type="checkbox"]:focus + .mazda-mode-track {
+.manual-entry-field label.mazda-mode-switch input[type="checkbox"]:focus + .mazda-mode-track {
     outline:1px dotted #000;
     outline-offset:2px;
 }
-.mazda-mode-switch input[type="checkbox"]:disabled + .mazda-mode-track {
+.manual-entry-field label.mazda-mode-switch input[type="checkbox"]:disabled + .mazda-mode-track {
     opacity:.6;
 }
-.mazda-mode-label { font-weight:700; color:#000; white-space:nowrap; }
+/* Fixed to the width of the LONGER of the two labels ("Mazda Semi-Automatic",
+   20 characters) so the text occupies the same box in both positions. Without
+   it the words visibly jump every time the switch is thrown, which reads as
+   the page re-laying-out rather than a control changing state. `ch` is exact
+   here because the row is Courier New. */
+.mazda-mode-label {
+    font-weight:700;
+    color:#000;
+    white-space:nowrap;
+    min-width:20ch;
+    text-align:left;
+}
