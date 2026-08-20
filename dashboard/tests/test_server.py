@@ -5669,6 +5669,22 @@ def test_merge_recent_intake_event_folds_ids_and_counts(tmp_path, monkeypatch):
     assert intake['reported_at'] > 0
 
 
+
+def _reader_visible_html(html):
+    """`html` minus the manual-entry mount point.
+
+    The Save-by-hand / review form is on every report page since 2026-08-19,
+    and it carries the staged image path in a data attribute because both
+    "Show Image" and "Mazda Fill" need to know which file this page is about.
+    That is form state the browser reads, not something the page shows anyone.
+
+    The rule these assertions protect — the temporary staging directory is
+    never advertised to the reader — is about rendered text, so it is checked
+    against the page with that one element removed rather than weakened. Any
+    staged path appearing anywhere else is still a failure.
+    """
+    return re.sub(r'<div id="manual-entry-root"[^>]*></div>', '', html)
+
 def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
@@ -5682,7 +5698,7 @@ def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
                         lambda: ('/*css*/', '<div id="rol-category-picker"></div>', '/*rowcss*/'))
     html = server.build_recent_report_html()
     # The staging directory a document is being processed in is never exposed.
-    assert '/staged/' not in html
+    assert '/staged/' not in _reader_visible_html(html)
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'rol-category-picker' in html
@@ -6276,7 +6292,7 @@ def test_build_scanner_report_html_placeholder_and_content(tmp_path, monkeypatch
         'cat_class': 'cat-travel-and-vehicle', 'receipt_url': '',
     }])
     html = server.build_scanner_report_html('window')
-    assert '/staged/' not in html
+    assert '/staged/' not in _reader_visible_html(html)
     assert 'verified-transactions' in html
     assert 'data-vendor-key="kum_go"' in html
     assert 'class="cat-travel-and-vehicle has-receipt"' in html
@@ -6691,7 +6707,7 @@ def test_recent_intake_html_shows_archived_scan_copy_from_callback(tmp_path, mon
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
     html = server.build_recent_report_html()
     assert 'Staged Scan Image' not in html
-    assert str(staged) not in html
+    assert str(staged) not in _reader_visible_html(html)
 
 
 def test_recent_receipt_uses_canonical_archive_name_and_not_statement_slot(
@@ -6727,7 +6743,7 @@ def test_recent_receipt_uses_canonical_archive_name_and_not_statement_slot(
     html = server.build_recent_report_html()
 
     assert 'Staged Scan Image' not in html
-    assert '/staged/window_scan.jpg' not in html
+    assert '/staged/window_scan.jpg' not in _reader_visible_html(html)
 
 
 def test_scanner_report_hides_staged_image_when_archive_is_missing(
@@ -6747,7 +6763,7 @@ def test_scanner_report_hides_staged_image_when_archive_is_missing(
 
     assert 'Archived Scan Image' not in html
     assert 'Staged Scan Image:' not in html
-    assert '/staged/scan_freezer.jpg' not in html
+    assert '/staged/scan_freezer.jpg' not in _reader_visible_html(html)
 
 
 def test_report_pointer_newer_than_intake_wins(tmp_path, monkeypatch):
@@ -7448,7 +7464,7 @@ def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
     html = server.build_scanner_report_html('freezer')
 
     assert 'unavailable' not in html
-    assert '/staged/' not in html
+    assert '/staged/' not in _reader_visible_html(html)
     assert 'class="status-banner status-bad"' in html
     assert 'Mazda Trainer reported STALLED' in html
     assert 'stopped before any transactions were stored' in html

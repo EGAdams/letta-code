@@ -26,12 +26,19 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
       clear it so tests never inherit a claim from an earlier test.
     - _create_mazda_conversation: intake tests must not create live Letta
       conversations unless they explicitly replace this stub.
-    - EXECUTION_MODE: resolved once at import time from MAZDA_DECISION_MODE,
-      so a developer's shell exporting human_only would otherwise silently
-      change what every dispatch test exercises. Tests for human_only itself
-      override this explicitly.
+    - EXECUTION_MODE: the default mode, resolved once at import time from
+      MAZDA_DECISION_MODE, so a developer's shell exporting human_only would
+      otherwise silently change what every dispatch test exercises. Tests for
+      human_only itself override this explicitly.
+    - _MAZDA_MODE_SERVICE: the operator's switch (intake/mazda_mode.py) beats
+      EXECUTION_MODE, and its real store is a file in the operator's home. Left
+      alone, a test run would both read whichever mode EG last chose on this
+      box and write to that file. An in-memory store with nothing chosen puts
+      the monkeypatched EXECUTION_MODE back in charge, which is what every
+      existing dispatch test already assumes.
     """
     import server
+    from intake.mazda_mode import InMemoryMazdaModeStore, MazdaModeService
     from intake.trainer_escalation import NullTrainerEscalationService
     monkeypatch.setattr(
         server, 'RECENT_REPORT_POINTER_FILE',
@@ -42,6 +49,10 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
     monkeypatch.setattr(server, '_create_mazda_conversation',
                         lambda: 'conv-test-isolated')
     monkeypatch.setattr(server, 'EXECUTION_MODE', 'auto')
+    monkeypatch.setattr(
+        server, '_MAZDA_MODE_SERVICE',
+        MazdaModeService(InMemoryMazdaModeStore(),
+                         default_mode=lambda: server.EXECUTION_MODE))
     server._scan_dispatch_claims.clear()
     yield
     server._scan_dispatch_claims.clear()

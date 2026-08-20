@@ -114,8 +114,9 @@ def mazda_working_html(progress):
             f'<ul>{steps}</ul></div>')
 
 
-def manual_entry_form_html(image_path, conversation_id, scanner_key=''):
-    """The needs_human_review Save-by-hand form's mount point.
+def manual_entry_form_html(image_path, conversation_id, scanner_key='',
+                           mazda_mode=None):
+    """The Save-by-hand / review dialog's mount point, on every report page.
 
     All rendering and behavior live in js/implementation/manual-entry-form.js
     (backed by js/abstract/manual-entry.interface.js) — this only emits the
@@ -126,11 +127,25 @@ def manual_entry_form_html(image_path, conversation_id, scanner_key=''):
     scanner_key (blank for a PDF-kind intake, no scanner involved) lets the
     form's post-save archive-verification terminal reuse the exact same
     /api/scanner-archive-path lookup the Scanner tabs already use.
+
+    mazda_mode is the MazdaModeState in force (intake/mazda_mode.py). It is
+    stamped here rather than fetched by the browser so the Automatic /
+    Semi-Automatic switch renders already showing the truth — a toggle that
+    paints itself in one position and corrects itself a moment later is a
+    toggle nobody can trust. None means "don't stamp it", and the form falls
+    back to the pipeline's own default (GET /api/mazda-mode answers the same
+    question for anything rendering its own shell).
     """
+    mode_attrs = ''
+    if mazda_mode is not None:
+        mode_attrs = (
+            f'data-mazda-automatic="{"true" if mazda_mode.automatic else "false"}" '
+            f'data-mazda-mode-label="{_esc(mazda_mode.label, quote=True)}" ')
     return (
         '<div id="manual-entry-root" '
         f'data-image-path="{_esc(image_path or "", quote=True)}" '
         f'data-conversation-id="{_esc(conversation_id or "", quote=True)}" '
+        f'{mode_attrs}'
         f'data-scanner-key="{_esc(scanner_key or "", quote=True)}"></div>\n'
         '<script type="module" src="/js/implementation/manual-entry-form.js"></script>\n'
     )
@@ -139,17 +154,17 @@ def manual_entry_form_html(image_path, conversation_id, scanner_key=''):
 def expense_edit_panel_html():
     """The Edit Expense panel's own mount point, rendered on every report page.
 
-    Save All only ever *inserts*, so its form stays limited to a scan still in
-    needs_human_review. Correcting an already-stored row is the opposite job —
-    it only becomes useful once a row exists — so the edit panel is mounted
-    separately and shown unconditionally. Both endpoints behind it
-    (/api/expense-search, /api/expense-edit) already answer on any intake; only
-    the browser-side button was missing.
+    Kept as a separate mount point from the entry form even though that form is
+    now unconditional too. It is the fallback: any page that renders this shell
+    without the entry form still gets an Edit Expense button, and the two have
+    never had the same reason to exist — Save All only ever *inserts*, while
+    correcting an already-stored row only becomes useful once a row exists.
+    Both endpoints behind it (/api/expense-search, /api/expense-edit) already
+    answer on any intake.
 
-    js/implementation/expense-edit-panel.js declines to mount when the full
-    entry form is also on the page, since that form carries its own copy of
-    this dialog — a needs_human_review scan still shows exactly one
-    Edit Expense button.
+    js/implementation/expense-edit-panel.js declines to mount when the entry
+    form is also on the page, since that form carries its own copy of this
+    dialog — one report page still shows exactly one Edit Expense button.
     """
     return (
         '<div id="expense-edit-root"></div>\n'

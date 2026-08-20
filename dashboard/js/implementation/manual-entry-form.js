@@ -1,9 +1,13 @@
 /**
- * The needs_human_review Save-by-hand form (Recent Report page).
+ * The Save-by-hand / review dialog (Recent Report page).
  *
  * Mounts into #manual-entry-root (see finance/intake_report_page.py's
- * manual_entry_form_html) whenever MAZDA_DECISION_MODE=human_only routed a
- * scan/PDF to a human instead of Mazda. A document can hold more than one
+ * manual_entry_form_html) on every intake report, in either mode. It used to
+ * appear only when MAZDA_DECISION_MODE=human_only had routed a scan/PDF to a
+ * human — i.e. only while Mazda was switched off — so switching her back on
+ * took the review dialog away with her. Those are separate questions: the
+ * switch in this form's top row decides who READS the next document, and this
+ * form is where a human CHECKS what was read. A document can hold more than one
  * expense (two receipts scanned together, a statement page) — Prev / Next /
  * Add Another Expense cycle through a list of line items, each independently
  * valid, submitted together by Save All.
@@ -14,8 +18,8 @@
  * the tools Mazda herself runs — parse_and_categorize.py for one expense,
  * parse_statement_scan.py for many, and Save All stores through
  * parse_and_categorize.py or store_statement_transactions.py to match. This
- * form is how a human runs Mazda's own pipeline while
- * MAZDA_DECISION_MODE=human_only means no agent will.
+ * form is how a human runs Mazda's own pipeline a page at a time — the point
+ * of Semi-Automatic, where no agent will do it for them.
  *
  * It replaced five reading buttons and a "which group do I press?" group box
  * on 2026-08-19 (see ../abstract/mazda-fill.interface.js): every one of them
@@ -58,6 +62,13 @@ import {
   mazdaFillModelLabel,
   readMazdaFillResponse,
 } from "../abstract/mazda-fill.interface.js";
+import {
+  buildMazdaModePayload,
+  mazdaModeLabel,
+  readMazdaModeDataset,
+  readMazdaModeResponse,
+  summarizeMazdaMode,
+} from "../abstract/mazda-mode.interface.js";
 import {
   buildStatementEntryPayload,
   readStatementEntryResponse,
@@ -171,6 +182,39 @@ export class ManualEntryForm {
     }
     this.mazdaModelSelect.value = DEFAULT_MAZDA_FILL_MODEL;
     imagePathWrap.appendChild(this.mazdaModelSelect);
+
+    // The Automatic / Semi-Automatic switch, immediately right of the model
+    // dropdown, because it answers the question the two controls beside it
+    // raise: "do I have to press Mazda Fill at all?"
+    //
+    // It decides who reads the NEXT scanned document — Mazda by herself, or
+    // this form waiting for a human. It does nothing to the document already
+    // on screen, which is why the status line says so out loud every time
+    // (see summarizeMazdaMode): "Automatic" reads as retroactive, and an
+    // operator who thinks the page in front of them is about to file itself
+    // will wait for something that is never going to happen.
+    //
+    // The label IS the state — it reads "Mazda Automatic" when she is driving
+    // and "Mazda Semi-Automatic" when she is not, rather than naming what a
+    // click would do. A switch whose text changes to the thing you are about
+    // to get is a switch nobody can read at a glance.
+    this.mazdaMode = readMazdaModeDataset(this.root.dataset);
+    const modeWrap = this._el("label", { className: "mazda-mode-switch" });
+    this.mazdaModeCheckbox = this._el("input");
+    this.mazdaModeCheckbox.type = "checkbox";
+    this.mazdaModeCheckbox.dataset.field = "mazdaMode";
+    this.mazdaModeCheckbox.checked = this.mazdaMode.automatic;
+    modeWrap.appendChild(this.mazdaModeCheckbox);
+    modeWrap.appendChild(this._el("span", { className: "mazda-mode-track" }));
+    this.mazdaModeLabelEl = this._el("span", {
+      className: "mazda-mode-label",
+      text: this.mazdaMode.label,
+    });
+    modeWrap.appendChild(this.mazdaModeLabelEl);
+    imagePathWrap.appendChild(modeWrap);
+    this.mazdaModeCheckbox.addEventListener("change", () =>
+      this._setMazdaMode(this.mazdaModeCheckbox.checked),
+    );
     this.statementMetadataPrompt = this._el("div", {
       className: "manual-entry-field",
     });
@@ -702,6 +746,50 @@ export class ManualEntryForm {
         ` ${this.items.length} left to save.`,
     );
     this._updateArchivePathPreview();
+  }
+
+  /**
+   * Move the switch: who reads the NEXT scanned document.
+   *
+   * The label follows the click immediately so the control feels like a
+   * switch, then is replaced by the server's own label when it answers -- the
+   * two agree by construction (MAZDA_MODE_LABELS is mirrored, and pinned by
+   * tests/test_mazda_mode.py), so the swap is invisible when it works and
+   * corrective when it does not.
+   *
+   * A failure puts the switch back where it was. A toggle left showing a mode
+   * the server is not actually in is worse than one that visibly refused to
+   * move: the operator would walk away believing Mazda is on.
+   * @param {boolean} automatic
+   */
+  async _setMazdaMode(automatic) {
+    this.mazdaModeCheckbox.disabled = true;
+    this.mazdaModeLabelEl.textContent = mazdaModeLabel(automatic);
+    try {
+      const json = await this.http.postJSON(
+        "/api/mazda-mode",
+        buildMazdaModePayload(automatic),
+      );
+      const state = readMazdaModeResponse(json);
+      if (state.ok) {
+        this.mazdaMode = state;
+        this.mazdaModeCheckbox.checked = state.automatic;
+        this.mazdaModeLabelEl.textContent = state.label;
+      } else {
+        this.mazdaModeCheckbox.checked = this.mazdaMode.automatic;
+        this.mazdaModeLabelEl.textContent = this.mazdaMode.label;
+      }
+      this._setStatus(summarizeMazdaMode(state));
+    } catch (err) {
+      this.mazdaModeCheckbox.checked = this.mazdaMode.automatic;
+      this.mazdaModeLabelEl.textContent = this.mazdaMode.label;
+      this._setStatus(
+        `Could not change the mode: ${err && err.message ? err.message : err}. ` +
+          "The switch was put back.",
+      );
+    } finally {
+      this.mazdaModeCheckbox.disabled = false;
+    }
   }
 
   /**

@@ -60,6 +60,10 @@ from codex_sync_status import (
     toggle_codex_sync,
 )
 from model_stats_mute import ModelStatsMuteRequest, apply_mute_overlay, set_muted
+from intake.mazda_mode import (
+    JsonFileMazdaModeStore,
+    MazdaModeService,
+)
 from pydantic import ValidationError
 from category_taxonomy_seed import LEGACY_TAXONOMY
 from category_undo import (
@@ -614,7 +618,7 @@ def record_recent_intake(image_path, label, kind='scan', facade=None,
             # the previous document.
             'status': status,
             'status_detail': status_detail,
-            'execution_mode': EXECUTION_MODE,
+            'execution_mode': current_execution_mode(),
         }
         data['intake'] = intake
         # Scans are ALSO recorded per-scanner (keyed by the scanner's human
@@ -1828,10 +1832,17 @@ def build_recent_intake_html(intake):
     working = ('' if (reported or terminal)
                else intake_report_page.mazda_working_html(
                    mazda_intake_progress(intake)))
-    manual_entry_html = (
-        intake_report_page.manual_entry_form_html(
-            intake.get('image_path'), intake.get('conversation_id'), scanner_key)
-        if intake_status == 'needs_human_review' else '')
+    # Unconditional since 2026-08-19. It used to appear only on a
+    # needs_human_review intake -- i.e. only while Mazda was switched off --
+    # so turning her back on took the review dialog away with her. The two are
+    # separate questions: the switch decides who READS the next document, this
+    # form is where a human CHECKS and corrects whatever was read, and that is
+    # worth having in either mode. Save All still only inserts, so on a
+    # document Mazda already filed it is the way to add an expense she missed;
+    # correcting one she got wrong is Edit Expense's job, in the same dialog.
+    manual_entry_html = intake_report_page.manual_entry_form_html(
+        intake.get('image_path'), intake.get('conversation_id'), scanner_key,
+        mazda_mode=_MAZDA_MODE_SERVICE.current())
     # Unconditional, unlike the form above. Save All inserts, so it belongs
     # only to a scan nobody has typed in yet; Edit Expense corrects a row that
     # is already stored, so gating it on the same status made it unreachable
@@ -4240,6 +4251,31 @@ def resolve_execution_mode(raw=None):
 # to pick up a new value (in-flight/pending runs are unaffected either way).
 EXECUTION_MODE = resolve_execution_mode()
 
+#: Where an operator's choice of mode outlives this process. Beside the other
+#: small operator preferences (~/.mazda/model_stats_muted.json).
+MAZDA_MODE_FILE = os.path.expanduser('~/.mazda/mazda_mode.json')
+
+# The switch on the intake dialog writes here; _dispatch_mazda_or_block reads
+# here. EXECUTION_MODE is handed over as a callable, not a value, so it stays
+# the live default -- the env var still decides everything on a box where
+# nobody has ever touched the switch, and the test suite's monkeypatch of
+# EXECUTION_MODE keeps working.
+_MAZDA_MODE_SERVICE = MazdaModeService(
+    JsonFileMazdaModeStore(MAZDA_MODE_FILE),
+    default_mode=lambda: EXECUTION_MODE,
+)
+
+
+def current_execution_mode():
+    """The mode in force *right now* -- operator's switch, else EXECUTION_MODE.
+
+    Every dispatch decision goes through this rather than reading
+    EXECUTION_MODE directly, so flipping the switch takes effect on the next
+    scanned document instead of the next restart.
+    """
+    return _MAZDA_MODE_SERVICE.mode()
+
+
 HUMAN_ONLY_MODE_STAGE_MESSAGE = (
     'MAZDA_DECISION_MODE=human_only: Mazda and the Trainer were not started '
     'for this document. Process it manually — see /recent_report.html.')
@@ -4279,7 +4315,7 @@ def _dispatch_mazda_or_block(document_path, label, facade, conversation_id,
     whether a run ever needed one — human_only skips registering that watch
     too, since Mazda never starting means no callback will ever arrive.
     """
-    if EXECUTION_MODE == 'human_only':
+    if current_execution_mode() == 'human_only':
         _block_dispatch_for_human_only_mode(document_path, conversation_id, dispatched_at)
         return False
     _watch_intake_for_problems(
@@ -5244,7 +5280,7 @@ def process_scanned_document(
                             '(SSH/copy to the executor machine failed) — Mazda was not notified.')
     result = build_pipeline_result(facade, mazda_dispatched)
     result['trainer_dispatched'] = trainer_dispatched
-    result['execution_mode'] = EXECUTION_MODE
+    result['execution_mode'] = current_execution_mode()
     if conversation_id:
         result['conversation_id'] = conversation_id
     if stage_error:
@@ -5304,7 +5340,7 @@ def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
         (real, doc_label, conversation_id, dispatched_at, facade))
     result = build_pipeline_result(facade, mazda_dispatched)
     result['trainer_dispatched'] = False
-    result['execution_mode'] = EXECUTION_MODE
+    result['execution_mode'] = current_execution_mode()
     result['file_path'] = real
     result['label'] = doc_label
     result['conversation_id'] = conversation_id
@@ -11077,6 +11113,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             src = query.get('source', [''])[0]
             return self.json_response(apply_mute_overlay(model_stats(src), src))
 
+        if path == '/api/mazda-mode':
+            return self.json_response(_MAZDA_MODE_SERVICE.current().to_http())
+
         if path == '/api/codex-sync-status':
             return self.json_response(codex_sync_status().model_dump(mode='json'))
 
@@ -11611,6 +11650,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except (json.JSONDecodeError, ValidationError) as exc:
                 return self.error_response(f'invalid request: {exc}', 400)
             return self.json_response(set_chatgpt_provider_account(req.source).model_dump(mode='json'))
+
+        if path == '/api/mazda-mode':
+            # A preference, not a command: this decides who reads the NEXT
+            # scanned document. Nothing in flight is re-dispatched or recalled.
+            try:
+                data = json.loads(body) if body.strip() else {}
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(_MAZDA_MODE_SERVICE.set_from_http(data))
 
         if path == '/api/model-stats-mute':
             try:

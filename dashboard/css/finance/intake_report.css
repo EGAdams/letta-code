@@ -179,3 +179,78 @@ td.muted { padding:10px 12px; height:auto; }
 .info-dialog-body { font-size:16px; }
 .info-dialog-body p { margin:0 0 12px; }
 .info-dialog-footer { display:flex; justify-content:flex-end; }
+
+/* Mazda Automatic / Semi-Automatic switch. Sits immediately right of the
+   Mazda Fill model dropdown, finishing that row's one sentence: "read it —
+   with this — or don't make me ask at all."
+
+   Windows 98 had no toggle switch, so this borrows the era's vocabulary
+   instead of a modern pill: an inset track (a recess cut into the dialog) with
+   a raised silver knob riding in it, same bevels as the buttons above. The
+   real checkbox stays in the DOM and keeps its focus/keyboard behavior — it is
+   moved off-screen rather than display:none'd, which would take it out of the
+   tab order and off screen readers.
+
+   Scaled to 1.2 like the buttons and the dropdown beside it (see
+   .manual-entry-form button) so the row reads as one set of controls. */
+.mazda-mode-switch {
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    margin-left:calc(15px + 15px);
+    transform:scale(1.2);
+    transform-origin:left center;
+    font-family:"Courier New",Courier,monospace;
+    font-size:15px;
+    cursor:pointer;
+    user-select:none;
+}
+.mazda-mode-switch input[type="checkbox"] {
+    position:absolute;
+    width:1px;
+    height:1px;
+    margin:-1px;
+    padding:0;
+    overflow:hidden;
+    clip:rect(0 0 0 0);
+    white-space:nowrap;
+}
+.mazda-mode-track {
+    position:relative;
+    flex:0 0 auto;
+    width:42px;
+    height:20px;
+    background:#808080;
+    border:2px inset #c0c0c0;
+    box-shadow:inset -1px -1px #dfdfdf,inset 1px 1px #0a0a0a;
+}
+/* The knob: a raised button face, sized to the track's inner height so it
+   fills the recess the way a physical slider would. */
+.mazda-mode-track::before {
+    content:"";
+    position:absolute;
+    top:0;
+    left:0;
+    width:18px;
+    height:100%;
+    background:#c0c0c0;
+    box-shadow:inset -1px -1px #0a0a0a,inset 1px 1px #fff,inset -2px -2px grey,inset 2px 2px #dfdfdf;
+}
+/* Automatic = Mazda is driving. Green because it means something is running
+   unattended, which is the state worth spotting from across the room. */
+.mazda-mode-switch input[type="checkbox"]:checked + .mazda-mode-track {
+    background:#008000;
+}
+.mazda-mode-switch input[type="checkbox"]:checked + .mazda-mode-track::before {
+    left:calc(100% - 18px);
+}
+/* 98.css's dotted focus ring, on the track, since the input itself is
+   off-screen — keyboard users get the same affordance as the buttons. */
+.mazda-mode-switch input[type="checkbox"]:focus + .mazda-mode-track {
+    outline:1px dotted #000;
+    outline-offset:2px;
+}
+.mazda-mode-switch input[type="checkbox"]:disabled + .mazda-mode-track {
+    opacity:.6;
+}
+.mazda-mode-label { font-weight:700; color:#000; white-space:nowrap; }

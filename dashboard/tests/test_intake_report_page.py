@@ -176,3 +176,49 @@ def test_render_intake_report_can_show_the_edit_panel_without_the_entry_form():
     )
     assert 'expense-edit-root' in html
     assert 'manual-entry-root' not in html
+
+
+# ── The review dialog is mounted in both modes (2026-08-19) ────────────────
+# It used to appear only on a needs_human_review intake — i.e. only while Mazda
+# was switched off — so turning her back on took the review dialog away with
+# her. These pin the mount point and the switch's starting position, because a
+# switch that paints itself in the wrong position is worse than no switch: an
+# operator who reads "Mazda Automatic" on a box where she is blocked will scan a
+# stack of documents and wait for filing that never happens.
+
+def test_manual_entry_mount_stamps_the_mode_it_was_rendered_in():
+    from intake.mazda_mode import AUTOMATIC, SEMI_AUTOMATIC, state_for
+
+    html = page.manual_entry_form_html(
+        '/staged/x.jpg', 'conv-1', 'window',
+        mazda_mode=state_for(AUTOMATIC, source='operator'))
+    assert 'data-mazda-automatic="true"' in html
+    assert 'data-mazda-mode-label="Mazda Automatic"' in html
+
+    html = page.manual_entry_form_html(
+        '/staged/x.jpg', 'conv-1', 'window',
+        mazda_mode=state_for(SEMI_AUTOMATIC, source='default'))
+    assert 'data-mazda-automatic="false"' in html
+    assert 'data-mazda-mode-label="Mazda Semi-Automatic"' in html
+
+
+def test_manual_entry_mount_without_a_mode_stamps_nothing():
+    """None means "don't claim a position" — the form then asks
+    /api/mazda-mode rather than guessing on the page's behalf."""
+    html = page.manual_entry_form_html('/staged/x.jpg', 'conv-1', 'window')
+    assert 'data-mazda-automatic' not in html
+    assert 'manual-entry-root' in html
+
+
+def test_render_intake_report_shows_the_entry_form_and_one_edit_button():
+    """Both mount points render, but expense-edit-panel.js declines to mount
+    when the entry form is present — the page must not grow a second Edit
+    Expense button now that the form is unconditional."""
+    html = page.render_intake_report(
+        headline='x', subtitle='', meta_fields=[], status_text='',
+        status_tone='ok', table_html='',
+        manual_entry_html=page.manual_entry_form_html('/staged/x.jpg', '', 'window'),
+        expense_edit_html=page.expense_edit_panel_html(),
+    )
+    assert 'manual-entry-root' in html
+    assert 'expense-edit-root' in html
