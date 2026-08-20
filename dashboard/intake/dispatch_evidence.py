@@ -63,8 +63,25 @@ class ConversationMessage(StrictModel):
         )
 
     @property
+    def is_recognizable(self) -> bool:
+        """Did this row identify itself at all?
+
+        A mapping with neither field -- an upstream schema change, a truncated
+        row -- tells us nothing. It must not be counted as evidence merely by
+        failing to look like the system prompt, which is how the check this
+        module replaced went wrong. Found by
+        property_tests/test_boundary_readers_fail_safe.py.
+        """
+        return bool(self.message_type or self.role)
+
+    @property
     def is_system_prompt(self) -> bool:
         return self.message_type == SYSTEM_MESSAGE_TYPE or self.role == 'system'
+
+    @property
+    def is_evidence_of_a_dispatch(self) -> bool:
+        """Positively something other than the prompt it was born with."""
+        return self.is_recognizable and not self.is_system_prompt
 
 
 class DispatchEvidence(StrictModel):
@@ -100,5 +117,9 @@ class DispatchEvidence(StrictModel):
         Each intake gets its own conversation, so anything beyond the prompt it
         was born with came from our dispatch -- or from Mazda answering it,
         which is the same conclusion.
+
+        Requires a message we could positively identify, not merely one that
+        failed to look like the system prompt. Those are different claims, and
+        only the first is evidence.
         """
-        return any(not message.is_system_prompt for message in self.messages)
+        return any(message.is_evidence_of_a_dispatch for message in self.messages)

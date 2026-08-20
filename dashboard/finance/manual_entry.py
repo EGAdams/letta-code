@@ -367,8 +367,13 @@ def preview_receipt_parse(image_path: str, engine: str = 'local', runner=None,
     result = (runner or _run_parse_and_categorize)(command)
     if result.get('returncode') != 0:
         return False, {'error': result.get('stderr') or 'preview failed'}
-    report = result.get('report') or {}
-    if not report:
+    report = result.get('report')
+    # isinstance, not truthiness. A reader that returned a bare string, a list,
+    # or an error page is not an empty report -- it is a report we cannot read,
+    # and every line below assumes a mapping. Letting one through raised
+    # AttributeError on this error path, turning "the model didn't answer" into
+    # a 500. Found by property_tests/test_boundary_readers_fail_safe.py.
+    if not isinstance(report, dict) or not report:
         return False, {'error': 'could not parse OCR output'}
     # Deliberately BEFORE _extract_prefill: an OCR guess must not reach the
     # form's fields wearing the chosen model's name.
