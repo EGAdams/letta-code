@@ -42,6 +42,9 @@ function setup({ http, dataset = {} } = {}) {
   root.dataset.imagePath = dataset.imagePath ?? "/staged/scan.jpg";
   root.dataset.conversationId = dataset.conversationId ?? "conv-1";
   root.dataset.scannerKey = dataset.scannerKey ?? "";
+  if (dataset.mazdaFindings !== undefined) {
+    root.dataset.mazdaFindings = dataset.mazdaFindings;
+  }
   doc.add(root);
   const effectiveHttp =
     http ??
@@ -120,6 +123,61 @@ describe("ManualEntryForm vendor selection", () => {
     form.vendorSelect.value = "__new__";
     form.vendorSelect.dispatch("change", {});
     expect(form.merchantNameInput.value).toBe("My Own Vendor");
+  });
+});
+
+describe("ManualEntryForm seeded from Mazda's own findings", () => {
+  test("an automatic scan's stored findings populate the fields on mount, not a blank form", async () => {
+    const { form } = setup({
+      dataset: {
+        mazdaFindings: JSON.stringify([
+          {
+            merchant_name: "Kum & Go",
+            transaction_date: "2025-06-01",
+            total_amount: "12.34",
+            category_name: "Travel & Vehicle",
+          },
+        ]),
+      },
+    });
+    await form.mount();
+    expect(form.merchantNameInput.value).toBe("Kum & Go");
+    expect(form.transactionDateInput.value).toBe("2025-06-01");
+    expect(form.totalAmountInput.value).toBe("12.34");
+  });
+
+  test("more than one finding means Prev/Next has something to walk", async () => {
+    const { form } = setup({
+      dataset: {
+        mazdaFindings: JSON.stringify([
+          {
+            merchant_name: "Kum & Go",
+            transaction_date: "2025-06-01",
+            total_amount: "12.34",
+            category_name: "",
+          },
+          {
+            merchant_name: "Meijer",
+            transaction_date: "2025-06-02",
+            total_amount: "45.00",
+            category_name: "",
+          },
+        ]),
+      },
+    });
+    await form.mount();
+    expect(form.items.length).toBe(2);
+    form._navigate(1);
+    expect(form.merchantNameInput.value).toBe("Meijer");
+    form._navigate(-1);
+    expect(form.merchantNameInput.value).toBe("Kum & Go");
+  });
+
+  test("no findings on the mount point still starts blank, as before", async () => {
+    const { form } = setup();
+    await form.mount();
+    expect(form.items.length).toBe(1);
+    expect(form.merchantNameInput.value).toBe("");
   });
 });
 

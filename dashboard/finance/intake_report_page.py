@@ -14,9 +14,11 @@ Presentation rules that live here, because they are presentation:
 
 from __future__ import annotations
 
+import json
 from html import escape as _esc
+from typing import Sequence
 
-from .intake_report_model import META_EMPTY
+from .intake_report_model import META_EMPTY, StoredFinding
 
 # Static, page-wide rules live in css/finance/intake_report.css (served as a
 # real stylesheet — see the server's generic /<path> static-file fallback).
@@ -115,7 +117,8 @@ def mazda_working_html(progress):
 
 
 def manual_entry_form_html(image_path, conversation_id, scanner_key='',
-                           mazda_mode=None):
+                           mazda_mode=None,
+                           stored_items: Sequence[StoredFinding] = ()):
     """The Save-by-hand / review dialog's mount point, on every report page.
 
     All rendering and behavior live in js/implementation/manual-entry-form.js
@@ -135,17 +138,32 @@ def manual_entry_form_html(image_path, conversation_id, scanner_key='',
     toggle nobody can trust. None means "don't stamp it", and the form falls
     back to the pipeline's own default (GET /api/mazda-mode answers the same
     question for anything rendering its own shell).
+
+    stored_items, when non-empty, is what Mazda's own STEP 8 callback already
+    read/stored for this document — see intake_report_model.stored_findings(),
+    which turns presentation_rows_list into validated StoredFinding models. It
+    seeds the form's item list so an automatic scan's findings are there to
+    check/correct on load, the same way a manual "Mazda Fill" fills them, and
+    multi-transaction documents get Prev/Next for free since there is already
+    more than one item.
     """
     mode_attrs = ''
     if mazda_mode is not None:
         mode_attrs = (
             f'data-mazda-automatic="{"true" if mazda_mode.automatic else "false"}" '
             f'data-mazda-mode-label="{_esc(mazda_mode.label, quote=True)}" ')
+    findings_attr = ''
+    if stored_items:
+        findings_json = json.dumps(
+            [item.model_dump() for item in stored_items])
+        findings_attr = (
+            f'data-mazda-findings="{_esc(findings_json, quote=True)}" ')
     return (
         '<div id="manual-entry-root" '
         f'data-image-path="{_esc(image_path or "", quote=True)}" '
         f'data-conversation-id="{_esc(conversation_id or "", quote=True)}" '
         f'{mode_attrs}'
+        f'{findings_attr}'
         f'data-scanner-key="{_esc(scanner_key or "", quote=True)}"></div>\n'
         '<script type="module" src="/js/implementation/manual-entry-form.js"></script>\n'
     )

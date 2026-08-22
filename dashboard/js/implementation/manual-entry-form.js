@@ -50,6 +50,7 @@ import {
   formatAmountForDisplay,
   readArchivePreviewResponse,
   readCategoriesResponse,
+  readStoredFindings,
   readSubmitResponse,
   readVendorKeysResponse,
   validateManualEntry,
@@ -103,7 +104,14 @@ export class ManualEntryForm {
     this._EditDialog = EditDialog;
     this.conversationId = root.dataset.conversationId || "";
     this.scannerKey = root.dataset.scannerKey || "";
-    this.items = [blankManualEntryFields()];
+    // Mazda's own findings for this document (STEP 8's stored rows, stamped
+    // server-side onto the mount point) seed the review dialog on an
+    // automatic scan instead of leaving it blank -- see
+    // finance/intake_report_page.py's manual_entry_form_html docstring. No
+    // findings (a human_only intake, or nothing stored yet) falls back to the
+    // one blank item this form has always started with.
+    const foundItems = readStoredFindings(root.dataset.mazdaFindings);
+    this.items = foundItems.length ? foundItems : [blankManualEntryFields()];
     this.currentIndex = 0;
     // null = the ordinary receipt mode this form was built for. Set by "Break
     // Up Document", it holds the one bank/account identity every row on the

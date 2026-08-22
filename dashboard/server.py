@@ -1848,9 +1848,17 @@ def build_recent_intake_html(intake):
     # worth having in either mode. Save All still only inserts, so on a
     # document Mazda already filed it is the way to add an expense she missed;
     # correcting one she got wrong is Edit Expense's job, in the same dialog.
+    presentation_rows_list = intake_report_model.presentation_rows(
+        rows, duplicate_ids,
+        stored=intake.get('stored'), parsed=intake.get('parsed'))
+    # Mazda's own findings (whatever STEP 8 already stored for this document)
+    # seed the review dialog instead of leaving it blank -- an auto-scan used
+    # to only ever populate Verified Transactions, so checking/correcting what
+    # she read meant re-running Mazda Fill by hand.
+    stored_items = intake_report_model.stored_findings(presentation_rows_list)
     manual_entry_html = intake_report_page.manual_entry_form_html(
         intake.get('image_path'), intake.get('conversation_id'), scanner_key,
-        mazda_mode=_MAZDA_MODE_SERVICE.current())
+        mazda_mode=_MAZDA_MODE_SERVICE.current(), stored_items=stored_items)
     # Unconditional, unlike the form above. Save All inserts, so it belongs
     # only to a scan nobody has typed in yet; Edit Expense corrects a row that
     # is already stored, so gating it on the same status made it unreachable
@@ -1867,9 +1875,7 @@ def build_recent_intake_html(intake):
         status_tone=intake_report_model.status_tone(
             intake_status, reported, rows),
         table_html=intake_report_page.transactions_table_html(
-            intake_report_model.presentation_rows(
-                rows, duplicate_ids,
-                stored=intake.get('stored'), parsed=intake.get('parsed')),
+            presentation_rows_list,
             source_document_url=source_document_url,
             empty_note=intake_report_model.empty_table_note(
                 intake_status, reported)),

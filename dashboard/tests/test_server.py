@@ -5792,6 +5792,31 @@ def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
     assert 'openCategoryPicker' in html
 
 
+def test_recent_intake_html_seeds_the_review_dialog_with_stored_findings(
+        tmp_path, monkeypatch):
+    """An automatic scan's STEP 8 findings must reach the review dialog, not
+    just Verified Transactions — the operator needs something to check/correct
+    without pressing Mazda Fill again. Two non-duplicate rows also means
+    Prev/Next has something to walk (see manual-entry-form.js's _navigate)."""
+    _recent_report_env(tmp_path, monkeypatch, docs=())
+    server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
+    server.merge_recent_intake_event({'expense_ids': [7, 8], 'parsed': 2, 'stored': 2})
+    monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [
+        {'id': 7, 'date': '2025-06-01', 'amount': '-12.34', 'vendor_key': 'kum_go',
+         'description': 'Kum & Go', 'reporting_category': 'Travel & Vehicle',
+         'cat_class': 'cat-travel-and-vehicle'},
+        {'id': 8, 'date': '2025-06-02', 'amount': '-45.00', 'vendor_key': 'meijer',
+         'description': 'Meijer', 'reporting_category': 'Household',
+         'cat_class': 'cat-household'},
+    ])
+    monkeypatch.setattr(server, '_receipt_only_picker_assets',
+                        lambda: ('/*css*/', '<div id="rol-category-picker"></div>', '/*rowcss*/'))
+    html = server.build_recent_report_html()
+    assert 'data-mazda-findings="' in html
+    assert '&quot;merchant_name&quot;: &quot;Kum &amp; Go&quot;' in html
+    assert '&quot;merchant_name&quot;: &quot;Meijer&quot;' in html
+
+
 def test_picker_module_imports_for_real():
     """Regression: _picker_module() only added VERIFICATION_LIB to sys.path,
     so restructure_verified_transactions' own `from tools.python_tasks...`

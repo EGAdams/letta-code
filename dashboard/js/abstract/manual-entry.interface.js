@@ -48,6 +48,16 @@
  * @property {boolean} remembered  true if a brand-new vendor_key was just
  *   written to vendor_category.yaml
  * @property {?string} vendorKey   the slug it was (or would be) stored under
+ *
+ * @typedef {Object} StoredFindingRow  one entry of the mount point's raw
+ *   data-mazda-findings JSON -- the wire shape finance/intake_report_model.py's
+ *   StoredFinding.model_dump() produces, before readStoredFindings turns it
+ *   into a ManualEntryFields
+ * @property {string} merchant_name
+ * @property {string} transaction_date  ISO yyyy-mm-dd
+ * @property {number} total_amount      always positive; sign already
+ *   normalised server-side
+ * @property {string} category_name
  */
 
 import { ISO_DATE_RE, isNonEmptyString } from "./field-validation.js";
@@ -282,6 +292,44 @@ export function blankManualEntryFields() {
     totalAmount: "",
     categoryName: "",
   };
+}
+
+/**
+ * Boundary check for the mount point's data-mazda-findings attribute — the
+ * server's own record of what Mazda's STEP 8 callback already read/stored for
+ * this document (see server.py's presentation_rows_list), seeding the form
+ * with her findings instead of a blank item on an automatic scan. Malformed
+ * JSON, a non-array, or a row missing merchant/amount is dropped rather than
+ * shown as a broken item — same "fail to blank, never fail to crash" rule as
+ * readPrefillResponse.
+ * @param {?string} raw the raw dataset value -- JSON text for a
+ *   StoredFindingRow[], or null/undefined
+ * @returns {ManualEntryFields[]}
+ */
+export function readStoredFindings(raw) {
+  if (typeof raw !== "string" || !raw) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((row) => ({
+      merchantName:
+        typeof row?.merchant_name === "string" ? row.merchant_name : "",
+      transactionDate:
+        typeof row?.transaction_date === "string" ? row.transaction_date : "",
+      totalAmount:
+        typeof row?.total_amount === "string" ||
+        typeof row?.total_amount === "number"
+          ? String(row.total_amount)
+          : "",
+      categoryName:
+        typeof row?.category_name === "string" ? row.category_name : "",
+    }))
+    .filter((item) => item.merchantName && item.totalAmount);
 }
 
 export const ARCHIVE_KIND = Object.freeze({

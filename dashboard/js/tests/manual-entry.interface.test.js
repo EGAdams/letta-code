@@ -10,6 +10,7 @@ import {
   readArchivePreviewResponse,
   readCategoriesResponse,
   readPrefillResponse,
+  readStoredFindings,
   readSubmitResponse,
   readVendorCandidates,
   readVendorKeysResponse,
@@ -328,6 +329,54 @@ describe("blankManualEntryFields", () => {
     const b = blankManualEntryFields();
     a.merchantName = "Kroger";
     expect(b.merchantName).toBe("");
+  });
+});
+
+describe("readStoredFindings", () => {
+  test("parses the server's JSON findings into item fields", () => {
+    const raw = JSON.stringify([
+      {
+        merchant_name: "Kum & Go",
+        transaction_date: "2025-06-01",
+        total_amount: "12.34",
+        category_name: "Travel & Vehicle",
+      },
+      {
+        merchant_name: "Meijer",
+        transaction_date: "2025-06-02",
+        total_amount: "45",
+        category_name: "",
+      },
+    ]);
+    expect(readStoredFindings(raw)).toEqual([
+      {
+        merchantName: "Kum & Go",
+        transactionDate: "2025-06-01",
+        totalAmount: "12.34",
+        categoryName: "Travel & Vehicle",
+      },
+      {
+        merchantName: "Meijer",
+        transactionDate: "2025-06-02",
+        totalAmount: "45",
+        categoryName: "",
+      },
+    ]);
+  });
+
+  test("drops a row missing merchant or amount instead of showing a broken item", () => {
+    const raw = JSON.stringify([
+      { merchant_name: "", transaction_date: "2025-06-01", total_amount: "1" },
+      { merchant_name: "Meijer", transaction_date: "2025-06-02" },
+    ]);
+    expect(readStoredFindings(raw)).toEqual([]);
+  });
+
+  test("fails to an empty list, never throws, for missing/malformed input", () => {
+    expect(readStoredFindings(undefined)).toEqual([]);
+    expect(readStoredFindings("")).toEqual([]);
+    expect(readStoredFindings("not json")).toEqual([]);
+    expect(readStoredFindings('{"not":"an array"}')).toEqual([]);
   });
 });
 

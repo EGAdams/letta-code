@@ -75,6 +75,34 @@ def test_presentation_rows_mark_a_duplicate_only_run():
         rows, set(), stored=0, parsed=3)[0]['duplicate'] is True
 
 
+def test_stored_findings_normalises_signed_amount_and_drops_duplicates():
+    rows = model.presentation_rows([
+        {'id': 7, 'cat_class': 'cat-x', 'vendor_key': 'kum_go',
+         'description': 'Kum & Go', 'amount': '-12.34', 'date': '2025-06-01',
+         'reporting_category': 'Travel & Vehicle'},
+        {'id': 8, 'cat_class': 'cat-y', 'vendor_key': 'meijer',
+         'description': 'Meijer', 'amount': '-45.00', 'date': '2025-06-02',
+         'reporting_category': 'Household'},
+    ], duplicate_ids={8})
+    findings = model.stored_findings(rows)
+    assert len(findings) == 1
+    assert findings[0].merchant_name == 'Kum & Go'
+    # Stored amounts are signed (negative = expense); a finding always carries
+    # the positive magnitude every manual/Mazda-Fill entry already uses.
+    assert findings[0].total_amount == 12.34
+
+
+def test_stored_findings_drops_a_row_that_fails_expense_field_rules():
+    """A blank description couldn't have been stored in the first place --
+    the dialog degrades to blank-for-that-row instead of shipping the browser
+    a finding it cannot render."""
+    rows = model.presentation_rows([
+        {'id': 9, 'cat_class': '', 'vendor_key': '', 'description': '',
+         'amount': '-5.00', 'date': '2025-06-03', 'reporting_category': ''},
+    ], duplicate_ids=set())
+    assert model.stored_findings(rows) == []
+
+
 def test_document_meta_html_omits_fields_with_nothing_to_say():
     html = page.document_meta_html([
         ('Document Type', 'Chase Bank Statement'),
@@ -208,6 +236,30 @@ def test_manual_entry_mount_without_a_mode_stamps_nothing():
     html = page.manual_entry_form_html('/staged/x.jpg', 'conv-1', 'window')
     assert 'data-mazda-automatic' not in html
     assert 'manual-entry-root' in html
+
+
+def test_manual_entry_mount_stamps_stored_items_as_findings_json():
+    """Mazda's own STEP 8 findings seed the review dialog instead of leaving
+    it blank after an automatic scan (see intake_report_model.stored_findings)."""
+    html = page.manual_entry_form_html(
+        '/staged/x.jpg', 'conv-1', 'window',
+        stored_items=[
+            model.StoredFinding(merchant_name='DTE Energy', transaction_date='2026-08-01',
+                                 total_amount=45.12, category_name='Utilities'),
+            model.StoredFinding(merchant_name='Meijer', transaction_date='2026-08-02',
+                                 total_amount=12.00, category_name=''),
+        ])
+    assert 'data-mazda-findings="' in html
+    assert '&quot;merchant_name&quot;: &quot;DTE Energy&quot;' in html
+    assert '&quot;merchant_name&quot;: &quot;Meijer&quot;' in html
+
+
+def test_manual_entry_mount_without_stored_items_stamps_no_findings():
+    html = page.manual_entry_form_html('/staged/x.jpg', 'conv-1', 'window')
+    assert 'data-mazda-findings' not in html
+    html = page.manual_entry_form_html(
+        '/staged/x.jpg', 'conv-1', 'window', stored_items=[])
+    assert 'data-mazda-findings' not in html
 
 
 def test_render_intake_report_shows_the_entry_form_and_one_edit_button():

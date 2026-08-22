@@ -16,6 +16,10 @@ from __future__ import annotations
 from datetime import datetime
 import os
 
+from pydantic import ValidationError
+
+from finance.expense_fields import ExpenseFieldRules
+
 #: A metadata field left at this marker has no value to report, and the page
 #: omits its row rather than printing a dash.
 META_EMPTY = '--'
@@ -174,3 +178,53 @@ def presentation_rows(rows, duplicate_ids, *, stored=None, parsed=None):
             'duplicate': row_id in duplicate_ids or everything_was_a_duplicate,
         })
     return prepared
+
+
+class StoredFinding(ExpenseFieldRules):
+    """One of Mazda's own findings, already stored for this document.
+
+    Feeds the review dialog's data-mazda-findings attribute (see
+    finance/intake_report_page.py's manual_entry_form_html) so an automatic
+    scan seeds the dialog with what she read instead of leaving it blank.
+    Reusing ExpenseFieldRules -- the same merchant/date/amount rules
+    manual_entry.ManualReceiptEntry and expense_edit_model.ExpenseEdit already
+    enforce -- means a row that could not have been stored in the first place
+    can never reach the browser as a "finding" either; stored_findings() below
+    drops it instead.
+    """
+
+    category_name: str = ''
+
+
+def stored_findings(rows):
+    """`presentation_rows` output -> validated `StoredFinding`s for the dialog.
+
+    Duplicate rows are excluded: a duplicate was already rejected as a repeat,
+    not something to check/correct/re-save. A row that fails ExpenseFieldRules
+    (e.g. a blank description slipped through, or an unparsable amount) is
+    dropped rather than raised -- the review dialog degrades to asking the
+    operator to fill it in by hand, same as it always has for a row Mazda
+    never touched, instead of failing the whole page.
+    """
+    findings = []
+    for row in rows:
+        if row['duplicate']:
+            continue
+        try:
+            # Stored rows carry a signed amount (negative = expense, see the
+            # table's data-signed-amount); ExpenseFieldRules' total_amount is
+            # the same always-positive magnitude every manual/Mazda-Fill entry
+            # already uses, so the sign is normalised here, once.
+            amount = abs(float(row['amount']))
+        except (TypeError, ValueError):
+            continue
+        try:
+            findings.append(StoredFinding(
+                merchant_name=row['description'],
+                transaction_date=row['date'],
+                total_amount=amount,
+                category_name=row['reporting_category'],
+            ))
+        except ValidationError:
+            continue
+    return findings
