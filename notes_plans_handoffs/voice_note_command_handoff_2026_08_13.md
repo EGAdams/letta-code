@@ -88,10 +88,8 @@ lc-gemini/gemini-2.5-flash-lite  →  chatgpt-plus-pro/gpt-5.6-luna
 receptionist intent policy, and the note-command channel — all three default to that agent and were
 failing closed. Mechanism: `PATCH /v1/agents/{id}` with body `{"model": "<handle>"}`.
 
-Why Luna: OpenAI cut it ~80% on 2026-07-30 to **$0.20/M in, $1.20/M out**, vs `gpt-5.4-mini` at
-**$0.75/$4.50** — the "mini" model is no longer the cheap one. A 10-prompt benchmark scored
-10/10 for `5.4-mini`, `luna`, and `luna + reasoning_effort=high` at 4.5s / 4.1s / 3.9s avg, i.e.
-indistinguishable. Luna chosen on cost + headroom, not measured superiority.
+Why Luna: OpenAI cut it ~80% on 2026-07-30 to **$0.20/M in, $1.20/M out**. Luna was chosen
+for the approved full-model path and available headroom; no mini-model fallback is permitted.
 
 **`reasoning_effort` is a trap:** top-level PATCH is silently ignored, partial `llm_config` PATCH
 returns 422, only a full `llm_config` replace works — and it **resets to null on any

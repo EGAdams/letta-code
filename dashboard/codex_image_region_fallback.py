@@ -29,7 +29,7 @@ class CodexCliImageRegionFallbackMatcher(IImageRegionFallbackMatcher):
         )
         self._model = model or os.environ.get(
             "DOCUMENT_ANNOTATION_FALLBACK_MODEL",
-            "gpt-5.4-mini",
+            "gpt-5.6-luna",
         )
         self._timeout = timeout
         self._runner = runner or subprocess.run

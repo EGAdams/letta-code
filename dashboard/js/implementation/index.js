@@ -20,6 +20,10 @@ export { TranscriptBuffer } from "../abstract/transcript-buffer.js";
 export { VoiceCommandChannel } from "../abstract/voice-command-channel.js";
 export { ActivePoller } from "./active-poller.js";
 export { AgentActivityPoller } from "./agent-activity-poller.js";
+export {
+  AgentAssignmentsController,
+  buildOauthAccountSelect,
+} from "./agent-assignments-panel.js";
 export { AgentHealthPoller } from "./agent-health-poller.js";
 export { AgentStreamController } from "./agent-stream-controller.js";
 export { AgentsRouterRenderer } from "./agents-router-renderer.js";

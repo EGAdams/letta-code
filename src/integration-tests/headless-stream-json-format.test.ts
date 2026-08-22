@@ -55,7 +55,7 @@ async function runHeadlessCommand(
         "stream-json",
         "--yolo",
         "-m",
-        "gpt-5.4-mini-plus-pro-medium",
+        "gpt-5.4-plus-pro-medium",
         ...extraArgs,
       ],
       {

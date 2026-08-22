@@ -88,7 +88,7 @@ To include the model in automated testing, add it to `.github/workflows/ci.yml`:
 
 ```yaml
 # Find the headless job matrix around line 122
-model: [gpt-5-minimal, gpt-4.1, sonnet-4.5, gemini-pro, your-new-model, glm-4.6, haiku]
+model: [gpt-5.4, gpt-4.1, sonnet-4.5, gemini-pro, your-new-model, glm-4.6, haiku]
 ```
 
 ## Toolset Detection

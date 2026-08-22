@@ -245,7 +245,7 @@ ROL_FINANCE_REPORTS = [
     {'key': 'bank-3119-pdf',     'label': 'Bank 3119 PDF',      'dir': 'fifth_third_non_profit_3119'},
     {'key': 'choice-7580-year',  'label': 'Choice 7580 Year',   'dir': 'choice_7580_year', 'all_year': True},
     {'key': 'prime-chase-5783',  'label': 'Prime Chase 5783', 'dir': 'prime_chase_5783_whole_year_2025', 'all_year': True},
-    {'key': 'amazon-marketplace', 'label': 'Amazon Marketplace', 'dir': 'amazon_marketplace_january_2025'},
+    {'key': 'amazon-marketplace', 'label': 'Amazon Marketplace', 'dir': 'amazon_marketplace_january_2025', 'all_year': True},
 ]
 
 
@@ -6064,6 +6064,24 @@ def _source_document_path(report_path, receipt_path=None):
     return receipt_path or ''
 
 
+def _report_source_document_view(report_path):
+    """Return a browser-viewable copy of the document behind a report."""
+    source_path = _source_document_path(report_path)
+    if not source_path or not os.path.isfile(source_path):
+        return ''
+    ext = os.path.splitext(source_path)[1].lower()
+    if ext not in _VIEWABLE_DOCUMENT_EXTENSIONS:
+        return ''
+    if ext in {'.xlsx', '.xlsm'}:
+        cache_key = hashlib.sha256(source_path.encode('utf-8')).hexdigest()[:16]
+        browser_path = os.path.join(
+            SUPPORTING_DOCUMENT_ANNOTATION_CACHE,
+            f'{cache_key}-{os.path.basename(source_path)}.html',
+        )
+        return render_excel_for_browser(source_path, browser_path)
+    return source_path
+
+
 def _document_machine_origin():
     import socket
     hostname = socket.gethostname().lower()
@@ -6672,7 +6690,6 @@ AGENT_MODEL_OPTIONS = [
     'chatgpt-plus-pro/gpt-5.6-luna',
     'chatgpt-plus-pro/gpt-5.5',
     'chatgpt-plus-pro/gpt-5.4',
-    'chatgpt-plus-pro/gpt-5.4-mini',
     'claude-pro-max/claude-haiku-4-5-20251001',
     'claude-pro-max/claude-sonnet-5',
     'claude-pro-max/claude-opus-5',
@@ -6818,7 +6835,7 @@ LETTA_AGENTS = [
     {'name': 'Suzuki Reproducer',      'id': 'agent-ad0c3e39-bd14-4f79-af95-140e4cf21325', 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Suzuki Static Analysis', 'id': 'agent-a820e191-bc39-413c-bb0c-6344d5b37643', 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Suzuki Patch',           'id': 'agent-2c585993-1193-42d8-9bf5-1805b426a0da', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Test Runner',     'id': 'agent-a90f1413-6599-4750-b7e0-ee55634984162', 'llm_provider': CHATGPT_PLUS_PRO},
+    {'name': 'Suzuki Test Runner',     'id': 'agent-a90f1413-6599-4750-b7e0-ee5634984162', 'llm_provider': CHATGPT_PLUS_PRO},
     {'name': 'Suzuki Regression',      'id': 'agent-8af8fec4-5114-40b3-99ab-173edd35ebd2', 'llm_provider': CHATGPT_PLUS_PRO},
 ]
 
@@ -9243,7 +9260,7 @@ def clear_agent_send_error(agent_id: str) -> None:
 # as the probe itself detects a problem.
 #
 # 2026-07-07: the probe used to SEND A REAL LLM MESSAGE ("ping") to a canary
-# agent every sweep — ~40 full-context gpt-5.4-mini calls per awake-hour, and
+# agent every sweep — dozens of full-context model calls per awake-hour, and
 # the canary's history grew with every ping/reply pair, so each probe got more
 # expensive AND burned the very quota it was watching. Replaced with a
 # ZERO-TOKEN probe: read the provider's own OAuth token from the Letta API
@@ -9391,6 +9408,182 @@ PROVIDER_USAGE_PROBES = {
     'anthropic': _probe_claude_usage,
     'anthropic_oauth': _probe_claude_usage,
 }
+
+
+# ── Per-agent OAuth account assignment (Model Stats "Agent Assignments" tab) ─
+# Each Letta provider row is a single account's token; per-agent "which token"
+# is really "which provider row" for the agent's model family. Two families
+# (claude / chatgpt) x two humans (eg / mom) = the four real provider rows
+# created 2026-08-21 when Mazda's fleet moved off the single shared
+# claude-pro-max row (see mazda_categorizer_provider_fallback memory lineage).
+OAUTH_PROVIDER_ACCOUNTS = {
+    'claude-pro-max-eg':    {'account': 'eg',  'label': 'eg1972@gmail.com',     'family': 'claude'},
+    'claude-pro-max':       {'account': 'mom', 'label': 'rbarnesrol@gmail.com', 'family': 'claude'},
+    'chatgpt-plus-pro':     {'account': 'eg',  'label': 'eg1972@gmail.com',     'family': 'chatgpt'},
+    'chatgpt-plus-pro-mom': {'account': 'mom', 'label': 'rbarnesrol@aol.com',   'family': 'chatgpt'},
+}
+OAUTH_ACCOUNT_PROVIDER = {
+    (meta['family'], meta['account']): provider
+    for provider, meta in OAUTH_PROVIDER_ACCOUNTS.items()
+}
+
+_weekly_remaining_cache = {}
+_weekly_remaining_cache_lock = threading.Lock()
+WEEKLY_REMAINING_CACHE_TTL = 60  # seconds; keeps the tab's poll from re-hitting 4 usage APIs every refresh
+
+
+def _weekly_percent_remaining(provider_name):
+    """100 - the 7-day/weekly window's used_percent for a provider's live
+    token, via the same zero-token usage probes as the health system (never
+    an LLM call). None on any failure -- caller renders that as unknown, not 0%."""
+    now = time.time()
+    with _weekly_remaining_cache_lock:
+        cached = _weekly_remaining_cache.get(provider_name)
+        if cached and now - cached[1] < WEEKLY_REMAINING_CACHE_TTL:
+            return cached[0]
+
+    creds, provider_type = _fetch_provider_oauth_creds(provider_name)
+    remaining = None
+    if creds:
+        try:
+            if provider_type in ('anthropic', 'anthropic_oauth'):
+                token = creds.get('access_token') or (creds.get('claudeAiOauth') or {}).get('accessToken') or ''
+                req = urllib.request.Request(
+                    'https://api.anthropic.com/api/oauth/usage',
+                    headers={'Authorization': 'Bearer ' + token,
+                             'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'claude-code/2.0.32'})
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    usage = json.loads(r.read().decode())
+                used = float((usage.get('seven_day') or {}).get('utilization') or 0)
+                remaining = round(100 - used, 1)
+            elif provider_type == 'chatgpt_oauth':
+                req = urllib.request.Request(
+                    'https://chatgpt.com/backend-api/wham/usage',
+                    headers={'Authorization': 'Bearer ' + (creds.get('access_token') or ''),
+                             'ChatGPT-Account-Id': creds.get('account_id', ''),
+                             'OpenAI-Beta': 'codex-1', 'originator': 'codex_cli_rs', 'User-Agent': 'codex'})
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    usage = json.loads(r.read().decode())
+                rl = usage.get('rate_limit') or {}
+                # The weekly window isn't reliably "secondary_window" -- its
+                # position shifts (see codex_window_label's 2026-08-19 note:
+                # primary_window was the 7-day window with no secondary at
+                # all). Pick whichever window's own limit_window_seconds is
+                # actually ~7 days, not a fixed key.
+                w = None
+                for key in ('primary_window', 'secondary_window'):
+                    candidate = rl.get(key)
+                    if isinstance(candidate, dict) and abs((candidate.get('limit_window_seconds') or 0) - 604800) < 3600:
+                        w = candidate
+                        break
+                used = float((w or {}).get('used_percent') or 0)
+                remaining = round(100 - used, 1)
+        except Exception:
+            remaining = None
+
+    with _weekly_remaining_cache_lock:
+        _weekly_remaining_cache[provider_name] = (remaining, now)
+    return remaining
+
+
+def agent_oauth_account_payload(letta_id, pending_model=''):
+    """GET contract for the per-agent OAuth-account dropdown: current account
+    + the other account valid for this agent's current model family.
+
+    `pending_model` is the dashboard's *not-yet-saved* model-dropdown value
+    (a full handle like 'chatgpt-plus-pro/gpt-5.6-luna') -- when given, it
+    determines which family's accounts to list instead of the agent's live
+    llm_config. Without this, switching the model dropdown to a different
+    family would still show the OLD family's account labels (e.g. Claude's
+    rbarnesrol@gmail.com) until the model PATCH round-trip finished, and a
+    selection made against those stale labels resolves by account KEY
+    ('eg'/'mom') under the NEW family -- silently landing on the right
+    provider row but the wrong-looking label having been shown when picked."""
+    cur = letta_get(f'/v1/agents/{letta_id}', timeout=15) or {}
+    live_provider = ((cur.get('llm_config') or {}).get('provider_name')) or ''
+    family_provider = (pending_model.partition('/')[0] if pending_model else live_provider)
+    family_info = OAUTH_PROVIDER_ACCOUNTS.get(family_provider)
+    if not family_info:
+        return {'ok': False, 'error': f'unknown provider {family_provider!r}', 'current': '', 'options': []}
+    live_info = OAUTH_PROVIDER_ACCOUNTS.get(live_provider)
+    current = live_info['account'] if live_info and live_info['family'] == family_info['family'] else ''
+    options = [
+        {'account': meta['account'], 'label': meta['label']}
+        for meta in OAUTH_PROVIDER_ACCOUNTS.values()
+        if meta['family'] == family_info['family']
+    ]
+    return {'ok': True, 'current': current, 'options': options}
+
+
+def patch_agent_oauth_account(agent_id, account):
+    """POST handler body: repoint an agent at a different human's token for
+    its CURRENT model family, keeping the model itself unchanged."""
+    lid = letta_id_for(agent_id)
+    if not lid:
+        return {'ok': False, 'error': 'not a Letta agent'}
+    cur = letta_get(f'/v1/agents/{lid}', timeout=15) or {}
+    llm = cur.get('llm_config') or {}
+    cur_provider = llm.get('provider_name') or ''
+    info = OAUTH_PROVIDER_ACCOUNTS.get(cur_provider)
+    if not info:
+        return {'ok': False, 'error': f'unknown provider {cur_provider!r}'}
+    target_provider = OAUTH_ACCOUNT_PROVIDER.get((info['family'], account))
+    if not target_provider:
+        return {'ok': False, 'error': f'account {account!r} is not valid for the {info["family"]} family'}
+    model_id = llm.get('model') or ''
+    new_handle = f'{target_provider}/{model_id}'
+    req = urllib.request.Request(
+        f'{LETTA_BASE_URL}/v1/agents/{lid}',
+        data=json.dumps({'model': new_handle}).encode(),
+        headers={'Content-Type': 'application/json'},
+        method='PATCH',
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        resp = json.loads(r.read().decode())
+    return {'ok': True, 'account': account, 'model': (resp.get('llm_config') or {}).get('handle') or new_handle}
+
+
+_model_stats_agents_cache = {'value': None, 'ts': 0.0}
+_model_stats_agents_cache_lock = threading.Lock()
+MODEL_STATS_AGENTS_CACHE_TTL = 20  # seconds; one bulk /v1/agents/ fetch backs every row
+
+
+def model_stats_agents_payload(force_refresh=False):
+    """One row per LETTA_AGENTS entry for the Agent Assignments tab: current
+    model, current OAuth account label, and that account's weekly-remaining %."""
+    now = time.time()
+    if not force_refresh:
+        with _model_stats_agents_cache_lock:
+            cached = _model_stats_agents_cache.get('value')
+            if cached is not None and now - _model_stats_agents_cache.get('ts', 0.0) < MODEL_STATS_AGENTS_CACHE_TTL:
+                return cached
+
+    req = urllib.request.Request(f'{LETTA_BASE_URL}/v1/agents/?limit=200')
+    with urllib.request.urlopen(req, timeout=20) as r:
+        all_agents = json.loads(r.read().decode())
+    by_id = {a['id']: a for a in all_agents}
+
+    rows = []
+    for cfg in LETTA_AGENTS:
+        real_id = get_letta_id(cfg)
+        agent_data = by_id.get(real_id) if real_id else None
+        llm = (agent_data or {}).get('llm_config') or {}
+        provider = llm.get('provider_name') or ''
+        model_id = llm.get('model') or ''
+        info = OAUTH_PROVIDER_ACCOUNTS.get(provider)
+        rows.append({
+            'id': real_id or f'unknown-{cfg["name"].lower()}',
+            'name': cfg['name'],
+            'model': model_id,
+            'account': info['account'] if info else '',
+            'account_label': info['label'] if info else (provider or 'unknown'),
+            'weekly_percent_remaining': _weekly_percent_remaining(provider) if provider else None,
+        })
+
+    with _model_stats_agents_cache_lock:
+        _model_stats_agents_cache['value'] = rows
+        _model_stats_agents_cache['ts'] = now
+    return rows
 
 
 # ── ChatGPT provider auto-failover ────────────────────────────────────────────
@@ -9802,14 +9995,14 @@ def letta_id_for(agent_id):
 R46_SSH_HOST = os.environ.get('R46_SSH_HOST', 'adamsl@100.72.34.38')
 
 MODEL_STAT_SOURCES = {
-    'w11-codex':  {'label': 'W11 Codex OAuth',  'kind': 'codex',  'host': None},
-    'r46-codex':  {'label': 'R46 Codex OAuth',  'kind': 'codex',  'host': R46_SSH_HOST},
-    'w11-claude': {'label': 'W11 Claude OAuth', 'kind': 'claude', 'host': None},
-    'r46-claude': {'label': 'R46 Claude OAuth', 'kind': 'claude', 'host': R46_SSH_HOST},
+    'w11-codex':  {'label': 'eg1972 codex',     'kind': 'codex',  'host': None},
+    'r46-codex':  {'label': 'rbarnesrol codex', 'kind': 'codex',  'host': R46_SSH_HOST},
+    'w11-claude': {'label': 'eg1972 claude',    'kind': 'claude', 'host': None},
+    'r46-claude': {'label': 'rbarnesrol claude','kind': 'claude', 'host': R46_SSH_HOST},
     # 2026-08-16: replaced Antigravity CLI monitoring with the Gemini API key
     # ("Gemini Flash Fill" button's engine) -- different Google products, see
     # _GEMINI_FLASH_FILL_EXTRACT_PY's docstring for why they were conflated.
-    'gemini':     {'label': 'Gemini API (receipts)', 'kind': 'gemini', 'host': None},
+    'gemini':     {'label': 'Gemini Flash', 'kind': 'gemini', 'host': None},
 }
 
 # Extractors run on the target machine (locally or piped over SSH). Each prints a
@@ -11091,6 +11284,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self.json_response({'ok': False, 'error': 'not a Letta agent', 'options': []})
             return self.json_response(agent_model_payload(lid))
 
+        if path == '/api/agent-oauth-account':
+            lid = letta_id_for(agent_id)
+            if not lid:
+                return self.json_response({'ok': False, 'error': 'not a Letta agent', 'current': '', 'options': []})
+            return self.json_response(
+                agent_oauth_account_payload(lid, pending_model=query.get('model', [''])[0]))
+
+        if path == '/api/model-stats-agents':
+            return self.json_response(
+                model_stats_agents_payload(force_refresh=query.get('refresh', ['0'])[0] == '1'))
+
         if path == '/api/router-agent':
             from router.classify import build_router_strategy
             strategy = build_router_strategy()
@@ -11565,6 +11769,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 self.send_error(404)
                 return
 
+        if path == '/report-source-document':
+            try:
+                document_path = _report_source_document_view(
+                    query.get('report_path', [''])[0])
+            except Exception as exc:
+                print(f'[report-source-document] Render failed: {exc}')
+                self.send_error(500, 'Could not render source document')
+                return
+            if document_path:
+                ext = os.path.splitext(document_path)[1].lower()
+                ctype = {
+                    '.html': 'text/html; charset=utf-8',
+                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                    '.png': 'image/png', '.gif': 'image/gif',
+                    '.webp': 'image/webp', '.pdf': 'application/pdf',
+                }.get(ext, 'application/octet-stream')
+                return self.serve_file(document_path, ctype)
+            self.send_error(404)
+            return
+
         if path.startswith(SUPPORTING_DOCUMENT_URL_PREFIX + '/'):
             parts = path[len(SUPPORTING_DOCUMENT_URL_PREFIX) + 1:].split('/')
             document_path = (
@@ -11993,6 +12217,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 cur_handle = (cur.get('llm_config') or {}).get('handle') or ''
                 if model not in agent_model_options(cur_handle):
                     return self.json_response({'ok': False, 'error': f'model {model!r} is not in the allowed list'})
+                # Preserve the agent's currently-assigned OAuth account across a
+                # model swap. AGENT_MODEL_OPTIONS always names the default
+                # (mom's) provider row per family, so without this a plain
+                # model change would silently move an eg-assigned agent back
+                # onto the shared token.
+                cur_provider = (cur.get('llm_config') or {}).get('provider_name') or ''
+                cur_account = (OAUTH_PROVIDER_ACCOUNTS.get(cur_provider) or {}).get('account')
+                if cur_account:
+                    req_provider, _, req_model_id = model.partition('/')
+                    req_family = (OAUTH_PROVIDER_ACCOUNTS.get(req_provider) or {}).get('family')
+                    target_provider = OAUTH_ACCOUNT_PROVIDER.get((req_family, cur_account))
+                    if target_provider:
+                        model = f'{target_provider}/{req_model_id}'
                 req = urllib.request.Request(
                     f'{LETTA_BASE_URL}/v1/agents/{lid}',
                     data=json.dumps({'model': model}).encode(),
@@ -12003,6 +12240,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     resp = json.loads(r.read().decode())
                 new_handle = (resp.get('llm_config') or {}).get('handle') or model
                 return self.json_response({'ok': True, 'model': new_handle})
+            except urllib.error.HTTPError as e:
+                return self.json_response({'ok': False, 'error': f'letta {e.code}: {e.read().decode()[:200]}'})
+            except Exception as e:
+                return self.json_response({'ok': False, 'error': str(e)})
+
+        if path == '/api/agent-oauth-account':
+            try:
+                data = json.loads(body)
+                return self.json_response(
+                    patch_agent_oauth_account(data.get('agent', ''), data.get('account', '')))
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
             except urllib.error.HTTPError as e:
                 return self.json_response({'ok': False, 'error': f'letta {e.code}: {e.read().decode()[:200]}'})
             except Exception as e:

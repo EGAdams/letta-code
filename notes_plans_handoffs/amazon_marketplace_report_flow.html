@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Amazon Marketplace report.html build flow</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+  <link rel="stylesheet" href="/css/plan-workspace.css" />
+  <style>
+    .flow-page { max-width: 1500px; margin: 0 auto; }
+    .flow-page h1 { margin: 0 0 6px; font-size: 30px; }
+    .flow-page .intro { color: var(--muted); max-width: 88ch; margin: 0 0 24px; }
+    .flow-page .source-note { font-size: 13px; }
+    .processing-toolbar {
+      position: sticky; top: 0; z-index: 20; display: flex; align-items: end;
+      gap: 12px; flex-wrap: wrap; margin: -34px -46px 28px; padding: 14px 46px;
+      background: #c0c0c0; border-bottom: 2px solid #808080;
+      box-shadow: inset 0 -1px #fff;
+      font-family: Tahoma, "MS Sans Serif", sans-serif;
+    }
+    .processing-toolbar label { display: grid; gap: 4px; font-size: 11px; font-weight: 700; }
+    .processing-toolbar select, .processing-toolbar button {
+      min-height: 30px; border: 2px solid; border-color: #fff #404040 #404040 #fff;
+      border-radius: 0; background: #f5f5f5; color: #000; padding: 4px 10px;
+      font: 12px Tahoma, "MS Sans Serif", sans-serif;
+    }
+    .processing-toolbar select { min-width: 270px; }
+    .processing-toolbar button { font-weight: 700; background: #c0c0c0; cursor: pointer; }
+    .processing-toolbar button:active { border-color: #404040 #fff #fff #404040; padding: 5px 9px 3px 11px; }
+    .processing-toolbar button:disabled { color: #808080; cursor: wait; }
+    .workflow-readout { flex: 1 1 360px; min-width: 260px; }
+    #workflow-status { display: block; margin-bottom: 4px; font-size: 11px; }
+    .workflow-progress { height: 10px; padding: 1px; background: #fff; border: 1px inset #808080; }
+    #workflow-progress-bar { display: block; width: 0; height: 100%; background: #000080; transition: width .18s linear; }
+    #workflow-unavailable-panel { padding: 44px 20px; text-align: center; color: var(--muted); }
+    #workflow-unavailable-dialog {
+      width: min(390px, 90vw); padding: 3px; border: 2px solid;
+      border-color: #fff #202020 #202020 #fff; background: #c0c0c0; color: #000;
+      font: 12px Tahoma, "MS Sans Serif", sans-serif; box-shadow: 3px 3px 0 rgba(0,0,0,.45);
+    }
+    #workflow-unavailable-dialog::backdrop { background: rgba(0,0,0,.32); }
+    .win98-titlebar { display: flex; justify-content: space-between; padding: 3px 5px; background: #000080; color: #fff; font-weight: 700; }
+    .win98-dialog-body { display: flex; align-items: center; gap: 14px; padding: 20px 18px 14px; }
+    .win98-dialog-icon { font-size: 28px; color: #000080; }
+    .win98-dialog-actions { padding: 0 12px 12px; text-align: center; }
+    .win98-dialog-actions button { min-width: 80px; padding: 4px 18px; background: #c0c0c0; border: 2px solid; border-color: #fff #404040 #404040 #fff; }
+    svg rect.actor, svg rect.note, svg .messageLine0, svg .messageLine1, svg .messageText, svg .noteText {
+      transition: fill .12s linear, stroke .12s linear, stroke-width .12s linear, filter .12s linear;
+    }
+    svg rect.actor.workflow-active, svg rect.note.workflow-active {
+      fill: #ffe36e !important; stroke: #9a6500 !important; stroke-width: 4px !important;
+      filter: drop-shadow(0 0 5px #ffc400);
+    }
+    svg .messageLine0.workflow-active, svg .messageLine1.workflow-active {
+      stroke: #d18b00 !important; stroke-width: 6px !important;
+      filter: drop-shadow(0 0 3px #ffd000);
+    }
+    svg .messageText.workflow-active, svg .noteText.workflow-active {
+      fill: #7a4d00 !important; font-weight: 800 !important;
+    }
+    @media (max-width: 900px) {
+      .processing-toolbar { margin: -22px -18px 24px; padding: 12px 18px; }
+      .processing-toolbar select { min-width: min(270px, 70vw); }
+    }
+  </style>
+</head>
+<body>
+  <main class="workspace-content flow-page">
+    <section class="processing-toolbar" aria-label="Report workflow controls">
+      <button id="start-processing" type="button">Start Processing</button>
+      <label for="report-document">
+        January 2025 document
+        <select id="report-document" aria-label="January 2025 report document">
+          <option>Loading January reports…</option>
+        </select>
+      </label>
+      <div class="workflow-readout" aria-live="polite">
+        <span id="workflow-status">Loading workflow…</span>
+        <div class="workflow-progress" aria-hidden="true"><span id="workflow-progress-bar"></span></div>
+      </div>
+    </section>
+
+    <header class="spec-header">
+      <h1>Amazon Marketplace → <code>report.html</code></h1>
+      <p class="spec-tagline">How the January 2025 dashboard report is assembled from itemized orders and standalone expenses.</p>
+    </header>
+
+    <p class="intro">
+      The authoritative input is the itemized Amazon Orders 2025 workbook. The source adapter
+      creates one expense object per order; the import service persists those orders as standalone
+      rows in <code>expenses</code>. The verification report then reconciles the workbook, database,
+      vendor key, category, duplicate key, and receipt metadata before writing the dashboard-facing
+      <code>report.html</code>.
+    </p>
+
+    <section id="amazon-diagram-panel" class="spec-section">
+      <h2>Build sequence</h2>
+      <div id="diagram-mount"></div>
+      <p class="source-note">
+        Source objects: <code>AmazonMarketplaceSource</code>,
+        <code>AmazonMarketplaceExpense</code>, <code>AmazonMarketplaceImportService</code>,
+        <code>StoredAmazonExpense</code>, and <code>AmazonMarketplaceExpenseRepository</code>.
+        Each persisted Amazon order has <code>expense_role = STANDALONE</code>; no parent or child
+        itemization rows are created.
+      </p>
+    </section>
+    <section id="workflow-unavailable-panel" class="spec-section" hidden>
+      <h2>Debugging workflow</h2>
+      <p>Select <strong>Start Processing</strong> to check whether an animated workflow is available for this document.</p>
+    </section>
+  </main>
+
+  <dialog id="workflow-unavailable-dialog" aria-labelledby="workflow-dialog-title">
+    <div class="win98-titlebar"><span id="workflow-dialog-title">ROL Finance</span><span aria-hidden="true">×</span></div>
+    <div class="win98-dialog-body"><span class="win98-dialog-icon" aria-hidden="true">ⓘ</span><span>Debugging workflow not available yet.</span></div>
+    <div class="win98-dialog-actions"><button id="workflow-dialog-ok" type="button" autofocus>OK</button></div>
+  </dialog>
+
+  <script type="module" src="/js/plans/process-flows/amazon-report-flow-boot.js"></script>
+</body>
+</html>

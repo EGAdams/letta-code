@@ -172,6 +172,28 @@ describe("ChatDetailRenderer (Strategy)", () => {
     expect(out.innerHTML).toContain("yo");
   });
 
+  test("keeps earlier user messages and replies in the conversation box", async () => {
+    const ctx = chatSetup({
+      replies: [{ type: "assistant_message", text: "first reply" }],
+    });
+    await ctx.api.sendText("first message");
+    await ctx.api.sendText("second message");
+
+    const html = ctx.container.querySelector(".msi-inner").innerHTML;
+    expect(html).toContain("first message");
+    expect(html).toContain("first reply");
+    expect(html).toContain("second message");
+    expect((html.match(/first message/g) || []).length).toBe(1);
+  });
+
+  test("escapes user messages before adding them to the transcript", async () => {
+    const ctx = chatSetup();
+    await ctx.api.sendText("<script>alert(1)</script>");
+    const html = ctx.container.querySelector(".msi-inner").innerHTML;
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).not.toContain("<script>alert(1)</script>");
+  });
+
   test("speak toggle persists preference and speaks on reply when on", async () => {
     const ctx = chatSetup({
       replies: [{ type: "assistant_message", text: "spoken reply" }],
@@ -426,11 +448,11 @@ describe("InputOptionsRenderer (Strategy)", () => {
     const ctx = inputOptionsSetup({
       modelInfo: {
         ok: true,
-        current: "chatgpt-plus-pro/gpt-5.4-mini",
+        current: "chatgpt-plus-pro/gpt-5.4",
         options: [
           "chatgpt-plus-pro/gpt-5.5",
           "chatgpt-plus-pro/gpt-5.4",
-          "chatgpt-plus-pro/gpt-5.4-mini",
+          "chatgpt-plus-pro/gpt-5.4",
         ],
       },
     });
@@ -438,7 +460,7 @@ describe("InputOptionsRenderer (Strategy)", () => {
     expect(ctx.gets).toContain("/api/agent-model?agent=a9");
     const sel = ctx.container.querySelector(".io-model-select");
     expect(sel.children.length).toBe(3);
-    expect(sel.value).toBe("chatgpt-plus-pro/gpt-5.4-mini");
+    expect(sel.value).toBe("chatgpt-plus-pro/gpt-5.4");
     expect(sel.disabled).toBe(false);
   });
 
@@ -447,12 +469,12 @@ describe("InputOptionsRenderer (Strategy)", () => {
       modelInfo: {
         ok: true,
         current: "chatgpt-plus-pro/gpt-5.4",
-        options: ["chatgpt-plus-pro/gpt-5.4", "chatgpt-plus-pro/gpt-5.4-mini"],
+        options: ["chatgpt-plus-pro/gpt-5.4", "chatgpt-plus-pro/gpt-5.4"],
       },
     });
     await Promise.resolve();
     const sel = ctx.container.querySelector(".io-model-select");
-    sel.value = "chatgpt-plus-pro/gpt-5.4-mini";
+    sel.value = "chatgpt-plus-pro/gpt-5.4";
     sel.dispatch("change", {});
     await Promise.resolve();
     await Promise.resolve();
@@ -460,7 +482,7 @@ describe("InputOptionsRenderer (Strategy)", () => {
     expect(modelPosts).toEqual([
       {
         url: "/api/agent-model",
-        body: { agent: "a9", model: "chatgpt-plus-pro/gpt-5.4-mini" },
+        body: { agent: "a9", model: "chatgpt-plus-pro/gpt-5.4" },
       },
     ]);
   });

@@ -16,11 +16,13 @@ import { TextUtils } from "./abstract/text-utils.js";
 import {
   ActivePoller,
   AgentActivityPoller,
+  AgentAssignmentsController,
   AgentCardRenderer,
   AgentHealthPoller,
   AgentStreamController,
   AgentsRouterRenderer,
   BrowserSpeechRecognitionListener,
+  buildModelRow,
   ChatDetailRenderer,
   CodeChangeAlert,
   ConnectionLogController,
@@ -75,6 +77,7 @@ const navAgentDetail = document.getElementById("nav-agent-detail");
 const navServers = document.getElementById("nav-servers");
 const navSSH = document.getElementById("nav-ssh-connections");
 const navPlans = document.getElementById("nav-plans");
+const navProcessFlows = document.getElementById("nav-process-flows");
 const navVoiceCommunication = document.getElementById(
   "nav-voice-communication",
 );
@@ -449,6 +452,7 @@ if (
   navServers &&
   navSSH &&
   navPlans &&
+  navProcessFlows &&
   navVoiceCommunication &&
   navRolFinance &&
   navRolFinanceReports
@@ -482,6 +486,22 @@ if (
         if (firstPlan)
           safeSetActive(navPlans, '[data-nav="plans"][data-target]', firstPlan);
         safeActivateView("plans-self-evolving");
+        return;
+      }
+
+      if (target === "plans-process-flows") {
+        navPlans.classList.add("hidden");
+        navProcessFlows.classList.remove("hidden");
+        const reportFlowTab = navProcessFlows.querySelector(
+          '[data-nav="process-flows"][data-target="plans-report-flow"]',
+        );
+        if (reportFlowTab)
+          safeSetActive(
+            navProcessFlows,
+            '[data-nav="process-flows"][data-target]',
+            reportFlowTab,
+          );
+        safeActivateView("plans-report-flow");
         return;
       }
 
@@ -549,11 +569,39 @@ if (
     .querySelectorAll('[data-nav="plans"][data-target]')
     .forEach((tab) => {
       tab.addEventListener("click", () => {
+        if (tab.dataset.target === "plans-process-flows") {
+          navPlans.classList.add("hidden");
+          navProcessFlows.classList.remove("hidden");
+          const reportFlowTab = navProcessFlows.querySelector(
+            '[data-nav="process-flows"][data-target="plans-report-flow"]',
+          );
+          if (reportFlowTab)
+            safeSetActive(
+              navProcessFlows,
+              '[data-nav="process-flows"][data-target]',
+              reportFlowTab,
+            );
+          safeActivateView("plans-report-flow");
+          return;
+        }
         safeSetActive(navPlans, '[data-nav="plans"][data-target]', tab);
         if (tab.dataset.target === "plans-voice-communication") {
           voiceCommunicationNavigation.open();
           return;
         }
+        safeActivateView(tab.dataset.target);
+      });
+    });
+
+  navProcessFlows
+    .querySelectorAll('[data-nav="process-flows"][data-target]')
+    .forEach((tab) => {
+      tab.addEventListener("click", () => {
+        safeSetActive(
+          navProcessFlows,
+          '[data-nav="process-flows"][data-target]',
+          tab,
+        );
         safeActivateView(tab.dataset.target);
       });
     });
@@ -799,6 +847,24 @@ if (
       if (homeTab)
         safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
       safeActivateView("home");
+    });
+  }
+
+  const backProcessFlows = document.getElementById("btn-back-process-flows");
+  if (backProcessFlows) {
+    backProcessFlows.addEventListener("click", () => {
+      navProcessFlows.classList.add("hidden");
+      navPlans.classList.remove("hidden");
+      const processFlowsTab = navPlans.querySelector(
+        '[data-nav="plans"][data-target="plans-process-flows"]',
+      );
+      if (processFlowsTab)
+        safeSetActive(
+          navPlans,
+          '[data-nav="plans"][data-target]',
+          processFlowsTab,
+        );
+      safeActivateView("plans-process-flows");
     });
   }
 
@@ -1077,6 +1143,18 @@ function renderModelStats(d) {
   return h;
 }
 
+const AGENT_ASSIGNMENTS_SOURCE = "agent-assignments";
+const elFactory = (tag, props = {}) =>
+  Object.assign(document.createElement(tag), props);
+const agentAssignments = new AgentAssignmentsController({
+  http,
+  el: elFactory,
+  buildModelSelect: (opts) => buildModelRow(opts).select,
+  container: document.getElementById("model-stats-agents"),
+  onStatus: (msg, isError) =>
+    console[isError ? "error" : "log"]("agent-assignments:", msg),
+});
+
 const MS = {
   pollTimer: null,
   stopPoll() {
@@ -1084,6 +1162,7 @@ const MS = {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    agentAssignments.stop();
   },
   open() {
     if (!navModelStats) return;
@@ -1099,14 +1178,27 @@ const MS = {
     }
     this.pollColors();
     this.pollTimer = setInterval(() => {
-      if (this.current) this.show(this.current);
+      if (this.current && this.current !== AGENT_ASSIGNMENTS_SOURCE) {
+        this.show(this.current);
+      }
       this.pollColors();
     }, 120000);
   },
   async show(key) {
     const body = document.getElementById("model-stats-body");
-    if (!body) return;
+    const agentsPanel = document.getElementById("model-stats-agents");
+    if (!body || !agentsPanel) return;
     this.current = key;
+
+    if (key === AGENT_ASSIGNMENTS_SOURCE) {
+      body.classList.add("hidden");
+      agentsPanel.classList.remove("hidden");
+      agentAssignments.start();
+      return;
+    }
+    agentAssignments.stop();
+    agentsPanel.classList.add("hidden");
+    body.classList.remove("hidden");
     body.innerHTML = '<p class="am-dim">Loading…</p>';
     try {
       const d = await http.getJSON(

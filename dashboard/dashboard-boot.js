@@ -50,6 +50,7 @@ const navAgentDetail = document.getElementById("nav-agent-detail");
 const navServers = document.getElementById("nav-servers");
 const navSSH = document.getElementById("nav-ssh-connections");
 const navPlans = document.getElementById("nav-plans");
+const navProcessFlows = document.getElementById("nav-process-flows");
 const navRolFinance = document.getElementById("nav-rol-finance");
 const navRolFinanceReports = document.getElementById("nav-rol-finance-reports");
 const startupOverlay = document.getElementById("startup-overlay");
@@ -478,6 +479,22 @@ if (
         return;
       }
 
+      if (target === "plans-process-flows") {
+        navPlans.classList.add("hidden");
+        navProcessFlows.classList.remove("hidden");
+        const reportFlowTab = navProcessFlows.querySelector(
+          '[data-nav="process-flows"][data-target="plans-report-flow"]',
+        );
+        if (reportFlowTab)
+          safeSetActive(
+            navProcessFlows,
+            '[data-nav="process-flows"][data-target]',
+            reportFlowTab,
+          );
+        safeActivateView("plans-report-flow");
+        return;
+      }
+
       if (target === "rol-finance") {
         navMain.classList.add("hidden");
         navRolFinance.classList.remove("hidden");
@@ -524,7 +541,35 @@ if (
     .querySelectorAll('[data-nav="plans"][data-target]')
     .forEach((tab) => {
       tab.addEventListener("click", () => {
+        if (tab.dataset.target === "plans-process-flows") {
+          navPlans.classList.add("hidden");
+          navProcessFlows.classList.remove("hidden");
+          const reportFlowTab = navProcessFlows.querySelector(
+            '[data-nav="process-flows"][data-target="plans-report-flow"]',
+          );
+          if (reportFlowTab)
+            safeSetActive(
+              navProcessFlows,
+              '[data-nav="process-flows"][data-target]',
+              reportFlowTab,
+            );
+          safeActivateView("plans-report-flow");
+          return;
+        }
         safeSetActive(navPlans, '[data-nav="plans"][data-target]', tab);
+        safeActivateView(tab.dataset.target);
+      });
+    });
+
+  navProcessFlows
+    .querySelectorAll('[data-nav="process-flows"][data-target]')
+    .forEach((tab) => {
+      tab.addEventListener("click", () => {
+        safeSetActive(
+          navProcessFlows,
+          '[data-nav="process-flows"][data-target]',
+          tab,
+        );
         safeActivateView(tab.dataset.target);
       });
     });
@@ -701,6 +746,24 @@ if (
       if (homeTab)
         safeSetActive(navMain, '[data-nav="main"][data-target]', homeTab);
       safeActivateView("home");
+    });
+  }
+
+  const backProcessFlows = document.getElementById("btn-back-process-flows");
+  if (backProcessFlows) {
+    backProcessFlows.addEventListener("click", () => {
+      navProcessFlows.classList.add("hidden");
+      navPlans.classList.remove("hidden");
+      const processFlowsTab = navPlans.querySelector(
+        '[data-nav="plans"][data-target="plans-process-flows"]',
+      );
+      if (processFlowsTab)
+        safeSetActive(
+          navPlans,
+          '[data-nav="plans"][data-target]',
+          processFlowsTab,
+        );
+      safeActivateView("plans-process-flows");
     });
   }
 

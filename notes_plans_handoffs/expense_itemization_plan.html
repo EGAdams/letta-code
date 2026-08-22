@@ -198,7 +198,7 @@ def factory_for(doc_family: str) -> ItemizationFactory: ...</code></pre>
 <tr><td><code>LineItemSource</code></td><td><code>AmazonOrderSpreadsheetSource</code></td><td>Adapts the existing <code>lookup_amazon_order.py</code> lookup (extract Order Number → itemized rows from <code>vendor_reference/amazon_orders_2025_itemized.xlsx</code>). Digital orders (<code>D01-…</code>) are not in the sheet → returns empty → policy says NOT_ITEMIZABLE → row stays STANDALONE. Correct, not a bug.</td></tr>
 <tr><td><code>ItemizationPolicy</code></td><td><code>ExactReconciliationPolicy</code></td><td>sum(items) == charge amount (cent-exact) else NOT_ITEMIZABLE. The default and only Phase-1 policy. A tolerance policy may come later; do not build it speculatively.</td></tr>
 <tr><td><code>ItemCategorizer</code></td><td><code>VendorCategoryStoreCategorizer</code></td><td>Deterministic first: reuse <code>VendorCategoryStore</code> patterns against the item name.</td></tr>
-<tr><td><code>ItemCategorizer</code></td><td><code>LlmItemCategorizer</code></td><td>Fallback for novel item names. <strong>Use a cheap/fast model</strong> (Haiku-class / gpt-5.4-mini) — "what category is a Roku remote" is a simple reading task, not frontier work. Decorate it with a <code>ReviewFlaggingCategorizer</code> so low-confidence answers mark the child for human review instead of silently guessing (Decorator, same gate philosophy as Mazda's proposal gates).</td></tr>
+<tr><td><code>ItemCategorizer</code></td><td><code>LlmItemCategorizer</code></td><td>Fallback for novel item names. <strong>Use a cheap/fast model</strong> (GPT-5.4) — "what category is a Roku remote" is a simple reading task, not frontier work. Decorate it with a <code>ReviewFlaggingCategorizer</code> so low-confidence answers mark the child for human review instead of silently guessing (Decorator, same gate philosophy as Mazda's proposal gates).</td></tr>
 <tr><td><code>ItemizedExpenseRepository</code></td><td><code>MySqlItemizedExpenseRepository</code></td><td>Single transaction; enforces every invariant above; refuses partial writes (fail closed, like tonight's receipt-storage hardening).</td></tr>
 </tbody>
 </table>
@@ -250,7 +250,7 @@ family. That is the textbook GoF justification, not ceremony.
 <ul>
 <li><strong>Program to the interface</strong>; concretes wired only at the composition root. ABC ports + DI in Python, injected controllers in dashboard JS.</li>
 <li><strong>Fail closed</strong> — refusing to itemize is success; wrong itemization is failure. (Same rule the Trainer enforces on Mazda's evidence.)</li>
-<li><strong>Cheap model for simple tasks</strong> — spreadsheet reading, item-name lookups, text extraction: Haiku-class / gpt-5.4-mini. Reserve big models for judgment calls.</li>
+<li><strong>Cheap model for simple tasks</strong> — spreadsheet reading, item-name lookups, text extraction: GPT-5.4. Reserve big models for judgment calls.</li>
 <li><code>rol_finances</code> is live and multi-agent-dirty — <code>git status</code> + diff before editing, stage by filename, never <code>-A</code>, never stash the whole tree.</li>
 <li>The live box runs two yolo-mode letta.js processes writing concurrently — check the tree before assuming it's clean.</li>
 <li>Vendor yaml edits require a <code>mazda-tools-mcp</code> restart (cached map).</li>

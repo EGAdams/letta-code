@@ -15,8 +15,8 @@ Mazda with it.**
 Mazda (Letta agent `agent-6b536cf4-ec88-4290-b595-fed21d14bd8e`) is the
 self-improving document-intake agent: every scanned/PDF financial document is
 dispatched to her to classify, dedupe, categorize, and store in the
-`nonprofit_finance` MySQL DB. She runs on a cheap mini model, so her runs are
-expected to be flawed.
+`nonprofit_finance` MySQL DB. She runs on an approved full-capability model; her runs are still checked
+against the intake contract and can be escalated when they fail.
 
 The **Trainer** is a one-shot watcher agent summoned only when an intake reports
 a problem or misses its callback deadline. Healthy scanner, PDF, and reprocess
@@ -40,7 +40,7 @@ lesson.
 
 | File | Role |
 |---|---|
-| `trainer/run_mazda_trainer.mjs` | bun runner. Claude (sonnet) primary, `codex exec` (`gpt-5.4-mini`) fallback when a Claude session errors (quota/auth/crash/timeout). Watchdog relaunches up to 3 attempts until a report file exists; writes an emergency STALLED report if all fail. |
+| `trainer/run_mazda_trainer.mjs` | bun runner. Claude (sonnet) primary, `codex exec` (`gpt-5.6-luna`) fallback when a Claude session errors (quota/auth/crash/timeout). Watchdog relaunches up to 3 attempts until a report file exists; writes an emergency STALLED report if all fail. |
 | `trainer/mazda_trainer_instructions.md` | The Trainer's system instructions — the STEP 1–8 contract, polling rules, coaching rules, report format. Edit THIS to change how Mazda is trained/graded. |
 | `../notes_plans_handoffs/mazda_dev_status.html` | Mazda's developer manual; tag-stripped and appended to the Trainer's system message at launch. The canonical current-direction doc for Mazda. |
 | `trainer/reports/` | One markdown report per watched run. Read the newest to see how Mazda's last run went. |
@@ -85,8 +85,8 @@ To re-grade a finished run, pass the original dispatch timestamp (see
 
 Env vars: `MAZDA_TRAINER_ENABLED=0` (emergency kill switch),
 `MAZDA_TRAINER_CALLBACK_TIMEOUT_SECONDS` (default 900; healthy callbacks cancel it),
-`TRAINER_MODEL` (default sonnet), `TRAINER_CODEX_MODEL` (default gpt-5.4-mini —
-plain `gpt-5-mini` is rejected by the provider), `TRAINER_TIMEOUT_MS` (default
+`TRAINER_MODEL` (default sonnet), `TRAINER_CODEX_MODEL` (default gpt-5.6-luna),
+`TRAINER_TIMEOUT_MS` (default
 35 min overall), `TRAINER_ATTEMPT_TIMEOUT_MS` (default 20 min per session),
 `LETTA_BASE_URL`, `MAZDA_AGENT_ID`, `MAZDA_TRAINER_RUNNER` (bun path),
 `MAZDA_TRAINER_CODEX_BIN`.

@@ -16,11 +16,11 @@ describe("quota fallback model selection", () => {
     const result = selectDefaultAgentModel({
       preferredModel: AUTO_MODEL_HANDLE,
       isSelfHosted: true,
-      availableHandles: ["letta/letta-free", "chatgpt-plus-pro/gpt-5.4-mini"],
+      availableHandles: ["letta/letta-free", "chatgpt-plus-pro/gpt-5.4"],
       disallowedHandles: ["chatgpt-plus-pro/gpt-5.4"],
     });
 
-    expect(result).toBe("chatgpt-plus-pro/gpt-5.4-mini");
+    expect(result).toBe("chatgpt-plus-pro/gpt-5.4");
   });
 
   test("skips letta/letta-free even when it is listed before several real handles", () => {

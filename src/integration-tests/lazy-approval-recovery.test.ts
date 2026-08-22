@@ -87,7 +87,7 @@ async function runLazyRecoveryTest(timeoutMs = 300000): Promise<{
         "stream-json",
         "--new-agent",
         "-m",
-        "gpt-5.4-mini-plus-pro-medium",
+        "gpt-5.4-plus-pro-medium",
         // NOTE: No --yolo flag - approvals are required
       ],
       {

@@ -106,7 +106,7 @@ td.muted { padding:10px 12px; height:auto; }
 .manual-entry-archive-path { box-sizing:border-box; margin-top:2px; padding:6px 4px; min-height:var(--field-height); background:#fff; border:2px inset #808080; font-family:"Courier New",monospace; font-size:18px; word-break:break-all; }
 .manual-entry-errors { color:#b91c1c; font-weight:600; min-height:1.2em; }
 .manual-entry-status { min-height:1.2em; }
-.terminal-host { height:220px; margin-top:8px; overflow:hidden; }
+.terminal-host { height:220px; margin-top:8px; overflow:auto; }
 
 /* Edit Expense panel. It reuses .manual-entry-form for the Windows 98 chrome
    and .manual-entry-field for its inputs, so only the two things that have no

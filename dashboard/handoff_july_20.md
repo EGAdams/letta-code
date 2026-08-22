@@ -20,7 +20,7 @@ without interrupting the mic.
 - **New backend package** `dashboard/router/` (`config.py`, `classify.py`) — same Strategy shape
   as `voice/cleanup.py`. Detection is two-tier: `detect_known_agent()` tries a deterministic
   exact-name match first (zero network); falls back to the `dashboard-agent-router` Letta agent
-  (**`agent-b2993865-228f-47a2-b436-d35e3aff50f0`**, model `chatgpt-plus-pro/gpt-5.4-mini`, not
+  (**`agent-b2993865-228f-47a2-b436-d35e3aff50f0`**, model `chatgpt-plus-pro/gpt-5.4`, not
   in `LETTA_AGENTS` — deliberately off the sidebar) for implied/non-exact references. **Fails
   closed always** — any parse/network failure or ambiguous phrasing → no agent detected, never
   guesses.

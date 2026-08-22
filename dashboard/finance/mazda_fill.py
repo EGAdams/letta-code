@@ -52,8 +52,7 @@ MAZDA_FILL_MODELS: dict[str, str] = {
     'haiku-only': 'Claude Haiku',
     # The ChatGPT/Codex subscription, read through the installed Codex CLI
     # (codex_cli_vision, EG's account then Mom's). "luna" is the model that
-    # actually runs: the CLI's default is gpt-5.4-mini, which ~/.codex/
-    # config.toml migrates to gpt-5.6-luna.
+    # actually runs: the CLI default is gpt-5.6-luna.
     'codex-only': 'Codex (luna)',
 }
 

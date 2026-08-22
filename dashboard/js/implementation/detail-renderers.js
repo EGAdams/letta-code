@@ -497,10 +497,34 @@ export class ChatDetailRenderer extends DetailRenderer {
     controls.append(sendBtn, voiceBtn, recInd, modeBtn, speakBtn, copyBtn);
     container.append(textEl, controls);
 
-    const setConsole = (html) => {
-      out.replaceHtml(html);
+    // Keep a client-side transcript instead of replacing the output on every
+    // request. Transient status rows are replaced by the next durable row.
+    const transcript = [];
+    let transientIndex = -1;
+    const renderTranscript = () => {
+      out.replaceHtml(transcript.join(""));
       out.scrollToBottom();
     };
+    const clearTransient = () => {
+      if (transientIndex < 0) return;
+      transcript.splice(transientIndex, 1);
+      transientIndex = -1;
+    };
+    const appendRow = (html) => {
+      clearTransient();
+      transcript.push(html);
+      renderTranscript();
+    };
+    const setConsole = (html) => {
+      clearTransient();
+      transcript.push(html);
+      transientIndex = transcript.length - 1;
+      renderTranscript();
+    };
+    const appendUserMessage = (text) =>
+      appendRow(
+        `<div class="msi-entry"><span class="hdr">You:</span> ${TextUtils.esc(text)}</div>`,
+      );
 
     // ── Speak-replies toggle (preference persists) ─────────────────────────
     let speakReplies =
@@ -528,6 +552,7 @@ export class ChatDetailRenderer extends DetailRenderer {
     const sendText = async (text) => {
       if (!text || !text.trim() || sendBtn.disabled) return;
       sendBtn.disabled = true;
+      appendUserMessage(text.trim());
       setConsole('<div class="msi-entry dim">sending&hellip;</div>');
       this._onStatus(id, "active");
       try {
@@ -538,7 +563,7 @@ export class ChatDetailRenderer extends DetailRenderer {
         const replies = r.replies || [];
         const hasError = replies.some((x) => x.type === "error");
         this._onStatus(id, hasError ? "error" : "idle");
-        setConsole(renderReplyRows(replies));
+        appendRow(renderReplyRows(replies, this._agentName));
         // Read the agent's reply aloud in the agent's own voice.
         if (speakReplies && this._speech && replies.length) {
           this._speech.speak(composeSpokenText(replies), this._agentName);
@@ -835,6 +860,19 @@ export function buildModelRow({ el, http, agentId, showStatus }) {
       if (r?.ok) {
         modelCurrent = r.model || next;
         showStatus(`Model set to ${modelCurrent.split("/").pop()}.`);
+        // Inert to callers that don't listen (InputOptionsRenderer,
+        // AgentsRouterRenderer) -- lets a container like
+        // AgentAssignmentsController react immediately (e.g. refresh a
+        // weekly-remaining bar) instead of waiting for its next poll tick.
+        // Optional chaining: the test harness's FakeElement has no
+        // dispatchEvent, and a throw here must never be mistaken for the
+        // model-change itself failing (it's inside this same try/catch).
+        modelSel.dispatchEvent?.(
+          new CustomEvent("agent-model:changed", {
+            bubbles: true,
+            detail: { agentId, model: modelCurrent },
+          }),
+        );
       } else {
         modelSel.value = modelCurrent;
         showStatus(r?.error || "Model change failed.", true);

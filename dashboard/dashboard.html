@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard</title>
   <link rel="stylesheet" href="/css/dashboard.css?v=20260813a" />
+  <link rel="stylesheet" href="/css/model-stats-agents.css?v=20260821a" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -40,11 +41,12 @@
     <!-- Model Stats sub-nav -->
     <nav id="nav-model-stats" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-model-stats">Back</button>
-      <button type="button" class="tab" data-nav="model-stats" data-source="r46-claude">R46 Claude OAuth</button>
-      <button type="button" class="tab" data-nav="model-stats" data-source="r46-codex">R46 Codex OAuth</button>
-      <button type="button" class="tab" data-nav="model-stats" data-source="gemini">Antigravity CLI</button>
-      <button type="button" class="tab" data-nav="model-stats" data-source="w11-claude">W11 Claude OAuth</button>
-      <button type="button" class="tab" data-nav="model-stats" data-source="w11-codex">W11 Codex OAuth</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="r46-claude">rbarnesrol claude</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="r46-codex">rbarnesrol codex</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="gemini">Gemini Flash</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="w11-claude">eg1972 claude</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="w11-codex">eg1972 codex</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="agent-assignments">Agent Assignments</button>
     </nav>
 
     <!-- Status sub-nav -->
@@ -82,11 +84,18 @@
       <button type="button" class="tab" data-nav="plans" data-target="plans-pipecat-voice">Pipecat Voice</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-voice-communication">Voice Communication</button>
       <button type="button" class="tab" data-nav="plans" data-target="plans-swarmforge-project">SwarmForge Project</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-process-flows">Process Flows</button>
     </nav>
 
     <!-- Voice Communication interface sub-nav -->
     <nav id="nav-voice-communication" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-voice-communication">Back</button>
+    </nav>
+
+    <!-- Process Flows sub-nav -->
+    <nav id="nav-process-flows" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-process-flows">Back</button>
+      <button type="button" class="tab active" data-nav="process-flows" data-target="plans-report-flow">Report Flow</button>
     </nav>
 
     <!-- ROL Finance sub-nav -->
@@ -159,6 +168,7 @@
       <h2>Model Stats</h2>
       <p class="srv-note">Pick a provider/account on the left to see current session token usage and limits. Red = maxed out (with reset time). W11 = this machine, R46 = mom's machine.</p>
       <div id="model-stats-body"><p class="am-dim">Select a source…</p></div>
+      <div id="model-stats-agents" class="win98-agents hidden"></div>
       <div id="codex-sync-panel"></div>
       <div id="chatgpt-provider-account-panel"></div>
     </section>
@@ -277,6 +287,17 @@
 
     <section id="plans-swarmforge-project" class="view">
       <iframe id="swarmforge-project-plan-frame" class="plan-frame" src="/notes_plans_handoffs/swarmforge_project.html"></iframe>
+    </section>
+
+    <section id="plans-process-flows" class="view"></section>
+
+    <section id="plans-report-flow" class="view">
+      <iframe
+        id="amazon-marketplace-report-flow-frame"
+        class="plan-frame"
+        src="/notes_plans_handoffs/amazon_marketplace_report_flow.html"
+        title="Amazon Marketplace report build flow"
+      ></iframe>
     </section>
 
     <!-- ROL Finance views -->

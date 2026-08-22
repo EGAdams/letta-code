@@ -2,7 +2,7 @@
 // Mazda Trainer — dynamically builds a Claude agent (via claude-code-sdk-ts) that
 // watches ONE Mazda intake run, verifies it, and coaches Mazda on failures.
 // If a Claude session fails outright (quota/auth/crash/timeout), the watchdog
-// falls back to `codex exec` (gpt-5.4-mini) for the remaining attempts.
+// falls back to `codex exec` (gpt-5.6-luna) for the remaining attempts.
 //
 // Fired fire-and-forget by dashboard/server.py (_notify_trainer_of_scan) every time
 // a scan is dispatched to Mazda. Can also be run by hand:
@@ -53,9 +53,9 @@ const TRAINER_MODEL = process.env.TRAINER_MODEL || 'sonnet';
 // mom's credential; callers can override it for another account/home.
 const TRAINER_CLAUDE_HOME =
   process.env.TRAINER_CLAUDE_HOME || '/home/adamsl/trainer-claude-home';
-// Fallback when the Claude session itself fails; gpt-5.4-mini is the vetted
-// ChatGPT-OAuth mini handle (plain gpt-5-mini is rejected by the provider).
-const TRAINER_CODEX_MODEL = process.env.TRAINER_CODEX_MODEL || 'gpt-5.4-mini';
+// Fallback when the Claude session itself fails; gpt-5.6-luna is the
+// ChatGPT-OAuth handle selected for this path.
+const TRAINER_CODEX_MODEL = process.env.TRAINER_CODEX_MODEL || 'gpt-5.6-luna';
 const CODEX_BIN = process.env.MAZDA_TRAINER_CODEX_BIN || 'codex';
 const TRAINER_TIMEOUT_MS = Number(process.env.TRAINER_TIMEOUT_MS || 35 * 60 * 1000);
 // Cap any single session below the overall budget so a session that dies at the

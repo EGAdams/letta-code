@@ -23,7 +23,7 @@ describe("subagent model fallback integration", () => {
   test("Task-style explore launch inherits parent model when server model list is empty", async () => {
     const model = await resolveSubagentModel({
       recommendedModel: exploreConfig.recommendedModel,
-      parentModelHandle: "chatgpt-plus-pro/gpt-5.4-mini",
+      parentModelHandle: "chatgpt-plus-pro/gpt-5.4",
       availableHandles: new Set(),
     });
 
@@ -34,17 +34,17 @@ describe("subagent model fallback integration", () => {
       "Find the messaging agent.",
     );
 
-    expect(model).toBe("chatgpt-plus-pro/gpt-5.4-mini");
+    expect(model).toBe("chatgpt-plus-pro/gpt-5.4");
     expect(args).toContain("--new-agent");
     expect(args).toContain("--model");
-    expect(args).toContain("chatgpt-plus-pro/gpt-5.4-mini");
+    expect(args).toContain("chatgpt-plus-pro/gpt-5.4");
     expect(args).not.toContain("letta/auto");
   });
 
   test("Task-style launch chooses a concrete server handle when auto is absent", async () => {
     const model = await resolveSubagentModel({
       recommendedModel: "auto",
-      availableHandles: new Set(["openai/gpt-5.4-mini"]),
+      availableHandles: new Set(["openai/gpt-5.4"]),
     });
 
     const args = buildSubagentArgs(
@@ -54,8 +54,8 @@ describe("subagent model fallback integration", () => {
       "Find the messaging agent.",
     );
 
-    expect(model).toBe("openai/gpt-5.4-mini");
-    expect(args).toContain("openai/gpt-5.4-mini");
+    expect(model).toBe("openai/gpt-5.4");
+    expect(args).toContain("openai/gpt-5.4");
     expect(args).not.toContain("letta/auto");
   });
 
@@ -63,10 +63,10 @@ describe("subagent model fallback integration", () => {
     const model = await resolveSubagentModel({
       billingTier: "free",
       recommendedModel: "auto-fast",
-      availableHandles: new Set(["openai/gpt-5.4-mini"]),
+      availableHandles: new Set(["openai/gpt-5.4"]),
     });
 
-    expect(model).toBe("openai/gpt-5.4-mini");
+    expect(model).toBe("openai/gpt-5.4");
   });
 
   test("letta/auto not-found errors are retryable subagent model failures", () => {

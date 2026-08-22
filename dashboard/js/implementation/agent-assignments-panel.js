@@ -1,0 +1,256 @@
+import { PollingController } from "../abstract/polling-controller.interface.js";
+
+/**
+ * buildOauthAccountSelect — the OAuth-account twin of buildModelRow
+ * (detail-renderers.js): a bare <select> backed by /api/agent-oauth-account,
+ * fetching {current, options:[{account,label}]} and PATCHing on change.
+ * Kept separate from buildModelRow because its option shape carries a human
+ * label distinct from its value (account key), not a bare handle list.
+ */
+export function buildOauthAccountSelect({
+  el,
+  http,
+  agentId,
+  showStatus,
+  getPendingModel = () => "",
+}) {
+  const select = el("select", { disabled: true });
+
+  let current = "";
+  const load = () => {
+    const pending = getPendingModel();
+    const url =
+      `/api/agent-oauth-account?agent=${encodeURIComponent(agentId)}` +
+      (pending ? `&model=${encodeURIComponent(pending)}` : "");
+    return http
+      .getJSON(url)
+      .then((d) => {
+        if (!d || !d.ok || !Array.isArray(d.options) || !d.options.length) {
+          select.disabled = true;
+          return;
+        }
+        select.innerHTML = "";
+        for (const opt of d.options) {
+          select.appendChild(
+            el("option", { value: opt.account, textContent: opt.label }),
+          );
+        }
+        // A reload triggered by the model dropdown changing races the model
+        // PATCH itself -- the server's live llm_config may still show the
+        // OLD family for a moment, so its "current" can come back blank or
+        // wrong. Account keys ('eg'/'mom') mean the same human in every
+        // family, so once we already have a selection, keep it rather than
+        // trusting a server read that's mid-transition; only a fresh
+        // mount (current === "") defers to the server's actual current.
+        const optionKeys = d.options.map((opt) => opt.account);
+        current =
+          (current && optionKeys.includes(current) && current) ||
+          d.current ||
+          d.options[0].account;
+        select.value = current;
+        select.disabled = false;
+      })
+      .catch(() => {
+        select.disabled = true;
+      });
+  };
+
+  select.addEventListener("change", async () => {
+    const next = select.value;
+    select.disabled = true;
+    showStatus(`Switching token to ${next}…`);
+    try {
+      const r = await http.postJSON("/api/agent-oauth-account", {
+        agent: agentId,
+        account: next,
+      });
+      if (r?.ok) {
+        current = r.account || next;
+        showStatus(`Token set to ${current}.`);
+        // Optional chaining: see the matching note in buildModelRow
+        // (detail-renderers.js) -- a throw here must never look like the
+        // account switch itself failing.
+        select.dispatchEvent?.(
+          new CustomEvent("agent-oauth-account:changed", {
+            bubbles: true,
+            detail: { agentId, account: current },
+          }),
+        );
+      } else {
+        select.value = current;
+        showStatus(r?.error || "Token change failed.", true);
+      }
+    } catch (e) {
+      select.value = current;
+      showStatus(`Token change failed: ${e.message}`, true);
+    } finally {
+      select.disabled = false;
+    }
+  });
+
+  load();
+  return { select, reload: load };
+}
+
+function barClassFor(pct) {
+  if (pct == null) return "";
+  if (pct <= 10) return "is-critical";
+  if (pct <= 30) return "is-low";
+  return "";
+}
+
+/**
+ * AgentAssignmentsController — concrete PollingController for the Model
+ * Stats "Agent Assignments" tab: one row per Letta agent with a live model
+ * dropdown, a live OAuth-account dropdown, and a weekly-remaining bar fed by
+ * one bulk /api/model-stats-agents poll (the two dropdowns build/fetch their
+ * own options once per agent; only the bar updates every tick).
+ */
+export class AgentAssignmentsController extends PollingController {
+  constructor({
+    http,
+    el,
+    buildModelSelect,
+    container,
+    onStatus = () => {},
+    ...opts
+  } = {}) {
+    super({ intervalMs: 20000, ...opts });
+    if (!http || !el || !buildModelSelect || !container) {
+      throw new Error(
+        "AgentAssignmentsController requires { http, el, buildModelSelect, container }",
+      );
+    }
+    this._http = http;
+    this._el = el;
+    this._buildModelSelect = buildModelSelect;
+    this._container = container;
+    this._onStatus = onStatus;
+    this._rowsById = new Map();
+  }
+
+  /** @override */
+  async poll() {
+    let rows;
+    try {
+      rows = await this._http.getJSON("/api/model-stats-agents");
+    } catch (e) {
+      this._onStatus(`Failed to load agent assignments: ${e.message}`, true);
+      return;
+    }
+    if (!this._table) this._renderShell();
+    for (const row of rows) this._renderRow(row);
+  }
+
+  _renderShell() {
+    const el = this._el;
+    const status = el("p", { className: "win98-dim" });
+    this._status = status;
+    const table = el("table");
+    const thead = el("thead");
+    const headRow = el("tr");
+    for (const label of ["Agent", "Model", "Token", "Weekly Remaining"]) {
+      headRow.appendChild(el("th", { textContent: label }));
+    }
+    thead.appendChild(headRow);
+    const tbody = el("tbody");
+    table.append(thead, tbody);
+    this._container.innerHTML = "";
+    this._container.append(status, table);
+    this._table = table;
+    this._tbody = tbody;
+
+    // Both selects bubble a "…:changed" CustomEvent on a successful PATCH
+    // (see buildModelRow / buildOauthAccountSelect). One delegated listener
+    // catches either and refreshes that row's bar immediately instead of
+    // waiting up to intervalMs for the next poll.
+    for (const type of ["agent-model:changed", "agent-oauth-account:changed"]) {
+      tbody.addEventListener(type, (evt) => {
+        this._refreshRowBar(evt.detail.agentId);
+      });
+    }
+  }
+
+  /** Re-fetch just this row's bar after a model/account switch, bypassing
+   * the bulk cache -- a switch just PATCHed the live provider, so a cached
+   * pre-switch value would show the old account's percentage. Blinks the
+   * bar for the duration of the fetch so a percentage that visibly doesn't
+   * move yet still signals "recalculating", not "nothing happened". */
+  async _refreshRowBar(agentId) {
+    const entry = this._rowsById.get(agentId);
+    entry?.fill.classList.add("is-recalculating");
+    try {
+      const rows = await this._http.getJSON(
+        "/api/model-stats-agents?refresh=1",
+      );
+      const row = rows.find((r) => r.id === agentId);
+      if (row) this._renderRow(row);
+    } catch {
+      // leave the last-known value in place; next scheduled poll will retry
+    } finally {
+      entry?.fill.classList.remove("is-recalculating");
+    }
+  }
+
+  /** Show a transient status line above the table (model/token switch results). */
+  _showStatus(msg, isError = false) {
+    if (!this._status) return;
+    this._status.textContent = msg;
+    this._status.classList.toggle("win98-dim", !isError);
+  }
+
+  _renderRow(row) {
+    let entry = this._rowsById.get(row.id);
+    if (!entry) {
+      const el = this._el;
+      const tr = el("tr");
+      tr.appendChild(el("td", { textContent: row.name }));
+
+      const modelTd = el("td");
+      const modelSelect = this._buildModelSelect({
+        el,
+        http: this._http,
+        agentId: row.id,
+        showStatus: (msg, isError) => this._showStatus(msg, isError),
+      });
+      modelTd.appendChild(modelSelect);
+      tr.appendChild(modelTd);
+
+      const accountTd = el("td");
+      const { select: accountSelect, reload: reloadAccountOptions } =
+        buildOauthAccountSelect({
+          el,
+          http: this._http,
+          agentId: row.id,
+          showStatus: (msg, isError) => this._showStatus(msg, isError),
+          getPendingModel: () => modelSelect.value,
+        });
+      // The account list depends on the model's family (claude vs chatgpt).
+      // Refresh it the instant the model dropdown changes -- using the
+      // not-yet-saved pending value via getPendingModel above -- so the
+      // labels shown are never a stale family's (see win98 agent-assignments
+      // "100% remaining"/wrong-account-label bug fixed 2026-08-22).
+      modelSelect.addEventListener("change", () => reloadAccountOptions());
+      accountTd.appendChild(accountSelect);
+      tr.appendChild(accountTd);
+
+      const barTd = el("td", { className: "win98-bar-cell" });
+      const track = el("div", { className: "win98-bar-track" });
+      const fill = el("div", { className: "win98-bar-fill" });
+      const label = el("div", { className: "win98-bar-label" });
+      track.append(fill, label);
+      barTd.appendChild(track);
+      tr.appendChild(barTd);
+
+      this._tbody.appendChild(tr);
+      entry = { tr, fill, label };
+      this._rowsById.set(row.id, entry);
+    }
+
+    const pct = row.weekly_percent_remaining;
+    entry.fill.className = `win98-bar-fill ${barClassFor(pct)}`.trim();
+    entry.fill.style.width =
+      pct == null ? "0%" : `${Math.max(0, Math.min(100, pct))}%`;
+    entry.label.textContent = pct == null ? "?" : `${pct}%`;
+  }
+}

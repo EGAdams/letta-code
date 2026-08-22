@@ -435,7 +435,7 @@ def test_rol_finance_reports_include_amazon_marketplace():
     assert report is not None
     assert report['label'] == 'Amazon Marketplace'
     assert report['dir'] == 'amazon_marketplace_january_2025'
-    assert report.get('all_year') is not True
+    assert report.get('all_year') is True
 
 
 def test_rol_finance_months_include_march_and_april_placeholders():
@@ -4200,6 +4200,39 @@ def test_reprocess_report_delegates_to_process_pdf(tmp_path, monkeypatch):
     assert result['report_url'] == '/rol_finances_reports/jan-2025/stub/report.html'
 
 
+def test_report_source_document_view_renders_excel_for_browser(
+        tmp_path, monkeypatch):
+    source = tmp_path / 'statement.xlsx'
+    source.write_bytes(b'workbook')
+    rendered = tmp_path / 'statement.html'
+    calls = []
+
+    monkeypatch.setattr(server, '_source_document_path', lambda _url: str(source))
+
+    def render(source_path, browser_path):
+        calls.append((source_path, browser_path))
+        return str(rendered)
+
+    monkeypatch.setattr(server, 'render_excel_for_browser', render)
+
+    result = server._report_source_document_view(
+        '/rol_finances_reports/jan-2025/stub/report.html')
+
+    assert result == str(rendered)
+    assert calls[0][0] == str(source)
+    assert calls[0][1].endswith('-statement.xlsx.html')
+
+
+def test_report_source_document_view_rejects_generated_report(
+        tmp_path, monkeypatch):
+    generated_report = tmp_path / 'report.html'
+    generated_report.write_text('<html></html>')
+    monkeypatch.setattr(
+        server, '_source_document_path', lambda _url: str(generated_report))
+
+    assert server._report_source_document_view('/report.html') == ''
+
+
 # ── expense-stored event bus ──────────────────────────────────────────────────
 
 def _clear_expense_events():
@@ -5066,7 +5099,7 @@ def test_pc_metrics_failure_after_success_serves_stale_last_good(monkeypatch):
 def test_agent_model_options_default_list():
     opts = server.agent_model_options('chatgpt-plus-pro/gpt-5.4')
     assert opts == server.AGENT_MODEL_OPTIONS
-    assert 'chatgpt-plus-pro/gpt-5.4-mini' in opts
+    assert not any('mini' in option.lower() or 'nano' in option.lower() for option in opts)
 
 
 def test_agent_model_options_foreign_handle_prepended():
@@ -5087,7 +5120,6 @@ def test_agent_model_options_only_vetted_codex_and_claude_handles():
             'gpt-5.6-luna',
             'gpt-5.5',
             'gpt-5.4',
-            'gpt-5.4-mini',
         },
         'claude-pro-max': {
             'claude-haiku-4-5-20251001',

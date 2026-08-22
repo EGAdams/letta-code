@@ -177,7 +177,7 @@ role's own `/model` command in its tmux pane (does not require a restart):
 | `hardender` | Pure verification (mutation hardening, re-running suites) — cheapest safe tier | `gpt-5.6-luna medium` |
 | `QA` | Pure verification (acceptance/UI checks) — cheapest safe tier | `gpt-5.6-luna medium` |
 
-`gpt-5.6-luna` is this environment's fast/affordable tier (`gpt-5.4-mini` migrated to it — see
+`gpt-5.6-luna` is this environment's fast/affordable tier (the prior mini fallback migrated to it — see
 `~/.codex/config.toml`'s `[notice.model_migrations]`). **Switch before a role starts its real
 work, not mid-task** — a model swap doesn't lose context, but do it at an idle/NO_TASK boundary
 so you're not second-guessing a switch that landed mid-tool-call. The general rule that

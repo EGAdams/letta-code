@@ -21,7 +21,7 @@ bash src/integration-tests/run-integration-tests.sh
 bun clear-loggers.ts
 
 # Run CLI as the tests do
-bun run dev --new-agent -m gpt-5.4-mini-plus-pro-medium -p "Say OK" --output-format json
+bun run dev --new-agent -m gpt-5.4-plus-pro-medium -p "Say OK" --output-format json
 ```
 
 ## Required Environment Variables

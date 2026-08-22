@@ -167,7 +167,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           return;
         }
 
-        // The OpenAI/Codex model (gpt-5.4-mini-plus-pro-medium) uses ShellCommand
+        // The OpenAI/Codex model (gpt-5.4-plus-pro-medium) uses ShellCommand
         // for file operations. Test that a tool-name-specific matcher fires correctly.
         writeHooksConfig(env, {
           PreToolUse: [
@@ -187,7 +187,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "gpt-5.4-mini-plus-pro-medium",
+            "gpt-5.4-plus-pro-medium",
             "--yolo",
             "-p",
             "Read the file /etc/hostname and tell me what it says.",
@@ -227,7 +227,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "gpt-5.4-mini-plus-pro-medium",
+            "gpt-5.4-plus-pro-medium",
             "--yolo",
             "-p",
             "Read the file /etc/hostname and tell me what it says. Do not ask for confirmation.",
@@ -267,7 +267,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "gpt-5.4-mini-plus-pro-medium",
+            "gpt-5.4-plus-pro-medium",
             "--yolo",
             "-p",
             "Read /etc/hostname",
@@ -315,7 +315,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "gpt-5.4-mini-plus-pro-medium",
+            "gpt-5.4-plus-pro-medium",
             "--yolo",
             "-p",
             "Read /etc/hostname",
@@ -367,7 +367,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "gpt-5.4-mini-plus-pro-medium",
+            "gpt-5.4-plus-pro-medium",
             "--yolo",
             "-p",
             "Read /etc/hostname",
@@ -409,7 +409,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "gpt-5.4-mini-plus-pro-medium",
+            "gpt-5.4-plus-pro-medium",
             "--yolo",
             "-p",
             "Read /etc/hostname",
@@ -460,7 +460,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
         });
 
         await runCli(
-          ["--new-agent", "-m", "gpt-5.4-mini-plus-pro-medium", "-p", "Say OK"],
+          ["--new-agent", "-m", "gpt-5.4-plus-pro-medium", "-p", "Say OK"],
           env,
         );
 
@@ -495,7 +495,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
         });
 
         await runCli(
-          ["--new-agent", "-m", "gpt-5.4-mini-plus-pro-medium", "-p", "Say OK"],
+          ["--new-agent", "-m", "gpt-5.4-plus-pro-medium", "-p", "Say OK"],
           env,
         );
 
@@ -543,7 +543,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "gpt-5.4-mini-plus-pro-medium",
+            "gpt-5.4-plus-pro-medium",
             "-p",
             "Say hello world",
           ],
@@ -584,7 +584,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "gpt-5.4-mini-plus-pro-medium",
+            "gpt-5.4-plus-pro-medium",
             "-p",
             "Test prompt message",
           ],
@@ -626,7 +626,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "gpt-5.4-mini-plus-pro-medium",
+            "gpt-5.4-plus-pro-medium",
             "-p",
             "This should be blocked",
           ],
@@ -688,7 +688,7 @@ describe.skipIf(isWindows)("Hooks E2E Tests", () => {
           [
             "--new-agent",
             "-m",
-            "gpt-5.4-mini-plus-pro-medium",
+            "gpt-5.4-plus-pro-medium",
             "--yolo",
             "-p",
             "Read /etc/hostname",

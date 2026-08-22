@@ -101,11 +101,11 @@ if 'error' in d:
 ## Switch an agent's model
 
 Available `chatgpt-plus-pro` models (as of 2026-05-23):
-- `gpt-5.4` / `gpt-5.4-pro` / `gpt-5.4-fast` / `gpt-5.4-mini`
+- `gpt-5.4` / `gpt-5.4-pro` / `gpt-5.4-fast`
 - `gpt-5.3-codex` / `gpt-5.3-codex-spark`  ← Scissari's preferred model
 - `gpt-5.2` / `gpt-5.2-codex`
 - `gpt-5.1-codex` / `gpt-5.1-codex-mini` / `gpt-5.1-codex-max`
-- `gpt-4o` / `o1` / `o3` / `o4-mini`
+- `gpt-4o` / `o1` / `o3`
 
 ```bash
 MODEL="gpt-5.3-codex"

@@ -46,7 +46,7 @@ curl -sL "http://<LETTA_BASE_URL>/v1/agents/<AGENT_ID>" | \
   python3 -c "import sys,json; d=json.load(sys.stdin); llm=d.get('llm_config',{}); print('model=', llm.get('model')); print('handle=', llm.get('handle')); print('provider=', llm.get('provider_name')); print('endpoint_type=', llm.get('model_endpoint_type'));"
 ```
 
-If an agent has a bare model like `gpt-5-mini` with `chatgpt_oauth`, it may fail with BYOK credential errors. Prefer a full provider handle like `chatgpt-plus-pro/gpt-5.3-codex`.
+If an agent has a bare model or a prohibited mini model with `chatgpt_oauth`, it may fail with BYOK credential errors or select an unwanted fallback. Prefer a full approved provider handle like `chatgpt-plus-pro/gpt-5.3-codex`; do not select or configure mini-model fallbacks.
 
 ### 5. Quick API fix for a stuck agent
 

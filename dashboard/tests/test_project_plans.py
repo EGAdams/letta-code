@@ -14,6 +14,7 @@ VOICE_COMMUNICATION_PLAN = DASHBOARD_DIR / "voice_communication_plan.html"
 VOICE_COMMUNICATION_PLAN_V1 = DASHBOARD_DIR / "voice_communication_plan_v1.html"
 VOICE_WORKSPACE_DIR = DASHBOARD_DIR / "js" / "plans" / "voice-communication"
 PLAN_MODULES_DIR = DASHBOARD_DIR / "js" / "plans"
+DASHBOARD_BOOT = DASHBOARD_DIR / "js" / "dashboard-boot.js"
 
 
 def _voice_workspace_source() -> str:
@@ -40,6 +41,51 @@ def test_voice_communication_tab_targets_the_versioned_plan_source():
     assert 'class="plan-frame"' in section.group(1)
     assert 'src="/voice_communication_plan.html"' in section.group(1)
     assert VOICE_COMMUNICATION_PLAN.is_file()
+
+
+def test_process_flows_opens_report_flow_subnav_and_amazon_report_flow_view():
+    dashboard = DASHBOARD_HTML.read_text(encoding="utf-8")
+
+    assert (
+        'data-nav="plans" data-target="plans-process-flows">Process Flows'
+        in dashboard
+    )
+    nav = re.search(
+        r'<nav id="nav-process-flows" class="hidden">(.*?)</nav>',
+        dashboard,
+        re.DOTALL,
+    )
+    assert nav is not None
+    assert 'id="btn-back-process-flows">Back' in nav.group(1)
+    assert (
+        'data-nav="process-flows" data-target="plans-report-flow">Report Flow'
+        in nav.group(1)
+    )
+    section = re.search(
+        r'<section id="plans-report-flow" class="view">(.*?)</section>',
+        dashboard,
+        re.DOTALL,
+    )
+    assert section is not None
+    assert 'id="amazon-marketplace-report-flow-frame"' in section.group(1)
+    assert 'class="plan-frame"' in section.group(1)
+    assert (
+        'src="/notes_plans_handoffs/amazon_marketplace_report_flow.html"'
+        in section.group(1)
+    )
+
+    boot = DASHBOARD_BOOT.read_text(encoding="utf-8")
+    assert 'const navProcessFlows = document.getElementById("nav-process-flows")' in boot
+    assert 'safeActivateView("plans-report-flow")' in boot
+    assert 'id="btn-back-process-flows"' in dashboard
+
+    flow_page = (
+        REPO_ROOT / "notes_plans_handoffs" / "amazon_marketplace_report_flow.html"
+    ).read_text(encoding="utf-8")
+    assert 'id="start-processing"' in flow_page
+    assert 'id="report-document"' in flow_page
+    assert "Debugging workflow not available yet." in flow_page
+    assert "/js/plans/process-flows/amazon-report-flow-boot.js" in flow_page
 
 
 def test_voice_communication_uses_the_dashboard_subnav_with_back():

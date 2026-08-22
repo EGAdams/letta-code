@@ -35,7 +35,7 @@ Note: Unlike Claude Code, Codex history doesn't include the project path. You ne
 ## Configuration (`config.toml`)
 
 ```toml
-model = "o4-mini"
+model = "gpt-5.4"
 
 [history]
 persistence = "across-sessions"
@@ -66,7 +66,7 @@ First entry in each session file:
   "type": "session_meta",
   "payload": {
     "model_provider": "openai",
-    "model_name": "o4-mini",
+    "model_name": "gpt-5.4",
     "cwd": "/Users/username/repos/myproject",
     "session_id": "sess_abc123",
     "git": {

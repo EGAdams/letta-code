@@ -111,10 +111,9 @@ def test_the_js_dropdown_offers_exactly_the_same_models():
 
 
 def test_codex_is_offered_and_names_the_model_that_actually_runs():
-    # "Codex luna": codex_cli_vision's default is gpt-5.4-mini, which
-    # ~/.codex/config.toml migrates to gpt-5.6-luna. The label says luna
-    # because that is what answers, and the operator picks by model, not by
-    # which CLI flag happens to be passed.
+    # "Codex luna": codex_cli_vision's default is gpt-5.6-luna. The label
+    # says luna because that is what answers, and the operator picks by model,
+    # not by which CLI flag happens to be passed.
     assert MAZDA_FILL_MODELS['codex-only'] == 'Codex (luna)'
 
 

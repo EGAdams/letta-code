@@ -50,4 +50,4 @@ python3 /home/adamsl/letta-code/src/skills/custom/receipt-parse-html-report/scri
 - Merchant-quality checks are included (too short, low alphabetic content, junk phrases like “Today on AOL”).
 - Extend anomaly detection by updating `get_anomaly_flags()` in the script.
 - Each run writes a log file under `.../readable_documents/reports/logs/` with per-receipt progress and errors.
-- OpenAI model can be overridden with `OPENAI_RECEIPT_MODEL` (default: gpt-4o-mini).
+- OpenAI model can be overridden with `OPENAI_RECEIPT_MODEL` (default: gpt-4o).
