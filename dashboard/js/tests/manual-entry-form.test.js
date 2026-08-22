@@ -179,6 +179,43 @@ describe("ManualEntryForm seeded from Mazda's own findings", () => {
     expect(form.items.length).toBe(1);
     expect(form.merchantNameInput.value).toBe("");
   });
+
+  test("a finding's own vendor_key preselects the known-vendor dropdown, without overwriting the human-readable merchant text", async () => {
+    const { form } = setup({
+      dataset: {
+        mazdaFindings: JSON.stringify([
+          {
+            merchant_name: "KROGER #123 GRAND RAPIDS ,MI",
+            transaction_date: "2025-06-01",
+            total_amount: "12.34",
+            category_name: "Food",
+            vendor_key: "kroger",
+          },
+        ]),
+      },
+    });
+    await form.mount();
+    expect(form.merchantNameInput.value).toBe("KROGER #123 GRAND RAPIDS ,MI");
+    expect(form.vendorSelect.value).toBe("kroger");
+  });
+
+  test("a finding with no vendor_key (or one not in the known-vendor list) leaves the dropdown unselected", async () => {
+    const { form } = setup({
+      dataset: {
+        mazdaFindings: JSON.stringify([
+          {
+            merchant_name: "Some Unmatched Vendor",
+            transaction_date: "2025-06-01",
+            total_amount: "9.00",
+            category_name: "",
+            vendor_key: "not_a_known_vendor",
+          },
+        ]),
+      },
+    });
+    await form.mount();
+    expect(form.vendorSelect.value).toBe("");
+  });
 });
 
 describe("ManualEntryForm multi-item navigation", () => {

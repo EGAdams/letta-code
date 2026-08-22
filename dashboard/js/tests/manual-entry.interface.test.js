@@ -321,6 +321,7 @@ describe("blankManualEntryFields", () => {
       transactionDate: "",
       totalAmount: "",
       categoryName: "",
+      vendorKey: "",
     });
   });
 
@@ -340,6 +341,7 @@ describe("readStoredFindings", () => {
         transaction_date: "2025-06-01",
         total_amount: "12.34",
         category_name: "Travel & Vehicle",
+        vendor_key: "kum_go",
       },
       {
         merchant_name: "Meijer",
@@ -354,12 +356,14 @@ describe("readStoredFindings", () => {
         transactionDate: "2025-06-01",
         totalAmount: "12.34",
         categoryName: "Travel & Vehicle",
+        vendorKey: "kum_go",
       },
       {
         merchantName: "Meijer",
         transactionDate: "2025-06-02",
         totalAmount: "45",
         categoryName: "",
+        vendorKey: "",
       },
     ]);
   });

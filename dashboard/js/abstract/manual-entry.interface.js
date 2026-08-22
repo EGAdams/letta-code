@@ -13,6 +13,9 @@
  * @property {string} transactionDate  ISO yyyy-mm-dd
  * @property {string} totalAmount      raw text from the input, not yet parsed
  * @property {string} categoryName     one of /api/rol-finance-categories' names, or ""
+ * @property {string} [vendorKey]      an exact vendor_category.yaml match to
+ *   preselect the "known vendor" dropdown with, or "" -- optional so a plain
+ *   hand-typed item (no known vendor yet) doesn't need to carry the field
  *
  * @typedef {Object} ManualEntryValidation
  * @property {boolean} valid
@@ -58,6 +61,7 @@
  * @property {number} total_amount      always positive; sign already
  *   normalised server-side
  * @property {string} category_name
+ * @property {string} [vendor_key]      the row's own vendor_key, if any
  */
 
 import { ISO_DATE_RE, isNonEmptyString } from "./field-validation.js";
@@ -291,6 +295,7 @@ export function blankManualEntryFields() {
     transactionDate: "",
     totalAmount: "",
     categoryName: "",
+    vendorKey: "",
   };
 }
 
@@ -328,6 +333,7 @@ export function readStoredFindings(raw) {
           : "",
       categoryName:
         typeof row?.category_name === "string" ? row.category_name : "",
+      vendorKey: typeof row?.vendor_key === "string" ? row.vendor_key : "",
     }))
     .filter((item) => item.merchantName && item.totalAmount);
 }

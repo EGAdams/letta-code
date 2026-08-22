@@ -91,10 +91,12 @@ def test_stored_findings_normalises_signed_amount_and_keeps_duplicates():
     # (parse_and_categorize.py --save) is what keeps an unedited resubmit safe.
     assert len(findings) == 2
     assert findings[0].merchant_name == 'Kum & Go'
+    assert findings[0].vendor_key == 'kum_go'
     # Stored amounts are signed (negative = expense); a finding always carries
     # the positive magnitude every manual/Mazda-Fill entry already uses.
     assert findings[0].total_amount == 12.34
     assert findings[1].merchant_name == 'Meijer'
+    assert findings[1].vendor_key == 'meijer'
 
 
 def test_stored_findings_drops_a_row_that_fails_expense_field_rules():

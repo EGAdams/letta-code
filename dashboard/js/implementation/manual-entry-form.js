@@ -682,7 +682,29 @@ export class ManualEntryForm {
       transactionDate: this.transactionDateInput.value,
       totalAmount: this.totalAmountInput.value,
       categoryName: this.categorySelect.value,
+      vendorKey: this.vendorSelect.value,
     };
+  }
+
+  /**
+   * Which vendorSelect option (if any) an item's own vendorKey or, failing
+   * that, its merchantName text matches -- same precedence _applyVendorMatch
+   * uses for an OCR prefill: a stored/duplicate-matched finding already knows
+   * its real vendor_key (see finance/intake_report_model.StoredFinding), so
+   * that is checked first without touching the human-readable merchant text;
+   * a hand-typed item that happens to equal a vendor_key slug still matches
+   * the way it always has.
+   */
+  _knownVendorKeyFor(item) {
+    if (
+      item.vendorKey &&
+      this.vendorOptions.some((opt) => opt.vendorKey === item.vendorKey)
+    ) {
+      return item.vendorKey;
+    }
+    return this.vendorOptions.some((opt) => opt.vendorKey === item.merchantName)
+      ? item.merchantName
+      : "";
   }
 
   _renderCurrentItem() {
@@ -693,11 +715,7 @@ export class ManualEntryForm {
     this.categorySelect.value = this.categoryNames.includes(item.categoryName)
       ? item.categoryName
       : NO_CATEGORY_OPTION;
-    this.vendorSelect.value = this.vendorOptions.some(
-      (opt) => opt.vendorKey === item.merchantName,
-    )
-      ? item.merchantName
-      : "";
+    this.vendorSelect.value = this._knownVendorKeyFor(item);
     this._positionEl.textContent = this._positionText();
     this._renderErrors({});
   }

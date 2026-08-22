@@ -194,6 +194,11 @@ class StoredFinding(ExpenseFieldRules):
     """
 
     category_name: str = ''
+    #: The stored row's own vendor_key, when it has one -- lets the dialog
+    #: preselect the "known vendor" dropdown for an already-stored (often
+    #: duplicate-matched) row instead of leaving it on free text, the same way
+    #: an exact OCR prefill match does (see ManualEntryPrefill.vendorKey).
+    vendor_key: str = ''
 
 
 def stored_findings(rows):
@@ -230,6 +235,7 @@ def stored_findings(rows):
                 transaction_date=row['date'],
                 total_amount=amount,
                 category_name=row['reporting_category'],
+                vendor_key=row['vendor_key'],
             ))
         except ValidationError:
             continue
