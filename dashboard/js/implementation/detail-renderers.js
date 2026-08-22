@@ -1237,13 +1237,21 @@ export class InputOptionsRenderer extends DetailRenderer {
         // because a real Mazda turn can run for minutes. The client default is
         // 30s - without this override the browser aborts and reports a timeout
         // for an answer the backend goes on to produce successfully.
+        const convKey = `msi-conv-${id}`;
+        const conversationId = this._storage?.getItem?.(convKey) || null;
         const r = await this._http.postJSON(
           "/api/letta-code-message",
-          { agent: id, text },
+          { agent: id, text, conversation_id: conversationId },
           { timeout: 930000 },
         );
         if (!r?.ok || !r.reply)
           throw new Error(r?.error || "Mazda returned no answer.");
+        // Remember which conversation this turn landed in so the next Send
+        // resumes it instead of the CLI silently starting a fresh one.
+        const newConversationId = r.run?.conversation_id;
+        if (newConversationId && this._storage) {
+          this._storage.setItem(convKey, newConversationId);
+        }
         const replies = [{ type: "assistant_message", text: r.reply }];
         outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div>${renderReplyRows(replies, this._agentName)}</div>`;
         showStatus("Answer received.");

@@ -105,7 +105,11 @@ describe("Toyota receptionist renderer", () => {
     expect(input.value).toBe("Hey Toyota, let me talk to Mazda");
     expect(ctx.posts).toContainEqual({
       url: "/api/letta-code-message",
-      body: { agent: "toyota-id", text: "Let me talk to Mazda." },
+      body: {
+        agent: "toyota-id",
+        text: "Let me talk to Mazda.",
+        conversation_id: null,
+      },
     });
   });
 

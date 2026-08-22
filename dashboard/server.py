@@ -1582,6 +1582,13 @@ def _recent_intake_archive_path(intake, rows, receipt_path=''):
     ]
     if archive_paths:
         return archive_paths[0]
+    # A receipt scan can arrive with doc_kind=unknown because the scanner
+    # facade dispatches before Mazda's classifier reports back. The rows' own
+    # receipt path is still authoritative and must win before the statement
+    # fallback below; otherwise archive verification reports "Archive path not
+    # found" even though the receipt file is present on disk.
+    if receipt_path and os.path.isfile(receipt_path):
+        return str(receipt_path).strip()
     doc_kind = str(intake.get('doc_kind') or '').strip().lower()
     if doc_kind in {'receipt', 'invoice'}:
         return str(receipt_path or '').strip()
@@ -10895,8 +10902,17 @@ def _letta_code_command():
         f'or {built})')
 
 
-def run_letta_code_message(agent_id, prompt, timeout=900):
-    """Run one Letta Code turn and expose only its final JSON result."""
+def run_letta_code_message(agent_id, prompt, timeout=900, conversation_id=None):
+    """Run one Letta Code turn and expose only its final JSON result.
+
+    Without `conversation_id`, headless mode's default behavior creates a
+    brand-new conversation on every call (to avoid 409 "conversation busy"
+    races), so the agent has no memory of the previous turn. Callers that
+    want a running conversation must pass back the `run.conversation_id`
+    a prior call returned; the CLI's `--conversation` resumes it instead of
+    starting over. `--conversation` derives the agent from the conversation
+    itself, so it is mutually exclusive with `--agent`.
+    """
     lid = letta_id_for(agent_id)
     if not lid or not _TERMINAL_ID_RE.fullmatch(lid):
         raise ValueError('invalid Letta agent id')
@@ -10909,6 +10925,12 @@ def run_letta_code_message(agent_id, prompt, timeout=900):
     child_path = os.environ.get('PATH', '')
     if runtime_path:
         child_path = runtime_path + (os.pathsep + child_path if child_path else '')
+    if conversation_id and not _TERMINAL_ID_RE.fullmatch(conversation_id):
+        raise ValueError('invalid Letta conversation id')
+    session_args = (
+        ['--conversation', conversation_id] if conversation_id
+        else ['--agent', lid]
+    )
     # Headless runs have nobody to answer an approval prompt, so the CLI
     # auto-DENIES anything gated ("Tool requires approval (headless mode)").
     # Without a raised mode the agent can read and reason but every Edit/Write
@@ -10917,7 +10939,7 @@ def run_letta_code_message(agent_id, prompt, timeout=900):
     # than --yolo/bypassPermissions, which this web-reachable endpoint should
     # not hand out.
     proc = subprocess.run(
-        [*command, '--agent', lid, '--prompt', clean_prompt,
+        [*command, *session_args, '--prompt', clean_prompt,
          '--output-format', 'json', '--memfs-startup', 'skip',
          '--permission-mode', 'acceptEdits'],
         cwd=REPO_ROOT, text=True, capture_output=True, timeout=timeout,
@@ -12340,7 +12362,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             try:
                 data = json.loads(body)
                 return self.json_response(run_letta_code_message(
-                    data.get('agent', ''), data.get('text', '')))
+                    data.get('agent', ''), data.get('text', ''),
+                    conversation_id=data.get('conversation_id') or None))
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             except ValueError as e:

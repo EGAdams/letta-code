@@ -1306,6 +1306,36 @@ def test_run_letta_code_message_returns_only_final_result(monkeypatch):
     # ...but never blanket bypass: this endpoint is reachable over the network.
     assert '--yolo' not in argv
     assert 'bypassPermissions' not in argv
+    # No conversation_id yet: falls back to --agent, which the CLI's headless
+    # path turns into a brand-new conversation.
+    assert argv[argv.index('--agent') + 1] == agent_id
+    assert '--conversation' not in argv
+
+
+def test_run_letta_code_message_resumes_a_given_conversation(monkeypatch):
+    monkeypatch.setattr(server, 'LETTA_CODE_BUN', '/home/test/.bun/bin/bun')
+    monkeypatch.setattr(server.os.path, 'isfile',
+                        lambda path: path == '/home/test/.bun/bin/bun')
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        seen['argv'] = argv
+        return server.subprocess.CompletedProcess(
+            argv, 0,
+            stdout=json.dumps({'result': 'Still remember.',
+                               'agent_id': 'agent-ok',
+                               'conversation_id': 'conv-abc123'}), stderr='')
+
+    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    agent_id = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
+    result = server.run_letta_code_message(
+        agent_id, 'and then?', conversation_id='conv-abc123')
+    assert result['reply'] == 'Still remember.'
+    argv = seen['argv']
+    # --conversation derives the agent from the conversation itself, so the
+    # CLI rejects it alongside --agent.
+    assert argv[argv.index('--conversation') + 1] == 'conv-abc123'
+    assert '--agent' not in argv
 
 
 def test_letta_code_command_falls_back_to_linked_cli(monkeypatch):

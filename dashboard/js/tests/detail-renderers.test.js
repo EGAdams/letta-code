@@ -295,7 +295,12 @@ describe("AgentCardRenderer (Strategy)", () => {
   });
 });
 
-function inputOptionsSetup({ modelInfo, voiceInfo, storage } = {}) {
+function inputOptionsSetup({
+  modelInfo,
+  voiceInfo,
+  storage,
+  conversationIds,
+} = {}) {
   const doc = new FakeDocument();
   const container = doc.createElement("section");
   container.id = "io";
@@ -323,8 +328,19 @@ function inputOptionsSetup({ modelInfo, voiceInfo, storage } = {}) {
       posts.push({ url, body });
       if (url === "/api/agent-model") return { ok: true, model: body.model };
       if (url === "/api/agent-voice") return { ok: true, voice: body.voice };
-      if (url === "/api/letta-code-message")
-        return { ok: true, reply: "Hello from Mazda." };
+      if (url === "/api/letta-code-message") {
+        const conversation_id = conversationIds
+          ? conversationIds[
+              posts.filter((p) => p.url === "/api/letta-code-message").length -
+                1
+            ]
+          : undefined;
+        return {
+          ok: true,
+          reply: "Hello from Mazda.",
+          run: { conversation_id },
+        };
+      }
       return { replies: [] };
     },
   };
@@ -409,10 +425,27 @@ describe("InputOptionsRenderer (Strategy)", () => {
     expect(ctx.posts).toEqual([
       {
         url: "/api/letta-code-message",
-        body: { agent: "a9", text: "hello there" },
+        body: { agent: "a9", text: "hello there", conversation_id: null },
       },
     ]);
     expect(ctx.statuses).toEqual([{ agentId: "a9", status: "active" }]);
+  });
+
+  test("Send remembers the conversation id and resumes it on the next turn", async () => {
+    const ctx = inputOptionsSetup({
+      conversationIds: ["conv-111", "conv-111"],
+    });
+    const input = ctx.container.querySelector(".am-test-input");
+    input.value = "first";
+    await ctx.api.send();
+    expect(ctx.storage.getItem("msi-conv-a9")).toBe("conv-111");
+    input.value = "second";
+    await ctx.api.send();
+    expect(ctx.posts[1].body).toEqual({
+      agent: "a9",
+      text: "second",
+      conversation_id: "conv-111",
+    });
   });
 
   test("Send clears the input and echoes the user message", async () => {
