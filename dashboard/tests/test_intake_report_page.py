@@ -75,7 +75,7 @@ def test_presentation_rows_mark_a_duplicate_only_run():
         rows, set(), stored=0, parsed=3)[0]['duplicate'] is True
 
 
-def test_stored_findings_normalises_signed_amount_and_drops_duplicates():
+def test_stored_findings_normalises_signed_amount_and_keeps_duplicates():
     rows = model.presentation_rows([
         {'id': 7, 'cat_class': 'cat-x', 'vendor_key': 'kum_go',
          'description': 'Kum & Go', 'amount': '-12.34', 'date': '2025-06-01',
@@ -85,11 +85,16 @@ def test_stored_findings_normalises_signed_amount_and_drops_duplicates():
          'reporting_category': 'Household'},
     ], duplicate_ids={8})
     findings = model.stored_findings(rows)
-    assert len(findings) == 1
+    # Duplicate-matched rows (id 8) still seed the dialog -- Prev/Next is how
+    # an operator reaches and fixes a wrong date/amount that made Mazda match
+    # it to an existing row in the first place. Save All's own dedup check
+    # (parse_and_categorize.py --save) is what keeps an unedited resubmit safe.
+    assert len(findings) == 2
     assert findings[0].merchant_name == 'Kum & Go'
     # Stored amounts are signed (negative = expense); a finding always carries
     # the positive magnitude every manual/Mazda-Fill entry already uses.
     assert findings[0].total_amount == 12.34
+    assert findings[1].merchant_name == 'Meijer'
 
 
 def test_stored_findings_drops_a_row_that_fails_expense_field_rules():

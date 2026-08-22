@@ -199,17 +199,23 @@ class StoredFinding(ExpenseFieldRules):
 def stored_findings(rows):
     """`presentation_rows` output -> validated `StoredFinding`s for the dialog.
 
-    Duplicate rows are excluded: a duplicate was already rejected as a repeat,
-    not something to check/correct/re-save. A row that fails ExpenseFieldRules
-    (e.g. a blank description slipped through, or an unparsable amount) is
-    dropped rather than raised -- the review dialog degrades to asking the
-    operator to fill it in by hand, same as it always has for a row Mazda
-    never touched, instead of failing the whole page.
+    Duplicate rows are included, not skipped: a "duplicate" here only means
+    Mazda matched this row to something already on file by (date, amount),
+    which is exactly the kind of misread (wrong date, wrong amount) an
+    operator needs Prev/Next to reach and correct. Save All is safe to run
+    on them unedited too -- it stores through the same parse_and_categorize.py
+    --save path every manual entry uses, which already re-runs its own
+    near-duplicate detection before inserting anything, so re-submitting a
+    genuine duplicate untouched is caught there rather than double-filed.
+
+    A row that fails ExpenseFieldRules (e.g. a blank description slipped
+    through, or an unparsable amount) is dropped rather than raised -- the
+    review dialog degrades to asking the operator to fill it in by hand, same
+    as it always has for a row Mazda never touched, instead of failing the
+    whole page.
     """
     findings = []
     for row in rows:
-        if row['duplicate']:
-            continue
         try:
             # Stored rows carry a signed amount (negative = expense, see the
             # table's data-signed-amount); ExpenseFieldRules' total_amount is
