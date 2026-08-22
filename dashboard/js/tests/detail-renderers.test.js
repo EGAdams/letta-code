@@ -454,8 +454,21 @@ describe("InputOptionsRenderer (Strategy)", () => {
     input.value = "hello there";
     await ctx.api.send();
     expect(input.value).toBe("");
-    const out = ctx.container.querySelector(".am-test-out").innerHTML;
+    const out = ctx.container.querySelector(".msi-turn").innerHTML;
     expect(out).toContain('<span class="hdr">user:</span> hello there');
+  });
+
+  test("Send appends each turn instead of replacing earlier ones", async () => {
+    const ctx = inputOptionsSetup();
+    const input = ctx.container.querySelector(".am-test-input");
+    input.value = "first";
+    await ctx.api.send();
+    input.value = "second";
+    await ctx.api.send();
+    const turns = ctx.container.querySelectorAll(".msi-turn");
+    expect(turns.length).toBe(2);
+    expect(turns[0].innerHTML).toContain("first");
+    expect(turns[1].innerHTML).toContain("second");
   });
 
   test("voice stop fills the textarea; Auto Send off does not send", async () => {

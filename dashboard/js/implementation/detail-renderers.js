@@ -1214,6 +1214,20 @@ export class InputOptionsRenderer extends DetailRenderer {
     // Disabled here: sends use the clean headless JSON endpoint below.
     const terminal = null;
 
+    // Every turn appends into this one persistent console instead of
+    // replacing outEl's contents, so earlier turns stay visible as the
+    // conversation grows (the agent already remembers them server-side —
+    // see run_letta_code_message's --conversation resume; the box should
+    // show the same history it's carrying).
+    const consoleEl = this._el("div", { className: "msi-console" });
+    outEl.appendChild(consoleEl);
+    const appendTurn = (userRow, bodyHtml) => {
+      const turn = this._el("div", { className: "msi-turn" });
+      turn.innerHTML = `${userRow}<div class="msi-gap"></div>${bodyHtml}`;
+      consoleEl.appendChild(turn);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    };
+
     // ── Send: forwards text into the letta-code session above ──────────────
     const send = async ({
       textOverride = null,
@@ -1253,14 +1267,17 @@ export class InputOptionsRenderer extends DetailRenderer {
           this._storage.setItem(convKey, newConversationId);
         }
         const replies = [{ type: "assistant_message", text: r.reply }];
-        outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div>${renderReplyRows(replies, this._agentName)}</div>`;
+        appendTurn(userRow, renderReplyRows(replies, this._agentName));
         showStatus("Answer received.");
         if (this._speech?.supported) {
           this._speech.speak(composeSpokenText(replies), this._agentName);
         }
       } catch (e) {
         this._onStatus(id, "error");
-        outEl.innerHTML = `<div class="msi-console">${userRow}<div class="msi-gap"></div><span class="msi-line err">! ${TextUtils.esc(e.message)}</span></div>`;
+        appendTurn(
+          userRow,
+          `<span class="msi-line err">! ${TextUtils.esc(e.message)}</span>`,
+        );
       } finally {
         sendBtn.disabled = false;
       }
