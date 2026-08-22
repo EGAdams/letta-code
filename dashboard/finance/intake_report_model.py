@@ -201,7 +201,7 @@ class StoredFinding(ExpenseFieldRules):
     vendor_key: str = ''
 
 
-def stored_findings(rows):
+def stored_findings(rows, resolve_vendor=None):
     """`presentation_rows` output -> validated `StoredFinding`s for the dialog.
 
     Duplicate rows are included, not skipped: a "duplicate" here only means
@@ -218,7 +218,19 @@ def stored_findings(rows):
     review dialog degrades to asking the operator to fill it in by hand, same
     as it always has for a row Mazda never touched, instead of failing the
     whole page.
+
+    resolve_vendor, when given, is called with a row's raw stored description
+    and may return the merchant's *canonical* vendor_key (see
+    finance.manual_entry.resolve_vendor_match) -- the DB's own vendor_key
+    column can be a one-off, transaction-specific slug (e.g.
+    "cracker_barrel_05_23_25_28_73") rather than the reusable key the
+    dialog's vendor dropdown actually lists, so a None/falsy result falls
+    back to that raw column. Left unset (every existing caller/test) this
+    stays the pure, no-I/O function the module docstring promises; server.py
+    is the one caller that passes a real resolver, backed by
+    vendor_category.yaml.
     """
+    resolve_vendor = resolve_vendor or (lambda _description: None)
     findings = []
     for row in rows:
         try:
@@ -235,7 +247,8 @@ def stored_findings(rows):
                 transaction_date=row['date'],
                 total_amount=amount,
                 category_name=row['reporting_category'],
-                vendor_key=row['vendor_key'],
+                vendor_key=(resolve_vendor(row['description'])
+                            or row['vendor_key']),
             ))
         except ValidationError:
             continue

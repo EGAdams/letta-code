@@ -99,6 +99,33 @@ def test_stored_findings_normalises_signed_amount_and_keeps_duplicates():
     assert findings[1].vendor_key == 'meijer'
 
 
+def test_stored_findings_prefers_resolve_vendor_over_the_raw_db_column():
+    """A stored row's own vendor_key can be a one-off, transaction-specific
+    slug (e.g. 'cracker_barrel_05_23_25_28_73' -- one per transaction, not
+    the reusable key the dialog's vendor dropdown lists), so an injected
+    resolver takes priority when it has an answer."""
+    rows = model.presentation_rows([
+        {'id': 7, 'cat_class': 'cat-x',
+         'vendor_key': 'cracker_barrel_05_23_25_28_73',
+         'description': 'CRACKER BARREL #428 CA CAVE CITY ,KY',
+         'amount': '-28.73', 'date': '2025-05-23',
+         'reporting_category': 'Travel & Vehicle'},
+    ], duplicate_ids={7})
+    findings = model.stored_findings(
+        rows, resolve_vendor=lambda description: 'cracker_barrel')
+    assert findings[0].vendor_key == 'cracker_barrel'
+
+
+def test_stored_findings_falls_back_to_the_db_column_when_resolver_finds_nothing():
+    rows = model.presentation_rows([
+        {'id': 7, 'cat_class': 'cat-x', 'vendor_key': 'raw_db_key',
+         'description': 'Some Vendor', 'amount': '-9.00',
+         'date': '2025-05-23', 'reporting_category': ''},
+    ], duplicate_ids={7})
+    findings = model.stored_findings(rows, resolve_vendor=lambda _d: None)
+    assert findings[0].vendor_key == 'raw_db_key'
+
+
 def test_stored_findings_drops_a_row_that_fails_expense_field_rules():
     """A blank description couldn't have been stored in the first place --
     the dialog degrades to blank-for-that-row instead of shipping the browser

@@ -280,14 +280,19 @@ def _reporting_label(category_id, category_namer, fallback: str | None):
         return None
 
 
-def _resolve_vendor_match(merchant_name: str | None, lookup_fn=None,
+def resolve_vendor_match(merchant_name: str | None, lookup_fn=None,
                           document_text: str = '',
                           category_namer=None) -> dict:
-    """Best-effort vendor_key/category lookup for an OCR'd merchant name, so
-    the form can preselect the vendor dropdown (and its category) instead of
-    only filling the free-text merchant field. A lookup failure here must
-    never break OCR prefill -- same fail-soft posture as OCR itself -- so
-    any exception just means "no match", not an error surfaced to the form.
+    """Best-effort vendor_key/category lookup for a human-readable merchant
+    name, so a form can preselect the vendor dropdown (and its category)
+    instead of only filling the free-text merchant field. Originally built
+    for OCR prefill; server.py's intake_report route reuses it to resolve
+    the manual-entry dialog's seeded findings too, since a stored row's own
+    DB vendor_key can be a one-off, transaction-specific slug (e.g.
+    "cracker_barrel_05_23_25_28_73") rather than the reusable vendor_key the
+    dropdown lists. A lookup failure here must never break either caller --
+    fail-soft, same posture as OCR itself -- so any exception just means "no
+    match", not an error surfaced to the form.
 
     When the name matches several stored vendors that disagree about the
     category, nothing is prefilled and `vendor_candidates` comes back for the
@@ -414,7 +419,7 @@ def preview_receipt_parse(image_path: str, engine: str = 'local', runner=None,
         if detail:
             error = f'{error} ({detail})'
         return False, {'error': error, 'possible_statement': possible_statement, **prefill}
-    prefill.update(_resolve_vendor_match(
+    prefill.update(resolve_vendor_match(
         prefill.get('merchant_name'), vendor_lookup_fn,
         document_text=_document_text(report),
         category_namer=category_namer))

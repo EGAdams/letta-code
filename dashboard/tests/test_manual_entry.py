@@ -481,7 +481,7 @@ DTE_CANDIDATES = (
 
 def test_ambiguous_vendor_prefills_nothing_but_reports_candidates():
     lookup = _FakeLookup(_FakeMatch(ambiguous=True, candidates=DTE_CANDIDATES))
-    out = manual_entry._resolve_vendor_match('DTE Energy', lambda: lookup)
+    out = manual_entry.resolve_vendor_match('DTE Energy', lambda: lookup)
     assert out['vendor_key'] is None
     assert out['category_name'] is None
     assert out['vendor_ambiguous'] is True
@@ -491,7 +491,7 @@ def test_ambiguous_vendor_prefills_nothing_but_reports_candidates():
 
 def test_unambiguous_vendor_reports_no_candidates():
     lookup = _FakeLookup(_FakeMatch(vendor_key='kroger', category_name='Food'))
-    out = manual_entry._resolve_vendor_match('Kroger', lambda: lookup)
+    out = manual_entry.resolve_vendor_match('Kroger', lambda: lookup)
     assert out['vendor_key'] == 'kroger'
     assert out['vendor_ambiguous'] is False
     assert out['vendor_candidates'] == []
@@ -499,7 +499,7 @@ def test_unambiguous_vendor_reports_no_candidates():
 
 def test_document_text_is_passed_through_to_the_vendor_lookup():
     lookup = _FakeLookup(_FakeMatch(vendor_key='dte_energy_0544'))
-    manual_entry._resolve_vendor_match(
+    manual_entry.resolve_vendor_match(
         'DTE Energy', lambda: lookup, document_text='Account Number 0544')
     assert lookup.calls == [('DTE Energy', 'Account Number 0544')]
 
@@ -509,7 +509,7 @@ def test_vendor_lookup_failure_still_fails_soft():
         def find_vendor_match(self, *a, **kw):
             raise RuntimeError('yaml unreadable')
 
-    out = manual_entry._resolve_vendor_match('DTE Energy', lambda: _Boom())
+    out = manual_entry.resolve_vendor_match('DTE Energy', lambda: _Boom())
     assert out == {'vendor_key': None, 'category_name': None,
                    'vendor_ambiguous': False, 'vendor_candidates': []}
 
@@ -584,7 +584,7 @@ def test_vendor_category_is_translated_to_a_selectable_bucket_label():
     lookup = _FakeLookup(_LeafMatch(
         vendor_key='dte_energy_0544', category_id=311,
         category_name='Housing Gas Bill'))
-    out = manual_entry._resolve_vendor_match(
+    out = manual_entry.resolve_vendor_match(
         'DTE Energy', lambda: lookup, category_namer=_FakeNamer())
     assert out['vendor_key'] == 'dte_energy_0544'
     assert out['category_name'] == 'Housing Payment & Upkeep', (
@@ -598,7 +598,7 @@ def test_ambiguous_candidates_also_get_selectable_bucket_labels():
         _LeafMatch(vendor_key='dte_energy_0020', category_id=123,
                    category_name='Church Electric Bill'),
     )))
-    out = manual_entry._resolve_vendor_match(
+    out = manual_entry.resolve_vendor_match(
         'DTE Energy', lambda: lookup, category_namer=_FakeNamer())
     assert [c['category_name'] for c in out['vendor_candidates']] == [
         'Housing Payment & Upkeep', 'Church Utilities']
@@ -610,7 +610,7 @@ def test_without_a_namer_the_leaf_name_is_left_alone():
     lookup = _FakeLookup(_LeafMatch(
         vendor_key='dte_energy_0544', category_id=311,
         category_name='Housing Gas Bill'))
-    out = manual_entry._resolve_vendor_match('DTE Energy', lambda: lookup)
+    out = manual_entry.resolve_vendor_match('DTE Energy', lambda: lookup)
     assert out['category_name'] == 'Housing Gas Bill'
 
 
@@ -625,7 +625,7 @@ def test_a_taxonomy_failure_leaves_the_dropdown_alone_instead_of_breaking():
     lookup = _FakeLookup(_LeafMatch(
         vendor_key='dte_energy_0544', category_id=311,
         category_name='Housing Gas Bill'))
-    out = manual_entry._resolve_vendor_match(
+    out = manual_entry.resolve_vendor_match(
         'DTE Energy', lambda: lookup, category_namer=_BoomNamer())
     assert out['vendor_key'] == 'dte_energy_0544'
     assert out['category_name'] is None
@@ -633,7 +633,7 @@ def test_a_taxonomy_failure_leaves_the_dropdown_alone_instead_of_breaking():
 
 def test_a_vendor_with_no_category_stays_uncategorized():
     lookup = _FakeLookup(_LeafMatch(vendor_key='kroger', category_id=None))
-    out = manual_entry._resolve_vendor_match(
+    out = manual_entry.resolve_vendor_match(
         'Kroger', lambda: lookup, category_namer=_FakeNamer())
     assert out['category_name'] is None
 
@@ -641,7 +641,7 @@ def test_a_vendor_with_no_category_stays_uncategorized():
 def test_an_unmapped_category_id_yields_no_label_rather_than_a_bad_one():
     lookup = _FakeLookup(_LeafMatch(
         vendor_key='x', category_id=9999, category_name='Some Leaf'))
-    out = manual_entry._resolve_vendor_match(
+    out = manual_entry.resolve_vendor_match(
         'X', lambda: lookup, category_namer=_FakeNamer())
     assert out['category_name'] is None
 
@@ -655,7 +655,7 @@ def test_a_candidate_with_no_category_id_keeps_its_own_name_as_a_label():
     # whatever name the candidate carried beats showing the operator nothing.
     # _chooseVendorCandidate still only sets the dropdown for a selectable one.
     lookup = _FakeLookup(_FakeMatch(ambiguous=True, candidates=DTE_CANDIDATES))
-    out = manual_entry._resolve_vendor_match(
+    out = manual_entry.resolve_vendor_match(
         'DTE Energy', lambda: lookup, category_namer=_FakeNamer())
     assert [c['category_name'] for c in out['vendor_candidates']] == [
         'Housing Gas Bill', 'Church Electric Bill']
@@ -674,7 +674,7 @@ def test_a_match_object_without_the_new_attributes_still_works():
     # getattr defaults keep the boundary tolerant of a stale library rather
     # than raising AttributeError in the middle of a prefill.
     lookup = _FakeLookup(_OldMatch())
-    out = manual_entry._resolve_vendor_match('Kroger', lambda: lookup)
+    out = manual_entry.resolve_vendor_match('Kroger', lambda: lookup)
     assert out['vendor_ambiguous'] is False
     assert out['vendor_candidates'] == []
     assert out['vendor_key'] == 'kroger'
@@ -683,7 +683,7 @@ def test_a_match_object_without_the_new_attributes_still_works():
 @pytest.mark.parametrize('name', ['', '   ', None])
 def test_a_blank_merchant_name_skips_the_lookup_entirely(name):
     lookup = _FakeLookup(_FakeMatch(vendor_key='should_not_be_used'))
-    out = manual_entry._resolve_vendor_match(name, lambda: lookup)
+    out = manual_entry.resolve_vendor_match(name, lambda: lookup)
     assert out['vendor_key'] is None
     assert lookup.calls == []
 

@@ -1854,8 +1854,15 @@ def build_recent_intake_html(intake):
     # Mazda's own findings (whatever STEP 8 already stored for this document)
     # seed the review dialog instead of leaving it blank -- an auto-scan used
     # to only ever populate Verified Transactions, so checking/correcting what
-    # she read meant re-running Mazda Fill by hand.
-    stored_items = intake_report_model.stored_findings(presentation_rows_list)
+    # she read meant re-running Mazda Fill by hand. resolve_vendor resolves
+    # each row's *canonical* vendor_key (manual_entry.resolve_vendor_match)
+    # so the dialog's vendor dropdown preselects a known merchant even though
+    # the DB's own vendor_key column can hold a one-off, transaction-specific
+    # slug rather than the reusable key the dropdown lists.
+    stored_items = intake_report_model.stored_findings(
+        presentation_rows_list,
+        resolve_vendor=lambda description: manual_entry.resolve_vendor_match(
+            description).get('vendor_key'))
     manual_entry_html = intake_report_page.manual_entry_form_html(
         intake.get('image_path'), intake.get('conversation_id'), scanner_key,
         mazda_mode=_MAZDA_MODE_SERVICE.current(), stored_items=stored_items)
