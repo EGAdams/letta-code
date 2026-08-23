@@ -682,25 +682,27 @@ export class ManualEntryForm {
       transactionDate: this.transactionDateInput.value,
       totalAmount: this.totalAmountInput.value,
       categoryName: this.categorySelect.value,
-      vendorKey: this.vendorSelect.value,
+      knownVendorKey: this.vendorSelect.value,
     };
   }
 
   /**
-   * Which vendorSelect option (if any) an item's own vendorKey or, failing
-   * that, its merchantName text matches -- same precedence _applyVendorMatch
-   * uses for an OCR prefill: a stored/duplicate-matched finding already knows
-   * its real vendor_key (see finance/intake_report_model.StoredFinding), so
-   * that is checked first without touching the human-readable merchant text;
-   * a hand-typed item that happens to equal a vendor_key slug still matches
+   * Which vendorSelect option (if any) an item's own knownVendorKey or,
+   * failing that, its merchantName text matches -- same precedence
+   * _applyVendorMatch uses for an OCR prefill: a stored/duplicate-matched
+   * finding already knows its REUSABLE vendor, if any (see
+   * finance/intake_report_model.StoredFinding.known_vendor_key -- never the
+   * per-transaction filing key every stored expense carries), so that is
+   * checked first without touching the human-readable merchant text; a
+   * hand-typed item that happens to equal a vendor_key slug still matches
    * the way it always has.
    */
   _knownVendorKeyFor(item) {
     if (
-      item.vendorKey &&
-      this.vendorOptions.some((opt) => opt.vendorKey === item.vendorKey)
+      item.knownVendorKey &&
+      this.vendorOptions.some((opt) => opt.vendorKey === item.knownVendorKey)
     ) {
-      return item.vendorKey;
+      return item.knownVendorKey;
     }
     return this.vendorOptions.some((opt) => opt.vendorKey === item.merchantName)
       ? item.merchantName

@@ -91,19 +91,21 @@ def test_stored_findings_normalises_signed_amount_and_keeps_duplicates():
     # (parse_and_categorize.py --save) is what keeps an unedited resubmit safe.
     assert len(findings) == 2
     assert findings[0].merchant_name == 'Kum & Go'
-    assert findings[0].vendor_key == 'kum_go'
+    # No resolve_vendor injected -> known_vendor_key stays '' regardless of
+    # the row's own (always-present, per-transaction) filing key.
+    assert findings[0].known_vendor_key == ''
     # Stored amounts are signed (negative = expense); a finding always carries
     # the positive magnitude every manual/Mazda-Fill entry already uses.
     assert findings[0].total_amount == 12.34
     assert findings[1].merchant_name == 'Meijer'
-    assert findings[1].vendor_key == 'meijer'
 
 
-def test_stored_findings_prefers_resolve_vendor_over_the_raw_db_column():
-    """A stored row's own vendor_key can be a one-off, transaction-specific
-    slug (e.g. 'cracker_barrel_05_23_25_28_73' -- one per transaction, not
-    the reusable key the dialog's vendor dropdown lists), so an injected
-    resolver takes priority when it has an answer."""
+def test_stored_findings_fills_known_vendor_key_from_the_injected_resolver():
+    """A stored row's own vendor_key is a per-transaction filing key (e.g.
+    'cracker_barrel_05_23_25_28_73', built from merchant+date+amount) --
+    never the reusable vendor the dialog's dropdown lists. known_vendor_key
+    only comes from the injected resolver, which answers that different
+    question."""
     rows = model.presentation_rows([
         {'id': 7, 'cat_class': 'cat-x',
          'vendor_key': 'cracker_barrel_05_23_25_28_73',
@@ -113,17 +115,20 @@ def test_stored_findings_prefers_resolve_vendor_over_the_raw_db_column():
     ], duplicate_ids={7})
     findings = model.stored_findings(
         rows, resolve_vendor=lambda description: 'cracker_barrel')
-    assert findings[0].vendor_key == 'cracker_barrel'
+    assert findings[0].known_vendor_key == 'cracker_barrel'
 
 
-def test_stored_findings_falls_back_to_the_db_column_when_resolver_finds_nothing():
+def test_stored_findings_leaves_known_vendor_key_blank_when_resolver_finds_nothing():
+    """No reusable vendor is a normal outcome (same as an uncategorized row)
+    -- it must never fall back to the row's own per-transaction filing key,
+    which is not a 'known vendor' and would misrepresent one as the other."""
     rows = model.presentation_rows([
-        {'id': 7, 'cat_class': 'cat-x', 'vendor_key': 'raw_db_key',
+        {'id': 7, 'cat_class': 'cat-x', 'vendor_key': 'raw_filing_key',
          'description': 'Some Vendor', 'amount': '-9.00',
          'date': '2025-05-23', 'reporting_category': ''},
     ], duplicate_ids={7})
     findings = model.stored_findings(rows, resolve_vendor=lambda _d: None)
-    assert findings[0].vendor_key == 'raw_db_key'
+    assert findings[0].known_vendor_key == ''
 
 
 def test_stored_findings_drops_a_row_that_fails_expense_field_rules():

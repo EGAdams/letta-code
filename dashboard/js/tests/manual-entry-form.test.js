@@ -180,7 +180,7 @@ describe("ManualEntryForm seeded from Mazda's own findings", () => {
     expect(form.merchantNameInput.value).toBe("");
   });
 
-  test("a finding's own vendor_key preselects the known-vendor dropdown, without overwriting the human-readable merchant text", async () => {
+  test("a finding's own known_vendor_key preselects the known-vendor dropdown, without overwriting the human-readable merchant text", async () => {
     const { form } = setup({
       dataset: {
         mazdaFindings: JSON.stringify([
@@ -189,7 +189,7 @@ describe("ManualEntryForm seeded from Mazda's own findings", () => {
             transaction_date: "2025-06-01",
             total_amount: "12.34",
             category_name: "Food",
-            vendor_key: "kroger",
+            known_vendor_key: "kroger",
           },
         ]),
       },
@@ -199,7 +199,7 @@ describe("ManualEntryForm seeded from Mazda's own findings", () => {
     expect(form.vendorSelect.value).toBe("kroger");
   });
 
-  test("a finding with no vendor_key (or one not in the known-vendor list) leaves the dropdown unselected", async () => {
+  test("a finding with no known_vendor_key (or one not in the known-vendor list) leaves the dropdown unselected", async () => {
     const { form } = setup({
       dataset: {
         mazdaFindings: JSON.stringify([
@@ -208,7 +208,7 @@ describe("ManualEntryForm seeded from Mazda's own findings", () => {
             transaction_date: "2025-06-01",
             total_amount: "9.00",
             category_name: "",
-            vendor_key: "not_a_known_vendor",
+            known_vendor_key: "not_a_known_vendor",
           },
         ]),
       },

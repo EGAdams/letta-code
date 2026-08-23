@@ -13,9 +13,12 @@
  * @property {string} transactionDate  ISO yyyy-mm-dd
  * @property {string} totalAmount      raw text from the input, not yet parsed
  * @property {string} categoryName     one of /api/rol-finance-categories' names, or ""
- * @property {string} [vendorKey]      an exact vendor_category.yaml match to
- *   preselect the "known vendor" dropdown with, or "" -- optional so a plain
- *   hand-typed item (no known vendor yet) doesn't need to carry the field
+ * @property {string} [knownVendorKey] a REUSABLE vendor_category.yaml match
+ *   to preselect the "known vendor" dropdown with, or "" -- optional so a
+ *   plain hand-typed item (no known vendor yet) doesn't need to carry the
+ *   field. Distinct from merchantName: this is never the per-transaction
+ *   filing key a stored expense always carries (see StoredFindingRow below),
+ *   only a name the vendor dropdown can already select.
  *
  * @typedef {Object} ManualEntryValidation
  * @property {boolean} valid
@@ -61,7 +64,10 @@
  * @property {number} total_amount      always positive; sign already
  *   normalised server-side
  * @property {string} category_name
- * @property {string} [vendor_key]      the row's own vendor_key, if any
+ * @property {string} [known_vendor_key]  a REUSABLE vendor this row's
+ *   merchant resolved to, if any -- see finance.intake_report_model's
+ *   StoredFinding.known_vendor_key for why this is never the row's own
+ *   per-transaction filing key
  */
 
 import { ISO_DATE_RE, isNonEmptyString } from "./field-validation.js";
@@ -295,7 +301,7 @@ export function blankManualEntryFields() {
     transactionDate: "",
     totalAmount: "",
     categoryName: "",
-    vendorKey: "",
+    knownVendorKey: "",
   };
 }
 
@@ -333,7 +339,8 @@ export function readStoredFindings(raw) {
           : "",
       categoryName:
         typeof row?.category_name === "string" ? row.category_name : "",
-      vendorKey: typeof row?.vendor_key === "string" ? row.vendor_key : "",
+      knownVendorKey:
+        typeof row?.known_vendor_key === "string" ? row.known_vendor_key : "",
     }))
     .filter((item) => item.merchantName && item.totalAmount);
 }

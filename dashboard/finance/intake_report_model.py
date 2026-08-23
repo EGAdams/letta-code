@@ -194,11 +194,18 @@ class StoredFinding(ExpenseFieldRules):
     """
 
     category_name: str = ''
-    #: The stored row's own vendor_key, when it has one -- lets the dialog
-    #: preselect the "known vendor" dropdown for an already-stored (often
-    #: duplicate-matched) row instead of leaving it on free text, the same way
-    #: an exact OCR prefill match does (see ManualEntryPrefill.vendorKey).
-    vendor_key: str = ''
+    #: A REUSABLE vendor this row's merchant resolved to, if any -- e.g.
+    #: "kroger". Deliberately NOT the per-transaction filing key every stored
+    #: expense already carries (id_light-derived, e.g.
+    #: "cracker_barrel_05_23_25_28_73": built from merchant+date+amount and
+    #: guaranteed to exist for every row, since it is what names the archived
+    #: file). Those are two different things: the filing key can never be
+    #: missing and never needs deciding, while this one answers "does the
+    #: dialog already know this merchant, so it can preselect the vendor
+    #: dropdown?" -- '' means no, same as a category-only OCR match leaves
+    #: ManualEntryPrefill.vendorKey null. See stored_findings()'s
+    #: resolve_vendor param for how this gets filled.
+    known_vendor_key: str = ''
 
 
 def stored_findings(rows, resolve_vendor=None):
@@ -220,15 +227,14 @@ def stored_findings(rows, resolve_vendor=None):
     whole page.
 
     resolve_vendor, when given, is called with a row's raw stored description
-    and may return the merchant's *canonical* vendor_key (see
-    finance.manual_entry.resolve_vendor_match) -- the DB's own vendor_key
-    column can be a one-off, transaction-specific slug (e.g.
-    "cracker_barrel_05_23_25_28_73") rather than the reusable key the
-    dialog's vendor dropdown actually lists, so a None/falsy result falls
-    back to that raw column. Left unset (every existing caller/test) this
-    stays the pure, no-I/O function the module docstring promises; server.py
-    is the one caller that passes a real resolver, backed by
-    vendor_category.yaml.
+    and may return the merchant's REUSABLE vendor_key (see
+    finance.manual_entry.resolve_vendor_match), which becomes
+    StoredFinding.known_vendor_key -- a None/falsy result just leaves that
+    field '' (no known vendor yet, same as "Uncategorized" is a valid
+    outcome; it never blocks a row from being included). Left unset (every
+    existing caller/test) this stays the pure, no-I/O function the module
+    docstring promises; server.py is the one caller that passes a real
+    resolver, backed by vendor_category.yaml.
     """
     resolve_vendor = resolve_vendor or (lambda _description: None)
     findings = []
@@ -247,8 +253,7 @@ def stored_findings(rows, resolve_vendor=None):
                 transaction_date=row['date'],
                 total_amount=amount,
                 category_name=row['reporting_category'],
-                vendor_key=(resolve_vendor(row['description'])
-                            or row['vendor_key']),
+                known_vendor_key=resolve_vendor(row['description']) or '',
             ))
         except ValidationError:
             continue
