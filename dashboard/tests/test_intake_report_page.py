@@ -100,6 +100,29 @@ def test_stored_findings_normalises_signed_amount_and_keeps_duplicates():
     assert findings[1].merchant_name == 'Meijer'
 
 
+def test_stored_findings_carries_the_real_db_id_for_every_row():
+    """EVERY row here already exists in the database (presentation_rows()
+    only ever sees expenses actually queried back out of it) -- duplicate
+    or not, Save All must never try to INSERT one of these again, so each
+    finding needs its real id to route through an update instead."""
+    rows = model.presentation_rows([
+        {'id': 7, 'cat_class': 'cat-x', 'vendor_key': 'kum_go',
+         'description': 'Kum & Go', 'amount': '-12.34', 'date': '2025-06-01',
+         'reporting_category': 'Travel & Vehicle'},
+    ], duplicate_ids=set())
+    findings = model.stored_findings(rows)
+    assert findings[0].expense_id == 7
+
+
+def test_stored_findings_leaves_expense_id_none_for_a_row_with_no_real_id():
+    rows = model.presentation_rows([
+        {'id': None, 'cat_class': '', 'vendor_key': '',
+         'description': 'Some Vendor', 'amount': '-9.00',
+         'date': '2025-06-03', 'reporting_category': ''},
+    ], duplicate_ids=set())
+    assert model.stored_findings(rows)[0].expense_id is None
+
+
 def test_stored_findings_fills_known_vendor_key_from_the_injected_resolver():
     """A stored row's own vendor_key is a per-transaction filing key (e.g.
     'cracker_barrel_05_23_25_28_73', built from merchant+date+amount) --

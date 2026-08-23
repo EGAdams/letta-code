@@ -19,6 +19,13 @@
  *   field. Distinct from merchantName: this is never the per-transaction
  *   filing key a stored expense always carries (see StoredFindingRow below),
  *   only a name the vendor dropdown can already select.
+ * @property {?number} [expenseId] the DB id of an already-stored row this
+ *   item reflects, or null/undefined for a plain not-yet-saved item. Set
+ *   ONLY by readStoredFindings (a seeded finding always already exists in
+ *   the database -- see StoredFindingRow below); a hand-typed or Mazda-Fill
+ *   item never carries one. buildSaveRequest below is what this actually
+ *   changes: present, it builds an UPDATE through /api/expense-edit instead
+ *   of an INSERT through /api/manual-receipt-entry.
  *
  * @typedef {Object} ManualEntryValidation
  * @property {boolean} valid
@@ -68,6 +75,8 @@
  *   merchant resolved to, if any -- see finance.intake_report_model's
  *   StoredFinding.known_vendor_key for why this is never the row's own
  *   per-transaction filing key
+ * @property {?number} [expense_id]  the DB id of the already-stored row
+ *   this finding reflects -- see ManualEntryFields.expenseId
  */
 
 import { ISO_DATE_RE, isNonEmptyString } from "./field-validation.js";
@@ -302,6 +311,7 @@ export function blankManualEntryFields() {
     totalAmount: "",
     categoryName: "",
     knownVendorKey: "",
+    expenseId: null,
   };
 }
 
@@ -341,6 +351,10 @@ export function readStoredFindings(raw) {
         typeof row?.category_name === "string" ? row.category_name : "",
       knownVendorKey:
         typeof row?.known_vendor_key === "string" ? row.known_vendor_key : "",
+      expenseId:
+        Number.isInteger(row?.expense_id) && row.expense_id > 0
+          ? row.expense_id
+          : null,
     }))
     .filter((item) => item.merchantName && item.totalAmount);
 }

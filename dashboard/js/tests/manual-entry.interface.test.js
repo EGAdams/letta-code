@@ -322,6 +322,7 @@ describe("blankManualEntryFields", () => {
       totalAmount: "",
       categoryName: "",
       knownVendorKey: "",
+      expenseId: null,
     });
   });
 
@@ -342,6 +343,7 @@ describe("readStoredFindings", () => {
         total_amount: "12.34",
         category_name: "Travel & Vehicle",
         known_vendor_key: "kum_go",
+        expense_id: 1391,
       },
       {
         merchant_name: "Meijer",
@@ -357,6 +359,7 @@ describe("readStoredFindings", () => {
         totalAmount: "12.34",
         categoryName: "Travel & Vehicle",
         knownVendorKey: "kum_go",
+        expenseId: 1391,
       },
       {
         merchantName: "Meijer",
@@ -364,8 +367,29 @@ describe("readStoredFindings", () => {
         totalAmount: "45",
         categoryName: "",
         knownVendorKey: "",
+        expenseId: null,
       },
     ]);
+  });
+
+  test("ignores a malformed or non-positive expense_id instead of trusting it", () => {
+    const raw = JSON.stringify([
+      {
+        merchant_name: "Kum & Go",
+        transaction_date: "2025-06-01",
+        total_amount: "12.34",
+        expense_id: -3,
+      },
+      {
+        merchant_name: "Meijer",
+        transaction_date: "2025-06-02",
+        total_amount: "45",
+        expense_id: "1391",
+      },
+    ]);
+    const [first, second] = readStoredFindings(raw);
+    expect(first.expenseId).toBeNull();
+    expect(second.expenseId).toBeNull();
   });
 
   test("drops a row missing merchant or amount instead of showing a broken item", () => {

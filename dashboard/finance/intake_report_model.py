@@ -206,6 +206,15 @@ class StoredFinding(ExpenseFieldRules):
     #: ManualEntryPrefill.vendorKey null. See stored_findings()'s
     #: resolve_vendor param for how this gets filled.
     known_vendor_key: str = ''
+    #: The DB id of an already-stored row this finding reflects (duplicate-
+    #: matched rows always have one; a freshly-stored, never-before-seen row
+    #: usually does too, since presentation_rows queries what's actually in
+    #: the DB). None only for a row this document's own intake never
+    #: resolved to a real stored id. Save must route THIS finding through an
+    #: UPDATE (the same tool Edit Expense uses), never Save All's insert --
+    #: inserting an already-stored expense a second time is exactly the
+    #: duplicate a human corrected a vendor/category on, not a new one.
+    expense_id: int | None = None
 
 
 def stored_findings(rows, resolve_vendor=None):
@@ -214,11 +223,17 @@ def stored_findings(rows, resolve_vendor=None):
     Duplicate rows are included, not skipped: a "duplicate" here only means
     Mazda matched this row to something already on file by (date, amount),
     which is exactly the kind of misread (wrong date, wrong amount) an
-    operator needs Prev/Next to reach and correct. Save All is safe to run
-    on them unedited too -- it stores through the same parse_and_categorize.py
-    --save path every manual entry uses, which already re-runs its own
-    near-duplicate detection before inserting anything, so re-submitting a
-    genuine duplicate untouched is caught there rather than double-filed.
+    operator needs Prev/Next to reach and correct. EVERY row that reaches
+    here -- duplicate-matched or freshly stored this run -- already has a
+    real DB id (presentation_rows() reads from expenses actually queried
+    back out of the database), which is why every StoredFinding carries
+    expense_id: the browser must never try to INSERT one of these again via
+    Save All -- that either double-files a row or (for a genuine duplicate)
+    gets silently rejected by the store's own dedup check, which is exactly
+    how a vendor/category correction typed into this dialog used to vanish
+    without any error (EG, 2026-08-22). Editing a seeded finding has to go
+    through an UPDATE keyed on that id instead -- see manual-entry-form.js's
+    Save All, which branches on ManualEntryFields.expenseId.
 
     A row that fails ExpenseFieldRules (e.g. a blank description slipped
     through, or an unparsable amount) is dropped rather than raised -- the
@@ -254,6 +269,7 @@ def stored_findings(rows, resolve_vendor=None):
                 total_amount=amount,
                 category_name=row['reporting_category'],
                 known_vendor_key=resolve_vendor(row['description']) or '',
+                expense_id=(int(row['id']) if row['id'] else None),
             ))
         except ValidationError:
             continue

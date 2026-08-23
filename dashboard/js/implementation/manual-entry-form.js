@@ -42,6 +42,11 @@ import {
   readArchivePathResponse,
 } from "../abstract/archive-verify-command.js";
 import {
+  buildEditPayload,
+  describeEditResult,
+  readEditResponse,
+} from "../abstract/expense-edit.interface.js";
+import {
   ARCHIVE_KIND,
   blankManualEntryFields,
   buildArchivePreviewPayload,
@@ -677,12 +682,19 @@ export class ManualEntryForm {
   }
 
   _captureCurrentItem() {
+    // expenseId is metadata about WHICH row this item is, not a typed
+    // field -- carried forward from whatever is already in this slot, same
+    // as _renderCurrentItem never renders it into an input. Losing it here
+    // would silently turn an edit of a seeded (already-stored) finding back
+    // into an insert the moment the operator typed anything.
+    const expenseId = this.items[this.currentIndex]?.expenseId ?? null;
     this.items[this.currentIndex] = {
       merchantName: this.merchantNameInput.value,
       transactionDate: this.transactionDateInput.value,
       totalAmount: this.totalAmountInput.value,
       categoryName: this.categorySelect.value,
       knownVendorKey: this.vendorSelect.value,
+      expenseId,
     };
   }
 
@@ -730,7 +742,16 @@ export class ManualEntryForm {
    */
   _positionText() {
     const position = `${this.currentIndex + 1} of ${this.items.length}`;
-    if (!this.statementHeader) return `Expense ${position}`;
+    if (!this.statementHeader) {
+      const item = this._currentItem();
+      // Names which endpoint Save All will use for THIS item (see
+      // _saveOneItem) -- an operator correcting a seeded finding needs to
+      // see it will update the stored row, not file a new one.
+      const editing = item.expenseId
+        ? ` (editing stored expense #${item.expenseId})`
+        : "";
+      return `Expense ${position}${editing}`;
+    }
     const { bankName, accountLast4 } = this.statementHeader;
     const account = [bankName, accountLast4 ? `****${accountLast4}` : ""]
       .filter(Boolean)
@@ -1027,6 +1048,65 @@ export class ManualEntryForm {
     }
   }
 
+  /**
+   * Save exactly one item through the right endpoint: an UPDATE
+   * (/api/expense-edit) when it names an already-stored row (see
+   * ManualEntryFields.expenseId), an INSERT (/api/manual-receipt-entry)
+   * otherwise. This dialog's plain new items and Mazda's own seeded
+   * findings both funnel through Save All, but only the first kind is safe
+   * to insert -- the second names a row that already exists (see
+   * finance/intake_report_model.StoredFinding's expense_id docstring), and
+   * inserting it again is exactly how a vendor/category correction typed
+   * onto a seeded finding used to silently vanish: the store's own dedup
+   * check recognized the still-identical (date, amount) as the same
+   * expense already on file and quietly reported it as a duplicate instead
+   * of an error (EG, 2026-08-22).
+   * @param {import("../abstract/manual-entry.interface.js").ManualEntryFields} item
+   * @param {import("../abstract/manual-entry.interface.js").IntakeRef} intakeRef
+   * @returns {Promise<{ok: boolean, error: ?string, isUpdate: boolean, vendorRemembered?: object}>}
+   */
+  async _saveOneItem(item, intakeRef) {
+    if (item.expenseId) {
+      const payload = buildEditPayload(item.expenseId, item);
+      if (!payload) {
+        return {
+          ok: false,
+          error: "Those values cannot be saved.",
+          isUpdate: true,
+        };
+      }
+      try {
+        const result = readEditResponse(
+          await this.http.postJSON("/api/expense-edit", payload),
+        );
+        return {
+          ok: result.ok,
+          error: result.ok ? null : describeEditResult(result),
+          isUpdate: true,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err && err.message ? err.message : String(err),
+          isUpdate: true,
+        };
+      }
+    }
+    try {
+      const json = await this.http.postJSON(
+        "/api/manual-receipt-entry",
+        buildSubmitPayload(item, intakeRef),
+      );
+      return { ...readSubmitResponse(json), isUpdate: false };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err && err.message ? err.message : String(err),
+        isUpdate: false,
+      };
+    }
+  }
+
   async _saveAll() {
     this._captureCurrentItem();
     // Which rules apply is decided by what the document IS, not by how many
@@ -1057,18 +1137,7 @@ export class ManualEntryForm {
     const results = [];
     for (let i = 0; i < this.items.length; i++) {
       this._setStatus(`Saving ${i + 1} of ${this.items.length}…`);
-      try {
-        const json = await this.http.postJSON(
-          "/api/manual-receipt-entry",
-          buildSubmitPayload(this.items[i], intakeRef),
-        );
-        results.push(readSubmitResponse(json));
-      } catch (err) {
-        results.push({
-          ok: false,
-          error: err && err.message ? err.message : String(err),
-        });
-      }
+      results.push(await this._saveOneItem(this.items[i], intakeRef));
     }
     const failed = results.filter((r) => !r.ok);
     if (failed.length) {
@@ -1078,7 +1147,16 @@ export class ManualEntryForm {
       );
       return;
     }
-    let statusText = `All ${results.length} expense(s) saved.`;
+    const updatedCount = results.filter((r) => r.isUpdate).length;
+    const insertedCount = results.length - updatedCount;
+    let statusText;
+    if (updatedCount && insertedCount) {
+      statusText = `${insertedCount} expense(s) saved, ${updatedCount} updated.`;
+    } else if (updatedCount) {
+      statusText = `${updatedCount} expense(s) updated.`;
+    } else {
+      statusText = `All ${results.length} expense(s) saved.`;
+    }
     const newVendorKeys = results
       .map((r) => r.vendorRemembered)
       .filter((v) => v && v.remembered && v.vendorKey)

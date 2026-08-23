@@ -490,6 +490,136 @@ describe("ManualEntryForm._saveAll", () => {
     expect(form._statusEl.textContent).toContain("All 2 expense(s) saved");
   });
 
+  test("an item with an expenseId is saved through an UPDATE, never an INSERT", async () => {
+    // Real repro, EG 2026-08-22: correcting a duplicate-matched seeded
+    // finding's vendor/category and hitting Save All used to insert it
+    // again, which the store's own dedup check silently rejected as a
+    // duplicate -- so the correction never actually landed anywhere.
+    const insertCalls = [];
+    const editCalls = [];
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": {
+        ok: true,
+        categories: ["Travel & Vehicle"],
+      },
+      "/api/manual-receipt-entry": (body) => {
+        insertCalls.push(body);
+        return { ok: true, expense_id: 999, duplicate: false };
+      },
+      "/api/expense-edit": (body) => {
+        editCalls.push(body);
+        return {
+          ok: true,
+          record: {
+            id: body.expense_id,
+            description: body.merchant_name,
+            transaction_date: body.transaction_date,
+            total_amount: body.total_amount,
+            category_name: body.category_name,
+          },
+          changed_fields: ["category_name"],
+          warnings: [],
+        };
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    form.items = [
+      validItem({
+        merchantName: "Cracker Barrel",
+        categoryName: "Travel & Vehicle",
+        expenseId: 1391,
+      }),
+    ];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+    await form._saveAll();
+    expect(insertCalls).toEqual([]);
+    expect(editCalls.length).toBe(1);
+    expect(editCalls[0]).toEqual({
+      expense_id: 1391,
+      merchant_name: "Cracker Barrel",
+      transaction_date: "2026-08-15",
+      total_amount: 12.34,
+      category_name: "Travel & Vehicle",
+    });
+    expect(form._statusEl.textContent).toContain("1 expense(s) updated");
+  });
+
+  test("a mix of new and seeded items routes each through the right endpoint", async () => {
+    const insertCalls = [];
+    const editCalls = [];
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/manual-receipt-entry": (body) => {
+        insertCalls.push(body);
+        return { ok: true, expense_id: 1, duplicate: false };
+      },
+      "/api/expense-edit": (body) => {
+        editCalls.push(body);
+        return {
+          ok: true,
+          record: {
+            id: body.expense_id,
+            description: body.merchant_name,
+            transaction_date: body.transaction_date,
+            total_amount: body.total_amount,
+            category_name: body.category_name,
+          },
+          changed_fields: [],
+          warnings: [],
+        };
+      },
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    form.items = [
+      validItem({ merchantName: "Ellis Sears Lot", expenseId: 1336 }),
+      validItem({ merchantName: "Kroger" }),
+    ];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+    await form._saveAll();
+    expect(editCalls.length).toBe(1);
+    expect(insertCalls.length).toBe(1);
+    expect(form._statusEl.textContent).toContain(
+      "1 expense(s) saved, 1 updated",
+    );
+  });
+
+  test("capturing the current item's edits preserves expenseId across Prev/Next", async () => {
+    const { form } = setup();
+    await form.mount();
+    form.items = [
+      validItem({ merchantName: "Cracker Barrel", expenseId: 1391 }),
+    ];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+    form.categorySelect.value = "";
+    form._captureCurrentItem();
+    expect(form.items[0].expenseId).toBe(1391);
+  });
+
+  test("Prev/Next position text names the stored expense an editing item will update", async () => {
+    const { form } = setup();
+    await form.mount();
+    form.items = [
+      validItem({ merchantName: "Cracker Barrel", expenseId: 1391 }),
+      validItem({ merchantName: "Kroger" }),
+    ];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+    expect(form._positionEl.textContent).toContain(
+      "editing stored expense #1391",
+    );
+    form._navigate(1);
+    expect(form._positionEl.textContent).not.toContain(
+      "editing stored expense",
+    );
+  });
+
   test("a newly-remembered vendor is reported and the dropdown is reloaded", async () => {
     let vendorKeysCallCount = 0;
     const http = {
