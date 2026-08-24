@@ -18,6 +18,8 @@ import server
 # re-export is a second binding -- the readers close over their own module
 # global, so patching `server` would leave the real extractor running against
 # the live account while the test looked like it had stubbed it.
+from health import document_vision as _docvision
+from health import frita as _frita
 from letta_code import runner as _letta_runner
 from monitoring import pc_metrics as _pc
 from model_stats import reader as _stats_reader
@@ -851,7 +853,7 @@ def test_frita_executor_health_flags_missing_sdk(monkeypatch):
             return {'ready': False, 'sdk_present': False, 'claude_present': True,
                     'creds_present': True, 'host': 'good1'}
         return None  # nothing on :8797
-    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
+    monkeypatch.setattr(_frita, '_probe_sdk_status', fake_probe)
     h = server.frita_executor_health(timeout=1)
     assert h['ok'] is False
     assert 'NOT ready' in h['text']
@@ -868,7 +870,7 @@ def test_frita_executor_health_detects_ghost(monkeypatch):
         if url == server.FRITA_EXEC_GHOST_URL:
             return {'ready': False, 'sdk_present': False, 'host': 'ghost9'}
         return None
-    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
+    monkeypatch.setattr(_frita, '_probe_sdk_status', fake_probe)
     h = server.frita_executor_health(timeout=1)
     assert h['ok'] is True
     assert 'GHOST' in h['text']
@@ -881,7 +883,7 @@ def test_frita_executor_health_clean_when_no_ghost(monkeypatch):
             return {'ready': True, 'sdk_present': True, 'claude_present': True,
                     'creds_present': True, 'host': 'good1'}
         return None  # nothing on :8797 at all
-    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
+    monkeypatch.setattr(_frita, '_probe_sdk_status', fake_probe)
     h = server.frita_executor_health(timeout=1)
     assert h['ok'] is True
     assert 'GHOST' not in h['text']
@@ -906,8 +908,8 @@ def test_frita_executor_health_self_heals_expired_creds(monkeypatch):
         calls['resync'] += 1
         return True
 
-    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
-    monkeypatch.setattr(server, '_resync_frita_creds', fake_resync)
+    monkeypatch.setattr(_frita, '_probe_sdk_status', fake_probe)
+    monkeypatch.setattr(_frita, '_resync_frita_creds', fake_resync)
     h = server.frita_executor_health(timeout=1)
     assert calls['resync'] == 1
     assert calls['probe'] == 2
@@ -925,8 +927,8 @@ def test_frita_executor_health_reports_down_when_resync_fails(monkeypatch):
                     'creds_present': True, 'creds_valid': False, 'host': 'good1'}
         return None
 
-    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
-    monkeypatch.setattr(server, '_resync_frita_creds', lambda timeout: False)
+    monkeypatch.setattr(_frita, '_probe_sdk_status', fake_probe)
+    monkeypatch.setattr(_frita, '_resync_frita_creds', lambda timeout: False)
     h = server.frita_executor_health(timeout=1)
     assert h['ok'] is False
     assert 'creds_valid' in h['text']
@@ -941,8 +943,8 @@ def test_frita_executor_health_resync_runs_but_still_not_ready(monkeypatch):
                     'creds_present': True, 'creds_valid': False, 'host': 'good1'}
         return None
 
-    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
-    monkeypatch.setattr(server, '_resync_frita_creds', lambda timeout: True)
+    monkeypatch.setattr(_frita, '_probe_sdk_status', fake_probe)
+    monkeypatch.setattr(_frita, '_resync_frita_creds', lambda timeout: True)
     h = server.frita_executor_health(timeout=1)
     assert h['ok'] is False
 
@@ -1013,7 +1015,7 @@ def test_frita_executor_health_concern_flag_set_on_ghost(monkeypatch):
         if url == server.FRITA_EXEC_GHOST_URL:
             return {'ready': False, 'sdk_present': False, 'host': 'ghost9'}
         return None
-    monkeypatch.setattr(server, '_probe_sdk_status', fake_probe)
+    monkeypatch.setattr(_frita, '_probe_sdk_status', fake_probe)
     h = server.frita_executor_health(timeout=1)
     assert h['ok'] is True and h.get('concern') is True
 
@@ -2176,11 +2178,11 @@ def test_process_scanned_document_halts_when_vision_all_down(tmp_path, monkeypat
 def test_document_vision_health_all_tiers_down(monkeypatch, tmp_path):
     missing_env = tmp_path / '.env'
     missing_env.write_text('')
-    monkeypatch.setattr(server, 'ROL_FINANCES_ENV_PATH', str(missing_env))
+    monkeypatch.setattr(_docvision, 'ROL_FINANCES_ENV_PATH', str(missing_env))
     monkeypatch.delenv('GEMINI_API_KEY', raising=False)
     monkeypatch.delenv('GOOGLE_API_KEY', raising=False)
     monkeypatch.delenv('OPENAI_API_KEY', raising=False)
-    monkeypatch.setattr(server.os.path, 'expanduser',
+    monkeypatch.setattr(_docvision.os.path, 'expanduser',
                          lambda p: str(tmp_path / 'no-such-auth.json') if p == '~/.codex/auth.json' else p)
 
     health = server.document_vision_health()
@@ -2191,7 +2193,7 @@ def test_document_vision_health_all_tiers_down(monkeypatch, tmp_path):
 def test_document_vision_health_two_tiers_up_is_green_not_concern(monkeypatch, tmp_path):
     env_file = tmp_path / '.env'
     env_file.write_text('GEMINI_API_KEY=AQ.fake\n')
-    monkeypatch.setattr(server, 'ROL_FINANCES_ENV_PATH', str(env_file))
+    monkeypatch.setattr(_docvision, 'ROL_FINANCES_ENV_PATH', str(env_file))
     monkeypatch.delenv('GEMINI_API_KEY', raising=False)
     monkeypatch.delenv('GOOGLE_API_KEY', raising=False)
     monkeypatch.delenv('OPENAI_API_KEY', raising=False)
@@ -2203,12 +2205,12 @@ def test_document_vision_health_two_tiers_up_is_green_not_concern(monkeypatch, t
     fake_jwt = f'h.{payload}.s'
     auth_path = tmp_path / 'auth.json'
     auth_path.write_text(json.dumps({'tokens': {'access_token': fake_jwt}}))
-    monkeypatch.setattr(server.os.path, 'expanduser',
+    monkeypatch.setattr(_docvision.os.path, 'expanduser',
                          lambda p: str(auth_path) if p == '~/.codex/auth.json' else p)
 
     # Isolate the shared provider-health event log: this test pins the
     # credential-presence signal only, not fallback history.
-    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH',
+    monkeypatch.setattr(_docvision, 'MAZDA_PROVIDER_HEALTH_PATH',
                         str(tmp_path / 'absent.json'))
 
     health = server.document_vision_health()
@@ -2219,11 +2221,11 @@ def test_document_vision_health_two_tiers_up_is_green_not_concern(monkeypatch, t
 def test_document_vision_health_one_tier_up_is_concern(monkeypatch, tmp_path):
     env_file = tmp_path / '.env'
     env_file.write_text('GEMINI_API_KEY=AQ.fake\n')
-    monkeypatch.setattr(server, 'ROL_FINANCES_ENV_PATH', str(env_file))
+    monkeypatch.setattr(_docvision, 'ROL_FINANCES_ENV_PATH', str(env_file))
     monkeypatch.delenv('GEMINI_API_KEY', raising=False)
     monkeypatch.delenv('GOOGLE_API_KEY', raising=False)
     monkeypatch.delenv('OPENAI_API_KEY', raising=False)
-    monkeypatch.setattr(server.os.path, 'expanduser',
+    monkeypatch.setattr(_docvision.os.path, 'expanduser',
                          lambda p: str(tmp_path / 'no-such-auth.json') if p == '~/.codex/auth.json' else p)
 
     health = server.document_vision_health()
@@ -2244,7 +2246,7 @@ def test_categorizer_health_ignores_document_vision_entries(monkeypatch, tmp_pat
             'last_failure_detail': 'vision token missing',
         },
     }))
-    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+    monkeypatch.setattr(_docvision, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
 
     health = server.mazda_categorizer_fallback_health()
 
@@ -2266,7 +2268,7 @@ def test_categorizer_health_keeps_categorizer_failure_with_vision_entries(
             'last_failure_detail': 'gemini CLI timed out',
         },
     }))
-    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+    monkeypatch.setattr(_docvision, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
 
     health = server.mazda_categorizer_fallback_health()
 
@@ -7549,7 +7551,7 @@ def test_categorizer_tile_ignores_vision_fallbacks(monkeypatch, tmp_path):
                         'error': '429'}]},
     }
     path.write_text(json.dumps(state))
-    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+    monkeypatch.setattr(_docvision, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
 
     health = server.mazda_categorizer_fallback_health()
     assert health['ok'] is True
@@ -7568,7 +7570,7 @@ def test_categorizer_tile_flags_its_own_unrecovered_fallback(monkeypatch, tmp_pa
                         'error': '429'}]},
     }
     path.write_text(json.dumps(state))
-    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+    monkeypatch.setattr(_docvision, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
 
     health = server.mazda_categorizer_fallback_health()
     assert health.get('concern') is True
@@ -7577,7 +7579,7 @@ def test_categorizer_tile_flags_its_own_unrecovered_fallback(monkeypatch, tmp_pa
 
 def test_vision_provider_fallbacks_survives_a_missing_event_log(monkeypatch, tmp_path):
     """A missing log must never be the thing that colours the vision tile."""
-    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH',
+    monkeypatch.setattr(_docvision, 'MAZDA_PROVIDER_HEALTH_PATH',
                         str(tmp_path / 'nope.json'))
     assert server.vision_provider_fallbacks() == ''
 
@@ -7592,7 +7594,7 @@ def test_vision_tile_flags_unrecovered_vision_fallback(monkeypatch, tmp_path):
             'events': [{'time': time.time(), 'from': 'eg', 'to': 'moms',
                         'error': '429'}]},
     }))
-    monkeypatch.setattr(server, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
+    monkeypatch.setattr(_docvision, 'MAZDA_PROVIDER_HEALTH_PATH', str(path))
 
     summary = server.vision_provider_fallbacks()
     assert 'unrecovered vision fallback' in summary

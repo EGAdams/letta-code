@@ -3510,7 +3510,7 @@ def clear_scanner_verification_lock(key):
 # Mazda's job; they are dispatched fire-and-forget (NO polling) via the existing
 # _notify_mazda_of_scan thread. Governing rule: cheapest reliable tool first;
 # LLM only when confidence < 0.90 (the facade enforces that threshold itself).
-ROL_FINANCES_DIR = os.path.expanduser('~/rol_finances')
+from paths import ROL_FINANCES_DIR  # noqa: E402
 MAZDA_INTAKE_FACADE = os.path.join(ROL_FINANCES_DIR, 'tools', 'mazda_intake.py')
 MAZDA_INTAKE_PYTHON = os.path.join(ROL_FINANCES_DIR, '.venv', 'bin', 'python3')
 INTAKE_FACADE_TIMEOUT_SEC = 120
@@ -7138,411 +7138,38 @@ def get_server(key):
             return s
     return None
 
-# Frita / Claude-SDK executor endpoints. The Mazda minions reach the SDK
-# executor via the host bridge on :8799 (the live letta-server runs in a
-# separate containerd "ghost" stack whose own `frita-executor` DNS points at a
-# stale no-SDK executor — see frita_executor_ghost_container memory). :8797 is
-# where that stale ghost typically surfaces, so we watch it explicitly.
-FRITA_EXEC_GOOD_URL = 'http://100.80.49.10:8799/claude_sdk_status'
-FRITA_EXEC_GHOST_URL = 'http://100.80.49.10:8797/claude_sdk_status'
-# The actual WORK endpoint the minions' run_claude_code_sdk tool POSTs to. The
-# status endpoint above can be perfectly healthy while THIS route 404s — which
-# is exactly the "HTTP Error 404: Not Found" Frita hit. We probe it cheaply so
-# the affected agents' tabs go red. See agent_health_check / uses_claude_sdk.
-FRITA_EXEC_WORK_URL = 'http://100.80.49.10:8799/claude_sdk'
-# The push side of claude-creds-sync.{timer,path,service} (see
-# server_tools/sync_claude_creds_to_frita.sh) — this box's Claude OAuth token
-# refreshes constantly via normal use, but the copy pushed to the executor's
-# frita-claude-home can still go stale in the gap before the next sync fires.
-# frita_executor_health() runs this directly on a creds_valid:false reading so
-# a health *check* also fixes the thing it found broken, instead of just
-# reporting yellow until claude-creds-sync.path/timer gets around to it.
-FRITA_CREDS_SYNC_SCRIPT = os.path.expanduser('~/server_tools/sync_claude_creds_to_frita.sh')
+# The Claude-SDK executor probes moved to health/frita.py: the ghost-stack
+# detection on :8797, the separate work-route probe, and the credential
+# re-push that lets a health *check* fix the one condition it can. None of it
+# reads this module's state. Re-exported under the historical names -- the
+# agent health sweep and the Server Management tab both name them via `srv`.
+from health.frita import (  # noqa: E402
+    FRITA_CREDS_SYNC_SCRIPT, FRITA_EXEC_GHOST_URL, FRITA_EXEC_GOOD_URL,
+    FRITA_EXEC_WORK_URL, _probe_claude_sdk_endpoint, _probe_sdk_status,
+    _resync_frita_creds, frita_executor_health,
+)
 
 
-def _resync_frita_creds(timeout):
-    """Best-effort: re-push this box's current Claude OAuth token to the
-    frita-executor. Returns True iff the script ran and exited 0 — a non-zero
-    exit (e.g. local token itself expiring within 5min) just means "can't help
-    right now", not an error worth raising."""
-    try:
-        r = subprocess.run([FRITA_CREDS_SYNC_SCRIPT], capture_output=True,
-                            timeout=timeout, text=True)
-        return r.returncode == 0
-    except Exception:
-        return False
-
-
-def _probe_claude_sdk_endpoint(url, timeout):
-    """Cheap reachability probe of the /claude_sdk WORK route. Returns one of:
-
-      'ok'          — the route exists (any non-404 response, including a 405
-                      'method not allowed' for our GET against a POST-only route,
-                      or even a 4xx/5xx — the point is the path is mounted).
-      'not_found'   — HTTP 404: the route the tool POSTs to is missing. This is
-                      Frita's exact failure; the affected tabs must go red.
-      'unreachable' — connection refused / timeout / DNS — executor is down.
-
-    Deliberately does NOT POST a real job (that would launch an SDK run on every
-    health sweep); a GET is enough to tell 'route missing' from 'route present'."""
-    try:
-        req = urllib.request.Request(url, method='GET')
-        urllib.request.urlopen(req, timeout=timeout)
-        return 'ok'
-    except urllib.error.HTTPError as e:
-        return 'not_found' if e.code == 404 else 'ok'
-    except Exception:
-        return 'unreachable'
-
-
-def _probe_sdk_status(url, timeout):
-    """GET a /claude_sdk_status endpoint; return parsed dict or None on failure."""
-    try:
-        req = urllib.request.Request(url, method='GET')
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read(2000).decode('utf-8', errors='replace'))
-    except Exception:
-        return None
-
-
-def frita_executor_health(timeout=None):
-    """Health for the Claude-SDK executor that the Mazda minions actually use.
-
-    GREEN only when the SDK-capable executor answers on :8799 (sdk + claude CLI
-    + mom's-token creds all present). Also probes :8797 and, if a *different*
-    no-SDK executor answers there, flags the recurring "ghost / duplicate stack"
-    condition right in the status text so it never has to be hunted down again."""
-    t = timeout or 6
-    good = _probe_sdk_status(FRITA_EXEC_GOOD_URL, t)
-    ghost = _probe_sdk_status(FRITA_EXEC_GHOST_URL, t)
-
-    # Ghost detection on :8797. Three cases, in order:
-    #  1) it answers the new status endpoint but is NOT SDK-ready, or is a
-    #     different container than the good one on :8799  → confirmed ghost.
-    #  2) status endpoint 404s but the old /health still answers → a stale
-    #     executor running pre-status-endpoint code → also a ghost.
-    #  3) nothing answers :8797 → clean, no ghost.
-    ghost_warn = ''
-    good_host = (good or {}).get('host')
-    if ghost is not None:
-        ghost_host = ghost.get('host')
-        if not ghost.get('ready') or (good_host and ghost_host and ghost_host != good_host):
-            ghost_warn = f' ⚠ GHOST on :8797 (host={ghost_host}, sdk={ghost.get("sdk_present")})'
-    else:
-        ghost_health = _probe_sdk_status('http://100.80.49.10:8797/health', t)
-        if ghost_health is not None:
-            ghost_warn = ' ⚠ GHOST on :8797 (stale executor, no SDK-status endpoint)'
-
-    if good is None:
-        return {'ok': False,
-                'text': 'SDK executor UNREACHABLE on :8799 — Mazda minions cannot run '
-                        'run_claude_code_sdk. Click "Start" to redeploy.' + ghost_warn}
-    if not good.get('ready'):
-        missing = [k for k in ('sdk_present', 'claude_present', 'creds_present')
-                   if not good.get(k)]
-        if good.get('claude_runs') is False:
-            missing.append('claude_runs')
-        # creds_present-but-expired is the one failure mode this box can fix by
-        # itself (re-push a fresh token) rather than needing a redeploy — try
-        # that once before reporting down. See _resync_frita_creds.
-        if good.get('creds_present') and good.get('creds_valid') is False:
-            missing.append('creds_valid')
-            if _resync_frita_creds(t):
-                healed = _probe_sdk_status(FRITA_EXEC_GOOD_URL, t)
-                if healed and healed.get('ready'):
-                    return {'ok': True,
-                            'concern': True,  # surfaced, but self-healed this sweep
-                            'text': f'SDK OK on :8799 (host={healed.get("host")}) — '
-                                    'auto-resynced an expired token.' + ghost_warn}
-        if good.get('claude_runs') is False:
-            runtime_msg = good.get('claude_error') or 'claude --version failed'
-            return {'ok': False,
-                    'text': f'SDK executor on :8799 NOT ready (Claude runtime failed: '
-                            f'{runtime_msg}; path={good.get("claude_path")}; '
-                            f'host={good.get("host")}) — minions broken.' + ghost_warn}
-        return {'ok': False,
-                'text': f'SDK executor on :8799 NOT ready (missing: {", ".join(missing)}; '
-                        f'host={good.get("host")}) — minions broken.' + ghost_warn}
-    return {'ok': True,
-            'concern': bool(ghost_warn),  # up, but a shadowing ghost → yellow, not green
-            'text': f'SDK OK on :8799 (host={good.get("host")}; '
-                    f'claude={good.get("claude_version") or "unknown"}).' + ghost_warn}
 
 
 # ── Document Vision health (classify_scan.py's 3-tier fallback) ─────────────
-# tools/classify_scan.py falls back Gemini Flash -> ChatGPT-OAuth vision (reuses
-# the Codex CLI's ~/.codex/auth.json session) -> a standalone OpenAI key. This
-# check mirrors that exact chain so the dashboard can tell, cheaply (no paid API
-# calls — just key/token presence and expiry, same signal classify_scan.py's own
-# key-resolution would find), whether a scan dispatched right now has anything
-# that can actually read it. GREEN needs 2+ tiers so single-tier flakiness (e.g.
-# a Codex token that hasn't refreshed yet) doesn't cry wolf; YELLOW at exactly 1
-# tier (one more outage away from a real halt); RED only when ALL THREE are
-# unavailable — that's the signal process_scanned_document() gates on before
-# dispatching Mazda at all (see DOCUMENT_VISION_HALT_MESSAGE).
-ROL_FINANCES_ENV_PATH = os.path.join(ROL_FINANCES_DIR, '.env')
-
-
-def _read_env_var(name, env_path=None):
-    """Look up name in os.environ, falling back to a simple KEY=VALUE .env file.
-
-    env_path defaults to the CURRENT value of ROL_FINANCES_ENV_PATH, read at
-    call time (not as a mutable-default-arg frozen at def time), so tests can
-    monkeypatch server.ROL_FINANCES_ENV_PATH and have it take effect."""
-    val = os.environ.get(name)
-    if val:
-        return val
-    if env_path is None:
-        env_path = ROL_FINANCES_ENV_PATH
-    try:
-        for line in open(env_path):
-            line = line.strip()
-            if line.startswith(f'{name}='):
-                return line.split('=', 1)[1].strip().strip('"').strip("'") or None
-    except OSError:
-        pass
-    return None
-
-
-def _jwt_claims(token):
-    """Best-effort decode of a JWT's payload (no signature check — we only need exp)."""
-    import base64
-    try:
-        payload = token.split('.')[1]
-        payload += '=' * (-len(payload) % 4)
-        return json.loads(base64.urlsafe_b64decode(payload))
-    except Exception:
-        return {}
-
-
-def document_vision_health(timeout=None):
-    """Health of the receipt/statement scan-classification vision chain.
-
-    Checks the SAME three tiers classify_scan.py tries, in order, without
-    spending any API budget: Gemini key present, Codex CLI OAuth access_token
-    present and unexpired, standalone OpenAI key present."""
-    tiers_up = []
-    tiers_down = []
-
-    gemini_key = _read_env_var('GEMINI_API_KEY') or _read_env_var('GOOGLE_API_KEY')
-    if gemini_key:
-        tiers_up.append('Gemini')
-    else:
-        tiers_down.append('Gemini (no GEMINI_API_KEY/GOOGLE_API_KEY)')
-
-    codex_auth_path = os.path.expanduser('~/.codex/auth.json')
-    try:
-        auth = json.load(open(codex_auth_path))
-        access_token = auth.get('tokens', {}).get('access_token', '')
-        exp = _jwt_claims(access_token).get('exp', 0)
-        if access_token and exp > time.time():
-            tiers_up.append('ChatGPT-OAuth (Codex CLI)')
-        else:
-            tiers_down.append('ChatGPT-OAuth (Codex CLI token expired)')
-    except (OSError, json.JSONDecodeError, AttributeError):
-        tiers_down.append('ChatGPT-OAuth (no ~/.codex/auth.json)')
-
-    if _read_env_var('OPENAI_API_KEY'):
-        tiers_up.append('OpenAI key')
-    else:
-        tiers_down.append('OpenAI key (not configured)')
-
-    n_up = len(tiers_up)
-    text = f'{n_up}/3 vision tiers available: {", ".join(tiers_up) or "none"}.'
-    if tiers_down:
-        text += f' Down: {", ".join(tiers_down)}.'
-
-    if n_up == 0:
-        return {'ok': False,
-                'text': 'ALL vision tiers down — Mazda cannot classify or read '
-                        'scanned documents. ' + text}
-
-    # Credential presence alone can't see a tier that authenticates but then
-    # fails every real call, so also surface unrecovered vision fallbacks from
-    # the shared provider_health event log. These used to land on the
-    # Categorizer tile, which owns a different chain and a different remedy.
-    vision_fallbacks = vision_provider_fallbacks()
-    if vision_fallbacks:
-        text += f' {vision_fallbacks}'
-    return {'ok': True, 'concern': n_up == 1 or bool(vision_fallbacks), 'text': text}
-
-
-def vision_provider_fallbacks():
-    """Summary of unrecovered vision-tier fallbacks, or '' when there are none.
-
-    Read-only and best-effort: a missing/corrupt event log must never turn the
-    Document Vision tile red on its own — the credential checks above are the
-    tile's primary signal."""
-    try:
-        with open(MAZDA_PROVIDER_HEALTH_PATH) as f:
-            state = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return ''
-    all_accounts, fallback_events = split_provider_health_state(state)
-    events = unresolved_fallbacks(
-        all_accounts, fallback_events,
-        time.time() - MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS, want_vision=True)
-    if not events:
-        return ''
-    summary = '; '.join(
-        f'{provider} {ev["from"]}->{ev["to"]} ({classify_failure(ev.get("error", ""))[1]})'
-        for provider, ev in events[-5:]
-    )
-    return f'{len(events)} unrecovered vision fallback(s) in last 24h: {summary}'
-
-
-MAZDA_PROVIDER_HEALTH_PATH = os.path.expanduser('~/.mazda/provider_health.json')
-MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS = 24 * 3600
-
-# provider_health.json is one shared event log covering two INDEPENDENT LLM
-# chains, each owned by its own dashboard tile: the vendor-categorization chain
-# (Categorizer tile) and the scan-classification chain (Document Vision tile).
-# Only the vision providers are self-identifying; `gemini`/`anthropic`/`openai`
-# are recorded under bare keys because the recorder in rol_finances doesn't tag
-# which chain called them, so they stay with the Categorizer tile as before.
-VISION_PROVIDER_PREFIX = 'chatgpt-oauth-vision'
-
-
-def provider_belongs_to_vision(provider):
-    """True for providers the Document Vision tile owns."""
-    return provider.startswith(VISION_PROVIDER_PREFIX)
-
-
-def split_provider_health_state(state):
-    """Split a raw provider_health.json mapping into
-    ({account_key: entry}, {provider: [event, ...]})."""
-    account_entries = {}
-    fallback_events = {}
-    for key, entry in state.items():
-        if key.endswith(':_fallbacks'):
-            fallback_events[key.rsplit(':', 1)[0]] = list(entry.get('events', []))
-        else:
-            account_entries[key] = entry
-    return account_entries, fallback_events
-
-
-def unresolved_fallbacks(account_entries, fallback_events, cutoff, want_vision):
-    """Fallback events inside the window that are still worth alerting on.
-
-    A fallback is *resolved* — and therefore NOT alert-worthy — once the account
-    it fell back FROM has recorded a success later than the fallback itself.
-    Without this check a single rate-limit blip kept the tile yellow for a full
-    24h even though the very next call succeeded seconds later (observed
-    2026-08-08: EG's ChatGPT cap reset, the primary tier recovered 11s after the
-    fallback, and the tile still read NEEDS ATTENTION ~16h afterwards). Alerting
-    on an already-recovered condition trains the operator to ignore the tile,
-    which is exactly the blindness this tile was built to prevent.
-    """
-    out = []
-    for provider, events in fallback_events.items():
-        if provider_belongs_to_vision(provider) != want_vision:
-            continue
-        for ev in events:
-            when = ev.get('time', 0)
-            if when < cutoff:
-                continue
-            origin = account_entries.get(f'{provider}:{ev.get("from")}', {})
-            if origin.get('last_success', 0) > when:
-                continue  # primary tier already recovered
-            out.append((provider, ev))
-    return out
-
-
-def mazda_categorizer_fallback_health(timeout=None):
-    """Health of the vendor-CATEGORIZATION LLM chain (STEP 3 of receipt intake:
-    tools/categorizer/categorizer_main.py's gemini -> chatgpt-oauth (EG's
-    account, then mom's) -> anthropic tiers). Distinct from document_vision_health
-    above, which covers the earlier vision-CLASSIFICATION step and only checks
-    credential presence, not real call outcomes.
-
-    WHY THIS EXISTS: on 2026-07-20 the gemini CLI was missing/quota-exhausted
-    on the executor for 3+ days before anyone noticed — every receipt just
-    silently degraded to a null-category pending-review row, which looked like
-    normal operation everywhere except a pile of NEEDS_VENDOR_KEY rows nobody
-    was watching for. This reads tools/provider_health.py's event log (written
-    by every real production call, not a synthetic probe — never burns quota
-    just to monitor) so a provider going bad shows up here within one scan
-    instead of days later."""
-    try:
-        with open(MAZDA_PROVIDER_HEALTH_PATH) as f:
-            state = json.load(f)
-    except FileNotFoundError:
-        return {'ok': True, 'text': 'no categorizer LLM calls logged yet'}
-    except (OSError, json.JSONDecodeError) as e:
-        return {'ok': False, 'text': f'cannot read {MAZDA_PROVIDER_HEALTH_PATH}: {e}'}
-
-    now = time.time()
-    cutoff = now - MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS
-
-    all_accounts, fallback_events = split_provider_health_state(state)
-    # Vision providers are the Document Vision tile's business, not this one's —
-    # a vision-tier fallback lighting up the Categorizer tile sends the operator
-    # to the wrong runbook.
-    account_entries = {
-        key: entry for key, entry in all_accounts.items()
-        if not provider_belongs_to_vision(key)
-    }
-    recent_fallbacks = unresolved_fallbacks(
-        all_accounts, fallback_events, cutoff, want_vision=False)
-
-    if not account_entries:
-        return {'ok': True, 'text': 'no categorizer LLM calls logged yet'}
-
-    # "down" only when EVERY tracked provider:account's most recent event was
-    # a failure — i.e. every known tier (including mom's fallback account) has
-    # failed, not just one link in the chain that a later tier covered for.
-    most_recent_per_account = []
-    for key, entry in account_entries.items():
-        last_success = entry.get('last_success', 0)
-        last_failure = entry.get('last_failure', 0)
-        most_recent_per_account.append((key, last_success >= last_failure, entry))
-
-    all_last_failed = all(not ok for _, ok, _ in most_recent_per_account)
-
-    if all_last_failed:
-        details = '; '.join(
-            f'{key}: {classify_failure(entry.get("last_failure_detail", ""))[1]}'
-            for key, _, entry in most_recent_per_account
-        )
-        return {'ok': False, 'hard': True,
-                'text': f'ALL categorizer LLM tiers currently failing — {details}. '
-                        f'Receipts will degrade to null-category pending-review rows.'}
-
-    if recent_fallbacks:
-        summary = '; '.join(
-            f'{provider} {ev["from"]}->{ev["to"]} ({classify_failure(ev.get("error",""))[1]})'
-            for provider, ev in recent_fallbacks[-5:]
-        )
-        return {'ok': True, 'concern': True,
-                'text': f'{len(recent_fallbacks)} unrecovered fallback(s) in last 24h: {summary}'}
-
-    return {'ok': True, 'text': f'{len(account_entries)} provider account(s) healthy on primary tier'}
-
-
-def restart_mazda_categorizer_llm():
-    """'Restart' for the LLM Provider Fallbacks tile: there's no service to
-    bounce (this reads an event log, not a running process). The one real
-    recovery action available here is re-pulling mom's cached Codex token
-    (sync_moms_codex_token.sh) in case it just needed a refresh — then
-    re-report current status. EG's own token/gemini quota/anthropic key have
-    no remote fix a dashboard button can perform."""
-    try:
-        r = subprocess.run(
-            [os.path.expanduser('~/server_tools/sync_moms_codex_token.sh')],
-            capture_output=True, text=True, timeout=30)
-        sync_note = (r.stdout or r.stderr or '').strip()[:200]
-    except Exception as exc:
-        sync_note = f'sync script error: {exc}'
-    health = mazda_categorizer_fallback_health()
-    return {'ok': health['ok'], 'text': f'Re-synced mom\'s Codex token ({sync_note}). {health["text"]}'}
-
-
-DOCUMENT_VISION_HALT_MESSAGE = (
-    'Scan NOT dispatched to Mazda: all document-vision tiers are down '
-    '(Gemini key, ChatGPT-OAuth/Codex CLI, and OpenAI key all unavailable) — '
-    'she has no way to classify or read the scanned image right now. '
-    'Fix at least one vision tier, then use "Process Document" to retry.'
+# Both this tile and the Categorizer tile moved to health/document_vision.py.
+# They read the same shared event log but own different chains and different
+# remedies, which is exactly why they live together and are documented apart.
+# `classify_failure` went to health/failures.py -- five checks call it, so it
+# belongs beside none of them. Re-exported under the historical names.
+from health.document_vision import (  # noqa: E402
+    DOCUMENT_VISION_HALT_MESSAGE, MAZDA_PROVIDER_HEALTH_PATH,
+    MAZDA_PROVIDER_HEALTH_WINDOW_SECONDS, ROL_FINANCES_ENV_PATH,
+    VISION_PROVIDER_PREFIX, _jwt_claims, _read_env_var,
+    document_vision_health, mazda_categorizer_fallback_health,
+    provider_belongs_to_vision, restart_mazda_categorizer_llm,
+    split_provider_health_state, unresolved_fallbacks,
+    vision_provider_fallbacks,
 )
+from health.failures import classify_failure  # noqa: E402
+
+
 
 
 # Registry of named check functions usable via a SERVERS entry's 'check' key.
@@ -7622,25 +7249,6 @@ def compute_server_status(health, *, starting=False, restartable=False,
     return 'down'
 
 
-def classify_failure(text):
-    """Map a raw error string to (class, human_label) so the dashboard reports the
-    REAL failure mode instead of a generic/misleading one (today the ChatGPT
-    provider canary labelled a 404 as 'rate-limited', which sent diagnosis down
-    the wrong path). Used for provider + server errors."""
-    t = (text or '').lower()
-    if '429' in t or 'rate limit' in t or 'rate-limit' in t or 'rate_limit' in t or 'too many requests' in t or 'quota' in t:
-        return ('rate_limit', 'rate-limited')
-    if '401' in t or '403' in t or 'unauth' in t or 'forbidden' in t or 'invalid_api_key' in t or 'authentication' in t:
-        return ('auth', 'auth error')
-    if '404' in t or 'not found' in t:
-        return ('not_found', 'provider error (404)')
-    if 'timed out' in t or 'timeout' in t:
-        return ('timeout', 'timeout')
-    if 'connection refused' in t or 'refused' in t:
-        return ('refused', 'connection refused')
-    if 'unreachable' in t or 'no route' in t or 'name or service not known' in t:
-        return ('unreachable', 'unreachable')
-    return ('error', 'error')
 
 
 def server_status_kind(cfg, health):

@@ -24,3 +24,7 @@ REPO_ROOT = os.path.dirname(HERE)
 #: fall back to PATH, then to a built letta.js.
 LETTA_CODE_BUN = os.environ.get(
     'LETTA_CODE_BUN', os.path.expanduser('~/.bun/bin/bun'))
+
+#: The rol_finances checkout the finance pipeline lives in. Not part of this
+#: repo -- the dashboard reads its .env, its tools, and its own virtualenv.
+ROL_FINANCES_DIR = os.path.expanduser('~/rol_finances')
