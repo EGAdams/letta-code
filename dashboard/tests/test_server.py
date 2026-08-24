@@ -14,6 +14,14 @@ import urllib.error
 
 import pytest
 import server
+# Patch targets for the model-stats internals. server.py re-exports these, but a
+# re-export is a second binding -- the readers close over their own module
+# global, so patching `server` would leave the real extractor running against
+# the live account while the test looked like it had stubbed it.
+from letta_code import runner as _letta_runner
+from monitoring import pc_metrics as _pc
+from model_stats import reader as _stats_reader
+from model_stats import usage_history as _usage_history_mod
 from finance.report_page import ReportRowMatch
 
 REAL_CREATE_MAZDA_CONVERSATION = server._create_mazda_conversation
@@ -356,13 +364,25 @@ def test_read_deskjet_device_status_survives_an_unreachable_printer():
 
 @pytest.fixture(autouse=True)
 def _clear_model_stats_cache(tmp_path, monkeypatch):
-    server._model_stats_cache.clear()
-    # Isolate the usage-history store: model_stats() records rate-of-change /
-    # leak-detector snapshots, and tests must never write fake percentages into
-    # the real MODEL_USAGE_HISTORY_FILE (it would poison the live leak detector).
-    monkeypatch.setattr(server, 'MODEL_USAGE_HISTORY_FILE', str(tmp_path / 'usage_history.json'))
-    monkeypatch.setattr(server, 'MODEL_STATS_LAST_GOOD_FILE', str(tmp_path / 'model_stats_last_good.json'))
-    monkeypatch.setattr(server, '_usage_history', {})
+    """Isolate the usage-history store from the live one.
+
+    model_stats() records rate-of-change / leak-detector snapshots, and a test
+    that writes fake percentages into the real MODEL_USAGE_HISTORY_FILE would
+    poison the live leak detector on this box.
+
+    Patch the modules that own these globals, not `server`. server.py
+    re-exports all three names, but a re-export is a second binding: the
+    readers close over their own module global, so patching the copy on
+    `server` isolates nothing while looking exactly like it does. That is the
+    one failure mode this fixture cannot afford, so it is spelled out here.
+    """
+    from model_stats import last_good, reader, usage_history
+    reader._model_stats_cache.clear()
+    monkeypatch.setattr(usage_history, 'MODEL_USAGE_HISTORY_FILE',
+                        str(tmp_path / 'usage_history.json'))
+    monkeypatch.setattr(last_good, 'MODEL_STATS_LAST_GOOD_FILE',
+                        str(tmp_path / 'model_stats_last_good.json'))
+    monkeypatch.setattr(usage_history, '_usage_history', {})
 
 
 class _FakeCursor:
@@ -1080,7 +1100,7 @@ def _codex_usage(primary, secondary=0, reached=False):
 
 
 def test_model_stats_codex_red_at_100_percent(monkeypatch):
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(100.0, 64.0))
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: _codex_usage(100.0, 64.0))
     d = server.model_stats('w11-codex')
     assert d['status'] == 'down'              # maxed → red
     assert len(d['windows']) == 2
@@ -1089,29 +1109,29 @@ def test_model_stats_codex_red_at_100_percent(monkeypatch):
 
 
 def test_model_stats_codex_red_when_limit_reached_flag(monkeypatch):
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(20.0, reached=True))
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: _codex_usage(20.0, reached=True))
     assert server.model_stats('w11-codex')['status'] == 'down'
 
 
 def test_model_stats_codex_concern_when_high(monkeypatch):
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(85.0))
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: _codex_usage(85.0))
     assert server.model_stats('w11-codex')['status'] == 'concern'
 
 
 def test_model_stats_codex_green_when_low(monkeypatch):
     # mom's machine ~90% left == ~10% used → green
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(10.0, 11.0))
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: _codex_usage(10.0, 11.0))
     assert server.model_stats('r46-codex')['status'] == 'up'
 
 
 def test_model_stats_codex_token_expired_is_concern_with_hint(monkeypatch):
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {'model': 'gpt-5.5', 'error': 'token_expired'})
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: {'model': 'gpt-5.5', 'error': 'token_expired'})
     d = server.model_stats('w11-codex')
     assert d['status'] == 'concern' and 'codex login' in d['detail']
 
 
 def test_model_stats_claude_live_windows(monkeypatch):
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: {
         'recent_model': 'claude-opus-4-8', 'as_of': 1.0,
         'usage': {'five_hour': {'utilization': 19.0, 'resets_at': '2026-06-22T21:30:00+00:00'},
                   'seven_day': {'utilization': 12.0, 'resets_at': '2026-06-29T08:00:00+00:00'},
@@ -1130,7 +1150,7 @@ def test_model_stats_claude_rate_limit_keeps_last_good_bars(monkeypatch):
         {'recent_model': 'claude-opus-4-8', 'as_of': 200.0,
          'error': 'HTTP 429', 'retry_after': 60},
     ])
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: next(responses))
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: next(responses))
     first = server.model_stats('r46-claude')
     server._model_stats_cache.clear()
     limited = server.model_stats('r46-claude')
@@ -1169,7 +1189,7 @@ def test_claude_extractor_names_logged_out_before_any_request(tmp_path, monkeypa
 
 
 def test_model_stats_claude_logged_out_is_red_with_login_instruction(monkeypatch):
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: {
         'as_of': 1.0, 'condition': 'logged_out', 'error': 'logged out (no OAuth token on this host)'})
     d = server.model_stats('r46-claude')
     assert d['status'] == 'down'                    # red, not a yellow "throttled"
@@ -1187,7 +1207,7 @@ def test_model_stats_claude_logged_out_does_not_show_stale_bars(monkeypatch):
                                    'seven_day': {'utilization': 12.0, 'resets_at': None}}},
         {'as_of': 200.0, 'condition': 'logged_out', 'error': 'logged out (no OAuth token on this host)'},
     ])
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: next(responses))
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: next(responses))
     server.model_stats('r46-claude')
     server._model_stats_cache.clear()
     out = server.model_stats('r46-claude')
@@ -1197,7 +1217,7 @@ def test_model_stats_claude_logged_out_does_not_show_stale_bars(monkeypatch):
 
 def test_model_stats_codex_logged_out_reuses_shared_explanation(monkeypatch):
     """The condition is described once, not once per provider."""
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: {
         'model': 'gpt-5.5', 'condition': 'logged_out', 'error': 'no auth.json'})
     d = server.model_stats('w11-codex')
     assert d['status'] == 'down' and d['logged_out'] is True
@@ -1208,7 +1228,7 @@ def test_model_stats_codex_logged_out_reuses_shared_explanation(monkeypatch):
 def test_model_stats_claude_rate_limit_restores_primary_history(monkeypatch):
     with open(server.MODEL_USAGE_HISTORY_FILE, 'w', encoding='utf-8') as fh:
         json.dump({'r46-claude': [[100.0, 51.0]]}, fh)
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: {
         'as_of': 200.0, 'error': 'HTTP 429', 'retry_after': 60})
     limited = server.model_stats('r46-claude')
     assert limited['windows'][0]['label'] == '5-hour'
@@ -1225,7 +1245,7 @@ def test_model_stats_claude_rate_limited_is_flagged_with_reset(monkeypatch):
     # throttles independently of the chat API, so Claude itself may still work
     # (see _fill_rate_limited). These two assertions were left at 'down' when
     # that severity changed, and had been failing since.
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: {
         'as_of': 1000.0, 'error': 'HTTP 429', 'retry_after': 2627,
         'recent_model': 'claude-opus-4-8'})
     d = server.model_stats('r46-claude')
@@ -1236,7 +1256,7 @@ def test_model_stats_claude_rate_limited_is_flagged_with_reset(monkeypatch):
 
 
 def test_model_stats_claude_rate_limited_without_retry_after(monkeypatch):
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: {
         'as_of': 1000.0, 'error': 'HTTP 429'})
     d = server.model_stats('w11-claude')
     assert d['status'] == 'concern' and d['rate_limited'] is True
@@ -1245,7 +1265,7 @@ def test_model_stats_claude_rate_limited_without_retry_after(monkeypatch):
 
 
 def test_model_stats_codex_rate_limited_is_red(monkeypatch):
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: {
         'model': 'gpt-5.5', 'as_of': 500.0,
         'error': 'rate_limit_exceeded', 'retry_after': 60})
     d = server.model_stats('w11-codex')
@@ -1254,7 +1274,7 @@ def test_model_stats_codex_rate_limited_is_red(monkeypatch):
 
 
 def test_model_stats_claude_non_rate_limit_error_stays_concern(monkeypatch):
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: {
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: {
         'as_of': 1.0, 'error': 'HTTP 401'})
     d = server.model_stats('r46-claude')
     assert d['status'] == 'concern' and not d.get('rate_limited')
@@ -1275,7 +1295,7 @@ def test_validate_letta_code_prompt_rejects_terminal_control_characters(text):
 
 
 def test_run_letta_code_message_returns_only_final_result(monkeypatch):
-    monkeypatch.setattr(server, 'LETTA_CODE_BUN', '/home/test/.bun/bin/bun')
+    monkeypatch.setattr(_letta_runner, 'LETTA_CODE_BUN', '/home/test/.bun/bin/bun')
     monkeypatch.setattr(server.os.path, 'isfile',
                         lambda path: path == '/home/test/.bun/bin/bun')
     seen = {}
@@ -1313,7 +1333,7 @@ def test_run_letta_code_message_returns_only_final_result(monkeypatch):
 
 
 def test_run_letta_code_message_resumes_a_given_conversation(monkeypatch):
-    monkeypatch.setattr(server, 'LETTA_CODE_BUN', '/home/test/.bun/bin/bun')
+    monkeypatch.setattr(_letta_runner, 'LETTA_CODE_BUN', '/home/test/.bun/bin/bun')
     monkeypatch.setattr(server.os.path, 'isfile',
                         lambda path: path == '/home/test/.bun/bin/bun')
     seen = {}
@@ -1339,7 +1359,7 @@ def test_run_letta_code_message_resumes_a_given_conversation(monkeypatch):
 
 
 def test_letta_code_command_falls_back_to_linked_cli(monkeypatch):
-    monkeypatch.setattr(server, 'LETTA_CODE_BUN', '/missing/bun')
+    monkeypatch.setattr(_letta_runner, 'LETTA_CODE_BUN', '/missing/bun')
     monkeypatch.setattr(server.os.path, 'isfile', lambda _path: False)
     monkeypatch.setattr(
         server.shutil, 'which',
@@ -4856,7 +4876,7 @@ def test_model_stats_payload_carries_rate_and_leak(monkeypatch):
     now = server.time.time()
     for minutes_ago, pct in ((30, 10.0), (15, 20.0)):
         server._record_usage_sample('w11-codex', pct, now=now - minutes_ago * 60)
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(30.0, 11.0))
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: _codex_usage(30.0, 11.0))
     d = server.model_stats('w11-codex')
     assert d['rate']['available'] is True
     assert d['rate']['warn'] is True
@@ -4866,7 +4886,7 @@ def test_model_stats_payload_carries_rate_and_leak(monkeypatch):
 
 
 def test_model_stats_rate_gathering_when_no_history(monkeypatch):
-    monkeypatch.setattr(server, '_run_extractor', lambda *a, **k: _codex_usage(10.0, 11.0))
+    monkeypatch.setattr(_stats_reader, '_run_extractor', lambda *a, **k: _codex_usage(10.0, 11.0))
     d = server.model_stats('w11-codex')
     assert d['rate']['available'] is False
     assert d['leak']['suspected'] is False
@@ -4874,14 +4894,14 @@ def test_model_stats_rate_gathering_when_no_history(monkeypatch):
 
 
 def test_usage_history_persists_and_prunes(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, 'MODEL_USAGE_HISTORY_FILE', str(tmp_path / 'h.json'))
-    monkeypatch.setattr(server, '_usage_history', None)   # force a disk load
+    monkeypatch.setattr(_usage_history_mod, 'MODEL_USAGE_HISTORY_FILE', str(tmp_path / 'h.json'))
+    monkeypatch.setattr(_usage_history_mod, '_usage_history', None)   # force a disk load
     now = 10_000_000
     old = now - (server.MODEL_USAGE_HISTORY_KEEP_MINUTES + 5) * 60
     server._record_usage_sample('w11-codex', 5.0, now=old)
     kept = server._record_usage_sample('w11-codex', 6.0, now=now)
     assert [p for _, p in kept] == [6.0]                  # stale sample pruned
-    monkeypatch.setattr(server, '_usage_history', None)   # reload from disk
+    monkeypatch.setattr(_usage_history_mod, '_usage_history', None)   # reload from disk
     again = server._record_usage_sample('w11-codex', 7.0, now=now + 60)
     assert [p for _, p in again] == [6.0, 7.0]            # survived "restart"
 
@@ -5038,8 +5058,8 @@ def test_pc_metrics_unknown_key():
 
 
 def test_pc_metrics_payload_and_alert_rollup(monkeypatch):
-    server._pc_metrics_cache.clear()
-    server._pc_net_last.clear()
+    _pc._pc_metrics_cache.clear()
+    _pc._pc_net_last.clear()
 
     class _R:
         returncode = 0
@@ -5047,7 +5067,7 @@ def test_pc_metrics_payload_and_alert_rollup(monkeypatch):
         stderr = ''
 
     monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _R())
-    monkeypatch.setattr(server, 'PC_ALERT_THRESHOLDS',
+    monkeypatch.setattr(_pc, 'PC_ALERT_THRESHOLDS',
                         {'ram': 70.0, 'disk_free_warn_gb': 5.0,
                          'disk_free_crit_gb': 2.0, 'net': 80.0})
     out = server.pc_metrics('win11')
@@ -5062,8 +5082,8 @@ def test_pc_metrics_payload_and_alert_rollup(monkeypatch):
 
 
 def test_pc_metrics_crit_disk_rolls_up_red(monkeypatch):
-    server._pc_metrics_cache.clear()
-    server._pc_net_last.clear()
+    _pc._pc_metrics_cache.clear()
+    _pc._pc_net_last.clear()
     # 1 GB free on C: → the whole PC payload escalates to level 'crit'.
     low_disk = _PC_COLLECTOR_SAMPLE.replace(
         'C:\\             500000000 400000000 100000000      80% /mnt/c',
@@ -5082,8 +5102,8 @@ def test_pc_metrics_crit_disk_rolls_up_red(monkeypatch):
 
 
 def test_pc_metrics_collector_failure_is_reported(monkeypatch):
-    server._pc_metrics_cache.clear()
-    server._pc_last_good.clear()
+    _pc._pc_metrics_cache.clear()
+    _pc._pc_last_good.clear()
 
     class _R:
         returncode = 255
@@ -5100,9 +5120,9 @@ def test_pc_metrics_failure_after_success_serves_stale_last_good(monkeypatch):
     # Transient SSH stall (the Tailscale path drops the first attempt after
     # idle): the endpoint must serve the last good reading marked stale, not
     # a raw error page.
-    server._pc_metrics_cache.clear()
-    server._pc_net_last.clear()
-    server._pc_last_good.clear()
+    _pc._pc_metrics_cache.clear()
+    _pc._pc_net_last.clear()
+    _pc._pc_last_good.clear()
 
     class _Good:
         returncode = 0
@@ -5113,7 +5133,7 @@ def test_pc_metrics_failure_after_success_serves_stale_last_good(monkeypatch):
     good = server.pc_metrics('win10')
     assert good['ok'] is True and 'stale' not in good
 
-    server._pc_metrics_cache.clear()          # expire the cache, keep last-good
+    _pc._pc_metrics_cache.clear()          # expire the cache, keep last-good
 
     def _boom(*a, **k):
         raise server.subprocess.TimeoutExpired(cmd='ssh', timeout=25)

@@ -146,10 +146,7 @@ from finance.mazda_fill import (
 from finance.statement_models import StatementBreakupRequest, StatementStoreRequest
 from finance.statement_service import StatementBreakupService
 from finance.statement_store import ScriptStatementStore
-HERE = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.dirname(HERE)
-LETTA_CODE_BUN = os.environ.get(
-    'LETTA_CODE_BUN', os.path.expanduser('~/.bun/bin/bun'))
+from paths import HERE, LETTA_CODE_BUN, REPO_ROOT  # noqa: E402
 
 # Time this process started serving — used by /api/code-status to detect source
 # files that changed on disk after the running process loaded them, so the
@@ -5561,8 +5558,9 @@ def build_receipt_only_report_html(month_key=None):
     return head + body_rows + '\n</tbody></table>\n</section>\n' + picker_html + '\n</body></html>'
 
 
-# Letta API base URL — override with LETTA_BASE_URL env var
-LETTA_BASE_URL = os.environ.get('LETTA_BASE_URL', 'http://100.80.49.10:8283').rstrip('/')
+# Letta API base URL — override with LETTA_BASE_URL env var; defined in hosts.py
+# beside the SSH destinations, and re-exported here under its historical name.
+from hosts import LETTA_BASE_URL  # noqa: E402
 
 # Model handles selectable per-agent from Input Options. Keep this curated list
 # aligned with the ChatGPT OAuth catalog advertised by the live Letta server.
@@ -5989,7 +5987,7 @@ DASHBOARD_RESTART_LOG = '/tmp/dashboard_restart.log'
 # docker-proxy on that box has repeatedly forwarded :8283 to an *untracked*
 # orphaned containerd task while the docker-ps-visible `letta-server` sits idle,
 # so `docker logs letta-server` would silently show the wrong (dead-quiet) process.
-LETTA_DOCKER_HOST = os.environ.get('LETTA_DOCKER_HOST', 'adamsl@100.80.49.10')
+from hosts import LETTA_DOCKER_HOST  # noqa: E402
 LETTA_REMOTE_LOG_PULL_SCRIPT = '~/server_tools/pull_letta_server_logs.sh'
 LETTA_REMOTE_LOG_CACHE = '/tmp/letta_server_remote.log'
 LETTA_REMOTE_LOG_PULL_INTERVAL = 30   # seconds between SSH pulls
@@ -8868,1047 +8866,105 @@ def letta_id_for(agent_id):
 
 
 # ── Model Stats (per-OAuth/CLI session token usage) ───────────────────────────
-# Catch token-exhaustion early: each source reports current session usage % +
-# reset date. Codex (ChatGPT OAuth) exposes a rich `rate_limits` block (5h +
-# weekly used_percent + resets_at) in its session rollouts; Claude exposes
-# cumulative tokens/cost per model in ~/.claude/stats-cache.json (no weekly
-# limit %); Gemini has no machine-readable limit, so it's account-only.
-# W11 = this box (local); R46 = mom's machine (rosemary46) over SSH.
-R46_SSH_HOST = os.environ.get('R46_SSH_HOST', 'adamsl@100.72.34.38')
-
-MODEL_STAT_SOURCES = {
-    'w11-codex':  {'label': 'eg1972 codex',     'kind': 'codex',  'host': None},
-    'r46-codex':  {'label': 'rbarnesrol codex', 'kind': 'codex',  'host': R46_SSH_HOST},
-    'w11-claude': {'label': 'eg1972 claude',    'kind': 'claude', 'host': None},
-    'r46-claude': {'label': 'rbarnesrol claude','kind': 'claude', 'host': R46_SSH_HOST},
-    # 2026-08-16: replaced Antigravity CLI monitoring with the Gemini API key
-    # ("Gemini Flash Fill" button's engine) -- different Google products, see
-    # _GEMINI_FLASH_FILL_EXTRACT_PY's docstring for why they were conflated.
-    'gemini':     {'label': 'Gemini Flash', 'kind': 'gemini', 'host': None},
-}
-
-# The three extractor programs -- and the runner that pipes one to a machine --
-# moved to model_stats/extractors.py. They are ~220 lines of Python written as
-# string literals because they execute on the *measured* machine, not in this
-# process, and nothing in this file reads them except _run_extractor.
+# The whole of this moved into model_stats/: `sources.py` (the typed registry),
+# `windows.py` (UsageWindow + the labelling), `reader.py` (the three provider
+# branches), `last_good.py` (surviving a throttle) and `usage_history.py` (the
+# burn-rate bar and the leak detector). None of it touched this module's state.
+# Re-exported under the historical names: routes reach these through `srv`, and
+# tests/test_server.py names several of them through `server`.
 from model_stats.extractors import (  # noqa: E402
-    _CLAUDE_EXTRACT_PY,
-    _CODEX_EXTRACT_PY,
-    _GEMINI_FLASH_FILL_EXTRACT_PY,
-    _run_extractor,
+    _CLAUDE_EXTRACT_PY, _CODEX_EXTRACT_PY,
+    _GEMINI_FLASH_FILL_EXTRACT_PY, _run_extractor,
 )
-
-
-def _human_reset(when):
-    """'in 3h 12m' / 'in 5d 2h' from a reset time (Unix epoch OR ISO-8601 string)."""
-    if not when:
-        return None
-    if isinstance(when, str):
-        try:
-            from datetime import datetime
-            when = datetime.fromisoformat(when.replace('Z', '+00:00')).timestamp()
-        except Exception:
-            return None
-    secs = int(when - time.time())
-    if secs <= 0:
-        return 'now'
-    d, rem = divmod(secs, 86400)
-    h, rem = divmod(rem, 3600)
-    m = rem // 60
-    if d:
-        return f'in {d}d {h}h'
-    if h:
-        return f'in {h}h {m}m'
-    return f'in {m}m'
-
-
-_model_stats_cache = {}   # key → (timestamp, result)
-MODEL_STATS_CACHE_TTL = 120  # seconds – prevent 429s from rapid polling
-MODEL_STATS_LAST_GOOD_FILE = os.environ.get(
-    'MODEL_STATS_LAST_GOOD_FILE', '/tmp/dashboard_model_stats_last_good.json')
-_model_stats_last_good_lock = threading.Lock()
-
-
-def _save_model_stats_last_good(source_key, out):
-    """Persist non-secret quota bars so a transient stats 429 cannot erase them."""
-    if not out.get('windows'):
-        return
-    with _model_stats_last_good_lock:
-        try:
-            data = {}
-            if os.path.isfile(MODEL_STATS_LAST_GOOD_FILE):
-                with open(MODEL_STATS_LAST_GOOD_FILE, encoding='utf-8') as fh:
-                    data = json.load(fh)
-            data[source_key] = {
-                'windows': out['windows'],
-                'model': out.get('model'),
-                'as_of': out.get('as_of') or time.time(),
-            }
-            tmp = f'{MODEL_STATS_LAST_GOOD_FILE}.tmp.{os.getpid()}'
-            with open(tmp, 'w', encoding='utf-8') as fh:
-                json.dump(data, fh)
-            os.replace(tmp, MODEL_STATS_LAST_GOOD_FILE)
-        except Exception as exc:
-            print(f'[model-stats] could not save last-good snapshot: {exc}')
-
-
-def _restore_model_stats_last_good(source_key, out):
-    """Add the last real quota bars to an otherwise bar-less error response."""
-    if out.get('windows'):
-        return out
-    with _model_stats_last_good_lock:
-        try:
-            with open(MODEL_STATS_LAST_GOOD_FILE, encoding='utf-8') as fh:
-                saved = (json.load(fh) or {}).get(source_key) or {}
-        except (OSError, ValueError, TypeError):
-            saved = {}
-    if not saved.get('windows'):
-        # Older dashboard versions persisted only the primary usage percentage
-        # for burn-rate history. Use that real reading after an upgrade/restart
-        # until the next successful live response seeds both quota windows.
-        try:
-            with open(MODEL_USAGE_HISTORY_FILE, encoding='utf-8') as fh:
-                history = (json.load(fh) or {}).get(source_key) or []
-            sampled_at, used_percent = history[-1]
-            saved = {
-                'as_of': sampled_at,
-                'windows': [
-                    {'label': '5-hour', 'used_percent': used_percent,
-                     'resets_at': None, 'resets_in': None},
-                    {'label': 'weekly', 'used_percent': None,
-                     'resets_at': None, 'resets_in': None,
-                     'unavailable': True,
-                     'note': 'waiting for the next successful live reading'},
-                ],
-            }
-        except (OSError, ValueError, TypeError, IndexError):
-            return out
-    out['windows'] = saved['windows']
-    out['model'] = out.get('model') or saved.get('model')
-    out['usage_as_of'] = saved.get('as_of')
-    out['windows_stale'] = True
-    return out
-
-# Codex rate-limit windows are labeled by their duration (limit_window_seconds),
-# not by position in the payload, so a single-window response still labels correctly.
-_CODEX_WINDOW_ORDER = {'5-hour': 0, 'weekly': 1}
-
-def _codex_window_label(seconds):
-    try:
-        s = int(seconds or 0)
-    except (TypeError, ValueError):
-        s = 0
-    if s <= 0:
-        return 'usage'
-    if s <= 6 * 3600:       # ~5-hour window (18000s), allow slack
-        return '5-hour'
-    if s <= 8 * 86400:      # ~weekly window (604800s)
-        return 'weekly'
-    days = round(s / 86400)
-    return f'{days}-day'
-
-def model_stats(source_key):
-    """Build the Model Stats payload for one source: provider/model, usage windows
-    (used_percent + reset), a tokens summary, and a status (up/concern/down) so the
-    tab can go red at 100%."""
-    cached = _model_stats_cache.get(source_key)
-    if cached and time.time() - cached[0] < MODEL_STATS_CACHE_TTL:
-        return cached[1]
-    src = MODEL_STAT_SOURCES.get(source_key)
-    if not src:
-        return {'ok': False, 'error': f'unknown source {source_key}'}
-    out = _model_stats_uncached(source_key, src)
-    if src['kind'] == 'claude':
-        if out.get('windows'):
-            _save_model_stats_last_good(source_key, out)
-        elif out.get('rate_limited'):
-            _restore_model_stats_last_good(source_key, out)
-    try:
-        _attach_usage_metrics(source_key, out)   # rate-of-change bar + leak detector
-    except Exception as e:
-        print(f'[model-usage] {source_key} attach failed: {e}')
-    _model_stats_cache[source_key] = (time.time(), out)
-    return out
-
-
-def _looks_rate_limited(err):
-    t = str(err).lower()
-    return ('429' in t or 'rate limit' in t or 'rate_limit' in t
-            or 'too many requests' in t)
-
-
-def _fill_rate_limited(out, d, err, severity='down'):
-    """A provider-side 429 means the endpoint we polled is throttled. For
-    Codex/Antigravity that endpoint IS the account's real quota meter, so a
-    429 there really does mean 'you cannot use this provider right now'
-    (severity='down', red). Claude's usage check hits a separate, much
-    stricter usage-stats endpoint (api/oauth/usage) that throttles on its own
-    schedule independent of the actual chat/completion API — repeated polling
-    (e.g. manual diagnostics) can trip it while Claude itself works fine. That
-    case passes severity='concern' (yellow) so the tile doesn't falsely claim
-    the whole OAuth connection is dead. Surface the reset as an absolute
-    epoch either way so the frontend can render a live countdown."""
-    out['status'] = severity
-    out['rate_limited'] = True
-    retry_after = d.get('retry_after')
-    if retry_after:
-        until = (d.get('as_of') or time.time()) + retry_after
-        out['rate_limited_until'] = until
-        out['detail'] = f'RATE LIMITED ({err}) — resets {_human_reset(until)}'
-    else:
-        out['detail'] = f'RATE LIMITED ({err}) — reset time not reported'
-    if severity == 'concern':
-        out['detail'] = f'usage stats {out["detail"]} (Claude itself may still work — this only throttles quota reporting)'
-    return out
-
-
-def _looks_like_login_problem(err):
-    t = str(err).lower()
-    return 'expired' in t or 'token' in t or 'unauthor' in t or '401' in t
-
-
-def _failure_condition(d, err):
-    """Name the condition behind a usage-less extractor payload.
-
-    The extractor is the only party that actually observes the condition, so it
-    SHOULD name one in `condition`. Payloads that don't (the Codex extractor,
-    older mocks) fall back to inferring it from the error text — which is how a
-    logged-out host used to be mistaken for a throttle: an unauthenticated
-    request gets a 429 from Anthropic's edge, and '429' in the string was the
-    only evidence anyone looked at. New failure modes belong in the extractor,
-    named, rather than as another pattern to grep for here."""
-    return d.get('condition') or ('rate_limited' if _looks_rate_limited(err) else 'unknown')
-
-
-def _fill_extractor_failure(out, src, d, rate_limit_severity='down', login_hint=''):
-    """Explain, in terms the reader can act on, why a source reported no usage.
-
-    Shared by every OAuth-backed source so a new condition is described once
-    instead of once per provider. `rate_limit_severity` is the provider's own
-    judgement of what a 429 means for it (see _fill_rate_limited)."""
-    err = d.get('error') or 'no data'
-    condition = _failure_condition(d, err)
-
-    if condition == 'rate_limited':
-        return _fill_rate_limited(out, d, err, severity=rate_limit_severity)
-
-    if condition == 'logged_out':
-        # Neither a quota problem nor self-healing: the credential file is
-        # present but empty, and only an interactive login on that host
-        # restores it. Red, and it names the command.
-        out['status'] = 'down'
-        out['logged_out'] = True
-        where = src.get('host') or 'this box'
-        out['detail'] = f'LOGGED OUT — no OAuth token on {where}. Fix: {login_hint or "log in on that host"}.'
-        return out
-
-    out['status'] = 'concern'
-    hint = f' — {login_hint}' if login_hint and _looks_like_login_problem(err) else ''
-    out['detail'] = f'usage unavailable: {err}{hint}'
-    return out
-
-
-def _model_stats_uncached(source_key, src):
-    out = {'ok': True, 'key': source_key, 'label': src['label'], 'kind': src['kind'],
-           'windows': [], 'status': 'up', 'detail': ''}
-
-    if src['kind'] == 'codex':
-        d = _run_extractor(_CODEX_EXTRACT_PY, src['host'], timeout=35)
-        out['model'] = d.get('model')
-        out['as_of'] = d.get('as_of')
-        u = d.get('usage') or {}
-        if d.get('error') or not u:
-            return _fill_extractor_failure(out, src, d, rate_limit_severity='down',
-                                           login_hint='run `codex login` there')
-        rl = u.get('rate_limit') or {}
-        out['detail'] = f'plan: {u.get("plan_type", "?")}'
-        worst = 0.0
-        # Label each window by its actual duration (limit_window_seconds), NOT by
-        # position: Codex sometimes returns only the weekly window in
-        # primary_window with secondary_window null, so the old positional
-        # ('primary'→5-hour, 'secondary'→weekly) mapping mislabeled the weekly bar
-        # as "5-hour" and dropped the weekly bar entirely.
-        for wkey, fallback_label in (
-                ('primary_window', '5-hour'),
-                ('secondary_window', 'weekly')):
-            w = rl.get(wkey)
-            if not isinstance(w, dict):
-                continue
-            up = float(w.get('used_percent') or 0)
-            worst = max(worst, up)
-            seconds = w.get('limit_window_seconds')
-            out['windows'].append({
-                # Current payloads identify windows by duration. Retain the
-                # old positional labels only for legacy/mocked payloads that
-                # omit it, instead of producing two generic "usage" rows.
-                'label': (_codex_window_label(seconds)
-                          if seconds is not None else fallback_label),
-                'used_percent': round(up, 1),
-                'resets_at': w.get('reset_at'),
-                'resets_in': _human_reset(w.get('reset_at')),
-            })
-        # OpenAI temporarily removed the rolling 5-hour Codex cap on Plus/Pro/
-        # Business tiers on 2026-07-12 (following the GPT-5.6 Sol launch), so
-        # wham/usage now returns secondary_window: null — there's genuinely no
-        # 5-hour data to show, not a bug on our end. Insert a placeholder row
-        # for parity with the Claude card, which always shows both windows;
-        # flip back to real data automatically once OpenAI restores the window.
-        if not any(x['label'] == '5-hour' for x in out['windows']):
-            out['windows'].append({
-                'label': '5-hour', 'used_percent': None, 'resets_at': None,
-                'resets_in': None, 'unavailable': True,
-                'note': 'OpenAI paused the 5-hour cap 2026-07-12 (weekly-only, for now)',
-            })
-        out['windows'].sort(key=lambda x: _CODEX_WINDOW_ORDER.get(x['label'], 99))
-        if rl.get('limit_reached') or worst >= 100:
-            out['status'] = 'down'        # maxed → red, with reset shown
-        elif worst >= 80:
-            out['status'] = 'concern'     # getting close → yellow
-        return out
-
-    if src['kind'] == 'claude':
-        d = _run_extractor(_CLAUDE_EXTRACT_PY, src['host'], timeout=35)
-        out['as_of'] = d.get('as_of')
-        out['model'] = d.get('recent_model') or 'Claude subscription'
-        u = d.get('usage') or {}
-        if d.get('error') or not u:
-            return _fill_extractor_failure(out, src, d, rate_limit_severity='concern',
-                                           login_hint='run `claude` there and complete /login')
-        worst = 0.0
-        for key, label in (('five_hour', '5-hour'), ('seven_day', 'weekly')):
-            w = u.get(key) or {}
-            up = float(w.get('utilization') or 0)
-            worst = max(worst, up)
-            out['windows'].append({
-                'label': label,
-                'used_percent': round(up, 1),
-                'resets_at': w.get('resets_at'),
-                'resets_in': _human_reset(w.get('resets_at')),
-            })
-        eu = u.get('extra_usage') or {}
-        if eu.get('is_enabled'):
-            out['detail'] = f'extra usage {round(eu.get("utilization", 0))}% of ${eu.get("monthly_limit")}'
-        else:
-            out['detail'] = 'subscription (5h + weekly)'
-        if worst >= 100:
-            out['status'] = 'down'
-        elif worst >= 80:
-            out['status'] = 'concern'
-        return out
-
-    if src['kind'] == 'gemini':
-        # Tracks the Gemini API key ("Gemini Flash Fill" button's engine),
-        # not Antigravity CLI -- see _GEMINI_FLASH_FILL_EXTRACT_PY's comment
-        # for why those are different Google products.
-        d = _run_extractor(_GEMINI_FLASH_FILL_EXTRACT_PY, src['host'], timeout=15)
-        out['model'] = 'gemini-2.5-flash (receipts)'
-        if d.get('error') or not d.get('configured'):
-            out['status'] = 'concern'
-            out['detail'] = f'usage unavailable: {d.get("error", "no data")}'
-            return out
-        limit = d.get('limit') or 250
-        used = d.get('used') or 0
-        up = (100.0 * used / limit) if limit else 0.0
-        out['windows'].append({
-            'label': 'daily requests',
-            'used_percent': round(up, 1),
-            'resets_at': d.get('resets_at'),
-            'resets_in': _human_reset(d.get('resets_at')),
-        })
-        # Unlike Antigravity's real Google-reported tier/limit, this "limit" is
-        # a locally-configured estimate (no usage-query endpoint exists for a
-        # bare API key) -- said plainly here so it never reads as authoritative.
-        out['detail'] = f'{used}/{limit} requests today (estimate, self-tracked)'
-        if up >= 100:
-            out['status'] = 'down'
-        elif up >= 80:
-            out['status'] = 'concern'
-        return out
-
-    return out
-
-
-# ── Model usage: rate-of-change bar + slow-leak detector ─────────────────────
-#
-# Rate metric (first version, deliberately simple): percentage-POINTS of the
-# source's PRIMARY quota window (windows[0]: the 5-hour window for Codex and
-# Claude, the daily request count for Antigravity) consumed per hour, measured
-# over the last RATE_WINDOW_MINUTES of snapshots. This borrows the SRE
-# "error-budget burn rate" idea (sre.google/workbook/alerting-on-slos): a quota
-# window spanning H hours replenishes at 100/H %-points per hour, so
-#
-#     burn_multiple = observed %-points/hour ÷ (100 / window_hours)
-#
-# burn 1.0x = spending exactly as fast as the window refills — sustainable
-# forever; anything above 1.0x will eventually max the account out. That makes
-# the numbers comparable across providers with different window sizes, and it
-# gives the thresholds real meaning instead of magic numbers:
-#
-#   RATE_WARN_BURN_MULTIPLE (default 1.0)  — the bar blinks yellow when the
-#       last half-hour burned faster than the window replenishes. Interactive
-#       coding legitimately bursts past 1.0x, so expect blinks during heavy
-#       use; the point is "on pace to hit the cap", not "something is broken".
-#       Raise it (e.g. 1.5–2.0) if it blinks too often in practice.
-#   RATE_BAR_FULL_SCALE_MULTIPLE (default 2.0) — the bar renders 100% wide at
-#       this burn multiple, so HALF a bar always means "sustainable pace".
-#
-# Leak detector (slow drain): the rate bar only sees the last 30 minutes, so a
-# slow drip can hide under bursty-but-legit use — the 2026-07-07 provider-probe
-# ping loop burned ~1.1x sustainable for HOURS and never looked dramatic in
-# any 30-minute slice. Following the SRE multiwindow pattern (short window
-# catches fast burns, long window catches slow ones), we also look back
-# LEAK_LOOKBACK_MINUTES, split the history into LEAK_BUCKET_MINUTES buckets,
-# and flag "slow token drain" when usage rose at least LEAK_MIN_RISE_PCT
-# %-points in LEAK_MIN_RISING_BUCKETS CONSECUTIVE buckets. A single burst
-# (one busy bucket, flat elsewhere) does NOT flag. This first version cannot
-# know whether a task *should* be running, so a genuine 2-hour work session
-# will also flag — acceptable for an early-warning light; tune below.
-#
-# History comes from two feeds through the same recording point
-# (_attach_usage_metrics, called on every model-stats cache miss): the UI's
-# 120s poll while the tab is open, plus _model_usage_sample_loop in the
-# background so the 2h lookback exists even when nobody is watching. Snapshots
-# persist to MODEL_USAGE_HISTORY_FILE so a dashboard restart doesn't blind the
-# leak detector. Known first-version quirks (documented, not bugs): a rolling
-# window's used_percent can FALL as old usage ages out — negative deltas clamp
-# to 0; an Adam<->mom token swap jumps the percentage discontinuously and may
-# cause one false warning cycle.
-
-def _env_float(name, default):
-    try:
-        return float(os.environ.get(name, default))
-    except ValueError:
-        return default
-
-
-def _env_int(name, default):
-    try:
-        return int(os.environ.get(name, default))
-    except ValueError:
-        return default
-
-
-MODEL_USAGE_SAMPLE_INTERVAL = _env_int('MODEL_USAGE_SAMPLE_INTERVAL', 300)         # s between background snapshots
-RATE_WINDOW_MINUTES = _env_int('MODEL_RATE_WINDOW_MINUTES', 30)                    # rate looks at the last N minutes
-RATE_MIN_SPAN_MINUTES = _env_int('MODEL_RATE_MIN_SPAN_MINUTES', 5)                 # need >= this span before showing a rate
-RATE_WARN_BURN_MULTIPLE = _env_float('MODEL_RATE_WARN_BURN_MULTIPLE', 1.0)         # blink yellow above this burn multiple
-RATE_BAR_FULL_SCALE_MULTIPLE = _env_float('MODEL_RATE_BAR_FULL_SCALE', 2.0)        # bar is 100% wide at this burn multiple
-LEAK_BUCKET_MINUTES = _env_int('MODEL_LEAK_BUCKET_MINUTES', 30)
-LEAK_LOOKBACK_MINUTES = _env_int('MODEL_LEAK_LOOKBACK_MINUTES', 120)
-LEAK_MIN_RISE_PCT = _env_float('MODEL_LEAK_MIN_RISE_PCT', 0.5)                     # a bucket "rises" if it gains >= this
-LEAK_MIN_RISING_BUCKETS = _env_int('MODEL_LEAK_MIN_RISING_BUCKETS', 3)             # consecutive rising buckets => leak
-MODEL_USAGE_HISTORY_FILE = os.environ.get('MODEL_USAGE_HISTORY_FILE', '/tmp/model_usage_history.json')
-MODEL_USAGE_HISTORY_KEEP_MINUTES = LEAK_LOOKBACK_MINUTES + 60                      # prune margin past the lookback
-
-# windows[0] label → hours that quota window spans (drives the replenish rate).
-# Unknown labels fall back to 5h, the most common primary window.
-_WINDOW_HOURS = {'5-hour': 5.0, 'weekly': 168.0, 'daily requests': 24.0}
-_DEFAULT_WINDOW_HOURS = 5.0
-
-_usage_history_lock = threading.Lock()
-_usage_history = None   # source_key → [[ts, pct], ...]; lazy-loaded from disk
-
-
-def _load_usage_history():
-    try:
-        with open(MODEL_USAGE_HISTORY_FILE) as f:
-            data = json.load(f)
-        return {k: [list(map(float, s)) for s in v] for k, v in data.items()}
-    except Exception:
-        return {}
-
-
-def _record_usage_sample(source_key, pct, now=None):
-    """Append one (timestamp, used_percent) snapshot for a source, prune history
-    older than the leak lookback (+margin), persist best-effort, and return a
-    copy of the source's samples for the pure calculators below."""
-    global _usage_history
-    now = now if now is not None else time.time()
-    with _usage_history_lock:
-        if _usage_history is None:
-            _usage_history = _load_usage_history()
-        samples = _usage_history.setdefault(source_key, [])
-        samples.append([now, float(pct)])
-        cutoff = now - MODEL_USAGE_HISTORY_KEEP_MINUTES * 60
-        while samples and samples[0][0] < cutoff:
-            samples.pop(0)
-        try:
-            with open(MODEL_USAGE_HISTORY_FILE, 'w') as f:
-                json.dump(_usage_history, f)
-        except Exception:
-            pass   # persistence is a nicety; in-memory history still works
-        return [tuple(s) for s in samples]
-
-
-def compute_usage_rate(samples, window_hours, now=None,
-                       window_minutes=None, warn_multiple=None, full_scale=None):
-    """Pure: %-points/hour consumed over the last window_minutes of samples,
-    plus the burn multiple vs the window's replenish rate (see section comment
-    for the math). Thresholds are parameters so tests don't depend on env."""
-    now = now if now is not None else time.time()
-    window_minutes = window_minutes if window_minutes is not None else RATE_WINDOW_MINUTES
-    warn_multiple = warn_multiple if warn_multiple is not None else RATE_WARN_BURN_MULTIPLE
-    full_scale = full_scale if full_scale is not None else RATE_BAR_FULL_SCALE_MULTIPLE
-    recent = [s for s in samples if s[0] >= now - window_minutes * 60]
-    if len(recent) < 2 or recent[-1][0] - recent[0][0] < RATE_MIN_SPAN_MINUTES * 60:
-        return {'available': False,
-                'reason': f'gathering data (need ≥{RATE_MIN_SPAN_MINUTES} min of snapshots)'}
-    span_hours = (recent[-1][0] - recent[0][0]) / 3600.0
-    # Rolling windows decay: used_percent can drop as old usage ages out, which
-    # is not "negative spending" — clamp to 0 instead of showing it.
-    pct_per_hour = max(0.0, recent[-1][1] - recent[0][1]) / span_hours
-    sustainable = 100.0 / window_hours          # replenish rate of this window
-    burn = pct_per_hour / sustainable
-    return {
-        'available': True,
-        'pct_per_hour': round(pct_per_hour, 1),
-        'burn_multiple': round(burn, 2),
-        'sustainable_pct_per_hour': round(sustainable, 1),
-        'bar_percent': round(min(100.0, 100.0 * burn / full_scale)),
-        'warn': burn >= warn_multiple,
-        'warn_at_multiple': warn_multiple,
-        'window_minutes': window_minutes,
-    }
-
-
-def detect_slow_leak(samples, now=None, bucket_minutes=None, lookback_minutes=None,
-                     min_rise_pct=None, min_rising_buckets=None):
-    """Pure: flag a slow, steady token drain — usage rising in several
-    CONSECUTIVE buckets across the long lookback, the pattern a background
-    drip leaves and a single legitimate burst does not (see section comment)."""
-    now = now if now is not None else time.time()
-    bucket_minutes = bucket_minutes if bucket_minutes is not None else LEAK_BUCKET_MINUTES
-    lookback_minutes = lookback_minutes if lookback_minutes is not None else LEAK_LOOKBACK_MINUTES
-    min_rise_pct = min_rise_pct if min_rise_pct is not None else LEAK_MIN_RISE_PCT
-    min_rising_buckets = min_rising_buckets if min_rising_buckets is not None else LEAK_MIN_RISING_BUCKETS
-    n_buckets = max(1, lookback_minutes // bucket_minutes)
-    longest_run = run = 0
-    rising = evaluated = 0
-    for i in range(n_buckets):                      # oldest bucket first
-        end = now - (n_buckets - 1 - i) * bucket_minutes * 60
-        start = end - bucket_minutes * 60
-        inside = [s for s in samples if start <= s[0] < end]
-        if len(inside) < 2:
-            run = 0                                 # a data gap breaks "consecutive"
-            continue
-        evaluated += 1
-        if inside[-1][1] - inside[0][1] >= min_rise_pct:
-            rising += 1
-            run += 1
-            longest_run = max(longest_run, run)
-        else:
-            run = 0
-    suspected = longest_run >= min_rising_buckets
-    in_window = [s for s in samples if s[0] >= now - lookback_minutes * 60]
-    total_rise = round(in_window[-1][1] - in_window[0][1], 1) if len(in_window) >= 2 else 0.0
-    hours = lookback_minutes / 60
-    return {
-        'suspected': suspected,
-        'rising_buckets': rising,
-        'consecutive_rising': longest_run,
-        'buckets_evaluated': evaluated,
-        'needed_consecutive': min_rising_buckets,
-        'total_rise_pct': total_rise,
-        'text': (f'Slow token drain — +{total_rise}% over last {hours:g}h '
-                 f'({longest_run} consecutive rising {bucket_minutes}-min windows)')
-                if suspected else '',
-    }
-
-
-def _attach_usage_metrics(source_key, out):
-    """Record a snapshot and attach 'rate' + 'leak' to a model-stats payload.
-    Runs on every cache-miss fetch (UI poll or background sampler — the 120s
-    stats cache dedupes). Also logs one debug line per fetch with the raw
-    value, computed rate, thresholds, and leak verdict so the math can be
-    checked against /tmp/dashboard_8765.log."""
-    windows = out.get('windows') or []
-    if out.get('ok') is False or not windows:
-        return
-    primary = windows[0]
-    pct = primary.get('used_percent')
-    if pct is None:
-        return
-    now = time.time()
-    samples = _record_usage_sample(source_key, float(pct), now)
-    window_hours = _WINDOW_HOURS.get(primary.get('label'), _DEFAULT_WINDOW_HOURS)
-    rate = compute_usage_rate(samples, window_hours, now)
-    rate['window_label'] = primary.get('label')
-    leak = detect_slow_leak(samples, now)
-    out['rate'] = rate
-    out['leak'] = leak
-    # Early warning propagates to the sub-nav tab color (yellow), never
-    # overriding a real 'down'/'concern' from the quota itself.
-    if (rate.get('warn') or leak['suspected']) and out.get('status') == 'up':
-        out['status'] = 'concern'
-    print(f"[model-usage] {source_key} pct={pct} samples={len(samples)} "
-          f"rate={rate.get('pct_per_hour')}%/hr burn={rate.get('burn_multiple')}x "
-          f"(warn≥{RATE_WARN_BURN_MULTIPLE}x → {rate.get('warn')}) "
-          f"leak: {leak['consecutive_rising']}/{leak['needed_consecutive']} consecutive rising, "
-          f"+{leak['total_rise_pct']}% over {LEAK_LOOKBACK_MINUTES}m → {leak['suspected']}")
+from model_stats.last_good import (  # noqa: E402
+    MODEL_STATS_LAST_GOOD_FILE, _restore_model_stats_last_good,
+    _save_model_stats_last_good,
+)
+from model_stats.reader import (  # noqa: E402
+    MODEL_STATS_CACHE_TTL, _fill_extractor_failure, _fill_rate_limited,
+    _model_stats_cache, _model_stats_uncached, model_stats,
+)
+from model_stats.sources import (  # noqa: E402
+    MODEL_STAT_SOURCES, ModelStatSource, R46_SSH_HOST,
+)
+from model_stats.usage_history import (  # noqa: E402
+    LEAK_BUCKET_MINUTES, LEAK_LOOKBACK_MINUTES, LEAK_MIN_RISE_PCT,
+    LEAK_MIN_RISING_BUCKETS, MODEL_USAGE_HISTORY_FILE,
+    MODEL_USAGE_HISTORY_KEEP_MINUTES, MODEL_USAGE_SAMPLE_INTERVAL,
+    RATE_BAR_FULL_SCALE_MULTIPLE, RATE_WARN_BURN_MULTIPLE,
+    RATE_WINDOW_MINUTES, LeakVerdict, UsageRate, _attach_usage_metrics,
+    _record_usage_sample, compute_usage_rate, detect_slow_leak,
+)
+from model_stats.usage_history import (  # noqa: E402
+    _model_usage_sample_loop as _run_model_usage_sample_loop,
+)
+from model_stats.windows import UsageWindow, _human_reset  # noqa: E402
 
 
 def _model_usage_sample_loop():
-    """Background snapshotter: fetch every source on a fixed cadence so usage
-    history keeps flowing while nobody has the Model Stats tab open — without
-    it the leak detector would only have data from moments someone watched.
-    model_stats() itself records the snapshot; its cache dedupes with the UI."""
-    while True:
-        for key in MODEL_STAT_SOURCES:
-            try:
-                model_stats(key)
-            except Exception:
-                pass
-        time.sleep(MODEL_USAGE_SAMPLE_INTERVAL)
+    """Composition root for the background usage sampler.
+
+    The sampler needs a reading; the reader needs the sampler's recorder. The
+    cycle is broken by injection, and the lambda keeps the binding late so a
+    test that replaces `server.model_stats` is still honoured by a sampler
+    thread that started before it.
+    """
+    return _run_model_usage_sample_loop(lambda key: model_stats(key))
 
 
 # ── Web Terminal (Input Options → Terminal) ──────────────────────────────────
 # A browser xterm.js panel connects to GET /api/terminal (WebSocket) and gets a
 # full login shell in a pty on this box; when ?agent=<letta-id> is present the
-# shell is primed with `letta --agent <id>` so the terminal opens inside a
-# letta-code session for that agent (exiting letta drops back to bash).
+# shell opens inside a letta-code session for that agent.
 #
-# The server must stay stdlib-only, so the RFC 6455 handshake + framing are
-# implemented here rather than pulling in `websockets`. ThreadingHTTPServer
-# already gives each connection its own thread, so the handler thread simply
-# stays alive for the socket's lifetime: a reader thread pulls frames off the
-# browser socket (keystrokes, resizes, pings) while the handler thread pumps
-# pty output back as binary frames.
+# What used to be one section here was three unrelated things, now three
+# modules: http_app/websocket.py (the hand-rolled RFC 6455 framing, because the
+# server stays stdlib-only), terminal/pty_session.py (spawning the shell and
+# reaping the whole pty *session*, which is the only way to catch letta-code
+# after it detaches), and letta_code/runner.py (the headless one-turn runner,
+# which never touches a pty and only lived here by accident).
 #
-# Wire protocol: client→server text frames carry JSON {"t":"i","d":<keys>} for
-# input and {"t":"r","c":cols,"r":rows} for resize; server→client frames are
-# binary raw pty bytes (binary, not text, because a pty read can split a UTF-8
-# sequence mid-character and browsers kill the socket on invalid text frames).
-
-import base64
-import fcntl
-import hashlib
-import pty
-import signal
-import struct
-import termios
-
-_WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
-_TERMINAL_ID_RE = re.compile(r'^[A-Za-z0-9_-]+$')
-_LETTA_CODE_MAX_PROMPT_CHARS = 20000
-_LETTA_CODE_FORBIDDEN_INPUT_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
-
-
-def validate_letta_code_prompt(value):
-    """Accept message text while rejecting terminal-control traffic."""
-    if not isinstance(value, str):
-        raise ValueError('message must be text')
-    value = value.replace('\r\n', '\n').replace('\r', '\n')
-    if not value.strip():
-        raise ValueError('message is empty')
-    if len(value) > _LETTA_CODE_MAX_PROMPT_CHARS:
-        raise ValueError(f'message is too long (maximum {_LETTA_CODE_MAX_PROMPT_CHARS} characters)')
-    if _LETTA_CODE_FORBIDDEN_INPUT_RE.search(value):
-        raise ValueError('message contains unsupported control characters')
-    return value
-
-
-def _letta_code_command():
-    """Return a service-safe command prefix for this checkout's CLI.
-
-    dashboard-server.service has a deliberately small PATH and the repo may not
-    have a built letta.js yet. Prefer the canonical TypeScript dev entry point
-    through Bun, using its stable user install path, then fall back to a linked
-    or built CLI when needed.
-    """
-    bun = LETTA_CODE_BUN if os.path.isfile(LETTA_CODE_BUN) else shutil.which('bun')
-    if bun:
-        return [bun, 'run', 'dev', '--']
-    letta = shutil.which('letta')
-    if letta:
-        return [letta]
-    built = os.path.join(REPO_ROOT, 'letta.js')
-    if os.path.isfile(built):
-        return [built]
-    raise FileNotFoundError(
-        'Letta Code runtime not found (expected ~/.bun/bin/bun, PATH letta, '
-        f'or {built})')
+# Wire protocol, unchanged: client→server text frames carry JSON
+# {"t":"i","d":<keys>} for input and {"t":"r","c":cols,"r":rows} for resize;
+# server→client frames are binary raw pty bytes -- binary, not text, because a
+# pty read can split a UTF-8 sequence mid-character and browsers kill the
+# socket on an invalid text frame.
+from http_app.websocket import (  # noqa: E402
+    ws_accept_key, ws_encode_frame, ws_read_frame,
+)
+from letta_code.runner import (  # noqa: E402
+    _letta_code_command, validate_letta_code_prompt,
+)
+from letta_ids import _TERMINAL_ID_RE  # noqa: E402
+from letta_code.runner import run_letta_code_message as _run_letta_code_message  # noqa: E402
+from terminal.pty_session import (  # noqa: E402
+    _session_pids, _terminal_reap, _terminal_spawn_shell,
+)
 
 
 def run_letta_code_message(agent_id, prompt, timeout=900, conversation_id=None):
-    """Run one Letta Code turn and expose only its final JSON result.
+    """Composition root for the headless runner: this module's id resolver.
 
-    Without `conversation_id`, headless mode's default behavior creates a
-    brand-new conversation on every call (to avoid 409 "conversation busy"
-    races), so the agent has no memory of the previous turn. Callers that
-    want a running conversation must pass back the `run.conversation_id`
-    a prior call returned; the CLI's `--conversation` resumes it instead of
-    starting over. `--conversation` derives the agent from the conversation
-    itself, so it is mutually exclusive with `--agent`.
+    The lambda keeps the binding late. Handing `letta_id_for` over directly
+    would freeze whichever function object existed at import time, and the
+    tests that replace `server.letta_id_for` -- along with the agent-registry
+    cache it reads -- would stop being honoured.
     """
-    lid = letta_id_for(agent_id)
-    if not lid or not _TERMINAL_ID_RE.fullmatch(lid):
-        raise ValueError('invalid Letta agent id')
-    clean_prompt = validate_letta_code_prompt(prompt)
-    command = _letta_code_command()
-    # `bun run dev` expands to a package script that invokes `bun` once more.
-    # Preserve the resolved runtime directory for that nested command even
-    # under dashboard-server.service's intentionally minimal PATH.
-    runtime_path = os.path.dirname(command[0])
-    child_path = os.environ.get('PATH', '')
-    if runtime_path:
-        child_path = runtime_path + (os.pathsep + child_path if child_path else '')
-    if conversation_id and not _TERMINAL_ID_RE.fullmatch(conversation_id):
-        raise ValueError('invalid Letta conversation id')
-    session_args = (
-        ['--conversation', conversation_id] if conversation_id
-        else ['--agent', lid]
-    )
-    # Headless runs have nobody to answer an approval prompt, so the CLI
-    # auto-DENIES anything gated ("Tool requires approval (headless mode)").
-    # Without a raised mode the agent can read and reason but every Edit/Write
-    # silently fails, and she reports work she was never allowed to do.
-    # acceptEdits auto-allows the edit tools + Bash and nothing else - narrower
-    # than --yolo/bypassPermissions, which this web-reachable endpoint should
-    # not hand out.
-    proc = subprocess.run(
-        [*command, *session_args, '--prompt', clean_prompt,
-         '--output-format', 'json', '--memfs-startup', 'skip',
-         '--permission-mode', 'acceptEdits'],
-        cwd=REPO_ROOT, text=True, capture_output=True, timeout=timeout,
-        env={**os.environ, 'PATH': child_path, 'LETTA_BASE_URL': LETTA_BASE_URL},
-    )
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or 'Letta Code failed').strip()
-        raise RuntimeError(detail[-1000:])
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError('Letta Code returned invalid JSON') from exc
-    result = payload.get('result')
-    if not isinstance(result, str) or not result.strip():
-        raise RuntimeError('Mazda returned no answer')
-    return {'ok': True, 'reply': result, 'run': {
-        'agent_id': payload.get('agent_id'),
-        'conversation_id': payload.get('conversation_id'),
-    }}
-
-
-def ws_accept_key(sec_websocket_key):
-    """Sec-WebSocket-Accept value for a client's Sec-WebSocket-Key (RFC 6455 §4.2.2)."""
-    digest = hashlib.sha1((sec_websocket_key + _WS_GUID).encode('ascii')).digest()
-    return base64.b64encode(digest).decode('ascii')
-
-
-def ws_encode_frame(payload, opcode=0x2):
-    """Encode one unmasked (server→client) WebSocket frame, FIN set."""
-    head = bytes([0x80 | opcode])
-    n = len(payload)
-    if n < 126:
-        head += bytes([n])
-    elif n < 65536:
-        head += bytes([126]) + struct.pack('!H', n)
-    else:
-        head += bytes([127]) + struct.pack('!Q', n)
-    return head + payload
-
-
-def ws_read_frame(rfile):
-    """Read one client→server frame from a blocking file object.
-
-    Returns (opcode, payload:bytes) with client masking removed and fragmented
-    messages reassembled. Raises ConnectionError on EOF/protocol violation.
-    """
-    opcode = None
-    payload = b''
-    while True:
-        head = rfile.read(2)
-        if len(head) < 2:
-            raise ConnectionError('websocket closed')
-        fin = head[0] & 0x80
-        op = head[0] & 0x0F
-        masked = head[1] & 0x80
-        n = head[1] & 0x7F
-        if n == 126:
-            n = struct.unpack('!H', rfile.read(2))[0]
-        elif n == 127:
-            n = struct.unpack('!Q', rfile.read(8))[0]
-        if n > 1 << 20:
-            raise ConnectionError('websocket frame too large')
-        mask = rfile.read(4) if masked else b''
-        data = rfile.read(n)
-        if len(data) < n:
-            raise ConnectionError('websocket closed mid-frame')
-        if masked:
-            data = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
-        if op != 0:               # first (or only) fragment carries the opcode
-            opcode = op
-        payload += data
-        if fin:
-            return opcode, payload
-
-
-def _terminal_spawn_shell(cols, rows, letta_agent_id):
-    """pty.fork() a login shell sized cols×rows; returns (child_pid, master_fd).
-
-    When letta_agent_id is set the command to open that agent is typed into the
-    pty so it shows up in the terminal and runs as soon as bash is up.
-    """
-    pid, master_fd = pty.fork()
-    if pid == 0:  # child
-        env = dict(os.environ)
-        env['TERM'] = 'xterm-256color'
-        env['COLORTERM'] = 'truecolor'
-        os.chdir(os.path.expanduser('~'))
-        os.execvpe('bash', ['bash', '-l'], env)
-    # Native byte order, not '!': TIOCSWINSZ takes a C `struct winsize`, so
-    # big-endian packing byte-swaps every field (80x24 arrives as 20480x6144).
-    fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
-    if letta_agent_id:
-        os.write(master_fd, f'letta --agent {letta_agent_id}\n'.encode())
-    return pid, master_fd
-
-
-def _session_pids(sid):
-    """PIDs whose session id == sid (read from /proc/<pid>/stat field 6).
-
-    letta-code detaches into its own process group and reparents to init, so a
-    process-group kill misses it — but it can't leave the pty's *session*
-    without setsid(), which it doesn't call. Reaping by session catches it.
-    """
-    pids = []
-    for entry in os.listdir('/proc'):
-        if not entry.isdigit():
-            continue
-        try:
-            with open(f'/proc/{entry}/stat', 'rb') as f:
-                fields = f.read().rsplit(b')', 1)[1].split()
-            # after the ')' the fields are: state ppid pgrp session ...
-            if int(fields[3]) == sid:
-                pids.append(int(entry))
-        except (OSError, ValueError, IndexError):
-            continue
-    return pids
-
-
-def _terminal_reap(pid):
-    """Tear down the shell and every process in its pty session.
-
-    pty.fork() made `pid` the session leader (sid == pid). We SIGHUP the whole
-    session, then SIGKILL any survivor, so detached children (bun/letta) die too.
-    """
-    for sig, grace in ((signal.SIGHUP, 1.0), (signal.SIGKILL, 0.5)):
-        for target in _session_pids(pid) or [pid]:
-            try:
-                os.kill(target, sig)
-            except (ProcessLookupError, PermissionError):
-                pass
-        deadline = time.time() + grace
-        while time.time() < deadline:
-            try:
-                done, _status = os.waitpid(pid, os.WNOHANG)
-            except ChildProcessError:
-                done = pid  # already reaped by someone else
-            if done:
-                break
-            time.sleep(0.05)
+    return _run_letta_code_message(
+        agent_id, prompt, lambda aid: letta_id_for(aid),
+        timeout=timeout, conversation_id=conversation_id)
 
 
 # ── PC Monitor (per-machine RAM / disk / network) ─────────────────────────────
-# One tab per PC. Each PC reports three metrics as 0-100 percentages so the
-# frontend can draw progress bars and blink the tab yellow when any metric
-# crosses its alert threshold. Collection runs a tiny POSIX-shell snippet on
-# the target (locally for this box, over the existing key-auth SSH for the
-# others) and parses the output here. Windows RAM is queried through PowerShell
-# from WSL so it reflects the physical host rather than the WSL VM's memory
-# limit. Network still reflects the WSL VM's NICs. Disk samples the real
-# Windows C: drive via the /mnt/c drvfs mount (falling back to / on a box
-# without one) — the WSL VHD's sparse 1TB root was misleading.
-#
-# Tuning: thresholds and the network bar's full-scale capacity are env vars —
-# override in dashboard-server.service, no code change needed.
-PC_MONITORS = {
-    'win11': {'label': 'Windows 11', 'host': None, 'memory_source': 'windows',
-              'note': 'This machine — Windows RAM and C: drive; network sampled via WSL.'},
-    'win10': {'label': 'Windows 10', 'host': LETTA_DOCKER_HOST,
-              'memory_source': 'windows',
-              'note': 'The Letta box (100.80.49.10) — Windows RAM and C: drive; network sampled via WSL.'},
-    'moms46': {'label': 'Moms 46', 'host': R46_SSH_HOST,
-               'note': "Mom's Rosemary46 Linux box (100.72.34.38)."},
-}
-
-PC_ALERT_THRESHOLDS = {
-    'ram': float(os.environ.get('PC_ALERT_RAM_PERCENT', '90')),
-    # Disk alerts on FREE space, not percent: yellow under warn GB free,
-    # red (critical) at crit GB free or less.
-    'disk_free_warn_gb': float(os.environ.get('PC_ALERT_DISK_FREE_WARN_GB', '5')),
-    'disk_free_crit_gb': float(os.environ.get('PC_ALERT_DISK_FREE_CRIT_GB', '2')),
-    'net': float(os.environ.get('PC_ALERT_NET_PERCENT', '80')),
-}
-# Full scale for the Network Traffic bar: 100% = this many Mbit/s of rx+tx.
-PC_NET_CAPACITY_MBPS = float(os.environ.get('PC_NET_CAPACITY_MBPS', '100'))
-
-_PC_LINUX_MEM_SH = "grep -E 'MemTotal|MemAvailable' /proc/meminfo"
-_WINDOWS_POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
-_PC_WINDOWS_MEM_SH = (
-    f"{_WINDOWS_POWERSHELL} -NoProfile -NonInteractive -Command '"
-    "$os = Get-CimInstance Win32_OperatingSystem; "
-    "\"MemTotal: $($os.TotalVisibleMemorySize) kB\"; "
-    "\"MemAvailable: $($os.FreePhysicalMemory) kB\"' | tr -d '\\r'"
+# Moved wholesale to monitoring/pc_metrics.py: one shell snippet run on the
+# target, and pure code turning its output into three bars. It reads none of
+# this module's state. Re-exported under the historical names because the
+# routes reach `pc_metrics` and `PC_MONITORS` through `srv`.
+from monitoring.pc_metrics import (  # noqa: E402
+    PC_ALERT_THRESHOLDS, PC_METRICS_CACHE_TTL, PC_MONITORS,
+    PC_NET_CAPACITY_MBPS, PcMetric, PcMonitor, build_pc_metrics,
+    parse_pc_metrics_output, pc_metrics, pc_metrics_collector_command,
 )
-_PC_METRICS_SH_TEMPLATE = (
-    "echo ===MEM===; {memory_command}; "
-    "echo ===DISK===; df -kP /mnt/c 2>/dev/null || df -kP /; "
-    "echo ===NET===; cat /proc/net/dev"
-)
-
-
-def pc_metrics_collector_command(cfg):
-    """Build the WSL/Linux collector command for a configured PC."""
-    memory_command = (_PC_WINDOWS_MEM_SH if cfg.get('memory_source') == 'windows'
-                      else _PC_LINUX_MEM_SH)
-    return _PC_METRICS_SH_TEMPLATE.format(memory_command=memory_command)
-
-
-def parse_pc_metrics_output(text):
-    """Parse the ===MEM===/===DISK===/===NET=== collector output into raw
-    numbers: memory kB, disk 1K blocks (the Windows C: drive via /mnt/c, or /
-    on a non-WSL box), and cumulative rx/tx bytes summed over every interface
-    except loopback. Pure — unit-tested."""
-    out = {'mem_total_kb': None, 'mem_avail_kb': None,
-           'disk_total_kb': None, 'disk_used_kb': None, 'disk_avail_kb': None,
-           'disk_mount': None,
-           'net_rx_bytes': 0, 'net_tx_bytes': 0}
-    section = None
-    for line in text.splitlines():
-        s = line.strip()
-        if s.startswith('===') and s.endswith('===') and len(s) > 6:
-            section = s.strip('=')
-            continue
-        if section == 'MEM':
-            if s.startswith('MemTotal:'):
-                out['mem_total_kb'] = int(s.split()[1])
-            elif s.startswith('MemAvailable:'):
-                out['mem_avail_kb'] = int(s.split()[1])
-        elif section == 'DISK':
-            parts = s.split()
-            if len(parts) >= 6 and parts[-1] in ('/mnt/c', '/') and parts[1].isdigit():
-                out['disk_total_kb'] = int(parts[1])
-                out['disk_used_kb'] = int(parts[2])
-                out['disk_avail_kb'] = int(parts[3])
-                out['disk_mount'] = parts[-1]
-        elif section == 'NET' and ':' in s:
-            name, _, rest = s.partition(':')
-            fields = rest.split()
-            # /proc/net/dev: rx bytes is field 0, tx bytes is field 8.
-            if name.strip() != 'lo' and len(fields) >= 9:
-                out['net_rx_bytes'] += int(fields[0])
-                out['net_tx_bytes'] += int(fields[8])
-    return out
-
-
-def _pc_gb(kb):
-    return kb / (1024.0 * 1024.0)
-
-
-def build_pc_metrics(parsed, prev_net, now, thresholds=None, net_capacity_mbps=None):
-    """Pure: parsed collector numbers + the previous network sample →
-    (metric rows, new network sample). Each row carries percent / human text /
-    level ('ok'|'warn'|'crit') so the frontend only has to draw bars. Disk
-    alerts on GB free (warn under 5, crit at 2 or less by default); RAM and
-    network alert on percent. Network traffic is a rate, so it needs two
-    samples — the first request shows 'measuring…'."""
-    th = thresholds or PC_ALERT_THRESHOLDS
-    cap_mbps = net_capacity_mbps or PC_NET_CAPACITY_MBPS
-    metrics = []
-
-    mem_total = parsed.get('mem_total_kb')
-    if mem_total:
-        used = mem_total - (parsed.get('mem_avail_kb') or 0)
-        pct = round(100.0 * used / mem_total, 1)
-        level = 'warn' if pct >= th['ram'] else 'ok'
-        metrics.append({'key': 'ram', 'label': 'RAM Usage', 'percent': pct,
-                        'text': f'{_pc_gb(used):.1f} / {_pc_gb(mem_total):.1f} GB',
-                        'level': level, 'alert': level != 'ok',
-                        'tip': f"Alerts at {th['ram']:.0f}%"})
-
-    disk_total = parsed.get('disk_total_kb')
-    if disk_total:
-        used = parsed.get('disk_used_kb') or 0
-        free_gb = _pc_gb(parsed.get('disk_avail_kb') or 0)
-        warn_gb = th.get('disk_free_warn_gb', 5.0)
-        crit_gb = th.get('disk_free_crit_gb', 2.0)
-        level = 'crit' if free_gb <= crit_gb else ('warn' if free_gb < warn_gb else 'ok')
-        pct = round(100.0 * used / disk_total, 1)
-        drive = 'C: ' if parsed.get('disk_mount') == '/mnt/c' else ''
-        metrics.append({'key': 'disk', 'label': 'Hard Drive Usage', 'percent': pct,
-                        'text': f'{drive}{_pc_gb(used):.0f} / {_pc_gb(disk_total):.0f} GB'
-                                f' ({free_gb:.1f} GB free)',
-                        'level': level, 'alert': level != 'ok',
-                        'tip': f'Yellow under {warn_gb:.0f} GB free, '
-                               f'red at {crit_gb:.0f} GB free or less'})
-
-    total_bytes = parsed.get('net_rx_bytes', 0) + parsed.get('net_tx_bytes', 0)
-    new_sample = (now, total_bytes)
-    if prev_net and now > prev_net[0] and total_bytes >= prev_net[1]:
-        rate_mbps = (total_bytes - prev_net[1]) * 8.0 / (now - prev_net[0]) / 1e6
-        pct = round(min(100.0, 100.0 * rate_mbps / cap_mbps), 1)
-        level = 'warn' if pct >= th['net'] else 'ok'
-        metrics.append({'key': 'net', 'label': 'Network Traffic', 'percent': pct,
-                        'text': f'{rate_mbps:.2f} Mbit/s (bar full at {cap_mbps:.0f})',
-                        'level': level, 'alert': level != 'ok',
-                        'tip': f"Alerts at {th['net']:.0f}%"})
-    else:
-        metrics.append({'key': 'net', 'label': 'Network Traffic', 'percent': 0,
-                        'text': 'measuring…', 'level': 'ok', 'alert': False,
-                        'tip': f"Alerts at {th['net']:.0f}%"})
-    return metrics, new_sample
-
-
-_pc_metrics_cache = {}    # key → (timestamp, payload)
-_pc_net_last = {}         # key → (timestamp, cumulative rx+tx bytes)
-_pc_last_good = {}        # key → last ok payload, served (marked stale) on a failed sample
-PC_METRICS_CACHE_TTL = 10  # seconds — also the effective network-rate window
-
-
-def pc_metrics(key):
-    """Payload for one PC: run the collector (local or SSH), derive the three
-    metric bars, and cache briefly so the frontend's tab-colour polling doesn't
-    trigger an SSH per tab per tick. A failed sample (the cross-box Tailscale
-    path stalls now and then, esp. on the first attempt after idle) serves the
-    last good reading marked stale instead of an error — the next poll retries."""
-    cfg = PC_MONITORS.get(key)
-    if not cfg:
-        return {'ok': False, 'error': f'unknown pc {key}', 'alert': False}
-    cached = _pc_metrics_cache.get(key)
-    if cached and time.time() - cached[0] < PC_METRICS_CACHE_TTL:
-        return cached[1]
-    host = cfg.get('host')
-    collector = pc_metrics_collector_command(cfg)
-    if host:
-        cmd = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
-               '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2',
-               host, collector]
-    else:
-        cmd = ['sh', '-c', collector]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
-        if not (r.stdout or '').strip():
-            raise RuntimeError((r.stderr or 'collector produced no output').strip()[:200])
-        parsed = parse_pc_metrics_output(r.stdout)
-        now = time.time()
-        metrics, sample = build_pc_metrics(parsed, _pc_net_last.get(key), now)
-        _pc_net_last[key] = sample
-        levels = [m.get('level', 'ok') for m in metrics]
-        level = 'crit' if 'crit' in levels else ('warn' if 'warn' in levels else 'ok')
-        out = {'ok': True, 'key': key, 'label': cfg['label'], 'note': cfg.get('note', ''),
-               'metrics': metrics, 'alert': level != 'ok', 'level': level, 'as_of': now}
-        _pc_last_good[key] = out
-    except Exception as e:
-        good = _pc_last_good.get(key)
-        if good:
-            out = dict(good)
-            out['stale'] = True
-            out['stale_error'] = str(e)
-        else:
-            out = {'ok': False, 'key': key, 'label': cfg['label'], 'error': str(e),
-                   'alert': False, 'level': 'ok'}
-    _pc_metrics_cache[key] = (time.time(), out)
-    return out
 
 
 # ── HTTP Handler ──────────────────────────────────────────────────────────────

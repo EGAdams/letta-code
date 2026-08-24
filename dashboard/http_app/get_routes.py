@@ -81,7 +81,7 @@ class GetRoutesMixin:
 
         if path == '/api/model-stats-sources':
             return self.json_response([
-                {'key': k, 'label': v['label'], 'kind': v['kind']}
+                {'key': k, 'label': v.label, 'kind': v.kind}
                 for k, v in srv.MODEL_STAT_SOURCES.items()
             ])
 
@@ -100,7 +100,7 @@ class GetRoutesMixin:
 
         if path == '/api/pc-monitors':
             return self.json_response([
-                {'key': k, 'label': v['label'], 'note': v.get('note', '')}
+                {'key': k, 'label': v.label, 'note': v.note}
                 for k, v in srv.PC_MONITORS.items()
             ])
 
