@@ -4,6 +4,10 @@ Holds the rules that decide a slot's reference. Everything it needs from the
 running server — the recent-report pointer, a scanner's intake record, and how
 an intake names its scan — arrives through `IIntakePageLookup`, so the rules
 are testable with no server, no filesystem, and no database.
+
+`CallableIntakePageLookup` is the only real implementation; the server owns
+the intake state it reads and hands the three lookups in at its composition
+root.
 """
 
 from __future__ import annotations
@@ -36,6 +40,45 @@ class IIntakePageLookup(ABC):
     @abstractmethod
     def intake_scan_reference(self, intake: Mapping[str, Any]) -> str:
         """The stored image reference an intake record points at."""
+
+
+class CallableIntakePageLookup(IIntakePageLookup):
+    """Adapter: the port over three callables that read live intake state.
+
+    The three lookups are injected rather than imported. The running server
+    owns them (`resolve_recent_report`, `get_scanner_intake` and its
+    intake-image resolver), and importing that module from here would put a
+    cycle between the finance package and the server -- the composition root
+    hands them in instead.
+
+    Inject *callables that perform the lookup*, not the functions themselves.
+    The resolver this feeds is built once and cached for the process lifetime,
+    so a test that replaces `server.get_scanner_intake` after that cache is
+    warm is only honoured if the injected callable re-resolves the function on
+    each call -- and several supporting-document tests do exactly that.
+
+    Emptiness is normalised here, not in the rules: the port promises a
+    mapping, while the server functions are free to answer None.
+    """
+
+    def __init__(
+        self,
+        recent_report: Callable[[], Mapping[str, Any] | None],
+        scanner_intake: Callable[[str], Mapping[str, Any] | None],
+        intake_scan_reference: Callable[[Mapping[str, Any]], str],
+    ) -> None:
+        self._recent_report = recent_report
+        self._scanner_intake = scanner_intake
+        self._intake_scan_reference = intake_scan_reference
+
+    def recent_report(self) -> Mapping[str, Any]:
+        return self._recent_report() or {}
+
+    def scanner_intake(self, scanner_key: str) -> Mapping[str, Any]:
+        return self._scanner_intake(scanner_key) or {}
+
+    def intake_scan_reference(self, intake: Mapping[str, Any]) -> str:
+        return self._intake_scan_reference(intake)
 
 
 class SupportingDocumentPageResolver:

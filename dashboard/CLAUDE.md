@@ -78,9 +78,51 @@ schema. Don't convert working JS to TS as part of a fix — that's separate work
 
 ## Architecture
 
-### `server.py` — the whole backend (stdlib `http.server`, no framework)
+### `server.py` + `http_app/` — the backend (stdlib `http.server`, no framework)
 
-One `DashboardHandler(SimpleHTTPRequestHandler)`. Two registries drive most of the app:
+`server.py` is the **service layer**: every function and registry the dashboard exposes.
+`http_app/` is the **HTTP layer** — `DashboardHandler` used to be a 1,380-line class inside
+`server.py` and now lives here, split along its own seams:
+
+| File | Seam |
+|---|---|
+| `http_app/models.py` | Pydantic shapes for everything crossing the process boundary (`ServerConfig`, `TerminalSessionRequest`, `TerminalResizeFrame`, `StaticAsset`, `ErrorResponse`, `BackgroundTask`) |
+| `http_app/transport.py` | `HttpTransportMixin` — how bytes leave the socket. All responses funnel through `_write` |
+| `http_app/get_routes.py` | `GetRoutesMixin.do_GET` — the read-side route ladder |
+| `http_app/post_routes.py` | `PostRoutesMixin.do_POST` — the write-side route ladder |
+| `http_app/terminal_ws.py` | `TerminalWebSocketMixin` — the RFC 6455 upgrade + pty bridge |
+| `http_app/handler.py` | `DashboardHandler`, composed from those mixins |
+| `http_app/runtime.py` | `ReusableHTTPServer` + `serve()`; boots the declared `BackgroundTask` threads |
+| `http_app/static_files.py` | `resolve_static_asset` — fail-closed containment for the static fallthrough |
+| `http_app/services.py` | `srv` — a PEP 562 module-`__getattr__` handle on `server` |
+
+**Why `srv` and not `from server import ...`:** `server.py` imports `http_app` from its own tail,
+so a module-scope `import server` in a route mixin is a cycle. `services.py` resolves each name at
+*call* time, which also keeps `monkeypatch.setattr(server, ...)` and runtime rebinds visible to the
+routes. Route bodies read `srv.build_agent_list()`, `srv.SCANNERS`, etc. Adding a route means adding
+the service to `server.py` and calling it as `srv.<name>` — no import list to maintain.
+
+The two ladders are still ~600 lines each; splitting them needs a route registry (Command /
+Chain of Responsibility), not another file cut.
+
+**Tests (`tests/test_http_app_*.py`, ~460 of them).** Written as the safety net for that registry
+refactor, so they assert only what a browser observes — status, headers, body — never how dispatch
+happens internally:
+
+| File | Covers |
+|---|---|
+| `test_http_app_route_inventory.py` | every one of the 95 routes dispatches; unknown paths still 404; GET/POST do not leak into each other |
+| `test_http_app_routes.py` | behavioural contracts (bare-array `/api/agents`, the `agent-claude` branches, malformed bodies, the model allowlist, threading) |
+| `test_http_app_terminal_ws.py` | the RFC 6455 handshake and pty bridge, driven over a real socket against a real shell |
+| `test_http_app_static_files.py` | path-traversal regressions (`GET /../../../../etc/passwd` used to return 200) |
+| `test_http_app_transport.py`, `_models.py`, `_services.py` | the transport funnel, the Pydantic shapes, and the `srv` late-binding contract |
+
+`tests/http_app_harness.py` holds the shared harness: a live `ReusableHTTPServer` on an ephemeral
+port plus `ServiceRecorder`, which stubs every *function* on `server` (never the data registries) so
+routes that restart systemd units or drive scanners stay inert. That stubbing only works because
+`srv` is late-bound — if it ever becomes a snapshot, ~25 tests fail immediately.
+
+Two registries in `server.py` drive most of the app:
 
 - **`LETTA_AGENTS`** — `{'name','id'}`; `id: None` auto-discovers by name (cached 5 min via
   `AGENT_LIST_CACHE_TTL`, bypass with `?refresh=1`). Keep in sync with

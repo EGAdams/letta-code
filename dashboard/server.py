@@ -10,7 +10,6 @@ import glob
 import hashlib
 import os
 import re
-import shlex
 import shutil
 import socket
 import subprocess
@@ -21,7 +20,6 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import deque
 import urllib.request
 import urllib.error
-from xml.etree import ElementTree
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
@@ -39,13 +37,6 @@ from voice.note_models import NoteEditRequest, PartialVoiceCommand
 from voice.pipeline import build_pipeline, handle_voice_upload
 from voice.receptionist import build_receptionist_strategy
 from voice.synthesis import EdgeTtsSynthesizer, cache_path as synthesis_cache_path
-try:  # Pillow backs the blank-scan gate only. The server must still boot
-    # without it -- inspect_scan_image_quality degrades to "let it through".
-    from PIL import Image, ImageStat
-except Exception:  # pragma: no cover - exercised by monkeypatching both to None
-    Image = None
-    ImageStat = None
-
 from category_taxonomy import FallbackCategoryTaxonomy, MySqlCategoryTaxonomy
 from chatgpt_provider_accounts import PROVIDER_ACCOUNT_SOURCES
 from chatgpt_provider_status import (
@@ -61,6 +52,17 @@ from codex_sync_status import (
 )
 from model_stats_mute import ModelStatsMuteRequest, apply_mute_overlay, set_muted
 from intake.dispatch_evidence import DispatchEvidence
+# The intake dispatch Mazda receives after a scan: 536 lines of prompt, split
+# into named sections in intake/scan_message.py so one rule can be read and
+# tested without scrolling past the other 500. Re-exported under their
+# historical names -- callers, tests and the route harness reach them through
+# `server`.
+from intake.scan_message import (
+    MAZDA_RF_ENV_JSON,
+    MAZDA_RF_VENV_PY,
+    build_scan_message as build_mazda_scan_message,
+    facade_identified as mazda_facade_identified,
+)
 from intake.mazda_mode import (
     JsonFileMazdaModeStore,
     MazdaModeService,
@@ -92,8 +94,8 @@ from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 from finance.expense_schema import InformationSchemaProbe, ShowColumnsProbe
 from finance.expense_edit_model import ExpenseEdit, ExpenseNotFound
 from finance.http_coercion import as_float, as_int
+from finance.category_naming import ICategoryNamer, TaxonomyCategoryNamer
 from finance.expense_edit_repository import (
-    ICategoryNamer,
     MySqlExpenseRecordRepository,
     readable_validation_error,
     records_as_json,
@@ -107,7 +109,7 @@ from finance.intake_report_model import (
     format_month_range as _format_month_range,
 )
 from finance.supporting_documents import (
-    IIntakePageLookup,
+    CallableIntakePageLookup,
     SupportingDocumentPageResolver,
     slot_reference,
 )
@@ -1028,6 +1030,8 @@ def submit_manual_receipt_entry(data):
             total_amount=total_amount,
             category_id=category_id,
             org_id=org_id,
+            vendor_key=str(data.get('vendor_key') or '').strip(),
+            learn_vendor=bool(data.get('learn_vendor')),
         )
     except ValidationError as exc:
         return {'ok': False, 'error': str(exc)}
@@ -1093,26 +1097,19 @@ def preview_manual_entry_archive_path(data):
     return {'ok': True, **result}
 
 
-class TaxonomyCategoryNamer(ICategoryNamer):
-    """Adapter: the Edit Expense repository's two-method view of the taxonomy.
+def taxonomy_category_namer() -> ICategoryNamer:
+    """Composition root for ICategoryNamer: this module's taxonomy, wired in.
 
-    Both directions already exist on this module (the Set Category dialog uses
-    them); this exposes exactly those two and nothing else, so the repository
-    depends on the job rather than on the whole taxonomy object. Resolved per
-    call so a test replacing either function is honoured.
+    The lambdas are the point. Handing over the function objects would freeze
+    whichever ones existed at wiring time, and `_get_expense_edit_repository`
+    caches its namer for the process lifetime; going through the module global
+    on every call keeps a test that replaces either function honoured, which is
+    what the class did before it moved to finance/category_naming.py.
     """
-
-    def name_for(self, category_id):
-        return _reporting_category_for_id(category_id) or ''
-
-    def id_for(self, category_name):
-        name = str(category_name or '').strip()
-        if not name:
-            return None
-        target_id, target_cls = _resolve_reporting_category(name)
-        if target_cls is None:
-            raise ValueError(f'Unknown category: {name!r}')
-        return target_id
+    return TaxonomyCategoryNamer(
+        lambda category_id: _reporting_category_for_id(category_id),
+        lambda name: _resolve_reporting_category(name),
+    )
 
 
 _expense_edit_repository = None
@@ -1125,7 +1122,7 @@ def _get_expense_edit_repository():
     with _expense_edit_repository_lock:
         if _expense_edit_repository is None:
             _expense_edit_repository = MySqlExpenseRecordRepository(
-                lambda: _rol_get_connection(), TaxonomyCategoryNamer())
+                lambda: _rol_get_connection(), taxonomy_category_namer())
     return _expense_edit_repository
 
 
@@ -1157,7 +1154,7 @@ def edit_stored_expense(data, repository=None, namer=None):
     """
     data = data or {}
     repo = repository or _get_expense_edit_repository()
-    resolver = namer or TaxonomyCategoryNamer()
+    resolver = namer or taxonomy_category_namer()
     try:
         expense_id = as_int(data.get('expense_id'), 'expense_id')
         total_amount = as_float(data.get('total_amount'), 'total_amount')
@@ -1174,6 +1171,29 @@ def edit_stored_expense(data, repository=None, namer=None):
         )
     except ValidationError as exc:
         return {'ok': False, 'error': readable_validation_error(exc)}
+    learning_vendor_key = ''
+    vendor_remembered = None
+    if data.get('learn_vendor'):
+        learning_vendor_key = str(data.get('vendor_key') or '').strip()
+        if not learning_vendor_key or category_id is None:
+            return {
+                'ok': False,
+                'error': 'A new vendor requires vendor_key and category.',
+            }
+        try:
+            vendor_remembered = vendor_lookup.remember_vendor(
+                edit.merchant_name, category_id,
+                learning_vendor_key).model_dump()
+        except Exception as exc:  # noqa: BLE001 - no DB write happened yet
+            return {
+                'ok': False,
+                'error': f'Could not learn vendor: {type(exc).__name__}: {exc}',
+            }
+        if not vendor_remembered.get('remembered'):
+            reason = vendor_remembered.get('reason') or 'the vendor rule was not persisted'
+            returned_key = vendor_remembered.get('vendor_key') or learning_vendor_key
+            if returned_key != learning_vendor_key or reason != 'vendor_key already known':
+                return {'ok': False, 'error': f'Could not learn vendor: {reason}'}
     try:
         result = repo.apply_edit(edit)
     except ExpenseNotFound as exc:
@@ -1189,6 +1209,7 @@ def edit_stored_expense(data, repository=None, namer=None):
         'record': records_as_json([result.record])[0],
         'changed_fields': list(result.changed_fields),
         'warnings': list(result.warnings),
+        'vendor_remembered': vendor_remembered,
     }
 
 
@@ -1851,6 +1872,15 @@ def build_recent_intake_html(intake):
     presentation_rows_list = intake_report_model.presentation_rows(
         rows, duplicate_ids,
         stored=intake.get('stored'), parsed=intake.get('parsed'))
+    source_descriptions = {}
+    if str(intake.get('doc_kind') or '').lower() in ('statement', 'bank_statement'):
+        source_descriptions = intake_report_model.recover_statement_source_descriptions(
+            f"{intake.get('image_path')}.statement.json"
+            if intake.get('image_path') else '',
+            presentation_rows_list,
+        )
+        presentation_rows_list = intake_report_model.apply_source_descriptions(
+            presentation_rows_list, source_descriptions)
     # Mazda's own findings (whatever STEP 8 already stored for this document)
     # seed the review dialog instead of leaving it blank -- an auto-scan used
     # to only ever populate Verified Transactions, so checking/correcting what
@@ -1862,7 +1892,9 @@ def build_recent_intake_html(intake):
     stored_items = intake_report_model.stored_findings(
         presentation_rows_list,
         resolve_vendor=lambda description: manual_entry.resolve_vendor_match(
-            description).get('vendor_key'))
+            description).get('vendor_key'),
+        guess_vendor=vendor_lookup.guess_vendor_key,
+        vendor_is_known=vendor_lookup.vendor_is_known)
     manual_entry_html = intake_report_page.manual_entry_form_html(
         intake.get('image_path'), intake.get('conversation_id'), scanner_key,
         mazda_mode=_MAZDA_MODE_SERVICE.current(), stored_items=stored_items)
@@ -2741,228 +2773,43 @@ SCANNERS = {
     },
 }
 
-# The scanner dialogs also expose a repair for the HP DeskJet's Windows print
-# queue. Its old link-local IPv6 port becomes stale after printer/router
-# restarts; the printer itself remains reachable on this IPv4 RAW port.
-DESKJET_PRINTER_NAME = 'HP063E28 (HP DeskJet 4100 series)'
-DESKJET_PRINTER_IP = '10.0.0.243'
-DESKJET_PRINTER_PORT = 'IP_10.0.0.243'
-_WINDOWS_POWERSHELL = (
-    '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe')
+# Finding a WSL_INTEROP socket that actually relays to Windows moved to
+# hardware/wsl_interop.py -- it is not scanner logic, and the printer repair
+# needs it too. Re-exported under the historical names: the scan paths below
+# and tests/test_server.py both reach it through `server`.
+from hardware.wsl_interop import (  # noqa: E402
+    _interop_works,
+    _wsl_interop_socket,
+)
 
-# Windows' own PrinterStatus is NOT evidence that the printer works. This queue's
-# RAW port has SNMP turned off, so the spooler never asks the hardware anything
-# and reports "Normal" while the DeskJet sits there out of paper or jammed. That
-# is exactly how "Printer fixed." got shown for a printer that could not print
-# (2026-07-22: the device was reporting trayEmpty the whole time). The printer's
-# own LEDM web service is the honest source of device state, and WSL can reach it
-# directly over the LAN — no Windows interop needed.
-DESKJET_STATUS_URL = f'http://{DESKJET_PRINTER_IP}/DevMgmt/ProductStatusDyn.xml'
-# This button lives on the *scanner* dialogs, so device conditions are split by
-# what they actually stop. Paper and ink stop printing only — the scanner glass
-# does not care that the tray is empty, and failing the repair over an empty tray
-# would be just as misleading as the false "Printer fixed." it replaced.
-DESKJET_BLOCKING_STATUS = {
-    # Mechanical/power states that take the whole device — scanner included — down.
-    # An open ink door is the known cause of a Freezer scan wedged at "busy"
-    # (see the scanner gotchas in dashboard/CLAUDE.md).
-    'dooropen': 'A door or cover is open on the printer. Close it, then try again.',
-    'coveropen': 'A door or cover is open on the printer. Close it, then try again.',
-    'jamincorrectpage': 'There is a paper jam. Clear the jammed paper, then try again.',
-    'jaminprinter': 'There is a paper jam. Clear the jammed paper, then try again.',
-    'mediajam': 'There is a paper jam. Clear the jammed paper, then try again.',
-    'scannererror': 'The scanner reported a hardware error. Power-cycle the printer, then try again.',
-    'scanprocessingerror': 'The scanner reported a hardware error. Power-cycle the printer, then try again.',
-    'shuttingdown': 'The printer is shutting down. Turn it back on, then try again.',
-    'poweringdown': 'The printer is shutting down. Turn it back on, then try again.',
-    'offline': 'The printer is offline. Turn it on and reconnect it to Wi-Fi, then try again.',
-}
-# Print-only conditions. Worth surfacing so nobody wonders why a print job never
-# came out, but they never fail the repair — scanning works fine without paper.
-DESKJET_PRINT_ONLY_STATUS = {
-    'trayempty': 'it is out of paper (printing only — scanning works without paper)',
-    'outofpaper': 'it is out of paper (printing only — scanning works without paper)',
-    'inputtrayempty': 'it is out of paper (printing only — scanning works without paper)',
-    'cartridgemissing': 'an ink cartridge is missing (printing only)',
-    'inkempty': 'an ink cartridge is empty (printing only)',
-    'suppliesempty': 'an ink cartridge is empty (printing only)',
-}
-
-
-def _xml_localname(tag):
-    """Strip the `{namespace}` prefix ElementTree keeps on every tag."""
-    return tag.rsplit('}', 1)[-1]
-
-
-def read_deskjet_device_status(opener=urllib.request.urlopen):
-    """Ask the DeskJet itself what state it is in.
-
-    Returns `{'reachable', 'categories', 'blocker', 'note'}` — `blocker` is a
-    condition that stops the device outright (scanning included), `note` is a
-    print-only condition worth mentioning but never worth failing over.
-    `opener` is injected so tests never touch the LAN. An unreachable or
-    unparseable device is reported as `reachable: False` with no blocker — the
-    port repair is still worth reporting, we just can't vouch for the hardware.
-    """
-    unknown = {'reachable': False, 'categories': [], 'blocker': None, 'note': None}
-    try:
-        with opener(DESKJET_STATUS_URL, timeout=8) as resp:
-            payload = resp.read()
-    except Exception:  # noqa: BLE001 — any failure here is just "can't tell"
-        return unknown
-    try:
-        root = ElementTree.fromstring(payload)
-    except ElementTree.ParseError:
-        return unknown
-
-    categories = [
-        (node.text or '').strip()
-        for node in root.iter()
-        if _xml_localname(node.tag) == 'StatusCategory' and node.text
-    ]
-    blocker = None
-    note = None
-    for category in categories:
-        key = category.lower()
-        if blocker is None:
-            blocker = DESKJET_BLOCKING_STATUS.get(key)
-        if note is None:
-            note = DESKJET_PRINT_ONLY_STATUS.get(key)
-    return {
-        'reachable': True,
-        'categories': categories,
-        'blocker': blocker,
-        'note': note,
-    }
+# The DeskJet queue repair moved to hardware/printer.py: 220 lines of Windows
+# PowerShell and LEDM status parsing that never touch this module's state. The
+# constants are re-exported because the scanner dialogs and tests name them
+# through `server`.
+from hardware.printer import (  # noqa: E402
+    DESKJET_BLOCKING_STATUS,
+    DESKJET_PRINTER_IP,
+    DESKJET_PRINTER_NAME,
+    DESKJET_PRINTER_PORT,
+    DESKJET_PRINT_ONLY_STATUS,
+    DESKJET_STATUS_URL,
+    read_deskjet_device_status,
+)
+from hardware.printer import fix_deskjet_printer as _fix_deskjet_printer  # noqa: E402
+from hardware.wsl_interop import WINDOWS_POWERSHELL as _WINDOWS_POWERSHELL  # noqa: E402
 
 
 def fix_deskjet_printer(runner=subprocess.run, device_status=None):
-    """Repair the DeskJet queue through Windows PowerShell.
+    """Composition root for the DeskJet repair: this module's interop lookup.
 
-    This is the same safe repair as the Desktop helper: verify the printer's
-    RAW service, create its IPv4 port if needed, bind the existing HP queue to
-    that port, and refresh the spooler. Never installs/removes a driver or
-    deletes queued jobs.
-
-    The queue repair alone is not enough to claim success: it only proves
-    Windows can *talk* to the printer. Before reporting "fixed" we ask the
-    printer itself (`device_status`) whether anything on the hardware is
-    blocking, so a jammed or open DeskJet is named instead of hidden behind
-    Windows' permanently-"Normal" PrinterStatus. Paper and ink are reported as
-    a note, never a failure — this button sits on the scanner dialogs.
+    The lambda is the point. Handing over `_wsl_interop_socket` itself would
+    freeze whichever function object existed at import time, and six tests
+    replace `server._wsl_interop_socket` before calling this -- going through
+    the module global on every call keeps them honoured.
     """
-    check_device = device_status or read_deskjet_device_status
-    interop = _wsl_interop_socket()
-    if not interop:
-        # No Windows access, but the printer is on the LAN — a real blocker is
-        # still worth naming, and is far more actionable than "open a WSL window".
-        blocker = check_device().get('blocker')
-        if blocker:
-            return {'ok': False, 'text': blocker}
-        return {
-            'ok': False,
-            'text': ('Printer repair needs Windows access. Open a WSL window '
-                     'and try Fix Scanner again.'),
-        }
+    return _fix_deskjet_printer(
+        lambda: _wsl_interop_socket(), runner=runner, device_status=device_status)
 
-    script = f"""
-$ErrorActionPreference = 'Stop'
-$printerName = '{DESKJET_PRINTER_NAME}'
-$printerIp = '{DESKJET_PRINTER_IP}'
-$portName = '{DESKJET_PRINTER_PORT}'
-if (-not (Test-NetConnection -ComputerName $printerIp -Port 9100 -InformationLevel Quiet -WarningAction SilentlyContinue)) {{
-    throw "The printer is not reachable at $printerIp. Make sure it is powered on and connected to Wi-Fi."
-}}
-if (-not (Get-Printer -Name $printerName -ErrorAction SilentlyContinue)) {{
-    throw "The HP DeskJet 4100 Windows queue was not found."
-}}
-if (-not (Get-PrinterPort -Name $portName -ErrorAction SilentlyContinue)) {{
-    Add-PrinterPort -Name $portName -PrinterHostAddress $printerIp -PortNumber 9100
-}}
-Set-Printer -Name $printerName -PortName $portName
-try {{
-    Restart-Service Spooler -Force
-}} catch {{
-    # The dashboard's Windows token can update this per-user queue but may not
-    # be elevated enough to control the system service. The port switch is the
-    # actual repair; let Windows refresh status through the new port normally.
-}}
-Start-Sleep -Seconds 2
-$printer = Get-Printer -Name $printerName
-[ordered]@{{
-    ok = ([string]$printer.PrinterStatus -eq 'Normal')
-    status = [string]$printer.PrinterStatus
-    port = [string]$printer.PortName
-}} | ConvertTo-Json -Compress
-"""
-    env = os.environ.copy()
-    env['WSL_INTEROP'] = interop
-    try:
-        proc = runner(
-            [_WINDOWS_POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass',
-             '-Command', script],
-            capture_output=True, text=True, timeout=35, env=env,
-        )
-    except subprocess.TimeoutExpired:
-        return {'ok': False, 'text': 'Printer repair timed out.'}
-    except Exception as exc:  # noqa: BLE001 — surface the actionable failure
-        return {'ok': False, 'text': f'Could not start printer repair: {exc}'}
-
-    output = (proc.stdout or '').strip()
-    if proc.returncode != 0:
-        error = (proc.stderr or output or 'Windows printer repair failed.').strip()
-        return {'ok': False, 'text': error[:500]}
-    try:
-        payload = json.loads(output.splitlines()[-1])
-    except (json.JSONDecodeError, IndexError):
-        return {
-            'ok': False,
-            'text': f'Windows returned an unreadable printer status: {output[:300]}',
-        }
-    status = payload.get('status') or 'Unknown'
-    ok = payload.get('ok') is not False
-    port = payload.get('port') or DESKJET_PRINTER_PORT
-    device = check_device()
-    blocker = device.get('blocker')
-    if ok and blocker:
-        # The Windows side is healthy; the device is not. Say the thing the user
-        # can act on — never "Printer fixed." over an open door or a jam.
-        return {
-            'ok': False,
-            'text': f'Windows is connected to the printer, but {blocker[0].lower()}{blocker[1:]}',
-            'status': status,
-            'port': port,
-            'device_status': device.get('categories'),
-        }
-    if ok and not device.get('reachable'):
-        return {
-            'ok': False,
-            'text': ('The Windows queue was repaired, but the printer did not '
-                     'answer when asked how it is doing. Check that it is on '
-                     'and connected to Wi-Fi, then try again.'),
-            'status': status,
-            'port': port,
-            'device_status': [],
-        }
-    if ok:
-        note = device.get('note')
-        text = 'Printer fixed — the printer reports it is ready.'
-        if note:
-            text = f'Printer fixed — the printer is ready to scan. Note: {note}.'
-        return {
-            'ok': True,
-            'text': f'{text} Windows status: {status}.',
-            'status': status,
-            'port': port,
-            'device_status': device.get('categories'),
-        }
-    return {
-        'ok': False,
-        'text': f'The port was repaired, but Windows status is still {status}.',
-        'status': status,
-        'port': port,
-        'device_status': device.get('categories'),
-    }
 
 # Serialize all device access: two concurrent WIA transfers self-induce the very
 # "device is busy" error we are trying to detect. Both the manual scan and the
@@ -2989,162 +2836,16 @@ def _reap_stale_scans(scan_env):
         pass
 
 
-_INTEROP_CACHE = {'sock': None}
-_WIN_CMD_EXE = '/mnt/c/Windows/System32/cmd.exe'
-
-
-def _interop_works(sock):
-    """True if WSL_INTEROP=sock can actually launch a Windows .exe.
-
-    The /init binfmt interpreter fails with "Invalid argument" (non-zero exit)
-    when the socket doesn't relay to the Windows side, so a trivial `cmd.exe /c
-    exit` is a reliable, fast probe.
-    """
-    try:
-        r = subprocess.run(
-            [_WIN_CMD_EXE, '/c', 'exit'],
-            env={'PATH': '/usr/bin:/bin', 'WSL_INTEROP': sock},
-            capture_output=True, timeout=8,
-        )
-        return r.returncode == 0
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def _wsl_interop_socket():
-    """Return a working WSL_INTEROP socket path, or None.
-
-    The scan script launches Windows `powershell.exe`, which needs a live
-    `WSL_INTEROP` relay socket. The dashboard runs as a systemd --user service
-    started at boot and inherits no such socket, so powershell.exe fails with
-    "Invalid argument". Crucially the /init socket (1_interop/2_interop) does NOT
-    relay to Windows — only the per-interactive-session `<pid>_interop` sockets
-    do — so we probe candidates (newest first) and cache the first that works.
-    Limitation: at least one interactive WSL session must be alive to provide a
-    relay; with none open there is no socket the service can borrow.
-    """
-    cached = _INTEROP_CACHE.get('sock')
-    if cached and os.path.exists(cached) and _interop_works(cached):
-        return cached
-    wsl_run = '/run/WSL'
-    cands = []
-    try:
-        for name in os.listdir(wsl_run):
-            if not name.endswith('_interop'):
-                continue
-            fp = os.path.join(wsl_run, name)
-            # Skip the 1_interop symlink and the init socket — they don't relay.
-            if os.path.islink(fp) or not os.path.exists(fp):
-                continue
-            try:
-                cands.append((os.path.getmtime(fp), fp))
-            except OSError:
-                continue
-    except OSError:
-        return None
-    cands.sort(reverse=True)
-    for _, fp in cands:
-        if _interop_works(fp):
-            _INTEROP_CACHE['sock'] = fp
-            return fp
-    return None
-
-
-def classify_scan_result(returncode, log, image_exists):
-    """Pure classifier for a scan script's outcome → {status, error?, log}.
-
-    Markers emitted by scan_device.ps1: SCANNER_BUSY (also "device is busy"),
-    SCANNER_OFFLINE (also "not found"). A clean exit with the image on disk is
-    `ready`. Kept pure (no I/O) so it's unit-testable.
-    """
-    low = (log or '').lower()
-    if returncode == 0 and image_exists:
-        return {'status': 'ready', 'log': log}
-    if returncode == 0:
-        # The script believes it succeeded but wrote nothing readable. Flagged
-        # distinctly because the log is empty too, so the generic branch below
-        # would report "Scan failed (exit 0)" -- true and useless. run_scanner
-        # turns this into a visible failed intake.
-        return {'status': 'error', 'empty_output': True,
-                'error': 'The scanner output is missing or empty.', 'log': log}
-    if ('scanner_busy' in low or 'device is busy' in low
-            or 'device busy' in low or 'resource busy' in low):
-        return {'status': 'busy', 'error': 'The scanner is busy.', 'log': log}
-    if 'scanner_offline' in low or 'not found' in low:
-        return {'status': 'offline',
-                'error': 'Scanner not found (powered off or disconnected).',
-                'log': log}
-    return {'status': 'error',
-            'error': log or f'Scan failed (exit {returncode})', 'log': log}
-
-
-# Measured over the 311 scans already filed in readable_documents: the flattest
-# real one reads 27.8 and a blank sheet reads 0.0, so this sits with a wide
-# margin on both sides.
-_BLANK_SCAN_STDDEV = 12.0
-# Judged per tile, not over the whole page, because the ordinary case is a
-# small receipt on a full letter-size flatbed: 95% of that scan IS blank paper,
-# which drags a whole-page stddev down to 6.4 -- below any threshold that still
-# catches a genuinely empty sheet. A grid coarse enough that a receipt fills
-# several tiles, fine enough that one small receipt still fills one.
-_BLANK_SCAN_GRID = 8
-
-
-def _busiest_tile_spread(gray):
-    """Greatest grey-level spread found in any one tile of the page.
-
-    A blank sheet has no busy tile anywhere; a page with anything printed on it
-    has at least one, wherever on the glass it happened to land.
-    """
-    width, height = gray.size
-    tile_w = max(1, width // _BLANK_SCAN_GRID)
-    tile_h = max(1, height // _BLANK_SCAN_GRID)
-    busiest = 0.0
-    for row in range(_BLANK_SCAN_GRID):
-        for col in range(_BLANK_SCAN_GRID):
-            box = (col * tile_w, row * tile_h,
-                   min(width, (col + 1) * tile_w),
-                   min(height, (row + 1) * tile_h))
-            busiest = max(busiest, ImageStat.Stat(gray.crop(box)).stddev[0])
-    return busiest
-
-
-def inspect_scan_image_quality(path):
-    """Is this scan worth spending Mazda's turn on? -> {ok, blank_like, reason}.
-
-    A blank capture used to travel the whole pipeline -- classify, parse, an
-    agent dispatch, a Trainer verdict -- before anyone noticed there was
-    nothing on the page. This is the cheap local check that stops it at the
-    door, in keeping with the pipeline's "cheapest reliable tool first" rule.
-
-    Fails OPEN in the one case it cannot judge: no Pillow, no opinion. A
-    missing optional dependency must never silently swallow real scans.
-    """
-    if Image is None or ImageStat is None:
-        return {'ok': True, 'blank_like': False,
-                'reason': 'Pillow unavailable; scan image quality was not checked.'}
-    try:
-        with Image.open(path) as img:
-            img.load()
-            spread = _busiest_tile_spread(img.convert('L'))
-    except Exception:
-        # Truncated transfer, a WIA error page, a zero-byte JPEG with a header.
-        # Undecodable here means undecodable for every downstream reader too.
-        return {'ok': False, 'blank_like': True,
-                'reason': 'The scan could not be decoded as an image.'}
-    if spread < _BLANK_SCAN_STDDEV:
-        return {'ok': False, 'blank_like': True,
-                'reason': ('The scan appears blank or unreadable '
-                           '(nearly uniform page).')}
-    return {'ok': True, 'blank_like': False, 'reason': ''}
-
-
-def _scan_output_ready(path):
-    """A scanner result is usable only when it contains actual bytes."""
-    try:
-        return os.path.isfile(path) and os.path.getsize(path) > 0
-    except OSError:
-        return False
+# Reading a scan script's outcome, and judging whether the page has anything on
+# it, moved to hardware/scan_result.py. Both are pure and neither touches this
+# module's state; the optional Pillow import went with them, so nothing else
+# here has to know the blank-scan gate exists.
+from hardware.scan_result import (  # noqa: E402
+    _busiest_tile_spread,
+    _scan_output_ready,
+    classify_scan_result,
+    inspect_scan_image_quality,
+)
 
 
 def _invoke_scanner(key):
@@ -3222,282 +2923,18 @@ def _invoke_scanner(key):
 
 
 # ── Scanner workflow diagnostics (the health LEDs) ──────────────────────────
-# "We keep having to reset everything" — this makes every failure point in the
-# scan workflow visible as an LED instead of a mystery. Read-only: it probes,
-# it never scans. The Windows-side checks come from ONE scanner_diag.ps1 launch.
-SCANNER_DIAG_TIMEOUT_SEC = 30
-SCANNER_DIAG_LOCK_WAIT_SEC = 8
-
-
-def _airscan_ready(cfg):
-    """Return True when the native eSCL backend can query this scanner.
-
-    Both HP devices expose eSCL directly on the LAN. This path avoids Windows
-    WIA/WSD, whose stale Problem-45 device records used to leave the dashboard
-    red even while the scanner hardware was healthy. `--help` only fetches
-    capabilities; it never starts a scan.
-    """
-    device = cfg.get('airscan_device')
-    if not device or not shutil.which('scanimage'):
-        return False
-    try:
-        proc = subprocess.run(
-            ['scanimage', '-d', device, '--help'],
-            capture_output=True, text=True, timeout=SCANNER_DIAG_TIMEOUT_SEC)
-    except Exception:  # noqa: BLE001 — unavailable backend is a clean fallback
-        return False
-    return proc.returncode == 0
-
-
-def _run_scanner_diag_ps(cfg, interop, skip_wia=False):
-    """Launch scanner_diag.ps1 via Windows PowerShell; return its parsed dict.
-
-    Returns None if the script is missing or the launch failed/was unparseable —
-    the caller renders those Windows-side checks as 'unknown' (grey), not red,
-    because "we couldn't ask Windows" is not the same as "the scanner is broken".
-    """
-    script_path = os.path.join(SCAN_TOOLS_DIR, 'scanner_diag.ps1')
-    if not os.path.isfile(script_path):
-        return None
-    env = os.environ.copy()
-    env['WSL_INTEROP'] = interop
-    args = [_WINDOWS_POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass',
-            '-File', './scanner_diag.ps1',
-            '-NameLike', cfg.get('namelike', ''),
-            '-FriendlyLike', cfg.get('driver_match', '')]
-    if skip_wia:
-        args.append('-SkipWia')
-    try:
-        proc = subprocess.run(
-            args, cwd=SCAN_TOOLS_DIR, capture_output=True, text=True,
-            timeout=SCANNER_DIAG_TIMEOUT_SEC, env=env)
-    except Exception:  # noqa: BLE001 — any failure just means "couldn't ask"
-        return None
-    out = (proc.stdout or '').strip()
-    if not out:
-        return None
-    try:
-        return json.loads(out.splitlines()[-1])
-    except (json.JSONDecodeError, IndexError):
-        return None
-
-
-def _diag_check(check_id, label, state, detail):
-    """One LED row: state is 'ok' | 'warn' | 'bad' | 'unknown'."""
-    return {'id': check_id, 'label': label, 'state': state, 'detail': detail}
-
-
-def build_scanner_diagnostics(
-        key, interop_ok, ps_data, device_status=None, airscan_ready=None):
-    """Pure map of raw probe results -> the scanner's health LEDs.
-
-    No I/O so it is fully unit-testable. `ps_data` is scanner_diag.ps1's parsed
-    JSON (or None when Windows was unreachable); `device_status` is
-    read_deskjet_device_status()'s dict for the Freezer (or None). The checks are
-    ordered as the workflow depends on them, top to bottom.
-    """
-    checks = []
-
-    # The live scan scripts use native eSCL/AirScan first. When that backend can
-    # query the scanner, stale Windows WIA state is irrelevant and must not turn
-    # the LEDs red or tell the user to power-cycle healthy hardware.
-    if airscan_ready is True:
-        checks.extend([
-            _diag_check(
-                'bridge', 'Scanner Backend', 'ok',
-                'The dashboard can drive this scanner directly over the network.'),
-            _diag_check(
-                'service', 'Scanner Service', 'ok',
-                'The native AirScan service is available; Windows WIA is not required.'),
-            _diag_check(
-                'driver', 'Driver Health', 'ok',
-                'The scanner returned valid eSCL capabilities.'),
-            _diag_check(
-                'online', 'Scanner Online', 'ok',
-                'The scanner is powered on, connected, and answering directly.'),
-            _diag_check(
-                'access', 'Scanner Access', 'ok',
-                'The dashboard can open this scanner without Windows WIA.'),
-            _diag_check(
-                'stale', 'No Stuck Scans', 'ok',
-                'The direct scanner backend has no Windows scan processes to leak.'),
-        ])
-        # This DeskJet is scanner-only. Suppress its printing subsystem state
-        # (paper, ink, tray and printer-status reachability); none of it affects
-        # AirScan and surfacing it makes a healthy scanner look unhealthy.
-        # Retain only device-wide blockers that can prevent scanning too.
-        if (key == 'freezer' and device_status is not None
-                and device_status.get('blocker')):
-            checks.append(_diag_check(
-                'device', 'Scanner Hardware', 'bad', device_status['blocker']))
-        states = [c['state'] for c in checks]
-        overall = 'bad' if 'bad' in states else (
-            'warn' if 'warn' in states or 'unknown' in states else 'ok')
-        return {'scanner': key, 'checks': checks, 'overall': overall}
-
-    ps = ps_data or {}
-    # Windows-side checks are only meaningful once we can actually reach Windows.
-    windows_reachable = bool(interop_ok) and ps_data is not None
-
-    # 1. WSL bridge — the systemd service borrows an interop socket from an
-    #    interactive WSL session; with none open it can't launch Windows at all.
-    if interop_ok:
-        checks.append(_diag_check(
-            'bridge', 'WSL Bridge', 'ok',
-            'The dashboard service can reach Windows to drive the scanner.'))
-    else:
-        checks.append(_diag_check(
-            'bridge', 'WSL Bridge', 'bad',
-            'No WSL session is open, so the service cannot reach Windows to '
-            'scan. Open a WSL terminal on the live box, then refresh.'))
-
-    # 2. Windows Image Acquisition service (stisvc) — the classic "wedge".
-    stisvc = (ps.get('stisvc') or '').lower()
-    if not windows_reachable:
-        checks.append(_diag_check('service', 'Imaging Service', 'unknown',
-            'Could not read the Windows Image Acquisition service.'))
-    elif stisvc == 'running':
-        checks.append(_diag_check('service', 'Imaging Service', 'ok',
-            'Windows Image Acquisition (stisvc) is running.'))
-    elif stisvc in ('stopped', 'stoppending', 'paused', 'startpending'):
-        checks.append(_diag_check('service', 'Imaging Service', 'bad',
-            'Windows Image Acquisition (stisvc) is not running. Restart it from '
-            'an elevated shell: net stop stisvc & net start stisvc.'))
-    else:
-        checks.append(_diag_check('service', 'Imaging Service', 'unknown',
-            f'Windows Image Acquisition service state: {ps.get("stisvc") or "unknown"}.'))
-
-    # HP's diagnostic utility installs an auto-start background service. It can
-    # exclusively hold one scanner while WIA enumeration, PnP, and stisvc all
-    # remain healthy — the exact "all LEDs green, scan says busy" failure.
-    if 'hp_scan_doctor' in ps:
-        hp_doctor = (ps.get('hp_scan_doctor') or '').lower()
-        if hp_doctor == 'running':
-            access = (ps.get('wia_connect') or '').lower()
-            if access in ('busy', 'error', 'timeout'):
-                checks.append(_diag_check('hp-doctor', 'HP Scan Doctor', 'bad',
-                    'HP Print Scan Doctor is running and may be holding this '
-                    'scanner busy. Stop and disable HPPrintScanDoctorService.'))
-            else:
-                checks.append(_diag_check('hp-doctor', 'HP Scan Doctor', 'warn',
-                    'HP Print Scan Doctor is running, but Windows can currently '
-                    'open this scanner. Disable the service if busy errors return.'))
-        elif hp_doctor in ('stopped', 'absent'):
-            checks.append(_diag_check('hp-doctor', 'HP Scan Doctor', 'ok',
-                'HP Print Scan Doctor is not holding the scanner.'))
-        else:
-            checks.append(_diag_check('hp-doctor', 'HP Scan Doctor', 'unknown',
-                f'HP Print Scan Doctor service state: '
-                f'{ps.get("hp_scan_doctor") or "unknown"}.'))
-
-    # 3. Driver health — this is the "may need to reinstall the driver" LED.
-    dstat = (ps.get('driver_status') or '').lower()
-    if not windows_reachable:
-        checks.append(_diag_check('driver', 'Driver Health', 'unknown',
-            'Could not read the scanner driver state.'))
-    elif dstat == 'ok':
-        checks.append(_diag_check('driver', 'Driver Health', 'ok',
-            'The imaging driver for this scanner reports healthy.'))
-    elif dstat == 'absent' or ps.get('driver_present') is False:
-        checks.append(_diag_check('driver', 'Driver Health', 'bad',
-            'Windows has no imaging driver for this scanner. Reinstall the HP '
-            'driver (HP Smart / HP Easy Start), then refresh.'))
-    elif dstat == 'error':
-        checks.append(_diag_check('driver', 'Driver Health', 'bad',
-            'The scanner driver reports an error. Reinstall the HP driver '
-            '(HP Smart / HP Easy Start), then refresh.'))
-    elif dstat in ('', 'unknown'):
-        checks.append(_diag_check('driver', 'Driver Health', 'unknown',
-            'Could not read the scanner driver state.'))
-    else:
-        checks.append(_diag_check('driver', 'Driver Health', 'warn',
-            f'The scanner driver reports "{ps.get("driver_status")}" — '
-            'if scans fail, reinstall the HP driver.'))
-
-    # 4. Online — is the named device enumerated by WIA right now?
-    wia = (ps.get('wia') or '').lower()
-    if not windows_reachable:
-        checks.append(_diag_check('online', 'Scanner Online', 'unknown',
-            'Could not check whether the scanner is online.'))
-    elif wia == 'present':
-        checks.append(_diag_check('online', 'Scanner Online', 'ok',
-            'Windows sees the scanner — it is powered on and connected.'))
-    elif wia == 'absent':
-        checks.append(_diag_check('online', 'Scanner Online', 'bad',
-            'Windows does not see the scanner. It is powered off, asleep, or '
-            'disconnected — power-cycle it, then refresh.'))
-    elif wia == 'busy':
-        checks.append(_diag_check('online', 'Scanner Online', 'warn',
-            'The scanner is busy. If it stays busy, close any open cover or ink '
-            'door and power-cycle it.'))
-    elif wia == 'timeout':
-        checks.append(_diag_check('online', 'Scanner Online', 'bad',
-            'WIA did not respond — the imaging service is likely wedged. Restart '
-            'stisvc (or kill it from an elevated shell so it auto-restarts).'))
-    elif wia == 'skipped':
-        checks.append(_diag_check('online', 'Scanner Online', 'warn',
-            'A scan is in progress — the online check was skipped to avoid '
-            'interfering with it.'))
-    elif wia == 'service-down':
-        checks.append(_diag_check('online', 'Scanner Online', 'unknown',
-            'Skipped — the imaging service is not running (see above).'))
-    else:
-        checks.append(_diag_check('online', 'Scanner Online', 'warn',
-            'WIA enumeration could not confirm the scanner.'))
-
-    # Enumeration only proves that Windows can see the device. Connect() is the
-    # first operation an actual scan performs and exposes exclusive holders.
-    if 'wia_connect' in ps:
-        access = (ps.get('wia_connect') or '').lower()
-        if access == 'ready':
-            checks.append(_diag_check('access', 'Scanner Access', 'ok',
-                'Windows can open this scanner for a scan.'))
-        elif access == 'busy':
-            checks.append(_diag_check('access', 'Scanner Access', 'bad',
-                'Windows sees the scanner, but another app or service is holding '
-                'it busy. Close scanner apps and stop HP Print Scan Doctor.'))
-        elif access == 'timeout':
-            checks.append(_diag_check('access', 'Scanner Access', 'bad',
-                'Windows could not open the scanner before the health check '
-                'timed out. Restart the imaging service.'))
-        elif access in ('skipped', 'service-down', 'not-tested'):
-            checks.append(_diag_check('access', 'Scanner Access', 'unknown',
-                'Scanner access could not be tested; resolve the earlier red '
-                'health check first.'))
-        else:
-            checks.append(_diag_check('access', 'Scanner Access', 'bad',
-                'Windows sees the scanner but could not open it. Close HP/Windows '
-                'scan apps, then restart the imaging service.'))
-
-    # 5. No stuck scan processes — leaked scans keep the device busy and,
-    #    piled up, wedge stisvc. Cleared before each scan, but worth surfacing.
-    stale = ps.get('stale_scans')
-    if not windows_reachable or stale is None or stale == -1:
-        checks.append(_diag_check('stale', 'No Stuck Scans', 'unknown',
-            'Could not check for leaked scan processes.'))
-    elif stale == 0:
-        checks.append(_diag_check('stale', 'No Stuck Scans', 'ok',
-            'No stuck scan processes are holding the device.'))
-    else:
-        checks.append(_diag_check('stale', 'No Stuck Scans', 'warn',
-            f'{stale} stuck scan process(es) are leaked. They are cleared before '
-            'the next scan, but repeated leaks wedge the imaging service.'))
-
-    # Freezer is scanner-only: show only hardware faults that can block scans,
-    # never printing-only paper/ink/tray status.
-    if (key == 'freezer' and device_status is not None
-            and device_status.get('blocker')):
-        checks.append(_diag_check('device', 'Scanner Hardware', 'bad',
-            device_status['blocker']))
-
-    states = [c['state'] for c in checks]
-    if 'bad' in states:
-        overall = 'bad'
-    elif 'warn' in states or 'unknown' in states:
-        overall = 'warn'
-    else:
-        overall = 'ok'
-    return {'scanner': key, 'checks': checks, 'overall': overall}
+# The probes and the 210-line pure map from probe results to LED rows live in
+# hardware/scanner_diagnostics.py. What stays here is the composition root
+# below: it owns SCANNERS, the scan lock and the interop lookup, and hands the
+# results over. Re-exported under the historical names for tests and callers.
+from hardware.scanner_diagnostics import (  # noqa: E402
+    SCANNER_DIAG_LOCK_WAIT_SEC,
+    SCANNER_DIAG_TIMEOUT_SEC,
+    _airscan_ready,
+    _diag_check,
+    _run_scanner_diag_ps,
+    build_scanner_diagnostics,
+)
 
 
 def scanner_diagnostics(key):
@@ -3519,7 +2956,8 @@ def scanner_diagnostics(key):
         acquired = _SCAN_LOCK.acquire(timeout=SCANNER_DIAG_LOCK_WAIT_SEC)
         try:
             ps_data = _run_scanner_diag_ps(
-                SCANNERS[key], interop, skip_wia=not acquired)
+                SCANNERS[key], interop, SCAN_TOOLS_DIR,
+                skip_wia=not acquired)
         finally:
             if acquired:
                 _SCAN_LOCK.release()
@@ -3529,586 +2967,6 @@ def scanner_diagnostics(key):
 
 
 MAZDA_AGENT_ID = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
-
-
-# Venv python + PYTHONPATH for rol_finances scripts.
-#
-# Two regressions, two rules, both mandatory on every command we hand Mazda:
-#  1. ModuleNotFoundError: No module named 'tools' — Python does not add the cwd
-#     to sys.path for a `script.py` invocation, so rol_finances scripts that do
-#     `import tools...` need PYTHONPATH=/home/adamsl/rol_finances. (2026-06-28)
-#  2. "Command not in allowlist: PYTHONPATH=..." — the executor only strips an
-#     inline `PYTHONPATH=...` prefix when the command also contains a shell
-#     operator (&&, |, >). A *bare* command (STEP 0 classify) goes straight to
-#     the allowlist check with `PYTHONPATH=...` as cmd[0] and is rejected.
-#     (2026-06-29 intake run, trace 53.)
-# Fix for BOTH: never inline the prefix. Use the full venv python path as the
-# executable (it is in the executor allowlist) and pass PYTHONPATH through
-# executor_run's own `env` argument, which is applied to the child regardless of
-# whether the command takes the shell path. Verified live against pid 1041:8787.
-MAZDA_RF_VENV_PY = '/home/adamsl/rol_finances/.venv/bin/python3'
-MAZDA_RF_ENV_JSON = '{"PYTHONPATH": "/home/adamsl/rol_finances"}'
-
-
-def mazda_facade_identified(facade_result):
-    """Pure predicate: did the deterministic facade actually identify the doc?
-
-    A facade run that merely exits 0 is NOT enough — for JPEG scans the
-    text-extraction router returns ``ok: true`` but ``doc_kind: unknown``,
-    ``confidence: 0``, ``recommended_action: reject``. Treating that as success
-    is the bug that sent Mazda into investigate/categorize with empty data.
-    Only return True when the facade produced a usable classification.
-    """
-    fr = facade_result or {}
-    try:
-        confidence = float(fr.get('confidence') or 0.0)
-    except (TypeError, ValueError):
-        confidence = 0.0
-    return bool(
-        fr.get('ok')
-        and (fr.get('doc_kind') or 'unknown') != 'unknown'
-        and fr.get('recommended_action') != 'reject'
-        and confidence > 0
-    )
-
-
-def build_mazda_scan_message(scan_image_path, scanner_name, facade_result=None,
-                             conversation_id=None, dispatched_at=None):
-    """Pure builder for the intake instruction Mazda receives after a scan.
-
-    No I/O — returns the message string so it can be unit-tested. Encodes the
-    full investigate → categorize → store → record → judge → propose pipeline,
-    and adapts the front half to whether the facade actually identified the
-    document (see mazda_facade_identified).
-    """
-    fr = facade_result or {}
-    doc_kind = fr.get('doc_kind', 'unknown')
-    vendor = fr.get('vendor') or 'unknown'
-    parsed = fr.get('parsed') or {}
-    confidence = fr.get('confidence') or 0.0
-    identified = mazda_facade_identified(fr)
-    supporting_document_contract = (
-        'SUPPORTING-DOCUMENT STORAGE CONTRACT — one expense can retain four '
-        'independent references. Receipt → receipt_url; statement/source document '
-        'downloaded from the bank → document_url; statement scanned from paper '
-        '→ scanned_statement_url; Mom’s ledger → moms_ledger. A scanned statement '
-        'is derived evidence and MUST NEVER be stored in document_url. Never write a statement path '
-        'into receipt_url or a receipt path into document_url. Attach the newly '
-        'processed document to the existing matched expense whenever possible and '
-        'preserve the other three document fields. An identical existing reference '
-        'is an idempotent success (`already_attached`). A different non-empty value '
-        'in the same field is a same-type conflict: preserve the original, require '
-        'human verification (`NEEDS_DOCUMENT_VERIFICATION`), and never create a '
-        'duplicate expense merely to retain the new scan. Documents may arrive in '
-        'any order; statement-first/receipt-later and receipt-first/statement-later '
-        'must converge on one expense row. Include the association field/status and '
-        'preserved-field evidence in trace problems/results and the dashboard callback. '
-        'Every available evidence type must be independently viewable from the Set '
-        'Category dialog: receipt_url → View Receipt, document_url → View Source '
-        'Document, scanned_statement_url → View Scanned Statement, and moms_ledger '
-        '→ View Mom’s Ledger. For every new or matched scanned-statement expense, '
-        'scanned_statement_url must contain the archived scan reference; the '
-        'dashboard report-directory fallback is only for repairing legacy rows and is '
-        'not acceptable evidence for a new intake.\n\n'
-    )
-    statement_preflight = fr.get('statement_preflight') or {}
-    statement_payload_path = statement_preflight.get('payload_path') or ''
-    statement_override_args = ''
-    if statement_preflight.get('bank_name') and statement_preflight.get('account_last4'):
-        statement_override_args = (
-            f' --bank-name {shlex.quote(str(statement_preflight["bank_name"]))}'
-            f' --account-last4 {shlex.quote(str(statement_preflight["account_last4"]))}'
-        )
-        if statement_preflight.get('last4_source') == 'known_cards_workbook':
-            statement_override_args += (
-                ' --account-last4-source known_cards_workbook')
-    statement_token = hashlib.sha256(
-        scan_image_path.encode('utf-8')).hexdigest()[:12]
-    receipt_json_path = f'/tmp/mazda_receipt_{statement_token}.json'
-    receipt_parse_artifact_arg = (
-        '' if identified else f' --parsed-json {receipt_json_path}')
-    if identified:
-        receipt_store_contract = (
-            'This facade-identified path performs its one receipt parse during '
-            'STEP 4, so parse_artifact_verified may be false. Verify its final '
-            'date, amount, merchant, scope, and selected rows against the facade '
-            'evidence before accepting the result. ')
-    else:
-        receipt_store_contract = (
-            'The save path must report parse_artifact_verified=true and performs '
-            'a final duplicate guard using the SAME validated date, amount, '
-            'merchant, expense scope, and selected rows from STEP 0. ')
-    statement_json_path = (
-        statement_payload_path
-        or f'/tmp/mazda_statement_{statement_token}.json')
-    report_path = os.path.join(
-        os.path.dirname(scan_image_path), 'report.html')
-    report_dir = os.path.dirname(report_path)
-    statement_finish_block = (
-        f'  After store, run this exact command once, replacing <IDS> with one '
-        f'comma-separated value containing every stored AND duplicate expense id '
-        f'(do not use singular --expense-id, shell substitution, or per-ID calls):\n'
-        f'  {MAZDA_RF_VENV_PY} '
-        f'tools/receipt_scanning_tools/apply_statement_annotations.py '
-        f'--image {scan_image_path} --expense-ids <IDS>\n'
-        f'  `annotations_applied` is required evidence.\n'
-        f'  BUILD THE DASHBOARD REPORT at {report_path}. Follow '
-        f'REPORT_OUTPUT_CONTRACT.md, then run these exact commands separately:\n'
-        f'  {MAZDA_RF_VENV_PY} '
-        f'tools/python_tasks/verification_lib/restructure_verified_transactions.py '
-        f'{report_path}\n'
-        f'  {MAZDA_RF_VENV_PY} '
-        f'tools/python_tasks/verification_lib/hydrate_report_categories_from_db.py '
-        f'{report_path}\n'
-        f'  {MAZDA_RF_VENV_PY} '
-        f'tools/python_tasks/verification_lib/audit_statement_reports.py '
-        f'{report_dir}\n'
-        f'The finished HTML must contain id="verified-transactions", '
-        f'data-vendor-key attributes, and the rol-category-picker:start marker. '
-        f'CATEGORY AUTHORITY RULE: expenses.category_id is authoritative. '
-        f'Record report_generated=true and report_audit_status.\n'
-    )
-
-    # Summarise the most useful parsed fields so the message stays readable.
-    parsed_summary = json.dumps(
-        {k: parsed[k] for k in ('transaction_date', 'total_amount', 'merchant_name',
-                                 'description', 'payment_method') if k in parsed},
-        default=str,
-    )
-    if identified:
-        facade_block = (
-            f'\n\nThe deterministic facade (classify + parse) ran and IDENTIFIED this document. '
-            f'Do NOT re-run classify or parse — use these results directly:\n'
-            f'  doc_kind: {doc_kind}\n'
-            f'  vendor_key: {vendor}\n'
-            f'  routing_key: {fr.get("routing_key")}\n'
-            f'  confidence: {confidence} '
-            f'(recommended_action: {fr.get("recommended_action")})\n'
-            f'  parsed: {parsed_summary}'
-        )
-        fallback_block = ''
-        if doc_kind in ('statement', 'bank_statement'):
-            if statement_payload_path:
-                statement_steps = (
-                    f'2. Do not run statement vision again. The dashboard already '
-                    f'validated every extracted row and wrote the exact parser JSON to '
-                    f'{statement_payload_path}.\n'
-                    f'3. Via executor_run with cwd=/home/adamsl/rol_finances and '
-                    f'env={MAZDA_RF_ENV_JSON}, run:\n'
-                    f'   {MAZDA_RF_VENV_PY} '
-                    f'tools/receipt_scanning_tools/store_statement_transactions.py '
-                    f'-f {statement_payload_path} --source-file {scan_image_path}'
-                    f'{statement_override_args}\n'
-                )
-            else:
-                statement_steps = (
-                    f'2. Via executor_run with cwd=/home/adamsl/rol_finances and '
-                    f'env={MAZDA_RF_ENV_JSON}, run:\n'
-                    f'   {MAZDA_RF_VENV_PY} '
-                    f'tools/receipt_scanning_tools/parse_statement_scan.py '
-                    f'{scan_image_path} -o {statement_json_path}'
-                    f'{statement_override_args}\n'
-                    f'3. Use {statement_json_path}, then via '
-                    f'executor_run with the same cwd/env run:\n'
-                    f'   {MAZDA_RF_VENV_PY} '
-                    f'tools/receipt_scanning_tools/store_statement_transactions.py '
-                    f'-f {statement_json_path} --source-file {scan_image_path}'
-                    f'{statement_override_args}\n'
-                )
-            return (
-                f'A bank or credit-card statement was scanned on the {scanner_name}. '
-                f'The image is: {scan_image_path}\n'
-                f'The deterministic vision facade already classified it as statement '
-                f'(confidence={confidence}, vendor={vendor}). Do not classify it again.\n\n'
-                f'This is a STATEMENT-ONLY intake. Receipt/invoice investigation, '
-                f'categorization, and all single-document parsing/storage are forbidden '
-                f'and intentionally omitted from this dispatch.\n\n'
-                + supporting_document_contract +
-                f'1. Call load_wrapper_revision(agent_name="Mazda").\n'
-                + statement_steps +
-                statement_finish_block +
-                f'4. Call record_trace(agent_name="Mazda", task_name="document-intake", '
-                f'input_text="{scan_image_path}", agent_output=<JSON containing '
-                f'document_path, doc_kind="statement", classification_confidence, '
-                f'duplicate_checked=true, transactions_parsed, transactions_stored, '
-                f'transactions_duplicate, transactions_skipped_credits, deposits_stored, '
-                f'bank_name, account_last4, archive_paths, archive_years, and problems>).\n'
-                f'5. Call judge_trace(trace_id) always. On FAIL call propose_improvement '
-                f'and apply_proposal.\n'
-                f'6. Always notify the dashboard via executor_run with curl POST '
-                f'http://localhost:8765/api/expense-stored. The JSON must contain all '
-                f'expense_ids and duplicate_expense_ids from step 3, parsed/stored counts, '
-                f'doc_kind="statement", vendor="{vendor}", '
-                f'document_path="{scan_image_path}", '
-                f'conversation_id="{conversation_id or ""}", and '
-                f'dispatched_at={float(dispatched_at or 0)}.\n'
-                f'Do not stop before steps 4-6 even when every transaction is a duplicate.'
-            )
-    else:
-        # Facade did not identify the doc (doc_kind=unknown, confidence=0, or crashed).
-        # This is NORMAL for JPEG receipt scans — the facade uses text extraction which
-        # fails for images. Tell Mazda to use the vision-capable tools directly.
-        err = fr.get('error', '') if fr else ''
-        note = (f'error: {err}' if err
-                else f'returned doc_kind={doc_kind!r}, confidence={confidence}')
-        facade_block = (
-            f'\n\nThe facade could not identify this document ({note}). '
-            f'This is expected for JPEG scans — the facade uses text extraction, not vision.'
-        )
-        fallback_block = (
-            f'\nSTEP 0 — CLASSIFY + PARSE YOURSELF (facade returned doc_kind=unknown). '
-            f'executor_run, cwd=/home/adamsl/rol_finances, env={MAZDA_RF_ENV_JSON}:\n'
-            f'  HARD ROUTING BARRIER: run classification as its OWN executor_run call. '
-            f'Never chain the classifier to a parser or store command with `&&`, `;`, or '
-            f'any other shell operator. Read `doc_type` before choosing the next command.\n'
-            f'  a. Classify ONLY (Gemini vision):\n'
-            f'     {MAZDA_RF_VENV_PY} tools/classify_scan.py '
-            f'{scan_image_path}\n'
-            f'     → {{"doc_type": "receipt"|"invoice"|"statement"|"moms_ledger"|'
-            f'"tax_document"|"other", '
-            f'"confidence": 0-1, "reason": "..."}}\n'
-            f'  If doc_type is `bank_statement` or `statement`, STOP STEP 0 HERE and '
-            f'jump directly to STATEMENT BRANCH S1. Running receipt parser/store commands '
-            f'on a statement is forbidden.\n'
-            f'  b. ONLY for receipt OR invoice, parse in a NEW executor_run call:\n'
-            f'     {MAZDA_RF_VENV_PY} '
-            f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
-            f'-f {scan_image_path} --json --engine=gemini '
-            f'--write-parsed-json {receipt_json_path}\n'
-            f'     → JSON with merchant_name, transaction_date, total_amount, etc.\n'
-            f'     This writes the source-bound validated parse artifact '
-            f'{receipt_json_path}. Use that exact artifact for duplicate checking, '
-            f'categorization, itemization, callback values, and STEP 4 storage. '
-            f'Do not run receipt vision a second time.\n'
-            f'  Derive vendor_key from merchant_name: lowercase, underscores '
-            f'(e.g. "Goodwill Cascade" → "goodwill_cascade").\n\n'
-        )
-
-    if identified:
-        # Facade gave us the real merchant + vendor_key — prefill the categorizer input.
-        categorizer_input = json.dumps(
-            {'id_light': '', 'description': parsed.get('merchant_name') or vendor,
-             'vendor_key': vendor if vendor != 'unknown' else None},
-            default=str,
-        )
-        categorizer_input_line = (
-            f"  printf '%s' '{categorizer_input}' > /tmp/mazda_cat_input.json && "
-        )
-    else:
-        # Facade did NOT identify — by STEP 3 Mazda has REAL parsed data from STEP 0.
-        # Do NOT hand her the literal placeholder {"description":"unknown"}; that
-        # guarantees a categorizer miss (and pushes it onto the LLM-research path).
-        categorizer_input_line = (
-            '  Build the input JSON from your STEP 0 results — NOT the literal word '
-            '"unknown": write {"id_light": "", "description": "<merchant_name from '
-            'STEP 0 parse>", "vendor_key": "<vendor_key you derived in STEP 0>"} to '
-            '/tmp/mazda_cat_input.json (e.g. via executor_write or printf), then run:\n'
-        )
-    return (
-        f'A document was just scanned on the {scanner_name}. '
-        f'The scanned image is at: {scan_image_path}{facade_block}\n\n'
-        f'Complete the AGENTIC back half of the intake pipeline '
-        f'(investigate → categorize → store → judge):\n\n'
-        f'EXECUTOR RULE (read first): run every command below via executor_run — '
-        f'NEVER via run_claude_code_sdk. run_claude_code_sdk executes on a different '
-        f'machine where the rol_finances venv does not work; substituting it for '
-        f'executor_run is a guaranteed failure. Every executor_run call MUST pass '
-        f'env={MAZDA_RF_ENV_JSON}. Do NOT prefix any command with "PYTHONPATH=..." — '
-        f'the executor allowlist rejects an inline env-assignment as an unknown command '
-        f'("Command not in allowlist: PYTHONPATH=..."). Always use the full venv python '
-        f'path shown ({MAZDA_RF_VENV_PY}) and carry PYTHONPATH via the env argument.\n\n'
-        f'{supporting_document_contract}'
-        f'STEP 1 — load_wrapper_revision(agent_name="Mazda"). The result includes '
-        f'`instructions` — your accumulated LEARNED RULES from previous judged runs. '
-        f'READ THEM AND APPLY EVERY RULE that matches this document; they override '
-        f'the default steps below. Keep the returned wrapper_revision for '
-        f'record_trace.\n\n'
-        f'ROUTING PRECEDENCE — the explicit `doc_type` returned by classify_scan.py '
-        f'is authoritative and its matching branch below overrides generic prose '
-        f'rules about emails, bills, or non-receipts. In particular, an email '
-        f'screenshot whose enclosed document is `invoice` MUST run the INVOICE '
-        f'BRANCH; never route it away merely because it is an email or bill. A '
-        f'`receipt` MUST run STEPS 2-4. Only explicit `doc_type=other` is unsupported.\n\n'
-        f'{fallback_block}'
-        f'DOCUMENT-STRUCTURE RULE — handwriting never changes an intact document\'s '
-        f'type. A complete bank or credit-card statement with consistent issuer '
-        f'letterhead, account metadata, a billing cycle, and regularly aligned rows '
-        f'remains a statement regardless of the amount of handwriting, circles, '
-        f'cross-outs, arithmetic, or category notes. `moms_ledger` is reserved for '
-        f'Mom\'s cut-and-assembled composite made from pieces of different source '
-        f'documents. A neat statement must use the STATEMENT BRANCH so it is archived; '
-        f'its handwriting is handled later by apply_statement_annotations.py.\n\n'
-        f'MOM LEDGER BRANCH — only if STEP 0 returns doc_type="moms_ledger" for a '
-        f'visibly cut-and-assembled composite, run '
-        f'moms_ledger_reconciler.py --image {scan_image_path}. Use supported '
-        f'category evidence and never flatten a correct specific category back '
-        f'to generic 190. Use OpenAI Codex CLI when vision reconciliation is '
-        f'needed; do not run receipt or statement storage. Record '
-        f'doc_kind="moms_ledger".\n\n'
-        f'STATEMENT BRANCH — if this document is a bank or credit-card statement '
-        f'(doc_kind "bank_statement" or "statement" from the facade or STEP 0): SKIP '
-        f'STEPS 2-4 entirely — they are for single receipts and a statement can never '
-        f'complete them. Run these two commands instead (executor_run, '
-        f'cwd=/home/adamsl/rol_finances, env={MAZDA_RF_ENV_JSON}):\n'
-        f'  S1. Extract every transaction (Gemini vision):\n'
-        f'      {MAZDA_RF_VENV_PY} tools/receipt_scanning_tools/parse_statement_scan.py '
-        f'{scan_image_path} -o {statement_json_path}{statement_override_args}\n'
-        f'  S2. Dedupe + store them. Expenses are inserted UNCATEGORIZED (they enter '
-        f'the New Records queue for a human to categorize — do NOT run the categorizer '
-        f'for statements). Deposits/credits are NOT expenses: the script persists them '
-        f'to the bank-side `transactions` ledger (type CREDIT, never categorized, '
-        f'never reviewed by a human):\n'
-        f'      {MAZDA_RF_VENV_PY} '
-        f'tools/receipt_scanning_tools/store_statement_transactions.py '
-        f'-f {statement_json_path} --source-file {scan_image_path}'
-        f'{statement_override_args}\n'
-        f'      → {{"transactions_parsed": N, "skipped_credits": N, "duplicates": N, '
-        f'"stored": N, "expense_ids": [...], "deposits_stored": N, "deposit_ids": [...], '
-        f'"deposit_duplicates": N, "bank_name": "...", "account_last4": "1234", '
-        f'"archive_paths": [...], "archive_years": [...]}}\n'
-        f'  EVERY row coming back "duplicates" or "deposit_duplicates" is a SUCCESSFUL '
-        f'no-op, not a failure, and a deposit missing from expenses is CORRECT. '
-        + statement_finish_block +
-        f'Then continue at STEP 5 with the STATEMENT evidence JSON described there.\n\n'
-        f'INVOICE BRANCH — if this document is a bill/invoice requesting payment where the '
-        f'document itself does NOT show payment already made (doc_type "invoice" from '
-        f'classify_scan.py — e.g. a contractor/consultant invoice with a balance due, not '
-        f'stamped paid). An invoice is NOT proof a payment happened; it is a PLACEHOLDER for a '
-        f'payment we expect to see evidenced later by a bank statement transaction or a paid '
-        f'receipt for the SAME (date, amount). Run STEPS 2-3 normally (investigate + categorize '
-        f'this vendor exactly like a receipt), then at STEP 4 add the `--invoice` flag to the '
-        f'store command instead of a normal save:\n'
-        f'  {MAZDA_RF_VENV_PY} '
-        f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
-        f'-f {scan_image_path} --save --invoice --category-id=<id from step 3>'
-        f'{receipt_parse_artifact_arg} --engine=gemini\n'
-        f'  → {{"success": true, "expense_id": <int>, "expense_status": '
-        f'"WAITING_FOR_PAYMENT_COUNTERPART", "linked_counterpart": false, ...}}\n'
-        f'This stores ONE expense row with expense_status=WAITING_FOR_PAYMENT_COUNTERPART — do '
-        f'NOT create it any other way and do NOT wait for a human to confirm payment first. The '
-        f'system links the eventual counterpart automatically: the NEXT time ANY document '
-        f'(statement scan or receipt scan) is stored with the SAME (expense_date, amount), the '
-        f'storage tools detect the waiting placeholder and UPDATE that same row (the '
-        f'correct supporting-document field, '
-        f'source_file, notes, expense_status → COUNTERPART_DOCUMENT_LINKED) instead of inserting '
-        f'a second expense — so if `linked_counterpart: true` comes back on ANY future receipt '
-        f'or statement store, that is CORRECT behavior closing out an earlier invoice, not a '
-        f'duplicate to investigate. Continue to STEP 5 using doc_kind "invoice" in the evidence '
-        f'JSON.\n\n'
-        f'STEP 2 — INVESTIGATE (only with REAL parsed data — never pass "unknown"):\n'
-        f'  a. check_vendor_key(id_light="scan", description=<merchant>, '
-        f'vendor_key=<vendor_key from facade or derived above>)\n'
-        f'     IMPORTANT: if the result contains a normalized/recognized vendor_key that '
-        f'differs from what you supplied, USE THE NORMALIZED KEY in every later step '
-        f'(categorizer input, evidence JSON) — the vendor store and its category mapping '
-        f'are keyed on the normalized form.\n'
-        f'  MISSING DATE RULE: if STEP 0/facade could not extract a transaction_date '
-        f'(null, unreadable, or no date printed on the receipt), do NOT stop or treat '
-        f'it as a blocker — use the placeholder "1970-01-01" as expense_date in '
-        f'check_duplicates below and in the STEP 5 evidence JSON. '
-        f'parse_and_categorize.py --save already substitutes this same placeholder '
-        f'automatically when transaction_date is missing, so STEP 4 needs no special '
-        f'handling. This preserves the receipt with an honest sentinel date instead of '
-        f'silently guessing a date or losing the document.\n'
-        f'  b. check_duplicates(id_light="scan", expense_date=<YYYY-MM-DD, or '
-        f'"1970-01-01" if no date was extracted>, '
-        f'amount=<decimal string from the validated parse artifact>, '
-        f'description=<merchant>)\n'
-        f'  A PROBABLE duplicate counts too. When check_duplicates returns '
-        f'fuzzy_duplicate_id_light (same date and amount, but the vendor keys do not '
-        f'match), you MUST investigate it before storing instead of treating '
-        f'"not exact" as "not a duplicate". The common case is an existing row named '
-        f'only by a payment instrument — "Check 11040" — which names no payee at all, '
-        f'so there is no vendor evidence against the match and date+amount is the only '
-        f'identity either row has. Read the existing expense and decide: if it is the '
-        f'same real-world payment, treat it exactly like an exact duplicate (skip '
-        f'STEP 4 storage) and report fuzzy_duplicate_expense_id in STEP 8 '
-        f'duplicate_expense_ids. If it is genuinely a different payment, store and say '
-        f'in the STEP 5 evidence problems why you ruled it out. On 2026-07-29 a $24.20 '
-        f'contribution was stored a second time because a "Check 11040" row with the '
-        f'same date and amount was dismissed as unrelated.\n'
-        f'  If duplicate → STILL run STEP 4 exactly once, without '
-        f'--allow-duplicate. STEP 4 is also the receipt-filing/attachment step: it '
-        f'must rename the scan, archive it under readable_documents/receipts/'
-        f'{{year}}/{{month}}/{{month}}_{{day}}, and attach or upgrade receipt_url on '
-        f'the matched expense without inserting a second expense. A duplicate result '
-        f'or linked_counterpart=true is success; a same-type durable conflict requires '
-        f'verification. Still run STEP 3 categorization, record_trace, judge_trace, '
-        f'and the STEP 8 callback; duplicate detection is never permission to stop '
-        f'the run early. Keep the returned '
-        f'exact_duplicate_expense_id — STEP 8 must report it in duplicate_expense_ids, '
-        f'or the dashboard has no row to show and the Recent Report page comes up '
-        f'empty for this scan.\n\n'
-        f'STEP 3 — CATEGORIZE (executor_run, cwd=/home/adamsl/rol_finances, '
-        f'env={MAZDA_RF_ENV_JSON}):\n'
-        f'{categorizer_input_line}'
-        f'  {MAZDA_RF_VENV_PY} tools/categorizer/categorizer_main.py '
-        f'-i /tmp/mazda_cat_input.json --provider=auto\n'
-        f'  → {{"vendor_key": "...", "category_id": <int>}}\n'
-        f'  The auto provider chain tries Gemini, then ChatGPT OAuth '
-        f'(EG\'s Codex OAuth first, then mom\'s approved fallback token), then Anthropic. '
-        f'Only fall through to the FAIL-CLOSED CATEGORY RULE below if all three providers '
-        f'fail or the vendor is genuinely unresolvable.\n'
-        f'  FAIL-CLOSED CATEGORY RULE: merchant/vendor placeholders such as null, "null", '
-        f'"unknown", or "receipt" are not real vendors. If merchant/vendor is unresolved '
-        f'or category_id is null/zero, STILL run STEP 4 but OMIT --category-id entirely — '
-        f'the store tool saves the receipt image and a NULL-category placeholder row '
-        f'(expense_status=NEEDS_VENDOR_KEY) instead of failing closed, so a human can pick '
-        f'the right vendor_key later via the dashboard instead of the scan being lost. '
-        f'Record and judge a truthful trace reflecting the unresolved category (set '
-        f'pending_vendor_review:true in the STEP 5 evidence — this is what tells the judge '
-        f'a null category is a correct degraded save, not a failure), propose an '
-        f'improvement, and send STEP 8 with stored:1 (the row WAS stored) and '
-        f'status:"awaiting_vendor_review". If you later find the real category for this '
-        f'expense (e.g. via categorizer_main.py or a vendor_category.yaml lookup), correct '
-        f'the stored row with '
-        f'{MAZDA_RF_VENV_PY} tools/receipt_scanning_tools/receipt_parsing_tools/'
-        f'update_expense_category.py --expense-id=<id> --category-id=<id> — NEVER hand-write '
-        f'SQL against the finance DB; /api/recategorize-expense is a different tool for a '
-        f'different (coarser, 13-value) reporting taxonomy and will reject a vendor_category.yaml '
-        f'category name.\n\n'
-        f'STEP 4 — STORE (executor_run, cwd=/home/adamsl/rol_finances, '
-        f'env={MAZDA_RF_ENV_JSON}). '
-        f'Include --category-id=<id from step 3> when STEP 3 resolved a positive one; OMIT '
-        f'the flag entirely when it did not (see FAIL-CLOSED CATEGORY RULE above — the tool '
-        f'still saves the receipt + a pending-review placeholder row rather than erroring):\n'
-        f'  {MAZDA_RF_VENV_PY} '
-        f'tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py '
-        f'-f {scan_image_path} --save --category-id=<id from step 3>'
-        f'{receipt_parse_artifact_arg} --engine=gemini\n'
-        f'  → {{"success": true, "expense_id": <int>, "pending_vendor_review": <true when '
-        f'--category-id was omitted/invalid>, "parse_artifact_verified": '
-        f'<true for the STEP 0 artifact path>, '
-        f'"receipt_archive_path": "<canonical filed image>", '
-        f'"archive_paths": ["<canonical filed image>"], '
-        f'"parsed_amount": <the exact STEP 0 amount>, "expense_scope": '
-        f'"full_receipt"|"marked_items", ...}} OR a duplicate result. '
-        + receipt_store_contract +
-        f'A duplicate at a different amount or scope is '
-        f'not proof that this scan is a duplicate. Never retry with --allow-duplicate.\n\n'
-        f'STEP 4B — ITEMIZE WHEN EVIDENCE ALLOWS (MCP tool; never hand-build SQL):\n'
-        f'  For a newly stored receipt whose parsed JSON has multiple line items, call '
-        f'itemize_existing_expense(doc_family="receipt", expense_id=<STEP 4 id>, '
-        f'id_light=<stored id_light>, expense_date=<final stored date>, amount=<final '
-        f'stored total>, description=<final merchant>, receipt_payload_json=<the exact '
-        f'STEP 0 JSON>, category_ids=[<one verified positive category per item>], '
-        f'receipt_url=<store result>, source_file="{scan_image_path}").\n'
-        f'  The factory checks that source lines sum CENT-EXACTLY to the charge and writes '
-        f'PARENT + LINE_ITEM rows in one transaction. itemizable:false is a CORRECT '
-        f'fail-closed result: leave the expense STANDALONE and record the reason. Never '
-        f'guess missing lines, allocate an Amazon split shipment, retry a partial write, '
-        f'or issue parent/child SQL yourself. For Amazon statement charges use '
-        f'doc_family="amazon_statement" only when an order ID is present; the same exact '
-        f'reconciliation rule applies.\n\n'
-        f'STEP 5 — record_trace(agent_name="Mazda", task_name="document-intake", '
-        f'input_text=<scan path>, agent_output=<the intake-evidence JSON below>). '
-        f'The task_name MUST be exactly "document-intake" so it is judged by the intake '
-        f'rubric (not the statement rubric). agent_output MUST be this JSON object recording '
-        f'what actually happened — the judge reads these fields:\n'
-        f'  {{"document_path": "{scan_image_path}", "doc_kind": "receipt"|"invoice"|"statement"|"unknown", '
-        f'"classification_confidence": <0-1>, "vendor_key": "<resolved or null>", '
-        f'"vendor_key_recognized": <true|false>, '
-        f'"merchant": "<the payee EXACTLY as printed on the document, from STEP 0 '
-        f'classification - NOT the normalized vendor_key>", '
-        f'"category_id": <int or null>, '
-        f'"duplicate_checked": <true|false>, "is_duplicate": <true|false>, '
-        f'"stored": <true|false>, "expense_id": <int or null>, '
-        f'"linked_counterpart": <true when the save returned linked_counterpart:true — '
-        f'the receipt was attached to an existing statement expense instead of inserting a '
-        f'second row; expense_id is then that existing row and stored may be false>, '
-        f'"intake_halted": <true ONLY when a --save/store command returned '
-        f'"halted": true — see the HALT RULE below; then stored:false and expense_id:null>, '
-        f'"itemization_attempted": <true|false>, "itemized": <true|false>, '
-        f'"itemization_reconciled": <true only when itemization succeeded>, '
-        f'"itemization_parent_id": <int or null>, '
-        f'"itemization_child_ids": [<all child ids>], '
-        f'"expense_status": "<NONE|WAITING_FOR_PAYMENT_COUNTERPART|COUNTERPART_DOCUMENT_LINKED, '
-        f'from the store response, when doc_kind is invoice or when linked_counterpart was true>", '
-        f'"pending_vendor_review": <true when STEP 4 returned pending_vendor_review:true '
-        f'(a null/omitted --category-id), else false — REQUIRED whenever category_id is null; '
-        f'the judge treats a null category with pending_vendor_review unset as a real failure, '
-        f'not the correct degraded save the FAIL-CLOSED CATEGORY RULE describes>, '
-        f'"problems": [<strings>]}}\n'
-        f'  HALT RULE: if ANY `--save`/store command returns `"halted": true` (a JSON object '
-        f'with a `halt` block naming a `step`/`cause`/`exception_type`), an intake step '
-        f'crashed inside the tool — the pipeline fail-loud stopped instead of inserting a '
-        f'possibly-duplicate row. This is NOT your fault and there is nothing to retry or work '
-        f'around: do NOT re-run --save, do NOT add --allow-duplicate, do NOT hand-build a row. '
-        f'Record the trace with "intake_halted": true, "stored": false, "expense_id": null, and '
-        f'the halt\'s cause copied into "problems", then STILL run judge_trace and the STEP 8 '
-        f'dashboard callback (send stored:0). The judge scores a halt NEEDS_REVIEW, not FAIL, so '
-        f'do NOT call propose_improvement/apply_proposal for it — it is escalated to Suzuki as a '
-        f'code bug, not learned around.\n'
-        f'  For a STATEMENT, record this evidence JSON INSTEAD (the judge routes it '
-        f'to the statement rubric — the receipt fields above do not apply):\n'
-        f'  {{"document_path": "{scan_image_path}", "doc_kind": "statement", '
-        f'"classification_confidence": <0-1>, "duplicate_checked": true, '
-        f'"transactions_parsed": <N from S2>, "transactions_stored": <N>, '
-        f'"transactions_duplicate": <N>, "transactions_skipped_credits": <N>, '
-        f'"deposits_stored": <N from S2, deposits persisted to transactions>, '
-        f'"bank_name": "<confirmed bank>", "account_last4": "<four digits>", '
-        f'"archive_paths": [<all permanent copies>], "archive_years": [<years>], '
-        f'"problems": [<strings>]}}\n'
-        f'  Keep the returned trace_id.\n\n'
-        f'STEP 6 — judge_trace(trace_id) — ALWAYS, on success or failure. The intake rubric '
-        f'now scores intake correctly: a clean store is PASS, a correctly-detected duplicate '
-        f'is PASS, and a broken stage is FAIL. The verdict is what the autonomous reflection '
-        f'loop reads, so judging every run is what lets the system heal failures without a '
-        f'human.\n\n'
-        f'STEP 7 — CLOSE THE LOOP when the verdict is FAIL:\n'
-        f'  a. propose_improvement(trace_id, failure_type=<the verdict\'s '
-        f'failure_type>, summary=<what went wrong>, expected_benefit=<what improves>) '
-        f'→ note the returned proposal_id.\n'
-        f'  b. apply_proposal(proposal_id=<that id>, instruction_note=<ONE concrete '
-        f'imperative rule that would have prevented this exact failure>). This runs '
-        f'the safety gates, appends your rule to the learned instructions as a new '
-        f'wrapper revision, and ACTIVATES it — your next run receives it in STEP 1 '
-        f'automatically. If it returns pending_approval or a block, stop there; do '
-        f'not retry and do not activate anything manually.\n\n'
-        f'STEP 8 — NOTIFY DASHBOARD (fire-and-forget; ALWAYS run this after record_trace, '
-        f'even when nothing new was stored — e.g. every transaction was a duplicate. The '
-        f'dashboard\'s Recent Report view shows this run\'s outcome either way). '
-        f'executor_run, no special cwd/env needed:\n'
-        f'  curl -s --retry 3 --retry-delay 2 --retry-connrefused '
-        f'-X POST http://localhost:8765/api/expense-stored '
-        f'-H "Content-Type: application/json" '
-        f'-d \'{{"expense_id":<first stored id, or null>,'
-        f'"expense_ids":[<ALL expense ids stored this run; [] when none>],'
-        f'"duplicate_expense_ids":[<EVERY already-existing expense id this run '
-        f'matched but did not re-store. Statement branch: the duplicate_expense_ids '
-        f'list from store_statement_transactions.py. Receipt/invoice branch: the '
-        f'exact_duplicate_expense_id (and any fuzzy match id) returned by STEP 2b '
-        f'check_duplicates — this field is NOT statement-only. [] only when nothing '
-        f'was a duplicate>],'
-        f'"scanned_statement_attached":[<EVERY existing expense id whose '
-        f'scanned_statement_url was attached this run>],'
-        f'"scanned_statement_path":"<permanent scanned_statements archive path, '
-        f'or empty for non-statement scans>",'
-        f'"outcome":"<EVIDENCE_ATTACHED when a scan only fortified existing rows, '
-        f'otherwise omit>",'
-        f'"rolled_back_row_count":<rows discarded by rollback; normally 0>,'
-        f'"parsed":<transactions parsed>,"stored":<transactions stored>,'
-        f'"deposits_stored":<deposits stored to the transactions ledger this run; '
-        f'0 when none>,'
-        f'"archive_paths":[<all permanent receipt or statement copies returned by '
-        f'the store command>],"archive_years":[<their years>],'
-        f'"expense_date":"<YYYY-MM-DD>",'
-        f'"amount":"<decimal string>","vendor_key":"<vendor_key>",'
-        f'"description":"<merchant_name>","receipt_url":"<scan_image_path>",'
-        f'"document_path":"{scan_image_path}",'
-        f'"conversation_id":"{conversation_id or ""}",'
-        f'"dispatched_at":{float(dispatched_at or 0)},'
-        f'"doc_kind":"<statement|receipt|invoice|unknown, from the facade or your own '
-        f'classify_scan.py/STEP 0 classification — the same value you recorded '
-        f'as doc_kind in STEP 5>","vendor":"<the vendor/merchant name you '
-        f'identified, e.g. \\"chase\\", or \\"unknown\\">",'
-        f'"status":"<omit this key normally; include "awaiting_vendor_review" ONLY when '
-        f'STEP 4 returned pending_vendor_review:true, so the Recent Report view shows '
-        f'this document is waiting on a human vendor pick rather than a generic failure>"'
-        f'}}\'\n'
-        f'Ignore errors — the dashboard degrades gracefully if unreachable.\n'
-    )
-
 
 # Where a scan must live so Mazda's tools can read it. Mazda has TWO executors:
 #   - executor_run → THIS box (Letta MCP "executor_server" at 10.0.0.7:8789).
@@ -5084,7 +3942,7 @@ _MAZDA_FILL_SERVICE = MazdaFillService(
         lambda image_path: (run_intake_facade(image_path) or {}).get('doc_kind')),
     CallableReceiptReader(
         lambda image_path, model: manual_entry.preview_receipt_parse(
-            image_path, engine=model, category_namer=TaxonomyCategoryNamer())),
+            image_path, engine=model, category_namer=taxonomy_category_namer())),
     _STATEMENT_BREAKUP_SERVICE,
     statement_doc_kinds=STATEMENT_DOC_KINDS,
 )
@@ -5829,17 +4687,21 @@ def _report_source_document_reference(report_path):
     )
 
 
-class _ServerIntakePageLookup(IIntakePageLookup):
-    """Adapter binding the page rules to this server's intake state."""
+def server_intake_page_lookup():
+    """Composition root for IIntakePageLookup: this module's intake state.
 
-    def recent_report(self):
-        return resolve_recent_report() or {}
-
-    def scanner_intake(self, scanner_key):
-        return get_scanner_intake(scanner_key) or {}
-
-    def intake_scan_reference(self, intake):
-        return _intake_source_document(intake)
+    The lambdas are the point. Handing over the function objects would freeze
+    whichever ones existed at wiring time, and `_supporting_document_pages`
+    caches its resolver for the process lifetime; going through the module
+    global on every call keeps a test that replaces `resolve_recent_report` or
+    `get_scanner_intake` honoured, which is what the class did before it moved
+    to finance/supporting_documents.py.
+    """
+    return CallableIntakePageLookup(
+        lambda: resolve_recent_report(),
+        lambda scanner_key: get_scanner_intake(scanner_key),
+        lambda intake: _intake_source_document(intake),
+    )
 
 
 def _supporting_document_pages():
@@ -5847,7 +4709,7 @@ def _supporting_document_pages():
     global _SUPPORTING_DOCUMENT_PAGES
     if _SUPPORTING_DOCUMENT_PAGES is None:
         _SUPPORTING_DOCUMENT_PAGES = SupportingDocumentPageResolver(
-            _ServerIntakePageLookup(), REPORT_PAGE_ROUTES
+            server_intake_page_lookup(), REPORT_PAGE_ROUTES
         )
     return _SUPPORTING_DOCUMENT_PAGES
 
@@ -10025,264 +8887,16 @@ MODEL_STAT_SOURCES = {
     'gemini':     {'label': 'Gemini Flash', 'kind': 'gemini', 'host': None},
 }
 
-# Extractors run on the target machine (locally or piped over SSH). Each prints a
-# single JSON line so the dashboard parses one stdout blob regardless of host.
-_CODEX_EXTRACT_PY = r'''
-import json, os, time, urllib.request, urllib.error
-home = os.path.expanduser("~")
-model = None
-try:
-    for line in open(os.path.join(home, ".codex", "config.toml")):
-        s = line.strip()
-        if s.startswith("model") and "=" in s and "reasoning" not in s and "provider" not in s:
-            model = s.split("=", 1)[1].strip().strip("\"'"); break
-except Exception:
-    pass
-AUTH = os.path.join(home, ".codex", "auth.json")
-def _usage(t):
-    req = urllib.request.Request("https://chatgpt.com/backend-api/wham/usage",
-        headers={"Authorization": "Bearer " + t["access_token"],
-                 "ChatGPT-Account-Id": t.get("account_id", ""),
-                 "OpenAI-Beta": "codex-1", "originator": "codex_cli_rs", "User-Agent": "codex"})
-    return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
-def _refresh_token(rt):
-    body = json.dumps({"grant_type": "refresh_token", "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-                       "refresh_token": rt, "scope": "openid profile email"}).encode()
-    req = urllib.request.Request("https://auth.openai.com/oauth/token", data=body,
-        headers={"Content-Type": "application/json"})
-    return json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
-def _persist(d, r):
-    t = d["tokens"]
-    for k in ("access_token", "refresh_token", "id_token"):
-        if r.get(k): t[k] = r[k]
-    d["last_refresh"] = time.strftime("%Y-%m-%dT%H:%M:%S.000000Z", time.gmtime())
-    json.dump(d, open(AUTH, "w"))
-    return t
-def _refresh(d):
-    return _persist(d, _refresh_token(d["tokens"]["refresh_token"]))
-def _heal(d):
-    # Codex refresh tokens are single-use/rotating: the live auth.json token may be
-    # stale (already consumed) while a backup file still holds a valid one the codex
-    # CLI left behind. Try each backup's token; on success persist into auth.json.
-    import glob
-    for f in sorted(glob.glob(AUTH + "*"), reverse=True):
-        if f == AUTH:
-            continue
-        try:
-            rt = json.load(open(f))["tokens"].get("refresh_token")
-        except Exception:
-            continue
-        if not rt:
-            continue
-        try:
-            return _persist(d, _refresh_token(rt)), f
-        except Exception:
-            continue
-    return None, None
-out = {"model": model, "as_of": time.time()}
-# LIVE usage with SELF-HEAL on 401: refresh via the stored token, and if THAT is
-# rejected (invalid_refresh_token), auto-recover from a still-valid backup token.
-try:
-    d = json.load(open(AUTH)); t = d["tokens"]
-    try:
-        out["usage"] = _usage(t)
-    except urllib.error.HTTPError as e:
-        if e.code != 401:
-            raise
-        try:
-            out["usage"] = _usage(_refresh(d)); out["refreshed"] = True
-        except urllib.error.HTTPError:
-            healed, src = _heal(d)
-            if healed is None:
-                raise
-            out["usage"] = _usage(healed); out["refreshed"] = True
-            out["healed_from"] = os.path.basename(src)
-except urllib.error.HTTPError as e:
-    code = None
-    try:
-        code = (json.loads(e.read().decode()).get("error") or {}).get("code")
-    except Exception:
-        pass
-    out["error"] = code or ("HTTP %d" % e.code)
-    ra = e.headers.get("Retry-After") if e.headers else None
-    if ra:
-        try:
-            out["retry_after"] = int(ra)
-        except ValueError:
-            pass
-except Exception as e:
-    out["error"] = str(e)[:140]
-print(json.dumps(out))
-'''
-
-_CLAUDE_EXTRACT_PY = r'''
-import json, os, time, subprocess, urllib.request, urllib.error
-home = os.path.expanduser("~")
-CRED = os.path.join(home, ".claude", ".credentials.json")
-def _usage(at):
-    req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage",
-        headers={"Authorization": "Bearer " + at,
-                 "anthropic-beta": "oauth-2025-04-20", "User-Agent": "claude-code/2.0.32"})
-    return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
-def _refresh(d):
-    o = d["claudeAiOauth"]
-    body = json.dumps({"grant_type": "refresh_token", "refresh_token": o["refreshToken"],
-                       "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e"}).encode()
-    req = urllib.request.Request("https://platform.claude.com/v1/oauth/token", data=body,
-        headers={"Content-Type": "application/json", "User-Agent": "anthropic"})
-    try:
-        r = json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            return _cli_refresh()
-        raise
-    o["accessToken"] = r["access_token"]
-    if r.get("refresh_token"): o["refreshToken"] = r["refresh_token"]
-    if r.get("expires_in"): o["expiresAt"] = int((time.time() + r["expires_in"]) * 1000)
-    json.dump(d, open(CRED, "w"))
-    return o["accessToken"]
-def _cli_refresh():
-    subprocess.run(["bash", "-lc", 'claude -p "ok"'], capture_output=True, timeout=30)
-    d2 = json.load(open(CRED))
-    return d2["claudeAiOauth"]["accessToken"]
-out = {"as_of": time.time()}
-try:
-    d = json.load(open(CRED)); o = d["claudeAiOauth"]
-    # A logged-out host leaves the credential file in place with BLANK tokens
-    # (accessToken == refreshToken == "", expiresAt == 0). Sending
-    # "Authorization: Bearer " unauthenticated gets a 429 from Anthropic's edge,
-    # which used to render as "usage stats RATE LIMITED" — a yellow tile blaming
-    # a throttle that would never clear on its own. Detect it before any network
-    # call and report the condition by name.
-    if not (o.get("accessToken") or "").strip() and not (o.get("refreshToken") or "").strip():
-        out["condition"] = "logged_out"
-        out["error"] = "logged out (no OAuth token on this host)"
-        print(json.dumps(out)); raise SystemExit(0)
-    expired = bool(o.get("expiresAt")) and o["expiresAt"] / 1000 < time.time() + 60
-    try:
-        if expired:
-            out["usage"] = _usage(_refresh(d)); out["refreshed"] = True
-        else:
-            out["usage"] = _usage(o["accessToken"])
-    except urllib.error.HTTPError as e:
-        # A 401 means the credential needs refreshing. A 429 comes from the
-        # separate usage endpoint and must be surfaced without running Claude
-        # (which only adds traffic while quota reporting is throttled).
-        if e.code == 401:
-            out["usage"] = _usage(_refresh(d)); out["refreshed"] = True
-        else:
-            raise
-except urllib.error.HTTPError as e:
-    out["error"] = "HTTP %d" % e.code
-    out["condition"] = "rate_limited" if e.code == 429 else "unknown"
-    ra = e.headers.get("Retry-After") if e.headers else None
-    if ra:
-        try:
-            out["retry_after"] = int(ra)
-        except ValueError:
-            pass
-except Exception as e:
-    out["error"] = str(e)[:140]
-try:
-    sc = json.load(open(os.path.join(home, ".claude", "stats-cache.json")))
-    days = sc.get("dailyModelTokens") or []
-    if days:
-        tbm = (days[-1].get("tokensByModel") or {})
-        if tbm:
-            out["recent_model"] = max(tbm, key=lambda k: sum(tbm[k].values()) if isinstance(tbm[k], dict) else tbm[k])
-except Exception:
-    pass
-print(json.dumps(out))
-'''
-
-# 2026-08-16: this card used to monitor Google's Antigravity CLI (`agy`), an
-# entirely different product from the Gemini *API* (generativelanguage.
-# googleapis.com) that GEMINI_API_KEY authenticates against and that the
-# dashboard's own "Gemini Flash Fill" button (finance/manual_entry.py's
-# gemini-only preview engine) actually spends -- EG initially assumed Gemini
-# itself had been deprecated in favor of Antigravity; confirmed via search
-# that's wrong (the retired product was the old Gemini *CLI*, a chat/coding
-# tool; Antigravity is its replacement and now runs *on top of* the still-
-# current Gemini API, not instead of it). Antigravity CLI usage was never the
-# thing this dashboard actually spends, so it's replaced here with real
-# monitoring for the key that is: the same "count real calls seen in a local
-# log" approach as Antigravity used, applied to
-# parse_and_categorize.py's own GEMINI_API_USAGE_LOG (~/.gemini/
-# receipt_api_usage.log), written by _log_gemini_api_call() on every actual
-# API attempt. There is no usage-query endpoint for a bare API key the way
-# Antigravity's OAuth session has loadCodeAssist, so unlike that card's real
-# Google-reported tier/limit, the "limit" here is a locally-configured
-# estimate (GEMINI_FLASH_FILL_DAILY_LIMIT env var, default 250 -- Google's
-# published free-tier gemini-2.5-flash RPD as of this writing), not
-# authoritative -- flagged as such in the card's detail text.
-_GEMINI_FLASH_FILL_EXTRACT_PY = r'''
-import datetime, json, os
-USAGE_LOG = os.path.expanduser("~/.gemini/receipt_api_usage.log")
-DAILY_LIMIT = int(os.environ.get("GEMINI_FLASH_FILL_DAILY_LIMIT", "250"))
-out = {"configured": False, "used": 0, "limit": DAILY_LIMIT, "resets_at": None, "error": None}
-
-def _find_gemini_key():
-    key = os.environ.get("GEMINI_API_KEY")
-    if key:
-        return key
-    try:
-        with open(os.path.expanduser("~/rol_finances/.env")) as fh:
-            for line in fh:
-                line = line.strip()
-                if line.startswith("GEMINI_API_KEY="):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except OSError:
-        pass
-    return None
-
-key = _find_gemini_key()
-out["configured"] = bool(key)
-if not key:
-    out["error"] = "GEMINI_API_KEY not set (~/rol_finances/.env)"
-else:
-    today = datetime.date.today()
-    used = 0
-    try:
-        with open(USAGE_LOG) as fh:
-            for line in fh:
-                try:
-                    ts = json.loads(line).get("ts")
-                except Exception:
-                    continue
-                if ts and datetime.datetime.fromtimestamp(ts).date() == today:
-                    used += 1
-    except FileNotFoundError:
-        pass  # no calls logged yet today (or ever) -- used stays 0, not an error
-    out["used"] = used
-    # Same reset convention as every other Google per-day cap on this card
-    # (Antigravity/Code Assist included): midnight Pacific.
-    try:
-        from zoneinfo import ZoneInfo
-        pt = ZoneInfo("America/Los_Angeles")
-        now = datetime.datetime.now(pt)
-        nxt = (now + datetime.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        out["resets_at"] = nxt.astimezone(datetime.timezone.utc).isoformat()
-    except Exception:
-        pass
-print(json.dumps(out))
-'''
-
-
-def _run_extractor(py_src, host, timeout=18):
-    """Run an extractor on a machine (local if host is None, else over SSH) and
-    return its parsed JSON, or {'error': ...}."""
-    try:
-        if host:
-            # Feed the script over stdin (`python3 -`) so the remote shell can't
-            # mangle a multi-line `-c` argument.
-            cmd = ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', host, 'python3', '-']
-        else:
-            cmd = [sys.executable, '-']
-        r = subprocess.run(cmd, input=py_src, capture_output=True, text=True, timeout=timeout)
-        line = (r.stdout or '').strip().splitlines()[-1] if (r.stdout or '').strip() else ''
-        return json.loads(line) if line else {'error': (r.stderr or 'no output')[:200]}
-    except Exception as e:
-        return {'error': str(e)}
+# The three extractor programs -- and the runner that pipes one to a machine --
+# moved to model_stats/extractors.py. They are ~220 lines of Python written as
+# string literals because they execute on the *measured* machine, not in this
+# process, and nothing in this file reads them except _run_extractor.
+from model_stats.extractors import (  # noqa: E402
+    _CLAUDE_EXTRACT_PY,
+    _CODEX_EXTRACT_PY,
+    _GEMINI_FLASH_FILL_EXTRACT_PY,
+    _run_extractor,
+)
 
 
 def _human_reset(when):
@@ -11041,7 +9655,9 @@ def _terminal_spawn_shell(cols, rows, letta_agent_id):
         env['COLORTERM'] = 'truecolor'
         os.chdir(os.path.expanduser('~'))
         os.execvpe('bash', ['bash', '-l'], env)
-    fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack('!HHHH', rows, cols, 0, 0))
+    # Native byte order, not '!': TIOCSWINSZ takes a C `struct winsize`, so
+    # big-endian packing byte-swaps every field (80x24 arrives as 20480x6144).
+    fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
     if letta_agent_id:
         os.write(master_fd, f'letta --agent {letta_agent_id}\n'.encode())
     return pid, master_fd
@@ -11297,1419 +9913,75 @@ def pc_metrics(key):
 
 # ── HTTP Handler ──────────────────────────────────────────────────────────────
 
-class DashboardHandler(SimpleHTTPRequestHandler):
-
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-        query = parse_qs(parsed.query)
-        agent_id = query.get('agent', [''])[0]
-
-        if path == '/api/terminal':
-            return self.handle_terminal_ws(query)
-
-        if path == '/api/code-status':
-            return self.json_response(get_code_status())
-        if path == '/api/agents':
-            return self.json_response(build_agent_list(force_refresh=query.get('refresh', ['0'])[0] == '1'))
-
-        if path == '/api/agent-model':
-            lid = letta_id_for(agent_id)
-            if not lid:
-                return self.json_response({'ok': False, 'error': 'not a Letta agent', 'options': []})
-            return self.json_response(agent_model_payload(lid))
-
-        if path == '/api/agent-oauth-account':
-            lid = letta_id_for(agent_id)
-            if not lid:
-                return self.json_response({'ok': False, 'error': 'not a Letta agent', 'current': '', 'options': []})
-            return self.json_response(
-                agent_oauth_account_payload(lid, pending_model=query.get('model', [''])[0]))
-
-        if path == '/api/model-stats-agents':
-            return self.json_response(
-                model_stats_agents_payload(force_refresh=query.get('refresh', ['0'])[0] == '1'))
-
-        if path == '/api/router-agent':
-            from router.classify import build_router_strategy
-            strategy = build_router_strategy()
-            if not strategy.agent_id:
-                return self.json_response({'ok': False, 'error': 'router agent not found'})
-            return self.json_response({'ok': True, 'agent_id': strategy.agent_id})
-
-        if path == '/api/receptionist-agent':
-            cfg = next((a for a in LETTA_AGENTS if a['name'] == 'Toyota'), None)
-            rid = get_letta_id(cfg) if cfg else None
-            if not rid:
-                return self.json_response({'ok': False, 'error': 'receptionist agent not found'})
-            return self.json_response({'ok': True, 'agent_id': rid, 'name': 'Toyota'})
-
-        if path == '/api/agent-voice':
-            return self.json_response(agent_voice_payload(agent_id))
-
-        if path == '/api/agent-activity':
-            return self.json_response(agent_activity_status())
-
-        if path == '/api/agent-health':
-            return self.json_response(agent_health_status())
-
-        if path == '/api/vendor-keys':
-            return self.json_response(list_vendor_keys())
-
-        if path == '/api/rol-finance-categories':
-            return self.json_response(
-                {'ok': True,
-                 'categories': [c['name'] for c in _rol_finance_categories()]})
-
-        if path == '/api/pending-vendor-review':
-            return self.json_response(list_pending_vendor_review())
-
-        if path == '/api/model-stats-sources':
-            return self.json_response([
-                {'key': k, 'label': v['label'], 'kind': v['kind']}
-                for k, v in MODEL_STAT_SOURCES.items()
-            ])
-
-        if path == '/api/model-stats':
-            src = query.get('source', [''])[0]
-            return self.json_response(apply_mute_overlay(model_stats(src), src))
-
-        if path == '/api/mazda-mode':
-            return self.json_response(_MAZDA_MODE_SERVICE.current().to_http())
-
-        if path == '/api/codex-sync-status':
-            return self.json_response(codex_sync_status().model_dump(mode='json'))
-
-        if path == '/api/chatgpt-provider-account-status':
-            return self.json_response(get_chatgpt_provider_account_status().model_dump(mode='json'))
-
-        if path == '/api/pc-monitors':
-            return self.json_response([
-                {'key': k, 'label': v['label'], 'note': v.get('note', '')}
-                for k, v in PC_MONITORS.items()
-            ])
-
-        if path == '/api/pc-metrics':
-            return self.json_response(pc_metrics(query.get('pc', [''])[0]))
-
-        if path == '/api/agent-card':
-            agent = next((a for a in build_agent_list()
-                          if a['id'] == agent_id or a['name'] == agent_id), None)
-            if not agent:
-                return self.json_response({'error': 'agent not found'})
-            return self.json_response(build_agent_card(agent['name'], agent['id']))
-
-        if path == '/api/thoughts':
-            if agent_id == 'agent-claude':
-                return self.json_response([])   # Claude Code doesn't have thoughts
-            lid = letta_id_for(agent_id)
-            if lid:
-                scanner_key = query.get('scanner', [''])[0]
-                intake = get_scanner_intake(scanner_key) if scanner_key else None
-                conversation_id = str(
-                    (intake or {}).get('conversation_id') or '').strip()
-                return self.json_response(cached_thoughts(lid, conversation_id))
-            return self.json_response([])
-
-        if path == '/api/messages':
-            if agent_id == 'agent-claude':
-                now = datetime.now(timezone.utc)
-                rows = _load_json(CLAUDE_LOG_FILE)
-                rows = [r for r in rows if _within_max_age(r, now)]
-                return self.json_response(rows)
-            lid = letta_id_for(agent_id)
-            if lid:
-                return self.json_response(letta_convo(lid))
-            return self.json_response([])
-
-        if path == '/api/toolcalls':
-            if agent_id == 'agent-claude':
-                return self.json_response(_load_json(CLAUDE_TOOL_LOG_FILE))
-            lid = letta_id_for(agent_id)
-            if lid:
-                return self.json_response(letta_toolcalls(lid))
-            return self.json_response([])
-
-        if path == '/api/servers':
-            return self.json_response([
-                {
-                    'key': s['key'],
-                    'name': s['name'],
-                    'note': s.get('note', ''),
-                    'url': s.get('health_url'),
-                    'health_url': s.get('health_url'),
-                    'skills': s.get('skills', []),
-                }
-                for s in SERVERS
-            ])
-
-        if path == '/api/server-logs':
-            key = query.get('server', [''])[0]
-            q = query.get('q', [''])[0]
-            cfg = get_server(key)
-            if not cfg:
-                return self.json_response({'status': {'ok': False, 'text': 'unknown server'}, 'rows': []})
-            return self.json_response(server_log_rows(cfg, q))
-
-        if path == '/api/server-health':
-            # Overall health: returns per-server status + aggregate status.
-            # A server is "down" if it has a health_url and it doesn't respond OK.
-            # A server is "starting" if marked as such by a recent start action.
-            # Log-only servers (no health_url) have no endpoint to ping — their
-            # status is derived from whether they're still writing to their log
-            # (see log_activity_health): recent writes → up, stale/missing → down.
-            result = {
-                'servers': [],
-                'all_up': True,
-                'any_down': False,
-                'any_concern': False,
-                'any_stale': False,
-            }
-            status_by_key = {}
-            container_states = [None]  # lazily probed once per build if needed
-            for cfg in SERVERS:
-                has_active_check = cfg.get('health_url') or cfg.get('tcp_check') or cfg.get('check')
-                key = cfg['key']
-                restartable = key in RESTARTABLE_KEYS
-                health = None
-                if has_active_check:
-                    health = cached_server_health(cfg)
-                elif cfg.get('log_file'):
-                    health = log_activity_health(cfg)
-
-                if health is not None and health.get('ok'):
-                    # A real "up" always wins — flip out of the starting window.
-                    clear_server_starting(key)
-                # Same classifier the detail panel uses (server_status_kind) so the
-                # tab and the opened page never disagree.
-                status = server_status_kind(cfg, health)
-                if status is None:
-                    continue
-                status_by_key[key] = status
-
-                # Root-cause grouping: if this server depends on a node that's not
-                # healthy, mark it blocked_by so it reads as a symptom, not its own
-                # failure (the node is restartable, so it reads 'concern' not 'down').
-                dep = cfg.get('depends_on')
-                blocked_by = dep if (dep and status_by_key.get(dep) not in (None, 'up')) else None
-
-                down_for, stale = track_down_duration(key, status)
-                _fc = classify_failure((health or {}).get('text', '')) if status != 'up' else None
-                entry = {
-                    'key': key,
-                    'name': cfg['name'],
-                    'status': status,
-                    'restartable': restartable,
-                    'down_for_seconds': down_for,
-                    'stale': stale,
-                }
-                if blocked_by:
-                    entry['blocked_by'] = blocked_by
-                if _fc:
-                    entry['failure_class'] = _fc[0]
-                # Indicator #2: attach the Docker container status (exit code /
-                # restart count) for Win10-hosted servers when they're not up.
-                if key in WIN10_CONTAINERS and status != 'up':
-                    if container_states[0] is None:
-                        container_states[0] = win10_container_states()
-                    cs = container_status_for(key, container_states[0])
-                    if cs:
-                        entry['container_status'] = cs
-                result['servers'].append(entry)
-                if status == 'down':
-                    result['any_down'] = True
-                    result['all_up'] = False
-                elif status in ('concern', 'starting'):
-                    result['any_concern'] = True
-                if stale:
-                    result['any_stale'] = True
-            return self.json_response(result)
-
-        if path == '/api/rol-finance-reports':
-            month_key = query.get('month', [ROL_FINANCES_REPORTS_DEFAULT_MONTH])[0]
-            if month_key not in ROL_FINANCES_REPORTS_MONTHS:
-                month_key = ROL_FINANCES_REPORTS_DEFAULT_MONTH
-            base_dir = _rol_reports_base_dir(month_key)
-            result = []
-            for r in _rol_finance_reports_for_month(month_key):
-                report_file = os.path.join(base_dir, r['dir'], 'report.html')
-                exists = os.path.isfile(report_file)
-                status = _classify_report_status(report_file) if exists else 'missing'
-                entry = {
-                    'key': r['key'],
-                    'label': r['label'],
-                    'exists': exists,
-                    'status': status,
-                    'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html' if exists else None,
-                }
-                # Red and yellow reports carry the human-facing reason and
-                # recommended action pulled from the report itself, since the
-                # iframe hides everything but Verified Transactions.
-                if status in ('fail', 'review'):
-                    detail = _extract_report_attention_detail(report_file)
-                    if not detail:
-                        detail = {
-                            'badge': 'REVIEW NEEDED' if status == 'review' else 'FAILED',
-                            'summary': 'This report needs attention but does not include a structured explanation.',
-                            'recommended_action': 'Open the full report, identify the unresolved verification item, and update or reprocess the document.',
-                        }
-                    entry['attention_detail'] = detail
-                    if detail:
-                        # Preserve the existing API field for older red-row
-                        # clients while they migrate to attention_detail.
-                        if status == 'fail':
-                            entry['failure_detail'] = detail
-                result.append(entry)
-            # Synthetic "Receipt Only" tab: receipts with no bank-statement
-            # transaction. Include the exact resolved-file count so completed
-            # receipt work is visible in the month overview even while every
-            # statement/document placeholder is still red.
-            receipt_count = len(_fetch_receipt_only_rows(month_key))
-            result.append({
-                'key': 'receipt-only',
-                'label': 'Receipt Only',
-                'exists': True,
-                'status': None,
-                'receipt_count': receipt_count,
-                'url': f'{RECEIPT_ONLY_REPORT_PATH}?month={month_key}',
-            })
-            return self.json_response(result)
-
-        if path == '/api/rol-finance-recent-reports':
-            try:
-                limit = int(query.get('limit', ['5'])[0])
-            except (ValueError, TypeError):
-                limit = 5
-            return self.json_response(_rol_finance_recent_reports(limit))
-
-        if path == '/api/expense-stored-events':
-            try:
-                since_ts = float(query.get('since', ['0'])[0])
-            except (ValueError, TypeError):
-                since_ts = 0.0
-            return self.json_response(get_stored_expense_events(since_ts))
-
-        # Fail-loud intake-halt state — IntakeHaltAlert polls this and raises a
-        # full-screen "cannot continue" modal while a halt is active.
-        if path == '/api/intake-halt':
-            return self.json_response(read_intake_halt())
-
-        # Statements quarantined in bank_statements/_needs_review/ — the Scanner
-        # screen polls this and pops a dialog for each one.
-        if path == '/api/statement-reviews':
-            return self.json_response({
-                'ok': True,
-                'reviews': statement_review.list_reviews(),
-            })
-
-        if path == '/api/statement-review-document':
-            fp = statement_review.review_document_path(
-                query.get('id', [''])[0])
-            if fp:
-                ext = os.path.splitext(fp)[1].lower()
-                ctype = {
-                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                    '.png': 'image/png', '.gif': 'image/gif',
-                    '.webp': 'image/webp', '.pdf': 'application/pdf',
-                }.get(ext, 'application/octet-stream')
-                return self.serve_file(fp, ctype)
-            self.send_error(404)
-            return
-
-        if path == '/api/rol-finance-recent-scans':
-            try:
-                limit = int(query.get('limit', ['5'])[0])
-            except (TypeError, ValueError):
-                limit = 5
-            month = (query.get('month', [''])[0] or '').strip() or None
-            try:
-                return self.json_response(_fetch_recent_scans(limit, month))
-            except Exception as e:
-                return self.json_response(
-                    {'rows': [], 'queue_total': 0, 'limit': 5, 'error': str(e)})
-
-        if path == '/api/rol-finance-month-status':
-            try:
-                return self.json_response({'months': _fetch_month_status()})
-            except Exception as e:
-                return self.json_response({'months': [], 'error': str(e)})
-
-        if path == '/api/rol-finance-categories':
-            return self.json_response({'categories': _rol_finance_categories()})
-
-        if path == '/api/ssh-connections':
-            return self.json_response([
-                {'key': c['key'], 'name': c['name'], 'note': c.get('note', '')}
-                for c in SSH_CONNECTIONS
-            ])
-
-        if path == '/api/ssh-connection-health':
-            # Overall SSH health: a real `ssh ... echo CONNECTED` round trip per
-            # connection. "down" means SSH itself is broken to that host.
-            result = {'connections': [], 'all_up': True, 'any_down': False}
-            for cfg in SSH_CONNECTIONS:
-                h = cached_ssh_health(cfg)
-                status = 'up' if h.get('ok') else 'down'
-                result['connections'].append({'key': cfg['key'], 'name': cfg['name'], 'status': status})
-                if status == 'down':
-                    result['any_down'] = True
-                    result['all_up'] = False
-            return self.json_response(result)
-
-        if path == '/api/ssh-connection-logs':
-            key = query.get('conn', [''])[0]
-            cfg = get_ssh_connection(key)
-            if not cfg:
-                return self.json_response({'status': {'ok': False, 'text': 'unknown connection'}, 'rows': []})
-            with _ssh_log_lock:
-                rows = list(_ssh_log_cache.get(key, []))
-            return self.json_response({'status': cached_ssh_health(cfg), 'rows': rows})
-
-        if path == '/api/ssh-connection-test':
-            key = query.get('conn', [''])[0]
-            cfg = get_ssh_connection(key)
-            if not cfg:
-                return self.json_response({'ok': False, 'text': 'unknown connection'})
-            h = connection_test(cfg)
-            with _ssh_health_lock:
-                _ssh_health_cache[key] = {'fails': 0 if h.get('ok') else 1, 'result': h}
-            ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            _record_ssh_log(key, f"[{ts}] {'OK' if h['ok'] else 'FAIL'} — {h['text']} (manual test)")
-            return self.json_response(h)
-
-        if path == '/' or path == '':
-            return self.serve_file(os.path.join(HERE, 'dashboard.html'), 'text/html')
-
-        if path == ROL_FINANCES_PLAN_PATH:
-            return self.serve_file(ROL_FINANCES_PLAN_FILE, 'text/html')
-
-        if path == RECEIPT_ONLY_REPORT_PATH:
-            try:
-                month_key = query.get('month', [ROL_FINANCES_REPORTS_DEFAULT_MONTH])[0]
-                if month_key not in ROL_FINANCES_REPORTS_MONTHS:
-                    month_key = ROL_FINANCES_REPORTS_DEFAULT_MONTH
-                body = build_receipt_only_report_html(month_key)
-            except Exception as e:
-                from html import escape as _esc
-                import traceback as tb
-                body = ('<!doctype html><meta charset="utf-8"><body><pre>'
-                        'DEBUG: Receipt Only endpoint is being executed\n'
-                        + _esc(tb.format_exc()) + '</pre></body></html>')
-            data = body.encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Content-Length', str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-            return
-
-        if path == RECENT_REPORT_PATH:
-            try:
-                body = build_recent_report_html()
-            except Exception as e:
-                from html import escape as _esc
-                body = ('<!doctype html><meta charset="utf-8"><body>'
-                        '<pre>Recent Report build error: %s</pre>' % _esc(str(e)))
-            data = body.encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Content-Length', str(len(data)))
-            # Always re-resolved — a cached copy would pin an older document.
-            self.send_header('Cache-Control', 'no-store')
-            self.end_headers()
-            self.wfile.write(data)
-            return
-
-        if path == SCANNER_REPORT_PATH:
-            try:
-                body = build_scanner_report_html(query.get('scanner', [''])[0])
-            except Exception as e:
-                from html import escape as _esc
-                body = ('<!doctype html><meta charset="utf-8"><body>'
-                        '<pre>Scanner Report build error: %s</pre>' % _esc(str(e)))
-            data = body.encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Content-Length', str(len(data)))
-            # Always re-resolved — a cached copy would pin an older scan.
-            self.send_header('Cache-Control', 'no-store')
-            self.end_headers()
-            self.wfile.write(data)
-            return
-
-        if path.startswith(ROL_FINANCES_REPORTS_URL_PREFIX + '/'):
-            fp = _report_file_for_url(path)
-            if fp:
-                data = _report_html_with_current_picker(fp).encode('utf-8')
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/html; charset=utf-8')
-                self.send_header('Content-Length', str(len(data)))
-                self.send_header('Cache-Control', 'no-store')
-                self.end_headers()
-                self.wfile.write(data)
-                return
-            self.send_error(404)
-            return
-
-        if path == '/api/scanner-status':
-            return self.json_response(scanner_status(query.get('scanner', [''])[0]))
-
-        if path == '/api/scanner-diagnostics':
-            return self.json_response(
-                scanner_diagnostics(query.get('scanner', [''])[0]))
-
-        if path == '/api/scanner-intake-status':
-            key = query.get('scanner', [''])[0]
-            intake = get_scanner_intake(key)
-            if intake:
-                status = str(intake.get('status') or 'processing').lower()
-                return self.json_response({'ok': True, 'status': status})
-            return self.json_response({'ok': True, 'status': 'idle'})
-
-        if path == SCANNER_IMAGE_URL_PREFIX:
-            key = query.get('scanner', [''])[0]
-            cfg = SCANNERS.get(key)
-            if cfg:
-                fp = os.path.join(SCAN_TOOLS_DIR, cfg['output'])
-                if os.path.isfile(fp):
-                    ctype = 'image/jpeg' if fp.endswith(('.jpg', '.jpeg')) else 'image/png'
-                    return self.serve_file(fp, ctype)
-            self.send_error(404)
-            return
-
-        if path == INTAKE_DOCUMENT_URL_PREFIX:
-            fp = scanner_intake_document_path(query.get('scanner', [''])[0])
-            if fp:
-                ext = os.path.splitext(fp)[1].lower()
-                ctype = {
-                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                    '.png': 'image/png', '.webp': 'image/webp',
-                }.get(ext, 'application/octet-stream')
-                return self.serve_file(fp, ctype)
-            self.send_error(404)
-            return
-
-        for _prefix, _serve_base, _subtree in RECEIPT_MOUNTS:
-            if path.startswith(_prefix + '/'):
-                rel = unquote(path[len(_prefix) + 1:])
-                base = os.path.abspath(_serve_base)
-                fp = os.path.abspath(os.path.join(base, rel))
-                if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
-                    ext = fp.rsplit('.', 1)[-1].lower()
-                    ctype = {
-                        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
-                        'gif': 'image/gif', 'webp': 'image/webp', 'pdf': 'application/pdf',
-                    }.get(ext, 'application/octet-stream')
-                    return self.serve_file(fp, ctype)
-                self.send_error(404)
-                return
-
-        if path == '/report-source-document':
-            try:
-                document_path = _report_source_document_view(
-                    query.get('report_path', [''])[0])
-            except Exception as exc:
-                print(f'[report-source-document] Render failed: {exc}')
-                self.send_error(500, 'Could not render source document')
-                return
-            if document_path:
-                ext = os.path.splitext(document_path)[1].lower()
-                ctype = {
-                    '.html': 'text/html; charset=utf-8',
-                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                    '.png': 'image/png', '.gif': 'image/gif',
-                    '.webp': 'image/webp', '.pdf': 'application/pdf',
-                }.get(ext, 'application/octet-stream')
-                return self.serve_file(document_path, ctype)
-            self.send_error(404)
-            return
-
-        if path.startswith(SUPPORTING_DOCUMENT_URL_PREFIX + '/'):
-            parts = path[len(SUPPORTING_DOCUMENT_URL_PREFIX) + 1:].split('/')
-            document_path = (
-                _supporting_document_view_for_expense(
-                    parts[0],
-                    parts[1],
-                    # raw — see /api/supporting-documents
-                    query.get('report_path', [''])[0],
-                )
-                if len(parts) == 2
-                else None
-            )
-            if document_path:
-                ext = os.path.splitext(document_path)[1].lower()
-                if ext in {'.xlsx', '.xlsm'}:
-                    browser_path = os.path.join(
-                        SUPPORTING_DOCUMENT_ANNOTATION_CACHE,
-                        os.path.basename(document_path) + '.html',
-                    )
-                    try:
-                        document_path = render_excel_for_browser(
-                            document_path, browser_path)
-                        ext = '.html'
-                    except Exception as exc:
-                        print(f'[supporting-document] Excel render failed: {exc}')
-                        self.send_error(500, 'Could not render spreadsheet')
-                        return
-                ctype = {
-                    '.html': 'text/html; charset=utf-8',
-                    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
-                    '.gif': 'image/gif', '.webp': 'image/webp',
-                    '.pdf': 'application/pdf',
-                    '.xlsx': (
-                        'application/vnd.openxmlformats-officedocument.'
-                        'spreadsheetml.sheet'
-                    ),
-                    '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12',
-                }.get(ext, 'application/octet-stream')
-                return self.serve_file(document_path, ctype)
-            self.send_error(404)
-            return
-
-        if path.startswith('/'):
-            rel = path.lstrip('/')
-            for base in (HERE, REPO_ROOT):
-                fp = os.path.join(base, rel)
-                if os.path.isfile(fp):
-                    return self.serve_file(fp)
-
-        self.send_error(404)
-
-    def do_POST(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-        length = int(self.headers.get('Content-Length', 0))
-        raw = self.rfile.read(length)
-
-        # /api/voice carries a binary audio blob — handle before decoding as text.
-        if path == '/api/voice':
-            return self._handle_voice(raw)
-
-        body = raw.decode('utf-8', errors='replace')
-
-        if path == '/api/claude-log':
-            try:
-                data = json.loads(body)
-                _append_json(CLAUDE_LOG_FILE, _claude_log_lock, {
-                    'date': data.get('date', datetime.now().isoformat()),
-                    'type': data.get('type', 'assistant_message'),
-                    'text': data.get('text', ''),
-                })
-                return self.json_response({'ok': True})
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-
-        if path == '/api/claude-toollog':
-            try:
-                data = json.loads(body)
-                _append_json(CLAUDE_TOOL_LOG_FILE, _claude_tool_log_lock, {
-                    'date': data.get('date', datetime.now().isoformat()),
-                    'type': data.get('type', 'tool_call'),
-                    'text': data.get('text', ''),
-                }, maxlen=200)
-                return self.json_response({'ok': True})
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-
-        if path == '/api/codex-sync-now':
-            try:
-                req = CodexSyncRequest.model_validate(json.loads(body) if body.strip() else {})
-            except (json.JSONDecodeError, ValidationError) as exc:
-                return self.error_response(f'invalid request: {exc}', 400)
-            return self.json_response(run_codex_sync_now(req.source).model_dump(mode='json'))
-
-        if path == '/api/codex-sync-toggle':
-            try:
-                req = CodexSyncToggleRequest.model_validate(json.loads(body) if body.strip() else {})
-            except (json.JSONDecodeError, ValidationError) as exc:
-                return self.error_response(f'invalid request: {exc}', 400)
-            return self.json_response(toggle_codex_sync(req.enabled).model_dump(mode='json'))
-
-        if path == '/api/chatgpt-provider-account':
-            try:
-                req = ChatGptProviderSwapRequest.model_validate(json.loads(body) if body.strip() else {})
-            except (json.JSONDecodeError, ValidationError) as exc:
-                return self.error_response(f'invalid request: {exc}', 400)
-            return self.json_response(set_chatgpt_provider_account(req.source).model_dump(mode='json'))
-
-        if path == '/api/mazda-mode':
-            # A preference, not a command: this decides who reads the NEXT
-            # scanned document. Nothing in flight is re-dispatched or recalled.
-            try:
-                data = json.loads(body) if body.strip() else {}
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(_MAZDA_MODE_SERVICE.set_from_http(data))
-
-        if path == '/api/model-stats-mute':
-            try:
-                req = ModelStatsMuteRequest.model_validate(json.loads(body) if body.strip() else {})
-            except (json.JSONDecodeError, ValidationError) as exc:
-                return self.error_response(f'invalid request: {exc}', 400)
-            set_muted(req.source, req.muted)
-            return self.json_response(apply_mute_overlay(model_stats(req.source), req.source))
-
-        if path == '/api/server-action':
-            try:
-                data = json.loads(body)
-                server = data.get('server', '')
-                action = data.get('action', '')
-
-                if action == 'start' and server == 'executor':
-                    result = start_executor_server()
-                    return self.json_response(result)
-
-                if action == 'start' and server == 'logger-api':
-                    result = start_logger_api()
-                    return self.json_response(result)
-
-                if action == 'start' and server == 'frita-executor':
-                    result = start_frita_executor()
-                    return self.json_response(result)
-
-                if action == 'deploy' and server == 'dashboard':
-                    # Keyboard-free deploy: pull the current branch + self-restart.
-                    result = deploy_dashboard()
-                    return self.json_response(result)
-
-                if action in ('start', 'restart') and server == 'dashboard':
-                    result = restart_dashboard_server()
-                    return self.json_response(result)
-
-                # Generic restart — every Server Management entry is restartable
-                # from the UI so the user never needs the command line.
-                if action == 'restart':
-                    return self.json_response(restart_server(server))
-
-                return self.json_response({'ok': False, 'text': f'Unknown action: {action} for {server}'})
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-
-        if path == '/api/tts':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            result = synthesize_speech(data.get('text', ''),
-                                       voice=data.get('voice'))
-            if not result.get('ok'):
-                return self.json_response(result)
-            return self.serve_file(result['path'], content_type='audio/mpeg')
-
-        if path == '/api/scanner-scan':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(run_scanner(data.get('scanner', '')))
-
-        if path == '/api/scanner-clear-verification':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            result = clear_scanner_verification_lock(data.get('scanner', ''))
-            return self.json_response(result)
-
-        if path == '/api/scanner-archive-path':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            scanner_key = data.get('scanner', '')
-            intake = get_scanner_intake(scanner_key)
-            if not intake:
-                return self.json_response({'ok': False, 'error': 'No intake found'})
-            rows = _fetch_expenses_by_ids(intake.get('expense_ids') or [])
-            archive_file = scanner_intake_archive_path(intake, rows)
-            # The result above is the specific filed document (a file, not a
-            # directory) - the archive-verification terminal needs to `cd`
-            # into its containing folder to `ls -a` the sibling documents/
-            # receipts, not the file itself.
-            archive_path = os.path.dirname(archive_file) if archive_file else ''
-            if archive_path and os.path.isdir(archive_path):
-                return self.json_response({
-                    'ok': True,
-                    'archive_path': archive_path,
-                    'archive_name': os.path.basename(archive_file),
-                })
-            return self.json_response({'ok': False, 'error': 'Archive path not found'})
-
-        if path == '/api/fix-printer':
-            return self.json_response(fix_deskjet_printer())
-
-        if path == '/api/process-document':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(process_scanned_document(
-                data.get('scanner', ''),
-                org_id=data.get('org_id', 1),
-                engine=data.get('engine', 'gemini'),
-                statement_metadata=data.get('statement_metadata'),
-                doc_kind_override=data.get('doc_kind_override'),
-            ))
-
-        if path == '/api/process-pdf':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(process_pdf_document(
-                data.get('file_path', ''),
-                label=data.get('label'),
-                org_id=data.get('org_id', 1),
-                engine=data.get('engine', 'gemini'),
-            ))
-
-        if path == '/api/reprocess-report':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(reprocess_report(
-                _resolve_report_path_alias(data.get('report_url', ''))))
-
-        if path == '/api/expense-stored':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(record_stored_expense(data))
-
-        # The dialog's OK / Save button: re-run the store for one quarantined
-        # statement, with any human-supplied amounts filled in. A failure keeps
-        # the item queued so the dialog reappears.
-        if path == '/api/statement-review-resolve':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            review_id = data.get('id')
-            if not review_id:
-                return self.error_response('Missing review id', 400)
-            ok, payload = statement_review.resolve_review(
-                review_id, amounts=data.get('amounts'))
-            if ok:
-                merge_statement_review_result(payload)
-            return self.json_response({'ok': ok, **payload})
-
-        if path == '/api/manual-receipt-entry':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(submit_manual_receipt_entry(data))
-
-        # The Edit Expense button's two calls: find an already-stored row, then
-        # correct it. Save All only ever inserts, so these are the write path
-        # for everything that was typed wrong the first time.
-        if path == '/api/expense-search':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(search_stored_expenses(data))
-
-        if path == '/api/expense-edit':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(edit_stored_expense(data))
-
-        if path == '/api/manual-receipt-entry-preview':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            image_path = str(data.get('image_path') or '').strip()
-            if not image_path:
-                return self.error_response('Missing image_path', 400)
-            engine = str(data.get('engine') or 'local').strip()
-            if engine not in manual_entry.PREVIEW_ENGINES:
-                return self.error_response(f'Unsupported engine: {engine}', 400)
-            # TaxonomyCategoryNamer translates the vendor's leaf category
-            # ("Housing Gas Bill") into the reporting-bucket label the form's
-            # dropdown is built from ("Housing Payment & Upkeep"). Without it
-            # the dropdown silently ignored a correctly-resolved category.
-            ok, payload = manual_entry.preview_receipt_parse(
-                image_path, engine=engine,
-                category_namer=TaxonomyCategoryNamer())
-            return self.json_response({'ok': ok, **payload})
-
-        # The statement pair, alongside the receipt endpoints above: the same
-        # form serves both document kinds, and which pair it calls is decided
-        # by what the document IS, not by how many rows are on screen.
-        # "Mazda Fill": one button, one cheap model, both document kinds.
-        # Replaced the form's five reading buttons on 2026-08-19 -- see
-        # finance/mazda_fill.py for why picking the reader by eye was the bug.
-        if path == '/api/mazda-fill':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(mazda_fill_document(data))
-
-        if path == '/api/manual-statement-breakup':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(break_up_statement_document(data))
-
-        if path == '/api/manual-statement-entry':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(submit_manual_statement_entry(data))
-
-        if path == '/api/manual-receipt-entry-archive-preview':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(preview_manual_entry_archive_path(data))
-
-        if path == '/api/intake-status':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            result = record_intake_status(data)
-            return self.json_response(result)
-
-        if path == '/api/intake-halt':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(record_intake_halt(data))
-
-        if path == '/api/intake-halt-ack':
-            return self.json_response(acknowledge_intake_halt())
-
-        if path == '/api/route-detect':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            from router.classify import build_router_strategy
-            result = build_router_strategy().classify(data.get('text', ''))
-            return self.json_response({'ok': True, **result})
-
-        if path == '/api/receptionist-intent':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            transcript = data.get('text', '')
-            if not isinstance(transcript, str):
-                return self.error_response('text must be a string', 400)
-            return self.json_response(build_receptionist_strategy().evaluate(transcript))
-
-        # ── Note-command channel (Toyota's command box) ──────────────────────
-        # Two stages, deliberately separate endpoints: the browser asks "is the
-        # instruction finished?" on every finalized speech fragment, then asks
-        # to apply it exactly once. See voice/note_service.py.
-        if path == '/api/note-command-complete':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            text = data.get('text', '')
-            if not isinstance(text, str):
-                return self.error_response('text must be a string', 400)
-            decision = note_command_service().assess(PartialVoiceCommand(text=text))
-            return self.json_response({'ok': True, **decision.model_dump()})
-
-        if path == '/api/note-command-apply':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            note = data.get('note', '')
-            command = data.get('command', '')
-            if not isinstance(note, str) or not isinstance(command, str):
-                return self.error_response('note and command must be strings', 400)
-            try:
-                request = NoteEditRequest(note=note, command=command)
-            except ValidationError:
-                return self.error_response('command must not be blank', 400)
-            outcome = note_command_service().apply(request)
-            return self.json_response({'ok': True, **outcome.model_dump()})
-
-        if path == '/api/agent-model':
-            try:
-                data = json.loads(body)
-                lid = letta_id_for(data.get('agent', ''))
-                model = data.get('model', '')
-                if not lid:
-                    return self.json_response({'ok': False, 'error': 'not a Letta agent'})
-                cur = letta_get(f'/v1/agents/{lid}', timeout=15) or {}
-                cur_handle = (cur.get('llm_config') or {}).get('handle') or ''
-                if model not in agent_model_options(cur_handle):
-                    return self.json_response({'ok': False, 'error': f'model {model!r} is not in the allowed list'})
-                # Preserve the agent's currently-assigned OAuth account across a
-                # model swap. AGENT_MODEL_OPTIONS always names the default
-                # (mom's) provider row per family, so without this a plain
-                # model change would silently move an eg-assigned agent back
-                # onto the shared token.
-                cur_provider = (cur.get('llm_config') or {}).get('provider_name') or ''
-                cur_account = (OAUTH_PROVIDER_ACCOUNTS.get(cur_provider) or {}).get('account')
-                if cur_account:
-                    req_provider, _, req_model_id = model.partition('/')
-                    req_family = (OAUTH_PROVIDER_ACCOUNTS.get(req_provider) or {}).get('family')
-                    target_provider = OAUTH_ACCOUNT_PROVIDER.get((req_family, cur_account))
-                    if target_provider:
-                        model = f'{target_provider}/{req_model_id}'
-                req = urllib.request.Request(
-                    f'{LETTA_BASE_URL}/v1/agents/{lid}',
-                    data=json.dumps({'model': model}).encode(),
-                    headers={'Content-Type': 'application/json'},
-                    method='PATCH',
-                )
-                with urllib.request.urlopen(req, timeout=30) as r:
-                    resp = json.loads(r.read().decode())
-                new_handle = (resp.get('llm_config') or {}).get('handle') or model
-                return self.json_response({'ok': True, 'model': new_handle})
-            except urllib.error.HTTPError as e:
-                return self.json_response({'ok': False, 'error': f'letta {e.code}: {e.read().decode()[:200]}'})
-            except Exception as e:
-                return self.json_response({'ok': False, 'error': str(e)})
-
-        if path == '/api/agent-oauth-account':
-            try:
-                data = json.loads(body)
-                return self.json_response(
-                    patch_agent_oauth_account(data.get('agent', ''), data.get('account', '')))
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            except urllib.error.HTTPError as e:
-                return self.json_response({'ok': False, 'error': f'letta {e.code}: {e.read().decode()[:200]}'})
-            except Exception as e:
-                return self.json_response({'ok': False, 'error': str(e)})
-
-        if path == '/api/agent-voice':
-            try:
-                data = json.loads(body)
-                return self.json_response(
-                    patch_agent_voice(data.get('agent', ''), data.get('voice', '')))
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            except urllib.error.HTTPError as e:
-                return self.json_response(
-                    {'ok': False, 'error': f'letta {e.code}: {e.read().decode()[:200]}'})
-            except Exception as e:
-                return self.json_response({'ok': False, 'error': str(e)})
-
-        if path == '/api/test':
-            try:
-                data = json.loads(body)
-                agent_id = data.get('agent', '')
-                text = data.get('text', '')
-
-                if agent_id == 'agent-claude':
-                    _clear_json(CLAUDE_LOG_FILE, _claude_log_lock)
-                    _clear_json(CLAUDE_TOOL_LOG_FILE, _claude_tool_log_lock)
-                    return self.json_response({'replies': [{'type': 'assistant_message', 'text': f'[stub] {agent_id} got: {text}'}]})
-
-                lid = letta_id_for(agent_id)
-                if lid:
-                    reset_req = urllib.request.Request(
-                        f'{LETTA_BASE_URL}/v1/agents/{lid}/reset-messages',
-                        data=json.dumps({'add_default_initial_messages': False}).encode(),
-                        headers={'Content-Type': 'application/json'},
-                        method='PATCH',
-                    )
-                    try:
-                        with urllib.request.urlopen(reset_req, timeout=10):
-                            pass
-                    except Exception:
-                        pass
-
-                    # Send a real message to the Letta agent
-                    payload = json.dumps({
-                        'messages': [{'role': 'user', 'content': text}],
-                        'stream': False,
-                    }).encode()
-                    req = urllib.request.Request(
-                        f'{LETTA_BASE_URL}/v1/agents/{lid}/messages',
-                        data=payload,
-                        headers={'Content-Type': 'application/json'},
-                        method='POST',
-                    )
-                    try:
-                        # Jeri may delegate to a Mazda minion via send_letta_message,
-                        # which blocks on run_claude_code_sdk (up to a 300s subprocess
-                        # timeout). Give the round trip enough headroom that a slow
-                        # delegation doesn't look like a dashboard timeout.
-                        with urllib.request.urlopen(req, timeout=330) as r:
-                            resp = json.loads(r.read().decode())
-                        replies = []
-                        for m in resp.get('messages', []):
-                            if m.get('message_type') == 'assistant_message':
-                                replies.append({'type': 'assistant_message', 'text': _msg_text(m)})
-                        if not replies:
-                            # The agent ended its turn without a final assistant_message
-                            # (e.g. it ran a tool and stopped). Fall back to showing
-                            # the last tool call/return so the user sees what happened
-                            # instead of a bare "(no reply)".
-                            for m in resp.get('messages', []):
-                                mtype = m.get('message_type')
-                                if mtype in ('tool_call_message', 'tool_return_message', 'reasoning_message'):
-                                    replies.append({'type': mtype, 'text': _msg_text(m)})
-                        clear_agent_send_error(lid)
-                        return self.json_response({'replies': replies or [{'type': 'assistant_message', 'text': '(no reply)'}]})
-                    except Exception as e:
-                        err_text = str(e)
-                        record_agent_send_error(lid, err_text)
-                        return self.json_response({'replies': [{'type': 'error', 'text': err_text}]})
-                return self.json_response({'replies': [{'type': 'assistant_message', 'text': f'[stub] {agent_id} got: {text}'}]})
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-
-        if path == '/api/letta-code-message':
-            try:
-                data = json.loads(body)
-                return self.json_response(run_letta_code_message(
-                    data.get('agent', ''), data.get('text', ''),
-                    conversation_id=data.get('conversation_id') or None))
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            except ValueError as e:
-                return self.error_response(str(e), 400)
-            except subprocess.TimeoutExpired:
-                return self.error_response('Mazda took too long to answer', 504)
-            except Exception as e:
-                return self.error_response(str(e), 502)
-        if path == '/api/headless-prompt':
-            # Headless mode: run letta -p with JSON output (no terminal UI noise)
-            # Used by "Ask Mazda" to get clean, readable output without ANSI codes
-            try:
-                data = json.loads(body)
-                agent_id = data.get('agent', '')
-                prompt_text = data.get('prompt', '')
-                if not prompt_text.strip():
-                    return self.json_response({'ok': False, 'error': 'prompt is required'})
-                return self.json_response(run_letta_headless(agent_id, prompt_text))
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-
-        if path == '/api/recategorize-expense':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(recategorize_expense(
-                data.get('date', ''),
-                data.get('signed_amount', ''),
-                data.get('vendor_key', ''),
-                data.get('reporting_category', ''),
-                data.get('description', ''),
-                _resolve_report_path_alias(data.get('report_path', '')),
-                data.get('expense_id'),
-            ))
-
-        if path == '/api/undo-recategorize-expense':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(
-                undo_recategorize_expense(data.get('undo_token', '')))
-
-        if path == '/api/set-receipt-vendor':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(set_receipt_vendor(
-                data.get('expense_id'), data.get('vendor_key', '')))
-
-        if path == '/api/receipt-lookup':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(lookup_receipt(
-                data.get('date', ''),
-                data.get('signed_amount', ''),
-                data.get('vendor_key', ''),
-                data.get('description', ''),
-                _resolve_report_path_alias(data.get('report_path', '')),
-                data.get('expense_id'),
-            ))
-
-        if path == '/api/supporting-documents':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(lookup_supporting_documents(
-                data.get('date', ''),
-                data.get('signed_amount', ''),
-                data.get('vendor_key', ''),
-                data.get('description', ''),
-                # Raw, NOT alias-resolved: the alias collapses a scanner /
-                # intake-mode page to '' (correct for row recolor, which has no
-                # file to rewrite), and that erased the only clue to which
-                # scanned document the row's page was built from.
-                data.get('report_path', ''),
-                data.get('expense_id'),
-            ))
-
-        if path == '/api/open-supporting-document':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(open_supporting_document(
-                data.get('date', ''),
-                data.get('signed_amount', ''),
-                data.get('vendor_key', ''),
-                data.get('document_type', ''),
-                data.get('description', ''),
-                data.get('expense_id'),
-                data.get('report_path', ''),  # raw — see /api/supporting-documents
-                bool(data.get('wait_for_highlight', False)),
-            ))
-
-        if path == '/api/receipts-present':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(receipts_present(data.get('rows', [])))
-
-        if path == '/api/scanned-statements-present':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(
-                scanned_statements_present(data.get('rows', [])))
-
-        if path == '/api/save-expense-notes':
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                return self.error_response('Invalid JSON', 400)
-            return self.json_response(save_expense_notes(
-                data.get('date', ''),
-                data.get('signed_amount', ''),
-                data.get('vendor_key', ''),
-                data.get('description', ''),
-                data.get('notes', ''),
-                data.get('expense_id'),
-            ))
-
-        self.send_error(404)
-
-    def _handle_voice(self, audio_bytes):
-        filename = self.headers.get('X-Filename', 'audio.webm')
-        result = handle_voice_upload(build_pipeline(), audio_bytes, filename)
-        if result.get('ok'):
-            _append_json(VOICE_LOG_FILE, _voice_log_lock, {
-                'date': datetime.now().isoformat(),
-                'raw': result.get('raw_transcript', ''),
-                'cleaned': result.get('cleaned_text', ''),
-            })
-        return self.json_response(result)
-
-    def _read_body(self):
-        length = int(self.headers.get('Content-Length', 0))
-        return self.rfile.read(length).decode('utf-8')
-
-    def _send_no_cache_headers(self):
-        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
-        self.send_header('Pragma', 'no-cache')
-        self.send_header('Expires', '0')
-
-    def serve_file(self, file_path, content_type=None):
-        try:
-            with open(file_path, 'rb') as f:
-                content = f.read()
-            if content_type is None:
-                ext = file_path.rsplit('.', 1)[-1]
-                content_type = {
-                    'html': 'text/html', 'js': 'application/javascript',
-                    'css': 'text/css', 'json': 'application/json',
-                    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
-                    'pdf': 'application/pdf',
-                }.get(ext, 'application/octet-stream')
-            self.send_response(200)
-            self.send_header('Content-Type', content_type)
-            self.send_header('Content-Length', len(content))
-            self._send_no_cache_headers()
-            self.end_headers()
-            self.wfile.write(content)
-        except FileNotFoundError:
-            self.send_error(404)
-
-    def handle_terminal_ws(self, query):
-        """Upgrade GET /api/terminal to a WebSocket and bridge it to a pty shell."""
-        key = self.headers.get('Sec-WebSocket-Key')
-        upgrade = (self.headers.get('Upgrade') or '').lower()
-        if not key or upgrade != 'websocket':
-            return self.error_response('expected a websocket upgrade', 400)
-
-        letta_agent_id = ''
-        raw_agent = query.get('agent', [''])[0]
-        if raw_agent:
-            lid = letta_id_for(raw_agent)
-            # letta_id_for returns the id as-is for Letta agents; guard the exec.
-            if lid and _TERMINAL_ID_RE.match(lid):
-                letta_agent_id = lid
-        try:
-            cols = max(20, min(500, int(query.get('cols', ['80'])[0])))
-            rows = max(5, min(200, int(query.get('rows', ['24'])[0])))
-        except ValueError:
-            cols, rows = 80, 24
-
-        # Write the 101 by hand: a WebSocket upgrade must be HTTP/1.1, but this
-        # handler's protocol_version is HTTP/1.0 (send_response would emit the
-        # wrong status line and browsers would reject the upgrade). We also skip
-        # the default Server/Date headers to keep the handshake minimal.
-        handshake = (
-            'HTTP/1.1 101 Switching Protocols\r\n'
-            'Upgrade: websocket\r\n'
-            'Connection: Upgrade\r\n'
-            f'Sec-WebSocket-Accept: {ws_accept_key(key)}\r\n\r\n'
-        )
-        try:
-            self.wfile.write(handshake.encode('ascii'))
-            self.wfile.flush()
-        except OSError:
-            return
-
-        sock = self.connection
-        pid, master_fd = _terminal_spawn_shell(cols, rows, letta_agent_id)
-        alive = threading.Event()
-        alive.set()
-
-        def pump_browser_to_pty():
-            """Reader thread: browser frames → pty (input, resize, close)."""
-            try:
-                while alive.is_set():
-                    opcode, data = ws_read_frame(self.rfile)
-                    if opcode == 0x8:              # close
-                        break
-                    if opcode == 0x9:              # ping → pong
-                        try:
-                            sock.sendall(ws_encode_frame(data, opcode=0xA))
-                        except OSError:
-                            break
-                        continue
-                    if opcode not in (0x1, 0x2):   # ignore pong/other
-                        continue
-                    try:
-                        msg = json.loads(data.decode('utf-8', 'ignore'))
-                    except ValueError:
-                        continue
-                    if msg.get('t') == 'i':
-                        os.write(master_fd, str(msg.get('d', '')).encode('utf-8'))
-                    elif msg.get('t') == 'r':
-                        c = max(20, min(500, int(msg.get('c', cols))))
-                        r = max(5, min(200, int(msg.get('r', rows))))
-                        fcntl.ioctl(master_fd, termios.TIOCSWINSZ,
-                                    struct.pack('!HHHH', r, c, 0, 0))
-            except (ConnectionError, OSError, ValueError):
-                pass
-            finally:
-                alive.clear()
-
-        reader = threading.Thread(target=pump_browser_to_pty, daemon=True)
-        reader.start()
-
-        # Handler thread: pty output → browser, until either side closes.
-        import select as _select
-        try:
-            while alive.is_set():
-                ready, _w, _e = _select.select([master_fd], [], [], 0.25)
-                if not ready:
-                    continue
-                try:
-                    chunk = os.read(master_fd, 65536)
-                except OSError:
-                    break
-                if not chunk:
-                    break
-                try:
-                    sock.sendall(ws_encode_frame(chunk, opcode=0x2))
-                except OSError:
-                    break
-        finally:
-            alive.clear()
-            try:
-                sock.sendall(ws_encode_frame(b'', opcode=0x8))
-            except OSError:
-                pass
-            try:
-                os.close(master_fd)
-            except OSError:
-                pass
-            _terminal_reap(pid)
-
-    def json_response(self, data):
-        body = json.dumps(data, indent=2).encode('utf-8')
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', len(body))
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self._send_no_cache_headers()
-        self.end_headers()
-        self.wfile.write(body)
-
-    def error_response(self, message, code=400):
-        body = json.dumps({'error': message}).encode('utf-8')
-        self.send_response(code)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', len(body))
-        self._send_no_cache_headers()
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, fmt, *args):
-        print(f'[{self.log_date_time_string()}] {fmt % args}')
-
-
-class ReusableHTTPServer(ThreadingHTTPServer):
-    allow_reuse_address = True
-    daemon_threads = True
+# ---------------------------------------------------------------------------
+# HTTP layer
+#
+# DashboardHandler and ReusableHTTPServer used to live here (~1,380 lines).
+# They now live in the `http_app` package, which reaches back into this module
+# as `srv.<name>` — late binding, so runtime rebinds and test monkeypatches on
+# `server` are still visible to the routes. That import has to happen at the
+# *tail* of this file: every name the routes touch must already be defined.
+# ---------------------------------------------------------------------------
+sys.modules.setdefault('server', sys.modules[__name__])
+
+from http_app import BackgroundTask, ServerConfig, serve   # noqa: E402
+from http_app.handler import DashboardHandler              # noqa: E402
+from http_app.runtime import ReusableHTTPServer            # noqa: E402
+
+
+def startup_tasks():
+    """The daemon threads the dashboard boots with, each with its banner line."""
+    return [
+        BackgroundTask(
+            label='letta-log-pull',
+            target=_letta_remote_log_pull_loop,
+            banner=(f'Pulling Letta server logs over SSH from {LETTA_DOCKER_HOST} every '
+                    f'{LETTA_REMOTE_LOG_PULL_INTERVAL}s -> {LETTA_REMOTE_LOG_CACHE}')),
+        # Pre-warm the agent-list cache so the first /api/agents after a restart
+        # doesn't block the browser on the slow (~12-30s) Letta roster fetch.
+        BackgroundTask(
+            label='agent-list-prewarm',
+            target=build_agent_list,
+            banner='Pre-warming /api/agents cache in the background'),
+        BackgroundTask(
+            label='health-poll',
+            target=_health_poll_loop,
+            banner=(f'Polling server health every {HEALTH_POLL_INTERVAL}s '
+                    f'(timeout={HEALTH_CHECK_TIMEOUT}s, fail-threshold={HEALTH_FAIL_THRESHOLD})')),
+        BackgroundTask(
+            label='ssh-poll',
+            target=_ssh_poll_loop,
+            banner=(f'Polling {len(SSH_CONNECTIONS)} SSH connections every '
+                    f'{SSH_HEALTH_POLL_INTERVAL}s')),
+        BackgroundTask(
+            label='chatgpt-provider-poll',
+            target=_chatgpt_provider_poll_loop,
+            banner=(f'Polling chatgpt-plus-pro provider health every '
+                    f'{CHATGPT_PROVIDER_POLL_INTERVAL}s '
+                    f'({len(_provider_agent_ids(CHATGPT_PLUS_PRO))} Suzuki-fleet agents; the whole '
+                    f'Mazda fleet ({len(_provider_agent_ids(CLAUDE_PRO_MAX))} agents) is now on '
+                    f'{CLAUDE_PRO_MAX})')),
+        BackgroundTask(
+            label='model-usage-sample',
+            target=_model_usage_sample_loop,
+            banner=(f'Sampling model usage every {MODEL_USAGE_SAMPLE_INTERVAL}s '
+                    f'(rate warn \u2265{RATE_WARN_BURN_MULTIPLE}x sustainable; leak: '
+                    f'{LEAK_MIN_RISING_BUCKETS}\u00d7{LEAK_BUCKET_MINUTES}m rising of '
+                    f'{LEAK_LOOKBACK_MINUTES}m)')),
+    ]
+
+
+def startup_banners():
+    """One-shot lines printed before the pollers start."""
+    recovered = _recover_trainer_escalations()
+    return [
+        f'Letta API: {LETTA_BASE_URL}',
+        f'Recovered {recovered} pending Trainer escalation watches',
+    ]
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8765))
-    server = ReusableHTTPServer(('0.0.0.0', port), DashboardHandler)
-    print(f'Dashboard server on http://localhost:{port}/')
-    print(f'Letta API: {LETTA_BASE_URL}')
-    recovered_trainer_watches = _recover_trainer_escalations()
-    print(f'Recovered {recovered_trainer_watches} pending Trainer escalation watches')
-    threading.Thread(target=_letta_remote_log_pull_loop, daemon=True).start()
-    print(f'Pulling Letta server logs over SSH from {LETTA_DOCKER_HOST} every '
-          f'{LETTA_REMOTE_LOG_PULL_INTERVAL}s -> {LETTA_REMOTE_LOG_CACHE}')
-    # Pre-warm the agent-list cache so the first /api/agents after a restart
-    # doesn't block the browser on the slow (~12-30s) Letta roster fetch.
-    threading.Thread(target=build_agent_list, daemon=True).start()
-    print('Pre-warming /api/agents cache in the background')
-    threading.Thread(target=_health_poll_loop, daemon=True).start()
-    print(f'Polling server health every {HEALTH_POLL_INTERVAL}s '
-          f'(timeout={HEALTH_CHECK_TIMEOUT}s, fail-threshold={HEALTH_FAIL_THRESHOLD})')
-    threading.Thread(target=_ssh_poll_loop, daemon=True).start()
-    print(f'Polling {len(SSH_CONNECTIONS)} SSH connections every {SSH_HEALTH_POLL_INTERVAL}s')
-    threading.Thread(target=_chatgpt_provider_poll_loop, daemon=True).start()
-    print(f'Polling chatgpt-plus-pro provider health every {CHATGPT_PROVIDER_POLL_INTERVAL}s '
-          f'({len(_provider_agent_ids(CHATGPT_PLUS_PRO))} Suzuki-fleet agents; the whole '
-          f'Mazda fleet ({len(_provider_agent_ids(CLAUDE_PRO_MAX))} agents) is now on '
-          f'{CLAUDE_PRO_MAX})')
-    threading.Thread(target=_model_usage_sample_loop, daemon=True).start()
-    print(f'Sampling model usage every {MODEL_USAGE_SAMPLE_INTERVAL}s '
-          f'(rate warn ≥{RATE_WARN_BURN_MULTIPLE}x sustainable; leak: '
-          f'{LEAK_MIN_RISING_BUCKETS}×{LEAK_BUCKET_MINUTES}m rising of {LEAK_LOOKBACK_MINUTES}m)')
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print('\nStopped.')
+    serve(DashboardHandler,
+          ServerConfig(port=int(os.environ.get('PORT', 8765))),
+          tasks=startup_tasks(),
+          banners=startup_banners())

@@ -1899,8 +1899,10 @@ def test_inspect_scan_image_quality_rejects_undecodable_file(tmp_path):
 
 
 def test_inspect_scan_image_quality_skips_when_pillow_unavailable(monkeypatch):
-    monkeypatch.setattr(server, 'Image', None)
-    monkeypatch.setattr(server, 'ImageStat', None)
+    # Pillow now lives with the gate it backs, in hardware/scan_result.py.
+    from hardware import scan_result
+    monkeypatch.setattr(scan_result, 'Image', None)
+    monkeypatch.setattr(scan_result, 'ImageStat', None)
 
     result = server.inspect_scan_image_quality('/tmp/does-not-matter.jpg')
 
@@ -8041,6 +8043,80 @@ def test_expense_edit_resolves_the_category_name_to_an_id(monkeypatch):
     assert repo.edits[0].category_id == 140
     assert out['changed_fields'] == ['description', 'amount']
     assert out['warnings'] == ['vendor key is stale']
+
+
+def test_expense_edit_learns_new_vendor_before_updating_description(monkeypatch):
+    monkeypatch.setattr(server, '_invalidate_receipt_index', lambda: None)
+    remembered = []
+
+    class _Remembered:
+        def model_dump(self):
+            return {'remembered': True, 'vendor_key': 'cracker_barrel'}
+
+    monkeypatch.setattr(
+        server.vendor_lookup,
+        'remember_vendor',
+        lambda description, category_id, vendor_key: (
+            remembered.append((description, category_id, vendor_key)) or _Remembered()),
+    )
+    repo = _StubEditRepository(result=_edit_result())
+
+    out = server.edit_stored_expense(_edit_body(
+        merchant_name='CRACKER BARREL #428 CA CAVE CITY KY',
+        vendor_key='cracker_barrel', learn_vendor=True,
+    ), repository=repo, namer=_StubNamer())
+
+    assert out['ok'] is True
+    assert remembered == [(
+        'CRACKER BARREL #428 CA CAVE CITY KY', 140, 'cracker_barrel')]
+    assert repo.edits[0].merchant_name == 'CRACKER BARREL #428 CA CAVE CITY KY'
+    assert out['vendor_remembered']['vendor_key'] == 'cracker_barrel'
+
+
+def test_expense_edit_does_not_update_when_vendor_learning_fails(monkeypatch):
+    monkeypatch.setattr(
+        server.vendor_lookup, 'remember_vendor',
+        lambda *_args: (_ for _ in ()).throw(OSError('read-only vendor map')),
+    )
+    repo = _StubEditRepository(result=_edit_result())
+
+    out = server.edit_stored_expense(_edit_body(
+        vendor_key='cracker_barrel', learn_vendor=True,
+    ), repository=repo, namer=_StubNamer())
+
+    assert out['ok'] is False
+    assert 'read-only vendor map' in out['error']
+    assert repo.edits == []
+
+
+def test_expense_edit_does_not_update_on_ambiguous_vendor_learning(monkeypatch):
+    class _NotRemembered:
+        def model_dump(self):
+            return {
+                'remembered': False,
+                'vendor_key': None,
+                'reason': 'several stored vendor_keys match this name',
+            }
+
+    monkeypatch.setattr(
+        server.vendor_lookup, 'remember_vendor', lambda *_args: _NotRemembered())
+    repo = _StubEditRepository(result=_edit_result())
+    out = server.edit_stored_expense(_edit_body(
+        vendor_key='dte_energy', learn_vendor=True,
+    ), repository=repo, namer=_StubNamer())
+    assert out['ok'] is False
+    assert 'several stored vendor_keys' in out['error']
+    assert repo.edits == []
+
+
+def test_expense_edit_refuses_new_vendor_without_category():
+    repo = _StubEditRepository(result=_edit_result())
+    out = server.edit_stored_expense(_edit_body(
+        category_name='', vendor_key='cracker_barrel', learn_vendor=True,
+    ), repository=repo, namer=_StubNamer())
+    assert out['ok'] is False
+    assert 'requires vendor_key and category' in out['error']
+    assert repo.edits == []
 
 
 def test_expense_edit_rejects_an_unknown_category():
