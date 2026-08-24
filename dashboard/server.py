@@ -2589,87 +2589,34 @@ def undo_recategorize_expense(token):
     }
 
 
-# ── Vendor review: pick a vendor_key for a receipt that saved with no category ─
-# Companion to the FAIL-CLOSED CATEGORY RULE in build_mazda_scan_message(): when
-# Mazda can't resolve a vendor/category, parse_and_categorize.py now still saves
-# the receipt image + an expense row with category_id=NULL,
-# expense_status='NEEDS_VENDOR_KEY' (see save_receipt_pending_vendor_review() in
-# rol_finances) instead of dropping the document. These three functions back the
-# dashboard's "pick a vendor" dialog that finishes the save later.
+# Moved to finance/vendor_review.py -- list_vendor_keys, list_pending_vendor_review,
+# set_receipt_vendor, and the PendingVendorReviewRow model. get_connection,
+# receipt_url_for_path and _vendor_category_lookup are this module's, so the
+# composition roots below inject them as late-bound lambdas rather than letting
+# the moved code import them back -- a test replacing server._vendor_category_lookup
+# (to fake a vendor_category.yaml) is honoured only because of the late binding.
+from finance.vendor_review import (
+    list_vendor_keys as _list_vendor_keys,
+    list_pending_vendor_review as _list_pending_vendor_review,
+    set_receipt_vendor as _set_receipt_vendor,
+)
+
 _vendor_category_lookup = vendor_lookup.vendor_category_lookup
 
 
 def list_vendor_keys():
-    """Every known vendor_key + category, for the "pick a vendor" dialog."""
-    try:
-        return {'ok': True, 'vendor_keys': _vendor_category_lookup().list_vendor_keys()}
-    except Exception as e:
-        return {'ok': False, 'error': f'Could not load vendor_category.yaml: {e}', 'vendor_keys': []}
+    return _list_vendor_keys(lambda: _vendor_category_lookup())
 
 
 def list_pending_vendor_review():
-    """Expenses saved with no category (expense_status=NEEDS_VENDOR_KEY)."""
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                cur.execute(
-                    "SELECT id, expense_date, amount, description, receipt_url, "
-                    "document_url, moms_ledger, source_file "
-                    "FROM expenses WHERE expense_status='NEEDS_VENDOR_KEY' "
-                    "ORDER BY expense_date DESC"
-                )
-                rows = cur.fetchall()
-    except Exception as e:
-        return {'ok': False, 'error': f'DB error: {e}', 'rows': []}
-
-    out = []
-    for r in rows:
-        image_url = None
-        source_file = r.get('source_file')
-        if source_file and os.path.isfile(source_file):
-            try:
-                image_url = _receipt_url_for_path(source_file)
-            except Exception:
-                image_url = None
-        out.append({
-            'expense_id': r['id'],
-            'expense_date': str(r.get('expense_date') or ''),
-            'amount': str(r.get('amount') or ''),
-            'description': r.get('description') or '',
-            'receipt_url': r.get('receipt_url') or '',
-            'image_url': image_url,
-        })
-    return {'ok': True, 'rows': out}
+    return _list_pending_vendor_review(
+        lambda: _rol_get_connection(), lambda fp: _receipt_url_for_path(fp))
 
 
 def set_receipt_vendor(expense_id, vendor_key):
-    """Resolve a human-picked vendor_key to a category_id and finish the save."""
-    try:
-        expense_id = int(expense_id)
-    except (TypeError, ValueError):
-        return {'ok': False, 'error': f'Bad expense_id: {expense_id!r}'}
-    vendor_key = (vendor_key or '').strip()
-    if not vendor_key:
-        return {'ok': False, 'error': 'vendor_key is required'}
-
-    try:
-        category_id = _vendor_category_lookup().get_category_id(vendor_key)
-    except Exception as e:
-        return {'ok': False, 'error': f'Could not load vendor_category.yaml: {e}'}
-    if category_id is None:
-        return {'ok': False, 'error': f'Unknown vendor_key: {vendor_key}'}
-
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                cur.execute(
-                    "UPDATE expenses SET category_id=%s, expense_status='NONE' WHERE id=%s",
-                    (category_id, expense_id),
-                )
-    except Exception as e:
-        return {'ok': False, 'error': f'DB error: {e}'}
-
-    return {'ok': True, 'expense_id': expense_id, 'category_id': category_id}
+    return _set_receipt_vendor(
+        lambda: _rol_get_connection(), lambda: _vendor_category_lookup(),
+        expense_id, vendor_key)
 
 
 # ── ROL Finance: open the stored receipt for a Verified-Transactions row ──────
@@ -7283,54 +7230,40 @@ def server_status_kind(cfg, health):
 # active-check servers in a background thread with a generous timeout, and
 # require consecutive failures before flipping a server to "down" — a single
 # slow/dropped probe no longer flashes the LED red.
-HEALTH_POLL_INTERVAL = 8
-HEALTH_CHECK_TIMEOUT = 10
-HEALTH_FAIL_THRESHOLD = 2
+# Moved to health/poller.py -- HealthPoller (the cache + lock), HealthCacheEntry
+# (the debounce record, Pydantic so a malformed entry fails loud instead of a
+# silent KeyError deep in a background thread), and the module constants.
+# SERVERS and server_health are this module's, so they're injected rather than
+# imported back, keeping the poller's own tests independent of live config.
+from health.poller import (
+    HealthPoller,
+    HEALTH_POLL_INTERVAL,
+    HEALTH_CHECK_TIMEOUT,
+    HEALTH_FAIL_THRESHOLD,
+)
 
-_health_cache = {}
-_health_cache_lock = threading.Lock()
+_health_poller = HealthPoller()
 
 
 def _poll_all_health_once():
-    for cfg in SERVERS:
-        if not (cfg.get('health_url') or cfg.get('tcp_check') or cfg.get('check')):
-            continue
-        h = server_health(cfg, timeout=HEALTH_CHECK_TIMEOUT)
-        with _health_cache_lock:
-            entry = _health_cache.get(cfg['key'], {'fails': 0, 'result': None})
-            if h.get('ok'):
-                entry['fails'] = 0
-                entry['result'] = h
-            else:
-                entry['fails'] += 1
-                if entry['result'] is None or entry['fails'] >= HEALTH_FAIL_THRESHOLD:
-                    entry['result'] = h
-            _health_cache[cfg['key']] = entry
+    _health_poller.poll_all_once(SERVERS, server_health)
 
 
 def _health_poll_loop():
-    """Background daemon thread body: keep the health cache fresh."""
-    while True:
-        _poll_all_health_once()
-        time.sleep(HEALTH_POLL_INTERVAL)
+    """Composition root for the background health poller: this module's
+    SERVERS and server_health.
+
+    Both are passed as late-bound callables so a test that replaces
+    `server.SERVERS` or `server.server_health` is still honoured by a poller
+    thread that started before the replacement -- see
+    tests/test_health_poller.py::TestThePatchTargetTrap for why this matters.
+    """
+    _health_poller.poll_loop(lambda: SERVERS,
+                              lambda cfg, timeout=None: server_health(cfg, timeout=timeout))
 
 
 def cached_server_health(cfg):
-    """Debounced health result for cfg from the background poll loop.
-
-    Falls back to a synchronous (slow) probe on first access, before the
-    background loop has populated the cache. Returns None for configs with
-    neither health_url nor tcp_check, like server_health does."""
-    if not (cfg.get('health_url') or cfg.get('tcp_check') or cfg.get('check')):
-        return None
-    with _health_cache_lock:
-        entry = _health_cache.get(cfg['key'])
-    if entry is not None:
-        return entry['result']
-    h = server_health(cfg, timeout=HEALTH_CHECK_TIMEOUT)
-    with _health_cache_lock:
-        _health_cache[cfg['key']] = {'fails': 0 if h.get('ok') else 1, 'result': h}
-    return h
+    return _health_poller.cached(cfg, server_health)
 
 
 # ── SSH connection checks ────────────────────────────────────────────────────
