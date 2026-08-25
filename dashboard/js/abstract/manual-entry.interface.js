@@ -19,6 +19,8 @@
  *   field. Distinct from merchantName: this is never the per-transaction
  *   filing key a stored expense always carries (see StoredFindingRow below),
  *   only a name the vendor dropdown can already select.
+ * @property {string} [newVendorKey] human-approved reusable key when this
+ *   description is not known yet; never substituted into merchantName
  * @property {?number} [expenseId] the DB id of an already-stored row this
  *   item reflects, or null/undefined for a plain not-yet-saved item. Set
  *   ONLY by readStoredFindings (a seeded finding always already exists in
@@ -75,6 +77,8 @@
  *   merchant resolved to, if any -- see finance.intake_report_model's
  *   StoredFinding.known_vendor_key for why this is never the row's own
  *   per-transaction filing key
+ * @property {string} [new_vendor_key] server-generated initial key guess for
+ *   an unknown description
  * @property {?number} [expense_id]  the DB id of the already-stored row
  *   this finding reflects -- see ManualEntryFields.expenseId
  */
@@ -92,6 +96,18 @@ export function validateManualEntry(fields) {
   const errors = {};
   if (!isNonEmptyString(fields && fields.merchantName)) {
     errors.merchantName = "Merchant/vendor name is required.";
+  }
+  if (
+    fields.knownVendorKey === "__new__" &&
+    !isNonEmptyString(fields.newVendorKey)
+  ) {
+    errors.newVendorKey = "New Vendor Key is required for an unknown vendor.";
+  }
+  if (
+    fields.knownVendorKey === "__new__" &&
+    !isNonEmptyString(fields.categoryName)
+  ) {
+    errors.categoryName = "Choose a category before learning a new vendor.";
   }
   if (!ISO_DATE_RE.test((fields && fields.transactionDate) || "")) {
     errors.transactionDate = "Date must be in yyyy-mm-dd form.";
@@ -123,6 +139,14 @@ export function buildSubmitPayload(fields, intakeRef) {
     transaction_date: fields.transactionDate,
     total_amount: Number(fields.totalAmount),
     category_name: (fields.categoryName || "").trim(),
+    ...(fields.knownVendorKey === "__new__"
+      ? {
+          vendor_key: (fields.newVendorKey || "").trim(),
+          learn_vendor: true,
+        }
+      : fields.knownVendorKey
+        ? { vendor_key: fields.knownVendorKey, learn_vendor: false }
+        : {}),
   };
 }
 
@@ -311,6 +335,7 @@ export function blankManualEntryFields() {
     totalAmount: "",
     categoryName: "",
     knownVendorKey: "",
+    newVendorKey: "",
     expenseId: null,
   };
 }
@@ -351,6 +376,8 @@ export function readStoredFindings(raw) {
         typeof row?.category_name === "string" ? row.category_name : "",
       knownVendorKey:
         typeof row?.known_vendor_key === "string" ? row.known_vendor_key : "",
+      newVendorKey:
+        typeof row?.new_vendor_key === "string" ? row.new_vendor_key : "",
       expenseId:
         Number.isInteger(row?.expense_id) && row.expense_id > 0
           ? row.expense_id

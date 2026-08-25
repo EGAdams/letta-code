@@ -126,7 +126,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
             transaction_date=str(row['expense_date']),
             total_amount=abs(float(row['amount'])),
             description=(row.get('description') or '').strip(),
-            vendor_key=(row.get('id_light') or '').strip(),
+            id_light=(row.get('id_light') or '').strip(),
             category_id=category_id,
             category_name=self._namer.name_for(category_id),
         )
@@ -191,7 +191,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                     transaction_date=edit.transaction_date,
                     total_amount=edit.total_amount,
                     description=edit.merchant_name,
-                    vendor_key=before.vendor_key,
+                    id_light=before.id_light,
                     category_id=edit.category_id,
                     category_name=self._namer.name_for(edit.category_id),
                 )
@@ -259,7 +259,7 @@ def records_as_json(records: Sequence[ExpenseRecord]) -> list[dict]:
             'transaction_date': r.transaction_date,
             'total_amount': r.total_amount,
             'description': r.description,
-            'vendor_key': r.vendor_key,
+            'id_light': r.id_light,
             'category_name': r.category_name,
         }
         for r in records

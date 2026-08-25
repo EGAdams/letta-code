@@ -149,10 +149,14 @@ Claude Code has no Letta agent — its messages/tool calls are local JSON
 `dashboard.html` is markup only; its one script is `js/dashboard-boot.js`. Per `js/README.md`: CSS
 in `css/dashboard.css`; `js/abstract/` = interfaces/Template-Method skeletons (no DOM/fetch,
 injected collaborators, unit-testable in Node); `js/implementation/` = concrete subclasses wiring
-those interfaces to real browser APIs — **this is the live code**. `dashboard-boot.js` constructs
-those classes and holds page-specific nav glue. No build step — edit + reload. Verify in a real
-browser and run `bun test js/tests` after any change. **Pre-commit gotcha:** biome errors abort the
-commit — `forEach(x => { x.remove(); })`, not `forEach(x => x.remove())`.
+those interfaces to real browser APIs — **this is the live code**; `js/boot/` = one module per
+dashboard section (agent manager, model stats, server/SSH managers, scanners, nav bindings…), each
+a `create*(deps)` factory. `dashboard-boot.js` is now only the ~150-line composition root: ports,
+then sections, then nav bindings, in that order. No build step — edit + reload. Verify in a real
+browser and run `bun test js/tests` after any change. When adding a section, add a module under
+`js/boot/` and construct it in `dashboard-boot.js` — do not grow the boot file itself.
+
+**Pre-commit gotcha:** biome errors abort the commit — `forEach(x => { x.remove(); })`, not `forEach(x => x.remove())`.
 
 ### Subsystem docs
 

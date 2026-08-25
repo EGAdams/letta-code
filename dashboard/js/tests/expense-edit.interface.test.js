@@ -21,7 +21,7 @@ const RECORD_JSON = {
   transaction_date: "2026-08-15",
   total_amount: 12.34,
   description: "Kroger",
-  vendor_key: "kroger_08_15_26_12_34",
+  id_light: "kroger_08_15_26_12_34",
   category_name: "Office",
 };
 
@@ -106,7 +106,7 @@ describe("readExpenseRecord", () => {
       transactionDate: "2026-08-15",
       totalAmount: 12.34,
       description: "Kroger",
-      vendorKey: "kroger_08_15_26_12_34",
+      idLight: "kroger_08_15_26_12_34",
       categoryName: "Office",
     });
   });
@@ -136,7 +136,7 @@ describe("readExpenseRecord", () => {
       total_amount: 1,
     });
     expect(record.description).toBe("");
-    expect(record.vendorKey).toBe("");
+    expect(record.idLight).toBe("");
     expect(record.categoryName).toBe("");
   });
 });
@@ -278,16 +278,16 @@ describe("formatRecordLabel", () => {
     expect(label).toBe("#501 · 2026-08-15 · $12.34 · Kroger · Office");
   });
 
-  test("falls back to the vendor key, then to a placeholder", () => {
+  test("never displays a filing key as a vendor", () => {
     const noDescription = readExpenseRecord({
       ...RECORD_JSON,
       description: "",
     });
-    expect(formatRecordLabel(noDescription)).toContain("kroger_08_15_26_12_34");
+    expect(formatRecordLabel(noDescription)).toContain("(no description)");
     const bare = readExpenseRecord({
       ...RECORD_JSON,
       description: "",
-      vendor_key: "",
+      id_light: "",
       category_name: "",
     });
     expect(formatRecordLabel(bare)).toContain("(no description)");

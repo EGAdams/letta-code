@@ -107,12 +107,12 @@ describe("ManualEntryForm.mount", () => {
 });
 
 describe("ManualEntryForm vendor selection", () => {
-  test("picking a known vendor fills the merchant name and its category", async () => {
+  test("picking a known vendor preserves Description and fills its category", async () => {
     const { form } = setup();
     await form.mount();
     form.vendorSelect.value = "kroger";
     form.vendorSelect.dispatch("change", {});
-    expect(form.merchantNameInput.value).toBe("kroger");
+    expect(form.merchantNameInput.value).toBe("");
     expect(form.categorySelect.value).toBe("Food");
   });
 
@@ -123,6 +123,51 @@ describe("ManualEntryForm vendor selection", () => {
     form.vendorSelect.value = "__new__";
     form.vendorSelect.dispatch("change", {});
     expect(form.merchantNameInput.value).toBe("My Own Vendor");
+  });
+
+  test("unknown finding shows an editable guessed New Vendor Key", async () => {
+    const { form } = setup({
+      dataset: {
+        mazdaFindings: JSON.stringify([
+          {
+            merchant_name: "CRACKER BARREL #428 CA CAVE CITY KY",
+            transaction_date: "2025-05-23",
+            total_amount: 28.73,
+            category_name: "Personal",
+            known_vendor_key: "",
+            new_vendor_key: "cracker_barrel",
+            expense_id: 1391,
+          },
+        ]),
+      },
+    });
+    await form.mount();
+    expect(form.vendorSelect.value).toBe("__new__");
+    expect(form.newVendorKeyWrap.style.display).toBe("");
+    expect(form.newVendorKeyInput.value).toBe("cracker_barrel");
+    expect(form.merchantNameInput.value).toBe(
+      "CRACKER BARREL #428 CA CAVE CITY KY",
+    );
+  });
+
+  test("known finding hides New Vendor Key", async () => {
+    const { form } = setup({
+      dataset: {
+        mazdaFindings: JSON.stringify([
+          {
+            merchant_name: "KROGER #123 GRAND RAPIDS MI",
+            transaction_date: "2025-05-23",
+            total_amount: 28.73,
+            category_name: "Food",
+            known_vendor_key: "kroger",
+            new_vendor_key: "",
+          },
+        ]),
+      },
+    });
+    await form.mount();
+    expect(form.vendorSelect.value).toBe("kroger");
+    expect(form.newVendorKeyWrap.style.display).toBe("none");
   });
 });
 
@@ -488,6 +533,102 @@ describe("ManualEntryForm._saveAll", () => {
     expect(submitCalls[0].merchant_name).toBe("Kroger");
     expect(submitCalls[1].merchant_name).toBe("Walgreens");
     expect(form._statusEl.textContent).toContain("All 2 expense(s) saved");
+  });
+
+  test("saving after Next updates a newly stored GFL item without duplicating its vendor key", async () => {
+    const insertCalls = [];
+    const editCalls = [];
+    let vendorKeysCallCount = 0;
+    const http = {
+      calls: [],
+      async getJSON(url) {
+        this.calls.push(["GET", url]);
+        if (url === "/api/vendor-keys") {
+          vendorKeysCallCount += 1;
+          return vendorKeysCallCount === 1
+            ? { ok: true, vendor_keys: [] }
+            : {
+                ok: true,
+                vendor_keys: [
+                  {
+                    vendor_key: "gfl_environmental",
+                    category_id: 1,
+                    category_name: "Uncategorized",
+                  },
+                ],
+              };
+        }
+        return { ok: true, categories: ["Uncategorized"] };
+      },
+      async postJSON(url, body) {
+        this.calls.push(["POST", url, body]);
+        if (url === "/api/manual-receipt-entry") {
+          insertCalls.push(body);
+          const isGfl = body.merchant_name === "GFL Environmental";
+          return {
+            ok: true,
+            expense_id: isGfl ? 1401 : 1402,
+            duplicate: false,
+            vendor_remembered: isGfl
+              ? { remembered: true, vendor_key: "gfl_environmental" }
+              : null,
+          };
+        }
+        if (url === "/api/expense-edit") {
+          editCalls.push(body);
+          return {
+            ok: true,
+            record: {
+              id: body.expense_id,
+              description: body.merchant_name,
+              transaction_date: body.transaction_date,
+              total_amount: body.total_amount,
+              category_name: body.category_name,
+            },
+            changed_fields: [],
+            warnings: [],
+          };
+        }
+        return { ok: true };
+      },
+    };
+    const { form } = setup({ http });
+    await form.mount();
+    form.items = [
+      validItem({
+        merchantName: "GFL Environmental",
+        categoryName: "Uncategorized",
+        knownVendorKey: "__new__",
+        newVendorKey: "gfl_environmental",
+      }),
+      validItem({ merchantName: "Kroger" }),
+    ];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+
+    await form._saveAll();
+    expect(form.items[0].expenseId).toBe(1401);
+    expect(form.items[0].knownVendorKey).toBe("gfl_environmental");
+    expect(form.items[0].newVendorKey).toBe("");
+
+    form._navigate(1);
+    await form._saveAll();
+
+    const gflInserts = insertCalls.filter(
+      (body) => body.merchant_name === "GFL Environmental",
+    );
+    expect(gflInserts).toHaveLength(1);
+    expect(gflInserts[0].vendor_key).toBe("gfl_environmental");
+    const gflEdit = editCalls.find((body) => body.expense_id === 1401);
+    expect(gflEdit.merchant_name).toBe("GFL Environmental");
+    expect(gflEdit.vendor_key).toBe("gfl_environmental");
+    expect(
+      [...insertCalls, ...editCalls].some(
+        (body) =>
+          body.vendor_key === "gfl_environmental_gfl_environmental" ||
+          body.merchant_name === "GFL Environmental - gfl_environmental",
+      ),
+    ).toBe(false);
   });
 
   test("an item with an expenseId is saved through an UPDATE, never an INSERT", async () => {
@@ -915,7 +1056,7 @@ describe("ambiguous vendor pick-list (DTE repro)", () => {
     await choice._listeners.click[0]();
     expect(form.vendorSelect.value).toBe("dte_energy_0544");
     expect(form.categorySelect.value).toBe("Housing Gas Bill");
-    expect(form.merchantNameInput.value).toBe("dte_energy_0544");
+    expect(form.merchantNameInput.value).toBe("DTE Energy");
     expect(form.items[0].categoryName).toBe("Housing Gas Bill");
   });
 

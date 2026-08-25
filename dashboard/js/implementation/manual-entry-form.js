@@ -293,14 +293,32 @@ export class ManualEntryForm {
     const vendorWrap = this._el("div", { className: "manual-entry-field" });
     shell.appendChild(vendorWrap);
     vendorWrap.appendChild(this._el("label", { text: "Merchant / vendor" }));
+    const vendorRow = this._el("div", { className: "manual-entry-vendor-row" });
+    vendorWrap.appendChild(vendorRow);
     this.vendorSelect = this._el("select");
     this.vendorSelect.dataset.field = "vendorSelect";
-    vendorWrap.appendChild(this.vendorSelect);
+    vendorRow.appendChild(this.vendorSelect);
+    this.newVendorKeyWrap = this._el("span", {
+      className: "manual-entry-new-vendor-key",
+    });
+    this.newVendorKeyWrap.appendChild(
+      this._el("label", { text: "New Vendor Key" }),
+    );
+    this.newVendorKeyInput = this._el("input");
+    this.newVendorKeyInput.type = "text";
+    this.newVendorKeyInput.dataset.field = "newVendorKey";
+    this.newVendorKeyWrap.appendChild(this.newVendorKeyInput);
+    vendorRow.appendChild(this.newVendorKeyWrap);
+    const descriptionWrap = this._el("div", {
+      className: "manual-entry-field",
+    });
+    shell.appendChild(descriptionWrap);
+    descriptionWrap.appendChild(this._el("label", { text: "Description" }));
     this.merchantNameInput = this._el("input");
     this.merchantNameInput.type = "text";
-    this.merchantNameInput.placeholder = "Type or pick above";
     this.merchantNameInput.dataset.field = "merchantName";
-    vendorWrap.appendChild(this.merchantNameInput);
+    this.merchantNameInput.className = "manual-entry-field-wide";
+    descriptionWrap.appendChild(this.merchantNameInput);
     // Shown only when OCR's merchant name matched several stored vendors that
     // disagree about the category. Nothing is prefilled in that case, so this
     // is how the operator resolves it -- see readVendorCandidates.
@@ -415,6 +433,7 @@ export class ManualEntryForm {
     });
     for (const input of [
       this.merchantNameInput,
+      this.newVendorKeyInput,
       this.transactionDateInput,
       this.totalAmountInput,
     ]) {
@@ -555,7 +574,7 @@ export class ManualEntryForm {
       this.vendorSelect.appendChild(el);
     }
     const addNew = this._el("option", {
-      text: "+ Add new vendor (type below)",
+      text: "Add new vendor",
     });
     addNew.value = NEW_VENDOR_OPTION;
     this.vendorSelect.appendChild(addNew);
@@ -575,8 +594,11 @@ export class ManualEntryForm {
 
   _applyVendorSelection() {
     const value = this.vendorSelect.value;
-    if (!value || value === NEW_VENDOR_OPTION) return;
-    this.merchantNameInput.value = value;
+    this._showNewVendorKey(value === NEW_VENDOR_OPTION);
+    if (!value || value === NEW_VENDOR_OPTION) {
+      this._captureCurrentItem();
+      return;
+    }
     const match = this.vendorOptions.find((opt) => opt.vendorKey === value);
     if (
       match &&
@@ -662,7 +684,7 @@ export class ManualEntryForm {
     ) {
       this.vendorSelect.value = candidate.vendorKey;
     }
-    this.merchantNameInput.value = candidate.vendorKey;
+    this._showNewVendorKey(false);
     if (
       candidate.categoryName &&
       this.categoryNames.includes(candidate.categoryName)
@@ -694,6 +716,7 @@ export class ManualEntryForm {
       totalAmount: this.totalAmountInput.value,
       categoryName: this.categorySelect.value,
       knownVendorKey: this.vendorSelect.value,
+      newVendorKey: this.newVendorKeyInput.value,
       expenseId,
     };
   }
@@ -729,9 +752,23 @@ export class ManualEntryForm {
     this.categorySelect.value = this.categoryNames.includes(item.categoryName)
       ? item.categoryName
       : NO_CATEGORY_OPTION;
-    this.vendorSelect.value = this._knownVendorKeyFor(item);
+    const knownVendorKey = this._knownVendorKeyFor(item);
+    const isUnknownFinding = !knownVendorKey && Boolean(item.newVendorKey);
+    this.vendorSelect.value = knownVendorKey
+      ? knownVendorKey
+      : isUnknownFinding
+        ? NEW_VENDOR_OPTION
+        : "";
+    this.newVendorKeyInput.value = isUnknownFinding
+      ? item.newVendorKey || ""
+      : "";
+    this._showNewVendorKey(isUnknownFinding && !knownVendorKey);
     this._positionEl.textContent = this._positionText();
     this._renderErrors({});
+  }
+
+  _showNewVendorKey(show) {
+    this.newVendorKeyWrap.style.display = show ? "" : "none";
   }
 
   /**
@@ -1083,6 +1120,7 @@ export class ManualEntryForm {
           ok: result.ok,
           error: result.ok ? null : describeEditResult(result),
           isUpdate: true,
+          vendorRemembered: result.vendorRemembered,
         };
       } catch (err) {
         return {
@@ -1137,7 +1175,24 @@ export class ManualEntryForm {
     const results = [];
     for (let i = 0; i < this.items.length; i++) {
       this._setStatus(`Saving ${i + 1} of ${this.items.length}…`);
-      results.push(await this._saveOneItem(this.items[i], intakeRef));
+      const result = await this._saveOneItem(this.items[i], intakeRef);
+      results.push(result);
+      // Save All may run again after the operator moves to another item.
+      // Promote a successful insert (including a duplicate match that names
+      // its existing row) to stored-item state immediately, so that later
+      // saves UPDATE that expense rather than feeding it through the insert
+      // pipeline a second time.
+      if (result.ok && result.expenseId) {
+        this.items[i].expenseId = result.expenseId;
+      }
+      if (
+        result.ok &&
+        result.vendorRemembered?.remembered &&
+        result.vendorRemembered.vendorKey
+      ) {
+        this.items[i].knownVendorKey = result.vendorRemembered.vendorKey;
+        this.items[i].newVendorKey = "";
+      }
     }
     const failed = results.filter((r) => !r.ok);
     if (failed.length) {

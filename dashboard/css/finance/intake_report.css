@@ -85,6 +85,9 @@ td.muted { padding:10px 12px; height:auto; }
     background-size:var(--field-height) 100%;
     padding-right:calc(var(--field-height) + var(--field-arrow-gap));
 }
+.manual-entry-vendor-row { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+.manual-entry-new-vendor-key { display:inline-block; }
+.manual-entry-new-vendor-key label { display:block; }
 /* transform:scale grows every button 20% regardless of label length — a
    padding/min-width bump only widens buttons still sitting at 98.css's
    75px floor, not longer ones like "+ Add Another Expense" whose width is

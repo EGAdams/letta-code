@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from typing import Optional
 
@@ -70,6 +71,8 @@ class ManualReceiptEntry(ExpenseFieldRules):
     image_path: str
     category_id: Optional[int] = None
     org_id: int = 1
+    vendor_key: str = ''
+    learn_vendor: bool = False
 
     @field_validator('image_path')
     @classmethod
@@ -77,6 +80,14 @@ class ManualReceiptEntry(ExpenseFieldRules):
         if not value.strip():
             raise ValueError('image_path is required')
         return value
+
+    @field_validator('vendor_key')
+    @classmethod
+    def _vendor_key_is_canonical(cls, value):
+        cleaned = value.strip().lower()
+        if cleaned and not re.fullmatch(r'[a-z0-9]+(?:_[a-z0-9]+)*', cleaned):
+            raise ValueError('vendor_key must use lowercase letters, numbers, and underscores')
+        return cleaned
 
 
 def build_preview_command(image_path: str, engine: str = 'local') -> list[str]:
@@ -117,6 +128,8 @@ def build_save_command(entry: ManualReceiptEntry) -> list[str]:
     ]
     if entry.category_id is not None:
         cmd += ['--category-id', str(entry.category_id)]
+    if entry.learn_vendor and entry.vendor_key:
+        cmd += [f'--vendor-key-override={entry.vendor_key}']
     return cmd
 
 

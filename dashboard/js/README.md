@@ -6,8 +6,9 @@ following the Gang of Four playbook.
 
 **The cutover is complete.** `dashboard.html` is now pure markup; its only script
 is `<script type="module" src="/js/dashboard-boot.js">`. `dashboard-boot.js` is a
-thin wiring layer that constructs the classes below and binds them to the DOM —
-all behaviour lives in these unit-tested classes.
+~150-line composition root: it constructs the shared ports, builds one module
+per dashboard section from `boot/`, and hands them to the nav bindings. All
+behaviour lives in the unit-tested classes below.
 
 ## Layout
 
@@ -18,9 +19,33 @@ js/
                    are injected so everything is unit-testable.
   tests/           bun:test unit tests, one file per interface/class.
   implementation/  Concrete, DOM/fetch-wired subclasses (the live code).
-  dashboard-boot.js  The page entry point: looks up elements, builds the shared
-                   ports + renderer strategies, keeps the page-specific nav glue.
+  boot/            One module per dashboard section. Each exports a
+                   `create*(deps)` factory that takes its collaborators
+                   (`http`, `nav`, `viewNav`, …) and returns that section's
+                   facade — no module reaches for a global of its own.
+  dashboard-boot.js  The composition root: builds the ports, the sections, the
+                   nav bindings, in that order. Nothing else.
 ```
+
+### `boot/` — the section modules
+
+| Module | Owns |
+|---|---|
+| `nav-elements.js` | the one place every `nav-*` element is looked up |
+| `gates.js` | the two startup overlays, from `abstract/startup-gate.js` |
+| `view-navigator.js` | `activateView` / `setActive` / `returnTo*` — the choke point every tab switch runs through, and where the statement-review modal is told to re-check its visibility |
+| `agent-manager.js` | the `AM` facade: roster, per-agent detail fanout, deep-link `openById` |
+| `agent-detail-renderers.js` | the Strategy table behind `AM.renderDetail()` |
+| `agent-tab-status.js` | activity + structural-health colouring of agent tabs |
+| `scanner-agent-views.js` | Mazda's Thoughts + the archive-verification terminal on scanner report tabs |
+| `model-stats.js`, `pc-monitor.js` | the `MS` / `PCM` facades (card HTML lives in `abstract/`) |
+| `server-manager.js`, `ssh-manager.js` | the `SM` / `SSHM` facades; they share `log-panel.js` |
+| `rol-finance.js` | the `RF` controller + its on-screen-only status poll |
+| `receptionist.js` | Toyota's note box and its voice command channel |
+| `startup-checks.js` | the four boot-time preload tasks, each failing closed |
+| `deep-link.js` | `?agent=` / `?view=` entry points |
+| `bindings/` | every sidebar listener, one file per nav area |
+| `scanners/` | the scanner dialogs: `scanner-dialog.js` (workflow), `scanner-progress-panel.js` (bar + label), `scanner-image-viewer.js` (zoom/pan modal), `scanner-status-monitor.js` (observation-only recovery poll), `printer-repair-panel.js`, and `index.js` (statement review, vendor review, Process PDF) |
 
 Run the tests:
 
@@ -45,6 +70,9 @@ bun test js/tests
 | `navigation-controller.interface.js`| State                   | nav panel show/hide + view switching |
 | `tab-factory.interface.js`         | Factory Method           | agent/server/connection `createElement` blocks |
 | `agent-voice-catalog.interface.js` | Strategy / Registry      | per-agent `voiceFor()` + `AGENT_VOICE_PREFERENCES` |
+| `startup-gate.js`                  | Template Method          | the two 135-line copy-pasted `startupGate` / `agentGate` IIFEs |
+| `model-stats-render.js`            | pure renderer            | `renderModelStats()` / `renderRateOfChange()` |
+| `pc-metrics-render.js`             | pure renderer            | `renderPcMetrics()` |
 
 Concrete classes that have no separate `abstract/` interface live directly in
 `implementation/` (they are pure DOM/fetch glue over the interfaces above):

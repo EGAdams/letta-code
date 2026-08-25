@@ -14,7 +14,16 @@ VOICE_COMMUNICATION_PLAN = DASHBOARD_DIR / "voice_communication_plan.html"
 VOICE_COMMUNICATION_PLAN_V1 = DASHBOARD_DIR / "voice_communication_plan_v1.html"
 VOICE_WORKSPACE_DIR = DASHBOARD_DIR / "js" / "plans" / "voice-communication"
 PLAN_MODULES_DIR = DASHBOARD_DIR / "js" / "plans"
-DASHBOARD_BOOT = DASHBOARD_DIR / "js" / "dashboard-boot.js"
+# The boot layer is split one module per dashboard section (js/README.md), so
+# these contracts are asserted against the whole tree rather than one file.
+BOOT_DIR = DASHBOARD_DIR / "js" / "boot"
+
+
+def _boot_source() -> str:
+    """Every boot module's text, concatenated."""
+    return "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(BOOT_DIR.rglob("*.js"))
+    )
 
 
 def _voice_workspace_source() -> str:
@@ -74,9 +83,9 @@ def test_process_flows_opens_report_flow_subnav_and_amazon_report_flow_view():
         in section.group(1)
     )
 
-    boot = DASHBOARD_BOOT.read_text(encoding="utf-8")
-    assert 'const navProcessFlows = document.getElementById("nav-process-flows")' in boot
-    assert 'safeActivateView("plans-report-flow")' in boot
+    boot = _boot_source()
+    assert 'processFlows: doc.getElementById("nav-process-flows")' in boot
+    assert 'viewNav.activateView("plans-report-flow")' in boot
     assert 'id="btn-back-process-flows"' in dashboard
 
     flow_page = (

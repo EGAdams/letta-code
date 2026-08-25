@@ -25,7 +25,7 @@
  * @property {number} totalAmount      always positive; the stored sign is the
  *   server's business, not the operator's
  * @property {string} description
- * @property {string} vendorKey
+ * @property {string} idLight immutable transaction filing key, not a vendor
  * @property {string} categoryName
  *
  * @typedef {Object} ExpenseSearchResult
@@ -154,7 +154,7 @@ export function readExpenseRecord(raw) {
     transactionDate,
     totalAmount: Math.abs(totalAmount),
     description: asString(raw.description),
-    vendorKey: asString(raw.vendor_key),
+    idLight: asString(raw.id_light),
     categoryName: asString(raw.category_name),
   };
 }
@@ -215,6 +215,14 @@ export function buildEditPayload(expenseId, fields) {
     transaction_date: fields.transactionDate,
     total_amount: Number(fields.totalAmount),
     category_name: (fields.categoryName || "").trim(),
+    ...(fields.knownVendorKey === "__new__"
+      ? {
+          vendor_key: (fields.newVendorKey || "").trim(),
+          learn_vendor: true,
+        }
+      : fields.knownVendorKey
+        ? { vendor_key: fields.knownVendorKey, learn_vendor: false }
+        : {}),
   };
 }
 
@@ -229,6 +237,7 @@ export function readEditResponse(json) {
     record: null,
     changedFields: [],
     warnings: [],
+    vendorRemembered: null,
     error: "malformed response",
   };
   if (!isPlainObject(json)) return blank;
@@ -240,6 +249,14 @@ export function readEditResponse(json) {
     record: readExpenseRecord(json.record),
     changedFields: asStringArray(json.changed_fields),
     warnings: asStringArray(json.warnings),
+    vendorRemembered:
+      isPlainObject(json.vendor_remembered) &&
+      typeof json.vendor_remembered.vendor_key === "string"
+        ? {
+            remembered: json.vendor_remembered.remembered === true,
+            vendorKey: json.vendor_remembered.vendor_key,
+          }
+        : null,
     error: null,
   };
 }
@@ -266,6 +283,8 @@ export function describeEditResult(result) {
 export function formatRecordLabel(record) {
   const amount = formatAmountForDisplay(String(record.totalAmount));
   const category = record.categoryName || "Uncategorized";
-  const name = record.description || record.vendorKey || "(no description)";
+  // idLight is a filing identifier, not merchant text. Do not surface it as
+  // a pretend vendor when description is absent.
+  const name = record.description || "(no description)";
   return `#${record.id} · ${record.transactionDate} · $${amount} · ${name} · ${category}`;
 }

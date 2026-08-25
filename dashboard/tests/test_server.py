@@ -7022,10 +7022,12 @@ def test_recent_intake_html_duplicates_run_still_lists_rows(tmp_path, monkeypatc
     server.merge_recent_intake_event({
         'duplicate_expense_ids': [1490], 'parsed': 10, 'stored': 0})
     monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
-        'date': '2025-05-30', 'amount': '26.32', 'vendor_key': 'amazon_com',
+        'date': '2025-05-30', 'amount': '26.32', 'id_light': 'amazon_com_05_30_25_26_32',
         'description': 'AMAZON.COM', 'reporting_category': 'Uncategorized',
         'cat_class': 'cat-uncategorized',
     }])
+    monkeypatch.setattr(server.manual_entry, 'resolve_vendor_match',
+                        lambda _description: {'vendor_key': 'amazon_com'})
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '<div id="rol-category-picker"></div>', ''))
     html = server.build_recent_report_html()
@@ -8010,7 +8012,7 @@ class _StubNamer:
 def _stub_record(**overrides):
     from finance.expense_edit_model import ExpenseRecord
     fields = dict(id=501, transaction_date='2026-08-15', total_amount=12.34,
-                  description='Kroger', vendor_key='kroger_08_15_26_12_34',
+                  description='Kroger', id_light='kroger_08_15_26_12_34',
                   category_id=140, category_name='Office')
     fields.update(overrides)
     return ExpenseRecord(**fields)

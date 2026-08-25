@@ -16,3 +16,29 @@ def vendor_category_lookup():
         sys.path.insert(0, CATEGORIZER_LIB_DIR)
     from vendor_category_lookup import VendorCategoryLookup  # type: ignore
     return VendorCategoryLookup()
+
+
+def guess_vendor_key(description: str) -> str:
+    """Use existing normalization, then trim an obvious statement store id."""
+    value = vendor_category_lookup().guess_vendor_key(description)
+    tokens = [token for token in value.split('_') if token]
+    for index, token in enumerate(tokens):
+        if token.isdigit():
+            end = index
+            if index and tokens[index - 1] in {'store', 'number', 'no'}:
+                end -= 1
+            return '_'.join(tokens[:end]) or value
+    return value
+
+
+def remember_vendor(description: str, category_id: int, vendor_key: str):
+    """Persist one human-approved rule through the existing lookup service."""
+    return vendor_category_lookup().remember(
+        description, category_id, vendor_key=vendor_key)
+
+
+def vendor_is_known(vendor_key: str) -> bool:
+    """A dropdown vendor is known only once it has a real category."""
+    if not vendor_key:
+        return False
+    return vendor_category_lookup().vendor_map.get(vendor_key) is not None

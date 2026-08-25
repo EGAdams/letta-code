@@ -1410,7 +1410,10 @@ def _fetch_expenses_by_ids(ids):
             'id': int(r['id']),
             'date': str(r['expense_date']),
             'amount': str(r['amount']),
-            'vendor_key': (r.get('id_light') or '').strip(),
+            'id_light': (r.get('id_light') or '').strip(),
+            # Filled from the display/source description immediately before
+            # rendering; never conflate id_light with a reusable vendor key.
+            'vendor_key': '',
             'description': (r.get('description') or '').strip(),
             'reporting_category': rep,
             'cat_class': _css_class_for_report_name(rep),
@@ -1878,6 +1881,11 @@ def build_recent_intake_html(intake):
         )
         presentation_rows_list = intake_report_model.apply_source_descriptions(
             presentation_rows_list, source_descriptions)
+    presentation_rows_list = intake_report_model.apply_canonical_vendor_keys(
+        presentation_rows_list,
+        lambda description: manual_entry.resolve_vendor_match(
+            description).get('vendor_key'),
+    )
     # Mazda's own findings (whatever STEP 8 already stored for this document)
     # seed the review dialog instead of leaving it blank -- an auto-scan used
     # to only ever populate Verified Transactions, so checking/correcting what

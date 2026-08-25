@@ -14,10 +14,14 @@ stalled/duplicate/still-working scan can be tested directly.
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
+import json
 import os
+from typing import Annotated
 
-from pydantic import ValidationError
+from pydantic import BeforeValidator, ValidationError, field_validator
 
+from contracts import StrictModel
 from finance.expense_fields import ExpenseFieldRules
 
 #: A metadata field left at this marker has no value to report, and the page
@@ -171,6 +175,7 @@ def presentation_rows(rows, duplicate_ids, *, stored=None, parsed=None):
             'id': row_id or '',
             'cat_class': row.get('cat_class') or '',
             'vendor_key': row.get('vendor_key') or '',
+            'id_light': row.get('id_light') or '',
             'description': row.get('description') or '',
             'amount': row.get('amount') or '',
             'date': row.get('date') or '',
@@ -178,6 +183,130 @@ def presentation_rows(rows, duplicate_ids, *, stored=None, parsed=None):
             'duplicate': row_id in duplicate_ids or everything_was_a_duplicate,
         })
     return prepared
+
+
+JsonDecimal = Annotated[Decimal, BeforeValidator(lambda value: Decimal(str(value)))]
+
+
+class StatementSourceTransaction(StrictModel):
+    """The three statement-artifact fields needed to recover display text."""
+
+    date: str
+    description: str
+    amount: JsonDecimal
+    transaction_kind: str = ''
+
+    @field_validator('date')
+    @classmethod
+    def _date_is_iso(cls, value: str) -> str:
+        return datetime.strptime(value, '%Y-%m-%d').date().isoformat()
+
+    @field_validator('description')
+    @classmethod
+    def _description_is_present(cls, value: str) -> str:
+        cleaned = ' '.join(value.split())
+        if not cleaned:
+            raise ValueError('description is required')
+        return cleaned
+
+
+class StatementSourceSection(StrictModel):
+    bank_name: str = ''
+    account_number: str = ''
+    statement_period: dict | None = None
+    statement_total: JsonDecimal | None = None
+    transaction_count: int = 0
+    unreadable_count: int = 0
+    transactions: list[StatementSourceTransaction] = []
+
+
+class StatementSourceArtifact(StrictModel):
+    ok: bool
+    doc_kind: str
+    source_image: str
+    statement_count: int
+    statements: list[StatementSourceSection] = []
+
+
+def _statement_match_key(date_value, amount_value):
+    """Canonical identity shared by a parser row and its stored expense."""
+    try:
+        date_key = datetime.strptime(str(date_value), '%Y-%m-%d').date().isoformat()
+        amount_key = abs(Decimal(str(amount_value))).quantize(Decimal('0.01'))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return date_key, amount_key
+
+
+def recover_statement_source_descriptions(statement_json_path, rows):
+    """Return ``expense id -> original statement description`` when unique.
+
+    Duplicate-matched intake rows are loaded back from ``expenses``. Their DB
+    description can predate this statement (or, historically, contain a vendor
+    slug), while the validated ``.statement.json`` beside this exact scan still
+    carries the source text. Match only one-to-one date/amount identities; if a
+    statement or DB side repeats the same pair, preserving the DB fallback is
+    safer than assigning the wrong source text.
+    """
+    if not statement_json_path:
+        return {}
+    try:
+        with open(statement_json_path, encoding='utf-8') as handle:
+            payload = StatementSourceArtifact.model_validate(json.load(handle))
+    except (OSError, ValueError, ValidationError):
+        return {}
+
+    raw_transactions = [
+        transaction
+        for statement in payload.statements
+        for transaction in statement.transactions
+    ]
+
+    source_by_key = {}
+    for transaction in raw_transactions:
+        key = _statement_match_key(transaction.date, transaction.amount)
+        if key:
+            source_by_key.setdefault(key, []).append(transaction.description)
+
+    rows_by_key = {}
+    for row in rows or []:
+        key = _statement_match_key(row.get('date'), row.get('amount'))
+        if key and row.get('id'):
+            rows_by_key.setdefault(key, []).append(row)
+
+    recovered = {}
+    for key, source_descriptions in source_by_key.items():
+        matching_rows = rows_by_key.get(key) or []
+        if len(source_descriptions) == 1 and len(matching_rows) == 1:
+            recovered[int(matching_rows[0]['id'])] = source_descriptions[0]
+    return recovered
+
+
+def apply_canonical_vendor_keys(rows, resolve_vendor):
+    """Copy rows with reusable vendor keys derived from their descriptions.
+
+    `id_light` remains untouched as the immutable filing identifier. A failed
+    resolution deliberately produces a blank vendor key: showing a filing key
+    as a vendor would mislead both the operator and category picker.
+    """
+    return [
+        {
+            **row,
+            'vendor_key': resolve_vendor(row.get('description') or '') or '',
+        }
+        for row in rows or []
+    ]
+
+
+def apply_source_descriptions(rows, source_descriptions):
+    """Copy presentation rows while overlaying verified source descriptions."""
+    return [
+        {
+            **row,
+            'description': source_descriptions.get(row.get('id'), row.get('description') or ''),
+        }
+        for row in rows or []
+    ]
 
 
 class StoredFinding(ExpenseFieldRules):
@@ -215,9 +344,11 @@ class StoredFinding(ExpenseFieldRules):
     #: inserting an already-stored expense a second time is exactly the
     #: duplicate a human corrected a vendor/category on, not a new one.
     expense_id: int | None = None
+    new_vendor_key: str = ''
 
 
-def stored_findings(rows, resolve_vendor=None):
+def stored_findings(rows, resolve_vendor=None, guess_vendor=None,
+                    vendor_is_known=None):
     """`presentation_rows` output -> validated `StoredFinding`s for the dialog.
 
     Duplicate rows are included, not skipped: a "duplicate" here only means
@@ -252,6 +383,8 @@ def stored_findings(rows, resolve_vendor=None):
     resolver, backed by vendor_category.yaml.
     """
     resolve_vendor = resolve_vendor or (lambda _description: None)
+    guess_vendor = guess_vendor or (lambda _description: '')
+    vendor_is_known = vendor_is_known or (lambda key: bool(key))
     findings = []
     for row in rows:
         try:
@@ -263,12 +396,19 @@ def stored_findings(rows, resolve_vendor=None):
         except (TypeError, ValueError):
             continue
         try:
+            description = row['description']
+            resolved_vendor_key = resolve_vendor(description) or ''
+            known_vendor_key = (
+                resolved_vendor_key
+                if vendor_is_known(resolved_vendor_key) else '')
             findings.append(StoredFinding(
-                merchant_name=row['description'],
+                merchant_name=description,
                 transaction_date=row['date'],
                 total_amount=amount,
                 category_name=row['reporting_category'],
-                known_vendor_key=resolve_vendor(row['description']) or '',
+                known_vendor_key=known_vendor_key,
+                new_vendor_key=(
+                    '' if known_vendor_key else guess_vendor(description) or ''),
                 expense_id=(int(row['id']) if row['id'] else None),
             ))
         except ValidationError:

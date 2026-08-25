@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="/css/dashboard.css?v=20260813a" />
+  <link rel="stylesheet" href="/css/model-stats-agents.css?v=20260821a" />
+</head>
+<body class="startup-loading">
+  <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
+    <div class="startup-panel">
+      <div class="startup-title">Dashboard Startup Checks</div>
+      <div class="startup-status" id="startup-status-text">Running Dashboard checks...</div>
+      <div class="startup-progress-shell" aria-hidden="true">
+        <div class="startup-progress-bar" id="startup-progress-bar"></div>
+      </div>
+      <div class="startup-console" id="startup-console"></div>
+    </div>
+  </div>
+  <aside class="sidebar">
+    <h1>Dashboard</h1>
+
+    <!-- Main nav -->
+    <nav id="nav-main">
+      <button type="button" class="tab active" data-nav="main" data-target="home">Home</button>
+      <button type="button" class="tab" data-nav="main" data-target="rol-finance">ROL Finance</button>
+      <button type="button" class="tab" data-nav="main" data-target="status" id="btn-system-status">System Status</button>
+      <button type="button" class="tab" data-nav="main" data-target="agent-management" id="btn-agent-mgmt">Agent Management</button>
+      <button type="button" class="tab" data-nav="main" data-target="project-plans">Project Plans</button>
+    </nav>
+
+    <!-- PC Monitor sub-nav -->
+    <nav id="nav-pc-monitor" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-pc-monitor">Back</button>
+      <button type="button" class="tab" data-nav="pc-monitor" data-pc="win11">Windows 11</button>
+      <button type="button" class="tab" data-nav="pc-monitor" data-pc="win10">Windows 10</button>
+      <button type="button" class="tab" data-nav="pc-monitor" data-pc="moms46">Moms 46</button>
+    </nav>
+
+    <!-- Model Stats sub-nav -->
+    <nav id="nav-model-stats" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-model-stats">Back</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="r46-claude">rbarnesrol claude</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="r46-codex">rbarnesrol codex</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="gemini">Gemini Flash</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="w11-claude">eg1972 claude</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="w11-codex">eg1972 codex</button>
+      <button type="button" class="tab" data-nav="model-stats" data-source="agent-assignments">Agent Assignments</button>
+    </nav>
+
+    <!-- Status sub-nav -->
+    <nav id="nav-status" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back">Back</button>
+      <button type="button" class="tab" data-nav="status" data-target="server-management" id="btn-server-mgmt">Server Management</button>
+      <button type="button" class="tab" data-nav="status" data-target="ssh-connections" id="btn-ssh-connections">SSH Connections</button>
+      <button type="button" class="tab" data-nav="status" data-target="model-stats" id="btn-model-stats">Model Stats</button>
+      <button type="button" class="tab" data-nav="status" data-target="pc-monitor" id="btn-pc-monitor">PC Monitor</button>
+    </nav>
+
+    <!-- Agent management sub-nav -->
+    <nav id="nav-agents" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-agents">Back</button>
+      <button type="button" class="tab active" data-nav="agents" data-target="agents-home" id="btn-agents-home">Agents</button>
+    </nav>
+
+    <!-- Project Plans sub-nav -->
+    <nav id="nav-plans" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-plans">Back</button>
+      <button type="button" class="tab active" data-nav="plans" data-target="plans-self-evolving">Self Evolving</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-codebase-rewrite">Codebase Rewrite</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-server-rewrite">Server Rewrite</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-divide-conquer">Divide Conquer</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-audio-input">Audio Input</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-dev-status">Mazda Dev Status</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-scanned-statements">Scanned Statements</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-mazda-training">Mazda Training</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-verification-tracker">Verification Tracker</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-self-improvement">Self Improvement Plan</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-diet-pi-comm">Diet Pi Comm</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-meta-self-improvement">Meta Self-Improvement</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-archon-workflows">Archon Workflows</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-expense-itemization">Expense Itemization</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-pipecat-voice">Pipecat Voice</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-voice-communication">Voice Communication</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-swarmforge-project">SwarmForge Project</button>
+      <button type="button" class="tab" data-nav="plans" data-target="plans-process-flows">Process Flows</button>
+    </nav>
+
+    <!-- Voice Communication interface sub-nav -->
+    <nav id="nav-voice-communication" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-voice-communication">Back</button>
+    </nav>
+
+    <!-- Process Flows sub-nav -->
+    <nav id="nav-process-flows" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-process-flows">Back</button>
+      <button type="button" class="tab active" data-nav="process-flows" data-target="plans-report-flow">Report Flow</button>
+    </nav>
+
+    <!-- ROL Finance sub-nav -->
+    <nav id="nav-rol-finance" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-rol-finance">Back</button>
+      <button type="button" class="tab active" data-nav="rol-finance" data-target="rol-finance-plan">Plan</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-current-status">Current Status</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-taxes">Taxes</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-reports">Reports</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-scanners">Scanners</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-mazda-objects">Mazda Objects</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-red-box-project">Red Box Project</button>
+    </nav>
+
+    <!-- ROL Finance Reports sub-nav (report tabs injected dynamically) -->
+    <nav id="nav-rol-finance-reports" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-rol-finance-reports">Back</button>
+    </nav>
+
+    <!-- ROL Finance Scanners sub-nav -->
+    <nav id="nav-scanners" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-scanners">Back</button>
+      <button type="button" class="tab active" data-nav="scanners" data-target="scanners-freezer">Freezer Scanner</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-window">Window Scanner</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-pdf">Process PDF</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-vendor-review">Needs Vendor Review</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-window" data-scanner-report="window">Last Window Scan</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-freezer" data-scanner-report="freezer">Last Freezer Scan</button>
+    </nav>
+
+    <!-- Agent detail sub-nav -->
+    <nav id="nav-agent-detail" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-agent-detail">Back</button>
+      <button type="button" class="tab active" data-nav="agent-detail" data-target="agent-detail-home">Home</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-thoughts">Thoughts</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-messages">Messages</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tool-calls">Tool Calls</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-agent-card">Agent Card</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-tests">Tests</button>
+      <button type="button" class="tab" data-nav="agent-detail" data-target="agent-detail-input-options">Input Options</button>
+    </nav>
+
+    <!-- Server management sub-nav (server tabs injected dynamically) -->
+    <nav id="nav-servers" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-servers">Back</button>
+    </nav>
+
+    <!-- SSH Connections sub-nav (connection tabs injected dynamically) -->
+    <nav id="nav-ssh-connections" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-ssh">Back</button>
+    </nav>
+  </aside>
+
+  <main class="content" id="main-content">
+    <!-- Main views -->
+    <section id="home" class="view active">
+      <h2>Toyota</h2>
+      <p>Your receptionist. Press Start Listening when you're ready to talk to her, or just type.</p>
+      <div id="receptionist-box"></div>
+      <!-- Command channel: spoken instructions about the note above. -->
+      <div id="note-command-box"></div>
+    </section>
+
+    <section id="status-home" class="view">
+      <h2>System Status</h2>
+      <p>Select a section above.</p>
+    </section>
+
+    <section id="model-stats" class="view">
+      <h2>Model Stats</h2>
+      <p class="srv-note">Pick a provider/account on the left to see current session token usage and limits. Red = maxed out (with reset time). W11 = this machine, R46 = mom's machine.</p>
+      <div id="model-stats-body"><p class="am-dim">Select a source…</p></div>
+      <div id="model-stats-agents" class="win98-agents hidden"></div>
+      <div id="codex-sync-panel"></div>
+      <div id="chatgpt-provider-account-panel"></div>
+    </section>
+
+    <section id="pc-monitor" class="view">
+      <h2>PC Monitor</h2>
+      <p class="srv-note">RAM, hard-drive, and network usage per machine. A tab blinking yellow means one of that PC's metrics crossed its alert threshold.</p>
+      <div id="pc-monitor-body"><p class="am-dim">Select a PC&hellip;</p></div>
+    </section>
+
+    <section id="agent-management" class="view">
+      <h2>Agent Management</h2>
+      <p>Use the left agent tabs to view agent stubs.</p>
+    </section>
+
+    <section id="agents-home" class="view">
+      <h2>Agents</h2>
+      <div id="agents-home-status" class="am-dim">Loading agents&hellip;</div>
+    </section>
+
+    <section id="server-management" class="view">
+      <h2>Server Management</h2>
+      <p>Click a server above to view its logs and health status.</p>
+    </section>
+
+    <section id="servers-detail" class="view">
+      <h2 id="servers-detail-title">Server</h2>
+      <div id="servers-detail-body"></div>
+    </section>
+
+    <section id="ssh-connections" class="view">
+      <h2>SSH Connections</h2>
+      <p>Click a connection above to test it and view its terminal/connection log.</p>
+    </section>
+
+    <section id="ssh-connection-detail" class="view">
+      <h2 id="ssh-connection-detail-title">SSH Connection</h2>
+      <div id="ssh-connection-detail-body"></div>
+    </section>
+
+    <section id="agent-detail-home" class="view">
+      <h2 id="agent-detail-title">Agent</h2>
+      <p id="agent-detail-home-text">Choose a tab above to view this agent's data.</p>
+    </section>
+    <section id="agent-detail-thoughts" class="view"></section>
+    <section id="agent-detail-messages" class="view"></section>
+    <section id="agent-detail-tool-calls" class="view"></section>
+    <section id="agent-detail-agent-card" class="view"></section>
+    <section id="agent-detail-tests" class="view"></section>
+    <section id="agent-detail-input-options" class="view"></section>
+
+    <!-- Project Plans views -->
+    <section id="plans-self-evolving" class="view">
+      <iframe id="self-evolving-plan-frame" class="plan-frame" src="/notes_plans_handoffs/agent_self_improvement/agent_self_improvement_plan.html"></iframe>
+    </section>
+
+    <section id="plans-codebase-rewrite" class="view">
+      <iframe id="codebase-rewrite-plan-frame" class="plan-frame" src="/notes_plans_handoffs/codebase_rewrite.html"></iframe>
+    </section>
+
+    <section id="plans-server-rewrite" class="view">
+      <iframe id="server-rewrite-plan-frame" class="plan-frame" src="/notes_plans_handoffs/server_rewrite.html"></iframe>
+    </section>
+
+    <section id="plans-divide-conquer" class="view">
+      <iframe id="divide-conquer-plan-frame" class="plan-frame" src="/divide_and_conquer_scissari_fix.html"></iframe>
+    </section>
+
+    <section id="plans-audio-input" class="view">
+      <iframe id="audio-plan-frame" class="plan-frame" src="/audio_input/audio_plan.html"></iframe>
+    </section>
+
+    <section id="plans-mazda-dev-status" class="view">
+      <iframe id="mazda-dev-status-plan-frame" class="plan-frame" src="/notes_plans_handoffs/mazda_dev_status.html"></iframe>
+    </section>
+
+    <section id="plans-scanned-statements" class="view">
+      <iframe id="scanned-statements-plan-frame" class="plan-frame" src="/notes_plans_handoffs/scanned_statements_plan.html"></iframe>
+    </section>
+
+    <section id="plans-mazda-training" class="view">
+      <iframe id="mazda-training-plan-frame" class="plan-frame" src="/notes_plans_handoffs/mazdas_training_process.html"></iframe>
+    </section>
+
+    <section id="plans-verification-tracker" class="view">
+      <iframe id="verification-tracker-plan-frame" class="plan-frame" src="/notes_plans_handoffs/verification_tracker.html"></iframe>
+    </section>
+
+    <section id="plans-self-improvement" class="view">
+      <iframe id="self-improvement-plan-frame" class="plan-frame" src="/notes_plans_handoffs/mazda_self_improvement_plan.html"></iframe>
+    </section>
+
+    <section id="plans-archon-workflows" class="view">
+      <iframe id="archon-workflows-plan-frame" class="plan-frame" src="/notes_plans_handoffs/archon_workflows_manual.html"></iframe>
+    </section>
+
+    <section id="plans-diet-pi-comm" class="view">
+      <iframe id="diet-pi-comm-plan-frame" class="plan-frame" src="/notes_plans_handoffs/diet_pi_communicator.html"></iframe>
+    </section>
+
+    <section id="plans-meta-self-improvement" class="view">
+      <iframe id="meta-self-improvement-plan-frame" class="plan-frame" src="/notes_plans_handoffs/meta_self_improvement_review.html"></iframe>
+    </section>
+
+    <section id="plans-expense-itemization" class="view">
+      <iframe id="expense-itemization-plan-frame" class="plan-frame" src="/notes_plans_handoffs/expense_itemization_plan.html"></iframe>
+    </section>
+
+    <section id="plans-pipecat-voice" class="view">
+      <iframe id="pipecat-voice-plan-frame" class="plan-frame" src="/notes_plans_handoffs/pipecat_letta_voice_plan.html"></iframe>
+    </section>
+
+    <section id="plans-voice-communication" class="view">
+      <iframe id="voice-communication-plan-frame" class="plan-frame" src="/voice_communication_plan.html"></iframe>
+    </section>
+
+    <section id="plans-swarmforge-project" class="view">
+      <iframe id="swarmforge-project-plan-frame" class="plan-frame" src="/notes_plans_handoffs/swarmforge_project.html"></iframe>
+    </section>
+
+    <section id="plans-process-flows" class="view"></section>
+
+    <section id="plans-report-flow" class="view">
+      <iframe
+        id="amazon-marketplace-report-flow-frame"
+        class="plan-frame"
+        src="/notes_plans_handoffs/amazon_marketplace_report_flow.html"
+        title="Amazon Marketplace report build flow"
+      ></iframe>
+    </section>
+
+    <!-- ROL Finance views -->
+    <section id="rol-finance-plan" class="view">
+      <iframe id="rol-finance-plan-frame" class="plan-frame" src="/rol_finances/tools/plan.html"></iframe>
+    </section>
+
+    <section id="rol-finance-current-status" class="view">
+      <h2>Current Status</h2>
+      <p>Current Status content coming soon.</p>
+    </section>
+
+    <section id="rol-finance-taxes" class="view">
+      <h2>Taxes</h2>
+      <p>Taxes content coming soon.</p>
+    </section>
+
+    <section id="rol-finance-red-box-project" class="view">
+      <iframe id="rol-finance-red-box-project-frame" class="plan-frame" src="/red_box_project.html"></iframe>
+    </section>
+
+    <section id="rol-finance-reports" class="view">
+      <p>Loading reports…</p>
+    </section>
+
+    <!-- ROL Finance report views injected dynamically by RF.init() -->
+    <section id="rol-finance-reports-views"></section>
+
+    <section id="scanners-freezer" class="view">
+      <div class="scanner-dialog" data-scanner="freezer">
+        <div class="startup-panel scanner-panel">
+          <div class="startup-title">Freezer Scanner</div>
+          <div class="startup-status scanner-device">HP063E28 (HP Deskjet 4100 series)</div>
+          <div class="scanner-state">Idle — ready to scan.</div>
+          <div class="startup-progress-shell" aria-hidden="true">
+            <div class="startup-progress-bar scanner-bar"></div>
+          </div>
+          <div class="scanner-actions">
+            <button type="button" class="am-btn scanner-start">Start Scan</button>
+            <button type="button" class="am-btn am-copy scanner-show" disabled>Show Image</button>
+            <button type="button" class="am-btn scanner-fix-printer">Fix Scanner</button>
+            <button type="button" class="am-btn am-copy scanner-clear-verification" disabled>Clear Verification Lock</button>
+          </div>
+          <div class="scanner-diagnostics">
+            <div class="scanner-diag-header">
+              <span class="scanner-diag-title">Scanner Health</span>
+              <button type="button" class="am-btn am-copy scanner-diag-refresh">Refresh</button>
+            </div>
+            <div class="scanner-diag-leds" aria-live="polite">
+              <div class="scanner-diag-empty">Open this tab to check scanner health.</div>
+            </div>
+          </div>
+          <div class="scanner-result hidden" aria-live="polite"></div>
+        </div>
+        <div class="scanner-image-box hidden">
+          <button type="button" class="scanner-image-close" aria-label="Close image">&times;</button>
+          <img class="scanner-image" alt="Scanned document" />
+        </div>
+      </div>
+    </section>
+
+    <section id="scanners-window" class="view">
+      <div class="scanner-dialog" data-scanner="window">
+        <div class="startup-panel scanner-panel">
+          <div class="startup-title">Window Scanner</div>
+          <div class="startup-status scanner-device">HPI297BEA (HP Officejet 8120e series)</div>
+          <div class="scanner-state">Idle — ready to scan.</div>
+          <div class="startup-progress-shell" aria-hidden="true">
+            <div class="startup-progress-bar scanner-bar"></div>
+          </div>
+          <div class="scanner-actions">
+            <button type="button" class="am-btn scanner-start">Start Scan</button>
+            <button type="button" class="am-btn am-copy scanner-show" disabled>Show Image</button>
+            <button type="button" class="am-btn scanner-fix-printer">Fix Scanner</button>
+            <button type="button" class="am-btn am-copy scanner-clear-verification" disabled>Clear Verification Lock</button>
+          </div>
+          <div class="scanner-diagnostics">
+            <div class="scanner-diag-header">
+              <span class="scanner-diag-title">Scanner Health</span>
+              <button type="button" class="am-btn am-copy scanner-diag-refresh">Refresh</button>
+            </div>
+            <div class="scanner-diag-leds" aria-live="polite">
+              <div class="scanner-diag-empty">Open this tab to check scanner health.</div>
+            </div>
+          </div>
+          <div class="scanner-result hidden" aria-live="polite"></div>
+        </div>
+        <div class="scanner-image-box hidden">
+          <button type="button" class="scanner-image-close" aria-label="Close image">&times;</button>
+          <img class="scanner-image" alt="Scanned document" />
+        </div>
+      </div>
+    </section>
+    <section id="scanners-pdf" class="view">
+      <div class="startup-panel scanner-panel pdf-process-panel">
+        <div class="startup-title">Process PDF Document</div>
+        <div class="startup-status">Run the intake pipeline on an existing PDF file. Mazda will investigate, categorize, and store the result.</div>
+        <div class="pdf-path-row">
+          <label for="pdf-file-path" class="pdf-path-label">File Path</label>
+          <input type="text" id="pdf-file-path" class="pdf-path-input" placeholder="/home/adamsl/rol_finances/readable_documents/..." spellcheck="false" />
+        </div>
+        <div class="pdf-path-row">
+          <label for="pdf-doc-label" class="pdf-path-label">Label</label>
+          <input type="text" id="pdf-doc-label" class="pdf-path-input" placeholder="e.g. Bank 5938 PDF 1 — February 2025" />
+        </div>
+        <div class="scanner-actions">
+          <button type="button" class="am-btn pdf-process-btn">Process Document</button>
+        </div>
+        <div class="scanner-result hidden" aria-live="polite"></div>
+      </div>
+    </section>
+    <section id="scanners-vendor-review" class="view">
+      <div class="startup-panel scanner-panel">
+        <div class="startup-title">Needs Vendor Review</div>
+        <div class="startup-status">Receipts whose vendor couldn't be auto-categorized are saved anyway — pick an existing vendor_key here to finish the save.</div>
+        <div id="vendor-review-panel" class="vendor-review-panel hidden"></div>
+      </div>
+    </section>
+    <section id="scanners-last-window" class="view">
+      <iframe class="plan-frame" title="Last Window Scan"></iframe>
+      <div id="scanners-last-window-archive-terminal" class="archive-terminal-section hidden"></div>
+      <div id="scanners-last-window-mazda-detail" class="agent-detail-section"></div>
+    </section>
+    <section id="scanners-last-freezer" class="view">
+      <iframe class="plan-frame" title="Last Freezer Scan"></iframe>
+      <div id="scanners-last-freezer-archive-terminal" class="archive-terminal-section hidden"></div>
+      <div id="scanners-last-freezer-mazda-detail" class="agent-detail-section"></div>
+    </section>
+      <section id="rol-finance-mazda-objects" class="view">
+      <iframe class="plan-frame" src="/notes_plans_handoffs/mazda_objects.html"></iframe>
+    </section>
+  </main>
+
+  <!-- Code-change restart prompt -->
+  <div id="code-change-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <p>Changes in Agents code detected. Restart dashboard-server.service?</p>
+      <div class="modal-actions">
+        <button type="button" class="am-btn" id="code-change-yes">Yes</button>
+        <button type="button" class="am-btn am-copy" id="code-change-no">No</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Document-vision-down halt notice -->
+  <div id="vision-halted-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <p><strong>Scanning halted.</strong> All document-vision tiers (Gemini,
+      ChatGPT-OAuth/Codex CLI, and OpenAI key) are down — Mazda has no way to
+      classify or read a scanned document right now, so new scans will not be
+      dispatched to her.</p>
+      <p id="vision-halted-detail" class="vision-halted-detail"></p>
+      <div class="modal-actions">
+        <button type="button" class="am-btn" id="vision-halted-retry">Retry Now</button>
+        <button type="button" class="am-btn am-copy" id="vision-halted-dismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="intake-halted-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <p><strong>Intake halted — cannot continue.</strong> An intake step
+      crashed unexpectedly, so the pipeline stopped instead of silently
+      degrading to a "no match" result and inserting a possibly-duplicate
+      expense. This is an application-code fault that needs a fix — it has been
+      escalated to Suzuki. Acknowledging clears this alert but not the
+      underlying bug.</p>
+      <p id="intake-halted-detail" class="vision-halted-detail"></p>
+      <div class="modal-actions">
+        <button type="button" class="am-btn am-copy" id="intake-halted-ack">Acknowledge</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/js/dashboard-boot-baseline.js"></script>
+</body>
+</html>

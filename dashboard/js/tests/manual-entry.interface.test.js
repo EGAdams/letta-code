@@ -33,6 +33,23 @@ describe("validateManualEntry", () => {
     });
   });
 
+  test("learning a new vendor requires both a key and category", () => {
+    const missingCategory = validateManualEntry({
+      ...validFields,
+      knownVendorKey: "__new__",
+      newVendorKey: "cracker_barrel",
+    });
+    expect(missingCategory.errors.categoryName).toContain("category");
+
+    const validNewVendor = validateManualEntry({
+      ...validFields,
+      knownVendorKey: "__new__",
+      newVendorKey: "cracker_barrel",
+      categoryName: "Food",
+    });
+    expect(validNewVendor.valid).toBe(true);
+  });
+
   test("rejects an empty merchant name", () => {
     const result = validateManualEntry({ ...validFields, merchantName: "   " });
     expect(result.valid).toBe(false);
@@ -322,6 +339,7 @@ describe("blankManualEntryFields", () => {
       totalAmount: "",
       categoryName: "",
       knownVendorKey: "",
+      newVendorKey: "",
       expenseId: null,
     });
   });
@@ -359,6 +377,7 @@ describe("readStoredFindings", () => {
         totalAmount: "12.34",
         categoryName: "Travel & Vehicle",
         knownVendorKey: "kum_go",
+        newVendorKey: "",
         expenseId: 1391,
       },
       {
@@ -367,6 +386,7 @@ describe("readStoredFindings", () => {
         totalAmount: "45",
         categoryName: "",
         knownVendorKey: "",
+        newVendorKey: "",
         expenseId: null,
       },
     ]);

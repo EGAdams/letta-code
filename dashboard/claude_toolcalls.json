@@ -1,1002 +1,1002 @@
 [
   {
-    "date": "2026-08-18T12:52:08",
+    "date": "2026-08-24T13:13:19",
+    "type": "Bash",
+    "text": "cd ~/rpi-rgb-led-matrix && ./lib/kerun_discriminate quads 26 27 2 3 4 5 8 11 12 13 14 2>/dev/null | sed -n '/===KERUN_DISCRIMINATE===/,$p' | tail -30"
+  },
+  {
+    "date": "2026-08-24T13:13:29",
+    "type": "Bash",
+    "text": "cd ~/rpi-rgb-led-matrix && for p in quads big stripes corner colband rowband bands8 xq4 coords colid; do\n  out=$(./lib/kerun_discriminate $p 26 27 2 3 4 5 8 11 12 13 14 2>/dev/null | sed -n '/===KERUN"
+  },
+  {
+    "date": "2026-08-24T13:13:52",
+    "type": "Bash",
+    "text": "cd ~/rpi-rgb-led-matrix && tar cz lib/kerun_patterns.h lib/kerun_mapper.cpp lib/kerun_mapcheck.cpp lib/kerun_discriminate.cpp lib/multiplex-mappers.cc lib/pixel-mapper.cc lib/Makefile | base64 -w0 | t"
+  },
+  {
+    "date": "2026-08-24T13:14:06",
+    "type": "Bash",
+    "text": "timeout 90 ssh -n dietpi 'ROWS=64 COLS=64 MUX=26 RAT=3 PAT=big BRIGHT=9 ~/kerun_probe_one.sh' 2>&1 | grep -vE \"WARNING|post-quantum|store now|openssh|bashrc|pyenv\" | head -4"
+  },
+  {
+    "date": "2026-08-24T13:14:28",
+    "type": "Bash",
+    "text": "cd ~/rpi-rgb-led-matrix && cat >> .a_instructions/kerun_panel_mapping_082426/kerun_results_2026-08-24.tsv <<'EOF'\ns1-s11\t2d70563c\t26,27,2,3,4,5,8,11,12,13,14\t11 stretch-2 survivors\t2\t128x32\t64\t64\t3\t7\t"
+  },
+  {
+    "date": "2026-08-24T13:19:25",
+    "type": "Bash",
+    "text": "cd ~/rpi-rgb-led-matrix && ls -la .a_instructions/kerun_panel_mapping_082426/photos/ 2>/dev/null | head -15"
+  },
+  {
+    "date": "2026-08-24T13:19:32",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
+    "text": "/home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_082426/photos/xq4_raw128x32_rat3_b8__00.png"
   },
   {
-    "date": "2026-08-18T12:52:26",
+    "date": "2026-08-24T13:25:22",
     "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services && python3 - <<'EOF'\npath = \"receipt_engine.py\"\nwith open(path) as f:\n    lines = f.readlines()\nprint(len(lin"
+    "text": "ls -lat /mnt/c/Users/NewUser/Downloads/ 2>/dev/null | head -15"
   },
   {
-    "date": "2026-08-18T12:52:36",
+    "date": "2026-08-24T13:25:31",
     "type": "Bash",
-    "text": "python3 - <<'PYEOF'\npath = \"receipt_engine.py\"\naddition = '''\n\nclass ClaudeReceiptEngine(ReceiptEngine):\n    \"\"\"\n    Receipt parsing engine using Anthropic's Claude Haiku API.\n\n    No free-tier daily "
+    "text": "cd ~/rpi-rgb-led-matrix && echo \"=== repo photos dir ===\"; ls -lat .a_instructions/kerun_panel_mapping_082426/photos/ 2>/dev/null; echo; echo \"=== any recent images in repo ===\"; find . -type f \\( -in"
   },
   {
-    "date": "2026-08-18T12:52:39",
+    "date": "2026-08-24T13:25:34",
+    "type": "Bash",
+    "text": "echo \"=== Downloads images any date ===\"; ls -lat /mnt/c/Users/NewUser/Downloads/*.{png,jpg,jpeg,JPG,PNG,HEIC,heic} 2>/dev/null | head -10; echo \"=== Pictures / OneDrive ===\"; ls -lat /mnt/c/Users/New"
+  },
+  {
+    "date": "2026-08-24T13:25:41",
+    "type": "Bash",
+    "text": "echo \"=== Camera Roll / phone_pictures ===\"; ls -lat \"/mnt/c/Users/NewUser/OneDrive/Pictures/Camera Roll/\" 2>/dev/null | head -6; ls -lat /mnt/c/Users/NewUser/OneDrive/Pictures/phone_pictures/ 2>/dev/"
+  },
+  {
+    "date": "2026-08-24T13:25:45",
+    "type": "Bash",
+    "text": "timeout 60 ssh -n dietpi 'echo \"=== Pi home, newest files ===\"; ls -lat ~ 2>/dev/null | head -10; echo \"=== Pi uploads/images ===\"; find ~ /tmp -maxdepth 3 -type f \\( -iname \"*.png\" -o -iname \"*.jpg\" "
+  },
+  {
+    "date": "2026-08-24T13:25:55",
+    "type": "Bash",
+    "text": "timeout 60 ssh -n dietpi 'ls -la /tmp/kerun_drop/' 2>&1 | grep -vE \"WARNING|post-quantum|store now|openssh|bashrc|pyenv\""
+  },
+  {
+    "date": "2026-08-24T13:26:06",
+    "type": "Bash",
+    "text": "timeout 60 ssh -n dietpi 'ps -eo pid,etimes,cmd | grep \"lib/kerun_mapper\" | grep -v grep || echo \"(no mapper running)\"' 2>&1 | grep -vE \"WARNING|post-quantum|store now|openssh|bashrc|pyenv\""
+  },
+  {
+    "date": "2026-08-24T13:26:18",
+    "type": "Bash",
+    "text": "cd ~/rpi-rgb-led-matrix && timeout 120 ssh -n dietpi 'base64 -w0 /tmp/kerun_drop/step_12_mux14_rat3__00.png' 2>/dev/null | tr -d '\\n' | base64 -d > /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189"
+  },
+  {
+    "date": "2026-08-24T13:26:25",
     "type": "Read",
-    "text": "/home/adamsl/rol_finances/.env"
+    "text": "/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad/latest_panel.png"
   },
   {
-    "date": "2026-08-18T12:54:27",
+    "date": "2026-08-24T13:26:54",
     "type": "Bash",
-    "text": "grep -rln \"claude_oauth\\|CLAUDE_OAUTH\\|claude.ai/oauth\\|anthropic.*oauth\\|oauth.*anthropic\" /home/adamsl/rol_finances /home/adamsl/letta-code --include=*.py -i 2>/dev/null | grep -v node_modules | hea"
+    "text": "cd ~/rpi-rgb-led-matrix && sed -n '/^class BigGlyphPattern/,/^};/p' lib/kerun_patterns.h"
   },
   {
-    "date": "2026-08-18T12:54:37",
+    "date": "2026-08-24T13:27:25",
+    "type": "Bash",
+    "text": "cd /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad && python3 -c \"\nimport numpy as np\nfrom PIL import Image\nim=Image.open('latest_panel.png').convert('"
+  },
+  {
+    "date": "2026-08-24T13:27:49",
+    "type": "Bash",
+    "text": "cd /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad && python3 -c \"\nimport numpy as np\nfrom PIL import Image\na=np.asarray(Image.open('latest_panel.png')"
+  },
+  {
+    "date": "2026-08-24T13:28:17",
+    "type": "Bash",
+    "text": "cd /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad && python3 -c \"\nimport numpy as np\nfrom PIL import Image\na=np.asarray(Image.open('latest_panel.png')"
+  },
+  {
+    "date": "2026-08-24T13:28:47",
+    "type": "Bash",
+    "text": "cd /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad && python3 -c \"\nimport numpy as np\nfrom PIL import Image\na=np.asarray(Image.open('latest_panel.png')"
+  },
+  {
+    "date": "2026-08-24T13:29:28",
+    "type": "Bash",
+    "text": "cd /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad && python3 -c \"\nimport numpy as np\nfrom PIL import Image\na=np.asarray(Image.open('latest_panel.png')"
+  },
+  {
+    "date": "2026-08-24T13:29:42",
+    "type": "Bash",
+    "text": "cd /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad && python3 -c \"\nimport numpy as np\nfrom PIL import Image\na=np.asarray(Image.open('latest_panel.png')"
+  },
+  {
+    "date": "2026-08-24T13:30:24",
+    "type": "Bash",
+    "text": "cd /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad && python3 -c \"\nimport numpy as np\nfrom PIL import Image\na=np.asarray(Image.open('latest_panel.png')"
+  },
+  {
+    "date": "2026-08-24T13:31:06",
+    "type": "SendUserFile",
+    "text": "files: [\"/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad/compare.png\"]"
+  },
+  {
+    "date": "2026-08-24T13:31:23",
+    "type": "Bash",
+    "text": "cd /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad && python3 -c \"\nimport numpy as np\nfrom PIL import Image\na=np.asarray(Image.open('latest_panel.png')"
+  },
+  {
+    "date": "2026-08-24T13:32:26",
+    "type": "AskUserQuestion",
+    "text": "questions: [{\"question\":\"Given photos decode cleanly now, how do you want to spend the next round?\",\"header\":\"Next round\",\"options\":[{\"label\":\"Structured-light: ~12 photos, I decode (Recommended)\",\"description\":\"I set up a scripted probe sequence; you photograph each and drop them in /tmp/kerun_drop. I recover the actual raw->physical map and build the mapper from measurement instead of guessing. No eye judgement, no describing.\"},{\"label\":\"Photograph a few mappers, I compare\",\"description\":\"You shoot 3-4 configs (mux 14, 26, 4, 0) at pattern=big; I decode each and rank them by how close the F lands. Cheaper, but still searching a registry that may not contain the answer.\"},{\"label\":\"Chase the two-panel setup first\",\"description\":\"Confirm the wiring \u2014 whether the panels are chained or parallel \u2014 before any more mapping work, in case the assembly is confounding the measurement.\"},{\"label\":\"Stop here for today\",\"description\":\"I write up the findings, commit the tooling, and leave a clean handoff. Nothing is lost \u2014 kerun_discriminate and the photo-decode finding both survive the session.\"}],\"multiSelect\":false}]"
+  },
+  {
+    "date": "2026-08-24T13:32:53",
+    "type": "Skill",
+    "text": "skill: artifact-design"
+  },
+  {
+    "date": "2026-08-24T13:34:14",
+    "type": "Bash",
+    "text": "cd ~/rpi-rgb-led-matrix && echo \"=== journal GOOD timing ===\" && timeout 60 ssh -n dietpi \"grep GOOD ~/kerun_journal.tsv | head -2; echo ...; grep -c GOOD ~/kerun_journal.tsv\" 2>&1 | grep -vE \"WARNING"
+  },
+  {
+    "date": "2026-08-24T13:36:57",
     "type": "Write",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rol-finances/memory/feedback_no_anthropic_api_key.md\n\u2192 --- name: feedback-no-anthropic-api-key description: Never populate ANTHROPIC_API_KEY in .env or anywhere else in rol_finances; use the Claude subscription OAuth token instead metadata:    node_type: "
+    "text": "/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad/blind_instrument.html\n\u2192 <title>The Blind Instrument</title> <style>   :root{     --ground:#F5F6F8; --surface:#FFFFFF; --sunk:#EDF0F4;     --ink:#12151B; --muted:#59616E; --faint:#828B98;     --rule:#E0E4EA; --rule-strong:#C9"
   },
   {
-    "date": "2026-08-18T12:54:39",
+    "date": "2026-08-24T13:37:07",
+    "type": "Artifact",
+    "text": "file_path: /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/189f6b1b-28b4-4c15-870c-3c8ff9c2ea16/scratchpad/blind_instrument.html"
+  },
+  {
+    "date": "2026-08-24T13:37:13",
+    "type": "Bash",
+    "text": "cd ~/rpi-rgb-led-matrix && echo \"=== remotes ===\"; git remote -v; echo \"=== branch ===\"; git branch --show-current; echo \"=== ssh hosts ===\"; grep -iE \"^Host |HostName\" ~/.ssh/config 2>/dev/null | hea"
+  },
+  {
+    "date": "2026-08-24T13:37:23",
+    "type": "Bash",
+    "text": "echo \"=== tailscale ===\"; tailscale status 2>/dev/null | head -20 || echo \"(no tailscale cli)\"; echo \"=== /etc/hosts ===\"; grep -iE \"rosemary|46\" /etc/hosts 2>/dev/null; echo \"=== known_hosts ===\"; gr"
+  },
+  {
+    "date": "2026-08-24T13:38:26",
+    "type": "Write",
+    "text": "/home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_082426/kerun_field_report_2026-08-24.md\n\u2192 # Kerun 64\u00d764 HUB75 \u2014 Field Report, 2026-08-24 (close of shift)  **Base commit at time of writing:** `2d70563c` **Rig:** dietpi \u00b7 Kerun 64\u00d764 (see \"Bench geometry\" \u2014 it is actually a 64\u00d7128 st"
+  },
+  {
+    "date": "2026-08-24T16:32:27",
+    "type": "Bash",
+    "text": "cat '/mnt/c/Users/NewUser/Downloads/kerun_final_push_golden_f_handoff_2026-08-24.md'"
+  },
+  {
+    "date": "2026-08-24T16:32:33",
+    "type": "Bash",
+    "text": "git log --oneline -12 && echo \"--- STATUS ---\" && git status --short | head -30 && echo \"--- lib/kerun_* ---\" && ls -la lib/ | grep -i kerun"
+  },
+  {
+    "date": "2026-08-24T16:32:35",
+    "type": "Bash",
+    "text": "ls -la .a_instructions/kerun_panel_mapping_082426/ 2>/dev/null; echo \"=== journals ===\"; ls -la ~/kerun_journal.tsv ~/rpi-rgb-led-matrix/kerun_results* /tmp/k.log 2>/dev/null; echo \"=== recent files ="
+  },
+  {
+    "date": "2026-08-24T16:32:40",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; echo \"=== results tsv ===\"; cat .a_instructions/kerun_panel_mapping_082426/kerun_results_2026-08-24.tsv; echo; echo \"=== journal tail ===\"; tail -40 tools/kerun-aut"
+  },
+  {
+    "date": "2026-08-24T16:32:42",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; grep -rniE \"\\bF\\b glyph|golden|recogniz|HELLO\" .a_instructions/kerun_panel_mapping_082426/*.md tools/kerun-auto-mapper/*.sh lib/kerun_patterns.h 2>/dev/null | head "
+  },
+  {
+    "date": "2026-08-24T16:32:47",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; sed -n '1,140p' .a_instructions/kerun_panel_mapping_082426/kerun_video_mapping_handoff_close_2026-08-24.md"
+  },
+  {
+    "date": "2026-08-24T16:32:50",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; sed -n '140,400p' .a_instructions/kerun_panel_mapping_082426/kerun_video_mapping_handoff_close_2026-08-24.md"
+  },
+  {
+    "date": "2026-08-24T16:32:54",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; sed -n '400,600p' .a_instructions/kerun_panel_mapping_082426/kerun_video_mapping_handoff_close_2026-08-24.md"
+  },
+  {
+    "date": "2026-08-24T16:33:01",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; grep -n \"KerunVideoFitQuarterScan\\|KerunVideoFit\\b\" lib/multiplex-mappers.cc | head; echo \"=== mapper 30 body ===\"; sed -n \"$(grep -n 'class KerunVideoFitQuarterSca"
+  },
+  {
+    "date": "2026-08-24T16:33:05",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; echo \"=== quarter-scan mode present? ===\"; grep -n \"quarter\\|address-onehot\\|MX bit\\|hold-ms\" lib/kerun_structured_light.cpp | head -20; echo \"=== pi reachable? ==="
+  },
+  {
+    "date": "2026-08-24T16:33:15",
+    "type": "Bash",
+    "text": "timeout 30 ssh -o BatchMode=yes dietpi 'ls -la /tmp/kerun_drop/ | tail -20; echo \"--- df ---\"; df -h /home | tail -1' 2>/dev/null"
+  },
+  {
+    "date": "2026-08-24T16:33:22",
+    "type": "Bash",
+    "text": "timeout 120 ssh -o BatchMode=yes dietpi 'mkdir -p ~/kerun_evidence/2026-08-24 && cp -n /tmp/kerun_drop/* ~/kerun_evidence/2026-08-24/ && cd ~/kerun_evidence/2026-08-24 && md5sum * > MANIFEST.md5 && ls"
+  },
+  {
+    "date": "2026-08-24T16:33:42",
+    "type": "Bash",
+    "text": "mkdir -p .a_instructions/kerun_panel_mapping_082426/evidence_2026-08-24 && timeout 300 ssh -o BatchMode=yes dietpi 'cd ~/kerun_evidence/2026-08-24 && tar cf - .' 2>/dev/null | tar xf - -C .a_instructi"
+  },
+  {
+    "date": "2026-08-24T16:33:50",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix && make -C lib tests/test_kerun_fit kerun_mapcheck 2>&1 | tail -5 && echo \"=== test_kerun_fit ===\" && ./lib/tests/test_kerun_fit 2>&1 | tail -20 && echo \"=== mapchec"
+  },
+  {
+    "date": "2026-08-24T16:45:17",
+    "type": "Bash",
+    "text": "cat '/mnt/c/Users/NewUser/Downloads/kerun_quarter_scan_resolution_handoff_2026-08-24.md'"
+  },
+  {
+    "date": "2026-08-24T16:45:24",
+    "type": "Bash",
+    "text": "git rev-parse HEAD && git diff > /tmp/kerun_before_quarter_scan.diff && git diff --cached > /tmp/kerun_before_quarter_scan_staged.diff && cp lib/multiplex-mappers.cc /tmp/multiplex-mappers.before-quar"
+  },
+  {
+    "date": "2026-08-24T16:45:24",
+    "type": "Bash",
+    "text": "sed -n '315,375p' lib/kerun_patterns.h"
+  },
+  {
+    "date": "2026-08-24T16:45:40",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; sed -n '816,840p' lib/kerun_patterns.h"
+  },
+  {
+    "date": "2026-08-24T16:45:52",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; ls -la fonts/6x12.bdf 2>&1; echo \"=== on Pi ===\"; timeout 20 ssh -o BatchMode=yes dietpi 'ls -la ~/rpi-rgb-led-matrix/fonts/6x12.bdf 2>&1; echo \"cwd-relative check:"
+  },
+  {
+    "date": "2026-08-24T16:46:11",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; grep -n \"MeasureText\\|int DrawText\\|CharacterWidth\\|baseline()\\|height()\" include/graphics.h"
+  },
+  {
+    "date": "2026-08-24T16:46:33",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; S=/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad; cat > $S/hello_bounds.cc <<'EOF'\n// Bounds check: is HELLO clipp"
+  },
+  {
+    "date": "2026-08-24T16:46:39",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; cat -n lib/kerun_structured_light.cpp"
+  },
+  {
+    "date": "2026-08-24T16:46:51",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; grep -n \"row_address_type\\|multiplexing\\|int rows\\|int cols\\|chain_length\\|parallel\\|brightness\\|pwm_bits\\|panel_type\" include/led-matrix.h | head -20"
+  },
+  {
+    "date": "2026-08-24T16:47:07",
+    "type": "Bash",
+    "text": "python3 - <<'PYEOF'\nimport re\np = 'lib/kerun_structured_light.cpp'\ns = open(p).read()\n\n# 1. Add the quarter-scan option readers next to the existing one.\ns = s.replace('''bool AddressOneHotRequested(i"
+  },
+  {
+    "date": "2026-08-24T16:47:23",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 - <<'PYEOF'\np = 'lib/kerun_structured_light.cpp'\ns = open(p).read()\n\n# main(): read the new flags. Must happen before CreateFromOptions so the\n# geometry gu"
+  },
+  {
+    "date": "2026-08-24T16:47:40",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 - <<'PYEOF'\np = 'lib/kerun_structured_light.cpp'\ns = open(p).read()\n\ns = s.replace('''  signal(SIGINT, Stop);\n  signal(SIGTERM, Stop);\n  StampLabel(address_"
+  },
+  {
+    "date": "2026-08-24T16:47:46",
+    "type": "Bash",
+    "text": "make -C lib kerun_structured_light 2>&1 | tail -15"
+  },
+  {
+    "date": "2026-08-24T16:47:54",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; echo \"=== guard: mapper not bypassed ===\"; ./lib/kerun_structured_light --quarter-scan --led-multiplexing=30 --led-row-addr-type=3 2>&1 | head -4; echo \"rc=$?\"; ech"
+  },
+  {
+    "date": "2026-08-24T16:48:22",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 - <<'PYEOF'\np = 'lib/kerun_structured_light.cpp'\ns = open(p).read()\n\n# Hoist the quarter-scan plane list to namespace scope so the self-test and\n# main() sh"
+  },
+  {
+    "date": "2026-08-24T16:48:29",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; echo \"=== unknown plane lists options ===\"; ./lib/kerun_structured_light --quarter-scan --plane=bogus --led-multiplexing=0 --led-row-addr-type=3 --led-rows=8 --led-"
+  },
+  {
+    "date": "2026-08-24T16:48:42",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 - <<'PYEOF'\np = 'lib/kerun_structured_light.cpp'\ns = open(p).read()\n\n# Fail fast on a mistyped plane name, before the panel is touched.\ns = s.replace('''  R"
+  },
+  {
+    "date": "2026-08-24T16:48:54",
+    "type": "Bash",
+    "text": "make -C lib tests/test_kerun_fit kerun_mapcheck kerun_mapper 2>&1 | grep -iE \"error|warning\" | head; echo \"=== fit tests ===\"; ./lib/tests/test_kerun_fit 2>&1 | tail -3; echo \"=== mapcheck mapper 30 ="
+  },
+  {
+    "date": "2026-08-24T16:49:01",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; ./lib/tests/test_kerun_fit 2>&1 | grep -cE \"^\\[  OK  \\]\"; ./lib/tests/test_kerun_fit 2>&1 | grep -E \"all passed|FAIL\"; echo \"--- my file warnings ---\"; touch lib/ke"
+  },
+  {
+    "date": "2026-08-24T16:49:15",
+    "type": "Bash",
+    "text": "tar cf - lib/kerun_structured_light.cpp | timeout 60 ssh -o BatchMode=yes dietpi 'cd ~/rpi-rgb-led-matrix && tar xf - && echo \"synced\" && make -C lib kerun_structured_light 2>&1 | tail -3 && ./lib/ker"
+  },
+  {
+    "date": "2026-08-24T16:49:26",
+    "type": "Bash",
+    "text": "timeout 40 ssh -o BatchMode=yes dietpi 'cd ~/rpi-rgb-led-matrix && sudo -n timeout 6 ./lib/kerun_structured_light --quarter-scan --plane=white --hold-ms=1500 --led-gpio-mapping=regular --led-rows=8 --"
+  },
+  {
+    "date": "2026-08-24T16:49:56",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; mkdir -p .a_instructions/kerun_panel_mapping_082426/quarter_scan; cat > .a_instructions/kerun_panel_mapping_082426/quarter_scan/quarter_scan_config.yaml <<'EOF'\n# Q"
+  },
+  {
+    "date": "2026-08-24T16:50:15",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; cat > tools/kerun-auto-mapper/kerun_quarter_capture.sh <<'EOF'\n#!/usr/bin/env bash\n# Interactive 14-frame quarter-scan capture stepper. Run ON the Pi.\n#\n# Holds one"
+  },
+  {
+    "date": "2026-08-24T16:50:22",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; tar cf - tools/kerun-auto-mapper/kerun_quarter_capture.sh | timeout 60 ssh -o BatchMode=yes dietpi 'cd ~/rpi-rgb-led-matrix && tar xf - && chmod +x tools/kerun-auto"
+  },
+  {
+    "date": "2026-08-24T16:50:47",
+    "type": "Bash",
+    "text": "cd /home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory && cat > kerun_quarter_scan_measurement.md <<'EOF'\n---\nname: kerun-quarter-scan-measurement\ndescription: Kerun 64x64 pivot from "
+  },
+  {
+    "date": "2026-08-24T16:54:55",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; cat lib/kerun_mapdump.cpp; echo \"=== python deps ===\"; python3 -c \"import numpy,PIL; print('numpy',numpy.__version__,'PIL ok')\" 2>&1; python3 -c \"import cv2; print("
+  },
+  {
+    "date": "2026-08-24T16:55:13",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; git add lib/kerun_structured_light.cpp tools/kerun-auto-mapper/kerun_quarter_capture.sh .a_instructions/kerun_panel_mapping_082426/quarter_scan/ .a_instructions/ker"
+  },
+  {
+    "date": "2026-08-24T16:56:01",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; cat > tools/kerun-auto-mapper/quarter_scan_decode.py <<'PYEOF'\n#!/usr/bin/env python3\n\"\"\"Decode a 14-frame quarter-scan capture into a measured visible->raw map.\n\nS"
+  },
+  {
+    "date": "2026-08-24T16:56:30",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; cat >> tools/kerun-auto-mapper/quarter_scan_decode.py <<'PYEOF'\n\n# ------------------------------------- stage 4: compare against a candidate\n\ndef mapper_table(mapd"
+  },
+  {
+    "date": "2026-08-24T16:57:06",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; cat >> tools/kerun-auto-mapper/quarter_scan_decode.py <<'PYEOF'\n\n# ------------------------------------------------------------------ driver\n\ndef run(args):\n    fra"
+  },
+  {
+    "date": "2026-08-24T16:57:17",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; ./lib/kerun_mapdump 64 64 > /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad/mapdump.tsv 2>/dev/null; wc -l /tmp/cla"
+  },
+  {
+    "date": "2026-08-24T16:57:41",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 - <<'PY'\np='tools/kerun-auto-mapper/quarter_scan_decode.py'\ns=open(p).read()\ns=s.replace('''    with open(mapdump) as fh:\n        for row in csv.DictReader("
+  },
+  {
+    "date": "2026-08-24T16:57:50",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; S=/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad; for d in clean selector bitswap; do echo \"================ INJEC"
+  },
+  {
+    "date": "2026-08-24T16:58:02",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; S=/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad; echo \"=== bitswap: measured MX bit vs candidate MX bit, agreemen"
+  },
+  {
+    "date": "2026-08-24T16:58:17",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; S=/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad; cat > $S/badgate.py <<'EOF'\n# Negative test: a NON-bijective pan"
+  },
+  {
+    "date": "2026-08-24T16:58:51",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; cat > .a_instructions/kerun_panel_mapping_082426/quarter_scan/quarter_scan_runbook.md <<'EOF'\n# Quarter-scan runbook \u2014 capture, decode, and read the result\n\nEvery"
+  },
+  {
+    "date": "2026-08-24T16:59:10",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 tools/kerun-auto-mapper/quarter_scan_decode.py selftest && git add tools/kerun-auto-mapper/quarter_scan_decode.py .a_instructions/kerun_panel_mapping_082426"
+  },
+  {
+    "date": "2026-08-24T16:59:18",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; tar cf - tools/kerun-auto-mapper/quarter_scan_decode.py .a_instructions/kerun_panel_mapping_082426/quarter_scan/ | timeout 60 ssh -o BatchMode=yes dietpi 'cd ~/rpi-"
+  },
+  {
+    "date": "2026-08-24T16:59:27",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 - <<'PY'\np='.a_instructions/kerun_panel_mapping_082426/quarter_scan/quarter_scan_runbook.md'\ns=open(p).read()\ns=s.replace(\"## 2. Decode (on the workstation)"
+  },
+  {
+    "date": "2026-08-24T16:59:37",
+    "type": "Bash",
+    "text": "cd /home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory && python3 - <<'PY'\np='kerun_quarter_scan_measurement.md'\ns=open(p).read()\ns=s.replace(\"See [[kerun-pi-infra-notes]]\",\n\"\"\"- Deco"
+  },
+  {
+    "date": "2026-08-24T17:04:45",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_082426/evidence_2026-08-24; ls -la --time-style=+%H:%M *.mp4 *.mkv | sort -k6; echo \"=== ffmpeg? ===\"; which ffmpeg ffprobe 2>&1 "
+  },
+  {
+    "date": "2026-08-24T17:04:52",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_082426/evidence_2026-08-24; ffprobe -v error -show_entries stream=width,height,r_frame_rate,nb_frames,codec_name -show_entries fo"
+  },
+  {
+    "date": "2026-08-24T17:05:20",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_082426/evidence_2026-08-24; S=/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad; m"
+  },
+  {
+    "date": "2026-08-24T17:05:50",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; S=/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad; python3 - <<'PY'\nimport numpy as np, glob\nfrom PIL import Image"
+  },
+  {
+    "date": "2026-08-24T17:06:03",
+    "type": "Bash",
+    "text": "S=/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad; ls $S/hello_frames | head -3; python3 -c \"\nfrom PIL import Image\nim=Image.open('$S/hello_frames/f001"
+  },
+  {
+    "date": "2026-08-24T17:06:06",
     "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rol-finances/memory/MEMORY.md"
+    "text": "/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad/view_small.png"
   },
   {
-    "date": "2026-08-18T12:54:43",
+    "date": "2026-08-24T17:06:29",
+    "type": "Bash",
+    "text": "S=/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad; python3 - <<'PY'\nimport numpy as np, glob\nfrom PIL import Image\nS='/tmp/claude-1000/-home-adamsl-rpi"
+  },
+  {
+    "date": "2026-08-24T17:06:36",
+    "type": "Bash",
+    "text": "S=/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad; python3 -c \"\nfrom PIL import Image\nim=Image.open('$S/hello_frames/f001.png').crop((1300,620,1720,800"
+  },
+  {
+    "date": "2026-08-24T17:06:39",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad/hello_crop.png"
+  },
+  {
+    "date": "2026-08-24T17:07:44",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 - <<'PY'\nimport numpy as np, glob\nfrom PIL import Image\nS='/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad'"
+  },
+  {
+    "date": "2026-08-24T17:08:03",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 - <<'PY'\nimport numpy as np\nfrom PIL import Image\nS='/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad'\nroi=n"
+  },
+  {
+    "date": "2026-08-24T17:08:11",
+    "type": "Read",
+    "text": "/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad/flicker_map.png"
+  },
+  {
+    "date": "2026-08-24T17:08:42",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 - <<'PY'\nimport numpy as np\nS='/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad'\nroi=np.load(S+'/roi_hello.n"
+  },
+  {
+    "date": "2026-08-24T17:09:16",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; python3 - <<'PY'\nimport numpy as np\nS='/tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad'\nroi=np.load(S+'/roi_hello.n"
+  },
+  {
+    "date": "2026-08-24T17:10:16",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; cat > tools/kerun-auto-mapper/flicker_analyze.py <<'PYEOF'\n#!/usr/bin/env python3\n\"\"\"Measure temporal instability in a panel capture.\n\nA mapper can be mathematicall"
+  },
+  {
+    "date": "2026-08-24T17:10:51",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix; D=.a_instructions/kerun_panel_mapping_082426/quarter_scan; cp /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix/54f0cd27-3a29-49ce-95d9-7817d075452c/scratchpad/flick"
+  },
+  {
+    "date": "2026-08-24T17:11:01",
+    "type": "SendUserFile",
+    "text": "files: [\"/home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_082426/quarter_scan/hello_flicker_map.png\"]"
+  },
+  {
+    "date": "2026-08-24T17:11:17",
+    "type": "Bash",
+    "text": "cd /home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory && cat > kerun_hello_flicker_block_structured.md <<'EOF'\n---\nname: kerun-hello-flicker-block-structured\ndescription: The failed "
+  },
+  {
+    "date": "2026-08-24T17:15:57",
+    "type": "Bash",
+    "text": "git status --short && echo \"---LOG---\" && git log --oneline -8 && echo \"---REMOTE---\" && git remote -v && echo \"---AHEAD---\" && git rev-list --count origin/master..master 2>/dev/null || echo \"no upstr"
+  },
+  {
+    "date": "2026-08-24T17:16:02",
+    "type": "Bash",
+    "text": "grep -n \"kerun\" .gitignore lib/.gitignore 2>/dev/null | head -20; echo \"---\"; ls -la lib/kerun_mapcheck lib/kerun_mapdump lib/kerun_structured_light lib/kerun_discriminate lib/tests/test_scan_depth 2>"
+  },
+  {
+    "date": "2026-08-24T17:16:06",
+    "type": "Bash",
+    "text": "sed -n '225,240p' .gitignore"
+  },
+  {
+    "date": "2026-08-24T17:16:12",
+    "type": "Bash",
+    "text": "python3 - <<'PY'\nimport re\np='.gitignore'\ns=open(p).read()\ns=s.replace(\"lib/kerun_mapper\\ntools/kerun-auto-mapper/kerun_auto_mapper\\n\",\n            \"lib/kerun_mapper\\nlib/kerun_structured_light\\nlib/k"
+  },
+  {
+    "date": "2026-08-24T17:16:18",
+    "type": "Bash",
+    "text": "cd .a_instructions/kerun_panel_mapping_082426 && ls -la quarter_scan/ && echo \"=== columns tsv head ===\" && head -5 quarter_scan/hello_flicker_columns.tsv && echo \"=== FLICKER rows ===\" && grep -c FLI"
+  },
+  {
+    "date": "2026-08-24T17:18:21",
+    "type": "Bash",
+    "text": "cd /home/adamsl/rpi-rgb-led-matrix && cat > .a_instructions/kerun_panel_mapping_082426/kerun_shift_report_to_team_lead_2026-08-24_eve.md <<'DOC'\n# Kerun Panel Mapping \u2014 Shift Report to Team Lead\n\n**"
+  },
+  {
+    "date": "2026-08-24T17:18:30",
+    "type": "Bash",
+    "text": "git add .gitignore .a_instructions/kerun_panel_mapping_082426/kerun_shift_report_to_team_lead_2026-08-24_eve.md && git commit -q -F - <<'MSG' && git log --oneline -1\nKerun: shift report \u2014 flicker ru"
+  },
+  {
+    "date": "2026-08-24T17:18:53",
+    "type": "Bash",
+    "text": "git push origin master 2>&1 | tail -5"
+  },
+  {
+    "date": "2026-08-24T17:18:57",
+    "type": "SendUserFile",
+    "text": "files: [\".a_instructions/kerun_panel_mapping_082426/kerun_shift_report_to_team_lead_2026-08-24_eve.md\"]"
+  },
+  {
+    "date": "2026-08-24T20:30:40",
+    "type": "Skill",
+    "text": "skill: sync-all"
+  },
+  {
+    "date": "2026-08-24T20:30:43",
+    "type": "Bash",
+    "text": "cd ~/letta-code && echo \"=== local ($(hostname)) ===\" && git branch --show-current && git log --oneline -1 && echo \"dirty: $(git status --short | wc -l)\" && git fetch -q origin && echo \"vs origin/main"
+  },
+  {
+    "date": "2026-08-24T20:30:46",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && wc -l server.py && echo \"---status---\" && git status --short"
+  },
+  {
+    "date": "2026-08-24T20:30:50",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && grep -rl \"Project Plans\" --include=\"*.py\" --include=\"*.js\" --include=\"*.html\" . | grep -v node_modules | grep -v test"
+  },
+  {
+    "date": "2026-08-24T20:30:53",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && ls js/plans/ && echo \"---\" && find . -iname \"*project*plan*\" -not -path \"*/node_modules/*\" | grep -v trainer"
+  },
+  {
+    "date": "2026-08-24T20:30:55",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && sed -n '1,80p' tests/test_project_plans.py"
+  },
+  {
+    "date": "2026-08-24T20:31:04",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && grep -n \"codebase_rewrite\\|plans-server-rewrite\\|Server Rewrite\\|nav-plans\\|id=\\\"plans\\\"\" dashboard.html | head -50"
+  },
+  {
+    "date": "2026-08-24T20:31:06",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && sed -n '60,100p' dashboard.html && echo \"---section area---\" && sed -n '220,245p' dashboard.html"
+  },
+  {
+    "date": "2026-08-24T20:31:09",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && grep -n \"plans-nav\\|process-flows\\|plans-server-rewrite\\|plans-codebase-rewrite\" js/boot/bindings/plans-nav.js 2>/dev/null | head -30"
+  },
+  {
+    "date": "2026-08-24T20:31:12",
+    "type": "Bash",
+    "text": "ls ~/letta-code/notes_plans_handoffs/ | grep -i server_rewrite; wc -l ~/letta-code/notes_plans_handoffs/server_rewrite.html 2>/dev/null; sed -n '1,40p' ~/letta-code/notes_plans_handoffs/server_rewrite"
+  },
+  {
+    "date": "2026-08-24T20:31:15",
+    "type": "Bash",
+    "text": "sed -n '40,120p' ~/letta-code/notes_plans_handoffs/server_rewrite.html"
+  },
+  {
+    "date": "2026-08-24T20:32:00",
+    "type": "Write",
+    "text": "/home/adamsl/letta-code/notes_plans_handoffs/dashboard_refactor_plan.html\n\u2192 <!doctype html> <html lang=\"en\"> <head> <meta charset=\"utf-8\" /> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /> <title>Dashboard server.py Refactor</title> <style>   :root {   "
+  },
+  {
+    "date": "2026-08-24T20:32:03",
     "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rol-finances/memory/MEMORY.md"
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
   },
   {
-    "date": "2026-08-18T12:54:48",
+    "date": "2026-08-24T20:32:06",
     "type": "Bash",
-    "text": "find / -maxdepth 4 -iname \"*.credentials.json\" -o -iname \".claude.json\" 2>/dev/null | grep -v node_modules\necho ---\nls -la ~/.claude/ 2>/dev/null | head -30\necho ---\nls -la ~/.config/claude* 2>/dev/nu"
+    "text": "cd ~/letta-code/dashboard && grep -n 'section id=\"plans-' dashboard.html"
   },
   {
-    "date": "2026-08-18T12:54:53",
+    "date": "2026-08-24T20:32:07",
     "type": "Bash",
-    "text": "python3 -c \"\nimport json\nd = json.load(open('/home/adamsl/.claude/.credentials.json'))\ndef redact(o):\n    if isinstance(o, dict):\n        return {k: redact(v) for k,v in o.items()}\n    if isinstance(o"
+    "text": "cd ~/letta-code/dashboard && sed -n '293,300p' dashboard.html"
   },
   {
-    "date": "2026-08-18T12:55:04",
+    "date": "2026-08-24T20:32:10",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/dashboard.html"
+  },
+  {
+    "date": "2026-08-24T20:32:16",
     "type": "Bash",
-    "text": "grep -rln \"claudeAiOauth\\|oauth-2025-04-20\\|claude-code-20250219\\|\\.credentials\\.json\" /home/adamsl/rol_finances /home/adamsl/letta-code 2>/dev/null | grep -v node_modules"
+    "text": "ls -la /home/adamsl/letta-code/notes_plans_handoffs/dashboard_refactor_plan.html"
   },
   {
-    "date": "2026-08-18T12:55:07",
+    "date": "2026-08-24T20:32:19",
     "type": "Bash",
-    "text": "grep -n \"claudeAiOauth\\|\\.credentials\\.json\\|oauth-2025-04-20\\|claude-code-20250219\\|anthropic-beta\\|ANTHROPIC\" /home/adamsl/letta-code/dashboard/server.py"
+    "text": "cd ~/letta-code/dashboard && .venv/bin/pytest tests/test_project_plans.py -q 2>&1 | tail -20"
   },
   {
-    "date": "2026-08-18T12:55:11",
+    "date": "2026-08-24T20:32:21",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && grep -n \"^def \\|^class \\|^_health_cache\\|health_cache\\|HEALTH_CACHE\" server.py | grep -i \"health.*cache\\|cache.*health\" "
+  },
+  {
+    "date": "2026-08-24T20:32:24",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-18T12:55:20",
+    "date": "2026-08-24T20:32:29",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && grep -n \"^def server_health\\|^from .* import.*server_health\\|SERVERS = \\[\\|SERVERS=\\[\" server.py | head"
+  },
+  {
+    "date": "2026-08-24T20:32:33",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && grep -rn \"cached_server_health\\|_poll_all_health_once\\|_health_poll_loop\\|_health_cache\\b\\|HEALTH_POLL_INTERVAL\\|HEALTH_CHECK_TIMEOUT\\|HEALTH_FAIL_THRESHOLD\" --include=*.p"
+  },
+  {
+    "date": "2026-08-24T20:32:45",
     "type": "Read",
     "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-18T12:55:28",
+    "date": "2026-08-24T20:33:04",
     "type": "Bash",
-    "text": "grep -rln \"claudeAiOauth\\|CRED = os.path.join\" /home/adamsl/letta-code --include=*.py 2>/dev/null | grep -v \".bak\"\necho ---\nfind /home/adamsl/letta-code -iname \"*claude_oauth*\" -o -iname \"*claude_toke"
+    "text": "cd ~/letta-code/dashboard && grep -rn \"_health_cache\\b\\|cached_server_health\\|_poll_all_health_once\\|_health_poll_loop\\|HEALTH_POLL_INTERVAL\\|HEALTH_CHECK_TIMEOUT\\|HEALTH_FAIL_THRESHOLD\" tests/ | grep"
   },
   {
-    "date": "2026-08-18T12:55:35",
-    "type": "Bash",
-    "text": "grep -rn \"api.anthropic.com/v1/messages\\|anthropic-version\" /home/adamsl/letta-code /home/adamsl/rol_finances 2>/dev/null | grep -v node_modules | grep -v \".bak\""
+    "date": "2026-08-24T20:33:08",
+    "type": "Read",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-18T12:56:06",
+    "date": "2026-08-24T20:33:10",
+    "type": "Bash",
+    "text": "ls /home/adamsl/letta-code/dashboard/health/"
+  },
+  {
+    "date": "2026-08-24T20:33:22",
     "type": "Write",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/claude_oauth_client.py\n\u2192 \"\"\"Direct REST transport for Anthropic's Messages API, authenticated with the Claude Code CLI's own subscription OAuth session -- never an ANTHROPIC_API_KEY.  Setting ANTHROPIC_API_KEY would switch bi"
+    "text": "/home/adamsl/letta-code/dashboard/health/poller.py\n\u2192 \"\"\"Debounced, background-polled server health cache.  /api/server-health is hit by the frontend every 5s. Probing every configured server synchronously inside that request made the status LED flap red"
   },
   {
-    "date": "2026-08-18T12:56:11",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
-  },
-  {
-    "date": "2026-08-18T12:56:25",
+    "date": "2026-08-24T20:33:32",
     "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-18T12:56:35",
+    "date": "2026-08-24T20:33:37",
     "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
   },
   {
-    "date": "2026-08-18T12:56:39",
+    "date": "2026-08-24T20:33:40",
     "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && python3 -c \"\nimport ast\nast.parse(open('tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py').read())\nast.parse(open('tools/receipt_scanning"
+    "text": "cd ~/letta-code/dashboard && grep -c \"threading\\.\\|time\\.\" server.py"
   },
   {
-    "date": "2026-08-18T12:56:45",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services && unset ANTHROPIC_API_KEY; /home/adamsl/rol_finances/.venv/bin/python3 -c \"\nimport sys, asyncio\nsys.path.ins"
-  },
-  {
-    "date": "2026-08-18T12:56:53",
-    "type": "Bash",
-    "text": "find /home/adamsl/rol_finances/readable_documents/receipts/2025/may -iname \"*.jpg\" | head -1"
-  },
-  {
-    "date": "2026-08-18T12:57:25",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances && unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY\nPYTHONPATH=/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend .venv/bin/python3 -c \"\ni"
-  },
-  {
-    "date": "2026-08-18T12:57:34",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
-  },
-  {
-    "date": "2026-08-18T12:57:38",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
-  },
-  {
-    "date": "2026-08-18T12:57:46",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
-  },
-  {
-    "date": "2026-08-18T12:58:05",
-    "type": "Bash",
-    "text": "unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY\nPYTHONPATH=/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend .venv/bin/python3 -c \"\nimport asyncio, sys\nsys.path.inse"
-  },
-  {
-    "date": "2026-08-18T12:58:10",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T12:58:17",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T12:58:23",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T12:58:31",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T12:58:39",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T12:58:41",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T12:58:44",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T12:58:47",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T12:58:51",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T12:58:58",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T12:59:02",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools && python3 -c \"\nimport ast\nast.parse(open('parse_and_categorize.py').read())\nprint('syntax OK')\n\""
-  },
-  {
-    "date": "2026-08-18T12:59:15",
-    "type": "Bash",
-    "text": "unset ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY\ntimeout 60 /home/adamsl/rol_finances/.venv/bin/python3 parse_and_categorize.py --file /home/adamsl/rol_finances/readable_documents/receipts/2025/m"
-  },
-  {
-    "date": "2026-08-18T12:59:22",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/finance/manual_entry.py"
-  },
-  {
-    "date": "2026-08-18T12:59:27",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/finance/manual_entry.py"
-  },
-  {
-    "date": "2026-08-18T12:59:33",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/finance/manual_entry.py"
-  },
-  {
-    "date": "2026-08-18T12:59:39",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/abstract/manual-entry.interface.js"
-  },
-  {
-    "date": "2026-08-18T12:59:45",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
-  },
-  {
-    "date": "2026-08-18T12:59:51",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
-  },
-  {
-    "date": "2026-08-18T12:59:54",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
-  },
-  {
-    "date": "2026-08-18T13:00:00",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js"
-  },
-  {
-    "date": "2026-08-18T13:00:04",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/finance/manual_entry.py"
-  },
-  {
-    "date": "2026-08-18T13:00:10",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_manual_entry.py"
-  },
-  {
-    "date": "2026-08-18T13:00:16",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_manual_entry.py"
-  },
-  {
-    "date": "2026-08-18T13:00:20",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_manual_entry.py"
-  },
-  {
-    "date": "2026-08-18T13:00:26",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/tests/test_manual_entry.py"
-  },
-  {
-    "date": "2026-08-18T13:00:29",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/manual-entry-form.test.js"
-  },
-  {
-    "date": "2026-08-18T13:00:40",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/manual-entry-form.test.js"
-  },
-  {
-    "date": "2026-08-18T13:00:43",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/manual-entry.interface.test.js"
-  },
-  {
-    "date": "2026-08-18T13:00:48",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/js/tests/manual-entry.interface.test.js"
-  },
-  {
-    "date": "2026-08-18T13:00:54",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && PYTHONPATH=/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python3 -m pytest tests/test_manual_entry.py -q 2>&1 | tail -30"
-  },
-  {
-    "date": "2026-08-18T13:00:57",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && bun test js/tests/manual-entry-form.test.js js/tests/manual-entry.interface.test.js 2>&1 | tail -40"
-  },
-  {
-    "date": "2026-08-18T13:01:02",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && PYTHONPATH=/home/adamsl/rol_finances /home/adamsl/rol_finances/.venv/bin/python3 -m pytest tests/test_server.py -q -k \"statement or manual_entry or gemini or pr"
-  },
-  {
-    "date": "2026-08-18T13:01:05",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code/dashboard && git status --porcelain server.py"
-  },
-  {
-    "date": "2026-08-18T13:01:08",
-    "type": "Bash",
-    "text": "cd /home/adamsl/letta-code && git diff --stat dashboard/server.py"
-  },
-  {
-    "date": "2026-08-18T13:01:12",
-    "type": "Bash",
-    "text": "grep -n \"AsyncAnthropic\\|ANTHROPIC_AVAILABLE\" /home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py"
-  },
-  {
-    "date": "2026-08-18T13:01:17",
-    "type": "Bash",
-    "text": "git diff --stat -- tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py tools/receipt_scanning_tools/receipt_scanner/backend/services/receipt_engine.py\ngit status --porcelain -- "
-  },
-  {
-    "date": "2026-08-18T13:01:25",
-    "type": "Bash",
-    "text": "find /home/adamsl/rol_finances/tools/receipt_scanning_tools -iname \"*test*receipt_engine*\" -o -iname \"*test*claude*\""
-  },
-  {
-    "date": "2026-08-18T13:08:45",
-    "type": "Bash",
-    "text": "git log --oneline -10 && echo --- && git show --stat HEAD -5 2>/dev/null | head -50"
-  },
-  {
-    "date": "2026-08-18T13:08:45",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory/kerun_panel_sweep_flag_bug.md"
-  },
-  {
-    "date": "2026-08-18T13:08:48",
-    "type": "Bash",
-    "text": "find . -path ./node_modules -prune -o -iname \"*before_running_new_opus_tests*\" -print 2>/dev/null"
-  },
-  {
-    "date": "2026-08-18T13:08:51",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && find . -iname \"*before_running_new_opus_tests*\" 2>/dev/null; find . -path \"*.a_instructions*kerun*\" 2>/dev/null"
-  },
-  {
-    "date": "2026-08-18T13:08:53",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_081726/before_running_new_opus_tests_1120_AM.md"
-  },
-  {
-    "date": "2026-08-18T13:16:51",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_081826/two_panel_hub75_kerun_mapper_tests_0914_am.jpg"
-  },
-  {
-    "date": "2026-08-18T13:17:00",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --oneline -3 && git status --short && ls .a_instructions/"
-  },
-  {
-    "date": "2026-08-18T13:17:00",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && grep -n \"quadrant\\|DrawQuad\\|pattern\\|Pattern\" lib/kerun_mapper.cpp | head -60"
-  },
-  {
-    "date": "2026-08-18T13:17:04",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && sed -n '480,570p' lib/kerun_mapper.cpp"
-  },
-  {
-    "date": "2026-08-18T13:17:04",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && sed -n '300,400p' lib/kerun_mapper.cpp"
-  },
-  {
-    "date": "2026-08-18T13:18:03",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory/kerun_panel_sweep_flag_bug.md"
-  },
-  {
-    "date": "2026-08-18T13:18:20",
+    "date": "2026-08-24T20:33:53",
     "type": "Write",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory/kerun_panel_step0_lights_under_regular.md\n\u2192 --- name: kerun-panel-step0-lights-under-regular description: \"2026-08-18: Kerun FM6124 panel LIGHTS under gpio-mapping=regular \u2014 colors correct, geometry interleaved; next axis is multiplexing not "
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_health_poller.py\n\u2192 \"\"\"health/poller.py -- the debounced background health cache.\"\"\"  import pytest  from health.poller import HealthCacheEntry, HealthPoller, HEALTH_FAIL_THRESHOLD   def _cfg(key='svc', **extra):     ret"
   },
   {
-    "date": "2026-08-18T13:18:26",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-08-18T13:32:41",
-    "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"Is the terminal printing anything when you press keys (n/p/c/s/q etc.)?\",\"header\":\"Terminal output\",\"options\":[{\"label\":\"Yes, it prints state lines\",\"description\":\"Keys are being read; the panel itself just isn't reflecting them \u2014 points to the panel/chain, not the tool\"},{\"label\":\"No, silent\",\"description\":\"Keys aren't reaching the program (e.g. not running interactively, stdin not a tty under sudo) \u2014 points at the tool/terminal setup\"}],\"multiSelect\":false},{\"question\":\"What exact command are you running right now \u2014 single panel (--led-parallel=1) or the two-panel/chain setup?\",\"header\":\"Command used\",\"options\":[{\"label\":\"Single panel, --led-parallel=1\",\"description\":\"Matches Step 0/2 as documented \u2014 if this is what's black/white, the finding is about ONE panel\"},{\"label\":\"Two panels chained or parallel\",\"description\":\"e.g. --led-chain=2 or --led-parallel=2 \u2014 the 'top' panel may be a second physical unit with its own wiring/init issue\"}],\"multiSelect\":false}]"
-  },
-  {
-    "date": "2026-08-18T13:34:56",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && grep -n \"SwapOnVSync\\|offscreen\" lib/kerun_mapper.cpp"
-  },
-  {
-    "date": "2026-08-18T13:35:03",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && grep -n \"SwapOnVSync\" include/led-matrix.h -A3 -B3"
-  },
-  {
-    "date": "2026-08-18T13:35:04",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && grep -rn \"SwapOnVSync\" pickle_cpp/*.cpp pickle_cpp/*/*.cpp examples-api-use/*.cc 2>/dev/null | head -20"
-  },
-  {
-    "date": "2026-08-18T13:35:19",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/kerun_mapper.cpp"
-  },
-  {
-    "date": "2026-08-18T13:35:22",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/kerun_mapper.cpp"
-  },
-  {
-    "date": "2026-08-18T13:41:48",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git status --short && echo --- && git diff lib/kerun_mapper.cpp"
-  },
-  {
-    "date": "2026-08-18T13:41:51",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git diff --cached lib/kerun_mapper.cpp"
-  },
-  {
-    "date": "2026-08-18T13:42:07",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git commit -m \"$(cat <<'EOF'\nkerun_mapper: capture SwapOnVSync return value, fix stale-frame bug\n\nHANDOFF \u2014 panel was never a wiring/panel-init problem on 2026-"
-  },
-  {
-    "date": "2026-08-18T15:41:41",
-    "type": "Bash",
-    "text": "systemctl --user status dashboard-server.service 2>&1 | head -20\necho ---\nls -la /home/adamsl/letta-code/dashboard/js/implementation/manual-entry-form.js\necho ---\ngrep -rn \"manual-entry-form.js\\|type="
-  },
-  {
-    "date": "2026-08-18T15:41:54",
-    "type": "Bash",
-    "text": "curl -s -X POST http://127.0.0.1:8765/api/manual-receipt-entry-preview -H 'Content-Type: application/json' -d '{\"image_path\":\"/tmp/doesnotexist.jpg\",\"engine\":\"haiku-only\"}'"
-  },
-  {
-    "date": "2026-08-18T15:42:05",
-    "type": "Bash",
-    "text": "curl -sI http://127.0.0.1:8765/js/implementation/manual-entry-form.js | head -10"
-  },
-  {
-    "date": "2026-08-18T15:42:13",
-    "type": "Bash",
-    "text": "curl -s -X POST http://127.0.0.1:8765/api/manual-receipt-entry-preview -H 'Content-Type: application/json' -d '{\"image_path\":\"/tmp/x.jpg\",\"engine\":\"haiku-only\"}'"
-  },
-  {
-    "date": "2026-08-18T15:47:15",
-    "type": "AskUserQuestion",
-    "text": "questions: [{\"question\":\"The dashboard-server.service needs a restart to pick up the new haiku-only engine (it's an in-process import, not reloaded automatically). OK to restart it now?\",\"header\":\"Restart service\",\"options\":[{\"label\":\"Yes, restart it\",\"description\":\"systemctl --user restart dashboard-server.service \u2014 brief downtime for the dashboard while it comes back up\"},{\"label\":\"No, I'll do it myself\",\"description\":\"You'll restart it manually when convenient\"}],\"multiSelect\":false}]"
-  },
-  {
-    "date": "2026-08-18T15:47:43",
-    "type": "Bash",
-    "text": "systemctl --user restart dashboard-server.service && sleep 2 && systemctl --user status dashboard-server.service 2>&1 | head -10"
-  },
-  {
-    "date": "2026-08-18T15:47:49",
-    "type": "Bash",
-    "text": "curl -s -X POST http://127.0.0.1:8765/api/manual-receipt-entry-preview -H 'Content-Type: application/json' -d '{\"image_path\":\"/tmp/x.jpg\",\"engine\":\"haiku-only\"}'"
-  },
-  {
-    "date": "2026-08-18T15:48:04",
-    "type": "Bash",
-    "text": "curl -s -X POST http://127.0.0.1:8765/api/manual-receipt-entry-preview -H 'Content-Type: application/json' --max-time 100 -d '{\"image_path\":\"/home/adamsl/rol_finances/readable_documents/receipts/2025/"
-  },
-  {
-    "date": "2026-08-18T15:48:09",
-    "type": "Bash",
-    "text": "find /home/adamsl/.claude/projects/-home-adamsl-rol-finances/memory -iname \"feedback_confirm_before_shared_writes.md\""
-  },
-  {
-    "date": "2026-08-18T15:48:25",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rol-finances/memory/feedback_confirm_before_shared_writes.md"
-  },
-  {
-    "date": "2026-08-18T15:48:34",
-    "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rol-finances/memory/feedback_confirm_before_shared_writes.md"
-  },
-  {
-    "date": "2026-08-18T16:44:41",
-    "type": "Bash",
-    "text": "grep -rn \"supporting_document_conflict\" --include=*.py -l"
-  },
-  {
-    "date": "2026-08-18T16:44:43",
-    "type": "Bash",
-    "text": "grep -n \"supporting_document_conflict\\|def \\|receipt_url\" e_two_e_processing/supporting_documents.py | head -80"
-  },
-  {
-    "date": "2026-08-18T16:44:54",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/e_two_e_processing/supporting_documents.py"
-  },
-  {
-    "date": "2026-08-18T16:45:42",
-    "type": "Bash",
-    "text": "cat /home/adamsl/planner/.env 2>/dev/null | grep -i -E \"DB_|MYSQL\" | sed 's/PASS.*/PASS=***/'"
-  },
-  {
-    "date": "2026-08-18T16:45:44",
-    "type": "Bash",
-    "text": "cat /home/adamsl/planner/.env 2>/dev/null | sed -E 's/(PASSWORD|PASS)=.*/\\1=***/' ; echo \"---\"; ls /home/adamsl/planner/ 2>/dev/null"
-  },
-  {
-    "date": "2026-08-18T16:45:50",
-    "type": "Bash",
-    "text": "ls -la /home/adamsl/planner/.env 2>&1; echo \"---\"; find / -maxdepth 3 -iname \".env\" 2>/dev/null | grep -v node_modules"
-  },
-  {
-    "date": "2026-08-18T16:46:14",
-    "type": "Bash",
-    "text": "find /home/adamsl -maxdepth 4 -iname \".env*\" 2>/dev/null"
-  },
-  {
-    "date": "2026-08-18T16:46:18",
-    "type": "Bash",
-    "text": "grep -E \"^DB_|^MYSQL\" .env | sed -E 's/(PASS|PASSWORD)=.*/\\1=***/'"
-  },
-  {
-    "date": "2026-08-18T16:46:21",
-    "type": "Bash",
-    "text": "grep -iE \"db|mysql|host|user|pass\" .env | sed -E 's/=.*(pass|secret|key).*/=***/I' | cut -c1-60"
-  },
-  {
-    "date": "2026-08-18T16:46:23",
-    "type": "Bash",
-    "text": "wc -l .env; file .env"
-  },
-  {
-    "date": "2026-08-18T16:46:25",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/.env"
-  },
-  {
-    "date": "2026-08-18T16:46:30",
-    "type": "Bash",
-    "text": "grep -rn \"planner/.env\\|load_dotenv\\|DB_HOST\\|MYSQL_HOST\" tools/receipt_scanning_tools/app/db/__init__.py 2>/dev/null | head -20"
-  },
-  {
-    "date": "2026-08-18T16:46:33",
-    "type": "Bash",
-    "text": "which mysql 2>/dev/null; python3 -c \"import pymysql\" 2>&1 | tail -1; find /home/adamsl/rol_finances -maxdepth 2 -iname \"*.env*\"; hostname"
-  },
-  {
-    "date": "2026-08-18T16:46:38",
-    "type": "Bash",
-    "text": "grep -rln \"DB_HOST\\|DB_PASSWORD\\|MYSQL_HOST\\|db_pool\\b\" tools/receipt_scanning_tools --include=*.py | head -20"
-  },
-  {
-    "date": "2026-08-18T16:46:40",
-    "type": "Bash",
-    "text": "grep -n \"DB_HOST\\|DB_PASSWORD\\|DB_USER\\|DB_NAME\\|dotenv\\|getenv\\|environ\" tools/receipt_scanning_tools/app/db/pool.py | head -30"
-  },
-  {
-    "date": "2026-08-18T16:46:42",
-    "type": "Bash",
-    "text": "env | grep -iE \"DB_|NON_PROFIT\" "
-  },
-  {
-    "date": "2026-08-18T16:46:49",
-    "type": "Bash",
-    "text": "mysql -h 127.0.0.1 -u \"$NON_PROFIT_USER\" -p\"$NON_PROFIT_PASSWORD\" nonprofit_finance -e \"DESCRIBE expenses\" 2>&1 | grep -iE \"id|date|desc|amount|vendor|receipt|source|url\""
-  },
-  {
-    "date": "2026-08-18T16:46:52",
-    "type": "Bash",
-    "text": "mysql -h 127.0.0.1 -u \"$NON_PROFIT_USER\" -p\"$NON_PROFIT_PASSWORD\" nonprofit_finance -e \"SELECT id, id_light, expense_date, description, amount, receipt_url, document_url, expense_status FROM expenses "
-  },
-  {
-    "date": "2026-08-18T16:46:57",
-    "type": "Bash",
-    "text": "grep -rn \"class.*Repository\\|def attach\\b\" e_two_e_processing/*.py tools/receipt_scanning_tools/**/*.py 2>/dev/null | grep -v \"Protocol\\|SupportingDocumentRepository\""
-  },
-  {
-    "date": "2026-08-18T16:47:01",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/e_two_e_processing/expense_repository.py"
-  },
-  {
-    "date": "2026-08-18T16:47:08",
-    "type": "Bash",
-    "text": "grep -n \"attach\\|receipt_url\\|reference\" tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py | head -40"
-  },
-  {
-    "date": "2026-08-18T16:47:10",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T16:47:19",
-    "type": "Bash",
-    "text": "grep -n \"def archive_receipt_copy\\|receipt_filename =\" tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py | head -20"
-  },
-  {
-    "date": "2026-08-18T16:47:23",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T16:47:26",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T16:47:34",
-    "type": "Read",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T16:47:39",
-    "type": "Edit",
-    "text": "/home/adamsl/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py"
-  },
-  {
-    "date": "2026-08-18T16:47:43",
-    "type": "Bash",
-    "text": "find . -name \"parse_and_categorize.py\" -not -path \"*/node_modules/*\" 2>/dev/null"
-  },
-  {
-    "date": "2026-08-18T16:47:46",
-    "type": "Bash",
-    "text": "ls -la receipt_parsing_tools/parse_and_categorize.py tools/receipt_scanning_tools/receipt_parsing_tools/parse_and_categorize.py; echo ---; diff receipt_parsing_tools/parse_and_categorize.py tools/rece"
-  },
-  {
-    "date": "2026-08-18T16:47:51",
-    "type": "Bash",
-    "text": "grep -rln \"parse_and_categorize\" tools/receipt_scanning_tools/receipt_scanner/backend/ 2>/dev/null | head; grep -rn \"peter_mironon\\|freezer\" tools/receipt_scanning_tools/receipt_scanner/backend/ -il 2"
-  },
-  {
-    "date": "2026-08-19T10:33:51",
-    "type": "Bash",
-    "text": "ls -la && echo \"---GIT---\" && git log --oneline -20"
-  },
-  {
-    "date": "2026-08-19T10:33:51",
-    "type": "Bash",
-    "text": "find . -type f -not -path \"./.git/*\" | head -100"
-  },
-  {
-    "date": "2026-08-19T10:33:54",
-    "type": "Bash",
-    "text": "cat basic_agent.py && echo \"=====3o=====\" && cat 3o_mini_chat_w_lance.py"
-  },
-  {
-    "date": "2026-08-19T10:34:16",
-    "type": "Bash",
-    "text": "cat > /home/adamsl/catherine_agent_sdk/CLAUDE.md <<'EOF'\n# CLAUDE.md\n\nThis file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.\n\n## Overview\n\nA scratch/exp"
-  },
-  {
-    "date": "2026-08-19T12:54:56",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --oneline -20 --all | grep -i kerun; echo \"---\"; git log -5 --stat bcd75bf7 -- . 2>/dev/null | head -50"
-  },
-  {
-    "date": "2026-08-19T12:54:59",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && ls -la .a_instructions/kerun_panel_mapping_081826/ 2>/dev/null; echo \"---find md---\"; find . -iname \"*kerun*\" -newer /home/adamsl/.claude/projects/-home-adamsl-rp"
-  },
-  {
-    "date": "2026-08-19T12:57:35",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix/pickle_cpp && git log --oneline -30 -- . ; echo \"---recent files---\"; find . -newer /home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_081826/twelve"
-  },
-  {
-    "date": "2026-08-19T12:57:39",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix/pickle_cpp && git status; echo \"---dietpi refs---\"; grep -ril \"dietpi\" . --include=\"*.sh\" --include=\"*.md\" --include=\"*.py\" --include=\"*.cpp\" --include=\"*.h\" 2>/dev/"
-  },
-  {
-    "date": "2026-08-19T12:57:43",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix/pickle_cpp && ls -la handoff.md; echo \"---\"; git log -3 -- handoff.md"
-  },
-  {
-    "date": "2026-08-19T12:57:47",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && find . -newer ./pickle_cpp/tests/test_sim_kerun_patterns.cpp -type f -not -path \"./.git/*\" 2>/dev/null | grep -v \"\\.o$\" | head -80"
-  },
-  {
-    "date": "2026-08-19T12:57:51",
-    "type": "Bash",
-    "text": "grep -i -A2 -B2 \"dietpi\\|kerun\" ~/.bash_history 2>/dev/null | tail -100; echo \"===ssh config===\"; grep -i -A3 \"dietpi\\|kerun\" ~/.ssh/config 2>/dev/null"
-  },
-  {
-    "date": "2026-08-19T12:57:55",
-    "type": "Bash",
-    "text": "echo \"shell: $SHELL\"; ls -la ~/.zsh_history ~/.bash_history 2>/dev/null; echo \"---zsh---\"; grep -i -B2 -A2 \"dietpi\" ~/.zsh_history 2>/dev/null | tail -60"
-  },
-  {
-    "date": "2026-08-19T12:57:58",
-    "type": "Bash",
-    "text": "grep -n \"ssh\\|dietpi\\|scp\\|rsync\" ~/.bash_history | tail -60"
-  },
-  {
-    "date": "2026-08-19T12:58:03",
-    "type": "Bash",
-    "text": "sed -n '960,1030p' ~/.bash_history"
-  },
-  {
-    "date": "2026-08-19T12:58:09",
-    "type": "Bash",
-    "text": "find /home/adamsl -maxdepth 4 -iname \"*dietpi*\" 2>/dev/null; echo \"---\"; find /home/adamsl/rpi-rgb-led-matrix -iname \"*.md\" -newer /home/adamsl/rpi-rgb-led-matrix/pickle_cpp/handoff.md 2>/dev/null | g"
-  },
-  {
-    "date": "2026-08-19T12:58:13",
-    "type": "Bash",
-    "text": "cat /home/adamsl/linuxBash/menu_shell_scripts/login_dietpi.sh; echo \"=== ls kerun_panel_mapping_081726 ===\"; ls -la /home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_081726/"
-  },
-  {
-    "date": "2026-08-19T12:58:15",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/.a_instructions/kerun_panel_mapping_081726/before_running_new_opus_tests_1120_AM.md"
-  },
-  {
-    "date": "2026-08-19T13:01:08",
-    "type": "Bash",
-    "text": "ls -la; echo \"---git log for this dir---\"; git log --oneline --all -- . | tail -60"
-  },
-  {
-    "date": "2026-08-19T13:03:14",
-    "type": "Bash",
-    "text": "echo \"=== last_mux_cmd.sh ===\"; cat last_mux_cmd.sh; echo; echo \"=== sweeper.cpp ===\"; cat sweeper.cpp; echo; echo \"=== find wizard/ugrid source ===\"; find / -iname \"panel_mapper_wizard*\" -o -iname \"p"
-  },
-  {
-    "date": "2026-08-19T13:03:17",
-    "type": "Bash",
-    "text": "echo \"=== last_mux_cmd.sh ===\"; cat last_mux_cmd.sh; echo; echo \"=== sweeper.cpp ===\"; cat sweeper.cpp"
-  },
-  {
-    "date": "2026-08-19T13:03:23",
-    "type": "Bash",
-    "text": "cat handoff.mc"
-  },
-  {
-    "date": "2026-08-19T13:03:25",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/examples-api-use/dead_panel_debug_instructions.md"
-  },
-  {
-    "date": "2026-08-19T13:03:36",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --all --diff-filter=A --name-only | grep -i \"panel_mapper_wizard\\|pixel_mapper_ugrid\" "
-  },
-  {
-    "date": "2026-08-19T13:03:41",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --oneline --all --follow -- examples-api-use/panel_mapper_wizard.cc | tail -5; echo \"---\"; git log --oneline --all --follow -- lib/pixel_mapper_ugrid.cc |"
-  },
-  {
-    "date": "2026-08-19T13:03:45",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --oneline --all --follow -- examples-api-use/panel_mapper_wizard.cc | head -5; echo \"date of newest:\"; git log -1 --format=%ai 325619fd; echo \"---latest c"
-  },
-  {
-    "date": "2026-08-19T13:04:01",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && grep -n \"multiplexing\" include/led-matrix.h lib/multiplex-mappers.cc 2>/dev/null | head -30"
-  },
-  {
-    "date": "2026-08-19T13:04:04",
+    "date": "2026-08-24T20:33:56",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && grep -n \"MULTIPLEX_NAME\\|new.*Mapper()\\|registry\\[\" lib/multiplex-mappers.cc | tail -40"
+    "text": "cd ~/letta-code/dashboard && .venv/bin/pytest tests/test_health_poller.py -q 2>&1 | tail -30"
   },
   {
-    "date": "2026-08-19T13:07:26",
+    "date": "2026-08-24T20:33:59",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --all --oneline | grep -i \"kerun\\|panel\" | head -60"
+    "text": "cd ~/letta-code/dashboard && timeout 280 .venv/bin/pytest tests/ -q -x --timeout=200 2>&1 | tail -60"
   },
   {
-    "date": "2026-08-19T13:07:34",
+    "date": "2026-08-24T20:34:01",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && for c in 8a9596de 27bcdd13 e91eca87 5a2f25b2 c310ff51; do git log -1 --format=\"%h %ai %s\" $c; done\necho \"---grep kerun in multiplex-mappers---\"\ngrep -n -i \"kerun\\"
+    "text": "cd ~/letta-code/dashboard && timeout 280 .venv/bin/pytest tests/ -q 2>&1 | tail -60"
   },
   {
-    "date": "2026-08-19T13:07:41",
+    "date": "2026-08-24T20:34:04",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --all -p --follow -- lib/multiplex-mappers.cc | grep -n \"KerunOneEighth\\|class.*Kerun\" | head -20\necho \"---\"\ngit log -1 --format=\"%h %ai %s\" -S\"KerunOneEi"
+    "text": "cd ~/letta-code/dashboard && grep -n \"^def.*vendor.review\\|^def.*open_receipt\\|vendor_review\\|open-receipt\\|open_receipt\" server.py | head -30"
   },
   {
-    "date": "2026-08-19T13:07:44",
+    "date": "2026-08-24T20:34:06",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix/pickle_cpp && sed -n '100,165p' ScoreBoard/ScoreBoard.cpp"
+    "text": "cd ~/letta-code/dashboard && sed -n '2590,2680p' server.py"
   },
   {
-    "date": "2026-08-19T13:07:52",
+    "date": "2026-08-24T20:34:08",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --oneline --all -- lib/multiplex-mappers.cc | grep -i kerun | tail -30\necho \"=== last commit containing KerunOneEighth or KerunMux1E8 ===\"\ngit log --all -"
-  },
-  {
-    "date": "2026-08-19T13:07:57",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --all --oneline -S\"KerunMux1E8\" -- lib/multiplex-mappers.cc"
-  },
-  {
-    "date": "2026-08-19T13:08:01",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git show 3d1b9c47 --stat; echo \"---\"; git show 3d1b9c47 -- lib/multiplex-mappers.cc | head -120"
-  },
-  {
-    "date": "2026-08-19T13:08:07",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git show 8a9596de --stat | head -20; echo \"---msg body---\"; git show -s --format=\"%B\" 8a9596de"
-  },
-  {
-    "date": "2026-08-19T13:08:13",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --all --oneline -- lib/multiplex-mappers.cc | tail -40"
-  },
-  {
-    "date": "2026-08-19T13:08:17",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && for c in 8a9596de HEAD; do echo \"$c:\"; git show $c:lib/multiplex-mappers.cc 2>/dev/null | grep -c \"class Kerun\"; done\necho \"--- commits between 8a9596de and HEAD "
-  },
-  {
-    "date": "2026-08-19T13:08:25",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --oneline --all --since=\"2025-09-23\" --until=\"2025-11-01\" -- lib/multiplex-mappers.cc | head -30"
-  },
-  {
-    "date": "2026-08-19T13:08:30",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --all --oneline -1 -- lib/multiplex-mappers.cc\necho \"---is 8a9596de ancestor of HEAD?---\"\ngit merge-base --is-ancestor 8a9596de HEAD && echo yes || echo n"
-  },
-  {
-    "date": "2026-08-19T13:08:42",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && ls -la lib/multiplex-mappers.cc; git log -1 --format=\"%H %ai %s\" HEAD -- lib/multiplex-mappers.cc"
-  },
-  {
-    "date": "2026-08-19T13:08:47",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git status lib/multiplex-mappers.cc; echo \"---diff stat---\"; git diff --stat HEAD -- lib/multiplex-mappers.cc; echo \"---diff HEAD vs disk grep kerun---\"; grep -c "
-  },
-  {
-    "date": "2026-08-19T13:08:57",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --full-history --oneline --all -- lib/multiplex-mappers.cc | head -20"
-  },
-  {
-    "date": "2026-08-19T13:09:01",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && for c in 8004af79 15da09e5 da94f3a3 c511557b; do git log -1 --format=\"%h %ai %s\" $c; done\necho \"--- da94f3a3 diff for kerun ---\"\ngit show da94f3a3 -- lib/multiple"
-  },
-  {
-    "date": "2026-08-19T13:09:07",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && diff <(git show da94f3a3:lib/multiplex-mappers.cc) lib/multiplex-mappers.cc | head -100"
-  },
-  {
-    "date": "2026-08-19T13:09:24",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git log --oneline --all --since=\"2025-09-23\" --until=\"2025-10-25\" -- lib/multiplex-mappers.cc\necho \"---full history without path (all commits mentioning multiplex"
-  },
-  {
-    "date": "2026-08-19T13:09:32",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && diff <(git show c511557b:lib/multiplex-mappers.cc) lib/multiplex-mappers.cc | head -5\necho \"=== grep kerun in c511557b ===\"\ngit show c511557b:lib/multiplex-mapper"
-  },
-  {
-    "date": "2026-08-19T13:12:22",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git show da94f3a3:lib/multiplex-mappers.cc > /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix-examples-api-use/e1c80bdd-f302-4c56-b8d1-6a577be62dce/scratchpad/old"
-  },
-  {
-    "date": "2026-08-19T13:12:25",
-    "type": "Bash",
-    "text": "sed -n '743,971p' /tmp/claude-1000/-home-adamsl-rpi-rgb-led-matrix-examples-api-use/e1c80bdd-f302-4c56-b8d1-6a577be62dce/scratchpad/old_mux.cc"
-  },
-  {
-    "date": "2026-08-19T13:12:33",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/multiplex-mappers.cc"
-  },
-  {
-    "date": "2026-08-19T13:12:37",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/multiplex-mappers.cc"
-  },
-  {
-    "date": "2026-08-19T13:12:41",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/multiplex-mappers.cc"
-  },
-  {
-    "date": "2026-08-19T13:13:18",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/pickle_cpp/general_instructions/cpp_gof_constitution.md"
-  },
-  {
-    "date": "2026-08-19T13:13:29",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && g++ -std=c++17 -Iinclude -Ilib -c lib/multiplex-mappers.cc -o /tmp/mux_test.o 2>&1 | head -60"
-  },
-  {
-    "date": "2026-08-19T13:13:38",
-    "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && grep -n \"multiplexing\" lib/led-matrix.cc | head -10; echo \"---GetAvailableMultiplexMapperList / by name---\"; grep -n \"MuxName\\|multiplex.*name\\|GetName\" lib/multi"
-  },
-  {
-    "date": "2026-08-19T13:14:00",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/multiplex-mappers.cc"
-  },
-  {
-    "date": "2026-08-19T13:14:43",
-    "type": "Read",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/multiplex-mappers.cc"
-  },
-  {
-    "date": "2026-08-19T13:15:18",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/multiplex-mappers.cc"
-  },
-  {
-    "date": "2026-08-19T13:15:21",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/multiplex-mappers.cc"
-  },
-  {
-    "date": "2026-08-19T13:15:24",
-    "type": "Edit",
-    "text": "/home/adamsl/rpi-rgb-led-matrix/lib/multiplex-mappers.cc"
+    "text": "cd ~/letta-code/dashboard && sed -n '2680,2740p' server.py"
   },
   {
-    "date": "2026-08-19T13:15:29",
+    "date": "2026-08-24T20:34:13",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && g++ -std=c++17 -Wall -Iinclude -Ilib -c lib/multiplex-mappers.cc -o /tmp/mux_test.o 2>&1 | head -80"
+    "text": "cd ~/letta-code/dashboard && grep -n \"^def receipt_lookup\\|^def.*receipt.*lookup\\|_receipt_url_for_path\\b\" server.py | head -20"
   },
   {
-    "date": "2026-08-19T13:15:34",
+    "date": "2026-08-24T20:34:18",
     "type": "Bash",
-    "text": "ls -la /tmp/mux_test.o && echo \"COMPILE OK\""
+    "text": "cd ~/letta-code/dashboard && grep -n \"receipt-lookup\\|receipt_lookup\" server.py http_app/*.py"
   },
   {
-    "date": "2026-08-19T13:15:55",
+    "date": "2026-08-24T20:34:20",
     "type": "Bash",
-    "text": "command -v expect; echo \"expect: $?\"; command -v sshpass; echo \"sshpass: $?\""
+    "text": "cd ~/letta-code/dashboard && sed -n '565,610p' http_app/post_routes.py"
   },
   {
-    "date": "2026-08-19T13:16:07",
+    "date": "2026-08-24T20:34:22",
     "type": "Bash",
-    "text": "sudo -n apt-get install -y sshpass 2>&1 | tail -20"
+    "text": "cd ~/letta-code/dashboard && grep -n \"^def lookup_receipt\" server.py"
   },
   {
-    "date": "2026-08-19T13:17:42",
+    "date": "2026-08-24T20:34:24",
     "type": "Bash",
-    "text": "grep -i \"dietpi\\|100.71.140.38\\|192.168.1.10\" ~/.ssh/known_hosts ~/.ssh/known_hosts.old 2>/dev/null\necho \"---pubkey---\"; cat ~/.ssh/id_ed25519.pub\necho \"---authorized_keys (local, irrelevant but check"
+    "text": "cd ~/letta-code/dashboard && sed -n '4960,5045p' server.py"
   },
   {
-    "date": "2026-08-19T13:19:55",
+    "date": "2026-08-24T20:34:31",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git status; echo \"---diff stat---\"; git diff --stat"
+    "text": "cd ~/letta-code/dashboard && sed -n '1,60p' finance/vendor_lookup.py"
   },
   {
-    "date": "2026-08-19T13:19:58",
+    "date": "2026-08-24T20:34:36",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git add lib/multiplex-mappers.cc && git log --oneline -5"
+    "text": "cd ~/letta-code/dashboard && sed -n '1,50p' finance/manual_entry.py"
   },
   {
-    "date": "2026-08-19T13:20:13",
+    "date": "2026-08-24T20:34:38",
     "type": "Bash",
-    "text": "cd /home/adamsl/rpi-rgb-led-matrix && git commit -m \"$(cat <<'EOF'\nkerun_mapper: restore KerunMux1E8 multiplexer, lost by a silent merge\n\nOn 2025-09-23 the hand-tuned KerunMux1E8 mapper (1/8-scan, env"
+    "text": "cd ~/letta-code/dashboard && grep -n \"^def _rol_get_connection\" server.py"
   },
   {
-    "date": "2026-08-19T13:20:30",
+    "date": "2026-08-24T20:34:52",
     "type": "Write",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory/kerun_mux1e8_restored_handoff.md\n\u2192 --- name: kerun-mux1e8-restored-handoff description: \"KerunMux1E8 custom multiplexer recovered from a silently-lost merge and re-added to lib/multiplex-mappers.cc; untested on hardware as of 2026-08-1"
+    "text": "/home/adamsl/letta-code/dashboard/finance/vendor_review.py\n\u2192 \"\"\"Vendor review: pick a vendor_key for a receipt that saved with no category.  Companion to the FAIL-CLOSED CATEGORY RULE in build_mazda_scan_message(): when Mazda can't resolve a vendor/category, pa"
   },
   {
-    "date": "2026-08-19T13:20:34",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-08-19T13:20:37",
-    "type": "Bash",
-    "text": "grep -n \"Kerun HUB75 Panel\" /home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-08-19T13:20:40",
-    "type": "Read",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory/MEMORY.md"
-  },
-  {
-    "date": "2026-08-19T13:20:52",
+    "date": "2026-08-24T20:35:05",
     "type": "Edit",
-    "text": "/home/adamsl/.claude/projects/-home-adamsl-rpi-rgb-led-matrix/memory/MEMORY.md"
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-24T20:35:08",
+    "type": "Bash",
+    "text": "tail -15 /tmp/claude-1000/-home-adamsl-letta-code/1e5ff5d8-277c-4cf6-bcc6-326a8cbf0698/tasks/bp5ly26yd.output"
+  },
+  {
+    "date": "2026-08-24T20:35:12",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && wc -l server.py && python3 -c \"import ast; ast.parse(open('server.py').read())\" && echo \"syntax OK\""
+  },
+  {
+    "date": "2026-08-24T20:35:15",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && grep -n \"list_pending_vendor_review\\|set_receipt_vendor\\|list_vendor_keys\" tests/test_server.py | head -20"
+  },
+  {
+    "date": "2026-08-24T20:35:18",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && sed -n '3495,3608p' tests/test_server.py"
+  },
+  {
+    "date": "2026-08-24T20:35:32",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/finance/vendor_review.py"
+  },
+  {
+    "date": "2026-08-24T20:35:35",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/finance/vendor_review.py"
+  },
+  {
+    "date": "2026-08-24T20:35:40",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/finance/vendor_review.py"
+  },
+  {
+    "date": "2026-08-24T20:35:48",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/dashboard/server.py"
+  },
+  {
+    "date": "2026-08-24T20:36:06",
+    "type": "Write",
+    "text": "/home/adamsl/letta-code/dashboard/tests/test_vendor_review.py\n\u2192 \"\"\"finance/vendor_review.py -- the 'pick a vendor' dialog backend.\"\"\"  from finance.vendor_review import (     PendingVendorReviewRow,     list_pending_vendor_review,     list_vendor_keys,     set_rec"
+  },
+  {
+    "date": "2026-08-24T20:36:09",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && .venv/bin/pytest tests/test_vendor_review.py -q 2>&1 | tail -30"
+  },
+  {
+    "date": "2026-08-24T20:36:12",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && timeout 280 .venv/bin/pytest tests/ -q 2>&1 | tail -40"
+  },
+  {
+    "date": "2026-08-24T20:36:15",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && grep -n \"^# \u2500.*[Mm]gmt\\|^# \u2500.*[Mm]anagement helper\" server.py | head -20"
+  },
+  {
+    "date": "2026-08-24T20:36:17",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && sed -n '7079,7186p' server.py"
+  },
+  {
+    "date": "2026-08-24T20:36:45",
+    "type": "Bash",
+    "text": "sleep 20; tail -20 /tmp/claude-1000/-home-adamsl-letta-code/1e5ff5d8-277c-4cf6-bcc6-326a8cbf0698/tasks/btlvxo76u.output 2>/dev/null || echo \"still running\""
+  },
+  {
+    "date": "2026-08-24T20:36:48",
+    "type": "Bash",
+    "text": "cat /tmp/claude-1000/-home-adamsl-letta-code/1e5ff5d8-277c-4cf6-bcc6-326a8cbf0698/tasks/btlvxo76u.output 2>/dev/null | tail -30"
+  },
+  {
+    "date": "2026-08-24T20:36:51",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && grep -n \"^def chatgpt_provider_health\\|^# \u2500.*[Cc]hatgpt\\|CHATGPT_PROVIDER_POLL_INTERVAL\\|_chatgpt_provider_poll_loop\" server.py"
+  },
+  {
+    "date": "2026-08-24T20:36:58",
+    "type": "Bash",
+    "text": "ls -la /tmp/claude-1000/-home-adamsl-letta-code/1e5ff5d8-277c-4cf6-bcc6-326a8cbf0698/tasks/btlvxo76u.output; ps aux | grep pytest | grep -v grep"
+  },
+  {
+    "date": "2026-08-24T20:37:06",
+    "type": "Bash",
+    "text": "cd ~/letta-code/dashboard && grep -n \"srv\\.list_vendor_keys\\|srv\\.list_pending_vendor_review\\|srv\\.set_receipt_vendor\\|srv\\.cached_server_health\" http_app/*.py"
+  },
+  {
+    "date": "2026-08-24T20:37:26",
+    "type": "Bash",
+    "text": "while [ ! -s /tmp/claude-1000/-home-adamsl-letta-code/1e5ff5d8-277c-4cf6-bcc6-326a8cbf0698/tasks/btlvxo76u.output ]; do sleep 5; done; tail -40 /tmp/claude-1000/-home-adamsl-letta-code/1e5ff5d8-277c-4"
+  },
+  {
+    "date": "2026-08-24T20:37:30",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/notes_plans_handoffs/dashboard_refactor_plan.html"
+  },
+  {
+    "date": "2026-08-24T20:37:36",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/notes_plans_handoffs/dashboard_refactor_plan.html"
+  },
+  {
+    "date": "2026-08-24T20:37:47",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/notes_plans_handoffs/dashboard_refactor_plan.html"
+  },
+  {
+    "date": "2026-08-24T20:37:52",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/notes_plans_handoffs/dashboard_refactor_plan.html"
+  },
+  {
+    "date": "2026-08-24T20:38:02",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/notes_plans_handoffs/dashboard_refactor_plan.html"
+  },
+  {
+    "date": "2026-08-24T20:38:09",
+    "type": "Edit",
+    "text": "/home/adamsl/letta-code/notes_plans_handoffs/dashboard_refactor_plan.html"
+  },
+  {
+    "date": "2026-08-24T20:38:12",
+    "type": "Bash",
+    "text": "cd ~/letta-code && git status --short | grep -v \"^ M js/\" | grep -v claude_toolcalls"
+  },
+  {
+    "date": "2026-08-24T20:38:16",
+    "type": "Bash",
+    "text": "cd ~/letta-code && git diff dashboard/dashboard.html"
+  },
+  {
+    "date": "2026-08-24T20:38:23",
+    "type": "Bash",
+    "text": "cd ~/letta-code && git diff dashboard/dashboard.html | git apply --cached --unidiff-zero 2>&1 || echo \"trying patch approach instead\""
+  },
+  {
+    "date": "2026-08-24T20:38:25",
+    "type": "Bash",
+    "text": "cd ~/letta-code && git restore --staged dashboard/dashboard.html && git status --short dashboard/dashboard.html"
+  },
+  {
+    "date": "2026-08-24T20:38:32",
+    "type": "Bash",
+    "text": "cd ~/letta-code && cat <<'EOF' > /tmp/dashboard_html.patch\ndiff --git a/dashboard/dashboard.html b/dashboard/dashboard.html\nindex d1248084..faf4228f 100644\n--- a/dashboard/dashboard.html\n+++ b/dashboa"
+  },
+  {
+    "date": "2026-08-24T20:38:35",
+    "type": "Bash",
+    "text": "cd ~/letta-code && git add dashboard/server.py dashboard/health/poller.py dashboard/finance/vendor_review.py dashboard/tests/test_health_poller.py dashboard/tests/test_vendor_review.py notes_plans_han"
+  },
+  {
+    "date": "2026-08-24T20:38:37",
+    "type": "Bash",
+    "text": "cd ~/letta-code && git diff --cached --stat"
+  },
+  {
+    "date": "2026-08-24T20:38:57",
+    "type": "Bash",
+    "text": "cd ~/letta-code && git commit -m \"$(cat <<'EOF'\nExtract the health-poller cache and vendor-review dialog backend out of server.py\n\nhealth/poller.py: HealthPoller + HealthCacheEntry (Pydantic) replace "
+  },
+  {
+    "date": "2026-08-24T20:39:01",
+    "type": "Bash",
+    "text": "cd ~/letta-code && git push origin main 2>&1 | tail -10"
+  },
+  {
+    "date": "2026-08-24T20:39:06",
+    "type": "Bash",
+    "text": "systemctl --user restart dashboard-server.service && sleep 2 && systemctl --user is-active dashboard-server.service"
+  },
+  {
+    "date": "2026-08-24T20:39:14",
+    "type": "Bash",
+    "text": "curl -s http://localhost:8765/api/server-health | python3 -m json.tool | head -40"
+  },
+  {
+    "date": "2026-08-24T20:39:17",
+    "type": "Bash",
+    "text": "curl -s http://localhost:8765/api/server-health | python3 -c \"\nimport json,sys\nd = json.load(sys.stdin)\nservers = d['servers']\nstatuses = sorted(set(s['status'] for s in servers))\nprint('total servers"
+  },
+  {
+    "date": "2026-08-24T20:39:21",
+    "type": "Bash",
+    "text": "journalctl --user -u dashboard-server.service --since \"-2min\" | grep -iE \"error|traceback|exception\" | grep -v \"DeprecationWarning\" | tail -20\necho \"no errors above = clean\""
   }
 ]

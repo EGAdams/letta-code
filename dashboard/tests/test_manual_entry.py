@@ -74,6 +74,22 @@ def test_build_save_command_includes_category_id_when_given():
     assert cmd[cmd.index('--category-id') + 1] == '42'
 
 
+def test_build_save_command_keeps_description_separate_from_learned_vendor_key():
+    cmd = manual_entry.build_save_command(_entry(
+        merchant_name='CRACKER BARREL #428 CA CAVE CITY KY',
+        category_id=3,
+        vendor_key='cracker_barrel',
+        learn_vendor=True,
+    ))
+    assert '--merchant-name-override=CRACKER BARREL #428 CA CAVE CITY KY' in cmd
+    assert '--vendor-key-override=cracker_barrel' in cmd
+
+
+def test_manual_entry_rejects_a_noncanonical_vendor_key():
+    with pytest.raises(ValidationError):
+        _entry(vendor_key='Cracker Barrel #428', learn_vendor=True)
+
+
 def test_submit_manual_receipt_entry_success(monkeypatch):
     calls = []
 

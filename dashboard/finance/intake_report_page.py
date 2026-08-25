@@ -71,7 +71,7 @@ def transactions_table_html(rows, *, source_document_url='', empty_note=''):
         trs.append(
             '<tr class="%s%s%s" data-expense-id="%s" '
             'data-source-document="%s" data-is-duplicate="%s" '
-            'data-vendor-key="%s" data-description="%s" '
+            'data-vendor-key="%s" data-id-light="%s" data-description="%s" '
             'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
             'title="Click row to set category / view receipt">'
             '<td>%s</td><td class="number">%s</td><td>%s</td>'
@@ -82,6 +82,7 @@ def transactions_table_html(rows, *, source_document_url='', empty_note=''):
                 _esc(source_document_url, quote=True),
                 'true' if row['duplicate'] else 'false',
                 _esc(row['vendor_key'], quote=True),
+                _esc(row.get('id_light') or '', quote=True),
                 _esc(row['description'], quote=True),
                 _esc(row['amount'], quote=True),
                 _esc(row['date'], quote=True),

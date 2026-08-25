@@ -98,7 +98,9 @@ class ExpenseRecord(StrictModel):
     transaction_date: str
     total_amount: float
     description: str = ''
-    vendor_key: str = ''
+    #: Immutable transaction filing key from `expenses.id_light`. It is not a
+    #: reusable vendor key: it normally embeds the date and amount too.
+    id_light: str = ''
     category_id: Optional[int] = None
     category_name: str = ''
 
@@ -168,13 +170,13 @@ def describe_changes(before: ExpenseRecord, edit: ExpenseEdit) -> tuple[str, ...
 def linkage_warnings(before: ExpenseRecord,
                      changed_fields: tuple[str, ...]) -> tuple[str, ...]:
     """Warn when an edit breaks the id_light -> receipt-file linkage."""
-    if not before.vendor_key:
+    if not before.id_light:
         return ()
     drifted = [f for f in ('expense_date', 'amount') if f in changed_fields]
     if not drifted:
         return ()
     return (
-        f'This row\'s vendor key ({before.vendor_key}) still encodes the old '
+        f'This row\'s filing key ({before.id_light}) still encodes the old '
         f'{" and ".join(drifted)}. The receipt file on disk was not renamed, '
         'so "View Receipt" may no longer match this row.',
     )

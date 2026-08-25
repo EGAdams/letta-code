@@ -179,7 +179,7 @@ def test_request_treats_blank_dates_as_absent():
 # _where_clauses: the SQL the search builds
 # --------------------------------------------------------------------------
 
-def test_merchant_search_covers_vendor_key_when_the_column_exists():
+def test_merchant_search_covers_filing_key_when_the_column_exists():
     clauses, params = _where_clauses(
         ExpenseSearchCriteria(merchant='Kroger'), has_vendor_key=True)
     assert clauses == ["(description LIKE %s ESCAPE '!' "
@@ -187,7 +187,7 @@ def test_merchant_search_covers_vendor_key_when_the_column_exists():
     assert params == ['%Kroger%', '%Kroger%']
 
 
-def test_merchant_search_drops_vendor_key_on_a_narrower_schema():
+def test_merchant_search_drops_filing_key_on_a_narrower_schema():
     clauses, params = _where_clauses(
         ExpenseSearchCriteria(merchant='Kroger'), has_vendor_key=False)
     assert clauses == ["description LIKE %s ESCAPE '!'"]
@@ -214,7 +214,7 @@ def test_search_returns_records_with_resolved_category_names():
     records = repo.search(ExpenseSearchCriteria(merchant='Kroger'))
     assert [r.id for r in records] == [501]
     assert records[0].category_name == 'Office'
-    assert records[0].vendor_key == 'kroger_08_15_26_12_34'
+    assert records[0].id_light == 'kroger_08_15_26_12_34'
 
 
 def test_search_reports_a_negative_stored_amount_as_positive():
@@ -284,7 +284,7 @@ def test_edit_of_an_unknown_id_raises_rather_than_writing():
     assert connection.commits == 0
 
 
-def test_edit_warns_that_a_moved_amount_desyncs_the_vendor_key():
+def test_edit_warns_that_a_moved_amount_desyncs_the_filing_key():
     repo, _ = _repo([_row()])
     result = repo.apply_edit(_edit(total_amount=99.99))
     assert result.warnings
@@ -325,7 +325,7 @@ def test_edit_refuses_what_a_fresh_manual_entry_would_refuse(overrides):
 
 def _record(**overrides):
     fields = dict(id=501, transaction_date='2026-08-15', total_amount=12.34,
-                  description='Kroger', vendor_key='kroger_08_15_26_12_34',
+                  description='Kroger', id_light='kroger_08_15_26_12_34',
                   category_id=140, category_name='Office')
     fields.update(overrides)
     return ExpenseRecord(**fields)
@@ -336,8 +336,8 @@ def test_sub_half_cent_amount_drift_is_not_a_change():
         'description',)
 
 
-def test_linkage_warning_is_silent_for_a_row_with_no_vendor_key():
-    assert linkage_warnings(_record(vendor_key=''), ('amount',)) == ()
+def test_linkage_warning_is_silent_for_a_row_with_no_filing_key():
+    assert linkage_warnings(_record(id_light=''), ('amount',)) == ()
 
 
 def test_records_as_json_uses_the_snake_case_names_the_browser_reads():
@@ -347,9 +347,15 @@ def test_records_as_json_uses_the_snake_case_names_the_browser_reads():
         'transaction_date': '2026-08-15',
         'total_amount': 12.34,
         'description': 'Kroger',
-        'vendor_key': 'kroger_08_15_26_12_34',
+        'id_light': 'kroger_08_15_26_12_34',
         'category_name': 'Office',
     }]
+
+
+def test_edit_response_exposes_the_filing_key_without_calling_it_a_vendor():
+    payload = records_as_json([_record()])[0]
+    assert payload['id_light'] == 'kroger_08_15_26_12_34'
+    assert 'vendor_key' not in payload
 
 
 # --------------------------------------------------------------------------
@@ -534,7 +540,7 @@ def test_a_row_whose_description_is_null_reads_as_empty_not_none():
     repo, _ = _repo([_row(description=None, id_light=None)])
     record = repo.search(ExpenseSearchCriteria(merchant='x'))[0]
     assert record.description == ''
-    assert record.vendor_key == ''
+    assert record.id_light == ''
 
 
 def test_a_row_with_no_category_gets_an_empty_category_name():
@@ -547,7 +553,7 @@ def test_a_row_with_no_category_gets_an_empty_category_name():
 def test_search_on_a_table_with_no_id_light_column_still_works():
     repo, _ = _repo([_row(id_light=None)], probe=_FakeProbe(available=()))
     records = repo.search(ExpenseSearchCriteria(merchant='Kroger'))
-    assert records[0].vendor_key == ''
+    assert records[0].id_light == ''
 
 
 def test_clearing_a_category_is_a_real_change():
@@ -557,7 +563,7 @@ def test_clearing_a_category_is_a_real_change():
     assert connection.commits == 1
 
 
-def test_an_edit_moving_only_the_date_warns_about_the_vendor_key():
+def test_an_edit_moving_only_the_date_warns_about_the_filing_key():
     repo, _ = _repo([_row()])
     result = repo.apply_edit(
         _edit(merchant_name='Kroger', transaction_date='2026-09-01'))

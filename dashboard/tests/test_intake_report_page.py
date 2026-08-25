@@ -7,8 +7,11 @@ failure modes that broke the Last Freezer/Window Scan tabs — an unnamed
 document and a wall of '--' — directly testable.
 """
 
+import json
+
 from finance import intake_report_model as model
 from finance import intake_report_page as page
+from finance import vendor_lookup
 
 
 def test_document_type_label_reports_state_when_unclassified():
@@ -75,6 +78,74 @@ def test_presentation_rows_mark_a_duplicate_only_run():
         rows, set(), stored=0, parsed=3)[0]['duplicate'] is True
 
 
+def test_statement_source_description_recovers_the_cracker_barrel_text(tmp_path):
+    artifact = tmp_path / 'scan.jpg.statement.json'
+    artifact.write_text(json.dumps({
+        'ok': True,
+        'doc_kind': 'statement',
+        'source_image': '/tmp/scan.jpg',
+        'statement_count': 1,
+        'statements': [{'transactions': [{
+            'date': '2025-05-23',
+            'description': 'CRACKER BARREL #428 CA CAVE CITY KY',
+            'amount': -28.73,
+            'transaction_kind': 'charge',
+        }]}],
+    }))
+    rows = [{
+        'id': 1391,
+        'date': '2025-05-23',
+        'amount': '28.730',
+        'description': 'cracker_barrel',
+    }]
+
+    recovered = model.recover_statement_source_descriptions(artifact, rows)
+    overlaid = model.apply_source_descriptions(rows, recovered)
+
+    assert recovered == {1391: 'CRACKER BARREL #428 CA CAVE CITY KY'}
+    assert overlaid[0]['description'] == 'CRACKER BARREL #428 CA CAVE CITY KY'
+
+
+def test_canonical_vendor_key_is_separate_from_the_filing_key():
+    rows = model.apply_canonical_vendor_keys([{
+        'id': 1391,
+        'description': 'CRACKER BARREL #428 CA CAVE CITY KY',
+        'id_light': 'cracker_barrel_05_23_25_28_73',
+        'vendor_key': '',
+    }], lambda description: (
+        'cracker_barrel' if description.startswith('CRACKER BARREL') else ''))
+    assert rows[0]['vendor_key'] == 'cracker_barrel'
+    assert rows[0]['id_light'] == 'cracker_barrel_05_23_25_28_73'
+
+
+def test_statement_source_description_fails_closed_when_date_amount_is_ambiguous(
+        tmp_path):
+    artifact = tmp_path / 'scan.jpg.statement.json'
+    artifact.write_text(json.dumps({
+        'ok': True,
+        'doc_kind': 'statement',
+        'source_image': '/tmp/scan.jpg',
+        'statement_count': 1,
+        'statements': [{'transactions': [
+            {'date': '2025-05-23', 'description': 'FIRST', 'amount': -28.73,
+             'transaction_kind': 'charge'},
+            {'date': '2025-05-23', 'description': 'SECOND', 'amount': -28.73,
+             'transaction_kind': 'charge'},
+        ]}],
+    }))
+    rows = [{
+        'id': 1391,
+        'date': '2025-05-23',
+        'amount': '28.73',
+        'description': 'DB FALLBACK',
+    }]
+
+    recovered = model.recover_statement_source_descriptions(artifact, rows)
+
+    assert recovered == {}
+    assert model.apply_source_descriptions(rows, recovered)[0]['description'] == 'DB FALLBACK'
+
+
 def test_stored_findings_normalises_signed_amount_and_keeps_duplicates():
     rows = model.presentation_rows([
         {'id': 7, 'cat_class': 'cat-x', 'vendor_key': 'kum_go',
@@ -98,6 +169,56 @@ def test_stored_findings_normalises_signed_amount_and_keeps_duplicates():
     # the positive magnitude every manual/Mazda-Fill entry already uses.
     assert findings[0].total_amount == 12.34
     assert findings[1].merchant_name == 'Meijer'
+
+
+def test_stored_findings_gives_unknown_vendor_a_separate_key_guess():
+    rows = model.presentation_rows([{
+        'id': 1391,
+        'cat_class': 'cat-personal',
+        'vendor_key': 'cracker_barrel_05_23_25_28_73',
+        'description': 'CRACKER BARREL #428 CA CAVE CITY KY',
+        'amount': '-28.73',
+        'date': '2025-05-23',
+        'reporting_category': 'Personal',
+    }], duplicate_ids={1391})
+
+    finding = model.stored_findings(
+        rows,
+        resolve_vendor=lambda _description: None,
+        guess_vendor=lambda _description: 'cracker_barrel',
+    )[0]
+
+    assert finding.merchant_name == 'CRACKER BARREL #428 CA CAVE CITY KY'
+    assert finding.known_vendor_key == ''
+    assert finding.new_vendor_key == 'cracker_barrel'
+
+
+def test_vendor_key_guess_trims_a_statement_store_number(monkeypatch):
+    class _Lookup:
+        def guess_vendor_key(self, _description):
+            return 'cracker_barrel_428_ca_cave_city_ky'
+
+    monkeypatch.setattr(vendor_lookup, 'vendor_category_lookup', lambda: _Lookup())
+    assert vendor_lookup.guess_vendor_key(
+        'CRACKER BARREL #428 CA CAVE CITY KY') == 'cracker_barrel'
+
+
+def test_uncategorized_registered_key_is_still_a_new_vendor():
+    rows = model.presentation_rows([{
+        'id': 1391, 'cat_class': 'cat-personal',
+        'vendor_key': 'filing_key',
+        'description': 'CRACKER BARREL #428 CA CAVE CITY KY',
+        'amount': '-28.73', 'date': '2025-05-23',
+        'reporting_category': 'Personal',
+    }], duplicate_ids={1391})
+    finding = model.stored_findings(
+        rows,
+        resolve_vendor=lambda _description: 'cracker_barrel_428_ca_cave_city_ky',
+        guess_vendor=lambda _description: 'cracker_barrel',
+        vendor_is_known=lambda _key: False,
+    )[0]
+    assert finding.known_vendor_key == ''
+    assert finding.new_vendor_key == 'cracker_barrel'
 
 
 def test_stored_findings_carries_the_real_db_id_for_every_row():
