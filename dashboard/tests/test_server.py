@@ -5151,7 +5151,7 @@ def test_pc_metrics_failure_after_success_serves_stale_last_good(monkeypatch):
 # ── /api/agent-model dropdown options ─────────────────────────────────────────
 
 def test_agent_model_options_default_list():
-    opts = server.agent_model_options('chatgpt-plus-pro/gpt-5.4')
+    opts = server.agent_model_options('chatgpt-plus-pro/gpt-5.6-sol')
     assert opts == server.AGENT_MODEL_OPTIONS
     assert not any('mini' in option.lower() or 'nano' in option.lower() for option in opts)
 
@@ -5172,8 +5172,6 @@ def test_agent_model_options_only_vetted_codex_and_claude_handles():
             'gpt-5.6-sol',
             'gpt-5.6-terra',
             'gpt-5.6-luna',
-            'gpt-5.5',
-            'gpt-5.4',
         },
         'claude-pro-max': {
             'claude-haiku-4-5-20251001',
@@ -8095,6 +8093,36 @@ def test_expense_edit_learns_new_vendor_before_updating_description(monkeypatch)
         'CRACKER BARREL #428 CA CAVE CITY KY', 140, 'cracker_barrel')]
     assert repo.edits[0].merchant_name == 'CRACKER BARREL #428 CA CAVE CITY KY'
     assert out['vendor_remembered']['vendor_key'] == 'cracker_barrel'
+
+
+def test_expense_edit_updates_when_selected_vendor_is_already_known(monkeypatch):
+    monkeypatch.setattr(server, '_invalidate_receipt_index', lambda: None)
+
+    class _AlreadyKnown:
+        def model_dump(self):
+            return {
+                'remembered': False,
+                'vendor_key': 'dte_energy_0544',
+                'reason': 'vendor_key already known',
+            }
+
+    monkeypatch.setattr(
+        server.vendor_lookup, 'remember_vendor', lambda *_args: _AlreadyKnown())
+    repo = _StubEditRepository(result=_edit_result())
+
+    out = server.edit_stored_expense(_edit_body(
+        merchant_name='DTE Energy', vendor_key='dte_energy_0544',
+        learn_vendor=True,
+    ), repository=repo, namer=_StubNamer())
+
+    assert out['ok'] is True
+    assert len(repo.edits) == 1
+    assert repo.edits[0].merchant_name == 'DTE Energy'
+    assert out['vendor_remembered'] == {
+        'remembered': False,
+        'vendor_key': 'dte_energy_0544',
+        'reason': 'vendor_key already known',
+    }
 
 
 def test_expense_edit_does_not_update_when_vendor_learning_fails(monkeypatch):

@@ -1873,14 +1873,23 @@ def build_recent_intake_html(intake):
         rows, duplicate_ids,
         stored=intake.get('stored'), parsed=intake.get('parsed'))
     source_descriptions = {}
-    if str(intake.get('doc_kind') or '').lower() in ('statement', 'bank_statement'):
+    doc_kind = str(intake.get('doc_kind') or '').lower()
+    if doc_kind in ('statement', 'bank_statement'):
         source_descriptions = intake_report_model.recover_statement_source_descriptions(
             f"{intake.get('image_path')}.statement.json"
             if intake.get('image_path') else '',
             presentation_rows_list,
         )
-        presentation_rows_list = intake_report_model.apply_source_descriptions(
-            presentation_rows_list, source_descriptions)
+    elif doc_kind == 'receipt':
+        receipt_token = hashlib.sha256(
+            str(intake.get('image_path') or '').encode('utf-8')).hexdigest()[:12]
+        source_descriptions = intake_report_model.recover_receipt_source_descriptions(
+            f'/tmp/mazda_receipt_{receipt_token}.json'
+            if intake.get('image_path') else '',
+            presentation_rows_list,
+        )
+    presentation_rows_list = intake_report_model.apply_source_descriptions(
+        presentation_rows_list, source_descriptions)
     presentation_rows_list = intake_report_model.apply_canonical_vendor_keys(
         presentation_rows_list,
         lambda description: manual_entry.resolve_vendor_match(

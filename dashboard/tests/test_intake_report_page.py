@@ -457,3 +457,40 @@ def test_render_intake_report_shows_the_entry_form_and_one_edit_button():
     )
     assert 'manual-entry-root' in html
     assert 'expense-edit-root' in html
+
+
+def test_receipt_source_description_recovers_merchant_from_validated_artifact(tmp_path):
+    artifact = tmp_path / 'receipt.json'
+    artifact.write_text(json.dumps({
+        'schema': 'receipt-v1',
+        'source_path': '/tmp/scan.jpg',
+        'source_sha256': 'abc',
+        'payload': {
+            'transaction_date': '2025-05-23',
+            'party': {'merchant_name': 'GFL Environmental'},
+            'totals': {'total_amount': 38.07},
+        },
+    }))
+    rows = [{'id': 2062, 'date': '2025-05-23', 'amount': '-38.07',
+             'description': 'GFL Environmental — gfl_environmental'}]
+
+    recovered = model.recover_receipt_source_descriptions(artifact, rows)
+    overlaid = model.apply_source_descriptions(rows, recovered)
+
+    assert recovered == {2062: 'GFL Environmental'}
+    assert overlaid[0]['description'] == 'GFL Environmental'
+
+
+def test_receipt_source_description_fails_closed_when_date_amount_is_ambiguous(tmp_path):
+    artifact = tmp_path / 'receipt.json'
+    artifact.write_text(json.dumps({
+        'schema': 'receipt-v1', 'source_path': '/tmp/scan.jpg',
+        'source_sha256': 'abc',
+        'payload': {'transaction_date': '2025-05-23',
+                    'party': {'merchant_name': 'GFL Environmental'},
+                    'totals': {'total_amount': 38.07}},
+    }))
+    rows = [{'id': 1, 'date': '2025-05-23', 'amount': '-38.07', 'description': 'A'},
+            {'id': 2, 'date': '2025-05-23', 'amount': '-38.07', 'description': 'B'}]
+
+    assert model.recover_receipt_source_descriptions(artifact, rows) == {}

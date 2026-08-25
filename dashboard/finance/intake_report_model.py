@@ -19,7 +19,7 @@ import json
 import os
 from typing import Annotated
 
-from pydantic import BeforeValidator, ValidationError, field_validator
+from pydantic import BeforeValidator, Field, ValidationError, field_validator
 
 from contracts import StrictModel
 from finance.expense_fields import ExpenseFieldRules
@@ -226,6 +226,39 @@ class StatementSourceArtifact(StrictModel):
     source_image: str
     statement_count: int
     statements: list[StatementSourceSection] = []
+
+
+class ReceiptSourceArtifact(StrictModel):
+    artifact_schema: str = Field(alias='schema')
+    source_path: str
+    source_sha256: str
+    payload: dict
+
+
+def _receipt_payload_identity(payload):
+    party = payload.get('party') or {}
+    totals = payload.get('totals') or {}
+    merchant = ' '.join(str(party.get('merchant_name') or '').split())
+    return payload.get('transaction_date'), totals.get('total_amount'), merchant
+
+
+def recover_receipt_source_descriptions(receipt_json_path, rows):
+    """Recover a fresh receipt merchant for one unique date/amount row."""
+    if not receipt_json_path:
+        return {}
+    try:
+        with open(receipt_json_path, encoding='utf-8') as handle:
+            artifact = ReceiptSourceArtifact.model_validate(json.load(handle))
+    except (OSError, ValueError, ValidationError):
+        return {}
+    date_value, amount_value, merchant = _receipt_payload_identity(artifact.payload)
+    key = _statement_match_key(date_value, amount_value)
+    if not key or not merchant:
+        return {}
+    matching_rows = [row for row in (rows or [])
+                     if row.get('id') and _statement_match_key(
+                         row.get('date'), row.get('amount')) == key]
+    return {int(matching_rows[0]['id']): merchant} if len(matching_rows) == 1 else {}
 
 
 def _statement_match_key(date_value, amount_value):
