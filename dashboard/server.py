@@ -69,12 +69,6 @@ from intake.mazda_mode import (
 )
 from pydantic import ValidationError
 from category_taxonomy_seed import LEGACY_TAXONOMY
-from category_undo import (
-    CategoryChange,
-    CategoryUndoService,
-    JsonCategoryUndoStore,
-    MySqlCategoryRepository,
-)
 from document_annotation import (
     ExpenseEvidence,
     IExpenseDocumentAnnotationService,
@@ -2218,70 +2212,9 @@ def _find_matching_report_row(date_str, amount_str, vendor_key='', expense_id=No
     return None
 
 
-def _update_report_row_color(report_path, vendor_key, date_str, amount_str, new_cls,
-                             expense_id=None):
-    """Rewrite the cat-* class on the matching Verified-Transactions <tr> on disk.
-
-    Identifies the row by data-vendor-key + the displayed date and amount cells, so
-    the saved color is permanent across page refreshes. Returns True if a row changed.
-    """
-    import re as _re
-    fp = _report_file_for_url(report_path)
-    if not fp:
-        return False
-    with open(fp, encoding='utf-8') as f:
-        html = f.read()
-
-    vk = (vendor_key or '').strip()
-    d = (date_str or '').strip()
-    a = (amount_str or '').strip()
-    eid = str(expense_id or '').strip()
-    if not eid and not vk:
-        return False
-
-    def attempt(require_date, require_amount):
-        """Rewrite the first vendor-matching row that also meets the given criteria."""
-        state = {'done': False}
-
-        def repl(m):
-            open_tag, inner = m.group(1), m.group(2)
-            if state['done']:
-                return m.group(0)
-            if eid:
-                if ('data-expense-id="%s"' % eid) not in open_tag:
-                    return m.group(0)
-            else:
-                if ('data-vendor-key="%s"' % vk) not in open_tag:
-                    return m.group(0)
-                if require_date and d and ('>%s<' % d) not in inner:
-                    return m.group(0)
-                if require_amount and a and ('>%s<' % a) not in inner:
-                    return m.group(0)
-            # Replace ALL cat-* classes in the class attribute so re-categorizing
-            # a row doesn't leave stale old classes behind (or double-add when the
-            # same category is picked twice).
-            def _swap_cls(cm):
-                parts = [p for p in cm.group(1).split()
-                         if not _re.match(r'^cat-[a-z0-9-]+$', p)]
-                return 'class="%s"' % ' '.join([new_cls] + parts)
-            has_class_attr = 'class="' in open_tag
-            new_open = _re.sub(r'class="([^"]*)"', _swap_cls, open_tag, count=1)
-            if not has_class_attr:  # row had no class attribute at all
-                new_open = open_tag + ' class="%s"' % new_cls
-            state['done'] = True
-            return '<tr%s>%s</tr>' % (new_open, inner)
-
-        out = _re.sub(r'<tr([^>]*)>(.*?)</tr>', repl, html, flags=_re.S)
-        return out if state['done'] else None
-
-    attempts = ((False, False),) if eid else ((True, True), (True, False), (False, True))
-    for require_date, require_amount in attempts:
-        out = attempt(require_date, require_amount)
-        if out is not None:
-            with open(fp, 'w', encoding='utf-8') as f:
-                f.write(out)
-            return True
-    return False
+# _update_report_row_color moved to finance/recategorize.py, with the two
+# functions that are its only callers. The URL->file mapping it needs stays
+# here, so it is passed in.
 
 
 def _rol_get_connection():
@@ -2291,23 +2224,6 @@ def _rol_get_connection():
         _sys.path.insert(0, RECEIPT_PARSING_TOOLS)
     from app.db import get_connection  # type: ignore
     return get_connection()
-
-
-_category_undo_service = None
-_category_undo_service_lock = threading.Lock()
-CATEGORY_UNDO_JOURNAL = os.path.join(HERE, 'category_undo_journal.json')
-
-
-def _get_category_undo_service():
-    """Composition root for the interface-backed category undo boundary."""
-    global _category_undo_service
-    with _category_undo_service_lock:
-        if _category_undo_service is None:
-            _category_undo_service = CategoryUndoService(
-                JsonCategoryUndoStore(CATEGORY_UNDO_JOURNAL),
-                MySqlCategoryRepository(_rol_get_connection),
-            )
-    return _category_undo_service
 
 
 _category_taxonomy = None
@@ -2337,276 +2253,63 @@ def _get_category_taxonomy():
     return _category_taxonomy
 
 
-def _record_category_undo(action):
-    return _get_category_undo_service().record(CategoryChange(**action))
-
-
-def _undo_category_action(token):
-    return _get_category_undo_service().undo(token)
-
-
 def _vendor_prefix(id_light):
     """Strip the trailing _MM_DD_YY_<amount> from an id_light to get its vendor part."""
     import re as _re
     return _re.sub(r'_\d{2}_\d{2}_\d{2}_\d+_\d+$', '', id_light or '')
 
 
+# ── ROL Finance: setting a row's category, and taking it back ────────────────
+# recategorize_expense, undo_recategorize_expense, the report-row repaint and
+# the undo journal's composition root moved to finance/recategorize.py. They are
+# one gesture that has to land in two places which can disagree -- the expenses
+# row and the cat-* class in a static report.html -- plus the journal that
+# reverses both by the same matching rules.
+#
+# What stays here (the DB connection, the taxonomy, the two category-name
+# resolvers, the report-row search, the URL->file mapping) is handed over per
+# call in a Collaborators bundle rather than imported back. That is what keeps
+# `monkeypatch.setattr(server, '_rol_get_connection', ...)` reaching the code
+# that actually runs.
+#
+# _update_report_row_color, _record_category_undo, _undo_category_action,
+# _get_category_undo_service and CATEGORY_UNDO_JOURNAL are deliberately NOT
+# re-exported: nothing here calls them any more, and a re-export is a second
+# binding that a test can patch while the real one keeps running
+# (tests/test_recategorize.py asserts they are absent).
+from finance import recategorize as _recategorize  # noqa: E402
+
+
+def _recategorize_deps():
+    """Resolve this module's half of the category cluster, at call time.
+
+    Every entry is looked up when the call happens, not when this module is
+    imported, so replacing any of them on `server` is honoured.
+    """
+    return _recategorize.Collaborators(
+        get_connection=lambda: _rol_get_connection(),
+        resolve_reporting_category=_resolve_reporting_category,
+        css_class_for_report_name=_css_class_for_report_name,
+        find_matching_report_row=_find_matching_report_row,
+        report_file_for_url=_report_file_for_url,
+        vendor_prefix=_vendor_prefix,
+        category_taxonomy=_get_category_taxonomy,
+        receipt_only_report_path=RECEIPT_ONLY_REPORT_PATH,
+    )
+
+
 def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category,
                          description='', report_path='', expense_id=None):
-    """Persist a user's category pick for one Verified-Transactions row.
-
-    Uses expense_id when the row provides it. Legacy standalone report rows fall
-    back to (expense_date, abs(amount)); LINE_ITEM rows must provide an ID because
-    siblings can share both date and amount.
-    """
-    from decimal import Decimal, InvalidOperation
-    # Resolve through the taxonomy (the categories table), not the frozen dict,
-    # so buckets added by a migration are selectable the moment they exist.
-    target_id, _target_cls = _resolve_reporting_category(reporting_category)
-    if _target_cls is None:
-        return {'ok': False, 'error': f'Unknown category: {reporting_category}'}
-
-    target_expense_id = None
-    if expense_id not in (None, ''):
-        try:
-            target_expense_id = int(expense_id)
-        except (TypeError, ValueError):
-            return {'ok': False, 'error': f'Bad expense_id: {expense_id!r}'}
-    amt = None
-    if target_expense_id is None:
-        raw_amt = str(signed_amount or '').replace('$', '').replace(',', '').strip()
-        try:
-            amt = abs(Decimal(raw_amt))
-        except (InvalidOperation, ValueError):
-            return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
-
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                def _find_expense(d):
-                    if target_expense_id is not None:
-                        cur.execute(
-                            "SELECT id, id_light, description, category_id, expense_role "
-                            "FROM expenses WHERE id=%s",
-                            (target_expense_id,),
-                        )
-                        return cur.fetchall()
-                    cur.execute(
-                        "SELECT id, id_light, description, category_id, expense_role "
-                        "FROM expenses WHERE expense_date=%s AND amount=%s "
-                        "AND expense_role='STANDALONE'",
-                        (d, str(amt)),
-                    )
-                    return cur.fetchall()
-
-                rows = _find_expense(date_str)
-                # Credit-card posting dates are often 1-3 days after the purchase
-                # date stored in the DB. Try nearby dates when exact lookup fails.
-                if not rows and target_expense_id is None:
-                    try:
-                        base = datetime.strptime(date_str, '%Y-%m-%d').date()
-                        for delta in (-1, 1, -2, 2, -3, 3):
-                            alt = (base + timedelta(days=delta)).isoformat()
-                            rows = _find_expense(alt)
-                            if rows:
-                                break
-                    except (ValueError, AttributeError):
-                        pass
-                if not rows:
-                    if target_expense_id is not None:
-                        return {'ok': False,
-                                'error': f'Expense {target_expense_id} was not found.'}
-                    # Transaction not in DB (e.g. annual summary never imported).
-                    # Still persist the color in the HTML file so the pick survives
-                    # a page refresh, and return ok so the dialog closes cleanly.
-                    file_updated = False
-                    if report_path and report_path != RECEIPT_ONLY_REPORT_PATH:
-                        try:
-                            new_cls = _target_cls
-                            if new_cls:
-                                file_updated = _update_report_row_color(
-                                    report_path, vendor_key, date_str,
-                                    signed_amount, new_cls,
-                                    expense_id=target_expense_id)
-                        except Exception:
-                            pass
-                    return {'ok': True, 'expense_id': None,
-                            'file_updated': file_updated,
-                            'warning': 'Transaction not in DB — color saved to report only.'}
-
-                if len(rows) == 1:
-                    chosen = rows[0]
-                else:
-                    chosen = None
-                    vk = (vendor_key or '').strip()
-                    for r in rows:
-                        vp = _vendor_prefix(r.get('id_light'))
-                        if vk and vp and (vk.startswith(vp) or vp.startswith(vk)):
-                            chosen = r
-                            break
-                    if chosen is None and description:
-                        for r in rows:
-                            if (r.get('description') or '').strip() == description.strip():
-                                chosen = r
-                                break
-                    if chosen is None:
-                        return {'ok': False,
-                                'error': f'{len(rows)} expenses share that date/amount; '
-                                         'could not pinpoint which one.'}
-
-                if chosen.get('expense_role') == 'PARENT':
-                    return {'ok': False,
-                            'error': 'A PARENT is a reconciliation anchor and cannot be categorized.'}
-
-                cur.execute("UPDATE expenses SET category_id=%s WHERE id=%s",
-                            (target_id, chosen['id']))
-    except Exception as e:
-        return {'ok': False, 'error': f'DB error: {e}'}
-
-    # Persist the color into the static report.html so it survives a refresh.
-    file_updated = False
-    matched_report = None
-    if report_path == RECEIPT_ONLY_REPORT_PATH:
-        # The Receipt Only tab is a dynamic page rebuilt from the DB on every
-        # load — the DB write above is the whole change.
-        file_updated = True
-    elif not report_path:
-        # The New Records dialog doesn't know which report.html (if any) this
-        # transaction lives in — search for it instead of assuming there is none
-        # (see _find_matching_report_row: DB vs. bank-statement vendor_key spelling
-        # often diverges, so a plain report_path lookup can't be done client-side).
-        try:
-            new_cls = _target_cls
-            report_expense_id = (
-                chosen['id'] if chosen.get('expense_role') == 'LINE_ITEM' else None)
-            found = _find_matching_report_row(
-                date_str, signed_amount, vendor_key, report_expense_id) if new_cls else None
-            if found:
-                if _update_report_row_color(
-                        found.report_path, found.row_vendor_key,
-                        date_str, signed_amount, new_cls,
-                        expense_id=report_expense_id):
-                    file_updated = True
-                    matched_report = {'report_path': found.report_path, 'label': found.label}
-        except Exception:
-            pass
-        if not matched_report:
-            # Genuinely no static row anywhere (e.g. a standalone receipt with no
-            # matching bank transaction) — the DB write above is the whole change.
-            file_updated = True
-    else:
-        try:
-            new_cls = _target_cls
-            if new_cls:
-                # Match the file by the RAW displayed amount the client sent (e.g. "-$150.00",
-                # "+$10.00", "296.41") — NOT the normalized abs value used for the DB lookup,
-                # which would only match plain rows like "10.25".
-                file_updated = _update_report_row_color(
-                    report_path, vendor_key, date_str, signed_amount, new_cls,
-                    expense_id=(chosen['id']
-                                if chosen.get('expense_role') == 'LINE_ITEM'
-                                else None))
-        except Exception:
-            file_updated = False
-
-    previous_category_id = chosen.get('category_id')
-    # Walk the tree rather than doing a flat lookup. REPORTING_CATEGORY_ANCESTOR_MAP
-    # only covers 24 of 169 categories, so the old `.get(..., 'Uncategorized')`
-    # mislabelled every expense stored on a leaf — 280 of 892 categorised rows —
-    # and undo then repainted them grey instead of their real bucket colour.
-    previous_reporting_category = _get_category_taxonomy().label_for(
-        previous_category_id)
-    try:
-        undo_token = _record_category_undo({
-            'expense_id': int(chosen['id']),
-            'previous_category_id': previous_category_id,
-            'category_id': target_id,
-            'previous_reporting_category': previous_reporting_category,
-            'reporting_category': reporting_category,
-            'date': str(date_str or ''),
-            'signed_amount': str(signed_amount or ''),
-            'vendor_key': str(vendor_key or ''),
-            'description': str(description or chosen.get('description') or ''),
-            'report_path': (
-                matched_report['report_path'] if matched_report else report_path or ''
-            ),
-        })
-    except Exception as exc:
-        print(
-            '[category-undo] action=record status=failed '
-            f'expense_id={chosen["id"]} error={type(exc).__name__}'
-        )
-        undo_token = None
-
-    return {
-        'ok': True,
-        'expense_id': chosen['id'],
-        'previous_category_id': previous_category_id,
-        'category_id': target_id,
-        'reporting_category': reporting_category,
-        'file_updated': file_updated,
-        'matched_report': matched_report,
-        'undo_token': undo_token,
-    }
+    """Persist a user's category pick for one Verified-Transactions row."""
+    return _recategorize.recategorize_expense(
+        date_str, signed_amount, vendor_key, reporting_category,
+        description, report_path, expense_id, deps=_recategorize_deps())
 
 
 def undo_recategorize_expense(token):
     """Undo one tokenized category write without overwriting a newer choice."""
-    result = _undo_category_action(str(token or '').strip())
-    if result.get('status') not in {'restored', 'already_restored'}:
-        return {'ok': False, 'error': result.get('error', 'Undo failed.')}
-
-    action = result['action']
-    previous_reporting_category = action['previous_reporting_category']
-    previous_class = _css_class_for_report_name(previous_reporting_category)
-    report_path = action.get('report_path') or ''
-    file_updated = report_path == RECEIPT_ONLY_REPORT_PATH
-
-    if report_path and report_path != RECEIPT_ONLY_REPORT_PATH:
-        file_updated = _update_report_row_color(
-            report_path,
-            action.get('vendor_key', ''),
-            action.get('date', ''),
-            action.get('signed_amount', ''),
-            previous_class,
-            expense_id=action['expense_id'],
-        )
-        if not file_updated:
-            file_updated = _update_report_row_color(
-                report_path,
-                action.get('vendor_key', ''),
-                action.get('date', ''),
-                action.get('signed_amount', ''),
-                previous_class,
-            )
-    elif not report_path:
-        found = _find_matching_report_row(
-            action.get('date', ''),
-            action.get('signed_amount', ''),
-            action.get('vendor_key', ''),
-            action['expense_id'],
-        )
-        if found:
-            file_updated = _update_report_row_color(
-                found.report_path,
-                found.row_vendor_key,
-                action.get('date', ''),
-                action.get('signed_amount', ''),
-                previous_class,
-                expense_id=action['expense_id'],
-            )
-        else:
-            file_updated = True
-
-    return {
-        'ok': True,
-        'status': result['status'],
-        'expense_id': action['expense_id'],
-        'category_id': action['previous_category_id'],
-        'reporting_category': previous_reporting_category,
-        'category_class': previous_class,
-        'file_updated': file_updated,
-    }
+    return _recategorize.undo_recategorize_expense(
+        token, deps=_recategorize_deps())
 
 
 # Moved to finance/vendor_review.py -- list_vendor_keys, list_pending_vendor_review,
