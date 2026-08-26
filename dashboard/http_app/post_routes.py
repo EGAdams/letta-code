@@ -424,7 +424,7 @@ class PostRoutesMixin:
             try:
                 data = json.loads(body)
                 return self.json_response(
-                    srv.patch_agent_oauth_account(data.get('agent', ''), data.get('account', '')))
+                    srv.patch_agent_oauth_account(data.get('agent', ''), data.get('provider', '')))
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             except urllib.error.HTTPError as e:

@@ -7288,10 +7288,16 @@ OAUTH_PROVIDER_ACCOUNTS = {
     'chatgpt-plus-pro':     {'account': 'eg',  'label': 'eg1972@gmail.com',     'family': 'chatgpt'},
     'chatgpt-plus-pro-mom': {'account': 'mom', 'label': 'rbarnesrol@aol.com',   'family': 'chatgpt'},
 }
-OAUTH_ACCOUNT_PROVIDER = {
-    (meta['family'], meta['account']): provider
-    for provider, meta in OAUTH_PROVIDER_ACCOUNTS.items()
-}
+# family → the AGENT_MODEL_OPTIONS prefix that carries that family's models,
+# used to pick a starting model when the Token dropdown jumps an agent to a
+# provider in a *different* family (its current model id has no meaning there).
+FAMILY_MODEL_PREFIX = {'claude': 'claude-pro-max', 'chatgpt': 'chatgpt-plus-pro'}
+
+
+def _default_model_id_for_family(family):
+    prefix = FAMILY_MODEL_PREFIX.get(family, '') + '/'
+    handle = next((h for h in AGENT_MODEL_OPTIONS if h.startswith(prefix)), None)
+    return handle.partition('/')[2] if handle else ''
 
 _weekly_remaining_cache = {}
 _weekly_remaining_cache_lock = threading.Lock()
@@ -7353,51 +7359,50 @@ def _weekly_percent_remaining(provider_name):
 
 
 def agent_oauth_account_payload(letta_id, pending_model=''):
-    """GET contract for the per-agent OAuth-account dropdown: current account
-    + the other account valid for this agent's current model family.
+    """GET contract for the per-agent Token dropdown: every OAuth account
+    across BOTH families (an agent can be repointed at any of the four --
+    picking one outside its current family also jumps its model family, see
+    patch_agent_oauth_account), plus which provider row is live right now.
 
     `pending_model` is the dashboard's *not-yet-saved* model-dropdown value
-    (a full handle like 'chatgpt-plus-pro/gpt-5.6-luna') -- when given, it
-    determines which family's accounts to list instead of the agent's live
-    llm_config. Without this, switching the model dropdown to a different
-    family would still show the OLD family's account labels (e.g. Claude's
-    rbarnesrol@gmail.com) until the model PATCH round-trip finished, and a
-    selection made against those stale labels resolves by account KEY
-    ('eg'/'mom') under the NEW family -- silently landing on the right
-    provider row but the wrong-looking label having been shown when picked."""
+    (a full handle like 'chatgpt-plus-pro/gpt-5.6-luna') -- when given, its
+    provider is treated as "current" instead of the agent's live llm_config,
+    so a model-family switch shows the right token pre-selected before the
+    model PATCH round-trip finishes."""
     cur = letta_get(f'/v1/agents/{letta_id}', timeout=15) or {}
     live_provider = ((cur.get('llm_config') or {}).get('provider_name')) or ''
-    family_provider = (pending_model.partition('/')[0] if pending_model else live_provider)
-    family_info = OAUTH_PROVIDER_ACCOUNTS.get(family_provider)
-    if not family_info:
-        return {'ok': False, 'error': f'unknown provider {family_provider!r}', 'current': '', 'options': []}
-    live_info = OAUTH_PROVIDER_ACCOUNTS.get(live_provider)
-    current = live_info['account'] if live_info and live_info['family'] == family_info['family'] else ''
+    pending_provider = pending_model.partition('/')[0] if pending_model else ''
+    current = pending_provider if pending_provider in OAUTH_PROVIDER_ACCOUNTS else (
+        live_provider if live_provider in OAUTH_PROVIDER_ACCOUNTS else '')
     options = [
-        {'account': meta['account'], 'label': meta['label']}
-        for meta in OAUTH_PROVIDER_ACCOUNTS.values()
-        if meta['family'] == family_info['family']
+        {'provider': provider, 'account': meta['account'], 'label': meta['label']}
+        for provider, meta in OAUTH_PROVIDER_ACCOUNTS.items()
     ]
     return {'ok': True, 'current': current, 'options': options}
 
 
-def patch_agent_oauth_account(agent_id, account):
-    """POST handler body: repoint an agent at a different human's token for
-    its CURRENT model family, keeping the model itself unchanged."""
+def patch_agent_oauth_account(agent_id, provider):
+    """POST handler body: repoint an agent at a different provider row (any
+    of the four -- same family or not). Same-family switches keep the
+    current model id; a cross-family switch has no equivalent model id to
+    carry over, so it starts that family's default model (see
+    _default_model_id_for_family) -- the caller resyncs its Model dropdown
+    from the returned `model` handle."""
     lid = letta_id_for(agent_id)
     if not lid:
         return {'ok': False, 'error': 'not a Letta agent'}
+    target_info = OAUTH_PROVIDER_ACCOUNTS.get(provider)
+    if not target_info:
+        return {'ok': False, 'error': f'unknown provider {provider!r}'}
     cur = letta_get(f'/v1/agents/{lid}', timeout=15) or {}
     llm = cur.get('llm_config') or {}
     cur_provider = llm.get('provider_name') or ''
-    info = OAUTH_PROVIDER_ACCOUNTS.get(cur_provider)
-    if not info:
-        return {'ok': False, 'error': f'unknown provider {cur_provider!r}'}
-    target_provider = OAUTH_ACCOUNT_PROVIDER.get((info['family'], account))
-    if not target_provider:
-        return {'ok': False, 'error': f'account {account!r} is not valid for the {info["family"]} family'}
-    model_id = llm.get('model') or ''
-    new_handle = f'{target_provider}/{model_id}'
+    cur_info = OAUTH_PROVIDER_ACCOUNTS.get(cur_provider)
+    if cur_info and cur_info['family'] == target_info['family']:
+        model_id = llm.get('model') or ''
+    else:
+        model_id = _default_model_id_for_family(target_info['family'])
+    new_handle = f'{provider}/{model_id}'
     req = urllib.request.Request(
         f'{LETTA_BASE_URL}/v1/agents/{lid}',
         data=json.dumps({'model': new_handle}).encode(),
@@ -7406,7 +7411,8 @@ def patch_agent_oauth_account(agent_id, account):
     )
     with urllib.request.urlopen(req, timeout=30) as r:
         resp = json.loads(r.read().decode())
-    return {'ok': True, 'account': account, 'model': (resp.get('llm_config') or {}).get('handle') or new_handle}
+    resolved_handle = (resp.get('llm_config') or {}).get('handle') or new_handle
+    return {'ok': True, 'account': target_info['account'], 'provider': provider, 'model': resolved_handle}
 
 
 _model_stats_agents_cache = {'value': None, 'ts': 0.0}

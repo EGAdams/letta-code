@@ -3,9 +3,15 @@ import { PollingController } from "../abstract/polling-controller.interface.js";
 /**
  * buildOauthAccountSelect — the OAuth-account twin of buildModelRow
  * (detail-renderers.js): a bare <select> backed by /api/agent-oauth-account,
- * fetching {current, options:[{account,label}]} and PATCHing on change.
- * Kept separate from buildModelRow because its option shape carries a human
- * label distinct from its value (account key), not a bare handle list.
+ * fetching {current, options:[{provider,account,label}]} and PATCHing on
+ * change. Lists every provider row across BOTH model families (not just the
+ * agent's current one) so any of the four human/family token combinations is
+ * always reachable from any agent's Token dropdown -- picking one outside
+ * the agent's current family also jumps that agent's model family (the
+ * server picks a default model for the target family; see
+ * patch_agent_oauth_account). `onSwitched(result)` lets the caller resync
+ * its paired Model dropdown from `result.model` since this select alone
+ * doesn't own that field.
  */
 export function buildOauthAccountSelect({
   el,
@@ -13,6 +19,7 @@ export function buildOauthAccountSelect({
   agentId,
   showStatus,
   getPendingModel = () => "",
+  onSwitched = () => {},
 }) {
   const select = el("select", { disabled: true });
 
@@ -32,21 +39,20 @@ export function buildOauthAccountSelect({
         select.innerHTML = "";
         for (const opt of d.options) {
           select.appendChild(
-            el("option", { value: opt.account, textContent: opt.label }),
+            el("option", { value: opt.provider, textContent: opt.label }),
           );
         }
         // A reload triggered by the model dropdown changing races the model
         // PATCH itself -- the server's live llm_config may still show the
-        // OLD family for a moment, so its "current" can come back blank or
-        // wrong. Account keys ('eg'/'mom') mean the same human in every
-        // family, so once we already have a selection, keep it rather than
-        // trusting a server read that's mid-transition; only a fresh
-        // mount (current === "") defers to the server's actual current.
-        const optionKeys = d.options.map((opt) => opt.account);
+        // OLD provider for a moment, so its "current" can come back blank or
+        // stale. Once we already have a selection, keep it rather than
+        // trusting a server read that's mid-transition; only a fresh mount
+        // (current === "") defers to the server's actual current.
+        const optionKeys = d.options.map((opt) => opt.provider);
         current =
           (current && optionKeys.includes(current) && current) ||
           d.current ||
-          d.options[0].account;
+          d.options[0].provider;
         select.value = current;
         select.disabled = false;
       })
@@ -58,22 +64,23 @@ export function buildOauthAccountSelect({
   select.addEventListener("change", async () => {
     const next = select.value;
     select.disabled = true;
-    showStatus(`Switching token to ${next}…`);
+    showStatus(`Switching token…`);
     try {
       const r = await http.postJSON("/api/agent-oauth-account", {
         agent: agentId,
-        account: next,
+        provider: next,
       });
       if (r?.ok) {
-        current = r.account || next;
-        showStatus(`Token set to ${current}.`);
+        current = r.provider || next;
+        showStatus(`Token switched.`);
+        onSwitched(r);
         // Optional chaining: see the matching note in buildModelRow
         // (detail-renderers.js) -- a throw here must never look like the
         // account switch itself failing.
         select.dispatchEvent?.(
           new CustomEvent("agent-oauth-account:changed", {
             bubbles: true,
-            detail: { agentId, account: current },
+            detail: { agentId, account: r.account, provider: current },
           }),
         );
       } else {
@@ -312,6 +319,13 @@ export class AgentAssignmentsController extends PollingController {
           agentId: row.id,
           showStatus: (msg, isError) => this._showStatus(msg, isError),
           getPendingModel: () => modelSelect.value,
+          // A Token switch across families has no in-family model id to
+          // keep, so the server picks a default and reports it back here --
+          // resync the Model dropdown's displayed value immediately rather
+          // than waiting for its own next /api/agent-model poll.
+          onSwitched: (result) => {
+            if (result?.model) modelSelect.value = result.model;
+          },
         });
       // The account list depends on the model's family (claude vs chatgpt).
       // Refresh it the instant the model dropdown changes -- using the

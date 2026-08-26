@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { AgentAssignmentsController } from "../implementation/agent-assignments-panel.js";
+import {
+  AgentAssignmentsController,
+  buildOauthAccountSelect,
+} from "../implementation/agent-assignments-panel.js";
 import { FakeDocument } from "./_fake-dom.js";
 
 function setup(rows) {
@@ -59,5 +62,123 @@ describe("AgentAssignmentsController tool rows", () => {
       container.querySelector("tbody").children[0].children[2].children[1];
     expect(token.classList.contains("is-down")).toBe(true);
     expect(token.textContent).toContain("expired");
+  });
+
+  test("renders an unassigned OAuth account as a read-only row", async () => {
+    const { container, controller } = setup([
+      {
+        id: "oauth-account-chatgpt-plus-pro-mom",
+        name: "rbarnesrol@aol.com (unassigned)",
+        model: "",
+        account: "mom",
+        account_label: "rbarnesrol@aol.com",
+        weekly_percent_remaining: 62,
+        assignment_kind: "account",
+      },
+    ]);
+
+    await controller.poll();
+
+    const row = container.querySelector("tbody").children[0];
+    expect(row.children[0].textContent).toBe("rbarnesrol@aol.com (unassigned)");
+    expect(row.children[2].textContent).toBe("rbarnesrol@aol.com");
+    expect(row.querySelector("select")).toBe(null);
+  });
+});
+
+describe("buildOauthAccountSelect", () => {
+  function fakeEl(doc) {
+    return (tag, props = {}) => Object.assign(doc.createElement(tag), props);
+  }
+
+  test("lists every provider across both families, not just the agent's current one", async () => {
+    const doc = new FakeDocument();
+    const http = {
+      getJSON: async () => ({
+        ok: true,
+        current: "claude-pro-max",
+        options: [
+          {
+            provider: "claude-pro-max-eg",
+            account: "eg",
+            label: "eg1972@gmail.com",
+          },
+          {
+            provider: "claude-pro-max",
+            account: "mom",
+            label: "rbarnesrol@gmail.com",
+          },
+          {
+            provider: "chatgpt-plus-pro",
+            account: "eg",
+            label: "eg1972@gmail.com",
+          },
+          {
+            provider: "chatgpt-plus-pro-mom",
+            account: "mom",
+            label: "rbarnesrol@aol.com",
+          },
+        ],
+      }),
+    };
+
+    const { select } = buildOauthAccountSelect({
+      el: fakeEl(doc),
+      http,
+      agentId: "agent-x",
+      showStatus: () => {},
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const labels = Array.from(select.children).map((o) => o.textContent);
+    expect(labels).toContain("rbarnesrol@aol.com");
+    expect(select.value).toBe("claude-pro-max");
+  });
+
+  test("a cross-family switch calls onSwitched with the server's new model handle", async () => {
+    const doc = new FakeDocument();
+    const http = {
+      getJSON: async () => ({
+        ok: true,
+        current: "claude-pro-max",
+        options: [
+          {
+            provider: "claude-pro-max",
+            account: "mom",
+            label: "rbarnesrol@gmail.com",
+          },
+          {
+            provider: "chatgpt-plus-pro-mom",
+            account: "mom",
+            label: "rbarnesrol@aol.com",
+          },
+        ],
+      }),
+      postJSON: async () => ({
+        ok: true,
+        account: "mom",
+        provider: "chatgpt-plus-pro-mom",
+        model: "chatgpt-plus-pro-mom/gpt-5.6-sol",
+      }),
+    };
+    let switched = null;
+
+    const { select } = buildOauthAccountSelect({
+      el: fakeEl(doc),
+      http,
+      agentId: "agent-x",
+      showStatus: () => {},
+      onSwitched: (result) => {
+        switched = result;
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    select.value = "chatgpt-plus-pro-mom";
+    select.dispatch("change", {});
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(switched?.model).toBe("chatgpt-plus-pro-mom/gpt-5.6-sol");
+    expect(select.value).toBe("chatgpt-plus-pro-mom");
   });
 });
