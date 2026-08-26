@@ -326,6 +326,26 @@ class TestAgentModelPatch:
         assert live.post('/api/agent-model', {'agent': 'M', 'model': 'x/y'}).status < 500
         assert live.get('/api/code-status').status == 200      # still serving
 
+    def test_a_same_family_model_swap_preserves_the_agents_suffixed_provider(
+            self, live, svc, stub, monkeypatch):
+        """A model option's value names the catalog's bare provider
+        ('chatgpt-plus-pro/...'), but the agent may actually be pinned to a
+        per-human variant ('chatgpt-plus-pro-mom/...') -- submitting the bare
+        option must not silently move the agent onto the other human's
+        token."""
+        stub('letta_id_for', lambda a: 'agent-1')
+        stub('agent_model_options', lambda handle: ['chatgpt-plus-pro/gpt-5.6-sol'])
+        stub('letta_get', lambda *a, **kw: {
+            'llm_config': {'provider_name': 'chatgpt-plus-pro-mom', 'model': 'gpt-5.6-terra'},
+        })
+        fake = FakeUrllib(payload={'llm_config': {'handle': 'chatgpt-plus-pro-mom/gpt-5.6-sol'}})
+        monkeypatch.setattr(post_routes, 'urllib', fake)
+
+        live.post('/api/agent-model', {'agent': 'Mazda', 'model': 'chatgpt-plus-pro/gpt-5.6-sol'})
+
+        sent = json.loads(fake.calls[-1]['data'])
+        assert sent['model'] == 'chatgpt-plus-pro-mom/gpt-5.6-sol'
+
 
 # ==========================================================================
 # Static serving through the live handler

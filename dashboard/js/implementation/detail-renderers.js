@@ -808,9 +808,21 @@ export function attachTerminalPanel({
  *   agentId   → the Letta agent id this dropdown edits (any real "agent-<uuid>")
  *   showStatus(msg, isError) → status-line callback
  *
- * Returns { row, select } — the caller places `row` in the DOM.
+ * `getPendingProvider()` — the Token dropdown's not-yet-saved value, when
+ * this row has one (e.g. AgentAssignmentsController). Sent as `&provider=`
+ * so the option list is filtered to THAT provider's family, keeping claude
+ * and chatgpt models from ever mixing in one dropdown. Call `reload()`
+ * after a Token switch to re-filter with the new family.
+ *
+ * Returns { row, select, reload } — the caller places `row` in the DOM.
  */
-export function buildModelRow({ el, http, agentId, showStatus }) {
+export function buildModelRow({
+  el,
+  http,
+  agentId,
+  showStatus,
+  getPendingProvider = () => "",
+}) {
   const modelRow = el("div");
   modelRow.style.cssText = "display:flex;align-items:center;gap:8px;";
   const modelLbl = el("span", { textContent: "Model:" });
@@ -824,29 +836,37 @@ export function buildModelRow({ el, http, agentId, showStatus }) {
   modelRow.append(modelLbl, modelSel);
 
   let modelCurrent = "";
-  http
-    .getJSON(`/api/agent-model?agent=${encodeURIComponent(agentId)}`)
-    .then((d) => {
-      if (!d || !d.ok || !Array.isArray(d.options) || !d.options.length) {
+  const load = () => {
+    const pending = getPendingProvider();
+    const url =
+      `/api/agent-model?agent=${encodeURIComponent(agentId)}` +
+      (pending ? `&provider=${encodeURIComponent(pending)}` : "");
+    return http
+      .getJSON(url)
+      .then((d) => {
+        if (!d || !d.ok || !Array.isArray(d.options) || !d.options.length) {
+          modelRow.style.display = "none";
+          return;
+        }
+        modelRow.style.display = "flex";
+        modelSel.innerHTML = "";
+        for (const h of d.options) {
+          const opt = el("option", {
+            value: h,
+            textContent: h.split("/").pop(),
+            title: h,
+          });
+          modelSel.appendChild(opt);
+        }
+        modelCurrent = d.current || d.options[0];
+        modelSel.value = modelCurrent;
+        modelSel.disabled = false;
+      })
+      .catch(() => {
         modelRow.style.display = "none";
-        return;
-      }
-      modelSel.innerHTML = "";
-      for (const h of d.options) {
-        const opt = el("option", {
-          value: h,
-          textContent: h.split("/").pop(),
-          title: h,
-        });
-        modelSel.appendChild(opt);
-      }
-      modelCurrent = d.current || d.options[0];
-      modelSel.value = modelCurrent;
-      modelSel.disabled = false;
-    })
-    .catch(() => {
-      modelRow.style.display = "none";
-    });
+      });
+  };
+  load();
 
   modelSel.addEventListener("change", async () => {
     const next = modelSel.value;
@@ -885,7 +905,7 @@ export function buildModelRow({ el, http, agentId, showStatus }) {
     }
   });
 
-  return { row: modelRow, select: modelSel };
+  return { row: modelRow, select: modelSel, reload: load };
 }
 
 /**

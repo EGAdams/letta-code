@@ -5273,10 +5273,17 @@ def agent_model_options(current_handle):
     """Compatibility shim for callers that still consume a plain list."""
     return list(select_model_options(current_handle, tuple(AGENT_MODEL_OPTIONS)))
 
-def agent_model_payload(letta_id, service=None):
-    """Compatibility shim while model reads move behind ILettaGateway."""
+def agent_model_payload(letta_id, service=None, pending_provider=''):
+    """Compatibility shim while model reads move behind ILettaGateway.
+
+    `pending_provider` is the dashboard's *not-yet-saved* Token-dropdown
+    value -- when given, the Model dropdown is filtered to THAT provider's
+    family instead of the agent's live one, so picking a token pre-narrows
+    the model list before the account PATCH round-trip finishes."""
     model_service = service or _AGENT_MODEL_OPTIONS_SERVICE
-    return model_service.get_options(letta_id).to_http()
+    family = OAUTH_PROVIDER_ACCOUNTS.get(pending_provider, {}).get('family', '')
+    prefix = FAMILY_MODEL_PREFIX.get(family, '') if family else ''
+    return model_service.get_options(letta_id, family_prefix=prefix).to_http()
 
 def agent_voice_from_metadata(agent_data):
     """Return a valid dashboard voice stored on the Letta agent, or ''."""

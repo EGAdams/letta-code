@@ -12,7 +12,6 @@ function setup(rows) {
   const controller = new AgentAssignmentsController({
     http,
     el: (tag, props = {}) => Object.assign(doc.createElement(tag), props),
-    buildModelSelect: () => doc.createElement("select"),
     container,
     setInterval: () => 1,
     clearInterval: () => {},

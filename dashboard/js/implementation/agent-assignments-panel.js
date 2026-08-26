@@ -1,4 +1,5 @@
 import { PollingController } from "../abstract/polling-controller.interface.js";
+import { buildModelRow } from "./detail-renderers.js";
 
 /**
  * buildOauthAccountSelect — the OAuth-account twin of buildModelRow
@@ -183,23 +184,15 @@ function barClassFor(pct) {
  * own options once per agent; only the bar updates every tick).
  */
 export class AgentAssignmentsController extends PollingController {
-  constructor({
-    http,
-    el,
-    buildModelSelect,
-    container,
-    onStatus = () => {},
-    ...opts
-  } = {}) {
+  constructor({ http, el, container, onStatus = () => {}, ...opts } = {}) {
     super({ intervalMs: 20000, ...opts });
-    if (!http || !el || !buildModelSelect || !container) {
+    if (!http || !el || !container) {
       throw new Error(
-        "AgentAssignmentsController requires { http, el, buildModelSelect, container }",
+        "AgentAssignmentsController requires { http, el, container }",
       );
     }
     this._http = http;
     this._el = el;
-    this._buildModelSelect = buildModelSelect;
     this._container = container;
     this._onStatus = onStatus;
     this._rowsById = new Map();
@@ -301,38 +294,41 @@ export class AgentAssignmentsController extends PollingController {
       const tr = el("tr");
       tr.appendChild(el("td", { textContent: row.name }));
 
-      const modelTd = el("td");
-      const modelSelect = this._buildModelSelect({
+      // modelSelect and accountSelect each need the OTHER's live value
+      // before either is built (the Model list is filtered to the Token's
+      // family; the Token payload's "current" prefers the Model's pending
+      // family during a race) -- declare both up front and let the two
+      // builders close over these bindings rather than each other's return
+      // value directly.
+      let modelSelect;
+      let reloadModelOptions;
+
+      const { select: accountSelect } = buildOauthAccountSelect({
         el,
         http: this._http,
         agentId: row.id,
         showStatus: (msg, isError) => this._showStatus(msg, isError),
+        getPendingModel: () => modelSelect?.value || "",
+        // A Token switch across families has no in-family model id to
+        // keep, so the server picks a default and reports it back here --
+        // re-filter the Model dropdown to the new family and resync its
+        // displayed value immediately rather than waiting for its own
+        // next /api/agent-model poll.
+        onSwitched: () => reloadModelOptions?.(),
       });
+
+      const modelTd = el("td");
+      ({ select: modelSelect, reload: reloadModelOptions } = buildModelRow({
+        el,
+        http: this._http,
+        agentId: row.id,
+        showStatus: (msg, isError) => this._showStatus(msg, isError),
+        getPendingProvider: () => accountSelect.value,
+      }));
       modelTd.appendChild(modelSelect);
       tr.appendChild(modelTd);
 
       const accountTd = el("td");
-      const { select: accountSelect, reload: reloadAccountOptions } =
-        buildOauthAccountSelect({
-          el,
-          http: this._http,
-          agentId: row.id,
-          showStatus: (msg, isError) => this._showStatus(msg, isError),
-          getPendingModel: () => modelSelect.value,
-          // A Token switch across families has no in-family model id to
-          // keep, so the server picks a default and reports it back here --
-          // resync the Model dropdown's displayed value immediately rather
-          // than waiting for its own next /api/agent-model poll.
-          onSwitched: (result) => {
-            if (result?.model) modelSelect.value = result.model;
-          },
-        });
-      // The account list depends on the model's family (claude vs chatgpt).
-      // Refresh it the instant the model dropdown changes -- using the
-      // not-yet-saved pending value via getPendingModel above -- so the
-      // labels shown are never a stale family's (see win98 agent-assignments
-      // "100% remaining"/wrong-account-label bug fixed 2026-08-22).
-      modelSelect.addEventListener("change", () => reloadAccountOptions());
       accountTd.appendChild(accountSelect);
       tr.appendChild(accountTd);
 

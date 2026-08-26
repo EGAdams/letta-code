@@ -12,7 +12,6 @@ import {
 import { TextUtils } from "../abstract/text-utils.js";
 import {
   AgentAssignmentsController,
-  buildModelRow,
   ModelStatsHealthMonitor,
 } from "../implementation/index.js";
 
@@ -25,7 +24,6 @@ export function createModelStats({ doc = document, http, nav, viewNav }) {
   const agentAssignments = new AgentAssignmentsController({
     http,
     el: (tag, props = {}) => Object.assign(doc.createElement(tag), props),
-    buildModelSelect: (opts) => buildModelRow(opts).select,
     container: doc.getElementById("model-stats-agents"),
     onStatus: (msg, isError) =>
       console[isError ? "error" : "log"]("agent-assignments:", msg),

@@ -32,7 +32,8 @@ class GetRoutesMixin:
             lid = srv.letta_id_for(agent_id)
             if not lid:
                 return self.json_response({'ok': False, 'error': 'not a Letta agent', 'options': []})
-            return self.json_response(srv.agent_model_payload(lid))
+            return self.json_response(
+                srv.agent_model_payload(lid, pending_provider=query.get('provider', [''])[0]))
 
         if path == '/api/agent-oauth-account':
             lid = srv.letta_id_for(agent_id)

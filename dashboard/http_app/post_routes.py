@@ -392,19 +392,16 @@ class PostRoutesMixin:
                 cur_handle = (cur.get('llm_config') or {}).get('handle') or ''
                 if model not in srv.agent_model_options(cur_handle):
                     return self.json_response({'ok': False, 'error': f'model {model!r} is not in the allowed list'})
-                # Preserve the agent's currently-assigned OAuth account across a
-                # model swap. AGENT_MODEL_OPTIONS always names the default
-                # (mom's) provider row per family, so without this a plain
-                # model change would silently move an eg-assigned agent back
-                # onto the shared token.
+                # AGENT_MODEL_OPTIONS names each family's bare provider row
+                # (e.g. 'chatgpt-plus-pro/...'), but the agent's actual
+                # provider may carry a per-human suffix ('chatgpt-plus-pro-mom').
+                # A same-family model swap must keep that exact provider row --
+                # otherwise it would silently move the agent back onto whichever
+                # account the bare handle names.
                 cur_provider = (cur.get('llm_config') or {}).get('provider_name') or ''
-                cur_account = (srv.OAUTH_PROVIDER_ACCOUNTS.get(cur_provider) or {}).get('account')
-                if cur_account:
-                    req_provider, _, req_model_id = model.partition('/')
-                    req_family = (srv.OAUTH_PROVIDER_ACCOUNTS.get(req_provider) or {}).get('family')
-                    target_provider = srv.OAUTH_ACCOUNT_PROVIDER.get((req_family, cur_account))
-                    if target_provider:
-                        model = f'{target_provider}/{req_model_id}'
+                req_provider, _, req_model_id = model.partition('/')
+                if cur_provider and cur_provider != req_provider and cur_provider.startswith(req_provider):
+                    model = f'{cur_provider}/{req_model_id}'
                 req = urllib.request.Request(
                     f'{srv.LETTA_BASE_URL}/v1/agents/{lid}',
                     data=json.dumps({'model': model}).encode(),
