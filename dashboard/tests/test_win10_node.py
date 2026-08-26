@@ -274,6 +274,24 @@ class TestContainerStates:
         assert states['letta-server'] == 'Up 3 minutes'
         assert states['frita-executor'] == 'Restarting (1) 2 seconds ago'
 
+    def test_the_format_template_survives_the_remote_shell(self, monkeypatch):
+        """The regression that made Indicator #2 dead on arrival.
+
+        ssh joins everything after the destination into one string and lets the
+        remote login shell parse it again. Passed as separate argv words, the
+        template came apart on the far side -- `|` became a pipe, `{{.Status}}`
+        became a command -- so the probe exited 127 with no output, and an
+        empty result is indistinguishable from "no containers".
+        """
+        calls = _counting_run(monkeypatch, _Run(stdout=''))
+
+        win10_container_states()
+
+        argv = calls[0][0]
+        remote = argv[argv.index(win10_node.LETTA_DOCKER_HOST) + 1:]
+        assert len(remote) == 1, 'the remote command must be one argument, not words'
+        assert remote[0] == "docker ps -a --format '{{.Names}}|{{.Status}}'"
+
     def test_lines_without_a_separator_are_skipped(self, monkeypatch):
         _counting_run(monkeypatch, _Run(stdout='warning: something\nletta-memfs|Up 1 hour\n'))
 

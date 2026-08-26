@@ -198,6 +198,22 @@ def restart_win10_node(*, deps: Collaborators):
 
 
 # ── What are its containers doing? ───────────────────────────────────────────
+#: The remote half of the container probe, as ONE argument.
+#:
+#: ssh does not take an argv the way subprocess does: it joins everything after
+#: the destination into a single string and hands it to the remote login shell,
+#: which parses it again. Passed as separate words, this template came apart on
+#: the far side -- `|` was read as a pipe and `{{.Status}}` as a command, so the
+#: probe exited 127 with `{{.Status}}: command not found` and no output. Nothing
+#: raised: an empty result is indistinguishable from "the box has no containers",
+#: and `container_status_for` renders both as ''. Indicator #2 was therefore dead
+#: from the day it was written -- a server could show "down" with the exit code
+#: that explained it sitting one SSH away, unread.
+#:
+#: Quoted here so the remote shell hands the whole template to docker intact.
+_DOCKER_PS_COMMAND = "docker ps -a --format '{{.Names}}|{{.Status}}'"
+
+
 def win10_container_states(timeout=10):
     """One cached `docker ps -a` on the box -> {container_name: status_string}.
     The status string already carries exit code + restart count from Docker."""
@@ -208,7 +224,7 @@ def win10_container_states(timeout=10):
     try:
         r = subprocess.run(
             ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', LETTA_DOCKER_HOST,
-             'docker', 'ps', '-a', '--format', '{{.Names}}|{{.Status}}'],
+             _DOCKER_PS_COMMAND],
             capture_output=True, text=True, timeout=timeout)
         for line in (r.stdout or '').splitlines():
             if '|' in line:
