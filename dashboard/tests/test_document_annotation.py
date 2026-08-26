@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,16 @@ from document_annotation import (
     PdfExpenseDocumentAnnotator,
     render_excel_for_browser,
 )
+
+# Most OCR tests here monkeypatch `pytesseract.image_to_data`, so they run
+# anywhere. The handful below deliberately do not -- they render a real image
+# and read it back through the real binary, which is the only way to catch a
+# regression in what we ask tesseract for. That binary is installed on the live
+# box (DESKTOP-2OBSQMC) and usually not on a dev box, so skip rather than fail:
+# a red suite that means "you are not the live box" trains people to ignore red.
+requires_tesseract = pytest.mark.skipif(
+    shutil.which('tesseract') is None,
+    reason='needs the real tesseract binary; installed on the live box')
 
 
 class FakeAnnotator(IExpenseDocumentAnnotator):
@@ -368,6 +379,7 @@ def test_pdf_reference_resolver_derives_check_number(tmp_path):
     assert terms == ("11023",)
 
 
+@requires_tesseract
 def test_image_strategy_boxes_the_matching_ocr_line(tmp_path):
     from PIL import Image, ImageDraw, ImageFont
 
@@ -737,6 +749,7 @@ def test_repeated_total_restatement_boxes_the_bottom_most_line():
 
 
 
+@requires_tesseract
 def test_image_strategy_boxes_the_amount_column_when_ocr_loses_it(tmp_path):
     from PIL import Image, ImageDraw, ImageFont
 
@@ -886,6 +899,7 @@ def test_bare_month_day_needs_the_payee_head_not_its_city():
     ) < 0
 
 
+@requires_tesseract
 def test_image_strategy_boxes_a_card_statement_row_without_a_printed_year(
     tmp_path,
 ):
@@ -941,6 +955,7 @@ def test_image_strategy_boxes_a_card_statement_row_without_a_printed_year(
     assert min(red_rows) > 150
 
 
+@requires_tesseract
 def test_childrens_vision_check_1107_expense_1996_annotates_correctly(tmp_path):
     """Expense 1996 (Children's Vision Int. Inc., check #1107) should box correctly.
 
