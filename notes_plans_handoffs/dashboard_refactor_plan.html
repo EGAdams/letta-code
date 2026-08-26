@@ -128,9 +128,9 @@
     </p>
     <div class="meta">
       <span class="pill">11,407 &rarr; 8,198 lines</span>
-      <span class="pill green">2,646 tests passing</span>
+      <span class="pill green">2,648 tests passing</span>
       <span class="pill amber">~2,498 lines to halfway</span>
-      <span class="pill">HEAD <code>5f7d2059</code> on all three boxes</span>
+      <span class="pill">HEAD <code>e28bd5fd</code> on all three boxes</span>
     </div>
   </div>
 
@@ -147,11 +147,16 @@
 
       <li>Baseline the tests before you touch anything:
         <code>cd dashboard &amp;&amp; .venv/bin/python -m pytest tests/ -q</code>.
-        There are no known failures. Expect <strong>2,650 passed / 2 skipped</strong>
-        on the live box and <strong>2,646 passed / 6 skipped</strong> on a dev box
+        There are no known failures. Expect <strong>2,652 passed / 2 skipped</strong>
+        on the live box and <strong>2,648 passed / 6 skipped</strong> on a dev box
         &mdash; the four extra skips are the <code>requires_tesseract</code> OCR
-        tests, which run only where that binary is installed. Anything
-        <span class="was">red</span> is yours.</li>
+        tests, which run only where that binary is installed. Both numbers were
+        measured on their own box, not inferred from the other. Anything
+        <span class="was">red</span> is yours.
+        <br><strong>If you touch <code>dashboard/js/</code> you have a second
+        suite:</strong> <code>bun test js/tests</code> from <code>dashboard/</code>,
+        expecting <strong>2,215 passed / 2 skipped</strong> across 75 files. It is
+        not part of the pytest run and is easy to forget.</li>
 
       <li>Pick the next cluster from the ranked table below.
         <strong>Re-measure it</strong> with the script in
@@ -533,10 +538,15 @@ print('   travels with it:', travels)</code></pre>
         backend-only change, curl the endpoints that run the moved code &mdash;
         <code>verify-live.sh</code> only greps <code>dashboard.html</code>. If the
         moved code writes, find a reversible way to watch it write.</li>
-      <li><strong>Stay out of <code>js/</code>.</strong> A concurrent
-        <code>dashboard-boot.js</code> refactor runs in parallel; an earlier round saw
-        <code>tests/test_project_plans.py</code> fail on its edits, not ours. Confirm
-        with <code>git status js/</code> before blaming yourself.</li>
+      <li><strong>Stay out of <code>js/</code>&nbsp;&mdash; unless the bug is there.</strong>
+        A concurrent <code>dashboard-boot.js</code> refactor runs in parallel; an
+        earlier round saw <code>tests/test_project_plans.py</code> fail on its edits,
+        not ours. Confirm with <code>git status js/</code> before blaming yourself.
+        <br><span class="was">Broken deliberately in <code>e28bd5fd</code></span>:
+        the stale-plan bug lived in <code>js/boot/view-navigator.js</code> and could
+        not be fixed anywhere else. <code>git status js/</code> was clean first, the
+        edit was one file, and <code>bun test js/tests</code> was run. Do the same if
+        you have to go in: check, keep it to one file, run both suites.</li>
     </ol>
   </div>
 
@@ -570,6 +580,14 @@ print('   travels with it:', travels)</code></pre>
       <div class="commit"><code>6d7606d9</code> Extract the health-poller cache and vendor-review dialog backend out of server.py</div>
       <div class="commit"><code>1351c3cc</code> Extract the Server Management clocks and log-file reading out of server.py</div>
       <div class="commit"><code>5f7d2059</code> Extract the category write and its undo out of server.py</div>
+    </div>
+    <p>
+      Two follow-ups landed after round 7 and removed no lines from
+      <code>server.py</code>, but the next shift inherits them:
+    </p>
+    <div class="commit-list">
+      <div class="commit"><code>dbecf4fc</code> Update the refactor plan for round 7</div>
+      <div class="commit"><code>e28bd5fd</code> Re-fetch the Dashboard Refactor plan when its tab is opened</div>
     </div>
   </div>
 
