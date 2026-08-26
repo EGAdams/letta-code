@@ -30,14 +30,16 @@ Executor (the restart kills it).
 
 ### Known test failures
 
-`.venv/bin/python -m pytest tests/` is **2591 pass, 0 fail** on the live box
-(DESKTOP-2OBSQMC). Anything red there is yours.
+**None.** `.venv/bin/python -m pytest tests/` is green everywhere — anything
+red is yours, on any box.
 
-On a dev box expect **4 failures** in `tests/test_document_annotation.py`
-(`test_image_strategy_*`, `test_childrens_vision_check_*`). They shell out to
-the `tesseract` binary, which the live box has and dev boxes generally do not
-— `which tesseract` tells you which case you are in. Not aspirational, not
-flaky: install tesseract and they pass.
+The counts differ by machine and that is expected: **2591 pass / 2 skip** on
+the live box (DESKTOP-2OBSQMC), **2587 pass / 6 skip** on a dev box. The four
+extra skips are the `requires_tesseract` tests in
+`tests/test_document_annotation.py`, which drive the real OCR binary instead of
+monkeypatching `image_to_data`. The live box has `tesseract` installed and runs
+them; `which tesseract` tells you which case you are in. If you touch image
+annotation, run that file on the live box — locally those four prove nothing.
 
 This is a different suite from the root `CLAUDE.md`'s "~17 pre-existing
 failures", which is `bun test src/tests` in letta-code. The two counts are
