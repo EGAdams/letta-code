@@ -761,7 +761,7 @@ describe("ManualEntryForm._saveAll", () => {
     );
   });
 
-  test("a newly-remembered vendor is reported and the dropdown is reloaded", async () => {
+  test("new Apple vendor is reported and the dropdown is reloaded", async () => {
     let vendorKeysCallCount = 0;
     const http = {
       calls: [],
@@ -775,12 +775,15 @@ describe("ManualEntryForm._saveAll", () => {
                 ok: true,
                 vendor_keys: [
                   {
-                    vendor_key: "samaritans_purse",
-                    category_id: 215,
-                    category_name: "Samaritans Purse",
+                    vendor_key: "apple",
+                    category_id: 140,
+                    category_name: "Office",
                   },
                 ],
               };
+        }
+        if (url === "/api/rol-finance-categories") {
+          return { ok: true, categories: ["Office & Administration"] };
         }
         return { ok: true, categories: [] };
       },
@@ -793,7 +796,7 @@ describe("ManualEntryForm._saveAll", () => {
             duplicate: false,
             vendor_remembered: {
               remembered: true,
-              vendor_key: "samaritans_purse",
+              vendor_key: "apple",
             },
           };
         }
@@ -802,16 +805,23 @@ describe("ManualEntryForm._saveAll", () => {
     };
     const { form } = setup({ http });
     await form.mount();
-    form.items = [validItem({ merchantName: "Samaritans Purse" })];
+    form.items = [
+      validItem({
+        merchantName: "Apple",
+        knownVendorKey: "__new__",
+        newVendorKey: "apple",
+        categoryName: "Office & Administration",
+      }),
+    ];
     form.currentIndex = 0;
     form._renderCurrentItem();
     await form._saveAll();
     expect(form._statusEl.textContent).toContain(
-      "Remembered new vendor(s): samaritans_purse",
+      "Remembered new vendor(s): apple",
     );
-    expect(
-      form.vendorOptions.some((v) => v.vendorKey === "samaritans_purse"),
-    ).toBe(true);
+    expect(form.vendorOptions.some((v) => v.vendorKey === "apple")).toBe(true);
+    expect(form.items[0].knownVendorKey).toBe("apple");
+    expect(form.items[0].newVendorKey).toBe("");
   });
 
   test("a save failure reports which item failed and does not offer reload", async () => {

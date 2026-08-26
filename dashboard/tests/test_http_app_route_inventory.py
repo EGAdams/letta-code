@@ -23,7 +23,7 @@ from tests.http_app_harness import DashboardClient, ServiceRecorder, start_serve
 GET_ROUTES = [
     '/api/agent-activity', '/api/agent-card', '/api/agent-health',
     '/api/agent-model', '/api/agent-oauth-account', '/api/agent-voice',
-    '/api/agents', '/api/chatgpt-provider-account-status', '/api/code-status',
+    '/api/agents', '/api/chatgpt-provider-account-status', '/api/claude-sdk-account', '/api/code-status',
     '/api/codex-sync-status', '/api/expense-stored-events', '/api/intake-halt',
     '/api/mazda-mode', '/api/messages', '/api/model-stats',
     '/api/model-stats-agents', '/api/model-stats-sources', '/api/pc-metrics',
@@ -40,6 +40,7 @@ GET_ROUTES = [
 
 POST_ROUTES = [
     '/api/agent-model', '/api/agent-oauth-account', '/api/agent-voice',
+    '/api/claude-sdk-account',
     '/api/chatgpt-provider-account', '/api/claude-log', '/api/claude-toollog',
     '/api/codex-sync-now', '/api/codex-sync-toggle', '/api/expense-edit',
     '/api/expense-search', '/api/expense-stored', '/api/fix-printer',

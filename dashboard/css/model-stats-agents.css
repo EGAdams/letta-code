@@ -48,6 +48,29 @@
   background: #f3f3f3;
 }
 
+.win98-agents .win98-tool-assignment {
+  background: #fffbe6;
+}
+
+.win98-agents .win98-assignment-token {
+  white-space: nowrap;
+}
+
+.win98-agents .win98-assignment-token.is-up {
+  color: #006400;
+}
+
+.win98-agents .win98-assignment-token.is-down {
+  color: #b00000;
+  font-weight: bold;
+}
+
+.win98-agents .win98-assignment-token.is-unknown,
+.win98-agents .win98-assignment-unavailable {
+  color: grey;
+  font-style: italic;
+}
+
 .win98-agents select,
 .win98-agents select option {
   color: #000;

@@ -432,6 +432,16 @@ class PostRoutesMixin:
             except Exception as e:
                 return self.json_response({'ok': False, 'error': str(e)})
 
+        if path == '/api/claude-sdk-account':
+            try:
+                data = json.loads(body)
+                return self.json_response(
+                    srv.set_claude_sdk_account(data.get('account', '')))
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            except Exception as e:
+                return self.json_response({'ok': False, 'error': str(e)})
+
         if path == '/api/agent-voice':
             try:
                 data = json.loads(body)

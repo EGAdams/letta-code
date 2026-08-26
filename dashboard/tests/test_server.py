@@ -8095,6 +8095,36 @@ def test_expense_edit_learns_new_vendor_before_updating_description(monkeypatch)
     assert out['vendor_remembered']['vendor_key'] == 'cracker_barrel'
 
 
+def test_expense_edit_learns_new_four_digit_dte_account(monkeypatch):
+    monkeypatch.setattr(server, '_invalidate_receipt_index', lambda: None)
+    remembered = []
+
+    class _Remembered:
+        def model_dump(self):
+            return {
+                'remembered': True,
+                'vendor_key': 'dte_energy_1854',
+                'reason': None,
+            }
+
+    monkeypatch.setattr(
+        server.vendor_lookup, 'remember_vendor',
+        lambda description, category_id, vendor_key: (
+            remembered.append((description, category_id, vendor_key))
+            or _Remembered()))
+    repo = _StubEditRepository(result=_edit_result())
+
+    out = server.edit_stored_expense(_edit_body(
+        merchant_name='DTE Energy', vendor_key='dte_energy_1854',
+        learn_vendor=True,
+    ), repository=repo, namer=_StubNamer())
+
+    assert out['ok'] is True
+    assert remembered == [('DTE Energy', 140, 'dte_energy_1854')]
+    assert len(repo.edits) == 1
+    assert out['vendor_remembered']['vendor_key'] == 'dte_energy_1854'
+
+
 def test_expense_edit_updates_when_selected_vendor_is_already_known(monkeypatch):
     monkeypatch.setattr(server, '_invalidate_receipt_index', lambda: None)
 
@@ -8123,6 +8153,56 @@ def test_expense_edit_updates_when_selected_vendor_is_already_known(monkeypatch)
         'vendor_key': 'dte_energy_0544',
         'reason': 'vendor_key already known',
     }
+
+
+def test_expense_edit_accepts_existing_key_for_broad_vendor_entry(monkeypatch):
+    monkeypatch.setattr(server, '_invalidate_receipt_index', lambda: None)
+
+    class _CanonicalAlreadyKnown:
+        def model_dump(self):
+            return {
+                'remembered': False,
+                'vendor_key': 'apple_com_bill',
+                'reason': 'vendor_key already known',
+            }
+
+    monkeypatch.setattr(
+        server.vendor_lookup, 'remember_vendor',
+        lambda *_args: _CanonicalAlreadyKnown())
+    repo = _StubEditRepository(result=_edit_result())
+
+    out = server.edit_stored_expense(_edit_body(
+        merchant_name='APPLE.COM/BILL', vendor_key='apple',
+        learn_vendor=True,
+    ), repository=repo, namer=_StubNamer())
+
+    assert out['ok'] is True
+    assert len(repo.edits) == 1
+    assert out['vendor_remembered']['vendor_key'] == 'apple_com_bill'
+
+
+def test_expense_edit_rejects_already_known_result_without_vendor_key(monkeypatch):
+    class _MissingCanonicalKey:
+        def model_dump(self):
+            return {
+                'remembered': False,
+                'vendor_key': None,
+                'reason': 'vendor_key already known',
+            }
+
+    monkeypatch.setattr(
+        server.vendor_lookup, 'remember_vendor',
+        lambda *_args: _MissingCanonicalKey())
+    repo = _StubEditRepository(result=_edit_result())
+
+    out = server.edit_stored_expense(_edit_body(
+        merchant_name='APPLE.COM/BILL', vendor_key='apple',
+        learn_vendor=True,
+    ), repository=repo, namer=_StubNamer())
+
+    assert out['ok'] is False
+    assert 'Could not learn vendor' in out['error']
+    assert repo.edits == []
 
 
 def test_expense_edit_does_not_update_when_vendor_learning_fails(monkeypatch):

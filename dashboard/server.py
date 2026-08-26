@@ -1188,8 +1188,11 @@ def edit_stored_expense(data, repository=None, namer=None):
             }
         if not vendor_remembered.get('remembered'):
             reason = vendor_remembered.get('reason') or 'the vendor rule was not persisted'
-            returned_key = vendor_remembered.get('vendor_key') or learning_vendor_key
-            if returned_key != learning_vendor_key or reason != 'vendor_key already known':
+            returned_key = vendor_remembered.get('vendor_key')
+            # remember() may return an existing stored key chosen from a broad
+            # human entry. Accept that safe repeat only when a real key and
+            # the precise "already known" result are both present.
+            if not returned_key or reason != 'vendor_key already known':
                 return {'ok': False, 'error': f'Could not learn vendor: {reason}'}
     try:
         result = repo.apply_edit(edit)
@@ -5530,10 +5533,8 @@ from hosts import LETTA_BASE_URL  # noqa: E402
 # aligned with the ChatGPT OAuth catalog advertised by the live Letta server.
 AGENT_MODEL_OPTIONS = [
     'chatgpt-plus-pro/gpt-5.6-sol',
-    'chatgpt-plus-pro/gpt-5.6-terra',
     'chatgpt-plus-pro/gpt-5.6-luna',
-    'chatgpt-plus-pro/gpt-5.5',
-    'chatgpt-plus-pro/gpt-5.4',
+    'chatgpt-plus-pro/gpt-5.6-terra',
     'claude-pro-max/claude-haiku-4-5-20251001',
     'claude-pro-max/claude-sonnet-5',
     'claude-pro-max/claude-opus-5',
@@ -7110,6 +7111,8 @@ def get_server(key):
 from health.frita import (  # noqa: E402
     FRITA_CREDS_SYNC_SCRIPT, FRITA_EXEC_GHOST_URL, FRITA_EXEC_GOOD_URL,
     FRITA_EXEC_WORK_URL, _probe_claude_sdk_endpoint, _probe_sdk_status,
+    claude_sdk_account_payload, claude_sdk_token_status,
+    set_claude_sdk_account,
     _resync_frita_creds, frita_executor_health,
 )
 
@@ -8018,6 +8021,22 @@ def model_stats_agents_payload(force_refresh=False):
             'weekly_percent_remaining': _weekly_percent_remaining(provider) if provider else None,
         })
 
+    # Mazda's run_claude_code_sdk tool is not a Letta agent, but it runs the
+    # work that makes her minions useful and authenticates with its own mounted
+    # Claude OAuth credential. Keep it in this list so an expired executor
+    # token cannot hide behind healthy Letta-agent rows. This probe is
+    # read-only and does not submit a Claude job or trigger auto-repair.
+    sdk_account = claude_sdk_account_payload()
+    sdk_option = next(
+        (item for item in sdk_account.get('options', [])
+         if item.get('account') == sdk_account.get('current')),
+        {},
+    )
+    rows.append(build_claude_sdk_assignment(
+        claude_sdk_token_status(), now=time.time(),
+        account=sdk_account.get('current', ''),
+        account_label=sdk_option.get('label', 'Executor OAuth token')))
+
     with _model_stats_agents_cache_lock:
         _model_stats_agents_cache['value'] = rows
         _model_stats_agents_cache['ts'] = now
@@ -8445,6 +8464,7 @@ from model_stats.reader import (  # noqa: E402
 from model_stats.sources import (  # noqa: E402
     MODEL_STAT_SOURCES, ModelStatSource, R46_SSH_HOST,
 )
+from model_stats.assignments import build_claude_sdk_assignment  # noqa: E402
 from model_stats.usage_history import (  # noqa: E402
     LEAK_BUCKET_MINUTES, LEAK_LOOKBACK_MINUTES, LEAK_MIN_RISE_PCT,
     LEAK_MIN_RISING_BUCKETS, MODEL_USAGE_HISTORY_FILE,

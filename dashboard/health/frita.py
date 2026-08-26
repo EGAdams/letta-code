@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
 
@@ -53,6 +54,11 @@ FRITA_EXEC_WORK_URL = 'http://100.80.49.10:8799/claude_sdk'
 # a health *check* also fixes the thing it found broken, instead of just
 # reporting yellow until claude-creds-sync.path/timer gets around to it.
 FRITA_CREDS_SYNC_SCRIPT = os.path.expanduser('~/server_tools/sync_claude_creds_to_frita.sh')
+CLAUDE_SDK_ACCOUNT_FILE = os.path.expanduser('~/.config/claude/frita-sdk-account')
+CLAUDE_SDK_ACCOUNT_OPTIONS = {
+    'eg': {'label': 'eg1972@gmail.com', 'source': 'eg1972'},
+    'mom': {'label': 'rbarnesrol@gmail.com', 'source': 'rbarnesrol'},
+}
 
 
 def _resync_frita_creds(timeout):
@@ -98,6 +104,71 @@ def _probe_sdk_status(url, timeout):
             return json.loads(r.read(2000).decode('utf-8', errors='replace'))
     except Exception:
         return None
+
+
+def claude_sdk_token_status(timeout=None):
+    """Read the SDK executor's credential status without launching a job.
+
+    This is separate from ``frita_executor_health`` because that health check
+    may attempt credential resync as a repair; the Model Stats row is a
+    read-only observation of the token Mazda actually spends.
+    """
+    return _probe_sdk_status(FRITA_EXEC_GOOD_URL, timeout or 6)
+
+
+def claude_sdk_account_payload():
+    """Return the selected source account for the SDK executor dropdown."""
+    try:
+        with open(CLAUDE_SDK_ACCOUNT_FILE, encoding='utf-8') as f:
+            current = f.read().strip()
+    except OSError:
+        current = 'eg'
+    if current not in CLAUDE_SDK_ACCOUNT_OPTIONS:
+        current = 'eg'
+    return {
+        'ok': True,
+        'current': current,
+        'options': [
+            {'account': key, 'label': value['label']}
+            for key, value in CLAUDE_SDK_ACCOUNT_OPTIONS.items()
+        ],
+    }
+
+
+def set_claude_sdk_account(account):
+    """Persist and sync the requested Claude account into the SDK executor."""
+    info = CLAUDE_SDK_ACCOUNT_OPTIONS.get(account)
+    if not info:
+        return {'ok': False, 'error': f'unknown SDK account {account!r}'}
+
+    account_dir = os.path.dirname(CLAUDE_SDK_ACCOUNT_FILE)
+    os.makedirs(account_dir, mode=0o700, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix='.frita-sdk-account.', dir=account_dir,
+                                     text=True)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(account + '\n')
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, CLAUDE_SDK_ACCOUNT_FILE)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+    try:
+        result = subprocess.run(
+            [FRITA_CREDS_SYNC_SCRIPT, info['source']],
+            capture_output=True, text=True, timeout=90,
+        )
+    except Exception as exc:
+        return {'ok': False, 'current': account,
+                'error': f'Claude SDK credential sync failed: {exc}'}
+    if result.returncode != 0:
+        return {'ok': False, 'current': account,
+                'error': 'Claude SDK credential sync failed; see sync log'}
+    return {'ok': True, 'current': account, 'label': info['label']}
 
 
 def frita_executor_health(timeout=None):

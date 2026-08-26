@@ -92,6 +92,75 @@ export function buildOauthAccountSelect({
   return { select, reload: load };
 }
 
+/**
+ * buildClaudeSdkAccountSelect — the read-only executor's account selector.
+ * Unlike a Letta-agent account switch, this syncs a credential into the
+ * shared Frita executor and therefore has no agent ID.
+ */
+export function buildClaudeSdkAccountSelect({ el, http, showStatus }) {
+  const select = el("select", { disabled: true });
+  let current = "";
+
+  const load = () =>
+    http
+      .getJSON("/api/claude-sdk-account")
+      .then((d) => {
+        if (!d || !d.ok || !Array.isArray(d.options) || !d.options.length) {
+          select.disabled = true;
+          return;
+        }
+        select.innerHTML = "";
+        for (const opt of d.options) {
+          select.appendChild(
+            el("option", { value: opt.account, textContent: opt.label }),
+          );
+        }
+        const optionKeys = d.options.map((opt) => opt.account);
+        current =
+          (current && optionKeys.includes(current) && current) ||
+          d.current ||
+          d.options[0].account;
+        select.value = current;
+        select.disabled = false;
+      })
+      .catch(() => {
+        select.disabled = true;
+      });
+
+  select.addEventListener("change", async () => {
+    const next = select.value;
+    select.disabled = true;
+    showStatus(`Syncing Claude SDK token to ${next}…`);
+    try {
+      const result = await http.postJSON("/api/claude-sdk-account", {
+        account: next,
+      });
+      if (!result?.ok) {
+        select.value = current;
+        showStatus(result?.error || "Claude SDK token change failed.", true);
+        return;
+      }
+      current = result.current || next;
+      showStatus(`Claude SDK token set to ${current}.`);
+      select.dispatchEvent?.(
+        new CustomEvent("claude-sdk-account:changed", {
+          bubbles: true,
+          detail: { agentId: "tool-run-claude-code-sdk" },
+        }),
+      );
+      await load();
+    } catch (e) {
+      select.value = current;
+      showStatus(`Claude SDK token change failed: ${e.message}`, true);
+    } finally {
+      select.disabled = false;
+    }
+  });
+
+  load();
+  return { select, reload: load };
+}
+
 function barClassFor(pct) {
   if (pct == null) return "";
   if (pct <= 10) return "is-critical";
@@ -149,7 +218,12 @@ export class AgentAssignmentsController extends PollingController {
     const table = el("table");
     const thead = el("thead");
     const headRow = el("tr");
-    for (const label of ["Agent", "Model", "Token", "Weekly Remaining"]) {
+    for (const label of [
+      "Agent / Tool",
+      "Model",
+      "Token",
+      "Weekly Remaining",
+    ]) {
       headRow.appendChild(el("th", { textContent: label }));
     }
     thead.appendChild(headRow);
@@ -160,11 +234,16 @@ export class AgentAssignmentsController extends PollingController {
     this._table = table;
     this._tbody = tbody;
 
-    // Both selects bubble a "…:changed" CustomEvent on a successful PATCH
-    // (see buildModelRow / buildOauthAccountSelect). One delegated listener
+    // Selects bubble a "…:changed" CustomEvent on a successful sync/PATCH
+    // (see buildModelRow, buildOauthAccountSelect, and
+    // buildClaudeSdkAccountSelect). One delegated listener
     // catches either and refreshes that row's bar immediately instead of
     // waiting up to intervalMs for the next poll.
-    for (const type of ["agent-model:changed", "agent-oauth-account:changed"]) {
+    for (const type of [
+      "agent-model:changed",
+      "agent-oauth-account:changed",
+      "claude-sdk-account:changed",
+    ]) {
       tbody.addEventListener(type, (evt) => {
         this._refreshRowBar(evt.detail.agentId);
       });
@@ -178,7 +257,7 @@ export class AgentAssignmentsController extends PollingController {
    * move yet still signals "recalculating", not "nothing happened". */
   async _refreshRowBar(agentId) {
     const entry = this._rowsById.get(agentId);
-    entry?.fill.classList.add("is-recalculating");
+    entry?.fill?.classList.add("is-recalculating");
     try {
       const rows = await this._http.getJSON(
         "/api/model-stats-agents?refresh=1",
@@ -188,7 +267,7 @@ export class AgentAssignmentsController extends PollingController {
     } catch {
       // leave the last-known value in place; next scheduled poll will retry
     } finally {
-      entry?.fill.classList.remove("is-recalculating");
+      entry?.fill?.classList.remove("is-recalculating");
     }
   }
 
@@ -200,6 +279,11 @@ export class AgentAssignmentsController extends PollingController {
   }
 
   _renderRow(row) {
+    if (row.assignment_kind === "tool") {
+      this._renderToolRow(row);
+      return;
+    }
+
     let entry = this._rowsById.get(row.id);
     if (!entry) {
       const el = this._el;
@@ -252,5 +336,40 @@ export class AgentAssignmentsController extends PollingController {
     entry.fill.style.width =
       pct == null ? "0%" : `${Math.max(0, Math.min(100, pct))}%`;
     entry.label.textContent = pct == null ? "?" : `${pct}%`;
+  }
+
+  _renderToolRow(row) {
+    let entry = this._rowsById.get(row.id);
+    if (!entry) {
+      const el = this._el;
+      const tr = el("tr", { className: "win98-tool-assignment" });
+      tr.appendChild(el("td", { textContent: row.name }));
+      tr.appendChild(el("td", { textContent: row.model || "—" }));
+      const tokenTd = el("td");
+      const { select: accountSelect } = buildClaudeSdkAccountSelect({
+        el,
+        http: this._http,
+        showStatus: (msg, isError) => this._showStatus(msg, isError),
+      });
+      const token = el("div", { className: "win98-assignment-token" });
+      tokenTd.append(accountSelect, token);
+      tr.appendChild(tokenTd);
+      tr.appendChild(
+        el("td", {
+          className: "win98-assignment-unavailable",
+          textContent: "—",
+        }),
+      );
+      this._tbody.appendChild(tr);
+      entry = { tr, select: accountSelect, token };
+      this._rowsById.set(row.id, entry);
+    }
+
+    entry.token.textContent =
+      row.token_status === "up"
+        ? ""
+        : row.token_status_detail || "Token status unavailable";
+    entry.token.className = `win98-assignment-token is-${row.token_status || "unknown"}`;
+    if (row.account) entry.select.value = row.account;
   }
 }

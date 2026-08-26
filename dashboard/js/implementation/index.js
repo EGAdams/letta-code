@@ -22,6 +22,7 @@ export { ActivePoller } from "./active-poller.js";
 export { AgentActivityPoller } from "./agent-activity-poller.js";
 export {
   AgentAssignmentsController,
+  buildClaudeSdkAccountSelect,
   buildOauthAccountSelect,
 } from "./agent-assignments-panel.js";
 export { AgentHealthPoller } from "./agent-health-poller.js";

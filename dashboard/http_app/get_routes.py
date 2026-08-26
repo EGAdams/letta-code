@@ -45,6 +45,9 @@ class GetRoutesMixin:
             return self.json_response(
                 srv.model_stats_agents_payload(force_refresh=query.get('refresh', ['0'])[0] == '1'))
 
+        if path == '/api/claude-sdk-account':
+            return self.json_response(srv.claude_sdk_account_payload())
+
         if path == '/api/router-agent':
             from router.classify import build_router_strategy
             strategy = build_router_strategy()
