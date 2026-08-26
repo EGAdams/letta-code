@@ -117,7 +117,7 @@
 <div class="page">
 
   <div class="hero">
-    <p class="kicker">Living Plan &middot; Updated 2026-08-24</p>
+    <p class="kicker">Living Plan &middot; Updated 2026-08-25</p>
     <h1>Cutting server.py in Half</h1>
     <p class="lede">
       <code>dashboard/server.py</code> started at 11,407 lines. The goal is to
@@ -126,10 +126,36 @@
       otherwise fail silently, each extraction backed by its own tests.
     </p>
     <div class="meta">
-      <span class="pill">11,407 &rarr; 8,576 lines</span>
-      <span class="pill green">2,525 tests passing</span>
-      <span class="pill amber">~2,875 lines to halfway</span>
+      <span class="pill">11,407 &rarr; 8,495 lines</span>
+      <span class="pill green">2,574 tests passing</span>
+      <span class="pill amber">~2,791 lines to halfway</span>
+      <span class="pill">HEAD <code>1351c3cc</code> on all three boxes</span>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>Start here</h2>
+    <ol>
+      <li>Run the <code>sync-all</code> skill. Not optional &mdash; the box serving the
+        dashboard is usually not the one you are typing on. Last run found
+        DESKTOP-SHDBATI 14 commits behind with three-day-old WIP that turned out
+        to be a superseded draft of work already on main (see
+        <em>Rescued, not committed</em> below).</li>
+      <li>Baseline the tests before you touch anything:
+        <code>cd dashboard &amp;&amp; .venv/bin/python -m pytest tests/ -q</code>.
+        Expect <strong>2,574 passed, 13 failed</strong>. All 13 are one
+        pre-existing regression &mdash;
+        <code>'VendorCategoryLookup' object has no attribute 'guess_vendor_key'</code>
+        in <code>finance/vendor_lookup.py:23</code> &mdash; not yours. Confirm with
+        <code>git stash &amp;&amp; pytest &amp;&amp; git stash pop</code> before
+        blaming your change.</li>
+      <li>Pick the next cluster from the ranked table below. <strong>Re-measure it</strong>
+        with the script in <em>How to rank a cluster</em> rather than trusting the
+        numbers &mdash; the old ranking was measured wrong, and the corrected
+        numbers reorder the list substantially.</li>
+      <li>Extract, test against the <em>owning module</em>, run the full suite,
+        commit, push, deploy, verify live, then rewrite this file.</li>
+    </ol>
   </div>
 
   <div class="card">
@@ -141,8 +167,8 @@
     </div>
     <div class="bar-row">
       <span class="bar-label">Current</span>
-      <div class="bar-track"><div class="bar-fill" style="width:75.2%"></div></div>
-      <span class="bar-value">8,576</span>
+      <div class="bar-track"><div class="bar-fill" style="width:74.5%"></div></div>
+      <span class="bar-value">8,495</span>
     </div>
     <div class="bar-row">
       <span class="bar-label">Halfway target</span>
@@ -150,137 +176,384 @@
       <span class="bar-value">~5,700</span>
     </div>
     <p style="margin-top:14px; color:var(--muted); font-size:.9rem;">
-      2,831 lines removed across five rounds so far. Roughly 2,875 remain to
-      reach half the original size.
+      2,912 lines removed across six rounds. Roughly 2,791 remain to reach half
+      the original size. This round removed 126 &mdash; a small round, but it
+      also produced the corrected ranking method, which is worth more than the
+      lines were.
     </p>
   </div>
 
   <div class="card">
-    <h2>Rounds completed this session</h2>
+    <h2>Round 6 &mdash; the Server Management clocks and log-file reading</h2>
+    <div class="commit-list">
+      <div class="commit"><code>1351c3cc</code> Extract the Server Management clocks and log-file reading out of server.py</div>
+    </div>
+
+    <h3>What moved</h3>
+    <table>
+      <tr><th>Module</th><th>Contents</th><th>Why these together</th></tr>
+      <tr>
+        <td><code>monitoring/server_lifecycle.py</code><br><span style="color:var(--muted);font-size:.85rem">102 lines</span></td>
+        <td><code>ServerStatus</code> Literal, <code>SERVER_STALE_DOWN_SECONDS</code>,
+            <code>STARTING_WINDOW_SECONDS</code>, the two registries + locks,
+            <code>track_down_duration</code>, <code>mark_server_starting</code>,
+            <code>clear_server_starting</code>, <code>is_server_starting</code></td>
+        <td>One state machine seen from two sides. <code>mark_server_starting</code>
+            opens a grace window where a failing probe is forgiven;
+            <code>track_down_duration</code> is the clock that runs once that
+            forgiveness expires. Split them and the two can disagree about what
+            'starting' means.</td>
+      </tr>
+      <tr>
+        <td><code>monitoring/log_files.py</code><br><span style="color:var(--muted);font-size:.85rem">146 lines</span></td>
+        <td><code>LOG_ACTIVITY_WINDOW</code>, <code>SERVER_LOG_TAIL</code>,
+            <code>format_age</code>, <code>tail_lines</code>,
+            <code>trim_log_cache</code>, <code>log_activity_health</code>,
+            <code>server_log_rows</code></td>
+        <td>Half the <code>SERVERS</code> entries have no endpoint to ping, so a
+            file mtime has to stand in for a health probe. Same file, two readers:
+            one asks "is it alive", the other renders the detail panel.</td>
+      </tr>
+    </table>
+    <p>Both modules know only server <em>keys</em> &mdash; never <code>SERVERS</code>,
+    never a probe &mdash; so neither imports back into <code>server.py</code> and
+    neither module's tests need live server config.</p>
+
+    <h3>Where the typing earned its keep</h3>
+    <div class="finding fixed">
+      <strong>A four-word vocabulary that nothing was checking.</strong>
+      <p>
+        <code>track_down_duration</code> branched on a bare
+        <code>status in ('up', 'starting')</code>. <code>compute_server_status</code>
+        emits four states. A fifth state added there, a rename, or a stray
+        <code>'Up'</code> would fall through to the down branch and start a stale
+        clock on a healthy server &mdash; which escalates the tab ten minutes
+        later with nothing in the UI to point at. Now a
+        <code>ServerStatus</code> Literal validated at the call, plus
+        <code>TestServerStatusVocabulary</code>, which drives
+        <code>compute_server_status</code> through all five of its branches and
+        asserts the set it produces is exactly the set the Literal accepts. If
+        someone adds a fifth state, that test fails before the silent escalation
+        ever ships.
+      </p>
+    </div>
+    <div class="finding fixed">
+      <strong><code>log_activity_health</code> now answers with <code>ProbeResult</code>.</strong>
+      <p>
+        It built <code>{'ok':…, 'text':…}</code> by hand while
+        <code>health/probe.py</code> already named that contract. A log mtime
+        standing in for a health check should be indistinguishable from one, so
+        it goes through <code>probe()</code> like every other check. Payload is
+        byte-identical; a test asserts the key set matches a real probe's.
+      </p>
+    </div>
+
+    <h3>Patch-target trap &mdash; designed out this time, not caught late</h3>
+    <div class="finding fixed">
+      <p>
+        <code>server_log_rows</code> needs <code>cached_server_health</code> and
+        <code>server_status_kind</code>, both of which stay in
+        <code>server.py</code>. Importing them would be a cycle; binding them at
+        import time would have detached the module from
+        <code>monkeypatch.setattr(server, 'cached_server_health', …)</code> &mdash;
+        the exact trap that bit the previous four extractions. So they are
+        <strong>arguments</strong>:
+      </p>
+      <pre><code>def server_log_rows(cfg, q='', *, health_reader, status_kind, starting_window):</code></pre>
+      <p>
+        The <code>server.py</code> wrapper resolves all three at call time, which
+        keeps the existing patch target working, and
+        <code>TestServerWiring.test_wrapper_passes_the_real_collaborators</code>
+        covers the wiring &mdash; injection is only honest if something checks
+        that production passes the real objects.
+      </p>
+    </div>
+    <div class="finding fixed">
+      <strong>Dead re-exports are how the trap gets set for the next person.</strong>
+      <p>
+        Only names <code>server.py</code> or a <code>srv.</code> route still calls
+        are imported back: <code>log_activity_health</code>,
+        <code>_trim_log_cache</code>, the four lifecycle functions, and
+        <code>_starting_servers</code>/<code>_starting_lock</code> by identity
+        (<code>tests/test_server.py</code>'s <code>_clear_starting()</code> resets
+        the one real registry through <code>server</code>; a rebind would hand it
+        a second, empty dict). <code>tail_lines</code>, <code>_format_age</code>,
+        <code>SERVER_LOG_TAIL</code>, <code>LOG_ACTIVITY_WINDOW</code>,
+        <code>_server_down_since</code> and <code>SERVER_STALE_DOWN_SECONDS</code>
+        were dropped, and two tests <em>assert they are absent</em>
+        (<code>assert not hasattr(server, …)</code>) so a well-meaning re-export
+        cannot creep back and start drifting from the real definition.
+      </p>
+    </div>
+
+    <h3>Tests</h3>
+    <p>
+      56 new, both files pointed at the owning module:
+      <code>tests/test_server_lifecycle.py</code> (19) and
+      <code>tests/test_log_files.py</code> (37). The superseded copies were
+      deleted from <code>tests/test_server.py</code>, which keeps only what is
+      genuinely <code>server.py</code>'s &mdash; the restart handlers that call
+      <code>mark_server_starting()</code>.
+    </p>
+    <p>
+      Beyond the moved assertions, the new files pin behaviour nothing covered
+      before: a Restart click mid-outage must not reset the "down for" counter
+      (otherwise a server nobody can fix never escalates to stale), down clocks
+      per key are independent, <code>seq</code> stays absolute under filtering so
+      a re-poll dedupes, repeated identical log lines keep distinct keys, the
+      cached health dict is copied rather than mutated when <code>kind</code> is
+      added, <code>tail_lines</code> on a directory returns <code>None</code>
+      rather than raising, and 4 threads &times; 20 keys &times; 50 iterations
+      hammer both locks.
+    </p>
+
+    <h3>Verified live</h3>
+    <p>
+      <code>verify-live.sh</code> greps <code>dashboard.html</code>, so it does
+      not apply to a backend-only change. Verified against the real endpoints on
+      the live box after <code>systemctl --user restart dashboard-server.service</code>:
+    </p>
+    <pre><code>GET /api/server-health   14 servers, all_up=True, any_stale=False,
+                         down_for_seconds/stale present on every entry
+GET /api/server-logs     dashboard / lettabot / letta: kind='up',
+                         300 rows each, seq unique + ascending
+                         (153359..153658 — absolute, not 0-based)
+GET /api/server-logs?q=GET  285 rows, all matching, seq still absolute (153391)</code></pre>
+    <p style="color:var(--muted);font-size:.9rem">
+      One path is <strong>not</strong> live-exercised: no entry in
+      <code>SERVERS</code> is currently log-only (all 14 have a
+      <code>health_url</code>, <code>tcp_check</code> or <code>check</code>), so
+      <code>log_activity_health</code> is a dormant fallback right now. It is
+      covered by 6 unit tests and its payload is byte-identical to what it
+      replaced, but nobody has watched it run in production this round.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>How to rank a cluster &mdash; the old numbers were measured wrong</h2>
+    <p>
+      The previous ranking counted every <code>server.py</code> top-level name a
+      cluster referenced as "external". That counts a cluster's <em>own</em>
+      module-level state against it &mdash; and it penalised precisely the
+      clusters that were most self-contained. <code>win10-node</code> was listed
+      at 9 external names; 13 of the names it touches are its own
+      <code>WIN10_*</code> constants and <code>_win10_*</code> caches, which
+      travel with it. Its real residual coupling is <strong>2</strong>.
+    </p>
+    <p>
+      The right question is: <em>which names stay behind in <code>server.py</code>
+      after the move?</em> A name referenced only by the cluster travels with it
+      and costs nothing. Run this from <code>dashboard/</code> against the
+      current file before choosing:
+    </p>
+    <pre><code>import ast
+from collections import defaultdict
+src = open('server.py').read(); tree = ast.parse(src)
+funcs = {n.name: n for n in tree.body
+         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+top = set(funcs)
+for n in tree.body:
+    if isinstance(n, ast.Assign):
+        for t in n.targets:
+            if isinstance(t, ast.Name): top.add(t.id)
+
+refs = defaultdict(set)              # name -> top-level funcs that reference it
+for fname, node in funcs.items():
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load) \
+                and sub.id in top:
+            refs[sub.id].add(fname)
+
+names = {...}                        # the cluster you are considering
+nodes = [funcs[n] for n in names if n in funcs]
+lines = sum(n.end_lineno - n.lineno + 1 for n in nodes)
+ext = {sub.id for n in nodes for sub in ast.walk(n)
+       if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load)
+       and sub.id in top and sub.id not in names}
+stays   = sorted(x for x in ext if refs[x] - names)   # real coupling cost
+travels = sorted(x for x in ext if not (refs[x] - names))
+print(lines, 'lines |', len(stays), 'stay behind:', stays)
+print('   travels with it:', travels)</code></pre>
+    <p style="color:var(--muted);font-size:.9rem">
+      Two caveats. The script counts <em>function</em> bodies, so module-level
+      constants that travel are free lines it does not credit. And cluster
+      membership is a judgement &mdash; the sets below are the ones measured on
+      <code>1351c3cc</code>; widen or narrow them and the numbers move (that is
+      why several line counts differ from the previous table).
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Next steps</h2>
+    <p>
+      Re-measured on <code>1351c3cc</code> with the script above, ranked by lines
+      removed per name left behind &mdash; best value first. <strong>The two at
+      the top are the recommendation.</strong>
+    </p>
+    <table>
+      <tr><th>Cluster</th><th>Lines</th><th>Stay behind</th><th>Per name</th><th>What stays behind</th></tr>
+      <tr style="background:var(--green-soft)">
+        <td><strong>recategorize</strong></td><td>293</td><td>5</td><td><strong>59</strong></td>
+        <td><code>RECEIPT_ONLY_REPORT_PATH</code>, <code>_css_class_for_report_name</code>,
+            <code>_find_matching_report_row</code>, <code>_resolve_reporting_category</code>,
+            <code>_rol_get_connection</code></td>
+      </tr>
+      <tr style="background:var(--green-soft)">
+        <td><strong>win10-node</strong></td><td>111</td><td>2</td><td><strong>56</strong></td>
+        <td><code>RESTART_LOG</code>, <code>_log_restart</code></td>
+      </tr>
+      <tr><td>agent-registry</td><td>69</td><td>2</td><td>35</td>
+        <td><code>letta_get</code>, <code>letta_id_for</code></td></tr>
+      <tr><td>exec-mode</td><td>66</td><td>3</td><td>22</td>
+        <td><code>HUMAN_ONLY_MODE_STAGE_MESSAGE</code>, <code>_MAZDA_MODE_SERVICE</code>,
+            <code>merge_recent_intake_status</code></td></tr>
+      <tr><td>receipt-only</td><td>145</td><td>7</td><td>21</td>
+        <td><code>ROL_FINANCES_MONTH_RANGES</code>, <code>_get_category_taxonomy</code>,
+            <code>_norm_amount</code>, <code>_rol_get_connection</code>, &hellip;</td></tr>
+      <tr><td>notes</td><td>36</td><td>3</td><td>12</td>
+        <td><code>_matching_expense</code>, <code>_norm_amount</code>, <code>_rol_get_connection</code></td></tr>
+      <tr><td>chatgpt-probe</td><td>67</td><td>7</td><td>10</td>
+        <td><code>PROVIDER_USAGE_PROBES</code>, <code>_chatgpt_failover</code>,
+            <code>_poll_chatgpt_provider_once</code>, <code>_run_chatgpt_failover_swap</code>, &hellip;</td></tr>
+    </table>
+
+    <h3>Recommended: <code>recategorize</code></h3>
+    <p>
+      293 lines for 5 names left behind &mdash; the largest single cut still
+      available at low coupling, and more than double this round's total.
+      <code>recategorize_expense</code> + <code>undo_recategorize_expense</code>
+      + the taxonomy/undo-journal accessors form a genuine unit; the undo journal
+      and taxonomy caches travel with them. The Pydantic target is obvious: an
+      undo token is currently an opaque blob passed back from the browser, and a
+      malformed one should fail at model construction rather than partway through
+      a database write. <code>_update_report_row_color</code> also travels, which
+      means the HTML-rewriting side goes with it &mdash; check that before
+      committing to the boundary.
+    </p>
+    <h3>Easiest: <code>win10-node</code></h3>
+    <p>
+      111 lines for 2 names, and both of those (<code>RESTART_LOG</code>,
+      <code>_log_restart</code>) are a trivially injectable logging seam. Six
+      functions plus five caches and their locks, all of which move. Good round
+      if you want a clean, fast landing.
+    </p>
+
+    <h3>Still deferred</h3>
+    <ul>
+      <li><strong>open-receipt</strong> (<code>lookup_receipt</code>, ~76 lines) &mdash;
+        needs 8 names and is entangled with the recent-report cluster. Do it
+        <em>with</em> recent-report, not before it.</li>
+      <li><strong>recent-report + finance-rows</strong> (~2,221 lines, ~64 names) and the
+        <strong>intake-pipeline / expense-bus cluster</strong> (~1,536 lines) &mdash;
+        the two largest untouched blocks. Both need real interface design, not
+        source-slicing. Note these two alone are more than the ~2,791 lines
+        still needed to hit halfway: the cheap clusters will not get there on
+        their own, and one of these has to be faced.</li>
+      <li><strong>The two route ladders</strong> in <code>http_app/</code>, ~600 lines
+        each. Splitting them needs a route registry (Command / Chain of
+        Responsibility), which is what the ~460 <code>test_http_app_*</code>
+        tests were written as the safety net for.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Standing rules for every round</h2>
+    <ul>
+      <li><strong>Extract lowest-residual-coupling first</strong>, measured with the
+        script above, not by eye.</li>
+      <li><strong>Point new tests at the owning module</strong>, never at
+        <code>server</code>. A re-export is a second binding; the moved code
+        closes over its own module global, so
+        <code>monkeypatch.setattr(server, 'X', …)</code> isolates nothing while
+        looking exactly like it does. This has bitten five rounds running.</li>
+      <li><strong>Inject what stays behind</strong> rather than importing it. It breaks
+        the cycle and it preserves the existing patch target &mdash; and add a test
+        that production wires the real collaborators.</li>
+      <li><strong>Import back only what is still called.</strong> Assert the dropped
+        names are absent so dead re-exports cannot creep back.</li>
+      <li><strong>Every Pydantic model dumps to a plain dict</strong> so browser-facing
+        JSON stays byte-identical, and keep a golden-payload test against the
+        prior literals.</li>
+      <li><strong>Reach for Pydantic where a wrong value is silent</strong>, not
+        everywhere. The test that proves it earns its keep is usually the one
+        showing the <em>old</em> code accepting garbage.</li>
+      <li><strong>Deploy and verify.</strong> Committing is not deploying. For a
+        backend-only change, curl the endpoints that run the moved code &mdash;
+        <code>verify-live.sh</code> only greps <code>dashboard.html</code>.</li>
+      <li><strong>Stay out of <code>js/</code>.</strong> A concurrent
+        <code>dashboard-boot.js</code> refactor runs in parallel; an earlier round
+        saw <code>tests/test_project_plans.py</code> fail on its edits, not ours.
+        Confirm with <code>git status js/</code> before blaming yourself.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Session log &mdash; rounds so far</h2>
     <div class="commit-list">
       <div class="commit"><code>916dd739</code> Extract the HTTP layer, hardware I/O and stats extractors out of server.py</div>
       <div class="commit"><code>6e3ddc96</code> Type the Model Stats, PC Monitor and terminal seams with Pydantic</div>
       <div class="commit"><code>9b82f01b</code> Name the health-check contract, and move the two biggest checks out of server.py</div>
-      <div class="commit"><code>pending</code> Extract the health-poller cache and the vendor-review dialog backend</div>
+      <div class="commit"><code>6d7606d9</code> Extract the health-poller cache and vendor-review dialog backend out of server.py</div>
+      <div class="commit"><code>1351c3cc</code> Extract the Server Management clocks and log-file reading out of server.py</div>
     </div>
 
-    <h3>New modules</h3>
+    <h3>Every module created so far</h3>
     <table>
-      <tr><th>Module</th><th>What moved there</th></tr>
-      <tr><td><code>model_stats/</code></td><td>sources, windows, usage_history (leak detection), last_good, reader &mdash; 5 files</td></tr>
+      <tr><th>Module</th><th>What lives there</th></tr>
+      <tr><td><code>model_stats/</code></td><td>sources, windows, usage_history (leak detection), last_good, reader, assignments, extractors</td></tr>
       <tr><td><code>monitoring/pc_metrics.py</code></td><td><code>PcMonitor</code>, <code>PcMetric</code> (derives <code>alert</code> from <code>level</code>)</td></tr>
-      <tr><td><code>http_app/websocket.py</code></td><td>raw WebSocket frame encode/decode, handshake</td></tr>
+      <tr><td><code>monitoring/server_lifecycle.py</code></td><td><strong>new</strong> &mdash; starting window + down/stale clock, <code>ServerStatus</code></td></tr>
+      <tr><td><code>monitoring/log_files.py</code></td><td><strong>new</strong> &mdash; tail/age/mtime-probe, <code>server_log_rows</code></td></tr>
+      <tr><td><code>http_app/</code></td><td>the whole HTTP layer: transport, the two route ladders, terminal WS, runtime, static files, <code>srv</code></td></tr>
       <tr><td><code>terminal/pty_session.py</code></td><td>pty spawn, process-group reap</td></tr>
       <tr><td><code>letta_code/runner.py</code></td><td>headless letta-code invocation + prompt validation</td></tr>
-      <tr><td><code>health/</code></td><td>probe.py (<code>ProbeResult</code> contract), failures.py, frita.py, document_vision.py, <strong>poller.py</strong> (background debounced health cache, new)</td></tr>
-      <tr><td><code>finance/vendor_review.py</code></td><td><strong>new</strong> &mdash; list_vendor_keys, list_pending_vendor_review, set_receipt_vendor, <code>PendingVendorReviewRow</code></td></tr>
+      <tr><td><code>health/</code></td><td>probe.py (<code>ProbeResult</code>), failures.py, frita.py, document_vision.py, poller.py</td></tr>
+      <tr><td><code>finance/vendor_review.py</code></td><td>list_vendor_keys, list_pending_vendor_review, set_receipt_vendor, <code>PendingVendorReviewRow</code></td></tr>
       <tr><td><code>hosts.py</code>, <code>paths.py</code>, <code>letta_ids.py</code></td><td>shared constants that previously had 2&ndash;3 independent env-read/fallback copies</td></tr>
     </table>
 
-    <h3>Where Pydantic mattered</h3>
-    <p>Chosen specifically where a wrong value would otherwise be silent:</p>
+    <h3>Where Pydantic mattered, cumulatively</h3>
     <ul>
       <li><code>ModelStatSource.kind: Literal['codex','claude','gemini']</code> &mdash; a typo used to render a card with no windows and no error.</li>
       <li><code>PcMonitor.memory_source: Literal['windows','linux']</code>, <code>frozen=True</code> for the process-wide registry.</li>
       <li><code>PcMetric</code> derives <code>alert</code> from <code>level</code> as a property, so a new level can't be added without deciding whether it blinks the tab.</li>
       <li><code>ProbeResult.hard</code> &mdash; suppresses the Restart button for failures a restart can't fix; <code>extra='forbid'</code> catches misspelled flags.</li>
-      <li><code>HealthCacheEntry</code> (new) &mdash; the poller reassigns a whole entry rather than mutating fields, so a corrupt debounce record can never be read back into a subsequent poll cycle.</li>
-      <li><code>PendingVendorReviewRow</code> (new) &mdash; pins the "pick a vendor" dialog's row shape so a renamed DB column fails at model construction, not as a blank cell in the dialog.</li>
+      <li><code>HealthCacheEntry</code> &mdash; the poller reassigns a whole entry rather than mutating fields, so a corrupt debounce record can't be read back into a later poll cycle.</li>
+      <li><code>PendingVendorReviewRow</code> &mdash; pins the "pick a vendor" dialog's row shape so a renamed DB column fails at model construction, not as a blank cell.</li>
+      <li><code>ServerStatus</code> (new) &mdash; the four-state tab vocabulary, validated where a fifth state would silently escalate a healthy server as stale.</li>
     </ul>
   </div>
 
   <div class="card">
-    <h2>Findings worth stating plainly</h2>
-
+    <h2>Notes from this round's sync</h2>
     <div class="finding fixed">
-      <strong>The patch-target trap &mdash; hit four times.</strong>
+      <strong>Rescued, not committed.</strong>
       <p>
-        server.py re-exports moved names, but a re-export is a second binding:
-        the moved code closes over its own module global. Tests doing
-        <code>monkeypatch.setattr(server, 'X', ...)</code> isolated nothing
-        while looking exactly like they did.
-      </p>
-      <ul>
-        <li>18 model-stats tests were running the real extractor against a live OAuth account.</li>
-        <li>The usage-history fixture was aimed at the real, live history file.</li>
-        <li>Six frita tests stubbed <code>server._probe_sdk_status</code>, which <code>health/frita.py</code> doesn't read &mdash; they passed while talking to the live executor on :8799, and would have kept passing with the probe logic deleted.</li>
-        <li>The vendor-review extraction hit it on the first draft, before any test ran against live data: <code>finance/vendor_review.py</code> initially imported its own <code>_vendor_category_lookup</code> directly, which would have made <code>test_server.py</code>'s existing <code>monkeypatch.setattr(server, '_vendor_category_lookup', ...)</code> calls silently ineffective. Caught in review and fixed by injecting the lookup as a parameter before it ever ran against the real <code>vendor_category.yaml</code>.</li>
-      </ul>
-      <p>All repointed to the owning modules or fixed via injection. Each is now demonstrated by a dedicated test class, not just described in a comment.</p>
-    </div>
-
-    <div class="finding fixed">
-      <strong>A real break, caught by the new tests.</strong>
-      <p>
-        <code>_model_usage_sample_loop</code> referenced <code>MODEL_STAT_SOURCES</code>
-        without importing it. The background sampler thread would have died at
-        boot with a <code>NameError</code>, leaving the leak detector blind
-        except for moments someone happened to have the tab open. Fixed and
-        confirmed alive in production.
+        DESKTOP-SHDBATI was 14 commits behind with 286 lines of uncommitted work
+        across 4 files, three days old. It was an <em>earlier draft</em> of
+        <code>recover_source_descriptions</code> &mdash; main already carries a
+        fuller version in <code>4fad6adb</code> (statement <em>and</em> receipt
+        recovery, plus <code>apply_source_descriptions</code>). Committing it
+        would have pushed a regression dressed as a rescue. It is stashed on that
+        box as <code>"superseded draft of recover_source_descriptions (see
+        4fad6adb) stashed 2026-08-25"</code>, not discarded. The <code>sync-all</code>
+        skill's "compare before committing a duplicate" note is the step that
+        caught it &mdash; do not skip it.
       </p>
     </div>
-
-    <div class="finding">
-      <strong>Three of my own test assertions were wrong, not the code.</strong>
-      <p>
-        <code>\x0b</code>/<code>\x0c</code> alone are rejected as &ldquo;empty&rdquo;
-        rather than &ldquo;control characters&rdquo;, because <code>str.strip()</code>
-        treats them as whitespace &mdash; split into two tests. A source-text
-        assertion (<code>'bypassPermissions' not in src</code>) failed because
-        the explanatory <em>comment</em> contains the word; rewritten to assert
-        on the actual argv instead.
-      </p>
-    </div>
-
-    <div class="finding">
-      <strong><code>tests/test_project_plans.py</code> briefly failed</strong> on
-      <code>dashboard-boot.js</code> contents. Confirmed via <code>git status js/</code>
-      that this was the concurrent <code>dashboard-boot.js</code> refactor running
-      in parallel, not this work &mdash; it passed again on the next full run.
-      This refactor stayed entirely inside Python plus <code>http_app/get_routes.py</code>
-      for that reason; nothing under <code>js/</code> was touched.
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Next steps</h2>
-    <p>Done this round: <strong>health-cache</strong> (60 lines &rarr; <code>health/poller.py</code>) and the <strong>vendor-review</strong> half of vendor-review+open-receipt (~70 of the 146 lines &rarr; <code>finance/vendor_review.py</code>); open-receipt (<code>lookup_receipt</code>) turned out to need 8 external names, not 4 &mdash; it's entangled with the recent-report cluster and deferred there rather than forced.</p>
-    <p>Remaining candidates, ranked by coupling density (lines / external names needed), cheapest first:</p>
-    <table>
-      <tr><th>Cluster</th><th>Lines</th><th>External names needed</th></tr>
-      <tr><td>open-receipt (lookup_receipt)</td><td>~76</td><td>8</td></tr>
-      <tr><td>mgmt-helpers</td><td>140</td><td>5</td></tr>
-      <tr><td>chatgpt-probe</td><td>162</td><td>6</td></tr>
-      <tr><td>recategorize</td><td>260</td><td>7</td></tr>
-      <tr><td>receipt-only</td><td>91</td><td>7</td></tr>
-      <tr><td>win10-node</td><td>106</td><td>9</td></tr>
-      <tr><td>oauth-assignment</td><td>176</td><td>10</td></tr>
-      <tr><td>agent-registry</td><td>103</td><td>11</td></tr>
-      <tr><td>scanners</td><td>343</td><td>12</td></tr>
-      <tr><td>notes</td><td>200</td><td>12</td></tr>
-      <tr><td>remote-log-pull</td><td>62</td><td>12</td></tr>
-      <tr><td>ssh-checks</td><td>300</td><td>17</td></tr>
-      <tr><td>exec-mode</td><td>185</td><td>17</td></tr>
-      <tr><td>server-mgmt-registry</td><td>472</td><td>18</td></tr>
-      <tr><td>letta-api-helpers</td><td>194</td><td>18</td></tr>
-      <tr><td>restart-dispatch</td><td>301</td><td>25</td></tr>
-      <tr><td>trainer</td><td>239</td><td>26</td></tr>
-      <tr><td>provider-failover</td><td>399</td><td>29</td></tr>
-    </table>
     <p>
-      The two largest untouched blocks are <strong>recent-report + finance-rows</strong>
-      (~2,221 lines, needs 64 external names) and the
-      <strong>intake-pipeline / expense-bus cluster</strong> (~1,536 lines).
-      Both are deferred until the cheaper clusters are cleared, since their
-      coupling density means they'll need real interface design, not just
-      source-slicing.
+      All three boxes are on <code>1351c3cc</code>. The live box shows two dirty
+      files (<code>claude_toolcalls.json</code> and a fresh trainer report) &mdash;
+      both are runtime artifacts written by the running dashboard, not source
+      edits, and are expected.
     </p>
-    <p style="color:var(--muted); font-size:.9rem;">
-      Plan going forward: continue extracting lowest-density-first, keep every
-      Pydantic model dumping to a plain dict so browser-facing JSON stays
-      byte-identical, keep golden-payload tests against the prior literals,
-      and repoint every new test at the owning module rather than
-      <code>server</code> to avoid the patch-target trap by construction.
+    <p style="color:var(--muted);font-size:.9rem">
+      Housekeeping someone could pick up: this plan is not wired into the
+      dashboard's Project Plans tab. The other plans under
+      <code>notes_plans_handoffs/</code> are served through
+      <code>&lt;iframe class="plan-frame"&gt;</code> entries in
+      <code>dashboard.html</code>; adding one here also means touching
+      <code>tests/test_project_plans.py</code>.
     </p>
   </div>
 
