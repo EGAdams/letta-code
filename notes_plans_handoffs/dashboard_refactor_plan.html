@@ -130,7 +130,7 @@
       <span class="pill">11,407 &rarr; 8,198 lines</span>
       <span class="pill green">2,648 tests passing</span>
       <span class="pill amber">~2,498 lines to halfway</span>
-      <span class="pill">HEAD <code>e28bd5fd</code> on all three boxes</span>
+      <span class="pill">round 7 = <code>5f7d2059</code> &middot; boxes converged</span>
     </div>
   </div>
 
@@ -156,7 +156,11 @@
         <br><strong>If you touch <code>dashboard/js/</code> you have a second
         suite:</strong> <code>bun test js/tests</code> from <code>dashboard/</code>,
         expecting <strong>2,215 passed / 2 skipped</strong> across 75 files. It is
-        not part of the pytest run and is easy to forget.</li>
+        not part of the pytest run and is easy to forget.
+        <br>The pill above names the <em>round</em>'s commit, not HEAD, on purpose:
+        every edit to this file changes HEAD, so a HEAD written in here is stale
+        before it is pushed. It said so twice in one session. Trust
+        <code>sync-all</code> for convergence, not a hash typed into a document.</li>
 
       <li>Pick the next cluster from the ranked table below.
         <strong>Re-measure it</strong> with the script in
