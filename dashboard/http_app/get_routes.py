@@ -380,21 +380,15 @@ class GetRoutesMixin:
             cfg = srv.get_ssh_connection(key)
             if not cfg:
                 return self.json_response({'status': {'ok': False, 'text': 'unknown connection'}, 'rows': []})
-            with srv._ssh_log_lock:
-                rows = list(srv._ssh_log_cache.get(key, []))
-            return self.json_response({'status': srv.cached_ssh_health(cfg), 'rows': rows})
+            return self.json_response({'status': srv.cached_ssh_health(cfg),
+                                       'rows': srv.connection_log_rows(key)})
 
         if path == '/api/ssh-connection-test':
             key = query.get('conn', [''])[0]
             cfg = srv.get_ssh_connection(key)
             if not cfg:
                 return self.json_response({'ok': False, 'text': 'unknown connection'})
-            h = srv.connection_test(cfg)
-            with srv._ssh_health_lock:
-                srv._ssh_health_cache[key] = {'fails': 0 if h.get('ok') else 1, 'result': h}
-            ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            srv._record_ssh_log(key, f"[{ts}] {'OK' if h['ok'] else 'FAIL'} — {h['text']} (manual test)")
-            return self.json_response(h)
+            return self.json_response(srv.run_manual_ssh_test(cfg))
 
         if path == '/' or path == '':
             return self.serve_file(os.path.join(srv.HERE, 'dashboard.html'), 'text/html')
