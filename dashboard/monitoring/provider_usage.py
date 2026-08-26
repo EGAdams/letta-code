@@ -84,7 +84,7 @@ class CodexUsage(BaseModel):
     questions, so a body whose shape had moved -- a renamed key, an error
     envelope, a login page -- produced no windows, no `limit_reached`, and
     therefore ``{'ok': True, 'text': ''}``: a confident all-clear. That verdict
-    is what `_maybe_chatgpt_failover` consults, so the failure mode was the
+    is what `chatgpt_failover.maybe_failover` consults, so the failure mode was the
     fleet sitting on an exhausted account while the dashboard showed a green
     tile with nothing written on it.
 
@@ -156,8 +156,13 @@ _FAILURE_CLASS_TRIGGERS = ('rate limit', 'rate-limit', 'rate_limit', 'quota',
                            'too many requests', '429')
 
 
-def _shape_detail(error: ValidationError) -> str:
-    """Render a validation failure as one short line safe to classify."""
+def shape_detail(error: ValidationError) -> str:
+    """Render a validation failure as one short line safe to classify.
+
+    Public because `monitoring/chatgpt_failover.py` refuses an unreadable
+    standby bundle and needs the same treatment for the same reason: its
+    message ends up in a Server Management tile, whose text `get_routes`
+    hands straight to `classify_failure`."""
     first = error.errors()[0] if error.errors() else {}
     parts = [str(p) for p in first.get('loc', ())
              if not any(t in str(p).lower() for t in _FAILURE_CLASS_TRIGGERS)]
@@ -166,6 +171,10 @@ def _shape_detail(error: ValidationError) -> str:
     # A scrubbed-away path still needs a noun, or a missing top-level block
     # reports as the bare word "Field required" in the operator's log.
     return f"{where or 'the usage block'}: {msg}"
+
+
+#: Historical name; tests/test_provider_usage.py reaches it this way.
+_shape_detail = shape_detail
 
 
 # ── The fleet, and its token ─────────────────────────────────────────────────
@@ -235,7 +244,7 @@ def classify_codex_usage(usage):
     try:
         rl = CodexUsage.model_validate(usage).rate_limit
     except ValidationError as e:
-        raise UsagePayloadError(_shape_detail(e)) from e
+        raise UsagePayloadError(shape_detail(e)) from e
     windows = []
     for w, wfallback in ((rl.primary_window, '5h'), (rl.secondary_window, 'weekly')):
         if w is not None:
@@ -255,7 +264,7 @@ def classify_claude_usage(usage):
     try:
         parsed = ClaudeUsage.model_validate(usage)
     except ValidationError as e:
-        raise UsagePayloadError(_shape_detail(e)) from e
+        raise UsagePayloadError(shape_detail(e)) from e
     windows = []
     for w, label in ((parsed.five_hour, '5h'), (parsed.seven_day, 'weekly')):
         if w is not None:

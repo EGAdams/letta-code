@@ -2428,66 +2428,11 @@ def test_mazda_fleet_tagged_with_claude_pro_max_provider():
     assert len(ids) == 6
 
 
-def _patch_provider_probe(monkeypatch, probe_result, calls=None):
-    """Route the poll at a fake provider token + probe (no network, no LLM)."""
-    monkeypatch.setattr(server, '_fetch_provider_oauth_creds',
-                        lambda name: ({'access_token': 't', 'account_id': 'a'}, 'chatgpt_oauth'))
-
-    def fake_probe(creds, timeout=20):
-        if calls is not None:
-            calls.append(creds)
-        return probe_result
-    monkeypatch.setitem(server.PROVIDER_USAGE_PROBES, 'chatgpt_oauth', fake_probe)
-
-
-def test_poll_chatgpt_provider_once_flags_every_fleet_agent_on_429(monkeypatch):
-    _patch_provider_probe(monkeypatch, {'ok': False, 'text': 'llm_rate_limit: too many requests'})
-    server._poll_chatgpt_provider_once()
-    for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
-        with server._agent_send_errors_lock:
-            err = server._agent_send_errors.get(agent_id)
-        assert err is not None, agent_id
-        assert 'rate-limited' in err['text']
-    # cleanup so this test doesn't leak state into others
-    for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
-        server.clear_agent_send_error(agent_id)
-
-
-def test_poll_chatgpt_provider_once_clears_every_fleet_agent_on_success(monkeypatch):
-    for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
-        server.record_agent_send_error(agent_id, 'stale error from a previous sweep')
-    _patch_provider_probe(monkeypatch, {'ok': True, 'text': '5h 37% / weekly 44%'})
-    server._poll_chatgpt_provider_once()
-    for agent_id in server._provider_agent_ids(server.CHATGPT_PLUS_PRO):
-        with server._agent_send_errors_lock:
-            assert server._agent_send_errors.get(agent_id) is None, agent_id
-
-
-def test_poll_chatgpt_provider_once_makes_one_usage_call_and_no_llm_calls(monkeypatch):
-    # One usage-API call covers the whole fleet. The probe must NEVER message an
-    # agent — the old 'ping' canary burned ~40 full-context LLM calls per hour
-    # against the very quota it was watching (2026-07-07).
-    calls = []
-    _patch_provider_probe(monkeypatch, {'ok': True, 'text': ''}, calls=calls)
-
-    def _no_llm(*a, **k):
-        raise AssertionError('probe must not POST to any agent')
-    monkeypatch.setattr(server.urllib.request, 'urlopen', _no_llm)
-    server._poll_chatgpt_provider_once()
-    assert len(calls) == 1
-
-
-def test_poll_skips_sweep_when_letta_api_unreachable(monkeypatch):
-    # Letta down ≠ quota exhausted: leave agent state alone (Server Management
-    # owns the server-down signal), and definitely don't crash the loop.
-    def _boom(name):
-        raise OSError('connection refused')
-    monkeypatch.setattr(server, '_fetch_provider_oauth_creds', _boom)
-    server.record_agent_send_error('agent-keep', 'pre-existing error')
-    server._poll_chatgpt_provider_once()
-    with server._agent_send_errors_lock:
-        assert server._agent_send_errors.get('agent-keep') is not None
-    server.clear_agent_send_error('agent-keep')
+# The ChatGPT provider sweep moved to monitoring/chatgpt_failover.py --
+# tests/test_chatgpt_failover.py owns it, pointed at that module. Patching it
+# through `server` no longer isolates anything: the moved sweep closes over
+# its own module globals, and the roster/send-error writers now arrive in a
+# Collaborators bundle instead of being read off `server` at call time.
 
 
 # The zero-token provider usage probes and their two classifiers moved to
@@ -4559,53 +4504,12 @@ def test_patch_agent_voice_rejects_unlisted_voice(monkeypatch):
     assert 'allowed list' in result['error']
 
 
-# ── ChatGPT provider auto-failover gate ───────────────────────────────────────
-
-def test_failover_triggers_on_rate_limit_after_cooldown():
-    assert server.failover_should_trigger(
-        'llm_rate_limit: 5h window 100% used, resets in 1h',
-        now_ts=10_000, last_swap_ts=0, min_interval=1800)
-
-
-def test_failover_respects_cooldown():
-    assert not server.failover_should_trigger(
-        'llm_rate_limit: 5h window 100% used, resets in 1h',
-        now_ts=1000, last_swap_ts=0, min_interval=1800)
-
-
-def test_failover_ignores_non_rate_limit_errors():
-    # Auth/network failures must NOT trigger a swap — the standby token would
-    # inherit the same problem and the swap burns the cooldown window.
-    for text in ('HTTP 401: unauthorized', 'probe timed out', ''):
-        assert not server.failover_should_trigger(
-            text, now_ts=10_000, last_swap_ts=0, min_interval=1800)
-
-
-def test_standby_verdict_separates_a_capped_account_from_a_stale_token():
-    assert server.standby_probe_verdict({'ok': True, 'text': '5h 12%'}) == 'headroom'
-    assert server.standby_probe_verdict(
-        {'ok': False, 'text': 'llm_rate_limit: 5h window 100% used'}) == 'limited'
-    # The bug this fixes: an expired parked token used to read as "also limited",
-    # so a healable standby looked like a genuinely exhausted second account.
-    assert server.standby_probe_verdict(
-        {'ok': False, 'text': 'provider OAuth token rejected (HTTP 401)'}) == 'stale'
-
-
-def test_codex_refresh_candidates_prefers_standby_then_matching_local_logins():
-    standby = {'account_id': 'acct-a', 'refresh_token': 'rt-standby'}
-    bundles = [
-        {'tokens': {'account_id': 'acct-a', 'refresh_token': 'rt-live'}},
-        {'tokens': {'account_id': 'acct-b', 'refresh_token': 'rt-other-account'}},
-        {'tokens': {'account_id': 'acct-a', 'refresh_token': 'rt-standby'}},  # dup
-        {'tokens': {'account_id': 'acct-a'}},                                 # no token
-    ]
-    assert server.codex_refresh_candidates(standby, bundles) == ['rt-standby', 'rt-live']
-
-
-def test_codex_refresh_candidates_never_parks_another_accounts_token():
-    standby = {'account_id': 'acct-a', 'refresh_token': None}
-    bundles = [{'tokens': {'account_id': 'acct-b', 'refresh_token': 'rt-other-account'}}]
-    assert server.codex_refresh_candidates(standby, bundles) == []
+# The auto-failover gate (failover_should_trigger, standby_probe_verdict,
+# codex_refresh_candidates) moved to monitoring/chatgpt_failover.py with the
+# rest of the state machine. tests/test_chatgpt_failover.py owns them, and
+# adds the case none of these covered: a parked bundle that has lost its
+# `account_id` used to switch OFF the "never park another account's token"
+# guard rather than fail, so a heal overwrote the real standby.
 
 
 def test_process_pdf_document_arms_problem_only_trainer(monkeypatch, tmp_path):

@@ -100,7 +100,7 @@ def test_codex_window_label_reads_a_model_as_well_as_a_dict():
 def test_codex_payloads_with_no_verdict_are_refused(payload, why):
     """Every one of these used to return {'ok': True, 'text': ''} -- a green
     tile with nothing written on it, meaning "this account has headroom" to
-    _maybe_chatgpt_failover. A body we no longer understand is not headroom."""
+    chatgpt_failover.maybe_failover. A body we no longer understand is not headroom."""
     with pytest.raises(pu.UsagePayloadError):
         pu.classify_codex_usage(payload)
 
@@ -354,15 +354,16 @@ def test_the_real_fleet_is_still_reachable_through_the_wrapper():
 @pytest.mark.parametrize('server_name,module_name', [
     ('PROVIDER_USAGE_PROBES', 'PROVIDER_USAGE_PROBES'),
     ('_fetch_provider_oauth_creds', 'fetch_provider_oauth_creds'),
-    ('_probe_codex_usage', 'probe_codex_usage'),
 ])
 def test_server_re_exports_the_owning_modules_object(server_name, module_name):
     assert getattr(server, server_name) is getattr(pu, module_name)
 
 
 def test_the_probe_registry_is_the_same_dict_the_failover_poll_reads():
-    """test_server.py patches it with monkeypatch.setitem. That only works
-    because the re-export is the module's own dict, not a copy."""
+    """tests/test_chatgpt_failover.py patches it with monkeypatch.setitem.
+    That only works because both bindings are the module's own dict, not a
+    copy -- the sweep reads it through monitoring.chatgpt_failover, and
+    chatgpt_provider_health reads it through server."""
     assert server.PROVIDER_USAGE_PROBES is pu.PROVIDER_USAGE_PROBES
 
 

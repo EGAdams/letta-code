@@ -6212,7 +6212,7 @@ def chatgpt_provider_health(timeout=None):
     # The background failover poller has already asked the standby account
     # whether a swap would even help; show that verdict instead of promising a
     # Restart that can't work (both accounts capped, standby needing re-auth…).
-    note = _chatgpt_failover.get('last_note')
+    note = chatgpt_failover.last_failover_note()
     remedy = (f'auto-failover: {note}' if note
               else 'Restart swaps to the standby account token')
     return {'ok': False, 'hard': True,  # a restart click can't revive a dead token by itself
@@ -6226,7 +6226,7 @@ def restart_chatgpt_provider():
     standby account token on the Letta box (same script auto-failover uses).
     Only helps when the standby token is alive — the tile stays red otherwise."""
     _log_restart('chatgpt-provider: swap provider token to standby')
-    ok, note = _run_chatgpt_failover_swap()
+    ok, note = chatgpt_failover.run_failover_swap()
     if not ok:
         return {'ok': False, 'text': f'token swap failed — {note}'}
     try:
@@ -6883,21 +6883,19 @@ def clear_agent_send_error(agent_id: str) -> None:
 # endpoint Model Stats uses, but with the PROVIDER's token, so it still works
 # after an Adam↔mom token swap. Extend PROVIDER_USAGE_PROBES to cover new
 # provider types; no agent is ever messaged.
-CHATGPT_PROVIDER_POLL_INTERVAL = 90  # seconds; each probe is a free usage-API call (zero LLM tokens)
 
 
-from monitoring import provider_usage  # noqa: E402
+from monitoring import chatgpt_failover, provider_usage  # noqa: E402
 from monitoring.provider_usage import (  # noqa: E402
     PROVIDER_USAGE_PROBES,
     fetch_provider_oauth_creds as _fetch_provider_oauth_creds,
-    probe_codex_usage as _probe_codex_usage,
 )
 
 # The zero-token provider quota probes moved to monitoring/provider_usage.py:
 # the fleet lookup, the provider-token read, the two vendor probes and the two
 # classifiers are one pipeline, and the classifiers are now typed -- an
 # unrecognised usage body used to classify as "plenty of headroom", which is
-# the verdict _maybe_chatgpt_failover consults. Only the agent roster stays
+# the verdict chatgpt_failover.maybe_failover consults. Only the agent roster stays
 # here, injected per call.
 
 def _provider_usage_deps():
@@ -7119,245 +7117,33 @@ def model_stats_agents_payload(force_refresh=False):
 
 
 # ── ChatGPT provider auto-failover ────────────────────────────────────────────
-# Two ChatGPT Plus accounts exist; the provider row holds one token and the
-# other is parked in a standby file on the Letta box. When the ACTIVE account
-# exhausts a rate window but the STANDBY probe shows headroom, swap the row
-# (the swap script also parks the displaced token as the new standby), so the
-# fleet degrades to "other account" instead of "dead until reset".
-CHATGPT_FAILOVER_HOST = 'adamsl@100.80.49.10'
-CHATGPT_FAILOVER_STANDBY_FILE = '/home/adamsl/letta-backups/chatgpt_standby_token.json'
-CHATGPT_FAILOVER_SWAP_CMD = '/home/adamsl/server_tools/swap_chatgpt_provider_token.sh'
-CHATGPT_FAILOVER_MIN_INTERVAL = int(os.environ.get('CHATGPT_FAILOVER_MIN_INTERVAL', '1800'))
-_chatgpt_failover = {'last_swap_ts': 0.0, 'last_note': ''}
+# The whole state machine -- poll, detect a rate limit, heal a stale standby
+# token, decide, swap, re-probe -- moved to monitoring/chatgpt_failover.py.
+# It is one loop with one decision in it, and the parked standby bundle is now
+# typed: a bundle that had lost its `account_id` used to switch OFF the guard
+# that stops a heal parking a DIFFERENT account's refresh token, destroying
+# the only copy of the real one.
+#
+# Three things stay here and are injected per sweep: the agent roster lookup
+# and the two send-error writers, which belong to Agent Management's cache.
+CHATGPT_PROVIDER_POLL_INTERVAL = chatgpt_failover.CHATGPT_PROVIDER_POLL_INTERVAL
 
 
-def failover_should_trigger(probe_text, now_ts, last_swap_ts,
-                            min_interval=None):
-    """Pure gate: only a genuine rate-limit triggers failover (auth/network
-    errors would just install a token with the same problem), and swaps are
-    spaced at least min_interval apart so two capped accounts can't ping-pong."""
-    if min_interval is None:
-        min_interval = CHATGPT_FAILOVER_MIN_INTERVAL
-    if not str(probe_text).startswith('llm_rate_limit'):
-        return False
-    return (now_ts - last_swap_ts) >= min_interval
-
-
-CODEX_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
-CODEX_LOCAL_AUTH = os.path.expanduser('~/.codex/auth.json')
-
-
-def standby_probe_verdict(probe):
-    """Pure: what a standby probe result means for failover. A rate-limited
-    standby is a real "both accounts are capped" answer; a *rejected* token is
-    not — it says the parked bundle went stale, which is fixable. Collapsing the
-    two (the old code called any failure 'standby also limited') hid a dead
-    safety net: on 2026-08-19 both the swap and the diagnosis were unavailable
-    because the standby's access token had simply expired.
-    Returns 'headroom' | 'limited' | 'stale'."""
-    if probe['ok']:
-        return 'headroom'
-    return 'limited' if str(probe.get('text', '')).startswith('llm_rate_limit') else 'stale'
-
-
-def codex_refresh_candidates(standby_creds, auth_bundles):
-    """Pure: refresh tokens worth trying for the standby account, freshest
-    first. Codex refresh tokens are single-use/rotating, so the standby file's
-    own copy dies the moment anything else refreshes the SAME account — which is
-    exactly what this box's own codex login does every few days. Its
-    ~/.codex/auth.json (and the backups the CLI leaves behind) is then the only
-    place a live token for that account survives. `auth_bundles` is a list of
-    parsed auth.json dicts; bundles for a different account are skipped so a
-    heal can never park the wrong account's token as standby."""
-    account = standby_creds.get('account_id')
-    ordered = [standby_creds.get('refresh_token')]
-    for data in auth_bundles:
-        tokens = (data or {}).get('tokens') or {}
-        if account and tokens.get('account_id') != account:
-            continue
-        ordered.append(tokens.get('refresh_token'))
-    seen, out = set(), []
-    for rt in ordered:
-        if rt and rt not in seen:
-            seen.add(rt)
-            out.append(rt)
-    return out
-
-
-def _local_codex_bundles():
-    """This box's own codex auth files — live one first, then backups newest
-    first (same self-heal source the Model Stats extractor walks)."""
-    backups = sorted((p for p in glob.glob(CODEX_LOCAL_AUTH + '*') if p != CODEX_LOCAL_AUTH),
-                     reverse=True)
-    bundles = []
-    for path in [CODEX_LOCAL_AUTH] + backups:
-        try:
-            with open(path) as f:
-                bundles.append(json.load(f))
-        except Exception:
-            continue
-    return bundles
-
-
-def _codex_refresh(refresh_token, timeout=25):
-    """Exchange a Codex refresh token for a fresh access token."""
-    body = json.dumps({'grant_type': 'refresh_token', 'client_id': CODEX_OAUTH_CLIENT_ID,
-                       'refresh_token': refresh_token, 'scope': 'openid profile email'}).encode()
-    req = urllib.request.Request('https://auth.openai.com/oauth/token', data=body,
-                                 headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode())
-
-
-def _read_standby_creds():
-    """(creds, err) — the OAuth bundle parked on the Letta box."""
-    try:
-        r = subprocess.run(['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
-                            CHATGPT_FAILOVER_HOST, f'cat {CHATGPT_FAILOVER_STANDBY_FILE}'],
-                           capture_output=True, text=True, timeout=20)
-        if r.returncode != 0 or not r.stdout.strip():
-            return None, 'standby token file missing/unreadable'
-        return json.loads(r.stdout.strip()), None
-    except Exception as e:
-        return None, f'standby read failed: {e}'
-
-
-def _write_standby_creds(creds):
-    """Park a bundle back in the standby file on the Letta box (write-to-temp
-    then rename, so the swap script never reads a half-written file)."""
-    tmp = CHATGPT_FAILOVER_STANDBY_FILE + '.new'
-    try:
-        r = subprocess.run(['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
-                            CHATGPT_FAILOVER_HOST,
-                            f'umask 077 && cat > {tmp} && mv {tmp} {CHATGPT_FAILOVER_STANDBY_FILE}'],
-                           input=json.dumps(creds), capture_output=True, text=True, timeout=30)
-        if r.returncode != 0:
-            return False, ((r.stderr or '').strip()[:120] or f'ssh exited {r.returncode}')
-        return True, 'ok'
-    except Exception as e:
-        return False, str(e)
-
-
-def _heal_standby_token(creds):
-    """Refresh the parked standby bundle in place and write it back.
-    Returns (creds, note); creds is None when no refresh token anywhere still
-    works — that account then needs an interactive `codex login`."""
-    for rt in codex_refresh_candidates(creds, _local_codex_bundles()):
-        try:
-            fresh = _codex_refresh(rt)
-        except Exception:
-            continue
-        healed = dict(creds)
-        healed['access_token'] = fresh.get('access_token', creds.get('access_token'))
-        if fresh.get('refresh_token'):
-            healed['refresh_token'] = fresh['refresh_token']
-        healed['expires_at'] = str(int(time.time()) + int(fresh.get('expires_in', 3600)))
-        ok, note = _write_standby_creds(healed)
-        if not ok:
-            return None, f'standby token refreshed but write-back failed: {note}'
-        print('[chatgpt-failover] standby token refreshed in place', flush=True)
-        return healed, 'standby token refreshed'
-    return None, ('standby token expired and no refresh token still works — '
-                  'that account needs an interactive `codex login`')
-
-
-def _standby_has_headroom():
-    """Read the standby token off the Letta box and probe its usage API.
-    Returns (ok, note); ok=True only when the standby is NOT rate-limited. A
-    standby whose access token has merely expired gets refreshed and re-probed
-    first, so a stale parked bundle can't masquerade as a capped account and
-    leave the fleet down while the other login still has quota."""
-    creds, err = _read_standby_creds()
-    if err:
-        return False, err
-    probe = _probe_codex_usage(creds)
-    if standby_probe_verdict(probe) == 'stale':
-        healed, note = _heal_standby_token(creds)
-        if healed is None:
-            return False, note
-        probe = _probe_codex_usage(healed)
-    verdict = standby_probe_verdict(probe)
-    if verdict == 'headroom':
-        return True, f"standby has headroom ({probe['text']})"
-    if verdict == 'limited':
-        return False, f"standby also limited ({probe['text'][:80]})"
-    return False, f"standby token unusable after refresh ({probe['text'][:80]})"
-
-
-def _run_chatgpt_failover_swap():
-    """Execute the swap script on the Letta box. Returns (ok, note)."""
-    try:
-        r = subprocess.run(['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
-                            CHATGPT_FAILOVER_HOST, CHATGPT_FAILOVER_SWAP_CMD],
-                           capture_output=True, text=True, timeout=60)
-        out = ((r.stdout or '') + (r.stderr or '')).strip()
-        return ('SWAP_OK' in out), (out[-200:] or f'swap exited {r.returncode}')
-    except Exception as e:
-        return False, f'swap failed: {e}'
-
-
-def _maybe_chatgpt_failover(probe, provider_name):
-    """Called when the active account's probe failed. On a successful swap,
-    returns a fresh probe of the newly-installed token; otherwise None."""
-    now = time.time()
-    if not failover_should_trigger(probe.get('text', ''), now,
-                                   _chatgpt_failover['last_swap_ts']):
-        return None
-    ok, note = _standby_has_headroom()
-    if not ok:
-        _chatgpt_failover['last_note'] = note
-        return None
-    _chatgpt_failover['last_swap_ts'] = now  # even a failed attempt starts the cooldown
-    swapped, snote = _run_chatgpt_failover_swap()
-    _chatgpt_failover['last_note'] = snote
-    if not swapped:
-        print(f'[chatgpt-failover] swap FAILED: {snote}', flush=True)
-        return None
-    print(f'[chatgpt-failover] provider token swapped to standby account — {note}', flush=True)
-    try:
-        creds, _ptype = _fetch_provider_oauth_creds(provider_name)
-        if creds:
-            return _probe_codex_usage(creds)
-    except Exception:
-        pass
-    return None
+def _chatgpt_failover_deps():
+    """Rebuilt per sweep so monkeypatching the server-side names is honoured."""
+    return chatgpt_failover.Collaborators(
+        provider_agent_ids=_provider_agent_ids,
+        record_send_error=record_agent_send_error,
+        clear_send_error=clear_agent_send_error)
 
 
 def _poll_chatgpt_provider_once(provider_name=CHATGPT_PLUS_PRO):
-    """One sweep: read the provider's OAuth token from the Letta API, ask the
-    account's usage endpoint whether it's rate-limited (zero LLM tokens), and
-    propagate ok/error to every tagged agent via _agent_send_errors."""
-    affected = _provider_agent_ids(provider_name)
-    if not affected:
-        return
-    try:
-        creds, provider_type = _fetch_provider_oauth_creds(provider_name)
-    except Exception:
-        return  # Letta API unreachable — that's Server Management's signal, not a quota fact
-    probe_fn = PROVIDER_USAGE_PROBES.get(provider_type)
-    if not creds or not probe_fn:
-        return  # no token / unprobeable provider type — leave agent state alone
-    probe = probe_fn(creds)
-    if not probe['ok'] and provider_type == 'chatgpt_oauth':
-        fresh = _maybe_chatgpt_failover(probe, provider_name)
-        if fresh is not None and fresh['ok']:
-            probe = fresh
-    for agent_id in affected:
-        if probe['ok']:
-            clear_agent_send_error(agent_id)
-        else:
-            _cls, label = classify_failure(probe['text'])
-            record_agent_send_error(agent_id, f'{provider_name} {label} — {probe["text"]}')
+    return chatgpt_failover.poll_provider_once(provider_name,
+                                               deps=_chatgpt_failover_deps())
 
 
 def _chatgpt_provider_poll_loop():
-    """Background daemon thread body: keep the chatgpt-plus-pro provider probe fresh."""
-    while True:
-        try:
-            _poll_chatgpt_provider_once()
-        except Exception:
-            pass
-        time.sleep(CHATGPT_PROVIDER_POLL_INTERVAL)
+    chatgpt_failover.poll_loop(_poll_chatgpt_provider_once)
 
 
 def _uses_claude_sdk(cfg):

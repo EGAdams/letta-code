@@ -19,7 +19,11 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 
-CHATGPT_FAILOVER_HOST = 'adamsl@100.80.49.10'
+from hosts import LETTA_DOCKER_HOST
+
+#: The Letta box. `hosts.py` owns this destination -- there were four
+#: independent copies of it before round 10.
+CHATGPT_FAILOVER_HOST = LETTA_DOCKER_HOST
 CHATGPT_BACKUP_DIR = '/home/adamsl/letta-backups'
 CHATGPT_STANDBY_FILE = f'{CHATGPT_BACKUP_DIR}/chatgpt_standby_token.json'
 CODEX_PRIMARY_AUTH_JSON = os.path.expanduser('~/.codex/auth.json')
