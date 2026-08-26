@@ -277,3 +277,50 @@ def test_every_server_rewrite_row_names_a_port_object_and_exit_test():
         cells = re.findall(r"<td(?: [^>]*)?>(.*?)</td>", body, re.DOTALL)
         assert len(cells) == 5
         assert re.sub(r"<[^>]+>", "", cells[-1]).strip()
+
+
+def test_dashboard_refactor_tab_targets_the_plan_iframe():
+    """The tab has existed for several rounds while the plan itself claimed
+    wiring it up was still open housekeeping. Pin it so the claim cannot come
+    back."""
+    dashboard = DASHBOARD_HTML.read_text(encoding="utf-8")
+
+    assert (
+        'data-nav="plans" data-target="plans-dashboard-refactor">Dashboard Refactor'
+        in dashboard
+    )
+    section = re.search(
+        r'<section id="plans-dashboard-refactor" class="view">(.*?)</section>',
+        dashboard,
+        re.DOTALL,
+    )
+    assert section is not None
+    assert 'id="dashboard-refactor-plan-frame"' in section.group(1)
+    assert 'class="plan-frame"' in section.group(1)
+    assert (
+        'src="/notes_plans_handoffs/dashboard_refactor_plan.html"'
+        in section.group(1)
+    )
+
+
+def test_dashboard_refactor_frame_refetches_when_its_tab_is_opened():
+    """A tab switch only toggles a CSS class, so without this marker the frame
+    is fetched once at page load and a dashboard left open all day shows a
+    stale plan however many times it is redeployed -- indistinguishable, from
+    the browser, from a deploy that never landed."""
+    dashboard = DASHBOARD_HTML.read_text(encoding="utf-8")
+    section = re.search(
+        r'<section id="plans-dashboard-refactor" class="view">(.*?)</section>',
+        dashboard,
+        re.DOTALL,
+    )
+
+    assert section is not None
+    assert "data-refresh-on-show" in section.group(1)
+
+    navigator = (
+        DASHBOARD_DIR / "js" / "boot" / "view-navigator.js"
+    ).read_text(encoding="utf-8")
+    assert ".plan-frame[data-refresh-on-show]" in navigator, (
+        "view-navigator.js must be the thing that honours the marker"
+    )

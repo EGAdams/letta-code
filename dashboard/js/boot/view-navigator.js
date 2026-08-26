@@ -10,11 +10,40 @@ export function createViewNavigator({ doc = document, nav }) {
   // later than this navigator, and needs the navigator itself).
   let statementReviewDialog = null;
 
+  // The src each marked frame was authored with, captured before we ever
+  // append a cache-buster, so repeated shows rebuild from the original URL
+  // instead of stacking _t= params onto each other.
+  const authoredSrc = new WeakMap();
+
   function clearActive(navEl, selector) {
     if (!navEl) return;
     navEl.querySelectorAll(selector).forEach((el) => {
       el.classList.remove("active");
     });
+  }
+
+  // A plan iframe is fetched once, when the dashboard page loads, and a tab
+  // switch only toggles a CSS class -- so a dashboard left open all day keeps
+  // showing whichever revision of a plan it pulled at load time, long after an
+  // agent has rewritten and redeployed that plan. This is not hypothetical: it
+  // is how the Dashboard Refactor plan appeared unchanged after a verified
+  // deploy. Frames marked data-refresh-on-show re-fetch each time their tab is
+  // opened, including the first time (by then the page load may be hours old).
+  //
+  // The _t= param is for the proxy sitting in front of the live box; the
+  // dashboard's own server already sends no-store.
+  function refreshFramesOnShow(view) {
+    if (!view) return;
+    for (const frame of view.querySelectorAll(
+      ".plan-frame[data-refresh-on-show]",
+    )) {
+      if (!authoredSrc.has(frame)) {
+        if (!frame.src) continue;
+        authoredSrc.set(frame, frame.src);
+      }
+      const base = authoredSrc.get(frame);
+      frame.src = `${base}${base.includes("?") ? "&" : "?"}_t=${Date.now()}`;
+    }
   }
 
   function activateView(id, fallbackId = "home") {
@@ -37,6 +66,7 @@ export function createViewNavigator({ doc = document, nav }) {
     const recentScansPanel = doc.getElementById("rol-finance-recent-scans");
     if (recentScansPanel)
       recentScansPanel.hidden = !next.startsWith("rol-finance");
+    refreshFramesOnShow(view);
     statementReviewDialog?.syncVisibility?.();
   }
 

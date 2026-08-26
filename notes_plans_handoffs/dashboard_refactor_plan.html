@@ -609,13 +609,28 @@ print('   travels with it:', travels)</code></pre>
   </div>
 
   <div class="card">
-    <h2>Housekeeping someone could pick up</h2>
+    <h2>How this plan reaches the dashboard</h2>
     <p>
-      This plan is still not wired into the dashboard's Project Plans tab. The other
-      plans under <code>notes_plans_handoffs/</code> are served through
-      <code>&lt;iframe class="plan-frame"&gt;</code> entries in
-      <code>dashboard.html</code>; adding one here also means touching
-      <code>tests/test_project_plans.py</code>.
+      It is already wired in: <code>dashboard.html</code> has a
+      <code>#dashboard-refactor-plan-frame</code> iframe pointing at
+      <code>/notes_plans_handoffs/dashboard_refactor_plan.html</code>, behind the
+      <strong>Dashboard Refactor</strong> tab under Project Plans. Earlier revisions
+      of this file claimed the opposite &mdash; that wiring it up was open
+      housekeeping &mdash; and that claim was carried forward for several rounds
+      without anyone checking <code>dashboard.html</code>. It is fixed here.
+    </p>
+    <p>
+      A related trap, because it looks exactly like a failed deploy: a tab switch in
+      the dashboard only toggles a CSS class, so the iframe is fetched <em>once</em>,
+      when the dashboard page itself loads. A dashboard left open all day keeps
+      showing whichever revision of this plan it pulled at load time, however many
+      times you redeploy. The frame now carries
+      <code>data-refresh-on-show</code>, and <code>activateView</code> in
+      <code>js/boot/view-navigator.js</code> re-fetches marked frames every time
+      their tab is opened. <strong>If a plan still looks stale, reload the dashboard
+      page before suspecting the deploy</strong> &mdash; and confirm with
+      <code>curl -s &lt;live&gt;/notes_plans_handoffs/&lt;plan&gt;.html | grep &lt;marker&gt;</code>,
+      which asks the server rather than the browser.
     </p>
   </div>
 
