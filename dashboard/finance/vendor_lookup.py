@@ -18,9 +18,26 @@ def vendor_category_lookup():
     return VendorCategoryLookup()
 
 
+def normalize_vendor_slug(description: str) -> str:
+    """rol_finances' own description -> vendor_key normalization.
+
+    Imported rather than reimplemented: `_slugify` is the same normalization
+    `parse_and_categorize.py` files transactions with, so a key guessed here
+    matches a key stored there. It is underscore-private upstream and there is
+    no public equivalent -- `find_vendor_match` only resolves vendors that are
+    already known, and this runs precisely when one is not. The private name is
+    the honest coupling; if it is ever renamed this raises ImportError on the
+    first call rather than returning a subtly different slug.
+    """
+    if CATEGORIZER_LIB_DIR not in sys.path:
+        sys.path.insert(0, CATEGORIZER_LIB_DIR)
+    from vendor_category_lookup import _slugify  # type: ignore
+    return _slugify(description)
+
+
 def guess_vendor_key(description: str) -> str:
     """Use existing normalization, then trim an obvious statement store id."""
-    value = vendor_category_lookup().guess_vendor_key(description)
+    value = normalize_vendor_slug(description)
     tokens = [token for token in value.split('_') if token]
     for index, token in enumerate(tokens):
         if token.isdigit():

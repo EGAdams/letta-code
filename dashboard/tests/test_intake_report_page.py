@@ -9,6 +9,8 @@ document and a wall of '--' — directly testable.
 
 import json
 
+import pytest
+
 from finance import intake_report_model as model
 from finance import intake_report_page as page
 from finance import vendor_lookup
@@ -193,12 +195,28 @@ def test_stored_findings_gives_unknown_vendor_a_separate_key_guess():
     assert finding.new_vendor_key == 'cracker_barrel'
 
 
-def test_vendor_key_guess_trims_a_statement_store_number(monkeypatch):
-    class _Lookup:
-        def guess_vendor_key(self, _description):
-            return 'cracker_barrel_428_ca_cave_city_ky'
+# The trimming rules below are pure string work and are patched, but the
+# normalization underneath them is NOT -- an earlier version of this test faked
+# a `guess_vendor_key` method on the lookup object, an API rol_finances has
+# never had, so the suite went green while every real caller raised
+# AttributeError. `test_normalization_is_a_real_rol_finances_function` is the
+# guard: it calls upstream for real, so the fake can never drift free again.
+@pytest.mark.parametrize('slug,expected', [
+    ('cracker_barrel_428_ca_cave_city_ky', 'cracker_barrel'),
+    ('walmart_store_1234', 'walmart'),
+    ('shell_oil_574411', 'shell_oil'),
+    ('samaritans_purse', 'samaritans_purse'),
+])
+def test_vendor_key_guess_trims_a_statement_store_number(
+        monkeypatch, slug, expected):
+    monkeypatch.setattr(vendor_lookup, 'normalize_vendor_slug', lambda _d: slug)
+    assert vendor_lookup.guess_vendor_key('ignored, normalization is patched') == expected
 
-    monkeypatch.setattr(vendor_lookup, 'vendor_category_lookup', lambda: _Lookup())
+
+def test_normalization_is_a_real_rol_finances_function():
+    """Unpatched, end to end, through whatever rol_finances actually exposes."""
+    assert vendor_lookup.normalize_vendor_slug(
+        'CRACKER BARREL #428 CA CAVE CITY KY') == 'cracker_barrel_428_ca_cave_city_ky'
     assert vendor_lookup.guess_vendor_key(
         'CRACKER BARREL #428 CA CAVE CITY KY') == 'cracker_barrel'
 
