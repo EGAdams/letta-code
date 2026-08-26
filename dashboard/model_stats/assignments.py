@@ -68,3 +68,30 @@ def build_claude_sdk_assignment(
         'token_status_detail': detail,
         'token_expires_at': expiry,
     }
+
+
+def build_unassigned_account_rows(
+    oauth_provider_accounts: dict[str, dict[str, str]],
+    referenced_providers: set[str],
+    weekly_percent_remaining_fn,
+) -> list[dict[str, Any]]:
+    """Read-only Agent Assignments rows for OAuth accounts that exist in
+    ``OAUTH_PROVIDER_ACCOUNTS`` but back no current Letta agent's provider --
+    e.g. a human's second token for a family, held in reserve for failover.
+    Without this a token can silently expire unnoticed because nothing on the
+    tab ever polls it (see rbarnesrol@aol.com / chatgpt-plus-pro-mom, added
+    2026-08-21 but only surfaced when an agent is actually pointed at it)."""
+    rows = []
+    for provider, meta in oauth_provider_accounts.items():
+        if provider in referenced_providers:
+            continue
+        rows.append({
+            'id': f'oauth-account-{provider}',
+            'name': f'{meta["label"]} (unassigned)',
+            'model': '',
+            'account': meta['account'],
+            'account_label': meta['label'],
+            'weekly_percent_remaining': weekly_percent_remaining_fn(provider),
+            'assignment_kind': 'account',
+        })
+    return rows

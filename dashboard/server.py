@@ -7430,6 +7430,7 @@ def model_stats_agents_payload(force_refresh=False):
     by_id = {a['id']: a for a in all_agents}
 
     rows = []
+    referenced_providers = set()
     for cfg in LETTA_AGENTS:
         real_id = get_letta_id(cfg)
         agent_data = by_id.get(real_id) if real_id else None
@@ -7437,6 +7438,8 @@ def model_stats_agents_payload(force_refresh=False):
         provider = llm.get('provider_name') or ''
         model_id = llm.get('model') or ''
         info = OAUTH_PROVIDER_ACCOUNTS.get(provider)
+        if provider:
+            referenced_providers.add(provider)
         rows.append({
             'id': real_id or f'unknown-{cfg["name"].lower()}',
             'name': cfg['name'],
@@ -7445,6 +7448,13 @@ def model_stats_agents_payload(force_refresh=False):
             'account_label': info['label'] if info else (provider or 'unknown'),
             'weekly_percent_remaining': _weekly_percent_remaining(provider) if provider else None,
         })
+
+    # Accounts (e.g. rbarnesrol@aol.com / chatgpt-plus-pro-mom) that exist in
+    # OAUTH_PROVIDER_ACCOUNTS but back no current agent's provider would
+    # otherwise never appear on this tab -- surface them read-only so an
+    # unused token's expiry is still visible.
+    rows.extend(build_unassigned_account_rows(
+        OAUTH_PROVIDER_ACCOUNTS, referenced_providers, _weekly_percent_remaining))
 
     # Mazda's run_claude_code_sdk tool is not a Letta agent, but it runs the
     # work that makes her minions useful and authenticates with its own mounted
@@ -7889,7 +7899,10 @@ from model_stats.reader import (  # noqa: E402
 from model_stats.sources import (  # noqa: E402
     MODEL_STAT_SOURCES, ModelStatSource, R46_SSH_HOST,
 )
-from model_stats.assignments import build_claude_sdk_assignment  # noqa: E402
+from model_stats.assignments import (  # noqa: E402
+    build_claude_sdk_assignment,
+    build_unassigned_account_rows,
+)
 from model_stats.usage_history import (  # noqa: E402
     LEAK_BUCKET_MINUTES, LEAK_LOOKBACK_MINUTES, LEAK_MIN_RISE_PCT,
     LEAK_MIN_RISING_BUCKETS, MODEL_USAGE_HISTORY_FILE,

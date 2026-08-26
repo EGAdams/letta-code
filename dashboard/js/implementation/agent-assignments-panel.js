@@ -283,6 +283,10 @@ export class AgentAssignmentsController extends PollingController {
       this._renderToolRow(row);
       return;
     }
+    if (row.assignment_kind === "account") {
+      this._renderAccountRow(row);
+      return;
+    }
 
     let entry = this._rowsById.get(row.id);
     if (!entry) {
@@ -371,5 +375,38 @@ export class AgentAssignmentsController extends PollingController {
         : row.token_status_detail || "Token status unavailable";
     entry.token.className = `win98-assignment-token is-${row.token_status || "unknown"}`;
     if (row.account) entry.select.value = row.account;
+  }
+
+  /** Read-only row for an OAuth account that backs no current agent (e.g. a
+   * held-in-reserve failover token) -- no model/account dropdowns, just the
+   * label and its weekly-remaining bar so an unused token's expiry is still
+   * visible on the tab. */
+  _renderAccountRow(row) {
+    let entry = this._rowsById.get(row.id);
+    if (!entry) {
+      const el = this._el;
+      const tr = el("tr", { className: "win98-unassigned-account" });
+      tr.appendChild(el("td", { textContent: row.name }));
+      tr.appendChild(el("td", { textContent: row.model || "—" }));
+      tr.appendChild(el("td", { textContent: row.account_label }));
+
+      const barTd = el("td", { className: "win98-bar-cell" });
+      const track = el("div", { className: "win98-bar-track" });
+      const fill = el("div", { className: "win98-bar-fill" });
+      const label = el("div", { className: "win98-bar-label" });
+      track.append(fill, label);
+      barTd.appendChild(track);
+      tr.appendChild(barTd);
+
+      this._tbody.appendChild(tr);
+      entry = { tr, fill, label };
+      this._rowsById.set(row.id, entry);
+    }
+
+    const pct = row.weekly_percent_remaining;
+    entry.fill.className = `win98-bar-fill ${barClassFor(pct)}`.trim();
+    entry.fill.style.width =
+      pct == null ? "0%" : `${Math.max(0, Math.min(100, pct))}%`;
+    entry.label.textContent = pct == null ? "?" : `${pct}%`;
   }
 }
