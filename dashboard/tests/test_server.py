@@ -48,84 +48,11 @@ def write_scan_image(path):
     return path
 
 
-@pytest.mark.parametrize(
-    ('message', 'expected_type'),
-    [
-        ({'message_type': 'reasoning_message', 'reasoning': 'x' * 700}, 'thought'),
-        ({'message_type': 'assistant_message', 'content': 'x' * 700}, None),
-        ({'message_type': 'user_message', 'content': 'x' * 700}, 'user'),
-    ],
-)
-def test_letta_thoughts_does_not_truncate_entries(monkeypatch, message, expected_type):
-    monkeypatch.setattr(server, 'letta_messages', lambda _agent_id, limit: [message])
-
-    rows = server.letta_thoughts('agent-test')
-
-    assert rows[0]['text'] == 'x' * 700
-    if expected_type is None:
-        assert 'type' not in rows[0]
-    else:
-        assert rows[0]['type'] == expected_type
-
-
-def test_letta_thoughts_reads_isolated_conversation(monkeypatch):
-    seen = {}
-
-    def fake_get(path, timeout=0):
-        seen.update(path=path, timeout=timeout)
-        return [{
-            'message_type': 'reasoning_message',
-            'created_at': '2026-08-12T19:07:44Z',
-            'reasoning': 'I am processing this Window scan.',
-        }]
-
-    monkeypatch.setattr(server, 'letta_get', fake_get)
-    monkeypatch.setattr(
-        server, 'letta_messages',
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError('agent-wide messages must not be used')))
-
-    result = server.letta_thoughts('agent-mazda', 'conv-window')
-
-    assert seen == {
-        'path': '/v1/conversations/conv-window/messages?limit=80',
-        'timeout': 25,
-    }
-    assert result == [{
-        'date': '2026-08-12T19:07:44',
-        'type': 'thought',
-        'text': 'I am processing this Window scan.',
-    }]
-
-
-def test_cached_thoughts_returns_cache_while_refresh_runs(monkeypatch):
-    class FakeProxy:
-        def get(self, key, *args, default=None):
-            assert key == ('agent-mazda', 'conv-freezer')
-            assert args == ('agent-mazda', 'conv-freezer')
-            return [{'text': 'cached'}]
-
-    monkeypatch.setattr(server, '_thoughts_proxy', FakeProxy())
-
-    started = time.monotonic()
-    rows = server.cached_thoughts('agent-mazda', 'conv-freezer')
-
-    assert time.monotonic() - started < 0.1
-    assert rows == [{'text': 'cached'}]
-
-
-def test_cached_thoughts_keys_full_history_by_agent(monkeypatch):
-    """Two different agents with no active scan conversation (conversation_id='')
-    must not share one cache entry - the old scanner-only key was just the
-    conversation_id, so both fell into the same '' bucket."""
-    class FakeProxy:
-        def get(self, key, *args, default=None):
-            return key
-
-    monkeypatch.setattr(server, '_thoughts_proxy', FakeProxy())
-
-    assert server.cached_thoughts('agent-mazda', '') != server.cached_thoughts('agent-suzuki', '')
-
+# The Thoughts, Messages and Tool Calls tabs moved to agents/message_views.py,
+# and their tests with them (tests/test_message_views.py). They patch the owning
+# module: server.py hands its half over per call in a Collaborators bundle, so
+# patching `server` still reaches the moved code, but the moved code's own
+# globals -- the thoughts proxy, the age window -- are only reachable there.
 
 def test_scanner_intake_archive_path_resolves_receipt_from_expense_row(monkeypatch):
     archived = '/archive/2025/april/receipt.jpg'
@@ -1018,29 +945,6 @@ def test_frita_executor_health_concern_flag_set_on_ghost(monkeypatch):
     monkeypatch.setattr(_frita, '_probe_sdk_status', fake_probe)
     h = server.frita_executor_health(timeout=1)
     assert h['ok'] is True and h.get('concern') is True
-
-
-def test_container_status_for_summarizes_docker_state():
-    states = {'letta-server': 'Exited (139) 54 minutes ago',
-              'letta-memfs': 'Up 2 minutes (healthy)'}
-    s = server.container_status_for('letta', states)
-    assert 'letta-server: Exited (139) 54 minutes ago' in s
-    # non-docker server key → empty
-    assert server.container_status_for('dashboard', states) == ''
-    # no states (probe failed) → empty
-    assert server.container_status_for('letta', {}) == ''
-
-
-def test_win10_container_states_parses_docker_ps(monkeypatch):
-    class _R:
-        stdout = 'letta-server|Up 3 minutes\nfrita-executor|Restarting (1) 2 seconds ago\n'
-        stderr = ''
-    monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _R())
-    server._win10_containers_cache['value'] = None
-    server._win10_containers_cache['ts'] = 0.0
-    states = server.win10_container_states()
-    assert states['letta-server'] == 'Up 3 minutes'
-    assert states['frita-executor'] == 'Restarting (1) 2 seconds ago'
 
 
 def test_model_stats_sources_cover_w11_r46_gemini():
@@ -2282,18 +2186,11 @@ class _NoopThread:
         pass
 
 
-def test_win10_node_is_registered_check_and_restartable():
-    keys = {s['key'] for s in server.SERVERS}
-    assert 'win10-node' in keys
-    assert 'win10_node_health' in server.HEALTH_CHECKS
-    assert 'win10-node' in server.RESTARTABLE_KEYS
-
-
-def test_win10_hosted_servers_depend_on_node():
-    dep = {s['key']: s.get('depends_on') for s in server.SERVERS}
-    for k in ('letta', 'logger-api', 'frita-executor', 'dashboard-proxy'):
-        assert dep.get(k) == 'win10-node', f'{k} should depend on win10-node'
-
+# The Win10 box's health and recovery moved to monitoring/win10_node.py, and
+# its tests with it (tests/test_win10_node.py), pointed at the owning module.
+# The registry wiring that used to be asserted here moved too, because the
+# question "is win10_node_health the function HEALTH_CHECKS dispatches to" is
+# now about a name server.py imports rather than one it defines.
 
 def _frita_cfg():
     return next(c for c in server.LETTA_AGENTS if c['name'] == 'Frita')

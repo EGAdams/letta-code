@@ -6103,110 +6103,28 @@ def start_logger_api():
         return {'ok': False, 'text': str(e)}
 
 
-# ── Win10 WSL node reachability (root-cause indicator) ────────────────────────
-# The Win10 WSL node hosts Letta, the Frita SDK executor, and the Logger API. When
-# IT goes offline (today: a stuck Tailscale session), all of those go red as
-# SYMPTOMS. This single check is the root cause, and the dependents are grouped
-# under it (blocked_by) so six reds collapse into one actionable signal.
-WIN10_NODE_HOST = LETTA_DOCKER_HOST.split('@')[-1] if '@' in LETTA_DOCKER_HOST else '100.80.49.10'
-# The Windows side of the same box (online even when the WSL node drops) — used to
-# revive the WSL node by restarting tailscaled inside the distro.
-WIN10_WINDOWS_HOST = os.environ.get('WIN10_WINDOWS_HOST', 'NewUser@100.69.80.89')
-WIN10_WSL_DISTRO = os.environ.get('WIN10_WSL_DISTRO', 'Ubuntu-24.04')
-_win10_node_cache = {'value': None, 'ts': 0.0}
-_win10_node_lock = threading.Lock()
-WIN10_NODE_CACHE_TTL = 20
-
-
-def win10_node_health(timeout=None):
-    """Is the Win10 WSL node reachable at all? TCP-connect to its SSH port — cheap
-    and independent of any one service. Cached so it doesn't probe every poll."""
-    with _win10_node_lock:
-        now = time.time()
-        if _win10_node_cache['value'] is not None and now - _win10_node_cache['ts'] < WIN10_NODE_CACHE_TTL:
-            return _win10_node_cache['value']
-    t = timeout or 5
-    try:
-        s = socket.create_connection((WIN10_NODE_HOST, 22), timeout=t)
-        s.close()
-        res = {'ok': True, 'text': f'Win10 WSL node {WIN10_NODE_HOST} reachable (ssh:22).'}
-    except Exception as e:
-        res = {'ok': False,
-               'text': f'Win10 WSL node {WIN10_NODE_HOST} OFFLINE — Letta, Frita SDK and '
-                       f'Logger API are all blocked by this. Click Restart to revive the '
-                       f'WSL node (restarts tailscaled via the Windows host). ({e})'}
-    with _win10_node_lock:
-        _win10_node_cache['value'] = res
-        _win10_node_cache['ts'] = time.time()
-    return res
-
-
-def restart_win10_node():
-    """Revive the Win10 WSL node by restarting tailscaled inside the distro from the
-    (still-online) Windows host — today's manual recovery, as a button."""
-    cmd = f'wsl.exe -d {WIN10_WSL_DISTRO} -u root -- bash -lc "systemctl restart tailscaled"'
-    _log_restart(f'win10-node: ssh {WIN10_WINDOWS_HOST} {cmd}')
-    try:
-        with open(RESTART_LOG, 'a') as logf:
-            subprocess.Popen(
-                ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes', WIN10_WINDOWS_HOST, cmd],
-                stdout=logf, stderr=subprocess.STDOUT, start_new_session=True)
-        mark_server_starting('win10-node')
-        with _win10_node_lock:  # force a fresh probe next poll
-            _win10_node_cache['ts'] = 0.0
-        return {'ok': True, 'text': f'Restarting tailscaled in WSL via {WIN10_WINDOWS_HOST} — '
-                                    'node should reappear within ~15s.'}
-    except Exception as e:
-        return {'ok': False, 'text': f'win10-node restart error: {e}'}
-
-
-# Indicator #2: surface Docker container exit-code / restart-count for the
-# Win10-hosted servers — "Exited (139) 54m ago" / "Restarting (3×)" tells you it
-# crashed (139=OOM/segfault) or is crash-looping, not just "down".
-WIN10_CONTAINERS = {
-    'letta': ['letta-server', 'letta-memfs'],
-    'logger-api': ['logger-api-php', 'logger-api-mysql'],
-    'frita-executor': ['frita-executor'],
-}
-_win10_containers_cache = {'value': None, 'ts': 0.0}
-_win10_containers_lock = threading.Lock()
-WIN10_CONTAINERS_CACHE_TTL = 20
-
-
-def win10_container_states(timeout=10):
-    """One cached `docker ps -a` on the box → {container_name: status_string}.
-    The status string already carries exit code + restart count from Docker."""
-    with _win10_containers_lock:
-        now = time.time()
-        if (_win10_containers_cache['value'] is not None
-                and now - _win10_containers_cache['ts'] < WIN10_CONTAINERS_CACHE_TTL):
-            return _win10_containers_cache['value']
-    states = {}
-    try:
-        r = subprocess.run(
-            ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', LETTA_DOCKER_HOST,
-             'docker', 'ps', '-a', '--format', '{{.Names}}|{{.Status}}'],
-            capture_output=True, text=True, timeout=timeout)
-        for line in (r.stdout or '').splitlines():
-            if '|' in line:
-                name, status = line.split('|', 1)
-                states[name.strip()] = status.strip()
-    except Exception:
-        states = {}
-    with _win10_containers_lock:
-        _win10_containers_cache['value'] = states
-        _win10_containers_cache['ts'] = time.time()
-    return states
-
-
-def container_status_for(key, states):
-    """Human container-status summary for a server key, or '' if not a Docker server
-    or the probe failed. e.g. 'letta-server: Exited (139) 54 minutes ago'."""
-    names = WIN10_CONTAINERS.get(key)
-    if not names or not states:
-        return ''
-    parts = [f'{n}: {states[n]}' for n in names if n in states]
-    return ' · '.join(parts)
+# ── The Win10 box: reachability, containers, dockerd, and reviving it ────────
+# win10_node_health, restart_win10_node, win10_container_states,
+# container_status_for, ensure_win10_docker and win10_docker_ok moved to
+# monitoring/win10_node.py, taking all thirteen of their WIN10_* constants and
+# _win10_* caches and locks with them. The Win10 WSL node hosts Letta, the
+# Frita SDK executor and the Logger API, so its reachability is the root cause
+# the other three hang off (blocked_by) instead of showing three separate reds.
+#
+# The names below are imported back because they are all still called -- from
+# HEALTH_CHECKS, from server_status_kind, and from http_app/get_routes.py via
+# `srv`. restart_win10_node is the one exception: it writes to RESTART_LOG,
+# which stays here because every other restart handler writes to it too, so the
+# log is injected per call instead (see _win10_node_deps below).
+from monitoring import win10_node as _win10_node  # noqa: E402
+from monitoring.win10_node import (  # noqa: E402
+    WIN10_CONTAINERS,
+    container_status_for,
+    ensure_win10_docker,
+    win10_container_states,
+    win10_docker_ok,
+    win10_node_health,
+)
 
 
 # ── Generic restart dispatch (every Server Management tab gets a Restart button) ──
@@ -6225,56 +6143,21 @@ def _log_restart(line):
         pass
 
 
-def ensure_win10_docker(timeout=45):
-    """Recover the Win10 box's native dockerd when it dies on a stale pid file —
-    the recurring failure behind "Frita HTTP 404 / :8799 down" (see
-    frita_executor_ghost_container memory, 2026-06-22): remove the stale
-    /var/run/docker.pid, reset the failed unit, start it. Idempotent + safe to
-    call before any Win10-docker restart. Returns {ok, text}."""
-    cmd = ('sudo -n rm -f /var/run/docker.pid; '
-           'sudo -n systemctl reset-failed docker.service 2>/dev/null; '
-           'sudo -n systemctl start docker.service 2>&1; '
-           'sleep 2; systemctl is-active docker.service')
-    try:
-        r = subprocess.run(
-            ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes',
-             LETTA_DOCKER_HOST, 'bash', '-lc', cmd],
-            capture_output=True, text=True, timeout=timeout)
-        out = ((r.stdout or '') + (r.stderr or '')).strip()
-        last = (r.stdout or '').strip().splitlines()[-1].strip() if (r.stdout or '').strip() else ''
-        return {'ok': last == 'active', 'text': out[-200:] or 'no output'}
-    except Exception as e:
-        return {'ok': False, 'text': f'ensure docker error: {e}'}
+def _win10_node_deps():
+    """Resolve this module's half of the Win10 cluster, at call time.
+
+    Only the restart log, which every restart handler here appends to. Looked
+    up per call so replacing either name on `server` is honoured.
+    """
+    return _win10_node.Collaborators(
+        log_restart=_log_restart,
+        restart_log_path=RESTART_LOG,
+    )
 
 
-# Cached probe of the Win10 dockerd, for the "dependency needs a reboot" yellow
-# state on the Win10-docker-backed servers (letta / logger-api / frita-executor).
-_win10_docker_cache = {'value': None, 'ts': 0.0}
-_win10_docker_lock = threading.Lock()
-WIN10_DOCKER_CACHE_TTL = 30
-
-
-def win10_docker_ok(timeout=8):
-    """Return True (active) / False (down) / None (unknown) for the Win10 dockerd.
-    Cached for WIN10_DOCKER_CACHE_TTL so it doesn't SSH on every health poll."""
-    with _win10_docker_lock:
-        now = time.time()
-        if (_win10_docker_cache['value'] is not None
-                and now - _win10_docker_cache['ts'] < WIN10_DOCKER_CACHE_TTL):
-            return _win10_docker_cache['value']
-    val = None
-    try:
-        r = subprocess.run(
-            ['ssh', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes',
-             LETTA_DOCKER_HOST, 'systemctl', 'is-active', 'docker.service'],
-            capture_output=True, text=True, timeout=timeout)
-        val = (r.stdout.strip() == 'active')
-    except Exception:
-        val = None
-    with _win10_docker_lock:
-        _win10_docker_cache['value'] = val
-        _win10_docker_cache['ts'] = time.time()
-    return val
+def restart_win10_node():
+    """Revive the Win10 WSL node from the still-online Windows side."""
+    return _win10_node.restart_win10_node(deps=_win10_node_deps())
 
 
 def _restart_user_unit(key, unit, timeout=25):
@@ -6619,93 +6502,58 @@ def letta_messages(
         )
     ]
 
-def _msg_date(m):
-    """Return the best available timestamp string for a Letta message."""
-    return str(m.get('created_at') or m.get('date') or '')[:19]
+# ── The three agent tabs: Thoughts, Messages, Tool Calls ─────────────────────
+# letta_thoughts, cached_thoughts, letta_convo and letta_toolcalls moved to
+# agents/message_views.py, together with the thoughts proxy, the age window and
+# the timestamp parsing they share. They are three readings of one message
+# stream and are expected to agree about which messages exist.
+#
+# What stays here -- letta_messages (the gateway shim), letta_get (the raw
+# Letta GET) and _msg_age_seconds (which the agent-activity poller also uses)
+# -- is handed over per call in a Collaborators bundle rather than imported
+# back, so monkeypatch.setattr(server, 'letta_messages', ...) reaches the code
+# that actually runs.
+#
+# letta_thoughts, _msg_date, _letta_conversation_messages, _thoughts_proxy and
+# MESSAGES_MAX_AGE_SECONDS are deliberately NOT re-exported: nothing here calls
+# them any more, and a re-export is a second binding a test can patch while the
+# real one keeps running (tests/test_message_views.py asserts they are absent).
+from agents import message_views as _message_views  # noqa: E402
 
 
-def _letta_conversation_messages(conversation_id, limit=80):
-    """Fetch messages from an isolated intake conversation."""
-    data = letta_get(
-        f'/v1/conversations/{quote(conversation_id, safe="")}/messages?limit={limit}',
-        timeout=25,
+def _message_view_deps():
+    """Resolve this module's half of the agent-tabs cluster, at call time.
+
+    Every entry is looked up when the call happens, not when this module is
+    imported, so replacing any of them on `server` is honoured.
+    """
+    return _message_views.Collaborators(
+        letta_messages=letta_messages,
+        letta_get=letta_get,
+        msg_age_seconds=_msg_age_seconds,
     )
-    if isinstance(data, list):
-        return data
-    return (data or {}).get('messages', (data or {}).get('results', []))
-
-
-def letta_thoughts(agent_id, conversation_id=''):
-    msgs = (
-        _letta_conversation_messages(conversation_id)
-        if conversation_id
-        else letta_messages(agent_id, limit=200)
-    )
-    return select_thoughts(msgs, _msg_text, _msg_date)
-
-
-_thoughts_proxy = BackgroundResultProxy(
-    loader=letta_thoughts, refresh_seconds=3, name='thoughts')
 
 
 def cached_thoughts(agent_id, conversation_id=''):
-    """Non-blocking `letta_thoughts` — serves the last-known value while a
-    background refresh runs, rather than blocking the request thread on the
-    live Letta call (which can take 10-25s over the Tailscale DERP relay,
-    close enough to the browser's 30s fetch abort to look like a hang).
-    Applies whether or not the agent has an isolated scan conversation,
-    since a full agent-history fetch (conversation_id='') is exactly as
-    slow as a conversation-scoped one."""
-    return _thoughts_proxy.get(
-        (agent_id, conversation_id), agent_id, conversation_id, default=[])
+    """Non-blocking Thoughts-tab rows for one agent."""
+    return _message_views.cached_thoughts(
+        agent_id, conversation_id, deps=_message_view_deps())
 
-MESSAGES_MAX_AGE_SECONDS = 5 * 3600  # only show messages from the last 5 hours
-
-def _within_max_age(m, now):
-    """True if a message's timestamp is within MESSAGES_MAX_AGE_SECONDS (or unparseable)."""
-    age = _msg_age_seconds(m, now)
-    return age is None or age <= MESSAGES_MAX_AGE_SECONDS
 
 def letta_convo(agent_id):
-    msgs = letta_messages(agent_id, limit=200)
-    now = datetime.now(timezone.utc)
-    rows = []
-    for m in msgs:
-        mt = m.get('message_type', '')
-        if mt not in ('user_message', 'assistant_message'):
-            continue
-        if not _within_max_age(m, now):
-            continue
-        text = _msg_text(m)
-        if not text.strip():
-            continue
-        rows.append({
-            'date': _msg_date(m),
-            'type': mt,
-            'text': text,
-        })
-    return rows
+    """Messages-tab rows for one agent."""
+    return _message_views.letta_convo(agent_id, deps=_message_view_deps())
+
 
 def letta_toolcalls(agent_id):
-    msgs = letta_messages(agent_id, limit=200)
-    rows = []
-    for m in msgs:
-        mt = m.get('message_type', '')
-        if mt not in ('tool_call_message', 'tool_return_message'):
-            continue
-        text = _msg_text(m)
-        if not text.strip():
-            continue
-        display_type = 'tool_call' if mt == 'tool_call_message' else 'tool_return'
-        if mt == 'tool_call_message':
-            tc = m.get('tool_call', {})
-            display_type = tc.get('name', 'tool_call')
-        rows.append({
-            'date': _msg_date(m),
-            'type': display_type,
-            'text': text[:300],
-        })
-    return rows
+    """Tool Calls-tab rows for one agent."""
+    return _message_views.letta_toolcalls(agent_id, deps=_message_view_deps())
+
+
+def _within_max_age(m, now):
+    """True if a row is recent enough for the Messages tab. Also applied to the
+    local Claude Code log, which has no Letta agent behind it."""
+    return _message_views.within_max_age(m, now, deps=_message_view_deps())
 
 
 def run_letta_headless(agent_id, prompt_text):
