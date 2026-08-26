@@ -70,7 +70,11 @@ export function createScannerAgentViews({ doc = document, http }) {
   }
 
   // Show archive verification terminal for a completed scanner report.
-  function showArchiveTerminalForScanner(scannerKey, containerSelector) {
+  function showArchiveTerminalForScanner(
+    scannerKey,
+    containerSelector,
+    expenseId = null,
+  ) {
     const container = doc.querySelector(containerSelector);
     if (!container) return;
 
@@ -92,7 +96,10 @@ export function createScannerAgentViews({ doc = document, http }) {
     container.innerHTML = "";
 
     http
-      .postJSON("/api/scanner-archive-path", { scanner: scannerKey })
+      .postJSON("/api/scanner-archive-path", {
+        scanner: scannerKey,
+        ...(expenseId ? { expense_id: expenseId } : {}),
+      })
       .then((json) => {
         const result = readArchivePathResponse(json);
         if (!result.ok) {

@@ -1034,7 +1034,7 @@ describe("ManualEntryForm._saveAll", () => {
     expect(archiveCalls).toEqual([]);
   });
 
-  test("mounts the archive-verification terminal when a scanner key is present", async () => {
+  test("does not mount Archive Verification inside the Recent Report dialog", async () => {
     const sentCommands = [];
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
@@ -1066,13 +1066,11 @@ describe("ManualEntryForm._saveAll", () => {
       mountTerminal: async () => fakeSession,
     });
     await form.mount();
-    expect(sentCommands.length).toBe(1);
-    expect(sentCommands[0]).toContain("cd '/archive'");
-    expect(
-      form._archiveTerminalEl.children.some(
-        (child) => child.textContent === "Archive Verification (/archive)",
-      ),
-    ).toBe(true);
+    form.items = [validItem()];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+    await form._saveAll();
+    expect(sentCommands).toEqual([]);
   });
 });
 

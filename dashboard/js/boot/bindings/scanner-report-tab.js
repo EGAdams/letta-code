@@ -28,7 +28,19 @@ export function openScannerReportTab({ doc, http, tab, RF, AM }) {
       )
       .then((data) => {
         if (data?.status && TERMINAL_STATUSES.includes(data.status)) {
-          AM.showArchiveTerminalForScanner(scannerKey, terminalContainer);
+          // The iframe may still be displaying the report it loaded before a
+          // newer scan completed. Verify what the operator can actually see,
+          // not whichever intake happens to be newest by the time this poll
+          // fires.
+          const displayedExpenseId = Number(
+            iframe?.contentDocument?.querySelector("tr[data-expense-id]")
+              ?.dataset.expenseId,
+          );
+          AM.showArchiveTerminalForScanner(
+            scannerKey,
+            terminalContainer,
+            displayedExpenseId || null,
+          );
           clearInterval(completionPoll);
         }
       })

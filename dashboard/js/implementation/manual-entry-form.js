@@ -492,9 +492,6 @@ export class ManualEntryForm {
     // through the three methods below, and handing them a half-built form
     // would let a click land before the inputs exist.
     manualEntryFormRegistry.publish(this);
-    // Archive Verification is report evidence, not merely a post-save toast.
-    // Rebuild it whenever Last Freezer/Window opens or reloads.
-    await this._showArchiveVerification();
   }
 
   /**
@@ -1343,7 +1340,6 @@ export class ManualEntryForm {
       this._renderCurrentItem();
     }
     this._setStatus(statusText);
-    await this._showArchiveVerification();
     this._showReloadButton();
   }
 

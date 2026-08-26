@@ -183,8 +183,21 @@ class PostRoutesMixin:
             intake = srv.get_scanner_intake(scanner_key)
             if not intake:
                 return self.json_response({'ok': False, 'error': 'No intake found'})
-            rows = srv._fetch_expenses_by_ids(intake.get('expense_ids') or [])
-            archive_file = srv.scanner_intake_archive_path(intake, rows)
+            try:
+                displayed_expense_id = int(data.get('expense_id') or 0)
+            except (TypeError, ValueError):
+                displayed_expense_id = 0
+            rows = srv._fetch_expenses_by_ids(
+                [displayed_expense_id] if displayed_expense_id > 0
+                else (intake.get('expense_ids') or []))
+            archive_file = ''
+            if displayed_expense_id > 0 and rows:
+                row = rows[0]
+                archive_file = srv._resolve_expense_receipt_path(
+                    row.get('date'), str(abs(float(row.get('amount') or 0))),
+                    row.get('receipt_url')) or ''
+            if not archive_file:
+                archive_file = srv.scanner_intake_archive_path(intake, rows)
             # The result above is the specific filed document (a file, not a
             # directory) - the archive-verification terminal needs to `cd`
             # into its containing folder to `ls -a` the sibling documents/
