@@ -11,7 +11,27 @@ import urllib.request
 from datetime import datetime
 from urllib.parse import urlparse
 
+# Owned elsewhere, so imported from the owner rather than reached through `srv`
+# (round 12). Modules, not names, wherever the thing is behaviour: a test then
+# monkeypatches the owning module and this ladder sees it. Request models and
+# ValidationError are types, so they come across directly.
+import codex_sync_status
+import model_stats_mute
+import statement_review
+from agent_thoughts import message_text as _msg_text
+from chatgpt_provider_status import ChatGptProviderSwapRequest
+from codex_sync_status import CodexSyncRequest, CodexSyncToggleRequest
+from finance import manual_entry
+from health import frita
+from hosts import LETTA_BASE_URL
+from model_stats import reader as model_stats_reader
+from model_stats_mute import ModelStatsMuteRequest
+from pydantic import ValidationError
+from voice import note_factory, pipeline, receptionist
+from voice.note_models import NoteEditRequest, PartialVoiceCommand
+
 from . import services as srv
+from .registry import current_ports
 
 
 class PostRoutesMixin:
@@ -53,22 +73,22 @@ class PostRoutesMixin:
 
         if path == '/api/codex-sync-now':
             try:
-                req = srv.CodexSyncRequest.model_validate(json.loads(body) if body.strip() else {})
-            except (json.JSONDecodeError, srv.ValidationError) as exc:
+                req = CodexSyncRequest.model_validate(json.loads(body) if body.strip() else {})
+            except (json.JSONDecodeError, ValidationError) as exc:
                 return self.error_response(f'invalid request: {exc}', 400)
-            return self.json_response(srv.run_codex_sync_now(req.source).model_dump(mode='json'))
+            return self.json_response(codex_sync_status.run_codex_sync_now(req.source).model_dump(mode='json'))
 
         if path == '/api/codex-sync-toggle':
             try:
-                req = srv.CodexSyncToggleRequest.model_validate(json.loads(body) if body.strip() else {})
-            except (json.JSONDecodeError, srv.ValidationError) as exc:
+                req = CodexSyncToggleRequest.model_validate(json.loads(body) if body.strip() else {})
+            except (json.JSONDecodeError, ValidationError) as exc:
                 return self.error_response(f'invalid request: {exc}', 400)
-            return self.json_response(srv.toggle_codex_sync(req.enabled).model_dump(mode='json'))
+            return self.json_response(codex_sync_status.toggle_codex_sync(req.enabled).model_dump(mode='json'))
 
         if path == '/api/chatgpt-provider-account':
             try:
-                req = srv.ChatGptProviderSwapRequest.model_validate(json.loads(body) if body.strip() else {})
-            except (json.JSONDecodeError, srv.ValidationError) as exc:
+                req = ChatGptProviderSwapRequest.model_validate(json.loads(body) if body.strip() else {})
+            except (json.JSONDecodeError, ValidationError) as exc:
                 return self.error_response(f'invalid request: {exc}', 400)
             return self.json_response(srv.set_chatgpt_provider_account(req.source).model_dump(mode='json'))
 
@@ -83,11 +103,12 @@ class PostRoutesMixin:
 
         if path == '/api/model-stats-mute':
             try:
-                req = srv.ModelStatsMuteRequest.model_validate(json.loads(body) if body.strip() else {})
-            except (json.JSONDecodeError, srv.ValidationError) as exc:
+                req = ModelStatsMuteRequest.model_validate(json.loads(body) if body.strip() else {})
+            except (json.JSONDecodeError, ValidationError) as exc:
                 return self.error_response(f'invalid request: {exc}', 400)
-            srv.set_muted(req.source, req.muted)
-            return self.json_response(srv.apply_mute_overlay(srv.model_stats(req.source), req.source))
+            model_stats_mute.set_muted(req.source, req.muted)
+            return self.json_response(model_stats_mute.apply_mute_overlay(
+                model_stats_reader.model_stats(req.source), req.source))
 
         if path == '/api/server-action':
             try:
@@ -141,14 +162,16 @@ class PostRoutesMixin:
                 data = json.loads(body)
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
-            return self.json_response(srv.run_scanner(data.get('scanner', '')))
+            return self.json_response(
+                current_ports().scanner.run(data.get('scanner', '')))
 
         if path == '/api/scanner-clear-verification':
             try:
                 data = json.loads(body)
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
-            result = srv.clear_scanner_verification_lock(data.get('scanner', ''))
+            result = current_ports().scanner.clear_verification_lock(
+                data.get('scanner', ''))
             return self.json_response(result)
 
         if path == '/api/scanner-archive-path':
@@ -176,7 +199,7 @@ class PostRoutesMixin:
             return self.json_response({'ok': False, 'error': 'Archive path not found'})
 
         if path == '/api/fix-printer':
-            return self.json_response(srv.fix_deskjet_printer())
+            return self.json_response(current_ports().scanner.fix_printer())
 
         if path == '/api/process-document':
             try:
@@ -229,7 +252,7 @@ class PostRoutesMixin:
             review_id = data.get('id')
             if not review_id:
                 return self.error_response('Missing review id', 400)
-            ok, payload = srv.statement_review.resolve_review(
+            ok, payload = statement_review.resolve_review(
                 review_id, amounts=data.get('amounts'))
             if ok:
                 srv.merge_statement_review_result(payload)
@@ -286,13 +309,13 @@ class PostRoutesMixin:
             if not image_path:
                 return self.error_response('Missing image_path', 400)
             engine = str(data.get('engine') or 'local').strip()
-            if engine not in srv.manual_entry.PREVIEW_ENGINES:
+            if engine not in manual_entry.PREVIEW_ENGINES:
                 return self.error_response(f'Unsupported engine: {engine}', 400)
             # The category namer translates the vendor's leaf category
             # ("Housing Gas Bill") into the reporting-bucket label the form's
             # dropdown is built from ("Housing Payment & Upkeep"). Without it
             # the dropdown silently ignored a correctly-resolved category.
-            ok, payload = srv.manual_entry.preview_receipt_parse(
+            ok, payload = manual_entry.preview_receipt_parse(
                 image_path, engine=engine,
                 category_namer=srv.taxonomy_category_namer())
             return self.json_response({'ok': ok, **payload})
@@ -366,7 +389,7 @@ class PostRoutesMixin:
             transcript = data.get('text', '')
             if not isinstance(transcript, str):
                 return self.error_response('text must be a string', 400)
-            return self.json_response(srv.build_receptionist_strategy().evaluate(transcript))
+            return self.json_response(receptionist.build_receptionist_strategy().evaluate(transcript))
 
         # ── Note-command channel (Toyota's command box) ──────────────────────
         # Two stages, deliberately separate endpoints: the browser asks "is the
@@ -380,7 +403,7 @@ class PostRoutesMixin:
             text = data.get('text', '')
             if not isinstance(text, str):
                 return self.error_response('text must be a string', 400)
-            decision = srv.note_command_service().assess(srv.PartialVoiceCommand(text=text))
+            decision = note_factory.note_command_service().assess(PartialVoiceCommand(text=text))
             return self.json_response({'ok': True, **decision.model_dump()})
 
         if path == '/api/note-command-apply':
@@ -393,10 +416,10 @@ class PostRoutesMixin:
             if not isinstance(note, str) or not isinstance(command, str):
                 return self.error_response('note and command must be strings', 400)
             try:
-                request = srv.NoteEditRequest(note=note, command=command)
-            except srv.ValidationError:
+                request = NoteEditRequest(note=note, command=command)
+            except ValidationError:
                 return self.error_response('command must not be blank', 400)
-            outcome = srv.note_command_service().apply(request)
+            outcome = note_factory.note_command_service().apply(request)
             return self.json_response({'ok': True, **outcome.model_dump()})
 
         if path == '/api/agent-model':
@@ -421,7 +444,7 @@ class PostRoutesMixin:
                 if cur_provider and cur_provider != req_provider and cur_provider.startswith(req_provider):
                     model = f'{cur_provider}/{req_model_id}'
                 req = urllib.request.Request(
-                    f'{srv.LETTA_BASE_URL}/v1/agents/{lid}',
+                    f'{LETTA_BASE_URL}/v1/agents/{lid}',
                     data=json.dumps({'model': model}).encode(),
                     headers={'Content-Type': 'application/json'},
                     method='PATCH',
@@ -451,7 +474,7 @@ class PostRoutesMixin:
             try:
                 data = json.loads(body)
                 return self.json_response(
-                    srv.set_claude_sdk_account(data.get('account', '')))
+                    frita.set_claude_sdk_account(data.get('account', '')))
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
             except Exception as e:
@@ -484,7 +507,7 @@ class PostRoutesMixin:
                 lid = srv.letta_id_for(agent_id)
                 if lid:
                     reset_req = urllib.request.Request(
-                        f'{srv.LETTA_BASE_URL}/v1/agents/{lid}/reset-messages',
+                        f'{LETTA_BASE_URL}/v1/agents/{lid}/reset-messages',
                         data=json.dumps({'add_default_initial_messages': False}).encode(),
                         headers={'Content-Type': 'application/json'},
                         method='PATCH',
@@ -501,7 +524,7 @@ class PostRoutesMixin:
                         'stream': False,
                     }).encode()
                     req = urllib.request.Request(
-                        f'{srv.LETTA_BASE_URL}/v1/agents/{lid}/messages',
+                        f'{LETTA_BASE_URL}/v1/agents/{lid}/messages',
                         data=payload,
                         headers={'Content-Type': 'application/json'},
                         method='POST',
@@ -516,7 +539,7 @@ class PostRoutesMixin:
                         replies = []
                         for m in resp.get('messages', []):
                             if m.get('message_type') == 'assistant_message':
-                                replies.append({'type': 'assistant_message', 'text': srv._msg_text(m)})
+                                replies.append({'type': 'assistant_message', 'text': _msg_text(m)})
                         if not replies:
                             # The agent ended its turn without a final assistant_message
                             # (e.g. it ran a tool and stopped). Fall back to showing
@@ -525,7 +548,7 @@ class PostRoutesMixin:
                             for m in resp.get('messages', []):
                                 mtype = m.get('message_type')
                                 if mtype in ('tool_call_message', 'tool_return_message', 'reasoning_message'):
-                                    replies.append({'type': mtype, 'text': srv._msg_text(m)})
+                                    replies.append({'type': mtype, 'text': _msg_text(m)})
                         srv.clear_agent_send_error(lid)
                         return self.json_response({'replies': replies or [{'type': 'assistant_message', 'text': '(no reply)'}]})
                     except Exception as e:
@@ -675,7 +698,8 @@ class PostRoutesMixin:
 
     def _handle_voice(self, audio_bytes):
         filename = self.headers.get('X-Filename', 'audio.webm')
-        result = srv.handle_voice_upload(srv.build_pipeline(), audio_bytes, filename)
+        result = pipeline.handle_voice_upload(
+            pipeline.build_pipeline(), audio_bytes, filename)
         if result.get('ok'):
             srv._append_json(srv.VOICE_LOG_FILE, srv._voice_log_lock, {
                 'date': datetime.now().isoformat(),

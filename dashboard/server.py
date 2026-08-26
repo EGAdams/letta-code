@@ -30,25 +30,10 @@ from agents.urllib_letta_gateway import UrllibLettaGateway
 
 from pydantic import ValidationError
 
-from voice.note_factory import note_command_service
-from voice.note_models import NoteEditRequest, PartialVoiceCommand
-from voice.pipeline import build_pipeline, handle_voice_upload
-from voice.receptionist import build_receptionist_strategy
 from voice.synthesis import EdgeTtsSynthesizer, cache_path as synthesis_cache_path
 from category_taxonomy import FallbackCategoryTaxonomy, MySqlCategoryTaxonomy
 from chatgpt_provider_accounts import PROVIDER_ACCOUNT_SOURCES
-from chatgpt_provider_status import (
-    ChatGptProviderSwapRequest,
-    chatgpt_provider_account_status,
-)
-from codex_sync_status import (
-    CodexSyncRequest,
-    CodexSyncToggleRequest,
-    codex_sync_status,
-    run_codex_sync_now,
-    toggle_codex_sync,
-)
-from model_stats_mute import ModelStatsMuteRequest, apply_mute_overlay, set_muted
+from chatgpt_provider_status import chatgpt_provider_account_status
 # The intake dispatch Mazda receives after a scan: 536 lines of prompt, split
 # into named sections in intake/scan_message.py so one rule can be read and
 # tested without scrolling past the other 500. Re-exported under their
@@ -79,7 +64,7 @@ from document_annotation import (
     build_document_annotation_service,
     render_excel_for_browser,
 )
-from agent_thoughts import message_text as _msg_text, select_thoughts
+from agent_thoughts import select_thoughts
 from background_result_proxy import BackgroundResultProxy
 from category_picker import category_row_css, render_assets
 from recent_intake_view import collapse_check_evidence_rows
@@ -131,7 +116,6 @@ from intake.trainer_notifier import (
     DetachedTrainerNotifier,
 )
 from intake.trainer_recovery import recover_pending_trainer_watches
-import statement_review
 from finance.statement_dashboard_adapters import (
     CallableStatementPreflight,
     CallbackStatementIntakeRecorder,
@@ -5931,10 +5915,6 @@ from monitoring.ssh_checks import (  # noqa: E402
     SSH_CONNECTIONS,
     SSH_HEALTH_POLL_INTERVAL,
     _ssh_poll_loop,
-    cached_ssh_health,
-    connection_log_rows,
-    get_ssh_connection,
-    run_manual_test as run_manual_ssh_test,
 )
 
 # ── Server lifecycle clocks and log-file reading ─────────────────────────────
@@ -5954,12 +5934,9 @@ from monitoring import log_files, server_lifecycle  # noqa: E402
 from monitoring.server_lifecycle import (  # noqa: E402
     _starting_servers,
     _starting_lock,
-    track_down_duration,
     mark_server_starting,
-    clear_server_starting,
     is_server_starting,
 )
-from monitoring.log_files import log_activity_health  # noqa: E402
 from monitoring.log_files import trim_log_cache as _trim_log_cache  # noqa: E402
 
 
@@ -6146,10 +6123,7 @@ def start_logger_api():
 # log is injected per call instead (see _win10_node_deps below).
 from monitoring import win10_node as _win10_node  # noqa: E402
 from monitoring.win10_node import (  # noqa: E402
-    WIN10_CONTAINERS,
-    container_status_for,
     ensure_win10_docker,
-    win10_container_states,
     win10_docker_ok,
     win10_node_health,
 )
@@ -6647,7 +6621,6 @@ from health.frita import (  # noqa: E402
     FRITA_CREDS_SYNC_SCRIPT, FRITA_EXEC_GHOST_URL, FRITA_EXEC_GOOD_URL,
     FRITA_EXEC_WORK_URL, _probe_claude_sdk_endpoint, _probe_sdk_status,
     claude_sdk_account_payload, claude_sdk_token_status,
-    set_claude_sdk_account,
     _resync_frita_creds, frita_executor_health,
 )
 
@@ -6669,7 +6642,6 @@ from health.document_vision import (  # noqa: E402
     split_provider_health_state, unresolved_fallbacks,
     vision_provider_fallbacks,
 )
-from health.failures import classify_failure  # noqa: E402
 
 
 
@@ -7405,9 +7377,7 @@ from model_stats.reader import (  # noqa: E402
     MODEL_STATS_CACHE_TTL, _fill_extractor_failure, _fill_rate_limited,
     _model_stats_cache, _model_stats_uncached, model_stats,
 )
-from model_stats.sources import (  # noqa: E402
-    MODEL_STAT_SOURCES, ModelStatSource, R46_SSH_HOST,
-)
+from model_stats.sources import ModelStatSource, R46_SSH_HOST  # noqa: E402
 from model_stats.assignments import (  # noqa: E402
     build_claude_sdk_assignment,
     build_unassigned_account_rows,
@@ -7454,17 +7424,11 @@ def _model_usage_sample_loop():
 # server→client frames are binary raw pty bytes -- binary, not text, because a
 # pty read can split a UTF-8 sequence mid-character and browsers kill the
 # socket on an invalid text frame.
-from http_app.websocket import (  # noqa: E402
-    ws_accept_key, ws_encode_frame, ws_read_frame,
-)
 from letta_code.runner import (  # noqa: E402
     _letta_code_command, validate_letta_code_prompt,
 )
-from letta_ids import _TERMINAL_ID_RE  # noqa: E402
 from letta_code.runner import run_letta_code_message as _run_letta_code_message  # noqa: E402
-from terminal.pty_session import (  # noqa: E402
-    _session_pids, _terminal_reap, _terminal_spawn_shell,
-)
+from terminal.pty_session import _session_pids  # noqa: E402
 
 
 def run_letta_code_message(agent_id, prompt, timeout=900, conversation_id=None):
@@ -7486,9 +7450,9 @@ def run_letta_code_message(agent_id, prompt, timeout=900, conversation_id=None):
 # this module's state. Re-exported under the historical names because the
 # routes reach `pc_metrics` and `PC_MONITORS` through `srv`.
 from monitoring.pc_metrics import (  # noqa: E402
-    PC_ALERT_THRESHOLDS, PC_METRICS_CACHE_TTL, PC_MONITORS,
-    PC_NET_CAPACITY_MBPS, PcMetric, PcMonitor, build_pc_metrics,
-    parse_pc_metrics_output, pc_metrics, pc_metrics_collector_command,
+    PC_ALERT_THRESHOLDS, PC_METRICS_CACHE_TTL, PC_NET_CAPACITY_MBPS,
+    PcMetric, PcMonitor, build_pc_metrics, parse_pc_metrics_output,
+    pc_metrics_collector_command,
 )
 
 

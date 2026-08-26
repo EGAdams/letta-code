@@ -12,9 +12,13 @@ import struct
 import termios
 import threading
 
+from letta_ids import _TERMINAL_ID_RE
+from terminal.pty_session import _terminal_reap, _terminal_spawn_shell
+
 from . import services as srv
 
 from .models import TerminalResizeFrame, TerminalSessionRequest
+from .websocket import ws_accept_key, ws_encode_frame, ws_read_frame
 
 
 class TerminalWebSocketMixin:
@@ -30,7 +34,7 @@ class TerminalWebSocketMixin:
         if request.agent:
             lid = srv.letta_id_for(request.agent)
             # letta_id_for returns the id as-is for Letta agents; guard the exec.
-            if lid and srv._TERMINAL_ID_RE.match(lid):
+            if lid and _TERMINAL_ID_RE.match(lid):
                 letta_agent_id = lid
         cols, rows = request.cols, request.rows
 
@@ -42,7 +46,7 @@ class TerminalWebSocketMixin:
             'HTTP/1.1 101 Switching Protocols\r\n'
             'Upgrade: websocket\r\n'
             'Connection: Upgrade\r\n'
-            f'Sec-WebSocket-Accept: {srv.ws_accept_key(key)}\r\n\r\n'
+            f'Sec-WebSocket-Accept: {ws_accept_key(key)}\r\n\r\n'
         )
         try:
             self.wfile.write(handshake.encode('ascii'))
@@ -51,7 +55,7 @@ class TerminalWebSocketMixin:
             return
 
         sock = self.connection
-        pid, master_fd = srv._terminal_spawn_shell(cols, rows, letta_agent_id)
+        pid, master_fd = _terminal_spawn_shell(cols, rows, letta_agent_id)
         alive = threading.Event()
         alive.set()
 
@@ -59,12 +63,12 @@ class TerminalWebSocketMixin:
             """Reader thread: browser frames → pty (input, resize, close)."""
             try:
                 while alive.is_set():
-                    opcode, data = srv.ws_read_frame(self.rfile)
+                    opcode, data = ws_read_frame(self.rfile)
                     if opcode == 0x8:              # close
                         break
                     if opcode == 0x9:              # ping → pong
                         try:
-                            sock.sendall(srv.ws_encode_frame(data, opcode=0xA))
+                            sock.sendall(ws_encode_frame(data, opcode=0xA))
                         except OSError:
                             break
                         continue
@@ -105,17 +109,17 @@ class TerminalWebSocketMixin:
                 if not chunk:
                     break
                 try:
-                    sock.sendall(srv.ws_encode_frame(chunk, opcode=0x2))
+                    sock.sendall(ws_encode_frame(chunk, opcode=0x2))
                 except OSError:
                     break
         finally:
             alive.clear()
             try:
-                sock.sendall(srv.ws_encode_frame(b'', opcode=0x8))
+                sock.sendall(ws_encode_frame(b'', opcode=0x8))
             except OSError:
                 pass
             try:
                 os.close(master_fd)
             except OSError:
                 pass
-            srv._terminal_reap(pid)
+            _terminal_reap(pid)

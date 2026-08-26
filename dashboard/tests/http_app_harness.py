@@ -13,11 +13,11 @@ names at call time, so monkeypatching `server` is enough to make all of that
 inert — which is also a standing proof that the late-binding handle works.
 """
 import http.client
+import importlib
 import inspect
 import json
 import os as _os
 import threading
-import types
 import urllib.error
 
 import server
@@ -98,20 +98,56 @@ def default_returns():
     }
 
 
+#: What the route ladders call that does not live in server.py.
+#:
+#: Round 12 pointed the ladders at the module that owns each name, so
+#: monkeypatching `server` no longer makes those calls inert — and an unstubbed
+#: one here means a route test SSHes to another box, drives a scanner, or runs
+#: whisper. Each entry is `module path -> the names that module owns`, and the
+#: stub is recorded under the bare name, so `stubbed.called('pc_metrics')` reads
+#: the same whichever side of the move it is written on.
+#:
+#: Add to this whenever a round converts an `srv.` name to a direct import. The
+#: symptom of forgetting is not a red test — it is a green one that took 30
+#: seconds and touched the network.
+DIRECT_SERVICES = {
+    'agent_thoughts': ('message_text',),
+    'codex_sync_status': ('codex_sync_status', 'run_codex_sync_now',
+                          'toggle_codex_sync'),
+    'document_annotation': ('render_excel_for_browser',),
+    'health.failures': ('classify_failure',),
+    'health.frita': ('claude_sdk_account_payload', 'set_claude_sdk_account'),
+    'model_stats.reader': ('model_stats',),
+    'model_stats_mute': ('apply_mute_overlay', 'set_muted'),
+    'monitoring.log_files': ('log_activity_health',),
+    'monitoring.pc_metrics': ('pc_metrics',),
+    'monitoring.server_lifecycle': ('clear_server_starting',
+                                    'track_down_duration'),
+    'monitoring.ssh_checks': ('cached_ssh_health', 'connection_log_rows',
+                              'get_ssh_connection', 'run_manual_test'),
+    'monitoring.win10_node': ('container_status_for', 'win10_container_states'),
+    'voice.note_factory': ('note_command_service',),
+    'voice.pipeline': ('build_pipeline', 'handle_voice_upload'),
+    'voice.receptionist': ('build_receptionist_strategy',),
+}
+
+
 class ServiceRecorder:
     """Replaces every server.py *function* with a recording no-op."""
 
     def __init__(self):
         self.calls = []
 
-    #: submodules the routes reach *through* server (srv.manual_entry.foo)
-    SUBMODULES = ('manual_entry', 'statement_review')
+    #: modules the routes reach into wholesale (manual_entry.foo(), and the
+    #: statement-review verbs) rather than by a name-at-a-time import
+    SUBMODULES = ('finance.manual_entry', 'statement_review')
 
     def install(self, monkeypatch, returns=None):
         merged = default_returns()
         merged.update(returns or {})
         returns = merged
         self._install_submodules(monkeypatch, returns)
+        self._install_direct_services(monkeypatch, returns)
         for name in dir(server):
             if name in DO_NOT_STUB or name.startswith('__'):
                 continue
@@ -126,17 +162,25 @@ class ServiceRecorder:
                 monkeypatch.setattr(server, name, value, raising=False)
 
     def _install_submodules(self, monkeypatch, returns):
-        """Routes call srv.manual_entry.foo(); those are real I/O too."""
-        for mod_name in self.SUBMODULES:
-            module = getattr(server, mod_name, None)
-            if not isinstance(module, types.ModuleType):
-                continue
+        """Routes call manual_entry.foo() / statement_review.foo(); real I/O too."""
+        for path in self.SUBMODULES:
+            module = importlib.import_module(path)
+            short = path.rsplit('.', 1)[-1]
             for attr in dir(module):
                 if attr.startswith('__'):
                     continue
                 if inspect.isfunction(getattr(module, attr, None)):
-                    key = f'{mod_name}.{attr}'
+                    key = f'{short}.{attr}'
                     monkeypatch.setattr(module, attr, self._stub(key, returns))
+
+    def _install_direct_services(self, monkeypatch, returns):
+        """Stub the owning module for every name the ladders import directly."""
+        for path, names in DIRECT_SERVICES.items():
+            module = importlib.import_module(path)
+            for attr in names:
+                if not inspect.isfunction(getattr(module, attr, None)):
+                    continue
+                monkeypatch.setattr(module, attr, self._stub(attr, returns))
 
     def _stub(self, name, returns):
         def stub(*args, **kwargs):

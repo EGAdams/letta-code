@@ -413,14 +413,24 @@ def test_a_manual_success_clears_a_previously_failed_cache(monkeypatch):
 
 @pytest.mark.parametrize('name', [
     'SSH_CONNECTIONS', 'SSH_HEALTH_POLL_INTERVAL', '_ssh_poll_loop',
-    'cached_ssh_health', 'connection_log_rows', 'get_ssh_connection',
 ])
 def test_server_re_exports_the_owning_modules_object(name):
+    """What is left is what server.py itself uses: the roster it renders the
+    tab from, and the poll loop it starts a thread for."""
     assert getattr(server, name) is getattr(ssh_checks, name)
 
 
-def test_server_re_exports_run_manual_test_under_its_route_facing_name():
-    assert server.run_manual_ssh_test is ssh_checks.run_manual_test
+@pytest.mark.parametrize('name', [
+    'cached_ssh_health', 'connection_log_rows', 'get_ssh_connection',
+    'run_manual_ssh_test',
+])
+def test_the_names_only_the_ssh_routes_used_are_gone(name):
+    """Round 12: the four SSH-tab routes import these from ssh_checks. The
+    last of them, `run_manual_ssh_test`, was an *alias* — server.py renamed
+    `run_manual_test` on the way past purely to give a route a nicer word.
+    That is the re-export tax paying interest, and the route now calls the
+    real name."""
+    assert not hasattr(server, name)
 
 
 @pytest.mark.parametrize('name', [

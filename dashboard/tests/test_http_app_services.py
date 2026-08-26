@@ -45,9 +45,12 @@ class TestLateBinding:
         assert (first, srv.LETTA_BASE_URL) == ('http://first', 'http://second')
 
     def test_modules_reached_through_server_still_work(self):
-        # Routes call things like srv.manual_entry.<fn> and srv.statement_review.<fn>.
+        # Routes still reach a few modules *through* server; `manual_entry` is
+        # one server.py uses itself. `statement_review` was reached this way
+        # too until round 12 pointed both ladders at the module directly, so
+        # server.py no longer imports it at all.
         assert srv.manual_entry is server.manual_entry
-        assert srv.statement_review is server.statement_review
+        assert not hasattr(server, 'statement_review')
 
     def test_mutable_module_state_is_shared_not_copied(self):
         # e.g. srv._scan_dispatch_claims must be the *same* dict server mutates.

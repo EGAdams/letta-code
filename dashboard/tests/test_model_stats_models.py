@@ -82,8 +82,11 @@ class TestTheSourceRegistry:
         assert by_key['w11-claude'].host is None
         assert by_key['r46-claude'].host == sources.R46_SSH_HOST
 
-    def test_the_registry_is_still_reachable_through_server(self):
-        assert server.MODEL_STAT_SOURCES is sources.MODEL_STAT_SOURCES
+    def test_the_registry_is_read_from_its_owner_not_through_server(self):
+        """Round 12: GET /api/model-stats-sources imports this from
+        model_stats.sources, so the re-export that only existed for `srv.` is
+        gone. A test still reaching for it would be aiming at nothing."""
+        assert not hasattr(server, 'MODEL_STAT_SOURCES')
 
 
 class TestUsageWindowPayload:

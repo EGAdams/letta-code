@@ -470,10 +470,17 @@ class TestServerWiring:
             f'patch while the real one keeps running')
 
     @pytest.mark.parametrize('name', [
-        'WIN10_CONTAINERS', 'win10_node_health', 'win10_container_states',
-        'container_status_for', 'win10_docker_ok', 'ensure_win10_docker',
+        'win10_node_health', 'win10_docker_ok', 'ensure_win10_docker',
     ])
-    def test_the_names_http_app_and_the_registries_use_are_still_reachable(self, name):
-        """http_app/get_routes.py reaches these through `srv`, so dropping one
-        would break a route with the suite still green."""
+    def test_the_names_the_registries_use_are_still_reachable(self, name):
+        """server.py's HEALTH_CHECKS and RESTART_HANDLERS name these, so
+        dropping one would break a button with the suite still green."""
         assert getattr(server, name) is getattr(win10_node, name)
+
+    @pytest.mark.parametrize('name', [
+        'WIN10_CONTAINERS', 'win10_container_states', 'container_status_for'])
+    def test_the_names_only_the_server_health_route_used_are_gone(self, name):
+        """Round 12: GET /api/server-health imports these from
+        monitoring.win10_node directly. They were in server.py so the route
+        could say `srv.<name>`; nothing in server.py ever called them."""
+        assert not hasattr(server, name)

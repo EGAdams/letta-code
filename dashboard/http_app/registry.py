@@ -24,6 +24,7 @@ ladders with ~170. When round 22 moves the scanner hardware into its own
 module, this adapter is what changes: the routes do not.
 """
 import importlib
+import os
 import sys
 from dataclasses import dataclass
 from typing import Optional
@@ -49,15 +50,14 @@ class _ServerScannerPort:
         return _server().SCANNER_IMAGE_URL_PREFIX
 
     def image_path(self, key: str) -> Optional[str]:
-        srv = _server()
-        spec = srv.SCANNERS.get(key)
+        module = _server()
+        spec = module.SCANNERS.get(key)
         if not spec:
             return None
         output = spec.get('output')
         if not output:
             return None
-        import os
-        return os.path.join(srv.SCAN_TOOLS_DIR, output)
+        return os.path.join(module.SCAN_TOOLS_DIR, output)
 
     def status(self, key: str) -> dict:
         return _server().scanner_status(key)

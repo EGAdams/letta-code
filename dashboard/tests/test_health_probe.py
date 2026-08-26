@@ -166,8 +166,12 @@ class TestNamingTheFailure:
         assert classify_failure('429 rate limited; request timed out')[0] == 'rate_limit'
 
     def test_it_has_one_definition(self):
-        """Five checks call it, so it lives beside none of them."""
-        assert server.classify_failure is classify_failure
+        """Five checks call it, so it lives beside none of them — and since
+        round 12, nothing re-exports it either. GET /api/server-health now
+        imports it from here, so `server.classify_failure` is the wrong patch
+        target as well as an absent one."""
+        assert classify_failure.__module__ == 'health.failures'
+        assert not hasattr(server, 'classify_failure')
 
 
 class TestThePatchTargetTrap:

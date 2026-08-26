@@ -199,5 +199,11 @@ class TestRoundTrip:
 class TestServerReExports:
     @pytest.mark.parametrize('name', [
         'ws_accept_key', 'ws_encode_frame', 'ws_read_frame'])
-    def test_the_historical_name_still_resolves(self, name):
-        assert getattr(server, name) is getattr(ws, name)
+    def test_the_historical_name_is_gone_from_server(self, name):
+        """These live in http_app/websocket.py and their only caller is
+        http_app/terminal_ws.py — one package away. Routing that through
+        `server` was the tax at its most absurd: a name imported into server.py
+        so that a sibling module could reach back for it. Round 12 deleted the
+        detour."""
+        assert getattr(ws, name).__module__ == 'http_app.websocket'
+        assert not hasattr(server, name)

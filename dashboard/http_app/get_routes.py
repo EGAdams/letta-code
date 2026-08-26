@@ -9,7 +9,25 @@ import os
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, unquote, urlparse
 
+# Names whose owning module is not server.py are imported from that module, not
+# reached through `srv`. Modules rather than names, so a test still monkeypatches
+# the owner (rule 3) and a runtime rebind is still seen — `from x import f` would
+# snapshot f here and quietly neuter both.
+import codex_sync_status
+import document_annotation
+import model_stats_mute
+import statement_review
+from health import failures, frita
+from model_stats import reader as model_stats_reader
+from model_stats.sources import MODEL_STAT_SOURCES
+from monitoring import log_files, pc_metrics, server_lifecycle, ssh_checks, win10_node
+from monitoring.pc_metrics import PC_MONITORS
+from monitoring.ssh_checks import SSH_CONNECTIONS
+from monitoring.win10_node import WIN10_CONTAINERS
+from paths import HERE, REPO_ROOT
+
 from . import services as srv
+from .registry import current_ports
 from .static_files import resolve_static_asset
 
 
@@ -47,7 +65,7 @@ class GetRoutesMixin:
                 srv.model_stats_agents_payload(force_refresh=query.get('refresh', ['0'])[0] == '1'))
 
         if path == '/api/claude-sdk-account':
-            return self.json_response(srv.claude_sdk_account_payload())
+            return self.json_response(frita.claude_sdk_account_payload())
 
         if path == '/api/router-agent':
             from router.classify import build_router_strategy
@@ -86,18 +104,18 @@ class GetRoutesMixin:
         if path == '/api/model-stats-sources':
             return self.json_response([
                 {'key': k, 'label': v.label, 'kind': v.kind}
-                for k, v in srv.MODEL_STAT_SOURCES.items()
+                for k, v in MODEL_STAT_SOURCES.items()
             ])
 
         if path == '/api/model-stats':
             src = query.get('source', [''])[0]
-            return self.json_response(srv.apply_mute_overlay(srv.model_stats(src), src))
+            return self.json_response(model_stats_mute.apply_mute_overlay(model_stats_reader.model_stats(src), src))
 
         if path == '/api/mazda-mode':
             return self.json_response(srv.mazda_mode_status())
 
         if path == '/api/codex-sync-status':
-            return self.json_response(srv.codex_sync_status().model_dump(mode='json'))
+            return self.json_response(codex_sync_status.codex_sync_status().model_dump(mode='json'))
 
         if path == '/api/chatgpt-provider-account-status':
             return self.json_response(srv.get_chatgpt_provider_account_status().model_dump(mode='json'))
@@ -105,11 +123,11 @@ class GetRoutesMixin:
         if path == '/api/pc-monitors':
             return self.json_response([
                 {'key': k, 'label': v.label, 'note': v.note}
-                for k, v in srv.PC_MONITORS.items()
+                for k, v in PC_MONITORS.items()
             ])
 
         if path == '/api/pc-metrics':
-            return self.json_response(srv.pc_metrics(query.get('pc', [''])[0]))
+            return self.json_response(pc_metrics.pc_metrics(query.get('pc', [''])[0]))
 
         if path == '/api/agent-card':
             agent = next((a for a in srv.build_agent_list()
@@ -194,11 +212,11 @@ class GetRoutesMixin:
                 if has_active_check:
                     health = srv.cached_server_health(cfg)
                 elif cfg.get('log_file'):
-                    health = srv.log_activity_health(cfg)
+                    health = log_files.log_activity_health(cfg)
 
                 if health is not None and health.get('ok'):
                     # A real "up" always wins — flip out of the starting window.
-                    srv.clear_server_starting(key)
+                    server_lifecycle.clear_server_starting(key)
                 # Same classifier the detail panel uses (server_status_kind) so the
                 # tab and the opened page never disagree.
                 status = srv.server_status_kind(cfg, health)
@@ -212,8 +230,8 @@ class GetRoutesMixin:
                 dep = cfg.get('depends_on')
                 blocked_by = dep if (dep and status_by_key.get(dep) not in (None, 'up')) else None
 
-                down_for, stale = srv.track_down_duration(key, status)
-                _fc = srv.classify_failure((health or {}).get('text', '')) if status != 'up' else None
+                down_for, stale = server_lifecycle.track_down_duration(key, status)
+                _fc = failures.classify_failure((health or {}).get('text', '')) if status != 'up' else None
                 entry = {
                     'key': key,
                     'name': cfg['name'],
@@ -228,10 +246,10 @@ class GetRoutesMixin:
                     entry['failure_class'] = _fc[0]
                 # Indicator #2: attach the Docker container status (exit code /
                 # restart count) for Win10-hosted servers when they're not up.
-                if key in srv.WIN10_CONTAINERS and status != 'up':
+                if key in WIN10_CONTAINERS and status != 'up':
                     if container_states[0] is None:
-                        container_states[0] = srv.win10_container_states()
-                    cs = srv.container_status_for(key, container_states[0])
+                        container_states[0] = win10_node.win10_container_states()
+                    cs = win10_node.container_status_for(key, container_states[0])
                     if cs:
                         entry['container_status'] = cs
                 result['servers'].append(entry)
@@ -318,11 +336,11 @@ class GetRoutesMixin:
         if path == '/api/statement-reviews':
             return self.json_response({
                 'ok': True,
-                'reviews': srv.statement_review.list_reviews(),
+                'reviews': statement_review.list_reviews(),
             })
 
         if path == '/api/statement-review-document':
-            fp = srv.statement_review.review_document_path(
+            fp = statement_review.review_document_path(
                 query.get('id', [''])[0])
             if fp:
                 ext = os.path.splitext(fp)[1].lower()
@@ -359,15 +377,15 @@ class GetRoutesMixin:
         if path == '/api/ssh-connections':
             return self.json_response([
                 {'key': c['key'], 'name': c['name'], 'note': c.get('note', '')}
-                for c in srv.SSH_CONNECTIONS
+                for c in SSH_CONNECTIONS
             ])
 
         if path == '/api/ssh-connection-health':
             # Overall SSH health: a real `ssh ... echo CONNECTED` round trip per
             # connection. "down" means SSH itself is broken to that host.
             result = {'connections': [], 'all_up': True, 'any_down': False}
-            for cfg in srv.SSH_CONNECTIONS:
-                h = srv.cached_ssh_health(cfg)
+            for cfg in SSH_CONNECTIONS:
+                h = ssh_checks.cached_ssh_health(cfg)
                 status = 'up' if h.get('ok') else 'down'
                 result['connections'].append({'key': cfg['key'], 'name': cfg['name'], 'status': status})
                 if status == 'down':
@@ -377,21 +395,21 @@ class GetRoutesMixin:
 
         if path == '/api/ssh-connection-logs':
             key = query.get('conn', [''])[0]
-            cfg = srv.get_ssh_connection(key)
+            cfg = ssh_checks.get_ssh_connection(key)
             if not cfg:
                 return self.json_response({'status': {'ok': False, 'text': 'unknown connection'}, 'rows': []})
-            return self.json_response({'status': srv.cached_ssh_health(cfg),
-                                       'rows': srv.connection_log_rows(key)})
+            return self.json_response({'status': ssh_checks.cached_ssh_health(cfg),
+                                       'rows': ssh_checks.connection_log_rows(key)})
 
         if path == '/api/ssh-connection-test':
             key = query.get('conn', [''])[0]
-            cfg = srv.get_ssh_connection(key)
+            cfg = ssh_checks.get_ssh_connection(key)
             if not cfg:
                 return self.json_response({'ok': False, 'text': 'unknown connection'})
-            return self.json_response(srv.run_manual_ssh_test(cfg))
+            return self.json_response(ssh_checks.run_manual_test(cfg))
 
         if path == '/' or path == '':
-            return self.serve_file(os.path.join(srv.HERE, 'dashboard.html'), 'text/html')
+            return self.serve_file(os.path.join(HERE, 'dashboard.html'), 'text/html')
 
         if path == srv.ROL_FINANCES_PLAN_PATH:
             return self.serve_file(srv.ROL_FINANCES_PLAN_FILE, 'text/html')
@@ -465,11 +483,12 @@ class GetRoutesMixin:
             return
 
         if path == '/api/scanner-status':
-            return self.json_response(srv.scanner_status(query.get('scanner', [''])[0]))
+            return self.json_response(
+                current_ports().scanner.status(query.get('scanner', [''])[0]))
 
         if path == '/api/scanner-diagnostics':
             return self.json_response(
-                srv.scanner_diagnostics(query.get('scanner', [''])[0]))
+                current_ports().scanner.diagnostics(query.get('scanner', [''])[0]))
 
         if path == '/api/scanner-intake-status':
             key = query.get('scanner', [''])[0]
@@ -479,14 +498,11 @@ class GetRoutesMixin:
                 return self.json_response({'ok': True, 'status': status})
             return self.json_response({'ok': True, 'status': 'idle'})
 
-        if path == srv.SCANNER_IMAGE_URL_PREFIX:
-            key = query.get('scanner', [''])[0]
-            cfg = srv.SCANNERS.get(key)
-            if cfg:
-                fp = os.path.join(srv.SCAN_TOOLS_DIR, cfg['output'])
-                if os.path.isfile(fp):
-                    ctype = 'image/jpeg' if fp.endswith(('.jpg', '.jpeg')) else 'image/png'
-                    return self.serve_file(fp, ctype)
+        if path == current_ports().scanner.image_url_prefix:
+            fp = current_ports().scanner.image_path(query.get('scanner', [''])[0])
+            if fp and os.path.isfile(fp):
+                ctype = 'image/jpeg' if fp.endswith(('.jpg', '.jpeg')) else 'image/png'
+                return self.serve_file(fp, ctype)
             self.send_error(404)
             return
 
@@ -557,7 +573,7 @@ class GetRoutesMixin:
                         os.path.basename(document_path) + '.html',
                     )
                     try:
-                        document_path = srv.render_excel_for_browser(
+                        document_path = document_annotation.render_excel_for_browser(
                             document_path, browser_path)
                         ext = '.html'
                     except Exception as exc:
@@ -580,7 +596,7 @@ class GetRoutesMixin:
             return
 
         if path.startswith('/'):
-            asset = resolve_static_asset(path, (srv.HERE, srv.REPO_ROOT))
+            asset = resolve_static_asset(path, (HERE, REPO_ROOT))
             if asset:
                 return self.serve_file(asset)
 

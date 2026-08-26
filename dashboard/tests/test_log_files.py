@@ -237,12 +237,13 @@ class TestServerWiring:
         assert [r['text'] for r in out['rows']] == ['one']
 
     def test_only_the_still_called_names_are_pulled_back_into_server(self):
-        """server.py imports back exactly what it or a `srv.` route calls:
-        `log_activity_health` (GET /api/server-health) and `_trim_log_cache`
-        (the Letta remote-log pull). The rest is read from here, so a stale
-        re-export cannot drift away from the real definition."""
-        assert server.log_activity_health is log_files.log_activity_health
+        """server.py imports back exactly what *it* calls: `_trim_log_cache`,
+        for the Letta remote-log pull. `log_activity_health` used to be here
+        too, purely so GET /api/server-health could say `srv.log_activity_health`
+        — round 12 pointed that route at this module and the re-export went with
+        it. The rest is read from here, so a stale re-export cannot drift away
+        from the real definition."""
         assert server._trim_log_cache is log_files.trim_log_cache
-        for gone in ('tail_lines', '_format_age', 'SERVER_LOG_TAIL',
-                     'LOG_ACTIVITY_WINDOW'):
+        for gone in ('log_activity_health', 'tail_lines', '_format_age',
+                     'SERVER_LOG_TAIL', 'LOG_ACTIVITY_WINDOW'):
             assert not hasattr(server, gone), f'{gone} re-export is dead weight'

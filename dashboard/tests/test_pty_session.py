@@ -226,7 +226,13 @@ def _clock():
 
 
 class TestServerReExports:
-    @pytest.mark.parametrize('name', [
-        '_terminal_spawn_shell', '_terminal_reap', '_session_pids'])
-    def test_the_historical_name_still_resolves(self, name):
-        assert getattr(server, name) is getattr(ptys, name)
+    def test_the_one_name_server_itself_still_calls_resolves(self):
+        assert server._session_pids is ptys._session_pids
+
+    @pytest.mark.parametrize('name', ['_terminal_spawn_shell', '_terminal_reap'])
+    def test_the_names_only_the_websocket_used_are_gone(self, name):
+        """Round 12: http_app/terminal_ws.py imports the pty verbs from here.
+        server.py never called either one — it held them so the mixin could say
+        `srv._terminal_spawn_shell`, which is the re-export tax the ports
+        mechanism exists to stop paying."""
+        assert not hasattr(server, name)

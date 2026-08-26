@@ -287,9 +287,18 @@ class TestThePatchTargetTrap:
 
 class TestServerReExports:
     @pytest.mark.parametrize('name', [
-        'pc_metrics', 'PC_MONITORS', 'build_pc_metrics',
-        'parse_pc_metrics_output', 'pc_metrics_collector_command',
+        'build_pc_metrics', 'parse_pc_metrics_output',
+        'pc_metrics_collector_command',
         'PC_ALERT_THRESHOLDS', 'PC_NET_CAPACITY_MBPS', 'PC_METRICS_CACHE_TTL',
     ])
     def test_the_historical_name_still_resolves(self, name):
         assert getattr(server, name) is getattr(pc, name)
+
+    @pytest.mark.parametrize('name', ['pc_metrics', 'PC_MONITORS'])
+    def test_the_names_only_the_pc_tab_used_are_gone(self, name):
+        """Round 12: GET /api/pc-metrics and /api/pc-monitors import these from
+        monitoring.pc_metrics, so server.py held them for nobody. Patch here,
+        not there — `monkeypatch.setattr(server, 'pc_metrics', ...)` would now
+        raise, which is the friendly failure; before round 12 it silently
+        patched a name the route had already read."""
+        assert not hasattr(server, name)

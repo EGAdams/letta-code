@@ -20,6 +20,9 @@ import server
 # the live account while the test looked like it had stubbed it.
 from health import document_vision as _docvision
 from health import frita as _frita
+from health.failures import classify_failure
+from http_app import websocket as _ws
+from model_stats.sources import MODEL_STAT_SOURCES
 from letta_code import runner as _letta_runner
 from monitoring import pc_metrics as _pc
 from model_stats import reader as _stats_reader
@@ -948,7 +951,7 @@ def test_frita_executor_health_concern_flag_set_on_ghost(monkeypatch):
 
 
 def test_model_stats_sources_cover_w11_r46_gemini():
-    keys = set(server.MODEL_STAT_SOURCES)
+    keys = set(MODEL_STAT_SOURCES)
     assert {'w11-codex', 'r46-codex', 'w11-claude', 'r46-claude', 'gemini'} <= keys
 
 
@@ -1284,13 +1287,13 @@ def test_run_letta_headless_uses_same_working_message_path(monkeypatch):
 
 
 def test_classify_failure_distinguishes_classes():
-    assert server.classify_failure('llm_error: HTTP Error 404: Not Found')[0] == 'not_found'
-    assert server.classify_failure('HTTP 429 too many requests')[0] == 'rate_limit'
-    assert server.classify_failure('urlopen error timed out')[0] == 'timeout'
-    assert server.classify_failure('connection refused')[0] == 'refused'
-    assert server.classify_failure('HTTP 401 Unauthorized')[0] == 'auth'
+    assert classify_failure('llm_error: HTTP Error 404: Not Found')[0] == 'not_found'
+    assert classify_failure('HTTP 429 too many requests')[0] == 'rate_limit'
+    assert classify_failure('urlopen error timed out')[0] == 'timeout'
+    assert classify_failure('connection refused')[0] == 'refused'
+    assert classify_failure('HTTP 401 Unauthorized')[0] == 'auth'
     # the bug we fixed: a 404 must NOT be labelled rate-limited
-    assert server.classify_failure('HTTP Error 404')[1] != 'rate-limited'
+    assert classify_failure('HTTP Error 404')[1] != 'rate-limited'
 
 
 def test_classify_scan_result_busy():
@@ -3924,7 +3927,7 @@ def test_fetch_month_status_green_when_no_expenses(monkeypatch):
 
 def test_ws_accept_key_matches_rfc6455_example():
     # The canonical example from RFC 6455 §1.3.
-    assert server.ws_accept_key('dGhlIHNhbXBsZSBub25jZQ==') == \
+    assert _ws.ws_accept_key('dGhlIHNhbXBsZSBub25jZQ==') == \
         's3pPLMBiTxaQ9kYGzzhZRbK+xOo='
 
 
@@ -3934,13 +3937,13 @@ def test_ws_frame_roundtrip_unmasks_client_data():
     mask = bytes([0x11, 0x22, 0x33, 0x44])
     masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
     frame = bytes([0x81, 0x80 | len(payload)]) + mask + masked  # FIN+text, masked
-    opcode, data = server.ws_read_frame(io.BytesIO(frame))
+    opcode, data = _ws.ws_read_frame(io.BytesIO(frame))
     assert opcode == 0x1
     assert data == payload
 
 
 def test_ws_encode_frame_sets_fin_and_binary_opcode():
-    out = server.ws_encode_frame(b'hello')
+    out = _ws.ws_encode_frame(b'hello')
     assert out[0] == 0x82          # FIN + binary opcode
     assert out[1] == 5             # unmasked, len 5
     assert out[2:] == b'hello'
@@ -4095,7 +4098,7 @@ def test_parse_pc_metrics_output_reads_all_three_sections():
 
 
 def test_pc_metrics_collector_uses_powershell_for_windows_ram():
-    command = server.pc_metrics_collector_command(server.PC_MONITORS['win11'])
+    command = server.pc_metrics_collector_command(_pc.PC_MONITORS['win11'])
     assert server._WINDOWS_POWERSHELL in command
     assert 'Get-CimInstance Win32_OperatingSystem' in command
     assert 'TotalVisibleMemorySize' in command
@@ -4104,7 +4107,7 @@ def test_pc_metrics_collector_uses_powershell_for_windows_ram():
 
 
 def test_pc_metrics_collector_keeps_proc_memory_for_linux():
-    command = server.pc_metrics_collector_command(server.PC_MONITORS['moms46'])
+    command = server.pc_metrics_collector_command(_pc.PC_MONITORS['moms46'])
     assert "grep -E 'MemTotal|MemAvailable' /proc/meminfo" in command
     assert 'Get-CimInstance' not in command
 
@@ -4211,7 +4214,7 @@ def test_build_pc_metrics_counter_reset_falls_back_to_measuring():
 
 
 def test_pc_metrics_unknown_key():
-    out = server.pc_metrics('atari-2600')
+    out = _pc.pc_metrics('atari-2600')
     assert out['ok'] is False and out['alert'] is False
 
 
@@ -4228,7 +4231,7 @@ def test_pc_metrics_payload_and_alert_rollup(monkeypatch):
     monkeypatch.setattr(_pc, 'PC_ALERT_THRESHOLDS',
                         {'ram': 70.0, 'disk_free_warn_gb': 5.0,
                          'disk_free_crit_gb': 2.0, 'net': 80.0})
-    out = server.pc_metrics('win11')
+    out = _pc.pc_metrics('win11')
     assert out['ok'] is True and out['label'] == 'Windows 11'
     assert [m['key'] for m in out['metrics']] == ['ram', 'disk', 'net']
     assert out['alert'] is True                   # ram 75% ≥ lowered 70% threshold
@@ -4236,7 +4239,7 @@ def test_pc_metrics_payload_and_alert_rollup(monkeypatch):
     # Cached: a second call must not re-run the collector.
     monkeypatch.setattr(server.subprocess, 'run',
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError('collector re-ran')))
-    assert server.pc_metrics('win11') is out
+    assert _pc.pc_metrics('win11') is out
 
 
 def test_pc_metrics_crit_disk_rolls_up_red(monkeypatch):
@@ -4253,7 +4256,7 @@ def test_pc_metrics_crit_disk_rolls_up_red(monkeypatch):
         stderr = ''
 
     monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _R())
-    out = server.pc_metrics('win11')
+    out = _pc.pc_metrics('win11')
     assert out['ok'] is True and out['level'] == 'crit' and out['alert'] is True
     disk = next(m for m in out['metrics'] if m['key'] == 'disk')
     assert disk['level'] == 'crit'
@@ -4269,7 +4272,7 @@ def test_pc_metrics_collector_failure_is_reported(monkeypatch):
         stderr = 'ssh: connect to host timed out'
 
     monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _R())
-    out = server.pc_metrics('moms46')
+    out = _pc.pc_metrics('moms46')
     assert out['ok'] is False and out['alert'] is False
     assert 'timed out' in out['error']
 
@@ -4288,7 +4291,7 @@ def test_pc_metrics_failure_after_success_serves_stale_last_good(monkeypatch):
         stderr = ''
 
     monkeypatch.setattr(server.subprocess, 'run', lambda *a, **k: _Good())
-    good = server.pc_metrics('win10')
+    good = _pc.pc_metrics('win10')
     assert good['ok'] is True and 'stale' not in good
 
     _pc._pc_metrics_cache.clear()          # expire the cache, keep last-good
@@ -4297,7 +4300,7 @@ def test_pc_metrics_failure_after_success_serves_stale_last_good(monkeypatch):
         raise server.subprocess.TimeoutExpired(cmd='ssh', timeout=25)
 
     monkeypatch.setattr(server.subprocess, 'run', _boom)
-    out = server.pc_metrics('win10')
+    out = _pc.pc_metrics('win10')
     assert out['ok'] is True and out['stale'] is True
     assert 'timed out' in out['stale_error'] or 'timeout' in out['stale_error'].lower()
     assert [m['key'] for m in out['metrics']] == ['ram', 'disk', 'net']

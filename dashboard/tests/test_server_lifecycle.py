@@ -155,9 +155,14 @@ class TestSharedRegistry:
         assert not hasattr(server, 'SERVER_STALE_DOWN_SECONDS')
 
     def test_a_mark_through_server_is_visible_to_the_module(self):
+        """`mark_server_starting` stays on server.py because six restart paths
+        there call it. `clear_server_starting` had exactly one caller — GET
+        /api/server-health — so round 12 pointed that route at this module and
+        the re-export left with it."""
         server.mark_server_starting('executor')
         assert lifecycle.is_server_starting('executor') is True
-        server.clear_server_starting('executor')
+        assert not hasattr(server, 'clear_server_starting')
+        lifecycle.clear_server_starting('executor')
         assert lifecycle.is_server_starting('executor') is False
 
     def test_restart_handlers_still_open_the_window(self, monkeypatch):

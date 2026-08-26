@@ -18,6 +18,7 @@ import time
 import pytest
 
 import server
+from letta_ids import _TERMINAL_ID_RE
 from tests.http_app_harness import ServiceRecorder, start_server
 
 WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -425,11 +426,11 @@ class TestAgentGuard:
     ])
     def test_ids_failing_the_pattern_are_dropped(self, hostile):
         """Unit-level mirror of the guard, so every character class is covered."""
-        assert not server._TERMINAL_ID_RE.match(hostile)
+        assert not _TERMINAL_ID_RE.match(hostile)
 
     @pytest.mark.parametrize('ok', ['agent-123', 'Mazda_Trainer', 'abc', 'A-b_9'])
     def test_well_formed_ids_pass_the_pattern(self, ok):
-        assert server._TERMINAL_ID_RE.match(ok)
+        assert _TERMINAL_ID_RE.match(ok)
 
 
 # ==========================================================================

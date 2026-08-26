@@ -366,5 +366,6 @@ class TestServerReExport:
         assert getattr(server, attr) is SCRIPTS[name]
 
     def test_every_configured_source_has_a_kind_the_dashboard_handles(self):
-        assert {s.kind for s in server.MODEL_STAT_SOURCES.values()} == {
+        from model_stats.sources import MODEL_STAT_SOURCES
+        assert {s.kind for s in MODEL_STAT_SOURCES.values()} == {
             'codex', 'claude', 'gemini'}

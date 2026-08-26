@@ -14,6 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 import server
+from health.failures import classify_failure
 from monitoring import provider_usage as pu
 
 
@@ -34,7 +35,7 @@ def test_classify_codex_usage_flags_maxed_window_as_rate_limit():
     r = pu.classify_codex_usage(usage)
     assert r['ok'] is False
     assert r['text'].startswith('llm_rate_limit:')
-    assert server.classify_failure(r['text'])[1] == 'rate-limited'
+    assert classify_failure(r['text'])[1] == 'rate-limited'
 
 
 def test_classify_codex_usage_labels_a_weekly_primary_window_weekly():
@@ -203,7 +204,7 @@ def test_a_refused_payload_is_not_labelled_a_rate_limit(monkeypatch):
     monkeypatch.setattr(pu.urllib.request, 'urlopen', lambda *a, **k: _FakeResponse({'nope': 1}))
     r = pu.probe_usage_endpoint('http://x', {}, pu.classify_codex_usage)
     assert not r['text'].startswith('llm_rate_limit')
-    assert server.classify_failure(r['text'])[1] != 'rate-limited'
+    assert classify_failure(r['text'])[1] != 'rate-limited'
 
 
 def test_a_shape_error_still_names_the_field_that_broke(monkeypatch):
@@ -213,7 +214,7 @@ def test_a_shape_error_still_names_the_field_that_broke(monkeypatch):
         {'rate_limit': {'primary_window': {'reset_at': 1}}}))
     r = pu.probe_usage_endpoint('http://x', {}, pu.classify_codex_usage)
     assert 'primary_window.used_percent' in r['text']
-    assert server.classify_failure(r['text'])[1] != 'rate-limited'
+    assert classify_failure(r['text'])[1] != 'rate-limited'
 
 
 def test_shape_detail_drops_only_the_elements_that_would_mislabel_it():
@@ -233,7 +234,7 @@ def test_a_scrubbed_away_path_still_leaves_a_noun_in_the_message(monkeypatch):
     monkeypatch.setattr(pu.urllib.request, 'urlopen', lambda *a, **k: _FakeResponse({}))
     r = pu.probe_usage_endpoint('http://x', {}, pu.classify_codex_usage)
     assert r['text'] == 'usage payload not understood: the usage block: Field required'
-    assert server.classify_failure(r['text'])[1] != 'rate-limited'
+    assert classify_failure(r['text'])[1] != 'rate-limited'
 
 
 def test_a_401_is_an_auth_failure_not_a_rate_limit(monkeypatch):
