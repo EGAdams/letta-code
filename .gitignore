@@ -1,3 +1,6 @@
+# Windows/WSL download zone markers
+*:Zone.Identifier
+
 # Letta Code local settings
 .letta/settings.local.json
 .letta
