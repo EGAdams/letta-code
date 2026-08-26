@@ -259,6 +259,24 @@ class PostRoutesMixin:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(srv.edit_stored_expense(data))
 
+        # The other two things a Verified Transactions row can now ask for.
+        # Both are id-only asks: what to remove, and what to tax. The
+        # confirmation dialog and the tax rate live where each belongs -- the
+        # dialog in the browser, the rate in finance/sales_tax.py.
+        if path == '/api/expense-delete':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(srv.delete_stored_expense(data))
+
+        if path == '/api/expense-add-tax':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(srv.add_sales_tax_to_expense(data))
+
         if path == '/api/manual-receipt-entry-preview':
             try:
                 data = json.loads(body)

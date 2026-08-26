@@ -333,6 +333,22 @@ def test_transactions_table_marks_category_text_for_picker_updates():
     assert 'class="category-cell" data-category-cell="true">Food</td>' in html
 
 
+def test_transactions_table_adds_row_actions_and_hides_single_row_edit():
+    row = {'id': 7, 'cat_class': 'cat-food', 'vendor_key': 'v',
+           'description': 'Kroger', 'amount': '-1.00', 'date': '2025-06-01',
+           'reporting_category': 'Food', 'duplicate': False}
+    one = page.transactions_table_html([row])
+    assert 'data-vt-action="edit"' not in one
+    assert 'data-vt-action="delete">Delete</button>' in one
+    assert 'data-vt-action="add-tax">Add 6%</button>' in one
+    assert '<th class="vt-actions">Actions</th>' in one
+    assert 'class="vt-date"' in one
+
+    two = page.transactions_table_html([row, {**row, 'id': 8}])
+    assert two.count('data-vt-action="edit">Edit</button>') == 2
+    assert 'src="/js/implementation/verified-transaction-rows.js"' in two
+
+
 def test_render_intake_report_places_the_banner_and_omits_the_headline():
     html = page.render_intake_report(
         headline='scan_freezer.jpg',

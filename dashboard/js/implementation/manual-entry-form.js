@@ -77,12 +77,17 @@ import {
   summarizeMazdaMode,
 } from "../abstract/mazda-mode.interface.js";
 import {
+  manualEntryFormRegistry,
+  verifiedTransactionRowsRegistry,
+} from "../abstract/mounted-widget-registry.js";
+import {
   buildStatementEntryPayload,
   readStatementEntryResponse,
   summarizeExcludedStatementRows,
   summarizeStatementStore,
   validateStatementRow,
 } from "../abstract/statement-breakup.interface.js";
+import { indexAfterRemoval } from "../abstract/verified-transaction-actions.interface.js";
 import { mountTerminal } from "./detail-renderers.js";
 import { ExpenseEditDialog } from "./expense-edit-dialog.js";
 import { FetchHttpClient } from "./fetch-http-client.js";
@@ -482,6 +487,85 @@ export class ManualEntryForm {
 
     await this._loadDropdownOptions();
     this._renderCurrentItem();
+    // Published last, when every field and the item list are real: the
+    // Verified Transactions table's Edit / Delete buttons drive this form
+    // through the three methods below, and handing them a half-built form
+    // would let a click land before the inputs exist.
+    manualEntryFormRegistry.publish(this);
+  }
+
+  /**
+   * Show the item holding an already-stored expense, if this form has one.
+   *
+   * The Verified Transactions table's Edit button. The table's rows and this
+   * form's items are two views of the same findings (see
+   * intake_report_model.stored_findings), so "load row 2 into the dialog" is
+   * really "walk Prev/Next to whichever item carries that expense id" -- the
+   * readout between Prev and Next then says "Expense 2 of 3" by itself.
+   *
+   * @returns {boolean} whether the id was found on this page.
+   */
+  selectExpenseById(expenseId) {
+    const id = Number(expenseId);
+    const index = this.items.findIndex((item) => Number(item.expenseId) === id);
+    if (index < 0) return false;
+    this._captureCurrentItem();
+    this.currentIndex = index;
+    this._renderCurrentItem();
+    this._updateArchivePathPreview();
+    return true;
+  }
+
+  /**
+   * Drop the item holding an already-stored expense, after the row it mirrors
+   * has been deleted from the database.
+   *
+   * Prev/Next has to stay synchronised with what is actually left: a dialog
+   * still offering "Expense 3 of 3" for a row that no longer exists would
+   * save an edit to nothing. indexAfterRemoval decides where to land -- the
+   * one rule here that is worth a unit test, so it lives in
+   * ../abstract/verified-transaction-actions.interface.js.
+   *
+   * @returns {number} how many items remain on screen.
+   */
+  dropExpenseById(expenseId) {
+    const id = Number(expenseId);
+    const index = this.items.findIndex((item) => Number(item.expenseId) === id);
+    if (index < 0) return this.items.length;
+    if (index !== this.currentIndex) this._captureCurrentItem();
+    this.items.splice(index, 1);
+    const remaining = this.items.length;
+    this.currentIndex = indexAfterRemoval(this.currentIndex, index, remaining);
+    // Same floor _removeItem keeps: the list never empties, or the operator is
+    // left with a form that has no fields and no way back.
+    if (!remaining) {
+      this.items = [blankManualEntryFields()];
+      this.statementHeader = null;
+      this.statementExcludedRows = [];
+    }
+    this._renderCurrentItem();
+    this._updateArchivePathPreview();
+    return remaining;
+  }
+
+  /**
+   * Rewrite one item's amount after the server changed it underneath us.
+   *
+   * "Add 6%" writes through /api/expense-add-tax, so the stored row moves
+   * while this form is holding the old figure. Without this, a later Save All
+   * on that item would put the pre-tax amount back.
+   */
+  updateExpenseAmount(expenseId, totalAmount) {
+    const id = Number(expenseId);
+    const index = this.items.findIndex((item) => Number(item.expenseId) === id);
+    if (index < 0) return false;
+    if (index === this.currentIndex) this._captureCurrentItem();
+    this.items[index] = {
+      ...this.items[index],
+      totalAmount: formatAmountForDisplay(totalAmount),
+    };
+    if (index === this.currentIndex) this._renderCurrentItem();
+    return true;
   }
 
   async _searchExpensesByDate() {
@@ -807,7 +891,18 @@ export class ManualEntryForm {
 
   _addItem() {
     this._captureCurrentItem();
-    this.items.push(blankManualEntryFields());
+    // Another expense entered here belongs to this same receipt. Its date is
+    // therefore receipt metadata, not a second fact for the operator to type.
+    // Prefer the row currently in view, then any dated sibling (the current
+    // slot can be a newly-added blank row after a remove/add cycle).
+    const receiptDate =
+      this._currentItem()?.transactionDate ||
+      this.items.find((item) => item.transactionDate)?.transactionDate ||
+      "";
+    this.items.push({
+      ...blankManualEntryFields(),
+      transactionDate: receiptDate,
+    });
     this.currentIndex = this.items.length - 1;
     if (!this._archiveKindManuallySet) {
       this.archiveKind = defaultArchiveKind(this.items.length);
@@ -1120,6 +1215,7 @@ export class ManualEntryForm {
           ok: result.ok,
           error: result.ok ? null : describeEditResult(result),
           isUpdate: true,
+          record: result.record,
           vendorRemembered: result.vendorRemembered,
         };
       } catch (err) {
@@ -1184,6 +1280,24 @@ export class ManualEntryForm {
       // pipeline a second time.
       if (result.ok && result.expenseId) {
         this.items[i].expenseId = result.expenseId;
+      }
+      if (result.ok && result.record) {
+        const item = this.items[i];
+        const vendorKey =
+          item.knownVendorKey === NEW_VENDOR_OPTION
+            ? item.newVendorKey
+            : item.knownVendorKey;
+        if (result.isUpdate) {
+          verifiedTransactionRowsRegistry.current?.updateExpense(
+            result.record,
+            vendorKey,
+          );
+        } else {
+          verifiedTransactionRowsRegistry.current?.addExpense(
+            result.record,
+            vendorKey,
+          );
+        }
       }
       if (
         result.ok &&

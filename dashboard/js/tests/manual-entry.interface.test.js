@@ -210,6 +210,7 @@ describe("readSubmitResponse", () => {
       ok: true,
       expenseId: 9001,
       duplicate: false,
+      record: null,
       vendorRemembered: null,
     });
   });
@@ -226,6 +227,7 @@ describe("readSubmitResponse", () => {
       ok: true,
       expenseId: 9001,
       duplicate: false,
+      record: null,
       vendorRemembered: { remembered: true, vendorKey: "samaritans_purse" },
     });
   });

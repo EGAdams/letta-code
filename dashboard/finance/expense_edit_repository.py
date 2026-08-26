@@ -6,7 +6,11 @@ Two ports, each deliberately narrow:
   category taxonomy is "id -> label" and "label -> id". server.py owns the real
   taxonomy (``_reporting_category_for_id`` / ``_resolve_reporting_category``);
   passing the whole taxonomy in here would be a fat agreement for two lookups.
-* ``IExpenseRecordRepository`` — search stored rows, apply one correction.
+* ``IExpenseRecordRepository`` — search stored rows, read one, correct one,
+  remove one. Removal joined the port when the Verified Transactions table
+  grew a Delete button: a row that was never an expense (a payment line, a
+  misread) had no way off the page short of editing it into something
+  harmless, which left a wrong row in the reports either way.
 
 ``MySqlExpenseRecordRepository`` is the one concrete implementation. It reads
 through ``finance.expense_schema`` rather than naming optional columns
@@ -21,6 +25,7 @@ from typing import Any, Callable, Optional, Sequence
 
 from finance.expense_edit_model import (
     AMOUNT_MATCH_TOLERANCE,
+    ExpenseDeletion,
     ExpenseEdit,
     ExpenseEditResult,
     ExpenseNotFound,
@@ -35,6 +40,10 @@ from finance.http_coercion import as_optional_float, as_optional_int
 
 #: Columns the search reads only if the live table actually has them.
 OPTIONAL_COLUMNS = ('id_light',)
+#: The itemization link, probed separately from the SELECT list because it is
+#: never displayed -- a delete only needs to know whether this deployment can
+#: have line items hanging off the row it is about to remove.
+ITEMIZATION_COLUMN = 'parent_expense_id'
 #: Columns without which a row is not an expense at all.
 REQUIRED_COLUMNS = ('id', 'expense_date', 'amount', 'description', 'category_id')
 
@@ -49,6 +58,15 @@ class IExpenseRecordRepository(ABC):
     @abstractmethod
     def apply_edit(self, edit: ExpenseEdit) -> ExpenseEditResult:
         """Write one correction. Raises ExpenseNotFound for an unknown id."""
+
+    @abstractmethod
+    def read(self, expense_id: int) -> ExpenseRecord:
+        """One stored row. Raises ExpenseNotFound for an unknown id."""
+
+    @abstractmethod
+    def delete(self, expense_id: int) -> ExpenseDeletion:
+        """Remove one stored row (and its line items, where the deployment has
+        them). Returns what was removed. Raises ExpenseNotFound."""
 
 
 #: Escape character for LIKE patterns. Not backslash: under the
@@ -200,6 +218,50 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
             changed_fields=changed,
             warnings=linkage_warnings(before, changed),
         )
+
+    def read(self, expense_id: int) -> ExpenseRecord:
+        with self._connect() as cnx:
+            with cnx.cursor() as cur:
+                record, _ = self._read_one(cur, expense_id)
+        return record
+
+    def _line_item_ids(self, cur: Any, expense_id: int) -> tuple[int, ...]:
+        """The itemization rows filed under this expense, if this deployment
+        has itemization at all.
+
+        Probed rather than assumed for the same reason `id_light` is: a
+        narrower finance DB has no `parent_expense_id`, and naming it in a
+        DELETE would fail the whole statement on exactly the deployments that
+        cannot have children to begin with.
+        """
+        schema = self._probe.read(cur, (ITEMIZATION_COLUMN,))
+        if not schema.has(ITEMIZATION_COLUMN):
+            return ()
+        cur.execute(
+            f'SELECT id FROM expenses WHERE {ITEMIZATION_COLUMN} = %s',
+            (expense_id,))
+        return tuple(int(row['id']) for row in (cur.fetchall() or []))
+
+    def delete(self, expense_id: int) -> ExpenseDeletion:
+        """Remove the row, and any line items filed under it, in one commit.
+
+        Children go first and in the same transaction: half a delete leaves
+        line items pointing at a parent that no longer exists, which reads as
+        a data anomaly forever after and is invisible on every report that
+        rolls children up into their parent.
+        """
+        with self._connect() as cnx:
+            with cnx.cursor() as cur:
+                record, _ = self._read_one(cur, expense_id)
+                line_item_ids = self._line_item_ids(cur, expense_id)
+                if line_item_ids:
+                    placeholders = ','.join(['%s'] * len(line_item_ids))
+                    cur.execute(
+                        f'DELETE FROM expenses WHERE id IN ({placeholders})',
+                        line_item_ids)
+                cur.execute('DELETE FROM expenses WHERE id = %s', (expense_id,))
+                cnx.commit()
+        return ExpenseDeletion(record=record, line_item_ids=line_item_ids)
 
 
 def search_criteria_from_request(data: dict) -> ExpenseSearchCriteria:

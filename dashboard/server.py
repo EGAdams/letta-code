@@ -100,12 +100,14 @@ from finance.expense_edit_repository import (
     search_criteria_from_request,
 )
 from finance.report_page import ReportPageRoutes, ReportRowMatch
-from finance import archive_path, intake_report_model, intake_report_page, manual_entry, vendor_lookup
+from finance import (archive_path, intake_report_model, intake_report_page,
+                     manual_entry, sales_tax, vendor_lookup)
 from finance.intake_report_model import (
     META_EMPTY,
     document_type_label as _document_type_label,
     format_month_range as _format_month_range,
 )
+from finance.recent_report_image import RecentReportImageSynchronizer
 from finance.supporting_documents import (
     CallableIntakePageLookup,
     SupportingDocumentPageResolver,
@@ -1061,11 +1063,37 @@ def submit_manual_receipt_entry(data):
                           if not duplicate
                           else f'Matched an existing expense (id={expense_id}); not double-entered.'),
     })
+    record = {
+        'id': int(expense_id),
+        'transaction_date': entry.transaction_date,
+        'total_amount': entry.total_amount,
+        'description': entry.merchant_name,
+        'id_light': '',
+        'category_id': category_id,
+        'category_name': category_name,
+    } if expense_id is not None else None
+    image_sync = {'renamed': False}
+    if expense_id is not None:
+        try:
+            stored = _get_expense_edit_repository().read(int(expense_id))
+            record = records_as_json([stored])[0]
+        except Exception:  # noqa: BLE001 - retain the validated saved values
+            pass
+        image_sync = _synchronize_recent_report_image(
+            int(expense_id),
+            vendor_key=entry.vendor_key,
+            transaction_date=entry.transaction_date,
+            fallback_vendor_key=_vendor_prefix(
+                str((record or {}).get('id_light') or '')),
+            fallback_date=entry.transaction_date,
+        )
     return {
         'ok': True,
         'expense_id': expense_id,
         'duplicate': duplicate,
         'vendor_remembered': report.get('vendor_remembered'),
+        'record': record,
+        'image': image_sync,
     }
 
 
@@ -1119,6 +1147,23 @@ def _get_expense_edit_repository():
             _expense_edit_repository = MySqlExpenseRecordRepository(
                 lambda: _rol_get_connection(), taxonomy_category_namer())
     return _expense_edit_repository
+
+
+def _synchronize_recent_report_image(expense_id, **changes):
+    """Composition boundary for the archived-image naming policy."""
+    try:
+        with _recent_report_lock:
+            return RecentReportImageSynchronizer(
+                read_pointer=_read_recent_pointer_file,
+                write_pointer=_write_recent_pointer_file,
+                fetch_rows=_fetch_expenses_by_ids,
+            ).synchronize(expense_id, **changes)
+    except Exception as exc:  # noqa: BLE001 - the expense write already landed
+        return {
+            'renamed': False,
+            'warning': f'Expense saved, but its image could not be renamed: '
+                       f'{type(exc).__name__}: {exc}',
+        }
 
 
 def search_stored_expenses(data, repository=None):
@@ -1202,12 +1247,128 @@ def edit_stored_expense(data, repository=None, namer=None):
     # row and the receipt index key off -- drop the cached index so "View
     # Receipt" re-resolves against the new values, same as a fresh save does.
     _invalidate_receipt_index()
+    image_sync = _synchronize_recent_report_image(
+        expense_id,
+        vendor_key=str(data.get('vendor_key') or ''),
+        transaction_date=edit.transaction_date,
+        fallback_vendor_key=_vendor_prefix(result.record.id_light),
+        fallback_date=result.record.transaction_date,
+    )
+    warnings = list(result.warnings)
+    if image_sync.get('path'):
+        warnings = [warning for warning in warnings
+                    if 'receipt file on disk was not renamed' not in warning]
+    if image_sync.get('warning'):
+        warnings.append(image_sync['warning'])
+    return {
+        'ok': True,
+        'record': records_as_json([result.record])[0],
+        'changed_fields': list(result.changed_fields),
+        'warnings': warnings,
+        'vendor_remembered': vendor_remembered,
+        'image': image_sync,
+    }
+
+
+def delete_stored_expense(data, repository=None):
+    """POST /api/expense-delete: remove one stored row.
+
+    The Delete button on a Verified Transactions row. Deliberately narrower
+    than edit_stored_expense: the only thing an operator can say here is
+    *which* row, so the only thing to coerce is an id. Confirmation is the
+    browser's job (a dialog naming the merchant), not this function's -- a
+    request that reaches here has already been agreed to.
+    """
+    data = data or {}
+    repo = repository or _get_expense_edit_repository()
+    try:
+        expense_id = as_int(data.get('expense_id'), 'expense_id')
+    except ValueError as exc:
+        return {'ok': False, 'error': str(exc)}
+    if expense_id <= 0:
+        return {'ok': False, 'error': 'expense_id must be a positive row id'}
+    try:
+        deletion = repo.delete(expense_id)
+    except ExpenseNotFound as exc:
+        return {'ok': False, 'error': str(exc)}
+    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
+        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
+    # The receipt index keys off (date, amount) per row; a removed row must
+    # stop answering "View Receipt" for the file it used to claim.
+    _invalidate_receipt_index()
+    image_sync = _synchronize_recent_report_image(
+        expense_id, deleted=True,
+        fallback_vendor_key=_vendor_prefix(deletion.record.id_light),
+        fallback_date=deletion.record.transaction_date,
+    )
+    response = {'ok': True,
+        'record': records_as_json([deletion.record])[0],
+        'line_item_ids': list(deletion.line_item_ids)}
+    if image_sync.get('path') or image_sync.get('warning'):
+        response['image'] = image_sync
+    return response
+
+
+def add_sales_tax_to_expense(data, repository=None):
+    """POST /api/expense-add-tax: put sales tax back on one stored row.
+
+    The "Add 6%" button. The row is re-read here and the new amount computed
+    here rather than sent up from the browser, for two reasons that are really
+    the same reason: the rate is a fact about Michigan (finance/sales_tax.py
+    owns it, so it cannot drift between the page and the reports), and the
+    arithmetic is exact Decimal rather than a float multiply in a script tag.
+    The write then goes through the ordinary edit path, so a taxed row picks up
+    the same id_light linkage warning any other amount change earns.
+    """
+    data = data or {}
+    repo = repository or _get_expense_edit_repository()
+    try:
+        expense_id = as_int(data.get('expense_id'), 'expense_id')
+        # This endpoint is the concrete "Add 6%" command, not a general tax
+        # calculator.  Ignore no caller-controlled rate because allowing one
+        # would let the button's invariant be bypassed by a crafted request.
+        rate = sales_tax.MICHIGAN_SALES_TAX_RATE
+    except ValueError as exc:
+        return {'ok': False, 'error': str(exc)}
+    if expense_id <= 0:
+        return {'ok': False, 'error': 'expense_id must be a positive row id'}
+    try:
+        before = repo.read(expense_id)
+    except ExpenseNotFound as exc:
+        return {'ok': False, 'error': str(exc)}
+    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
+        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
+    taxed = sales_tax.with_sales_tax(before.total_amount, rate)
+    # Preserve the stored category id directly. Sending its display name back
+    # through today's taxonomy can reject an otherwise valid historical row
+    # after a category rename, even though this command changes only amount.
+    try:
+        result = repo.apply_edit(ExpenseEdit(
+            expense_id=expense_id,
+            merchant_name=before.description,
+            transaction_date=before.transaction_date,
+            total_amount=float(taxed),
+            category_id=before.category_id,
+        ))
+    except (ExpenseNotFound, ValidationError) as exc:
+        return {'ok': False, 'error': readable_validation_error(exc)}
+    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
+        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
+    _invalidate_receipt_index()
+    image_sync = _synchronize_recent_report_image(
+        expense_id,
+        fallback_vendor_key=_vendor_prefix(result.record.id_light),
+        fallback_date=result.record.transaction_date,
+    )
     return {
         'ok': True,
         'record': records_as_json([result.record])[0],
         'changed_fields': list(result.changed_fields),
         'warnings': list(result.warnings),
-        'vendor_remembered': vendor_remembered,
+        'tax_added': float(sales_tax.tax_on(before.total_amount, rate)),
+        'rate': float(rate),
+        'previous_amount': before.total_amount,
+        'image': image_sync,
     }
 
 

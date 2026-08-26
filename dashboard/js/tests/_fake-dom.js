@@ -186,6 +186,11 @@ export class FakeElement {
 export class FakeDocument {
   constructor() {
     this._all = [];
+    // A real page always has one. Code that mounts an overlay appends to it
+    // (see verified-transaction-rows.js's confirmation dialog), and without a
+    // body here that code could only be tested by not testing it.
+    this.body = new FakeElement("body", this);
+    this._all.push(this.body);
   }
   createElement(tag) {
     const el = new FakeElement(tag, this);

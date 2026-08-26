@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { verifiedTransactionRowsRegistry } from "../abstract/mounted-widget-registry.js";
 import { ManualEntryForm } from "../implementation/manual-entry-form.js";
 import { FakeDocument } from "./_fake-dom.js";
 
@@ -293,6 +294,67 @@ describe("ManualEntryForm multi-item navigation", () => {
     await form.mount();
     form._navigate(-1);
     expect(form.currentIndex).toBe(0);
+  });
+});
+
+describe("ManualEntryForm Verified Transactions synchronization", () => {
+  const findings = JSON.stringify([
+    {
+      merchant_name: "One",
+      transaction_date: "2026-08-01",
+      total_amount: 1,
+      category_name: "Food",
+      expense_id: 1,
+    },
+    {
+      merchant_name: "Two",
+      transaction_date: "2026-08-02",
+      total_amount: 2,
+      category_name: "Food",
+      expense_id: 2,
+    },
+    {
+      merchant_name: "Three",
+      transaction_date: "2026-08-03",
+      total_amount: 3,
+      category_name: "Food",
+      expense_id: 3,
+    },
+  ]);
+
+  test("Edit row 2 displays Expense 2 of 3 between Prev and Next", async () => {
+    const { form } = setup({ dataset: { mazdaFindings: findings } });
+    await form.mount();
+    expect(form.selectExpenseById(2)).toBe(true);
+    expect(form._positionEl.textContent).toContain("Expense 2 of 3");
+  });
+
+  test("deleting a row immediately updates count and keeps index valid", async () => {
+    const { form } = setup({ dataset: { mazdaFindings: findings } });
+    await form.mount();
+    form.selectExpenseById(2);
+    expect(form.dropExpenseById(1)).toBe(2);
+    expect(form.currentIndex).toBe(0);
+    expect(form._positionEl.textContent).toContain("Expense 1 of 2");
+    expect(form.items[0].expenseId).toBe(2);
+  });
+
+  test("Add 6% refreshes the selected dialog amount", async () => {
+    const { form } = setup({ dataset: { mazdaFindings: findings } });
+    await form.mount();
+    form.selectExpenseById(2);
+    expect(form.updateExpenseAmount(2, 2.12)).toBe(true);
+    expect(form.totalAmountInput.value).toBe("2.12");
+  });
+
+  test("Add Another Expense inherits this receipt's date", async () => {
+    const { form } = setup({ dataset: { mazdaFindings: findings } });
+    await form.mount();
+    form.selectExpenseById(2);
+    form._addItem();
+    expect(form.items).toHaveLength(4);
+    expect(form.transactionDateInput.value).toBe("2026-08-02");
+    expect(form._positionEl.textContent).toContain("Expense 4 of 4");
   });
 });
 
@@ -686,6 +748,112 @@ describe("ManualEntryForm._saveAll", () => {
       category_name: "Travel & Vehicle",
     });
     expect(form._statusEl.textContent).toContain("1 expense(s) updated");
+  });
+
+  test("Save All repaints the Verified Transactions row from the saved record", async () => {
+    const repaints = [];
+    verifiedTransactionRowsRegistry.publish({
+      updateExpense: (record, vendorKey) =>
+        repaints.push({ record, vendorKey }),
+    });
+    const http = fakeHttp({
+      "/api/vendor-keys": {
+        ok: true,
+        vendor_keys: [{ vendor_key: "meijer", category_name: "Food" }],
+      },
+      "/api/rol-finance-categories": { ok: true, categories: ["Food"] },
+      "/api/expense-edit": (body) => ({
+        ok: true,
+        record: {
+          id: body.expense_id,
+          description: body.merchant_name,
+          transaction_date: body.transaction_date,
+          total_amount: body.total_amount,
+          category_name: body.category_name,
+        },
+        changed_fields: ["amount"],
+        warnings: [],
+      }),
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    form.items = [
+      validItem({
+        expenseId: 2246,
+        merchantName: "Meijer",
+        transactionDate: "2025-07-14",
+        totalAmount: "26.50",
+        categoryName: "Food",
+        knownVendorKey: "meijer",
+      }),
+    ];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+
+    await form._saveAll();
+
+    expect(repaints).toHaveLength(1);
+    expect(repaints[0].record).toMatchObject({
+      id: 2246,
+      totalAmount: 26.5,
+      transactionDate: "2025-07-14",
+      description: "Meijer",
+      categoryName: "Food",
+    });
+    expect(repaints[0].vendorKey).toBe("meijer");
+    verifiedTransactionRowsRegistry.reset();
+  });
+
+  test("Save All immediately appends a newly inserted expense row", async () => {
+    const appended = [];
+    verifiedTransactionRowsRegistry.publish({
+      addExpense: (record, vendorKey) => appended.push({ record, vendorKey }),
+    });
+    const http = fakeHttp({
+      "/api/vendor-keys": {
+        ok: true,
+        vendor_keys: [{ vendor_key: "meijer", category_name: "Food" }],
+      },
+      "/api/rol-finance-categories": { ok: true, categories: ["Food"] },
+      "/api/manual-receipt-entry": (body) => ({
+        ok: true,
+        expense_id: 2301,
+        duplicate: false,
+        record: {
+          id: 2301,
+          description: body.merchant_name,
+          transaction_date: body.transaction_date,
+          total_amount: body.total_amount,
+          id_light: "meijer_07_14_25_11_25",
+          category_name: body.category_name,
+        },
+      }),
+    });
+    const { form } = setup({ http });
+    await form.mount();
+    form.items = [
+      validItem({
+        merchantName: "Meijer",
+        transactionDate: "2025-07-14",
+        totalAmount: "11.25",
+        categoryName: "Food",
+        knownVendorKey: "meijer",
+      }),
+    ];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+
+    await form._saveAll();
+
+    expect(appended).toHaveLength(1);
+    expect(appended[0].record).toMatchObject({
+      id: 2301,
+      totalAmount: 11.25,
+      transactionDate: "2025-07-14",
+    });
+    expect(form.items[0].expenseId).toBe(2301);
+    expect(form._positionEl.textContent).toContain("Expense 1 of 1");
+    verifiedTransactionRowsRegistry.reset();
   });
 
   test("a mix of new and seeded items routes each through the right endpoint", async () => {

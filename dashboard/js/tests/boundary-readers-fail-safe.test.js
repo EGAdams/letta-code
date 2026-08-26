@@ -41,6 +41,7 @@ import {
   readStatementBreakupResponse,
   readStatementEntryResponse,
 } from "../abstract/statement-breakup.interface.js";
+import { readRowActionResponse } from "../abstract/verified-transaction-actions.interface.js";
 
 /**
  * Everything a boundary hands back when something upstream has gone wrong: a
@@ -174,6 +175,21 @@ const READERS = [
   [
     "readCategoriesResponse invents categories",
     (v) => readCategoriesResponse(v).length > 0,
+    true,
+  ],
+  [
+    // Delete and Add 6% are both writes to a stored row. Reading a malformed
+    // answer as success would take the row off the table (and out of the
+    // review dialog's Prev/Next) while it is still in the database.
+    "readRowActionResponse.ok",
+    (v) => readRowActionResponse(v).ok,
+    true,
+  ],
+  [
+    // The amount the row redraws with comes from `record`. A junk response
+    // must leave the printed figure alone rather than paint an invented one.
+    "readRowActionResponse invents a record",
+    (v) => readRowActionResponse(v).record !== null,
     true,
   ],
   [

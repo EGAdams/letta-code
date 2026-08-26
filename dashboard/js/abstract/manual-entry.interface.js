@@ -269,6 +269,29 @@ export function readSubmitResponse(json) {
       ok: true,
       expenseId: typeof json.expense_id === "number" ? json.expense_id : null,
       duplicate: json.duplicate === true,
+      record:
+        typeof json.record === "object" && json.record !== null
+          ? {
+              id: Number(json.record.id),
+              transactionDate:
+                typeof json.record.transaction_date === "string"
+                  ? json.record.transaction_date
+                  : "",
+              totalAmount: Number(json.record.total_amount),
+              description:
+                typeof json.record.description === "string"
+                  ? json.record.description
+                  : "",
+              idLight:
+                typeof json.record.id_light === "string"
+                  ? json.record.id_light
+                  : "",
+              categoryName:
+                typeof json.record.category_name === "string"
+                  ? json.record.category_name
+                  : "",
+            }
+          : null,
       vendorRemembered: readVendorRememberedResponse(json.vendor_remembered),
     };
   }

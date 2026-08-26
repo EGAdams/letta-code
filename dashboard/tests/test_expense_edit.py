@@ -303,6 +303,29 @@ def test_edit_returns_the_corrected_record():
     assert record.category_name == 'Rosemary'
 
 
+def test_read_returns_one_expense_for_row_commands():
+    repo, _ = _repo([_row(amount=-12.34)])
+    record = repo.read(501)
+    assert record.id == 501
+    assert record.total_amount == pytest.approx(12.34)
+
+
+def test_delete_removes_the_expense_and_commits_once():
+    repo, connection = _repo([_row()])
+    deletion = repo.delete(501)
+    assert deletion.record.description == 'Kroger'
+    assert deletion.line_item_ids == ()
+    assert ('DELETE FROM expenses WHERE id = %s', (501,)) in connection.cur.executed
+    assert connection.commits == 1
+
+
+def test_delete_unknown_expense_never_commits():
+    repo, connection = _repo([])
+    with pytest.raises(ExpenseNotFound):
+        repo.delete(501)
+    assert connection.commits == 0
+
+
 # --------------------------------------------------------------------------
 # ExpenseEdit inherits the shared field rules
 # --------------------------------------------------------------------------
@@ -620,4 +643,3 @@ def test_the_amount_tolerance_is_bound_not_inlined():
     _clauses, params = _where_clauses(
         ExpenseSearchCriteria(amount=12.34), has_vendor_key=False)
     assert params == [12.34, 0.005]
-

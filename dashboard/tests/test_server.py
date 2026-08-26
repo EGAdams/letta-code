@@ -6844,8 +6844,11 @@ def test_submit_manual_receipt_entry_populates_expense_ids(tmp_path, monkeypatch
         'total_amount': 12.34,
     })
 
-    assert result == {'ok': True, 'expense_id': 9001, 'duplicate': False,
-                       'vendor_remembered': None}
+    assert result['ok'] is True
+    assert result['expense_id'] == 9001
+    assert result['duplicate'] is False
+    assert result['record']['transaction_date'] == '2026-08-15'
+    assert result['record']['total_amount'] == 12.34
     pointer = server._read_recent_pointer_file()
     intake = pointer['scanner_intakes']['Freezer Scanner']
     assert intake['expense_ids'] == [9001]
@@ -6950,8 +6953,9 @@ def test_submit_manual_receipt_entry_duplicate_does_not_double_enter(
         'total_amount': 12.34,
     })
 
-    assert result == {'ok': True, 'expense_id': 42, 'duplicate': True,
-                       'vendor_remembered': None}
+    assert result['ok'] is True
+    assert result['expense_id'] == 42
+    assert result['duplicate'] is True
     pointer = server._read_recent_pointer_file()
     intake = pointer['scanner_intakes']['Freezer Scanner']
     assert intake['duplicate_expense_ids'] == [42]

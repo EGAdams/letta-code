@@ -297,3 +297,101 @@ td.muted { padding:10px 12px; height:auto; }
     min-width:20ch;
     text-align:left;
 }
+
+/* ---------------------------------------------------------------------------
+   Verified Transactions rows: taller, with per-row actions.
+
+   The table is the operator's working surface, not a printout -- each row now
+   carries Edit / Delete / Add 6%, and 98.css's 14px data row has no space for
+   a button (its own min-height is 23px). Everything below derives from that
+   one vendor number so the relationship stays legible: --vt-row-height is the
+   "400% taller" ask expressed as a multiple of the row height it replaces.
+   --------------------------------------------------------------------------- */
+#verified-transactions {
+    /* 14px is 98.css's `table>tbody>tr>*` height -- the height these rows
+       actually had before. Change the multiplier, not the base. */
+    --vt-row-base: 14px;
+    --vt-row-height: calc(var(--vt-row-base) * 4);
+    /* "About 2 characters" narrower, in real characters: `ch` is the advance
+       width of this monospace face, so 2ch is exactly two columns of text. */
+    --vt-column-trim: 2ch;
+}
+#verified-transactions > tbody > tr > * {
+    height: var(--vt-row-height);
+    vertical-align: middle;
+}
+/* Amount and Date hold fixed-shape values ("-28.73", "2025-06-12"). Unlike
+   Description they gain nothing from the slack a 100%-wide table hands them,
+   so they are sized at their own content less two characters, half of which
+   comes off the vendor's 6px side padding. Nothing clips: under
+   table-layout:auto a declared width is floored at the column's min-content,
+   and 98.css keeps table text nowrap. */
+#verified-transactions th.number,
+#verified-transactions td.number {
+    width: calc(10ch - var(--vt-column-trim));
+    padding-left: 2px;
+    padding-right: 2px;
+}
+#verified-transactions th.vt-date,
+#verified-transactions td.vt-date {
+    width: calc(13ch - var(--vt-column-trim));
+    padding-left: 2px;
+    padding-right: 2px;
+}
+/* The actions cell sizes to its buttons and nothing more -- the width freed
+   from Amount and Date is what pays for it. */
+#verified-transactions th.vt-actions,
+#verified-transactions td.vt-actions {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+}
+/* The row itself opens the category picker (its inline onclick). A button
+   inside it is a different verb, so the cell must not read as part of the
+   row's own click target. */
+#verified-transactions td.vt-actions {
+    cursor: default;
+}
+/* The buttons live in their own flex box rather than the cell itself: a <td>
+   set to display:flex stops being a table-cell, and the column it belongs to
+   stops lining up with its header. */
+.vt-action-group {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-end;
+}
+/* min-width:0 drops 98.css's 75px button floor: three buttons at that floor
+   would take 240px of a table whose Description column needs every pixel, and
+   these labels are short enough to size themselves. */
+.vt-action {
+    min-width: 0;
+    padding: 0 10px;
+}
+
+/* The Delete confirmation. A real dialog rather than window.confirm(), whose
+   buttons say OK/Cancel and cannot be made to say Yes/Cancel, and which would
+   look nothing like the rest of this page. */
+.vt-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+}
+.vt-confirm-backdrop .window {
+    min-width: 320px;
+    max-width: min(90vw, 520px);
+}
+.vt-confirm-message {
+    margin: 0 0 14px;
+    font-family: "Courier New", Courier, monospace;
+    overflow-wrap: anywhere;
+}
+.vt-confirm-buttons {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}

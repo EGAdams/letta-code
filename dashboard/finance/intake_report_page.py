@@ -60,10 +60,49 @@ def archive_evidence_html(archive_path):
     return document_meta_html([('Archived Scan Image', _esc(archive_path))])
 
 
+#: The row actions, in the order they are drawn. Each is a plain <button>
+#: carrying only its verb -- everything it needs to act on (the id, the
+#: description) already sits on the <tr> as a data-* attribute, so the buttons
+#: stay identical from row to row and js/implementation/verified-transaction-
+#: rows.js reads the row rather than the button.
+ROW_ACTIONS = (
+    ('edit', 'Edit'),
+    ('delete', 'Delete'),
+    ('add-tax', 'Add 6%'),
+)
+
+#: "Edit" loads a row into the review dialog's Prev/Next list. With a single
+#: transaction on the page that dialog is already showing it -- "Expense 1 of
+#: 1" cannot go anywhere -- so the button would be a no-op wearing a verb.
+EDIT_NEEDS_SIBLINGS = 2
+
+
+def row_actions_html(*, show_edit=True):
+    """The actions cell: Edit / Delete / Add 6% for one row."""
+    buttons = ''.join(
+        '<button type="button" class="vt-action" data-vt-action="%s">%s</button>'
+        % (action, _esc(label))
+        for action, label in ROW_ACTIONS
+        if show_edit or action != 'edit')
+    # The buttons sit in their own box, not directly in the cell: a <td> set
+    # to display:flex stops being a table-cell and its column stops lining up
+    # with the header above it.
+    return ('<td class="vt-actions">'
+            '<div class="vt-action-group">%s</div></td>' % buttons)
+
+
 def transactions_table_html(rows, *, source_document_url='', empty_note=''):
     """The Verified Transactions table. `rows` are presentation rows (see
     intake_report_model.presentation_rows); an empty list still renders the
-    table, carrying `empty_note` so the page says why it is empty."""
+    table, carrying `empty_note` so the page says why it is empty.
+
+    Every row carries an actions cell. The buttons are inert markup here --
+    Python renders them and stops. Their behaviour (the confirm dialog, the
+    review dialog's Prev/Next, the tax call) is browser work and lives in
+    js/implementation/verified-transaction-rows.js, matching how the manual
+    entry form and the category picker already split.
+    """
+    show_edit = len(rows) >= EDIT_NEEDS_SIBLINGS
     trs = []
     for row in rows:
         badge = (' <strong class="duplicate-badge">DUPLICATE</strong>'
@@ -74,8 +113,8 @@ def transactions_table_html(rows, *, source_document_url='', empty_note=''):
             'data-vendor-key="%s" data-id-light="%s" data-description="%s" '
             'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
             'title="Click row to set category / view receipt">'
-            '<td>%s</td><td class="number">%s</td><td>%s</td>'
-            '<td class="category-cell" data-category-cell="true">%s</td></tr>' % (
+            '<td>%s</td><td class="number">%s</td><td class="vt-date">%s</td>'
+            '<td class="category-cell" data-category-cell="true">%s</td>%s</tr>' % (
                 row['cat_class'], ' duplicate-row' if row['duplicate'] else '',
                 ' has-receipt' if source_document_url else '',
                 row['id'],
@@ -89,16 +128,21 @@ def transactions_table_html(rows, *, source_document_url='', empty_note=''):
                 _esc(row['description']) + badge,
                 _esc(row['amount']), _esc(row['date']),
                 _esc(row['reporting_category']),
+                row_actions_html(show_edit=show_edit),
             ))
     body_rows = '\n'.join(trs) or (
-        '<tr><td colspan="4" class="muted">%s</td></tr>' % _esc(empty_note))
+        '<tr><td colspan="5" class="muted">%s</td></tr>' % _esc(empty_note))
     return ('  <div class="dialog-panel">\n'
             '  <h2>Verified Transactions</h2>\n'
             '  <table id="verified-transactions"><thead><tr>'
-            '<th>Description</th><th class="number">Amount</th><th>Date</th>'
-            '<th>Category</th></tr></thead><tbody>\n'
+            '<th>Description</th><th class="number">Amount</th>'
+            '<th class="vt-date">Date</th>'
+            '<th>Category</th><th class="vt-actions">Actions</th>'
+            '</tr></thead><tbody>\n'
             + body_rows + '\n</tbody></table>\n'
-            '  </div>\n')
+            '  </div>\n'
+            '<script type="module" '
+            'src="/js/implementation/verified-transaction-rows.js"></script>\n')
 
 
 def mazda_working_html(progress):

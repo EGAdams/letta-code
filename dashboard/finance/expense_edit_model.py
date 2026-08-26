@@ -139,6 +139,21 @@ class ExpenseEditResult(StrictModel):
     warnings: tuple[str, ...] = ()
 
 
+class ExpenseDeletion(StrictModel):
+    """What a Delete removed, so the browser can say so and re-sync itself.
+
+    The record is the row as it stood a moment before, not a bare id: the
+    confirmation names the merchant ("Deleted Kroger"), and the Verified
+    Transactions table has to drop the same row from the Prev/Next list the
+    review dialog is walking. `line_item_ids` is normally empty -- it is only
+    non-empty on a deployment with itemization, where deleting a parent takes
+    its line items with it and the operator deserves to be told how many.
+    """
+
+    record: ExpenseRecord
+    line_item_ids: tuple[int, ...] = ()
+
+
 class ExpenseNotFound(LookupError):
     """No `expenses` row carries the id an edit named."""
 
