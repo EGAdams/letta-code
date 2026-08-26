@@ -132,7 +132,7 @@
 <body><div class="page">
 
 <div class="hero">
-  <p class="kicker">Living Plan &middot; Retargeted 2026-08-26 &middot; Round 12 brief</p>
+  <p class="kicker">Living Plan &middot; Round 12 landed 2026-08-26 &middot; Round 13 brief</p>
   <h1>Cutting server.py to the Bone</h1>
   <p class="lede">
     The target has moved. <code>dashboard/server.py</code> is no longer being
@@ -140,40 +140,57 @@
     <strong>under 2,000 lines</strong>, and designed to land near 700. The
     method changes with it: stop carving off whichever cluster measures best
     this week, and instead dismantle the three structures that are holding
-    7,378 lines up. Many small Pydantic models. Many small JavaScript
+    7,500 lines up. Many small Pydantic models. Many small JavaScript
     interfaces. Patterns with names.
   </p>
+  <p class="lede">
+    <strong>Round 12 landed the first of the three.</strong> The routes no
+    longer reach into <code>server</code> for free names they happen to know
+    about; they depend on ports. That is why round 13 &mdash; the biggest
+    line-count win on the board &mdash; is now cheap.
+  </p>
   <div class="meta">
-    <span class="pill">11,407 &rarr; 7,378 lines</span>
+    <span class="pill">11,407 &rarr; 7,532 lines</span>
     <span class="pill amber">new target: &lt; 2,000</span>
-    <span class="pill green">2,978 tests passing</span>
-    <span class="pill">last landed: round 11 = 78c8b9fa</span>
+    <span class="pill green">3,048 tests passing</span>
+    <span class="pill">last landed: round 12 = 6c69a3f4</span>
+    <span class="pill">srv.: 220 &rarr; 147 sites</span>
   </div>
 </div>
 
 <div class="card">
   <h2 id="start">Start here</h2>
   <p>
-    You are picking up round 12. Do these five things before writing any code.
+    You are picking up <strong>round 13</strong>. Do these six things before
+    writing any code.
   </p>
   <ol>
     <li>Run the <strong>sync-all</strong> skill. Three boxes, one branch, and the
       dashboard you are changing is served from a machine you are probably not
-      typing on.</li>
-    <li>Read <a href="#diagnosis">The three structures</a> below. That is the
-      whole argument for why this plan changed shape; everything else follows
-      from it.</li>
-    <li>Read <a href="#round12">Round 12 in full</a>. It is the enabling round
-      and it is deliberately small. Do not skip it to grab an easier
-      line-count win &mdash; every round after it is cheaper because of it.</li>
+      typing on. <strong>Then run <code>git status</code> again when you are
+      about to commit.</strong> Round 12 was mid-flight when a concurrent agent
+      ran <code>git add -A</code> and swept two of its unfinished files into an
+      unrelated commit. Nothing was lost, but the tree is genuinely shared and
+      &ldquo;I checked at the start&rdquo; is not the same as &ldquo;it is still
+      true.&rdquo;</li>
+    <li>Read <a href="#round13">Round 13 in full</a>. It is the biggest
+      line-count win on the board (~530 lines) at near-zero behaviour risk, and
+      it is where &ldquo;many small models&rdquo; pays first.</li>
+    <li>Read <a href="#round12done">What round 12 actually did</a>. You will
+      be adding to the mechanism it built, and it left one trap that is
+      invisible until it bites: <code>DIRECT_SERVICES</code> in
+      <code>tests/http_app_harness.py</code>.</li>
+    <li>Read <a href="#diagnosis">The three structures</a>. The first is done;
+      the second is your round.</li>
     <li>Re-run the census (<a href="#census">the commands are here</a>) against
       whatever <code>server.py</code> actually is when you arrive. Every number
-      on this page is from <code>78c8b9fa</code> and every number on this page
-      will be stale for you.</li>
+      on this page is from <code>6c69a3f4</code> and every number on this page
+      will be stale for you &mdash; the file <em>grew</em> by 29 lines across
+      round 12 because a parallel feature landed in it at the same time.</li>
     <li>Read the <a href="#rules">standing rules</a>. Rules 1&ndash;11 were paid
-      for in production incidents; rules 12&ndash;17 are new this round and
-      two of them <em>amend</em> earlier ones. Rule 10 in particular has
-      been deliberately relaxed.</li>
+      for in production incidents; 12&ndash;17 came with the retarget and two of
+      them <em>amend</em> earlier ones; 18 is new from round 12. Rule 10 in
+      particular has been deliberately relaxed.</li>
   </ol>
 </div>
 
@@ -218,45 +235,56 @@
 </div>
 
 <div class="card">
-  <h2 id="census">The census &mdash; what 7,378 lines actually are</h2>
+  <h2 id="census">The census &mdash; what 7,532 lines actually are</h2>
   <p>
-    Measured on <code>78c8b9fa</code>. Reproduce it from <code>dashboard/</code>
+    Measured on <code>6c69a3f4</code>. Reproduce it from <code>dashboard/</code>
     with the AST script in <a href="#ranking">How to rank a cluster</a> plus
     these four one-liners:
   </p>
-<pre><code>grep -oh 'srv\.[A-Za-z_][A-Za-z0-9_]*' http_app/*.py | sort -u | wc -l   # 169
-grep -c 'return {' server.py                                            # 152
-grep -o '\.get(' server.py | wc -l                                      # 465
-grep -c 'with .*_lock' server.py                                        # 35</code></pre>
+<pre><code>grep -oh 'srv\.[A-Za-z_][A-Za-z0-9_]*' http_app/*.py | sort -u | wc -l   # 119 (117 + 2 docstring artefacts)
+grep -c 'return {' server.py                                            # 164
+grep -o '\.get(' server.py | wc -l                                      # 473
+grep -c 'with .*_lock' server.py                                        # 36</code></pre>
+  <p class="finding">
+    <strong>The file grew this round, and that is not a failure of round 12.</strong>
+    Round 12 removed 41 lines; a parallel feature (Verified Transactions:
+    delete, add-tax, receipt-identity) added ~170 on the same days. Two agents
+    write to this tree. Measure the refactor by the <em>diff</em> you land, not
+    by <code>wc -l</code> before and after &mdash; and expect the same when you
+    report round 13.
+  </p>
 
   <div class="grid2">
     <div class="stat"><div class="big">0</div>
-      <p>classes defined in 7,378 lines. Not &ldquo;few&rdquo;. Zero. Every
+      <p>classes defined in 7,532 lines. Not &ldquo;few&rdquo;. Zero. Every
         piece of state in this file is a module global and every piece of
-        behaviour is a top-level <code>def</code>.</p></div>
-    <div class="stat"><div class="big">237</div>
-      <p>top-level functions, 5,212 lines of bodies. 24 of them are over 50
-        lines and account for 1,991 &mdash; 27% of the file lives in 10% of the
+        behaviour is a top-level <code>def</code>. Round 12 added the first two
+        classes to the <em>HTTP</em> side; this file still has none.</p></div>
+    <div class="stat"><div class="big">241</div>
+      <p>top-level functions, 5,392 lines of bodies. 25 of them are over 50
+        lines and account for 2,092 &mdash; 28% of the file lives in 10% of the
         functions.</p></div>
-    <div class="stat"><div class="big">169</div>
-      <p>distinct names <code>http_app/</code> reaches into <code>server</code>
-        for, across 220 call sites. This is the number that actually pins the
-        file open. <strong>47 of them are pure re-exports</strong> &mdash;
-        server.py defines nothing, it just holds the name.</p></div>
+    <div class="stat"><div class="big">117</div>
+      <p>distinct names <code>http_app/</code> still reaches into
+        <code>server</code> for, across 147 call sites &mdash; <strong>down from
+        167 / 220</strong>. Round 12 removed the 47 that were pure re-exports.
+        22 of what is left are private. <a href="#round12done">What round 12
+        did</a>.</p></div>
     <div class="stat"><div class="big">704</div>
       <p>lines of module-level assignment, of which about <strong>430 are
         config literals</strong>: <code>SERVERS</code> is 159 lines,
         <code>AGENT_CARDS</code> 136, the four
-        <code>REPORTING_CATEGORY_*</code> dicts 58 between them.</p></div>
+        <code>REPORTING_CATEGORY_*</code> dicts 58 between them.
+        <strong>This is round 13.</strong></p></div>
     <div class="stat"><div class="big">20</div>
-      <p>module-level <code>threading.Lock()</code> objects, 35
+      <p>module-level <code>threading.Lock()</code> objects, 36
         <code>with &hellip;_lock:</code> blocks, 7 hand-rolled TTL constants,
         and <strong>six independent hand-written read-through caches</strong>
         &mdash; while <code>monitoring/win10_node.py</code> already contains a
         tested <code>_TtlCache</code> class.</p></div>
-    <div class="stat"><div class="big">152</div>
+    <div class="stat"><div class="big">164</div>
       <p><code>return {</code> statements &mdash; untyped payload boundaries,
-        most of them going straight to the browser &mdash; against 465
+        most of them going straight to the browser &mdash; against 473
         <code>.get()</code> calls, each one a place a missing key becomes a
         default instead of an error. The whole dashboard has 35
         <code>StrictModel</code> subclasses.</p></div>
@@ -271,28 +299,37 @@ grep -c 'with .*_lock' server.py                                        # 35</co
     remedy.
   </p>
 
-  <h3>1. <code>srv</code> is a Service Locator <span class="patt">anti-pattern</span></h3>
+  <h3>1. <code>srv</code> is a Service Locator <span class="patt">anti-pattern</span>
+    <span class="pill green">mechanism built, round 12</span></h3>
   <p>
     <code>http_app/services.py</code> exposes <code>srv</code>, a PEP 562 module
-    <code>__getattr__</code> onto <code>server</code>. The two route ladders then
-    reach through it for <strong>169 distinct names</strong> (167 real, two grep artefacts), 26 of them private
-    (<code>srv._fetch_month_status</code>, <code>srv._load_json</code>,
-    <code>srv._voice_log_lock</code> &mdash; a lock, reached across a module
-    boundary, by an HTTP route).
+    <code>__getattr__</code> onto <code>server</code>. The two route ladders
+    reached through it for <strong>167 distinct names</strong> across 220 call
+    sites, 26 of them private (<code>srv._fetch_month_status</code>,
+    <code>srv._load_json</code>, <code>srv._voice_log_lock</code> &mdash; a
+    lock, reached across a module boundary, by an HTTP route).
   </p>
   <p>
-    This is why every round pays a re-export tax. Move a function out and the
+    This is why every round paid a re-export tax. Move a function out and the
     route still says <code>srv.the_name</code>, so the name has to stay behind
-    as an import. <strong>47 names in <code>server.py</code> today exist for no
-    other reason.</strong> They cost roughly 90 lines of import and they will
-    never expire on their own, because their caller is the one thing that is not
-    moving.
+    as an import. 47 names in <code>server.py</code> existed for no other
+    reason, and they would never have expired on their own, because their
+    caller was the one thing not moving.
   </p>
   <p>
-    The remedy is the obvious one: <span class="patt">Facade</span> +
-    <span class="patt">Registry</span>. The routes depend on fourteen typed
-    ports, not on 167 free names. <a href="#round12">Round 12</a> builds the
-    mechanism and converts the free 47.
+    The remedy: <span class="patt">Facade</span> + <span class="patt">Registry</span>.
+    <a href="#round12done">Round 12</a> built it &mdash;
+    <code>http_app/ports.py</code> and <code>http_app/registry.py</code> &mdash;
+    converted all 47 free names, and converted <code>ScannerPort</code> end to
+    end as the worked example. The count is now <strong>117 names / 147
+    sites</strong>, and <code>tests/test_http_app_ports.py</code> pins it as a
+    ceiling that only ever falls.
+  </p>
+  <p>
+    <strong>What is left is the interesting half.</strong> The remaining 117 are
+    real services, not re-exports, and they leave one at a time as their round
+    populates its port. If you are in round 13 and later, your job includes
+    lowering that ceiling by the names your block owns.
   </p>
 
   <h3>2. Configuration is source code, and nothing validates it</h3>
@@ -360,7 +397,8 @@ grep -c 'with .*_lock' server.py                                        # 35</co
     <tr><th>Part</th><th class="num">Lines</th><th>What it holds</th></tr>
     <tr><td>Module docstring + imports</td><td class="num">~120</td>
       <td>One import per owning module. No <code>from x import name</code>
-        re-exports &mdash; those are what round 12 abolishes.</td></tr>
+        re-exports &mdash; those are what round 12 abolished. 38 gone, 129
+        <code>srv</code> names to go.</td></tr>
     <tr><td>The container</td><td class="num">~200</td>
       <td>Construct ~22 services with their real collaborators. One
         <code>def build_*_service()</code> each, resolved per call, never
@@ -446,17 +484,27 @@ grep -c 'with .*_lock' server.py                                        # 35</co
     Rounds 12&ndash;14 remove almost nothing and make every later round cheaper.
     Take them in order.
   </p>
+  <p class="finding">
+    The <em>Left</em> column is arithmetic on the round-11 baseline of 7,378. It
+    is not a prediction of <code>wc -l</code>, because a second agent ships
+    features into this file in parallel &mdash; round 12 removed 41 lines and
+    the file still ended 154 higher. Track the column as &ldquo;refactor debt
+    retired&rdquo;, and report your round's diff separately from the file size.
+  </p>
   <table>
     <tr><th>#</th><th>Round</th><th>Pattern</th><th class="num">Out</th>
       <th class="num">Left</th><th>Why here</th></tr>
-    <tr class="now"><td>12</td><td>Ports &amp; the death of <code>srv</code></td>
-      <td>Facade</td><td class="num">~90</td><td class="num">7,290</td>
-      <td>Enabling. After this, moving code costs a facade method, not a
-        permanent re-export.</td></tr>
-    <tr><td>13</td><td>Config out, typed</td><td>Registry</td>
-      <td class="num">~530</td><td class="num">6,760</td>
+    <tr class="done"><td>12</td><td>Ports &amp; the death of <code>srv</code>
+        <span class="pill green">landed 6c69a3f4</span></td>
+      <td>Facade</td><td class="num">41</td><td class="num">7,337</td>
+      <td>Enabling, and it worked: moving code now costs a port method, not a
+        permanent re-export. <code>srv.</code> 220&rarr;147 sites.
+        <a href="#round12done">What it did</a>.</td></tr>
+    <tr class="now"><td>13</td><td>Config out, typed</td><td>Registry</td>
+      <td class="num">~530</td><td class="num">6,800</td>
       <td>Biggest win per hour, near-zero behaviour risk, and it is where
-        &ldquo;many small models&rdquo; pays first.</td></tr>
+        &ldquo;many small models&rdquo; pays first.
+        <a href="#round13">Round 13 in full</a>.</td></tr>
     <tr><td>14</td><td>One cache class, six instances</td><td>Template Method</td>
       <td class="num">~180</td><td class="num">6,580</td>
       <td>Unpins the agent cluster, which is otherwise six caches deep.</td></tr>
@@ -514,118 +562,273 @@ grep -c 'with .*_lock' server.py                                        # 35</co
     the routes talk to ports, the add-back goes into the container as one
     registration line instead of into the module namespace as a permanent name.
     If the burn-down is running behind by round 16, the diagnosis is almost
-    certainly that round 12 was done partially.
+    certainly that round 12 was done partially. It was not: the mechanism is
+    complete and the ceiling test will tell you the moment it starts leaking.
   </p>
 </div>
 
 <div class="card">
-  <h2 id="round12">Round 12 in full &mdash; ports, and the death of <code>srv</code></h2>
+  <h2 id="round13">Round 13 in full &mdash; config out, typed <span class="patt">Registry</span></h2>
   <p>
-    This round removes about 90 lines. Judge it on whether the mechanism is
-    right, not on the number.
+    About 530 lines, near-zero behaviour risk, and the highest ratio of
+    &ldquo;defects made impossible&rdquo; to &ldquo;hours spent&rdquo; on the
+    whole board. Four hundred and thirty lines of <code>server.py</code> are
+    hand-maintained data literals: not logic, never typed, and several of them
+    <em>parallel</em> &mdash; multiple dicts keyed alike that must agree, with
+    nothing checking that they do.
   </p>
 
-  <h3>Do exactly three things</h3>
+  <h3>Take them in this order</h3>
   <ol>
     <li>
-      <strong>Build the port mechanism.</strong> A new
-      <code>http_app/ports.py</code> holding <code>Protocol</code> classes (not
-      ABCs &mdash; the implementations are plain modules and objects, and
-      <code>Protocol</code> checks them structurally without forcing
-      inheritance). A new <code>http_app/registry.py</code> with a single
-      <code>Ports</code> frozen dataclass and a
-      <code>current_ports()</code> accessor that resolves through
-      <code>server</code> <em>at call time</em>, exactly as <code>srv</code>
-      does today. Late binding is not optional; every test in the suite depends
-      on it.
+      <strong>The four <code>REPORTING_CATEGORY_*</code> dicts first</strong>
+      (58 lines &rarr; ~20). Smallest, and the one with the clearest defect.
+      <code>REPORTING_CATEGORY_DB_MAP</code> (17),
+      <code>REPORTING_CATEGORY_CLASS</code> (15) and
+      <code>REPORTING_CATEGORY_STYLE</code> (15) are keyed by the same thirteen
+      category names; <code>REPORTING_CATEGORY_ANCESTOR_MAP</code> (11) is keyed
+      by the ids the first one hands out. Add a category to one and forget
+      another and you get a report row with no CSS class or no colour &mdash;
+      rendered, served, and indistinguishable from a styling choice. One
+      <code>ReportingCategory</code> model with
+      <code>name / db_id / css_class / background / font</code>, one list of
+      thirteen, and the four dicts become derived views that cannot disagree.
+      <br>
+      <strong>Read the comment above <code>REPORTING_CATEGORY_ANCESTOR_MAP</code>
+      before you start.</strong> These four are superseded at runtime by
+      <code>ICategoryTaxonomy</code> and survive only as the offline seed for
+      <code>LEGACY_TAXONOMY</code>. That makes them safer to restructure and it
+      also means your validator guards a <em>fallback</em> path &mdash; say so,
+      per rule 11.
     </li>
     <li>
-      <strong>Convert the 47 free names.</strong> These are the ones where
-      <code>server.py</code> defines nothing at all &mdash; it imports the name
-      from the owning module purely so <code>srv.&lt;name&gt;</code> resolves.
-      For each, point <code>http_app/</code> at the owning module directly and
-      delete the import from <code>server.py</code>. No behaviour changes, no
-      new tests needed beyond an absence assertion. Get the full list with:
-<pre><code>python3 - &lt;&lt;'PY'
-import ast
-tree = ast.parse(open('server.py').read())
-defined, imported = set(), set()
-for n in tree.body:
-    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        defined.add(n.name)
-    elif isinstance(n, ast.Assign):
-        defined.update(t.id for t in n.targets if isinstance(t, ast.Name))
-    elif isinstance(n, (ast.Import, ast.ImportFrom)):
-        imported.update((a.asname or a.name).split('.')[0] for a in n.names)
-want = {l.strip()[4:] for l in open('/tmp/srv_names.txt')}
-print(sorted(want &amp; imported - defined))
-PY</code></pre>
-      On <code>78c8b9fa</code> that printed 47 names, among them
-      <code>cached_ssh_health</code>, <code>pc_metrics</code>,
-      <code>model_stats</code>, <code>win10_container_states</code>,
-      <code>ws_accept_key</code>, <code>classify_failure</code>,
-      <code>_terminal_spawn_shell</code> and <code>manual_entry</code>.
+      <strong><code>SCANNERS</code></strong> (23 lines). Do it second, not
+      because it is big, but because round 12 already put a port in front of it:
+      <code>_ServerScannerPort.image_path()</code> in
+      <code>http_app/registry.py</code> is the only code outside
+      <code>server.py</code> that knows a scanner spec has an
+      <code>output</code> key. Turn <code>SCANNERS</code> into
+      <code>list[ScannerSpec]</code> and exactly one adapter line changes. That
+      is the whole argument for round 12 in miniature, and it is worth writing
+      down in the commit message when it happens.
     </li>
     <li>
-      <strong>Convert one real facade end to end, as the worked example.</strong>
-      Take <code>ScannerPort</code>: <code>SCANNERS</code>,
-      <code>SCAN_TOOLS_DIR</code>, <code>SCANNER_IMAGE_URL_PREFIX</code>,
-      <code>run_scanner</code>, <code>scanner_status</code>,
-      <code>scanner_diagnostics</code>,
-      <code>clear_scanner_verification_lock</code>,
-      <code>fix_deskjet_printer</code>. Eight names, one tab, and a tab you can
-      actually watch work. Leave the other eleven ports declared but unpopulated
-      &mdash; each later round fills in its own as part of the move.
+      <strong><code>SERVERS</code></strong> (159 lines) and
+      <strong><code>AGENT_CARDS</code></strong> (136). The same risk at six
+      times the size. A mistyped systemd unit name in <code>SERVERS</code> is a
+      Restart button that reports success and does nothing &mdash; the exact
+      failure signature <a href="#postscript">the round-6 postscript</a> exists
+      to warn about. Note that <code>SERVERS</code> entries are heterogeneous
+      (<code>log_file</code> / <code>health_url</code> / <code>tcp_check</code> /
+      a custom <code>check</code> key): that is a discriminated union, not one
+      flat model with everything optional. Getting that distinction right is
+      most of the value.
+    </li>
+    <li>
+      <strong>The rest, in one pass</strong> while the shape is in your head:
+      <code>RESTART_HANDLERS</code> (23) + <code>RESTARTABLE_KEYS</code> (1),
+      <code>LETTA_AGENTS</code> (22), <code>AGENT_VOICE_OPTIONS</code> (18),
+      <code>ROL_FINANCE_REPORTS</code> (16), <code>_MAZDA_PROGRESS_LABELS</code>
+      (11), <code>_TERMINAL_INTAKE_STATUSES</code> (10) as a <code>Literal</code>,
+      and the pair <code>ROL_FINANCES_REPORTS_MONTHS</code> (6) +
+      <code>ROL_FINANCES_MONTH_RANGES</code> (6). The full table with the failure
+      each one makes impossible is <a href="#pydantic">in the Pydantic
+      section</a>.
     </li>
   </ol>
 
-  <h3>The fourteen ports</h3>
+  <h3>Where the models go</h3>
   <p>
-    Grouped from the real 167 (the raw grep returns 169; two are false
-    positives). Sizes are how many of the 167 names each port absorbs. Eleven
-    names get <em>no</em> port at all &mdash; they are plumbing, and they go the
-    same way as the 47.
+    Not in <code>server.py</code>. Each collection belongs beside the code that
+    reads it &mdash; <code>SCANNERS</code> near the scanner module,
+    <code>SERVERS</code> in something like <code>servers/registry.py</code>,
+    <code>LETTA_AGENTS</code> beside <code>agents/</code>. The model derives from
+    <code>contracts.StrictModel</code>
+    (<code>strict=True, extra='forbid', frozen=True</code>) and the four
+    <code>REPORTING_CATEGORY_*</code> dicts become
+    <code>@property</code>-style derived views on the one list, so a new category
+    cannot be half-added.
+  </p>
+  <p>
+    <strong>Lower the <code>srv.</code> ceiling as you go.</strong>
+    <code>srv.SERVERS</code>, <code>srv.RESTARTABLE_KEYS</code>,
+    <code>srv.LETTA_AGENTS</code> and friends are read by the route ladders.
+    Each one you move is a chance to point the ladder at the owning module (or
+    give <code>ServersPort</code> its first method) and drop
+    <code>SRV_SITE_CEILING</code> / <code>SRV_NAME_CEILING</code> in
+    <code>tests/test_http_app_ports.py</code>. A round that moves config and
+    leaves the ceiling untouched has left the re-export tax in place under a new
+    name.
+  </p>
+
+  <h3>Tests round 13 must ship</h3>
+  <ul>
+    <li><strong>The golden-payload test, unrelaxed</strong> (rule 9). Every model
+      dumps to a plain dict so browser-facing JSON stays byte-identical &mdash;
+      error strings and key order included. Better: run the old literal and the
+      new derived view side by side against the real live values and assert
+      equality. It is a five-line script and it converts &ldquo;should be
+      identical&rdquo; into &ldquo;is identical&rdquo;.</li>
+    <li><strong>One test per parallel-dict family that they cannot disagree.</strong>
+      Not &ldquo;all four dicts have thirteen keys&rdquo; &mdash; that is the
+      old invariant restated. Assert that the derived views are <em>generated</em>
+      from one list, e.g. by adding a fourteenth category in the test and
+      checking all four views grew.</li>
+    <li><strong>A reachability check per required field</strong> (rule 10, as
+      amended): show the defect you are preventing is actually reachable today,
+      and write the test that proves it as the <em>old</em> code, inline, so it
+      keeps being true.</li>
+    <li><strong>Say which are defended and which are fixed</strong> (rule 11).
+      The <code>REPORTING_CATEGORY_*</code> family currently guards a fallback
+      path, so it is a defence. If <code>SERVERS</code> turns out to have a live
+      mistyped unit in it, that is a fix &mdash; and it is number seven of
+      <a href="#postscript">the postscript's family</a>.</li>
+  </ul>
+
+  <div class="finding">
+    <strong>The trap in this round.</strong> These literals are read by
+    <em>both</em> languages. <code>RolFinanceReportsController</code> hardcodes
+    the four month keys, the two scanner keys and the Mazda agent id as default
+    constructor arguments; Python holds the same months in two parallel dicts,
+    the same scanners in <code>SCANNERS</code>, and the same id in
+    <code>MAZDA_AGENT_ID</code>. Three copies of the month list and two of the
+    scanner list, across two languages, none of them checked. Make the Python
+    side one typed collection <em>and serve it</em>, so the JS side can stop
+    guessing &mdash; but do not mix the JS change into this commit (rule 15).
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="round12done">What round 12 actually did &mdash; ports, and the death of the free <code>srv</code> name
+    <span class="pill green">landed 6c69a3f4</span></h2>
+  <p>
+    Kept because you will be extending this mechanism, and because one part of
+    it is a trap that stays invisible until it bites. Removed 41 lines from
+    <code>server.py</code>; the point was never the number.
+  </p>
+
+  <h3>What exists now</h3>
+  <table>
+    <tr><th>File</th><th>What it holds</th></tr>
+    <tr><td><code>http_app/ports.py</code></td>
+      <td>Fourteen <code>Protocol</code> classes, one per collaborator group.
+        <code>Protocol</code>, not ABC: the implementations are plain modules
+        and objects, checked structurally, so a later round can swap a
+        module-backed adapter for a real service class without touching a
+        route. <code>ScannerPort</code> is populated; the other thirteen carry
+        the names they will absorb in their docstrings and are filled in by the
+        round that moves their code. <strong>Resist a fifteenth</strong> &mdash;
+        a grab-bag <code>MiscPort</code> is <code>srv</code> renamed.</td></tr>
+    <tr><td><code>http_app/registry.py</code></td>
+      <td>One frozen <code>Ports</code> dataclass and <code>current_ports()</code>,
+        which resolves <code>server</code> out of <code>sys.modules</code> and
+        builds a fresh bundle <em>per call</em>. <code>Ports</code> carries a
+        field per <em>populated</em> port only; thirteen empty adapters built
+        per request would answer no question. Add your field when you populate
+        your port.</td></tr>
+    <tr><td><code>tests/test_http_app_ports.py</code></td>
+      <td>55 tests. Production wires the real object; the bundle is rebuilt per
+        call and a port constructed before a rebind still sees it; all 38
+        dropped names are asserted absent; and the <code>srv.</code> count is
+        pinned as a ceiling that only ever falls.</td></tr>
+  </table>
+
+  <h3>The three conversions</h3>
+  <ul>
+    <li><strong>All 47 free names</strong> now come from the module that owns
+      them. <em>Modules, not names</em>, wherever the thing is behaviour:
+      <code>from x import f</code> in a route snapshots <code>f</code> and
+      neuters rule 3's patch target, so the ladders say
+      <code>ssh_checks.cached_ssh_health(&hellip;)</code>. 38 of the 47 left
+      <code>server.py</code> entirely; 9 stayed because <code>server.py</code>
+      itself calls them (<code>HERE</code>, <code>LETTA_BASE_URL</code>,
+      <code>REPO_ROOT</code>, <code>SSH_CONNECTIONS</code>,
+      <code>ValidationError</code>, <code>manual_entry</code>,
+      <code>model_stats</code>, <code>render_excel_for_browser</code>,
+      <code>claude_sdk_account_payload</code>) &mdash; those imports do real
+      work, so they are not re-exports. The routes stopped reaching through
+      <code>server</code> for them all the same.</li>
+    <li><strong><code>ScannerPort</code> end to end</strong>, the worked example:
+      eight names, one tab you can watch work. Two collapsed on the way.
+      <code>SCANNERS</code> and <code>SCAN_TOOLS_DIR</code> were reached by one
+      route, which joined them to answer one question &mdash; <em>where is this
+      scanner's last image?</em> That is <code>image_path()</code>, and the route
+      no longer knows a scanner spec is a dict. Ask what the caller is trying to
+      do before you give a port a method that just re-exposes a global.</li>
+    <li><strong>Ten &ldquo;the re-export still resolves&rdquo; tests were
+      inverted, not deleted.</strong> They now assert the name is gone and name
+      the route that reads the owner, so the next person who writes
+      <code>monkeypatch.setattr(server, 'pc_metrics', &hellip;)</code> gets a
+      friendly <code>AttributeError</code> instead of a silent no-op.</li>
+  </ul>
+
+  <div class="finding">
+    <strong>The trap round 12 leaves you. Read this one twice.</strong>
+    <code>tests/http_app_harness.py</code> makes route tests inert by replacing
+    every <em>function</em> on <code>server</code>. A route pointed at its owning
+    module is no longer covered by that. The symptom is not a red test &mdash;
+    it is a <em>green</em> one that took 30 seconds and SSHed to another box,
+    drove a scanner, or ran whisper.
+    <br><br>
+    <code>DIRECT_SERVICES</code> in that file maps each converted module to the
+    names it owns, and the stub is recorded under the bare name so
+    <code>stubbed.called('pc_metrics')</code> reads the same on either side of
+    the move. <strong>Every round that converts a port must add to it.</strong>
+  </div>
+
+  <h3>The fourteen ports, and what each still owns</h3>
+  <p>
+    Sizes are how many of the original 167 <code>srv</code> names each port
+    absorbs. Eleven names get <em>no</em> port &mdash; they are plumbing, and
+    they went the same way as the 47.
   </p>
   <table>
-    <tr><th>Port</th><th class="num">Names</th><th>Owns</th></tr>
+    <tr><th>Port</th><th class="num">Names</th><th>Owns &middot; populated by</th></tr>
     <tr><td><code>ReportsPort</code></td><td class="num">24</td>
       <td>Report discovery, path aliasing, status classification, the month and
         receipt-only queries, and the three HTML builders. The biggest port, and
         the one most likely to want splitting once round 16 has moved the HTML
-        out.</td></tr>
+        out. <em>Rounds 16, 20, 25.</em></td></tr>
     <tr><td><code>AgentsPort</code></td><td class="num">23</td>
       <td>Roster, cards, voices, models, OAuth accounts, activity, health,
-        headless runs.</td></tr>
+        headless runs. <em>Round 24 &mdash; only tractable after 14.</em></td></tr>
     <tr><td><code>ModelStatsPort</code></td><td class="num">16</td>
-      <td>Stats sources, mute overlay, Codex sync, ChatGPT provider
-        accounts.</td></tr>
+      <td>Stats sources, mute overlay, Codex sync, ChatGPT provider accounts.
+        <em>Round 24.</em></td></tr>
     <tr><td><code>ServersPort</code></td><td class="num">14</td>
-      <td>The Server Management tab: status, logs, restart, deploy.</td></tr>
+      <td>The Server Management tab: status, logs, restart, deploy.
+        <em>Round 23, after 13 moves <code>SERVERS</code> out.</em></td></tr>
     <tr><td><code>MonitoringPort</code></td><td class="num">12</td>
-      <td>PC metrics, SSH roster, Win10 containers, failure
-        classification. Every name here is already someone else's module &mdash;
-        this port is nearly free.</td></tr>
+      <td>PC metrics, SSH roster, Win10 containers, failure classification.
+        Every name behind it already lives in <code>monitoring/</code>, so
+        round 12 pointed the routes straight at those modules &mdash; this port
+        may never need populating at all.</td></tr>
     <tr><td><code>DocumentPort</code></td><td class="num">11</td>
-      <td>Receipt lookup, supporting documents, presence checks, Excel
-        render.</td></tr>
+      <td>Receipt lookup, supporting documents, presence checks, Excel render.
+        <em>Rounds 19, 20.</em></td></tr>
     <tr><td><code>ExpensePort</code></td><td class="num">10</td>
-      <td>Manual entry, stored-expense edit and search, notes.</td></tr>
+      <td>Manual entry, stored-expense edit and search, notes.
+        <em>Round 21.</em></td></tr>
     <tr><td><code>IntakePort</code></td><td class="num">9</td>
-      <td>The recent-intake record, the halt file, scanner intake
-        lookups.</td></tr>
+      <td>The recent-intake record, the halt file, scanner intake lookups.
+        <em>Round 15.</em></td></tr>
     <tr><td><code>ScannerPort</code></td><td class="num">8</td>
-      <td><strong>Round 12's worked example.</strong> Scanner hardware and its
+      <td><strong>Populated, round 12.</strong> Scanner hardware and its
         diagnostics tab &mdash; small, self-contained, and a tab you can watch
         work.</td></tr>
     <tr><td><code>PipelinePort</code></td><td class="num">8</td>
-      <td>Document processing, statement break-up, Mazda fill,
-        reprocess.</td></tr>
+      <td>Document processing, statement break-up, Mazda fill, reprocess.
+        <em>Rounds 17, 18.</em></td></tr>
     <tr><td><code>VoiceNotesPort</code></td><td class="num">8</td>
       <td>Voice upload, speech synthesis, the receptionist strategy, note
-        commands.</td></tr>
+        commands. Round 12 pointed the routes at <code>voice/</code> directly;
+        the port populates when the voice pipeline gets a composition
+        root.</td></tr>
     <tr><td><code>TerminalPort</code></td><td class="num">6</td>
-      <td>PTY spawn and reap, WebSocket framing. Mostly
-        <code>terminal/pty_session.py</code> already.</td></tr>
+      <td>PTY spawn and reap, WebSocket framing &mdash; already
+        <code>terminal/pty_session.py</code> and
+        <code>http_app/websocket.py</code>. Round 12 pointed
+        <code>terminal_ws.py</code> at both directly.</td></tr>
     <tr><td><code>CategoryPort</code></td><td class="num">5</td>
       <td>Recategorize, undo, vendor review. Already behind
         <code>finance/recategorize.py</code>.</td></tr>
@@ -637,41 +840,14 @@ PY</code></pre>
         <code>LETTA_BASE_URL</code>, <code>ValidationError</code>,
         <code>_load_json</code>/<code>_append_json</code>/<code>_clear_json</code>,
         and the four Claude log files and locks. None of these is a service.
-        Import them from the module that owns them, exactly as with the 47
-        &mdash; and note that a route holding a <code>threading.Lock</code>
-        reached across a module boundary is a bug waiting to be written, not an
-        interface.</td></tr>
+        Import them from the module that owns them &mdash; and note that a route
+        holding a <code>threading.Lock</code> reached across a module boundary
+        is a bug waiting to be written, not an interface. <strong>Three of the
+        four Claude log locks are still reached through <code>srv</code>;
+        they are the ugliest thing left on this list.</strong></td></tr>
   </table>
-  <p>
-    Resist a fifteenth. If something does not fit one of these, the grouping is
-    wrong or the thing is plumbing &mdash; a grab-bag <code>MiscPort</code> is
-    <code>srv</code> with a new name.
-  </p>
-
-  <h3>Tests round 12 must ship</h3>
-  <ul>
-    <li>One test per port that <strong>production wires the real object</strong>
-      &mdash; the same shape as round 11's
-      <code>test_server_wires_the_real_collaborators</code>.</li>
-    <li>One test that <code>current_ports()</code> is <strong>resolved per
-      call</strong>, by rebinding the underlying name and asserting the next
-      call sees it. If this test does not exist, someone will cache the bundle
-      at import and every monkeypatch in the suite will start lying.</li>
-    <li>One test asserting all 47 dropped names are <strong>absent</strong> from
-      <code>server</code>, so they cannot creep back.</li>
-    <li>A grep test: <code>srv.</code> occurrences in <code>http_app/</code> must
-      not increase. Round 12's whole value is destroyed by round 15 adding two
-      more.</li>
-  </ul>
-  <div class="finding">
-    <strong>The trap in this round.</strong>
-    <code>tests/http_app_harness.py</code> stubs the service layer, so the ~460
-    <code>test_http_app_*</code> tests will pass against a port that does not
-    exist and against a name you deleted. They are not your safety net here.
-    The net is: re-grep <code>http_app/</code> for every name you touch, and
-    fire the real routes on the live box (rule 7).
-  </div>
 </div>
+
 <div class="card">
   <h2 id="pydantic">Pydantic: many small models, deliberately</h2>
   <div class="rule-new">
@@ -991,9 +1167,12 @@ print('cluster members:', sorted(names))</code></pre>
       call in the route ladders is invisible to it. Seven such names in round 8,
       nine in round 9, zero in round 10, two in round 11 &mdash; and round 11's
       own table said zero, because that column is a grep from the round before.
-      Always <strong>re-grep</strong>. The suite will not catch it:
-      <code>tests/http_app_harness.py</code> stubs the service layer, so those
-      tests pass against a name that no longer exists.</li>
+      Always <strong>re-grep</strong>. Since round 12 the suite catches
+      <em>half</em> of this: <code>tests/test_http_app_ports.py</code> fails if
+      the <code>srv.</code> count moves in either direction. It still cannot
+      catch a name you moved out from under a live <code>srv.</code> caller,
+      because <code>tests/http_app_harness.py</code> stubs the service layer and
+      those tests pass against a name that no longer exists.</li>
     <li><strong>A route reaching into a private name is a design signal.</strong>
       Round 9's four became two verbs and one was fixing a real race; round 10's
       poke at <code>_chatgpt_failover['last_note']</code> became
@@ -1064,8 +1243,12 @@ print('cluster members:', sorted(names))</code></pre>
       Round 10 dropped round 9's <code>_probe_codex_usage</code>; round 11
       dropped <code>DispatchEvidence</code> and
       <code>InvalidExecutionMode</code>. Assert the dropped names are absent so
-      dead re-exports cannot creep back. <em>After round 12 this rule mostly
-      retires</em>, which is the point of round 12.</li>
+      dead re-exports cannot creep back. <em>Round 12 retired the bulk of this
+      rule</em>, which was its point: 38 names left and
+      <code>tests/test_http_app_ports.py</code> asserts each one absent by name.
+      What survives is the judgement call &mdash; when your round's last caller
+      leaves, check whether <code>server.py</code> still calls it before you
+      keep the import.</li>
     <li><strong>Deploy and verify against the real thing.</strong> Committing is
       not deploying, and a 200 is not a verification. For a backend-only change,
       call the moved code on the live box and read the output. If a path cannot
@@ -1110,11 +1293,16 @@ print('cluster members:', sorted(names))</code></pre>
       says which of <a href="#patterns">the seven</a> you applied, because the
       next shift needs to know whether you moved code or changed shape. A round
       that changes shape and removes no lines is a good round; say so.</li>
-    <li class="rule-new" style="list-style-position:inside"><strong>New &mdash;
-      never add a <code>srv.</code> reference.</strong> Round 12's value is
-      destroyed by round 15 adding two. If a route needs something new, it needs
-      a port method. Add the grep test that enforces this, and treat a rise in
-      the count as a failing build.</li>
+    <li class="rule-new" style="list-style-position:inside"><strong>Never add a
+      <code>srv.</code> reference.</strong> Round 12's value is destroyed by
+      round 15 adding two. If a route needs something new, it needs a port
+      method &mdash; or, if the thing already has an owning module, an import of
+      that <em>module</em>. <em>Enforced since round 12:</em>
+      <code>SRV_SITE_CEILING</code> / <code>SRV_NAME_CEILING</code> in
+      <code>tests/test_http_app_ports.py</code> fail the build if the count
+      rises, and fail it again if the count falls without someone lowering the
+      constants. Lower them; a ceiling nobody moves becomes a lie the next round
+      inherits.</li>
     <li class="rule-new" style="list-style-position:inside"><strong>New &mdash;
       touch <code>js/</code> deliberately, one interface at a time.</strong>
       <em>Supersedes the old "stay out of js/".</em> The parallel
@@ -1129,11 +1317,28 @@ print('cluster members:', sorted(names))</code></pre>
       it.</li>
     <li class="rule-new" style="list-style-position:inside"><strong>New &mdash;
       if a function is over 60 lines, it is a strategy, not a
-      function.</strong> The 24 functions over 50 lines hold 27% of the file, and
+      function.</strong> The 25 functions over 50 lines hold 28% of the file, and
       every one of them is a switch over a document kind, a scanner, a report
       type or a status. Do not move a 171-line function into a new module and
       call it extracted &mdash; that just relocates the problem and makes the
       next round's diff unreadable.</li>
+    <li class="rule-new" style="list-style-position:inside"><strong>New from
+      round 12 &mdash; when you change how a route resolves a name, change how
+      the harness stubs it.</strong> <code>tests/http_app_harness.py</code>
+      makes route tests inert by replacing every function on <code>server</code>.
+      Point a route at an owning module and that stub no longer lands, and the
+      symptom is not a red test &mdash; it is a green one that took 30 seconds
+      and talked to another machine. Add the module to
+      <code>DIRECT_SERVICES</code> in the same commit. The wider rule: a safety
+      net is aimed at a specific patch target, so <em>moving the target is a
+      change to the net</em>, whether or not anything turns red.</li>
+    <li class="rule-new" style="list-style-position:inside"><strong>New from
+      round 12 &mdash; <code>git status</code> again before you commit.</strong>
+      Two agents write to this tree. Round 12 had two of its unfinished files
+      swept into an unrelated commit by a concurrent <code>git add -A</code>,
+      and <code>wc -l server.py</code> moved by ~170 lines mid-round for reasons
+      that had nothing to do with the refactor. Stage deliberately, and report
+      your round by its diff, not by the file size.</li>
   </ol>
 </div>
 
@@ -1184,6 +1389,7 @@ print('cluster members:', sorted(names))</code></pre>
     <div class="commit"><code>5b1fc498</code> Give a refused usage payload a noun in its error text</div>
     <div class="commit"><code>039ad71b</code> Extract the ChatGPT provider auto-failover state machine out of server.py</div>
     <div class="commit"><code>78c8b9fa</code> Extract the Mazda dispatch fork and the execution mode out of server.py</div>
+    <div class="commit"><code>6c69a3f4</code> Facade: put ports between http_app and server.py (round 12)</div>
   </div>
   <p>
     Follow-ups that removed no lines from <code>server.py</code> but which the
@@ -1210,7 +1416,7 @@ print('cluster members:', sorted(names))</code></pre>
     <tr><td><code>intake/mazda_dispatch.py</code></td><td>the fork between Mazda's LLM turn and a human's inbox: the mode branch, the scan dispatch, the late-delivery probe, and the record written when it declines; <code>IntakeOutcome</code>, <code>Collaborators</code>, <code>HUMAN_ONLY_MODE_STAGE_MESSAGE</code></td></tr>
     <tr><td><code>intake/mazda_mode.py</code></td><td>the Automatic/Semi-Automatic vocabulary, the operator's switch and its store, and the <code>MAZDA_DECISION_MODE</code> parser: <code>MazdaMode</code>, <code>ExecutionModeConfig</code>, <code>resolve_execution_mode</code>, <code>MazdaModeService</code>, <code>MazdaModeState</code></td></tr>
     <tr><td><code>intake/</code> (rest)</td><td><code>dispatch_evidence.py</code>, <code>scan_message.py</code>, <code>trainer_contracts.py</code>, <code>trainer_escalation.py</code>, <code>trainer_notifier.py</code>, <code>trainer_recovery.py</code></td></tr>
-    <tr><td><code>http_app/</code></td><td>the whole HTTP layer: transport, the two route ladders, terminal WS, runtime, static files, <code>srv</code> &mdash; <strong>round 12 adds <code>ports.py</code> and <code>registry.py</code> and begins retiring <code>srv</code></strong></td></tr>
+    <tr><td><code>http_app/</code></td><td>the whole HTTP layer: transport, the two route ladders, terminal WS, runtime, static files, and <code>srv</code>, now being retired. <strong><code>ports.py</code></strong> holds the fourteen <code>Protocol</code>s the ladders may depend on; <strong><code>registry.py</code></strong> holds <code>current_ports()</code>, which resolves through <code>server</code> per call and is the only module besides <code>services.py</code> allowed to name it.</td></tr>
     <tr><td><code>terminal/pty_session.py</code></td><td>pty spawn, process-group reap</td></tr>
     <tr><td><code>letta_code/runner.py</code></td><td>headless letta-code invocation + prompt validation</td></tr>
     <tr><td><code>health/</code></td><td><code>probe.py</code> (<code>ProbeResult</code>), <code>failures.py</code>, <code>frita.py</code>, <code>document_vision.py</code>, <code>poller.py</code></td></tr>
@@ -1242,6 +1448,15 @@ print('cluster members:', sorted(names))</code></pre>
     <li><code>IntakeOutcome</code> &mdash; the record written for a document Mazda was never given. Three fields required because each one's absence silently switches something off: <code>status_source</code>, <code>conversation_id</code>, and <code>dispatched_at &gt; 0</code>. The <code>(status, status_source)</code> pairing is validated too.</li>
     <li><code>MazdaMode</code> (not a model) &mdash; one <code>Literal</code> alias replacing four independent spellings of the same two words. A vocabulary is worth de-duplicating for the same reason a hostname is.</li>
   </ul>
+  <p class="finding">
+    <strong>Round 12 added no model, and that is the honest report</strong>
+    (rule 11). It changed shape: fourteen <code>Protocol</code>s and a frozen
+    <code>Ports</code> bundle. The one thing it typed by accident is worth
+    noting anyway &mdash; <code>ScannerPort.image_path()</code> replaced a route
+    that reached for <code>srv.SCANNERS[key]['output']</code>, so the browser
+    side of the scanner config now has exactly one reader. That is what makes
+    <code>ScannerSpec</code> cheap in round 13.
+  </p>
   <p>
     <strong>Next, per <a href="#pydantic">the worklist</a>:</strong>
     <code>ReportingCategory</code> and <code>ServerSpec</code> in round 13 are
@@ -1274,7 +1489,7 @@ print('cluster members:', sorted(names))</code></pre>
 
 <footer>
   <code>dashboard/server.py</code> refactor &middot; tracked as a living plan,
-  updated as rounds land &middot; retargeted at round 12 from 5,700 to under
+  updated as rounds land &middot; round 12 landed, round 13 is next &middot; retargeted from 5,700 to under
   2,000
 </footer>
 

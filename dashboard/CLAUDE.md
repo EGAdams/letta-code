@@ -111,13 +111,31 @@ schema. Don't convert working JS to TS as part of a fix — that's separate work
 | `http_app/handler.py` | `DashboardHandler`, composed from those mixins |
 | `http_app/runtime.py` | `ReusableHTTPServer` + `serve()`; boots the declared `BackgroundTask` threads |
 | `http_app/static_files.py` | `resolve_static_asset` — fail-closed containment for the static fallthrough |
-| `http_app/services.py` | `srv` — a PEP 562 module-`__getattr__` handle on `server` |
+| `http_app/services.py` | `srv` — a PEP 562 module-`__getattr__` handle on `server`. **Being retired**, see below |
+| `http_app/ports.py` | the fourteen `Protocol`s the route ladders are allowed to depend on |
+| `http_app/registry.py` | `current_ports()` — which object satisfies each port, rebuilt per call |
 
 **Why `srv` and not `from server import ...`:** `server.py` imports `http_app` from its own tail,
 so a module-scope `import server` in a route mixin is a cycle. `services.py` resolves each name at
 *call* time, which also keeps `monkeypatch.setattr(server, ...)` and runtime rebinds visible to the
-routes. Route bodies read `srv.build_agent_list()`, `srv.SCANNERS`, etc. Adding a route means adding
-the service to `server.py` and calling it as `srv.<name>` — no import list to maintain.
+routes. Route bodies still read `srv.build_agent_list()` in the parts not yet converted.
+
+**But do not add a new `srv.` reference.** `srv` is a Service Locator, and it is the reason every
+extraction round paid a permanent re-export tax: move a function out of `server.py` and the route
+still says `srv.the_name`, so the name has to stay behind as an import. Round 12 of the refactor
+(`notes_plans_handoffs/dashboard_refactor_plan.html`) replaced it with ports, and
+`tests/test_http_app_ports.py` pins the `srv.` count as a ceiling that only ever falls.
+
+Adding a route now means one of:
+
+- the thing already has an owning module → import that **module** in the ladder and call
+  `owner.thing()`. Modules, not names: `from x import f` snapshots `f` and neuters
+  `monkeypatch.setattr(x, 'f', ...)`. Then add it to `DIRECT_SERVICES` in
+  `tests/http_app_harness.py`, or the route test will do real I/O while looking green.
+- the thing is a dashboard service → give its port a method in `http_app/ports.py`, satisfy it in
+  `http_app/registry.py`, and call `current_ports().<port>.<method>()`.
+
+`ScannerPort` is the worked example of the second, end to end.
 
 The two ladders are still ~600 lines each; splitting them needs a route registry (Command /
 Chain of Responsibility), not another file cut.
@@ -138,6 +156,11 @@ happens internally:
 port plus `ServiceRecorder`, which stubs every *function* on `server` (never the data registries) so
 routes that restart systemd units or drive scanners stay inert. That stubbing only works because
 `srv` is late-bound — if it ever becomes a snapshot, ~25 tests fail immediately.
+
+For a route pointed at an owning module instead of at `server`, stubbing `server` makes nothing
+inert. `DIRECT_SERVICES` in the same file names each converted module so the stub still lands.
+Forget it and the symptom is not a red test — it is a green one that took 30 seconds and SSHed to
+another box.
 
 Two registries in `server.py` drive most of the app:
 
