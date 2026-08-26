@@ -28,6 +28,21 @@ to a tmp path.
 After editing `server.py`: `systemctl --user restart dashboard-server.service`, then re-Start the
 Executor (the restart kills it).
 
+### Known test failures
+
+`.venv/bin/python -m pytest tests/` is **2591 pass, 0 fail** on the live box
+(DESKTOP-2OBSQMC). Anything red there is yours.
+
+On a dev box expect **4 failures** in `tests/test_document_annotation.py`
+(`test_image_strategy_*`, `test_childrens_vision_check_*`). They shell out to
+the `tesseract` binary, which the live box has and dev boxes generally do not
+— `which tesseract` tells you which case you are in. Not aspirational, not
+flaky: install tesseract and they pass.
+
+This is a different suite from the root `CLAUDE.md`'s "~17 pre-existing
+failures", which is `bun test src/tests` in letta-code. The two counts are
+unrelated; don't reconcile them.
+
 ## Deploying — read this before you edit anything
 
 **Editing files here doesn't necessarily change what users see.** The checkout you're editing is

@@ -37,7 +37,7 @@ bun test src/tests               # unit; safe offline
 bun test src/integration-tests   # needs the live Letta server
 ```
 
-- **~17 pre-existing failures** in `src/tests` (2193 pass) — environment-specific
+- **~17 pre-existing failures** in `src/tests` (2278 pass) — environment-specific
   or aspirational, not regressions. Startup/smoke tests expect a missing
   `LETTA_API_KEY` but the live server is configured. Some (block-tagging,
   TaskOutput, `waitForBackgroundSubagentLink`) fail only in the full parallel
