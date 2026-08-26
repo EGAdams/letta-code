@@ -118,7 +118,7 @@
 <div class="page">
 
   <div class="hero">
-    <p class="kicker">Living Plan &middot; Updated 2026-08-25</p>
+    <p class="kicker">Living Plan &middot; Updated 2026-08-26</p>
     <h1>Cutting server.py in Half</h1>
     <p class="lede">
       <code>dashboard/server.py</code> started at 11,407 lines. The goal is to
@@ -127,10 +127,10 @@
       otherwise fail silently, each extraction backed by its own tests.
     </p>
     <div class="meta">
-      <span class="pill">11,407 &rarr; 8,198 lines</span>
-      <span class="pill green">2,648 tests passing</span>
-      <span class="pill amber">~2,498 lines to halfway</span>
-      <span class="pill">round 7 = <code>5f7d2059</code> &middot; boxes converged</span>
+      <span class="pill">11,407 &rarr; 8,046 lines</span>
+      <span class="pill green">2,745 tests passing</span>
+      <span class="pill amber">~2,346 lines to halfway</span>
+      <span class="pill">round 8 = <code>5ae369aa</code> &middot; boxes converged</span>
     </div>
   </div>
 
@@ -147,29 +147,34 @@
 
       <li>Baseline the tests before you touch anything:
         <code>cd dashboard &amp;&amp; .venv/bin/python -m pytest tests/ -q</code>.
-        There are no known failures. Expect <strong>2,652 passed / 2 skipped</strong>
-        on the live box and <strong>2,648 passed / 6 skipped</strong> on a dev box
+        There are no known failures. Expect <strong>2,749 passed / 2 skipped</strong>
+        on the live box and <strong>2,745 passed / 6 skipped</strong> on a dev box
         &mdash; the four extra skips are the <code>requires_tesseract</code> OCR
         tests, which run only where that binary is installed. Both numbers were
-        measured on their own box, not inferred from the other. Anything
-        <span class="was">red</span> is yours.
-        <br><strong>If you touch <code>dashboard/js/</code> you have a second
-        suite:</strong> <code>bun test js/tests</code> from <code>dashboard/</code>,
+        measured on their own box after round 8, not inferred from the other. Anything
+        red is yours.
+        <br><em>Note:</em> <code>dashboard/CLAUDE.md</code> still quotes 2,591 / 2,587.
+        That file has been stale for several rounds; these numbers are the current ones.</li>
+
+      <li>If you touch <code>dashboard/js/</code> you have a second
+        suite: <code>bun test js/tests</code> from <code>dashboard/</code>,
         expecting <strong>2,215 passed / 2 skipped</strong> across 75 files. It is
-        not part of the pytest run and is easy to forget.
-        <br>The pill above names the <em>round</em>'s commit, not HEAD, on purpose:
+        not part of the pytest run and is easy to forget.</li>
+
+      <li>The pill above names the round's commit, <strong>not HEAD</strong>, on purpose:
         every edit to this file changes HEAD, so a HEAD written in here is stale
         before it is pushed. It said so twice in one session. Trust
         <code>sync-all</code> for convergence, not a hash typed into a document.</li>
 
       <li>Pick the next cluster from the ranked table below.
         <strong>Re-measure it</strong> with the script in
-        <a href="#ranking">How to rank a cluster</a> rather than trusting the
+        <a href="#rank">How to rank a cluster</a> rather than trusting the
         numbers &mdash; cluster membership is a judgement call and the totals move
         when you widen or narrow the set. The table below was re-measured on
-        <code>5f7d2059</code>.</li>
+        <code>5ae369aa</code>, with the two traps that round 8 walked into
+        called out inline.</li>
 
-      <li>Extract, test against the <strong>owning module</strong>, run the full
+      <li>Extract, test against the owning module, run the full
         suite, commit, push, deploy, verify live, then rewrite this file.</li>
     </ol>
   </div>
@@ -177,214 +182,348 @@
   <div class="card">
     <h2>Progress toward the halfway line</h2>
     <div class="bar-row">
-      <span class="bar-label">Original</span>
+      <div class="bar-label">Original</div>
       <div class="bar-track"><div class="bar-fill" style="width:100%"></div></div>
-      <span class="bar-value">11,407</span>
+      <div class="bar-value">11,407</div>
     </div>
     <div class="bar-row">
-      <span class="bar-label">Current</span>
-      <div class="bar-track"><div class="bar-fill" style="width:71.9%"></div></div>
-      <span class="bar-value">8,198</span>
+      <div class="bar-label">Current</div>
+      <div class="bar-track"><div class="bar-fill" style="width:70.5%"></div></div>
+      <div class="bar-value">8,046</div>
     </div>
     <div class="bar-row">
-      <span class="bar-label">Halfway target</span>
-      <div class="bar-track"><div class="bar-fill" style="width:50%; background:var(--rule)"></div></div>
-      <span class="bar-value">~5,700</span>
+      <div class="bar-label">Halfway target</div>
+      <div class="bar-track"><div class="bar-fill" style="width:50%"></div></div>
+      <div class="bar-value">~5,700</div>
     </div>
     <p>
-      3,209 lines removed across seven rounds. Roughly 2,498 remain to reach half
-      the original size. This round removed 297 &mdash; the largest cut since
-      round&nbsp;1, and the last of the cheap clusters big enough to matter.
+      3,361 lines removed across eight rounds. Roughly 2,346 remain to reach half
+      the original size. This round removed 152.
+    </p>
+    <p>
+      <strong>Round 8 also corrected this plan's strategic conclusion.</strong> Round 7
+      claimed the cheap clusters were nearly exhausted &mdash; "everything below adds up
+      to about 430 lines" &mdash; and that one of the two big blocks had to be faced next.
+      Re-measuring on <code>5ae369aa</code> with real function names instead of the old
+      guessed membership shows roughly <strong>1,600 lines still available at 25&ndash;57
+      lines per name left behind</strong>. The big blocks are still coming, but not yet.
     </p>
   </div>
 
   <div class="card">
-    <h2>Round 7 &mdash; the category write and its undo</h2>
+    <h2>Round 8 &mdash; the Win10 box, and the three agent tabs</h2>
     <div class="commit-list">
-      <div class="commit"><code>5f7d2059</code> Extract the category write and its undo out of server.py</div>
+      <div class="commit"><code>9552ce0b</code> Extract the Win10 box and the three agent tabs out of server.py</div>
+      <div class="commit"><code>5ae369aa</code> Make the Win10 container probe survive the remote shell</div>
     </div>
+
+    <p>
+      Two clusters in one round because they are unrelated: a mistake in one cannot
+      corrupt the other. 152 lines out of <code>server.py</code>, and one dead
+      production feature found and revived by the live verification.
+    </p>
 
     <h3>What moved</h3>
     <table>
-      <thead><tr><th>Module</th><th>Contents</th><th>Why these together</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><code>finance/recategorize.py</code><br><span class="was">539 lines</span></td>
-          <td><code>recategorize_expense</code>, <code>undo_recategorize_expense</code>,
-            <code>update_report_row_color</code>, the undo journal's composition root
-            (<code>CATEGORY_UNDO_JOURNAL</code>, <code>_get_category_undo_service</code>,
-            <code>_record_category_undo</code>, <code>_undo_category_action</code>),
-            plus <code>ReportRowClass</code>, <code>RecategorizeRequest</code> and
-            <code>Collaborators</code>.</td>
-          <td>One user gesture that has to land in two places which can disagree:
-            the <code>expenses</code> row in the finance database, and the
-            <code>cat-*</code> class baked into the matching <code>&lt;tr&gt;</code>
-            of a static <code>report.html</code> on disk. The undo has to repaint
-            exactly the row the original write painted, by exactly the same matching
-            rules. Split them and the two sides drift into disagreeing about which
-            <code>&lt;tr&gt;</code> a transaction owns.</td>
-        </tr>
-      </tbody>
+      <tr><th>Module</th><th>Contents</th><th>Why these together</th></tr>
+      <tr>
+        <td><code>monitoring/win10_node.py</code><br>293 lines</td>
+        <td><code>win10_node_health</code>, <code>restart_win10_node</code>,
+          <code>win10_container_states</code>, <code>container_status_for</code>,
+          <code>ensure_win10_docker</code>, <code>win10_docker_ok</code>, all thirteen
+          <code>WIN10_*</code> constants and <code>_win10_*</code> caches and locks,
+          plus <code>Win10CacheEntry</code>, <code>_TtlCache</code> and
+          <code>Collaborators</code>.</td>
+        <td>Four questions about one machine, asked at four depths, where each answer
+          decides whether the next is worth asking: can we reach it, is its dockerd up,
+          what does its <code>docker ps</code> say, and what does that mean for one
+          server key. Plus the two recovery buttons. The Win10 WSL node hosts Letta, the
+          Frita SDK executor and the Logger API, so its reachability is the root cause
+          the other three hang off (<code>blocked_by</code>) rather than three
+          separate reds.</td>
+      </tr>
+      <tr>
+        <td><code>agents/message_views.py</code><br>218 lines</td>
+        <td><code>letta_thoughts</code>, <code>cached_thoughts</code>,
+          <code>letta_convo</code>, <code>letta_toolcalls</code>, the thoughts
+          <code>BackgroundResultProxy</code>, <code>MESSAGES_MAX_AGE_SECONDS</code>,
+          <code>within_max_age</code>, <code>_msg_date</code>, the conversation fetch,
+          plus <code>ConversationMessages</code> and <code>Collaborators</code>.</td>
+        <td>Three readings of one message stream. They share the parsing &mdash; the
+          timestamp a row is stamped with, the age window it must fall inside, the
+          message-type vocabulary each tab filters on &mdash; and the three tabs are
+          expected to agree about which messages exist. Split them and "Messages is
+          empty but Tool Calls has entries" becomes a shape mismatch rather than a
+          fact about the agent.</td>
+      </tr>
     </table>
 
     <p>
-      The undo journal's composition root travelled because this cluster is its
-      only caller and its journal path is a constant nothing else reads.
-      <code>_get_category_taxonomy</code> looks like it belongs but does not:
-      three other call sites in <code>server.py</code> use it, so it stays behind
-      and is injected.
+      That last point stopped being hypothetical during live verification: for a real
+      agent, <code>/api/messages</code> returned 0 rows while
+      <code>/api/toolcalls</code> returned 63. That is correct &mdash; the Messages tab
+      has a 5-hour window and the Tool Calls tab deliberately has none, because a tool
+      call is evidence of what the agent did and the tab is read after the fact. The
+      asymmetry is now stated in both docstrings and pinned by a test, instead of being
+      an unexplained difference between two neighbouring functions.
     </p>
 
     <h3>Where the typing earned its keep</h3>
 
-    <div class="finding fixed">
-      <p><strong><code>ReportRowClass</code> &mdash; the class that goes into the file.</strong>
-        <code>_swap_cls</code> repaints a row by dropping every class matching
-        <code>cat-[a-z0-9-]+</code> and prepending the new one. That strip pattern is
-        the report file's real contract, but nothing checked the value going
-        <em>in</em> against it. The class comes from the categories table's
-        <code>css_class</code> column by way of the taxonomy &mdash; a plain untyped
-        string out of a database &mdash; and went straight into a
-        <code>class="&hellip;"</code> attribute in a file on disk.</p>
-      <p>A value with a space silently added a second class. One with a quote broke
-        out of the attribute and corrupted a report nobody opens until a month-end
-        review. And <em>either one survives every later re-categorisation</em>,
-        because the strip cannot match it to take it back out. Now checked once, at
-        the only place that writes, and a malformed class is refused
-        <strong>without touching the file</strong> &mdash; a repaint that does not
-        happen shows up as <code>file_updated: false</code>, and of the two outcomes
-        only that one is recoverable. A test asserts the file's bytes are unchanged;
-        another walks every <code>css_class</code> in the real seeded taxonomy and
-        asserts the model accepts all 13.</p>
-    </div>
-
-    <div class="finding fixed">
-      <p><strong><code>RecategorizeRequest</code> &mdash; the browser's payload.</strong>
-        Two fields used to accept garbage in silence.</p>
-      <p><code>expense_id</code> went through a bare <code>int()</code>, so a JSON
-        <code>3.9</code> became expense&nbsp;3 and <code>true</code> became
-        expense&nbsp;1 &mdash; a confident <code>UPDATE</code> against a real row that
-        is not the one the user clicked.</p>
-      <p><code>signed_amount</code> went through <code>Decimal()</code>, which accepts
-        <code>'nan'</code> and <code>'inf'</code> without raising.
-        <code>WHERE amount='NaN'</code> matches nothing, so the lookup fell through to
-        the not-in-the-database branch and answered <code>ok: true</code> with
-        <em>"Transaction not in DB &mdash; color saved to report only"</em>: a success
-        message, and a colour written to a report file, for a transaction that was
-        never checked.</p>
-      <p>Amount parsing stays conditional exactly as the hand-rolled version was
-        &mdash; with an <code>expense_id</code> in hand the row is found by id and
-        <code>signed_amount</code> is display text that never reaches SQL. Error
-        payloads are byte-identical to the strings they replace
-        (<code>Bad expense_id: 3.9</code>, <code>Bad amount: 'nan'</code>), so the
-        dialog sees what it always did.</p>
-    </div>
-
-    <h3>The injection bundle, and why it is a bundle</h3>
     <p>
-      Seven collaborators stay behind: <code>_rol_get_connection</code>,
-      <code>_resolve_reporting_category</code>, <code>_css_class_for_report_name</code>,
-      <code>_find_matching_report_row</code>, <code>_report_file_for_url</code>,
-      <code>_vendor_prefix</code>, <code>_get_category_taxonomy</code>, plus the
-      <code>RECEIPT_ONLY_REPORT_PATH</code> constant. Seven keyword arguments on three
-      functions is noise, so they travel as one frozen
-      <code>Collaborators</code> dataclass that <code>server.py</code> builds
-      <strong>per call</strong>:
+      <strong><code>Win10CacheEntry</code> &mdash; and the probe that was never cached.</strong>
+      The three caches were plain <code>{'value': None, 'ts': 0.0}</code> dicts, tested
+      for freshness as <code>value is not None and now - ts &lt; TTL</code>. That reads
+      like "is there an entry?" but actually asks "is the entry's value non-None", and
+      the two questions only agree while <code>None</code> is not a legal value.
     </p>
-<pre><code>def _recategorize_deps():
-    return _recategorize.Collaborators(
-        get_connection=lambda: _rol_get_connection(),
-        resolve_reporting_category=_resolve_reporting_category,
-        ...
-    )</code></pre>
     <p>
-      Per call is the whole point &mdash; build it at import and
-      <code>monkeypatch.setattr(server, '_rol_get_connection', &hellip;)</code> lands
-      on a name nothing calls any more, which is the trap that bit five earlier
-      rounds. <code>get_connection</code> is a lambda rather than the function object
-      because the undo service is a process-wide singleton that would otherwise
-      freeze in whatever factory it saw first.
-      <code>test_server_wrapper_passes_the_real_collaborators</code> asserts every
-      entry is the real object, and
-      <code>test_server_wrapper_resolves_the_connection_at_call_time</code> proves the
-      late binding.
+      For <code>win10_docker_ok</code> it <em>is</em> a legal value: the probe is
+      deliberately three-state and <code>None</code> means "the SSH did not come back".
+      So an unknown answer was written to the cache and then <strong>never once served
+      from it</strong> &mdash; every health poll paid another 8-second SSH timeout
+      against a box that had just finished proving it was not answering. The one case
+      the cache exists for was the one case that had no cache, silently, because a slow
+      dashboard looks like a slow network.
+    </p>
+    <p>
+      Making the <em>entry</em> the presence sentinel (<code>None</code> = never probed)
+      separates the two questions. Frozen and replaced whole rather than mutated field
+      by field, for the same reason <code>HealthCacheEntry</code> is. Measured on the
+      live box against a real blackhole address: <strong>8.01s, then 0.000s</strong>.
+      <code>ensure_win10_docker</code> now invalidates that cache in a
+      <code>finally</code>, so the newly-cacheable "unknown" cannot pin a recovered box
+      in <code>host_unreachable</code> for the rest of its TTL.
+    </p>
+    <p>
+      Round 7's note said to check whether the torn-read the model prevents was
+      reachable before reaching for Pydantic here. <strong>It was not</strong> &mdash;
+      every read and write already held the lock. The model earns its place for a
+      different reason than the one that was predicted, which is worth knowing before
+      trusting the next prediction in this file.
     </p>
 
-    <h3>Dead re-exports</h3>
     <p>
-      Nothing is imported back. <code>_update_report_row_color</code>,
-      <code>_record_category_undo</code>, <code>_undo_category_action</code>,
-      <code>_get_category_undo_service</code> and <code>CATEGORY_UNDO_JOURNAL</code>
-      were all cluster-internal, and a parametrised test asserts
-      <code>not hasattr(server, name)</code> for each, so a well-meaning re-export
-      cannot creep back and become a second binding for a test to patch while the
-      real one keeps running. The <code>from category_undo import &hellip;</code> block
-      at the top of <code>server.py</code> went with them.
+      <strong><code>ConversationMessages</code> &mdash; the one untyped fetch path.</strong>
+      Every message the tabs render arrives through <code>ILettaGateway</code>, which
+      normalises the shape &mdash; except an isolated scan conversation, which comes back
+      from <code>letta_get</code> as whatever <code>json.loads</code> produced. The
+      hand-rolled unwrapping shrugged at all of it, and an unrecognised payload became
+      <code>[]</code>: identical on screen to an agent that has said nothing, so "the
+      payload changed shape" and "there is nothing to show" rendered the same, and only
+      one of them is a bug.
+    </p>
+    <p>
+      <code>{'messages': None}</code> was worse than ambiguous.
+      <code>.get('messages', fallback)</code> returns the stored <code>None</code>
+      rather than the fallback, because the key is present &mdash; so <code>None</code>,
+      not a list, reached <code>select_thoughts</code>, and the failure landed several
+      frames from its cause. Now validated at the boundary. Because the route calls
+      <code>cached_thoughts</code>, the raise lands in the proxy's refresh thread, which
+      logs it and keeps serving the last good value: a shape change costs a log line,
+      not a 500 and not a blank tab.
+    </p>
+    <pre><code>payload                    old behaviour        new behaviour
+{'messages': None}      -> None                 refused: Input should be a valid list
+{'data': [], 'total':0} -> []                   refused: neither 'messages' nor 'results'
+'nope'                  -> []                   refused: not a list or object
+[19 real messages]      -> 19                   accepted (checked live)</code></pre>
+
+    <h3>The bug the live verification found</h3>
+    <div class="finding fixed">
+      <p>
+        <strong>Indicator #2 had never worked.</strong>
+        <code>win10_container_states</code> ran
+        <code>['ssh', &hellip;, host, 'docker', 'ps', '-a', '--format', '{{.Names}}|{{.Status}}']</code>.
+        But <code>ssh</code> does not take an argv the way <code>subprocess</code> does:
+        it joins everything after the destination into one string and hands it to the
+        remote login shell, which parses it <em>again</em>. On the far side <code>|</code>
+        was read as a pipe and <code>{{.Status}}</code> as a command, so the probe exited
+        127 with <code>{{.Status}}: command not found</code> and no output.
+      </p>
+      <p>
+        Nothing raised. rc 127 is not an exception, so <code>states</code> simply came
+        back empty &mdash; and an empty result is indistinguishable from "the box has no
+        containers", which <code>container_status_for</code> renders as <code>''</code>,
+        which the route then omits from the payload entirely. So the whole point of the
+        feature &mdash; the exit code and restart count that tell you a server
+        <em>crashed</em> (139 = OOM/segfault) or is crash-looping rather than merely
+        stopped &mdash; was dead from the day it was written. A red server could have
+        <code>Exited (139)</code> sitting one SSH away, unread.
+      </p>
+      <p>
+        Fixed in <code>5ae369aa</code> by passing the remote command as one quoted
+        argument. Verified live: rc 127 and no output before, all six containers after.
+        A regression test pins the argv shape, because the failure is invisible from
+        inside Python &mdash; only the remote shell sees it.
+      </p>
+    </div>
+    <pre><code># before                          # after (live, same box)
+rc 127, stdout ''                 letta-server|Up 17 hours (healthy)
+{{.Status}}: command not found    letta-memfs|Up 17 hours (healthy)
+                                  logger-api-php|Up 17 hours
+container_status_for('letta')     logger-api-mysql|Up 17 hours (healthy)
+  -> ''                           frita-executor|Up 17 hours
+                                  letta-bridge|Up 17 hours
+
+container_status_for('letta') -> 'letta-server: Up 17 hours (healthy) ·
+                                  letta-memfs: Up 17 hours (healthy)'</code></pre>
+    <p>
+      This is worth a moment. The bug survived every round of this refactor, a full test
+      suite, and a working dashboard, because <em>the feature failing looks exactly like
+      the feature having nothing to say</em>. It was found only because the round's
+      verification step insisted on running the moved code against the real box and
+      reading the output rather than checking that the endpoint returned 200. That is
+      the argument for standing rule 7, in one artefact.
+    </p>
+
+    <h3>The injection bundles</h3>
+    <p>
+      Both modules take a frozen <code>Collaborators</code> dataclass that
+      <code>server.py</code> builds <strong>per call</strong>. Per call is the whole
+      point &mdash; build it at import and
+      <code>monkeypatch.setattr(server, 'letta_messages', &hellip;)</code> lands on a
+      name nothing calls any more, which is the trap that bit five earlier rounds.
+    </p>
+    <ul>
+      <li><code>win10_node</code> keeps only the restart log &mdash;
+        <code>_log_restart</code> and <code>RESTART_LOG</code> &mdash; because every
+        other restart handler in <code>server.py</code> appends to it.
+        <code>mark_server_starting</code> is <em>not</em> injected: it lives in
+        <code>monitoring/server_lifecycle.py</code>, not in <code>server.py</code>, so
+        importing it directly shares the same process-wide state rather than creating a
+        second binding. Inject what stays behind in <code>server.py</code>; import what
+        already has its own home.</li>
+      <li><code>message_views</code> keeps <code>letta_messages</code> (the gateway
+        shim), <code>letta_get</code> and <code>_msg_age_seconds</code> &mdash; the
+        agent-activity poller also uses the last one.</li>
+    </ul>
+    <p>
+      One wrinkle worth copying: the thoughts proxy lives inside the moved module and
+      calls its own loader, so the bundle cannot be a trailing keyword there.
+      <code>BackgroundResultProxy.get(key, *loader_args)</code> forwards positionally, so
+      a two-line adapter puts <code>deps</code> first for the loader while every public
+      function keeps round 7's trailing <code>deps=</code> convention:
+    </p>
+    <pre><code>def _load_thoughts(deps, agent_id, conversation_id):
+    return letta_thoughts(agent_id, conversation_id, deps=deps)
+
+_thoughts_proxy = BackgroundResultProxy(
+    loader=_load_thoughts, refresh_seconds=3, name='thoughts')</code></pre>
+    <p>
+      A test asserts the deps bundle is <em>not</em> part of the proxy's cache key. It is
+      rebuilt on every call, so keying on it would make every call a miss and defeat the
+      proxy entirely &mdash; which would look like nothing at all, just a slow tab.
+    </p>
+
+    <h3>What is re-exported, and what is not</h3>
+    <p>
+      More is imported back this round than in round 7, and for a reason worth
+      internalising: <strong><code>http_app/get_routes.py</code> reaches into
+      <code>server</code> through <code>srv</code>, and the ranking script cannot see
+      it.</strong> The script parses <code>server.py</code> only. Six names looked
+      cluster-internal by AST and are in fact route dependencies:
+      <code>WIN10_CONTAINERS</code>, <code>win10_container_states</code>,
+      <code>container_status_for</code>, <code>cached_thoughts</code>,
+      <code>letta_convo</code>, <code>letta_toolcalls</code> &mdash; plus
+      <code>_within_max_age</code>, which the Claude Code log route calls even though
+      Claude has no Letta agent at all.
+    </p>
+    <p>
+      Those are imported back or wrapped, because rule 3 says import back what is still
+      called. Genuinely dead names are asserted absent by parametrised tests:
+      the thirteen <code>WIN10_*</code> / <code>_win10_*</code> names, and
+      <code>letta_thoughts</code>, <code>_msg_date</code>,
+      <code>_letta_conversation_messages</code>, <code>_thoughts_proxy</code>,
+      <code>MESSAGES_MAX_AGE_SECONDS</code>. A further parametrised test asserts each
+      re-exported name <em>is</em> the owning module's object, so a route cannot be
+      broken with the suite still green.
     </p>
 
     <h3>Tests</h3>
     <p>
-      70 in <code>tests/test_recategorize.py</code>, pointed at the owning module.
-      The 11 superseded copies were deleted from <code>tests/test_server.py</code>
-      along with four helpers that went orphaned with them
-      (<code>_DINERS_ROW_HTML</code>, <code>_write_report</code>,
-      <code>_DateSelectCursor</code>, <code>_DateSelectConnection</code>). What stays
-      there is <code>receipts_present</code>, which shares the same &plusmn;1&ndash;3
-      day credit-card posting-date tolerance, and the four
-      <code>_find_matching_report_row</code> tests &mdash; that function stays behind.
+      106 new tests: 55 in <code>tests/test_win10_node.py</code>, 51 in
+      <code>tests/test_message_views.py</code>, both pointed at the owning modules. The
+      11 superseded copies were deleted from <code>tests/test_server.py</code> and
+      replaced with pointer comments. Suite: 2,648 &rarr; 2,745 on a dev box.
     </p>
-    <p>
-      Beyond the moved assertions, the new file pins behaviour nothing covered before:
-      a row with no <code>class</code> attribute at all gets one; a non-matching
-      vendor_key leaves the file's bytes untouched; a <code>DB error:</code> is
-      reported rather than dressed up as success; a failed journal write still returns
-      <code>ok: true</code>, because the category <em>was</em> changed and losing the
-      undo token must not un-change it; <code>expense_id=0</code> stays 0 rather than
-      being read as absent; a tie on date+amount is broken by description and
-      otherwise refused; and the Receipt Only tab &mdash; rebuilt from the DB on every
-      load &mdash; touches no file on either the write or the undo.
-    </p>
+    <p>Beyond the moved assertions, the new files pin behaviour nothing covered before:</p>
+    <ul>
+      <li>an unknown dockerd answer is cached (the round's headline fix), and the cache
+        still expires;</li>
+      <li><code>ensure_win10_docker</code> invalidates the docker cache on success
+        <em>and</em> on failure;</li>
+      <li>the <code>docker ps</code> format template is one quoted remote argument;</li>
+      <li>a failed <code>docker ps</code> caches its empty result, because an
+        unreachable box is exactly when it must not be retried every poll;</li>
+      <li>the three caches hold three distinct locks, and a threaded read/write race
+        never yields a torn entry;</li>
+      <li><code>restart_win10_node</code> journals before spawning, marks the server
+        starting, invalidates the node cache, and reports a spawn failure rather than
+        raising;</li>
+      <li>every shape <code>ConversationMessages</code> accepts and every one it refuses,
+        including the two that used to pass silently;</li>
+      <li>the proxy converts a shape-change raise into a logged refresh failure;</li>
+      <li>the Tool Calls tab has no age filter &mdash; asserted by giving it an age
+        function that raises if called;</li>
+      <li>and an end-to-end pass through the real <code>server.py</code> wrapper, real
+        age filter and real timestamp parser, with only the Letta fetch replaced &mdash;
+        one fresh message kept, one stale message dropped.</li>
+    </ul>
 
     <h3>Verified live</h3>
     <p>
-      <code>verify-live.sh</code> greps <code>dashboard.html</code>, so it does not
-      apply to a backend-only change. Verified against the real endpoints on the live
-      box after <code>systemctl --user restart dashboard-server.service</code>:
+      <code>verify-live.sh</code> greps <code>dashboard.html</code>, so it does not apply
+      to a backend-only change. Verified against the real endpoints and the real boxes
+      after <code>systemctl --user restart dashboard-server.service</code>:
     </p>
-<pre><code>POST /api/recategorize-expense  {"reporting_category":"Not A Bucket"}
-     -> ok:false  "Unknown category: Not A Bucket"        (no query attempted)
-POST /api/recategorize-expense  {"signed_amount":"nan"}
-     -> ok:false  "Bad amount: 'nan'"                      (new; used to 200 OK)
-POST /api/recategorize-expense  {"expense_id":3.9}
-     -> ok:false  "Bad expense_id: 3.9"                    (new; used to hit row 3)
-POST /api/undo-recategorize-expense {"undo_token":"not-a-real-token"}
-     -> ok:false  "That undo action was not found or has expired."
+    <pre><code>GET /api/toolcalls?agent=&lt;real&gt;   -> 63 rows {date,type,text}, type 'tool_return'
+GET /api/messages?agent=&lt;real&gt;    -> 0 rows  (correct: 5-hour window)
+GET /api/messages?agent=agent-claude
+     -> 0 rows from 3 on disk; ages 271,805s / 2,661,030s vs an 18,000s window
+        (the filter really ran -- not an empty log)
+GET /api/server-health            -> win10-node up; letta / logger-api /
+                                     frita-executor up
 
-# full round trip on a real row, reversed:
-expense 1110  Personal(3) -> Travel &amp; Vehicle(160)   undo_token issued
-undo                       -> status "restored",  category_id 3
-undo again (same token)    -> status "already_restored", no second write
-SELECT category_id FROM expenses WHERE id=1110  -> 3   (back where it started)</code></pre>
-    <p>
-      Nothing is left dormant this round. The DB write, the taxonomy label lookup, the
-      report-row search, the journal record, the compare-and-swap restore and its
-      replay guard all ran in production and were checked. A prior no-op call
-      (recategorising a row to the bucket it already had) confirmed the
-      <code>previous == new</code> path returns <code>undo_token: null</code> rather
-      than journalling a change that never happened.
-    </p>
+win10_docker_ok, blackhole host   -> None in 8.01s, then None in 0.000s   (the fix)
+win10_docker_ok, real box         -> True in 0.91s, then True in 0.000s
+ensure_win10_docker               -> ok, and the docker cache dropped afterwards
+win10_node_health                 -> ok, 'Win10 WSL node 100.80.49.10 reachable'
+win10_container_states            -> 6 containers (0 before 5ae369aa)
+
+cached_thoughts, real scan conversation
+     call 1 -> 0 rows (proxy default, refresh dispatched)
+     call 2 -> 1 row  'Processed the Window Scanner image...'  (real content,
+               through the new ConversationMessages validation)
+
+server._win10_node_deps()  -> log_restart is server._log_restart, path
+                              /tmp/dashboard_restarts.log; a wrapper call
+                              appended a real line (4 -> 5)</code></pre>
+    <div class="finding">
+      <p>
+        <strong>One thing is deliberately left dormant.</strong>
+        <code>restart_win10_node</code>'s actual <code>ssh</code> was intercepted, not
+        fired. Firing it restarts <code>tailscaled</code> inside the WSL distro, dropping
+        the Letta server for ~15s &mdash; with live agents mid-run, that is not a
+        reversible verification. Everything up to the spawn was exercised against the
+        real deps: the injected log was resolved and written, the command line was
+        built and inspected, <code>mark_server_starting</code> ran, and the node cache
+        was invalidated. Only the remote effect is unproven. If a future round needs it
+        confirmed, do it during a deliberate Letta restart window rather than casually.
+      </p>
+    </div>
   </div>
 
-  <div class="card" id="ranking">
+  <div class="card" id="rank">
     <h2>How to rank a cluster</h2>
     <p>
-      The right question is: <strong>which names stay behind in <code>server.py</code>
-      after the move?</strong> A name referenced only by the cluster travels with it
-      and costs nothing. Counting every top-level name a cluster touches penalises
-      exactly the clusters that are most self-contained. Run this from
+      The right question is: <strong>which names stay behind in
+      <code>server.py</code> after the move?</strong> A name referenced only by the
+      cluster travels with it and costs nothing. Counting every top-level name a cluster
+      touches penalises exactly the clusters that are most self-contained. Run this from
       <code>dashboard/</code> against the current file before choosing:
     </p>
-<pre><code>import ast
+    <pre><code>import ast
 from collections import defaultdict
 src = open('server.py').read(); tree = ast.parse(src)
 funcs = {n.name: n for n in tree.body
@@ -394,7 +533,6 @@ for n in tree.body:
     if isinstance(n, ast.Assign):
         for t in n.targets:
             if isinstance(t, ast.Name): top.add(t.id)
-
 refs = defaultdict(set)              # name -> top-level funcs that reference it
 for fname, node in funcs.items():
     for sub in ast.walk(node):
@@ -402,112 +540,176 @@ for fname, node in funcs.items():
                 and sub.id in top:
             refs[sub.id].add(fname)
 
+def deps(name):
+    n = funcs.get(name)
+    return set() if n is None else {
+        s.id for s in ast.walk(n)
+        if isinstance(s, ast.Name) and isinstance(s.ctx, ast.Load) and s.id in top}
+
 names = {...}                        # the cluster you are considering
-nodes = [funcs[n] for n in names if n in funcs]
-lines = sum(n.end_lineno - n.lineno + 1 for n in nodes)
-ext = {sub.id for n in nodes for sub in ast.walk(n)
-       if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load)
-       and sub.id in top and sub.id not in names}
-stays   = sorted(x for x in ext if refs[x] - names)   # real coupling cost
-travels = sorted(x for x in ext if not (refs[x] - names))
-print(lines, 'lines |', len(stays), 'stay behind:', stays)
-print('   travels with it:', travels)</code></pre>
+while True:                          # pull in what only this cluster uses
+    ext = set().union(*(deps(n) for n in names)) - names
+    travels = {x for x in ext if not (refs[x] - names)}
+    if not travels: break
+    names |= travels
+stays = sorted(set().union(*(deps(n) for n in names)) - names)
+lines = sum(funcs[n].end_lineno - funcs[n].lineno + 1 for n in names if n in funcs)
+print(lines, 'lines |', len(stays), 'stay behind:', stays)</code></pre>
     <p>
-      Three caveats. The script counts <em>function</em> bodies, so module-level
-      constants that travel are free lines it does not credit &mdash; round 7 measured
-      at 332 and removed 297 net, because the wrappers and the explanatory comment
-      left behind cost lines back. It also cannot tell you a name is
-      <em>mis</em>-clustered: <code>_get_category_taxonomy</code> sat in the middle of
-      the undo-journal block and looked like a member, but three unrelated call sites
-      use it. <strong>Grep every name you are about to move</strong> before you cut.
-      And cluster membership is a judgement &mdash; widen or narrow the set and the
-      numbers move.
+      Round 7's version stopped at one level. The loop above takes the transitive
+      closure, which matters: <code>agent-registry</code> measured 56 lines / 1 name at
+      one level and 72 lines / 3 names closed, because the travellers had their own
+      dependencies that the first pass never looked at.
     </p>
+
+    <h3>Four caveats, all of them earned</h3>
+    <ol>
+      <li><strong>The script counts function bodies</strong>, so module-level constants
+        that travel are free lines it does not credit &mdash; and the wrappers and
+        explanatory comments left behind cost lines back. Round 8 measured 183 and
+        removed 152 net.</li>
+      <li><strong>It cannot see <code>http_app</code>.</strong> It parses
+        <code>server.py</code> and nothing else, so every <code>srv.&lt;name&gt;</code>
+        call in <code>http_app/get_routes.py</code> and
+        <code>http_app/post_routes.py</code> is invisible to it. Round 8 had seven names
+        that looked cluster-internal and were in fact route dependencies. <strong>Always
+        grep <code>http_app/</code> for every name you plan to drop.</strong> The suite
+        will not catch it: <code>tests/http_app_harness.py</code> stubs the service
+        layer, so those tests pass against a name that no longer exists.</li>
+      <li><strong>It cannot tell you a name is mis-clustered.</strong> Round 8 measured
+        the "Document Vision health" section at 83 lines with <em>zero</em> names left
+        behind &mdash; an apparently free extraction. It is a mirage: that section is
+        already extracted, and the 83 lines are the <code>HEALTH_CHECKS</code> registry
+        and <code>server_health</code>, which sit under its header and are used by
+        everything. Two more, in the table below, are named there.
+        <strong>Grep every name you are about to move.</strong></li>
+      <li><strong>Cluster membership is a judgement</strong> &mdash; widen or narrow the
+        set and the numbers move.</li>
+    </ol>
   </div>
 
   <div class="card">
     <h2>Next steps</h2>
     <p>
-      Re-measured on <code>5f7d2059</code> with the script above, ranked by lines
-      removed per name left behind. <strong>The cheap clusters are now nearly
-      exhausted:</strong> everything below adds up to about 430 lines, and 2,498 are
-      still needed. One of the two big blocks in "Still deferred" has to be faced.
+      Re-measured on <code>5ae369aa</code> using the actual function names in each
+      section (round 7's table was built from guessed membership and understated what is
+      left). Ranked by lines removed per name left behind. <strong>The seed lists are
+      real</strong> &mdash; paste them into the script above to reproduce a row.
     </p>
     <table>
-      <thead><tr><th>Cluster</th><th>Lines</th><th>Stay behind</th><th>Per name</th><th>What stays behind</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><strong>win10-node</strong></td><td>111</td><td>2</td><td>56</td>
-          <td><code>RESTART_LOG</code>, <code>_log_restart</code></td>
-        </tr>
-        <tr>
-          <td><strong>agent-registry</strong></td><td>56</td><td>1</td><td>56</td>
-          <td><code>letta_messages</code></td>
-        </tr>
-        <tr>
-          <td>exec-mode</td><td>46</td><td>3</td><td>15</td>
-          <td><code>HUMAN_ONLY_MODE_STAGE_MESSAGE</code>, <code>_MAZDA_MODE_SERVICE</code>,
-            <code>merge_recent_intake_status</code></td>
-        </tr>
-        <tr>
-          <td>receipt-only</td><td>129</td><td>9</td><td>14</td>
-          <td><code>ROL_FINANCES_MONTH_RANGES</code>, <code>_get_category_taxonomy</code>'s
-            neighbours, <code>_norm_amount</code>, <code>_rol_get_connection</code>,
-            <code>_resolve_expense_receipt_path</code>, &hellip;</td>
-        </tr>
-        <tr>
-          <td>chatgpt-probe</td><td>67</td><td>7</td><td>10</td>
-          <td><code>CHATGPT_PLUS_PRO</code>, <code>PROVIDER_USAGE_PROBES</code>,
-            <code>_chatgpt_failover</code>, <code>_poll_chatgpt_provider_once</code>, &hellip;</td>
-        </tr>
-        <tr>
-          <td>notes</td><td>17</td><td>3</td><td>6</td>
-          <td><code>_matching_expense</code>, <code>_norm_amount</code>,
-            <code>_rol_get_connection</code></td>
-        </tr>
-      </tbody>
+      <tr><th>Cluster</th><th>Lines</th><th>Stay</th><th>Per name</th><th>Seed functions</th></tr>
+      <tr>
+        <td><strong>ssh-checks</strong></td><td>228</td><td>4</td><td>57</td>
+        <td><code>_poll_all_ssh_once</code>, <code>_record_ssh_log</code>,
+          <code>_ssh_poll_loop</code>, <code>_ssh_test_once</code>,
+          <code>_tailscale_cli</code>, <code>_tailscale_ping_test</code>,
+          <code>cached_ssh_health</code>, <code>connection_test</code>,
+          <code>get_ssh_connection</code>, <code>ssh_test</code>,
+          <code>tailscale_test</code>
+          <br><em>Stays:</em> <code>SSH_CONNECTIONS</code>,
+          <code>SSH_HEALTH_POLL_INTERVAL</code>, <code>_health_poller</code>,
+          <code>server_health</code></td>
+      </tr>
+      <tr>
+        <td><strong>usage-probe</strong></td><td>112</td><td>2</td><td>56</td>
+        <td><code>_classify_claude_usage</code>, <code>_classify_codex_usage</code>,
+          <code>_fetch_provider_oauth_creds</code>, <code>_probe_claude_usage</code>,
+          <code>_probe_codex_usage</code>, <code>_probe_usage_endpoint</code>,
+          <code>_provider_agent_ids</code>, <code>codex_window_label</code>
+          <br><em>Stays:</em> <code>LETTA_AGENTS</code>, <code>get_letta_id</code></td>
+      </tr>
+      <tr>
+        <td><strong>chatgpt-failover</strong></td><td>~397</td><td>10+</td><td>~39</td>
+        <td><code>_chatgpt_provider_poll_loop</code>, <code>_codex_refresh</code>,
+          <code>_heal_standby_token</code>, <code>_maybe_chatgpt_failover</code>,
+          <code>_poll_chatgpt_provider_once</code>,
+          <code>_run_chatgpt_failover_swap</code>, <code>_standby_has_headroom</code>,
+          <code>_read_standby_creds</code>, <code>_write_standby_creds</code>,
+          <code>failover_should_trigger</code>, <code>standby_probe_verdict</code>, &hellip;
+          <br><em class="was">Mis-clustered:</em> the section also contains
+          <code>letta_id_for</code> (39 references outside <code>server.py</code>) and
+          <code>build_agent_list</code> (15). They must be excluded and injected.</td>
+      </tr>
+      <tr>
+        <td><strong>exec-mode</strong></td><td>153</td><td>6</td><td>25</td>
+        <td><code>_block_dispatch_for_human_only_mode</code>,
+          <code>_dispatch_mazda_or_block</code>, <code>_notify_mazda_of_scan</code>,
+          <code>_notify_mazda_of_scan_and_record_failure</code>,
+          <code>current_execution_mode</code>, <code>resolve_execution_mode</code></td>
+      </tr>
+      <tr>
+        <td><strong>scanner-diagnostics</strong></td><td>118</td><td>5</td><td>23</td>
+        <td><code>_create_mazda_conversation</code>,
+          <code>_mazda_dispatch_was_accepted</code>, <code>_stage_scan_for_mazda</code>,
+          <code>scanner_diagnostics</code></td>
+      </tr>
+      <tr>
+        <td><strong>notes</strong></td><td>100</td><td>6</td><td>16</td>
+        <td><code>receipts_present</code>, <code>save_expense_notes</code>,
+          <code>scanned_statements_present</code></td>
+      </tr>
+      <tr>
+        <td><strong>receipt-only</strong></td><td>70</td><td>7</td><td>10</td>
+        <td><code>_fetch_receipt_only_rows</code>,
+          <code>_reporting_category_for_id</code></td>
+      </tr>
     </table>
 
     <p>
-      <strong>Recommended: <code>win10-node</code> and <code>agent-registry</code>
-      together.</strong> 167 lines for 3 names, and they are unrelated to each other,
-      so a mistake in one cannot corrupt the other. <code>win10-node</code> is
-      <code>win10_node_health</code>, <code>restart_win10_node</code>,
-      <code>win10_container_states</code>, <code>container_status_for</code>,
-      <code>ensure_win10_docker</code> and <code>win10_docker_ok</code>, with all
-      thirteen of their <code>WIN10_*</code> constants and <code>_win10_*</code> caches
-      and locks travelling along; the only residue is a logging seam
-      (<code>RESTART_LOG</code>, <code>_log_restart</code>) that injects trivially.
-      <code>agent-registry</code> is <code>letta_thoughts</code>,
-      <code>cached_thoughts</code>, <code>letta_convo</code> and
-      <code>letta_toolcalls</code>, leaving only <code>letta_messages</code> behind.
+      <strong>Recommended: <code>ssh-checks</code> and <code>usage-probe</code>
+      together.</strong> 340 lines for 6 names left behind &mdash; the best ratio on the
+      board, better than anything round 7 or 8 had, and the two are unrelated, so a
+      mistake in one cannot corrupt the other. Same shape as round 8, and it would put
+      <code>server.py</code> near 7,700.
     </p>
     <p>
-      The Pydantic target in <code>win10-node</code> is the cache entries: three
-      independent <code>{'value': None, 'ts': 0.0}</code> dicts mutated field-by-field
-      under three separate locks, which is the same shape
-      <code>HealthCacheEntry</code> fixed in round 4 &mdash; a half-updated entry can
-      be read back by a concurrent poll. Check whether that is reachable before
-      modelling it; if it is not, do not reach for Pydantic here just to have used it.
+      <code>ssh-checks</code> is a natural module: a poll loop, a cache, a Tailscale CLI
+      shim and two probes, with <code>SSH_CONNECTIONS</code> and the poll interval as the
+      only real residue. <code>server_health</code> stays behind and is already the
+      injected-collaborator shape. <code>usage-probe</code> is even cleaner &mdash; two
+      names, both of them agent-roster lookups.
     </p>
+    <p>
+      <strong>Look for the Pydantic target in the probe responses, not the caches.</strong>
+      <code>_classify_codex_usage</code> and <code>_classify_claude_usage</code> turn an
+      untyped provider JSON body into a rate-limit verdict that decides whether a
+      failover fires. That is a wrong value with an expensive silent consequence, and it
+      is the same untyped-boundary shape as <code>ConversationMessages</code>. Check
+      first whether a malformed body currently yields a confident verdict &mdash; if it
+      raises loudly today, leave it alone.
+    </p>
+    <p>
+      Do <strong>not</strong> take <code>chatgpt-failover</code> before
+      <code>usage-probe</code>: they share <code>_fetch_provider_oauth_creds</code>,
+      <code>_probe_usage_endpoint</code> and <code>_provider_agent_ids</code>, and moving
+      the probe first turns three of failover's ten residual names into an interface it
+      already consumes.
+    </p>
+  </div>
 
-    <h3>Still deferred</h3>
+  <div class="card">
+    <h2>Still deferred</h2>
     <ul>
       <li><code>open-receipt</code> (<code>lookup_receipt</code>, ~76 lines) &mdash;
         entangled with the recent-report cluster. Do it <em>with</em> recent-report,
         not before it.</li>
-      <li><strong><code>recent-report + finance-rows</code></strong> (~2,200 lines) and
-        the <strong>intake-pipeline / expense-bus cluster</strong> (~1,500 lines)
-        &mdash; the two largest untouched blocks. Both need real interface design, not
-        source-slicing. Either one alone would very nearly finish the job; nothing else
-        left will. Round 7 makes one of them easier: <code>_find_matching_report_row</code>,
-        <code>_report_file_for_url</code> and <code>_css_class_for_report_name</code> are
-        now the report-side seam that <code>finance/recategorize.py</code> already
-        consumes through an interface, so their eventual home is settled.</li>
-      <li>The <strong>two route ladders</strong> in <code>http_app/</code>, ~600 lines
-        each. Splitting them needs a route registry (Command / Chain of
-        Responsibility), which is what the ~460 <code>test_http_app_*</code> tests were
-        written as the safety net for.</li>
+      <li><strong>Mazda Trainer</strong> (~853 lines, 18 names, 47 per name) &mdash; new
+        to this table. The ratio is good and the size is real, but 18 residual names is
+        a genuine interface-design job, not a source slice, and several
+        (<code>SCANNERS</code>, <code>_SCAN_LOCK</code>,
+        <code>_create_mazda_conversation</code>) are shared with
+        <code>scanner-diagnostics</code> and <code>exec-mode</code>. Take those two
+        smaller clusters first and the Trainer's boundary draws itself.</li>
+      <li><code>recent-report</code> + <code>finance-rows</code> (~1,751 + ~754 lines)
+        and the <strong>intake-pipeline / expense-bus</strong> cluster (~761 + ~775) &mdash;
+        the two largest untouched blocks, and still the only things that can finish the
+        job on their own. Both need real interface design. Round 7 settled the
+        report-side seam (<code>_find_matching_report_row</code>,
+        <code>_report_file_for_url</code>, <code>_css_class_for_report_name</code>, now
+        consumed through an interface by <code>finance/recategorize.py</code>).</li>
+      <li>The two route ladders in <code>http_app/</code>, ~600 lines each. Splitting them
+        needs a route registry (Command / Chain of Responsibility), which is what the
+        ~460 <code>test_http_app_*</code> tests were written as the safety net for.</li>
     </ul>
   </div>
 
@@ -517,62 +719,73 @@ print('   travels with it:', travels)</code></pre>
       <li><strong>Extract lowest-residual-coupling first</strong>, measured with the
         script above, not by eye. Then grep every name in your set &mdash; the script
         cannot tell you a name is mis-clustered.</li>
+      <li><strong>Grep <code>http_app/</code> before dropping any name.</strong> The
+        script parses <code>server.py</code> only, and the route ladders reach in through
+        <code>srv.&lt;name&gt;</code> at call time. The HTTP tests stub the service layer,
+        so they will not catch a missing name either. New in round 8, which had seven.</li>
       <li><strong>Point new tests at the owning module</strong>, never at
-        <code>server</code>. A re-export is a second binding; the moved code closes
-        over its own module global, so
+        <code>server</code>. A re-export is a second binding; the moved code closes over
+        its own module global, so
         <code>monkeypatch.setattr(server, 'X', &hellip;)</code> isolates nothing while
         looking exactly like it does. This has bitten five rounds running.</li>
-      <li><strong>Inject what stays behind</strong> rather than importing it, and
-        resolve the bundle <em>per call</em>. Add a test that production wires the real
-        collaborators.</li>
+      <li><strong>Inject what stays behind in <code>server.py</code></strong> rather than
+        importing it, and resolve the bundle per call. Add a test that production wires
+        the real collaborators, and one that proves the late binding. A dependency that
+        already has its own module (<code>mark_server_starting</code>) is imported, not
+        injected &mdash; injecting it would be ceremony, importing a
+        <code>server.py</code> name would be a second binding.</li>
       <li><strong>Import back only what is still called.</strong> Assert the dropped
-        names are absent so dead re-exports cannot creep back.</li>
+        names are absent so dead re-exports cannot creep back, and assert the kept ones
+        <em>are</em> the owning module's object.</li>
       <li><strong>A fake must be pinned to the real thing it fakes.</strong> Where a
-        dashboard module fakes a <code>rol_finances</code> object, add one test that
-        runs the path unpatched against the real one &mdash; that boundary is
-        <code>sys.path</code>-injected and entirely untyped, so nothing else is
-        checking it. (See <a href="#vendorkey">the round-6 postscript</a>.)</li>
+        dashboard module fakes a <code>rol_finances</code> object, add one test that runs
+        the path unpatched against the real one &mdash; that boundary is
+        <code>sys.path</code>-injected and entirely untyped. (See the round-6 postscript.)</li>
+      <li><strong>Deploy and verify against the real thing.</strong> Committing is not
+        deploying, and a 200 is not a verification. For a backend-only change, call the
+        moved code on the live box and <em>read the output</em>. Round 8 found a feature
+        that had never once worked, in code that had passed every previous review,
+        because rc 127 and "nothing to report" render identically. If the moved code
+        writes, find a reversible way to watch it write &mdash; and if there is no
+        reversible way, say so in this file rather than firing it or pretending it was
+        checked.</li>
       <li><strong>Every Pydantic model dumps to a plain dict</strong> so browser-facing
         JSON stays byte-identical, and keep a golden-payload test against the prior
         literals &mdash; error strings included.</li>
       <li><strong>Reach for Pydantic where a wrong value is silent</strong>, not
-        everywhere. The test that proves it earns its keep is usually the one showing
-        the <em>old</em> code accepting garbage.</li>
-      <li><strong>Deploy and verify.</strong> Committing is not deploying. For a
-        backend-only change, curl the endpoints that run the moved code &mdash;
-        <code>verify-live.sh</code> only greps <code>dashboard.html</code>. If the
-        moved code writes, find a reversible way to watch it write.</li>
-      <li><strong>Stay out of <code>js/</code>&nbsp;&mdash; unless the bug is there.</strong>
-        A concurrent <code>dashboard-boot.js</code> refactor runs in parallel; an
-        earlier round saw <code>tests/test_project_plans.py</code> fail on its edits,
-        not ours. Confirm with <code>git status js/</code> before blaming yourself.
-        <br><span class="was">Broken deliberately in <code>e28bd5fd</code></span>:
-        the stale-plan bug lived in <code>js/boot/view-navigator.js</code> and could
-        not be fixed anywhere else. <code>git status js/</code> was clean first, the
-        edit was one file, and <code>bun test js/tests</code> was run. Do the same if
-        you have to go in: check, keep it to one file, run both suites.</li>
+        everywhere. The test that proves it earns its keep is usually the one showing the
+        old code accepting garbage. And check the predicted defect is actually reachable:
+        round 8's cache model was predicted for a torn read that could not happen, and
+        earned its place for an entirely different bug.</li>
+      <li><strong>Stay out of <code>js/</code></strong>&nbsp;&mdash; unless the bug is
+        there. A concurrent <code>dashboard-boot.js</code> refactor runs in parallel; an
+        earlier round saw <code>tests/test_project_plans.py</code> fail on its edits, not
+        ours. Confirm with <code>git status js/</code> before blaming yourself. Broken
+        deliberately in <code>e28bd5fd</code>: the stale-plan bug lived in
+        <code>js/boot/view-navigator.js</code> and could not be fixed anywhere else.
+        Round 8 touched nothing there.</li>
     </ol>
   </div>
 
-  <div class="card" id="vendorkey">
+  <div class="card">
     <h2>Postscript from round 6 &mdash; worth carrying forward</h2>
-    <div class="finding fixed">
-      <p>
-        <code>finance/vendor_lookup.py</code> called
-        <code>VendorCategoryLookup.guess_vendor_key</code>, a method
-        <code>rol_finances</code> has <strong>never</strong> defined &mdash; and the
-        test that shipped in the same commit monkeypatched a fake lookup object
-        defining that same imaginary method. The suite stayed green while every
-        production caller raised <code>AttributeError</code>, and the route swallowed
-        it into a <code>200</code> page reading "Scanner Report build error", so
-        monitoring saw success too. Fixed in <code>603d2d78</code>; the four
-        real-tesseract OCR failures became conditional skips in <code>7f620d41</code>.
-      </p>
-      <p>
-        That is the patch-target trap in a different costume, and it is why rule 5
-        exists.
-      </p>
-    </div>
+    <p>
+      <code>finance/vendor_lookup.py</code> called
+      <code>VendorCategoryLookup.guess_vendor_key</code>, a method
+      <code>rol_finances</code> has never defined &mdash; and the test that shipped in the
+      same commit monkeypatched a fake lookup object defining that same imaginary method.
+      The suite stayed green while every production caller raised
+      <code>AttributeError</code>, and the route swallowed it into a 200 page reading
+      "Scanner Report build error", so monitoring saw success too. Fixed in
+      <code>603d2d78</code>; the four real-tesseract OCR failures became conditional
+      skips in <code>7f620d41</code>.
+    </p>
+    <p>
+      Round 8's <code>docker ps</code> bug is the same animal in a third costume: a
+      failure whose observable signature is identical to success. Both were invisible to
+      the suite. Both needed someone to run the real thing and look at what came back.
+      That is why rules 6 and 7 exist.
+    </p>
   </div>
 
   <div class="card">
@@ -584,34 +797,38 @@ print('   travels with it:', travels)</code></pre>
       <div class="commit"><code>6d7606d9</code> Extract the health-poller cache and vendor-review dialog backend out of server.py</div>
       <div class="commit"><code>1351c3cc</code> Extract the Server Management clocks and log-file reading out of server.py</div>
       <div class="commit"><code>5f7d2059</code> Extract the category write and its undo out of server.py</div>
+      <div class="commit"><code>9552ce0b</code> Extract the Win10 box and the three agent tabs out of server.py</div>
+      <div class="commit"><code>5ae369aa</code> Make the Win10 container probe survive the remote shell</div>
     </div>
     <p>
-      Two follow-ups landed after round 7 and removed no lines from
-      <code>server.py</code>, but the next shift inherits them:
+      Follow-ups that removed no lines from <code>server.py</code> but which the next
+      shift inherits:
     </p>
     <div class="commit-list">
       <div class="commit"><code>dbecf4fc</code> Update the refactor plan for round 7</div>
       <div class="commit"><code>e28bd5fd</code> Re-fetch the Dashboard Refactor plan when its tab is opened</div>
+      <div class="commit"><code>b25955d5</code> Correct the refactor plan's own stale numbers</div>
+      <div class="commit"><code>b3eba0e1</code> Stop the refactor plan from recording a hash that is stale on arrival</div>
     </div>
   </div>
 
   <div class="card">
     <h2>Every module created so far</h2>
     <table>
-      <thead><tr><th>Module</th><th>What lives there</th></tr></thead>
-      <tbody>
-        <tr><td><code>model_stats/</code></td><td>sources, windows, usage_history (leak detection), last_good, reader, assignments, extractors</td></tr>
-        <tr><td><code>monitoring/pc_metrics.py</code></td><td><code>PcMonitor</code>, <code>PcMetric</code> (derives <code>alert</code> from <code>level</code>)</td></tr>
-        <tr><td><code>monitoring/server_lifecycle.py</code></td><td>starting window + down/stale clock, <code>ServerStatus</code></td></tr>
-        <tr><td><code>monitoring/log_files.py</code></td><td>tail/age/mtime-probe, <code>server_log_rows</code></td></tr>
-        <tr><td><code>http_app/</code></td><td>the whole HTTP layer: transport, the two route ladders, terminal WS, runtime, static files, <code>srv</code></td></tr>
-        <tr><td><code>terminal/pty_session.py</code></td><td>pty spawn, process-group reap</td></tr>
-        <tr><td><code>letta_code/runner.py</code></td><td>headless letta-code invocation + prompt validation</td></tr>
-        <tr><td><code>health/</code></td><td>probe.py (<code>ProbeResult</code>), failures.py, frita.py, document_vision.py, poller.py</td></tr>
-        <tr><td><code>finance/vendor_review.py</code></td><td>list_vendor_keys, list_pending_vendor_review, set_receipt_vendor, <code>PendingVendorReviewRow</code></td></tr>
-        <tr><td><code>finance/recategorize.py</code></td><td><span class="was">new</span> &mdash; the category write, its undo, the report-row repaint, the undo journal's composition root, <code>ReportRowClass</code>, <code>RecategorizeRequest</code></td></tr>
-        <tr><td><code>hosts.py</code>, <code>paths.py</code>, <code>letta_ids.py</code></td><td>shared constants that previously had 2&ndash;3 independent env-read/fallback copies</td></tr>
-      </tbody>
+      <tr><th>Module</th><th>What lives there</th></tr>
+      <tr><td><code>model_stats/</code></td><td>sources, windows, usage_history (leak detection), last_good, reader, assignments, extractors</td></tr>
+      <tr><td><code>monitoring/pc_metrics.py</code></td><td><code>PcMonitor</code>, <code>PcMetric</code> (derives alert from level)</td></tr>
+      <tr><td><code>monitoring/server_lifecycle.py</code></td><td>starting window + down/stale clock, <code>ServerStatus</code></td></tr>
+      <tr><td><code>monitoring/log_files.py</code></td><td>tail/age/mtime-probe, <code>server_log_rows</code></td></tr>
+      <tr><td><code>monitoring/win10_node.py</code></td><td><strong>new</strong> &mdash; the Win10 box's reachability, containers, dockerd and the two recovery buttons; <code>Win10CacheEntry</code>, <code>_TtlCache</code></td></tr>
+      <tr><td><code>http_app/</code></td><td>the whole HTTP layer: transport, the two route ladders, terminal WS, runtime, static files, <code>srv</code></td></tr>
+      <tr><td><code>terminal/pty_session.py</code></td><td>pty spawn, process-group reap</td></tr>
+      <tr><td><code>letta_code/runner.py</code></td><td>headless letta-code invocation + prompt validation</td></tr>
+      <tr><td><code>health/</code></td><td><code>probe.py</code> (<code>ProbeResult</code>), <code>failures.py</code>, <code>frita.py</code>, <code>document_vision.py</code>, <code>poller.py</code></td></tr>
+      <tr><td><code>agents/</code></td><td><code>letta_gateway.py</code>, <code>urllib_letta_gateway.py</code>, <code>model_options.py</code>, and <strong>new</strong> <code>message_views.py</code> &mdash; the Thoughts/Messages/Tool Calls tabs, the thoughts proxy, <code>ConversationMessages</code></td></tr>
+      <tr><td><code>finance/vendor_review.py</code></td><td><code>list_vendor_keys</code>, <code>list_pending_vendor_review</code>, <code>set_receipt_vendor</code>, <code>PendingVendorReviewRow</code></td></tr>
+      <tr><td><code>finance/recategorize.py</code></td><td>the category write, its undo, the report-row repaint, the undo journal's composition root, <code>ReportRowClass</code>, <code>RecategorizeRequest</code></td></tr>
+      <tr><td><code>hosts.py</code>, <code>paths.py</code>, <code>letta_ids.py</code></td><td>shared constants that previously had 2&ndash;3 independent env-read/fallback copies</td></tr>
     </table>
   </div>
 
@@ -625,8 +842,10 @@ print('   travels with it:', travels)</code></pre>
       <li><code>HealthCacheEntry</code> &mdash; the poller reassigns a whole entry rather than mutating fields, so a corrupt debounce record can't be read back into a later poll cycle.</li>
       <li><code>PendingVendorReviewRow</code> &mdash; pins the "pick a vendor" dialog's row shape so a renamed DB column fails at model construction, not as a blank cell.</li>
       <li><code>ServerStatus</code> &mdash; the four-state tab vocabulary, validated where a fifth state would silently escalate a healthy server as stale.</li>
-      <li><code>ReportRowClass</code> <span class="was">(new)</span> &mdash; the only shape a <code>cat-*</code> class may have, checked at the one place that writes it into a report file on disk.</li>
-      <li><code>RecategorizeRequest</code> <span class="was">(new)</span> &mdash; a row id must be a whole number and an amount must be finite, because <code>int(3.9)</code> and <code>Decimal('nan')</code> both used to succeed and then quietly do the wrong thing.</li>
+      <li><code>ReportRowClass</code> &mdash; the only shape a <code>cat-*</code> class may have, checked at the one place that writes it into a report file on disk.</li>
+      <li><code>RecategorizeRequest</code> &mdash; a row id must be a whole number and an amount must be finite, because <code>int(3.9)</code> and <code>Decimal('nan')</code> both used to succeed and then quietly do the wrong thing.</li>
+      <li><code>Win10CacheEntry</code> (new) &mdash; the entry, not the value, is the presence sentinel, so a cache whose legal answers include <code>None</code> can actually cache one. Before this, the slowest probe in the file was the only one that never hit its cache.</li>
+      <li><code>ConversationMessages</code> (new) &mdash; the one message path that bypasses <code>ILettaGateway</code>, where an unrecognised payload used to become an empty tab indistinguishable from a quiet agent.</li>
     </ul>
   </div>
 
@@ -636,21 +855,20 @@ print('   travels with it:', travels)</code></pre>
       It is already wired in: <code>dashboard.html</code> has a
       <code>#dashboard-refactor-plan-frame</code> iframe pointing at
       <code>/notes_plans_handoffs/dashboard_refactor_plan.html</code>, behind the
-      <strong>Dashboard Refactor</strong> tab under Project Plans. Earlier revisions
-      of this file claimed the opposite &mdash; that wiring it up was open
-      housekeeping &mdash; and that claim was carried forward for several rounds
-      without anyone checking <code>dashboard.html</code>. It is fixed here.
+      <strong>Dashboard Refactor</strong> tab under <strong>Project Plans</strong>.
+      Earlier revisions of this file claimed the opposite &mdash; that wiring it up was
+      open housekeeping &mdash; and that claim was carried forward for several rounds
+      without anyone checking <code>dashboard.html</code>.
     </p>
     <p>
-      A related trap, because it looks exactly like a failed deploy: a tab switch in
-      the dashboard only toggles a CSS class, so the iframe is fetched <em>once</em>,
-      when the dashboard page itself loads. A dashboard left open all day keeps
-      showing whichever revision of this plan it pulled at load time, however many
-      times you redeploy. The frame now carries
-      <code>data-refresh-on-show</code>, and <code>activateView</code> in
-      <code>js/boot/view-navigator.js</code> re-fetches marked frames every time
-      their tab is opened. <strong>If a plan still looks stale, reload the dashboard
-      page before suspecting the deploy</strong> &mdash; and confirm with
+      A related trap, because it looks exactly like a failed deploy: a tab switch in the
+      dashboard only toggles a CSS class, so the iframe is fetched once, when the
+      dashboard page itself loads. A dashboard left open all day keeps showing whichever
+      revision of this plan it pulled at load time, however many times you redeploy. The
+      frame now carries <code>data-refresh-on-show</code>, and <code>activateView</code>
+      in <code>js/boot/view-navigator.js</code> re-fetches marked frames every time their
+      tab is opened. If a plan still looks stale, reload the dashboard page before
+      suspecting the deploy &mdash; and confirm with
       <code>curl -s &lt;live&gt;/notes_plans_handoffs/&lt;plan&gt;.html | grep &lt;marker&gt;</code>,
       which asks the server rather than the browser.
     </p>
