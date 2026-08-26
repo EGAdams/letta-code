@@ -126,10 +126,10 @@
     otherwise fail silently, each extraction backed by its own tests.
   </p>
   <div class="meta">
-    <span class="pill">11,407 &rarr; 7,485 lines</span>
-    <span class="pill green">2,920 tests passing</span>
-    <span class="pill amber">~1,785 lines to halfway</span>
-    <span class="pill">round 10 = 039ad71b</span>
+    <span class="pill">11,407 &rarr; 7,378 lines</span>
+    <span class="pill green">2,978 tests passing</span>
+    <span class="pill amber">~1,675 lines to halfway</span>
+    <span class="pill">round 11 = 78c8b9fa</span>
   </div>
 </div>
 
@@ -138,17 +138,17 @@
   <ol>
     <li>
       <strong>Run the <code>sync-all</code> skill.</strong> Not optional &mdash; the box serving the
-      dashboard is usually not the one you are typing on. Round 10 found all three
+      dashboard is usually not the one you are typing on. Round 11 found all three
       boxes already converged; the live box's only dirty file was
       <code>dashboard/claude_toolcalls.json</code>, which is a runtime artefact the
-      running dashboard writes, not a source edit. If you stash to pull, pop the
-      stash afterwards &mdash; <code>git stash -u</code> takes untracked trainer
-      reports with it.
+      running dashboard writes, not a source edit &mdash; <code>git checkout --</code> it
+      before pulling. If you stash instead, pop the stash afterwards &mdash;
+      <code>git stash -u</code> takes untracked trainer reports with it.
     </li>
     <li>
       <strong>Baseline the tests before you touch anything:</strong>
       <code>cd dashboard &amp;&amp; .venv/bin/python -m pytest tests/ -q</code>.
-      There are no known failures. Expect <strong>2,920 passed / 6 skipped</strong> on a
+      There are no known failures. Expect <strong>2,978 passed / 6 skipped</strong> on a
       dev box; the live box shows 4 fewer skips because the
       <code>requires_tesseract</code> OCR tests run only where that binary is
       installed. Anything red is yours.
@@ -174,7 +174,7 @@
       <a href="#rank">How to rank a cluster</a> rather than trusting the
       numbers &mdash; cluster membership is a judgement call and the totals move
       when you widen or narrow the set. The table below was re-measured on
-      <code>039ad71b</code>.
+      <code>78c8b9fa</code>.
     </li>
     <li>
       Extract, test <em>against the owning module</em>, run the full
@@ -192,8 +192,8 @@
   </div>
   <div class="bar-row">
     <div class="bar-label">Current</div>
-    <div class="bar-track"><div class="bar-fill" style="width:65.6%"></div></div>
-    <div class="bar-value">7,485</div>
+    <div class="bar-track"><div class="bar-fill" style="width:64.7%"></div></div>
+    <div class="bar-value">7,378</div>
   </div>
   <div class="bar-row">
     <div class="bar-label">Halfway target</div>
@@ -201,266 +201,311 @@
     <div class="bar-value">~5,700</div>
   </div>
   <p>
-    <strong>3,922 lines removed across ten rounds.</strong> Roughly 1,785 remain to reach
-    half the original size. This round removed <strong>214</strong> &mdash; a normal
-    round, and the last of the clean mid-sized slices that needed no interface design.
+    <strong>4,029 lines removed across eleven rounds.</strong> Roughly 1,675 remain to
+    reach half the original size. This round removed <strong>107</strong> against a
+    measured 153 &mdash; the weakest yield yet, and the reason is worth carrying
+    forward: the cluster was pure functions with no config literal to inflate the
+    total, and what stayed behind was a real composition root (a collaborators
+    builder, three wrappers, two new route verbs) rather than a one-line import.
+    See <a href="#caveats">caveat 1</a>.
   </p>
   <p>
-    Round 9 re-measured ~760 lines still sitting at 23&ndash;36 lines per name left
-    behind. This round took 214 of them. Re-measuring afterwards (table below) shows
-    <strong>~550 left in five small clusters</strong>, which is not enough to finish
-    on its own. <strong>One of the two big blocks has to be faced within two or three
-    rounds</strong>; see <a href="#deferred">Still deferred</a>.
+    <strong>Stop taking small slices after this one.</strong> The five remaining
+    small clusters total ~443 lines &mdash; a quarter of the gap, and every one of
+    them now costs more in wrappers than it did a round ago. Round 12 has to open
+    one of the two big blocks. The honest way is to spend a round designing the seam
+    rather than moving code; round 7 did exactly that for the report side and it paid
+    off. See <a href="#deferred">Still deferred</a>.
   </p>
 </div>
 
 <div class="card">
-  <h2>Round 10 &mdash; the account swap</h2>
-  <div class="commit-list">
-    <div class="commit"><code>039ad71b</code> <span>Extract the ChatGPT provider auto-failover state machine out of server.py</span></div>
-  </div>
+  <h2>Round 11 &mdash; the decision gate</h2>
+  <p class="commit-list"><span class="commit">78c8b9fa</span>
+    Extract the Mazda dispatch fork and the execution mode out of server.py</p>
   <p>
-    One cluster this round, as round 9 recommended: it is a genuine state machine and
-    a mistake in it swaps the token the whole Suzuki fleet spends. <strong>214 lines</strong>
-    out of server.py, and the predicted Pydantic target turned out to guard a
-    <em>write</em> that destroys data.
+    The cluster round 10 recommended. Everything expensive the intake pipeline can do
+    happens <em>inside</em> Mazda's agent turn &mdash; the categorizer, the vision
+    tier, parser selection &mdash; so the only place a mode can stop the spend is
+    before that turn starts. That place is one <code>if</code>, and this round gave it
+    a file.
   </p>
 
   <h3>What moved</h3>
   <table>
     <tr><th>Module</th><th>Contents</th><th>Why these together</th></tr>
     <tr>
-      <td><code>monitoring/chatgpt_failover.py</code><br><span class="pill">382 lines</span></td>
+      <td><code>intake/mazda_dispatch.py</code><br><span class="pill">291 lines</span></td>
       <td>
-        <code>failover_should_trigger</code>, <code>standby_probe_verdict</code>,
-        <code>codex_refresh_candidates</code>, <code>read_standby_creds</code>,
-        <code>write_standby_creds</code>, <code>heal_standby_token</code>,
-        <code>local_codex_bundles</code>, <code>codex_refresh</code>,
-        <code>standby_has_headroom</code>, <code>run_failover_swap</code>,
-        <code>maybe_failover</code>, <code>poll_provider_once</code>,
-        <code>poll_loop</code>, all six <code>CHATGPT_FAILOVER_*</code>/<code>CODEX_*</code>
-        constants, <code>CHATGPT_PROVIDER_POLL_INTERVAL</code>, plus the new
-        <code>StandbyCredentials</code> model and the public verb
-        <code>last_failover_note()</code>.
+        <code>dispatch_or_block</code>, <code>block_for_human_only</code>,
+        <code>notify_mazda_of_scan</code>,
+        <code>notify_mazda_of_scan_and_record_failure</code>,
+        <code>dispatch_was_accepted</code>,
+        <code>HUMAN_ONLY_MODE_STAGE_MESSAGE</code>,
+        <code>TRANSPORT_FAILURE_DETAIL</code>, <code>OUTCOME_SOURCES</code>,
+        plus the new <code>IntakeOutcome</code> model and the
+        <code>Collaborators</code> bundle.
       </td>
       <td>
-        One loop with one decision in the middle: poll the live token &rarr; is this
-        a <em>rate limit</em> and is the cooldown up &rarr; is the parked account
-        usable (heal it if the only thing wrong is an expired access token) &rarr;
-        swap &rarr; re-probe. Splitting it would put the decision in one place and
-        the only evidence for it in another.
+        The decision, the two things it chooses between, and the record it writes
+        when it declines. Splitting them would put the fork in one file and the only
+        evidence that it fired in another.
+      </td>
+    </tr>
+    <tr>
+      <td><code>intake/mazda_mode.py</code><br><span class="pill">+72 lines</span></td>
+      <td>
+        <code>resolve_execution_mode</code>, <code>ExecutionModeConfig</code>,
+        <code>InvalidExecutionMode</code>, and the new <code>MazdaMode</code>
+        type alias.
+      </td>
+      <td>
+        Not a new module &mdash; the env-var parser joined the vocabulary it validates
+        against. See <a href="#vocab">one vocabulary, one definition</a>.
       </td>
     </tr>
   </table>
 
+  <h3 id="vocab">One vocabulary, one definition</h3>
+  <p>
+    Round 10 found <code>'adamsl@100.80.49.10'</code> defined four times. The same
+    shape turned up here in a different costume: the two-word mode vocabulary had
+    <strong>four independent spellings</strong> &mdash;
+    <code>AUTOMATIC</code>/<code>SEMI_AUTOMATIC</code>, the keys of
+    <code>MAZDA_MODE_LABELS</code>, a <code>Literal['auto','human_only']</code> inside
+    <code>MazdaModeState</code>, and a second, identical <code>Literal</code> inside
+    <code>server.ExecutionModeConfig</code>. That is how a third mode gets added in
+    one place and silently rejected in another. There is now one
+    <code>MazdaMode</code> alias, both models annotate against it, and
+    <code>test_the_vocabulary_has_exactly_one_definition</code> pins it to the
+    constants <em>and</em> to the label table's keys.
+  </p>
+  <p>
+    Generalising: <strong>a repeated <code>Literal</code> is the same defect as a
+    repeated hostname.</strong> When you extract a cluster, grep the destination
+    module for the values you are about to re-declare.
+  </p>
+
   <h3>Where the typing earned its keep</h3>
   <p>
-    Round 9 pointed at the standby credentials bundle and said: check first whether a
-    malformed bundle raises loudly. <strong>It does not.</strong> It fails in the one
-    direction that cannot be undone.
+    Round 10 predicted the target would be the execution mode itself, and added a
+    fallback: <em>check first whether an unrecognised mode currently raises; if it
+    does, look instead at whatever the fork writes when it records a failure.</em>
+    It does raise &mdash; <code>ExecutionModeConfig</code> already existed, already
+    strict, already a <code>Literal</code>. So the fallback is what this round took,
+    and it was right.
   </p>
   <p>
-    <code>codex_refresh_candidates</code> exists to make sure a heal never parks a
-    <em>different</em> ChatGPT account's refresh token as the standby. Its guard read:
-  </p>
-  <pre><code>account = standby_creds.get('account_id')
-...
-if account and tokens.get('account_id') != account:
-    continue</code></pre>
-  <p>
-    A bundle that had lost <code>account_id</code> &mdash; an empty object, a truncated
-    write, a hand-edited file &mdash; did not fail that check. It <strong>switched the
-    check off</strong>. Verified against the shipped code before the model existed:
+    When the fork declines to dispatch, the only trace is a status dict merged into
+    <code>recent_report.json</code>. Nothing checks whether that merge landed, and
+    <code>merge_recent_intake_status</code> reads the dict with <code>.get()</code>
+    and defaults. Three of those defaults do not fail loudly on a missing field
+    &mdash; <strong>they switch a guard off</strong>. Run against the real live
+    pointer file, before the model existed:
   </p>
   <table>
-    <tr><th>parked bundle</th><th>old behaviour</th><th>new behaviour</th></tr>
-    <tr><td><code>{}</code></td><td class="was">&rarr; <code>['rt-not-ours']</code></td><td>refused: <code>account_id: Field required</code></td></tr>
-    <tr><td><code>{'access_token': '…'}</code></td><td class="was">&rarr; <code>['rt-not-ours']</code></td><td>refused: <code>account_id: Field required</code></td></tr>
-    <tr><td><code>{'account_id': None}</code></td><td class="was">&rarr; <code>['rt-not-ours']</code></td><td>refused: input is not a string</td></tr>
-    <tr><td><code>{'account_id': ''}</code></td><td class="was">&rarr; matches nothing, silently</td><td>refused: <code>min_length</code></td></tr>
-    <tr><td><code>[]</code> / <code>"a string"</code></td><td class="was">&rarr; <code>AttributeError</code>, swallowed by the loop</td><td>refused with a readable message</td></tr>
-    <tr><td>the real parked bundle</td><td>4 candidates</td><td>the same 4, in the same order (checked live)</td></tr>
+    <tr><th>the record</th><th>old behaviour</th><th>new behaviour</th></tr>
+    <tr>
+      <td><code>status_source</code> omitted</td>
+      <td class="was">&rarr; blamed <code>'trainer'</code>; the late-callback recovery
+        branch only clears <code>'transport'</code>, so a document Letta actually
+        received stays <code>fail</code> forever</td>
+      <td>refused: <code>status_source: Field required</code></td>
+    </tr>
+    <tr>
+      <td><code>conversation_id</code> blank</td>
+      <td class="was">&rarr; primary correlation key dropped; falls through to a
+        path+timestamp match that can hit nothing, the merge returns
+        <code>False</code>, and nobody reads it</td>
+      <td>refused: <code>min_length</code> / not blank</td>
+    </tr>
+    <tr>
+      <td><code>conversation_id</code> = <code>'   '</code></td>
+      <td class="was">&rarr; <code>min_length=1</code> alone still lets it through;
+        every consumer <code>.strip()</code>s it back to empty</td>
+      <td>refused by an explicit <code>_not_blank</code> validator</td>
+    </tr>
+    <tr>
+      <td><code>dispatched_at</code> = <code>0</code>, <code>None</code> or
+        <code>'now'</code></td>
+      <td class="was">&rarr; coerced to <code>0.0</code>;
+        <code>IntakeCallback.from_mapping</code> then returns <code>None</code>, the
+        observe is a no-op, and the Trainer's deadline watch stays armed on a run
+        already known dead &mdash; a real LLM spend</td>
+      <td>refused: <code>gt=0</code>, strict float</td>
+    </tr>
+    <tr>
+      <td><code>needs_human_review</code> carrying <code>'transport'</code></td>
+      <td class="was">&rarr; any stray callback flips it to <code>complete</code> and
+        it leaves the manual queue nobody processed it from</td>
+      <td>refused by the pairing validator</td>
+    </tr>
+    <tr>
+      <td>the two real records</td>
+      <td>the shipped literals</td>
+      <td>byte-identical, key order included (checked live)</td>
+    </tr>
   </table>
   <p>
-    <code>heal_standby_token</code> then <strong>writes the winning token back over the
-    standby file</strong>. Codex refresh tokens are single-use and rotating, so the
-    overwritten one is gone: the failure mode was the dashboard quietly replacing the
-    fleet's only spare account with a token belonging to somebody else's login, and
-    then reporting that spare as dead forever. The old code's own docstring says this
-    is what the guard was for.
-  </p>
-  <div class="finding fixed">
-    <strong><code>access_token</code> is deliberately NOT required.</strong> A parked
-    bundle holding only a refresh token is <em>stale</em>, not unusable, and healing it
-    is exactly what this module is for. Requiring it would have deleted a working
-    recovery path while looking like extra safety. The model refuses one field, and it
-    is the one whose absence turns a guard off rather than raising.
-  </div>
-  <div class="finding">
-    <strong>Generalising round 9's rule.</strong> Round 9 typed a payload that was
-    <em>read</em>. This one guards a value that is <em>written</em>. When you look for
-    the next Pydantic target, prefer the boundary where a wrong value gets persisted:
-    a bad read is wrong until the next poll, a bad write is wrong until a human
-    notices.
-  </div>
-
-  <h3>An error message is an input to something &mdash; again</h3>
-  <p>
-    <code>chatgpt_provider_health</code> reached into <code>_chatgpt_failover['last_note']</code>
-    and spliced it into a Server Management tile's text, and
-    <code>http_app/get_routes.py:216</code> hands tile text straight to
-    <code>classify_failure</code>. So a new refusal string on this path is an input to
-    the classifier, exactly like round 9's. The note is now a public verb,
-    <code>last_failover_note()</code>, and every refusal string is asserted to classify
-    as <code>('error', 'error')</code> &mdash; while a genuinely capped standby
-    (<code>standby also limited (llm_rate_limit: …)</code>) is asserted to keep its
-    <code>rate-limited</code> label. <code>provider_usage._shape_detail</code> was
-    promoted to <code>shape_detail</code> and <em>reused</em> rather than copied, since
-    it already does exactly this scrubbing.
-  </p>
-  <div class="finding">
-    Be honest about this one: <strong>the ChatGPT Provider tile is currently commented
-    out</strong> of <code>HEALTH_CHECKS</code> (disabled 2026-08-19, see the block at
-    <code>server.py:5703</code>). So the classifier path is armed, not live. It was
-    still worth doing &mdash; the block says "uncomment to bring the tile back" &mdash;
-    but do not read the round-9 story into it. The <em>live</em> consumer of this
-    module is Agent Management: the sweep flags all 7 Suzuki-fleet agents red when the
-    account is capped.
-  </div>
-
-  <h3>The injection bundle</h3>
-  <p>
-    <code>Collaborators</code> holds three names, all of which belong to Agent
-    Management's send-error cache rather than here: <code>provider_agent_ids</code>,
-    <code>record_send_error</code>, <code>clear_send_error</code>. Built per sweep by
-    <code>server._chatgpt_failover_deps()</code>.
+    <strong>Be honest about what this is.</strong> Unlike round 10's, none of these
+    is a live bug today &mdash; the two records are built from literals in the source,
+    and both call sites guard <code>conversation_id</code> upstream. This is a
+    boundary defended, not a defect fixed. What makes it worth the round anyway is
+    that <em>every one of the five is silent</em>: not one raises, throws, or logs.
+    The old code's own docstring says <code>block_for_human_only</code> exists so the
+    document "surfaces on /recent_report.html as needing a human instead of silently
+    vanishing", and the code discarded the one value that said whether it had.
   </p>
   <p>
-    Everything else is <strong>imported</strong>, per rule 4:
-    <code>fetch_provider_oauth_creds</code> / <code>probe_codex_usage</code> /
-    <code>PROVIDER_USAGE_PROBES</code> from <code>monitoring/provider_usage.py</code>,
-    <code>classify_failure</code> from <code>health/failures.py</code>,
-    <code>LETTA_DOCKER_HOST</code> from <code>hosts.py</code>. Round 8 predicted that
-    moving the probe first would turn three of failover's residual names into an
-    interface it already consumes. It did &mdash; those three cost nothing this round.
+    <strong>The one behaviour change.</strong> <code>block_for_human_only</code> now
+    returns whether the merge landed and prints when it did not. That is the smallest
+    honest fix for the gap above &mdash; a <code>False</code> there means the operator
+    will never be shown the document.
   </p>
-  <div class="finding fixed">
-    <strong>The measuring script pulled in two names that do not belong.</strong>
-    <code>record_agent_send_error</code> and <code>clear_agent_send_error</code> were
-    referenced <em>only</em> by the failover cluster inside <code>server.py</code>, so
-    the script offered them as free travellers. They are not: they own
-    <code>_agent_send_errors</code> and its lock, they invalidate
-    <code>_agent_health_cache</code>, and <code>http_app/post_routes.py</code> calls both.
-    Taking them would have dragged three cache globals into a failover module and broken
-    a route. <strong>This is caveat 4 in practice &mdash; grep every name the script
-    hands you before you believe it.</strong>
-  </div>
-
-  <h3>Why <code>poll_loop</code> takes a callable</h3>
   <p>
-    The thread body is <code>poll_loop(poll_once)</code>, not
-    <code>poll_loop(provider_name, deps)</code>. A daemon thread started at boot would
-    otherwise capture one <code>Collaborators</code> bundle and hold it for the life of
-    the process, which is the exact thing "rebuild the bundle per call" exists to
-    prevent. Taking the sweep as a callable means <code>server</code>'s wrapper &mdash;
-    and therefore the bundle &mdash; is rebuilt on every one of the 90-second
-    iterations. There is a test for it.
+    <strong><code>min_length=1</code> is not "not blank".</strong> The test suite
+    caught this, not review: <code>'   '</code> passed the constraint and then
+    <code>.strip()</code>ed to nothing at every consumer. If a downstream reader does
+    <code>str(x).strip()</code>, the model needs an explicit validator.
+    <code>TrainerLaunchRequest</code> already had one; copy it.
   </p>
 
-  <h3>One destination, one definition</h3>
+  <h3>Two names the script offered, and what happened to each</h3>
   <p>
-    <code>'adamsl@100.80.49.10'</code> had <strong>four</strong> independent
-    definitions: <code>hosts.LETTA_DOCKER_HOST</code>, <code>server.CHATGPT_FAILOVER_HOST</code>,
-    <code>chatgpt_provider_accounts.CHATGPT_FAILOVER_HOST</code>, and the ssh calls in
-    <code>ssh_checks</code>. That is how you end up swapping a token on one box and
-    probing another. Both copies now bind <code>hosts.LETTA_DOCKER_HOST</code>, with a
-    test asserting identity. Side effect worth knowing: the failover host is now
-    <code>LETTA_DOCKER_HOST</code>-overridable through the environment, where before it
-    was a literal.
+    The measuring script pulled in <code>_mazda_dispatch_was_accepted</code> and
+    <code>_watch_intake_for_problems</code> as free travellers. They are not the same
+    kind of name, and round 10's caveat is why you check:
+  </p>
+  <ul>
+    <li>
+      <strong><code>_mazda_dispatch_was_accepted</code> travelled.</strong> Its only
+      caller was the notify path, it uses one injected port
+      (<code>letta_get</code>) and one import, and <code>scanner-diagnostics</code>
+      listed it only because they shared <code>letta_get</code>. Taking it dropped
+      that cluster from 118 lines / 5 stays to 98 / 4.
+    </li>
+    <li>
+      <strong><code>_watch_intake_for_problems</code> stayed.</strong> It is an
+      eight-line wrapper over <code>_trainer_escalation_service</code>, which belongs
+      to the deferred Trainer block. Moving it would have dragged the escalation
+      service, its recorder and <code>TrainerLaunchRequest</code> into a dispatch
+      module. Instead it is now the <em>injected</em> <code>watch_intake</code> port
+      &mdash; which is exactly the Trainer boundary round 10 predicted this cluster
+      would draw for free. It did.
+    </li>
+  </ul>
+
+  <h3>Two route pokes became verbs</h3>
+  <p>
+    The script reported zero <code>http_app/</code> references. It was wrong, in the
+    way <a href="#caveats">caveat 2</a> describes: <code>_MAZDA_MODE_SERVICE</code>
+    had two, both reaching through the private name to call a method on it &mdash;
+    <code>srv._MAZDA_MODE_SERVICE.set_from_http(data)</code> and
+    <code>srv._MAZDA_MODE_SERVICE.current().to_http()</code>. Per caveat 3 those are
+    a design signal, and they are now <code>set_mazda_mode(data)</code> and
+    <code>mazda_mode_status()</code>. Both verified live.
+    <strong>Grep <code>http_app/</code> even when the table says zero</strong> &mdash;
+    the table's column is itself a grep from the previous round, and a name can pick
+    up a route between rounds.
   </p>
 
   <h3>What is re-exported, and what is not</h3>
   <p>
-    Every name was grepped across <code>http_app/</code>, <code>js/</code> and the
-    startup banner before being dropped (rule 2). <strong>This cluster had zero
-    <code>http_app/</code> references</strong> &mdash; the first one that has, which is
-    why round 9 called it the cleanest slice on the board.
+    <code>server</code> keeps <code>_dispatch_mazda_or_block</code> and
+    <code>_notify_mazda_of_scan_and_record_failure</code> as thin wrappers (both
+    intake entry points call the first; the second is handed to it as a thread
+    target), plus <code>current_execution_mode</code>, <code>EXECUTION_MODE</code>,
+    <code>MAZDA_MODE_FILE</code>, <code>_MAZDA_MODE_SERVICE</code> and the new
+    <code>_mazda_dispatch_deps()</code>. <code>resolve_execution_mode</code> and
+    <code>HUMAN_ONLY_MODE_STAGE_MESSAGE</code> are imported back because both are
+    still called.
   </p>
   <p>
-    Nothing comes back as a re-export. <code>server</code> keeps three thin wrappers
-    (<code>_chatgpt_failover_deps</code>, <code>_poll_chatgpt_provider_once</code>,
-    <code>_chatgpt_provider_poll_loop</code>) because the account-swap panel and the
-    Restart button call the middle one, and <code>CHATGPT_PROVIDER_POLL_INTERVAL</code>
-    is bound to the module's constant for the startup banner. Eighteen now-dead names
-    are asserted absent from <code>server</code> by a parametrised test.
-  </p>
-  <p>
-    <code>_probe_codex_usage</code> was also dropped from
-    <code>server</code> this round: the failover cluster was its last caller, so
-    round 9's re-export had become dead the moment this one landed. <strong>Check the
-    previous round's re-exports when you take its neighbour</strong> &mdash; a
-    re-export justified by "the cluster still in server.py calls it" expires when that
-    cluster leaves.
+    <strong>Two re-exports expired and were dropped</strong>, per rule 6:
+    <code>DispatchEvidence</code> (its only server-side caller was
+    <code>_mazda_dispatch_was_accepted</code>, which left this round) and
+    <code>InvalidExecutionMode</code> (nothing catches it &mdash; an unparseable
+    <code>MAZDA_DECISION_MODE</code> is meant to stop the process). That is two rounds
+    running where the previous round's re-export died with its neighbour. Check them
+    every time; <code>pyflakes</code> on <code>server.py</code> finds the candidates,
+    but most of its hits are deliberate <code>srv.</code> re-exports, so grep each one
+    for <code>server.&lt;name&gt;</code> and <code>srv.&lt;name&gt;</code> before
+    believing it.
   </p>
 
   <h3>Tests</h3>
   <p>
-    <strong>85 tests</strong> in <code>tests/test_chatgpt_failover.py</code>, pointed at
-    the owning module. The 11 superseded copies were deleted from
-    <code>tests/test_server.py</code> / <code>tests/test_provider_usage.py</code> and
-    replaced with pointer comments. Suite: 2,846 &rarr; 2,920.
+    <strong>61 tests</strong> in <code>tests/test_mazda_dispatch.py</code>, pointed at
+    the owning module. Nine superseded copies were deleted from
+    <code>tests/test_server.py</code>, <code>tests/test_dispatch_evidence.py</code>
+    and <code>tests/test_mazda_mode.py</code> and replaced with pointer comments; six
+    env-var tests moved to <code>tests/test_mazda_mode.py</code> beside the parser.
+    Suite: <strong>2,920 &rarr; 2,978</strong>.
   </p>
   <p>Beyond the moved assertions, the new file pins behaviour nothing covered before:</p>
   <ul>
-    <li>every bundle the model refuses, <em>and the old code parking another account's token from each one</em> &mdash; written out as the code that used to run, inline, so the day the model stops earning its keep is visible;</li>
-    <li>a refresh reply with a null <code>access_token</code> keeps the old one rather than parking a null (which would make the standby unprobeable and read as "unusable after refresh" forever);</li>
-    <li>a rotating refresh token is stored &mdash; failing to store it leaves the next heal with nothing to try;</li>
-    <li>a capped standby is never healed (a refresh cannot fix a rate limit) and a stale one always is;</li>
-    <li>a <em>failed</em> swap still starts the cooldown, or a broken swap script is retried every 90 seconds forever;</li>
-    <li>the write is temp-then-rename under <code>umask 077</code> &mdash; a half-written standby file is a destroyed standby file, and the swap script can read it at any moment;</li>
-    <li>only <code>chatgpt_oauth</code> failures reach the failover: the Mazda fleet's <code>anthropic</code> row shares this sweep and a Claude rate limit must never swap the ChatGPT token;</li>
-    <li>a Letta outage leaves agent state alone, and a provider with no agents is never probed;</li>
-    <li>the loop survives a sweep that raises, and calls the wrapper it was given each time;</li>
-    <li>and the module state fixture resets the cooldown around every test &mdash; <code>_state</code> is process-wide, so without it one test's swap silences the next one's.</li>
+    <li>every record the model refuses, each one followed by the downstream default
+      that used to swallow it &mdash; written out as the code that used to run,
+      inline, so the day the model stops earning its keep is visible;</li>
+    <li>a block that matched no intake record is reported rather than discarded (the
+      one behaviour change);</li>
+    <li>the human-only path arms neither a thread nor a Trainer watch &mdash; a
+      deadline on a callback that can never arrive spends exactly the tokens the mode
+      exists to save;</li>
+    <li>the mode is asked <em>per call</em>, proven by a bundle whose
+      <code>current_mode</code> returns a different answer each time;</li>
+    <li>the failure record handed to the Trainer watch and the record handed to the
+      report are the <em>same object</em> &mdash; two separately-built dicts is how
+      the two halves disagree about which run failed;</li>
+    <li>the probe URL quotes the conversation id (a path-traversal id would otherwise
+      address a different endpoint);</li>
+    <li>production wires the five real collaborators, and rebinding one on
+      <code>server</code> is visible to the next call.</li>
   </ul>
 
   <h3>Verified live</h3>
   <p>
     <code>verify-live.sh</code> greps <code>dashboard.html</code>, so it does not apply
-    to a backend-only change. Verified against the real endpoints and the real boxes
+    to a backend-only change. Verified against the real endpoints and the real box
     after <code>systemctl --user restart dashboard-server.service</code> on
     <code>100.102.209.100</code>:
   </p>
-<pre><code>read_standby_creds()            -> account df86beca…  expires_at '1788013060' (a STRING
-                                   on the live box, an int in the file this morning --
-                                   `Any` on purpose; a past heal wrote str(int(...)))
-model round-trip                -> json.loads(file) == creds.as_creds()   True
-codex_refresh_candidates        -> old and new agree exactly on the REAL parked bundle
-                                   and this box's 3 real codex logins: 4 candidates,
-                                   same order
-old_candidates({}, other-acct)  -> ['rt-not-ours']            # the defect, on the live box
-new refuses                     -> "account_id: Field required" -> classify_failure 'error'
-probe_codex_usage(standby)      -> {'ok': True, 'text': 'weekly 22%'} -> verdict 'headroom'
-fetch_provider_oauth_creds      -> chatgpt_oauth, account a0eafe76…  (the OTHER account)
-probe_codex_usage(live)         -> {'ok': True, 'text': '5h 0% / weekly 38%'}
-Collaborators.provider_agent_ids-> 7 Suzuki-fleet agents
-poll_provider_once(real deps)   -> flagged 0 of 7
-failover_should_trigger(live)   -> False
-chatgpt_provider_health()       -> {'ok': True, 'text': 'chatgpt-plus-pro token valid …'}
-write_standby_creds(same bundle)-> (True, 'ok'); file identical after; mode 600
-/tmp/dashboard_8765.log         -> "Polling chatgpt-plus-pro provider health every 90s
-                                    (7 Suzuki-fleet agents; …)" and no traceback</code></pre>
-  <div class="finding">
-    <strong>Two write paths were NOT fired, on purpose.</strong>
-    <code>run_failover_swap()</code> swaps the token the live fleet is spending, and
-    <code>codex_refresh()</code> / <code>heal_standby_token()</code> burn a
-    <em>single-use</em> refresh token &mdash; calling either would invalidate the parked
-    bundle this dashboard depends on. Rule 7 says say so rather than pretend, so: they
-    are covered by tests and by the fact that neither function's body changed, not by a
-    live run. What <em>was</em> reversibly exercised is the ssh write path itself:
-    <code>write_standby_creds</code> re-parked the identical bundle and the file was
-    diffed before and after.
-  </div>
+<pre>GET  /api/mazda-mode            -> 200 {"ok":true,"mode":"auto","automatic":true,
+                                   "label":"Mazda Automatic","source":"operator"}
+POST /api/mazda-mode {true}     -> 200, same state; ~/.mazda/mazda_mode.json byte-identical
+POST /api/mazda-mode {"maybe"}  -> ok:false + the reason; the switch did NOT move
+resolve_execution_mode()        -> 'auto'   (== EXECUTION_MODE == current_execution_mode())
+_mazda_dispatch_deps()          -> all five ports are the real server objects
+dispatch_was_accepted(real conv)-> True     (a GET against the live Window Scanner intake)
+old literal vs IntakeOutcome    -> json.dumps identical, both records, on real values
+old {conversation_id: ''}       -> merge returned True  # matched by path fallback, by luck
+new refuses                     -> "conversation_id: String should have at least 1 char"
+old {no status_source}          -> blamed 'trainer'; recovery branch dead
+new refuses                     -> "status_source: Field required"
+block_for_human_only(real deps) -> merged True -> needs_human_review / human_only_mode
+recent_report.json md5          -> unchanged before and after the whole run</pre>
+  <p>
+    <strong>Three write paths were NOT fired, on purpose.</strong>
+    <code>dispatch_or_block</code> in Automatic mode starts Mazda's LLM turn on a real
+    document; <code>notify_mazda_of_scan</code> and
+    <code>notify_mazda_of_scan_and_record_failure</code> POST a real intake message to
+    Letta. All three spend tokens on the live fleet. Rule 7 says say so rather than
+    pretend, so: they are covered by tests and by the fact that none of their bodies
+    changed, not by a live run. The <em>reversible neighbours</em> that exercise the
+    same machinery were fired instead &mdash; the real merge was run against a
+    <em>copy</em> of the live pointer file (md5 confirms the original never moved),
+    and the <code>POST</code> route was driven with the switch's current value so the
+    write path ran and changed nothing.
+  </p>
+  <p class="finding">
+    Worth knowing for the next round: the live <code>Window Scanner</code> intake is
+    sitting at <code>status: fail, status_source: 'trainer'</code>, and
+    <code>dispatch_was_accepted</code> answers <strong>True</strong> for its
+    conversation &mdash; Mazda did receive it. Because its source is
+    <code>'trainer'</code> and not <code>'transport'</code>, no callback can ever clear
+    it. That record was written legitimately by the Trainer, so it is not the defect
+    above; it is what the defect would look like if it happened.
+  </p>
 </div>
 
 <div class="card" id="rank">
@@ -472,7 +517,7 @@ write_standby_creds(same bundle)-> (True, 'ok'); file identical after; mode 600
     touches penalises exactly the clusters that are most self-contained. Run this from
     <code>dashboard/</code> against the current file before choosing:
   </p>
-<pre><code>import ast
+<pre>import ast
 from collections import defaultdict
 src = open('server.py').read(); tree = ast.parse(src)
 funcs = {n.name: n for n in tree.body
@@ -482,7 +527,7 @@ for n in tree.body:
     if isinstance(n, ast.Assign):
         for t in n.targets:
             if isinstance(t, ast.Name): top.add(t.id)
-refs = defaultdict(set)          # name -> top-level funcs that reference it
+refs = defaultdict(set)          # name -&gt; top-level funcs that reference it
 for fname, node in funcs.items():
     for sub in ast.walk(node):
         if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load) \
@@ -502,42 +547,49 @@ while True:                      # pull in what only this cluster uses
 stays = sorted(set().union(*(deps(n) for n in names)) - names)
 lines = sum(funcs[n].end_lineno - funcs[n].lineno + 1 for n in names if n in funcs)
 print(lines, 'lines |', len(stays), 'stay behind:', stays)
-print('cluster members:', sorted(names))</code></pre>
+print('cluster members:', sorted(names))</pre>
 
-  <h3>Five caveats, all of them earned</h3>
+  <h3 id="caveats">Five caveats, all of them earned</h3>
   <ol>
     <li>
       <strong>The script counts function bodies</strong>, so module-level constants
-      that travel are free lines it does not credit &mdash; and the wrappers and
-      explanatory comments left behind cost lines back. Round 10 measured 210 and
-      removed 214. Round 9 measured 285 and removed 374 (a 70-line config literal the
-      script cannot see). Round 8 measured 183 and removed 152. <strong>A big config
-      literal in the set means you will beat the estimate; a cluster of pure functions
-      means you will roughly match it.</strong>
+      that travel are free lines it does not credit &mdash; and the wrappers,
+      composition root and explanatory comments left behind cost lines back. Round 11
+      measured 153 and removed <strong>107</strong>; round 10 measured 210 and removed
+      214; round 9 measured 285 and removed 374 (a 70-line config literal the script
+      cannot see); round 8 measured 183 and removed 152. <strong>A big config literal
+      in the set means you will beat the estimate; a cluster of pure functions that
+      leaves a composition root behind means you will fall well short of it.</strong>
+      Assume ~70% of the measured figure for a cluster with no constants.
     </li>
     <li>
       <strong>It cannot see <code>http_app</code>.</strong> It parses
       <code>server.py</code> and nothing else, so every <code>srv.&lt;name&gt;</code>
       call in the route ladders is invisible to it. Round 8 had seven such names,
-      round 9 had nine, round 10 had zero. Always grep <code>http_app/</code> for every
-      name you plan to drop. The suite will not catch it:
-      <code>tests/http_app_harness.py</code> stubs the service layer, so those tests
-      pass against a name that no longer exists.
+      round 9 nine, round 10 zero, round 11 two &mdash; and round 11's table said
+      zero, because the column is a grep from the round before. Always re-grep
+      <code>http_app/</code> for every name you plan to drop. The suite will not catch
+      it: <code>tests/http_app_harness.py</code> stubs the service layer, so those
+      tests pass against a name that no longer exists.
     </li>
     <li>
-      <strong>A route reaching into a private name is a design signal</strong>, not just
-      an import to preserve. Round 9's four became two verbs and one was fixing a real
-      race; round 10's one poke at <code>_chatgpt_failover['last_note']</code> became
-      <code>last_failover_note()</code>. Ask what the caller is trying to do before you
-      re-export the pieces it was doing it with.
+      <strong>A route reaching into a private name is a design signal</strong>, not
+      just an import to preserve. Round 9's four became two verbs and one was fixing a
+      real race; round 10's one poke at <code>_chatgpt_failover['last_note']</code>
+      became <code>last_failover_note()</code>; round 11's two pokes at
+      <code>_MAZDA_MODE_SERVICE</code> became <code>mazda_mode_status()</code> and
+      <code>set_mazda_mode()</code>. Ask what the caller is trying to <em>do</em>
+      before you re-export the pieces it was doing it with.
     </li>
     <li>
       <strong>It cannot tell you a name is mis-clustered.</strong> Round 10's
-      <code>record_agent_send_error</code> / <code>clear_agent_send_error</code> were
-      offered as free travellers and would have dragged three cache globals along and
-      broken a route. Round 8's "Document Vision health" 83 lines with zero stays was a
-      mirage over an already-extracted registry. <strong>Grep every name you are about
-      to move.</strong>
+      <code>record_agent_send_error</code> would have dragged three cache globals along
+      and broken a route. Round 11's <code>_watch_intake_for_problems</code> would have
+      dragged the whole Trainer escalation service into a dispatch module &mdash; it
+      became an injected port instead. Round 8's "Document Vision health" 83 lines with
+      zero stays was a mirage over an already-extracted registry.
+      <strong>Grep every name you are about to move, and ask which cluster it would
+      belong to if both were already extracted.</strong>
     </li>
     <li>
       <strong>Cluster membership is a judgement</strong> &mdash; widen or narrow the
@@ -549,135 +601,153 @@ print('cluster members:', sorted(names))</code></pre>
 <div class="card">
   <h2>Next steps</h2>
   <p>
-    Re-measured on <code>039ad71b</code>, after round 10. Ranked by lines removed per
-    name left behind. The <code>http_app</code> column is grepped, not measured &mdash;
-    the script cannot see it. The seed lists are real; paste them into the script above
-    to reproduce a row.
+    Re-measured on <code>78c8b9fa</code>, after round 11. Ranked by lines removed per
+    name left behind. <strong>The <code>http_app</code> column was re-grepped this
+    round</strong> &mdash; the script cannot see it. The seed lists are real; paste
+    them into the script above to reproduce a row.
   </p>
   <table>
     <tr><th>Cluster</th><th>Lines</th><th>Stay</th><th>http_app</th><th>Per name</th><th>Seed functions</th></tr>
     <tr>
-      <td><strong>exec-mode</strong></td><td>153</td><td>6</td><td><strong>0</strong></td><td>26</td>
+      <td><strong>scanner-diagnostics</strong></td><td>98</td><td>4</td><td>1</td><td>24</td>
       <td>
-        <code>_block_dispatch_for_human_only_mode</code>, <code>_dispatch_mazda_or_block</code>,
-        <code>_notify_mazda_of_scan</code>, <code>_notify_mazda_of_scan_and_record_failure</code>,
-        <code>current_execution_mode</code>, <code>resolve_execution_mode</code><br>
-        <em>Stays:</em> <code>HUMAN_ONLY_MODE_STAGE_MESSAGE</code>, <code>_MAZDA_MODE_SERVICE</code>,
-        <code>_observe_intake_callback</code>, <code>_trainer_escalation_service</code>,
-        <code>letta_get</code>, <code>merge_recent_intake_status</code>
+        <code>_create_mazda_conversation</code>, <code>_stage_scan_for_mazda</code>,
+        <code>scanner_diagnostics</code><br>
+        <span class="was">Stays: <code>SCANNERS</code>,
+        <code>SCAN_STAGING_REMOTE_DIR</code>, <code>SCAN_TOOLS_DIR</code>,
+        <code>_SCAN_LOCK</code></span>
       </td>
     </tr>
     <tr>
-      <td>agent-registry</td><td>108</td><td>3</td><td>4</td><td>36</td>
+      <td><strong>agent-registry</strong></td><td>108</td><td>3</td><td>4</td><td>36</td>
       <td>
         <code>_agent_activity_one</code>, <code>_msg_age_seconds</code>,
         <code>build_agent_list</code>, <code>get_letta_id</code><br>
-        <em>Stays:</em> <code>LETTA_AGENTS</code>, <code>letta_get</code>, <code>letta_messages</code>
+        <span class="was">Stays: <code>LETTA_AGENTS</code>, <code>letta_get</code>,
+        <code>letta_messages</code></span>
       </td>
     </tr>
     <tr>
-      <td>scanner-diagnostics</td><td>118</td><td>5</td><td>1</td><td>24</td>
+      <td><strong>notes</strong></td><td>100</td><td>6</td><td>3</td><td>17</td>
       <td>
-        <code>_create_mazda_conversation</code>, <code>_mazda_dispatch_was_accepted</code>,
-        <code>_stage_scan_for_mazda</code>, <code>scanner_diagnostics</code><br>
-        <em>Stays:</em> <code>SCANNERS</code>, <code>SCAN_STAGING_REMOTE_DIR</code>,
-        <code>SCAN_TOOLS_DIR</code>, <code>_SCAN_LOCK</code>, <code>letta_get</code>
+        <code>receipts_present</code>, <code>save_expense_notes</code>,
+        <code>scanned_statements_present</code><br>
+        <span class="was">Stays: <code>_matching_expense</code>,
+        <code>_norm_amount</code>, <code>_resolve_expense_receipt_path</code>,
+        <code>_resolve_local_supporting_document</code>,
+        <code>_rol_get_connection</code>, <code>_select_matching_expense</code></span>
       </td>
     </tr>
     <tr>
-      <td>notes</td><td>100</td><td>6</td><td>3</td><td>17</td>
-      <td><code>receipts_present</code>, <code>save_expense_notes</code>, <code>scanned_statements_present</code></td>
-    </tr>
-    <tr>
-      <td>provider-account-panel</td><td>67</td><td>3</td><td>?</td><td>22</td>
+      <td><strong>provider-account-panel</strong></td><td>67</td><td>3</td><td>2</td><td>22</td>
       <td>
         <code>chatgpt_provider_health</code>, <code>restart_chatgpt_provider</code>,
-        <code>set_chatgpt_provider_account</code>, <code>get_chatgpt_provider_account_status</code><br>
-        <em>Stays:</em> <code>CHATGPT_PLUS_PRO</code>, <code>_log_restart</code>,
-        <code>_poll_chatgpt_provider_once</code>
+        <code>set_chatgpt_provider_account</code>,
+        <code>get_chatgpt_provider_account_status</code><br>
+        <span class="was">Stays: <code>CHATGPT_PLUS_PRO</code>,
+        <code>_log_restart</code>, <code>_poll_chatgpt_provider_once</code></span>
       </td>
     </tr>
     <tr>
-      <td>receipt-only</td><td>70</td><td>7</td><td>1</td><td>10</td>
-      <td><code>_fetch_receipt_only_rows</code>, <code>_reporting_category_for_id</code></td>
+      <td><strong>receipt-only</strong></td><td>70</td><td>7</td><td>1</td><td>10</td>
+      <td>
+        <code>_fetch_receipt_only_rows</code>, <code>_reporting_category_for_id</code><br>
+        <span class="was">Stays: <code>ROL_FINANCES_MONTH_RANGES</code>,
+        <code>ROL_FINANCES_REPORTS_DEFAULT_MONTH</code>,
+        <code>_css_class_for_report_name</code>, <code>_get_category_taxonomy</code>,
+        <code>_norm_amount</code>, <code>_resolve_expense_receipt_path</code>,
+        <code>_rol_get_connection</code></span>
+      </td>
     </tr>
   </table>
 
-  <h3>Recommended: exec-mode, and then commit to a big block</h3>
+  <h3>Recommended: spend round 12 designing a seam, not moving code</h3>
   <p>
-    <strong>exec-mode</strong> is the best remaining small slice: 153 lines, 6 stays,
-    and <strong>zero <code>http_app/</code> references</strong> &mdash; the same
-    property that made round 10 go smoothly. It is also strategically placed: round 9
-    noted that <code>SCANNERS</code>, <code>_SCAN_LOCK</code> and
-    <code>_create_mazda_conversation</code> are shared between exec-mode,
-    scanner-diagnostics and the Mazda Trainer, so <strong>taking exec-mode and
-    scanner-diagnostics draws the Trainer's boundary for you</strong> instead of making
-    you design it cold.
+    <strong>The arithmetic no longer works.</strong> Every small cluster on that table
+    put together is 443 lines, and round 11 just demonstrated that a
+    composition-root-heavy slice yields ~70% of its measured figure &mdash; call it
+    ~310 real lines against a 1,675-line gap. Five more rounds of this reaches a third
+    of the way. Round 7 spent a whole round settling the report-side seam and every
+    round since has drawn on it; that is the move now.
   </p>
   <p>
-    <strong>Where to look for the Pydantic target:</strong> the execution mode itself.
-    <code>resolve_execution_mode</code> / <code>current_execution_mode</code> turn an
-    env var and a settings file into a word that decides whether a scan is dispatched
-    to a live agent or blocked for a human &mdash; the same shape as this round's
-    verdict, and a <code>Literal</code> is the obvious fit. <strong>Check first whether
-    an unrecognised mode currently raises</strong>; if it does, look instead at whatever
-    <code>_dispatch_mazda_or_block</code> writes when it records a failure, on the
-    round-10 principle that a persisted wrong value outlives a read one.
+    <strong>Take the seam design for <code>recent-report</code> + <code>finance-rows</code>.</strong>
+    It is the largest block (~1,751 + ~754), it is the only one that can finish the
+    job on its own, and round 11 just mapped a third of its surface for free:
+    <code>merge_recent_intake_status</code>, <code>merge_recent_intake_event</code>,
+    <code>_fold_event_into_intake</code>, <code>_read_recent_pointer_file</code> and
+    <code>_write_recent_pointer_file</code> are the intake record's whole persistence
+    layer, and this round documented exactly which of their <code>.get()</code>
+    defaults are load-bearing (see the table above &mdash; and note
+    <code>_TERMINAL_INTAKE_STATUSES</code>, which is read by both the merge and the
+    report page, and is the natural first <code>Literal</code> when that block moves).
+    A round that produces a written seam and no line reduction is a good round; say so
+    in the commit message.
   </p>
   <p>
-    Then stop taking small slices. Five clusters totalling ~550 lines cannot close a
-    1,785-line gap. <strong>Round 11 or 12 has to open one of the two big blocks</strong>,
-    and the honest way to do it is to spend a round designing the seam rather than
-    moving code &mdash; round 7 did exactly that for the report side and it paid off.
+    <strong>If you must take a slice first, take <code>scanner-diagnostics</code>.</strong>
+    It is now the best remaining one (98 lines, 4 stays, 1 http_app reference) and
+    round 11 improved it by taking <code>_mazda_dispatch_was_accepted</code> off its
+    books. It also owns <code>_create_mazda_conversation</code> and
+    <code>MAZDA_AGENT_ID</code>, which the Trainer needs, so it finishes the boundary
+    round 11 started.
+    <span class="was">Where to look for the Pydantic target:</span>
+    <code>scanner_diagnostics</code> builds a per-scanner status payload the tab
+    renders directly, and <code>_stage_scan_for_mazda</code> returns a remote path
+    that is later handed to <code>executor_run</code>. Check the staging return first,
+    on the round-10/11 principle that a persisted or executed wrong value outlives a
+    read one &mdash; a staged path that is wrong-but-truthy is a scan Mazda reads from
+    the wrong file.
   </p>
-  <div class="finding">
-    <strong>Fair warning the script cannot give you about agent-registry:</strong>
+  <p class="finding">
+    <strong>Fair warning the script cannot give you about <code>agent-registry</code>:</strong>
     <code>build_agent_list</code> has 3 <code>http_app/</code> references and
     <code>get_letta_id</code> has 1, and <code>get_letta_id</code> is also half of
     <code>provider_usage</code>'s injected bundle &mdash; so it stays behind, or that
-    bundle changes shape. Grep before you commit to the set.
-  </div>
-  <div class="finding">
-    <strong>provider-account-panel</strong> is the rest of the ChatGPT provider story
-    (the Model Stats account-swap panel, the Restart handler, and the retired tile). It
-    is small, and it is the natural home for <code>CHATGPT_PLUS_PRO</code>, which is
-    currently a bare string in <code>server.py</code> that the agent roster, the panel
-    and the failover wrapper all read. Its <code>http_app</code> count is unmeasured
-    &mdash; grep it.
-  </div>
+    bundle changes shape. The cluster also drags six cache globals and two locks.
+    <strong>And about <code>notes</code>:</strong> six stays for three functions is the
+    worst ratio on the board; those six are the <code>rol_finances</code> DB helpers,
+    which means <code>notes</code> is really a slice of the finance-rows block, not a
+    cluster of its own. Do it with that block, not before it.
+  </p>
 </div>
 
 <div class="card" id="deferred">
   <h2>Still deferred</h2>
   <ul>
     <li>
-      <strong>open-receipt</strong> (<code>lookup_receipt</code>, ~76
+      <strong><code>open-receipt</code></strong> (<code>lookup_receipt</code>, ~76
       lines) &mdash; entangled with the recent-report cluster. Do it
       <em>with</em> recent-report, not before it.
     </li>
     <li>
       <strong>Mazda Trainer</strong> (~853 lines, 18 names) &mdash; the ratio is good
-      and the size is real, but 18 residual names is a genuine interface-design job,
-      not a source slice. Take <strong>exec-mode</strong> and
-      <strong>scanner-diagnostics</strong> first and the Trainer's boundary draws
-      itself &mdash; they own the three names it shares.
+      and the size is real. Round 11 drew half its boundary for free:
+      <code>_watch_intake_for_problems</code> is now an injected port rather than a
+      shared name, and <code>_trainer_escalation_service</code>,
+      <code>_observe_intake_callback</code> and <code>_recover_trainer_escalations</code>
+      are what is left holding it to <code>server.py</code>. Take
+      <code>scanner-diagnostics</code> (it owns <code>_create_mazda_conversation</code>
+      and <code>MAZDA_AGENT_ID</code>) and the rest of the boundary draws itself.
     </li>
     <li>
-      <strong>recent-report + finance-rows</strong> (~1,751 + ~754 lines) and the
-      <strong>intake-pipeline / expense-bus</strong> cluster (~761 + ~775) &mdash; the
-      two largest untouched blocks, and <strong>still the only things that can finish
-      the job</strong>. Both need real interface design. Round 7 settled the
+      <strong><code>recent-report</code> + <code>finance-rows</code></strong> (~1,751 +
+      ~754 lines) and the <strong>intake-pipeline / expense-bus</strong> cluster (~761
+      + ~775) &mdash; the two largest untouched blocks, and still the only things that
+      can finish the job. Both need real interface design. Round 7 settled the
       report-side seam (<code>_find_matching_report_row</code>,
       <code>_report_file_for_url</code>, <code>_css_class_for_report_name</code>, now
       consumed through an interface by <code>finance/recategorize.py</code>).
+      <strong>This is round 12's recommended target.</strong>
     </li>
     <li>
       <strong>The two route ladders in <code>http_app/</code></strong>, ~600 lines each.
       Splitting them needs a route registry (Command / Chain of Responsibility), which
-      is what the ~460 <code>test_http_app_*</code> tests were written as the safety net
-      for. Round 9 shrank the GET ladder by replacing four inline cache pokes with two
-      calls; round 10 removed nothing there (this cluster had no routes at all). That
-      direction is still worth continuing opportunistically.
+      is what the ~460 <code>test_http_app_*</code> tests were written as the safety
+      net for. Round 9 shrank the GET ladder by replacing four inline cache pokes with
+      two calls; round 11 replaced two more with named verbs. That direction is still
+      worth continuing opportunistically &mdash; every private poke you convert is one
+      fewer name pinning <code>server.py</code> in place.
     </li>
   </ul>
 </div>
@@ -688,39 +758,50 @@ print('cluster members:', sorted(names))</code></pre>
     <li>
       <strong>Extract lowest-residual-coupling first</strong>, measured with the
       script above, not by eye. Then grep every name in your set &mdash; the script
-      cannot tell you a name is mis-clustered, and round 10 proves it will hand you
-      names that belong to somebody else's cache.
+      cannot tell you a name is mis-clustered, and it will hand you names that belong
+      to somebody else's cache or somebody else's service.
     </li>
     <li>
-      <strong>Grep <code>http_app/</code> before dropping any name.</strong> The
+      <strong>Grep <code>http_app/</code> before dropping any name</strong>, even when
+      the table says zero &mdash; that column is a grep from the previous round. The
       script parses <code>server.py</code> only, and the route ladders reach in through
       <code>srv.&lt;name&gt;</code> at call time. The HTTP tests stub the service layer,
       so they will not catch a missing name either. Seven in round 8, nine in round 9,
-      zero in round 10.
+      zero in round 10, two in round 11.
     </li>
     <li>
-      <strong>Point new tests at the owning module, never at
-      <code>server</code>.</strong> A re-export is a second binding; the moved code
+      <strong>Point new tests at the owning module</strong>, never at
+      <code>server</code>. A re-export is a second binding; the moved code
       closes over its own module global, so
       <code>monkeypatch.setattr(server, 'X', &hellip;)</code> isolates nothing while
-      looking exactly like it does. This has now bitten seven rounds running.
+      looking exactly like it does. This has now bitten eight rounds running. The
+      corollary: when you move code, the tests that <em>break</em> are the honest ones
+      &mdash; the dangerous ones are those that keep passing.
     </li>
     <li>
       <strong>Inject what stays behind in <code>server.py</code></strong> rather than
       importing it, and resolve the bundle per call. Add a test that production wires
-      the real collaborators, and one that proves the late binding. <strong>A background
-      thread needs extra care</strong>: take the sweep as a callable so the bundle is
+      the real collaborators, and one that proves the late binding. A background
+      thread needs extra care: take the sweep as a callable so the bundle is
       rebuilt per iteration instead of frozen at boot (round 10's <code>poll_loop</code>).
-      A dependency that already has its own module (<code>LETTA_BASE_URL</code>,
-      <code>LETTA_DOCKER_HOST</code>, <code>classify_failure</code>) is imported, not
-      injected.
+      A wrapper whose body is one collaborator call is not a smell &mdash; it is how a
+      neighbouring cluster's boundary gets drawn without moving it (round 11's
+      <code>watch_intake</code>).
+    </li>
+    <li>
+      <strong>A dependency that already has its own module</strong>
+      (<code>LETTA_BASE_URL</code>, <code>LETTA_DOCKER_HOST</code>,
+      <code>classify_failure</code>) is imported, not injected. So is a
+      <em>vocabulary</em>: if the destination module already spells out the values you
+      are about to re-declare, annotate against its alias.
     </li>
     <li>
       <strong>Import back only what is still called</strong> &mdash; and re-check the
-      <em>previous</em> round's re-exports, which expire when their last caller leaves
-      (round 10 dropped round 9's <code>_probe_codex_usage</code>). Assert the dropped
-      names are absent so dead re-exports cannot creep back, and assert the kept ones
-      are the owning module's object.
+      previous round's re-exports, which expire when their last caller leaves. Round 10
+      dropped round 9's <code>_probe_codex_usage</code>; round 11 dropped
+      <code>DispatchEvidence</code> and <code>InvalidExecutionMode</code>. Assert the
+      dropped names are absent so dead re-exports cannot creep back, and assert the
+      kept ones are the owning module's object.
     </li>
     <li>
       <strong>A fake must be pinned to the real thing it fakes.</strong> Where a
@@ -730,43 +811,54 @@ print('cluster members:', sorted(names))</code></pre>
     <li>
       <strong>Deploy and verify against the real thing.</strong> Committing is not
       deploying, and a 200 is not a verification. For a backend-only change, call
-      the moved code on the live box and read the output. <strong>If a path cannot be
-      fired safely, say which one and why</strong> rather than firing it or pretending
+      the moved code on the live box and read the output. If a path cannot be
+      fired safely, <em>say which one and why</em> rather than firing it or pretending
       it was checked &mdash; and find the reversible neighbour that exercises the same
-      machinery (round 10 re-parked an identical standby bundle to prove the ssh write
-      path without touching a token).
+      machinery (round 10 re-parked an identical standby bundle; round 11 ran the real
+      merge against a copy of the live pointer file and drove the write route with the
+      value it already held).
     </li>
     <li>
       <strong>Every Pydantic model dumps to a plain dict</strong> so browser-facing
       JSON stays byte-identical, and keep a golden-payload test against the prior
-      literals &mdash; error strings included. Better still, run the old code and the
-      new one side by side against the real live values; it is a five-line script and
-      it converts "should be identical" into "is identical". Rounds 9 and 10 both did.
+      literals &mdash; error strings and <em>key order</em> included. Better still,
+      run the old code and the new one side by side against the real live values; it
+      is a five-line script and it converts "should be identical" into "is identical".
+      Rounds 9, 10 and 11 all did.
     </li>
     <li>
-      <strong>Reach for Pydantic where a wrong value is silent, not everywhere</strong>,
-      and <strong>prefer the boundary that persists</strong>: a bad read is wrong until
-      the next poll, a bad write is wrong until a human notices. The test that proves it
-      earns its keep is the one showing the old code accepting garbage &mdash; write
-      that test <em>as the old code, inline</em>, so it keeps being true. And check the
+      <strong>Reach for Pydantic where a wrong value is silent</strong>, not
+      everywhere, and prefer the boundary that persists: a bad read is wrong until
+      the next poll, a bad write is wrong until a human notices. The test that proves
+      it earns its keep is the one showing the old code accepting garbage &mdash; write
+      that test <em>as the old code</em>, inline, so it keeps being true. And check the
       predicted defect is actually reachable: round 8's cache model was predicted for a
-      torn read that could not happen and earned its place for an entirely different bug.
-      <strong>Require the field whose absence disables a guard; leave optional the field
-      whose absence a recovery path is built to handle.</strong>
+      torn read that could not happen and earned its place for an entirely different
+      bug; round 11's predicted target was already typed, and the fallback the previous
+      round wrote down is what it took instead. <strong>Require the field whose absence
+      disables a guard; leave optional the field whose absence a recovery path is built
+      to handle.</strong> And remember <code>min_length=1</code> is not "not blank" when
+      the consumer <code>.strip()</code>s.
+    </li>
+    <li>
+      <strong>When a round's model defends rather than fixes, say so.</strong> Round 10
+      found a live defect; round 11 found five silent-but-currently-unreachable ones.
+      Both are worth shipping, but a plan that reads them the same way teaches the next
+      shift to overclaim. Write down which it was.
     </li>
     <li>
       <strong>An error message is an input to something.</strong> Before shipping a new
       failure string, run it through <code>classify_failure()</code> (or whatever
-      downstream reads it) and assert <em>the label</em>, not the text. Also assert the
-      strings that <em>should</em> keep their label still do &mdash; scrubbing that goes
+      downstream reads it) and assert the label, not the text. Also assert the
+      strings that should keep their label still do &mdash; scrubbing that goes
       too far turns a real rate limit into a generic error.
     </li>
     <li>
       <strong>Stay out of <code>js/</code></strong> &mdash; unless the bug is there. A
       concurrent <code>dashboard-boot.js</code> refactor runs in parallel; an earlier
       round saw <code>tests/test_project_plans.py</code> fail on its edits, not ours.
-      Confirm with <code>git status js/</code> before blaming yourself. Rounds 9 and 10
-      touched nothing there.
+      Confirm with <code>git status js/</code> before blaming yourself. Rounds 9, 10 and
+      11 touched nothing there.
     </li>
   </ol>
 </div>
@@ -787,39 +879,43 @@ print('cluster members:', sorted(names))</code></pre>
     Round 8's <code>docker ps</code> bug was the same animal in a third costume: a
     failure whose observable signature is identical to success. Round 9's classifiers
     were the fourth &mdash; a payload nobody could read, reported as an account with
-    headroom. <strong>Round 10's is the fifth, and the worst of them</strong>: a parked
+    headroom. Round 10's is the fifth, and the worst of them: a parked
     credential nobody could read, treated as a wildcard that matched every account, and
-    then <em>written back</em>. All five were invisible to the suite. All five needed
-    someone to run the real thing and look at what came back. That is why rules 6, 7
-    and 9 exist.
+    then written back. <strong>Round 11's is the sixth, and it is the mildest and the
+    most instructive</strong>: a status record that failed to land, whose only
+    signature was a document sitting on <code>processing</code> forever &mdash; a
+    scanned receipt that looks, on the page, exactly like one still being worked on.
+    All six were invisible to the suite. All six needed someone to run the real thing
+    and look at what came back. That is why rules 7, 8 and 10 exist.
   </p>
 </div>
 
 <div class="card">
   <h2>Session log &mdash; rounds so far</h2>
-  <div class="commit-list">
-    <div class="commit"><code>916dd739</code> <span>Extract the HTTP layer, hardware I/O and stats extractors out of server.py</span></div>
-    <div class="commit"><code>6e3ddc96</code> <span>Type the Model Stats, PC Monitor and terminal seams with Pydantic</span></div>
-    <div class="commit"><code>9b82f01b</code> <span>Name the health-check contract, and move the two biggest checks out of server.py</span></div>
-    <div class="commit"><code>6d7606d9</code> <span>Extract the health-poller cache and vendor-review dialog backend out of server.py</span></div>
-    <div class="commit"><code>1351c3cc</code> <span>Extract the Server Management clocks and log-file reading out of server.py</span></div>
-    <div class="commit"><code>5f7d2059</code> <span>Extract the category write and its undo out of server.py</span></div>
-    <div class="commit"><code>9552ce0b</code> <span>Extract the Win10 box and the three agent tabs out of server.py</span></div>
-    <div class="commit"><code>5ae369aa</code> <span>Make the Win10 container probe survive the remote shell</span></div>
-    <div class="commit"><code>47778b3f</code> <span>Extract the SSH connection checks and the provider quota probes out of server.py</span></div>
-    <div class="commit"><code>5b1fc498</code> <span>Give a refused usage payload a noun in its error text</span></div>
-    <div class="commit"><code>039ad71b</code> <span>Extract the ChatGPT provider auto-failover state machine out of server.py</span></div>
-  </div>
+  <p class="commit-list">
+    <span class="commit">916dd739</span> Extract the HTTP layer, hardware I/O and stats extractors out of server.py<br>
+    <span class="commit">6e3ddc96</span> Type the Model Stats, PC Monitor and terminal seams with Pydantic<br>
+    <span class="commit">9b82f01b</span> Name the health-check contract, and move the two biggest checks out of server.py<br>
+    <span class="commit">6d7606d9</span> Extract the health-poller cache and vendor-review dialog backend out of server.py<br>
+    <span class="commit">1351c3cc</span> Extract the Server Management clocks and log-file reading out of server.py<br>
+    <span class="commit">5f7d2059</span> Extract the category write and its undo out of server.py<br>
+    <span class="commit">9552ce0b</span> Extract the Win10 box and the three agent tabs out of server.py<br>
+    <span class="commit">5ae369aa</span> Make the Win10 container probe survive the remote shell<br>
+    <span class="commit">47778b3f</span> Extract the SSH connection checks and the provider quota probes out of server.py<br>
+    <span class="commit">5b1fc498</span> Give a refused usage payload a noun in its error text<br>
+    <span class="commit">039ad71b</span> Extract the ChatGPT provider auto-failover state machine out of server.py<br>
+    <span class="commit">78c8b9fa</span> Extract the Mazda dispatch fork and the execution mode out of server.py
+  </p>
   <p>
     Follow-ups that removed no lines from <code>server.py</code> but which the next
     shift inherits:
   </p>
-  <div class="commit-list">
-    <div class="commit"><code>dbecf4fc</code> <span>Update the refactor plan for round 7</span></div>
-    <div class="commit"><code>e28bd5fd</code> <span>Re-fetch the Dashboard Refactor plan when its tab is opened</span></div>
-    <div class="commit"><code>b25955d5</code> <span>Correct the refactor plan's own stale numbers</span></div>
-    <div class="commit"><code>b3eba0e1</code> <span>Stop the refactor plan from recording a hash that is stale on arrival</span></div>
-  </div>
+  <p class="commit-list">
+    <span class="commit">dbecf4fc</span> Update the refactor plan for round 7<br>
+    <span class="commit">e28bd5fd</span> Re-fetch the Dashboard Refactor plan when its tab is opened<br>
+    <span class="commit">b25955d5</span> Correct the refactor plan's own stale numbers<br>
+    <span class="commit">b3eba0e1</span> Stop the refactor plan from recording a hash that is stale on arrival
+  </p>
 </div>
 
 <div class="card">
@@ -833,7 +929,10 @@ print('cluster members:', sorted(names))</code></pre>
     <tr><td><code>monitoring/win10_node.py</code></td><td>the Win10 box's reachability, containers, dockerd and the two recovery buttons; <code>Win10CacheEntry</code>, <code>_TtlCache</code></td></tr>
     <tr><td><code>monitoring/ssh_checks.py</code></td><td>the tailnet roster, the ssh and tailscale probes, the debounced health cache, the per-connection log tail, and the Test button</td></tr>
     <tr><td><code>monitoring/provider_usage.py</code></td><td>the zero-token quota pipeline; <code>CodexUsage</code>, <code>ClaudeUsage</code>, <code>UsagePayloadError</code>, <code>shape_detail</code>, <code>PROVIDER_USAGE_PROBES</code></td></tr>
-    <tr><td><code>monitoring/chatgpt_failover.py</code></td><td><strong>new</strong> &mdash; the account-swap state machine: the cooldown gate, the standby verdict, the token heal, the swap, the 90s sweep; <code>StandbyCredentials</code>, <code>last_failover_note</code></td></tr>
+    <tr><td><code>monitoring/chatgpt_failover.py</code></td><td>the account-swap state machine: the cooldown gate, the standby verdict, the token heal, the swap, the 90s sweep; <code>StandbyCredentials</code>, <code>last_failover_note</code></td></tr>
+    <tr><td><code>intake/mazda_dispatch.py</code></td><td><strong>new</strong> &mdash; the fork between Mazda's LLM turn and a human's inbox: the mode branch, the scan dispatch, the late-delivery probe, and the record written when it declines; <code>IntakeOutcome</code>, <code>Collaborators</code>, <code>HUMAN_ONLY_MODE_STAGE_MESSAGE</code></td></tr>
+    <tr><td><code>intake/mazda_mode.py</code></td><td>the Automatic/Semi-Automatic vocabulary, the operator's switch and its store, and (new) the <code>MAZDA_DECISION_MODE</code> parser: <code>MazdaMode</code>, <code>ExecutionModeConfig</code>, <code>resolve_execution_mode</code>, <code>MazdaModeService</code>, <code>MazdaModeState</code></td></tr>
+    <tr><td><code>intake/</code> (rest)</td><td><code>dispatch_evidence.py</code>, <code>scan_message.py</code>, <code>trainer_contracts.py</code>, <code>trainer_escalation.py</code>, <code>trainer_notifier.py</code>, <code>trainer_recovery.py</code></td></tr>
     <tr><td><code>http_app/</code></td><td>the whole HTTP layer: transport, the two route ladders, terminal WS, runtime, static files, <code>srv</code></td></tr>
     <tr><td><code>terminal/pty_session.py</code></td><td>pty spawn, process-group reap</td></tr>
     <tr><td><code>letta_code/runner.py</code></td><td>headless letta-code invocation + prompt validation</td></tr>
@@ -842,7 +941,8 @@ print('cluster members:', sorted(names))</code></pre>
     <tr><td><code>finance/vendor_review.py</code></td><td><code>list_vendor_keys</code>, <code>list_pending_vendor_review</code>, <code>set_receipt_vendor</code>, <code>PendingVendorReviewRow</code></td></tr>
     <tr><td><code>finance/recategorize.py</code></td><td>the category write, its undo, the report-row repaint, the undo journal's composition root, <code>ReportRowClass</code>, <code>RecategorizeRequest</code></td></tr>
     <tr><td><code>hosts.py</code>, <code>paths.py</code>, <code>letta_ids.py</code></td><td>shared constants that previously had 2&ndash;4 independent env-read/fallback copies. <code>LETTA_DOCKER_HOST</code> reached four in round 10.</td></tr>
-    <tr><td><code>ssh_gateway.py</code></td><td><strong>dead</strong> &mdash; a second, subtly wrong SSH probe nothing imports. <code>ConfiguredIdentityStrategy</code> returns the first identity file that <em>exists</em>, which is the bug <code>ssh_test</code>'s docstring exists to describe: a key can exist and no longer be authorized. Left in place rather than deleted (it is another agent's parallel work), but do not build on it, and port the fallback chain in first if a future round wants the adapter shape. <code>tests/test_ssh_checks.py</code> names the trap.</td></tr>
+    <tr><td><code>contracts.py</code></td><td><code>StrictModel</code> &mdash; the one strict, frozen, extra-forbidding base every boundary model derives from</td></tr>
+    <tr><td><code>ssh_gateway.py</code></td><td><strong>dead</strong> &mdash; a second, subtly wrong SSH probe nothing imports. <code>ConfiguredIdentityStrategy</code> returns the first identity file that exists, which is the bug <code>ssh_test</code>'s docstring exists to describe: a key can exist and no longer be authorized. Left in place rather than deleted (it is another agent's parallel work), but do not build on it, and port the fallback chain in first if a future round wants the adapter shape. <code>tests/test_ssh_checks.py</code> names the trap.</td></tr>
   </table>
 </div>
 
@@ -861,7 +961,9 @@ print('cluster members:', sorted(names))</code></pre>
     <li><code>Win10CacheEntry</code> &mdash; the entry, not the value, is the presence sentinel, so a cache whose legal answers include <code>None</code> can actually cache one.</li>
     <li><code>ConversationMessages</code> &mdash; the one message path that bypasses <code>ILettaGateway</code>, where an unrecognised payload used to become an empty tab indistinguishable from a quiet agent.</li>
     <li><code>CodexUsage</code> / <code>ClaudeUsage</code> &mdash; the payload that decides whether the fleet's account gets swapped. An unreadable body used to classify as headroom; the claude side rendered it as a confident <code>5h 0% / weekly 0%</code>. Now refused, and the refusal is deliberately worded so the dashboard does not call it a rate limit.</li>
-    <li><code>StandbyCredentials</code> (new) &mdash; the parked second ChatGPT account. A bundle without <code>account_id</code> did not fail the "never park another account's token" guard, it <em>disabled</em> it, and the heal then overwrote the fleet's only spare credential with a stranger's single-use refresh token. One required field, chosen because its absence turns a guard off rather than raising; <code>access_token</code> left optional because a token-less bundle is what the heal path exists for.</li>
+    <li><code>StandbyCredentials</code> &mdash; the parked second ChatGPT account. A bundle without <code>account_id</code> did not fail the "never park another account's token" guard, it <em>disabled</em> it, and the heal then overwrote the fleet's only spare credential with a stranger's single-use refresh token. One required field, chosen because its absence turns a guard off rather than raising; <code>access_token</code> left optional because a token-less bundle is what the heal path exists for.</li>
+    <li><code>IntakeOutcome</code> <strong>(new)</strong> &mdash; the record written for a document Mazda was never given. Three fields required because each one's absence silently switches something off rather than raising: <code>status_source</code> (the only label a late callback may clear, defaulting to <code>'trainer'</code> otherwise), <code>conversation_id</code> (the primary correlation key, whose loss leaves the document on a non-terminal status forever), and <code>dispatched_at &gt; 0</code> (a zero makes the callback unparseable and leaves the Trainer's deadline armed on a dead run). The (status, status_source) pairing is validated too, because getting it wrong in the other direction lets a stray callback mark an unprocessed document complete.</li>
+    <li><code>MazdaMode</code> <strong>(new, not a model)</strong> &mdash; one <code>Literal</code> alias replacing four independent spellings of the same two words. A vocabulary is worth de-duplicating for the same reason a hostname is.</li>
   </ul>
 </div>
 
@@ -871,7 +973,7 @@ print('cluster members:', sorted(names))</code></pre>
     It is already wired in: <code>dashboard.html</code> has a
     <code>#dashboard-refactor-plan-frame</code> iframe pointing at
     <code>/notes_plans_handoffs/dashboard_refactor_plan.html</code>, behind the
-    <strong>Dashboard Refactor</strong> tab under <strong>Project Plans</strong>.
+    <strong>Dashboard Refactor</strong> tab under Project Plans.
     Live at <a href="https://desktop-2obsqmc.tailb8fc54.ts.net/">https://desktop-2obsqmc.tailb8fc54.ts.net/</a>.
   </p>
   <p>
