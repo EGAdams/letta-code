@@ -2282,20 +2282,6 @@ class _NoopThread:
         pass
 
 
-def test_track_down_duration_clears_on_up_and_accumulates(monkeypatch):
-    server._server_down_since.pop('dur-test', None)
-    t = [1000.0]
-    monkeypatch.setattr(server.time, 'time', lambda: t[0])
-    assert server.track_down_duration('dur-test', 'down') == (0, False)
-    t[0] = 1000.0 + 30
-    dur, stale = server.track_down_duration('dur-test', 'down')
-    assert dur == 30 and stale is False
-    t[0] = 1000.0 + server.SERVER_STALE_DOWN_SECONDS + 1
-    dur, stale = server.track_down_duration('dur-test', 'concern')
-    assert stale is True
-    assert server.track_down_duration('dur-test', 'up') == (0, False)
-
-
 def test_win10_node_is_registered_check_and_restartable():
     keys = {s['key'] for s in server.SERVERS}
     assert 'win10-node' in keys
@@ -2362,45 +2348,6 @@ def test_probe_claude_sdk_endpoint_405_means_route_exists(monkeypatch):
     assert server._probe_claude_sdk_endpoint('http://x/claude_sdk', 1) == 'ok'
 
 
-def test_tail_lines_returns_trailing_lines_with_absolute_start(tmp_path):
-    p = tmp_path / 'app.log'
-    p.write_text('\n'.join(f'line {i}' for i in range(10)) + '\n')
-    start, lines = server.tail_lines(str(p), 3)
-    assert lines == ['line 7', 'line 8', 'line 9']
-    assert start == 7  # absolute index of the first returned line
-
-
-def test_tail_lines_missing_file_returns_none():
-    assert server.tail_lines('/no/such/file.log', 5) is None
-
-
-def test_server_log_rows_tails_file_and_assigns_stable_seq(tmp_path):
-    p = tmp_path / 'app.log'
-    p.write_text('alpha\nbeta\ngamma\n')
-    cfg = {'key': 'x', 'name': 'X', 'log_file': str(p)}
-    out = server.server_log_rows(cfg)
-    texts = [r['text'] for r in out['rows']]
-    assert texts == ['alpha', 'beta', 'gamma']
-    # seq is the absolute line number — distinct and ascending.
-    seqs = [r['seq'] for r in out['rows']]
-    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
-
-
-def test_server_log_rows_filters_case_insensitively(tmp_path):
-    p = tmp_path / 'app.log'
-    p.write_text('starting up\nERROR: boom\nall good\nminor error here\n')
-    cfg = {'key': 'x', 'name': 'X', 'log_file': str(p)}
-    out = server.server_log_rows(cfg, q='error')
-    assert [r['text'] for r in out['rows']] == ['ERROR: boom', 'minor error here']
-
-
-def test_server_log_rows_missing_file_reports_a_row(tmp_path):
-    cfg = {'key': 'x', 'name': 'X', 'log_file': str(tmp_path / 'absent.log')}
-    out = server.server_log_rows(cfg)
-    assert len(out['rows']) == 1
-    assert 'not found' in out['rows'][0]['text']
-
-
 def test_server_health_down_for_unreachable_url():
     # Port 1 is never a real HTTP server -> down, never raises.
     health = server.server_health({'health_url': 'http://127.0.0.1:1/'})
@@ -2408,37 +2355,12 @@ def test_server_health_down_for_unreachable_url():
     assert health['text']
 
 
-# ── starting-state lifecycle (executor Start button) ──────────────────────────
-
-def test_mark_and_is_server_starting():
-    _clear_starting()
-    assert server.is_server_starting('executor') is False
-    server.mark_server_starting('executor')
-    assert server.is_server_starting('executor') is True
-
-
-def test_is_server_starting_expires_after_window(monkeypatch):
-    _clear_starting()
-    server.mark_server_starting('executor')
-    # Fast-forward the stored start time past the 120s window.
-    from datetime import timedelta
-    with server._starting_lock:
-        server._starting_servers['executor'] -= timedelta(seconds=121)
-    assert server.is_server_starting('executor') is False
-    # Expired entry is also evicted.
-    with server._starting_lock:
-        assert 'executor' not in server._starting_servers
-
-
-def test_server_log_rows_reports_starting_status(tmp_path):
-    _clear_starting()
-    server.mark_server_starting('executor')
-    cfg = {'key': 'executor', 'name': 'Executor', 'health_url': 'http://127.0.0.1:1/'}
-    out = server.server_log_rows(cfg)
-    # "starting" wins over the (unreachable) health check.
-    assert out['status']['ok'] is False
-    assert 'STARTING' in out['status']['text']
-    _clear_starting()
+# The starting-window and down-duration clocks, and the log-file helpers, moved
+# to monitoring/server_lifecycle.py and monitoring/log_files.py. Their tests
+# moved with them (tests/test_server_lifecycle.py, tests/test_log_files.py) and
+# now patch the owning modules -- patching them on `server` would only rebind a
+# re-export and isolate nothing. What stays here is the wiring that is genuinely
+# server.py's: the six restart handlers that call mark_server_starting().
 
 
 # ── Logger API "Start" self-healing (2026-06-10) ───────────────────────────────

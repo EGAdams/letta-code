@@ -6206,61 +6206,30 @@ SSH_HEALTH_POLL_INTERVAL = 30    # background poll cadence
 SSH_HEALTH_FAIL_THRESHOLD = 2    # consecutive failures required before flipping to "down"
 SSH_LOG_TAIL = 50                # how many past connection-test results to keep per connection
 
-SERVER_LOG_TAIL = 300   # how many trailing log lines to expose
-
-# Track servers that are currently starting (for a limited time).
-_starting_servers = {}  # { key: timestamp_when_started }
-_starting_lock = threading.Lock()
-
-# Track how long each server has been non-healthy, so the UI can show
-# "down for 54m" and escalate a stale outage (today Letta was dead 54 min before
-# anyone looked). down_for_seconds + stale are emitted per server.
-_server_down_since = {}  # { key: epoch_when_first_seen_non_up }
-_server_down_lock = threading.Lock()
-SERVER_STALE_DOWN_SECONDS = 600  # 10 min non-healthy → "stale" (escalate)
-
-
-def track_down_duration(key, status):
-    """Update/return how long `key` has been non-healthy. 'up' clears the clock;
-    'starting' (transient) doesn't start one. Returns (down_for_seconds, stale)."""
-    with _server_down_lock:
-        now = time.time()
-        if status in ('up', 'starting'):
-            if status == 'up':
-                _server_down_since.pop(key, None)
-            since = _server_down_since.get(key)
-            return ((int(now - since), (now - since) >= SERVER_STALE_DOWN_SECONDS)
-                    if since else (0, False))
-        since = _server_down_since.get(key)
-        if since is None:
-            _server_down_since[key] = since = now
-        dur = now - since
-        return (int(dur), dur >= SERVER_STALE_DOWN_SECONDS)
-
-
-def mark_server_starting(key):
-    """Mark a server as 'starting' for the next 120 seconds."""
-    with _starting_lock:
-        _starting_servers[key] = datetime.now()
-
-
-def clear_server_starting(key):
-    """Drop the 'starting' mark — call this once a real health check succeeds
-    so the UI can flip to 'up' immediately instead of waiting out the window."""
-    with _starting_lock:
-        _starting_servers.pop(key, None)
-
-
-def is_server_starting(key):
-    """Check if a server is in the 'starting' window (within 120 seconds)."""
-    with _starting_lock:
-        if key not in _starting_servers:
-            return False
-        elapsed = (datetime.now() - _starting_servers[key]).total_seconds()
-        if elapsed > 120:
-            del _starting_servers[key]
-            return False
-        return True
+# ── Server lifecycle clocks and log-file reading ─────────────────────────────
+# The "starting" grace window and the "down for 54m / stale" clock moved to
+# monitoring/server_lifecycle.py -- they are one state machine seen from two
+# sides, and both need only a server key, never SERVERS or a probe. Tailing,
+# age formatting, the log-mtime-as-probe fallback and the detail panel's row
+# builder moved to monitoring/log_files.py.
+#
+# Only the names this module or a `srv.` route still calls are pulled back in;
+# everything else is read from its owning module, including by its tests
+# (tests/test_server_lifecycle.py, tests/test_log_files.py). `_starting_servers`
+# and `_starting_lock` are the exception -- imported by identity, because
+# tests/test_server.py's `_clear_starting()` resets the one real registry
+# through `server`, and a rebind would silently give it a second empty one.
+from monitoring import log_files, server_lifecycle  # noqa: E402
+from monitoring.server_lifecycle import (  # noqa: E402
+    _starting_servers,
+    _starting_lock,
+    track_down_duration,
+    mark_server_starting,
+    clear_server_starting,
+    is_server_starting,
+)
+from monitoring.log_files import log_activity_health  # noqa: E402
+from monitoring.log_files import trim_log_cache as _trim_log_cache  # noqa: E402
 
 
 def start_executor_server():
@@ -6847,19 +6816,6 @@ def restart_server(key):
 
 _letta_log_pull_lock = threading.Lock()
 _letta_log_pull_since = None  # ISO8601 UTC ('...Z'); seeded with a lookback window on first pull
-
-
-def _trim_log_cache(path, max_lines):
-    """Rewrite a cache file to its last `max_lines` once it grows past that —
-    keeps /tmp from filling up on a long-running dashboard process."""
-    try:
-        with open(path, 'r', errors='replace') as f:
-            lines = f.read().splitlines()
-    except OSError:
-        return
-    if len(lines) > max_lines:
-        with open(path, 'w') as f:
-            f.write('\n'.join(lines[-max_lines:]) + '\n')
 
 
 def _pull_letta_remote_logs_once():
@@ -7489,101 +7445,19 @@ def cached_ssh_health(cfg):
         _ssh_health_cache[cfg['key']] = {'fails': 0 if h.get('ok') else 1, 'result': h}
     return h
 
-# How recently a log-only server (no health_url) must have written to its log
-# to count as "appears running". Lettabot's heartbeat writes every ~5 minutes,
-# so 15 minutes tolerates a couple of missed cycles before flipping red.
-LOG_ACTIVITY_WINDOW = 900
-
-def _format_age(seconds):
-    """Render a duration as a short human string: '42s', '5m', '3h', '2d'."""
-    seconds = int(seconds)
-    if seconds < 60:
-        return f'{seconds}s'
-    minutes = seconds // 60
-    if minutes < 60:
-        return f'{minutes}m'
-    hours = minutes // 60
-    if hours < 24:
-        return f'{hours}h'
-    return f'{hours // 24}d'
-
-def log_activity_health(cfg):
-    """Derive up/down for a log-only server from its log file's mtime.
-
-    A server with no health_url can't be pinged — recent log writes are the
-    only "is it alive" signal available. Returns {ok, text}, or None if the
-    server has a health_url (use server_health instead) or no log_file."""
-    if cfg.get('health_url') or not cfg.get('log_file'):
-        return None
-    log_file = cfg['log_file']
-    try:
-        age = time.time() - os.path.getmtime(log_file)
-    except OSError:
-        return {'ok': False, 'text': 'no log file found'}
-    if age <= LOG_ACTIVITY_WINDOW:
-        return {'ok': True, 'text': f'log active — last write {_format_age(age)} ago'}
-    return {'ok': False, 'text': f'no recent log activity — last write {_format_age(age)} ago'}
-
-def tail_lines(path, n):
-    """Return up to the last n lines of a file as (start_lineno, [lines]).
-
-    start_lineno is the absolute line number of the first returned line so the
-    client can give each physical line a stable key (repeated identical lines
-    stay distinct, and re-polled overlap dedupes correctly)."""
-    try:
-        with open(path, 'r', errors='replace') as f:
-            lines = f.read().splitlines()
-    except FileNotFoundError:
-        return None
-    except Exception:
-        return None
-    start = max(0, len(lines) - n)
-    return start, lines[start:]
+# LOG_ACTIVITY_WINDOW, _format_age, log_activity_health and tail_lines moved to
+# monitoring/log_files.py (imported above). server_log_rows moved with them, but
+# needs the two health collaborators that live here, so they are passed in at
+# call time -- which is also what keeps
+# `monkeypatch.setattr(server, 'cached_server_health', ...)` working.
 
 def server_log_rows(cfg, q=''):
     """Build {status, rows} for a server. rows carry a stable 'seq' line key."""
-    out = {'rows': []}
-
-    # A real "up" health check always wins — flip green the moment the server
-    # actually answers, rather than waiting out the "starting" window below.
-    # The detail panel's status must agree with the sidebar tab — both go through
-    # server_status_kind so a down-but-restartable server reads the same yellow
-    # "concern" in the panel as on the tab (not a bare red "Down").
-    health = cached_server_health(cfg)
-    if health is not None and health.get('ok'):
-        clear_server_starting(cfg['key'])
-        out['status'] = dict(health)
-        out['status']['kind'] = server_status_kind(cfg, health)
-    elif is_server_starting(cfg['key']):
-        out['status'] = {'ok': False, 'kind': 'starting',
-                         'text': 'STARTING... — server startup in progress'}
-    elif health is not None:
-        out['status'] = dict(health)
-        out['status']['kind'] = server_status_kind(cfg, health)
-    else:
-        # No health_url to ping — fall back to "is it still writing logs?".
-        log_health = log_activity_health(cfg)
-        if log_health is not None:
-            out['status'] = dict(log_health)
-            out['status']['kind'] = server_status_kind(cfg, log_health)
-
-    log_file = cfg.get('log_file')
-    if log_file:
-        tail = tail_lines(log_file, SERVER_LOG_TAIL)
-        if tail is None:
-            out.setdefault('status', {'ok': False, 'text': ''})
-            out['rows'].append({'seq': 0, 'date': '', 'type': 'log',
-                                'text': f'(log file not found: {log_file})'})
-        else:
-            start, lines = tail
-            ql = q.lower()
-            for i, line in enumerate(lines):
-                if ql and ql not in line.lower():
-                    continue
-                out['rows'].append({'seq': start + i, 'date': '', 'type': 'log', 'text': line})
-    elif 'status' not in out:
-        out['status'] = {'ok': False, 'text': 'no log file or health check configured'}
-    return out
+    return log_files.server_log_rows(
+        cfg, q,
+        health_reader=cached_server_health,
+        status_kind=server_status_kind,
+        starting_window=server_lifecycle)
 
 
 # ── Agent registry ────────────────────────────────────────────────────────────
