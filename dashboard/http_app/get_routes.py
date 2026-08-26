@@ -94,7 +94,7 @@ class GetRoutesMixin:
             return self.json_response(srv.apply_mute_overlay(srv.model_stats(src), src))
 
         if path == '/api/mazda-mode':
-            return self.json_response(srv._MAZDA_MODE_SERVICE.current().to_http())
+            return self.json_response(srv.mazda_mode_status())
 
         if path == '/api/codex-sync-status':
             return self.json_response(srv.codex_sync_status().model_dump(mode='json'))

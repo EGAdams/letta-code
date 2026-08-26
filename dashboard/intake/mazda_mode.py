@@ -58,6 +58,58 @@ MAZDA_MODE_LABELS: dict[str, str] = {
     SEMI_AUTOMATIC: 'Mazda Semi-Automatic',
 }
 
+#: The two-word vocabulary, written once. Every model in this file annotates
+#: against this alias rather than repeating the pair, and
+#: ``test_the_vocabulary_has_exactly_one_definition`` pins it to AUTOMATIC /
+#: SEMI_AUTOMATIC and to MAZDA_MODE_LABELS' keys. Before this alias the same
+#: two words appeared as a ``Literal`` in MazdaModeState, a second ``Literal``
+#: in server.py's ExecutionModeConfig, and the constants above -- three copies
+#: of one vocabulary, which is how a fourth mode gets added in one place and
+#: silently rejected in another.
+MazdaMode = Literal['auto', 'human_only']
+
+
+class InvalidExecutionMode(ValueError):
+    """MAZDA_DECISION_MODE held something other than 'auto'/'human_only'."""
+
+
+class ExecutionModeConfig(StrictModel):
+    """MAZDA_DECISION_MODE, validated once at process start.
+
+    The exact-lowercase constraint and fail-closed-on-anything-else
+    requirement are validation rules, not control flow -- Pydantic's
+    ``Literal`` + ``strict=True`` enforces both without a hand-rolled
+    if/raise, matching the StrictModel convention used for every other typed
+    boundary (see contracts.py).
+
+    It lives here, beside the vocabulary it validates against, rather than in
+    server.py: the env var and the operator's switch answer the same question
+    with the same two words, and they used to spell that vocabulary out
+    independently.
+    """
+
+    mode: MazdaMode = AUTOMATIC
+
+
+def resolve_execution_mode(raw=None):
+    """Pure parser -- no I/O, unit-tested.
+
+    Unset -> 'auto' (preserves current production behavior). Any other value
+    must be exactly 'auto' or 'human_only' (lowercase); anything else fails
+    closed so a typo can never silently spend LLM tokens or silently disable
+    Mazda.
+    """
+    if raw is None:
+        raw = os.environ.get('MAZDA_DECISION_MODE')
+    if raw is None:
+        return ExecutionModeConfig().mode
+    try:
+        return ExecutionModeConfig(mode=raw).mode
+    except ValidationError as exc:
+        raise InvalidExecutionMode(
+            "MAZDA_DECISION_MODE must be 'auto' or 'human_only' (exact lowercase), "
+            f'got {raw!r}') from exc
+
 
 class MazdaModeRequest(StrictModel):
     """Body of POST /api/mazda-mode.
@@ -99,7 +151,7 @@ class MazdaModeState(StrictModel):
     """
 
     ok: bool = True
-    mode: Literal['auto', 'human_only']
+    mode: MazdaMode
     automatic: bool
     label: str
     source: Literal['operator', 'default']

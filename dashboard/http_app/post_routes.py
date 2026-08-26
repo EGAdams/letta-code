@@ -79,7 +79,7 @@ class PostRoutesMixin:
                 data = json.loads(body) if body.strip() else {}
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
-            return self.json_response(srv._MAZDA_MODE_SERVICE.set_from_http(data))
+            return self.json_response(srv.set_mazda_mode(data))
 
         if path == '/api/model-stats-mute':
             try:

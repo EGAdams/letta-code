@@ -15,12 +15,17 @@ import pytest
 
 from intake.mazda_mode import (
     AUTOMATIC,
+    MAZDA_MODE_LABELS,
     SEMI_AUTOMATIC,
+    ExecutionModeConfig,
     InMemoryMazdaModeStore,
+    InvalidExecutionMode,
     JsonFileMazdaModeStore,
+    MazdaMode,
     MazdaModeRequest,
     MazdaModeService,
     MazdaModeState,
+    resolve_execution_mode,
     state_for,
 )
 
@@ -202,34 +207,9 @@ def test_switch_moves_the_dispatch_fork(monkeypatch):
     assert server.current_execution_mode() == AUTOMATIC
 
 
-def test_dispatch_is_blocked_only_while_semi_automatic(monkeypatch):
-    import server
-    service = MazdaModeService(InMemoryMazdaModeStore(), default_mode=AUTOMATIC)
-    monkeypatch.setattr(server, '_MAZDA_MODE_SERVICE', service)
-    blocked, watched, threads = [], [], []
-    monkeypatch.setattr(server, '_block_dispatch_for_human_only_mode',
-                        lambda *a: blocked.append(a))
-    monkeypatch.setattr(server, '_watch_intake_for_problems',
-                        lambda *a: watched.append(a))
-
-    class _FakeThread:
-        def __init__(self, **kwargs):
-            threads.append(kwargs)
-
-        def start(self):
-            pass
-
-    monkeypatch.setattr(server.threading, 'Thread', _FakeThread)
-
-    service.set_from_http({'automatic': False})
-    assert server._dispatch_mazda_or_block(
-        '/tmp/x.png', 'label', {}, 'conv-1', 'now', lambda: None, ()) is False
-    assert len(blocked) == 1 and not threads
-
-    service.set_from_http({'automatic': True})
-    assert server._dispatch_mazda_or_block(
-        '/tmp/x.png', 'label', {}, 'conv-1', 'now', lambda: None, ()) is True
-    assert len(blocked) == 1 and len(threads) == 1 and len(watched) == 1
+# test_dispatch_is_blocked_only_while_semi_automatic moved to
+# tests/test_mazda_dispatch.py with the fork itself: it monkeypatched
+# server._block_dispatch_for_human_only_mode, a name the moved code never reads.
 
 
 # ── cross-language parity ──────────────────────────────────────────────────
@@ -260,18 +240,77 @@ def test_javascript_mode_values_match_python():
 def test_only_one_place_decides_whether_mazda_runs():
     """Scans and PDFs must not be able to drift apart.
 
-    Both entry points call _dispatch_mazda_or_block, and it is the only thing
-    that reads the mode. A second gate comparing the module-level
-    EXECUTION_MODE would still be resolved at process start, so the switch
-    would appear to work while one kind of document quietly ignored it.
+    Both entry points call server._dispatch_mazda_or_block, which is a thin
+    wrapper over the one comparison in intake/mazda_dispatch.py. A second gate
+    comparing the module-level EXECUTION_MODE would still be resolved at
+    process start, so the switch would appear to work while one kind of
+    document quietly ignored it.
     """
     import inspect
 
+    import intake.mazda_dispatch as dispatch_mod
     import server
+
+    fork = inspect.getsource(dispatch_mod)
+    assert fork.count('current_mode() ==') == 1
+
     source = inspect.getsource(server)
-    assert source.count('current_execution_mode() ==') == 1
-    # The constant may be read as the DEFAULT (a lambda handed to the service),
-    # never compared directly to decide a dispatch.
+    # server.py may read the constant as the DEFAULT (a lambda handed to the
+    # service), never compare it directly to decide a dispatch.
     assert "EXECUTION_MODE == 'human_only'" not in source
     assert "EXECUTION_MODE == 'auto'" not in source
+    assert 'current_execution_mode() ==' not in source
     assert source.count('_dispatch_mazda_or_block(') >= 3  # def + scan + pdf
+
+
+# ── the env var behind the switch ──────────────────────────────────────────
+# Moved here from tests/test_server.py with resolve_execution_mode itself: the
+# env var and the operator's switch answer the same question with the same two
+# words, and they used to spell that vocabulary out in separate files.
+
+def test_the_vocabulary_has_exactly_one_definition():
+    """AUTOMATIC/SEMI_AUTOMATIC, the MazdaMode alias every model annotates
+    against, and MAZDA_MODE_LABELS' keys are three views of one pair. Before
+    round 11 there was a fourth -- a Literal spelled out again in server.py's
+    ExecutionModeConfig -- which is how a third mode gets added in one place
+    and silently rejected in another."""
+    from typing import get_args
+    assert get_args(MazdaMode) == (AUTOMATIC, SEMI_AUTOMATIC)
+    assert set(get_args(MazdaMode)) == set(MAZDA_MODE_LABELS)
+    assert get_args(MazdaModeState.model_fields['mode'].annotation) == get_args(MazdaMode)
+    assert get_args(ExecutionModeConfig.model_fields['mode'].annotation) == get_args(MazdaMode)
+
+
+def test_resolve_execution_mode_unset_defaults_to_auto(monkeypatch):
+    monkeypatch.delenv('MAZDA_DECISION_MODE', raising=False)
+    assert resolve_execution_mode() == AUTOMATIC
+
+
+def test_resolve_execution_mode_parses_auto_and_human_only():
+    assert resolve_execution_mode('auto') == AUTOMATIC
+    assert resolve_execution_mode('human_only') == SEMI_AUTOMATIC
+
+
+@pytest.mark.parametrize('bad', [
+    'Auto', 'HUMAN_ONLY', 'human-only', 'humanonly', 'llm_only', '',
+    ' auto', 'auto ', 'None', None.__class__, 1, True,
+])
+def test_resolve_execution_mode_fails_closed_on_invalid_value(bad):
+    """A typo must never silently fall back to 'auto' (could spend tokens
+    unexpectedly) or silently disable Mazda — it must fail startup instead."""
+    with pytest.raises(InvalidExecutionMode):
+        resolve_execution_mode(bad)
+
+
+def test_the_refusal_names_the_variable_and_shows_what_it_held():
+    """It is read out of a systemd unit at 3am. "invalid mode" would not be."""
+    with pytest.raises(InvalidExecutionMode) as exc:
+        resolve_execution_mode('Human_Only')
+    assert 'MAZDA_DECISION_MODE' in str(exc.value)
+    assert "'Human_Only'" in str(exc.value)
+
+
+def test_the_env_var_is_read_only_when_no_value_is_handed_in(monkeypatch):
+    monkeypatch.setenv('MAZDA_DECISION_MODE', 'human_only')
+    assert resolve_execution_mode() == SEMI_AUTOMATIC
+    assert resolve_execution_mode('auto') == AUTOMATIC

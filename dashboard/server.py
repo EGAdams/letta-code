@@ -28,9 +28,7 @@ from agents.letta_gateway import ILettaGateway
 from agents.model_options import AgentModelOptionsService, select_model_options
 from agents.urllib_letta_gateway import UrllibLettaGateway
 
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import ValidationError
 
 from voice.note_factory import note_command_service
 from voice.note_models import NoteEditRequest, PartialVoiceCommand
@@ -51,7 +49,6 @@ from codex_sync_status import (
     toggle_codex_sync,
 )
 from model_stats_mute import ModelStatsMuteRequest, apply_mute_overlay, set_muted
-from intake.dispatch_evidence import DispatchEvidence
 # The intake dispatch Mazda receives after a scan: 536 lines of prompt, split
 # into named sections in intake/scan_message.py so one rule can be read and
 # tested without scrolling past the other 500. Re-exported under their
@@ -66,8 +63,15 @@ from intake.scan_message import (
 from intake.mazda_mode import (
     JsonFileMazdaModeStore,
     MazdaModeService,
+    resolve_execution_mode,
 )
-from pydantic import ValidationError
+# The dispatch fork and the scan notification it guards. Imported as a module,
+# not as names: the wrappers below rebuild its Collaborators bundle per call,
+# and importing the functions individually would invite a test to monkeypatch
+# `server.<name>` and isolate nothing (the moved code closes over its own
+# module globals).
+from intake import mazda_dispatch
+from intake.mazda_dispatch import HUMAN_ONLY_MODE_STAGE_MESSAGE
 from category_taxonomy_seed import LEGACY_TAXONOMY
 from document_annotation import (
     ExpenseEvidence,
@@ -2726,28 +2730,6 @@ def _create_mazda_conversation():
         return None
 
 
-def _mazda_dispatch_was_accepted(conversation_id):
-    """Confirm that a failed synchronous POST still reached its conversation.
-
-    Letta keeps the non-streaming messages request open while the agent works,
-    so an intake can outlive our HTTP timeout even though Letta accepted it.
-    That is the case this exists for, and it still answers True there.
-
-    It reads the conversation's MESSAGES rather than the conversation object's
-    `in_context_message_ids`. The old check counted those ids and treated any
-    of them as acknowledgement, on the premise that a new conversation is
-    empty. It never is -- it carries its system prompt -- so the check answered
-    "accepted" for a conversation nothing had ever been posted to. See
-    intake/dispatch_evidence.py for what that cost on 2026-08-19.
-    """
-    if not conversation_id:
-        return False
-    messages = letta_get(
-        f'/v1/conversations/{quote(conversation_id, safe="")}/messages?limit=5',
-        timeout=10)
-    return DispatchEvidence.from_payload(messages).dispatch_landed
-
-
 # ── Execution mode (human-only decision gate) ──────────────────────────────
 # MAZDA_DECISION_MODE gates whether a scan/PDF dispatch may construct Mazda
 # and the Trainer at all. This is the single fork point for every LLM call
@@ -2755,42 +2737,12 @@ def _mazda_dispatch_was_accepted(conversation_id):
 # parser selection) only happens INSIDE Mazda's own agent turn, so never
 # starting that turn blocks all of them at once — there is no way to reach
 # in and intercept a call three layers inside her reasoning.
-class InvalidExecutionMode(ValueError):
-    """MAZDA_DECISION_MODE held something other than 'auto'/'human_only'."""
-
-
-class ExecutionModeConfig(BaseModel):
-    """MAZDA_DECISION_MODE, validated once at process start.
-
-    The exact-lowercase constraint and fail-closed-on-anything-else
-    requirement are validation rules, not control flow — Pydantic's
-    ``Literal`` + ``strict=True`` enforces both without a hand-rolled
-    if/raise, matching the StrictBoundaryModel convention already used for
-    other typed boundaries (see agents/letta_gateway.py).
-    """
-    model_config = ConfigDict(strict=True, extra='forbid', frozen=True)
-    mode: Literal['auto', 'human_only'] = 'auto'
-
-
-def resolve_execution_mode(raw=None):
-    """Pure parser — no I/O, unit-tested.
-
-    Unset -> 'auto' (preserves current production behavior). Any other value
-    must be exactly 'auto' or 'human_only' (lowercase); anything else fails
-    closed so a typo can never silently spend LLM tokens or silently disable
-    Mazda.
-    """
-    if raw is None:
-        raw = os.environ.get('MAZDA_DECISION_MODE')
-    if raw is None:
-        return ExecutionModeConfig().mode
-    try:
-        return ExecutionModeConfig(mode=raw).mode
-    except ValidationError as exc:
-        raise InvalidExecutionMode(
-            "MAZDA_DECISION_MODE must be 'auto' or 'human_only' (exact lowercase), "
-            f'got {raw!r}') from exc
-
+#
+# The fork itself, the scan dispatch it guards and the record it writes when
+# it declines now live in intake/mazda_dispatch.py; the mode vocabulary and
+# its env-var parser live beside the operator's switch in intake/mazda_mode.py.
+# What is left here is the composition root: the process-wide default, the
+# operator's store, and the collaborators mazda_dispatch is handed per call.
 
 # Resolved once at process start, like TRAINER_ENABLED below — an env change
 # never alters an already-running process; restart dashboard-server.service
@@ -2801,10 +2753,10 @@ EXECUTION_MODE = resolve_execution_mode()
 #: small operator preferences (~/.mazda/model_stats_muted.json).
 MAZDA_MODE_FILE = os.path.expanduser('~/.mazda/mazda_mode.json')
 
-# The switch on the intake dialog writes here; _dispatch_mazda_or_block reads
-# here. EXECUTION_MODE is handed over as a callable, not a value, so it stays
-# the live default -- the env var still decides everything on a box where
-# nobody has ever touched the switch, and the test suite's monkeypatch of
+# The switch on the intake dialog writes here; dispatch_or_block reads here.
+# EXECUTION_MODE is handed over as a callable, not a value, so it stays the
+# live default -- the env var still decides everything on a box where nobody
+# has ever touched the switch, and the test suite's monkeypatch of
 # EXECUTION_MODE keeps working.
 _MAZDA_MODE_SERVICE = MazdaModeService(
     JsonFileMazdaModeStore(MAZDA_MODE_FILE),
@@ -2822,115 +2774,56 @@ def current_execution_mode():
     return _MAZDA_MODE_SERVICE.mode()
 
 
-HUMAN_ONLY_MODE_STAGE_MESSAGE = (
-    'MAZDA_DECISION_MODE=human_only: Mazda and the Trainer were not started '
-    'for this document. Process it manually — see /recent_report.html.')
+def mazda_mode_status():
+    """GET /api/mazda-mode: what the intake dialog's switch should show."""
+    return _MAZDA_MODE_SERVICE.current().to_http()
 
 
-def _block_dispatch_for_human_only_mode(document_path, conversation_id, dispatched_at):
-    """human_only mode: the single point that replaces Mazda+Trainer construction.
+def set_mazda_mode(data):
+    """POST /api/mazda-mode: move the switch, or say why the body was refused."""
+    return _MAZDA_MODE_SERVICE.set_from_http(data)
 
-    Records the same terminal-status shape a Trainer failure would, so the
-    document surfaces on /recent_report.html as needing a human instead of
-    silently vanishing — the operator still sees every scanned/PDF document,
-    just routed to manual processing instead of Mazda's LLM turn. Never
-    registers a Trainer watch either: with Mazda never dispatched, a deadline
-    watch would eventually fire the ProblemOnlyTrainerEscalationService for a
-    callback that can never arrive, spending exactly the tokens this mode
-    exists to save.
+
+def _mazda_dispatch_deps():
+    """Rebuilt per call, never captured.
+
+    current_execution_mode is a bound *function*, so a monkeypatched
+    EXECUTION_MODE or a live flip of the operator's switch is read at the
+    moment the fork asks, not at import. watch_intake is the Trainer's --
+    it stays in this file with the escalation service it wraps.
     """
-    merge_recent_intake_status({
-        'conversation_id': conversation_id,
-        'document_path': document_path,
-        'dispatched_at': dispatched_at,
-        'status': 'needs_human_review',
-        'status_source': 'human_only_mode',
-        'detail': HUMAN_ONLY_MODE_STAGE_MESSAGE,
-    })
+    return mazda_dispatch.Collaborators(
+        current_mode=current_execution_mode,
+        watch_intake=_watch_intake_for_problems,
+        merge_status=merge_recent_intake_status,
+        observe_callback=_observe_intake_callback,
+        letta_get=letta_get,
+    )
 
 
 def _dispatch_mazda_or_block(document_path, label, facade, conversation_id,
                              dispatched_at, mazda_thread_target, mazda_thread_args):
     """The one fork point between Mazda's LLM turn and human-only blocking.
 
-    process_scanned_document and process_pdf_document each used to carry this
-    branch independently — duplicated mode-dependent logic. Returns
-    mazda_dispatched. The Trainer is never dispatched synchronously from
-    here in either mode: ProblemOnlyTrainerEscalationService (registered via
-    _watch_intake_for_problems) decides later, off a callback deadline,
-    whether a run ever needed one — human_only skips registering that watch
-    too, since Mazda never starting means no callback will ever arrive.
+    Thin wrapper: both intake entry points and the Mazda-mode tests reach it
+    through `server`. The decision lives in intake/mazda_dispatch.py.
     """
-    if current_execution_mode() == 'human_only':
-        _block_dispatch_for_human_only_mode(document_path, conversation_id, dispatched_at)
-        return False
-    _watch_intake_for_problems(
-        document_path, label, facade, conversation_id, dispatched_at)
-    threading.Thread(
-        target=mazda_thread_target, args=mazda_thread_args, daemon=True).start()
-    return True
-
-
-def _notify_mazda_of_scan(scan_image_path, scanner_name, facade_result=None,
-                          conversation_id=None, dispatched_at=None):
-    """Background: send the scanned document to Mazda for intake processing.
-
-    scan_image_path must already be reachable from Mazda's executor tools
-    (see _stage_scan_for_mazda) — this function does no staging itself.
-    """
-    if not conversation_id:
-        print('[scan→mazda] Refusing shared/default conversation dispatch')
-        return False
-    try:
-        msg = build_mazda_scan_message(
-            scan_image_path, scanner_name, facade_result,
-            conversation_id=conversation_id, dispatched_at=dispatched_at)
-        payload = json.dumps({
-            'messages': [{'role': 'user', 'content': msg}],
-            'streaming': False,
-        }).encode()
-        req = urllib.request.Request(
-            f'{LETTA_BASE_URL}/v1/conversations/{quote(conversation_id, safe="")}/messages',
-            data=payload,
-            headers={'Content-Type': 'application/json'},
-            method='POST',
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            print(f'[scan→mazda] Mazda notified of scan ({scanner_name}): '
-                  f'HTTP {resp.status}; conversation={conversation_id}')
-        return True
-    except Exception as exc:
-        if _mazda_dispatch_was_accepted(conversation_id):
-            print(f'[scan→mazda] Mazda accepted scan ({scanner_name}); '
-                  f'the synchronous response ended late: {exc}; '
-                  f'conversation={conversation_id}')
-            return True
-        print(f'[scan→mazda] Failed to notify Mazda: {exc}')
-        return False
+    return mazda_dispatch.dispatch_or_block(
+        _mazda_dispatch_deps(), document_path, label, facade, conversation_id,
+        dispatched_at, mazda_thread_target, mazda_thread_args)
 
 
 def _notify_mazda_of_scan_and_record_failure(
         scan_image_path, scanner_name, facade_result=None,
         conversation_id=None, dispatched_at=None):
-    """Dispatch a scan and make a transport failure visible in its report."""
-    notified = _notify_mazda_of_scan(
-        scan_image_path, scanner_name, facade_result,
+    """Dispatch a scan and make a transport failure visible in its report.
+
+    Kept as a wrapper because it is handed to _dispatch_mazda_or_block as the
+    scan path's thread target.
+    """
+    return mazda_dispatch.notify_mazda_of_scan_and_record_failure(
+        _mazda_dispatch_deps(), scan_image_path, scanner_name, facade_result,
         conversation_id, dispatched_at)
-    if notified:
-        return True
-    failure = {
-        'conversation_id': conversation_id,
-        'document_path': scan_image_path,
-        'dispatched_at': dispatched_at,
-        'status': 'fail',
-        'status_source': 'transport',
-        'detail': ('Mazda could not be reached after the scan was staged. '
-                   'No transactions were stored; retry this scan when the '
-                   'Letta server is available.'),
-    }
-    _observe_intake_callback(failure)
-    merge_recent_intake_status(failure)
-    return False
 
 
 # ── Mazda Trainer ────────────────────────────────────────────────────────────

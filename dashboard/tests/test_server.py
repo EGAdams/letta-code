@@ -3253,91 +3253,23 @@ def test_scan_message_judges_every_run_not_only_failures():
     assert 'ONLY IF THE INTAKE FAILED' not in msg
 
 
-def test_scan_message_round_trips_through_notify(monkeypatch):
-    """_notify_mazda_of_scan must POST exactly the built message to Mazda."""
-    captured = {}
-
-    class _Resp:
-        status = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-
-    def _fake_urlopen(req, timeout=0):
-        captured['url'] = req.full_url
-        captured['body'] = json.loads(req.data.decode())
-        return _Resp()
-
-    monkeypatch.setattr(server.urllib.request, 'urlopen', _fake_urlopen)
-    server._notify_mazda_of_scan(
-        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
-        'conv-freezer')
-
-    expected = server.build_mazda_scan_message(
-        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
-        conversation_id='conv-freezer')
-    assert captured['body']['messages'][0]['content'] == expected
-    assert captured['url'].endswith('/v1/conversations/conv-freezer/messages')
-    assert captured['body']['streaming'] is False
-
-
-#: What Letta returns for a conversation nothing was ever posted to: the system
-#: prompt it is born with. Reproduced from the live stalled intake
-#: (conv-8f235c63, 2026-08-19) -- the old probe read this as "delivered".
-_ONLY_THE_SYSTEM_PROMPT = [{'role': None, 'message_type': 'system_message'}]
-_DISPATCH_DELIVERED = _ONLY_THE_SYSTEM_PROMPT + [
-    {'role': 'user', 'message_type': 'user_message'}]
-
-
-def test_scan_notify_timeout_is_success_when_conversation_received_message(monkeypatch):
-    """A slow synchronous agent run must not be reported as delivery failure."""
-    monkeypatch.setattr(
-        server.urllib.request, 'urlopen',
-        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError('timed out')))
-    monkeypatch.setattr(
-        server, 'letta_get', lambda path, timeout: _DISPATCH_DELIVERED)
-
-    assert server._notify_mazda_of_scan(
-        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
-        'conv-freezer') is True
-
-
-def test_scan_notify_failure_remains_failure_when_conversation_is_empty(monkeypatch):
-    monkeypatch.setattr(
-        server.urllib.request, 'urlopen',
-        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError('timed out')))
-    monkeypatch.setattr(server, 'letta_get', lambda path, timeout: [])
-
-    assert server._notify_mazda_of_scan(
-        '/scans/x.jpg', 'Freezer Scanner', _FACADE_JPEG_UNKNOWN,
-        'conv-freezer') is False
-
-
-def test_a_rejected_dispatch_is_reported_as_a_failure(monkeypatch):
-    """The 2026-08-19 defect, at the level the operator feels it.
-
-    The POST was rejected with HTTP 429 -- nothing was queued -- and the probe
-    saw the system prompt every conversation is born with and called it
-    delivered. The scan was recorded `processing` and hung until the Trainer
-    reported it as an infrastructure problem.
-    """
-    monkeypatch.setattr(
-        server.urllib.request, 'urlopen',
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            urllib.error.HTTPError('u', 429, 'Too Many Requests', {}, None)))
-    monkeypatch.setattr(
-        server, 'letta_get', lambda path, timeout: _ONLY_THE_SYSTEM_PROMPT)
-
-    assert server._notify_mazda_of_scan(
-        '/scans/x.jpg', 'Window Scanner', _FACADE_JPEG_UNKNOWN,
-        'conv-8f235c63') is False
-
-
-def test_scan_notify_failure_marks_exact_intake_terminal(tmp_path, monkeypatch):
+# The scan-dispatch tests moved to tests/test_mazda_dispatch.py when
+# _notify_mazda_of_scan / _mazda_dispatch_was_accepted moved to
+# intake/mazda_dispatch.py: they monkeypatched `server` attributes the moved
+# code no longer reads, so they would have kept passing against nothing.
+# test_scan_notify_failure_marks_exact_intake_terminal is the exception --
+# see test_a_transport_failure_lands_on_the_exact_intake below, which keeps
+# the end-to-end assertion against the real merge.
+def test_a_transport_failure_lands_on_the_exact_intake(tmp_path, monkeypatch):
+    """Kept here, not moved: it is the seam between the dispatch module's
+    record and server.py's real merge_recent_intake_status. The unit tests in
+    tests/test_mazda_dispatch.py use a recording fake for that port."""
     _recent_report_env(tmp_path, monkeypatch)
     server.record_recent_intake(
         '/staged/window.jpg', 'Window Scanner',
         conversation_id='conv-window', dispatched_at=1234)
-    monkeypatch.setattr(server, '_notify_mazda_of_scan', lambda *a, **k: False)
+    monkeypatch.setattr(server.mazda_dispatch, 'notify_mazda_of_scan',
+                        lambda *a, **k: False)
 
     assert server._notify_mazda_of_scan_and_record_failure(
         '/staged/window.jpg', 'Window Scanner', {}, 'conv-window', 1234) is False
@@ -6809,25 +6741,11 @@ def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
 
 
 # ── MAZDA_DECISION_MODE=human_only / manual-entry form (2026-08-16) ────────
-def test_resolve_execution_mode_unset_defaults_to_auto(monkeypatch):
-    monkeypatch.delenv('MAZDA_DECISION_MODE', raising=False)
-    assert server.resolve_execution_mode() == 'auto'
-
-
-def test_resolve_execution_mode_parses_auto_and_human_only():
-    assert server.resolve_execution_mode('auto') == 'auto'
-    assert server.resolve_execution_mode('human_only') == 'human_only'
-
-
-@pytest.mark.parametrize('bad', [
-    'Auto', 'HUMAN_ONLY', 'human-only', 'humanonly', 'llm_only', '',
-    ' auto', 'auto ', 'None',
-])
-def test_resolve_execution_mode_fails_closed_on_invalid_value(bad):
-    """A typo must never silently fall back to 'auto' (could spend tokens
-    unexpectedly) or silently disable Mazda — it must fail startup instead."""
-    with pytest.raises(server.InvalidExecutionMode):
-        server.resolve_execution_mode(bad)
+# resolve_execution_mode / InvalidExecutionMode moved to intake/mazda_mode.py,
+# beside the vocabulary they validate against. Their unit tests live in
+# tests/test_mazda_mode.py; what belongs here is only that server.py still
+# exposes the owning module's objects (tests/test_mazda_dispatch.py asserts the
+# identity) and that the mode reaches both intake entry points, below.
 
 
 def test_process_scanned_document_human_only_mode_never_dispatches_mazda_or_trainer(

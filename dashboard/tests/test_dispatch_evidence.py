@@ -109,35 +109,8 @@ def test_a_system_message_is_recognized_by_either_field():
     assert ConversationMessage.from_row({'role': 'system'}).is_system_prompt is True
 
 
-# ── the probe in server.py uses it ─────────────────────────────────────────
-
-def test_probe_reports_not_accepted_for_the_live_stalled_conversation(monkeypatch):
-    import server
-    monkeypatch.setattr(server, 'letta_get',
-                        lambda path, timeout=6: NOTHING_WAS_DELIVERED)
-    assert server._mazda_dispatch_was_accepted('conv-8f235c63') is False
-
-
-def test_probe_reports_accepted_once_the_message_is_there(monkeypatch):
-    import server
-    monkeypatch.setattr(server, 'letta_get',
-                        lambda path, timeout=6: DISPATCH_DELIVERED)
-    assert server._mazda_dispatch_was_accepted('conv-8f235c63') is True
-
-
-def test_probe_asks_for_the_messages_not_the_conversation(monkeypatch):
-    """Reading the conversation object is what made the old check wrong: its
-    in_context_message_ids cannot tell a system prompt from a dispatch."""
-    import server
-    asked = []
-    monkeypatch.setattr(server, 'letta_get',
-                        lambda path, timeout=6: asked.append(path) or [])
-    server._mazda_dispatch_was_accepted('conv-8f235c63')
-    assert asked and asked[0].endswith('/messages?limit=5')
-
-
-def test_probe_refuses_a_blank_conversation_id(monkeypatch):
-    import server
-    monkeypatch.setattr(server, 'letta_get',
-                        lambda path, timeout=6: DISPATCH_DELIVERED)
-    assert server._mazda_dispatch_was_accepted('') is False
+# ── the probe that uses it ─────────────────────────────────────────────────
+# _mazda_dispatch_was_accepted moved to intake/mazda_dispatch.dispatch_was_accepted
+# in round 11. Its four tests moved with it, to tests/test_mazda_dispatch.py --
+# they monkeypatched `server.letta_get`, which the moved code reaches through an
+# injected collaborator rather than through server's globals.
