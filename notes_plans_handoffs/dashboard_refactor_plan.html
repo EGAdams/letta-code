@@ -111,7 +111,8 @@
   .commit { display: flex; gap: 12px; align-items: baseline; font-size: .92rem; }
   .commit code { flex: none; }
   footer { text-align: center; color: var(--muted); font-size: .82rem; margin-top: 30px; }
-</style>
+    .was{color:#b06000;font-weight:600}
+  </style>
 </head>
 <body>
 <div class="page">
@@ -143,12 +144,19 @@
         <em>Rescued, not committed</em> below).</li>
       <li>Baseline the tests before you touch anything:
         <code>cd dashboard &amp;&amp; .venv/bin/python -m pytest tests/ -q</code>.
-        Expect <strong>2,574 passed, 13 failed</strong>. All 13 are one
-        pre-existing regression &mdash;
-        <code>'VendorCategoryLookup' object has no attribute 'guess_vendor_key'</code>
-        in <code>finance/vendor_lookup.py:23</code> &mdash; not yours. Confirm with
-        <code>git stash &amp;&amp; pytest &amp;&amp; git stash pop</code> before
-        blaming your change.</li>
+        <strong>There are no known failures any more.</strong> Expect
+        <strong>2,591 passed / 2 skipped</strong> on the live box and
+        <strong>2,587 passed / 6 skipped</strong> on a dev box &mdash; the four
+        extra skips are the <code>requires_tesseract</code> OCR tests, which run
+        only where that binary is installed. Anything <em>red</em> is yours.
+        <br>
+        <span class="was">Superseded:</span> earlier revisions of this plan told
+        you to expect 13 failures from
+        <code>'VendorCategoryLookup' object has no attribute 'guess_vendor_key'</code>.
+        Fixed in <code>603d2d78</code> &mdash; the method never existed upstream,
+        and the test shipped alongside it faked one, so the suite stayed green
+        while every real caller raised. The remaining 4 tesseract failures became
+        conditional skips in <code>7f620d41</code>.</li>
       <li>Pick the next cluster from the ranked table below. <strong>Re-measure it</strong>
         with the script in <em>How to rank a cluster</em> rather than trusting the
         numbers &mdash; the old ranking was measured wrong, and the corrected
@@ -188,6 +196,37 @@
     <div class="commit-list">
       <div class="commit"><code>1351c3cc</code> Extract the Server Management clocks and log-file reading out of server.py</div>
     </div>
+
+    <h3>Maintenance since round 6 &mdash; not extractions, but it cleared the board</h3>
+    <div class="commit-list">
+      <div class="commit"><code>603d2d78</code> Fix vendor key guessing against an upstream method that never existed</div>
+      <div class="commit"><code>7f620d41</code> Skip the real-tesseract OCR tests when the binary is absent</div>
+      <div class="commit"><code>02c5fef9</code> Rewrite the dashboard's known-failures note now that there are none</div>
+    </div>
+    <p>
+      The 13 failures round 6 recorded as &ldquo;someone else's regression, not
+      yours&rdquo; are gone, and this is the part worth carrying forward:
+      <code>finance/vendor_lookup.py</code> called
+      <code>VendorCategoryLookup.guess_vendor_key</code>, a method
+      <code>rol_finances</code> has <em>never</em> defined &mdash; and the test
+      that shipped in the same commit monkeypatched a fake lookup object
+      defining that same imaginary method. The suite stayed green while every
+      production caller raised <code>AttributeError</code>, and the route
+      swallowed it into a <code>200</code> page reading
+      &ldquo;Scanner Report build error&rdquo;, so monitoring saw success too.
+    </p>
+    <p>
+      <strong>That is the patch-target trap in a different costume.</strong> The
+      standing rule below says to point tests at the owning module; this round
+      adds the twin rule: <em>a fake must be pinned to the real thing it fakes.</em>
+      The fix keeps the trimming test on a patched
+      <code>normalize_vendor_slug</code> seam but adds a second test that runs
+      the whole path unpatched against real <code>rol_finances</code>, so the
+      fake can never drift free again. Worth copying wherever a dashboard module
+      fakes a <code>rol_finances</code> object &mdash; that boundary is
+      <code>sys.path</code>-injected and entirely untyped, so nothing else is
+      checking it either.
+    </p>
 
     <h3>What moved</h3>
     <table>
