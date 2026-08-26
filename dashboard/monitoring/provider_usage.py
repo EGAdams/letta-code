@@ -163,7 +163,9 @@ def _shape_detail(error: ValidationError) -> str:
              if not any(t in str(p).lower() for t in _FAILURE_CLASS_TRIGGERS)]
     where = '.'.join(parts)
     msg = str(first.get('msg', error)).replace('Value error, ', '')
-    return f'{where}: {msg}' if where else msg
+    # A scrubbed-away path still needs a noun, or a missing top-level block
+    # reports as the bare word "Field required" in the operator's log.
+    return f"{where or 'the usage block'}: {msg}"
 
 
 # ── The fleet, and its token ─────────────────────────────────────────────────

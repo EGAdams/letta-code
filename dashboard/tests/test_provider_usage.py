@@ -227,6 +227,15 @@ def test_shape_detail_drops_only_the_elements_that_would_mislabel_it():
     assert 'rate_limit' not in detail
 
 
+def test_a_scrubbed_away_path_still_leaves_a_noun_in_the_message(monkeypatch):
+    """The top-level field IS 'rate_limit', so scrubbing removes the whole
+    path. Without a fallback noun the operator's log reads 'Field required'."""
+    monkeypatch.setattr(pu.urllib.request, 'urlopen', lambda *a, **k: _FakeResponse({}))
+    r = pu.probe_usage_endpoint('http://x', {}, pu.classify_codex_usage)
+    assert r['text'] == 'usage payload not understood: the usage block: Field required'
+    assert server.classify_failure(r['text'])[1] != 'rate-limited'
+
+
 def test_a_401_is_an_auth_failure_not_a_rate_limit(monkeypatch):
     def boom(*a, **k):
         raise urllib.error.HTTPError('http://x', 401, 'Unauthorized', {}, None)
