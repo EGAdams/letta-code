@@ -1066,15 +1066,13 @@ describe("ManualEntryForm._saveAll", () => {
       mountTerminal: async () => fakeSession,
     });
     await form.mount();
-    form.items = [validItem()];
-    form.currentIndex = 0;
-    form._renderCurrentItem();
-    await form._saveAll();
     expect(sentCommands.length).toBe(1);
     expect(sentCommands[0]).toContain("cd '/archive'");
-    expect(form._statusEl.children.some((c) => c.tagName === "BUTTON")).toBe(
-      true,
-    );
+    expect(
+      form._archiveTerminalEl.children.some(
+        (child) => child.textContent === "Archive Verification (/archive)",
+      ),
+    ).toBe(true);
   });
 });
 

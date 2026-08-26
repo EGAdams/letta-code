@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import re
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Callable, Mapping, MutableMapping, Sequence
 
@@ -20,10 +22,12 @@ class RecentReportImageSynchronizer:
     def __init__(self, *, read_pointer: Callable[[], dict],
                  write_pointer: Callable[[dict], bool],
                  fetch_rows: Callable[[Sequence[int]], Sequence[Mapping]],
+                 update_references: Callable[[Sequence[int], str], None] | None = None,
                  replace: Callable[[str, str], None] = os.replace):
         self._read_pointer = read_pointer
         self._write_pointer = write_pointer
         self._fetch_rows = fetch_rows
+        self._update_references = update_references or (lambda _ids, _path: None)
         self._replace = replace
 
     @staticmethod
@@ -58,6 +62,27 @@ class RecentReportImageSynchronizer:
                 continue
         return total.quantize(Decimal('0.01'))
 
+    @staticmethod
+    def _archived_identity(path: str) -> tuple[str, str] | None:
+        """Vendor/date already stamped on a canonical receipt filename.
+
+        A second expense describes an item bought at the store; it does not
+        redefine the receipt's store. The existing archive name is therefore
+        the authority for identity, while only its trailing amount is mutable.
+        """
+        stem = os.path.splitext(os.path.basename(path))[0]
+        match = re.fullmatch(
+            r'(?P<vendor>.+)_(?P<date>\d{2}_\d{2}_\d{2})_'
+            r'(?P<dollars>\d+)_(?P<cents>\d{2})', stem)
+        if not match:
+            return None
+        try:
+            date = datetime.strptime(
+                match.group('date'), '%m_%d_%y').date().isoformat()
+        except ValueError:
+            return None
+        return match.group('vendor'), date
+
     def synchronize(self, expense_id: int, *, deleted: bool = False,
                     vendor_key: str = '', transaction_date: str = '',
                     fallback_vendor_key: str = '', fallback_date: str = '') -> dict:
@@ -87,6 +112,9 @@ class RecentReportImageSynchronizer:
         if not paths:
             return {'renamed': False, 'warning': 'No archived image path to rename.'}
         old_path = paths[0]
+        archived_identity = self._archived_identity(old_path)
+        if archived_identity:
+            vendor, date = archived_identity
         extension = os.path.splitext(old_path)[1] or '.jpg'
         new_path = os.path.join(
             os.path.dirname(old_path),
@@ -97,6 +125,7 @@ class RecentReportImageSynchronizer:
                 return {'renamed': False,
                         'warning': f'Image rename target already exists: {new_path}'}
             self._replace(old_path, new_path)
+        self._update_references(ids, new_path)
 
         for intake in matched:
             intake['archive_paths'] = [

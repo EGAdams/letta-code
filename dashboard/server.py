@@ -1149,6 +1149,34 @@ def _get_expense_edit_repository():
     return _expense_edit_repository
 
 
+def _update_recent_receipt_references(expense_ids, path):
+    """Keep every row on one receipt pointed at its newly renamed image."""
+    ids = tuple(dict.fromkeys(int(value) for value in expense_ids if int(value) > 0))
+    if not ids:
+        return
+    with _rol_get_connection() as cnx:
+        with cnx.cursor() as cur:
+            schema = InformationSchemaProbe().read(
+                cur, ('receipt_url', 'source_file'))
+            assignments = []
+            values = []
+            if schema.has('receipt_url'):
+                assignments.append('receipt_url = %s')
+                values.append(os.path.basename(path))
+            if schema.has('source_file'):
+                assignments.append('source_file = %s')
+                values.append(path)
+            if not assignments:
+                return
+            placeholders = ','.join(['%s'] * len(ids))
+            cur.execute(
+                f"UPDATE expenses SET {', '.join(assignments)} "
+                f"WHERE id IN ({placeholders})",
+                tuple(values) + ids,
+            )
+            cnx.commit()
+
+
 def _synchronize_recent_report_image(expense_id, **changes):
     """Composition boundary for the archived-image naming policy."""
     try:
@@ -1157,6 +1185,7 @@ def _synchronize_recent_report_image(expense_id, **changes):
                 read_pointer=_read_recent_pointer_file,
                 write_pointer=_write_recent_pointer_file,
                 fetch_rows=_fetch_expenses_by_ids,
+                update_references=_update_recent_receipt_references,
             ).synchronize(expense_id, **changes)
     except Exception as exc:  # noqa: BLE001 - the expense write already landed
         return {
