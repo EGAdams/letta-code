@@ -4937,6 +4937,35 @@ def _rol_finance_categories():
     return cats
 
 
+def _rol_finance_category_for_ids(category_ids):
+    """Resolve raw (often leaf) `category_id` values to the reporting bucket
+    they total under -- {name, cls, bg, fg} per id, keyed by the id as a string
+    so the JSON round-trips cleanly.
+
+    Report generators (e.g. rol_finances' e_two_e_processing/process.py) store
+    a leaf category_id per transaction, not a reporting-bucket id, so they
+    cannot pick a row color by looking the id up in `_rol_finance_categories()`
+    (which only lists the ~24 selectable buckets). This walks each id up to
+    its bucket via the same ICategoryTaxonomy used everywhere else, so a
+    report baked from this endpoint always agrees with the live picker.
+    """
+    taxonomy = _get_category_taxonomy()
+    out = {}
+    for raw_id in category_ids:
+        try:
+            cid = int(raw_id) if raw_id not in (None, '') else None
+        except (TypeError, ValueError):
+            cid = None
+        style = taxonomy.style_for(cid)
+        out[str(raw_id)] = {
+            'name': taxonomy.label_for(cid),
+            'cls': style.css_class,
+            'bg': style.background,
+            'fg': style.font,
+        }
+    return out
+
+
 def _report_category_node_by_name(name, selectable_only=True):
     """Resolve a report/dialog label back to its category node.
 
