@@ -113,6 +113,14 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    `bank_statements/{year}/{month}/{bank}_{last4}_{full-range}/` copy per
    transaction year (the folder repeats the file stem so two accounts sharing a
    statement period cannot collide).
+   A zero-row or short provider parse is not proof that a statement is empty.
+   Grade parsed row counts and section totals against the statement's printed
+   Account Summary. For text-native Fifth Third PDFs, the provider-free
+   `FifthThirdPdfGroundTruthSource` is the required fallback when Gemini/OpenAI
+   extraction fails. Multi-page statements repeat `Withdrawals / Debits -
+   continued`; confirm rows on both sides survive. Account Summary labels such
+   as `23 Withdrawals / Debits` are not table headings. Missing the first-page
+   rows is a FAIL requiring parser correction and a fresh parse before storage.
    The archive `full-range` is the earliest through latest **expense/debit**
    date only. Payment, credit, refund, and deposit rows are excluded from both
    range endpoints even when one appears later than the last expense. For
@@ -318,6 +326,22 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    `report_audit_status`; the final dashboard callback must include `report_path`.
    Merely describing the intended report, writing a differently named HTML file, or
    relying on the intake-mode dashboard page is a FAIL.
+   Every bank-statement report must contain both a `Verified Transactions` section and
+   a `Machine-Readable Extracted Statement JSON` details block whose JSON parses and
+   reconciles to the source counts/totals. If Gemini parsing is required, verify the
+   statement parser used the finance `GEMINI_API_KEY` monitored by Model Stats, not the
+   retired personal CLI OAuth path. Gemini CLI reloads `.env` and prefers
+   `GOOGLE_API_KEY`, so both subprocess variable names must resolve to the same finance
+   key; never expose the value in a report or coaching message. Accept exit code 0 plus
+   non-empty stdout even when stderr contains harmless terminal/color/key-precedence
+   warnings. `gemini-2.5-flash-lite` 404 is a stale-model defect; use the supported
+   `gemini-flash-lite-latest` path.
+   Report status must reflect actual remaining work. When statement math, database
+   presence, and duplicate checks pass, rows that remain Uncategorized only because the
+   statement lacks reliable payee/memo detail are documented notes, not a blocking
+   failure: require `PASS WITH NOTES`, not `REVIEW NEEDED`. Yellow/red tabs deliberately
+   show the full report; green tabs collapse to Verified Transactions plus the
+   machine-readable JSON block, so a stale yellow badge is also a presentation defect.
    **Existing expense categorization is authoritative.** Every expense/debit report row
    must carry the matching nonblank `expense_id` returned in `expense_ids` or
    `duplicate_expense_ids`. The hydration command must then copy the live
@@ -470,6 +494,13 @@ Grade the run against the contract above. Specifically confirm:
   a missing report: coach Mazda to generate, restructure, audit, re-record/re-judge the
   corrected evidence, and repeat the dashboard callback with `report_path`.
   Cross-check every report row carrying `data-expense-id` against the live expense record.
+  For an account-6285 statement, also require a cross-check against
+  `/home/adamsl/rol_finances/readable_documents/transfer_pay_activity.txt`. Check number
+  plus amount may match even when written and cleared dates differ. Confirm matched rows
+  retain the PDF description and add the normalized recipient; confirm non-canceled
+  transfer/pay records dated inside the statement period that are absent from the PDF are
+  clearly marked review rows, checked against the database, and excluded from the PDF's
+  printed counts and balance reconciliation. Canceled/pending records must not be added.
   The current DB category must agree with `data-category-id`,
   `data-reporting-category`, and the row's `cat-*` class. In particular, verify
   duplicate-only runs do not erase categories that were assigned before this intake.
