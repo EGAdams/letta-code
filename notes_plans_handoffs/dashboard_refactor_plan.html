@@ -132,7 +132,7 @@
 <body><div class="page">
 
 <div class="hero">
-  <p class="kicker">Living Plan &middot; Round 12 landed 2026-08-26 &middot; Round 13 brief</p>
+  <p class="kicker">Living Plan &middot; Round 13 landed 2026-08-26 &middot; Round 14 brief</p>
   <h1>Cutting server.py to the Bone</h1>
   <p class="lede">
     The target has moved. <code>dashboard/server.py</code> is no longer being
@@ -144,25 +144,30 @@
     interfaces. Patterns with names.
   </p>
   <p class="lede">
-    <strong>Round 12 landed the first of the three.</strong> The routes no
-    longer reach into <code>server</code> for free names they happen to know
-    about; they depend on ports. That is why round 13 &mdash; the biggest
-    line-count win on the board &mdash; is now cheap.
+    <strong>Two of the three are down.</strong> Round 12 put ports between the
+    routes and <code>server</code>, so moving code costs a port method instead
+    of a permanent re-export. Round 13 spent that: every hand-maintained config
+    literal is gone, module-level assignment fell from <strong>704 lines to
+    262</strong>, and the roster it typed turned out to be serving a duplicate
+    agent tile to the live dashboard. What is left of the three is the
+    <a href="#diagnosis">six hand-rolled caches</a> &mdash; round 14, and the
+    thing the whole agent block is pinned behind.
   </p>
   <div class="meta">
-    <span class="pill">11,407 &rarr; 7,532 lines</span>
+    <span class="pill">11,407 &rarr; 7,147 lines</span>
     <span class="pill amber">new target: &lt; 2,000</span>
-    <span class="pill green">3,048 tests passing</span>
-    <span class="pill">last landed: round 12 = 6c69a3f4</span>
-    <span class="pill">srv.: 220 &rarr; 147 sites</span>
+    <span class="pill green">3,162 tests passing</span>
+    <span class="pill">last landed: round 13 = d04b519d</span>
+    <span class="pill">srv.: 220 &rarr; 134 sites</span>
+    <span class="pill green">config literal: 430 &rarr; 0 lines</span>
   </div>
 </div>
 
 <div class="card">
   <h2 id="start">Start here</h2>
   <p>
-    You are picking up <strong>round 13</strong>. Do these six things before
-    writing any code.
+    You are picking up <strong>round 14 &mdash; one cache class, six
+    instances</strong>. Do these six things before writing any code.
   </p>
   <ol>
     <li>Run the <strong>sync-all</strong> skill. Three boxes, one branch, and the
@@ -173,24 +178,34 @@
       unrelated commit. Nothing was lost, but the tree is genuinely shared and
       &ldquo;I checked at the start&rdquo; is not the same as &ldquo;it is still
       true.&rdquo;</li>
-    <li>Read <a href="#round13">Round 13 in full</a>. It is the biggest
-      line-count win on the board (~530 lines) at near-zero behaviour risk, and
-      it is where &ldquo;many small models&rdquo; pays first.</li>
+    <li>Read <a href="#round14">Round 14 in full</a>. It removes the least of
+      any round on the board (~180 lines) and unblocks the most: the agent
+      cluster is six caches deep and round 24 cannot start until they are one
+      class.</li>
+    <li>Read <a href="#round13done">What round 13 actually did</a>. You are
+      inheriting its registries, two of its findings, and one habit worth
+      copying: it read the <em>old</em> literals out of git and diffed them
+      against the new derived views on live values, so the golden test could
+      not decay into a restatement of the new code.</li>
     <li>Read <a href="#round12done">What round 12 actually did</a>. You will
       be adding to the mechanism it built, and it left one trap that is
       invisible until it bites: <code>DIRECT_SERVICES</code> in
-      <code>tests/http_app_harness.py</code>.</li>
-    <li>Read <a href="#diagnosis">The three structures</a>. The first is done;
-      the second is your round.</li>
+      <code>tests/http_app_harness.py</code>. Round 13 needed no entry there,
+      because it routed everything through ports rather than at owning
+      modules &mdash; but it hit the same trap twice from the other side, and
+      <a href="#round13done">its notes say where</a>.</li>
+    <li>Read <a href="#diagnosis">The three structures</a>. The first two are
+      done; the third is your round.</li>
     <li>Re-run the census (<a href="#census">the commands are here</a>) against
       whatever <code>server.py</code> actually is when you arrive. Every number
-      on this page is from <code>6c69a3f4</code> and every number on this page
-      will be stale for you &mdash; the file <em>grew</em> by 29 lines across
-      round 12 because a parallel feature landed in it at the same time.</li>
+      on this page is from <code>d04b519d</code> and every number on this page
+      will be stale for you &mdash; a second agent ships features into this file
+      while you work, and round 12 measured a 29-line <em>growth</em> across a
+      round that removed 41.</li>
     <li>Read the <a href="#rules">standing rules</a>. Rules 1&ndash;11 were paid
       for in production incidents; 12&ndash;17 came with the retarget and two of
-      them <em>amend</em> earlier ones; 18 is new from round 12. Rule 10 in
-      particular has been deliberately relaxed.</li>
+      them <em>amend</em> earlier ones; 18&ndash;19 came from round 12. Rule 10
+      in particular has been deliberately relaxed.</li>
   </ol>
 </div>
 
@@ -235,68 +250,71 @@
 </div>
 
 <div class="card">
-  <h2 id="census">The census &mdash; what 7,532 lines actually are</h2>
+  <h2 id="census">The census &mdash; what 7,147 lines actually are</h2>
   <p>
-    Measured on <code>6c69a3f4</code>. Reproduce it from <code>dashboard/</code>
+    Measured on <code>d04b519d</code>. Reproduce it from <code>dashboard/</code>
     with the AST script in <a href="#ranking">How to rank a cluster</a> plus
     these four one-liners:
   </p>
-<pre><code>grep -oh 'srv\.[A-Za-z_][A-Za-z0-9_]*' http_app/*.py | sort -u | wc -l   # 119 (117 + 2 docstring artefacts)
-grep -c 'return {' server.py                                            # 164
+<pre><code>grep -oh 'srv\.[A-Za-z_][A-Za-z0-9_]*' http_app/*.py | sort -u | wc -l   # 111 (109 + 2 docstring artefacts)
+grep -c 'return {' server.py                                            # 162
 grep -o '\.get(' server.py | wc -l                                      # 473
 grep -c 'with .*_lock' server.py                                        # 36</code></pre>
   <p class="finding">
-    <strong>The file grew this round, and that is not a failure of round 12.</strong>
-    Round 12 removed 41 lines; a parallel feature (Verified Transactions:
-    delete, add-tax, receipt-identity) added ~170 on the same days. Two agents
-    write to this tree. Measure the refactor by the <em>diff</em> you land, not
-    by <code>wc -l</code> before and after &mdash; and expect the same when you
-    report round 13.
+    <strong>Report your round by its diff, not by <code>wc -l</code>.</strong>
+    Round 13 landed &minus;579/+192 in <code>server.py</code> and the file moved
+    7,533&nbsp;&rarr;&nbsp;7,146 &mdash; those do not reconcile, and they are not
+    meant to. Two agents write to this tree: round 12 removed 41 lines while a
+    parallel feature added ~170 on the same days, and round 13 arrived to find
+    the <code>srv.</code> ceiling test already red for the same reason.
   </p>
 
   <div class="grid2">
     <div class="stat"><div class="big">0</div>
-      <p>classes defined in 7,532 lines. Not &ldquo;few&rdquo;. Zero. Every
+      <p>classes defined in 7,147 lines. Not &ldquo;few&rdquo;. Zero. Every
         piece of state in this file is a module global and every piece of
-        behaviour is a top-level <code>def</code>. Round 12 added the first two
-        classes to the <em>HTTP</em> side; this file still has none.</p></div>
+        behaviour is a top-level <code>def</code>. Rounds 12 and 13 added
+        classes to the <em>HTTP</em> side and to the new registry modules; this
+        file still has none of its own.</p></div>
     <div class="stat"><div class="big">241</div>
-      <p>top-level functions, 5,392 lines of bodies. 25 of them are over 50
-        lines and account for 2,092 &mdash; 28% of the file lives in 10% of the
-        functions.</p></div>
-    <div class="stat"><div class="big">117</div>
+      <p>top-level functions, 5,396 lines of bodies. 25 of them are over 50
+        lines and account for 2,093 &mdash; 28% of the file lives in 10% of the
+        functions. Round 13 moved <em>data</em>, so this number did not move at
+        all. Rounds 15&ndash;21 are what shift it.</p></div>
+    <div class="stat"><div class="big">109</div>
       <p>distinct names <code>http_app/</code> still reaches into
-        <code>server</code> for, across 147 call sites &mdash; <strong>down from
-        167 / 220</strong>. Round 12 removed the 47 that were pure re-exports.
-        22 of what is left are private. <a href="#round12done">What round 12
+        <code>server</code> for, across 134 call sites &mdash; <strong>down from
+        167 / 220</strong> before round 12 and 117 / 148 before round 13.
+        22 of what is left are private. <a href="#round13done">What round 13
         did</a>.</p></div>
-    <div class="stat"><div class="big">704</div>
-      <p>lines of module-level assignment, of which about <strong>430 are
-        config literals</strong>: <code>SERVERS</code> is 159 lines,
-        <code>AGENT_CARDS</code> 136, the four
-        <code>REPORTING_CATEGORY_*</code> dicts 58 between them.
-        <strong>This is round 13.</strong></p></div>
+    <div class="stat"><div class="big">262</div>
+      <p>lines of module-level assignment, <strong>down from 704</strong>. The
+        ~430 lines of config literal are <strong>gone</strong> &mdash;
+        <code>SERVERS</code>, <code>AGENT_CARDS</code>, <code>LETTA_AGENTS</code>,
+        <code>SCANNERS</code>, the four <code>REPORTING_CATEGORY_*</code> dicts
+        and six smaller ones are now typed collections in seven modules.
+        <a href="#round13done">Round 13</a>.</p></div>
     <div class="stat"><div class="big">20</div>
       <p>module-level <code>threading.Lock()</code> objects, 36
         <code>with &hellip;_lock:</code> blocks, 7 hand-rolled TTL constants,
         and <strong>six independent hand-written read-through caches</strong>
         &mdash; while <code>monitoring/win10_node.py</code> already contains a
         tested <code>_TtlCache</code> class.</p></div>
-    <div class="stat"><div class="big">164</div>
+    <div class="stat"><div class="big">162</div>
       <p><code>return {</code> statements &mdash; untyped payload boundaries,
         most of them going straight to the browser &mdash; against 473
         <code>.get()</code> calls, each one a place a missing key becomes a
-        default instead of an error. The whole dashboard has 35
-        <code>StrictModel</code> subclasses.</p></div>
+        default instead of an error. The dashboard now has 48
+        <code>StrictModel</code> subclasses &mdash; round 13 added 13.</p></div>
   </div>
 </div>
 
 <div class="card">
   <h2 id="diagnosis">The three structures holding the file up</h2>
   <p>
-    Eleven rounds of extraction have not shifted any of these, because none of
+    Eleven rounds of extraction did not shift any of these, because none of
     them is a cluster. Each one has a name in the literature and a standard
-    remedy.
+    remedy. Two are now done; the third is round 14.
   </p>
 
   <h3>1. <code>srv</code> is a Service Locator <span class="patt">anti-pattern</span>
@@ -321,26 +339,36 @@ grep -c 'with .*_lock' server.py                                        # 36</co
     <a href="#round12done">Round 12</a> built it &mdash;
     <code>http_app/ports.py</code> and <code>http_app/registry.py</code> &mdash;
     converted all 47 free names, and converted <code>ScannerPort</code> end to
-    end as the worked example. The count is now <strong>117 names / 147
-    sites</strong>, and <code>tests/test_http_app_ports.py</code> pins it as a
-    ceiling that only ever falls.
+    end as the worked example. Round 13 took the ceiling to <strong>109 names
+    / 134 sites</strong>, and <code>tests/test_http_app_ports.py</code> pins it
+    as a ceiling that only ever falls.
   </p>
   <p>
-    <strong>What is left is the interesting half.</strong> The remaining 117 are
+    <strong>What is left is the interesting half.</strong> The remaining 109 are
     real services, not re-exports, and they leave one at a time as their round
-    populates its port. If you are in round 13 and later, your job includes
-    lowering that ceiling by the names your block owns.
+    populates its port. <strong>Your job includes lowering that ceiling by the
+    names your block owns</strong> &mdash; and the mechanism is working: round
+    13 caught a parallel feature that had added a name without lowering
+    anything, because the ceiling test was red before a line of round-13 code
+    was written.
   </p>
 
-  <h3>2. Configuration is source code, and nothing validates it</h3>
+  <h3>2. Configuration is source code, and nothing validates it
+    <span class="pill green">done, round 13</span></h3>
   <p>
-    About 430 lines are hand-maintained data literals. They are not logic, they
-    have never been typed, and several of them are <em>parallel</em> &mdash;
-    multiple dicts keyed alike that must agree, with nothing checking that they
-    do.
+    About 430 lines were hand-maintained data literals: not logic, never typed,
+    and several of them <em>parallel</em> &mdash; multiple dicts keyed alike that
+    had to agree, with nothing checking that they did. They are now seven typed
+    registry modules, and <a href="#round13done">round 13</a> is the record of
+    what that found. The diagnosis below is kept as written, because two of its
+    predictions are worth reading against what actually happened: the
+    <code>REPORTING_CATEGORY_*</code> family turned out to be a <em>defence</em>
+    exactly as predicted, and <code>SERVERS</code> turned out to be clean &mdash;
+    while <code>LETTA_AGENTS</code>, which this section never suspected, was
+    serving a duplicate agent tile to the live dashboard.
   </p>
   <div class="finding">
-    <strong>Verified, and it is the round-13 headline.</strong>
+    <strong>Verified, and it was the round-13 headline.</strong>
     <code>REPORTING_CATEGORY_DB_MAP</code>, <code>REPORTING_CATEGORY_CLASS</code>
     and <code>REPORTING_CATEGORY_STYLE</code> are three dicts keyed by the same
     thirteen category names, and <code>REPORTING_CATEGORY_ANCESTOR_MAP</code> is
@@ -366,7 +394,9 @@ grep -c 'with .*_lock' server.py                                        # 36</co
     <a href="#postscript">round-6 postscript</a> exists to warn about.
   </p>
 
-  <h3>3. The same cache is written six times, by hand <span class="patt">Template Method</span></h3>
+  <h3 id="caches">3. The same cache is written six times, by hand
+    <span class="patt">Template Method</span>
+    <span class="pill amber">this is round 14</span></h3>
   <p>
     <code>_agent_list</code>, <code>_agent_activity</code>,
     <code>_agent_health</code>, <code>_letta_id</code>,
@@ -488,8 +518,9 @@ grep -c 'with .*_lock' server.py                                        # 36</co
     The <em>Left</em> column is arithmetic on the round-11 baseline of 7,378. It
     is not a prediction of <code>wc -l</code>, because a second agent ships
     features into this file in parallel &mdash; round 12 removed 41 lines and
-    the file still ended 154 higher. Track the column as &ldquo;refactor debt
-    retired&rdquo;, and report your round's diff separately from the file size.
+    the file still ended 154 higher; round 13 removed 579 and the file fell 387.
+    Track the column as &ldquo;refactor debt retired&rdquo;, and report your
+    round's diff separately from the file size.
   </p>
   <table>
     <tr><th>#</th><th>Round</th><th>Pattern</th><th class="num">Out</th>
@@ -500,14 +531,19 @@ grep -c 'with .*_lock' server.py                                        # 36</co
       <td>Enabling, and it worked: moving code now costs a port method, not a
         permanent re-export. <code>srv.</code> 220&rarr;147 sites.
         <a href="#round12done">What it did</a>.</td></tr>
-    <tr class="now"><td>13</td><td>Config out, typed</td><td>Registry</td>
-      <td class="num">~530</td><td class="num">6,800</td>
-      <td>Biggest win per hour, near-zero behaviour risk, and it is where
-        &ldquo;many small models&rdquo; pays first.
-        <a href="#round13">Round 13 in full</a>.</td></tr>
-    <tr><td>14</td><td>One cache class, six instances</td><td>Template Method</td>
+    <tr class="done"><td>13</td><td>Config out, typed
+        <span class="pill green">landed d04b519d</span></td><td>Registry</td>
+      <td class="num">579</td><td class="num">6,758</td>
+      <td>Came in at 579 removed against ~530 predicted &mdash; the first round
+        to beat its estimate, because round 12's ports meant the wiring went
+        into a port method instead of back into the namespace. Found a live
+        duplicate agent tile.
+        <a href="#round13done">What it did</a>.</td></tr>
+    <tr class="now"><td>14</td><td>One cache class, six instances</td><td>Template Method</td>
       <td class="num">~180</td><td class="num">6,580</td>
-      <td>Unpins the agent cluster, which is otherwise six caches deep.</td></tr>
+      <td>Removes the least on the board and unblocks the most: the agent
+        cluster is six caches deep and round 24 cannot start until they are one
+        class. <a href="#round14">Round 14 in full</a>.</td></tr>
     <tr><td>15</td><td>Intake record persistence</td><td>Repository</td>
       <td class="num">~480</td><td class="num">6,100</td>
       <td>Round 11 already mapped this surface. <code>_fold_event_into_intake</code>
@@ -568,134 +604,353 @@ grep -c 'with .*_lock' server.py                                        # 36</co
 </div>
 
 <div class="card">
-  <h2 id="round13">Round 13 in full &mdash; config out, typed <span class="patt">Registry</span></h2>
+  <h2 id="round14">Round 14 in full &mdash; one cache class, six instances
+    <span class="patt">Template Method</span></h2>
   <p>
-    About 530 lines, near-zero behaviour risk, and the highest ratio of
-    &ldquo;defects made impossible&rdquo; to &ldquo;hours spent&rdquo; on the
-    whole board. Four hundred and thirty lines of <code>server.py</code> are
-    hand-maintained data literals: not logic, never typed, and several of them
-    <em>parallel</em> &mdash; multiple dicts keyed alike that must agree, with
-    nothing checking that they do.
+    About 180 lines, and the smallest removal on the board. Take it anyway, and
+    take it next: <strong>round 24 (the agent registry, health and model stats)
+    is the second-biggest block left and it is pinned behind this one.</strong>
+    Six hand-written read-through caches sit under it, each with its own dict,
+    its own lock and its own TTL constant, and no round can restructure that
+    cluster while the caching is re-typed inline at every call site.
+  </p>
+
+  <h3>What is actually there</h3>
+  <p>
+    Six copies of the same eleven lines. <code>_agent_list</code>,
+    <code>_agent_activity</code>, <code>_agent_health</code>,
+    <code>_letta_id</code>, <code>_weekly_remaining</code> and
+    <code>_model_stats_agents</code> each carry a
+    <code>{'value': None, 'ts': 0.0}</code> dict, a
+    <code>threading.Lock()</code> and a <code>*_CACHE_TTL</code> constant. That
+    is 14 of <code>server.py</code>'s 20 module-level locks and 6 of its 7
+    hand-rolled TTL constants. Round 13 did not touch any of them &mdash; it
+    moved data, and these are state.
+  </p>
+  <p>
+    <code>build_agent_list</code> is the odd one and the interesting one. It
+    adds stale-while-revalidate on top: when the entry is stale it serves the
+    stale value immediately and kicks a background thread, because a cold
+    rebuild can block &gt;10s on the Letta roster fetch and trip the browser's
+    fetch timeout. It stores the in-flight flag in the <em>same untyped dict</em>
+    as the value, so a rebuild that raises leaves <code>refreshing</code> stuck
+    True and the cache never refreshes again.
+  </p>
+
+  <h3>The class already exists, tested, and has never been reused</h3>
+  <p>
+    <code>monitoring/win10_node.py</code> contains <code>_TtlCache</code> with
+    <code>Win10CacheEntry</code> as a typed entry, and a deliberate design note
+    about why <strong>a cached <code>None</code> must still count as a hit</strong>
+    &mdash; the entry, not the value, is the presence sentinel. Five of the six
+    hand-rolled copies get that wrong: they test <code>value is not None</code>,
+    so any cache whose legal answers include <code>None</code> re-fetches every
+    single call while looking exactly like a working cache.
   </p>
 
   <h3>Take them in this order</h3>
   <ol>
-    <li>
-      <strong>The four <code>REPORTING_CATEGORY_*</code> dicts first</strong>
-      (58 lines &rarr; ~20). Smallest, and the one with the clearest defect.
-      <code>REPORTING_CATEGORY_DB_MAP</code> (17),
-      <code>REPORTING_CATEGORY_CLASS</code> (15) and
-      <code>REPORTING_CATEGORY_STYLE</code> (15) are keyed by the same thirteen
-      category names; <code>REPORTING_CATEGORY_ANCESTOR_MAP</code> (11) is keyed
-      by the ids the first one hands out. Add a category to one and forget
-      another and you get a report row with no CSS class or no colour &mdash;
-      rendered, served, and indistinguishable from a styling choice. One
-      <code>ReportingCategory</code> model with
-      <code>name / db_id / css_class / background / font</code>, one list of
-      thirteen, and the four dicts become derived views that cannot disagree.
-      <br>
-      <strong>Read the comment above <code>REPORTING_CATEGORY_ANCESTOR_MAP</code>
-      before you start.</strong> These four are superseded at runtime by
-      <code>ICategoryTaxonomy</code> and survive only as the offline seed for
-      <code>LEGACY_TAXONOMY</code>. That makes them safer to restructure and it
-      also means your validator guards a <em>fallback</em> path &mdash; say so,
-      per rule 11.
-    </li>
-    <li>
-      <strong><code>SCANNERS</code></strong> (23 lines). Do it second, not
-      because it is big, but because round 12 already put a port in front of it:
-      <code>_ServerScannerPort.image_path()</code> in
-      <code>http_app/registry.py</code> is the only code outside
-      <code>server.py</code> that knows a scanner spec has an
-      <code>output</code> key. Turn <code>SCANNERS</code> into
-      <code>list[ScannerSpec]</code> and exactly one adapter line changes. That
-      is the whole argument for round 12 in miniature, and it is worth writing
-      down in the commit message when it happens.
-    </li>
-    <li>
-      <strong><code>SERVERS</code></strong> (159 lines) and
-      <strong><code>AGENT_CARDS</code></strong> (136). The same risk at six
-      times the size. A mistyped systemd unit name in <code>SERVERS</code> is a
-      Restart button that reports success and does nothing &mdash; the exact
-      failure signature <a href="#postscript">the round-6 postscript</a> exists
-      to warn about. Note that <code>SERVERS</code> entries are heterogeneous
-      (<code>log_file</code> / <code>health_url</code> / <code>tcp_check</code> /
-      a custom <code>check</code> key): that is a discriminated union, not one
-      flat model with everything optional. Getting that distinction right is
-      most of the value.
-    </li>
-    <li>
-      <strong>The rest, in one pass</strong> while the shape is in your head:
-      <code>RESTART_HANDLERS</code> (23) + <code>RESTARTABLE_KEYS</code> (1),
-      <code>LETTA_AGENTS</code> (22), <code>AGENT_VOICE_OPTIONS</code> (18),
-      <code>ROL_FINANCE_REPORTS</code> (16), <code>_MAZDA_PROGRESS_LABELS</code>
-      (11), <code>_TERMINAL_INTAKE_STATUSES</code> (10) as a <code>Literal</code>,
-      and the pair <code>ROL_FINANCES_REPORTS_MONTHS</code> (6) +
-      <code>ROL_FINANCES_MONTH_RANGES</code> (6). The full table with the failure
-      each one makes impossible is <a href="#pydantic">in the Pydantic
-      section</a>.
-    </li>
+    <li><strong>Promote <code>_TtlCache</code> to <code>caching.py</code></strong>
+      unchanged, with <code>CacheEntry</code> as the typed entry, and leave
+      <code>monitoring/win10_node.py</code> importing it. Do this as its own
+      step and keep <code>tests/test_win10_node.py</code> green before you
+      convert anything else &mdash; it is the only proof you have that the class
+      behaves, and it is proof written against the real caller.</li>
+    <li><strong>Convert the five plain caches.</strong> Mechanical.
+      <code>_letta_id</code> is the one to do first: it is the one whose
+      <code>None</code> is a legitimate cached answer (an agent absent from the
+      Letta roster) and it already carries <code>LETTA_ROSTER_NEG_TTL</code> and
+      a separate <code>_letta_roster_fetched_at</code> float precisely to work
+      around not being able to cache it. Check whether that whole negative-TTL
+      apparatus is still needed once the entry is the sentinel &mdash; if it is
+      not, say so, because it is a genuine simplification rather than a
+      relocation.</li>
+    <li><strong>Add <code>StaleWhileRevalidateCache</code> as a subclass</strong>
+      for <code>build_agent_list</code>, with the in-flight flag as a field on a
+      typed entry rather than a key in the value dict, and the flag cleared in a
+      <code>finally:</code>. That is the Template Method: the base decides
+      hit/miss/expiry, the subclass decides what a stale hit does.</li>
+    <li><strong>Then re-grep for a seventh.</strong> The census counts six, but
+      it counts by shape. A read-through cache written with a different variable
+      name is invisible to that grep and visible to
+      <code>grep -n "'ts': 0.0\|time.time() -" server.py</code>.</li>
   </ol>
 
-  <h3>Where the models go</h3>
-  <p>
-    Not in <code>server.py</code>. Each collection belongs beside the code that
-    reads it &mdash; <code>SCANNERS</code> near the scanner module,
-    <code>SERVERS</code> in something like <code>servers/registry.py</code>,
-    <code>LETTA_AGENTS</code> beside <code>agents/</code>. The model derives from
-    <code>contracts.StrictModel</code>
-    (<code>strict=True, extra='forbid', frozen=True</code>) and the four
-    <code>REPORTING_CATEGORY_*</code> dicts become
-    <code>@property</code>-style derived views on the one list, so a new category
-    cannot be half-added.
-  </p>
-  <p>
-    <strong>Lower the <code>srv.</code> ceiling as you go.</strong>
-    <code>srv.SERVERS</code>, <code>srv.RESTARTABLE_KEYS</code>,
-    <code>srv.LETTA_AGENTS</code> and friends are read by the route ladders.
-    Each one you move is a chance to point the ladder at the owning module (or
-    give <code>ServersPort</code> its first method) and drop
-    <code>SRV_SITE_CEILING</code> / <code>SRV_NAME_CEILING</code> in
-    <code>tests/test_http_app_ports.py</code>. A round that moves config and
-    leaves the ceiling untouched has left the re-export tax in place under a new
-    name.
-  </p>
-
-  <h3>Tests round 13 must ship</h3>
+  <h3>Tests round 14 must ship</h3>
   <ul>
-    <li><strong>The golden-payload test, unrelaxed</strong> (rule 9). Every model
-      dumps to a plain dict so browser-facing JSON stays byte-identical &mdash;
-      error strings and key order included. Better: run the old literal and the
-      new derived view side by side against the real live values and assert
-      equality. It is a five-line script and it converts &ldquo;should be
-      identical&rdquo; into &ldquo;is identical&rdquo;.</li>
-    <li><strong>One test per parallel-dict family that they cannot disagree.</strong>
-      Not &ldquo;all four dicts have thirteen keys&rdquo; &mdash; that is the
-      old invariant restated. Assert that the derived views are <em>generated</em>
-      from one list, e.g. by adding a fourteenth category in the test and
-      checking all four views grew.</li>
-    <li><strong>A reachability check per required field</strong> (rule 10, as
-      amended): show the defect you are preventing is actually reachable today,
-      and write the test that proves it as the <em>old</em> code, inline, so it
-      keeps being true.</li>
-    <li><strong>Say which are defended and which are fixed</strong> (rule 11).
-      The <code>REPORTING_CATEGORY_*</code> family currently guards a fallback
-      path, so it is a defence. If <code>SERVERS</code> turns out to have a live
-      mistyped unit in it, that is a fix &mdash; and it is number seven of
-      <a href="#postscript">the postscript's family</a>.</li>
+    <li><strong>A cached <code>None</code> is a hit.</strong> One test per
+      converted cache, driving the underlying fetch through a counter, asserting
+      the fetch ran once across two calls that both answer <code>None</code>.
+      This is the defect the round removes and it is reachable in five of the
+      six today &mdash; show it as the <em>old</em> code, inline, per rule 10.</li>
+    <li><strong>A failed background refresh does not wedge the cache.</strong>
+      Make the rebuild raise, then assert a later call still refreshes. Today's
+      <code>build_agent_list</code> fails this.</li>
+    <li><strong>Concurrent readers share one sweep.</strong> The
+      <code>_agent_activity</code> lock exists because an 11-agent sweep over the
+      DERP-relayed Letta API takes ~30s while the frontend polls every 5s. Drive
+      two threads at a cold cache and assert the fetch ran once. If that property
+      is not tested it will be lost in the conversion and nobody will notice
+      until the Agent Management tab starts taking 30 seconds.</li>
+    <li><strong>Rule 4, as always:</strong> a test that production wires the real
+      collaborators, and one that proves the late binding still works &mdash;
+      these caches are read by background threads, so take the fetch as a
+      callable rather than freezing it at construction (round 10's
+      <code>poll_loop</code>).</li>
   </ul>
 
+  <p class="finding">
+    <strong>The trap in this round.</strong> Round 13 hit rule 3's
+    second-binding failure twice, and round 14 is far more exposed to it because
+    it is moving <em>state</em>, not data. A cache object constructed in
+    <code>server.py</code> closes over whatever it was handed; a test that
+    monkeypatches <code>server.get_letta_id</code> afterwards will not be seen
+    unless the cache calls through the module at fetch time. The symptom is not
+    a red test &mdash; it is a green one that took 30 seconds and talked to the
+    live Letta API. Round 13's own notes on where this bit are in
+    <a href="#round13done">the section below</a>.
+  </p>
+</div>
+
+<div class="card">
+  <h2 id="round13done">What round 13 actually did &mdash; config out, typed
+    <span class="pill green">landed d04b519d</span></h2>
+  <p>
+    &minus;579/+192 in <code>server.py</code>, which fell 7,533&nbsp;&rarr;&nbsp;7,146.
+    Module-level assignment went 704&nbsp;&rarr;&nbsp;262 lines and the ~430 lines
+    of config literal are gone. 3,162 tests pass, up from 3,047. It is the first
+    round to beat its own estimate (~530 predicted, 579 landed), and the reason
+    is round 12: the wiring left behind went into a port method instead of back
+    into the module namespace.
+  </p>
+
+  <h3>Where everything went</h3>
+  <table>
+    <tr><th>Module</th><th>Models</th><th>Replaces</th></tr>
+    <tr><td><code>finance/reporting_categories.py</code></td>
+      <td><code>ReportingCategory</code></td>
+      <td>the four parallel <code>REPORTING_CATEGORY_*</code> dicts</td></tr>
+    <tr><td><code>hardware/scanners.py</code></td>
+      <td><code>ScannerSpec</code></td><td><code>SCANNERS</code></td></tr>
+    <tr><td><code>servers/registry.py</code></td>
+      <td><code>ServerSpec</code>, <code>NamedCheckProbe</code>,
+        <code>HttpProbe</code>, <code>TcpProbe</code>, <code>LogOnlyProbe</code></td>
+      <td><code>SERVERS</code></td></tr>
+    <tr><td><code>servers/restart.py</code></td>
+      <td><code>RestartCommand</code>, <code>RestartRegistry</code></td>
+      <td><code>RESTART_HANDLERS</code> + <code>RESTARTABLE_KEYS</code></td></tr>
+    <tr><td><code>agents/registry.py</code></td>
+      <td><code>LettaAgentSpec</code>, <code>AgentCard</code>,
+        <code>VoiceOption</code></td>
+      <td><code>LETTA_AGENTS</code>, <code>AGENT_CARDS</code>,
+        <code>AGENT_VOICE_OPTIONS</code></td></tr>
+    <tr><td><code>finance/report_registry.py</code></td>
+      <td><code>ReportMonth</code>, <code>FinanceReportSpec</code></td>
+      <td>the two parallel month dicts, <code>ROL_FINANCE_REPORTS</code></td></tr>
+    <tr><td><code>intake/statuses.py</code></td>
+      <td><code>TerminalIntakeStatus</code> (Literal)</td>
+      <td><code>_TERMINAL_INTAKE_STATUSES</code></td></tr>
+    <tr><td><code>intake/progress.py</code></td>
+      <td><code>MazdaProgressStep</code></td>
+      <td><code>_MAZDA_PROGRESS_LABELS</code></td></tr>
+  </table>
+  <p>
+    Every legacy name stayed as a <strong>derived view</strong> &mdash; the same
+    dict, the same list, the same per-entry key order &mdash; so not one of the
+    ~60 consumers and not one of the ~40 tests that monkeypatch them had to
+    move. That is what made a 579-line removal near-zero risk.
+  </p>
+
+  <h3 id="r13findings">The two findings</h3>
   <div class="finding">
-    <strong>The trap in this round.</strong> These literals are read by
-    <em>both</em> languages. <code>RolFinanceReportsController</code> hardcodes
-    the four month keys, the two scanner keys and the Mazda agent id as default
-    constructor arguments; Python holds the same months in two parallel dicts,
-    the same scanners in <code>SCANNERS</code>, and the same id in
-    <code>MAZDA_AGENT_ID</code>. Three copies of the month list and two of the
-    scanner list, across two languages, none of them checked. Make the Python
-    side one typed collection <em>and serve it</em>, so the JS side can stop
-    guessing &mdash; but do not mix the JS change into this commit (rule 15).
+    <strong>A fix, and it was live.</strong> <code>LETTA_AGENTS</code> listed
+    <code>Shelia</code> <em>twice</em>, identically. The roster is a list and
+    <code>build_agent_list()</code> iterates it, so <code>/api/agents</code> was
+    serving 21 tiles for 20 agents and Agent Management rendered two identical
+    Shelia cards. Confirmed against the live dashboard before the fix and again
+    after. <code>AGENT_CARDS</code> carried the same duplicate as a repeated
+    <em>dict key</em>, where Python silently keeps the last &mdash; which is why
+    the card text looked right and hid the roster bug entirely. This is number
+    seven of the <a href="#postscript">round-6 postscript's</a> family, and the
+    mildest: unlike the other six it was visible, and nobody had looked.
   </div>
+  <div class="finding">
+    <strong>Handed on, not fixed.</strong> <code>voice/config.py</code>'s
+    <code>KNOWN_AGENT_NAMES</code> says it is &ldquo;kept in sync with
+    <code>LETTA_AGENTS</code>&rdquo; and is not. <strong>Toyota &mdash; the
+    receptionist the voice path routes through &mdash; has no mishear correction
+    at all</strong>, and one minion is <code>Suzuki Patch</code> on the roster but
+    <code>Suzuki Patcher</code> in the voice list, so a spoken &ldquo;Suzuki
+    Patcher&rdquo; is corrected <em>to</em> a name no agent answers to. Editing
+    it changes what whisper hears, which is a behaviour change and does not
+    belong in a config-typing commit (rule 15). The exact drift is recorded in
+    <code>agents/registry.py</code> and asserted in
+    <code>tests/test_agents_registry.py</code>, so it cannot widen while it
+    waits. <strong>Whoever takes the voice pipeline next should take this.</strong>
+  </div>
+  <p>
+    Everything else in the round was a <em>defence</em>, and rule 11 says to say
+    so. The <code>REPORTING_CATEGORY_*</code> family guards a fallback path
+    superseded at runtime by <code>ICategoryTaxonomy</code> &mdash; exactly as
+    the diagnosis predicted. <code>SERVERS</code>, which the diagnosis suspected
+    twice, turned out to be clean: no mistyped unit, no dangling
+    <code>depends_on</code>, no unknown check name.
+  </p>
+
+  <h3>The shapes that earned their keep</h3>
+  <p>
+    A model that only mirrors its dict is still worth writing &mdash; that is the
+    <a href="#pydantic">Pydantic section's</a> argument and it holds. But five of
+    round 13's models check something the dict could never express, and those are
+    the ones to copy the technique from:
+  </p>
+  <ul>
+    <li><strong><code>ServerSpec.probe</code> is a discriminated union.</strong>
+      The plan called this out in advance and it was right for a reason the plan
+      did not give: <code>server_health()</code> resolves <code>check</code>
+      <em>before</em> <code>health_url</code>, so an entry carrying both
+      advertised a health URL on <code>/api/servers</code> that was never pinged.
+      Note also where the plan's own prediction needed correcting &mdash; it
+      called the union &ldquo;log_file / health_url / tcp_check / check&rdquo;,
+      but the <code>letta</code> entry legitimately has <em>both</em> an HTTP
+      probe and a log. Log tailing is independent; the union is over the
+      <em>active</em> probe, and &ldquo;no active probe&rdquo; is its own case,
+      which is what makes <code>log_file</code> required exactly there.</li>
+    <li><strong><code>ScannerSpec</code> cross-checks its own matchers.</strong>
+      <code>namelike</code> and <code>driver_match</code> must appear in
+      <code>device</code>. A near-miss matched the other HP on the same box and
+      turned the Diagnostics tab green for a scanner that cannot scan.</li>
+    <li><strong><code>ReportMonth</code> requires the range to be the month the
+      key names.</strong> <code>feb-2025</code> ending <code>2025-02-29</code> was
+      writable before, and its only symptom is a month-status query that answers
+      nothing.</li>
+    <li><strong><code>MazdaProgressStep</code> pins position == step number.</strong>
+      <code>_mazda_progress_from_messages</code> indexes a parallel statuses list
+      by number (<code>statuses[1]</code>, <code>[2]</code>, <code>[7]</code>).
+      Those indices were correct only because the labels happened to be in order.</li>
+    <li><strong><code>RestartRegistry.check_covers</code>.</strong> A Server
+      Management tile with no restart command renders without a Restart button,
+      which reads as a design choice rather than a missing registration. Note the
+      asymmetry it had to permit: <code>chatgpt-provider</code> keeps a handler
+      with its tile commented out, so the registry covers the tiles rather than
+      equalling them.</li>
+  </ul>
+
+  <h3>The golden test, done properly</h3>
+  <p>
+    Rule 9 asks for the old literal and the new view side by side on real live
+    values. Round 13 did that <em>and made it permanent</em>: the tests read the
+    pre-refactor literals <strong>out of git</strong> at the baseline commit,
+    <code>ast</code>-evaluate them against this box's live values, and diff. A
+    git object is immutable, so the comparison cannot decay into a restatement of
+    the new code the way a pasted copy does &mdash; and it stays honest about the
+    values that differ per machine (<code>PORT</code>, the Letta URL, two log
+    paths). See <code>tests/test_servers_registry.py</code>.
+  </p>
+  <p>
+    Every view came back byte-identical including per-entry key order. The one
+    intended difference is the duplicate roster entry, and the live
+    <code>/api/agents</code> diff before and after the deploy shows exactly that
+    and nothing else.
+  </p>
+
+  <h3 id="r13trap">Rule 3 bit twice. Both times it was loud.</h3>
+  <p>
+    Worth reading before round 14, which is more exposed to this than round 13
+    was:
+  </p>
+  <ul>
+    <li><code>_rol_finance_reports_for_month</code> moved to the registry and
+      five tests went red immediately. ~15 tests drive the report paths by
+      monkeypatching <code>server.ROL_FINANCE_REPORTS</code>, and a function
+      closing over the <em>registry's</em> global cannot see that.
+      <strong>It was moved back</strong> &mdash; three lines in
+      <code>server.py</code>, deliberately not imported from the module that also
+      defines it, with a comment saying why. The registry keeps its own copy for
+      callers that want the real list.</li>
+    <li><code>RESTART_HANDLERS</code> became a derived view, so
+      <code>monkeypatch.setitem</code> on it began patching a copy. That test was
+      <strong>repointed</strong> at <code>RESTART_REGISTRY</code>, which is the
+      thing that dispatches. Opposite resolution to the first, same diagnosis:
+      ask which object owns the behaviour, then point the test at that.</li>
+  </ul>
+  <p>
+    <strong><code>DIRECT_SERVICES</code> needed no entry this round</strong>, and
+    that is worth understanding rather than copying. Round 13 pointed routes at
+    <em>ports</em>, and every port adapter resolves through <code>server</code> at
+    call time &mdash; so <code>ServiceRecorder</code>'s stubs still land. Point a
+    route at an owning module instead and they do not. Rule 18 stands.
+  </p>
+
+  <h3>The ceiling, and the rise it absorbed</h3>
+  <p>
+    147/116&nbsp;&rarr;&nbsp;<strong>134/109</strong>. Eight names left the
+    ladder: the seven config names the round moved
+    (<code>SERVERS</code>, <code>RESTARTABLE_KEYS</code>, <code>LETTA_AGENTS</code>,
+    <code>ROL_FINANCES_REPORTS_MONTHS</code>,
+    <code>ROL_FINANCES_REPORTS_DEFAULT_MONTH</code>,
+    <code>ROL_FINANCES_REPORTS_URL_PREFIX</code>,
+    <code>_rol_finance_reports_for_month</code>) plus <code>get_letta_id</code>,
+    which went with the receptionist lookup that was its only caller there.
+  </p>
+  <p class="finding">
+    <strong>The ceiling test was red on arrival, and that is the mechanism
+    working.</strong> A parallel feature (<code>e96ace55</code>) added
+    <code>srv._resolve_expense_receipt_path</code> without lowering anything, so
+    <code>tests/test_http_app_ports.py</code> was failing before round 13 wrote a
+    line. That name belongs to <code>DocumentPort</code> and leaves in round 20;
+    round 13 absorbed the rise into its own reduction. <strong>If you arrive to a
+    red ceiling, that is what it is for &mdash; find who added the name, note
+    which port owns it, and absorb it.</strong> Do not raise the constants.
+  </p>
+
+  <h3>Three ports got their first methods</h3>
+  <p>
+    Each replaces a <em>question</em> the ladder was answering by joining globals,
+    which is the same lesson <code>ScannerPort.image_path()</code> taught in
+    round 12. Ask what the caller is trying to do:
+  </p>
+  <ul>
+    <li><code>ReportsPort.resolve_month_key()</code> &mdash; the ladder was
+      joining <code>ROL_FINANCES_REPORTS_MONTHS</code> and
+      <code>ROL_FINANCES_REPORTS_DEFAULT_MONTH</code> in two places to answer
+      &ldquo;which month tab is this request looking at?&rdquo;. Plus
+      <code>cards_for_month()</code> and a <code>url_prefix</code> property.</li>
+    <li><code>ServersPort.all()</code> and <code>restartable_keys()</code>
+      &mdash; round 23 populates the behaviour that reads them.</li>
+    <li><code>AgentsPort.receptionist()</code> &mdash; the one route reading
+      <code>LETTA_AGENTS</code> was scanning the roster for Toyota and then
+      resolving its id. One question, one method, and the hardcoded name moved
+      out of the route to sit beside the lookup.</li>
+  </ul>
+
+  <h3>What round 13 deliberately did not do</h3>
+  <ul>
+    <li><strong><code>category_taxonomy_seed.py</code> was left alone.</strong> It
+      is a <em>fifth</em> copy of the reporting-category data &mdash; the plan's
+      diagnosis said four. It was not folded into the new list on purpose: its
+      whole job is to be an independent restatement that
+      <code>tests/test_category_taxonomy.py</code> pins id by id, and deriving it
+      from the same source would make that equivalence test tautological. Its own
+      docstring says as much. Leave it.</li>
+    <li><strong><code>SCANNERS</code> is still a dict at every call site.</strong>
+      The plan said &ldquo;turn it into <code>list[ScannerSpec]</code> and exactly
+      one adapter line changes&rdquo;. The adapter is right; the sixteen call
+      sites in <code>server.py</code> are not &mdash; they all do
+      <code>cfg.get('output')</code>, and ~10 tests monkeypatch
+      <code>server.SCANNERS</code> with plain dicts to drive unknown and
+      misconfigured scanners. The specs validate the literal at import, which is
+      where the mis-scan defect lives; converting the readers is round 22's, with
+      the hardware.</li>
+    <li><strong>The restart handlers stayed in <code>server.py</code>.</strong>
+      They are behaviour bound to that module's state. Round 23 moves them; round
+      13 only gave them a shape.</li>
+    <li><strong>Nothing in <code>js/</code>.</strong> The month and scanner lists
+      are still hardcoded as default constructor arguments in
+      <code>RolFinanceReportsController</code>. The Python side is now one typed
+      collection, so serving it and having the JS read it is a clean follow-up
+      &mdash; and it is a separate commit (rule 15).</li>
+  </ul>
 </div>
 
 <div class="card">
@@ -880,65 +1135,106 @@ grep -c 'with .*_lock' server.py                                        # 36</co
     why in a docstring.
   </p>
 
-  <h3>Config models &mdash; round 13's worklist</h3>
+  <h3>Config models &mdash; round 13's worklist
+    <span class="pill green">done, d04b519d</span></h3>
+  <p>
+    All thirteen shipped, in seven modules. What follows is the worklist as it
+    was written, with what each one actually turned out to be &mdash; the
+    predictions were mostly right, and the two places they were wrong are the
+    instructive ones.
+  </p>
   <table>
-    <tr><th>Model</th><th>Replaces</th><th class="num">Lines</th>
-      <th>The failure it makes impossible</th></tr>
-    <tr><td><code>ReportingCategory</code></td>
-      <td>4 parallel <code>REPORTING_CATEGORY_*</code> dicts</td>
-      <td class="num">58</td>
-      <td>A category present in one dict and missing from another &mdash; a
-        report row with no colour, served as if styled.</td></tr>
-    <tr><td><code>ServerSpec</code></td><td><code>SERVERS</code></td>
-      <td class="num">159</td>
+    <tr><th>Model</th><th>Replaces</th><th>Predicted failure</th>
+      <th>What it turned out to be</th></tr>
+    <tr class="done"><td><code>ReportingCategory</code></td>
+      <td>4 parallel <code>REPORTING_CATEGORY_*</code> dicts (58 lines)</td>
+      <td>A category in one dict and missing from another &mdash; a report row
+        with no colour, served as if styled.</td>
+      <td><strong>Defence</strong>, as predicted: the maps guard a fallback path
+        superseded by <code>ICategoryTaxonomy</code>. Also caught what the plan
+        missed &mdash; the ancestor map is not derivable from
+        <code>db_id</code> alone, so the model carries
+        <code>ancestor_ids</code> and validates that a bucket's own id rolls up
+        to itself.</td></tr>
+    <tr class="done"><td><code>ServerSpec</code> + four probes</td>
+      <td><code>SERVERS</code> (159)</td>
       <td>A mistyped systemd unit or host: a Restart button that reports success
-        and does nothing.</td></tr>
-    <tr><td><code>AgentCard</code></td><td><code>AGENT_CARDS</code></td>
-      <td class="num">136</td>
-      <td>A card missing a key renders as a blank tile rather than an
-        error.</td></tr>
-    <tr><td><code>ScannerSpec</code></td><td><code>SCANNERS</code></td>
-      <td class="num">23</td>
+        and does nothing.</td>
+      <td><strong>Clean.</strong> No mistyped unit, no dangling
+        <code>depends_on</code>, no unknown check name. The union is over the
+        <em>active</em> probe, not over log_file &mdash;
+        <a href="#round13done">see why</a>.</td></tr>
+    <tr class="done"><td><code>AgentCard</code></td><td><code>AGENT_CARDS</code> (136)</td>
+      <td>A card missing a key renders as a blank tile rather than an error.</td>
+      <td><strong>Clean as copy</strong>, but it carried a repeated dict key
+        (<code>Shelia</code>) that Python resolved silently &mdash; which is what
+        hid the live roster bug next door.</td></tr>
+    <tr class="done"><td><code>ScannerSpec</code></td><td><code>SCANNERS</code> (23)</td>
       <td>A wrong <code>device</code> or <code>namelike</code> scans the wrong
-        hardware, or nothing, quietly.</td></tr>
-    <tr><td><code>RestartCommand</code></td>
-      <td><code>RESTART_HANDLERS</code> + <code>RESTARTABLE_KEYS</code></td>
-      <td class="num">24</td>
-      <td>A key in one and not the other. <span class="patt">Command</span>
-        &mdash; the handler and its key stop being two facts.</td></tr>
-    <tr><td><code>LettaAgentSpec</code></td><td><code>LETTA_AGENTS</code></td>
-      <td class="num">22</td>
+        hardware, or nothing, quietly.</td>
+      <td><strong>Defence</strong>, and the model went further than typing: it
+        cross-checks that the matchers appear in the device string.</td></tr>
+    <tr class="done"><td><code>RestartCommand</code> + <code>RestartRegistry</code></td>
+      <td><code>RESTART_HANDLERS</code> + <code>RESTARTABLE_KEYS</code> (24)</td>
+      <td>A key in one and not the other.</td>
+      <td>Those two could never disagree. The real gap was that neither was tied
+        to <code>SERVERS</code> &mdash; so the registry checks
+        <em>coverage of the tiles</em> instead.</td></tr>
+    <tr class="done"><td><code>LettaAgentSpec</code></td><td><code>LETTA_AGENTS</code> (22)</td>
       <td>A malformed roster entry becomes
-        <code>unknown-&lt;name&gt;</code> downstream instead of
-        raising.</td></tr>
-    <tr><td><code>VoiceOption</code></td><td><code>AGENT_VOICE_OPTIONS</code></td>
-      <td class="num">18</td>
-      <td>An unknown voice id reaches <code>edge-tts</code> and fails at speech
-        time, on a background thread.</td></tr>
-    <tr><td><code>FinanceReportSpec</code></td><td><code>ROL_FINANCE_REPORTS</code></td>
-      <td class="num">16</td>
-      <td>A <code>dir</code> that does not exist becomes an empty tab.</td></tr>
-    <tr><td><code>ReportMonth</code></td>
+        <code>unknown-&lt;name&gt;</code> downstream instead of raising.</td>
+      <td><strong>A live fix, and the round's headline.</strong> Not the
+        predicted failure at all &mdash; a duplicated entry serving a duplicate
+        agent tile. <a href="#r13findings">The finding</a>.</td></tr>
+    <tr class="done"><td><code>VoiceOption</code></td><td><code>AGENT_VOICE_OPTIONS</code> (18)</td>
+      <td>An unknown voice id reaches edge-tts and fails at speech time, on a
+        background thread.</td>
+      <td><strong>Defence.</strong> All sixteen well-formed. Led to the
+        <a href="#r13findings">voice-config drift</a> finding next door.</td></tr>
+    <tr class="done"><td><code>FinanceReportSpec</code></td><td><code>ROL_FINANCE_REPORTS</code> (16)</td>
+      <td>A dir that does not exist becomes an empty tab.</td>
+      <td><strong>Defence.</strong> The model checks the dir is a bare folder
+        name, since it is joined to the month's base dir.</td></tr>
+    <tr class="done"><td><code>ReportMonth</code></td>
       <td><code>ROL_FINANCES_REPORTS_MONTHS</code> +
-        <code>ROL_FINANCES_MONTH_RANGES</code></td>
-      <td class="num">12</td>
+        <code>ROL_FINANCES_MONTH_RANGES</code> (12)</td>
       <td>Two more parallel dicts on the same four keys. A month in one and not
-        the other is a tab whose status query silently returns
-        nothing.</td></tr>
-    <tr><td><code>MazdaProgressLabel</code></td><td><code>_MAZDA_PROGRESS_LABELS</code></td>
-      <td class="num">11</td>
-      <td>An unlabelled stage renders as a blank progress line.</td></tr>
-    <tr><td><code>IntakeStatus</code> (Literal)</td>
-      <td><code>_TERMINAL_INTAKE_STATUSES</code></td>
-      <td class="num">10</td>
+        the other is a tab whose status query silently returns nothing.</td>
+      <td><strong>Defence</strong>, plus the stronger invariant the plan did not
+        ask for: the range must <em>be</em> the month the key names.</td></tr>
+    <tr class="done"><td><code>MazdaProgressStep</code></td><td><code>_MAZDA_PROGRESS_LABELS</code> (11)</td>
+      <td>An unlabelled stage renders as a blank progress line.</td>
+      <td><strong>Defence</strong>, and it found the sharper risk: the consumer
+        indexes a parallel statuses list <em>by position</em>.</td></tr>
+    <tr class="done"><td><code>TerminalIntakeStatus</code> (Literal)</td>
+      <td><code>_TERMINAL_INTAKE_STATUSES</code> (10)</td>
       <td>Round 11 flagged this as the natural first Literal of the intake
-        block. Still is.</td></tr>
-    <tr><td><code>HealthCheckSpec</code>, <code>ModelOption</code>,
-        <code>OAuthProviderAccount</code></td>
-      <td>three smaller dicts</td><td class="num">21</td>
-      <td>Same family, smaller stakes. Do them in the same pass while the shape
-        is in your head.</td></tr>
+        block.</td>
+      <td>Done. It is a vocabulary now, with the reason it matters written
+        down: an unknown status is <em>dropped</em>, leaving the document on
+        <code>processing</code> forever.</td></tr>
   </table>
+  <p class="finding">
+    <strong>Three of the worklist did not move, and the reasons are worth
+    keeping.</strong> <code>HealthCheckSpec</code> became
+    <code>CheckName</code>, a <code>Literal</code> in
+    <code>servers/registry.py</code>, because <code>HEALTH_CHECKS</code> maps
+    names to <em>functions defined in <code>server.py</code></em> &mdash; the
+    vocabulary can leave, the bindings cannot until round 23. A test asserts the
+    two agree in both directions. <code>ModelOption</code> and
+    <code>OAuthProviderAccount</code> were left for round 24, which owns Model
+    Stats: <code>AGENT_MODEL_OPTIONS</code> is already consumed through
+    <code>AgentModelOptionsService</code>, so typing it away from that service
+    would model the list rather than the boundary.
+  </p>
+  <p>
+    The <strong>33 plain <code>BaseModel</code> subclasses</strong> are still
+    unaudited. Round 13 added none &mdash; all thirteen of its models derive from
+    <code>StrictModel</code>, with exactly one documented relaxation
+    (<code>RestartCommand</code> sets <code>arbitrary_types_allowed</code>,
+    because a handler is a callable; it stays frozen and extra-forbidding). The
+    dashboard now has 48 <code>StrictModel</code> subclasses, up from 35.
+  </p>
 
   <h3>Payload models &mdash; a first tranche from the 152</h3>
   <p>
@@ -1367,11 +1663,25 @@ print('cluster members:', sorted(names))</code></pre>
   </p>
   <p>
     All six were invisible to the suite. All six needed someone to run the real
-    thing and look at what came back. The mistyped-<code>SERVERS</code>-entry and
-    the missing-<code>REPORTING_CATEGORY_CLASS</code>-key described in
-    <a href="#diagnosis">the diagnosis</a> are numbers seven and eight of the
-    same family, sitting in the tree right now, waiting for someone to add a
-    row.
+    thing and look at what came back.
+  </p>
+  <p>
+    <strong>Number seven arrived in round 13, and it was not either of the two
+    this postscript predicted.</strong> The mistyped-<code>SERVERS</code>-entry
+    and the missing-<code>REPORTING_CATEGORY_CLASS</code>-key were both
+    hypothetical; typing them found nothing wrong with either. What was actually
+    in the tree was a <em>duplicated</em> roster entry serving a duplicate agent
+    tile &mdash; and it breaks this family's pattern in the one way worth noting:
+    <strong>it was not invisible.</strong> It was on the screen, on the live
+    dashboard, for anyone who counted the cards. Six failures whose signature was
+    identical to success, and then one whose signature was plainly wrong that
+    nobody had looked at. Both are the same lesson from opposite ends: run the
+    real thing and <em>read what came back</em>.
+  </p>
+  <p>
+    The two predicted failures are unfound rather than disproven. The validators
+    for both now exist, so if either is ever written it fails at import instead
+    of in a browser.
   </p>
 </div>
 <div class="card">
@@ -1390,6 +1700,7 @@ print('cluster members:', sorted(names))</code></pre>
     <div class="commit"><code>039ad71b</code> Extract the ChatGPT provider auto-failover state machine out of server.py</div>
     <div class="commit"><code>78c8b9fa</code> Extract the Mazda dispatch fork and the execution mode out of server.py</div>
     <div class="commit"><code>6c69a3f4</code> Facade: put ports between http_app and server.py (round 12)</div>
+    <div class="commit"><code>d04b519d</code> Registry: config out of server.py, typed (round 13)</div>
   </div>
   <p>
     Follow-ups that removed no lines from <code>server.py</code> but which the
@@ -1424,7 +1735,48 @@ print('cluster members:', sorted(names))</code></pre>
     <tr><td><code>finance/vendor_review.py</code></td><td><code>list_vendor_keys</code>, <code>list_pending_vendor_review</code>, <code>set_receipt_vendor</code>, <code>PendingVendorReviewRow</code></td></tr>
     <tr><td><code>finance/recategorize.py</code></td><td>the category write, its undo, the report-row repaint, the undo journal's composition root, <code>ReportRowClass</code>, <code>RecategorizeRequest</code></td></tr>
     <tr><td><code>hosts.py</code>, <code>paths.py</code>, <code>letta_ids.py</code></td><td>shared constants that previously had 2&ndash;4 independent env-read/fallback copies. <code>LETTA_DOCKER_HOST</code> reached four in round 10.</td></tr>
-    <tr><td><code>contracts.py</code></td><td><code>StrictModel</code> &mdash; the one strict, frozen, extra-forbidding base every boundary model derives from. <strong>33 plain <code>BaseModel</code> subclasses still bypass it; audit them as you pass.</strong></td></tr>
+    <tr><td><code>finance/reporting_categories.py</code></td>
+      <td>round 13. <code>ReportingCategory</code> and the thirteen reporting
+        buckets; the four legacy <code>REPORTING_CATEGORY_*</code> dicts are
+        derived views of it. NOT the runtime source &mdash;
+        <code>ICategoryTaxonomy</code> is; these guard the fallback.
+        <code>category_taxonomy_seed.py</code> is a fifth copy and is
+        <a href="#round13done">deliberately not derived from this</a>.</td></tr>
+    <tr><td><code>hardware/scanners.py</code></td>
+      <td>round 13. <code>ScannerSpec</code>; cross-checks that
+        <code>namelike</code>/<code>driver_match</code> describe the
+        <code>device</code> the script drives. <code>SCANNERS</code> is a derived
+        dict view &mdash; the sixteen call sites still read dicts, and round 22
+        converts them with the hardware.</td></tr>
+    <tr><td><code>servers/registry.py</code></td>
+      <td>round 13. <code>ServerSpec</code> with a discriminated
+        <code>ServerProbe</code> union (<code>NamedCheckProbe</code>,
+        <code>HttpProbe</code>, <code>TcpProbe</code>, <code>LogOnlyProbe</code>),
+        <code>CheckName</code> as the check vocabulary, and
+        <code>build_server_specs()</code> &mdash; a factory, because four entries
+        interpolate values the composition root owns.</td></tr>
+    <tr><td><code>servers/restart.py</code></td>
+      <td>round 13. <code>RestartCommand</code> + <code>RestartRegistry</code>
+        (Command). Owns dispatch and the check that every Server Management tile
+        has a Restart button. The handlers themselves stay in
+        <code>server.py</code> until round 23.</td></tr>
+    <tr><td><code>agents/registry.py</code></td>
+      <td>round 13. <code>LettaAgentSpec</code>, <code>AgentCard</code>,
+        <code>VoiceOption</code>, and the roster/cards/voice catalogue. Refuses a
+        roster with a repeated name or Letta id &mdash; which is how the live
+        duplicate-Shelia tile was found. Also records the
+        <a href="#r13findings">voice/config.py drift</a>.</td></tr>
+    <tr><td><code>finance/report_registry.py</code></td>
+      <td>round 13. <code>ReportMonth</code> (the two parallel month dicts, with
+        the range validated against the key) and <code>FinanceReportSpec</code>.
+        <code>MONTH_KEYS</code> is what the JS controller should read instead of
+        its hardcoded default arguments.</td></tr>
+    <tr><td><code>intake/statuses.py</code>, <code>intake/progress.py</code></td>
+      <td>round 13. <code>TerminalIntakeStatus</code> (the intake block's first
+        Literal, flagged by round 11) and <code>MazdaProgressStep</code>, which
+        pins position == step number because the consumer indexes by
+        position.</td></tr>
+    <tr><td><code>contracts.py</code></td><td><code>StrictModel</code> &mdash; the one strict, frozen, extra-forbidding base every boundary model derives from. <strong>48 subclasses after round 13, up from 35. 33 plain <code>BaseModel</code> subclasses still bypass it; audit them as you pass.</strong></td></tr>
     <tr><td><code>ssh_gateway.py</code></td><td><strong>dead</strong> &mdash; a second, subtly wrong SSH probe nothing imports. <code>ConfiguredIdentityStrategy</code> returns the first identity file that exists, which is the bug <code>ssh_test</code>'s docstring exists to describe: a key can exist and no longer be authorized. Left in place (another agent's parallel work), but do not build on it, and port the fallback chain in first if a future round wants the adapter shape. <code>tests/test_ssh_checks.py</code> names the trap.</td></tr>
   </table>
 </div>
@@ -1449,6 +1801,28 @@ print('cluster members:', sorted(names))</code></pre>
     <li><code>MazdaMode</code> (not a model) &mdash; one <code>Literal</code> alias replacing four independent spellings of the same two words. A vocabulary is worth de-duplicating for the same reason a hostname is.</li>
   </ul>
   <p class="finding">
+    <strong>Round 13's thirteen, in one line each.</strong>
+    <code>ReportingCategory</code> &mdash; a bucket's own id must roll up to
+    itself, so the picker cannot write a category the report then attributes
+    elsewhere. <code>ScannerSpec</code> &mdash; the diagnostics matchers must
+    appear in the device string the scan script drives. <code>ServerSpec</code>
+    + its four probes &mdash; exactly one active probe, because
+    <code>server_health()</code> resolves <code>check</code> before
+    <code>health_url</code> and an entry with both advertised a URL it never
+    pinged. <code>RestartCommand</code> &mdash; a key and its handler stop being
+    two facts, and the registry must cover every tile.
+    <code>LettaAgentSpec</code> &mdash; no repeated name or Letta id, which is
+    what caught the live duplicate tile. <code>AgentCard</code> &mdash; a card
+    cannot be half-filled. <code>VoiceOption</code> &mdash; a voice id is checked
+    where it is chosen, not on a background thread at speech time.
+    <code>ReportMonth</code> &mdash; the calendar range must be the month the key
+    names. <code>FinanceReportSpec</code> &mdash; a report dir is a bare folder
+    name, not a path. <code>MazdaProgressStep</code> &mdash; position equals step
+    number, because the consumer indexes by position.
+    <code>TerminalIntakeStatus</code> &mdash; one Literal for the vocabulary
+    whose misses are silently dropped.
+  </p>
+  <p class="finding">
     <strong>Round 12 added no model, and that is the honest report</strong>
     (rule 11). It changed shape: fourteen <code>Protocol</code>s and a frozen
     <code>Ports</code> bundle. The one thing it typed by accident is worth
@@ -1458,9 +1832,14 @@ print('cluster members:', sorted(names))</code></pre>
     <code>ScannerSpec</code> cheap in round 13.
   </p>
   <p>
-    <strong>Next, per <a href="#pydantic">the worklist</a>:</strong>
-    <code>ReportingCategory</code> and <code>ServerSpec</code> in round 13 are
-    the two with live, reachable failure modes sitting in the tree today.
+    <strong>Next, per <a href="#pydantic">the worklist</a>:</strong> round 14
+    adds no config model at all &mdash; it replaces six hand-rolled caches with
+    one class, and its typed entry (<code>CacheEntry</code>, promoted from
+    <code>Win10CacheEntry</code>) is the model that matters, for exactly the
+    reason <code>Win10CacheEntry</code> mattered: <strong>the entry, not the
+    value, is the presence sentinel</strong>, so a cache whose legal answers
+    include <code>None</code> can actually cache one. Five of the six get that
+    wrong today.
   </p>
 </div>
 
@@ -1489,7 +1868,7 @@ print('cluster members:', sorted(names))</code></pre>
 
 <footer>
   <code>dashboard/server.py</code> refactor &middot; tracked as a living plan,
-  updated as rounds land &middot; round 12 landed, round 13 is next &middot; retargeted from 5,700 to under
+  updated as rounds land &middot; round 13 landed, round 14 is next &middot; retargeted from 5,700 to under
   2,000
 </footer>
 
