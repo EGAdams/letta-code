@@ -20,9 +20,11 @@ schema and a missing ``id_light`` must not fail the whole search.
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional, Sequence
 
+from finance.archive_path import build_id_light, vendor_prefix_from_id_light
 from finance.expense_edit_model import (
     AMOUNT_MATCH_TOLERANCE,
     ExpenseDeletion,
@@ -37,9 +39,10 @@ from finance.expense_edit_model import (
 from finance.category_naming import ICategoryNamer
 from finance.expense_schema import InformationSchemaProbe, IExpenseSchemaProbe
 from finance.http_coercion import as_optional_float, as_optional_int
+from finance.receipt_relocation import IReceiptFileRelocator, NullReceiptFileRelocator
 
 #: Columns the search reads only if the live table actually has them.
-OPTIONAL_COLUMNS = ('id_light',)
+OPTIONAL_COLUMNS = ('id_light', 'receipt_url', 'document_url')
 #: The itemization link, probed separately from the SELECT list because it is
 #: never displayed -- a delete only needs to know whether this deployment can
 #: have line items hanging off the row it is about to remove.
@@ -131,10 +134,12 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
 
     def __init__(self, connection_factory: Callable[[], Any],
                  namer: ICategoryNamer,
-                 schema_probe: Optional[IExpenseSchemaProbe] = None):
+                 schema_probe: Optional[IExpenseSchemaProbe] = None,
+                 relocator: Optional[IReceiptFileRelocator] = None):
         self._connect = connection_factory
         self._namer = namer
         self._probe = schema_probe or InformationSchemaProbe()
+        self._relocator = relocator or NullReceiptFileRelocator()
 
     def _to_record(self, row: dict) -> ExpenseRecord:
         category_id = row.get('category_id')
@@ -145,6 +150,8 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
             total_amount=abs(float(row['amount'])),
             description=(row.get('description') or '').strip(),
             id_light=(row.get('id_light') or '').strip(),
+            receipt_url=(row.get('receipt_url') or '').strip(),
+            document_url=(row.get('document_url') or '').strip(),
             category_id=category_id,
             category_name=self._namer.name_for(category_id),
         )
@@ -187,21 +194,65 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
             negative = False
         return self._to_record(row), negative
 
+    def _relocate_receipt(self, before: ExpenseRecord, edit: ExpenseEdit,
+                          changed: tuple[str, ...]):
+        """Rename before's receipt file to match a drifted date/amount.
+
+        Returns (new_id_light, new_receipt_url, new_document_url, warnings).
+        The three "new_*" values are '' when nothing on disk needed to
+        change, which callers use as "leave this column alone" rather than
+        overwriting it with an empty string.
+        """
+        if not before.id_light or not before.receipt_url:
+            return '', '', '', linkage_warnings(before, changed)
+        if not any(field in changed for field in ('expense_date', 'amount')):
+            return '', '', '', ()
+        new_id_light = build_id_light(
+            vendor_prefix_from_id_light(before.id_light),
+            edit.transaction_date, edit.total_amount)
+        result = self._relocator.relocate(
+            receipt_url=before.receipt_url, old_id_light=before.id_light,
+            new_id_light=new_id_light)
+        if not result.relocated:
+            return '', '', '', (result.warning,) if result.warning else ()
+        new_document_url = (
+            new_id_light + os.path.splitext(before.document_url)[1]
+            if before.document_url
+            and os.path.basename(before.document_url) == before.receipt_url
+            else '')
+        return new_id_light, result.new_receipt_url, new_document_url, ()
+
     def apply_edit(self, edit: ExpenseEdit) -> ExpenseEditResult:
         with self._connect() as cnx:
             with cnx.cursor() as cur:
                 before, was_negative = self._read_one(cur, edit.expense_id)
                 changed = describe_changes(before, edit)
+                new_id_light, new_receipt_url, new_document_url, warnings = (
+                    self._relocate_receipt(before, edit, changed))
                 if changed:
                     # Keep the row's original sign: an expense stored as
                     # -42.00 stays negative once its magnitude is corrected,
                     # so the report totals it exactly as it did before.
                     signed = -edit.total_amount if was_negative else edit.total_amount
+                    schema = self._probe.read(cur, OPTIONAL_COLUMNS)
+                    assignments = ['description = %s', 'expense_date = %s',
+                                   'amount = %s', 'category_id = %s']
+                    params = [edit.merchant_name, edit.transaction_date,
+                              signed, edit.category_id]
+                    if new_id_light and schema.has('id_light'):
+                        assignments.append('id_light = %s')
+                        params.append(new_id_light)
+                    if new_receipt_url and schema.has('receipt_url'):
+                        assignments.append('receipt_url = %s')
+                        params.append(new_receipt_url)
+                    if new_document_url and schema.has('document_url'):
+                        assignments.append('document_url = %s')
+                        params.append(new_document_url)
+                    params.append(edit.expense_id)
                     cur.execute(
-                        'UPDATE expenses SET description = %s, expense_date = %s, '
-                        'amount = %s, category_id = %s WHERE id = %s',
-                        (edit.merchant_name, edit.transaction_date, signed,
-                         edit.category_id, edit.expense_id),
+                        f'UPDATE expenses SET {", ".join(assignments)} '
+                        'WHERE id = %s',
+                        tuple(params),
                     )
                     cnx.commit()
                 after = ExpenseRecord(
@@ -209,14 +260,16 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                     transaction_date=edit.transaction_date,
                     total_amount=edit.total_amount,
                     description=edit.merchant_name,
-                    id_light=before.id_light,
+                    id_light=new_id_light or before.id_light,
+                    receipt_url=new_receipt_url or before.receipt_url,
+                    document_url=new_document_url or before.document_url,
                     category_id=edit.category_id,
                     category_name=self._namer.name_for(edit.category_id),
                 )
         return ExpenseEditResult(
             record=after,
             changed_fields=changed,
-            warnings=linkage_warnings(before, changed),
+            warnings=warnings,
         )
 
     def read(self, expense_id: int) -> ExpenseRecord:

@@ -84,6 +84,7 @@ from finance.expense_edit_repository import (
     records_as_json,
     search_criteria_from_request,
 )
+from finance.receipt_relocation import FilesystemReceiptFileRelocator
 from finance.report_page import ReportPageRoutes, ReportRowMatch
 from finance import (archive_path, intake_report_model, intake_report_page,
                      manual_entry, sales_tax, vendor_lookup)
@@ -1057,7 +1058,9 @@ def _get_expense_edit_repository():
     with _expense_edit_repository_lock:
         if _expense_edit_repository is None:
             _expense_edit_repository = MySqlExpenseRecordRepository(
-                lambda: _rol_get_connection(), taxonomy_category_namer())
+                lambda: _rol_get_connection(), taxonomy_category_namer(),
+                relocator=FilesystemReceiptFileRelocator(
+                    resolve_path=_resolve_receipt_url_path))
     return _expense_edit_repository
 
 

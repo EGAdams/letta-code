@@ -123,9 +123,16 @@ class RecentReportImageSynchronizer:
         )
         if new_path != old_path:
             if os.path.exists(new_path):
-                return {'renamed': False,
-                        'warning': f'Image rename target already exists: {new_path}'}
-            self._replace(old_path, new_path)
+                if os.path.exists(old_path):
+                    return {'renamed': False,
+                            'warning': f'Image rename target already exists: {new_path}'}
+                # old_path is already gone and new_path already exists: some
+                # other mutation (e.g. the expense-edit repository's own
+                # receipt relocation, see finance/receipt_relocation.py) beat
+                # this call to the same rename. Nothing left to move -- just
+                # catch this pointer's bookkeeping up to match.
+            else:
+                self._replace(old_path, new_path)
         self._update_references(ids, new_path)
 
         for intake in matched:

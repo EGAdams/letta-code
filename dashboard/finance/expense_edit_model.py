@@ -98,9 +98,18 @@ class ExpenseRecord(StrictModel):
     transaction_date: str
     total_amount: float
     description: str = ''
-    #: Immutable transaction filing key from `expenses.id_light`. It is not a
-    #: reusable vendor key: it normally embeds the date and amount too.
+    #: Transaction filing key from `expenses.id_light`. Not a reusable vendor
+    #: key: it normally embeds the date and amount too, which is exactly why
+    #: an amount/date edit has to recompute it (see receipt_relocation.py).
     id_light: str = ''
+    #: Basename of the receipt image on disk, if this row owns one. Needed
+    #: here (not just resolved ad hoc from server.py) so an edit can hand it
+    #: to the relocator that renames the file to match a corrected date/amount.
+    receipt_url: str = ''
+    #: Usually a different document (a statement page, not the item receipt),
+    #: but occasionally the same file as receipt_url for a single-image
+    #: manual entry -- see relocate_receipt_for_edit's basename check.
+    document_url: str = ''
     category_id: Optional[int] = None
     category_name: str = ''
 
@@ -129,9 +138,12 @@ class ExpenseEditResult(StrictModel):
     `warnings` exists because an expense's `id_light` slug encodes the vendor,
     date, and amount that were true when the row was stored, and it is what
     links the row back to its receipt file on disk (see server.py's
-    _resolve_expense_receipt_path). Rewriting the date or amount without
-    rewriting that slug would silently desync the two, so the edit says so out
-    loud instead of leaving a mismatch nobody knows about.
+    _resolve_expense_receipt_path). A date/amount edit makes the repository
+    try to rename the file and rewrite id_light/receipt_url to match (see
+    finance/receipt_relocation.py); `warnings` carries only the cases that
+    relocation could not fix on its own -- no receipt file on record at all,
+    the file missing from disk, or a naming collision -- so a silent mismatch
+    never happens without the operator being told.
     """
 
     record: ExpenseRecord
@@ -184,14 +196,21 @@ def describe_changes(before: ExpenseRecord, edit: ExpenseEdit) -> tuple[str, ...
 
 def linkage_warnings(before: ExpenseRecord,
                      changed_fields: tuple[str, ...]) -> tuple[str, ...]:
-    """Warn when an edit breaks the id_light -> receipt-file linkage."""
-    if not before.id_light:
+    """Warn when a date/amount edit drifts id_light and there is no receipt
+    file on record for the repository to rename instead.
+
+    Only the "nothing to rename" case: a row with a receipt_url takes the
+    relocate-and-rewrite path in MySqlExpenseRecordRepository.apply_edit and
+    reports its own outcome (success is silent; a real relocation failure --
+    missing file, naming collision -- gets its own specific warning there).
+    """
+    if not before.id_light or before.receipt_url:
         return ()
     drifted = [f for f in ('expense_date', 'amount') if f in changed_fields]
     if not drifted:
         return ()
     return (
         f'This row\'s filing key ({before.id_light}) still encodes the old '
-        f'{" and ".join(drifted)}. The receipt file on disk was not renamed, '
-        'so "View Receipt" may no longer match this row.',
+        f'{" and ".join(drifted)}. It has no receipt file on record to '
+        'rename, so "View Receipt" may no longer match this row.',
     )

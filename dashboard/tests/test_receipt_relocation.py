@@ -1,0 +1,84 @@
+"""Tests for finance/receipt_relocation.py's real filesystem implementation.
+
+Uses tmp_path for real file I/O -- the one thing worth exercising for real
+here is os.replace()'s actual behaviour (missing source, existing target),
+not something a fake filesystem could silently get wrong.
+"""
+import os
+
+from finance.receipt_relocation import (
+    FilesystemReceiptFileRelocator,
+    NullReceiptFileRelocator,
+)
+
+
+def _relocator(tmp_path):
+    def resolve(receipt_url):
+        candidate = tmp_path / receipt_url
+        return str(candidate) if candidate.is_file() else None
+    return FilesystemReceiptFileRelocator(resolve_path=resolve)
+
+
+def test_renames_the_file_and_reports_the_new_basename(tmp_path):
+    (tmp_path / 'kroger_08_15_26_12_34.jpg').write_bytes(b'x')
+    result = _relocator(tmp_path).relocate(
+        receipt_url='kroger_08_15_26_12_34.jpg',
+        old_id_light='kroger_08_15_26_12_34',
+        new_id_light='kroger_08_15_26_99_99')
+    assert result.relocated
+    assert result.new_receipt_url == 'kroger_08_15_26_99_99.jpg'
+    assert not (tmp_path / 'kroger_08_15_26_12_34.jpg').exists()
+    assert (tmp_path / 'kroger_08_15_26_99_99.jpg').exists()
+
+
+def test_same_id_light_is_a_silent_no_op(tmp_path):
+    (tmp_path / 'kroger_08_15_26_12_34.jpg').write_bytes(b'x')
+    result = _relocator(tmp_path).relocate(
+        receipt_url='kroger_08_15_26_12_34.jpg',
+        old_id_light='kroger_08_15_26_12_34',
+        new_id_light='kroger_08_15_26_12_34')
+    assert result == type(result)()
+
+
+def test_missing_source_file_warns_instead_of_raising(tmp_path):
+    result = _relocator(tmp_path).relocate(
+        receipt_url='kroger_08_15_26_12_34.jpg',
+        old_id_light='kroger_08_15_26_12_34',
+        new_id_light='kroger_08_15_26_99_99')
+    assert not result.relocated
+    assert 'could not be found on disk' in result.warning
+
+
+def test_existing_target_is_left_alone_and_warns(tmp_path):
+    (tmp_path / 'kroger_08_15_26_12_34.jpg').write_bytes(b'old')
+    (tmp_path / 'kroger_08_15_26_99_99.jpg').write_bytes(b'already here')
+    result = _relocator(tmp_path).relocate(
+        receipt_url='kroger_08_15_26_12_34.jpg',
+        old_id_light='kroger_08_15_26_12_34',
+        new_id_light='kroger_08_15_26_99_99')
+    assert not result.relocated
+    assert 'already exists' in result.warning
+    assert (tmp_path / 'kroger_08_15_26_12_34.jpg').read_bytes() == b'old'
+
+
+def test_replace_failure_is_reported_not_raised(tmp_path):
+    (tmp_path / 'kroger_08_15_26_12_34.jpg').write_bytes(b'x')
+
+    def _boom(_old, _new):
+        raise OSError('disk is full')
+
+    relocator = FilesystemReceiptFileRelocator(
+        resolve_path=lambda url: str(tmp_path / url), replace=_boom)
+    result = relocator.relocate(
+        receipt_url='kroger_08_15_26_12_34.jpg',
+        old_id_light='kroger_08_15_26_12_34',
+        new_id_light='kroger_08_15_26_99_99')
+    assert not result.relocated
+    assert 'disk is full' in result.warning
+
+
+def test_null_relocator_never_touches_a_file():
+    result = NullReceiptFileRelocator().relocate(
+        receipt_url='anything.jpg', old_id_light='a_01_01_26_1_00',
+        new_id_light='a_01_01_26_2_00')
+    assert result == type(result)()

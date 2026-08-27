@@ -24,6 +24,7 @@ from finance.expense_edit_repository import (
     search_criteria_from_request,
 )
 from finance.expense_schema import ExpenseSchema, IExpenseSchemaProbe
+from finance.receipt_relocation import IReceiptFileRelocator, ReceiptRelocationResult
 
 
 # --------------------------------------------------------------------------
@@ -111,10 +112,11 @@ def _row(**overrides):
     return row
 
 
-def _repo(rows, probe=None):
+def _repo(rows, probe=None, relocator=None):
     connection = _FakeConnection(rows)
     repo = MySqlExpenseRecordRepository(
-        lambda: connection, _FakeNamer(), schema_probe=probe or _FakeProbe())
+        lambda: connection, _FakeNamer(), schema_probe=probe or _FakeProbe(),
+        relocator=relocator)
     return repo, connection
 
 
@@ -301,6 +303,78 @@ def test_edit_returns_the_corrected_record():
     record = repo.apply_edit(_edit(category_id=243)).record
     assert record.description == 'Kroger Fuel'
     assert record.category_name == 'Rosemary'
+
+
+# --------------------------------------------------------------------------
+# apply_edit + a receipt relocator: the actual file/DB rename on drift
+# --------------------------------------------------------------------------
+
+class _FakeRelocator(IReceiptFileRelocator):
+    """Records what it was asked to do; answers with a canned result."""
+
+    def __init__(self, result=None):
+        self.result = result or ReceiptRelocationResult(
+            relocated=True, new_receipt_url='kroger_08_20_26_99_99.jpg')
+        self.calls = []
+
+    def relocate(self, *, receipt_url, old_id_light, new_id_light):
+        self.calls.append((receipt_url, old_id_light, new_id_light))
+        return self.result
+
+
+_RECEIPT_SCHEMA = ('id_light', 'receipt_url', 'document_url')
+
+
+def test_apply_edit_relocates_the_receipt_when_amount_drifts():
+    row = _row(receipt_url='kroger_08_15_26_12_34.jpg')
+    relocator = _FakeRelocator()
+    repo, connection = _repo(
+        [row], probe=_FakeProbe(_RECEIPT_SCHEMA), relocator=relocator)
+
+    result = repo.apply_edit(_edit(merchant_name='Kroger', total_amount=99.99))
+
+    assert relocator.calls == [
+        ('kroger_08_15_26_12_34.jpg', 'kroger_08_15_26_12_34',
+         'kroger_08_15_26_99_99')]
+    assert result.warnings == ()
+    assert result.record.id_light == 'kroger_08_15_26_99_99'
+    assert result.record.receipt_url == 'kroger_08_20_26_99_99.jpg'
+    update = next(p for sql, p in connection.cur.executed if sql.startswith('UPDATE'))
+    assert 'kroger_08_15_26_99_99' in update
+    assert 'kroger_08_20_26_99_99.jpg' in update
+
+
+def test_apply_edit_surfaces_a_failed_relocation_as_its_own_warning():
+    row = _row(receipt_url='kroger_08_15_26_12_34.jpg')
+    relocator = _FakeRelocator(ReceiptRelocationResult(
+        warning='a naming collision at the new path'))
+    repo, _ = _repo([row], probe=_FakeProbe(_RECEIPT_SCHEMA), relocator=relocator)
+
+    result = repo.apply_edit(_edit(merchant_name='Kroger', total_amount=99.99))
+
+    assert result.warnings == ('a naming collision at the new path',)
+    # A failed relocation must not rewrite the row's filing key.
+    assert result.record.id_light == 'kroger_08_15_26_12_34'
+
+
+def test_apply_edit_does_not_relocate_when_only_category_changes():
+    row = _row(receipt_url='kroger_08_15_26_12_34.jpg')
+    relocator = _FakeRelocator()
+    repo, _ = _repo([row], probe=_FakeProbe(_RECEIPT_SCHEMA), relocator=relocator)
+
+    repo.apply_edit(_edit(merchant_name='Kroger', category_id=243))
+
+    assert relocator.calls == []
+
+
+def test_apply_edit_falls_back_to_the_generic_warning_with_no_receipt_on_file():
+    relocator = _FakeRelocator()
+    repo, _ = _repo([_row()], relocator=relocator)  # no receipt_url in this row
+
+    result = repo.apply_edit(_edit(total_amount=99.99))
+
+    assert relocator.calls == []
+    assert result.warnings and 'no receipt file on record' in result.warnings[0]
 
 
 def test_read_returns_one_expense_for_row_commands():
