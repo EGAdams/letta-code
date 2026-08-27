@@ -22,13 +22,15 @@ class RecentReportImageSynchronizer:
     def __init__(self, *, read_pointer: Callable[[], dict],
                  write_pointer: Callable[[dict], bool],
                  fetch_rows: Callable[[Sequence[int]], Sequence[Mapping]],
-                 update_references: Callable[[Sequence[int], str], None] | None = None,
-                 replace: Callable[[str, str], None] = os.replace):
+                 update_references: Callable[[Sequence[int], str, str], None] | None = None,
+                 replace: Callable[[str, str], None] = os.replace,
+                 archive_root: str | None = None):
         self._read_pointer = read_pointer
         self._write_pointer = write_pointer
         self._fetch_rows = fetch_rows
-        self._update_references = update_references or (lambda _ids, _path: None)
+        self._update_references = update_references or (lambda _ids, _new, _old: None)
         self._replace = replace
+        self._archive_root = archive_root
 
     @staticmethod
     def _intakes(data: Mapping) -> list[MutableMapping]:
@@ -85,8 +87,7 @@ class RecentReportImageSynchronizer:
 
     def synchronize(self, expense_id: int, *, deleted: bool = False,
                     vendor_key: str = '', transaction_date: str = '',
-                    fallback_vendor_key: str = '', fallback_date: str = '',
-                    replace_identity: bool = False) -> dict:
+                    fallback_vendor_key: str = '', fallback_date: str = '') -> dict:
         data = self._read_pointer()
         matched = [item for item in self._intakes(data)
                    if expense_id in self._ids(item)]
@@ -100,12 +101,6 @@ class RecentReportImageSynchronizer:
             ids = [value for value in ids if value != expense_id]
         rows = list(self._fetch_rows(ids))
         first = rows[0] if rows else {}
-        vendor = (vendor_key or first.get('vendor_key')
-                  or fallback_vendor_key or 'receipt')
-        date = (transaction_date or first.get('date')
-                or first.get('expense_date') or fallback_date)
-        if not date:
-            return {'renamed': False, 'warning': 'No transaction date for image rename.'}
 
         paths = [str(path).strip()
                  for path in (representative.get('archive_paths') or [])
@@ -113,20 +108,53 @@ class RecentReportImageSynchronizer:
         if not paths:
             return {'renamed': False, 'warning': 'No archived image path to rename.'}
         old_path = paths[0]
-        archived_identity = self._archived_identity(old_path)
-        if archived_identity and not replace_identity:
-            vendor, date = archived_identity
         extension = os.path.splitext(old_path)[1] or '.jpg'
-        new_path = os.path.join(
-            os.path.dirname(old_path),
-            build_id_light(str(vendor), str(date), float(self._amount(rows))) + extension,
+
+        # Always use actual row data when available; fallbacks for edge cases
+        vendor = (first.get('vendor_key') or vendor_key
+                  or fallback_vendor_key or 'receipt')
+        date = (first.get('date') or first.get('expense_date')
+                or transaction_date or fallback_date)
+
+        if not date:
+            return {'renamed': False, 'warning': 'No transaction date for image rename.'}
+
+        # Build canonical directory path based on date
+        from finance.archive_path import preview_archive_path
+        canonical = preview_archive_path(
+            'dummy' + extension, vendor, date,
+            float(self._amount(rows)),
+            custom_root=self._archive_root,
         )
+        new_path = canonical['path']
+
         if new_path != old_path:
             if os.path.exists(new_path):
                 return {'renamed': False,
                         'warning': f'Image rename target already exists: {new_path}'}
-            self._replace(old_path, new_path)
-        self._update_references(ids, new_path)
+            # Ensure target directory exists
+            new_dir = os.path.dirname(new_path)
+            if not os.path.exists(new_dir):
+                os.makedirs(new_dir, exist_ok=True)
+
+            try:
+                self._replace(old_path, new_path)
+            except Exception as exc:
+                return {'renamed': False,
+                        'warning': f'Failed to move image: {type(exc).__name__}: {exc}'}
+
+        # Pass old_path to update_references so it can conditionally update
+        try:
+            self._update_references(ids, new_path, old_path)
+        except Exception as exc:
+            # Rollback file move if reference update fails
+            if new_path != old_path and os.path.exists(new_path):
+                try:
+                    self._replace(new_path, old_path)
+                except Exception:
+                    pass  # Best effort rollback
+            return {'renamed': False,
+                    'warning': f'Failed to update references: {type(exc).__name__}: {exc}'}
 
         for intake in matched:
             intake['archive_paths'] = [
