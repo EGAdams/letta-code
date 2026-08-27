@@ -187,56 +187,50 @@ ROL_FINANCES_PLAN_FILE = os.path.expanduser('~/rol_finances/tools/plan.html')
 # ROL Finance "Reports" sub-tab: one tab per source-document directory, each
 # containing a generated report.html. Lives outside the repo, so reports are
 # served under ROL_FINANCES_REPORTS_URL_PREFIX (path-traversal checked below).
-# `check_images/` is intentionally excluded — still waiting on those files.
-# Reports are grouped by month (the frontend's month tabs); each monthly `dir`
-# is looked up under that month's own subfolder, so a document is "ready" for a
-# given month independently of the others. All-year documents are intentionally
-# shown only in January, which is the dashboard's special all-year view.
+# The month tabs and the statement report cards moved to
+# finance/report_registry.py as typed `ReportMonth`s and `FinanceReportSpec`s.
+# The months were two parallel dicts on the same four keys — folder and calendar
+# range — with nothing checking they agreed; a month in one and not the other is
+# a tab whose /api/rol-finance-month-status query silently returns nothing.
+# `ReportMonth` also checks the range actually IS the month the key names, so
+# 'feb-2025' ending 2025-02-29 stops being writable.
+#
+# NOTE the cross-language duplication this does not yet fix: the JS
+# RolFinanceReportsController hardcodes the same four month keys (and the two
+# scanner keys, and the Mazda agent id) as default constructor arguments. The
+# Python side is now one typed collection so the JS can read it from an
+# endpoint; that change is a separate commit.
 ROL_FINANCES_REPORTS_PARENT = os.path.expanduser(
     '~/rol_finances/readable_documents/bank_statements')
-ROL_FINANCES_REPORTS_MONTHS = {
-    'jan-2025': 'january',
-    'feb-2025': 'february',
-    'mar-2025': 'march',
-    'apr-2025': 'april',
-}
-# Calendar date range (inclusive) each month tab covers. Used by
-# /api/rol-finance-month-status to find that month's most-recently-scanned
-# expense. Statements straddle month boundaries, but the tabs group by the
-# calendar month they're filed under, so we key the range off that month.
-ROL_FINANCES_MONTH_RANGES = {
-    'jan-2025': ('2025-01-01', '2025-01-31'),
-    'feb-2025': ('2025-02-01', '2025-02-28'),
-    'mar-2025': ('2025-03-01', '2025-03-31'),
-    'apr-2025': ('2025-04-01', '2025-04-30'),
-}
-ROL_FINANCES_REPORTS_DEFAULT_MONTH = 'jan-2025'
-ROL_FINANCES_REPORTS_BASE = os.path.join(
-    ROL_FINANCES_REPORTS_PARENT, ROL_FINANCES_REPORTS_MONTHS[ROL_FINANCES_REPORTS_DEFAULT_MONTH])
-ROL_FINANCES_REPORTS_URL_PREFIX = '/rol_finances_reports'
-ROL_FINANCE_REPORTS = [
-    {'key': 'fnbo-4851',         'label': 'FNBO 4851',          'dir': 'january_fnbo_2025_account_4851'},
-    {'key': 'amex-personal-year','label': 'Amex 1006',          'dir': 'amex_personal_whole_2025', 'all_year': True},
-    {'key': 'bank-5938-pdf1',    'label': 'Bank 5938 PDF 1',    'dir': 'december_january_personal_bank_statement'},
-    {'key': 'bank-6285-pdf1',    'label': 'Bank 6285 PDF 1',    'dir': 'non_profit_rol_Statement_december_january_6285'},
-    {'key': 'bank-6285-pdf2',    'label': 'Bank 6285 PDF 2',    'dir': 'business_january_february_6285'},
-    {'key': 'jetblue-pdf1',      'label': 'Jet Blue PDF 1',     'dir': 'jet_blue__december_january_12_26_25_to_01_23_25'},
-    {'key': 'jetblue-pdf2',      'label': 'Jet Blue PDF 2',     'dir': 'jet_blue_january_february_01_27_to_02_25_25'},
-    {'key': 'platinum-year',     'label': 'Platinum Year',      'dir': 'platinum_business_credit_card_for_the_year', 'all_year': True},
-    {'key': 'diners-club-0587',  'label': 'Diners Club 0587',   'dir': 'diners_club__january_25_statements-MONTHLY-0587'},
-    {'key': 'diners-0587-year',  'label': 'Diners 0587 Year',   'dir': 'diners_0587_whole_year_2025', 'all_year': True},
-    {'key': 'bank-3119-pdf',     'label': 'Bank 3119 PDF',      'dir': 'fifth_third_non_profit_3119'},
-    {'key': 'choice-7580-year',  'label': 'Choice 7580 Year',   'dir': 'choice_7580_year', 'all_year': True},
-    {'key': 'prime-chase-5783',  'label': 'Prime Chase 5783', 'dir': 'prime_chase_5783_whole_year_2025', 'all_year': True},
-    {'key': 'amazon-marketplace', 'label': 'Amazon Marketplace', 'dir': 'amazon_marketplace_january_2025', 'all_year': True},
-]
+from finance.report_registry import (  # noqa: E402
+    DEFAULT_MONTH_KEY as ROL_FINANCES_REPORTS_DEFAULT_MONTH,
+)
+from finance.report_registry import (  # noqa: E402
+    ROL_FINANCE_REPORTS,
+    ROL_FINANCES_MONTH_RANGES,
+    ROL_FINANCES_REPORTS_MONTHS,
+)
 
 
 def _rol_finance_reports_for_month(month_key):
-    """Document cards for a month; all-year cards live only under January."""
+    """Document cards for a month; all-year cards live only under January.
+
+    Deliberately NOT imported from finance.report_registry, even though it lives
+    there too. ~15 tests drive the report paths by monkeypatching
+    `server.ROL_FINANCE_REPORTS`, and a function that closes over the registry's
+    own global would not see that — the exact second-binding failure plan rule 3
+    is about, which shows up as a green test that read the real filesystem. The
+    registry's copy is for callers that want the real list; this one is the one
+    server.py's own readers and their patch target share.
+    """
     if month_key == ROL_FINANCES_REPORTS_DEFAULT_MONTH:
         return ROL_FINANCE_REPORTS
     return [r for r in ROL_FINANCE_REPORTS if not r.get('all_year')]
+
+
+ROL_FINANCES_REPORTS_BASE = os.path.join(
+    ROL_FINANCES_REPORTS_PARENT, ROL_FINANCES_REPORTS_MONTHS[ROL_FINANCES_REPORTS_DEFAULT_MONTH])
+ROL_FINANCES_REPORTS_URL_PREFIX = '/rol_finances_reports'
 
 # ── ROL Finance: recategorize a Verified-Transactions row ─────────────────
 # The category-picker dialog injected into each report.html (by
@@ -246,86 +240,25 @@ def _rol_finance_reports_for_month(month_key):
 # next create_spreadsheet run sees the user's correction.
 RECEIPT_PARSING_TOOLS = os.path.expanduser('~/rol_finances/receipt_parsing_tools')
 
-# Reporting-category name → representative categories.id. Mirrors
-# create_spreadsheet.py's REPORTING_CATEGORY_DB_MAP. "Uncategorized" clears category_id.
-REPORTING_CATEGORY_DB_MAP = {
-    'Church Facility': 100,
-    'Church Utilities': 120,
-    'Ministry and Worship': 150,
-    'Office & Administration': 140,
-    'Food & Hospitality': 130,
-    'Gifts & Love Offerings': 190,
-    # "Staff & Benefits" (240) split into Robert (RJ, 242) and Rosemary (RM, 243),
-    # both "Priority Health" leaves under "Senior Pastors" (241).
-    'Robert Benefits and Medical': 242,
-    'Rosemary Benefits & Medical': 243,
-    'Travel & Vehicle': 160,
-    'Insurance, Taxes & Fees': 230,
-    'Housing': 300,
-    'Personal': 3,
-    'Uncategorized': None,
-}
-
-# Reporting-category name → the cat-* CSS class baked into report.html rows.
-# report.html is a STATIC file: its row color comes from this class, NOT from a
-# live DB read, so a category change must rewrite this class on disk to survive a
-# page refresh (the DB write alone is invisible to the static file).
-REPORTING_CATEGORY_CLASS = {
-    'Church Facility': 'cat-church-facility',
-    'Church Utilities': 'cat-church-utilities',
-    'Ministry and Worship': 'cat-ministry-and-worship',
-    'Office & Administration': 'cat-office-and-administration',
-    'Food & Hospitality': 'cat-food-and-hospitality',
-    'Gifts & Love Offerings': 'cat-gifts-and-love-offerings',
-    'Robert Benefits and Medical': 'cat-robert-benefits-and-medical',
-    'Rosemary Benefits & Medical': 'cat-rosemary-benefits-and-medical',
-    'Travel & Vehicle': 'cat-travel-and-vehicle',
-    'Insurance, Taxes & Fees': 'cat-insurance-taxes-and-fees',
-    'Housing': 'cat-housing',
-    'Personal': 'cat-personal',
-    'Uncategorized': 'cat-uncategorized',
-}
-
-# Reporting-category name → (background, font) hex, mirrors create_spreadsheet.py's
-# REPORTING_CATEGORY_STYLES. Used to color the synthetic "Receipt Only" report rows
-# (the static per-statement report.html files carry these as baked-in cat-* CSS).
-REPORTING_CATEGORY_STYLE = {
-    'Church Facility': ('#B8CCE4', '#000000'),
-    'Church Utilities': ('#95B3D7', '#000000'),
-    'Ministry and Worship': ('#DCE6F1', '#000000'),
-    'Office & Administration': ('#4F81BD', '#FFFFFF'),
-    'Food & Hospitality': ('#F4F199', '#000000'),
-    'Gifts & Love Offerings': ('#A9D18E', '#000000'),
-    'Robert Benefits and Medical': ('#CCC0DA', '#000000'),
-    'Rosemary Benefits & Medical': ('#F4B6C2', '#000000'),
-    'Travel & Vehicle': ('#F4B683', '#000000'),
-    'Insurance, Taxes & Fees': ('#FCD5B4', '#000000'),
-    'Housing': ('#DDD9C4', '#000000'),
-    'Personal': ('#948A54', '#FFFFFF'),
-    'Uncategorized': ('#BFBFBF', '#000000'),
-}
-
-# SUPERSEDED by ICategoryTaxonomy (category_taxonomy.py) — reads go through
-# _get_category_taxonomy(), which sources this from the DB's is_report_category /
-# report_category_id columns (migration 2026_07_28_002 backfilled them to match
-# this dict exactly). These four dicts remain only as the seed for
-# LEGACY_TAXONOMY, the offline fallback. Editing them no longer changes runtime
-# behaviour while the DB is reachable; change the categories table instead.
+# The four reporting-category maps moved to finance/reporting_categories.py,
+# where one typed `ReportingCategory` list per bucket derives all four. They
+# were four parallel dicts that had to agree and nothing checked that they did:
+# a bucket added to one and missed in another produced a report row with no CSS
+# class or no colour, served and indistinguishable from a styling choice.
 #
-# category_id → reporting bucket, walked up the ancestor chain. Duplicated from
-# create_spreadsheet.py's REPORTING_CATEGORY_ANCESTOR_MAP (small + stable; importing
-# create_spreadsheet pulls xlsxwriter which the server's system python lacks).
-REPORTING_CATEGORY_ANCESTOR_MAP = {
-    100: 'Church Facility', 110: 'Church Facility', 120: 'Church Utilities',
-    130: 'Food & Hospitality', 140: 'Office & Administration',
-    150: 'Ministry and Worship', 160: 'Travel & Vehicle',
-    190: 'Gifts & Love Offerings', 230: 'Insurance, Taxes & Fees',
-    240: 'Robert Benefits and Medical', 242: 'Robert Benefits and Medical',
-    243: 'Rosemary Benefits & Medical', 300: 'Housing', 310: 'Housing',
-    320: 'Housing', 330: 'Housing', 340: 'Housing', 350: 'Housing',
-    358: 'Insurance, Taxes & Fees', 364: 'Uncategorized',
-    400: 'Insurance, Taxes & Fees', 1: 'Uncategorized', 2: 'Housing', 3: 'Personal',
-}
+# They are re-imported here because server.py itself still reads CLASS and
+# DB_MAP on the taxonomy-miss fallback below, and because tests/ and the
+# category-taxonomy seed name them through `server`. All four are SUPERSEDED at
+# runtime by ICategoryTaxonomy (category_taxonomy.py), which reads the DB's
+# is_report_category / report_category_id columns (migration 2026_07_28_002
+# backfilled them to match these values exactly). Change the categories table,
+# not this list.
+from finance.reporting_categories import (  # noqa: E402
+    REPORTING_CATEGORY_ANCESTOR_MAP,
+    REPORTING_CATEGORY_CLASS,
+    REPORTING_CATEGORY_DB_MAP,
+    REPORTING_CATEGORY_STYLE,
+)
 
 # URL of the synthetic "Receipt Only" report page (served by do_GET, listed as a tab
 # by /api/rol-finance-reports). Not a file on disk — the page is built live from the DB.
@@ -898,16 +831,11 @@ def merge_statement_review_result(payload):
     })
 
 
-_TERMINAL_INTAKE_STATUSES = {
-    'pass', 'corrected', 'fail', 'stalled', 'complete',
-    # Nothing more happens on THIS run once a human needs to pick a vendor —
-    # stop the Recent Report page's 30s auto-refresh, same as any other
-    # finished run (see list_pending_vendor_review()/set_receipt_vendor()).
-    'awaiting_vendor_review',
-    # MAZDA_DECISION_MODE=human_only: Mazda's turn never started at all, so
-    # there is no STEP 8 report-back to wait for — stop auto-refresh here too.
-    'needs_human_review',
-}
+# The terminal-status vocabulary moved to intake/statuses.py as a Literal.
+# merge_recent_intake_status() DROPS any update whose status is not in this set,
+# silently, so a status the Trainer sends that this set does not know leaves the
+# document on `processing` forever — round 11's defect.
+from intake.statuses import TERMINAL_INTAKE_STATUSES as _TERMINAL_INTAKE_STATUSES  # noqa: E402
 
 
 def merge_recent_intake_status(update):
@@ -1824,17 +1752,12 @@ def scanner_intake_archive_path(intake, rows):
         intake or {}, rows, receipt_path=receipt_path)
 
 
-_MAZDA_PROGRESS_LABELS = (
-    'STEP 0 — Load learned wrapper',
-    'STEP 1 — Classify and parse document',
-    'STEP 2 — Check vendor and duplicates',
-    'STEP 3 — Categorize',
-    'STEP 4 — Store',
-    'STEP 5 — Record trace',
-    'STEP 6 — Judge trace',
-    'STEP 7 — Propose improvement if needed',
-    'STEP 8 — Notify dashboard',
-)
+# The nine intake steps moved to intake/progress.py as typed
+# `MazdaProgressStep`s. _mazda_progress_from_messages() below indexes a parallel
+# statuses list BY POSITION (statuses[1], [2], [7]), which is only correct
+# because the labels are in STEP order; the module now asserts position == step
+# number, so those indices are guarded by the data they index into.
+from intake.progress import MAZDA_PROGRESS_LABELS as _MAZDA_PROGRESS_LABELS  # noqa: E402
 
 
 def _mazda_progress_from_messages(intake, messages):
@@ -2595,29 +2518,18 @@ SCAN_TOOLS_DIR = os.path.expanduser(
     '~/planner/nonprofit_finance_db/receipt_scanning_tools')
 SCANNER_IMAGE_URL_PREFIX = '/api/scanner-image'
 INTAKE_DOCUMENT_URL_PREFIX = '/api/intake-document'
-SCANNERS = {
-    'window': {
-        'name': 'Window Scanner',
-        'device': 'HPI297BEA (HP OfficeJet 8120e series)',
-        'script': 'run_scan_window.sh',   # selects HPI297BEA by name
-        'output': 'window_scan.jpg',
-        # Diagnostics (scanner_diag.ps1): `namelike` matches the WIA device Name;
-        # `driver_match` matches the PnP Image-class FriendlyName (a different
-        # string — the model, not the WIA id).
-        'namelike': 'HPI297BEA',
-        'driver_match': 'OfficeJet 8120e',
-        'airscan_device': 'airscan:e0:Window Scanner',
-    },
-    'freezer': {
-        'name': 'Freezer Scanner',
-        'device': 'HP063E28 (HP DeskJet 4100 series)',
-        'script': 'run_scan_freezer.sh',  # selects HP063E28 by name (non-default)
-        'output': 'scan_freezer.jpg',
-        'namelike': 'HP063E28',
-        'driver_match': 'DeskJet 4100',
-        'airscan_device': 'airscan:e1:Freezer Scanner',
-    },
-}
+# The two scanners moved to hardware/scanners.py as typed `ScannerSpec`s, and
+# `SCANNERS` is now a derived view of them — same keys, same nested dicts, same
+# order. The specs cross-check what the dict never could: that `namelike` and
+# `driver_match` actually describe the `device` the script drives (otherwise the
+# Diagnostics tab probes one scanner while scans come off the other), that
+# `output` is a bare filename before it is joined to SCAN_TOOLS_DIR, and that no
+# two scanners share an `output` (which would show the Freezer's page the
+# Window's last scan).
+#
+# Imported here because server.py's own scan paths, hardware/scanner_diagnostics
+# and tests/ all still name `SCANNERS` through `server`.
+from hardware.scanners import SCANNERS  # noqa: E402
 
 # Finding a WSL_INTEROP socket that actually relays to Windows moved to
 # hardware/wsl_interop.py -- it is not scanner logic, and the printer repair
@@ -5317,24 +5229,11 @@ _AGENT_MODEL_OPTIONS_SERVICE = AgentModelOptionsService(
     AGENT_MODEL_OPTIONS,
 )
 
-AGENT_VOICE_OPTIONS = [
-    'en-GB-SoniaNeural',
-    'en-US-AnaNeural',
-    'en-US-AriaNeural',
-    'en-US-AvaNeural',
-    'en-US-AvaMultilingualNeural',
-    'en-US-EmmaNeural',
-    'en-US-EmmaMultilingualNeural',
-    'en-US-JennyNeural',
-    'en-US-MichelleNeural',
-    'en-US-AndrewNeural',
-    'en-US-BrianNeural',
-    'en-US-ChristopherNeural',
-    'en-US-EricNeural',
-    'en-US-GuyNeural',
-    'en-US-RogerNeural',
-    'en-US-SteffanNeural',
-]
+# The edge-tts voice catalogue moved to agents/registry.py as typed
+# `VoiceOption`s. An id that is not a real edge-tts voice does not fail when it
+# is picked — it fails later, at speech time, on a background thread.
+from agents.registry import AGENT_VOICE_OPTIONS  # noqa: E402
+
 AGENT_VOICE_METADATA_KEY = 'dashboard_voice'
 
 def agent_model_options(current_handle):
@@ -5400,67 +5299,24 @@ def patch_agent_voice(agent_id, voice):
         resp = json.loads(r.read().decode())
     return {'ok': True, 'voice': agent_voice_from_metadata(resp)}
 
-# Agents that are wired to the Letta API automatically.
-# Add any new Letta agent here: { 'name': '...', 'id': '<real-letta-agent-id>' }
-# Set 'id' to None to auto-discover by name from the Letta agent list.
-_MINION_TOOLS = ['run_claude_code_sdk']
-# Mazda's health is signalled by her self-improvement MCP tools (served by
-# mazda-tools-mcp.service on :8791) — they attach/detach together, so requiring a
-# few core ones cleanly flags an unprovisioned Mazda (e.g. the MCP server down)
-# without flapping. NOTE: do NOT require relay_message_to_chatgpt — that's a
-# browser-relay tool from a discarded design; this incarnation of Mazda does not
-# carry it (verified live: her tools are record_trace/propose_improvement/
-# run_experiment/judge_trace/gate_check/activate_wrapper/rollback_wrapper/
-# load_wrapper_revision/propose_memory_note/verify_statement_totals).
-_MAZDA_TOOLS = [
-    'record_trace',
-    'propose_improvement',
-    'run_experiment',
-    'itemize_existing_expense',
-]
-
-# Suzuki + her 6 minions run on the same chatgpt-plus-pro OAuth account, so a
-# ChatGPT/Codex rate limit (HTTP 429 from chatgpt.com/backend-api/codex/responses)
-# hits all of them simultaneously — see mazda_chatgpt_429_rate_limit_2026_06_18
-# memory. _poll_chatgpt_provider_once() checks the provider's token once and
-# propagates ok/error to every agent tagged with this provider, so no per-agent
-# canary flag is actually needed for that to work.
-CHATGPT_PLUS_PRO = 'chatgpt-plus-pro'
-
-# BYOK provider backed by this box's (Rosemary46) Claude subscription OAuth
-# token -- never an ANTHROPIC_API_KEY. The provider row itself only holds a
-# raw Bearer access token (no refresh_token handling server-side), so
-# shell_scripts/sync_mazda_claude_token.sh re-pushes the current token from
-# ~/.claude/.credentials.json hourly via cron on this box, the same way
-# sync_frita_claude_token.sh keeps Frita's local credentials fresh -- this
-# box's own interactive `claude` CLI usage refreshes it and passes the WAF,
-# where the Letta server's own refresh attempts do not. The whole Mazda fleet
-# (Mazda + her 5 minions) now runs on this provider; Suzuki's fleet remains on
-# chatgpt-plus-pro.
-CLAUDE_PRO_MAX = 'claude-pro-max'
-
-LETTA_AGENTS = [
-    {'name': 'Toyota',   'id': 'agent-38cf768e-e1eb-4c29-978a-c6bb64282d25'},
-    {'name': 'Scissari', 'id': 'agent-5955b0c2-7922-4ffe-9e43-b116053b80fa'},
-    {'name': 'Frita',    'id': 'agent-881a883f-edd0-4963-bf67-6ef178b8f018', 'uses_claude_sdk': True},
-    {'name': 'Shelia',   'id': 'agent-1c2e170c-a67a-4364-b370-16a6b48c0770'},
-    {'name': 'Shelia',   'id': 'agent-1c2e170c-a67a-4364-b370-16a6b48c0770'},
-    {'name': 'Hailey',   'id': 'agent-2b4f760c-e22a-4b6a-9c8d-0ace7b9bac03'},
-    {'name': 'Jeri',     'id': None},
-    {'name': 'Mazda',    'id': 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e', 'required_tools': _MAZDA_TOOLS, 'llm_provider': CLAUDE_PRO_MAX, 'orchestrator': True},
-    {'name': 'Mazda Router',           'id': 'agent-bc561f63-a5bd-4192-806e-58d92593da2b', 'required_tools': _MINION_TOOLS, 'llm_provider': CLAUDE_PRO_MAX},
-    {'name': 'Mazda Parser',           'id': 'agent-a5063757-46c7-4054-a07d-2b1263db43a8', 'required_tools': _MINION_TOOLS, 'llm_provider': CLAUDE_PRO_MAX},
-    {'name': 'Mazda Vendor Identity',  'id': 'agent-acd624ac-17f2-4a74-aa34-78036cac4d66', 'required_tools': _MINION_TOOLS, 'llm_provider': CLAUDE_PRO_MAX},
-    {'name': 'Mazda Receipt Linker',   'id': 'agent-9a14f800-d848-4914-bfd4-53ab62bc177b', 'required_tools': _MINION_TOOLS, 'llm_provider': CLAUDE_PRO_MAX},
-    {'name': 'Mazda Categorization',   'id': 'agent-c429ff25-c8af-4f1a-a6f1-6d48307e2874', 'required_tools': _MINION_TOOLS, 'llm_provider': CLAUDE_PRO_MAX},
-    {'name': 'Suzuki',                 'id': 'agent-c4e58e29-8c06-4ca9-a18d-b8536442af13', 'orchestrator': True, 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Router',          'id': 'agent-df4deb48-3a46-4fe4-887a-6aeb95ddc6d6', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Reproducer',      'id': 'agent-ad0c3e39-bd14-4f79-af95-140e4cf21325', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Static Analysis', 'id': 'agent-a820e191-bc39-413c-bb0c-6344d5b37643', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Patch',           'id': 'agent-2c585993-1193-42d8-9bf5-1805b426a0da', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Test Runner',     'id': 'agent-a90f1413-6599-4750-b7e0-ee5634984162', 'llm_provider': CHATGPT_PLUS_PRO},
-    {'name': 'Suzuki Regression',      'id': 'agent-8af8fec4-5114-40b3-99ab-173edd35ebd2', 'llm_provider': CHATGPT_PLUS_PRO},
-]
+# The agent roster moved to agents/registry.py as typed `LettaAgentSpec`s, and
+# `LETTA_AGENTS` is a derived view of them. Add a new Letta agent there.
+#
+# The move found a live defect. The literal listed Shelia TWICE, identically.
+# build_agent_list() iterates the roster as a list, so /api/agents served 21
+# tiles for 20 agents and Agent Management rendered two identical Shelia cards
+# — verified against the live dashboard before the fix. AGENT_CARDS carried the
+# same duplicate as a repeated dict key, where Python silently kept the last,
+# which is why the card text looked right and hid the roster bug. The registry
+# now refuses a roster with a repeated name or Letta id.
+#
+# CHATGPT_PLUS_PRO / CLAUDE_PRO_MAX come back because this module's provider
+# probes and startup banner name them; the two tool lists travelled entirely.
+from agents.registry import (  # noqa: E402
+    CHATGPT_PLUS_PRO,
+    CLAUDE_PRO_MAX,
+    LETTA_AGENTS,
+)
 
 # Cache of name→id resolved from the Letta API
 _letta_id_cache = {}
@@ -5484,142 +5340,9 @@ _agent_activity_cache_lock = threading.Lock()
 AGENT_ACTIVITY_CACHE_TTL = 30
 
 
-AGENT_CARDS = {
-    'Scissari': {
-        'identity': 'Scissari',
-        'role': 'Lead coordination and execution agent focused on cross-agent orchestration, dashboard work, and operational follow-through.',
-        'responsibilities': [
-            'Coordinate multi-agent tasks and user-facing follow-up',
-            'Drive dashboard and observability improvements',
-            'Track execution flow across agents and tools',
-        ],
-        'tools': [
-            'Letta agent messaging',
-            'executor_run / host command execution',
-            'dashboard inspection and API verification',
-        ],
-        'memory_summary': 'Maintains durable project context and coordination state so shared workflows stay consistent across sessions.',
-    },
-    'Frita': {
-        'identity': 'Frita',
-        'role': 'Infrastructure and deployment agent for the Windows 10 dashboard host and public exposure path.',
-        'responsibilities': [
-            'Publish and repair dashboard hosting on the Win10 machine',
-            'Inspect live services, tunnels, and dashboard backends',
-            'Deploy and verify dashboard/API fixes end-to-end',
-        ],
-        'tools': [
-            'win10_run',
-            'cloudflared / tunnel operations',
-            'host file and process inspection',
-        ],
-        'memory_summary': 'Keeps operational knowledge about the Win10 dashboard environment, serving paths, and tunnel setup.',
-    },
-    'Shelia': {
-        'identity': 'Shelia',
-        'role': 'Narrow, evidence-based Rosemary46 Windows/WSL/Tailscale recovery operator.',
-        'responsibilities': [
-            'Inspect Rosemary46 host, WSL, keepalive-task, and Tailscale evidence',
-            'Start the fixed WSL keepalive and restart tailscaled when evidence requires it',
-            'Verify real Tailscale and SSH recovery without hiding dashboard failures',
-        ],
-        'tools': [
-            'shelia_status',
-            'shelia_start_keepalive',
-            'shelia_restart_tailscale',
-            'shelia_reauth_instructions',
-            'shelia_verify_recovery',
-        ],
-        'memory_summary': 'Maintains a strict recovery sequence and reports unreachable, authentication, WSL, and SSH failures separately.',
-    },
-    'Shelia': {
-        'identity': 'Shelia',
-        'role': 'Narrow, evidence-based Rosemary46 Windows/WSL/Tailscale recovery operator.',
-        'responsibilities': [
-            'Inspect Rosemary46 host, WSL, keepalive-task, and Tailscale evidence',
-            'Start the fixed WSL keepalive and restart tailscaled when evidence requires it',
-            'Verify real Tailscale and SSH recovery without hiding dashboard failures',
-        ],
-        'tools': [
-            'shelia_status',
-            'shelia_start_keepalive',
-            'shelia_restart_tailscale',
-            'shelia_reauth_instructions',
-            'shelia_verify_recovery',
-        ],
-        'memory_summary': 'Maintains a strict recovery sequence and reports unreachable, authentication, WSL, and SSH failures separately.',
-    },
-    'Hailey': {
-        'identity': 'Hailey',
-        'role': 'Support agent available for collaboration and delegated operational tasks.',
-        'responsibilities': [
-            'Assist with shared task execution',
-            'Provide agent-side support when routed work is assigned',
-        ],
-        'tools': [
-            'Letta messaging and standard agent workflows',
-        ],
-        'memory_summary': 'Participates in the shared agent ecosystem with retained project context when available.',
-    },
-    'Jeri': {
-        'identity': 'Jeri',
-        'role': 'Financial analyst agent focused on finance workflows, document interpretation, and structured operational guidance.',
-        'responsibilities': [
-            'Support January and finance-analysis workflows',
-            'Interpret financial material and process-related inputs',
-            'Participate in A2A-oriented coordination flows',
-        ],
-        'tools': [
-            'A2A messaging patterns',
-            'finance workflow guidance',
-            'dashboard-driven visibility and control surfaces',
-        ],
-        'memory_summary': 'Designed as a specialized analyst persona with persistent behavioral and workflow guidance.',
-    },
-    'Mazda': {
-        'identity': 'Mazda',
-        'role': 'Self-improving engineering/operations agent focused on thoughtful execution and clearer agent self-description.',
-        'responsibilities': [
-            'Execute assigned technical tasks',
-            'Improve agent-facing structure and usability',
-            'Help define clearer agent identity and card patterns',
-        ],
-        'tools': [
-            'Agent messaging',
-            'technical execution workflows',
-            'structured self-description patterns',
-        ],
-        'memory_summary': 'Uses retained context to refine its own behavior and improve the system around it over time.',
-    },
-    'Claude': {
-        'identity': 'Claude',
-        'role': 'External coding collaborator represented in the dashboard for shared visibility.',
-        'responsibilities': [
-            'Contribute code-focused implementation and analysis',
-            'Coordinate with the local agent ecosystem when integrated',
-        ],
-        'tools': [
-            'Code editing and analysis workflows',
-            'shared dashboard visibility',
-        ],
-        'memory_summary': 'Not a Letta-backed agent here, but included as a visible collaborator in the dashboard ecosystem.',
-    },
-    'Suzuki': {
-        'identity': 'Suzuki',
-        'role': 'Self-improving software debugging orchestrator — triages bugs, delegates to specialist minions, verifies patches, and learns across runs.',
-        'responsibilities': [
-            'Receive bug reports and run the 12-stage debug workflow',
-            'Delegate triage, reproduction, static analysis, patching, test execution, and regression checking to specialist minions',
-            'Record traces and propose wrapper improvements after each run',
-        ],
-        'tools': [
-            'DebugStageEnvelope handoff contract',
-            'executor_run / host command execution',
-            'self-improvement MCP tools (record_trace, propose_improvement, run_experiment)',
-        ],
-        'memory_summary': 'Accumulates debugging lessons across runs via the shared self-improvement kernel inherited from Mazda.',
-    },
-}
+# The Agent Card copy moved to agents/registry.py as typed `AgentCard`s.
+# A card missing a key used to render as a blank panel rather than an error.
+from agents.registry import AGENT_CARDS  # noqa: E402
 
 
 # Per-agent system message files, shown verbatim on the agent's Agent Card tab.
@@ -5738,174 +5461,32 @@ LETTA_REMOTE_LOG_LOOKBACK = 300       # seconds of history to seed the cache wit
 LETTA_REMOTE_LOG_CACHE_MAX_LINES = 4000  # trim threshold so /tmp doesn't grow unbounded
 
 # ── Server Management registry ────────────────────────────────────────────────
-# Each server we monitor. Fields (all optional except key/name):
-#   log_file   — absolute path to a local log file to tail
-#   health_url — URL to ping; an "up/down" status row is derived from it
-#   note       — short human description shown in the UI
-# A server can have a log_file, a health_url, or both. Remote servers we can't
-# tail locally (Docker on another host) are monitored via health_url only,
-# UNLESS we have SSH access to pull their logs into a local cache (see "letta"
-# below) — an unreachable health check is itself the "something is awry" signal
-# for the ones we can't.
-SERVERS = [
-    {
-        'key': 'win10-node',
-        'name': 'Win10 WSL Node',
-        'check': 'win10_node_health',
-        'remote': True,
-        'note': 'The Win10 WSL host (100.80.49.10) that runs Letta, the Frita SDK executor, '
-                'and the Logger API. ROOT CAUSE indicator: if this is red, those are all '
-                'symptoms — fix the node first (Restart revives tailscaled via the Windows host).',
-    },
-    {
-        'key': 'letta',
-        'name': 'Letta Server',
-        'health_url': f'{LETTA_BASE_URL}/v1/health/',
-        'log_file': LETTA_REMOTE_LOG_CACHE,
-        'remote': True,
-        'win10_docker': True,
-        'depends_on': 'win10-node',
-        'note': f'Letta API ({LETTA_BASE_URL}) — logs pulled periodically over SSH from '
-                f'{LETTA_DOCKER_HOST} (Docker container on the Win10 box)',
-    },
-    # DISABLED 2026-08-19 (EG): the ChatGPT Provider tile is retired from Server
-    # Management. It watched the chatgpt-plus-pro OAuth credential and went red
-    # when that token died or its weekly allowance ran out. Models are now chosen
-    # per agent on the Agent Management pages, so a single provider-wide tile no
-    # longer describes anything the user acts on — and its name was stale besides
-    # (Mazda's fleet moved to claude-pro-max on 2026-08-16).
-    #
-    # Commented out rather than deleted in case it was covering a case we forgot.
-    # Nothing else was removed: chatgpt_provider_health(), the account-swap panel
-    # on Model Stats, and _chatgpt_provider_poll_loop() (which flags fleet agents
-    # red on Agent Management) all still run. Uncomment to bring the tile back.
-    # {
-    #     'key': 'chatgpt-provider',
-    #     'name': 'ChatGPT Provider (Mazda LLM)',
-    #     'check': 'chatgpt_provider_health',
-    #     'remote': True,
-    #     'depends_on': 'letta',
-    #     'note': 'OAuth token on the chatgpt-plus-pro Letta provider — the credential '
-    #             'Mazda + the Suzuki fleet make every LLM call with. RED = token dead '
-    #             '(e.g. expired access token + invalid refresh token): every dispatch '
-    #             'to the fleet fails with HTTP 401 even while scans and all other '
-    #             'servers look fine. Restart swaps in the standby account token '
-    #             '(swap_chatgpt_provider_token.sh on the Letta box).',
-    # },
-    {
-        'key': 'executor',
-        'name': 'Executor Server',
-        'health_url': 'http://127.0.0.1:8787/health',
-        'log_file': EXECUTOR_STARTUP_LOG,
-        'note': 'executor_run REST backend — runs locally on this machine (:8787)',
-    },
-    {
-        'key': 'browser-server',
-        'name': 'ChatGPT Browser Server',
-        'health_url': 'http://100.80.49.10:5001/health',
-        'remote': True,
-        'depends_on': 'win10-node',
-        'note': 'Browser automation server for relay_message_to_chatgpt tool — controls '
-                'a logged-in ChatGPT browser session on the Win10 box (:5001). RED = not '
-                'running or Chrome not logged into chatgpt.com. See '
-                'dashboard/BROWSER_SERVER_INTEGRATION.md.',
-    },
-    {
-        'key': 'mcp-proxy',
-        'name': 'MCP Executor Bridge',
-        'tcp_check': ('127.0.0.1', 8789),
-        'note': 'mcp-proxy stdio bridge for executor_run MCP tool (:8789) — '
-                'if this dies Scissari/Codex executor_run silently fails',
-    },
-    {
-        'key': 'dashboard',
-        'name': 'Dashboard Server',
-        'health_url': f'http://localhost:{PORT}/',
-        'log_file': '/tmp/dashboard_8765.log',
-        'note': 'This dashboard (server.py)',
-    },
-    {
-        'key': 'dashboard-proxy',
-        'name': 'Dashboard Proxy (Win10)',
-        'health_url': 'http://100.80.49.10:8765/',
-        'remote': True,
-        'depends_on': 'win10-node',
-        'note': 'WSL TCP proxy on the Win10 box (100.80.49.10:8765) that relays to '
-                'this dashboard so the Win10-side browser can reach it via '
-                'http://localhost:8765 without the (offline) Win10 Tailscale node. '
-                'If this is red, http://localhost:8765 on the Win10 machine will not load.',
-    },
-    {
-        'key': 'logger-api',
-        'name': 'Logger API',
-        # The bare root has no index file (DocumentRoot serves a directory with
-        # no index.php) — Apache 403s there even when the API is fully healthy,
-        # so the health check would never flip green. Hit a real PHP+MySQL+
-        # Apache-rewrite endpoint instead (same one the smoke test in
-        # [[reference_logger_api_ops]] uses) — 200 means the whole stack works.
-        'health_url': 'http://100.80.49.10:8284/libraries/local-php-api/object/select?object_view_id=OrchestratorAgent_2026',
-        'log_file': LOGGER_API_STARTUP_LOG,
-        'remote': True,
-        'win10_docker': True,
-        'depends_on': 'win10-node',
-        'note': 'Docker logger API (live agent log viewer) — mysql + php-api containers '
-                'on the Win10 box, started over SSH (see Start button)',
-    },
-    {
-        'key': 'lettabot',
-        'name': 'Lettabot (Telegram)',
-        'health_url': 'http://localhost:8091/health',
-        'log_file': os.path.expanduser('~/lettabot/cron-log.jsonl'),
-        'note': 'Scissari Telegram bot — internal API :8091; '
-                'heartbeat/cron log at ~/lettabot/cron-log.jsonl '
-                '(stdout goes to systemd journal: `journalctl --user -u lettabot -f`)',
-    },
-    {
-        'key': 'thought-bridge',
-        'name': 'Thought Bridge',
-        'health_url': 'http://localhost:8899/',
-        'note': 'lettabot → browser live thought stream (monitor :8899, WS bridge :8766)',
-    },
-    {
-        'key': 'frita-executor',
-        'name': 'Frita Executor (Win10)',
-        'check': 'frita_executor_health',
-        'remote': True,
-        'win10_docker': True,
-        'depends_on': 'win10-node',
-        'note': 'Frita\'s win10_run + Claude-SDK runner. Verifies the SDK-capable '
-                'executor on host :8799 (what the Mazda minions reach) AND watches '
-                'for a stale no-SDK "ghost" executor on :8797 (the recurring '
-                'duplicate-stack bug). Restart via "Start" button.',
-    },
-    {
-        'key': 'mazda-tools-mcp',
-        'name': 'Mazda Tools MCP',
-        'tcp_check': ('127.0.0.1', 8791),
-        'note': 'mcp-proxy for Mazda\'s Letta tools (mazda-tools-mcp.service, :8791) — '
-                'if down, Mazda\'s tool calls silently fail',
-    },
-    {
-        'key': 'document-vision',
-        'name': 'Document Vision (Scan Classify)',
-        'check': 'document_vision_health',
-        'note': 'classify_scan.py\'s 3-tier fallback (Gemini -> ChatGPT-OAuth/Codex CLI -> '
-                'OpenAI key) that lets Mazda classify/read a scanned document. RED here '
-                '(all 3 tiers down) means process_scanned_document() refuses to dispatch '
-                'Mazda at all — see DOCUMENT_VISION_HALT_MESSAGE.',
-    },
-    {
-        'key': 'mazda-categorizer-llm',
-        'name': 'LLM Provider Fallbacks (Categorizer)',
-        'check': 'mazda_categorizer_fallback_health',
-        'note': 'tools/categorizer/categorizer_main.py\'s vendor->category LLM chain '
-                '(gemini -> chatgpt-oauth [EG\'s account, then mom\'s] -> anthropic), '
-                'read from real call outcomes in ~/.mazda/provider_health.json — never '
-                'a synthetic probe. YELLOW = a fallback fired recently (still working, '
-                'worth a look). RED = every tracked tier failed on its last attempt. '
-                'Built 2026-07-20 after the gemini CLI broke silently for 3+ days.',
-    },
-]
+# The fifteen tiles moved to servers/registry.py as typed `ServerSpec`s, and
+# `SERVERS` is now a derived view of them — same list, same dicts, same per-entry
+# key order, so `cfg.get('health_url')` and friends answer exactly as before.
+#
+# What the specs check that 159 lines of dict literal never could: that `check`
+# names a probe HEALTH_CHECKS actually defines (a typo used to render as a red
+# tile reading "unknown check: ..."), that `depends_on` points at a real server,
+# that a `log_file` is absolute, that no two tiles share a key or a name, and —
+# the shape that matters most — that a server declares exactly ONE active probe.
+# server_health() resolves `check` before `health_url`, so an entry carrying both
+# advertised a health URL on /api/servers that was never pinged.
+#
+# A factory rather than a literal because four entries interpolate values this
+# composition root owns: PORT, the two startup logs, and the Letta log cache.
+from servers.registry import build_server_specs as _build_server_specs  # noqa: E402
+from servers.registry import as_configs as _server_configs  # noqa: E402
+
+SERVER_SPECS = _build_server_specs(
+    port=PORT,
+    letta_base_url=LETTA_BASE_URL,
+    letta_docker_host=LETTA_DOCKER_HOST,
+    letta_remote_log_cache=LETTA_REMOTE_LOG_CACHE,
+    executor_startup_log=EXECUTOR_STARTUP_LOG,
+    logger_api_startup_log=LOGGER_API_STARTUP_LOG,
+)
+SERVERS = _server_configs(SERVER_SPECS)
 
 # SSH_CONNECTIONS, SSH_CONNECT_TIMEOUT, SSH_HEALTH_POLL_INTERVAL,
 # SSH_HEALTH_FAIL_THRESHOLD and SSH_LOG_TAIL moved to monitoring/ssh_checks.py
@@ -6359,41 +5940,73 @@ def start_browser_server():
                                       f'(stderr: {result.stderr[-300:] if result.stderr else ""})'}
 
 
-RESTART_HANDLERS = {
-    'win10-node': restart_win10_node,          # revive WSL node via the Windows host
-    'executor': start_executor_server,        # script frees the port + relaunches
-    'mcp-proxy': start_executor_server,        # mcp-proxy :8789 is part of that script
-    'dashboard': restart_dashboard_server,
-    'logger-api': start_logger_api,            # idempotent self-healing compose up
-    'frita-executor': restart_frita_executor,  # docker recovery + idempotent deploy
-    'browser-server': start_browser_server,    # browser automation for relay_message_to_chatgpt
-    'lettabot': lambda: _restart_user_unit('lettabot', 'lettabot.service'),
-    'thought-bridge': lambda: _restart_user_unit('thought-bridge', 'thought-bridge.service'),
-    'mazda-tools-mcp': lambda: _restart_user_unit('mazda-tools-mcp', 'mazda-tools-mcp.service'),
-    'letta': lambda: _restart_remote(
-        'letta',
-        'docker restart letta-server 2>&1 | tail -3 || '
-        '(cd ~/letta-src && docker compose restart 2>&1 | tail -3)'),
-    'dashboard-proxy': lambda: _restart_remote(
-        'dashboard-proxy',
-        'systemctl --user restart dashboard-proxy.service 2>&1 | tail -3 || '
-        'echo "no dashboard-proxy.service — start mechanism unknown, please configure"'),
-    'document-vision': restart_document_vision,
-    'mazda-categorizer-llm': lambda: restart_mazda_categorizer_llm(),
-    'chatgpt-provider': restart_chatgpt_provider,  # swap provider row to standby token
-}
-RESTARTABLE_KEYS = set(RESTART_HANDLERS)
+# The Restart buttons. `RestartCommand` (servers/restart.py) pairs a key with
+# the callable that services it, so a key and its handler stop being two facts;
+# `RESTART_HANDLERS` and `RESTARTABLE_KEYS` are derived views of the registry.
+#
+# The handlers stay here: they are behaviour bound to this module's own state,
+# and moving them is round 23's job. What the registry adds today is the check
+# nothing was making — that every Server Management tile HAS a command. A tile
+# with none renders without a Restart button, which reads as a design choice
+# rather than a missing registration, and breaks this dashboard's standing
+# promise that the user never needs the command line.
+from servers.restart import RestartCommand, RestartRegistry  # noqa: E402
+
+RESTART_REGISTRY = RestartRegistry([
+    RestartCommand(key='win10-node', handler=restart_win10_node,
+                   note='revive WSL node via the Windows host'),
+    RestartCommand(key='executor', handler=start_executor_server,
+                   note='script frees the port + relaunches'),
+    RestartCommand(key='mcp-proxy', handler=start_executor_server,
+                   note='mcp-proxy :8789 is part of that script'),
+    RestartCommand(key='dashboard', handler=restart_dashboard_server),
+    RestartCommand(key='logger-api', handler=start_logger_api,
+                   note='idempotent self-healing compose up'),
+    RestartCommand(key='frita-executor', handler=restart_frita_executor,
+                   note='docker recovery + idempotent deploy'),
+    RestartCommand(key='browser-server', handler=start_browser_server,
+                   note='browser automation for relay_message_to_chatgpt'),
+    RestartCommand(
+        key='lettabot',
+        handler=lambda: _restart_user_unit('lettabot', 'lettabot.service')),
+    RestartCommand(
+        key='thought-bridge',
+        handler=lambda: _restart_user_unit('thought-bridge',
+                                           'thought-bridge.service')),
+    RestartCommand(
+        key='mazda-tools-mcp',
+        handler=lambda: _restart_user_unit('mazda-tools-mcp',
+                                           'mazda-tools-mcp.service')),
+    RestartCommand(
+        key='letta',
+        handler=lambda: _restart_remote(
+            'letta',
+            'docker restart letta-server 2>&1 | tail -3 || '
+            '(cd ~/letta-src && docker compose restart 2>&1 | tail -3)')),
+    RestartCommand(
+        key='dashboard-proxy',
+        handler=lambda: _restart_remote(
+            'dashboard-proxy',
+            'systemctl --user restart dashboard-proxy.service 2>&1 | tail -3 || '
+            'echo "no dashboard-proxy.service — start mechanism unknown, '
+            'please configure"')),
+    RestartCommand(key='document-vision', handler=restart_document_vision),
+    RestartCommand(key='mazda-categorizer-llm',
+                   handler=lambda: restart_mazda_categorizer_llm()),
+    # Its tile was retired on 2026-08-19; the handler is kept deliberately, so
+    # the registry covers the tiles rather than equalling them.
+    RestartCommand(key='chatgpt-provider', handler=restart_chatgpt_provider,
+                   note='swap provider row to standby token'),
+])
+RESTART_REGISTRY.check_covers(s['key'] for s in SERVERS)
+
+RESTART_HANDLERS = RESTART_REGISTRY.as_handler_map()
+RESTARTABLE_KEYS = RESTART_REGISTRY.keys
 
 
 def restart_server(key):
     """Dispatch a restart for any Server Management entry. Returns {ok, text}."""
-    handler = RESTART_HANDLERS.get(key)
-    if handler is None:
-        return {'ok': False, 'text': f'No restart handler for "{key}".'}
-    try:
-        return handler()
-    except Exception as e:
-        return {'ok': False, 'text': f'restart {key} error: {e}'}
+    return RESTART_REGISTRY.dispatch(key)
 
 
 # ── Remote Letta server log pulling (SSH) ─────────────────────────────────────

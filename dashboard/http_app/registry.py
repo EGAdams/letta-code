@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass
 from typing import Optional
 
-from .ports import ScannerPort
+from .ports import AgentsPort, ReportsPort, ScannerPort, ServersPort
 
 
 def _server():
@@ -50,6 +50,17 @@ class _ServerScannerPort:
         return _server().SCANNER_IMAGE_URL_PREFIX
 
     def image_path(self, key: str) -> Optional[str]:
+        # Round 13 moved `SCANNERS` to hardware/scanners.py, where it is now a
+        # derived view of typed `ScannerSpec`s. This adapter is where that would
+        # have been felt — and it is the whole argument for round 12 that only
+        # this file could feel it, because the route asks "where is this
+        # scanner's image?" and never learned that a spec is a dict.
+        #
+        # It kept the dict read rather than switching to the spec: ~10 tests
+        # monkeypatch `server.SCANNERS` with plain dicts to drive unknown and
+        # misconfigured scanners, and reading the typed specs directly would
+        # make those patches stop landing while still looking green. Round 22
+        # owns that switch, along with the call sites in server.py.
         module = _server()
         spec = module.SCANNERS.get(key)
         if not spec:
@@ -75,6 +86,60 @@ class _ServerScannerPort:
         return _server().fix_deskjet_printer()
 
 
+class _ServerReportsPort:
+    """`ReportsPort`'s round-13 half: the month tabs and the report cards.
+
+    Everything is read off `server` at call time, not bound in `__init__` —
+    ~15 tests drive the report paths by monkeypatching
+    `server.ROL_FINANCE_REPORTS` / `server.ROL_FINANCES_REPORTS_MONTHS`, and a
+    port that captured the registry module's own globals instead would ignore
+    every one of them while looking exactly like it worked.
+    """
+
+    @property
+    def url_prefix(self) -> str:
+        return _server().ROL_FINANCES_REPORTS_URL_PREFIX
+
+    def resolve_month_key(self, requested: Optional[str]) -> str:
+        module = _server()
+        months = module.ROL_FINANCES_REPORTS_MONTHS
+        default = module.ROL_FINANCES_REPORTS_DEFAULT_MONTH
+        return requested if requested in months else default
+
+    def cards_for_month(self, month_key: str) -> list:
+        return _server()._rol_finance_reports_for_month(month_key)
+
+
+class _ServerServersPort:
+    """`ServersPort`'s round-13 half: the registry the tab is drawn from."""
+
+    def all(self) -> list:
+        return _server().SERVERS
+
+    def restartable_keys(self) -> frozenset:
+        return frozenset(_server().RESTARTABLE_KEYS)
+
+
+class _ServerAgentsPort:
+    """`AgentsPort`'s round-13 half: resolving the receptionist."""
+
+    #: Toyota is the receptionist the voice path routes through. The name is
+    #: the roster key, so it lives with the code that looks it up rather than
+    #: being spelled again in a route.
+    RECEPTIONIST_NAME = 'Toyota'
+
+    def receptionist(self) -> Optional[dict]:
+        module = _server()
+        cfg = next((a for a in module.LETTA_AGENTS
+                    if a['name'] == self.RECEPTIONIST_NAME), None)
+        if cfg is None:
+            return None
+        agent_id = module.get_letta_id(cfg)
+        if not agent_id:
+            return None
+        return {'name': self.RECEPTIONIST_NAME, 'agent_id': agent_id}
+
+
 @dataclass(frozen=True)
 class Ports:
     """Everything the route ladders are allowed to depend on.
@@ -86,8 +151,16 @@ class Ports:
     """
 
     scanner: ScannerPort
+    reports: ReportsPort
+    servers: ServersPort
+    agents: AgentsPort
 
 
 def current_ports() -> Ports:
     """Build the port bundle for this call. Never cache the result."""
-    return Ports(scanner=_ServerScannerPort())
+    return Ports(
+        scanner=_ServerScannerPort(),
+        reports=_ServerReportsPort(),
+        servers=_ServerServersPort(),
+        agents=_ServerAgentsPort(),
+    )

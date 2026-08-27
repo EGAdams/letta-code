@@ -94,13 +94,56 @@ class ReportsPort(Protocol):
     """24 names. Report discovery, path aliasing, status classification, the
     month and receipt-only queries, and the three HTML builders. The biggest
     port, and the one most likely to want splitting once round 16 has moved
-    the HTML out. Populated by rounds 16, 20 and 25."""
+    the HTML out. Rounds 16, 20 and 25 populate the rest.
+
+    Round 13 took the four config names off the ladder. Note what happened to
+    them, because it is the same lesson `ScannerPort` taught: the ladder was
+    joining `ROL_FINANCES_REPORTS_MONTHS` and
+    `ROL_FINANCES_REPORTS_DEFAULT_MONTH` to answer one question — *which month
+    tab is this request looking at?* That is `resolve_month_key()`, and the
+    route no longer knows the months are a dict.
+    """
+
+    @property
+    def url_prefix(self) -> str:
+        """The URL path the statement reports are served under.
+
+        Config the ladder matches paths against, not behaviour — a value, the
+        same way `ScannerPort.image_url_prefix` is.
+        """
+
+    def resolve_month_key(self, requested: Optional[str]) -> str:
+        """The month tab `requested` names, or the default if it names none.
+
+        Never raises and never returns an unknown key: an unrecognised month
+        falls back to the default tab, which is what the ladder did inline.
+        """
+
+    def cards_for_month(self, month_key: str) -> list:
+        """The statement report cards shown on `month_key`'s tab.
+
+        All-year cards live only under the default (January) tab, which is the
+        dashboard's all-year view.
+        """
 
 
 class AgentsPort(Protocol):
     """23 names. Roster, cards, voices, models, OAuth accounts, activity,
-    health, headless runs. Populated by round 24 — it is only tractable after
-    round 14 replaces the six hand-rolled caches underneath it."""
+    health, headless runs. Round 24 populates the rest — it is only tractable
+    after round 14 replaces the six hand-rolled caches underneath it.
+
+    Round 13 took `LETTA_AGENTS` off the ladder. The one route that read it was
+    scanning the roster for Toyota and then resolving its id: one question,
+    `receptionist()`.
+    """
+
+    def receptionist(self) -> Optional[dict]:
+        """`{'name', 'agent_id'}` for the receptionist, or None if unresolved.
+
+        None covers both "not on the roster" and "on the roster but its Letta
+        id could not be resolved" — the route answers the same error for both,
+        so the port does not distinguish them.
+        """
 
 
 class ModelStatsPort(Protocol):
@@ -110,8 +153,26 @@ class ModelStatsPort(Protocol):
 
 class ServersPort(Protocol):
     """14 names. The Server Management tab: status, logs, restart, deploy.
-    Populated by round 23, after round 13 has moved `SERVERS` out as a typed
-    collection."""
+    Round 23 populates the rest — the behaviour that reads the registry.
+
+    Round 13 moved `SERVERS` out to `servers/registry.py` as typed
+    `ServerSpec`s and took it, and `RESTARTABLE_KEYS`, off the ladder.
+    """
+
+    def all(self) -> list:
+        """Every Server Management entry, in tab order.
+
+        Still the legacy flat dicts: `servers/registry.py` derives them from
+        the specs, and round 23 is what turns the ladder's readers into
+        something that asks the spec directly.
+        """
+
+    def restartable_keys(self) -> frozenset:
+        """Which entries have a Restart button.
+
+        A frozenset, not the registry: the ladder only ever asks whether one
+        key is in it.
+        """
 
 
 class MonitoringPort(Protocol):

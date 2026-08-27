@@ -75,11 +75,12 @@ class GetRoutesMixin:
             return self.json_response({'ok': True, 'agent_id': strategy.agent_id})
 
         if path == '/api/receptionist-agent':
-            cfg = next((a for a in srv.LETTA_AGENTS if a['name'] == 'Toyota'), None)
-            rid = srv.get_letta_id(cfg) if cfg else None
-            if not rid:
+            receptionist = current_ports().agents.receptionist()
+            if receptionist is None:
                 return self.json_response({'ok': False, 'error': 'receptionist agent not found'})
-            return self.json_response({'ok': True, 'agent_id': rid, 'name': 'Toyota'})
+            return self.json_response({
+                'ok': True, 'agent_id': receptionist['agent_id'],
+                'name': receptionist['name']})
 
         if path == '/api/agent-voice':
             return self.json_response(srv.agent_voice_payload(agent_id))
@@ -177,7 +178,7 @@ class GetRoutesMixin:
                     'health_url': s.get('health_url'),
                     'skills': s.get('skills', []),
                 }
-                for s in srv.SERVERS
+                for s in current_ports().servers.all()
             ])
 
         if path == '/api/server-logs':
@@ -204,10 +205,11 @@ class GetRoutesMixin:
             }
             status_by_key = {}
             container_states = [None]  # lazily probed once per build if needed
-            for cfg in srv.SERVERS:
+            restartable_keys = current_ports().servers.restartable_keys()
+            for cfg in current_ports().servers.all():
                 has_active_check = cfg.get('health_url') or cfg.get('tcp_check') or cfg.get('check')
                 key = cfg['key']
-                restartable = key in srv.RESTARTABLE_KEYS
+                restartable = key in restartable_keys
                 health = None
                 if has_active_check:
                     health = srv.cached_server_health(cfg)
@@ -263,12 +265,11 @@ class GetRoutesMixin:
             return self.json_response(result)
 
         if path == '/api/rol-finance-reports':
-            month_key = query.get('month', [srv.ROL_FINANCES_REPORTS_DEFAULT_MONTH])[0]
-            if month_key not in srv.ROL_FINANCES_REPORTS_MONTHS:
-                month_key = srv.ROL_FINANCES_REPORTS_DEFAULT_MONTH
+            reports = current_ports().reports
+            month_key = reports.resolve_month_key(query.get('month', [None])[0])
             base_dir = srv._rol_reports_base_dir(month_key)
             result = []
-            for r in srv._rol_finance_reports_for_month(month_key):
+            for r in reports.cards_for_month(month_key):
                 report_file = os.path.join(base_dir, r['dir'], 'report.html')
                 exists = os.path.isfile(report_file)
                 status = srv._classify_report_status(report_file) if exists else 'missing'
@@ -277,7 +278,7 @@ class GetRoutesMixin:
                     'label': r['label'],
                     'exists': exists,
                     'status': status,
-                    'url': f'{srv.ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html' if exists else None,
+                    'url': f'{reports.url_prefix}/{month_key}/{r["dir"]}/report.html' if exists else None,
                 }
                 # Red and yellow reports carry the human-facing reason and
                 # recommended action pulled from the report itself, since the
@@ -416,9 +417,8 @@ class GetRoutesMixin:
 
         if path == srv.RECEIPT_ONLY_REPORT_PATH:
             try:
-                month_key = query.get('month', [srv.ROL_FINANCES_REPORTS_DEFAULT_MONTH])[0]
-                if month_key not in srv.ROL_FINANCES_REPORTS_MONTHS:
-                    month_key = srv.ROL_FINANCES_REPORTS_DEFAULT_MONTH
+                month_key = current_ports().reports.resolve_month_key(
+                    query.get('month', [None])[0])
                 body = srv.build_receipt_only_report_html(month_key)
             except Exception as e:
                 from html import escape as _esc
@@ -468,7 +468,7 @@ class GetRoutesMixin:
             self.wfile.write(data)
             return
 
-        if path.startswith(srv.ROL_FINANCES_REPORTS_URL_PREFIX + '/'):
+        if path.startswith(current_ports().reports.url_prefix + '/'):
             fp = srv._report_file_for_url(path)
             if fp:
                 data = srv._report_html_with_current_picker(fp).encode('utf-8')

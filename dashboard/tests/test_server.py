@@ -28,6 +28,7 @@ from monitoring import pc_metrics as _pc
 from model_stats import reader as _stats_reader
 from model_stats import usage_history as _usage_history_mod
 from finance.report_page import ReportRowMatch
+from servers.restart import RestartCommand, RestartRegistry
 
 REAL_CREATE_MAZDA_CONVERSATION = server._create_mazda_conversation
 
@@ -926,15 +927,30 @@ def test_restart_server_unknown_key_is_error():
 
 
 def test_restart_server_dispatches_to_handler(monkeypatch):
+    """Round 13 moved dispatch into RestartRegistry (Command).
+
+    This used to `setitem` on `server.RESTART_HANDLERS`. That dict is now a
+    derived view of the registry, so patching it changes a copy and nothing
+    else — the honest breakage plan rule 3 describes. Patch the registry, which
+    is the thing that dispatches.
+    """
     called = {}
 
     def fake_handler():
         called['hit'] = True
         return {'ok': True, 'text': 'ok'}
 
-    monkeypatch.setitem(server.RESTART_HANDLERS, 'executor', fake_handler)
+    monkeypatch.setattr(
+        server, 'RESTART_REGISTRY',
+        RestartRegistry([RestartCommand(key='executor', handler=fake_handler)]))
     r = server.restart_server('executor')
     assert r['ok'] is True and called.get('hit') is True
+
+
+def test_restart_handlers_view_cannot_drift_from_the_registry():
+    """The legacy dict is derived, not a second registration."""
+    assert server.RESTART_HANDLERS == server.RESTART_REGISTRY.as_handler_map()
+    assert server.RESTARTABLE_KEYS == server.RESTART_REGISTRY.keys
 
 
 def test_frita_executor_health_concern_flag_set_on_ghost(monkeypatch):

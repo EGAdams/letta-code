@@ -97,9 +97,15 @@ class TestThePortVocabulary:
             assert getattr(port, '_is_protocol', False), f'{port.__name__} is not a Protocol'
 
     def test_the_bundle_only_carries_ports_that_are_populated(self):
-        """A field per *populated* port. Thirteen empty adapters built per
-        request would answer no question."""
-        assert set(Ports.__dataclass_fields__) == {'scanner'}
+        """A field per *populated* port. An empty adapter built per request for
+        a port nobody calls yet would answer no question.
+
+        Round 12 populated `scanner`; round 13 added the config halves of
+        `reports`, `servers` and `agents`. The remaining ten are declared in
+        ports.py and stay out of the bundle until the round that fills them.
+        """
+        assert set(Ports.__dataclass_fields__) == {
+            'scanner', 'reports', 'servers', 'agents'}
 
 
 # ── the tax that must not come back ─────────────────────────────────────────
@@ -154,12 +160,23 @@ def _srv_references():
     return found
 
 
-#: Measured at the end of round 12, down from 220 sites / 167 names. These are
-#: ceilings, not targets: every later round should push them down as it
-#: converts its own port. A rise means someone reached for a free name instead
-#: of adding a port method — rule 13, and a failing build.
-SRV_SITE_CEILING = 147
-SRV_NAME_CEILING = 116
+#: Measured at the end of round 13, down from round 12's 147 / 116 and round
+#: 11's 220 / 167. These are ceilings, not targets: every later round should
+#: push them down as it converts its own port. A rise means someone reached for
+#: a free name instead of adding a port method — rule 13, and a failing build.
+#:
+#: Round 13 lowered them by eight names: the config it moved out
+#: (SERVERS, RESTARTABLE_KEYS, LETTA_AGENTS, ROL_FINANCES_REPORTS_MONTHS,
+#: ROL_FINANCES_REPORTS_DEFAULT_MONTH, ROL_FINANCES_REPORTS_URL_PREFIX,
+#: _rol_finance_reports_for_month) plus get_letta_id, which left with the
+#: receptionist lookup that was its only caller in the ladder.
+#:
+#: It also absorbed a rise it did not cause: a parallel feature added
+#: `srv._resolve_expense_receipt_path` in e96ace55 without lowering anything,
+#: which had this file failing on arrival. That name belongs to DocumentPort
+#: and leaves in round 20.
+SRV_SITE_CEILING = 134
+SRV_NAME_CEILING = 109
 
 
 class TestTheSrvCountOnlyEverFalls:
@@ -192,6 +209,15 @@ class TestTheSrvCountOnlyEverFalls:
             'clear_scanner_verification_lock', 'fix_deskjet_printer',
         }
         assert scanner_names & {n for _, n in _srv_references()} == set()
+
+    def test_the_config_round_13_moved_no_longer_reaches_through_srv(self):
+        """Round 13's own conversions, asserted where they can regress."""
+        config_names = {
+            'SERVERS', 'RESTARTABLE_KEYS', 'LETTA_AGENTS', 'get_letta_id',
+            'ROL_FINANCES_REPORTS_MONTHS', 'ROL_FINANCES_REPORTS_DEFAULT_MONTH',
+            'ROL_FINANCES_REPORTS_URL_PREFIX', '_rol_finance_reports_for_month',
+        }
+        assert config_names & {n for _, n in _srv_references()} == set()
 
 
 def test_the_registry_is_the_only_http_app_module_that_names_server():
