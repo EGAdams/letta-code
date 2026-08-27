@@ -170,7 +170,7 @@ FINANCE_REPORT_SPECS: tuple[FinanceReportSpec, ...] = (
                       dir='jet_blue__december_january_12_26_25_to_01_23_25'),
     FinanceReportSpec(key='jetblue-pdf2', label='Jet Blue PDF 2',
                       dir='jet_blue_january_february_01_27_to_02_25_25'),
-    FinanceReportSpec(key='platinum-year', label='Platinum Year',
+    FinanceReportSpec(key='platinum-year', label='Amex 6002 Year',
                       dir='platinum_business_credit_card_for_the_year',
                       all_year=True),
     FinanceReportSpec(key='diners-club-0587', label='Diners Club 0587',
