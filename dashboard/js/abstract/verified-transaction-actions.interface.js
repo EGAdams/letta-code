@@ -67,7 +67,7 @@ export function buildAddTaxPayload(expenseId) {
  * Read either write's response. Fails closed on anything unexpected: a
  * malformed reply means "the row is unchanged", never a guessed new amount.
  *
- * @returns {{ok: boolean, error: string, record: ?object, taxAdded: ?number}}
+ * @returns {{ok: boolean, error: string, record: ?object, taxAdded: ?number, warnings: string[]}}
  */
 export function readRowActionResponse(json) {
   if (!json || typeof json !== "object") {
@@ -76,6 +76,7 @@ export function readRowActionResponse(json) {
       error: "No response from the server.",
       record: null,
       taxAdded: null,
+      warnings: [],
     };
   }
   if (json.ok !== true) {
@@ -84,6 +85,7 @@ export function readRowActionResponse(json) {
       error: String(json.error || "The server refused the change."),
       record: null,
       taxAdded: null,
+      warnings: [],
     };
   }
   const record =
@@ -93,6 +95,9 @@ export function readRowActionResponse(json) {
     error: "",
     record,
     taxAdded: typeof json.tax_added === "number" ? json.tax_added : null,
+    warnings: Array.isArray(json.warnings)
+      ? json.warnings.filter((w) => typeof w === "string")
+      : [],
   };
 }
 
