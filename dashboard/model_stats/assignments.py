@@ -87,8 +87,8 @@ def build_unassigned_account_rows(
             continue
         rows.append({
             'id': f'oauth-account-{provider}',
-            'name': f'{meta["label"]} (unassigned)',
-            'model': '',
+            'name': meta['label'],
+            'model': 'Not assigned',
             'account': meta['account'],
             'account_label': meta['label'],
             'weekly_percent_remaining': weekly_percent_remaining_fn(provider),
