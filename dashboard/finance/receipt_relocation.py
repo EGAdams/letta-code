@@ -8,6 +8,14 @@ by-(date,amount) receipt index both key off the filename, not the database
 row. This module is the one place that turns "the row changed" into "the file
 on disk changed to match" -- an ABC port so MySqlExpenseRecordRepository never
 touches os.replace() directly, and a test can substitute a fake filesystem.
+
+`replace_file_if_clear` is the lower-level primitive underneath the port: the
+exists-check-then-replace policy that finance/recent_report_image.py's
+RecentReportImageSynchronizer also needs for its own (pointer-cache-keyed)
+rename. Both used to carry their own copy of that policy; sharing one means a
+fix to how collisions or a vanished source are handled applies to both paths
+at once, and is also why the two calls compose safely when a single edit
+triggers them back to back.
 """
 from __future__ import annotations
 
@@ -16,6 +24,52 @@ from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
 from pydantic import BaseModel, ConfigDict
+
+
+class FileReplaceOutcome(BaseModel):
+    """What happened when replace_file_if_clear tried to rename one file.
+
+    `reason` is only meaningful when `moved` is False: 'missing_source' (the
+    file to rename is already gone -- possibly because something else already
+    made this exact move), 'target_exists' (a real collision, the old file is
+    still there too), or 'error' (the OS refused the rename; `detail` carries
+    the exception text).
+    """
+    model_config = ConfigDict(frozen=True)
+
+    moved: bool = False
+    reason: str = ''
+    detail: str = ''
+
+
+def replace_file_if_clear(old_path: str, new_path: str, *,
+                          replace: Callable[[str, str], None] = os.replace,
+                          ) -> FileReplaceOutcome:
+    """Rename old_path -> new_path without os.replace()'s two sharp edges:
+    silently clobbering an existing target, and raising FileNotFoundError up
+    through a caller that has no source file to explain.
+
+    The single primitive both receipt-renaming paths in this codebase share
+    (FilesystemReceiptFileRelocator, and RecentReportImageSynchronizer's own
+    pointer-cache bookkeeping) -- before this, each had its own copy of the
+    same exists-check-then-replace logic, which was exactly how the two could
+    ever race each other on the same file in the first place.
+    """
+    if old_path == new_path:
+        return FileReplaceOutcome(moved=True)
+    if not os.path.exists(old_path):
+        # Nothing to move from. If the target is already sitting there, some
+        # other caller made this exact move first -- not a fault, just a
+        # winner already decided.
+        return FileReplaceOutcome(
+            moved=os.path.exists(new_path), reason='missing_source')
+    if os.path.exists(new_path):
+        return FileReplaceOutcome(reason='target_exists')
+    try:
+        replace(old_path, new_path)
+    except OSError as exc:
+        return FileReplaceOutcome(reason='error', detail=str(exc))
+    return FileReplaceOutcome(moved=True)
 
 
 class ReceiptRelocationResult(BaseModel):
@@ -86,16 +140,20 @@ class FilesystemReceiptFileRelocator(IReceiptFileRelocator):
                         'disk to rename.')
         extension = os.path.splitext(old_path)[1] or '.jpg'
         new_path = os.path.join(os.path.dirname(old_path), new_id_light + extension)
-        if os.path.exists(new_path):
-            return ReceiptRelocationResult(
-                warning=f'Filing key changed to "{new_id_light}", but a file '
-                        f'already exists at {new_path}; the old receipt file '
-                        'was left in place.')
-        try:
-            self._replace(old_path, new_path)
-        except OSError as exc:
+        outcome = replace_file_if_clear(old_path, new_path, replace=self._replace)
+        if not outcome.moved:
+            if outcome.reason == 'target_exists':
+                return ReceiptRelocationResult(
+                    warning=f'Filing key changed to "{new_id_light}", but a '
+                            f'file already exists at {new_path}; the old '
+                            'receipt file was left in place.')
+            if outcome.reason == 'missing_source':
+                return ReceiptRelocationResult(
+                    warning=f'Filing key changed to "{new_id_light}", but its '
+                            f'receipt file ({receipt_url}) vanished from disk '
+                            'while the rename was in progress.')
             return ReceiptRelocationResult(
                 warning=f'Filing key changed to "{new_id_light}", but '
-                        f'renaming its receipt file failed: {exc}')
+                        f'renaming its receipt file failed: {outcome.detail}')
         return ReceiptRelocationResult(
             relocated=True, new_receipt_url=os.path.basename(new_path))

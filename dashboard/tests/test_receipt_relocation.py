@@ -9,6 +9,7 @@ import os
 from finance.receipt_relocation import (
     FilesystemReceiptFileRelocator,
     NullReceiptFileRelocator,
+    replace_file_if_clear,
 )
 
 
@@ -82,3 +83,59 @@ def test_null_relocator_never_touches_a_file():
         receipt_url='anything.jpg', old_id_light='a_01_01_26_1_00',
         new_id_light='a_01_01_26_2_00')
     assert result == type(result)()
+
+
+# --------------------------------------------------------------------------
+# replace_file_if_clear: the primitive both rename paths in this codebase
+# share, so a fix to how a collision/vanished-source is handled applies to
+# FilesystemReceiptFileRelocator and RecentReportImageSynchronizer alike.
+# --------------------------------------------------------------------------
+
+def test_replace_file_if_clear_moves_a_real_file(tmp_path):
+    old = tmp_path / 'old.jpg'
+    old.write_bytes(b'x')
+    new = tmp_path / 'new.jpg'
+    outcome = replace_file_if_clear(str(old), str(new))
+    assert outcome.moved
+    assert not old.exists() and new.exists()
+
+
+def test_replace_file_if_clear_refuses_to_clobber_an_existing_target(tmp_path):
+    old = tmp_path / 'old.jpg'
+    old.write_bytes(b'old')
+    new = tmp_path / 'new.jpg'
+    new.write_bytes(b'already here')
+    outcome = replace_file_if_clear(str(old), str(new))
+    assert not outcome.moved
+    assert outcome.reason == 'target_exists'
+    assert old.read_bytes() == b'old' and new.read_bytes() == b'already here'
+
+
+def test_replace_file_if_clear_treats_a_prior_identical_move_as_success(tmp_path):
+    """If the source is already gone AND the target already exists, some
+    other caller already made this exact move -- not a fault to report."""
+    new = tmp_path / 'new.jpg'
+    new.write_bytes(b'already moved here')
+    outcome = replace_file_if_clear(str(tmp_path / 'old.jpg'), str(new))
+    assert outcome.moved
+    assert outcome.reason == 'missing_source'
+
+
+def test_replace_file_if_clear_reports_a_genuinely_vanished_source(tmp_path):
+    outcome = replace_file_if_clear(
+        str(tmp_path / 'old.jpg'), str(tmp_path / 'new.jpg'))
+    assert not outcome.moved
+    assert outcome.reason == 'missing_source'
+
+
+def test_replace_file_if_clear_reports_the_os_error_without_raising(tmp_path):
+    old = tmp_path / 'old.jpg'
+    old.write_bytes(b'x')
+
+    def _boom(_old, _new):
+        raise OSError('disk is full')
+
+    outcome = replace_file_if_clear(str(old), str(tmp_path / 'new.jpg'), replace=_boom)
+    assert not outcome.moved
+    assert outcome.reason == 'error'
+    assert 'disk is full' in outcome.detail

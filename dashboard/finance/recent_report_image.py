@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Callable, Mapping, MutableMapping, Sequence
 
 from finance.archive_path import build_id_light
+from finance.receipt_relocation import replace_file_if_clear
 
 
 class RecentReportImageSynchronizer:
@@ -122,17 +123,21 @@ class RecentReportImageSynchronizer:
             build_id_light(str(vendor), str(date), float(self._amount(rows))) + extension,
         )
         if new_path != old_path:
-            if os.path.exists(new_path):
-                if os.path.exists(old_path):
+            outcome = replace_file_if_clear(old_path, new_path, replace=self._replace)
+            if not outcome.moved:
+                if outcome.reason == 'missing_source':
+                    # old_path is already gone: some other mutation (e.g. the
+                    # expense-edit repository's own receipt relocation, see
+                    # finance/receipt_relocation.py) beat this call to the same
+                    # rename, and new_path not existing too means neither of
+                    # them actually succeeded -- nothing on disk to point at.
+                    return {'renamed': False,
+                            'warning': f'Image to rename is missing: {old_path}'}
+                if outcome.reason == 'target_exists':
                     return {'renamed': False,
                             'warning': f'Image rename target already exists: {new_path}'}
-                # old_path is already gone and new_path already exists: some
-                # other mutation (e.g. the expense-edit repository's own
-                # receipt relocation, see finance/receipt_relocation.py) beat
-                # this call to the same rename. Nothing left to move -- just
-                # catch this pointer's bookkeeping up to match.
-            else:
-                self._replace(old_path, new_path)
+                return {'renamed': False,
+                        'warning': f'Image rename failed: {outcome.detail}'}
         self._update_references(ids, new_path)
 
         for intake in matched:

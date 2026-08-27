@@ -96,6 +96,31 @@ def test_adding_sprite_to_meijer_changes_only_aggregate_amount(tmp_path):
     assert Path(result['path']).name == 'meijer_01_16_25_5_98.jpg'
 
 
+def test_a_rename_that_already_happened_elsewhere_is_not_an_error(tmp_path):
+    """The exact race this class now shares replace_file_if_clear with
+    finance/receipt_relocation.py to avoid: MySqlExpenseRecordRepository's own
+    receipt relocation can rename the file first (off the row's receipt_url),
+    so by the time this pointer-cache sync runs, old_path is already gone and
+    new_path already holds the (correctly renamed) file. That must read as
+    success, not a missing-file fault."""
+    already_renamed = tmp_path / 'meijer_07_14_25_31_25.jpg'
+    already_renamed.write_bytes(b'image')
+    stale_pointer_path = tmp_path / 'meijer_07_14_25_29_48.jpg'
+    pointer = {'intake': {'expense_ids': [1, 2],
+                          'archive_paths': [str(stale_pointer_path)]}}
+    rows = [
+        {'id': 1, 'vendor_key': 'meijer', 'date': '2025-07-14', 'amount': '-20.00'},
+        {'id': 2, 'vendor_key': 'meijer', 'date': '2025-07-14', 'amount': '-11.25'},
+    ]
+    service, written = _service(tmp_path, rows, pointer)
+
+    result = service.synchronize(1)
+
+    assert result == {'renamed': True, 'path': str(already_renamed)}
+    assert already_renamed.exists()
+    assert written[0]['intake']['archive_paths'] == [str(already_renamed)]
+
+
 def test_unrelated_expense_does_not_touch_the_image(tmp_path):
     old = tmp_path / 'meijer_07_14_25_29_48.jpg'
     old.write_bytes(b'image')
