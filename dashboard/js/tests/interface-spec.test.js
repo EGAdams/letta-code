@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import {
   STATUS_LABELS,
   Status,
@@ -101,14 +103,39 @@ describe("the Voice Communication workspace data", () => {
     }
   });
 
-  test("unbuilt interfaces are not dressed up as finished", () => {
-    const byId = Object.fromEntries(
-      voiceCommunicationSpecs.map((s) => [s.id, s]),
-    );
-    expect(byId["voice-session"].status).toBe(Status.PLANNED);
-    expect(byId["iconversationagent"].status).toBe(Status.PLANNED);
-    // A planned interface must not claim tests it does not have.
-    expect(byId["voice-session"].tests.files).toEqual([]);
+  // The guide is only worth reading if its status pills and test counts track
+  // the tree. These two tests are what stop it drifting back into a wish list:
+  // a Planned tab may not claim tests, and a claimed test file must exist.
+  test("a Planned interface does not claim tests it cannot have", () => {
+    for (const spec of voiceCommunicationSpecs) {
+      if (spec.status !== Status.PLANNED) continue;
+      expect(spec.tests?.files ?? []).toEqual([]);
+    }
+  });
+
+  test("every named test file actually exists", () => {
+    // dashboard/ is two levels up from js/tests/.
+    const dashboardDir = resolve(dirname(import.meta.path), "..", "..");
+    const repoRoot = resolve(dashboardDir, "..");
+    for (const spec of voiceCommunicationSpecs) {
+      for (const file of spec.tests?.files ?? []) {
+        // Only paths inside this repo, naming exactly one file, are
+        // checkable. Entries also name directory-shaped groupings
+        // ("dashboard/tests/ (voice + router)"), globs, and files in the
+        // deprecated /home/adamsl/voice_agent prototype.
+        const checkable =
+          /^(js\/tests\/|dashboard\/tests\/)[\w./-]+\.(js|py)$/.test(file.path);
+        if (!checkable) continue;
+        const base = file.path.startsWith("dashboard/")
+          ? repoRoot
+          : dashboardDir;
+        expect(`${file.path} exists`).toBe(
+          existsSync(resolve(base, file.path))
+            ? `${file.path} exists`
+            : `${file.path} is missing`,
+        );
+      }
+    }
   });
 
   test("every status used has a human label", () => {

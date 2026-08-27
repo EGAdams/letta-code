@@ -5,14 +5,14 @@ export const lettaAgentAdapterSpec = {
   name: "LettaAgentAdapter",
   group: "Planned core",
   tagline:
-    "Partially real: LettaClient isolates the HTTP, but there is no conversation adapter and no streaming.",
+    "Two adapters now: LettaClient isolates Python's HTTP, and a browser LettaAgentAdapter satisfies IConversationAgent. Still no streaming.",
   status: Status.PARTIAL,
   statusNote:
-    "Transport adapter exists and is used by five strategies. The conversation-shaped adapter does not.",
+    "Python transport adapter + five strategies, plus js/implementation/letta-agent-adapter.js (18 tests). No caller for the browser one yet; nothing streams.",
   responsibility: [
     "Translate the Letta API into whatever contract the application actually needs, so no policy object ever learns Letta's URL shapes, payload keys, or response envelope.",
     "Today one small piece of this is real and load-bearing: LettaClient wraps urllib with three methods, and every Letta-backed strategy in the voice system goes through it. Swapping the transport (or faking it in tests) is a one-object change, and all five strategies' tests do exactly that.",
-    "What is missing is the conversation-shaped adapter: translating a Letta message stream into typed assistant events with a generation identity, and cancelling a run. LettaClient only knows request/response.",
+    "The conversation-shaped adapter now exists on the browser side: LettaAgentAdapter turns one turn into typed AgentEvents carrying a generation identity, and owns the two transport facts renderers keep having to remember — the 930-second budget and the conversation_id that must be echoed back or the CLI silently starts a fresh session. What it still cannot do is stream or cancel server-side work; the endpoint offers neither.",
   ],
   contract: {
     language: "python",
@@ -22,10 +22,14 @@ export const lettaAgentAdapterSpec = {
   send_message(agent_id, text)    POST /v1/agents/{id}/messages, stream=False
   resolve_agent_id(name)          GET /v1/agents?limit=200
 
-LettaAgentAdapter   (proposed — not implemented)
+LettaAgentAdapter   js/implementation/letta-agent-adapter.js   (shipped)
 
-  submit(turn, generationId)  -> stream of typed AgentEvent
-  cancel(generationId)        -> void`,
+  submit(turn, generationId)  -> AsyncGenerator<AgentEvent>
+                                 assistant_text, then terminal
+  cancel(generationId)        -> void   delivery-side only
+
+  LETTA_TURN_TIMEOUT_MS = 930000   the 900s server budget, plus headroom
+  conversation resume: storage["msi-conv-<agent>"], per agent`,
     note: "send_message hardcodes stream:false. Letta v0.16.7 on this server has streaming and background mode broken, which is why — but the limitation is currently invisible to callers.",
   },
   implementations: [
@@ -67,15 +71,21 @@ LettaAgentAdapter   (proposed — not implemented)
     },
     {
       name: "LettaAgentAdapter",
+      kind: "current",
+      file: "js/implementation/letta-agent-adapter.js",
+      note: "The browser conversation adapter, over /api/letta-code-message. Request/response, so it yields two events at the end rather than streaming.",
+    },
+    {
+      name: "Streaming Letta adapter",
       kind: "planned",
-      file: "/home/adamsl/talking_agent_parts/",
-      note: "The streaming, cancellable conversation adapter. Not started.",
+      file: "—",
+      note: "Blocked on the server: Letta v0.16.7 here has streaming and background mode broken. The port shape already allows it, so this stays an adapter change.",
     },
   ],
   dependencies: {
     usedBy: [
       "All five Letta-backed strategies in voice/ and router/",
-      "IConversationAgent (planned) — would be its first adapter",
+      "IConversationAgent — LettaAgentAdapter is its first adapter",
     ],
     dependsOn: ["Letta HTTP API", "urllib (stdlib)"],
     note: "Correct direction: the strategies depend on LettaClient's three methods, and every strategy's tests inject a fake client with the same three methods. No strategy imports urllib.",
@@ -86,11 +96,14 @@ LettaAgentAdapter   (proposed — not implemented)
       "Five use-case adapters share one pattern: clear history, one strict-JSON prompt, strict parse, fail closed.",
       "Agent-id resolution is centralised, and the note-command factory now degrades to a fail-closed service when Letta is unreachable instead of raising into the request handler.",
       "Every adapter is tested with an injected fake client — no test touches the network.",
+      "The browser adapter exists and passes the shared IConversationAgent contract suite, so a fake and the real thing are interchangeable to a caller.",
+      "The 930s timeout and per-agent conversation resume now live in one object instead of being re-remembered by each renderer, and a failed turn no longer risks overwriting a good conversation id.",
     ],
     gaps: [
       "No streaming: send_message pins stream:false, so a long reply arrives as one lump.",
-      "No cancellation — a Letta call runs to completion or times out.",
-      "No generation identity on any call, so a late reply cannot be fenced.",
+      "No cancellation of server-side work — LettaAgentAdapter.cancel() suppresses delivery only, because the endpoint offers nothing else. That is a narrower guarantee than the name suggests and is documented at the call site.",
+      "Generation identity exists in the browser adapter but on none of the five Python strategies, so a late reply from those still cannot be fenced.",
+      "Nothing calls the browser adapter yet — the renderers keep their own fetch.",
       "resolve_agent_id fetches up to 200 agents and scans linearly on every cold build.",
       "A provider auth failure is indistinguishable from 'still thinking' at the UI. The lc-gemini 401 below went unnoticed for a day because every adapter correctly failed closed and the dashboard simply looked idle.",
     ],
@@ -121,6 +134,12 @@ LettaAgentAdapter   (proposed — not implemented)
         proves:
           "Strict JSON parsing and refusal to act on invented model output.",
       },
+      {
+        path: "js/tests/letta-agent-adapter.test.js",
+        count: 18,
+        proves:
+          "The shared contract suite, plus the characterization of the live call: exact POST body, the 930s timeout, per-agent conversation resume, ok:false surfacing the server error, and no network call at all for an empty turn.",
+      },
     ],
     untested: [
       "LettaClient itself has no direct unit test — it is only exercised through fakes that replace it.",
@@ -129,6 +148,7 @@ LettaAgentAdapter   (proposed — not implemented)
     ],
     next: [
       "A LettaClient test against a stubbed urlopen, pinning URL shapes and the clear_messages-never-raises guarantee.",
+      "A test that the browser adapter is what the renderer actually calls — meaningful only once the renderer is moved onto it.",
       "A test asserting a provider auth failure produces a distinguishable status, so the dashboard can show 'LLM auth failed' instead of silently waiting.",
     ],
   },

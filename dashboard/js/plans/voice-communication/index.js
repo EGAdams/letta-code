@@ -9,6 +9,7 @@ import { noteCommandSpec } from "./specs/note-command-channel.js";
 import { overviewSpec } from "./specs/overview.js";
 import { routeStrategySpec } from "./specs/route-strategy.js";
 import { speechSynthesisSpec } from "./specs/speech-synthesis.js";
+import { spokenOutputPolicySpec } from "./specs/spoken-output-policy.js";
 import { transcriptionSpec } from "./specs/transcription.js";
 import { voiceSessionSpec } from "./specs/voice-session.js";
 
@@ -24,10 +25,12 @@ import { voiceSessionSpec } from "./specs/voice-session.js";
 export const voiceCommunicationSpecs = [
   overviewSpec,
 
-  // Named in the original plan; none of these is fully built.
+  // Named in the original plan. The browser-side core now exists and is
+  // tested; what is still missing is a caller, not the objects.
   voiceSessionSpec,
-  conversationCoordinatorSpec,
   conversationAgentSpec,
+  spokenOutputPolicySpec,
+  conversationCoordinatorSpec,
   lettaAgentAdapterSpec,
 
   // Real, tested seams that carry the system today.

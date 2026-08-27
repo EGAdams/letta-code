@@ -71,6 +71,10 @@ bun test js/tests
 | `tab-factory.interface.js`         | Factory Method           | agent/server/connection `createElement` blocks |
 | `agent-voice-catalog.interface.js` | Strategy / Registry      | per-agent `voiceFor()` + `AGENT_VOICE_PREFERENCES` |
 | `startup-gate.js`                  | Template Method          | the two 135-line copy-pasted `startupGate` / `agentGate` IIFEs |
+| `voice-session.js`                 | State                    | — (new: one conversation's lifecycle + generation fencing) |
+| `session-clock.js`                 | Strategy (injected ports)| — (new: `Clock` / `IdSource`, so lifecycle tests need no sleeps) |
+| `conversation-agent.interface.js`  | Adapter / Strategy       | the raw `POST /api/letta-code-message` in `detail-renderers.js` |
+| `spoken-output-policy.js`          | Strategy                 | per-renderer "is this speakable?" filtering |
 | `model-stats-render.js`            | pure renderer            | `renderModelStats()` / `renderRateOfChange()` |
 | `pc-metrics-render.js`             | pure renderer            | `renderPcMetrics()` |
 

@@ -8,7 +8,7 @@ export const overviewSpec = {
     "What the voice system is, what actually shipped, and what is still only a plan.",
   status: Status.PARTIAL,
   statusNote:
-    "A working voice stack ships inside the dashboard. The Pipecat rebuild described in the original plan has not been started.",
+    "A working voice stack ships inside the dashboard. The plan's browser-side core objects now exist and are tested, but no live caller uses them yet. The Pipecat rebuild has not been started.",
   links: [
     {
       label: "Original plan document (v1, verbatim)",
@@ -42,11 +42,20 @@ export const overviewSpec = {
     TranscriptBuffer             final/interim accumulation
     VoiceCommandChannel          the one real coordinator
 
-Planned, not built (talking_agent_parts/ contains only the plan document)
+Built from the plan, browser side (tested; no live caller yet)
 
-    VoiceSession  ConversationCoordinator  IConversationAgent
-    LettaAgentAdapter  SpokenOutputPolicy  PipelineFactory
-    ISessionObserver  IClock/IIdSource  VoiceCommunicationApplication`,
+  Browser  dashboard/js/
+    VoiceSession                 lifecycle + generation fencing
+    Clock / IdSource             injected time and identity
+    ConversationAgent            submit(turn, gen) -> AgentEvent stream
+    LettaAgentAdapter            the first adapter, over the live endpoint
+    FakeConversationAgent        the second, for tests and offline UI
+    SpokenOutputPolicy           the one gate in front of the speaker
+
+Still only a plan
+
+    ConversationCoordinator  PipelineFactory
+    VoiceCommunicationApplication`,
     note: "Every Letta-backed strategy above follows the same shape: clear the agent's history, send one strict-JSON prompt, parse it strictly, and fail closed on anything unexpected.",
   },
   implementations: [
@@ -91,13 +100,14 @@ Planned, not built (talking_agent_parts/ contains only the plan document)
       "Speech synthesis works server-side (edge-tts) with a per-agent voice catalog.",
       "Every port has an ABC/base class, at least one implementation, and unit tests with injected collaborators.",
       "The shared worker agent (transcript-cleanup-agent) runs on chatgpt-plus-pro/gpt-5.6-luna as of 2026-08-13, replacing the dead lc-gemini handle that had been silently failing every voice-cleanup, receptionist and note-command call. Verified live end to end.",
-      "This guide is the shipped documentation: 13 tabs served at Project Plans → Voice Communication, navigated from the dashboard's own sub-nav, with the interface list driven by the same specs that render each page so the tabs cannot drift from the content.",
+      "The plan's browser-side core is now built and tested: VoiceSession (generation fencing), the ConversationAgent port with a Letta adapter and a first-class fake sharing one contract suite, and SpokenOutputPolicy as the single gate in front of the speaker — 57 tests across five files. None of it has a caller yet; that is the next step, not a missing piece of the design.",
+      "This guide is the shipped documentation: 14 tabs served at Project Plans → Voice Communication, navigated from the dashboard's own sub-nav, with the interface list driven by the same specs that render each page so the tabs cannot drift from the content.",
     ],
     gaps: [
-      "There is no session object. Nothing owns 'one conversation' — state is split across ListenerState, RecorderState and per-render closures.",
-      "There is no generation fencing, so a late reply from a superseded turn cannot be discarded. Barge-in/interruption is impossible today.",
-      "There is no IConversationAgent port. Renderers call POST /api/letta-code-message directly, so a non-Letta conversation engine cannot be substituted.",
-      "Nothing is cancellable. Every Letta call runs to completion or times out.",
+      "The session object exists but nothing constructs one, so in the live UI conversation state is still split across ListenerState, RecorderState and per-render closures.",
+      "Generation fencing exists and is tested, and protects nothing yet: no renderer holds a session, so a late reply from a superseded turn is still spoken. Barge-in needs that adoption plus one interrupt() call from ContinuousListener.",
+      "The IConversationAgent port exists with two adapters, but renderers still call POST /api/letta-code-message directly, so nothing in production benefits from it yet.",
+      "Cancellation is delivery-side only — the endpoint has no server-side cancel, so a cancelled Letta call still runs to completion.",
       "The Letta adapter is request/response only — no streaming, so replies arrive in one lump after up to 900 seconds.",
       "Every finalized speech fragment costs one 3-6s LLM round-trip to the completeness detector. That, not model choice, is the dominant latency in the loop — see the Note Command Channel tab.",
     ],
@@ -123,7 +133,7 @@ Planned, not built (talking_agent_parts/ contains only the plan document)
       "No end-to-end test drives audio in and asserts speech out.",
     ],
     next: [
-      "A characterization test for the current /api/letta-code-message call path, so an IConversationAgent port can be introduced without changing behaviour.",
+      "A renderer-level test that a reply arriving after an interrupt is never spoken — the same assertion as the VoiceSession unit test, one layer up, and the proof that adoption worked.",
       "A latency measurement harness: end-of-speech → transcript, and transcript → first audio.",
     ],
   },
@@ -131,7 +141,7 @@ Planned, not built (talking_agent_parts/ contains only the plan document)
     {
       title: "What actually runs today",
       caption:
-        "Solid boxes exist and are tested. The dashed box is the gap: no session or conversation port sits between the UI and Letta, so renderers reach the agent directly.",
+        "Solid boxes exist, are tested, and run. The dashed box is the gap as the live UI still has it: VoiceSession and the conversation port now exist in js/, but no renderer holds one, so renderers still reach the agent directly.",
       code: `flowchart TB
   subgraph Browser
     Mic([Microphone])
@@ -233,9 +243,10 @@ Planned, not built (talking_agent_parts/ contains only the plan document)
     },
   ],
   nextWork: [
-    "Build VoiceSession — the smallest object that owns one conversation's identity, state and current generation. Everything else on this page is blocked behind it.",
+    "Adopt what was just built: give InputOptionsRenderer a VoiceSession and route its send through LettaAgentAdapter and SpokenOutputPolicy. Until a renderer holds a session, the fence protects nothing.",
+    "Then AgentsRouterRenderer, the same way.",
+    "Then barge-in: ContinuousListener calls session.interrupt() when speech starts during SPEAKING. That is the payoff the whole first slice was for.",
     "Cut the completeness round-trip: a cheap local pre-filter that skips the LLM for obviously-incomplete fragments would remove most of the 3-6s wait per spoken pause.",
-    "Extract IConversationAgent from the direct /api/letta-code-message calls, with the existing Letta path as its first adapter.",
     "Decide, explicitly, whether the Pipecat rebuild is still the direction or whether the shipped dashboard stack is now the system. Right now the plan and the code disagree, and that ambiguity is itself a risk.",
   ],
 };

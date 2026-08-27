@@ -13,6 +13,9 @@ binds it to the page. (The cutover is done — there is no inline `<script>` lef
 | Concrete class              | Extends                | Wires to | File |
 |-----------------------------|------------------------|----------|------|
 | `FetchHttpClient`           | `HttpClient`           | `window.fetch` | `fetch-http-client.js` |
+| `LettaAgentAdapter`         | `ConversationAgent`    | `POST /api/letta-code-message` (owns the 930s budget + per-agent conversation resume) | `letta-agent-adapter.js` |
+| `FakeConversationAgent`     | `ConversationAgent`    | nothing — scripted; passes the same contract suite | `fake-conversation-agent.js` |
+| `SystemClock` / `RandomIdSource` | `Clock` / `IdSource` | `Date`, `crypto.randomUUID` (degrades to a counter) | `system-session-primitives.js` |
 | `DomConsoleView`            | `ConsoleView`          | a `.msi-console` element (+ `mount()` helper) | `dom-console-view.js` |
 | `BrowserSpeechSynthesizer`  | `SpeechSynthesizer`    | `window.speechSynthesis` + `SpeechSynthesisUtterance` + `AgentVoiceCatalog` | `browser-speech-synthesizer.js` |
 | `MediaRecorderVoiceRecorder`| `VoiceRecorder`        | `navigator.mediaDevices` + `MediaRecorder` + `/api/voice` | `media-recorder-voice-recorder.js` |

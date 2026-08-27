@@ -11,13 +11,37 @@ export {
   MALE_VOICE_RE,
 } from "../abstract/agent-voice-catalog.interface.js";
 export {
+  AgentEventKind,
+  agentEvent,
+  ConversationAgent,
+  isSpeakable,
+  parseAgentEvent,
+  SPEAKABLE_KINDS,
+  TurnCancelledError,
+} from "../abstract/conversation-agent.interface.js";
+export {
   parseCompletenessDecision,
   parseNoteCommandOutcome,
 } from "../abstract/note-command-contracts.js";
 export { NoteDocument } from "../abstract/note-document.interface.js";
 export { ReceptionistTranscriptController } from "../abstract/receptionist-transcript-controller.js";
+export {
+  Clock,
+  IdSource,
+  ManualClock,
+  SequentialIdSource,
+} from "../abstract/session-clock.js";
+export {
+  RejectionReason,
+  SpokenOutputPolicy,
+} from "../abstract/spoken-output-policy.js";
 export { TranscriptBuffer } from "../abstract/transcript-buffer.js";
 export { VoiceCommandChannel } from "../abstract/voice-command-channel.js";
+export {
+  IllegalTransitionError,
+  SessionState,
+  VoiceSession,
+} from "../abstract/voice-session.js";
 export { ActivePoller } from "./active-poller.js";
 export { AgentActivityPoller } from "./agent-activity-poller.js";
 export {
@@ -62,12 +86,17 @@ export { DomNavigationController } from "./dom-navigation-controller.js";
 export { DomTabFactory } from "./dom-tab-factory.js";
 export { DomVendorReviewView } from "./dom-vendor-review-view.js";
 export { EdgeTtsSpeechSynthesizer } from "./edge-tts-speech-synthesizer.js";
+export { FakeConversationAgent } from "./fake-conversation-agent.js";
 export { FetchHttpClient } from "./fetch-http-client.js";
 export {
   HttpCompletenessDetector,
   HttpNoteCommandInterpreter,
 } from "./http-note-command-services.js";
 export { IntakeHaltAlert } from "./intake-halt-alert.js";
+export {
+  LETTA_TURN_TIMEOUT_MS,
+  LettaAgentAdapter,
+} from "./letta-agent-adapter.js";
 export { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
 export { ModelStatsHealthMonitor } from "./model-stats-health-monitor.js";
 export { NoteCommandPanelRenderer } from "./note-command-panel.js";
@@ -87,6 +116,10 @@ export {
   ServerLogController,
 } from "./server-log-controller.js";
 export { StatementReviewDialog } from "./statement-review-dialog.js";
+export {
+  RandomIdSource,
+  SystemClock,
+} from "./system-session-primitives.js";
 export {
   EditableTextareaSurface,
   ReadOnlyNoteSurface,

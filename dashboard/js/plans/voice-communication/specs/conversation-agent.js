@@ -5,23 +5,29 @@ export const conversationAgentSpec = {
   name: "IConversationAgent",
   group: "Planned core",
   tagline:
-    "The missing port. Renderers talk to Letta's HTTP endpoint directly, so no other engine can be substituted.",
-  status: Status.PLANNED,
+    "The port now exists, with two adapters and one shared contract suite. The renderers have not been moved onto it yet.",
+  status: Status.PARTIAL,
   statusNote:
-    "Not implemented. Four narrow Letta strategies and one direct fetch stand in for it.",
+    "js/abstract/conversation-agent.interface.js + LettaAgentAdapter + FakeConversationAgent, 29 tests. InputOptionsRenderer still fetches directly.",
   responsibility: [
     "Submit one user turn to a conversation engine, stream back the public assistant events, and cancel by run identity. One narrow contract for 'something that can hold a conversation'.",
     "Its value is substitution. With this port, swapping Letta for a local model, a different cloud agent, or a fake for tests is a composition-root change. Without it — which is where we are — every caller is welded to Letta's HTTP shape.",
-    "It also draws a line the current code does not: public assistant text is not the same thing as reasoning, tool calls, tool results, or status events. Only the first is speakable. Today that distinction is made ad hoc in each renderer.",
+    "It also draws a line the renderers do not: public assistant text is not the same thing as reasoning, tool calls, tool results, or status events. Only the first is speakable, and that is a property of the event kind, enforced once by SpokenOutputPolicy — not re-decided in each renderer.",
   ],
   contract: {
     language: "text",
-    code: `IConversationAgent   (proposed — not implemented)
+    code: `ConversationAgent   js/abstract/conversation-agent.interface.js   (shipped)
 
-  submit(turn, generationId)  -> stream of AgentEvent
-  cancel(generationId)        -> void
+  submit(turn, generationId)  -> AsyncGenerator<AgentEvent>
+  cancel(generationId)        -> void   safe for an unknown generation
 
-  AgentEvent =
+  ConversationTurn = { agent, text, conversationId? }
+  AgentEvent       = { kind, text, generationId, name?, detail? }
+
+  parseAgentEvent(raw, gen)   untrusted -> AgentEvent | null (fail closed)
+  isSpeakable(kind)           only assistant_text
+
+  AgentEvent kinds =
       assistant_text   speakable
     | reasoning        never spoken
     | tool_call        never spoken
@@ -36,23 +42,29 @@ What exists instead (each a separate, narrow Letta strategy):
   CommandCompletenessStrategy.assess(partial)
   NoteCommandInterpreter.interpret(request)
 
-...plus a raw fetch in the renderers:
+...plus the raw fetch the renderers still make directly:
 
   POST /api/letta-code-message  { agent, text } -> { ok, reply }`,
-    note: "The four strategies are good narrow ports for classification. None of them is a conversation port — none streams, none cancels, and none distinguishes event kinds.",
+    note: "submit() is an async generator so a streaming adapter and a request/response one present the same shape — the non-streaming Letta path simply yields two events at the end. Callers write one loop either way, which is what makes the adapters substitutable.",
   },
   implementations: [
     {
-      name: "(none)",
-      kind: "planned",
-      file: "/home/adamsl/talking_agent_parts/",
-      note: "The port itself does not exist.",
+      name: "ConversationAgent",
+      kind: "current",
+      file: "js/abstract/conversation-agent.interface.js",
+      note: "The port, the AgentEvent vocabulary, and parseAgentEvent — which drops an unrecognisable event rather than guessing a kind for it.",
     },
     {
       name: "LettaAgentAdapter",
-      kind: "planned",
-      file: "/home/adamsl/talking_agent_parts/",
-      note: "Would be the first adapter. See the LettaAgentAdapter tab for what exists today.",
+      kind: "current",
+      file: "js/implementation/letta-agent-adapter.js",
+      note: "The first adapter, over /api/letta-code-message. Owns the 930s timeout and per-agent conversation resume so no renderer has to.",
+    },
+    {
+      name: "FakeConversationAgent",
+      kind: "current",
+      file: "js/implementation/fake-conversation-agent.js",
+      note: "Scripted adapter, and a first-class one: it passes the same contract suite as the Letta adapter, so the voice UI can be driven end to end with no server.",
     },
     {
       name: "Direct fetch in renderers",
@@ -60,33 +72,29 @@ What exists instead (each a separate, narrow Letta strategy):
       file: "js/implementation/detail-renderers.js",
       note: "InputOptionsRenderer.send() POSTs /api/letta-code-message itself. This is the concrete dependency the port would remove.",
     },
-    {
-      name: "FakeConversationAgent",
-      kind: "planned",
-      file: "—",
-      note: "The plan requires a fake as a first-class adapter passing the same contract tests.",
-    },
   ],
   dependencies: {
     usedBy: [
+      "Nobody yet — InputOptionsRenderer and AgentsRouterRenderer still call fetch directly",
       "ConversationCoordinator (planned)",
-      "Today: InputOptionsRenderer and AgentsRouterRenderer, directly and concretely",
     ],
     dependsOn: ["Nothing concrete — that is the entire purpose of the port"],
-    note: "This is the clearest Dependency-Inversion violation left in the voice system: high-level UI policy imports a Letta-shaped HTTP call. The 930-second timeout that callers must remember to pass is a symptom — a transport detail leaking all the way into renderer code.",
+    note: "The Dependency-Inversion violation is now fixable rather than fixed: the port and its adapters exist, so pointing InputOptionsRenderer at them is a composition-root change. Until that lands, high-level UI policy still imports a Letta-shaped HTTP call, and the 930-second timeout still leaks into renderer code as the symptom.",
   },
   developmentStatus: {
     done: [
-      "The contract is designed in the original plan.",
+      "The port exists, with submit/cancel and a typed six-kind event union.",
+      "Two adapters satisfy it, and a shared contract suite runs against both — that suite is the Liskov requirement made executable.",
+      "Cancellation by generation id exists and is safe to call for a generation that already finished, was never submitted, or was cancelled before.",
+      "parseAgentEvent fails closed on adapter output the same way the note-command parsers do: an unknown kind is dropped, and blank assistant text never becomes a spoken blank.",
+      "A characterization test now pins the live request shape and the 930s budget, which is what made adopting the port safe.",
       "Four narrow, fail-closed Letta strategies exist and demonstrate the pattern works well in this codebase.",
-      "One transport adapter (LettaClient) already isolates urllib from the strategies.",
     ],
     gaps: [
-      "The port does not exist, so no alternative conversation engine can be substituted.",
-      "No streaming: /api/letta-code-message returns one lump after up to 900 seconds.",
-      "No cancellation by run identity.",
-      "No typed event model — reasoning, tool calls and status are not distinguished from speakable text in any shared place.",
-      "No shared contract test suite, so 'any adapter behaves the same' is unverified.",
+      "No caller. The renderers still fetch directly, so nothing in production goes through the port yet.",
+      "Still no streaming: /api/letta-code-message returns one lump after up to 900 seconds, so LettaAgentAdapter yields assistant_text then terminal at the end.",
+      "Cancellation is delivery-side only for the Letta adapter — the endpoint has no server-side cancel, so the work still runs and only the answer is dropped.",
+      "Only assistant_text and terminal are ever produced today; reasoning, tool_call, tool_result and status are contract-only until something streams.",
     ],
   },
   tests: {
@@ -109,21 +117,45 @@ What exists instead (each a separate, narrow Letta strategy):
         proves:
           "The browser-side adapters validate responses and fail closed on transport errors.",
       },
+      {
+        path: "js/tests/conversation-agent-contract.js",
+        count: 6,
+        proves:
+          "The shared suite, run against both adapters: one terminal event ends every turn, every event carries the generation it was submitted with, the answer arrives as speakable assistant text, nothing else is speakable, a cancelled turn delivers nothing and raises TurnCancelledError, and cancelling an unknown generation is safe.",
+      },
+      {
+        path: "js/tests/letta-agent-adapter.test.js",
+        count: 18,
+        proves:
+          "The contract suite plus the characterization: the exact POST body, the 930s timeout, per-agent conversation resume, an explicit turn id winning over the stored one, ok:false surfacing the server error, a failed turn not overwriting the remembered conversation, and no network call at all for an empty turn.",
+      },
+      {
+        path: "js/tests/fake-conversation-agent.test.js",
+        count: 11,
+        proves:
+          "The contract suite plus scripting: unspeakable kinds pass through in order, a script function sees the turn, malformed entries are dropped exactly as a real adapter drops them, and cancelling mid-stream stops delivery at the next event.",
+      },
+      {
+        path: "js/tests/spoken-output-policy.test.js",
+        count: 10,
+        proves:
+          "The event-kind half of this contract at the point of use — see the SpokenOutputPolicy tab.",
+      },
     ],
     untested: [
-      "The actual conversation path — POST /api/letta-code-message has no unit test at all. It is exercised only through renderer tests that stub the HTTP client.",
-      "Streaming, cancellation, and event ordering: no code, no tests.",
+      "The live path: InputOptionsRenderer still has its own fetch, and no test asserts the renderer goes through the port — because it does not.",
+      "Streaming and event ordering beyond two events: no adapter streams yet.",
     ],
     next: [
-      "A characterization test pinning today's /api/letta-code-message request and response shape. That test is what makes extracting the port safe.",
-      "A shared contract suite both a fake and the Letta adapter must pass, per the plan's Liskov requirement.",
+      "A renderer test asserting InputOptionsRenderer.send() goes through the port, once it does.",
+      "A third adapter — even a deliberately odd one — to prove the contract suite catches a divergence rather than just describing the two adapters that exist.",
     ],
   },
   diagrams: [
     {
-      title: "Today vs. with the port",
+      title: "The renderers today vs. the port that now exists",
       caption:
-        "Left: policy depends on a concrete technology. Right: both depend on the contract, which is what makes a second engine possible.",
+        "Left: what the shipped renderers still do — policy depends on a concrete technology. Right: what is now built and tested, waiting for a caller. Both sides are real code; only the left one runs.",
       code: `flowchart LR
   subgraph Now["Today"]
     R1["InputOptionsRenderer<br/>(high-level policy)"]
@@ -170,10 +202,9 @@ What exists instead (each a separate, narrow Letta strategy):
     },
   ],
   nextWork: [
-    "Write a characterization test for the current /api/letta-code-message call, capturing request shape, the 930s timeout, and the { ok, reply } response.",
-    "Define IConversationAgent with submit/cancel and a typed event union.",
-    "Implement a fake first, then move the existing HTTP call behind LettaAgentAdapter with no behaviour change.",
-    "Point InputOptionsRenderer at the port instead of fetch, removing the 930s timeout knowledge from renderer code.",
-    "Add a shared contract suite that both adapters must pass.",
+    "Point InputOptionsRenderer at the port instead of fetch, deleting its inline conversation-id bookkeeping and its knowledge of the 930s timeout. This is the step that makes the port load-bearing.",
+    "Do the same for AgentsRouterRenderer.",
+    "Thread a VoiceSession generation id through both, so replies pass SpokenOutputPolicy before reaching the synthesizer.",
+    "Give the adapter real streaming once the Letta server's streaming is usable — the port shape already allows it, so that becomes an adapter change and nothing else.",
   ],
 };

@@ -4,35 +4,58 @@ export const voiceSessionSpec = {
   id: "voice-session",
   name: "VoiceSession",
   group: "Planned core",
-  tagline: "The object that would own one conversation. It does not exist yet.",
-  status: Status.PLANNED,
-  statusNote: "No code. The plan's first-slice object, never started.",
+  tagline:
+    "The object that owns one conversation. Built in the browser layer; no caller has adopted it yet.",
+  status: Status.WORKING,
+  statusNote:
+    "js/abstract/voice-session.js, 13 tests. The lifecycle and the fence are real; nothing in the live UI holds a session yet.",
   responsibility: [
     "Own the identity and legal lifecycle of one voice conversation: which session this is, which agent turn ('generation') is currently live, and which state transitions are allowed — idle, listening, thinking, speaking, interrupted, closed.",
     "Its real job is generation fencing. When a user interrupts, the turn in flight becomes stale, and everything downstream needs one authoritative answer to 'is this output still wanted?'. Without that, a slow reply from an abandoned turn arrives late and gets spoken over the new one.",
     "It is deliberately framework-free: no Pipecat, no Letta, no browser APIs. That is what makes lifecycle rules testable without sleeps or a microphone.",
   ],
   contract: {
-    language: "text",
-    code: `VoiceSession   (proposed — not implemented)
+    language: "js",
+    code: `VoiceSession   js/abstract/voice-session.js   (shipped)
 
-  id                       -> SessionId          stable for the conversation
-  state                    -> idle | listening | thinking | speaking
-                              | interrupted | closed
-  currentGeneration        -> GenerationId       the live agent turn
+  id                        -> SessionId     stable for the conversation
+  state                     -> idle | listening | thinking | speaking
+                               | interrupted | closed
+  currentGeneration         -> GenerationId | null
 
-  beginTurn()              -> GenerationId       supersedes any live turn
-  accepts(generationId)    -> bool               false once superseded
-  interrupt()              -> void               current turn becomes stale
-  close()                  -> void`,
-    note: "Written from the plan's 'First object model' table, not from code — nothing implements this.",
+  startListening()          -> state         idle|interrupted|speaking|thinking
+  beginTurn()               -> GenerationId  supersedes any live turn
+  beginSpeaking(gen)        -> bool          false if gen was superseded
+  completeTurn(gen)         -> bool          retires the generation
+  interrupt()               -> GenerationId | null   what just went stale
+  close()                   -> void          legal from any state, idempotent
+  accepts(gen)              -> bool          THE FENCE
+  issued(gen)               -> bool          did this session ever mint it
+
+  injected collaborators:
+    clock       Clock       session-clock.js — no Date.now() inside
+    idSource    IdSource    so a test can name the generation it expects
+    onStateChange(change)   { session, from, to, generation, at }`,
+    note: "An illegal transition throws IllegalTransitionError; a superseded generation does not. That split is deliberate: a caller can prevent the first by writing correct code, but the second IS the race the object exists for, so it returns false instead.",
   },
   implementations: [
     {
-      name: "(none)",
-      kind: "planned",
-      file: "/home/adamsl/talking_agent_parts/",
-      note: "Directory contains only the plan document.",
+      name: "VoiceSession",
+      kind: "current",
+      file: "js/abstract/voice-session.js",
+      note: "The session and the fence. Framework-free: no Letta, no Pipecat, no browser API, no timer.",
+    },
+    {
+      name: "ManualClock / SequentialIdSource",
+      kind: "current",
+      file: "js/abstract/session-clock.js",
+      note: "The deterministic primitives. Tests advance the clock instead of sleeping and assert on ids like gen-2.",
+    },
+    {
+      name: "SystemClock / RandomIdSource",
+      kind: "current",
+      file: "js/implementation/system-session-primitives.js",
+      note: "The global-backed halves (Date, crypto.randomUUID), kept out of abstract/ per the directory rule. RandomIdSource degrades to a counter where randomUUID is missing.",
     },
     {
       name: "ListenerState",
@@ -49,37 +72,56 @@ export const voiceSessionSpec = {
   ],
   dependencies: {
     usedBy: [
+      "SpokenOutputPolicy — asks accepts() before letting any text reach the speaker",
       "ConversationCoordinator (planned) — would consult it before releasing output",
-      "SpokenOutputPolicy (planned) — would reject text from a superseded generation",
     ],
     dependsOn: [
-      "IClock / IIdSource (planned) — injected so lifecycle tests need no sleeps or randomness",
+      "Clock / IdSource — injected so lifecycle tests need no sleeps or randomness",
     ],
     note: "Nothing concrete: that is the point. A session that imports Letta or a browser API cannot be tested without them.",
   },
   developmentStatus: {
     done: [
-      "The contract is designed and recorded in the original plan.",
+      "The class exists, with the full six-state lifecycle and an explicit legality table.",
+      "Generation fencing works: beginTurn() supersedes the live turn, and accepts() refuses the old id from that moment on.",
+      "accepts() fails closed on everything it did not mint and on everything at all once the session is closed — a stale id, an id from another session, null, and the empty string all return false.",
+      "Time and identity are ports, so the lifecycle tests contain no sleeps and can assert on named generations.",
+      "State changes are reported to an observer with the clock's timestamp — the ISessionObserver seam, in its smallest useful form.",
       "Two narrow state machines already exist and work (ListenerState, RecorderState) — evidence that the State pattern fits this codebase.",
     ],
     gaps: [
-      "No VoiceSession class exists in any repository.",
-      "No generation identity exists anywhere, so no stale output can be detected or discarded.",
-      "Session state is currently spread across two listener state machines and closures inside render() functions, so nothing can answer 'what is this conversation doing right now?'.",
-      "Interruption/barge-in is impossible to implement until this lands.",
+      "Nothing in the live UI constructs a session yet, so the fence protects nothing in production.",
+      "Session state is still spread across two listener state machines and closures inside render() functions; adopting the session means moving that, not just adding it.",
+      "Barge-in still needs a caller: ContinuousListener has to call interrupt() when speech starts during SPEAKING.",
+      "There is one session per conversation and no registry, so two conversations at once (agents home + an Input Options tab) have no shared owner.",
     ],
   },
   tests: {
-    files: [],
-    untested: ["Every behaviour on this tab — there is no code and no test."],
+    files: [
+      {
+        path: "js/tests/voice-session.test.js",
+        count: 13,
+        proves:
+          "The headline case — output from a superseded generation is rejected — plus interrupt() making the live turn stale immediately, accepts() failing closed on ids it never issued, a closed session accepting nothing, completeTurn() being idempotent, and the legality table (speaking → interrupted legal, closed → listening not, no turn before listening, nothing to interrupt when idle).",
+      },
+      {
+        path: "js/tests/system-session-primitives.test.js",
+        count: 5,
+        proves:
+          "SystemClock reads its injected time source; RandomIdSource prefixes ids and still produces unique ones where crypto.randomUUID is absent.",
+      },
+    ],
+    untested: [
+      "Anything about the live UI, because no live code holds a session yet.",
+      "Two sessions sharing one microphone.",
+    ],
     next: [
-      "A failing test first: 'output from a superseded generation is rejected'. The plan names this as the first contract test, and it is the one that proves the object earns its keep.",
-      "Transition-legality tests: speaking → interrupted is legal, closed → listening is not.",
+      "A renderer-level test: a reply that arrives after an interrupt is never spoken. That is the same assertion as the unit test, one layer up, and it is what will prove the adoption worked.",
     ],
   },
   diagrams: [
     {
-      title: "Proposed lifecycle",
+      title: "The lifecycle, as implemented",
       caption:
         "The transition that matters is interrupted: it is what makes a live turn's output stale without tearing the session down.",
       code: `stateDiagram-v2
@@ -102,9 +144,9 @@ export const voiceSessionSpec = {
   end note`,
     },
     {
-      title: "Why the gap hurts today",
+      title: "Why the gap still hurts in the live UI",
       caption:
-        "Without a session, a superseded reply has nothing to check itself against, so it is spoken anyway.",
+        "This is what the shipped renderers still do. The session and the policy that fix it now exist — what is missing is that no renderer holds one yet.",
       code: `sequenceDiagram
   actor EG
   participant UI as Renderer
@@ -125,9 +167,9 @@ export const voiceSessionSpec = {
     },
   ],
   nextWork: [
-    "Write the failing test: a session rejects output tagged with a superseded generation id.",
-    "Implement VoiceSession with injected IClock/IIdSource so tests are deterministic.",
-    "Give every outbound agent call a generation id, starting with the note-command channel's queue (which already serialises work and is the natural first caller).",
-    "Only then wire interruption into ContinuousListener.",
+    "Give the note-command channel's queue a session and a generation id — it already serialises work, so it is the natural first caller and needs no new concurrency.",
+    "Give InputOptionsRenderer a session, so the dialogue path can fence its replies through SpokenOutputPolicy.",
+    "Only then wire interruption into ContinuousListener: interrupt() on speech during SPEAKING.",
+    "Decide who owns the session when two conversations are open at once — probably one per rendered surface, but that is a decision, not a default.",
   ],
 };

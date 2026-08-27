@@ -48,7 +48,7 @@ export const conversationCoordinatorSpec = {
       name: "ConversationCoordinator",
       kind: "planned",
       file: "/home/adamsl/talking_agent_parts/",
-      note: "The dialogue-turn coordinator. Would consult VoiceSession for generation fencing.",
+      note: "The dialogue-turn coordinator — the last of the plan's core objects with no code. Would consult VoiceSession, which now exists, for generation fencing.",
     },
   ],
   dependencies: {
@@ -71,7 +71,7 @@ export const conversationCoordinatorSpec = {
     ],
     gaps: [
       "Coordinates note edits only. There is no coordinator for a dialogue turn with an agent.",
-      "No generation fencing — it cannot discard a superseded result, only refuse to start overlapping work.",
+      "No generation fencing — it cannot discard a superseded result, only refuse to start overlapping work. VoiceSession now exists to fix this; the channel does not hold one yet.",
       "Cancellation does not exist; a queued command cannot be abandoned once enqueued.",
       "The pending-work counter is not exposed to the UI, so a long interpretation shows no progress indicator.",
     ],
@@ -97,7 +97,7 @@ export const conversationCoordinatorSpec = {
       "Two coordinators sharing one microphone.",
     ],
     next: [
-      "A failing test for 'a superseded command's result is discarded', which forces VoiceSession into existence.",
+      "'A superseded command's result is discarded' — now writable against the real VoiceSession rather than blocked on it.",
       "A hung-collaborator test using a promise that never settles, asserting the UI is not left permanently busy.",
     ],
   },
@@ -149,7 +149,7 @@ export const conversationCoordinatorSpec = {
   nextWork: [
     "Expose `busy` to the panel so a long interpretation shows a spinner instead of looking dead.",
     "Add cancellation: an AbortSignal threaded through both collaborator ports.",
-    "Introduce generation ids on enqueued work, then discard results whose generation was superseded.",
+    "Give the channel a VoiceSession and tag enqueued work with a generation id, then discard results whose generation was superseded. The session and the fence exist; the channel is the natural first caller because it already serialises work.",
     "Extract the queue/dedupe logic once a second coordinator (dialogue turns) needs it — not before.",
   ],
 };
