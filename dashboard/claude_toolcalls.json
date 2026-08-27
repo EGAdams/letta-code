@@ -1,25 +1,5 @@
 [
   {
-    "date": "2026-08-27T09:29:30",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/finance/archive_path.py"
-  },
-  {
-    "date": "2026-08-27T09:29:33",
-    "type": "Read",
-    "text": "/home/adamsl/letta-code/dashboard/finance/archive_path.py"
-  },
-  {
-    "date": "2026-08-27T09:29:36",
-    "type": "Edit",
-    "text": "/home/adamsl/letta-code/dashboard/finance/archive_path.py"
-  },
-  {
-    "date": "2026-08-27T09:29:54",
-    "type": "Write",
-    "text": "/home/adamsl/letta-code/dashboard/finance/receipt_relocation.py\n\u2192 \"\"\"Rename a stored expense's receipt file when its filing identity changes.  A date or amount edit means the row's id_light no longer names the file that is actually sitting on disk (`<vendor>_MM_DD_Y"
-  },
-  {
     "date": "2026-08-27T09:30:01",
     "type": "Edit",
     "text": "/home/adamsl/letta-code/dashboard/finance/expense_edit_repository.py"
@@ -998,5 +978,25 @@
     "date": "2026-08-27T10:28:50",
     "type": "Bash",
     "text": "git diff --cached .gitignore"
+  },
+  {
+    "date": "2026-08-27T10:29:10",
+    "type": "Bash",
+    "text": "git commit -m \"$(cat <<'EOF'\nDashboard: rename Platinum Year tab to Amex 6002 Year; untrack claude_toolcalls.json\n\nclaude_toolcalls.json was tracked before it was added to .gitignore, so\n.gitignore ne"
+  },
+  {
+    "date": "2026-08-27T10:29:14",
+    "type": "Bash",
+    "text": "git ls-files dashboard/claude_toolcalls.json; echo \"---\"; git log --oneline -3 -- dashboard/claude_toolcalls.json; echo \"---status---\"; git status --porcelain=v2 dashboard/claude_toolcalls.json"
+  },
+  {
+    "date": "2026-08-27T10:29:18",
+    "type": "Bash",
+    "text": "git show --stat HEAD; echo \"---\"; git show HEAD --name-status"
+  },
+  {
+    "date": "2026-08-27T10:29:32",
+    "type": "Bash",
+    "text": "git rm --cached -f dashboard/claude_toolcalls.json && git status --porcelain -- dashboard/claude_toolcalls.json && ls -la dashboard/claude_toolcalls.json"
   }
 ]
