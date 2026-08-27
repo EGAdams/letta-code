@@ -321,7 +321,23 @@ export function backfillBuffers(buffers: Buffers, history: Message[]): void {
               ? toolReturn.tool_return
               : undefined) ||
             "";
-          const resultText = getDisplayableToolReturn(rawResult);
+          let resultText = getDisplayableToolReturn(rawResult);
+
+          // Surface captured stdout/stderr (e.g. the nested tool-call log a
+          // server-side tool like run_claude_code_sdk prints while it runs).
+          const stdoutLines = Array.isArray(toolReturn.stdout)
+            ? toolReturn.stdout.filter(Boolean)
+            : [];
+          const stderrLines = Array.isArray(toolReturn.stderr)
+            ? toolReturn.stderr.filter(Boolean)
+            : [];
+          if (stdoutLines.length > 0) {
+            resultText += `\n\n[stdout]\n${stdoutLines.join("\n")}`;
+          }
+          if (stderrLines.length > 0) {
+            resultText += `\n\n[stderr]\n${stderrLines.join("\n")}`;
+          }
+
           buffers.byId.set(toolCallLineId, {
             ...existingLine,
             resultText,
