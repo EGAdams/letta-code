@@ -95,9 +95,17 @@ class GetRoutesMixin:
             return self.json_response(srv.list_vendor_keys())
 
         if path == '/api/rol-finance-categories':
+            # Full {name, cls, bg, fg, excluded} rows, not just names -- the
+            # report-page category picker (rol_finances'
+            # restructure_verified_transactions.py) needs the styling fields
+            # to paint its dropdown, and silently degraded to a frozen
+            # 13-item fallback list for months because a name-only shape used
+            # to be served here (found 2026-08-27). Every consumer that only
+            # wants names (readCategoriesResponse) already maps `.name`
+            # itself, so widening this doesn't cost the simpler callers
+            # anything.
             return self.json_response(
-                {'ok': True,
-                 'categories': [c['name'] for c in srv._rol_finance_categories()]})
+                {'ok': True, 'categories': srv._rol_finance_categories()})
 
         if path == '/api/pending-vendor-review':
             return self.json_response(srv.list_pending_vendor_review())
@@ -371,9 +379,6 @@ class GetRoutesMixin:
                 return self.json_response({'months': srv._fetch_month_status()})
             except Exception as e:
                 return self.json_response({'months': [], 'error': str(e)})
-
-        if path == '/api/rol-finance-categories':
-            return self.json_response({'categories': srv._rol_finance_categories()})
 
         if path == '/api/ssh-connections':
             return self.json_response([

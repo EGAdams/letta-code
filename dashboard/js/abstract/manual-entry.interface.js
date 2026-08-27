@@ -326,13 +326,26 @@ export function readVendorKeysResponse(json) {
 
 /**
  * Boundary check for GET /api/rol-finance-categories's response.
+ *
+ * The endpoint now serves full {name, cls, bg, fg} rows (the report-page
+ * picker needs the styling fields), but this form and ExpenseEditPanel only
+ * ever wanted the plain names for a <select> -- so an entry is read either
+ * way: a bare string, or an object with a `.name` string.
  * @param {unknown} json
  * @returns {string[]}
  */
 export function readCategoriesResponse(json) {
   if (typeof json !== "object" || json === null || json.ok !== true) return [];
-  const names = Array.isArray(json.categories) ? json.categories : [];
-  return names.filter((name) => typeof name === "string" && name);
+  const entries = Array.isArray(json.categories) ? json.categories : [];
+  return entries
+    .map((entry) =>
+      typeof entry === "string"
+        ? entry
+        : entry && typeof entry.name === "string"
+          ? entry.name
+          : null,
+    )
+    .filter((name) => typeof name === "string" && name);
 }
 
 /**
