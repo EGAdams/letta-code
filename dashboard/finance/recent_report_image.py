@@ -85,7 +85,8 @@ class RecentReportImageSynchronizer:
 
     def synchronize(self, expense_id: int, *, deleted: bool = False,
                     vendor_key: str = '', transaction_date: str = '',
-                    fallback_vendor_key: str = '', fallback_date: str = '') -> dict:
+                    fallback_vendor_key: str = '', fallback_date: str = '',
+                    replace_identity: bool = False) -> dict:
         data = self._read_pointer()
         matched = [item for item in self._intakes(data)
                    if expense_id in self._ids(item)]
@@ -113,7 +114,7 @@ class RecentReportImageSynchronizer:
             return {'renamed': False, 'warning': 'No archived image path to rename.'}
         old_path = paths[0]
         archived_identity = self._archived_identity(old_path)
-        if archived_identity:
+        if archived_identity and not replace_identity:
             vendor, date = archived_identity
         extension = os.path.splitext(old_path)[1] or '.jpg'
         new_path = os.path.join(

@@ -83,6 +83,18 @@ def test_build_save_command_keeps_description_separate_from_learned_vendor_key()
     ))
     assert '--merchant-name-override=CRACKER BARREL #428 CA CAVE CITY KY' in cmd
     assert '--vendor-key-override=cracker_barrel' in cmd
+    assert '--remember-vendor' in cmd
+
+
+def test_build_save_command_preserves_selected_existing_vendor_without_learning():
+    cmd = manual_entry.build_save_command(_entry(
+        merchant_name='Lasagna Parmesan Potato',
+        vendor_key='gordon_food_service_store',
+        learn_vendor=False,
+    ))
+    assert '--merchant-name-override=Lasagna Parmesan Potato' in cmd
+    assert '--vendor-key-override=gordon_food_service_store' in cmd
+    assert '--remember-vendor' not in cmd
 
 
 def test_manual_entry_rejects_a_noncanonical_vendor_key():

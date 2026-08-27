@@ -128,8 +128,10 @@ def build_save_command(entry: ManualReceiptEntry) -> list[str]:
     ]
     if entry.category_id is not None:
         cmd += ['--category-id', str(entry.category_id)]
-    if entry.learn_vendor and entry.vendor_key:
+    if entry.vendor_key:
         cmd += [f'--vendor-key-override={entry.vendor_key}']
+    if entry.learn_vendor:
+        cmd += ['--remember-vendor']
     return cmd
 
 

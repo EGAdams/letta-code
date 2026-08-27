@@ -64,6 +64,22 @@ def test_line_item_vendor_and_date_cannot_replace_receipt_identity(tmp_path):
     assert Path(result['path']).name == 'old_07_14_25_29_48.jpg'
 
 
+def test_explicit_vendor_correction_replaces_wrong_receipt_identity(tmp_path):
+    old = tmp_path / 'lasagna_parmesan_potato_04_19_25_58_35.jpg'
+    old.write_bytes(b'image')
+    pointer = {'intake': {'expense_ids': [2259], 'archive_paths': [str(old)]}}
+    rows = [{'id': 2259, 'vendor_key': '', 'date': '2025-04-19',
+             'amount': '58.35'}]
+    service, _ = _service(tmp_path, rows, pointer)
+
+    result = service.synchronize(
+        2259, vendor_key='gordon_food_service_store',
+        transaction_date='2025-04-19', replace_identity=True)
+
+    assert Path(result['path']).name == (
+        'gordon_food_service_store_04_19_25_58_35.jpg')
+
+
 def test_adding_sprite_to_meijer_changes_only_aggregate_amount(tmp_path):
     old = tmp_path / 'meijer_01_16_25_2_99.jpg'
     old.write_bytes(b'image')

@@ -1266,6 +1266,7 @@ def edit_stored_expense(data, repository=None, namer=None):
         transaction_date=edit.transaction_date,
         fallback_vendor_key=_vendor_prefix(result.record.id_light),
         fallback_date=result.record.transaction_date,
+        replace_identity=True,
     )
     warnings = list(result.warnings)
     if image_sync.get('path'):
