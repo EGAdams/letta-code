@@ -89,6 +89,9 @@ def test_unassigned_account_rows_surface_accounts_no_agent_uses():
     assert rows[0]['account_label'] == 'rbarnesrol@aol.com'
     assert rows[0]['assignment_kind'] == 'account'
     assert rows[0]['weekly_percent_remaining'] == 87.5
+    # A chatgpt-family account must never be labeled "Anthropic" -- the
+    # unassigned-row text names the account's own family.
+    assert rows[0]['model'] == 'No ChatGPT Assigned'
 
 
 def test_agent_assignments_payload_surfaces_the_aol_token_when_unused(monkeypatch):

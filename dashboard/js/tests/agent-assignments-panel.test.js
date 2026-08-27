@@ -68,7 +68,7 @@ describe("AgentAssignmentsController tool rows", () => {
       {
         id: "oauth-account-chatgpt-plus-pro-mom",
         name: "rbarnesrol@aol.com",
-        model: "Not assigned",
+        model: "No ChatGPT Assigned",
         account: "mom",
         account_label: "rbarnesrol@aol.com",
         weekly_percent_remaining: 62,
@@ -80,7 +80,7 @@ describe("AgentAssignmentsController tool rows", () => {
 
     const row = container.querySelector("tbody").children[0];
     expect(row.children[0].textContent).toBe("rbarnesrol@aol.com");
-    expect(row.children[1].textContent).toBe("Not assigned");
+    expect(row.children[1].textContent).toBe("No ChatGPT Assigned");
     expect(row.children[2].textContent).toBe("rbarnesrol@aol.com");
     expect(row.querySelector("select")).toBe(null);
   });
