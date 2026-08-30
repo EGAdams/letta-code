@@ -105,6 +105,28 @@ describe("ManualEntryForm.mount", () => {
     expect(form.vendorOptions).toEqual([]);
     expect(form.categoryNames).toEqual([]);
   });
+
+  test("Mazda Fill uses a fixed Win98 track from Show Image through Remove", async () => {
+    const { form } = setup();
+    await form.mount();
+    form.mazdaFillProgressShell.parentElement.getBoundingClientRect = () => ({
+      left: 100,
+    });
+    form.showImageButton.getBoundingClientRect = () => ({ left: 130 });
+    form.removeButton.getBoundingClientRect = () => ({ right: 530 });
+
+    form._startMazdaFillProgress();
+
+    expect(form.mazdaFillProgressShell.style.display).toBe("block");
+    expect(form.mazdaFillProgressShell.style.marginLeft).toBe("30px");
+    expect(form.mazdaFillProgressShell.style.width).toBe("400px");
+    expect(form.mazdaFillProgressBar.style.transition).toBe("width 25s linear");
+    expect(form.mazdaFillProgressBar.style.width).toBe("100%");
+
+    form._resetMazdaFillProgress();
+    expect(form.mazdaFillProgressShell.style.display).toBe("none");
+    expect(form.mazdaFillProgressBar.style.width).toBe("0%");
+  });
 });
 
 describe("ManualEntryForm vendor selection", () => {
