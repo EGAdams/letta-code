@@ -4,7 +4,9 @@ import json
 
 import server
 
-from model_stats.assignments import build_claude_sdk_assignment, build_unassigned_account_rows
+from model_stats.assignments import (
+    assignments_status, build_claude_sdk_assignment, build_unassigned_account_rows,
+)
 
 
 def test_sdk_tool_assignment_is_green_when_executor_reports_live_token():
@@ -72,6 +74,29 @@ def test_agent_assignments_payload_includes_the_sdk_tool_row(monkeypatch):
     sdk_row = next(row for row in rows if row['assignment_kind'] == 'tool')
     assert sdk_row['id'] == 'tool-run-claude-code-sdk'
     assert sdk_row['token_status'] == 'up'
+
+
+def test_assignments_status_is_down_when_the_sdk_tool_row_is_down():
+    sdk_row = build_claude_sdk_assignment(
+        {'ready': True, 'creds_present': True, 'creds_valid': False,
+         'creds_expires_at': 1_699_999_999},
+        now=1_700_000_000,
+    )
+
+    status = assignments_status([{'name': 'Mazda', 'token_status': None}, sdk_row])
+
+    assert status['status'] == 'down'
+    assert 'run_claude_code_sdk' in status['detail']
+    assert 'expired or rejected' in status['detail']
+
+
+def test_assignments_status_is_up_when_no_row_reports_down():
+    rows = [{'name': 'Mazda'}, {'name': 'Frita', 'token_status': 'up'}]
+
+    status = assignments_status(rows)
+
+    assert status['status'] == 'up'
+    assert status['detail'] == ''
 
 
 def test_unassigned_account_rows_surface_accounts_no_agent_uses():

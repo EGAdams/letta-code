@@ -249,32 +249,17 @@ def build_server_specs(
             note=f'Letta API ({letta_base_url}) — logs pulled periodically over SSH '
                  f'from {letta_docker_host} (Docker container on the Win10 box)',
         ),
-        # DISABLED 2026-08-19 (EG): the ChatGPT Provider tile is retired from Server
-        # Management. It watched the chatgpt-plus-pro OAuth credential and went red
-        # when that token died or its weekly allowance ran out. Models are now chosen
-        # per agent on the Agent Management pages, so a single provider-wide tile no
-        # longer describes anything the user acts on — and its name was stale besides
-        # (Mazda's fleet moved to claude-pro-max on 2026-08-16).
-        #
-        # Commented out rather than deleted in case it was covering a case we forgot.
-        # Nothing else was removed: chatgpt_provider_health(), the account-swap panel
-        # on Model Stats, and _chatgpt_provider_poll_loop() (which flags fleet agents
-        # red on Agent Management) all still run. Uncomment to bring the tile back —
-        # and note its restart handler is still registered, which is why
-        # RESTARTABLE_KEYS is deliberately allowed to be a superset of these keys.
-        # ServerSpec(
-        #     key='chatgpt-provider',
-        #     name='ChatGPT Provider (Mazda LLM)',
-        #     probe=NamedCheckProbe(check='chatgpt_provider_health'),
-        #     remote=True,
-        #     depends_on='letta',
-        #     note='OAuth token on the chatgpt-plus-pro Letta provider — the credential '
-        #          'Mazda + the Suzuki fleet make every LLM call with. RED = token dead '
-        #          '(e.g. expired access token + invalid refresh token): every dispatch '
-        #          'to the fleet fails with HTTP 401 even while scans and all other '
-        #          'servers look fine. Restart swaps in the standby account token '
-        #          '(swap_chatgpt_provider_token.sh on the Letta box).',
-        # ),
+        ServerSpec(
+            key='chatgpt-provider',
+            name='Mazda Letta Provider Token',
+            probe=NamedCheckProbe(check='chatgpt_provider_health'),
+            remote=True,
+            depends_on='letta',
+            note='The ChatGPT OAuth token stored in Letta for Mazda and every agent '
+                 'assigned to chatgpt-plus-pro. RED means that stored copy is expired, '
+                 'rejected, or otherwise unusable; synchronize it from EG\'s current '
+                 'W11 Codex login when prompted.',
+        ),
         ServerSpec(
             key='executor',
             name='Executor Server',
@@ -292,6 +277,16 @@ def build_server_specs(
                  'controls a logged-in ChatGPT browser session on the Win10 box '
                  '(:5001). RED = not running or Chrome not logged into chatgpt.com. '
                  'See dashboard/BROWSER_SERVER_INTEGRATION.md.',
+        ),
+        ServerSpec(
+            key='agent-blocks',
+            name='Agent Blocks Server',
+            probe=HttpProbe(health_url='http://localhost:8931/'),
+            log_file='/tmp/agent_blocks_startup.log',
+            note='agent_blocks/spa_documentation local dev server (server.py via '
+                 'start.sh, :8931) — serves the "Agent Blocks Docs" SPA and its '
+                 '/api/git-status + /api/run-update routes. It starts with the '
+                 'dashboard; RED means that startup failed or the process exited.',
         ),
         ServerSpec(
             key='mcp-proxy',

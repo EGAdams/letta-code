@@ -20,6 +20,28 @@ function setup(rows) {
 }
 
 describe("AgentAssignmentsController tool rows", () => {
+  test("renders an expired Mazda provider explicitly instead of a question mark", async () => {
+    const { container, controller } = setup([
+      {
+        id: "agent-mazda",
+        name: "Mazda",
+        model: "gpt-5.6-sol",
+        account_label: "eg1972@gmail.com",
+        weekly_percent_remaining: null,
+        token_status: "down",
+        token_status_detail: "Letta provider token expired",
+      },
+    ]);
+
+    await controller.poll();
+
+    const label =
+      container.querySelector("tbody").children[0].children[3].children[0]
+        .children[1];
+    expect(label.textContent).toContain("expired");
+    expect(label.textContent).not.toBe("?");
+  });
+
   test("renders run_claude_code_sdk as a token assignment with account selector", async () => {
     const { container, controller } = setup([
       {

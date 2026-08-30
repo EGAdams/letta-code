@@ -1405,10 +1405,25 @@ export class InputOptionsRenderer extends DetailRenderer {
       });
       syncListenBtn(this._listener.state);
 
-      // Save Note is laid out now and wired to Toyota next; it says so rather
-      // than failing silently on a click.
-      saveNoteBtn?.addEventListener("click", () => {
-        showStatus("Save Note isn't wired up yet.");
+      saveNoteBtn?.addEventListener("click", async () => {
+        const text = note.getText();
+        if (!text.trim()) {
+          showStatus("Nothing to save.", true);
+          return;
+        }
+        saveNoteBtn.disabled = true;
+        try {
+          const r = await this._http.postJSON("/api/note-save", {
+            note: text,
+          });
+          if (!r?.ok) throw new Error(r?.error || "Could not save the note.");
+          note.setText("");
+          showStatus(`Saved as ${r.filename}.`);
+        } catch (e) {
+          showStatus(e.message, true);
+        } finally {
+          saveNoteBtn.disabled = false;
+        }
       });
 
       // Start/Stop Editing — presentation only so far. It owns just the

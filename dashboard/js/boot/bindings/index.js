@@ -20,6 +20,7 @@ export function bindNavigation(deps) {
     nav.servers,
     nav.ssh,
     nav.plans,
+    nav.agentBlocks,
     nav.processFlows,
     nav.voiceCommunication,
     nav.rolFinance,

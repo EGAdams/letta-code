@@ -47,54 +47,34 @@ biasing whisper up front with the real agent names (disable with `WHISPER_PROMPT
 Plan/design doc: `audio_input/audio_plan.html` (viewable in-dashboard under Project Plans → Audio
 Input); original spec `audio_input/audio_input.md`.
 
-## Toyota's note + voice command channel (home screen)
+## Toyota's box (home screen)
 
-Two boxes, two conversations. The **top** box is Toyota's note document — a `ReadOnlyNoteSurface`
-(white on black, `readOnly` not `disabled` so notes stay selectable), fed by the existing
-`ReceptionistTranscriptController` streaming path. The **bottom** box (`#note-command-box`) is
-where you speak instructions *about* that note ("put a period at the end", "save this as meeting
-notes").
+One box now, not two. It used to be a read-only note document (`ReadOnlyNoteSurface`) paired with a
+second spoken "command channel" box (`#note-command-box`) that edited it via instructions like "put
+a period at the end." That command channel is gone as of 2026-08-28 — the box is now an ordinary
+editable message box (`EditableDarkNoteSurface`, same white-on-black look) fed by dictation or
+typing, cleared on **Send** or **Save Note** exactly like any other agent's Input Options page.
+`InputOptionsRenderer` still takes an injected `surfaceFactory` (the default elsewhere is the plain
+`EditableTextareaSurface` every agent page has always had) — Toyota just injects the dark-styled
+editable one instead of a read-only one now.
 
-The chain, each link replaceable:
+`POST /api/note-save` is the "Save Note" endpoint: no LLM interpretation, just writes the current
+box text straight to `NOTES_DIR` (default `~/notes`) via `voice/note_repository.py`'s
+`FilesystemNoteRepository`, and the button clears the box on success.
 
-```
-ContinuousListener → TranscriptBuffer → CompletenessDetector → CommandInterpreter → NoteDocument
-```
-
-- **Completeness is judged from the accumulated text, never from a silence timer** — that is the
-  whole point. "Put a" comes back incomplete and the channel waits however long you pause; "Put a
-  period at the end" comes back complete and runs. `POST /api/note-command-complete`.
-- **Applying** a command is a separate call (`POST /api/note-command-apply`) that runs once per
-  finished instruction and returns a discriminated outcome: `edit` (whole revised note), `save`
-  (Toyota names the file if you didn't), or `none`.
-- **Everything fails closed.** A malformed reply, a 401, a dead connection → "keep waiting" / "note
-  unchanged". An `edit` carrying empty text is treated as malformed, never as "blank the note"
-  (checked in both `note_interpreter.py` and `note-command-contracts.js`).
-
-| Layer | Files |
-|---|---|
-| Data shapes (Pydantic) | `voice/note_models.py` |
-| Ports (ABCs) | `voice/note_ports.py` |
-| Strategies | `voice/note_completeness.py`, `voice/note_interpreter.py`, `voice/note_repository.py` |
-| Application policy | `voice/note_service.py` |
-| Composition root | `voice/note_factory.py` |
-| Browser contracts | `js/abstract/note-document.interface.js`, `note-command-contracts.js`, `transcript-buffer.js` |
-| Browser policy | `js/abstract/voice-command-channel.js` (no DOM in it) |
-| Browser wiring | `js/implementation/{textarea-note-surfaces,transcript-synced-note,http-note-command-services,note-command-panel}.js` |
+The old command-channel machinery (`voice/note_service.py`, `note_ports.py`, `note_interpreter.py`,
+`note_completeness.py`, the `/api/note-command-*` routes, and the browser-side
+`js/abstract/voice-command-channel.js` + `js/implementation/note-command-panel.js`) is still in the
+tree and still tested, but nothing wires it up anymore — it's unused, not deleted, in case a future
+feature wants a spoken-edit channel again. Its `NoteRepository` port is what `/api/note-save` reuses
+directly.
 
 Non-obvious bits:
 
-- `TranscriptSyncedNote` (Decorator) exists because the note has **two writers** — the dictation
-  buffer and the command channel. Without the resync, "put a period at the end" appears to work and
-  is then silently undone by the next dictated sentence.
-- `InputOptionsRenderer` takes an injected `surfaceFactory`; the default is the editable message box
-  every agent page has always had. Send clears an *editable* surface only — clearing a read-only
-  note would delete the user's document.
-- Both boxes own **separate** `BrowserSpeechRecognitionListener`s and separate Start/Stop buttons.
-  Running two native recognizers at once is unreliable in Chrome; use one at a time.
-- The worker agent defaults to `transcript-cleanup-agent` (short strict-JSON calls, history cleared
-  each time). Override with `NOTE_COMMAND_AGENT_ID` / `NOTE_COMMAND_AGENT_NAME`; `NOTES_DIR`
-  (default `~/notes`) is where "save this" writes.
+- `TranscriptSyncedNote` (Decorator) still wraps the surface so `ReceptionistTranscriptController`
+  dictation and `note.setText("")` (on Send/Save) stay in sync — no command channel needed for that.
+- Send clears an *editable* surface only; that check is what made Toyota's box need to become
+  editable rather than special-cased in the send handler.
 
 ## Agents-home voice/text router (`router/`)
 

@@ -28,6 +28,7 @@ export class ExpenseEditPanel {
    *   root: Element,
    *   doc?: Document,
    *   EditDialog?: typeof ExpenseEditDialog,
+   *   expanded?: boolean,
    * }} opts
    */
   // `globalThis.document` rather than a bare `document`, matching
@@ -38,6 +39,7 @@ export class ExpenseEditPanel {
     root,
     doc = globalThis.document,
     EditDialog = ExpenseEditDialog,
+    expanded = false,
   }) {
     if (!root) throw new TypeError("ExpenseEditPanel requires a mount element");
     if (!http) throw new TypeError("ExpenseEditPanel requires an http client");
@@ -45,6 +47,7 @@ export class ExpenseEditPanel {
     this.root = root;
     this.doc = doc;
     this._EditDialog = EditDialog;
+    this.expanded = expanded;
     this.categoryNames = [];
   }
 
@@ -54,15 +57,18 @@ export class ExpenseEditPanel {
     // sibling, exactly as they sit inside the full entry form — the dialog
     // already carries that class itself, so nesting one inside the other
     // would double the Windows 98 border.
-    const launcher = this._el("div", {
-      className: "manual-entry-form expense-edit-launcher",
-    });
-    this.root.appendChild(launcher);
-    const button = this._el("button", { text: "Edit Expense" });
-    button.type = "button";
-    button.dataset.action = "edit-expense";
-    launcher.appendChild(button);
-    this.toggleButton = button;
+    let launcher = null;
+    if (!this.expanded) {
+      launcher = this._el("div", {
+        className: "manual-entry-form expense-edit-launcher",
+      });
+      this.root.appendChild(launcher);
+      const button = this._el("button", { text: "Edit Expense" });
+      button.type = "button";
+      button.dataset.action = "edit-expense";
+      launcher.appendChild(button);
+      this.toggleButton = button;
+    }
 
     this.dialog = new this._EditDialog({
       http: this.http,
@@ -72,9 +78,13 @@ export class ExpenseEditPanel {
       categoryNames: () => this.categoryNames,
     });
     this.dialog.render();
-    button.addEventListener("click", () => {
-      button.classList.toggle("is-pressed", this.dialog.toggle());
-    });
+    if (this.toggleButton) {
+      this.toggleButton.addEventListener("click", () => {
+        this.toggleButton.classList.toggle("is-pressed", this.dialog.toggle());
+      });
+    } else {
+      this.dialog.toggle();
+    }
 
     await this._loadCategoryNames();
     return launcher;
@@ -110,6 +120,10 @@ if (typeof document !== "undefined") {
   // a needs_human_review page both mount points are present, and mounting
   // here too would put two of each on the page.
   if (root && !document.getElementById("manual-entry-root")) {
-    new ExpenseEditPanel({ http: new FetchHttpClient(), root }).mount();
+    new ExpenseEditPanel({
+      http: new FetchHttpClient(),
+      root,
+      expanded: root.dataset.expanded === "true",
+    }).mount();
   }
 }

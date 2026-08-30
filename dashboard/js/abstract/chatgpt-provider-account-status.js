@@ -36,7 +36,11 @@ export function assertChatGptProviderAccountOption(opt) {
  * Validate the /api/chatgpt-provider-account-status|-account payload shape.
  * @param {any} status
  * @returns {{active_email:string|null, sources:Array<{key:string,label:string}>,
- *            ran:boolean, ok:boolean|null, text:string|null, source:string|null}}
+ *            ran:boolean, ok:boolean|null, text:string|null, source:string|null,
+ *            provider_token_state:string, provider_expires_at:number|null,
+ *            local_token_state:string, local_expires_at:number|null,
+ *            sync_recommended:boolean, token_status_detail:string,
+ *            incident_id:string|null}}
  */
 export function assertChatGptProviderAccountStatus(status) {
   if (!status || typeof status !== "object") {
@@ -61,7 +65,18 @@ export function assertChatGptProviderAccountStatus(status) {
     ok: status.ok ?? null,
     text: status.text ?? null,
     source: status.source ?? null,
+    provider_token_state: status.provider_token_state ?? "unavailable",
+    provider_expires_at: status.provider_expires_at ?? null,
+    local_token_state: status.local_token_state ?? "unavailable",
+    local_expires_at: status.local_expires_at ?? null,
+    sync_recommended: Boolean(status.sync_recommended),
+    token_status_detail: status.token_status_detail ?? "",
+    incident_id: status.incident_id ?? null,
   };
+}
+
+function fmtExpiry(value) {
+  return value ? new Date(value * 1000).toLocaleString() : "unknown";
 }
 
 /**
@@ -87,6 +102,8 @@ export function renderChatGptProviderAccountPanel(rawStatus) {
   h += '<div class="cs-panel-head">';
   h += `<span>Currently: <strong>${escHtml(status.active_email || "unknown")}</strong></span>`;
   h += "</div>";
+  h += `<p class="${status.provider_token_state === "valid" ? "am-dim" : "am-warn"}">Letta provider: <strong>${escHtml(status.provider_token_state)}</strong> — expires ${escHtml(fmtExpiry(status.provider_expires_at))}</p>`;
+  h += `<p class="${status.local_token_state === "valid" ? "am-dim" : "am-warn"}">W11 Codex: <strong>${escHtml(status.local_token_state)}</strong> — expires ${escHtml(fmtExpiry(status.local_expires_at))}</p>`;
   h += '<div class="cs-panel-actions">';
   for (const opt of status.sources) {
     h += `<button type="button" class="cs-swap-btn" id="cgpa-set-${escHtml(opt.key)}-btn" title="Install ${escHtml(opt.label)}'s token as the live provider row">Set to ${escHtml(opt.label)}</button>`;

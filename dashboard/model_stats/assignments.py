@@ -70,6 +70,27 @@ def build_claude_sdk_assignment(
     }
 
 
+def assignments_status(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Roll the Agent Assignments rows up into one status/detail pair.
+
+    The Model Stats sub-nav colors each source tab (including "Agent
+    Assignments" itself) from ``/api/model-stats?source=<key>``, polled even
+    when that tab has never been opened -- see
+    ``ModelStatsHealthMonitor.poll``. Without this, an assignment-only failure
+    (e.g. the shared ``run_claude_code_sdk`` executor's OAuth token expiring,
+    which carries no ``LLM_CONFIG``/weekly-quota signal any other source
+    tracks) stayed invisible: the tab looked green until a human happened to
+    click into it and read the row text. Any row with ``token_status: down``
+    makes this source report down; nothing else on the tab currently carries
+    a token_status, so there is no 'concern' case yet."""
+    down = [row for row in rows if row.get('token_status') == 'down']
+    if down:
+        detail = '; '.join(
+            f"{row['name']}: {row['token_status_detail']}" for row in down)
+        return {'ok': True, 'status': 'down', 'detail': detail}
+    return {'ok': True, 'status': 'up', 'detail': ''}
+
+
 def build_unassigned_account_rows(
     oauth_provider_accounts: dict[str, dict[str, str]],
     referenced_providers: set[str],

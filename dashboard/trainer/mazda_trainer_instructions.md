@@ -501,6 +501,21 @@ Grade the run against the contract above. Specifically confirm:
   transfer/pay records dated inside the statement period that are absent from the PDF are
   clearly marked review rows, checked against the database, and excluded from the PDF's
   printed counts and balance reconciliation. Canceled/pending records must not be added.
+  Do not accept `Bank 6285 PDF 1` or `PDF 2` as the document identity: those are reusable
+  dashboard slots, and the same PDF may appear in adjacent month folders under opposite
+  numbers. Verify the period printed in the source PDF and compare SHA-256 with nearby
+  account-6285 PDFs before deciding which statement was processed. Never coach Mazda to
+  rename a database-backed PDF or directory; preserve paths and recommend account-plus-period
+  display labels. Grade completed work by verified statement period/hash so an adjacent-slot
+  duplicate is not mistaken for a second completed statement.
+  A completed transfer/pay cross-check does not prove the surrounding report is verified.
+  In particular, the January account-6285 PDF covering 2024-12-14 through 2025-01-15 has
+  correct source transaction rows plus recipient enrichments, but its current summary,
+  reconciliation, and daily-balance sections were copied from another statement and all
+  deposits/credits are rendered negative. Require the report to match the source PDF's
+  actual figures (beginning $36,652.72; 24 checks/$3,878.07; 15 withdrawals/$8,630.41;
+  17 deposits/$19,087.04; ending $43,231.28) before grading it PASS. Preserve the enriched
+  descriptions and marked review-only rows during any rebuild.
   The current DB category must agree with `data-category-id`,
   `data-reporting-category`, and the row's `cat-*` class. In particular, verify
   duplicate-only runs do not erase categories that were assigned before this intake.

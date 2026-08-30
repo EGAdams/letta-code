@@ -14,6 +14,7 @@ export function collectNavElements(doc = document) {
     servers: doc.getElementById("nav-servers"),
     ssh: doc.getElementById("nav-ssh-connections"),
     plans: doc.getElementById("nav-plans"),
+    agentBlocks: doc.getElementById("nav-agent-blocks"),
     processFlows: doc.getElementById("nav-process-flows"),
     voiceCommunication: doc.getElementById("nav-voice-communication"),
     rolFinance: doc.getElementById("nav-rol-finance"),

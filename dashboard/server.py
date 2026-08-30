@@ -32,7 +32,7 @@ from pydantic import ValidationError
 
 from voice.synthesis import EdgeTtsSynthesizer, cache_path as synthesis_cache_path
 from category_taxonomy import FallbackCategoryTaxonomy, MySqlCategoryTaxonomy
-from chatgpt_provider_accounts import PROVIDER_ACCOUNT_SOURCES
+from chatgpt_provider_accounts import CODEX_PRIMARY_AUTH_JSON, PROVIDER_ACCOUNT_SOURCES
 from chatgpt_provider_status import chatgpt_provider_account_status
 # The intake dispatch Mazda receives after a scan: 536 lines of prompt, split
 # into named sections in intake/scan_message.py so one rule can be read and
@@ -84,6 +84,7 @@ from finance.expense_edit_repository import (
     records_as_json,
     search_criteria_from_request,
 )
+from finance.expense_report_sync import StaticExpenseReportSynchronizer
 from finance.receipt_relocation import FilesystemReceiptFileRelocator
 from finance.report_page import ReportPageRoutes, ReportRowMatch
 from finance import (archive_path, intake_report_model, intake_report_page,
@@ -1129,7 +1130,7 @@ def search_stored_expenses(data, repository=None):
     return {'ok': True, 'records': records_as_json(records)}
 
 
-def edit_stored_expense(data, repository=None, namer=None):
+def edit_stored_expense(data, repository=None, namer=None, report_sync=None):
     """POST /api/expense-edit: write one correction to one stored row.
 
     Mirrors submit_manual_receipt_entry's boundary discipline exactly -- coerce
@@ -1181,7 +1182,10 @@ def edit_stored_expense(data, repository=None, namer=None):
             # the precise "already known" result are both present.
             if not returned_key or reason != 'vendor_key already known':
                 return {'ok': False, 'error': f'Could not learn vendor: {reason}'}
+    before = None
     try:
+        if hasattr(repo, 'read'):
+            before = repo.read(expense_id)
         result = repo.apply_edit(edit)
     except ExpenseNotFound as exc:
         return {'ok': False, 'error': str(exc)}
@@ -1200,6 +1204,15 @@ def edit_stored_expense(data, repository=None, namer=None):
         replace_identity=True,
     )
     warnings = list(result.warnings)
+    if before is not None:
+        try:
+            synchronizer = report_sync or StaticExpenseReportSynchronizer(
+                ROL_FINANCES_STATEMENTS_BASE)
+            synchronizer.synchronize(before, result.record)
+        except Exception as exc:  # the database edit already succeeded
+            warnings.append(
+                f'Expense saved, but static reports were not updated: '
+                f'{type(exc).__name__}: {exc}')
     if image_sync.get('path'):
         warnings = [warning for warning in warnings
                     if 'receipt file on disk was not renamed' not in warning]
@@ -5552,6 +5565,14 @@ from monitoring.server_lifecycle import (  # noqa: E402
     is_server_starting,
 )
 from monitoring.log_files import trim_log_cache as _trim_log_cache  # noqa: E402
+from servers.agent_blocks import AgentBlocksServer  # noqa: E402
+
+
+_AGENT_BLOCKS_SERVER = AgentBlocksServer(
+    start_script=os.path.expanduser('~/agent_blocks/spa_documentation/start.sh'),
+    startup_log='/tmp/agent_blocks_startup.log',
+    mark_starting=mark_server_starting,
+)
 
 
 def start_executor_server():
@@ -5576,6 +5597,16 @@ def start_executor_server():
         return {'ok': False, 'text': f'Start script not found: {EXECUTOR_START_SCRIPT}'}
     except Exception as e:
         return {'ok': False, 'text': str(e)}
+
+
+def start_agent_blocks_server():
+    """Compatibility adapter for the Server Management restart registry."""
+    return _AGENT_BLOCKS_SERVER.start().model_dump()
+
+
+def ensure_agent_blocks_server():
+    """Dashboard startup task: make its embedded Agent Blocks SPA available."""
+    return start_agent_blocks_server()
 
 
 def start_frita_executor():
@@ -5919,6 +5950,10 @@ def set_chatgpt_provider_account(source):
     _log_restart(f'chatgpt-provider: set to {strategy.label}')
     ok, note = strategy.install()
     if ok:
+        with _model_stats_agents_cache_lock:
+            _model_stats_agents_cache['value'] = None
+        with _weekly_remaining_cache_lock:
+            _weekly_remaining_cache.pop(CHATGPT_PLUS_PRO, None)
         try:
             _poll_chatgpt_provider_once()  # refresh the fleet's send-errors now, not in 90s
         except Exception:
@@ -5933,7 +5968,16 @@ def get_chatgpt_provider_account_status():
         creds, _ptype = _fetch_provider_oauth_creds(CHATGPT_PLUS_PRO)
     except Exception:
         creds = None
-    return chatgpt_provider_account_status(creds)
+        _ptype = None
+    try:
+        with open(CODEX_PRIMARY_AUTH_JSON, encoding='utf-8') as fh:
+            local_auth = json.load(fh)
+    except Exception:
+        local_auth = None
+    probe_fn = PROVIDER_USAGE_PROBES.get(_ptype)
+    probe = probe_fn(creds, timeout=8) if creds and probe_fn else None
+    return chatgpt_provider_account_status(
+        creds, local_auth=local_auth, probe=probe)
 
 
 def start_browser_server():
@@ -5998,6 +6042,8 @@ RESTART_REGISTRY = RestartRegistry([
                    note='docker recovery + idempotent deploy'),
     RestartCommand(key='browser-server', handler=start_browser_server,
                    note='browser automation for relay_message_to_chatgpt'),
+    RestartCommand(key='agent-blocks', handler=start_agent_blocks_server,
+                   note='launches start.sh (spa_documentation dev server)'),
     RestartCommand(
         key='lettabot',
         handler=lambda: _restart_user_unit('lettabot', 'lettabot.service')),
@@ -6768,6 +6814,7 @@ def model_stats_agents_payload(force_refresh=False):
         all_agents = json.loads(r.read().decode())
     by_id = {a['id']: a for a in all_agents}
 
+    chatgpt_status = get_chatgpt_provider_account_status()
     rows = []
     referenced_providers = set()
     for cfg in LETTA_AGENTS:
@@ -6779,6 +6826,8 @@ def model_stats_agents_payload(force_refresh=False):
         info = OAUTH_PROVIDER_ACCOUNTS.get(provider)
         if provider:
             referenced_providers.add(provider)
+        provider_state = (chatgpt_status.provider_token_state
+                          if provider == CHATGPT_PLUS_PRO else None)
         rows.append({
             'id': real_id or f'unknown-{cfg["name"].lower()}',
             'name': cfg['name'],
@@ -6786,6 +6835,10 @@ def model_stats_agents_payload(force_refresh=False):
             'account': info['account'] if info else '',
             'account_label': info['label'] if info else (provider or 'unknown'),
             'weekly_percent_remaining': _weekly_percent_remaining(provider) if provider else None,
+            'token_status': ('up' if provider_state == 'valid' else
+                             'down' if provider_state in ('expired', 'stale') else None),
+            'token_status_detail': (chatgpt_status.token_status_detail
+                                    if provider_state else ''),
         })
 
     # Accounts (e.g. rbarnesrol@aol.com / chatgpt-plus-pro-mom) that exist in
@@ -7123,6 +7176,10 @@ from http_app.runtime import ReusableHTTPServer            # noqa: E402
 def startup_tasks():
     """The daemon threads the dashboard boots with, each with its banner line."""
     return [
+        BackgroundTask(
+            label='agent-blocks-autostart',
+            target=ensure_agent_blocks_server,
+            banner='Ensuring the Agent Blocks documentation server is available'),
         BackgroundTask(
             label='letta-log-pull',
             target=_letta_remote_log_pull_loop,

@@ -346,10 +346,22 @@ export class AgentAssignmentsController extends PollingController {
     }
 
     const pct = row.weekly_percent_remaining;
-    entry.fill.className = `win98-bar-fill ${barClassFor(pct)}`.trim();
-    entry.fill.style.width =
-      pct == null ? "0%" : `${Math.max(0, Math.min(100, pct))}%`;
-    entry.label.textContent = pct == null ? "?" : `${pct}%`;
+    const tokenDown = row.token_status === "down";
+    entry.fill.className =
+      `win98-bar-fill ${tokenDown ? "is-critical" : barClassFor(pct)}`.trim();
+    entry.fill.style.width = tokenDown
+      ? "100%"
+      : pct == null
+        ? "0%"
+        : `${Math.max(0, Math.min(100, pct))}%`;
+    entry.label.textContent = tokenDown
+      ? row.token_status_detail || "Expired"
+      : pct == null && row.token_status === "up"
+        ? "Valid"
+        : pct == null
+          ? "Unavailable"
+          : `${pct}%`;
+    entry.label.title = row.token_status_detail || "";
   }
 
   _renderToolRow(row) {

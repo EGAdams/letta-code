@@ -107,3 +107,25 @@ export class ReadOnlyNoteSurface extends TextareaNoteSurface {
     el.style.cssText = NOTE_STYLE;
   }
 }
+
+/**
+ * Toyota's box, second iteration: same white-on-black note styling, but a
+ * regular typeable/editable box like every other agent's message box —
+ * dictation and typing both just write into it, and Send/Save Note clear it
+ * afterward like any editable surface.
+ */
+export class EditableDarkNoteSurface extends TextareaNoteSurface {
+  constructor(options = {}) {
+    super({ placeholder: "Type or speak here…", ...options });
+  }
+
+  /** @override */
+  get editable() {
+    return true;
+  }
+
+  /** @override */
+  decorate(el) {
+    el.style.cssText = NOTE_STYLE;
+  }
+}

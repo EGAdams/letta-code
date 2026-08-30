@@ -18,13 +18,19 @@ export class ChatGptProviderAccountController {
   /**
    * @param {{ http: import("./http-client.interface.js").HttpClient }} deps
    */
-  constructor({ http } = {}) {
+  constructor({
+    http,
+    setInterval = globalThis.setInterval?.bind(globalThis),
+  } = {}) {
     if (!http || typeof http.getJSON !== "function") {
       throw new Error("ChatGptProviderAccountController requires { http }");
     }
     this._http = http;
     this._status = null;
     this._containerId = null;
+    this._setInterval = setInterval;
+    this._pollTimer = null;
+    this._dismissedIncident = null;
   }
 
   /**
@@ -39,7 +45,11 @@ export class ChatGptProviderAccountController {
   /** Mount into a container id. */
   mount(containerId) {
     this._containerId = containerId;
+    this._wireSyncDialog();
     void this.refresh();
+    if (!this._pollTimer && this._setInterval) {
+      this._pollTimer = this._setInterval(() => void this.refresh(), 60000);
+    }
   }
 
   /** Re-fetch status from the server and re-render. */
@@ -53,6 +63,7 @@ export class ChatGptProviderAccountController {
       this._status = { error: e.message };
     }
     this._render();
+    this._updateSyncDialog();
   }
 
   /**
@@ -76,6 +87,37 @@ export class ChatGptProviderAccountController {
       };
     }
     this._render(); // replaces the button markup, clearing the busy state
+    this._updateSyncDialog();
+  }
+
+  _wireSyncDialog() {
+    this._getElement("provider-token-sync-yes")?.addEventListener(
+      "click",
+      () => {
+        this._hideSyncDialog();
+        void this.setAccount("w11");
+      },
+    );
+    this._getElement("provider-token-sync-no")?.addEventListener(
+      "click",
+      () => {
+        this._dismissedIncident = this._status?.incident_id ?? "unknown";
+        this._hideSyncDialog();
+      },
+    );
+  }
+
+  _updateSyncDialog() {
+    const modal = this._getElement("provider-token-sync-modal");
+    if (!modal?.classList) return;
+    const incident = this._status?.incident_id ?? "unknown";
+    const shouldShow =
+      this._status?.sync_recommended && incident !== this._dismissedIncident;
+    modal.classList.toggle("hidden", !shouldShow);
+  }
+
+  _hideSyncDialog() {
+    this._getElement("provider-token-sync-modal")?.classList?.add("hidden");
   }
 
   _setButtonsBusy(busy) {

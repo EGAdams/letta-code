@@ -1,10 +1,59 @@
 // main-nav.js — the top-level sidebar and the System Status sub-nav.
 //
-// Most main-nav targets are a plain view switch; the five that open a sub-nav
-// (Status, Agent Management, Project Plans, Process Flows, ROL Finance) hide
-// the main nav and hand off to that section's own landing.
+// Most main-nav targets are a plain view switch; the sections that open a sub-nav
+// (Status, Agent Management, Project Plans, Agent Blocks, Process Flows,
+// ROL Finance) hide the main nav and hand off to that section's own landing.
 
 export function bindMainNav({ doc, nav, viewNav, AM, SM, SSHM, MS, PCM }) {
+  const agentBlocksFrame = doc.getElementById("agent-block-frame");
+  let agentBlocksNavObserver = null;
+
+  // The Agent Blocks documentation is same-origin behind /agent-block/. In
+  // embedded mode its own fixed sidebar is hidden; mirror its current flat
+  // drill-down level into the dashboard sidebar so navigation never bleeds
+  // into the content pane.
+  const syncAgentBlocksNav = () => {
+    const sourceNav = agentBlocksFrame?.contentDocument?.getElementById("nav");
+    if (!sourceNav || typeof doc.createElement !== "function") return;
+    const sourceHasBack = !!sourceNav.querySelector("a.back");
+    doc
+      .getElementById("btn-back-agent-blocks")
+      ?.classList.toggle("hidden", sourceHasBack);
+    nav.agentBlocks.querySelectorAll(".agent-block-spa-tab").forEach((tab) => {
+      tab.remove();
+    });
+    sourceNav.querySelectorAll("a").forEach((sourceLink) => {
+      const tab = doc.createElement("button");
+      tab.type = "button";
+      tab.className = "tab agent-block-spa-tab";
+      tab.textContent = sourceLink.textContent;
+      if (sourceLink.classList.contains("active")) tab.classList.add("active");
+      if (sourceLink.classList.contains("back")) tab.classList.add("back-tab");
+      if (sourceLink.classList.contains("has-children")) {
+        tab.classList.add("has-children");
+      }
+      tab.addEventListener("click", () => sourceLink.click());
+      nav.agentBlocks.appendChild(tab);
+    });
+  };
+
+  const connectAgentBlocksNav = () => {
+    agentBlocksNavObserver?.disconnect();
+    syncAgentBlocksNav();
+    const sourceNav = agentBlocksFrame?.contentDocument?.getElementById("nav");
+    if (!sourceNav || typeof MutationObserver === "undefined") return;
+    agentBlocksNavObserver = new MutationObserver(syncAgentBlocksNav);
+    agentBlocksNavObserver.observe(sourceNav, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+  };
+
+  agentBlocksFrame?.addEventListener("load", connectAgentBlocksNav);
+  connectAgentBlocksNav();
+
   // Open a sub-nav: hide the parent nav, show the child, select `target`.
   const openSubNav = (parentNav, childNav, selector, target) => {
     parentNav.classList.add("hidden");
@@ -41,6 +90,13 @@ export function bindMainNav({ doc, nav, viewNav, AM, SM, SSHM, MS, PCM }) {
           '[data-nav="plans"]',
           "plans-self-evolving",
         );
+        return;
+      }
+
+      if (target === "agent-block") {
+        nav.main.classList.add("hidden");
+        nav.agentBlocks.classList.remove("hidden");
+        viewNav.activateView(target);
         return;
       }
 
@@ -109,4 +165,9 @@ export function bindMainNav({ doc, nav, viewNav, AM, SM, SSHM, MS, PCM }) {
 
   const backStatus = doc.getElementById("btn-back");
   backStatus?.addEventListener("click", () => viewNav.returnToHome(nav.status));
+
+  const backAgentBlocks = doc.getElementById("btn-back-agent-blocks");
+  backAgentBlocks?.addEventListener("click", () =>
+    viewNav.returnToHome(nav.agentBlocks),
+  );
 }

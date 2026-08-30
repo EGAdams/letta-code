@@ -90,29 +90,51 @@ def _spec(**overrides) -> dict:
     return base
 
 
+#: Tiles added after BASELINE_COMMIT — the golden-parity tests below diff
+#: against a frozen pre-refactor snapshot, so a tile that didn't exist yet at
+#: that commit has to be excluded from the literal equality checks by name,
+#: not silently absorbed by zip()'s shortest-wins truncation (that would have
+#: hidden a real order/shape regression in the *original* fifteen). Add the
+#: new key here alongside its ServerSpec so this stays a deliberate list, not
+#: a growing blind spot.
+KNOWN_POST_BASELINE_ADDITIONS = {'agent-blocks', 'chatgpt-provider'}
+
+
+def _servers_minus_post_baseline_additions() -> list[dict]:
+    return [s for s in server.SERVERS if s['key'] not in KNOWN_POST_BASELINE_ADDITIONS]
+
+
 class TestGoldenParity:
     """Old literal and new derived view, side by side, on real live values."""
 
     def test_the_derived_view_matches_the_literal_exactly(self):
-        assert server.SERVERS == _servers_literal_at_baseline()
+        assert _servers_minus_post_baseline_additions() == _servers_literal_at_baseline()
 
     def test_every_entry_keeps_its_own_key_order(self):
         """`.get()` does not care, but a diff of two payloads does, and this is
         the cheapest place to notice the shape drifting."""
-        for new, old in zip(server.SERVERS, _servers_literal_at_baseline()):
+        for new, old in zip(_servers_minus_post_baseline_additions(), _servers_literal_at_baseline()):
             assert list(new) == list(old), new['key']
 
     def test_the_tile_order_is_unchanged(self):
-        assert ([s['key'] for s in server.SERVERS]
+        assert ([s['key'] for s in _servers_minus_post_baseline_additions()]
                 == [s['key'] for s in _servers_literal_at_baseline()])
 
     def test_the_view_is_derived_not_a_second_copy(self):
         assert server.SERVERS == registry.as_configs(server.SERVER_SPECS)
 
+    def test_post_baseline_additions_are_all_accounted_for(self):
+        """Guards the exclusion list itself: a key missing from both the
+        baseline and this set would otherwise silently drop out of every
+        golden check above instead of failing one."""
+        baseline_keys = {s['key'] for s in _servers_literal_at_baseline()}
+        live_keys = {s['key'] for s in server.SERVERS}
+        assert live_keys - baseline_keys == KNOWN_POST_BASELINE_ADDITIONS
+
     def test_the_api_servers_payload_is_unchanged(self):
         """What the browser actually reads. `skills` has never been set on any
         entry and still defaults to []; the model does not add it."""
-        for cfg, old in zip(server.SERVERS, _servers_literal_at_baseline()):
+        for cfg, old in zip(_servers_minus_post_baseline_additions(), _servers_literal_at_baseline()):
             assert {
                 'key': cfg['key'], 'name': cfg['name'],
                 'note': cfg.get('note', ''), 'url': cfg.get('health_url'),

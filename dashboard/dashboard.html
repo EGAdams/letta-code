@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard</title>
-  <link rel="stylesheet" href="/css/dashboard.css?v=20260813a" />
+  <link rel="stylesheet" href="/css/dashboard.css?v=20260829agentblocksmarkers" />
   <link rel="stylesheet" href="/css/model-stats-agents.css?v=20260824sdk" />
 </head>
 <body class="startup-loading">
@@ -28,6 +28,7 @@
       <button type="button" class="tab" data-nav="main" data-target="status" id="btn-system-status">System Status</button>
       <button type="button" class="tab" data-nav="main" data-target="agent-management" id="btn-agent-mgmt">Agent Management</button>
       <button type="button" class="tab" data-nav="main" data-target="project-plans">Project Plans</button>
+      <button type="button" class="tab" data-nav="main" data-target="agent-block">Agent Blocks</button>
     </nav>
 
     <!-- PC Monitor sub-nav -->
@@ -88,6 +89,11 @@
       <button type="button" class="tab" data-nav="plans" data-target="plans-dashboard-refactor">Dashboard Refactor</button>
     </nav>
 
+    <!-- Agent Blocks sub-nav -->
+    <nav id="nav-agent-blocks" class="hidden">
+      <button type="button" class="tab back-tab" id="btn-back-agent-blocks">Back</button>
+    </nav>
+
     <!-- Voice Communication interface sub-nav -->
     <nav id="nav-voice-communication" class="hidden">
       <button type="button" class="tab back-tab" id="btn-back-voice-communication">Back</button>
@@ -125,6 +131,7 @@
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-vendor-review">Needs Vendor Review</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-window" data-scanner-report="window">Last Window Scan</button>
       <button type="button" class="tab" data-nav="scanners" data-target="scanners-last-freezer" data-scanner-report="freezer">Last Freezer Scan</button>
+      <button type="button" class="tab" data-nav="scanners" data-target="scanners-edit-expense">Edit Expense</button>
     </nav>
 
     <!-- Agent detail sub-nav -->
@@ -156,13 +163,20 @@
       <h2>Toyota</h2>
       <p>Your receptionist. Press Start Listening when you're ready to talk to her, or just type.</p>
       <div id="receptionist-box"></div>
-      <!-- Command channel: spoken instructions about the note above. -->
-      <div id="note-command-box"></div>
     </section>
 
     <section id="status-home" class="view">
       <h2>System Status</h2>
       <p>Select a section above.</p>
+    </section>
+
+    <section id="agent-block" class="view">
+      <!-- Same-origin path (tailscale serve --set-path=/agent-block), not
+           127.0.0.1:8931 -- a loopback src only resolves on this machine
+           and http:// under this https:// page gets blocked as mixed
+           content for every visitor who isn't physically on this box. -->
+      <iframe id="agent-block-frame" class="plan-frame" data-refresh-on-show
+        src="/agent-block/?embedded=1" title="Agent Blocks documentation"></iframe>
     </section>
 
     <section id="model-stats" class="view">
@@ -432,6 +446,9 @@
       <div id="scanners-last-freezer-archive-terminal" class="archive-terminal-section hidden"></div>
       <div id="scanners-last-freezer-mazda-detail" class="agent-detail-section"></div>
     </section>
+    <section id="scanners-edit-expense" class="view">
+      <iframe class="plan-frame" src="/edit_expense.html" title="Edit Expense"></iframe>
+    </section>
       <section id="rol-finance-mazda-objects" class="view">
       <iframe class="plan-frame" src="/notes_plans_handoffs/mazda_objects.html"></iframe>
     </section>
@@ -478,6 +495,17 @@
     </div>
   </div>
 
-  <script type="module" src="/js/dashboard-boot.js?v=20260824sdk"></script>
+  <div id="provider-token-sync-modal" class="modal-overlay hidden">
+    <div class="modal-box win98-confirm-box" role="dialog" aria-modal="true" aria-labelledby="provider-token-sync-title">
+      <div class="win98-confirm-title" id="provider-token-sync-title">Mazda Token Monitor</div>
+      <p>Synchronize Mazda's Letta Provider Token?</p>
+      <div class="modal-actions">
+        <button type="button" id="provider-token-sync-yes">Yes</button>
+        <button type="button" id="provider-token-sync-no">No</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/js/dashboard-boot.js?v=20260829agentblocksmarkers"></script>
 </body>
 </html>

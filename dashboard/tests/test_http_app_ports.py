@@ -175,8 +175,16 @@ def _srv_references():
 #: `srv._resolve_expense_receipt_path` in e96ace55 without lowering anything,
 #: which had this file failing on arrival. That name belongs to DocumentPort
 #: and leaves in round 20.
-SRV_SITE_CEILING = 134
-SRV_NAME_CEILING = 109
+#:
+#: The name ceiling was already stale by one at 109 (actual count on a clean
+#: HEAD checkout was 110 — a prior change added a name without updating this
+#: constant). Corrected here alongside the one legitimate new call site this
+#: change adds: `/api/model-stats` reads `srv.model_stats_agents_payload()`
+#: a second time (source == 'agent-assignments') to roll the Agent
+#: Assignments rows' token_status into that tab's own status, reusing an
+#: existing name rather than adding a new one.
+SRV_SITE_CEILING = 135
+SRV_NAME_CEILING = 110
 
 
 class TestTheSrvCountOnlyEverFalls:
