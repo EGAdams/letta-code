@@ -31,6 +31,17 @@ def test_build_id_light_falls_back_to_receipt_for_an_unslugifiable_merchant():
     assert archive_path.build_id_light('***', '2026-08-15', 1.0) == 'receipt_08_15_26_1_00'
 
 
+def test_vendor_prefix_from_id_light_strips_the_date_amount_suffix():
+    assert (archive_path.vendor_prefix_from_id_light('kroger_08_15_26_12_34')
+            == 'kroger')
+    assert (archive_path.vendor_prefix_from_id_light('7_eleven_speedway_08_15_26_2_50')
+            == '7_eleven_speedway')
+
+
+def test_vendor_prefix_from_id_light_is_blank_for_blank_input():
+    assert archive_path.vendor_prefix_from_id_light('') == ''
+
+
 def test_preview_archive_path_matches_real_production_example():
     result = archive_path.preview_archive_path(
         '/staged/scan.jpg', 'Kroger', '2026-08-15', 12.34, archive_kind='receipt')

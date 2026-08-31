@@ -81,14 +81,16 @@ def build_unassigned_account_rows(
     Without this a token can silently expire unnoticed because nothing on the
     tab ever polls it (see rbarnesrol@aol.com / chatgpt-plus-pro-mom, added
     2026-08-21 but only surfaced when an agent is actually pointed at it)."""
+    family_labels = {'claude': 'Claude', 'chatgpt': 'ChatGPT'}
     rows = []
     for provider, meta in oauth_provider_accounts.items():
         if provider in referenced_providers:
             continue
+        family_label = family_labels.get(meta.get('family'), meta.get('family', ''))
         rows.append({
             'id': f'oauth-account-{provider}',
-            'name': f'{meta["label"]} (unassigned)',
-            'model': '',
+            'name': meta['label'],
+            'model': f'No {family_label} Assigned',
             'account': meta['account'],
             'account_label': meta['label'],
             'weekly_percent_remaining': weekly_percent_remaining_fn(provider),

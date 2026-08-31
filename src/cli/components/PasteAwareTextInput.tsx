@@ -12,7 +12,7 @@ import {
   translatePasteForImages,
   tryImportClipboardImageMac,
 } from "../helpers/clipboard";
-import { allocatePaste, resolvePlaceholders } from "../helpers/pasteRegistry";
+import { resolvePlaceholders } from "../helpers/pasteRegistry";
 
 // Global timestamp for forward delete coordination
 // Use globalThis to ensure singleton across bundle
@@ -255,39 +255,23 @@ export function PasteAwareTextInput({
         // Translate any image payloads in the paste (OSC 1337, data URLs, file paths)
         const translated = translatePasteForImages(payload);
 
-        // Helper to insert translated content
+        // Helper to insert translated content (always shown verbatim, never collapsed)
         const insertTranslated = (text: string) => {
           const at = Math.max(
             0,
             Math.min(caretOffsetRef.current, displayValue.length),
           );
-          const isLarge = countLines(text) > 5 || text.length > 500;
-          if (isLarge) {
-            const pasteId = allocatePaste(text);
-            const placeholder = `[Pasted text #${pasteId} +${countLines(text)} lines]`;
-            const newDisplay =
-              displayValue.slice(0, at) + placeholder + displayValue.slice(at);
-            const newActual =
-              actualValue.slice(0, at) + text + actualValue.slice(at);
-            setDisplayValue(newDisplay);
-            setActualValue(newActual);
-            onChange(newDisplay);
-            const nextCaret = at + placeholder.length;
-            setNudgeCursorOffset(nextCaret);
-            caretOffsetRef.current = nextCaret;
-          } else {
-            const displayText = sanitizeForDisplay(text);
-            const newDisplay =
-              displayValue.slice(0, at) + displayText + displayValue.slice(at);
-            const newActual =
-              actualValue.slice(0, at) + text + actualValue.slice(at);
-            setDisplayValue(newDisplay);
-            setActualValue(newActual);
-            onChange(newDisplay);
-            const nextCaret = at + displayText.length;
-            setNudgeCursorOffset(nextCaret);
-            caretOffsetRef.current = nextCaret;
-          }
+          const displayText = sanitizeForDisplay(text);
+          const newDisplay =
+            displayValue.slice(0, at) + displayText + displayValue.slice(at);
+          const newActual =
+            actualValue.slice(0, at) + text + actualValue.slice(at);
+          setDisplayValue(newDisplay);
+          setActualValue(newActual);
+          onChange(newDisplay);
+          const nextCaret = at + displayText.length;
+          setNudgeCursorOffset(nextCaret);
+          caretOffsetRef.current = nextCaret;
         };
 
         // If paste event carried no text (common for image-only clipboard), try macOS import
@@ -645,31 +629,8 @@ export function PasteAwareTextInput({
 
       // Translate any image payloads in the inserted text (run always for reliability)
       const translated = translatePasteForImages(inserted);
-      const translatedLines = countLines(translated);
-      const translatedChars = translated.length;
 
-      // If translated text is still large, create a placeholder
-      if (translatedLines > 5 || translatedChars > 500) {
-        const pasteId = allocatePaste(translated);
-        const placeholder = `[Pasted text #${pasteId} +${translatedLines} lines]`;
-
-        const newDisplayValue =
-          a.slice(0, lcp) + placeholder + a.slice(a.length - lcs);
-        const newActualValue =
-          actualValue.slice(0, lcp) +
-          translated +
-          actualValue.slice(actualValue.length - lcs);
-
-        setDisplayValue(newDisplayValue);
-        setActualValue(newActualValue);
-        onChange(newDisplayValue);
-        const nextCaret = lcp + placeholder.length;
-        setNudgeCursorOffset(nextCaret);
-        caretOffsetRef.current = nextCaret;
-        return;
-      }
-
-      // Otherwise, insert the translated text inline (sanitize newlines for display)
+      // Insert the translated text inline, verbatim (sanitize newlines for display)
       const displayText = sanitizeForDisplay(translated);
       const newDisplayValue =
         a.slice(0, lcp) + displayText + a.slice(a.length - lcs);

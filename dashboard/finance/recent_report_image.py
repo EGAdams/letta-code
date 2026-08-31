@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Callable, Mapping, MutableMapping, Sequence
 
 from finance.archive_path import build_id_light
+from finance.receipt_relocation import replace_file_if_clear
 
 
 class RecentReportImageSynchronizer:
@@ -129,19 +130,24 @@ class RecentReportImageSynchronizer:
         new_path = canonical['path']
 
         if new_path != old_path:
-            if os.path.exists(new_path):
-                return {'renamed': False,
-                        'warning': f'Image rename target already exists: {new_path}'}
-            # Ensure target directory exists
             new_dir = os.path.dirname(new_path)
-            if not os.path.exists(new_dir):
+            if new_dir and not os.path.exists(new_dir):
                 os.makedirs(new_dir, exist_ok=True)
-
-            try:
-                self._replace(old_path, new_path)
-            except Exception as exc:
+            outcome = replace_file_if_clear(old_path, new_path, replace=self._replace)
+            if not outcome.moved:
+                if outcome.reason == 'missing_source':
+                    # old_path is already gone: some other mutation (e.g. the
+                    # expense-edit repository's own receipt relocation, see
+                    # finance/receipt_relocation.py) beat this call to the same
+                    # rename, and new_path not existing too means neither of
+                    # them actually succeeded -- nothing on disk to point at.
+                    return {'renamed': False,
+                            'warning': f'Image to rename is missing: {old_path}'}
+                if outcome.reason == 'target_exists':
+                    return {'renamed': False,
+                            'warning': f'Image rename target already exists: {new_path}'}
                 return {'renamed': False,
-                        'warning': f'Failed to move image: {type(exc).__name__}: {exc}'}
+                        'warning': f'Image rename failed: {outcome.detail}'}
 
         # Pass old_path to update_references so it can conditionally update
         try:

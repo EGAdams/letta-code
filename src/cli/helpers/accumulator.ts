@@ -945,6 +945,8 @@ export function onChunk(
                   tool_call_id: chunk.tool_call_id,
                   status: chunk.status,
                   func_response: chunk.tool_return,
+                  stdout: chunk.stdout,
+                  stderr: chunk.stderr,
                 },
               ]
             : [];
@@ -959,12 +961,28 @@ export function onChunk(
           ("tool_return" in toolReturn ? toolReturn.tool_return : undefined);
 
         // Ensure resultText is always a string (guard against SDK returning objects)
-        const resultText =
+        let resultText =
           typeof rawResult === "string"
             ? rawResult
             : rawResult != null
               ? JSON.stringify(rawResult)
               : "";
+
+        // Surface captured stdout/stderr (e.g. the nested tool-call log a
+        // server-side tool like run_claude_code_sdk prints while it runs) —
+        // otherwise this is silently dropped and only the final summary shows.
+        const stdoutLines = Array.isArray(toolReturn.stdout)
+          ? toolReturn.stdout.filter(Boolean)
+          : [];
+        const stderrLines = Array.isArray(toolReturn.stderr)
+          ? toolReturn.stderr.filter(Boolean)
+          : [];
+        if (stdoutLines.length > 0) {
+          resultText += `\n\n[stdout]\n${stdoutLines.join("\n")}`;
+        }
+        if (stderrLines.length > 0) {
+          resultText += `\n\n[stderr]\n${stderrLines.join("\n")}`;
+        }
         const status = toolReturn.status;
 
         // Look up the line by toolCallId

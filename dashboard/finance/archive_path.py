@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import calendar
 import os
+import re
 from datetime import date
 
 # 'receipt' is the only kind parse_and_categorize.py --save actually writes
@@ -55,6 +56,18 @@ def build_id_light(merchant_or_vendor_key: str, transaction_date: str,
     date_token = parsed.strftime('%m_%d_%y')
     amount_token = f'{float(total_amount):.2f}'.replace('.', '_')
     return f'{slug}_{date_token}_{amount_token}'
+
+
+_ID_LIGHT_DATE_AMOUNT_SUFFIX = re.compile(r'_\d{2}_\d{2}_\d{2}_\d+_\d+$')
+
+
+def vendor_prefix_from_id_light(id_light: str) -> str:
+    """The vendor slug half of an id_light, with its _MM_DD_YY_D_CC suffix
+    stripped -- the part build_id_light needs to reuse when only the date or
+    amount changed, so a corrected row keeps the vendor identity its receipt
+    was actually filed under rather than one re-derived from a possibly-edited
+    description."""
+    return _ID_LIGHT_DATE_AMOUNT_SUFFIX.sub('', id_light or '')
 
 
 def preview_archive_path(image_path: str, merchant_or_vendor_key: str,

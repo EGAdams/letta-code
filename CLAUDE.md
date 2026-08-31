@@ -9,6 +9,10 @@ first, then only what the user cannot infer. Skip preamble, restatements of
 the request, and summaries of work the diff already shows. Tables and bullet
 lists over paragraphs. Flag real risks in one line, not a section.
 
+**Avoid unexplained jargon.** Words like "dedupe" or "gap" land as unclear
+shorthand — say "repeat check" / "difference" (or whatever plain phrase fits
+the sentence) instead.
+
 ## About this project
 
 Letta Code is a CLI (`letta`) for driving stateful Letta agents from the

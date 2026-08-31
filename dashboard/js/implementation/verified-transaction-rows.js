@@ -290,11 +290,11 @@ export class VerifiedTransactionRows {
       );
     }
     const tax = result.taxAdded;
-    this._setStatus(
+    const message =
       tax === null
         ? "Added Michigan sales tax."
-        : `Added ${tax.toFixed(2)} Michigan sales tax — now ${amount}.`,
-    );
+        : `Added ${tax.toFixed(2)} Michigan sales tax — now ${amount}.`;
+    this._setStatus([message, ...result.warnings].join(" "));
   }
 
   async _post(url, payload) {

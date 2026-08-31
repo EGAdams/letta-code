@@ -156,8 +156,8 @@ REPORT_MONTHS: tuple[ReportMonth, ...] = (
 DEFAULT_MONTH_KEY = 'jan-2025'
 
 FINANCE_REPORT_SPECS: tuple[FinanceReportSpec, ...] = (
-    FinanceReportSpec(key='fnbo-4851', label='FNBO 4851',
-                      dir='january_fnbo_2025_account_4851'),
+    FinanceReportSpec(key='fnbo-4851-year', label='FNBO 4851 Year',
+                      dir='fnbo_4851_year_2025', all_year=True),
     FinanceReportSpec(key='amex-personal-year', label='Amex 1006',
                       dir='amex_personal_whole_2025', all_year=True),
     FinanceReportSpec(key='bank-5938-pdf1', label='Bank 5938 PDF 1',
@@ -166,11 +166,10 @@ FINANCE_REPORT_SPECS: tuple[FinanceReportSpec, ...] = (
                       dir='non_profit_rol_Statement_december_january_6285'),
     FinanceReportSpec(key='bank-6285-pdf2', label='Bank 6285 PDF 2',
                       dir='business_january_february_6285'),
-    FinanceReportSpec(key='jetblue-pdf1', label='Jet Blue PDF 1',
-                      dir='jet_blue__december_january_12_26_25_to_01_23_25'),
-    FinanceReportSpec(key='jetblue-pdf2', label='Jet Blue PDF 2',
-                      dir='jet_blue_january_february_01_27_to_02_25_25'),
-    FinanceReportSpec(key='platinum-year', label='Platinum Year',
+    FinanceReportSpec(key='barclay-3965-year', label='Barclay 3965 Year',
+                      dir='barclays_bank_delaware_3965_whole_year_2025',
+                      all_year=True),
+    FinanceReportSpec(key='platinum-year', label='Amex 6002 Year',
                       dir='platinum_business_credit_card_for_the_year',
                       all_year=True),
     FinanceReportSpec(key='diners-club-0587', label='Diners Club 0587',
