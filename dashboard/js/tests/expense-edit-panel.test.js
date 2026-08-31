@@ -17,13 +17,18 @@ function fakeHttp({ categories, fail = false } = {}) {
   };
 }
 
-function setup(httpOpts) {
+function setup(httpOpts, panelOpts = {}) {
   const doc = new FakeDocument();
   const root = doc.createElement("div");
   root.id = "expense-edit-root";
   doc.add(root);
   const http = fakeHttp(httpOpts);
-  return { doc, root, http, panel: new ExpenseEditPanel({ http, root, doc }) };
+  return {
+    doc,
+    root,
+    http,
+    panel: new ExpenseEditPanel({ http, root, doc, ...panelOpts }),
+  };
 }
 
 function findButton(root, text) {
@@ -70,6 +75,14 @@ describe("mounting", () => {
     const launcher = await panel.mount();
     expect(panel.dialog.panel.parent).toBe(root);
     expect(launcher.children).not.toContain(panel.dialog.panel);
+  });
+
+  test("expanded mode shows the editor immediately without a launcher", async () => {
+    const { panel, root } = setup({}, { expanded: true });
+    const launcher = await panel.mount();
+    expect(launcher).toBeNull();
+    expect(findButton(root, "Edit Expense")).toBeUndefined();
+    expect(panel.dialog.panel.style.display).toBe("");
   });
 });
 

@@ -250,6 +250,66 @@ export async function relay_message_to_chatgpt(
     );
   }
 
+  const startBrowserServerCommand =
+    "cd ~/letta-code/browser_tools && " +
+    "kill $(cat /tmp/browser_server.pid 2>/dev/null) 2>/dev/null; sleep 1; " +
+    "source .venv/bin/activate 2>/dev/null && " +
+    "BROWSER_SERVER_HOST=0.0.0.0 nohup python3 browser_server.py >/tmp/browser_server.log 2>&1 & " +
+    "echo $! > /tmp/browser_server.pid";
+
+  async function startBrowserServer(executor: [string, string]): Promise<void> {
+    const sshCommand =
+      "ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new " +
+      `adamsl@100.80.49.10 '${startBrowserServerCommand}'`;
+    await runViaExecutor(executor, sshCommand, 30);
+  }
+
+  async function notifyLoginNeeded(executor: [string, string]): Promise<void> {
+    const sshCommand =
+      "ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new " +
+      "adamsl@100.80.49.10 'bash ~/server_tools/notify_chatgpt_login_needed.sh'";
+    try {
+      await runViaExecutor(executor, sshCommand, 15);
+    } catch {
+      // best-effort notification only
+    }
+  }
+
+  async function startAndWaitForBrowserServer(
+    executor: [string, string],
+    waitSeconds: number = 30,
+    pollInterval: number = 3,
+  ): Promise<string | null> {
+    try {
+      await startBrowserServer(executor);
+    } catch {
+      return null;
+    }
+
+    const deadline = Date.now() + Math.max(1, waitSeconds) * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.max(1, pollInterval) * 1000),
+      );
+      for (const candidate of candidateBrowserUrls()) {
+        try {
+          const health = await requestJsonViaExecutor(
+            executor,
+            candidate,
+            "GET",
+            "/health",
+            null,
+            5,
+          );
+          if (health.status === "ok") {
+            return candidate;
+          }
+        } catch {}
+      }
+    }
+    return null;
+  }
+
   function latestAssistantText(thread: Array<Record<string, unknown>>): string {
     for (let i = thread.length - 1; i >= 0; i--) {
       const turn = thread[i];

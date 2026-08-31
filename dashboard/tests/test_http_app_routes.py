@@ -181,7 +181,7 @@ class TestQueryParameters:
 class TestPostBodyHandling:
     @pytest.mark.parametrize('path', [
         '/api/note-command-complete', '/api/receptionist-intent',
-        '/api/letta-code-message', '/api/route-detect',
+        '/api/letta-code-message', '/api/route-detect', '/api/note-save',
     ])
     def test_malformed_json_is_a_400_not_a_500(self, live, svc, path):
         resp = live.post(path, body='{not json')
@@ -232,6 +232,32 @@ class TestPostBodyHandling:
         stub('record_stored_expense', lambda d: seen.append(d) or {'ok': True})
         live.post('/api/expense-stored', {'vendor': 'Café ⚠ Ñ'})
         assert seen[0]['vendor'] == 'Café ⚠ Ñ'
+
+
+# ==========================================================================
+# /api/note-save — Toyota's "Save Note" button, no LLM interpretation
+# ==========================================================================
+class TestNoteSave:
+    def test_saves_the_note_text_to_notes_dir(self, live, svc, tmp_path, monkeypatch):
+        import voice.config as voice_config
+        monkeypatch.setattr(voice_config, 'NOTES_DIR', str(tmp_path))
+        resp = live.post('/api/note-save', {'note': 'pick up milk'})
+        assert resp.status == 200
+        assert resp.json['ok'] is True
+        saved = tmp_path / resp.json['filename']
+        assert saved.read_text() == 'pick up milk\n'
+
+    def test_an_empty_note_is_not_written(self, live, svc, tmp_path, monkeypatch):
+        import voice.config as voice_config
+        monkeypatch.setattr(voice_config, 'NOTES_DIR', str(tmp_path))
+        resp = live.post('/api/note-save', {'note': '   '})
+        assert resp.status == 200
+        assert resp.json['ok'] is False
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_wrong_typed_note_is_a_400(self, live, svc):
+        resp = live.post('/api/note-save', {'note': 12345})
+        assert resp.status == 400
 
 
 # ==========================================================================

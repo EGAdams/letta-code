@@ -34,6 +34,7 @@ import { createViewNavigator } from "./boot/view-navigator.js";
 import {
   ActivePoller,
   CodeChangeAlert,
+  DomChatGptProviderAccountController,
   DomTabFactory,
   EdgeTtsSpeechSynthesizer,
   FetchHttpClient,
@@ -100,6 +101,11 @@ const AM = createAgentManager({
   setAgentTabStatus: agentTabStatus.setAgentTabStatus,
 });
 const MS = createModelStats({ doc, http, nav, viewNav });
+const providerAccountMonitor = new DomChatGptProviderAccountController({
+  http,
+  doc,
+});
+providerAccountMonitor.mount("chatgpt-provider-account-panel");
 const PCM = createPcMonitor({ doc, http, nav, viewNav });
 const SM = createServerManager({ doc, http, nav, viewNav, tabFactory });
 const SSHM = createSshManager({ doc, http, nav, viewNav, tabFactory });

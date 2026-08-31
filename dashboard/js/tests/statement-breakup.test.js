@@ -294,6 +294,22 @@ describe("buildStatementEntryPayload", () => {
       "Interest Charge on Purchases",
     );
   });
+
+  test("does not send statement-only provenance to the store", () => {
+    const result = readStatementBreakupResponse({
+      ...BREAKUP_RESPONSE,
+      last4_source: "statement",
+    });
+
+    const payload = buildStatementEntryPayload(
+      result.items,
+      { imagePath: "/staged/freezer_scan.jpg", conversationId: "conv-1" },
+      result.header,
+    );
+
+    expect(result.header.last4Source).toBe("statement");
+    expect(payload.last4_source).toBe("");
+  });
 });
 
 describe("summarizeStatementStore", () => {

@@ -27,7 +27,7 @@ from hosts import LETTA_BASE_URL
 from model_stats import reader as model_stats_reader
 from model_stats_mute import ModelStatsMuteRequest
 from pydantic import ValidationError
-from voice import note_factory, pipeline, receptionist
+from voice import note_factory, note_repository, pipeline, receptionist
 from voice.note_models import NoteEditRequest, PartialVoiceCommand
 
 from . import services as srv
@@ -434,6 +434,26 @@ class PostRoutesMixin:
                 return self.error_response('command must not be blank', 400)
             outcome = note_factory.note_command_service().apply(request)
             return self.json_response({'ok': True, **outcome.model_dump()})
+
+        if path == '/api/note-save':
+            # Toyota's "Save Note" button: the user already decided to save,
+            # so this writes the text straight to disk with no LLM
+            # interpretation step (unlike note-command-apply above).
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            note = data.get('note', '')
+            filename = data.get('filename', '')
+            if not isinstance(note, str) or not isinstance(filename, str):
+                return self.error_response('note and filename must be strings', 400)
+            if not note.strip():
+                return self.json_response({'ok': False, 'error': 'Nothing to save.'})
+            try:
+                saved = note_repository.build_note_repository().save(note, filename)
+            except OSError as exc:
+                return self.json_response({'ok': False, 'error': f'Could not save the note: {exc}'})
+            return self.json_response({'ok': True, 'filename': saved.filename, 'path': saved.path})
 
         if path == '/api/agent-model':
             try:

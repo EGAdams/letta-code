@@ -571,6 +571,24 @@ body.startup-loading .sidebar {
   text-align: left;
 }
 
+/* Excel-style corner marker: this Agent Blocks tab opens another flat nav
+   level instead of a document page. */
+.tab.has-children {
+  position: relative;
+}
+
+.tab.has-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  border-top: 10px solid #e03131;
+  border-right: 10px solid transparent;
+  border-top-left-radius: 4px;
+}
+
 .tab:hover,
 .tab:focus-visible {
   outline: none;
@@ -1984,6 +2002,20 @@ summary {
 .modal-overlay.hidden {
   display: none;
 }
+
+/* The provider-token decision can arrive while the startup checks are still
+   running. Keep that confirmation above the startup curtain and interactive;
+   startup-loading intentionally disables every other dashboard control. */
+#provider-token-sync-modal {
+  z-index: 10000;
+}
+body.startup-loading #provider-token-sync-modal button {
+  pointer-events: auto;
+  background: revert !important;
+  color: revert !important;
+  cursor: pointer !important;
+  box-shadow: revert !important;
+}
 .modal-box {
   background: #fff;
   color: #333;
@@ -1998,6 +2030,23 @@ summary {
   gap: 10px;
   margin-top: 16px;
 }
+.win98-confirm-box {
+  padding: 3px;
+  border: 2px outset #fff;
+  border-radius: 0;
+  background: #c0c0c0;
+  box-shadow: 2px 2px 0 #000;
+  font-family: "MS Sans Serif", Tahoma, sans-serif;
+}
+.win98-confirm-title {
+  padding: 3px 5px;
+  background: #000080;
+  color: #fff;
+  font-weight: 700;
+}
+.win98-confirm-box p { padding: 10px 14px 0; }
+.win98-confirm-box .modal-actions { padding: 0 10px 10px; }
+.win98-confirm-box button { min-width: 72px; }
 .vendor-review-panel {
   margin-top: 16px;
   padding: 12px 14px;

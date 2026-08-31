@@ -170,13 +170,25 @@ td.muted { padding:10px 12px; height:auto; }
    and their visual center sits lower on the row than a center-origin
    element's does. Without this the dropdown reads as sitting a bit high
    next to Mazda Fill / Show Image. */
-.mazda-fill-progress {
-    margin-left:15px;
+/* Classic Windows 98 progress indicator: a recessed white track with square,
+   navy blocks. Its 30px outer height is slightly more than 1.5 characters at
+   this form's 18px type size. JS sets the track's exact left/width from the
+   rendered Show Image and Remove This Expense button edges; keeping that
+   geometry on the shell means a 100% fill cannot overflow the dialog. */
+.mazda-fill-progress-shell {
+    display:none;
+    box-sizing:border-box;
+    height:30px;
     margin-top:4px;
-    height:4px;
+    padding:4px;
+    overflow:hidden;
+    background:#fff;
+    box-shadow:inset -2px -2px #dfdfdf,inset 2px 2px #808080;
+}
+.mazda-fill-progress {
+    height:100%;
     width:0%;
-    background:#4ade80;
-    border-radius:2px;
+    background:repeating-linear-gradient(to right,#000080 0,#000080 12px,transparent 12px,transparent 15px);
 }
 
 .manual-entry-form select[data-field="mazdaModel"] {

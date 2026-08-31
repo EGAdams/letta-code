@@ -7,8 +7,8 @@ import { ChatGptProviderAccountController } from "../abstract/chatgpt-provider-a
  * lives in the abstract base and is exercised there without a DOM.
  */
 export class DomChatGptProviderAccountController extends ChatGptProviderAccountController {
-  constructor({ http, doc = globalThis.document } = {}) {
-    super({ http });
+  constructor({ http, doc = globalThis.document, setInterval } = {}) {
+    super({ http, setInterval });
     this._doc = doc;
   }
 

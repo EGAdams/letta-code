@@ -8,19 +8,17 @@
 // hand-off; this box only ever talks to Toyota): every final recognized chunk
 // while listening is sent straight to her.
 //
-// The command channel below the note gets a THIRD listener: the two boxes are
-// two conversations (dictate the note / instruct Toyota about it), so they
-// start and stop independently. The channel's collaborators are the two HTTP
-// adapters — swapping either for a local implementation is a change here and
-// nowhere else. See js/abstract/voice-command-channel.js.
+// Toyota's box used to be a read-only note document edited by a separate
+// spoken command channel (#note-command-box, NoteCommandPanelRenderer). It is
+// now an ordinary typeable/dictatable message box like every other agent's —
+// Send and Save Note both clear it — so that second box and its listener are
+// gone. The underlying command-channel classes (js/abstract/voice-command-
+// channel.js and friends) stay in the tree; nothing else references them.
 
 import {
   BrowserSpeechRecognitionListener,
-  HttpCompletenessDetector,
-  HttpNoteCommandInterpreter,
+  EditableDarkNoteSurface,
   InputOptionsRenderer,
-  NoteCommandPanelRenderer,
-  ReadOnlyNoteSurface,
 } from "../implementation/index.js";
 
 export async function startReceptionist({ http, speech }) {
@@ -32,7 +30,7 @@ export async function startReceptionist({ http, speech }) {
   } catch {
     return;
   }
-  const api = new InputOptionsRenderer({
+  new InputOptionsRenderer({
     http,
     speech,
     agentName: "Toyota",
@@ -42,16 +40,8 @@ export async function startReceptionist({ http, speech }) {
       evaluate: (text) =>
         http.postJSON("/api/receptionist-intent", { text }, { timeout: 15000 }),
     },
-    // Toyota's box is a note document, not a message box: read-only, white on
-    // black. Editing it happens by voice through the command channel below.
-    surfaceFactory: (opts) => new ReadOnlyNoteSurface(opts),
+    // Same white-on-black look as before, now editable and clearing like any
+    // other agent's message box.
+    surfaceFactory: (opts) => new EditableDarkNoteSurface(opts),
   }).render("receptionist-box", agentId);
-  if (!api) return;
-
-  new NoteCommandPanelRenderer({
-    note: api.note,
-    listener: new BrowserSpeechRecognitionListener(),
-    completenessDetector: new HttpCompletenessDetector({ http }),
-    commandInterpreter: new HttpNoteCommandInterpreter({ http }),
-  }).render("note-command-box");
 }

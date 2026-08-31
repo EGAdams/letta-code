@@ -50,7 +50,7 @@ POST_ROUTES = [
     '/api/manual-receipt-entry-archive-preview', '/api/manual-receipt-entry-preview',
     '/api/manual-statement-breakup', '/api/manual-statement-entry',
     '/api/mazda-fill', '/api/mazda-mode', '/api/model-stats-mute',
-    '/api/note-command-apply', '/api/note-command-complete',
+    '/api/note-command-apply', '/api/note-command-complete', '/api/note-save',
     '/api/open-supporting-document', '/api/process-document', '/api/process-pdf',
     '/api/recategorize-expense', '/api/receipt-lookup', '/api/receipts-present',
     '/api/receptionist-intent', '/api/reprocess-report', '/api/route-detect',

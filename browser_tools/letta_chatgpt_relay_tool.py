@@ -173,6 +173,48 @@ def relay_message_to_chatgpt(
                 errors.append(f"{candidate}: {type(exc).__name__}: {exc}")
         raise RuntimeError("No reachable browser server. Tried: " + " | ".join(errors))
 
+    start_browser_server_command = (
+        "cd ~/letta-code/browser_tools && "
+        "kill $(cat /tmp/browser_server.pid 2>/dev/null) 2>/dev/null; sleep 1; "
+        "source .venv/bin/activate 2>/dev/null && "
+        "BROWSER_SERVER_HOST=0.0.0.0 nohup python3 browser_server.py >/tmp/browser_server.log 2>&1 & "
+        "echo $! > /tmp/browser_server.pid"
+    )
+
+    def start_browser_server(executor: tuple[str, str]) -> None:
+        ssh_command = (
+            "ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "
+            f"adamsl@100.80.49.10 {shlex.quote(start_browser_server_command)}"
+        )
+        run_via_executor(executor, ssh_command, timeout=30)
+
+    def notify_login_needed(executor: tuple[str, str]) -> None:
+        ssh_command = (
+            "ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "
+            "adamsl@100.80.49.10 'bash ~/server_tools/notify_chatgpt_login_needed.sh'"
+        )
+        try:
+            run_via_executor(executor, ssh_command, timeout=15)
+        except Exception:
+            pass
+
+    def start_and_wait_for_browser_server(executor: tuple[str, str], wait_seconds: int = 30, poll_interval: int = 3) -> str | None:
+        try:
+            start_browser_server(executor)
+        except Exception:
+            return None
+        deadline = time.time() + max(1, wait_seconds)
+        while time.time() < deadline:
+            time.sleep(max(1, poll_interval))
+            for candidate in candidate_browser_urls():
+                try:
+                    health = request_json_via_executor(executor, candidate, "GET", "/health", timeout=5)
+                    if health.get("status") == "ok":
+                        return candidate
+                except Exception:
+                    continue
+        return None
+
     def latest_assistant_text(thread: list[dict]) -> str:
         for turn in reversed(thread):
             if turn.get("role") == "assistant" and turn.get("text"):
@@ -208,15 +250,53 @@ def relay_message_to_chatgpt(
     try:
         base_url = resolve_browser_server_url(executor)
     except Exception as exc:
+        if not executor:
+            return json.dumps(
+                {
+                    "status": "BROWSER_SERVER_UNREACHABLE",
+                    "transport": "direct",
+                    "elapsed_seconds": round(time.time() - started_at, 1),
+                    "response": None,
+                    "thread": [],
+                    "turn_count": 0,
+                    "message": str(exc),
+                },
+                ensure_ascii=True,
+            )
+
+        started_url = start_and_wait_for_browser_server(executor)
+        if started_url is None:
+            return json.dumps(
+                {
+                    "status": "BROWSER_SERVER_UNREACHABLE",
+                    "transport": "executor",
+                    "elapsed_seconds": round(time.time() - started_at, 1),
+                    "response": None,
+                    "thread": [],
+                    "turn_count": 0,
+                    "message": (
+                        "Browser server was not reachable; attempted to start it via "
+                        f"executor but it did not come up in time. Original error: {exc}"
+                    ),
+                },
+                ensure_ascii=True,
+            )
+
+        notify_login_needed(executor)
         return json.dumps(
             {
-                "status": "BROWSER_SERVER_UNREACHABLE",
-                "transport": "executor" if executor else "direct",
+                "status": "LOGIN_REQUIRED",
+                "transport": "executor",
+                "browser_server_url": started_url,
                 "elapsed_seconds": round(time.time() - started_at, 1),
                 "response": None,
                 "thread": [],
                 "turn_count": 0,
-                "message": str(exc),
+                "message": (
+                    "Started the ChatGPT browser session on 100.80.49.10 — a login "
+                    "prompt was shown on that machine's desktop. Please log in to "
+                    "ChatGPT there, then retry this call."
+                ),
             },
             ensure_ascii=True,
         )

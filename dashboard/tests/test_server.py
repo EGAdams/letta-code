@@ -3924,7 +3924,12 @@ def test_rol_finance_categories_match_recategorize_targets():
     assert names, 'expected a non-empty category palette'
     assert 'Uncategorized' in names
     for c in cats:
-        assert c['name'] in server.REPORTING_CATEGORY_DB_MAP
+        target_id, target_cls = server._resolve_reporting_category(c['name'])
+        if c['name'] == 'Uncategorized':
+            assert target_id is None
+        else:
+            assert target_id is not None
+        assert target_cls == c['cls']
         assert c['cls'] and c['bg'] and c['fg']
 
 

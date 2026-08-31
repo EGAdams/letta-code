@@ -16,3 +16,6 @@ Notes captured by the Toyota receptionist agent from the dashboard Home screen.
 - 2026-08-12: User said "hello this is Monster available".
 - 2026-08-12: User said "hello".
 - 2026-08-21: User said "hello".
+- 2026-08-28: User said "hello test from curl".
+- 2026-08-28: User said "hello".
+- 2026-08-28: User mentioned a new agent-related repository called “Agent Blocks” (spelled b-l-o-c-k-s), associated with “Cloudy,” and described it as “a mailbox for you.”

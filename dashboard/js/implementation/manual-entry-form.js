@@ -94,6 +94,7 @@ import { FetchHttpClient } from "./fetch-http-client.js";
 
 const NEW_VENDOR_OPTION = "__new__";
 const NO_CATEGORY_OPTION = "";
+const MAZDA_FILL_PROGRESS_DURATION_SECONDS = 25;
 
 export class ManualEntryForm {
   /**
@@ -189,12 +190,17 @@ export class ManualEntryForm {
       "mazda-fill",
     );
     this.mazdaFillButton.addEventListener("click", () => this._mazdaFill());
-    // Progress bar under Mazda Fill — fills over 15 seconds when the button
-    // is clicked, visual feedback that a read is underway.
+    // A Windows 98 progress track beneath the reading controls. The track is
+    // separate from its fill so its right edge stays fixed while the blue
+    // blocks advance across it.
+    this.mazdaFillProgressShell = this._el("div", {
+      className: "mazda-fill-progress-shell",
+    });
     this.mazdaFillProgressBar = this._el("div", {
       className: "mazda-fill-progress",
     });
-    imagePathWrap.appendChild(this.mazdaFillProgressBar);
+    this.mazdaFillProgressShell.appendChild(this.mazdaFillProgressBar);
+    imagePathWrap.appendChild(this.mazdaFillProgressShell);
     // Model, not engine: the operator is choosing who reads the page, and both
     // choices are cheap on purpose (see MAZDA_FILL_MODEL_OPTIONS). Driven off
     // that one list so adding a model never means editing markup.
@@ -288,12 +294,12 @@ export class ManualEntryForm {
     // Purchases $0.00" is a real printed line and not an expense, and without
     // this the only ways past it were to invent an amount for it or abandon
     // the whole page.
-    const removeButton = this._button(
+    this.removeButton = this._button(
       nav,
       "− Remove This Expense",
       "remove-item",
     );
-    removeButton.addEventListener("click", () => this._removeItem());
+    this.removeButton.addEventListener("click", () => this._removeItem());
 
     const vendorWrap = this._el("div", { className: "manual-entry-field" });
     shell.appendChild(vendorWrap);
@@ -1452,18 +1458,45 @@ export class ManualEntryForm {
   }
 
   _startMazdaFillProgress() {
+    this._syncMazdaFillProgressGeometry();
+    this.mazdaFillProgressShell.style.display = "block";
     this.mazdaFillProgressBar.style.width = "0%";
     this.mazdaFillProgressBar.style.transition = "none";
     // Force reflow to apply the initial state before starting animation.
     // biome-ignore lint: reflow trigger
     this.mazdaFillProgressBar.offsetHeight;
-    this.mazdaFillProgressBar.style.transition = "width 15s linear";
+    this.mazdaFillProgressBar.style.transition = `width ${MAZDA_FILL_PROGRESS_DURATION_SECONDS}s linear`;
     this.mazdaFillProgressBar.style.width = "100%";
   }
 
   _resetMazdaFillProgress() {
     this.mazdaFillProgressBar.style.transition = "none";
     this.mazdaFillProgressBar.style.width = "0%";
+    this.mazdaFillProgressShell.style.display = "none";
+  }
+
+  /**
+   * Match the progress track to the visible button edges, including the
+   * form's 1.2x button transform. The two buttons live in different rows, so
+   * their rendered rectangles are the one reliable shared coordinate system.
+   */
+  _syncMazdaFillProgressGeometry() {
+    const parent = this.mazdaFillProgressShell.parentElement;
+    if (
+      typeof parent?.getBoundingClientRect !== "function" ||
+      typeof this.showImageButton?.getBoundingClientRect !== "function" ||
+      typeof this.removeButton?.getBoundingClientRect !== "function"
+    ) {
+      return;
+    }
+    const parentRect = parent.getBoundingClientRect();
+    const showImageRect = this.showImageButton.getBoundingClientRect();
+    const removeRect = this.removeButton.getBoundingClientRect();
+    const left = showImageRect.left - parentRect.left;
+    const width = removeRect.right - showImageRect.left;
+    if (!Number.isFinite(left) || !Number.isFinite(width) || width <= 0) return;
+    this.mazdaFillProgressShell.style.marginLeft = `${Math.max(0, left)}px`;
+    this.mazdaFillProgressShell.style.width = `${width}px`;
   }
 }
 

@@ -18,6 +18,7 @@ import document_annotation
 import model_stats_mute
 import statement_review
 from health import failures, frita
+from model_stats import assignments as model_stats_assignments
 from model_stats import reader as model_stats_reader
 from model_stats.sources import MODEL_STAT_SOURCES
 from monitoring import log_files, pc_metrics, server_lifecycle, ssh_checks, win10_node
@@ -131,7 +132,11 @@ class GetRoutesMixin:
 
         if path == '/api/model-stats':
             src = query.get('source', [''])[0]
-            return self.json_response(model_stats_mute.apply_mute_overlay(model_stats_reader.model_stats(src), src))
+            if src == 'agent-assignments':
+                out = model_stats_assignments.assignments_status(srv.model_stats_agents_payload())
+            else:
+                out = model_stats_reader.model_stats(src)
+            return self.json_response(model_stats_mute.apply_mute_overlay(out, src))
 
         if path == '/api/mazda-mode':
             return self.json_response(srv.mazda_mode_status())

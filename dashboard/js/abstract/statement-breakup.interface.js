@@ -36,7 +36,11 @@ import {
  * @typedef {Object} StatementHeader
  * @property {string} bankName
  * @property {string} accountLast4
- * @property {string} last4Source   "" | "operator" | "known_cards_workbook"
+ * @property {string} last4Source
+ *   Extraction provenance: "" | "statement" | "operator" |
+ *   "known_cards_workbook". The store accepts only the latter two as an
+ *   explicit override source; buildStatementEntryPayload translates that
+ *   narrower boundary.
  * @property {?number} statementTotal
  *
  * @typedef {Object} StatementBreakupResult
@@ -195,12 +199,21 @@ export function validateStatementRow(fields) {
  * @param {StatementHeader} header
  */
 export function buildStatementEntryPayload(items, intakeRef, header) {
+  // `statement` is valid extraction provenance, but it is not a valid value
+  // for store_statement_transactions.py's --account-last4-source option. An
+  // empty source lets the store derive `statement` from the staged parser
+  // envelope while preserving its unknown-card verification behavior.
+  const storeLast4Source = ["operator", "known_cards_workbook"].includes(
+    header.last4Source,
+  )
+    ? header.last4Source
+    : "";
   return {
     image_path: intakeRef.imagePath,
     conversation_id: intakeRef.conversationId,
     bank_name: header.bankName.trim(),
     account_last4: header.accountLast4.trim(),
-    last4_source: header.last4Source || "",
+    last4_source: storeLast4Source,
     statement_total: header.statementTotal,
     transactions: items.map((item) => ({
       transaction_date: item.transactionDate,

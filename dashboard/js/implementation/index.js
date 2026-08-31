@@ -121,6 +121,7 @@ export {
   SystemClock,
 } from "./system-session-primitives.js";
 export {
+  EditableDarkNoteSurface,
   EditableTextareaSurface,
   ReadOnlyNoteSurface,
 } from "./textarea-note-surfaces.js";
