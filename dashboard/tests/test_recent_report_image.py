@@ -122,7 +122,9 @@ def test_a_rename_that_already_happened_elsewhere_is_not_an_error(tmp_path):
     so by the time this pointer-cache sync runs, old_path is already gone and
     new_path already holds the (correctly renamed) file. That must read as
     success, not a missing-file fault."""
-    already_renamed = tmp_path / 'meijer_07_14_25_31_25.jpg'
+    july_dir = tmp_path / '2025' / 'july' / 'july_14'
+    july_dir.mkdir(parents=True)
+    already_renamed = july_dir / 'meijer_07_14_25_31_25.jpg'
     already_renamed.write_bytes(b'image')
     stale_pointer_path = tmp_path / 'meijer_07_14_25_29_48.jpg'
     pointer = {'intake': {'expense_ids': [1, 2],
