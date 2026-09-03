@@ -4,12 +4,22 @@
 // the progress indicators, and — once the intake reaches a terminal state —
 // the archive-verification terminal that proves where the document was filed.
 
+import { mountScannerReportControls } from "../scanners/scanner-report-controls.js";
+
 const TERMINAL_STATUSES = ["complete", "pass", "corrected", "fail", "stalled"];
 const COMPLETION_POLL_MS = 5000;
 
 export function openScannerReportTab({ doc, http, tab, RF, AM }) {
   const scannerKey = tab.dataset.scannerReport;
-  const iframe = doc.querySelector(`#${tab.dataset.target} iframe`);
+  const section = doc.querySelector(`#${tab.dataset.target}`);
+  const iframe = section?.querySelector("iframe");
+  mountScannerReportControls({
+    doc,
+    section,
+    iframe,
+    scanner: scannerKey,
+    onScanReady: () => RF.loadScannerReportInto(iframe, scannerKey),
+  });
   RF.loadScannerReportInto(iframe, scannerKey);
 
   const detailContainer = doc.querySelector(
