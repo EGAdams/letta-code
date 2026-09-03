@@ -96,6 +96,15 @@ describe("ManualEntryForm.mount", () => {
     expect(categoryValues).toContain("Food");
   });
 
+  test("keeps editing focused on the current scan", async () => {
+    const { form, root } = setup();
+    await form.mount();
+
+    expect(root.querySelector('[data-action="save-all"]')).not.toBeNull();
+    expect(root.querySelector('[data-action="edit-expense"]')).toBeNull();
+    expect(root.querySelectorAll(".manual-entry-item-nav")).toHaveLength(1);
+  });
+
   test("a dropdown fetch failure leaves the form usable with empty dropdowns", async () => {
     const http = fakeHttp({});
     http.getJSON = async () => {

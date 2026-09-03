@@ -79,7 +79,6 @@ import {
 } from "../abstract/statement-breakup.interface.js";
 import { indexAfterRemoval } from "../abstract/verified-transaction-actions.interface.js";
 import { mountTerminal } from "./detail-renderers.js";
-import { ExpenseEditDialog } from "./expense-edit-dialog.js";
 import { FetchHttpClient } from "./fetch-http-client.js";
 import { ReceiptReadControls } from "./receipt-read-controls.js";
 
@@ -95,7 +94,6 @@ export class ManualEntryForm {
     root,
     doc = document,
     mountTerminal: mountTerminalFn = mountTerminal,
-    EditDialog = ExpenseEditDialog,
     delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   }) {
     if (!root) throw new TypeError("ManualEntryForm requires a mount element");
@@ -103,7 +101,6 @@ export class ManualEntryForm {
     this.root = root;
     this.doc = doc;
     this._mountTerminal = mountTerminalFn;
-    this._EditDialog = EditDialog;
     this._delay = delay;
     this.conversationId = root.dataset.conversationId || "";
     this.scannerKey = root.dataset.scannerKey || "";
@@ -360,47 +357,6 @@ export class ManualEntryForm {
     shell.appendChild(this._errorsEl);
     const saveButton = this._button(shell, "Save All", "save-all");
     saveButton.addEventListener("click", () => this._saveAll());
-    // Save All only ever inserts. Editing an already-saved row is a different
-    // job, so it gets its own panel (ExpenseEditDialog) rather than a mode
-    // switch inside this form's save path.
-    const editButton = this._button(shell, "Edit Expense", "edit-expense");
-    editButton.addEventListener("click", () => {
-      editButton.classList.toggle("is-pressed", this.editDialog.toggle());
-    });
-
-    // Quick expense lookup, next to Edit Expense: shows the number of
-    // whichever stored expense is currently loaded in the Edit panel (if
-    // any), or -- via the date search -- swaps that number box for a
-    // dropdown of that date's expense numbers. Picking one loads it into
-    // the Edit panel the same way clicking a search result there does.
-    const expenseLookupWrap = this._el("div", {
-      className: "manual-entry-item-nav",
-    });
-    shell.appendChild(expenseLookupWrap);
-    expenseLookupWrap.appendChild(this._el("label", { text: "Expense #" }));
-    this.currentExpenseInput = this._el("input");
-    this.currentExpenseInput.type = "text";
-    this.currentExpenseInput.readOnly = true;
-    expenseLookupWrap.appendChild(this.currentExpenseInput);
-    this.expenseDateResultsSelect = this._el("select");
-    this.expenseDateResultsSelect.style.display = "none";
-    expenseLookupWrap.appendChild(this.expenseDateResultsSelect);
-    expenseLookupWrap.appendChild(
-      this._el("label", { text: "Search by date" }),
-    );
-    this.expenseDateSearchInput = this._el("input");
-    this.expenseDateSearchInput.type = "date";
-    expenseLookupWrap.appendChild(this.expenseDateSearchInput);
-
-    this.expenseDateSearchInput.addEventListener("change", () =>
-      this._searchExpensesByDate(),
-    );
-    this.expenseDateResultsSelect.addEventListener("change", () => {
-      const id = Number(this.expenseDateResultsSelect.value);
-      if (id) this.editDialog.selectStoredExpense(id);
-      this.expenseDateSearchInput.value = "";
-      this._showCurrentExpenseNumber();
-    });
 
     this._statusEl = this._el("div", { className: "manual-entry-status" });
     shell.appendChild(this._statusEl);
@@ -446,19 +402,6 @@ export class ManualEntryForm {
 
     this.archiveKindSelect.value = this.archiveKind;
     this.root.appendChild(shell);
-
-    // Constructed here, not in the constructor, so it mounts into the same
-    // root and reads the taxonomy this form loads below -- one fetch of
-    // /api/rol-finance-categories serves both panels.
-    this.editDialog = new this._EditDialog({
-      http: this.http,
-      root: this.root,
-      doc: this.doc,
-      categoryNames: () => this.categoryNames,
-      onSelected: () => this._showCurrentExpenseNumber(),
-    });
-    this.editDialog.render();
-    this._showCurrentExpenseNumber();
 
     await this._loadDropdownOptions();
     this._renderCurrentItem();
@@ -541,41 +484,6 @@ export class ManualEntryForm {
     };
     if (index === this.currentIndex) this._renderCurrentItem();
     return true;
-  }
-
-  async _searchExpensesByDate() {
-    const date = this.expenseDateSearchInput.value;
-    if (!date) {
-      this._showCurrentExpenseNumber();
-      return;
-    }
-    const records = await this.editDialog.searchByDate(date);
-    this._renderExpenseDateResults(records);
-  }
-
-  _renderExpenseDateResults(records) {
-    this.expenseDateResultsSelect.innerHTML = "";
-    if (!records.length) {
-      const opt = this._el("option", { text: "No expenses on that date" });
-      opt.value = "";
-      this.expenseDateResultsSelect.appendChild(opt);
-    } else {
-      for (const record of records) {
-        const opt = this._el("option", { text: `#${record.id}` });
-        opt.value = String(record.id);
-        this.expenseDateResultsSelect.appendChild(opt);
-      }
-    }
-    this.currentExpenseInput.style.display = "none";
-    this.expenseDateResultsSelect.style.display = "";
-  }
-
-  _showCurrentExpenseNumber() {
-    this.expenseDateResultsSelect.style.display = "none";
-    this.currentExpenseInput.style.display = "";
-    this.currentExpenseInput.value = this.editDialog.selectedId
-      ? `#${this.editDialog.selectedId}`
-      : "";
   }
 
   _el(tag, { className, text } = {}) {
