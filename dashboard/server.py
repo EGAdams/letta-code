@@ -1081,31 +1081,99 @@ def _get_expense_edit_repository():
     return _expense_edit_repository
 
 
-def _update_recent_receipt_references(expense_ids, path):
-    """Keep every row on one receipt pointed at its newly renamed image."""
+def _update_recent_receipt_references(expense_ids, path, old_path=''):
+    """Keep every row on one receipt pointed at its newly renamed image.
+
+    Synchronizes expenses.id_light, receipt_url, and source_file only when
+    source_file references the same old receipt (matching old_path basename),
+    and matching receipt_metadata.id_light exists.
+    """
     ids = tuple(dict.fromkeys(int(value) for value in expense_ids if int(value) > 0))
     if not ids:
         return
     with _rol_get_connection() as cnx:
         with cnx.cursor() as cur:
             schema = InformationSchemaProbe().read(
-                cur, ('receipt_url', 'source_file'))
-            assignments = []
-            values = []
-            if schema.has('receipt_url'):
-                assignments.append('receipt_url = %s')
-                values.append(os.path.basename(path))
-            if schema.has('source_file'):
-                assignments.append('source_file = %s')
-                values.append(path)
-            if not assignments:
-                return
+                cur, ('receipt_url', 'source_file', 'id_light', 'receipt_metadata'))
+
+            # Read current state for conditional updates
             placeholders = ','.join(['%s'] * len(ids))
+            select_parts = ['id']
+            if schema.has('source_file'):
+                select_parts.append('source_file')
+            if schema.has('id_light'):
+                select_parts.append('id_light')
+            if schema.has('receipt_metadata'):
+                select_parts.append('receipt_metadata')
+
             cur.execute(
-                f"UPDATE expenses SET {', '.join(assignments)} "
+                f"SELECT {', '.join(select_parts)} FROM expenses "
                 f"WHERE id IN ({placeholders})",
-                tuple(values) + ids,
+                ids,
             )
+            current_rows = {int(row['id']): row for row in cur.fetchall()}
+
+            # Build new id_light from the new path
+            new_basename = os.path.basename(path)
+            new_id_light = os.path.splitext(new_basename)[0]
+            old_basename = os.path.basename(old_path) if old_path else ''
+
+            # Update each row conditionally
+            for expense_id in ids:
+                row = current_rows.get(expense_id)
+                if not row:
+                    continue
+
+                # Only update if source_file matches old receipt
+                current_source = str(row.get('source_file') or '')
+                if old_basename and current_source:
+                    # Check if source_file references the same old receipt
+                    if os.path.basename(current_source) != old_basename:
+                        continue
+
+                # Check receipt_metadata for matching id_light
+                current_id_light = str(row.get('id_light') or '')
+                receipt_metadata = row.get('receipt_metadata') or ''
+                try:
+                    import json
+                    metadata = json.loads(receipt_metadata) if receipt_metadata else {}
+                except (ValueError, TypeError):
+                    metadata = {}
+
+                metadata_id_light = str(metadata.get('id_light') or '')
+
+                # Only update if metadata id_light matches current id_light
+                if schema.has('id_light') and schema.has('receipt_metadata'):
+                    if current_id_light and metadata_id_light != current_id_light:
+                        continue
+
+                # Build update for this specific row
+                assignments = []
+                values = []
+
+                if schema.has('receipt_url'):
+                    assignments.append('receipt_url = %s')
+                    values.append(new_basename)
+
+                if schema.has('source_file'):
+                    assignments.append('source_file = %s')
+                    values.append(path)
+
+                if schema.has('id_light'):
+                    assignments.append('id_light = %s')
+                    values.append(new_id_light)
+
+                if schema.has('receipt_metadata') and metadata:
+                    metadata['id_light'] = new_id_light
+                    assignments.append('receipt_metadata = %s')
+                    values.append(json.dumps(metadata))
+
+                if assignments:
+                    cur.execute(
+                        f"UPDATE expenses SET {', '.join(assignments)} WHERE id = %s",
+                        tuple(values) + (expense_id,),
+                    )
+
             cnx.commit()
 
 
@@ -1218,7 +1286,6 @@ def _edit_stored_expense(data, repository=None, namer=None, report_sync=None):
         transaction_date=edit.transaction_date,
         fallback_vendor_key=_vendor_prefix(result.record.id_light),
         fallback_date=result.record.transaction_date,
-        replace_identity=True,
     )
     warnings = list(result.warnings)
     if before is not None:
@@ -6727,6 +6794,18 @@ OAUTH_PROVIDER_ACCOUNTS = {
 FAMILY_MODEL_PREFIX = {'claude': 'claude-pro-max', 'chatgpt': 'chatgpt-plus-pro'}
 
 
+def _claude_provider_for_account(account):
+    """The OAUTH_PROVIDER_ACCOUNTS provider whose Claude token belongs to
+    ``account`` ('eg' / 'mom'). The SDK executor's dropdown names an account,
+    not a provider row, but weekly quota is only readable per provider -- this
+    is the join between health/frita.py's CLAUDE_SDK_ACCOUNT_OPTIONS and the
+    provider rows the usage probes understand."""
+    return next(
+        (provider for provider, meta in OAUTH_PROVIDER_ACCOUNTS.items()
+         if meta.get('family') == 'claude' and meta.get('account') == account),
+        '')
+
+
 def _default_model_id_for_family(family):
     prefix = FAMILY_MODEL_PREFIX.get(family, '') + '/'
     handle = next((h for h in AGENT_MODEL_OPTIONS if h.startswith(prefix)), None)
@@ -6937,10 +7016,17 @@ def model_stats_agents_payload(force_refresh=False):
          if item.get('account') == sdk_account.get('current')),
         {},
     )
+    # The executor runs on a copy of one human's ordinary Claude OAuth token,
+    # so it spends that account's weekly quota -- read it from the matching
+    # provider row (cached alongside every other row's) rather than leaving
+    # this the one row on the tab with no Weekly Remaining bar.
+    sdk_provider = _claude_provider_for_account(sdk_account.get('current', ''))
     rows.append(build_claude_sdk_assignment(
         claude_sdk_token_status(), now=time.time(),
         account=sdk_account.get('current', ''),
-        account_label=sdk_option.get('label', 'Executor OAuth token')))
+        account_label=sdk_option.get('label', 'Executor OAuth token'),
+        weekly_percent_remaining=(
+            _weekly_percent_remaining(sdk_provider) if sdk_provider else None)))
 
     with _model_stats_agents_cache_lock:
         _model_stats_agents_cache['value'] = rows
