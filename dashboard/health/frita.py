@@ -61,6 +61,17 @@ CLAUDE_SDK_ACCOUNT_OPTIONS = {
 }
 
 
+def _dashboard_account_key(persisted):
+    """Translate the sync service's source name into the dashboard key."""
+    if persisted in CLAUDE_SDK_ACCOUNT_OPTIONS:
+        return persisted  # compatibility with the short-lived legacy format
+    return next(
+        (key for key, info in CLAUDE_SDK_ACCOUNT_OPTIONS.items()
+         if info['source'] == persisted),
+        'eg',
+    )
+
+
 def _resync_frita_creds(timeout):
     """Best-effort: re-push this box's current Claude OAuth token to the
     frita-executor. Returns True iff the script ran and exited 0 — a non-zero
@@ -120,10 +131,8 @@ def claude_sdk_account_payload():
     """Return the selected source account for the SDK executor dropdown."""
     try:
         with open(CLAUDE_SDK_ACCOUNT_FILE, encoding='utf-8') as f:
-            current = f.read().strip()
+            current = _dashboard_account_key(f.read().strip())
     except OSError:
-        current = 'eg'
-    if current not in CLAUDE_SDK_ACCOUNT_OPTIONS:
         current = 'eg'
     return {
         'ok': True,
@@ -147,7 +156,10 @@ def set_claude_sdk_account(account):
                                      text=True)
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            f.write(account + '\n')
+            # The timer invokes the sync script without arguments, so this
+            # file must contain the source name the script accepts rather than
+            # the shorter dashboard-only key.
+            f.write(info['source'] + '\n')
         os.chmod(temporary, 0o600)
         os.replace(temporary, CLAUDE_SDK_ACCOUNT_FILE)
     except Exception:

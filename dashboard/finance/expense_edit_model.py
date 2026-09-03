@@ -110,6 +110,8 @@ class ExpenseRecord(StrictModel):
     #: but occasionally the same file as receipt_url for a single-image
     #: manual entry -- see relocate_receipt_for_edit's basename check.
     document_url: str = ''
+    #: Absolute provenance path when the receipt image itself produced the row.
+    source_file: str = ''
     category_id: Optional[int] = None
     category_name: str = ''
 

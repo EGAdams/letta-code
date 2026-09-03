@@ -94,7 +94,7 @@ def assignments_status(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def build_unassigned_account_rows(
     oauth_provider_accounts: dict[str, dict[str, str]],
     referenced_providers: set[str],
-    weekly_percent_remaining_fn,
+    weekly_percent_remaining_fn,  # provider_name -> (remaining, rate_limited_until)
 ) -> list[dict[str, Any]]:
     """Read-only Agent Assignments rows for OAuth accounts that exist in
     ``OAUTH_PROVIDER_ACCOUNTS`` but back no current Letta agent's provider --
@@ -108,13 +108,15 @@ def build_unassigned_account_rows(
         if provider in referenced_providers:
             continue
         family_label = family_labels.get(meta.get('family'), meta.get('family', ''))
+        remaining, rate_limited_until = weekly_percent_remaining_fn(provider)
         rows.append({
             'id': f'oauth-account-{provider}',
             'name': meta['label'],
             'model': f'No {family_label} Assigned',
             'account': meta['account'],
             'account_label': meta['label'],
-            'weekly_percent_remaining': weekly_percent_remaining_fn(provider),
+            'weekly_percent_remaining': remaining,
+            'token_reset_at': rate_limited_until,
             'assignment_kind': 'account',
         })
     return rows

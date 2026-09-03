@@ -47,7 +47,7 @@ from contracts import StrictModel
 #: Mazda is dispatched on every scan and files the document herself.
 AUTOMATIC = 'auto'
 #: Mazda is not dispatched; the document waits in the dialog for a human, who
-#: can still run Mazda's own readers a page at a time via "Mazda Fill".
+#: can still run the three manual receipt-reading commands page by page.
 SEMI_AUTOMATIC = 'human_only'
 
 #: What the switch says about the mode currently in force. The label is

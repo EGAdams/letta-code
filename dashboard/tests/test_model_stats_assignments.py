@@ -107,16 +107,30 @@ def test_unassigned_account_rows_surface_accounts_no_agent_uses():
 
     rows = build_unassigned_account_rows(
         accounts, referenced_providers={'claude-pro-max-eg'},
-        weekly_percent_remaining_fn=lambda provider: 87.5)
+        weekly_percent_remaining_fn=lambda provider: (87.5, None))
 
     assert len(rows) == 1
     assert rows[0]['id'] == 'oauth-account-chatgpt-plus-pro-mom'
     assert rows[0]['account_label'] == 'rbarnesrol@aol.com'
     assert rows[0]['assignment_kind'] == 'account'
     assert rows[0]['weekly_percent_remaining'] == 87.5
+    assert rows[0]['token_reset_at'] is None
     # A chatgpt-family account must never be labeled "Anthropic" -- the
     # unassigned-row text names the account's own family.
     assert rows[0]['model'] == 'No ChatGPT Assigned'
+
+
+def test_unassigned_account_rows_surface_a_rate_limited_reset_time():
+    accounts = {
+        'claude-pro-max-eg': {'account': 'eg', 'label': 'eg1972@gmail.com', 'family': 'claude'},
+    }
+
+    rows = build_unassigned_account_rows(
+        accounts, referenced_providers=set(),
+        weekly_percent_remaining_fn=lambda provider: (None, 1_700_001_500.0))
+
+    assert rows[0]['weekly_percent_remaining'] is None
+    assert rows[0]['token_reset_at'] == 1_700_001_500.0
 
 
 def test_agent_assignments_payload_surfaces_the_aol_token_when_unused(monkeypatch):
@@ -133,7 +147,7 @@ def test_agent_assignments_payload_surfaces_the_aol_token_when_unused(monkeypatc
     monkeypatch.setattr(server, 'LETTA_AGENTS', [])
     monkeypatch.setattr(server.urllib.request, 'urlopen', lambda *_args, **_kwargs: Response())
     monkeypatch.setattr(server, 'claude_sdk_token_status', lambda: None)
-    monkeypatch.setattr(server, '_weekly_percent_remaining', lambda _provider: None)
+    monkeypatch.setattr(server, '_weekly_percent_remaining', lambda _provider: (None, None))
     monkeypatch.setitem(server._model_stats_agents_cache, 'value', None)
 
     rows = server.model_stats_agents_payload(force_refresh=True)

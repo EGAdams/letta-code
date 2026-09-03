@@ -2,7 +2,7 @@
  * Pure decision logic for the Automatic / Semi-Automatic switch.
  *
  * One switch, one sentence: does Mazda read the NEXT scanned document by
- * herself, or does it wait here for a human to press "Mazda Fill"? Flipping it
+ * herself, or does it wait here for a human to choose a receipt-reading job?
  * never re-runs, recalls or re-files anything already dispatched -- it is a
  * preference about the next document, and the label says which of the two
  * worlds you are in rather than what pressing it would do.
@@ -14,7 +14,7 @@
  * the initial one into the mount point's data attributes so the switch never
  * paints itself wrong and corrects itself a moment later -- and
  * tests/test_mazda_mode.py reads this file back to pin the two lists together,
- * the same arrangement MAZDA_FILL_MODEL_OPTIONS already uses.
+ * the same arrangement RECEIPT_READ_MODELS already uses.
  *
  * No DOM, no fetch -- js/implementation/manual-entry-form.js owns that side.
  */
@@ -145,5 +145,5 @@ export function summarizeMazdaMode(state) {
   }
   return state.automatic
     ? `${state.label}: Mazda reads and files the next scanned document herself. This one is unchanged.`
-    : `${state.label}: the next scanned document waits here for a human. Press Mazda Fill to have her read it.`;
+    : `${state.label}: the next scanned document waits here for a human. Choose Circled Only, Total Only, or Several Expenses.`;
 }

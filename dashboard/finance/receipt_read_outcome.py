@@ -3,9 +3,9 @@
 `preview_receipt_parse` answers `(ok, payload)`. That is enough to fill a form
 and nothing else, so every caller that wanted to know *why* a read failed had
 to re-derive it from loose dictionary keys -- and the one caller that needed it
-most, MazdaFillService, did not bother and simply reported failure.
+most, ForensicReceiptReadStrategy, did not bother and simply reported failure.
 
-The defect that produced this module: Mazda Fill decides a page's shape once,
+The defect that produced this module: the forensic reader decides shape once,
 from `mazda_intake.py`'s classifier, and when that classifier says 'unknown' it
 guesses receipt. The receipt reader then produces far better evidence -- Gemini
 answering "this page has no one date and no one merchant" -- and that evidence

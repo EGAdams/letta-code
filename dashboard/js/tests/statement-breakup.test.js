@@ -78,7 +78,7 @@ const BREAKUP_RESPONSE = {
   ],
 };
 
-//: /api/mazda-fill's answer for a page the server classified as a statement:
+//: /api/receipt-read's answer for a page the server classified as a statement:
 //: the breakup body it already produced, wrapped in the one response shape
 //: both document kinds come back in (finance/mazda_fill.MazdaFillResponse).
 function mazdaFillStatement(statement) {
@@ -123,7 +123,7 @@ function setup(responses = {}) {
   const http = fakeHttp({
     "/api/vendor-keys": { ok: true, vendor_keys: [] },
     "/api/rol-finance-categories": { ok: true, categories: ["Food"] },
-    "/api/mazda-fill": MAZDA_FILL_STATEMENT_RESPONSE,
+    "/api/receipt-read": MAZDA_FILL_STATEMENT_RESPONSE,
     ...responses,
   });
   const form = new ManualEntryForm({
@@ -131,6 +131,7 @@ function setup(responses = {}) {
     root,
     doc,
     mountTerminal: async () => null,
+    delay: async () => {},
   });
   return { form, http };
 }
@@ -334,7 +335,7 @@ describe("ManualEntryForm break-up flow", () => {
     const { form } = setup();
     await form.mount();
     expect(form.items).toHaveLength(1);
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form.items).toHaveLength(4);
     expect(form.statementExcludedRows).toHaveLength(2);
     expect(form.currentIndex).toBe(0);
@@ -350,7 +351,7 @@ describe("ManualEntryForm break-up flow", () => {
   test("the break-up status names what was excluded and why", async () => {
     const { form } = setup();
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form._statusEl.textContent).toContain("found 4 transaction(s)");
     expect(form._statusEl.textContent).toContain("PAYMENT - THANK YOU");
     expect(form._statusEl.textContent).toContain(
@@ -361,7 +362,7 @@ describe("ManualEntryForm break-up flow", () => {
   test("the position readout names the account every row belongs to", async () => {
     const { form } = setup();
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form._positionEl.textContent).toBe(
       "Transaction 1 of 4 — Choice Privileges Mastercard ****5596",
     );
@@ -385,7 +386,7 @@ describe("ManualEntryForm break-up flow", () => {
       },
     });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     await form._saveAll();
     expect(posts(http, "/api/manual-receipt-entry")).toHaveLength(0);
     const statementPosts = posts(http, "/api/manual-statement-entry");
@@ -407,7 +408,7 @@ describe("ManualEntryForm break-up flow", () => {
       "/api/manual-statement-entry": { ok: true, stored: 4 },
     });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     await form._saveAll();
     expect(posts(http, "/api/manual-statement-entry")).toHaveLength(1);
     expect(form._statusEl.textContent).not.toContain("Fix");
@@ -424,7 +425,7 @@ describe("ManualEntryForm break-up flow", () => {
       },
     });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     await form._saveAll();
     expect(form._statusEl.textContent).toContain("row 4 has no vendor");
     expect(form._statusEl.textContent).toContain("3 stored");
@@ -432,7 +433,7 @@ describe("ManualEntryForm break-up flow", () => {
 
   test("needs-metadata opens the bank/account prompt and keeps the reviewable rows", async () => {
     const { form, http } = setup({
-      "/api/mazda-fill": mazdaFillStatement({
+      "/api/receipt-read": mazdaFillStatement({
         ...BREAKUP_RESPONSE,
         ok: false,
         account_last4: "",
@@ -441,18 +442,18 @@ describe("ManualEntryForm break-up flow", () => {
       }),
     });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form.items).toHaveLength(4);
     expect(form.statementExcludedRows).toHaveLength(2);
     expect(form.statementMetadataPrompt.style.display).toBe("");
     // Submit re-runs the same fill with the typed values -- there is one
     // reading flow now, so there is nothing for it to restart by mistake.
     form.statementAccountLast4Input.value = "5596";
-    await form._mazdaFill({
+    await form._readReceipt("several-expenses", {
       bankName: "Choice Privileges Mastercard",
       accountLast4: "5596",
     });
-    const breakupPosts = posts(http, "/api/mazda-fill");
+    const breakupPosts = posts(http, "/api/receipt-read");
     expect(breakupPosts).toHaveLength(2);
     expect(breakupPosts[1][2].account_last4).toBe("5596");
     expect(breakupPosts[1][2].model).toBe("gemini-only");
@@ -460,24 +461,26 @@ describe("ManualEntryForm break-up flow", () => {
 
   test("an extraction failure leaves the form usable and says why", async () => {
     const { form } = setup({
-      "/api/mazda-fill": mazdaFillStatement({
+      "/api/receipt-read": mazdaFillStatement({
         ok: false,
         error: "Statement rejected: this scan holds 2 separate statements",
         transactions: [],
       }),
     });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form.items).toHaveLength(1);
     expect(form.statementHeader).toBe(null);
     expect(form._statusEl.textContent).toContain("2 separate statements");
-    expect(form.mazdaFillButton.disabled).toBe(false);
+    expect(form.receiptReadControls.button("several-expenses").disabled).toBe(
+      false,
+    );
   });
 
   test("statement mode never claims a Receipts archive path", async () => {
     const { form, http } = setup();
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     await form._updateArchivePathPreview();
     expect(
       posts(http, "/api/manual-receipt-entry-archive-preview"),
@@ -494,7 +497,7 @@ describe("ManualEntryForm break-up flow", () => {
       "/api/manual-statement-entry": { ok: true, stored: 3 },
     });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     form._navigate(2);
     expect(form.merchantNameInput.value).toBe(
       "CRACKER BARREL #428 CAVE CITY KY",
@@ -517,7 +520,7 @@ describe("ManualEntryForm break-up flow", () => {
   test("removing every reviewable row leaves a usable blank form, not an empty one", async () => {
     const { form } = setup();
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     for (let i = 0; i < 4; i++) form._removeItem();
     expect(form.items).toHaveLength(1);
     expect(form.statementHeader).toBe(null);
@@ -530,8 +533,8 @@ describe("ManualEntryForm break-up flow", () => {
     const { form, http } = setup();
     await form.mount();
     form.imagePathInput.value = "/staged/other_scan.jpg";
-    await form._mazdaFill();
-    expect(posts(http, "/api/mazda-fill")[0][2].image_path).toBe(
+    await form._readReceipt("several-expenses");
+    expect(posts(http, "/api/receipt-read")[0][2].image_path).toBe(
       "/staged/other_scan.jpg",
     );
   });

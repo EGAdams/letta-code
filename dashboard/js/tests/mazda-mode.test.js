@@ -178,14 +178,15 @@ describe("summarizeMazdaMode", () => {
     expect(sentence).toContain("unchanged");
   });
 
-  test("semi-automatic names the button that does the reading", () => {
-    expect(
-      summarizeMazdaMode({
-        ok: true,
-        automatic: false,
-        label: "Mazda Semi-Automatic",
-      }),
-    ).toContain("Mazda Fill");
+  test("semi-automatic names all three reading choices", () => {
+    const sentence = summarizeMazdaMode({
+      ok: true,
+      automatic: false,
+      label: "Mazda Semi-Automatic",
+    });
+    expect(sentence).toContain("Circled Only");
+    expect(sentence).toContain("Total Only");
+    expect(sentence).toContain("Several Expenses");
   });
 
   test("a failure says the switch was put back", () => {
@@ -207,8 +208,7 @@ describe("the switch on the form", () => {
     await form.mount();
     expect(form.mazdaModeCheckbox.checked).toBe(false);
     expect(form.mazdaModeLabelEl.textContent).toBe("Mazda Semi-Automatic");
-    // Same row as Mazda Fill and its model dropdown: the switch answers the
-    // question those two raise -- "do I have to press this at all?"
+    // Same row as the reading commands and their model dropdown.
     const row = form.mazdaModelSelect.parent;
     expect(row.children).toContain(form.mazdaModeCheckbox.parent);
   });
@@ -273,7 +273,7 @@ describe("the switch on the form", () => {
     });
     await form.mount();
     await form._setMazdaMode(true);
-    expect(posts(http, "/api/mazda-fill")).toHaveLength(0);
+    expect(posts(http, "/api/receipt-read")).toHaveLength(0);
     expect(posts(http, "/api/manual-receipt-entry")).toHaveLength(0);
     expect(posts(http, "/api/manual-statement-entry")).toHaveLength(0);
   });

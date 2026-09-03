@@ -2264,6 +2264,48 @@ def test_probe_claude_sdk_endpoint_405_means_route_exists(monkeypatch):
     assert server._probe_claude_sdk_endpoint('http://x/claude_sdk', 1) == 'ok'
 
 
+def test_weekly_percent_remaining_reports_reset_time_on_429(monkeypatch):
+    # Anthropic's usage-reporting endpoint (api/oauth/usage) throttles
+    # independently of the account's real quota -- a 429 there with
+    # Retry-After should surface an absolute reset epoch, not just None,
+    # so the Agent Assignments row can show a countdown instead of a bare
+    # "Unavailable" (see model_stats/reader.py's _fill_rate_limited for the
+    # same judgement call on the same endpoint).
+    monkeypatch.setattr(server, '_weekly_remaining_cache', {})
+    monkeypatch.setattr(
+        server, '_fetch_provider_oauth_creds',
+        lambda provider: ({'access_token': 'tok'}, 'anthropic'))
+
+    def boom(req, timeout=0):
+        raise urllib.error.HTTPError(
+            req.full_url, 429, 'Too Many Requests', {'Retry-After': '1494'}, None)
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', boom)
+
+    remaining, reset_at = server._weekly_percent_remaining('claude-pro-max-eg')
+
+    assert remaining is None
+    assert reset_at is not None
+    assert abs(reset_at - (time.time() + 1494)) < 5
+
+
+def test_weekly_percent_remaining_reports_no_reset_time_for_other_failures(monkeypatch):
+    monkeypatch.setattr(server, '_weekly_remaining_cache', {})
+    monkeypatch.setattr(
+        server, '_fetch_provider_oauth_creds',
+        lambda provider: ({'access_token': 'tok'}, 'anthropic'))
+
+    def boom(req, timeout=0):
+        raise urllib.error.HTTPError(req.full_url, 500, 'Server Error', {}, None)
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', boom)
+
+    remaining, reset_at = server._weekly_percent_remaining('claude-pro-max-eg')
+
+    assert remaining is None
+    assert reset_at is None
+
+
 def test_server_health_down_for_unreachable_url():
     # Port 1 is never a real HTTP server -> down, never raises.
     health = server.server_health({'health_url': 'http://127.0.0.1:1/'})
@@ -4720,6 +4762,46 @@ def test_completed_scan_fingerprint_remains_suppressed(tmp_path, monkeypatch):
     server._scan_dispatch_claims.clear()
 
     assert server._claim_scan_dispatch('window', str(scan), digest) is False
+
+
+def test_completed_scan_fingerprint_recent_dispatch_still_suppressed(
+        tmp_path, monkeypatch):
+    """Inside the dedup window, a matching hash is the known same-action
+    double-fire (frontend POST racing the server's auto-dispatch)."""
+    scan = tmp_path / 'window_scan.jpg'
+    scan.write_bytes(b'already-processed-statement')
+    digest = server._scan_content_sha256(str(scan))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': scan.name},
+    })
+    monkeypatch.setattr(server, 'get_scanner_intake', lambda key: {
+        'content_sha256': digest,
+        'status': 'complete',
+        'dispatched_at': time.time() - 5,
+    })
+    server._scan_dispatch_claims.clear()
+
+    assert server._claim_scan_dispatch('window', str(scan), digest) is False
+
+
+def test_completed_scan_fingerprint_old_dispatch_may_retry(tmp_path, monkeypatch):
+    """Past the dedup window a matching hash no longer proves it's the same
+    dispatch action — a genuine rescan must reach Mazda's own duplicate
+    check instead of being silently swallowed here forever."""
+    scan = tmp_path / 'window_scan.jpg'
+    scan.write_bytes(b'already-processed-statement')
+    digest = server._scan_content_sha256(str(scan))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'output': scan.name},
+    })
+    monkeypatch.setattr(server, 'get_scanner_intake', lambda key: {
+        'content_sha256': digest,
+        'status': 'complete',
+        'dispatched_at': time.time() - server.SCAN_DISPATCH_DEDUP_WINDOW_SEC - 1,
+    })
+    server._scan_dispatch_claims.clear()
+
+    assert server._claim_scan_dispatch('window', str(scan), digest) is True
 
 
 def test_failed_staging_releases_the_dispatch_claim(tmp_path, monkeypatch):

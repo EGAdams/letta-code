@@ -36,6 +36,39 @@ event with no ids falls back to resolving them from the DB by `(expense_date, am
 Dispatch is server-side and deduped: `run_scanner()` spawns intake processing itself the instant a
 scan reports ready; `_claim_scan_dispatch()` prevents double-dispatch from the frontend's own POST.
 
+### Manual receipt-reading actions
+
+The manual-entry dialog exposes three explicit jobs through `POST /api/receipt-read`:
+
+- **Circled Only** reads only locally circled, boxed, highlighted, or otherwise marked expense rows.
+  It fails closed when no marked amount is visible.
+- **Total Only** performs a bounded three-field read: merchant, transaction date, and final total.
+- **Several Expenses** keeps the forensic path: document classification, full receipt extraction,
+  and statement transaction breakup when appropriate.
+
+`ReceiptReadService` is the Strategy context. It maps each `ReceiptReadIntent` to an injected
+`IReceiptReadStrategy`; focused reads cross the `IFocusedReceiptReader` port, while the forensic
+strategy owns the existing receipt/statement adapters. The browser builds the three buttons from
+`RECEIPT_READ_ACTIONS` and delegates progress/model controls to `ReceiptReadControls`, keeping the
+manual-entry form independent of the concrete actions. The former `/api/mazda-fill` route and
+single “Mazda Fill” button no longer exist.
+
+### Edit Expense audit trail
+
+Every `POST /api/expense-edit` attempt writes one JSON Lines event to
+`~/.local/state/letta-dashboard/expense-edit-audit.jsonl` (override with
+`EXPENSE_EDIT_AUDIT_LOG`). Each event contains a UTC timestamp, action ID, the
+allowlisted expense fields submitted by the browser, the JSON-level success or
+failure result, changed fields, warnings, and the returned record. Unexpected
+request key *names* are retained to diagnose browser/server drift, but their
+values are not. The file is local mode `0600`; audit-write failures are printed
+to the dashboard service log and never change the expense command's result.
+
+The ordinary `/tmp/dashboard_8765.log` access line records only HTTP status.
+Because the endpoint intentionally returns HTTP 200 for operator-facing
+validation errors, use the audit trail—not the access line—to reconstruct an
+individual edit.
+
 ## Scanners (Project Plans → ROL Finance → Scanners)
 
 Two HP scanners attached to the live box: **Window** = HPI297BEA (HP OfficeJet 8120e), **Freezer** =

@@ -38,6 +38,7 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
       existing dispatch test already assumes.
     """
     import server
+    from finance.expense_edit_audit import NullExpenseEditAuditLog
     from intake.mazda_mode import InMemoryMazdaModeStore, MazdaModeService
     from intake.trainer_escalation import NullTrainerEscalationService
     monkeypatch.setattr(
@@ -49,6 +50,8 @@ def _isolate_intake_side_effects(tmp_path, monkeypatch):
     monkeypatch.setattr(server, '_create_mazda_conversation',
                         lambda: 'conv-test-isolated')
     monkeypatch.setattr(server, 'EXECUTION_MODE', 'auto')
+    monkeypatch.setattr(
+        server, '_expense_edit_audit_log', NullExpenseEditAuditLog())
     monkeypatch.setattr(
         server, '_MAZDA_MODE_SERVICE',
         MazdaModeService(InMemoryMazdaModeStore(),

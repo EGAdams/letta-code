@@ -347,20 +347,35 @@ export class AgentAssignmentsController extends PollingController {
 
     const pct = row.weekly_percent_remaining;
     const tokenDown = row.token_status === "down";
-    entry.fill.className =
-      `win98-bar-fill ${tokenDown ? "is-critical" : barClassFor(pct)}`.trim();
-    entry.fill.style.width = tokenDown
-      ? "100%"
-      : pct == null
-        ? "0%"
-        : `${Math.max(0, Math.min(100, pct))}%`;
-    entry.label.textContent = tokenDown
-      ? row.token_status_detail || "Expired"
-      : pct == null && row.token_status === "up"
-        ? "Valid"
+    // A rate-limited usage probe (429 on Anthropic's usage-reporting
+    // endpoint) is not the same as a dead token -- the account can still
+    // work fine while just this reporting call is throttled. Show a live
+    // countdown to when it clears rather than a bare "Unavailable"; the
+    // countdown span is ticked by the shared [data-countdown-until] timer
+    // in js/boot/model-stats.js.
+    const pending = pct == null && !tokenDown && row.token_reset_at;
+    entry.fill.className = tokenDown
+      ? "win98-bar-fill is-critical"
+      : pending
+        ? "win98-bar-fill is-pending"
+        : `win98-bar-fill ${barClassFor(pct)}`.trim();
+    entry.fill.style.width =
+      tokenDown || pending
+        ? "100%"
         : pct == null
-          ? "Unavailable"
-          : `${pct}%`;
+          ? "0%"
+          : `${Math.max(0, Math.min(100, pct))}%`;
+    if (pending) {
+      entry.label.innerHTML = `<span data-countdown-until="${row.token_reset_at}">…</span>`;
+    } else {
+      entry.label.textContent = tokenDown
+        ? row.token_status_detail || "Expired"
+        : pct == null && row.token_status === "up"
+          ? "Valid"
+          : pct == null
+            ? "Unavailable"
+            : `${pct}%`;
+    }
     entry.label.title = row.token_status_detail || "";
   }
 
@@ -426,9 +441,19 @@ export class AgentAssignmentsController extends PollingController {
     }
 
     const pct = row.weekly_percent_remaining;
-    entry.fill.className = `win98-bar-fill ${barClassFor(pct)}`.trim();
-    entry.fill.style.width =
-      pct == null ? "0%" : `${Math.max(0, Math.min(100, pct))}%`;
-    entry.label.textContent = pct == null ? "?" : `${pct}%`;
+    const pending = pct == null && row.token_reset_at;
+    entry.fill.className = pending
+      ? "win98-bar-fill is-pending"
+      : `win98-bar-fill ${barClassFor(pct)}`.trim();
+    entry.fill.style.width = pending
+      ? "100%"
+      : pct == null
+        ? "0%"
+        : `${Math.max(0, Math.min(100, pct))}%`;
+    if (pending) {
+      entry.label.innerHTML = `<span data-countdown-until="${row.token_reset_at}">…</span>`;
+    } else {
+      entry.label.textContent = pct == null ? "?" : `${pct}%`;
+    }
   }
 }

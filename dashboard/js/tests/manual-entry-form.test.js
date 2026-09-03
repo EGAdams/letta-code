@@ -3,7 +3,7 @@ import { verifiedTransactionRowsRegistry } from "../abstract/mounted-widget-regi
 import { ManualEntryForm } from "../implementation/manual-entry-form.js";
 import { FakeDocument } from "./_fake-dom.js";
 
-//: /api/mazda-fill's answer for a page the server classified as a receipt:
+//: /api/receipt-read's answer for a page the server classified as a receipt:
 //: the prefill body preview_receipt_parse already produced, wrapped in the
 //: one response shape both document kinds come back in (see
 //: finance/mazda_fill.MazdaFillResponse).
@@ -35,7 +35,7 @@ function fakeHttp(responses) {
   };
 }
 
-function setup({ http, dataset = {} } = {}) {
+function setup({ http, dataset = {}, delay = async () => {} } = {}) {
   const doc = new FakeDocument();
   doc.location = { reload: () => {} };
   const root = doc.createElement("div");
@@ -72,6 +72,7 @@ function setup({ http, dataset = {} } = {}) {
     root,
     doc,
     mountTerminal: async () => null,
+    delay,
   });
   return { form, doc, root, http: effectiveHttp };
 }
@@ -115,15 +116,15 @@ describe("ManualEntryForm.mount", () => {
     form.showImageButton.getBoundingClientRect = () => ({ left: 130 });
     form.removeButton.getBoundingClientRect = () => ({ right: 530 });
 
-    form._startMazdaFillProgress();
+    form.receiptReadControls.begin("several-expenses");
 
     expect(form.mazdaFillProgressShell.style.display).toBe("block");
     expect(form.mazdaFillProgressShell.style.marginLeft).toBe("30px");
     expect(form.mazdaFillProgressShell.style.width).toBe("400px");
-    expect(form.mazdaFillProgressBar.style.transition).toBe("width 25s linear");
+    expect(form.mazdaFillProgressBar.style.transition).toBe("width 17s linear");
     expect(form.mazdaFillProgressBar.style.width).toBe("100%");
 
-    form._resetMazdaFillProgress();
+    form.receiptReadControls.resetProgress();
     expect(form.mazdaFillProgressShell.style.display).toBe("none");
     expect(form.mazdaFillProgressBar.style.width).toBe("0%");
   });
@@ -385,7 +386,7 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/mazda-fill": mazdaFillReceipt({
+      "/api/receipt-read": mazdaFillReceipt({
         ok: true,
         merchant_name: "Kroger",
         transaction_date: "2026-08-15",
@@ -394,7 +395,7 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form.merchantNameInput.value).toBe("Kroger");
     expect(form.transactionDateInput.value).toBe("2026-08-15");
     expect(form.totalAmountInput.value).toBe("12.34");
@@ -413,7 +414,7 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
         ],
       },
       "/api/rol-finance-categories": { ok: true, categories: ["Utilities"] },
-      "/api/mazda-fill": mazdaFillReceipt({
+      "/api/receipt-read": mazdaFillReceipt({
         ok: true,
         merchant_name: "Consumers Energy",
         vendor_key: "consumers_energy",
@@ -422,7 +423,7 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     // The readable merchant name stays in the free-text field -- only the
     // dropdown/category get preselected, not overwritten to the slug.
     expect(form.merchantNameInput.value).toBe("Consumers Energy");
@@ -435,7 +436,7 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: ["Restaurants"] },
-      "/api/mazda-fill": mazdaFillReceipt({
+      "/api/receipt-read": mazdaFillReceipt({
         ok: true,
         merchant_name: "Mr Burger Restaurant",
         category_name: "Restaurants",
@@ -443,7 +444,7 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form.vendorSelect.value).toBe("");
     expect(form.categorySelect.value).toBe("Restaurants");
   });
@@ -452,14 +453,14 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/mazda-fill": mazdaFillReceipt({
+      "/api/receipt-read": mazdaFillReceipt({
         ok: true,
         merchant_name: "Totally Unknown Vendor",
       }),
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form._statusEl.textContent).not.toContain("Vendor/category matched");
   });
 
@@ -468,37 +469,104 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/mazda-fill": (body) => {
+      "/api/receipt-read": (body) => {
         stateDuringRequest = {
-          disabled: form.mazdaFillButton.disabled,
-          pressed: form.mazdaFillButton.classList.contains("is-pressed"),
+          disabled:
+            form.receiptReadControls.button("several-expenses").disabled,
+          pressed: form.receiptReadControls
+            .button("several-expenses")
+            .classList.contains("is-pressed"),
         };
         return { ok: true, merchant_name: "Kroger" };
       },
     });
     const { form } = setup({ http });
     await form.mount();
-    expect(form.mazdaFillButton.disabled).toBe(false);
-    await form._mazdaFill();
+    expect(form.receiptReadControls.button("several-expenses").disabled).toBe(
+      false,
+    );
+    await form._readReceipt("several-expenses");
     expect(stateDuringRequest).toEqual({ disabled: true, pressed: true });
-    expect(form.mazdaFillButton.disabled).toBe(false);
-    expect(form.mazdaFillButton.classList.contains("is-pressed")).toBe(false);
+    expect(form.receiptReadControls.button("several-expenses").disabled).toBe(
+      false,
+    );
+    expect(
+      form.receiptReadControls
+        .button("several-expenses")
+        .classList.contains("is-pressed"),
+    ).toBe(false);
   });
 
   test("re-enables the button after a failed fill request", async () => {
+    let blinked = false;
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/mazda-fill": () => {
+      "/api/receipt-read": () => {
         throw new Error("boom");
       },
     });
-    const { form } = setup({ http });
+    const { form } = setup({
+      http,
+      delay: async () => {
+        blinked = true;
+      },
+    });
     await form.mount();
-    await form._mazdaFill();
-    expect(form.mazdaFillButton.disabled).toBe(false);
-    expect(form.mazdaFillButton.classList.contains("is-pressed")).toBe(false);
-    expect(form._statusEl.textContent).toContain("Mazda Fill failed");
+    await form._readReceipt("several-expenses");
+    expect(form.receiptReadControls.button("several-expenses").disabled).toBe(
+      false,
+    );
+    expect(
+      form.receiptReadControls
+        .button("several-expenses")
+        .classList.contains("is-pressed"),
+    ).toBe(false);
+    expect(form._statusEl.textContent).toContain("Several Expenses failed");
+    expect(blinked).toBe(false);
+  });
+
+  test("a successful fill flashes light green at 100% before disappearing", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/receipt-read": mazdaFillReceipt({
+        ok: true,
+        merchant_name: "Kroger",
+      }),
+    });
+    let form;
+    let stateDuringBlink = null;
+    ({ form } = setup({
+      http,
+      delay: async (ms) => {
+        stateDuringBlink = {
+          ms,
+          width: form.mazdaFillProgressBar.style.width,
+          animationDuration: form.mazdaFillProgressBar.style.animationDuration,
+          complete: form.mazdaFillProgressBar.classList.contains("is-complete"),
+          visible: form.mazdaFillProgressShell.style.display,
+          buttonDisabled:
+            form.receiptReadControls.button("several-expenses").disabled,
+        };
+      },
+    }));
+    await form.mount();
+
+    await form._readReceipt("several-expenses");
+
+    expect(stateDuringBlink).toEqual({
+      ms: 900,
+      width: "100%",
+      animationDuration: "900ms",
+      complete: true,
+      visible: "block",
+      buttonDisabled: true,
+    });
+    expect(form.mazdaFillProgressShell.style.display).toBe("none");
+    expect(form.mazdaFillProgressBar.classList.contains("is-complete")).toBe(
+      false,
+    );
   });
 
   test("the model dropdown decides who reads the page", async () => {
@@ -509,7 +577,7 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/mazda-fill": (body) => {
+      "/api/receipt-read": (body) => {
         requestedModel = body.model;
         return mazdaFillReceipt({ ok: true, merchant_name: "DTE Energy" });
       },
@@ -518,12 +586,12 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     await form.mount();
     expect(form.mazdaModelSelect.value).toBe("gemini-only");
 
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(requestedModel).toBe("gemini-only");
     expect(form._statusEl.textContent).toContain("Gemini Flash read this");
 
     form.mazdaModelSelect.value = "haiku-only";
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(requestedModel).toBe("haiku-only");
     expect(form._statusEl.textContent).toContain("Claude Haiku read this");
     expect(form.merchantNameInput.value).toBe("DTE Energy");
@@ -549,14 +617,14 @@ describe("ManualEntryForm Mazda Fill (one expense)", () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/mazda-fill": mazdaFillReceipt({
+      "/api/receipt-read": mazdaFillReceipt({
         ok: true,
         merchant_name: "DTE Energy",
       }),
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     const [, , , opts] = http.calls.at(-1);
     expect(opts).toEqual({ timeout: 180000 });
   });
@@ -1163,7 +1231,7 @@ describe("ManualEntryForm archive path preview", () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },
       "/api/rol-finance-categories": { ok: true, categories: [] },
-      "/api/mazda-fill": mazdaFillReceipt({
+      "/api/receipt-read": mazdaFillReceipt({
         ok: true,
         merchant_name: "Kroger",
         transaction_date: "2026-08-15",
@@ -1177,7 +1245,7 @@ describe("ManualEntryForm archive path preview", () => {
     });
     const { form } = setup({ http });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form._archivePathEl.textContent).toContain("Kroger");
   });
 });
@@ -1213,7 +1281,7 @@ describe("ambiguous vendor pick-list (DTE repro)", () => {
         ok: true,
         categories: ["Housing Gas Bill", "Church Electric Bill"],
       },
-      "/api/mazda-fill": mazdaFillReceipt(prefill),
+      "/api/receipt-read": mazdaFillReceipt(prefill),
       "/api/manual-receipt-entry-archive-preview": { ok: false, error: "n/a" },
     });
   }
@@ -1221,7 +1289,7 @@ describe("ambiguous vendor pick-list (DTE repro)", () => {
   async function prefilled(prefill) {
     const ctx = setup({ http: ambiguousHttp(prefill) });
     await ctx.form.mount();
-    await ctx.form._mazdaFill();
+    await ctx.form._readReceipt("several-expenses");
     return ctx;
   }
 

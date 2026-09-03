@@ -85,6 +85,31 @@ describe("AgentAssignmentsController tool rows", () => {
     expect(token.textContent).toContain("expired");
   });
 
+  test("renders a rate-limited Claude token as a live countdown, not 'Unavailable'", async () => {
+    const { container, controller } = setup([
+      {
+        id: "agent-mazda",
+        name: "Mazda",
+        model: "claude-sonnet-5",
+        account_label: "eg1972@gmail.com",
+        weekly_percent_remaining: null,
+        token_status: null,
+        token_status_detail: "Usage reporting rate limited — resets in 24m",
+        token_reset_at: 1700001494,
+      },
+    ]);
+
+    await controller.poll();
+
+    const row = container.querySelector("tbody").children[0];
+    const barTd = row.children[3];
+    const fill = barTd.children[0].children[0];
+    const label = barTd.children[0].children[1];
+    expect(fill.classList.contains("is-pending")).toBe(true);
+    expect(fill.classList.contains("is-critical")).toBe(false);
+    expect(label.innerHTML).toContain('data-countdown-until="1700001494"');
+  });
+
   test("renders an unassigned OAuth account as a read-only row", async () => {
     const { container, controller } = setup([
       {
@@ -105,6 +130,30 @@ describe("AgentAssignmentsController tool rows", () => {
     expect(row.children[1].textContent).toBe("No ChatGPT Assigned");
     expect(row.children[2].textContent).toBe("rbarnesrol@aol.com");
     expect(row.querySelector("select")).toBe(null);
+  });
+
+  test("renders a rate-limited unassigned account with a countdown instead of '?'", async () => {
+    const { container, controller } = setup([
+      {
+        id: "oauth-account-claude-pro-max-eg",
+        name: "eg1972@gmail.com",
+        model: "No Claude Assigned",
+        account: "eg",
+        account_label: "eg1972@gmail.com",
+        weekly_percent_remaining: null,
+        token_reset_at: 1700001494,
+        assignment_kind: "account",
+      },
+    ]);
+
+    await controller.poll();
+
+    const row = container.querySelector("tbody").children[0];
+    const barTd = row.children[3];
+    const fill = barTd.children[0].children[0];
+    const label = barTd.children[0].children[1];
+    expect(fill.classList.contains("is-pending")).toBe(true);
+    expect(label.innerHTML).toContain('data-countdown-until="1700001494"');
   });
 });
 

@@ -188,7 +188,7 @@ def manual_entry_form_html(image_path, conversation_id, scanner_key='',
     read/stored for this document — see intake_report_model.stored_findings(),
     which turns presentation_rows_list into validated StoredFinding models. It
     seeds the form's item list so an automatic scan's findings are there to
-    check/correct on load, the same way a manual "Mazda Fill" fills them, and
+    check/correct on load, the same way a manual receipt read fills them, and
     multi-transaction documents get Prev/Next for free since there is already
     more than one item.
     """

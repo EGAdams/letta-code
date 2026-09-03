@@ -76,6 +76,12 @@ from supporting_document_service import (
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 from finance.expense_schema import InformationSchemaProbe, ShowColumnsProbe
 from finance.expense_edit_model import ExpenseEdit, ExpenseNotFound
+from finance.expense_edit_audit import (
+    AuditedExpenseEditCommand,
+    CallableExpenseEditCommand,
+    DEFAULT_EXPENSE_EDIT_AUDIT_PATH,
+    JsonlExpenseEditAuditLog,
+)
 from finance.http_coercion import as_float, as_int
 from finance.category_naming import ICategoryNamer, TaxonomyCategoryNamer
 from finance.expense_edit_repository import (
@@ -86,6 +92,7 @@ from finance.expense_edit_repository import (
 )
 from finance.expense_report_sync import StaticExpenseReportSynchronizer
 from finance.receipt_relocation import FilesystemReceiptFileRelocator
+from finance.receipt_destination import CanonicalReceiptDestinationPolicy
 from finance.report_page import ReportPageRoutes, ReportRowMatch
 from finance import (archive_path, intake_report_model, intake_report_page,
                      manual_entry, sales_tax, vendor_lookup)
@@ -123,11 +130,17 @@ from finance.statement_dashboard_adapters import (
     CallbackStatementIntakeRecorder,
 )
 from finance.statement_extraction_adapter import PreflightStatementExtractor
-from finance.mazda_fill import (
+from finance.focused_receipt_reader import FocusedReceiptReader
+from finance.receipt_read_contracts import (
+    ReceiptReadIntent,
+    ReceiptReadRequest,
+)
+from finance.receipt_read_service import (
     CallableDocumentClassifier,
-    CallableReceiptReader,
-    MazdaFillRequest,
-    MazdaFillService,
+    CallableForensicReceiptReader,
+    FocusedReceiptReadStrategy,
+    ForensicReceiptReadStrategy,
+    ReceiptReadService,
 )
 from finance.statement_models import StatementBreakupRequest, StatementStoreRequest
 from finance.statement_service import StatementBreakupService
@@ -1051,6 +1064,8 @@ def taxonomy_category_namer() -> ICategoryNamer:
 
 _expense_edit_repository = None
 _expense_edit_repository_lock = threading.Lock()
+_expense_edit_audit_log = JsonlExpenseEditAuditLog(os.environ.get(
+    'EXPENSE_EDIT_AUDIT_LOG', DEFAULT_EXPENSE_EDIT_AUDIT_PATH))
 
 
 def _get_expense_edit_repository():
@@ -1061,7 +1076,8 @@ def _get_expense_edit_repository():
             _expense_edit_repository = MySqlExpenseRecordRepository(
                 lambda: _rol_get_connection(), taxonomy_category_namer(),
                 relocator=FilesystemReceiptFileRelocator(
-                    resolve_path=_resolve_receipt_url_path))
+                    resolve_path=_resolve_receipt_url_path,
+                    destination_policy=RECEIPT_DESTINATION_POLICY))
     return _expense_edit_repository
 
 
@@ -1102,6 +1118,7 @@ def _synchronize_recent_report_image(expense_id, **changes):
                 write_pointer=_write_recent_pointer_file,
                 fetch_rows=_fetch_expenses_by_ids,
                 update_references=_update_recent_receipt_references,
+                destination_policy=RECEIPT_DESTINATION_POLICY,
             ).synchronize(expense_id, **changes)
     except Exception as exc:  # noqa: BLE001 - the expense write already landed
         return {
@@ -1130,8 +1147,8 @@ def search_stored_expenses(data, repository=None):
     return {'ok': True, 'records': records_as_json(records)}
 
 
-def edit_stored_expense(data, repository=None, namer=None, report_sync=None):
-    """POST /api/expense-edit: write one correction to one stored row.
+def _edit_stored_expense(data, repository=None, namer=None, report_sync=None):
+    """Apply one correction; the public command wraps this with auditing.
 
     Mirrors submit_manual_receipt_entry's boundary discipline exactly -- coerce
     the untrusted JSON shape here, then let the strict Pydantic model be the
@@ -1207,7 +1224,7 @@ def edit_stored_expense(data, repository=None, namer=None, report_sync=None):
     if before is not None:
         try:
             synchronizer = report_sync or StaticExpenseReportSynchronizer(
-                ROL_FINANCES_STATEMENTS_BASE)
+                ROL_FINANCES_REPORTS_PARENT)
             synchronizer.synchronize(before, result.record)
         except Exception as exc:  # the database edit already succeeded
             warnings.append(
@@ -1226,6 +1243,19 @@ def edit_stored_expense(data, repository=None, namer=None, report_sync=None):
         'vendor_remembered': vendor_remembered,
         'image': image_sync,
     }
+
+
+def edit_stored_expense(data, repository=None, namer=None, report_sync=None,
+                        audit_log=None):
+    """POST /api/expense-edit: apply and persist one diagnostic audit event."""
+    recorder = audit_log if audit_log is not None else _expense_edit_audit_log
+    command = AuditedExpenseEditCommand(
+        CallableExpenseEditCommand(lambda request: _edit_stored_expense(
+            request, repository=repository, namer=namer,
+            report_sync=report_sync)),
+        recorder,
+    )
+    return command.execute(data)
 
 
 def delete_stored_expense(data, repository=None):
@@ -1463,7 +1493,7 @@ def _fetch_expenses_by_ids(ids):
             # optional columns come back as NULL (see finance.expense_schema).
             optional_columns = (
                 'id_light', 'receipt_url', 'document_url',
-                'scanned_statement_url', 'moms_ledger',
+                'scanned_statement_url', 'moms_ledger', 'source_file',
             )
             schema = InformationSchemaProbe().read(cur, optional_columns)
             select_sql = schema.select_clause(
@@ -1489,6 +1519,7 @@ def _fetch_expenses_by_ids(ids):
                 cur.execute(
                     "SELECT id, expense_date, amount, id_light, description, category_id, "
                     "receipt_url, document_url, scanned_statement_url, moms_ledger, "
+                    f"{('source_file' if schema.has('source_file') else 'NULL AS source_file')}, "
                     "expense_role, parent_expense_id "
                     f"FROM expenses WHERE parent_expense_id IN ({ph2}) "
                     "AND expense_role='LINE_ITEM' "
@@ -1541,6 +1572,7 @@ def _fetch_expenses_by_ids(ids):
             'document_url': (r.get('document_url') or '').strip(),
             'scanned_statement_url': (r.get('scanned_statement_url') or '').strip(),
             'moms_ledger': (r.get('moms_ledger') or '').strip(),
+            'source_file': (r.get('source_file') or '').strip(),
         })
     return out
 
@@ -2013,7 +2045,7 @@ def build_recent_intake_html(intake):
     # Mazda's own findings (whatever STEP 8 already stored for this document)
     # seed the review dialog instead of leaving it blank -- an auto-scan used
     # to only ever populate Verified Transactions, so checking/correcting what
-    # she read meant re-running Mazda Fill by hand. resolve_vendor resolves
+    # she read meant running a manual receipt-reading command. resolve_vendor resolves
     # each row's *canonical* vendor_key (manual_entry.resolve_vendor_match)
     # so the dialog's vendor dropdown preselects a known merchant even though
     # the DB's own vendor_key column can hold a one-off, transaction-specific
@@ -2504,6 +2536,8 @@ def _build_receipt_mounts():
 
 
 RECEIPT_MOUNTS = _build_receipt_mounts()
+RECEIPT_DESTINATION_POLICY = CanonicalReceiptDestinationPolicy(
+    [subtree for _prefix, _serve_base, subtree in RECEIPT_MOUNTS])
 
 # Receipt files are named <vendor>_MM_DD_YY_<dollars>_<cents>.<ext> and filed under
 # readable_documents/receipts/** (the tree is kept in sync across the Win11 box and
@@ -3036,16 +3070,35 @@ def _scan_content_sha256(image_path):
         return ''
 
 
+
+# How long a byte-identical rescan is treated as "the same dispatch action
+# retried" (the frontend's own POST racing the server's auto-dispatch, or an
+# old browser retrying after a mid-scan restart) rather than "the operator
+# genuinely rescanned this page again". Past this window a matching hash no
+# longer proves it's the same action, so the scan must reach Mazda and go
+# through the real (date, amount) duplicate check like any other document —
+# suppressing it here forever, silently, is the bug this guards against.
+SCAN_DISPATCH_DEDUP_WINDOW_SEC = 300
+
+
 def _may_retry_terminal_scan(previous, content_sha256):
     """Retry-policy Strategy for a byte-identical scanner document.
 
-    A successful or active intake owns its fingerprint.  A terminal failure
-    does not: operators must be able to retry the same legitimate page after
+    A successful or active intake owns its fingerprint *for a short window*
+    (see SCAN_DISPATCH_DEDUP_WINDOW_SEC) — long enough to absorb the known
+    same-action double-fire, not long enough to permanently swallow a later,
+    legitimate rescan. A terminal failure never owns its fingerprint:
+    operators must always be able to retry the same legitimate page after
     its infrastructure or orchestration failure is repaired.
     """
     if not previous or previous.get('content_sha256') != content_sha256:
         return True
-    return str(previous.get('status') or '').lower() in {'fail', 'stalled'}
+    if str(previous.get('status') or '').lower() in {'fail', 'stalled'}:
+        return True
+    dispatched_at = previous.get('dispatched_at')
+    if not dispatched_at:
+        return False
+    return (time.time() - dispatched_at) > SCAN_DISPATCH_DEDUP_WINDOW_SEC
 
 
 def _claim_scan_dispatch(key, image_path, content_sha256=None):
@@ -3592,38 +3645,39 @@ _STATEMENT_BREAKUP_SERVICE = StatementBreakupService(
 )
 
 
-# Composition root for "Mazda Fill" -- the manual-entry form's one reading
-# button. Same arrangement as the statement service above: which concrete
-# satisfies each port is decided here and nowhere else.
+# Composition root for the three manual reading jobs. The browser names the
+# intent; this root supplies the interchangeable strategy that performs it.
 #
-# The classifier is the SAME deterministic facade the automatic pipeline runs
-# first (run_intake_facade -> mazda_intake.py), so "which reader does this page
-# want" is answered by the tool that already answers it for Mazda, not by a
-# local OCR heuristic and not by asking the operator to eyeball it.
-_MAZDA_FILL_SERVICE = MazdaFillService(
+_FOCUSED_RECEIPT_READER = FocusedReceiptReader(taxonomy_category_namer)
+_FORENSIC_RECEIPT_STRATEGY = ForensicReceiptReadStrategy(
     CallableDocumentClassifier(
         lambda image_path: (run_intake_facade(image_path) or {}).get('doc_kind')),
-    CallableReceiptReader(
+    CallableForensicReceiptReader(
         lambda image_path, model: manual_entry.preview_receipt_parse(
             image_path, engine=model, category_namer=taxonomy_category_namer())),
     _STATEMENT_BREAKUP_SERVICE,
     statement_doc_kinds=STATEMENT_DOC_KINDS,
 )
+_RECEIPT_READ_SERVICE = ReceiptReadService({
+    ReceiptReadIntent.CIRCLED_ONLY: FocusedReceiptReadStrategy(
+        ReceiptReadIntent.CIRCLED_ONLY, _FOCUSED_RECEIPT_READER),
+    ReceiptReadIntent.TOTAL_ONLY: FocusedReceiptReadStrategy(
+        ReceiptReadIntent.TOTAL_ONLY, _FOCUSED_RECEIPT_READER),
+    ReceiptReadIntent.SEVERAL_EXPENSES: _FORENSIC_RECEIPT_STRATEGY,
+})
 
 
-def mazda_fill_document(data):
-    """POST /api/mazda-fill: read one scanned page with a cheap model.
+def read_receipt_document(data):
+    """POST /api/receipt-read: run the explicitly requested read strategy.
 
-    Semi-automatic on purpose. Mazda's own classify+read tools run, and the
-    answer lands in the form for a human to check and Save -- nothing is
-    stored here. That is the whole difference between this and letting
-    MAZDA_DECISION_MODE=auto file the document unattended.
+    Nothing is stored. Circled Only and Total Only use bounded prefill readers;
+    Several Expenses alone invokes the storage-grade forensic parser.
     """
     try:
-        request = MazdaFillRequest.from_http(data)
+        request = ReceiptReadRequest.from_http(data)
     except (ValidationError, ValueError) as exc:
         return {'ok': False, 'error': str(exc)}
-    return _MAZDA_FILL_SERVICE.fill(request).to_http()
+    return _RECEIPT_READ_SERVICE.read(request).to_http()
 
 
 def break_up_statement_document(data):
@@ -6637,6 +6691,7 @@ from monitoring.provider_usage import (  # noqa: E402
     PROVIDER_USAGE_PROBES,
     fetch_provider_oauth_creds as _fetch_provider_oauth_creds,
 )
+from model_stats.windows import _human_reset  # noqa: E402
 
 # The zero-token provider quota probes moved to monitoring/provider_usage.py:
 # the fleet lookup, the provider-token read, the two vendor probes and the two
@@ -6683,17 +6738,26 @@ WEEKLY_REMAINING_CACHE_TTL = 60  # seconds; keeps the tab's poll from re-hitting
 
 
 def _weekly_percent_remaining(provider_name):
-    """100 - the 7-day/weekly window's used_percent for a provider's live
-    token, via the same zero-token usage probes as the health system (never
-    an LLM call). None on any failure -- caller renders that as unknown, not 0%."""
+    """(remaining, rate_limited_until) -- 100 - the 7-day/weekly window's
+    used_percent for a provider's live token, via the same zero-token usage
+    probes as the health system (never an LLM call).
+
+    `remaining` is None on any failure -- caller renders that as unknown, not
+    0%. `rate_limited_until` is an absolute epoch, set only when the failure
+    was specifically an HTTP 429 with a `Retry-After` header: this usage-*
+    reporting* endpoint throttles independently of the account's real quota
+    (see model_stats/reader.py's _fill_rate_limited for the same judgement
+    call on the same endpoint), so the caller can render a live countdown to
+    the real cause instead of a bare "unavailable"."""
     now = time.time()
     with _weekly_remaining_cache_lock:
         cached = _weekly_remaining_cache.get(provider_name)
-        if cached and now - cached[1] < WEEKLY_REMAINING_CACHE_TTL:
-            return cached[0]
+        if cached and now - cached[2] < WEEKLY_REMAINING_CACHE_TTL:
+            return cached[0], cached[1]
 
     creds, provider_type = _fetch_provider_oauth_creds(provider_name)
     remaining = None
+    rate_limited_until = None
     if creds:
         try:
             if provider_type in ('anthropic', 'anthropic_oauth'):
@@ -6729,12 +6793,21 @@ def _weekly_percent_remaining(provider_name):
                         break
                 used = float((w or {}).get('used_percent') or 0)
                 remaining = round(100 - used, 1)
+        except urllib.error.HTTPError as e:
+            remaining = None
+            if e.code == 429:
+                retry_after = e.headers.get('Retry-After') if e.headers else None
+                try:
+                    if retry_after is not None:
+                        rate_limited_until = now + int(retry_after)
+                except ValueError:
+                    pass
         except Exception:
             remaining = None
 
     with _weekly_remaining_cache_lock:
-        _weekly_remaining_cache[provider_name] = (remaining, now)
-    return remaining
+        _weekly_remaining_cache[provider_name] = (remaining, rate_limited_until, now)
+    return remaining, rate_limited_until
 
 
 def agent_oauth_account_payload(letta_id, pending_model=''):
@@ -6828,17 +6901,22 @@ def model_stats_agents_payload(force_refresh=False):
             referenced_providers.add(provider)
         provider_state = (chatgpt_status.provider_token_state
                           if provider == CHATGPT_PLUS_PRO else None)
+        remaining, rate_limited_until = (
+            _weekly_percent_remaining(provider) if provider else (None, None))
         rows.append({
             'id': real_id or f'unknown-{cfg["name"].lower()}',
             'name': cfg['name'],
             'model': model_id,
             'account': info['account'] if info else '',
             'account_label': info['label'] if info else (provider or 'unknown'),
-            'weekly_percent_remaining': _weekly_percent_remaining(provider) if provider else None,
+            'weekly_percent_remaining': remaining,
+            'token_reset_at': rate_limited_until,
             'token_status': ('up' if provider_state == 'valid' else
                              'down' if provider_state in ('expired', 'stale') else None),
             'token_status_detail': (chatgpt_status.token_status_detail
-                                    if provider_state else ''),
+                                    if provider_state else
+                                    (f'Usage reporting rate limited — resets {_human_reset(rate_limited_until)}'
+                                     if rate_limited_until else '')),
         })
 
     # Accounts (e.g. rbarnesrol@aol.com / chatgpt-plus-pro-mom) that exist in

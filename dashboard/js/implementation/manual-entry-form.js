@@ -12,24 +12,14 @@
  * Add Another Expense cycle through a list of line items, each independently
  * valid, submitted together by Save All.
  *
- * SEMI-AUTOMATIC, one button. "Mazda Fill" asks the server to classify the
- * page and read it with the cheap model chosen beside it, then drops the
- * result into these fields for a human to check and Save. Both branches run
- * the tools Mazda herself runs — parse_and_categorize.py for one expense,
- * parse_statement_scan.py for many, and Save All stores through
- * parse_and_categorize.py or store_statement_transactions.py to match. This
- * form is how a human runs Mazda's own pipeline a page at a time — the point
- * of Semi-Automatic, where no agent will do it for them.
- *
- * It replaced five reading buttons and a "which group do I press?" group box
- * on 2026-08-19 (see ../abstract/mazda-fill.interface.js): every one of them
- * required the operator to know the document's shape before pressing
- * anything, and the local-OCR heuristic added to guess it for them read the
- * DTE gas bill as a single $28.07 expense.
+ * SEMI-AUTOMATIC exposes three explicit reading jobs: Circled Only calculates
+ * marked rows, Total Only asks for the three form fields, and Several Expenses
+ * invokes the forensic document parser. Each is a Command backed by an
+ * injected server-side Strategy; nothing is stored until Save / Save All.
  *
  * All field/response validation lives in ../abstract/manual-entry.interface.js,
  * ../abstract/statement-breakup.interface.js and
- * ../abstract/mazda-fill.interface.js so it is testable without a browser.
+ * ../abstract/receipt-read.interface.js so it is testable without a browser.
  * This class builds its DOM via createElement/appendChild rather than an
  * innerHTML template string — matching statement-review-dialog.js's house
  * style — specifically so it stays unit-testable against js/tests/_fake-dom.js,
@@ -61,15 +51,6 @@ import {
   validateManualEntry,
 } from "../abstract/manual-entry.interface.js";
 import {
-  buildMazdaFillPayload,
-  DEFAULT_MAZDA_FILL_MODEL,
-  FILL_SHAPE,
-  MAZDA_FILL_MODEL_OPTIONS,
-  mazdaFillModelLabel,
-  readMazdaFillResponse,
-  summarizeMazdaReread,
-} from "../abstract/mazda-fill.interface.js";
-import {
   buildMazdaModePayload,
   mazdaModeLabel,
   readMazdaModeDataset,
@@ -81,6 +62,15 @@ import {
   verifiedTransactionRowsRegistry,
 } from "../abstract/mounted-widget-registry.js";
 import {
+  buildReceiptReadPayload,
+  FILL_SHAPE,
+  RECEIPT_READ_INTENT,
+  readReceiptReadResponse,
+  receiptReadAction,
+  receiptReadModelLabel,
+  summarizeReceiptReread,
+} from "../abstract/receipt-read.interface.js";
+import {
   buildStatementEntryPayload,
   readStatementEntryResponse,
   summarizeExcludedStatementRows,
@@ -91,14 +81,14 @@ import { indexAfterRemoval } from "../abstract/verified-transaction-actions.inte
 import { mountTerminal } from "./detail-renderers.js";
 import { ExpenseEditDialog } from "./expense-edit-dialog.js";
 import { FetchHttpClient } from "./fetch-http-client.js";
+import { ReceiptReadControls } from "./receipt-read-controls.js";
 
 const NEW_VENDOR_OPTION = "__new__";
 const NO_CATEGORY_OPTION = "";
-const MAZDA_FILL_PROGRESS_DURATION_SECONDS = 25;
 
 export class ManualEntryForm {
   /**
-   * @param {{http: object, root: Element, doc?: Document, mountTerminal?: Function}} opts
+   * @param {{http: object, root: Element, doc?: Document, mountTerminal?: Function, delay?: Function}} opts
    */
   constructor({
     http,
@@ -106,6 +96,7 @@ export class ManualEntryForm {
     doc = document,
     mountTerminal: mountTerminalFn = mountTerminal,
     EditDialog = ExpenseEditDialog,
+    delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   }) {
     if (!root) throw new TypeError("ManualEntryForm requires a mount element");
     this.http = http;
@@ -113,6 +104,7 @@ export class ManualEntryForm {
     this.doc = doc;
     this._mountTerminal = mountTerminalFn;
     this._EditDialog = EditDialog;
+    this._delay = delay;
     this.conversationId = root.dataset.conversationId || "";
     this.scannerKey = root.dataset.scannerKey || "";
     // Mazda's own findings for this document (STEP 8's stored rows, stamped
@@ -176,47 +168,24 @@ export class ManualEntryForm {
       );
     });
 
-    // "Mazda Fill" — the form's ONE reading button (2026-08-19; it replaced
-    // five). The operator no longer answers "is this one expense or several?"
-    // before pressing anything: the server runs the same deterministic
-    // classify the automatic pipeline runs (mazda_intake.py), then hands the
-    // page to the reader built for whatever it turned out to be, using the
-    // cheap model chosen beside this button. The answer lands in these fields
-    // for review — nothing is stored until the human presses Save. That is
-    // the whole of "semi-automatic": Mazda reads, a human decides.
-    this.mazdaFillButton = this._button(
-      imagePathWrap,
-      "Mazda Fill",
-      "mazda-fill",
-    );
-    this.mazdaFillButton.addEventListener("click", () => this._mazdaFill());
-    // A Windows 98 progress track beneath the reading controls. The track is
-    // separate from its fill so its right edge stays fixed while the blue
-    // blocks advance across it.
-    this.mazdaFillProgressShell = this._el("div", {
-      className: "mazda-fill-progress-shell",
-    });
-    this.mazdaFillProgressBar = this._el("div", {
-      className: "mazda-fill-progress",
-    });
-    this.mazdaFillProgressShell.appendChild(this.mazdaFillProgressBar);
-    imagePathWrap.appendChild(this.mazdaFillProgressShell);
-    // Model, not engine: the operator is choosing who reads the page, and both
-    // choices are cheap on purpose (see MAZDA_FILL_MODEL_OPTIONS). Driven off
-    // that one list so adding a model never means editing markup.
-    this.mazdaModelSelect = this._el("select");
-    this.mazdaModelSelect.dataset.field = "mazdaModel";
-    for (const { model, label } of MAZDA_FILL_MODEL_OPTIONS) {
-      const option = this._el("option", { text: label });
-      option.value = model;
-      this.mazdaModelSelect.appendChild(option);
-    }
-    this.mazdaModelSelect.value = DEFAULT_MAZDA_FILL_MODEL;
-    imagePathWrap.appendChild(this.mazdaModelSelect);
+    this.receiptReadControls = new ReceiptReadControls({
+      doc: this.doc,
+      parent: imagePathWrap,
+      createButton: (parent, label, action) =>
+        this._button(parent, label, action),
+      onRead: (intent) => this._readReceipt(intent),
+      showImageButton: this.showImageButton,
+      rightEdgeButton: () => this.removeButton,
+      delay: this._delay,
+    }).mount();
+    this.mazdaModelSelect = this.receiptReadControls.modelSelect;
+    // Compatibility names for the progress-animation tests and CSS. There is
+    // deliberately no mazdaFillButton alias: that button no longer exists.
+    this.mazdaFillProgressShell = this.receiptReadControls.progressShell;
+    this.mazdaFillProgressBar = this.receiptReadControls.progressBar;
 
-    // The Automatic / Semi-Automatic switch, immediately right of the model
-    // dropdown, because it answers the question the two controls beside it
-    // raise: "do I have to press Mazda Fill at all?"
+    // The Automatic / Semi-Automatic switch follows the reading controls and
+    // answers whether the operator needs to choose one for the next scan.
     //
     // It decides who reads the NEXT scanned document — Mazda by herself, or
     // this form waiting for a human. It does nothing to the document already
@@ -273,7 +242,7 @@ export class ManualEntryForm {
     // with the two typed values, with the same model -- there is one reading
     // flow now, so there is nothing for this to restart by mistake.
     this.statementMetadataSubmit.addEventListener("click", () =>
-      this._mazdaFill({
+      this._readReceipt(RECEIPT_READ_INTENT.SEVERAL_EXPENSES, {
         bankName: this.statementBankNameInput.value,
         accountLast4: this.statementAccountLast4Input.value,
       }),
@@ -986,38 +955,21 @@ export class ManualEntryForm {
     }
   }
 
-  /**
-   * "Mazda Fill" — read this page with the chosen cheap model, then show the
-   * operator what it found.
-   *
-   * One handler for both document kinds because the operator now makes one
-   * decision, not two. The server classifies first (the same mazda_intake.py
-   * facade the automatic pipeline runs) and answers with the shape it FOUND:
-   * a receipt fills the three fields and resolves the vendor/category exactly
-   * as the old fill buttons did; a statement replaces the item list with one
-   * row per transaction, exactly as the old Break Up Document buttons did.
-   * Nothing is stored — Save/Save All is still the human's, which is the
-   * whole point of running Mazda semi-automatically.
-   *
-   * @param {?{bankName: string, accountLast4: string}} [statementMetadata]
-   *   omitted on the first press; sent back from the inline prompt after a
-   *   statement fill read every transaction but could not resolve whose
-   *   account they belong to. The model is NOT re-chosen on that retry — the
-   *   dropdown still holds whatever the operator picked.
-   */
-  async _mazdaFill(statementMetadata) {
+  /** Run one declared read Command; the server supplies its Strategy. */
+  async _readReceipt(intent, statementMetadata) {
     const model = this.mazdaModelSelect.value;
-    const modelLabel = mazdaFillModelLabel(model);
-    this.mazdaFillButton.disabled = true;
-    this.mazdaFillButton.classList.add("is-pressed");
+    const modelLabel = receiptReadModelLabel(model);
+    const action = receiptReadAction(intent);
     this.statementMetadataSubmit.disabled = true;
-    this._startMazdaFillProgress();
-    this._setStatus(`Mazda is reading this page with ${modelLabel}…`);
+    this.receiptReadControls.begin(intent);
+    this._setStatus(`${action.label} is reading this page with ${modelLabel}…`);
+    let fillSucceeded = false;
     try {
       const json = await this.http.postJSON(
-        "/api/mazda-fill",
-        buildMazdaFillPayload(
+        "/api/receipt-read",
+        buildReceiptReadPayload(
           { imagePath: this.imagePathInput.value },
+          intent,
           model,
           statementMetadata,
         ),
@@ -1027,21 +979,20 @@ export class ManualEntryForm {
         // is still reading would throw away work already paid for.
         { timeout: 180000 },
       );
-      const result = readMazdaFillResponse(json);
+      const result = readReceiptReadResponse(json);
       if (result.shape === FILL_SHAPE.MANY_EXPENSES) {
         this._applyStatementFill(result, modelLabel);
       } else {
         this._applyReceiptFill(result, modelLabel);
       }
+      fillSucceeded = result.ok;
     } catch (err) {
       this._setStatus(
-        `Mazda Fill failed: ${err && err.message ? err.message : err}`,
+        `${action.label} failed: ${err && err.message ? err.message : err}`,
       );
     } finally {
-      this.mazdaFillButton.disabled = false;
-      this.mazdaFillButton.classList.remove("is-pressed");
+      await this.receiptReadControls.finish(intent, fillSucceeded);
       this.statementMetadataSubmit.disabled = false;
-      this._resetMazdaFillProgress();
     }
     // The archive path is built from vendor+date+amount — refresh it the
     // moment the fill has (or hasn't) filled those in, per EG's request,
@@ -1094,7 +1045,7 @@ export class ManualEntryForm {
           " bank/account couldn't be resolved automatically (missing: " +
           `${result.missingFields.join(", ") || "bank/account"}) — fill in` +
           " the fields above and Submit before saving." +
-          summarizeMazdaReread(result),
+          summarizeReceiptReread(result),
       );
       return;
     }
@@ -1119,7 +1070,7 @@ export class ManualEntryForm {
         // Said out loud when the server overruled its own classifier and read
         // the page a second time. Quietly answering a different question than
         // the one asked is how an operator stops trusting the button.
-        summarizeMazdaReread(result),
+        summarizeReceiptReread(result),
     );
   }
 
@@ -1455,48 +1406,6 @@ export class ManualEntryForm {
 
   _setStatus(text) {
     this._statusEl.textContent = text;
-  }
-
-  _startMazdaFillProgress() {
-    this._syncMazdaFillProgressGeometry();
-    this.mazdaFillProgressShell.style.display = "block";
-    this.mazdaFillProgressBar.style.width = "0%";
-    this.mazdaFillProgressBar.style.transition = "none";
-    // Force reflow to apply the initial state before starting animation.
-    // biome-ignore lint: reflow trigger
-    this.mazdaFillProgressBar.offsetHeight;
-    this.mazdaFillProgressBar.style.transition = `width ${MAZDA_FILL_PROGRESS_DURATION_SECONDS}s linear`;
-    this.mazdaFillProgressBar.style.width = "100%";
-  }
-
-  _resetMazdaFillProgress() {
-    this.mazdaFillProgressBar.style.transition = "none";
-    this.mazdaFillProgressBar.style.width = "0%";
-    this.mazdaFillProgressShell.style.display = "none";
-  }
-
-  /**
-   * Match the progress track to the visible button edges, including the
-   * form's 1.2x button transform. The two buttons live in different rows, so
-   * their rendered rectangles are the one reliable shared coordinate system.
-   */
-  _syncMazdaFillProgressGeometry() {
-    const parent = this.mazdaFillProgressShell.parentElement;
-    if (
-      typeof parent?.getBoundingClientRect !== "function" ||
-      typeof this.showImageButton?.getBoundingClientRect !== "function" ||
-      typeof this.removeButton?.getBoundingClientRect !== "function"
-    ) {
-      return;
-    }
-    const parentRect = parent.getBoundingClientRect();
-    const showImageRect = this.showImageButton.getBoundingClientRect();
-    const removeRect = this.removeButton.getBoundingClientRect();
-    const left = showImageRect.left - parentRect.left;
-    const width = removeRect.right - showImageRect.left;
-    if (!Number.isFinite(left) || !Number.isFinite(width) || width <= 0) return;
-    this.mazdaFillProgressShell.style.marginLeft = `${Math.max(0, left)}px`;
-    this.mazdaFillProgressShell.style.width = `${width}px`;
   }
 }
 

@@ -12,14 +12,16 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  buildMazdaFillPayload,
-  DEFAULT_MAZDA_FILL_MODEL,
+  buildReceiptReadPayload,
+  DEFAULT_RECEIPT_READ_MODEL,
   FILL_SHAPE,
-  MAZDA_FILL_MODEL_OPTIONS,
-  mazdaFillModelLabel,
-  readMazdaFillResponse,
-  summarizeMazdaReread,
-} from "../abstract/mazda-fill.interface.js";
+  RECEIPT_READ_ACTIONS,
+  RECEIPT_READ_INTENT,
+  RECEIPT_READ_MODELS,
+  readReceiptReadResponse,
+  receiptReadModelLabel,
+  summarizeReceiptReread,
+} from "../abstract/receipt-read.interface.js";
 import { ManualEntryForm } from "../implementation/manual-entry-form.js";
 import { FakeDocument } from "./_fake-dom.js";
 
@@ -60,6 +62,7 @@ function setup(responses = {}) {
     root,
     doc,
     mountTerminal: async () => null,
+    delay: async () => {},
   });
   return { form, http };
 }
@@ -68,9 +71,9 @@ function posts(http, url) {
   return http.calls.filter((c) => c[0] === "POST" && c[1] === url);
 }
 
-describe("MAZDA_FILL_MODEL_OPTIONS", () => {
+describe("RECEIPT_READ_MODELS", () => {
   test("offers only models BOTH readers accept, and no free-OCR tier", () => {
-    const models = MAZDA_FILL_MODEL_OPTIONS.map((opt) => opt.model);
+    const models = RECEIPT_READ_MODELS.map((opt) => opt.model);
     expect(models).toEqual(["gemini-only", "haiku-only", "codex-only"]);
     // finance/mazda_fill.assert_models_are_supported() enforces the
     // intersection server-side; these two are the guard against the list
@@ -80,42 +83,53 @@ describe("MAZDA_FILL_MODEL_OPTIONS", () => {
   });
 
   test("the default is a real option", () => {
-    expect(MAZDA_FILL_MODEL_OPTIONS.map((o) => o.model)).toContain(
-      DEFAULT_MAZDA_FILL_MODEL,
+    expect(RECEIPT_READ_MODELS.map((o) => o.model)).toContain(
+      DEFAULT_RECEIPT_READ_MODEL,
     );
   });
 
   test("every model has a label a human would recognize", () => {
-    expect(mazdaFillModelLabel("gemini-only")).toBe("Gemini Flash");
-    expect(mazdaFillModelLabel("haiku-only")).toBe("Claude Haiku");
-    expect(mazdaFillModelLabel("codex-only")).toBe("Codex (luna)");
+    expect(receiptReadModelLabel("gemini-only")).toBe("Gemini Flash");
+    expect(receiptReadModelLabel("haiku-only")).toBe("Claude Haiku");
+    expect(receiptReadModelLabel("codex-only")).toBe("Codex (luna)");
     // An unknown value must still read as something, not "undefined": the
     // label goes straight into the operator's status line.
-    expect(mazdaFillModelLabel("something-new")).toBe("something-new");
-    expect(mazdaFillModelLabel(undefined)).toBe("");
+    expect(receiptReadModelLabel("something-new")).toBe("something-new");
+    expect(receiptReadModelLabel(undefined)).toBe("");
   });
 });
 
-describe("buildMazdaFillPayload", () => {
-  test("sends the image and model, with blank metadata on a first press", () => {
+describe("buildReceiptReadPayload", () => {
+  test("sends the chosen intent, image, and model", () => {
     expect(
-      buildMazdaFillPayload({ imagePath: "/a.jpg" }, "haiku-only"),
+      buildReceiptReadPayload(
+        { imagePath: "/a.jpg" },
+        RECEIPT_READ_INTENT.TOTAL_ONLY,
+        "haiku-only",
+      ),
     ).toEqual({
       image_path: "/a.jpg",
+      intent: "total-only",
       model: "haiku-only",
       bank_name: "",
       account_last4: "",
     });
   });
 
-  test("carries operator-typed bank/account back on a retry, trimmed", () => {
+  test("carries statement metadata only with the Several Expenses intent", () => {
     expect(
-      buildMazdaFillPayload({ imagePath: "/a.jpg" }, "gemini-only", {
-        bankName: "  Choice Privileges  ",
-        accountLast4: " 5596 ",
-      }),
+      buildReceiptReadPayload(
+        { imagePath: "/a.jpg" },
+        RECEIPT_READ_INTENT.SEVERAL_EXPENSES,
+        "gemini-only",
+        {
+          bankName: "  Choice Privileges  ",
+          accountLast4: " 5596 ",
+        },
+      ),
     ).toEqual({
       image_path: "/a.jpg",
+      intent: "several-expenses",
       model: "gemini-only",
       bank_name: "Choice Privileges",
       account_last4: "5596",
@@ -123,9 +137,39 @@ describe("buildMazdaFillPayload", () => {
   });
 });
 
-describe("readMazdaFillResponse", () => {
+describe("receipt read Commands", () => {
+  test("the old Mazda Fill label is gone and all three jobs are explicit", async () => {
+    const { form } = setup();
+    await form.mount();
+    const labels = RECEIPT_READ_ACTIONS.map(
+      (action) => form.receiptReadControls.button(action.intent).textContent,
+    );
+    expect(labels).toEqual(["Circled Only", "Total Only", "Several Expenses"]);
+    expect(labels).not.toContain("Mazda Fill");
+  });
+
+  for (const intent of Object.values(RECEIPT_READ_INTENT)) {
+    test(`${intent} sends its own intent through one endpoint`, async () => {
+      const { form, http } = setup({
+        "/api/receipt-read": {
+          ok: false,
+          shape: "one-expense",
+          intent,
+          error: "test stop",
+        },
+      });
+      await form.mount();
+      await form._readReceipt(intent);
+      const calls = posts(http, "/api/receipt-read");
+      expect(calls).toHaveLength(1);
+      expect(calls[0][2].intent).toBe(intent);
+    });
+  }
+});
+
+describe("readReceiptReadResponse", () => {
   test("reads a one-expense answer into the receipt prefill", () => {
-    const result = readMazdaFillResponse({
+    const result = readReceiptReadResponse({
       ok: true,
       shape: "one-expense",
       model: "gemini-only",
@@ -146,7 +190,7 @@ describe("readMazdaFillResponse", () => {
   });
 
   test("reads a many-expenses answer into walkable rows", () => {
-    const result = readMazdaFillResponse({
+    const result = readReceiptReadResponse({
       ok: true,
       shape: "many-expenses",
       model: "haiku-only",
@@ -183,12 +227,12 @@ describe("readMazdaFillResponse", () => {
     // as one expense silently discards every transaction but one -- which is
     // the whole defect. So the safe default is the one a human can see.
     for (const json of [null, {}, { shape: "sideways" }, "nope", 7]) {
-      expect(readMazdaFillResponse(json).shape).toBe(FILL_SHAPE.ONE_EXPENSE);
+      expect(readReceiptReadResponse(json).shape).toBe(FILL_SHAPE.ONE_EXPENSE);
     }
   });
 
   test("a malformed response reads as not-ok with blank halves, never throws", () => {
-    const result = readMazdaFillResponse({ ok: "yes", statement: "garbage" });
+    const result = readReceiptReadResponse({ ok: "yes", statement: "garbage" });
     expect(result.ok).toBe(false);
     expect(result.items).toEqual([]);
     expect(result.prefill.merchantName).toBe(null);
@@ -196,7 +240,7 @@ describe("readMazdaFillResponse", () => {
   });
 
   test("needs-metadata survives into the form's view of the answer", () => {
-    const result = readMazdaFillResponse({
+    const result = readReceiptReadResponse({
       ok: true,
       shape: "many-expenses",
       statement: {
@@ -214,7 +258,7 @@ describe("readMazdaFillResponse", () => {
 describe("ManualEntryForm Mazda Fill routing", () => {
   test("one page, one request — the form never asks which parser to use", async () => {
     const { form, http } = setup({
-      "/api/mazda-fill": {
+      "/api/receipt-read": {
         ok: true,
         shape: "one-expense",
         model: "gemini-only",
@@ -223,8 +267,8 @@ describe("ManualEntryForm Mazda Fill routing", () => {
       },
     });
     await form.mount();
-    await form._mazdaFill();
-    expect(posts(http, "/api/mazda-fill")).toHaveLength(1);
+    await form._readReceipt("several-expenses");
+    expect(posts(http, "/api/receipt-read")).toHaveLength(1);
     // The endpoints the retired buttons aimed at are never called by hand.
     expect(posts(http, "/api/manual-receipt-entry-preview")).toHaveLength(0);
     expect(posts(http, "/api/manual-statement-breakup")).toHaveLength(0);
@@ -237,12 +281,12 @@ describe("ManualEntryForm Mazda Fill routing", () => {
     // with Show Image, and decides to spend the call.
     const { form, http } = setup();
     await form.mount();
-    expect(posts(http, "/api/mazda-fill")).toHaveLength(0);
+    expect(posts(http, "/api/receipt-read")).toHaveLength(0);
   });
 
   test("the same page classified as a statement fills MANY rows instead", async () => {
     const { form } = setup({
-      "/api/mazda-fill": {
+      "/api/receipt-read": {
         ok: true,
         shape: "many-expenses",
         model: "gemini-only",
@@ -270,7 +314,7 @@ describe("ManualEntryForm Mazda Fill routing", () => {
     });
     await form.mount();
     expect(form.items).toHaveLength(1);
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     // The DTE repro: this page used to be filed as a single expense.
     expect(form.items).toHaveLength(2);
     expect(form.statementHeader.bankName).toBe("DTE Energy");
@@ -279,7 +323,7 @@ describe("ManualEntryForm Mazda Fill routing", () => {
 
   test("a read that failed says so and leaves the form typable", async () => {
     const { form } = setup({
-      "/api/mazda-fill": {
+      "/api/receipt-read": {
         ok: false,
         shape: "one-expense",
         model: "haiku-only",
@@ -289,10 +333,12 @@ describe("ManualEntryForm Mazda Fill routing", () => {
     });
     await form.mount();
     form.mazdaModelSelect.value = "haiku-only";
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form._statusEl.textContent).toContain("quota exhausted");
     expect(form._statusEl.textContent).toContain("try the other model");
-    expect(form.mazdaFillButton.disabled).toBe(false);
+    expect(form.receiptReadControls.button("several-expenses").disabled).toBe(
+      false,
+    );
     expect(form.merchantNameInput.value).toBe("");
   });
 
@@ -325,12 +371,12 @@ describe("ManualEntryForm Mazda Fill routing", () => {
     ];
     let call = 0;
     const { form } = setup({
-      "/api/mazda-fill": () => responses[call++] ?? responses[1],
+      "/api/receipt-read": () => responses[call++] ?? responses[1],
     });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form.merchantNameInput.value).toBe("DTE Energy");
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form.merchantNameInput.value).toBe("Gas service");
     expect(form.totalAmountInput.value).toBe("-28.07");
   });
@@ -342,9 +388,9 @@ describe("ManualEntryForm Mazda Fill routing", () => {
 // transaction table. The form must say so: quietly answering a different
 // question than the one asked is how an operator stops trusting the button.
 
-describe("readMazdaFillResponse — reread_after", () => {
+describe("readReceiptReadResponse — reread_after", () => {
   test("carries the reason the page was read a second time", () => {
-    const result = readMazdaFillResponse({
+    const result = readReceiptReadResponse({
       ok: true,
       shape: "many-expenses",
       model: "gemini-only",
@@ -358,16 +404,16 @@ describe("readMazdaFillResponse — reread_after", () => {
 
   test("is empty on a first-time-right read, and on junk", () => {
     expect(
-      readMazdaFillResponse({ ok: true, shape: "one-expense" }).rereadAfter,
+      readReceiptReadResponse({ ok: true, shape: "one-expense" }).rereadAfter,
     ).toBe("");
-    expect(readMazdaFillResponse({ reread_after: 7 }).rereadAfter).toBe("");
-    expect(readMazdaFillResponse(null).rereadAfter).toBe("");
+    expect(readReceiptReadResponse({ reread_after: 7 }).rereadAfter).toBe("");
+    expect(readReceiptReadResponse(null).rereadAfter).toBe("");
   });
 });
 
-describe("summarizeMazdaReread", () => {
+describe("summarizeReceiptReread", () => {
   test("says both what happened and why", () => {
-    const sentence = summarizeMazdaReread({
+    const sentence = summarizeReceiptReread({
       rereadAfter: "gemini-3.6-flash found no transaction date",
     });
     expect(sentence).toContain("re-read as a statement");
@@ -375,15 +421,15 @@ describe("summarizeMazdaReread", () => {
   });
 
   test("says nothing when nothing was re-read", () => {
-    expect(summarizeMazdaReread({ rereadAfter: "" })).toBe("");
-    expect(summarizeMazdaReread(null)).toBe("");
+    expect(summarizeReceiptReread({ rereadAfter: "" })).toBe("");
+    expect(summarizeReceiptReread(null)).toBe("");
   });
 });
 
 describe("the form after a re-read", () => {
   test("the status line tells the operator the page was re-read", async () => {
     const { form } = setup({
-      "/api/mazda-fill": {
+      "/api/receipt-read": {
         ok: true,
         shape: "many-expenses",
         model: "gemini-only",
@@ -403,7 +449,7 @@ describe("the form after a re-read", () => {
       },
     });
     await form.mount();
-    await form._mazdaFill();
+    await form._readReceipt("several-expenses");
     expect(form._statusEl.textContent).toContain("re-read as a statement");
     expect(form._statusEl.textContent).toContain("no transaction date");
   });

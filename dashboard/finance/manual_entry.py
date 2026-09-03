@@ -36,7 +36,7 @@ MANUAL_ENTRY_TIMEOUT_SEC = 90
 #: Preview-only engines a read of one document may request: 'local' (the
 #: zero-token OCR pass, no longer offered by any button -- see
 #: finance/mazda_fill.py) plus the three single-provider, no-fallback models
-#: the Mazda Fill dropdown offers. Each names ONE subscription this house
+#: the receipt-reader model dropdown offers. Each names ONE subscription this house
 #: already pays a flat fee for: Gemini's free tier, Claude Haiku through this
 #: box's Claude Code OAuth session (never an ANTHROPIC_API_KEY, see
 #: claude_oauth_client.py), and the ChatGPT/Codex subscription through the
@@ -223,7 +223,7 @@ def _engine_failure_of(report: dict) -> dict:
     model ANSWERED and still could not give the page a receipt's identity (see
     receipt_engine.py's ReceiptShapeMismatch). Absent for a 429/503/missing
     key, because those mean nobody read the document. Passing it through
-    unchanged is what lets MazdaFillService re-read the page as a statement
+    unchanged is what lets ForensicReceiptReadStrategy re-read it as a statement
     instead of handing back an empty form -- and what lets the operator read
     "found no transaction date" instead of a quota error from an unrelated
     model further down the ladder.

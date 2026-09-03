@@ -20,13 +20,10 @@ schema and a missing ``id_light`` must not fail the whole search.
 
 from __future__ import annotations
 
-import os
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional
 
-from finance.archive_path import build_id_light, vendor_prefix_from_id_light
 from finance.expense_edit_model import (
-    AMOUNT_MATCH_TOLERANCE,
     ExpenseDeletion,
     ExpenseEdit,
     ExpenseEditResult,
@@ -34,15 +31,27 @@ from finance.expense_edit_model import (
     ExpenseRecord,
     ExpenseSearchCriteria,
     describe_changes,
-    linkage_warnings,
 )
 from finance.category_naming import ICategoryNamer
+from finance.expense_receipt_sync import (
+    ExpenseReceiptSynchronizer,
+    IExpenseReceiptSynchronizer,
+)
+from finance.expense_record_serialization import records_as_json
+from finance.expense_search import (
+    escape_like,
+    readable_validation_error,
+    search_criteria_from_request,
+    where_clauses,
+)
 from finance.expense_schema import InformationSchemaProbe, IExpenseSchemaProbe
-from finance.http_coercion import as_optional_float, as_optional_int
 from finance.receipt_relocation import IReceiptFileRelocator, NullReceiptFileRelocator
 
+# Compatibility alias for older tests/callers; new code imports where_clauses.
+_where_clauses = where_clauses
+
 #: Columns the search reads only if the live table actually has them.
-OPTIONAL_COLUMNS = ('id_light', 'receipt_url', 'document_url')
+OPTIONAL_COLUMNS = ('id_light', 'receipt_url', 'document_url', 'source_file')
 #: The itemization link, probed separately from the SELECT list because it is
 #: never displayed -- a delete only needs to know whether this deployment can
 #: have line items hanging off the row it is about to remove.
@@ -72,58 +81,6 @@ class IExpenseRecordRepository(ABC):
         them). Returns what was removed. Raises ExpenseNotFound."""
 
 
-#: Escape character for LIKE patterns. Not backslash: under the
-#: NO_BACKSLASH_ESCAPES sql_mode a backslash is not an escape at all, and this
-#: has to behave the same either way.
-LIKE_ESCAPE = '!'
-
-
-def escape_like(text: str) -> str:
-    """Neutralise LIKE's wildcards in a literal search term.
-
-    `%` and `_` are pattern syntax, not text, so an unescaped search for "50%"
-    became `%50%%` -- matching anything that merely starts with 50 -- and "a_b"
-    matched "axb". Parameterising the value prevents injection but does nothing
-    about this: the metacharacters are inside the bound string. The escape
-    character itself has to be escaped first, or escaping would corrupt a
-    merchant name that legitimately contains it.
-    """
-    out = text.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2)
-    return out.replace('%', f'{LIKE_ESCAPE}%').replace('_', f'{LIKE_ESCAPE}_')
-
-
-def _where_clauses(criteria: ExpenseSearchCriteria,
-                   has_vendor_key: bool) -> tuple[list[str], list[Any]]:
-    """Criteria -> (SQL fragments, bind params). Always parameterized.
-
-    Split out as its own function so the query the search builds is testable
-    without a database connection -- the part most likely to be got wrong is
-    the part hardest to reach through a live cursor.
-    """
-    clauses: list[str] = []
-    params: list[Any] = []
-    if criteria.merchant:
-        like = f'%{escape_like(criteria.merchant)}%'
-        escape = f" ESCAPE '{LIKE_ESCAPE}'"
-        if has_vendor_key:
-            clauses.append(
-                f'(description LIKE %s{escape} OR id_light LIKE %s{escape})')
-            params += [like, like]
-        else:
-            clauses.append(f'description LIKE %s{escape}')
-            params.append(like)
-    if criteria.date_from:
-        clauses.append('expense_date >= %s')
-        params.append(criteria.date_from)
-    if criteria.date_to:
-        clauses.append('expense_date <= %s')
-        params.append(criteria.date_to)
-    if criteria.amount is not None:
-        clauses.append('ABS(ABS(amount) - %s) < %s')
-        params += [criteria.amount, AMOUNT_MATCH_TOLERANCE]
-    return clauses, params
-
-
 class MySqlExpenseRecordRepository(IExpenseRecordRepository):
     """The live `expenses` table.
 
@@ -135,11 +92,13 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
     def __init__(self, connection_factory: Callable[[], Any],
                  namer: ICategoryNamer,
                  schema_probe: Optional[IExpenseSchemaProbe] = None,
-                 relocator: Optional[IReceiptFileRelocator] = None):
+                 relocator: Optional[IReceiptFileRelocator] = None,
+                 receipt_sync: Optional[IExpenseReceiptSynchronizer] = None):
         self._connect = connection_factory
         self._namer = namer
         self._probe = schema_probe or InformationSchemaProbe()
-        self._relocator = relocator or NullReceiptFileRelocator()
+        self._receipt_sync = receipt_sync or ExpenseReceiptSynchronizer(
+            relocator or NullReceiptFileRelocator())
 
     def _to_record(self, row: dict) -> ExpenseRecord:
         category_id = row.get('category_id')
@@ -152,6 +111,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
             id_light=(row.get('id_light') or '').strip(),
             receipt_url=(row.get('receipt_url') or '').strip(),
             document_url=(row.get('document_url') or '').strip(),
+            source_file=(row.get('source_file') or '').strip(),
             category_id=category_id,
             category_name=self._namer.name_for(category_id),
         )
@@ -165,7 +125,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
         with self._connect() as cnx:
             with cnx.cursor() as cur:
                 select_sql, has_vendor_key = self._select_clause(cur)
-                clauses, params = _where_clauses(criteria, has_vendor_key)
+                clauses, params = where_clauses(criteria, has_vendor_key)
                 cur.execute(
                     f'SELECT {select_sql} FROM expenses '
                     f'WHERE {" AND ".join(clauses)} '
@@ -194,41 +154,12 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
             negative = False
         return self._to_record(row), negative
 
-    def _relocate_receipt(self, before: ExpenseRecord, edit: ExpenseEdit,
-                          changed: tuple[str, ...]):
-        """Rename before's receipt file to match a drifted date/amount.
-
-        Returns (new_id_light, new_receipt_url, new_document_url, warnings).
-        The three "new_*" values are '' when nothing on disk needed to
-        change, which callers use as "leave this column alone" rather than
-        overwriting it with an empty string.
-        """
-        if not before.id_light or not before.receipt_url:
-            return '', '', '', linkage_warnings(before, changed)
-        if not any(field in changed for field in ('expense_date', 'amount')):
-            return '', '', '', ()
-        new_id_light = build_id_light(
-            vendor_prefix_from_id_light(before.id_light),
-            edit.transaction_date, edit.total_amount)
-        result = self._relocator.relocate(
-            receipt_url=before.receipt_url, old_id_light=before.id_light,
-            new_id_light=new_id_light)
-        if not result.relocated:
-            return '', '', '', (result.warning,) if result.warning else ()
-        new_document_url = (
-            new_id_light + os.path.splitext(before.document_url)[1]
-            if before.document_url
-            and os.path.basename(before.document_url) == before.receipt_url
-            else '')
-        return new_id_light, result.new_receipt_url, new_document_url, ()
-
     def apply_edit(self, edit: ExpenseEdit) -> ExpenseEditResult:
         with self._connect() as cnx:
             with cnx.cursor() as cur:
                 before, was_negative = self._read_one(cur, edit.expense_id)
                 changed = describe_changes(before, edit)
-                new_id_light, new_receipt_url, new_document_url, warnings = (
-                    self._relocate_receipt(before, edit, changed))
+                references = self._receipt_sync.synchronize(before, edit, changed)
                 if changed:
                     # Keep the row's original sign: an expense stored as
                     # -42.00 stays negative once its magnitude is corrected,
@@ -239,15 +170,15 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                                    'amount = %s', 'category_id = %s']
                     params = [edit.merchant_name, edit.transaction_date,
                               signed, edit.category_id]
-                    if new_id_light and schema.has('id_light'):
-                        assignments.append('id_light = %s')
-                        params.append(new_id_light)
-                    if new_receipt_url and schema.has('receipt_url'):
-                        assignments.append('receipt_url = %s')
-                        params.append(new_receipt_url)
-                    if new_document_url and schema.has('document_url'):
-                        assignments.append('document_url = %s')
-                        params.append(new_document_url)
+                    for column, value in (
+                        ('id_light', references.id_light),
+                        ('receipt_url', references.receipt_url),
+                        ('document_url', references.document_url),
+                        ('source_file', references.source_file),
+                    ):
+                        if value and schema.has(column):
+                            assignments.append(f'{column} = %s')
+                            params.append(value)
                     params.append(edit.expense_id)
                     cur.execute(
                         f'UPDATE expenses SET {", ".join(assignments)} '
@@ -260,16 +191,17 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                     transaction_date=edit.transaction_date,
                     total_amount=edit.total_amount,
                     description=edit.merchant_name,
-                    id_light=new_id_light or before.id_light,
-                    receipt_url=new_receipt_url or before.receipt_url,
-                    document_url=new_document_url or before.document_url,
+                    id_light=references.id_light or before.id_light,
+                    receipt_url=references.receipt_url or before.receipt_url,
+                    document_url=references.document_url or before.document_url,
+                    source_file=references.source_file or before.source_file,
                     category_id=edit.category_id,
                     category_name=self._namer.name_for(edit.category_id),
                 )
         return ExpenseEditResult(
             record=after,
             changed_fields=changed,
-            warnings=warnings,
+            warnings=references.warnings,
         )
 
     def read(self, expense_id: int) -> ExpenseRecord:
@@ -315,67 +247,3 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                 cur.execute('DELETE FROM expenses WHERE id = %s', (expense_id,))
                 cnx.commit()
         return ExpenseDeletion(record=record, line_item_ids=line_item_ids)
-
-
-def search_criteria_from_request(data: dict) -> ExpenseSearchCriteria:
-    """Untrusted HTTP JSON -> criteria, coercing shape before strict Pydantic.
-
-    ExpenseSearchCriteria is strict=True on purpose (a number arriving as a
-    string is a client bug worth catching), so the coercion an HTTP body needs
-    happens here, at the boundary, exactly as submit_manual_receipt_entry does
-    for the insert path.
-    """
-    data = data or {}
-    amount = as_optional_float(data.get('amount'), 'amount')
-    limit = as_optional_int(data.get('limit') or None, 'limit')
-    fields: dict[str, Any] = {
-        'merchant': str(data.get('merchant') or ''),
-        'date_from': _optional_text(data.get('date_from')),
-        'date_to': _optional_text(data.get('date_to')),
-        'amount': amount,
-    }
-    if limit is not None:
-        fields['limit'] = limit
-    return ExpenseSearchCriteria(**fields)
-
-
-def _optional_text(value: Any) -> Optional[str]:
-    text = str(value or '').strip()
-    return text or None
-
-
-def readable_validation_error(exc: Exception) -> str:
-    """A Pydantic ValidationError as one sentence an operator can act on.
-
-    ``str(ValidationError)`` is a multi-line dump ending in a docs URL. The
-    messages these models raise ("enter a merchant, a date range, or an amount
-    to search") are already written for a human, so surface those instead of
-    the wrapper around them.
-    """
-    errors = getattr(exc, 'errors', None)
-    if not callable(errors):
-        return str(exc)
-    messages = []
-    for error in errors():
-        message = str(error.get('msg') or '').strip()
-        # Pydantic prefixes messages raised by a validator with "Value error, ".
-        message = message.removeprefix('Value error, ')
-        location = '.'.join(str(part) for part in error.get('loc') or ())
-        if message:
-            messages.append(f'{location}: {message}' if location else message)
-    return '; '.join(messages) or str(exc)
-
-
-def records_as_json(records: Sequence[ExpenseRecord]) -> list[dict]:
-    """Records -> the snake_case JSON the browser's reader expects."""
-    return [
-        {
-            'id': r.id,
-            'transaction_date': r.transaction_date,
-            'total_amount': r.total_amount,
-            'description': r.description,
-            'id_light': r.id_light,
-            'category_name': r.category_name,
-        }
-        for r in records
-    ]

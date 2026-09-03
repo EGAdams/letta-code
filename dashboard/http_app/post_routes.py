@@ -336,15 +336,14 @@ class PostRoutesMixin:
         # The statement pair, alongside the receipt endpoints above: the same
         # form serves both document kinds, and which pair it calls is decided
         # by what the document IS, not by how many rows are on screen.
-        # "Mazda Fill": one button, one cheap model, both document kinds.
-        # Replaced the form's five reading buttons on 2026-08-19 -- see
-        # finance/mazda_fill.py for why picking the reader by eye was the bug.
-        if path == '/api/mazda-fill':
+        # Three explicit receipt-reading intents, implemented as injected
+        # strategies behind one typed boundary.
+        if path == '/api/receipt-read':
             try:
                 data = json.loads(body)
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
-            return self.json_response(srv.mazda_fill_document(data))
+            return self.json_response(srv.read_receipt_document(data))
 
         if path == '/api/manual-statement-breakup':
             try:

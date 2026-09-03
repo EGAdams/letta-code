@@ -31,7 +31,7 @@ import json
 import pytest
 
 from finance.manual_entry import preview_receipt_parse
-from finance.mazda_fill import MazdaFillRequest
+from finance.receipt_read_contracts import ReceiptReadRequest
 from finance.statement_models import (
     StatementBreakupRequest,
     StatementStoreRequest,
@@ -167,7 +167,7 @@ READERS = [
     ),
     ('MazdaModeService.set_from_http', _mode_service_stays_put, True),
     ('MazdaModeRequest.from_http', _mode_request_says_automatic, True),
-    ('MazdaFillRequest.from_http', _request_was_accepted(MazdaFillRequest), True),
+    ('ReceiptReadRequest.from_http', _request_was_accepted(ReceiptReadRequest), True),
     ('StatementBreakupRequest.from_http',
      _request_was_accepted(StatementBreakupRequest), True),
     ('StatementStoreRequest.from_http',

@@ -4,7 +4,7 @@
    Scoped entirely under .win98-agents -- the vendor 98.css restyles bare
    <button>/<select>/<table> globally, which would repaint every other tab on
    this page, so this hand-rolls the same bevel technique (silver + the same
-   four box-shadow inset colors) already used by .mazda-fill-progress /
+   four box-shadow inset colors) already used by .receipt-read-progress /
    .mazda-mode-track in intake_report.css, just scoped to this one table. */
 
 .win98-agents {
@@ -124,6 +124,14 @@
    leaving the old value sitting still looking like nothing is happening. */
 .win98-agents .win98-bar-fill.is-recalculating {
   animation: win98-bar-blink 0.5s step-start infinite;
+}
+
+/* A rate-limited usage probe (429 on the usage-reporting endpoint) is not a
+   dead token -- distinct grey from is-critical's red so it doesn't read as
+   an actual outage while a live countdown to reset shows in the label. */
+.win98-agents .win98-bar-fill.is-pending {
+  background: #94a3b8;
+  animation: win98-bar-blink 1s step-start infinite;
 }
 
 @keyframes win98-bar-blink {

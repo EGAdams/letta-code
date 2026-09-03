@@ -95,7 +95,7 @@ def test_a_genuine_read_is_untouched_by_the_guard():
 # ── carrying the model's own reason across (2026-08-19) ───────────────────
 # When the model ANSWERED and still could not give the page a receipt's
 # identity, parse_and_categorize.py stamps that reason onto the local-fallback
-# report. Passing it through unchanged is what lets MazdaFillService re-read
+# report. Passing it through unchanged lets the forensic strategy re-read
 # the page as a statement, and what lets the operator read what the model
 # actually said instead of a quota error from a different model.
 

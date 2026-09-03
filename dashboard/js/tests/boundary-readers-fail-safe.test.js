@@ -32,11 +32,11 @@ import {
   readVendorKeysResponse,
   readVendorRememberedResponse,
 } from "../abstract/manual-entry.interface.js";
-import { readMazdaFillResponse } from "../abstract/mazda-fill.interface.js";
 import {
   readMazdaModeDataset,
   readMazdaModeResponse,
 } from "../abstract/mazda-mode.interface.js";
+import { readReceiptReadResponse } from "../abstract/receipt-read.interface.js";
 import {
   readStatementBreakupResponse,
   readStatementEntryResponse,
@@ -103,13 +103,13 @@ const READERS = [
     },
     true,
   ],
-  ["readMazdaFillResponse.ok", (v) => readMazdaFillResponse(v).ok, true],
+  ["readReceiptReadResponse.ok", (v) => readReceiptReadResponse(v).ok, true],
   [
     // A statement shown as one expense silently discards every transaction but
     // one. Junk must land on the recoverable shape, never this one.
-    "readMazdaFillResponse claims MANY expenses with no rows",
+    "readReceiptReadResponse claims MANY expenses with no rows",
     (v) => {
-      const result = readMazdaFillResponse(v);
+      const result = readReceiptReadResponse(v);
       return result.shape === "many-expenses" && result.items.length === 0
         ? result.ok
         : false;
@@ -229,8 +229,8 @@ describe("readers return their declared shape whatever arrives", () => {
   // A caller reading `.items.length` or `.header.bankName` off a reader's
   // result must never hit undefined, however malformed the response was.
   for (const value of HOSTILE_INPUTS) {
-    test(`readMazdaFillResponse — ${JSON.stringify(value) ?? String(value)}`, () => {
-      const result = readMazdaFillResponse(value);
+    test(`readReceiptReadResponse — ${JSON.stringify(value) ?? String(value)}`, () => {
+      const result = readReceiptReadResponse(value);
       expect(Array.isArray(result.items)).toBe(true);
       expect(Array.isArray(result.excludedRows)).toBe(true);
       expect(Array.isArray(result.missingFields)).toBe(true);

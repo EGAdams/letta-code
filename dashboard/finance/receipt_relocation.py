@@ -25,6 +25,15 @@ from typing import Callable, Optional
 
 from pydantic import BaseModel, ConfigDict
 
+from finance.receipt_destination import (
+    IReceiptDestinationPolicy,
+    SameDirectoryReceiptDestinationPolicy,
+)
+
+# Compatibility export for callers that historically sourced all receipt-file
+# policy from this module.
+from finance.receipt_destination import CanonicalReceiptDestinationPolicy
+
 
 class FileReplaceOutcome(BaseModel):
     """What happened when replace_file_if_clear tried to rename one file.
@@ -66,6 +75,7 @@ def replace_file_if_clear(old_path: str, new_path: str, *,
     if os.path.exists(new_path):
         return FileReplaceOutcome(reason='target_exists')
     try:
+        os.makedirs(os.path.dirname(new_path), exist_ok=True)
         replace(old_path, new_path)
     except OSError as exc:
         return FileReplaceOutcome(reason='error', detail=str(exc))
@@ -86,6 +96,8 @@ class ReceiptRelocationResult(BaseModel):
     relocated: bool = False
     #: New basename to persist as receipt_url. Empty when relocated is False.
     new_receipt_url: str = ''
+    #: Absolute path for full-path DB references such as ``source_file``.
+    new_path: str = ''
     warning: str = ''
 
 
@@ -124,8 +136,11 @@ class FilesystemReceiptFileRelocator(IReceiptFileRelocator):
     """
 
     def __init__(self, *, resolve_path: Callable[[str], Optional[str]],
+                 destination_policy: Optional[IReceiptDestinationPolicy] = None,
                  replace: Callable[[str, str], None] = os.replace):
         self._resolve_path = resolve_path
+        self._destination = (destination_policy
+                             or SameDirectoryReceiptDestinationPolicy())
         self._replace = replace
 
     def relocate(self, *, receipt_url, old_id_light,
@@ -138,8 +153,10 @@ class FilesystemReceiptFileRelocator(IReceiptFileRelocator):
                 warning=f'Filing key changed to "{new_id_light}", but its '
                         f'receipt file ({receipt_url}) could not be found on '
                         'disk to rename.')
-        extension = os.path.splitext(old_path)[1] or '.jpg'
-        new_path = os.path.join(os.path.dirname(old_path), new_id_light + extension)
+        try:
+            new_path = self._destination.destination_for(old_path, new_id_light)
+        except ValueError as exc:
+            return ReceiptRelocationResult(warning=str(exc))
         outcome = replace_file_if_clear(old_path, new_path, replace=self._replace)
         if not outcome.moved:
             if outcome.reason == 'target_exists':
@@ -156,4 +173,5 @@ class FilesystemReceiptFileRelocator(IReceiptFileRelocator):
                 warning=f'Filing key changed to "{new_id_light}", but '
                         f'renaming its receipt file failed: {outcome.detail}')
         return ReceiptRelocationResult(
-            relocated=True, new_receipt_url=os.path.basename(new_path))
+            relocated=True, new_receipt_url=os.path.basename(new_path),
+            new_path=new_path)

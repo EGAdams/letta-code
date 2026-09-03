@@ -156,8 +156,8 @@ td.muted { padding:10px 12px; height:auto; }
     font-size:16px;
 }
 
-/* The Mazda Fill model dropdown sits immediately right of its button, so the
-   two read as one control: "read it — with this". Scaled to match the
+/* The receipt-reader model dropdown sits after the three action buttons.
+   Scaled to match the
    form's buttons (they are transform:scale(1.2)) rather than sitting a size
    smaller beside them.
 
@@ -169,13 +169,13 @@ td.muted { padding:10px 12px; height:auto; }
    transform-origin:left TOP (line 98), so scaling grows them straight down
    and their visual center sits lower on the row than a center-origin
    element's does. Without this the dropdown reads as sitting a bit high
-   next to Mazda Fill / Show Image. */
-/* Classic Windows 98 progress indicator: a recessed white track with square,
-   navy blocks. Its 30px outer height is slightly more than 1.5 characters at
+   next to the receipt-reading buttons / Show Image. */
+/* Classic Windows 98 progress indicator: a recessed white track with a solid
+   navy fill. Its 30px outer height is slightly more than 1.5 characters at
    this form's 18px type size. JS sets the track's exact left/width from the
    rendered Show Image and Remove This Expense button edges; keeping that
    geometry on the shell means a 100% fill cannot overflow the dialog. */
-.mazda-fill-progress-shell {
+.receipt-read-progress-shell {
     display:none;
     box-sizing:border-box;
     height:30px;
@@ -185,10 +185,19 @@ td.muted { padding:10px 12px; height:auto; }
     background:#fff;
     box-shadow:inset -2px -2px #dfdfdf,inset 2px 2px #808080;
 }
-.mazda-fill-progress {
+.receipt-read-progress {
     height:100%;
     width:0%;
-    background:repeating-linear-gradient(to right,#000080 0,#000080 12px,transparent 12px,transparent 15px);
+    background:#000080;
+}
+@keyframes receipt-read-complete-blink {
+    0%,40%,80% { background:#000080; }
+    20%,60%,100% { background:#90ee90; }
+}
+.receipt-read-progress.is-complete {
+    animation-name:receipt-read-complete-blink;
+    animation-timing-function:step-end;
+    animation-fill-mode:forwards;
 }
 
 .manual-entry-form select[data-field="mazdaModel"] {
@@ -200,7 +209,7 @@ td.muted { padding:10px 12px; height:auto; }
 }
 
 /* Mazda Automatic / Semi-Automatic switch. Sits immediately right of the
-   Mazda Fill model dropdown, finishing that row's one sentence: "read it —
+   receipt-reader model dropdown, finishing that row's one sentence: "read it —
    with this — or don't make me ask at all."
 
    Windows 98 had no toggle switch, so this borrows the era's vocabulary

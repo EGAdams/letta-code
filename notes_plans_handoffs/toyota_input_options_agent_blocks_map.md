@@ -59,6 +59,9 @@ Construction Status page as the task plan:
 
 - Plan source of truth:
   `/home/adamsl/agent_blocks/spa_documentation/voice_communication/conversation_agent/basic_agent_construction_status.html`
+- Interface File lesson source of truth:
+  `/home/adamsl/agent_blocks/spa_documentation/voice_communication/conversation_agent/basic_agent_construction_status/declare_the_plug_in_point/interface_file/index.html`
+- The overall plan references that leaf file; it does not own or copy the lesson body.
 - Generic drill-down behavior:
   `/home/adamsl/agent_blocks/spa_documentation/app.js`
 - Shared task-tree styling:

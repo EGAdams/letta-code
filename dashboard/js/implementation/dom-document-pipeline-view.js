@@ -100,9 +100,11 @@ export class DomDocumentPipelineView extends DocumentPipelineView {
         );
       })
       .join("");
-    const note = result?.mazda_dispatched
-      ? "Mazda is processing investigate → categorize → store in the background."
-      : "Mazda was not dispatched (no scanned image found).";
+    const note = result?.already_dispatched
+      ? "This scan matched one already dispatched moments ago — not sent to Mazda twice."
+      : result?.mazda_dispatched
+        ? "Mazda is processing investigate → categorize → store in the background."
+        : "Mazda was not dispatched (no scanned image found).";
     const errorText = result?.stage_error || result?.error;
     const err = errorText
       ? `<div class="pipeline-error">${TextUtils.esc(errorText)}</div>`

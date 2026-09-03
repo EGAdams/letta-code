@@ -3,7 +3,7 @@
  * statement, not a receipt: reading every transaction off it, and storing the
  * corrected rows as one page.
  *
- * The reading half is triggered by "Mazda Fill" (see mazda-fill.interface.js),
+ * The reading half is triggered by Several Expenses (see receipt-read.interface.js),
  * which classifies the document first and routes here only when the page
  * really is a statement. Until 2026-08-19 the operator picked that by eye,
  * from a "Break up Document" group box holding a Read with Gemini and a Read

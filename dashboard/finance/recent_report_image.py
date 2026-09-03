@@ -9,6 +9,10 @@ from typing import Callable, Mapping, MutableMapping, Sequence
 
 from finance.archive_path import build_id_light
 from finance.receipt_relocation import replace_file_if_clear
+from finance.receipt_destination import (
+    IReceiptDestinationPolicy,
+    SameDirectoryReceiptDestinationPolicy,
+)
 
 
 class RecentReportImageSynchronizer:
@@ -24,11 +28,14 @@ class RecentReportImageSynchronizer:
                  write_pointer: Callable[[dict], bool],
                  fetch_rows: Callable[[Sequence[int]], Sequence[Mapping]],
                  update_references: Callable[[Sequence[int], str], None] | None = None,
+                 destination_policy: IReceiptDestinationPolicy | None = None,
                  replace: Callable[[str, str], None] = os.replace):
         self._read_pointer = read_pointer
         self._write_pointer = write_pointer
         self._fetch_rows = fetch_rows
         self._update_references = update_references or (lambda _ids, _path: None)
+        self._destination = (destination_policy
+                             or SameDirectoryReceiptDestinationPolicy())
         self._replace = replace
 
     @staticmethod
@@ -112,16 +119,21 @@ class RecentReportImageSynchronizer:
                  for path in (representative.get('archive_paths') or [])
                  if str(path).strip()]
         if not paths:
+            source_file = str(first.get('source_file') or '').strip()
+            if source_file:
+                paths = [source_file]
+        if not paths:
             return {'renamed': False, 'warning': 'No archived image path to rename.'}
         old_path = paths[0]
         archived_identity = self._archived_identity(old_path)
         if archived_identity and not replace_identity:
             vendor, date = archived_identity
-        extension = os.path.splitext(old_path)[1] or '.jpg'
-        new_path = os.path.join(
-            os.path.dirname(old_path),
-            build_id_light(str(vendor), str(date), float(self._amount(rows))) + extension,
-        )
+        new_id_light = build_id_light(
+            str(vendor), str(date), float(self._amount(rows)))
+        try:
+            new_path = self._destination.destination_for(old_path, new_id_light)
+        except ValueError as exc:
+            return {'renamed': False, 'warning': str(exc)}
         if new_path != old_path:
             outcome = replace_file_if_clear(old_path, new_path, replace=self._replace)
             if not outcome.moved:
@@ -141,10 +153,11 @@ class RecentReportImageSynchronizer:
         self._update_references(ids, new_path)
 
         for intake in matched:
-            intake['archive_paths'] = [
+            existing_paths = list(intake.get('archive_paths') or [])
+            intake['archive_paths'] = ([new_path] if not existing_paths else [
                 new_path if str(path).strip() == old_path else path
-                for path in (intake.get('archive_paths') or [])
-            ]
+                for path in existing_paths
+            ])
             if os.path.basename(str(intake.get('document') or '')) == os.path.basename(old_path):
                 intake['document'] = os.path.basename(new_path)
         if not self._write_pointer(data):

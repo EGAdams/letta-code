@@ -7,6 +7,7 @@ not something a fake filesystem could silently get wrong.
 import os
 
 from finance.receipt_relocation import (
+    CanonicalReceiptDestinationPolicy,
     FilesystemReceiptFileRelocator,
     NullReceiptFileRelocator,
     replace_file_if_clear,
@@ -30,6 +31,30 @@ def test_renames_the_file_and_reports_the_new_basename(tmp_path):
     assert result.new_receipt_url == 'kroger_08_15_26_99_99.jpg'
     assert not (tmp_path / 'kroger_08_15_26_12_34.jpg').exists()
     assert (tmp_path / 'kroger_08_15_26_99_99.jpg').exists()
+
+
+def test_date_edit_refiles_receipt_into_the_canonical_day_folder(tmp_path):
+    root = tmp_path / 'receipts'
+    old = root / '2025' / 'august' / 'august_19' / 'at_t_08_19_25_80_24.jpg'
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b'at&t')
+    relocator = FilesystemReceiptFileRelocator(
+        resolve_path=lambda _url: str(old),
+        destination_policy=CanonicalReceiptDestinationPolicy(str(root)),
+    )
+
+    result = relocator.relocate(
+        receipt_url=old.name,
+        old_id_light='at_t_08_19_25_80_24',
+        new_id_light='at_t_08_25_25_80_24',
+    )
+
+    expected = root / '2025' / 'august' / 'august_25' / 'at_t_08_25_25_80_24.jpg'
+    assert result.relocated
+    assert result.new_receipt_url == expected.name
+    assert result.new_path == str(expected)
+    assert expected.read_bytes() == b'at&t'
+    assert not old.exists()
 
 
 def test_same_id_light_is_a_silent_no_op(tmp_path):
