@@ -1,0 +1,126 @@
+/* Manual-entry and expense-editor controls shared by the synthetic intake
+   report and the dedicated Edit Expense page. */
+
+:root {
+    --manual-entry-block-space:3px;
+}
+
+/* Shared Win98 panel look. The entry form is intentionally compact; the
+   Verified Transactions panel keeps its larger report-card spacing. */
+.manual-entry-form, .dialog-panel {
+    border:2px groove #c0c0c0;
+    background:#c0c0c0;
+    font-family:"Courier New",Courier,monospace;
+}
+.manual-entry-form {
+    margin:var(--manual-entry-block-space) 0;
+    padding:var(--manual-entry-block-space) 12px;
+}
+.dialog-panel { margin:16px 0; padding:10px 12px; }
+.manual-entry-form h2, .dialog-panel h2 { margin-top:0; }
+.manual-entry-field {
+    margin:var(--manual-entry-block-space) 0;
+    /* Single source of truth for field height — everything that depends on
+       it (the select's square arrow button, its clearance padding) derives
+       from this instead of repeating the number. Change height here only. */
+    --field-height:28px;
+    --field-arrow-gap:8px;
+}
+.manual-entry-field label { display:block; font-size:18px; font-family:"Courier New",Courier,monospace; color:black; margin-bottom:2px; }
+.manual-entry-field input, .manual-entry-field select { width:100%; max-width:320px; padding:var(--manual-entry-block-space) 4px; min-height:var(--field-height); font-size:18px; font-family:"Courier New",Courier,monospace; }
+/* Drops the 320px cap so this field matches .manual-entry-archive-path's
+   width -- both are plain block-level elements filling the same
+   .manual-entry-field container. */
+.manual-entry-field input.manual-entry-field-wide { max-width:none; }
+.manual-entry-field select option { font-size:18px; font-family:"Courier New",Courier,monospace; }
+/* Keep the native Win98 dropdown arrow square and give its text clearance. */
+.manual-entry-field select {
+    background-position:top right;
+    background-size:var(--field-height) 100%;
+    padding-right:calc(var(--field-height) + var(--field-arrow-gap));
+}
+.manual-entry-vendor-row { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+.manual-entry-new-vendor-key { display:inline-block; }
+.manual-entry-new-vendor-key label { display:block; }
+/* Buttons retain their requested 1.2 scale and horizontal clearance, but
+   every top/bottom margin now follows the compact 3px rhythm. */
+.manual-entry-form button {
+    margin:var(--manual-entry-block-space) calc(8px + 15px) var(--manual-entry-block-space) 0;
+    transform:scale(1.2);
+    transform-origin:left top;
+}
+.manual-entry-form button.is-pressed { box-shadow:inset -1px -1px #fff,inset 1px 1px #0a0a0a,inset -2px -2px #dfdfdf,inset 2px 2px grey; }
+.manual-entry-item-nav { margin:var(--manual-entry-block-space) 0; padding:var(--manual-entry-block-space) 0; border-top:1px solid #808080; border-bottom:1px solid #fff; display:flex; align-items:center; gap:calc(4px + 15px); flex-wrap:wrap; }
+.manual-entry-item-nav span { margin:0 8px; font-weight:600; }
+.manual-entry-archive-path { box-sizing:border-box; margin-top:2px; padding:var(--manual-entry-block-space) 4px; min-height:var(--field-height); background:#fff; border:2px inset #808080; font-family:"Courier New",monospace; font-size:18px; word-break:break-all; }
+.manual-entry-errors { color:#b91c1c; font-weight:600; }
+.manual-entry-errors, .manual-entry-status { min-height:0; margin:var(--manual-entry-block-space) 0; }
+.manual-entry-errors:empty, .manual-entry-status:empty { display:none; }
+.terminal-host { height:220px; margin-top:var(--manual-entry-block-space); overflow:auto; }
+
+/* Edit Expense panel. It reuses the form chrome and fields above. */
+.expense-edit-panel .manual-entry-item-nav { align-items:flex-end; }
+.expense-edit-launcher { padding:var(--manual-entry-block-space) 12px; }
+.expense-edit-results { display:flex; flex-direction:column; align-items:flex-start; max-height:280px; overflow-y:auto; }
+.expense-edit-results button {
+    margin:2px 0;
+    transform:none;
+    width:100%;
+    text-align:left;
+    font-family:"Courier New",Courier,monospace;
+    font-size:16px;
+    white-space:normal;
+    word-break:break-word;
+}
+.expense-edit-fields { margin-top:var(--manual-entry-block-space); padding-top:var(--manual-entry-block-space); border-top:1px solid #808080; }
+
+/* Ambiguous-vendor pick-list. */
+.manual-entry-vendor-candidates {
+    margin-top:var(--manual-entry-block-space);
+    padding:var(--manual-entry-block-space) 8px;
+    border:2px inset #808080;
+    background:#efefc8;
+}
+.manual-entry-vendor-candidates label { margin-bottom:3px; font-weight:600; }
+.manual-entry-vendor-candidates button {
+    display:block;
+    margin:var(--manual-entry-block-space) 0;
+    transform:none;
+    text-align:left;
+    font-family:"Courier New",Courier,monospace;
+    font-size:16px;
+}
+
+/* Classic Windows 98 receipt-reader progress indicator. */
+.receipt-read-progress-shell {
+    display:none;
+    box-sizing:border-box;
+    height:30px;
+    margin-top:var(--manual-entry-block-space);
+    padding:var(--manual-entry-block-space);
+    overflow:hidden;
+    background:#fff;
+    box-shadow:inset -2px -2px #dfdfdf,inset 2px 2px #808080;
+}
+.receipt-read-progress {
+    height:100%;
+    width:0%;
+    background:#000080;
+}
+@keyframes receipt-read-complete-blink {
+    0%,40%,80% { background:#000080; }
+    20%,60%,100% { background:#90ee90; }
+}
+.receipt-read-progress.is-complete {
+    animation-name:receipt-read-complete-blink;
+    animation-timing-function:step-end;
+    animation-fill-mode:forwards;
+}
+
+.manual-entry-form select[data-field="mazdaModel"] {
+    max-width:224px;
+    margin-left:15px;
+    transform:translateY(6px) scale(1.2);
+    transform-origin:left center;
+    font-family:"Courier New",Courier,monospace;
+}

@@ -1,0 +1,66 @@
+/* Windows 98 status switch used by the manual-entry form. */
+
+.manual-entry-field label.mazda-mode-switch {
+    display:inline-flex;
+    align-items:center;
+    gap:14px;
+    margin-left:calc(15px + 15px + 48px);
+    transform:translateY(6px) scale(1.2);
+    transform-origin:left center;
+    font-family:"Courier New",Courier,monospace;
+    font-size:15px;
+    cursor:pointer;
+    user-select:none;
+}
+/* Keep the native checkbox accessible while the track supplies its visual. */
+.manual-entry-field label.mazda-mode-switch input[type="checkbox"] {
+    position:absolute;
+    width:1px;
+    height:1px;
+    min-height:0;
+    margin:-1px;
+    padding:0;
+    overflow:hidden;
+    clip:rect(0 0 0 0);
+    white-space:nowrap;
+}
+.mazda-mode-track {
+    display:block;
+    position:relative;
+    flex:0 0 auto;
+    width:42px;
+    height:20px;
+    background:#f4b400;
+    border:2px inset #c0c0c0;
+    box-shadow:inset -1px -1px #dfdfdf,inset 1px 1px #0a0a0a;
+}
+.mazda-mode-track::before {
+    content:"";
+    position:absolute;
+    top:0;
+    left:0;
+    width:18px;
+    height:100%;
+    background:#c0c0c0;
+    box-shadow:inset -1px -1px #0a0a0a,inset 1px 1px #fff,inset -2px -2px grey,inset 2px 2px #dfdfdf;
+}
+.manual-entry-field label.mazda-mode-switch input[type="checkbox"]:checked + .mazda-mode-track {
+    background:#008000;
+}
+.manual-entry-field label.mazda-mode-switch input[type="checkbox"]:checked + .mazda-mode-track::before {
+    left:calc(100% - 18px);
+}
+.manual-entry-field label.mazda-mode-switch input[type="checkbox"]:focus + .mazda-mode-track {
+    outline:1px dotted #000;
+    outline-offset:2px;
+}
+.manual-entry-field label.mazda-mode-switch input[type="checkbox"]:disabled + .mazda-mode-track {
+    opacity:.6;
+}
+.mazda-mode-label {
+    font-weight:700;
+    color:#000;
+    white-space:nowrap;
+    min-width:20ch;
+    text-align:left;
+}
