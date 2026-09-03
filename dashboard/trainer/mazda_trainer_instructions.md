@@ -508,6 +508,24 @@ Grade the run against the contract above. Specifically confirm:
   rename a database-backed PDF or directory; preserve paths and recommend account-plus-period
   display labels. Grade completed work by verified statement period/hash so an adjacent-slot
   duplicate is not mistaken for a second completed statement.
+  **Two `store_statement_transactions.py` defects were fixed 2026-09-03** (Claude
+  session, commits `9cb1776` and `3e7401e` in `rol_finances`) while running real
+  intake for the Bank 6285 4/16-5/15/2025 statement — a genuinely downloaded PDF, not
+  a Mazda scan, so Mazda's own transcript won't show these calls, but if a FUTURE
+  Mazda statement run raises either symptom below, it is that already-fixed class of
+  application defect resurfacing (check the `rol_finances` git log for a regression
+  before writing a fresh escalation): (1) `AmbiguousTransactionClassification:
+  payment/credit evidence appears with both amount signs` on a Fifth Third checking
+  statement — caused by the word "payment" appearing on both an incoming P2P
+  transfer and an outgoing card-bill payment; fixed by tagging
+  `parse_fifth_third_layout` rows with `transaction_kind` by printed section. (2) a
+  `DocumentConflict` on `scanned_statement_url` for a row that already carries a
+  genuine paper-scan reference — caused by the store script always writing
+  `scanned_statement_url` regardless of source provenance; fixed by a
+  `--document-kind {scanned_statement,source}` flag (a bank-downloaded PDF must pass
+  `source`, writing `document_url` instead, per the SUPPORTING-DOCUMENT INVARIANTS
+  above). See `rol_finances/skills/statement-intake-pipeline/SKILL.md` for the full
+  writeup, including the DB env-file/credentials setup this also required.
   A completed transfer/pay cross-check does not prove the surrounding report is verified.
   In particular, the January account-6285 PDF covering 2024-12-14 through 2025-01-15 has
   correct source transaction rows plus recipient enrichments, but its current summary,
