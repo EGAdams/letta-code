@@ -65,8 +65,7 @@
   font-weight: bold;
 }
 
-.win98-agents .win98-assignment-token.is-unknown,
-.win98-agents .win98-assignment-unavailable {
+.win98-agents .win98-assignment-token.is-unknown {
   color: grey;
   font-style: italic;
 }

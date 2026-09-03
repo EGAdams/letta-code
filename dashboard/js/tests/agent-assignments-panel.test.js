@@ -85,6 +85,53 @@ describe("AgentAssignmentsController tool rows", () => {
     expect(token.textContent).toContain("expired");
   });
 
+  test("renders the SDK tool's weekly-remaining bar like every other row", async () => {
+    const { container, controller } = setup([
+      {
+        id: "tool-run-claude-code-sdk",
+        name: "run_claude_code_sdk",
+        model: "Claude Code SDK",
+        account: "eg",
+        assignment_kind: "tool",
+        weekly_percent_remaining: 73,
+        token_status: "up",
+        token_status_detail: "",
+      },
+    ]);
+
+    await controller.poll();
+
+    const track =
+      container.querySelector("tbody").children[0].children[3].children[0];
+    expect(track.children[0].style.width).toBe("73%");
+    expect(track.children[1].textContent).toBe("73%");
+  });
+
+  test("fills the SDK tool's bar red when its token is down", async () => {
+    const { container, controller } = setup([
+      {
+        id: "tool-run-claude-code-sdk",
+        name: "run_claude_code_sdk",
+        model: "Claude Code SDK",
+        assignment_kind: "tool",
+        weekly_percent_remaining: 73,
+        token_status: "down",
+        token_status_detail:
+          "OAuth token expired — run_claude_code_sdk will fail",
+      },
+    ]);
+
+    await controller.poll();
+
+    const track =
+      container.querySelector("tbody").children[0].children[3].children[0];
+    expect(track.children[0].classList.contains("is-critical")).toBe(true);
+    expect(track.children[0].style.width).toBe("100%");
+    // The Token cell already prints the whole sentence; the bar stays short.
+    expect(track.children[1].textContent).toBe("Expired");
+    expect(track.children[1].title).toContain("run_claude_code_sdk will fail");
+  });
+
   test("renders an unassigned OAuth account as a read-only row", async () => {
     const { container, controller } = setup([
       {

@@ -48,6 +48,25 @@ def test_sdk_tool_assignment_is_red_when_executor_status_is_unavailable():
     assert 'unreachable' in row['token_status_detail']
 
 
+def test_sdk_tool_assignment_carries_the_weekly_bar_of_its_account():
+    """The executor spends a human's own Claude quota, so its row shows the
+    same Weekly Remaining bar every other row has -- it was the one row on the
+    tab rendering a bare dash."""
+    row = build_claude_sdk_assignment(
+        {
+            'ready': True,
+            'creds_present': True,
+            'creds_valid': True,
+            'creds_expires_at': 1_800_000_000,
+        },
+        now=1_700_000_000,
+        account='mom',
+        weekly_percent_remaining=41.5,
+    )
+
+    assert row['weekly_percent_remaining'] == 41.5
+
+
 def test_agent_assignments_payload_includes_the_sdk_tool_row(monkeypatch):
     class Response:
         def __enter__(self):
@@ -74,6 +93,47 @@ def test_agent_assignments_payload_includes_the_sdk_tool_row(monkeypatch):
     sdk_row = next(row for row in rows if row['assignment_kind'] == 'tool')
     assert sdk_row['id'] == 'tool-run-claude-code-sdk'
     assert sdk_row['token_status'] == 'up'
+
+
+def test_agent_assignments_payload_reads_the_sdk_row_quota_from_its_account(monkeypatch):
+    """The SDK dropdown names an account ('eg'/'mom'); weekly quota is only
+    readable per provider row. Assert the join, since a wrong one would show
+    the other human's remaining percentage on this row."""
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps([]).encode()
+
+    probed = []
+
+    monkeypatch.setattr(server, 'LETTA_AGENTS', [])
+    monkeypatch.setattr(server.urllib.request, 'urlopen', lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(server, 'claude_sdk_token_status', lambda: {
+        'ready': True, 'creds_present': True, 'creds_valid': True,
+        'creds_expires_at': 1_800_000_000,
+    })
+    monkeypatch.setattr(server, 'claude_sdk_account_payload', lambda: {
+        'ok': True, 'current': 'eg',
+        'options': [{'account': 'eg', 'label': 'eg1972@gmail.com'}],
+    })
+
+    def fake_weekly(provider):
+        probed.append(provider)
+        return 73.0 if provider == 'claude-pro-max-eg' else 12.0
+
+    monkeypatch.setattr(server, '_weekly_percent_remaining', fake_weekly)
+    monkeypatch.setitem(server._model_stats_agents_cache, 'value', None)
+
+    rows = server.model_stats_agents_payload(force_refresh=True)
+
+    sdk_row = next(row for row in rows if row['assignment_kind'] == 'tool')
+    assert sdk_row['weekly_percent_remaining'] == 73.0
+    assert 'claude-pro-max-eg' in probed
 
 
 def test_assignments_status_is_down_when_the_sdk_tool_row_is_down():

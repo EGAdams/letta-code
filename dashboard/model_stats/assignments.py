@@ -29,12 +29,20 @@ def build_claude_sdk_assignment(
     now: float,
     account: str = '',
     account_label: str = 'Executor OAuth token',
+    weekly_percent_remaining: float | None = None,
 ) -> dict[str, Any]:
     """Build the read-only Agent Assignments row for the shared SDK tool.
 
     ``status`` is the executor's no-job ``/claude_sdk_status`` response. A
     missing executor response is deliberately red: the tool cannot be trusted
     when the endpoint that proves its credential is unavailable.
+
+    ``weekly_percent_remaining`` is the quota left on the *account* whose token
+    is mounted in the executor (the caller resolves it -- this module has no
+    usage-API access). The executor spends a human's ordinary Claude quota, so
+    the row gets the same weekly bar every other row has; leaving it None here
+    is what made this the one row on the tab with no bar at all, hiding the
+    fact that a healthy-looking token can still be out of weekly quota.
     """
     if not isinstance(status, dict):
         token_status = 'down'
@@ -62,7 +70,7 @@ def build_claude_sdk_assignment(
         'model': 'Claude Code SDK',
         'account': account,
         'account_label': account_label,
-        'weekly_percent_remaining': None,
+        'weekly_percent_remaining': weekly_percent_remaining,
         'assignment_kind': 'tool',
         'token_status': token_status,
         'token_status_detail': detail,

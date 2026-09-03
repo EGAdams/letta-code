@@ -176,6 +176,46 @@ function barClassFor(pct) {
   return "";
 }
 
+/** The Weekly Remaining cell, identical for every row kind -- a beveled
+ * track holding the fill and a centered label. Returns the two nodes the
+ * row entry keeps so later polls repaint without rebuilding the row. */
+function appendBarCell(el, tr) {
+  const barTd = el("td", { className: "win98-bar-cell" });
+  const track = el("div", { className: "win98-bar-track" });
+  const fill = el("div", { className: "win98-bar-fill" });
+  const label = el("div", { className: "win98-bar-label" });
+  track.append(fill, label);
+  barTd.appendChild(track);
+  tr.appendChild(barTd);
+  return { fill, label };
+}
+
+/** Repaint a bar from a row that carries both a percentage and a token
+ * status. A down token wins over the percentage and fills the track red:
+ * quota is irrelevant when the credential itself will not authenticate.
+ * `downText` lets a row whose Token cell already prints the full failure
+ * sentence show a short one here instead of repeating it (the title
+ * attribute still carries the detail either way). */
+function paintTokenBar(entry, row, downText) {
+  const pct = row.weekly_percent_remaining;
+  const tokenDown = row.token_status === "down";
+  entry.fill.className =
+    `win98-bar-fill ${tokenDown ? "is-critical" : barClassFor(pct)}`.trim();
+  entry.fill.style.width = tokenDown
+    ? "100%"
+    : pct == null
+      ? "0%"
+      : `${Math.max(0, Math.min(100, pct))}%`;
+  entry.label.textContent = tokenDown
+    ? downText || row.token_status_detail || "Expired"
+    : pct == null && row.token_status === "up"
+      ? "Valid"
+      : pct == null
+        ? "Unavailable"
+        : `${pct}%`;
+  entry.label.title = row.token_status_detail || "";
+}
+
 /**
  * AgentAssignmentsController — concrete PollingController for the Model
  * Stats "Agent Assignments" tab: one row per Letta agent with a live model
@@ -332,36 +372,14 @@ export class AgentAssignmentsController extends PollingController {
       accountTd.appendChild(accountSelect);
       tr.appendChild(accountTd);
 
-      const barTd = el("td", { className: "win98-bar-cell" });
-      const track = el("div", { className: "win98-bar-track" });
-      const fill = el("div", { className: "win98-bar-fill" });
-      const label = el("div", { className: "win98-bar-label" });
-      track.append(fill, label);
-      barTd.appendChild(track);
-      tr.appendChild(barTd);
+      const { fill, label } = appendBarCell(el, tr);
 
       this._tbody.appendChild(tr);
       entry = { tr, fill, label };
       this._rowsById.set(row.id, entry);
     }
 
-    const pct = row.weekly_percent_remaining;
-    const tokenDown = row.token_status === "down";
-    entry.fill.className =
-      `win98-bar-fill ${tokenDown ? "is-critical" : barClassFor(pct)}`.trim();
-    entry.fill.style.width = tokenDown
-      ? "100%"
-      : pct == null
-        ? "0%"
-        : `${Math.max(0, Math.min(100, pct))}%`;
-    entry.label.textContent = tokenDown
-      ? row.token_status_detail || "Expired"
-      : pct == null && row.token_status === "up"
-        ? "Valid"
-        : pct == null
-          ? "Unavailable"
-          : `${pct}%`;
-    entry.label.title = row.token_status_detail || "";
+    paintTokenBar(entry, row);
   }
 
   _renderToolRow(row) {
@@ -380,14 +398,15 @@ export class AgentAssignmentsController extends PollingController {
       const token = el("div", { className: "win98-assignment-token" });
       tokenTd.append(accountSelect, token);
       tr.appendChild(tokenTd);
-      tr.appendChild(
-        el("td", {
-          className: "win98-assignment-unavailable",
-          textContent: "—",
-        }),
-      );
+      // The executor is not a Letta agent, but it spends a real human
+      // account's Claude quota (server.py resolves which one), so it gets the
+      // same Weekly Remaining bar every other row has. It used to render a
+      // bare "—", which read as "no quota to track" rather than "we never
+      // looked" -- and left the account-switch blink (_refreshRowBar) with no
+      // fill to blink.
+      const { fill, label } = appendBarCell(el, tr);
       this._tbody.appendChild(tr);
-      entry = { tr, select: accountSelect, token };
+      entry = { tr, select: accountSelect, token, fill, label };
       this._rowsById.set(row.id, entry);
     }
 
@@ -397,6 +416,9 @@ export class AgentAssignmentsController extends PollingController {
         : row.token_status_detail || "Token status unavailable";
     entry.token.className = `win98-assignment-token is-${row.token_status || "unknown"}`;
     if (row.account) entry.select.value = row.account;
+    // The Token cell beside this one already prints the whole failure
+    // sentence; the bar says "Expired" rather than repeating it.
+    paintTokenBar(entry, row, "Expired");
   }
 
   /** Read-only row for an OAuth account that backs no current agent (e.g. a
@@ -412,13 +434,7 @@ export class AgentAssignmentsController extends PollingController {
       tr.appendChild(el("td", { textContent: row.model || "—" }));
       tr.appendChild(el("td", { textContent: row.account_label }));
 
-      const barTd = el("td", { className: "win98-bar-cell" });
-      const track = el("div", { className: "win98-bar-track" });
-      const fill = el("div", { className: "win98-bar-fill" });
-      const label = el("div", { className: "win98-bar-label" });
-      track.append(fill, label);
-      barTd.appendChild(track);
-      tr.appendChild(barTd);
+      const { fill, label } = appendBarCell(el, tr);
 
       this._tbody.appendChild(tr);
       entry = { tr, fill, label };

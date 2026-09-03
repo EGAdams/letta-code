@@ -6739,6 +6739,18 @@ OAUTH_PROVIDER_ACCOUNTS = {
 FAMILY_MODEL_PREFIX = {'claude': 'claude-pro-max', 'chatgpt': 'chatgpt-plus-pro'}
 
 
+def _claude_provider_for_account(account):
+    """The OAUTH_PROVIDER_ACCOUNTS provider whose Claude token belongs to
+    ``account`` ('eg' / 'mom'). The SDK executor's dropdown names an account,
+    not a provider row, but weekly quota is only readable per provider -- this
+    is the join between health/frita.py's CLAUDE_SDK_ACCOUNT_OPTIONS and the
+    provider rows the usage probes understand."""
+    return next(
+        (provider for provider, meta in OAUTH_PROVIDER_ACCOUNTS.items()
+         if meta.get('family') == 'claude' and meta.get('account') == account),
+        '')
+
+
 def _default_model_id_for_family(family):
     prefix = FAMILY_MODEL_PREFIX.get(family, '') + '/'
     handle = next((h for h in AGENT_MODEL_OPTIONS if h.startswith(prefix)), None)
@@ -6926,10 +6938,17 @@ def model_stats_agents_payload(force_refresh=False):
          if item.get('account') == sdk_account.get('current')),
         {},
     )
+    # The executor runs on a copy of one human's ordinary Claude OAuth token,
+    # so it spends that account's weekly quota -- read it from the matching
+    # provider row (cached alongside every other row's) rather than leaving
+    # this the one row on the tab with no Weekly Remaining bar.
+    sdk_provider = _claude_provider_for_account(sdk_account.get('current', ''))
     rows.append(build_claude_sdk_assignment(
         claude_sdk_token_status(), now=time.time(),
         account=sdk_account.get('current', ''),
-        account_label=sdk_option.get('label', 'Executor OAuth token')))
+        account_label=sdk_option.get('label', 'Executor OAuth token'),
+        weekly_percent_remaining=(
+            _weekly_percent_remaining(sdk_provider) if sdk_provider else None)))
 
     with _model_stats_agents_cache_lock:
         _model_stats_agents_cache['value'] = rows
