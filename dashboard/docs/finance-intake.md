@@ -13,6 +13,19 @@ Receipt matching prefers (date, amount) parsed from filename over the DB's `rece
 in the marker-block `<style>` instead. `window.open(..., "noopener")` returns `null` by spec — not
 proof of a popup blocker.
 
+**Tile color comes only from the hero badge text.** `server._classify_report_status()` regexes
+`<div class="badge...">` — `REVIEW NEEDED`/`WIP` → yellow, `FAIL` → red, `PASS` → green, unparseable
+→ yellow (fails closed). Two incompatible report.html shapes exist for the same kind of statement: a
+pure PDF-math-verification shape (never depends on categorization, can validly `PASS`) and a
+DB-comparison shape (`REVIEW NEEDED` for as long as any row is uncategorized, which for some
+accounts is indefinite and correct per policy, not a defect). Building a report in the wrong shape
+for that account produces a false yellow tile unrelated to the actual statement. `~/rol_finances` is
+its own git repo, checked out independently on every machine (including the one serving the live
+dashboard) — a report fix here does nothing for the live tile until pushed and pulled there too, and
+that pull can hit real concurrent WIP from other agent sessions. Full detail, examples, and recovery
+commands: memories `project-statement-report-pipeline`, `project-dashboard-finance-report-debugging`,
+`project-rol-finances-multi-machine`.
+
 Supporting-document opens (`document_annotation.py`) are non-destructive — annotate a cached copy,
 never the original. `IExpenseDocumentAnnotationService` is the port; PDF/OCR-image/Excel are
 strategies wired in `build_document_annotation_service()`. A match needs date+amount,
