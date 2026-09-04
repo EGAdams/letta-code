@@ -25,21 +25,28 @@ const RECORD = {
   category_name: "Office",
 };
 
-function setup({ responses = {}, categories = ["Office", "Rosemary"] } = {}) {
+function setup({
+  responses = {},
+  categories = ["Office", "Rosemary"],
+  confirm = () => true,
+} = {}) {
   const doc = new FakeDocument();
   const root = doc.createElement("div");
   doc.add(root);
   const http = fakeHttp(responses);
   const saved = [];
+  const deleted = [];
   const dialog = new ExpenseEditDialog({
     http,
     root,
     doc,
     categoryNames: () => categories,
     onSaved: (result) => saved.push(result),
+    onDeleted: (id) => deleted.push(id),
+    confirm,
   });
   dialog.render();
-  return { dialog, http, root, saved };
+  return { dialog, http, root, saved, deleted };
 }
 
 function click(el) {
@@ -259,6 +266,75 @@ describe("saving an edit", () => {
     expect(dialog.statusEl.textContent).toContain("no expense with id 501");
     expect(saved).toEqual([]);
     expect(dialog.saveButton.disabled).toBe(false);
+  });
+});
+
+describe("deleting a row", () => {
+  async function pickThenDelete({ deleteResponse, confirm } = {}) {
+    const ctx = setup({
+      responses: {
+        "/api/expense-search": { ok: true, records: [RECORD] },
+        "/api/expense-delete": deleteResponse ?? {
+          ok: true,
+          record: RECORD,
+          warnings: [],
+        },
+      },
+      ...(confirm ? { confirm } : {}),
+    });
+    ctx.dialog.merchantInput.value = "Kroger";
+    await ctx.dialog._search();
+    click(ctx.root.querySelector('[data-action="expense-pick"]'));
+    await ctx.dialog._delete();
+    return ctx;
+  }
+
+  test("deleting with nothing picked asks for a row first", async () => {
+    const { dialog, http } = setup();
+    await dialog._delete();
+    expect(http.calls).toEqual([]);
+    expect(dialog.statusEl.textContent).toContain("Pick a row");
+  });
+
+  test("declining the confirmation makes no request", async () => {
+    const { dialog, http } = await pickThenDelete({ confirm: () => false });
+    expect(http.calls).toHaveLength(1); // the search only
+    expect(dialog.selectedId).toBe(501);
+  });
+
+  test("confirming posts the expense id and clears the selection", async () => {
+    const { dialog, http, deleted } = await pickThenDelete();
+    const [url, body] = http.calls[1];
+    expect(url).toBe("/api/expense-delete");
+    expect(body).toEqual({ expense_id: 501 });
+    expect(dialog.selectedId).toBe(null);
+    expect(dialog.editEl.style.display).toBe("none");
+    expect(dialog.statusEl.textContent).toContain("Deleted Kroger");
+    expect(deleted).toEqual([501]);
+  });
+
+  test("the deleted row drops out of the results list", async () => {
+    const { root } = await pickThenDelete();
+    expect(root.querySelectorAll('[data-action="expense-pick"]')).toHaveLength(
+      0,
+    );
+  });
+
+  test("a server error is reported and the selection is left alone", async () => {
+    const { dialog, deleted } = await pickThenDelete({
+      deleteResponse: { ok: false, error: "expense already deleted" },
+    });
+    expect(dialog.statusEl.textContent).toContain("expense already deleted");
+    expect(dialog.selectedId).toBe(501);
+    expect(deleted).toEqual([]);
+  });
+
+  test("a rejected request leaves the button usable again", async () => {
+    const { dialog } = await pickThenDelete({
+      deleteResponse: new Error("offline"),
+    });
+    expect(dialog.statusEl.textContent).toContain("offline");
+    expect(dialog.deleteButton.disabled).toBe(false);
   });
 });
 

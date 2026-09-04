@@ -30,6 +30,11 @@ import {
   formatAmountForDisplay,
   validateManualEntry,
 } from "../abstract/manual-entry.interface.js";
+import {
+  buildDeletePayload,
+  deleteConfirmMessage,
+  readRowActionResponse,
+} from "../abstract/verified-transaction-actions.interface.js";
 
 const NO_CATEGORY_OPTION = "";
 
@@ -42,6 +47,8 @@ export class ExpenseEditDialog {
    *   categoryNames?: () => string[],
    *   onSaved?: (result: object) => void,
    *   onSelected?: (expenseId: number) => void,
+   *   onDeleted?: (expenseId: number) => void,
+   *   confirm?: (message: string) => boolean,
    * }} opts
    */
   // `globalThis.document` rather than a bare `document`: bun's test
@@ -54,6 +61,8 @@ export class ExpenseEditDialog {
     categoryNames,
     onSaved,
     onSelected,
+    onDeleted,
+    confirm = (message) => globalThis.confirm(message),
   }) {
     if (!root)
       throw new TypeError("ExpenseEditDialog requires a mount element");
@@ -69,6 +78,8 @@ export class ExpenseEditDialog {
     // stay in sync when a record is picked from this panel's own search
     // results, not just when picked through the outside caller's own UI.
     this._onSelected = onSelected || (() => {});
+    this._onDeleted = onDeleted || (() => {});
+    this._confirm = confirm;
     this.records = [];
     this.selectedId = null;
     this.isOpen = false;
@@ -126,6 +137,12 @@ export class ExpenseEditDialog {
       "expense-edit-save",
     );
     this.saveButton.addEventListener("click", () => this._save());
+    this.deleteButton = this._button(
+      this.editEl,
+      "Delete Expense",
+      "expense-edit-delete",
+    );
+    this.deleteButton.addEventListener("click", () => this._delete());
 
     this.statusEl = this._el("div", { className: "manual-entry-status" });
     this.panel.appendChild(this.statusEl);
@@ -325,6 +342,45 @@ export class ExpenseEditDialog {
     } finally {
       this.saveButton.disabled = false;
       this.saveButton.classList.remove("is-pressed");
+    }
+  }
+
+  /** Delete the currently-picked row — the dialog's other write path. */
+  async _delete() {
+    if (this.selectedId === null) {
+      this._setStatus("Pick a row from the search results first.");
+      return;
+    }
+    const record = this.records.find((r) => r.id === this.selectedId);
+    const description = record ? record.description : "";
+    if (!this._confirm(deleteConfirmMessage(description))) return;
+    const expenseId = this.selectedId;
+    this.deleteButton.disabled = true;
+    this.deleteButton.classList.add("is-pressed");
+    this._setStatus("Deleting…");
+    try {
+      const result = readRowActionResponse(
+        await this.http.postJSON(
+          "/api/expense-delete",
+          buildDeletePayload(expenseId),
+        ),
+      );
+      if (!result.ok) {
+        this._setStatus(`Could not delete: ${result.error}`);
+        return;
+      }
+      this.records = this.records.filter((r) => r.id !== expenseId);
+      this.selectedId = null;
+      this.editEl.style.display = "none";
+      this.errorsEl.textContent = "";
+      this._renderResults();
+      this._setStatus(`Deleted ${description || `expense #${expenseId}`}.`);
+      this._onDeleted(expenseId);
+    } catch (err) {
+      this._setStatus(`Delete request failed: ${this._message(err)}`);
+    } finally {
+      this.deleteButton.disabled = false;
+      this.deleteButton.classList.remove("is-pressed");
     }
   }
 
