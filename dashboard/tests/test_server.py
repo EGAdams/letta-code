@@ -28,6 +28,7 @@ from monitoring import pc_metrics as _pc
 from model_stats import reader as _stats_reader
 from model_stats import usage_history as _usage_history_mod
 from finance.report_page import ReportRowMatch
+from finance import report_verdict
 from servers.restart import RestartCommand, RestartRegistry
 
 REAL_CREATE_MAZDA_CONVERSATION = server._create_mazda_conversation
@@ -2508,27 +2509,106 @@ def _write_badge(tmp_path, badge_text):
     return str(p)
 
 
+# The badge is only half the story now — see the composition tests below. These
+# pin badge parsing alone, so they inject a source with no second opinion.
+_NO_VERDICT = report_verdict.NullReportVerdictSource()
+
+
+class _StubVerdictSource(report_verdict.IReportVerdictSource):
+    """Return a fixed verdict for every report."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def verdict(self, report_file):
+        return self._value
+
+
 def test_classify_report_status_pass(tmp_path):
-    assert server._classify_report_status(_write_badge(tmp_path, 'PASS - all good')) == 'pass'
+    assert server._classify_report_status(
+        _write_badge(tmp_path, 'PASS - all good'), _NO_VERDICT) == 'pass'
 
 
 def test_classify_report_status_review_needed(tmp_path):
     path = _write_badge(tmp_path, '⚠️ REVIEW NEEDED — uncategorized rows remain')
-    assert server._classify_report_status(path) == 'review'
+    assert server._classify_report_status(path, _NO_VERDICT) == 'review'
 
 
 def test_classify_report_status_fail(tmp_path):
-    assert server._classify_report_status(_write_badge(tmp_path, 'FAIL - totals do not reconcile')) == 'fail'
+    assert server._classify_report_status(
+        _write_badge(tmp_path, 'FAIL - totals do not reconcile'), _NO_VERDICT) == 'fail'
 
 
 def test_classify_report_status_missing_file(tmp_path):
-    assert server._classify_report_status(str(tmp_path / 'absent.html')) == 'fail'
+    assert server._classify_report_status(str(tmp_path / 'absent.html'), _NO_VERDICT) == 'fail'
 
 
 def test_classify_report_status_unparseable_badge_defaults_to_review(tmp_path):
     p = tmp_path / 'report.html'
     p.write_text('<html><body>no badge here</body></html>')
-    assert server._classify_report_status(str(p)) == 'review'
+    assert server._classify_report_status(str(p), _NO_VERDICT) == 'review'
+
+
+def test_auditor_fail_overrides_a_self_declared_pass(tmp_path):
+    """The whole point: two JetBlue reports carried another account's numbers
+    and stayed green for four months because the tab colour came from the badge
+    they wrote about themselves."""
+    path = _write_badge(tmp_path, 'PASS - all good')
+    assert server._classify_report_status(path, _StubVerdictSource('fail')) == 'fail'
+
+
+def test_auditor_cannot_promote_a_report_its_author_flagged(tmp_path):
+    path = _write_badge(tmp_path, '⚠️ REVIEW NEEDED — uncategorized rows remain')
+    assert server._classify_report_status(path, _StubVerdictSource('pass')) == 'review'
+
+
+def test_missing_verdict_leaves_the_badge_alone(tmp_path):
+    """An absent second opinion is not evidence — a missing auditor must not
+    black out every tab."""
+    path = _write_badge(tmp_path, 'PASS - all good')
+    assert server._classify_report_status(path, _StubVerdictSource(None)) == 'pass'
+
+
+class _FindingVerdictSource(report_verdict.IReportVerdictSource):
+    """Fails every report, with findings to explain why."""
+
+    def __init__(self, findings):
+        self._findings = findings
+
+    def verdict(self, report_file):
+        return 'fail'
+
+    def findings(self, report_file):
+        return self._findings
+
+
+def test_overruled_report_explains_itself_with_the_auditor_findings(tmp_path):
+    """A report the auditor fails still says PASS inside, so its own text is
+    not the explanation the reader needs — the findings are."""
+    path = _write_badge(tmp_path, 'PASS - all good')
+    detail = server._extract_report_attention_detail(
+        path, _FindingVerdictSource(['beginning_balance 51,105.41 does not appear in its PDF']))
+    assert detail['badge'] == 'FAILED VERIFICATION'
+    assert detail['issues'][0]['text'].startswith('beginning_balance 51,105.41')
+    assert 'Re-parse' in detail['recommended_action']
+
+
+def test_report_the_auditor_accepts_keeps_its_own_explanation(tmp_path):
+    p = tmp_path / 'report.html'
+    p.write_text('<section class="hero"><div class="badge">⚠️ REVIEW NEEDED — rows remain</div></section>')
+    detail = server._extract_report_attention_detail(str(p), _NO_VERDICT)
+    assert detail['badge'].startswith('⚠️ REVIEW NEEDED')
+
+
+def test_auditor_is_not_consulted_for_an_already_failing_badge(tmp_path):
+    """Cheap short-circuit: nothing the auditor says can make a FAIL worse."""
+
+    class _Exploding(report_verdict.IReportVerdictSource):
+        def verdict(self, report_file):
+            raise AssertionError('should not be consulted')
+
+    path = _write_badge(tmp_path, 'FAIL - totals do not reconcile')
+    assert server._classify_report_status(path, _Exploding()) == 'fail'
 
 
 _FAIL_REPORT_HTML = '''

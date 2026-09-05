@@ -75,6 +75,12 @@ from supporting_document_service import (
 )
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
 from finance.expense_schema import InformationSchemaProbe, ShowColumnsProbe
+from finance.report_verdict import (
+    AuditorReportVerdictSource,
+    IReportVerdictSource,
+    NullReportVerdictSource,
+    worst_status,
+)
 from finance.expense_edit_model import ExpenseEdit, ExpenseNotFound
 from finance.expense_edit_audit import (
     AuditedExpenseEditCommand,
@@ -278,14 +284,27 @@ from finance.reporting_categories import (  # noqa: E402
 # URL of the synthetic "Receipt Only" report page (served by do_GET, listed as a tab
 # by /api/rol-finance-reports). Not a file on disk — the page is built live from the DB.
 RECEIPT_ONLY_REPORT_PATH = '/api/rol-finance-receipt-only-report'
+from paths import ROL_FINANCES_DIR  # noqa: E402
 VERIFICATION_LIB = os.path.expanduser(
     '~/rol_finances/tools/python_tasks/verification_lib')
 
 
-def _classify_report_status(report_file):
-    """Classify a report.html's overall verification status from its hero
-    badge text: 'pass' (green, finished), 'review' (yellow, work in progress
-    — e.g. "REVIEW NEEDED"), or 'fail' (red — explicit failure). Falls back to
+# Second opinion on every report tab. The badge inside a report is written by
+# whoever generated it, so on its own it lets a report that copied another
+# statement's numbers show green; the auditor reads the PDF sitting next to the
+# report and can only ever downgrade the badge. Wired here (composition root)
+# so tests can inject NullReportVerdictSource and judge badge parsing alone.
+REPORT_VERDICT_SOURCE: IReportVerdictSource = AuditorReportVerdictSource(
+    lib_dir=VERIFICATION_LIB,
+    rol_root=ROL_FINANCES_DIR,
+    logger=lambda message: print(f'[report-verdict] {message}', flush=True),
+)
+
+
+def _classify_report_badge(report_file):
+    """The status a report claims for itself, read from its hero badge:
+    'pass' (green, finished), 'review' (yellow, work in progress — e.g.
+    "REVIEW NEEDED"), or 'fail' (red — explicit failure). Falls back to
     'review' when the badge can't be found/parsed, since an unparseable
     report still needs a human look rather than being silently green."""
     try:
@@ -306,20 +325,67 @@ def _classify_report_status(report_file):
     return 'review'
 
 
+def _classify_report_status(report_file, verdict_source=None):
+    """Classify a report.html's overall verification status as 'pass', 'review'
+    or 'fail', reconciling what the report claims with what the auditor finds.
+
+    The two are combined by taking the worse of them, so the auditor can turn a
+    self-declared PASS red but never promotes a report its own author flagged.
+    When no independent verdict is available (auditor missing, or it crashed)
+    the badge stands alone — an absent second opinion is not evidence."""
+    badge = _classify_report_badge(report_file)
+    if badge == 'fail':
+        return badge
+    source = REPORT_VERDICT_SOURCE if verdict_source is None else verdict_source
+    return worst_status(badge, source.verdict(report_file)) or badge
+
+
 def _strip_html_text(fragment):
     """Collapse an HTML fragment to its visible text (tags dropped,
     whitespace normalized)."""
     return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', fragment)).strip()
 
 
-def _extract_report_attention_detail(report_file):
+def _auditor_attention_detail(report_file, verdict_source=None):
+    """The explanation for a report the auditor overruled.
+
+    A report failed by the auditor while still claiming PASS inside has no
+    explanation of its own to show — the red tab would otherwise say only "this
+    needs attention". These lines are the auditor's actual findings, e.g.
+    "beginning_balance 51,105.41 does not appear in <its own PDF>". Returns None
+    when the auditor has no complaint.
+    """
+    source = REPORT_VERDICT_SOURCE if verdict_source is None else verdict_source
+    if source.verdict(report_file) != 'fail':
+        return None
+    findings = source.findings(report_file)
+    return {
+        'badge': 'FAILED VERIFICATION',
+        'summary': ('The report claims to pass, but checking it against the '
+                    'source document in its own folder contradicts it.'),
+        'issues': [{'section': 'Source document check', 'status': 'FAIL', 'text': f}
+                   for f in findings],
+        'recommended_action': ('Re-parse the source PDF in this folder and '
+                               'regenerate the report from it; do not patch the '
+                               'generated HTML.'),
+    }
+
+
+def _extract_report_attention_detail(report_file, verdict_source=None):
     """Pull the human-facing explanation out of a fail/review report.html.
 
     The dashboard iframe hides everything except Verified Transactions, so the
     parent view needs the hero badge, summary, unresolved sections, and the
     report author's required/recommended next action. Returns a detail dict or
     None when the report has no recognizable attention information.
+
+    When the auditor overruled the report's own badge, its findings lead —
+    whatever a contradicted report says about itself is not the explanation the
+    reader needs.
     """
+    overruled = _auditor_attention_detail(report_file, verdict_source)
+    if overruled:
+        return overruled
     try:
         with open(report_file, 'r', encoding='utf-8', errors='replace') as f:
             html = f.read()
@@ -7374,6 +7440,10 @@ def startup_tasks():
                     f'Mazda fleet ({len(_provider_agent_ids(CLAUDE_PRO_MAX))} agents) is now on '
                     f'{CLAUDE_PRO_MAX})')),
         BackgroundTask(
+            label='report-verdict-warm',
+            target=_warm_report_verdicts,
+            banner='Auditing statement reports once to warm tab verdicts'),
+        BackgroundTask(
             label='model-usage-sample',
             target=_model_usage_sample_loop,
             banner=(f'Sampling model usage every {MODEL_USAGE_SAMPLE_INTERVAL}s '
@@ -7381,6 +7451,20 @@ def startup_tasks():
                     f'{LEAK_MIN_RISING_BUCKETS}\u00d7{LEAK_BUCKET_MINUTES}m rising of '
                     f'{LEAK_LOOKBACK_MINUTES}m)')),
     ]
+
+
+def _warm_report_verdicts():
+    """One-shot: audit every report once at boot so the first page load is not
+    the slow one. ~0.1s per report, ~5s for the whole tree, then cached until a
+    report or its PDF changes. Not a poll loop — it runs once and exits."""
+    try:
+        reports = sorted(glob.glob(
+            os.path.join(ROL_FINANCES_REPORTS_PARENT, '**', 'report.html'),
+            recursive=True))
+        warmed = REPORT_VERDICT_SOURCE.warm(reports)
+        print(f'[report-verdict] warmed {warmed} report verdicts', flush=True)
+    except Exception as exc:
+        print(f'[report-verdict] warm-up skipped: {exc}', flush=True)
 
 
 def startup_banners():

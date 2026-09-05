@@ -553,6 +553,62 @@ Grade the run against the contract above. Specifically confirm:
   quarantine or repair the conflicting file/database record. A file whose extension
   disagrees with its detected content type is also an anomaly. Do not award PASS while
   such a conflict remains.
+- **When the run produced or rewrote a `report.html`, the report must be anchored to its own
+  source PDF.** Run the auditor and require `[PASS]` for that directory:
+  ```bash
+  python3 /home/adamsl/rol_finances/tools/python_tasks/verification_lib/audit_statement_reports.py \
+    /home/adamsl/rol_finances/readable_documents/bank_statements
+  ```
+  **The report's own badge is not evidence.** A report can declare its own `✅ PASS` while
+  describing a completely different statement. Grade on the auditor's verdict only.
+
+  **As of 2026-09-05 the dashboard agrees.** `_classify_report_status` now takes the worse of
+  the badge and the auditor's verdict (`dashboard/finance/report_verdict.py`), so a red tab
+  means the auditor read the PDF beside that report and found the report contradicting it,
+  and its "why" panel shows the auditor's own findings. The auditor can only downgrade a
+  report, never promote one whose author flagged it, and an auditor WARN leaves the badge
+  alone — warnings mean "could not confirm", which is not evidence of a defect.
+
+  Background (2026-09-05): three January reports were found carrying Fifth Third personal
+  account 7735938's data. Two were never generated — a finished report was copied, the
+  `<title>` and `<h1>` were changed, and every balance and transaction left behind. They
+  showed green for four months. `report_source_consistency.py` now fails any report whose
+  account number, beginning/ending balance, or daily statement balances do not appear in the
+  PDF next to it. A report built by copying another report's body is a FAIL even when its
+  numbers happen to reconcile — they reconcile because they are internally consistent with
+  the *wrong* statement.
+- **No DEPOSIT rows in Verified Transactions** (EG, 2026-09-05). That section is checks and
+  withdrawals/debits only; deposits are money movement, not expenses. They must still be
+  parsed — the ending-balance and daily-balance math needs them — and rendered in their own
+  `Deposits / Credits` card. A deposit row in Verified Transactions is a FAIL.
+
+  This one is now enforced, not just stated. `restructure_verified_transactions.py` builds a
+  `StatementDepositVisibilityPolicy` from the report's own `deposits_credits` JSON and drops
+  matching rows by (date, amount) rather than by wording — "DEPOSIT" is obvious, "EARLY PAY:
+  SSA TREAS 310 XXSOC SEC" is not. Running that script over a report is the fix; a stray
+  deposit row does not require regenerating the report, because the extraction was already
+  right and only the rendered table was wrong.
+- **A credit-card statement is a different shape from a bank statement** (2026-09-05). It has
+  no checks, no deposits and no daily balance table, so a report that renders those sections
+  on one is describing something the statement does not contain. The balance summary is what
+  reconciles: previous - payments - credits + purchases + cash advances + other charges +
+  finance charges = current balance. `jetblue_statement_report.py` parses the statement PDF
+  and refuses to write a report when that equation does not hold, or when a transaction row
+  matches zero or several live expense records — choosing between duplicate expense records is
+  EG's call, not the builder's.
+- **A refund is a credit, not a negative expense** (2026-09-05). Card statements print refunds
+  inside the purchases table with a minus sign. Rendering one as a negative row in Verified
+  Transactions invites it to be categorized as an expense of negative size; it belongs in a
+  `Credits and Refunds` section as a positive credit.
+- The two `january/jet_blue__*` reports were rebuilt from their own Barclays ...3965 statements
+  on 2026-09-05 and both now pass. If you still carry the older instruction never to use them
+  as a model, drop it.
+
+- **A rule that lives only in prose is not a guard.** Rule 7 of `REPORT_OUTPUT_CONTRACT.md`
+  ("cross-check the report's claims against the real PDF") was written on 2026-06-18 and lost
+  five days later in a cross-machine merge; two more contaminated reports were produced while
+  it was missing. When you coach Mazda about a defect that a check could catch, prefer
+  proposing the executable check over proposing more documentation.
 - On FAIL she called `propose_improvement` with the trace_id and a sensible failure_type.
 
 ## When something went wrong — teach

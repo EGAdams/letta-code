@@ -10,6 +10,18 @@ if DASHBOARD_DIR not in sys.path:
 
 
 @pytest.fixture(autouse=True)
+def _no_report_auditor(monkeypatch):
+    """Report tabs get a second opinion from the rol_finances auditor, which
+    reads the PDF beside each report. Tests build one-line fake report.html
+    files in tmp_path with no PDF at all, so the real auditor would fail every
+    one of them and no badge test could say anything. Tests that care about the
+    auditor inject their own source explicitly."""
+    import server
+    from finance.report_verdict import NullReportVerdictSource
+    monkeypatch.setattr(server, 'REPORT_VERDICT_SOURCE', NullReportVerdictSource())
+
+
+@pytest.fixture(autouse=True)
 def _isolate_intake_side_effects(tmp_path, monkeypatch):
     """Keep intake-pipeline tests from leaking into the live dashboard.
 
