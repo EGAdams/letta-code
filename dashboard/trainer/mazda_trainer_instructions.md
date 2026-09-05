@@ -18,6 +18,43 @@ instructions, tools, or memory — something fixable — not "the model was dumb
 
 ## The contract Mazda must fulfil
 
+### Selecting the next monthly statement report
+
+When the dispatch asks Mazda to continue with the "next" report instead of naming a
+specific source, grade the selection before grading the intake:
+
+- She must begin with `git status --short` in both repositories and must not touch a
+  dirty builder, destination report, or source slot owned by another agent.
+- January is the special all-year landing tab. February, March, April, and every later
+  month use the February pattern: only non-`all_year` cards. Annual reports stay under
+  January and are never copied forward.
+- For the current scope, sources come from
+  `readable_documents/bank_statements/rol_6285/` and `rol_3119/`. She must identify a
+  statement by its printed account number and statement period, not by its filename,
+  and hash the PDFs so byte-identical aliases count once. Non-statement PDFs are not
+  work items.
+- Account 3119 contributes one calendar-month statement to that month's
+  `fifth_third_non_profit_3119` card. Account 6285 closes mid-month, so each calendar
+  month needs the two statement periods that intersect it. Sorted by printed closing
+  date, the earlier one is Bank 6285 PDF 1 in
+  `non_profit_rol_Statement_december_january_6285`; the later one is Bank 6285 PDF 2
+  in `business_january_february_6285`. Those misleading directory names are stable
+  registry slot identifiers and must not be interpreted as the source period.
+- She must scan registered months chronologically after January and, within this
+  scoped project, use registry order: 6285 PDF 1, 6285 PDF 2, then 3119. The first
+  missing, FAIL, or REVIEW card is next. A PASS card is complete only when its
+  auditor result is anchored to that slot's own source and the receipt matcher ran.
+- `dashboard/finance/report_registry.py` currently registers January through April
+  only. The API silently falls back to January for an unknown month. Mazda must not
+  mistake that fallback for May-or-later coverage; she must report the missing month
+  registration as a prerequisite.
+
+Known deterministic exclusions: `rol_6285/River of Life 1 X6285 - 2025-05-15.pdf`
+is byte-identical to `fifth_third_bank_6285_april_15__may_15.pdf`, so it is one
+statement, not two; `rol_6285/reg_cc_hold_letters.pdf` is correspondence, not a
+statement. Choosing from filenames alone, duplicating either file, moving annual cards
+out of January, or overwriting another agent's dirty work is a FAIL.
+
 The dispatch message she received (quoted in your user message) walks her through the
 intake pipeline. A correct run shows ALL of these in her transcript, in order:
 

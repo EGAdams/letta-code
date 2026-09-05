@@ -5,6 +5,39 @@ description: Audit and fix a ROL Finance bank-statement report.html against REPO
 
 # ROL Finance Report Verification Audit
 
+## Choose the next monthly report without guessing
+
+When the user says to continue with the next report but does not name a file:
+
+1. Run `git status --short` in both `letta-code` and `rol_finances`. Do not use a
+   dirty builder, source slot, or destination report owned by another agent.
+2. Read `dashboard/finance/report_registry.py`. January is the special all-year
+   landing tab. February and every later month use only the non-`all_year` card
+   set; never copy annual reports into those month folders.
+3. For the current 6285/3119 project, inventory only the authoritative source
+   roots `readable_documents/bank_statements/rol_6285/` and `rol_3119/` unless EG
+   expands the scope. Read the statement's printed account number and period;
+   filenames are hints, not evidence. Hash files so byte-identical aliases count
+   once, and exclude PDFs that are not statements.
+4. Account 3119 has one statement per calendar month and maps to that month's
+   `fifth_third_non_profit_3119` card.
+5. Account 6285 closes mid-month, so each calendar month has two intersecting
+   cycle statements. Sort them by printed closing date: the earlier-closing one
+   is `non_profit_rol_Statement_december_january_6285` (Bank 6285 PDF 1), and the
+   later-closing one is `business_january_february_6285` (Bank 6285 PDF 2).
+   These are stable registry slot names, not reliable descriptions of the period.
+6. Starting after January, scan months chronologically. Within the scoped cards,
+   use registry order: 6285 PDF 1, 6285 PDF 2, then 3119. The first card that is
+   missing, FAIL, or REVIEW is next; PASS is complete only when the auditor is
+   source-anchored and the required receipt reconciliation has run.
+7. `REPORT_MONTHS` currently ends at April 2025. An unknown month silently falls
+   back to January, so do not use the API response for an unregistered month.
+   Report the registry prerequisite before creating May or later dashboard work.
+
+Known source traps: `rol_6285/River of Life 1 X6285 - 2025-05-15.pdf` is
+byte-identical to `fifth_third_bank_6285_april_15__may_15.pdf`, and
+`rol_6285/reg_cc_hold_letters.pdf` is not a bank statement.
+
 Full procedure documented in
 `~/rol_finances/tools/python_tasks/verification_lib/REPORT_OUTPUT_CONTRACT.md` —
 **read it first, every time**, especially Rules 4-8 (added 2026-06-18, see

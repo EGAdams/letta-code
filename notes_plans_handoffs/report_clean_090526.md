@@ -167,6 +167,37 @@ cd /home/adamsl/rol_finances
   <path-to-report.html> --days 5 --apply
 ```
 
+## Follow-up — how Mazda chooses the next monthly report (2026-09-05)
+
+January is the only all-year landing tab. February, March, April, and future months
+follow February's monthly-only card set; annual cards are never copied forward.
+
+For the current scope, Mazda inventories `bank_statements/rol_6285/` and `rol_3119/`,
+identifies sources from printed account/period evidence, and collapses byte-identical
+PDFs by SHA-256. Account 3119 has one calendar-month report. Account 6285 closes
+mid-month, so every calendar month needs the two cycle statements that overlap it:
+earlier closing → Bank 6285 PDF 1 (`non_profit_rol_Statement_december_january_6285`),
+later closing → Bank 6285 PDF 2 (`business_january_february_6285`). The directory names
+are legacy slot names, not the statement period.
+
+After January, select the earliest registered month and use scoped registry order:
+6285 PDF 1, 6285 PDF 2, then 3119. Missing, FAIL, and REVIEW are incomplete. As observed
+2026-09-05, February's scoped cards PASS; March 6285 PDF 1 PASSes, March 6285 PDF 2 is
+REVIEW, and March 3119 is missing. Therefore the recomputed queue points first to March
+6285 PDF 2, then March 3119. Do not launch either over the current dirty 6285/3119
+builder work without resolving ownership.
+
+Two fixed exclusions: `River of Life 1 X6285 - 2025-05-15.pdf` is byte-identical to
+`fifth_third_bank_6285_april_15__may_15.pdf`; `reg_cc_hold_letters.pdf` is not a
+statement. `REPORT_MONTHS` currently stops at April; unknown months silently fall back
+to January, so May and later need registration before their dashboard API result can be
+trusted.
+
+Mazda live block: `system/monthly_report_queue` →
+`block-fd29e253-4dab-4d16-a380-d920a3cc87e7`. Backup:
+`~/letta-backups/mazda-blocks-20260905-monthly-report-queue/blocks.json`. The first
+recompile was stale; the second and `GET /context` showed the queue rules.
+
 ## Open — EG's call, do not guess
 
 1. **`february/` directory names for this card are shifted by one statement.**
