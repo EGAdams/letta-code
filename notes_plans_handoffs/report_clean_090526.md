@@ -119,7 +119,7 @@ and 2025-01-21 gas moved 160 → 375 (BP Gas). EG has not asked to change them.
 Both blocks swapped via create + detach/attach (`mazda_block_edit_method` — the
 memfs projection is broken on this box):
 
-- `system/report_html_contract` → `block-0d7148a9-eb33-4391-b9d5-454fb8c4ff8b`
+- `system/report_html_contract` → `block-be84e3ac-ed9f-4b94-821f-ad01cd5567d9`
 - `system/barclay_3965_annual_summary_parsing_notes` → `block-3d4bb6b7-5fee-457d-b5cc-f764b82d6922`
 
 Verify a block edit with **GET** `/v1/agents/<id>/context` and grep the compiled
@@ -139,6 +139,33 @@ Trainer prompt assembles at 102,518 chars.
   (`--ignore=.../test_transfer_pay_reconciler.py`, whose collection error is
   also pre-existing).
 - Live dashboard restarted; no red tabs.
+
+## Follow-up — reusable receipt matching (2026-09-05)
+
+`rol_finances` commits `db222bf` and `a853932` added and applied
+`tools/python_tasks/verification_lib/audit_report_receipt_matches.py`. It checks every
+Verified Transactions row in any supplied `report.html` using exact absolute amount
+and an inclusive five-day receipt-filename date window. The default is read-only;
+`--apply` writes only confident matches to both `expenses.receipt_url` and the exact
+report row's `has-receipt` / `data-receipt-url`. Ambiguous matches remain `review`.
+
+Applied to `january/fnbo_4851_year_2025/report.html`: 153 rows checked, 7 matched,
+0 review, 146 unmatched. All seven were same-day matches. The report now has seven red
+receipt tags and seven working View Receipt actions; the dashboard supporting-document
+endpoint and a direct receipt URL both verified successfully. Focused tests: 15 passed.
+
+Mazda's live `system/report_html_contract` and the Trainer instructions now require this
+guarded receipt-reconciliation step after restructuring/category hydration. The new live
+block is `block-be84e3ac-ed9f-4b94-821f-ad01cd5567d9`; the first recompile was stale, and
+the required second recompile plus `GET /context` both showed the new command.
+
+Reusable command:
+
+```bash
+cd /home/adamsl/rol_finances
+.venv/bin/python3 tools/python_tasks/verification_lib/audit_report_receipt_matches.py \
+  <path-to-report.html> --days 5 --apply
+```
 
 ## Open — EG's call, do not guess
 

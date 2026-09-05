@@ -318,6 +318,8 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    then
    `/home/adamsl/rol_finances/.venv/bin/python3 tools/python_tasks/verification_lib/hydrate_report_categories_from_db.py <statement_dir>/report.html`
    and
+   `/home/adamsl/rol_finances/.venv/bin/python3 tools/python_tasks/verification_lib/audit_report_receipt_matches.py <statement_dir>/report.html --days 5 --apply`
+   and
    `/home/adamsl/rol_finances/.venv/bin/python3 tools/python_tasks/verification_lib/audit_statement_reports.py <statement_dir>`.
    Success requires the report file plus `id="verified-transactions"`,
    per-row `data-vendor-key`, `data-description`, and `data-expense-id`, the
@@ -364,6 +366,16 @@ intake pipeline. A correct run shows ALL of these in her transcript, in order:
    nor a successful restructurer call proves category hydration. On a historical
    re-grade where that exact hydrator call is absent, coach Mazda to run it NOW, then
    require a fresh trace/judge/callback carrying its result before awarding PASS.
+   Receipt reconciliation is also part of report completion. The receipt matcher must
+   inspect every Verified Transactions row and use its inclusive five-day window. A
+   confident match must update both `expenses.receipt_url` and that exact report row's
+   `has-receipt` / `data-receipt-url`, which supplies the red corner marker and **View
+   Receipt** action. Its `review` and `unmatched` rows are intentionally not written:
+   multiple candidates, a nearby-date candidate with no vendor-word agreement, a
+   missing expense ID, or one receipt competing for two rows must remain fail-closed.
+   Require a successful matcher return and grade its actual `matched`, `review`,
+   `unmatched`, and `applied` evidence; Mazda's prose is not proof. Never coach her to
+   force a review candidate merely to make a red tag appear.
    Statement parse JSON is run-scoped evidence. Never generate or repair a report from
    shared `/tmp/mazda_stmt.json` or `/tmp/mazda_statement.json`: concurrent statement
    runs can overwrite those names and silently put another PDF's rows under this PDF's

@@ -5,6 +5,29 @@ description: Audit and repair empty or incorrect nonprofit_finance expenses.rece
 
 # Receipt URL Audit and Linking
 
+## Reconcile receipts for one or more statement reports
+
+Use the report-wide audit when a report's Verified Transactions rows need red receipt
+tags, working **View Receipt** buttons, and matching database links:
+
+```bash
+/home/adamsl/rol_finances/.venv/bin/python3 \
+  /home/adamsl/rol_finances/tools/python_tasks/verification_lib/audit_report_receipt_matches.py \
+  /path/to/report.html --days 5 --apply
+```
+
+Pass multiple `report.html` paths to reuse one receipt index across reports. Omit
+`--apply` for a read-only JSON audit, and use `--output <path>.json` to retain the full
+row-by-row evidence.
+
+The report matcher requires exact absolute amount and a receipt-filename date within
+the inclusive window. It fails closed: multiple candidates, a date-shifted candidate
+without vendor-word agreement, a missing expense ID, or one receipt competing for two
+rows is `review` and is not applied. Confident matches update both
+`expenses.receipt_url` and the exact report `<tr>` (`has-receipt` plus
+`data-receipt-url`) while preserving category classes. The apply path validates the
+database date/amount and report SHA-256 before committing.
+
 Use the canonical fail-closed audit tool:
 
 ```bash
