@@ -862,6 +862,93 @@ describe("RolFinanceReportsController", () => {
     expect(feb.title).toContain("3");
   });
 
+  test("Document Status lists the expense reasons that make a month yellow", async () => {
+    const reports = [
+      {
+        key: "bank-3119-pdf",
+        label: "Bank 3119 PDF",
+        exists: true,
+        status: "pass",
+        url: "/r/feb.html",
+      },
+    ];
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-reports")) return reports;
+      if (url.startsWith("/api/rol-finance-month-status")) {
+        return {
+          months: [
+            { month_key: "feb-2025", status: "yellow", uncategorized_count: 2 },
+          ],
+        };
+      }
+      if (url.startsWith("/api/rol-finance-recent-scans")) {
+        return {
+          queue_total: 2,
+          rows: [
+            {
+              id: 2669,
+              expense_date: "2025-02-28",
+              description: "5/3 COMMERCIAL LOAN",
+              amount: "2518.46",
+              reason:
+                "Categorization incomplete — no reporting category was assigned.",
+            },
+            {
+              id: 2401,
+              expense_date: "2025-02-21",
+              description: "DAY BREAK LAUNDRY",
+              amount: "16.00",
+              reason: "Vendor category requires review.",
+            },
+          ],
+        };
+      }
+      return [];
+    });
+
+    await ctx.rf.openReports();
+    await ctx.rf.openMonth("feb-2025");
+    await ctx.rf.refreshStatus();
+
+    const overview = ctx.viewsContainer.querySelector(
+      "#rol-finance-reports-overview",
+    );
+    const attention = overview.querySelector("[data-month-attention]");
+    expect(attention.style.display).toBe("");
+    expect(attention.innerHTML).toContain("Why this month needs attention");
+    expect(attention.innerHTML).toContain("2 expenses need a category");
+    expect(attention.innerHTML).toContain("5/3 COMMERCIAL LOAN");
+    expect(attention.innerHTML).toContain("Vendor category requires review");
+    expect(overview.innerHTML).toContain("rol-status-pass");
+  });
+
+  test("Document Status hides its attention reasons when the month is caught up", async () => {
+    const ctx = setup([]);
+    ctx.rf.buildOverview([], { key: "feb-2025", label: "February 2025" });
+    const overview = ctx.viewsContainer.querySelector(
+      "#rol-finance-reports-overview",
+    );
+    const attention = overview.querySelector("[data-month-attention]");
+
+    ctx.rf._renderOverviewAttention(
+      [
+        {
+          id: 1,
+          expense_date: "2025-02-01",
+          description: "Example",
+          amount: "1.00",
+          reason: "Needs a category.",
+        },
+      ],
+      1,
+    );
+    expect(attention.style.display).toBe("");
+
+    ctx.rf._renderOverviewAttention([], 0);
+    expect(attention.style.display).toBe("none");
+    expect(attention.innerHTML).toBe("");
+  });
+
   test("refreshStatus requests recent scans for the active month", async () => {
     const urls = [];
     const ctx = setup((url) => {

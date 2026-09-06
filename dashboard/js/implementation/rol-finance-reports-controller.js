@@ -437,6 +437,52 @@ export class RolFinanceReportsController {
           `<th>Date</th><th>Description</th><th>Amount</th><th>Category</th>` +
           `</tr></thead><tbody>${body}</tbody></table>`
         : `<p class="rol-recent-empty">Nothing waiting — all scanned receipts are categorized.</p>`);
+    this._renderOverviewAttention(rows, total);
+  }
+
+  /**
+   * Put the reason for a yellow month directly on its Document Status page.
+   * Statement audits and expense categorization are independent signals: all
+   * document rows can legitimately be green while an uncategorized expense
+   * keeps the month tab yellow. Showing the live queue here prevents that
+   * accurate-but-confusing all-green presentation.
+   */
+  _renderOverviewAttention(rows, total) {
+    const overview = this._viewsContainer.querySelector(
+      "#rol-finance-reports-overview",
+    );
+    const attention = overview?.querySelector("[data-month-attention]");
+    if (!attention) return;
+
+    if (!total) {
+      attention.innerHTML = "";
+      attention.style.display = "none";
+      return;
+    }
+
+    const reasons = rows
+      .map((r) => {
+        const description =
+          r.description || r.vendor_key || r.id_light || `Expense ${r.id}`;
+        const amount = r.amount ? ` — $${r.amount}` : "";
+        const reason =
+          r.reason ||
+          "Categorization incomplete — no reporting category was assigned.";
+        return `<li><strong>${TextUtils.esc(r.expense_date || "Date unavailable")} — ${TextUtils.esc(description)}${TextUtils.esc(amount)}</strong>: ${TextUtils.esc(reason)}</li>`;
+      })
+      .join("");
+    const notShown = Math.max(0, Number(total) - rows.length);
+    const remainder = notShown
+      ? `<li>${notShown} additional expense${notShown === 1 ? "" : "s"} not shown.</li>`
+      : "";
+    const subject = `${total} expense${total === 1 ? "" : "s"}`;
+    const verb = total === 1 ? "needs" : "need";
+    attention.innerHTML =
+      `<table class="rol-overview-table"><tbody>` +
+      `<tr class="rol-status-review"><td><strong>Why this month needs attention</strong></td>` +
+      `<td><strong>${subject} ${verb} a category.</strong>` +
+      `<ul>${reasons}${remainder}</ul></td></tr></tbody></table>`;
+    attention.style.display = "";
   }
 
   /**
@@ -916,6 +962,15 @@ export class RolFinanceReportsController {
     view.id = "rol-finance-reports-overview";
     view.className = "view";
 
+    const heading = this._doc.createElement("h2");
+    heading.textContent = `${month.label} — Document Status`;
+    view.appendChild(heading);
+
+    const attention = this._doc.createElement("div");
+    attention.dataset.monthAttention = "1";
+    attention.style.display = "none";
+    view.appendChild(attention);
+
     const rows = reports
       .map((r) => ({
         r,
@@ -938,8 +993,7 @@ export class RolFinanceReportsController {
 
     view.insertAdjacentHTML(
       "beforeend",
-      `<h2>${TextUtils.esc(month.label)} — Document Status</h2>
-      <table class="rol-overview-table">
+      `<table class="rol-overview-table">
         <thead><tr><th>Document</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`,
