@@ -4,7 +4,17 @@
 // (Status, Agent Management, Project Plans, Agent Blocks, Process Flows,
 // ROL Finance) hide the main nav and hand off to that section's own landing.
 
-export function bindMainNav({ doc, nav, viewNav, AM, SM, SSHM, MS, PCM }) {
+export function bindMainNav({
+  doc,
+  nav,
+  viewNav,
+  AM,
+  SM,
+  SSHM,
+  MS,
+  PCM,
+  statusHome,
+}) {
   const agentBlocksFrame = doc.getElementById("agent-block-frame");
   let agentBlocksNavObserver = null;
 
@@ -73,6 +83,8 @@ export function bindMainNav({ doc, nav, viewNav, AM, SM, SSHM, MS, PCM }) {
         nav.status.classList.remove("hidden");
         viewNav.clearActive(nav.status, '[data-nav="status"][data-target]');
         viewNav.activateView("status-home");
+        // The landing panel is a live check, not static copy: run it on open.
+        statusHome?.open();
         return;
       }
 

@@ -2356,3 +2356,60 @@ body.startup-loading #provider-token-sync-modal button {
     background: #7f1d1d;
   }
 }
+
+/* ---- System Status: Mazda tool reconciliation ---- */
+/* The left border carries the verdict: green agreed, amber stale, red
+   missing. Colours match the .ms-bar-fill palette already used for PC
+   Monitor thresholds, so one glance means the same thing on both pages. */
+.mtr-card {
+  max-width: 720px;
+  padding: 12px 16px;
+  border-left: 4px solid #43a047;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+}
+.mtr-card.mtr-warn {
+  border-left-color: #f9a825;
+}
+.mtr-card.mtr-bad {
+  border-left-color: #e53935;
+}
+.mtr-card h3 {
+  margin: 0 0 8px;
+}
+.mtr-tools {
+  margin: 6px 0 12px;
+  padding-left: 20px;
+  columns: 2;
+}
+.mtr-tools li {
+  break-inside: avoid;
+}
+.mtr-missing code {
+  color: #e53935;
+}
+.mtr-stale code {
+  color: #f9a825;
+}
+.mtr-fix-label {
+  margin: 10px 0 4px;
+  font-weight: 700;
+}
+/* The command is meant to be selected and pasted, so it wraps rather than
+   scrolling off the right edge where half of it would be invisible. */
+.mtr-fix {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  background: #111827;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 0.82rem;
+  user-select: all;
+}
+.mtr-detail {
+  margin: 10px 0;
+}
+.mtr-detail summary {
+  cursor: pointer;
+}

@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass
 from typing import Optional
 
-from .ports import AgentsPort, ReportsPort, ScannerPort, ServersPort
+from .ports import AgentsPort, IntakePort, ReportsPort, ScannerPort, ServersPort
 
 
 def _server():
@@ -140,6 +140,14 @@ class _ServerAgentsPort:
         return {'name': self.RECEPTIONIST_NAME, 'agent_id': agent_id}
 
 
+class _ServerIntakePort:
+    """`IntakePort`'s single populated method, ahead of round 15: the Recent
+    Report poll loop's change-token."""
+
+    def intake_state_token(self) -> str:
+        return _server().intake_state_token()
+
+
 @dataclass(frozen=True)
 class Ports:
     """Everything the route ladders are allowed to depend on.
@@ -154,6 +162,7 @@ class Ports:
     reports: ReportsPort
     servers: ServersPort
     agents: AgentsPort
+    intake: IntakePort
 
 
 def current_ports() -> Ports:
@@ -163,4 +172,5 @@ def current_ports() -> Ports:
         reports=_ServerReportsPort(),
         servers=_ServerServersPort(),
         agents=_ServerAgentsPort(),
+        intake=_ServerIntakePort(),
     )

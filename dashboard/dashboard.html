@@ -168,7 +168,13 @@
 
     <section id="status-home" class="view">
       <h2>System Status</h2>
-      <p>Select a section above.</p>
+      <p class="srv-note">Standing reconciliation check: the tools Mazda's MCP
+        server serves, against the tools actually attached to the Mazda agent.
+        Red means the agent cannot call part of its own toolset and the fix
+        command below needs running.
+        <button type="button" class="srv-btn" id="status-home-refresh">Refresh</button>
+      </p>
+      <div id="status-home-body"><p class="am-dim">Checking&hellip;</p></div>
     </section>
 
     <section id="agent-block" class="view">

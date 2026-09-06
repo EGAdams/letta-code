@@ -101,11 +101,13 @@ class TestThePortVocabulary:
         a port nobody calls yet would answer no question.
 
         Round 12 populated `scanner`; round 13 added the config halves of
-        `reports`, `servers` and `agents`. The remaining ten are declared in
+        `reports`, `servers` and `agents`. `intake` carries only its single
+        `intake_state_token` method, pulled forward of round 15 for the
+        Recent Report poll loop. The remaining nine are declared in
         ports.py and stay out of the bundle until the round that fills them.
         """
         assert set(Ports.__dataclass_fields__) == {
-            'scanner', 'reports', 'servers', 'agents'}
+            'scanner', 'reports', 'servers', 'agents', 'intake'}
 
 
 # ── the tax that must not come back ─────────────────────────────────────────

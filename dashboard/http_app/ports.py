@@ -194,7 +194,15 @@ class ExpensePort(Protocol):
 
 class IntakePort(Protocol):
     """9 names. The recent-intake record, the halt file, scanner intake
-    lookups. Populated by round 15."""
+    lookups. Populated by round 15.
+
+    `intake_state_token` was pulled forward ahead of the round: the Recent
+    Report poll loop needed a change-token endpoint and the ceiling in
+    `tests/test_http_app_ports.py` blocks new `srv.` names, not early,
+    partial port population."""
+
+    def intake_state_token(self) -> str:
+        ...
 
 
 class PipelinePort(Protocol):

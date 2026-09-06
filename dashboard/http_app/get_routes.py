@@ -17,7 +17,7 @@ import codex_sync_status
 import document_annotation
 import model_stats_mute
 import statement_review
-from health import failures, frita
+from health import failures, frita, mazda_tools
 from model_stats import assignments as model_stats_assignments
 from model_stats import reader as model_stats_reader
 from model_stats.sources import MODEL_STAT_SOURCES
@@ -64,6 +64,11 @@ class GetRoutesMixin:
         if path == '/api/model-stats-agents':
             return self.json_response(
                 srv.model_stats_agents_payload(force_refresh=query.get('refresh', ['0'])[0] == '1'))
+
+        if path == '/api/mazda-tool-reconciliation':
+            # The System Status landing panel. Answers one question: does the
+            # Mazda agent carry every tool its MCP server serves?
+            return self.json_response(mazda_tools.reconcile())
 
         if path == '/api/claude-sdk-account':
             return self.json_response(frita.claude_sdk_account_payload())
@@ -345,6 +350,13 @@ class GetRoutesMixin:
             except (ValueError, TypeError):
                 limit = 5
             return self.json_response(srv._rol_finance_recent_reports(limit))
+
+        # Change-token for the Recent Report dialog's poll loop — bumps the
+        # instant a scan is dispatched (record_recent_intake), independent of
+        # the later Mazda STEP 8 stored-expense event.
+        if path == '/api/intake-state':
+            return self.json_response(
+                {'token': current_ports().intake.intake_state_token()})
 
         if path == '/api/expense-stored-events':
             try:

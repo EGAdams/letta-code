@@ -30,6 +30,7 @@ import { setupScanners } from "./boot/scanners/index.js";
 import { createServerManager } from "./boot/server-manager.js";
 import { createSshManager } from "./boot/ssh-manager.js";
 import { createStartupChecks } from "./boot/startup-checks.js";
+import { createStatusHome } from "./boot/status-home.js";
 import { createViewNavigator } from "./boot/view-navigator.js";
 import {
   ActivePoller,
@@ -108,6 +109,8 @@ const providerAccountMonitor = new DomChatGptProviderAccountController({
 providerAccountMonitor.mount("chatgpt-provider-account-panel");
 const PCM = createPcMonitor({ doc, http, nav, viewNav });
 const SM = createServerManager({ doc, http, nav, viewNav, tabFactory });
+const statusHome = createStatusHome({ doc, http });
+statusHome.bind();
 const SSHM = createSshManager({ doc, http, nav, viewNav, tabFactory });
 const RF = createRolFinance({ doc, http, nav, viewNav });
 const scanners = setupScanners({
@@ -132,6 +135,7 @@ bindNavigation({
   PCM,
   RF,
   scanners,
+  statusHome,
 });
 
 /* ─────────────────────────  Background watchers  ───────────────────────── */

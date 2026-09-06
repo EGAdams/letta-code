@@ -580,6 +580,17 @@ def set_recent_report_pointer(report_path):
         return _write_recent_pointer_file(data)
 
 
+def intake_state_token():
+    """Cheap change-token for the Recent Report dialog's poll loop: the
+    pointer file's mtime, which record_recent_intake/merge_recent_intake_event
+    bump on every write (dispatch, and later Mazda's STEP 8 report-back).
+    A missing file (nothing scanned yet) gets a stable '0' token."""
+    try:
+        return str(os.path.getmtime(RECENT_REPORT_POINTER_FILE))
+    except OSError:
+        return '0'
+
+
 def record_recent_intake(image_path, label, kind='scan', facade=None,
                          conversation_id=None, dispatched_at=None,
                          content_sha256=None, status='processing',
