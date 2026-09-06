@@ -38,6 +38,44 @@ Known source traps: `rol_6285/River of Life 1 X6285 - 2025-05-15.pdf` is
 byte-identical to `fifth_third_bank_6285_april_15__may_15.pdf`, and
 `rol_6285/reg_cc_hold_letters.pdf` is not a bank statement.
 
+## Diagnose a yellow month separately from document audits
+
+The month tab and the rows on `<Month> — Document Status` answer different
+questions. Do not diagnose one from the color of the other:
+
+- `GET /api/rol-finance-reports?month=<key>` reports whether each statement
+  report is missing, passing, under review, or failed. The independent auditor
+  can downgrade a report; auditor WARN remains no opinion.
+- `GET /api/rol-finance-month-status` colors a month yellow when the most
+  recently inserted non-parent expense in that expense-date range is
+  uncategorized. `uncategorized_count` is the total still waiting, but the tab's
+  green/yellow decision currently uses only the newest inserted expense.
+- `GET /api/rol-finance-recent-scans?limit=5&month=<key>` supplies the live
+  uncategorized rows and their `reason` text.
+
+Since letta-code commit `1bed5f70`, the Document Status landing page renders a
+yellow **Why this month needs attention** block above its independent document
+rows whenever that scoped recent-scans queue is non-empty. It lists date,
+description, amount, and reason for each returned expense, notes any remainder,
+and disappears when the queue reaches zero. Therefore an all-green set of
+statement rows can still correctly have a yellow categorization explanation.
+
+Focused UI regression test:
+
+```bash
+cd /home/adamsl/letta-code
+bun test dashboard/js/tests/rol-finance-reports-controller.test.js
+```
+
+The live dashboard serves this JavaScript directly from the letta-code checkout;
+for a JS-only change, verify the served source and reload the browser rather than
+restarting the Python server:
+
+```bash
+curl -s http://localhost:8765/js/implementation/rol-finance-reports-controller.js \
+  | rg 'Why this month needs attention'
+```
+
 Full procedure documented in
 `~/rol_finances/tools/python_tasks/verification_lib/REPORT_OUTPUT_CONTRACT.md` —
 **read it first, every time**, especially Rules 4-8 (added 2026-06-18, see

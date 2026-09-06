@@ -45,10 +45,13 @@ bun test src/integration-tests   # needs the live Letta server
   or aspirational, not regressions. Startup/smoke tests expect a missing
   `LETTA_API_KEY` but the live server is configured. Some (block-tagging,
   TaskOutput, `waitForBackgroundSubagentLink`) fail only in the full parallel
-  run and pass alone. Confirm anything you suspect with
-  `git stash && bun test <file> && git stash pop`.
-- **Pre-commit**: husky runs lint-staged (biome `--write`) then `typecheck`.
-  Only typecheck gates the commit. Use
+  run and pass alone. Never use `git stash` to establish a baseline in this
+  live multi-agent tree. Inspect `git diff`/`git show`, run the focused test, or
+  test committed `HEAD` in a separate temporary checkout.
+- **Pre-commit**: husky runs `lint-staged --no-stash` (biome `--write`) then
+  `typecheck`. The explicit flag is required because lint-staged otherwise
+  makes a temporary stash containing unrelated agents' work. Only stage files
+  you own, and do not commit a partially staged file. Use
   `// biome-ignore lint/<rule>: <reason>` where biome can't auto-fix.
 - **Live agents write to this tree.** Two `letta.js` processes run in `--yolo`.
   Run `git status` before assuming the tree is clean.

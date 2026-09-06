@@ -167,6 +167,30 @@ cd /home/adamsl/rol_finances
   <path-to-report.html> --days 5 --apply
 ```
 
+## Follow-up — yellow month reasons on Document Status (2026-09-05)
+
+`letta-code` commit `1bed5f70` fixes a confusing split between two accurate but
+independent signals. `/api/rol-finance-reports?month=<key>` supplies each
+statement report's audit status; `/api/rol-finance-month-status` supplies the
+month tab color from expense categorization. February's five statement cards
+all PASS, while its newest inserted expense and five total expenses are still
+uncategorized, so the month tab is yellow.
+
+`dashboard/js/implementation/rol-finance-reports-controller.js` now renders a
+yellow **Why this month needs attention** block above the green document rows.
+It gets the scoped expense list and reason text from
+`/api/rol-finance-recent-scans?limit=5&month=<key>`, lists date, description,
+amount, and reason, notes any additional count beyond the returned rows, and
+hides itself at zero. Focused controller result: 41 pass, 2 intentionally
+skipped. The live server serves this JS directly from the checkout; browser
+reload is sufficient for this frontend-only change.
+
+The repository's Husky hook previously invoked bare `lint-staged`, whose default
+backup mechanism created a temporary git stash even when only owned files were
+staged. That conflicts with the no-stash rule in this live multi-agent tree.
+`.husky/pre-commit` now invokes `lint-staged --no-stash`; continue to stage only
+owned, non-partially-staged files.
+
 ## Follow-up — how Mazda chooses the next monthly report (2026-09-05)
 
 January is the only all-year landing tab. February, March, April, and future months
