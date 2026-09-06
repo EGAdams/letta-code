@@ -69,7 +69,18 @@ cd /home/adamsl/letta-code/browser_tools
 python3 browser_server.py
 ```
 
-**Via dashboard**: Visit Server Management tab → click "Start" on "ChatGPT Browser Server" tile.
+The Win10 WSL deployment installs
+`browser_tools/systemd/browser-server.service` as an enabled user service, so
+the HTTP server starts automatically with the WSL user manager and restarts
+after failures. Chrome itself still launches lazily on the first relay request.
+
+```bash
+systemctl --user enable --now browser-server.service
+systemctl --user status browser-server.service
+```
+
+**Via dashboard**: Visit Server Management → ChatGPT Browser Server and click
+Restart. The dashboard restarts the managed unit over SSH and verifies `/health`.
 
 ## API Endpoints
 
@@ -191,9 +202,10 @@ The dashboard Server Management tab monitors `browser-server`:
 - **Tile**: "ChatGPT Browser Server"
 - **Health URL**: `http://127.0.0.1:5001/health`
 - **Status**: Red (offline) | Green (running)
-- **Restart**: Calls `start_browser_server()` function in `dashboard/server.py`
+- **Restart**: Calls `start_browser_server()` in `dashboard/server.py`, which
+  delegates to the typed remote lifecycle adapter and restarts the systemd unit
 
-To start: Click "Start" button on the ChatGPT Browser Server tile in Server Management tab.
+For manual recovery, click Restart on the ChatGPT Browser Server tile in Server Management.
 
 ## Related
 

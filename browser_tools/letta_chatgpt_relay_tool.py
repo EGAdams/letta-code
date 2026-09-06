@@ -174,11 +174,7 @@ def relay_message_to_chatgpt(
         raise RuntimeError("No reachable browser server. Tried: " + " | ".join(errors))
 
     start_browser_server_command = (
-        "cd ~/letta-code/browser_tools && "
-        "kill $(cat /tmp/browser_server.pid 2>/dev/null) 2>/dev/null; sleep 1; "
-        "source .venv/bin/activate 2>/dev/null && "
-        "BROWSER_SERVER_HOST=0.0.0.0 nohup python3 browser_server.py >/tmp/browser_server.log 2>&1 & "
-        "echo $! > /tmp/browser_server.pid"
+        "systemctl --user restart browser-server.service"
     )
 
     def start_browser_server(executor: tuple[str, str]) -> None:

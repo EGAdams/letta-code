@@ -1,0 +1,21 @@
+[Unit]
+Description=ChatGPT browser automation server (port 5001)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/adamsl/letta-code/browser_tools
+Environment=BROWSER_SERVER_HOST=0.0.0.0
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir
+Environment=PULSE_SERVER=unix:/mnt/wslg/PulseServer
+ExecStart=/home/adamsl/letta-code/browser_tools/.venv/bin/python3 browser_server.py
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

@@ -37,10 +37,12 @@ browser_server.py :5001         <- Flask + Selenium/undetected_chromedriver,
 executor_server.py :8787
 ```
 
-- **`browser_server.py` must already be running** with a Chrome profile that
-  is logged into chatgpt.com. It is not started automatically by the tool.
-  Start it with `python browser_server.py` from `browser_tools/` — see that
-  directory's `AGENTS.md` for profile/Chrome-binary env vars
+- **`browser_server.py` must be running** with a Chrome profile that is logged
+  into chatgpt.com. On the Win10 WSL node, the enabled
+  `browser-server.service` starts the HTTP server automatically at boot and
+  restarts it after failures. Use `systemctl --user restart
+  browser-server.service` there for manual recovery — see `browser_tools/AGENTS.md`
+  for profile/Chrome-binary env vars
   (`CHROME_USER_DATA_DIR`, `CHROME_PROFILE`, `CHROME_BINARY`,
   `CHROME_VERSION_MAIN`).
 - The tool tries, in order: an explicit `browser_server_url` arg, then

@@ -168,6 +168,8 @@ __pycache__/
 browser_tools/*
 !browser_tools/*.py
 !browser_tools/*.md
+!browser_tools/systemd/
+!browser_tools/systemd/*.service
 
 .claude/scheduled_tasks.lock
 dashboard/.playwright-mcp/page-*.yml

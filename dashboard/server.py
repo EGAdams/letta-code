@@ -6231,40 +6231,19 @@ def get_chatgpt_provider_account_status():
         creds, local_auth=local_auth, probe=probe)
 
 
+from servers.browser_server import SshBrowserServerLifecycle  # noqa: E402
+
+_BROWSER_SERVER_LIFECYCLE = SshBrowserServerLifecycle(
+    remote_host=LETTA_DOCKER_HOST,
+    health_url='http://100.80.49.10:5001/health',
+    mark_starting=mark_server_starting,
+    log_restart=_log_restart,
+)
+
+
 def start_browser_server():
-    """Start browser_server.py on the Win10 box (100.80.49.10) over SSH if not already
-    running. Requires Flask, undetected-chromedriver, and Chrome logged into chatgpt.com
-    there — this dashboard host has no display for Chrome itself."""
-    _log_restart('browser-server: starting browser_server.py on Win10 box (:5001)')
-    try:
-        urllib.request.urlopen('http://100.80.49.10:5001/health', timeout=3)
-        return {'ok': True, 'text': 'browser_server already running on 100.80.49.10:5001'}
-    except Exception:
-        pass
-
-    cmd = (
-        "cd ~/letta-code/browser_tools && "
-        "kill $(cat /tmp/browser_server.pid 2>/dev/null) 2>/dev/null; sleep 1; "
-        "source .venv/bin/activate 2>/dev/null && "
-        "BROWSER_SERVER_HOST=0.0.0.0 nohup python3 browser_server.py "
-        ">/tmp/browser_server.log 2>&1 & echo $! > /tmp/browser_server.pid"
-    )
-    try:
-        result = subprocess.run(
-            ['ssh', '-o', 'ConnectTimeout=10', 'adamsl@100.80.49.10', cmd],
-            capture_output=True, text=True, timeout=20,
-        )
-    except Exception as e:
-        return {'ok': False, 'text': f'SSH to Win10 box failed: {e}'}
-
-    time.sleep(4)
-    try:
-        urllib.request.urlopen('http://100.80.49.10:5001/health', timeout=5)
-        return {'ok': True, 'text': 'browser_server started on 100.80.49.10:5001 '
-                                     '(Chrome launches lazily on first relay message)'}
-    except Exception as e:
-        return {'ok': False, 'text': f'browser_server did not come up after start attempt: {e} '
-                                      f'(stderr: {result.stderr[-300:] if result.stderr else ""})'}
+    """Ensure the Win10 browser server's enabled user unit is running."""
+    return _BROWSER_SERVER_LIFECYCLE.restart().model_dump()
 
 
 # The Restart buttons. `RestartCommand` (servers/restart.py) pairs a key with
