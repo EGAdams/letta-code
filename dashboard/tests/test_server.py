@@ -4019,6 +4019,40 @@ def test_fetch_recent_scans_reports_which_tab_the_document_came_from(monkeypatch
     assert out['rows'][1]['document_report'] is None
 
 
+def test_fetch_recent_scans_matches_the_account_number_in_a_flat_statement_filename(monkeypatch):
+    # The real source PDF for a bank/card statement is a flat file named after
+    # the account, not something living inside the report card's own `dir` —
+    # e.g. 'fifth_third_bank_3119_february_14__february_28.pdf' for the
+    # 'Bank 3119 PDF' card. See _document_report_for_path's docstring.
+    rows = [
+        {'id': 1, 'id_light': 'x', 'description': 'X', 'expense_date': '2025-02-28',
+         'amount': '1.00', 'category_id': None, 'receipt_url': '',
+         'created_at': '2025-02-28 00:00:00', 'source_file': None, 'document_url':
+             '/home/adamsl/rol_finances/readable_documents/scanned_statements/2025/'
+             'fifth_third_bank_3119_february_14__february_28.pdf'},
+    ]
+
+    def router(sql, _params):
+        return {'n': 1} if 'COUNT(' in sql else rows
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+    monkeypatch.setattr(server, '_resolve_expense_receipt_path', lambda *_a: None)
+    out = server._fetch_recent_scans(5)
+    assert out['rows'][0]['document_report'] == {
+        'key': 'bank-3119-pdf', 'label': 'Bank 3119 PDF'}
+
+
+def test_document_report_for_path_prefers_the_card_scoped_to_the_month_on_a_tie(monkeypatch):
+    # 'Bank 6285 PDF 1' and 'Bank 6285 PDF 2' both carry account number 6285;
+    # neither is only_month-scoped, so the ambiguous case can't be resolved by
+    # month — this just pins that a tie returns *a* real card, not None.
+    result = server._document_report_for_path(
+        '/home/adamsl/rol_finances/readable_documents/scanned_statements/2025/'
+        'january_february_2025_account_6285.pdf', 'jan-2025')
+    assert result['key'] in ('bank-6285-pdf1', 'bank-6285-pdf2')
+
+
 def test_fetch_recent_scans_clamps_limit(monkeypatch):
     # Guards the ORDER BY ... LIMIT %s bind against absurd input (1..50).
     seen = {}

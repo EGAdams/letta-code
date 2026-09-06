@@ -5216,15 +5216,44 @@ def _resolve_reporting_category(name):
     return node.id, (node.css_class or 'cat-uncategorized')
 
 
-def _document_report_for_path(path):
-    """Which report card (tab) a stored document/receipt path belongs to, keyed
-    off the report dir folder name embedded in the path — so an uncategorized
-    expense's reason can say which tab to fix it on. None when the path falls
-    under no known report card's folder (e.g. a raw receipt scan with no
-    matching statement directory).
+def _account_number_in_label(label):
+    """The 3-4 digit account number a report card's label is built around
+    ('Bank 3119 PDF' -> '3119'), or None for a label with no such number."""
+    m = re.search(r'\d{3,4}', label or '')
+    return m.group(0) if m else None
+
+
+def _document_report_for_path(path, month_key=None):
+    """Which report card (tab) a stored document/receipt path belongs to — so an
+    uncategorized expense's reason can say which tab to fix it on.
+
+    The source PDF for a bank/card statement usually does NOT live under the
+    report card's own `dir` (that folder holds the generated report.html,
+    built separately); it is a flat file under scanned_statements/ named after
+    the account, e.g. `fifth_third_bank_3119_february_14__february_28.pdf`.
+    So the primary signal is the account number embedded in both the filename
+    and the card's label — falling back to a `dir` match for the cases (e.g.
+    supporting documents) where the path genuinely does pass through it.
+    Several numbers repeat across cards (a monthly card and its year-summary
+    twin, or two PDFs off the same account); among ties this prefers the card
+    scoped to `month_key`, then a monthly (non all-year) card, over guessing.
+    None when nothing matches.
     """
     if not path:
         return None
+    filename = path.rsplit('/', 1)[-1]
+    numbers = set(re.findall(r'\d{3,4}', filename))
+    if numbers:
+        candidates = [
+            r for r in ROL_FINANCE_REPORTS
+            if _account_number_in_label(r['label']) in numbers
+        ]
+        if candidates:
+            chosen = (
+                next((c for c in candidates if c.get('only_month') == month_key), None)
+                or next((c for c in candidates if not c.get('all_year')), None)
+                or candidates[0])
+            return {'key': chosen['key'], 'label': chosen['label']}
     parts = path.split('/')
     for r in ROL_FINANCE_REPORTS:
         if r.get('dir') in parts:
@@ -5249,8 +5278,8 @@ def _fetch_recent_scans(limit=5, month_key=None):
         with cnx.cursor() as cur:
             cur.execute(
                 "SELECT id, id_light, description, expense_date, amount, "
-                "       category_id, receipt_url, document_url, moms_ledger, "
-                "       created_at, notes "
+                "       category_id, receipt_url, document_url, source_file, "
+                "       moms_ledger, created_at, notes "
                 "FROM expenses "
                 "WHERE (category_id IS NULL OR category_id IN (%s, %s))"
                 " AND expense_role <> 'PARENT'"
@@ -5294,8 +5323,9 @@ def _fetch_recent_scans(limit=5, month_key=None):
             'receipt_url': r.get('receipt_url') or '',
             'document_url': r.get('document_url') or '',
             'document_report': (
-                _document_report_for_path(r.get('document_url'))
-                or _document_report_for_path(r.get('receipt_url'))),
+                _document_report_for_path(r.get('document_url'), month_key)
+                or _document_report_for_path(r.get('receipt_url'), month_key)
+                or _document_report_for_path(r.get('source_file'), month_key)),
             'moms_ledger': r.get('moms_ledger') or '',
         })
     return {'rows': out, 'queue_total': total, 'limit': limit, 'month_key': month_key}
