@@ -54,6 +54,30 @@ cd ~/letta-code && \
 
 Report the table to the user before changing anything.
 
+#### If the Windows 11 Linux endpoint answers Tailscale but not services
+
+Observed 2026-09-06 on `DESKTOP-2OBSQMC`: Tailscale ping succeeded and TCP
+port 22 accepted a connection, but SSH timed out during banner exchange while
+`:8765`, `:8787`, `:8789`, and the other Linux-side service ports also timed
+out. This was a wedged WSL environment, not an SSH-key or Git problem.
+
+From the Windows 11 desktop, run:
+
+```powershell
+wsl --shutdown
+```
+
+Wait for the installed Ubuntu-26.04 holder to start the distro again; open
+Ubuntu-26.04 manually if it does not. Then repeat the inventory. Do not treat
+the restart as proof the tree is clean: the 2026-09-06 restart exposed 15
+preserved-but-uncommitted dashboard files, which had to be committed before
+any pull.
+
+This is a last-resort whole-WSL recovery for the combined SSH-banner and
+all-service-port failure. It does not replace the narrower
+`dashboard/ops/README.md` user-session recovery for an otherwise reachable
+Linux environment.
+
 ### 2. Rescue uncommitted work FIRST
 
 Uncommitted files exist on exactly one disk. A merge or pull can destroy
@@ -131,3 +155,13 @@ absent. A pass is the only proof the edit reached the serving machine.
   ```
 - Never `scp` whole files between boxes. That is what created the divergence
   this skill exists to clean up.
+- Non-interactive SSH does not load Bun on `DESKTOP-2OBSQMC`, so a remote
+  `git commit` can fail in Husky with `bunx: not found`. Preserve the normal
+  hooks by committing through a login shell:
+  ```bash
+  ssh adamsl@100.102.209.100 \
+    "bash -ilc 'cd /home/adamsl/letta-code && git commit -m \"<message>\"'"
+  ```
+  The `cannot set terminal process group` / `no job control` warnings from an
+  SSH login shell are harmless; verify that lint-staged and `tsc --noEmit`
+  complete before pushing.
