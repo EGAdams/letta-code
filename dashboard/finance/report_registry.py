@@ -109,12 +109,26 @@ class FinanceReportSpec(StrictModel):
     label: str
     dir: str
     all_year: bool = False
+    #: Restrict the card to one month tab (e.g. a card whose statement only
+    #: ever covered that month, kept around for history after later months
+    #: stopped scanning it). None means "every month", the old behaviour.
+    only_month: str | None = None
 
     @field_validator('key', 'label')
     @classmethod
     def _not_blank(cls, value: str) -> str:
         if not value.strip():
             raise ValueError('must not be blank')
+        return value
+
+    @field_validator('only_month')
+    @classmethod
+    def _is_a_month_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        abbrev, _, year = value.partition('-')
+        if abbrev not in _MONTH_ABBREVIATIONS or not year.isdigit():
+            raise ValueError(f'{value!r} is not a <mon>-<yyyy> month key')
         return value
 
     @field_validator('dir')
@@ -129,11 +143,22 @@ class FinanceReportSpec(StrictModel):
                 'report URL address a directory outside the reports tree')
         return value
 
+    @model_validator(mode='after')
+    def _all_year_and_only_month_do_not_mix(self) -> FinanceReportSpec:
+        if self.all_year and self.only_month is not None:
+            raise ValueError(
+                f'{self.key!r} sets both all_year and only_month={self.only_month!r} '
+                '— an all-year card already shows only under January; picking a '
+                'single other month for it is contradictory')
+        return self
+
     def as_config(self) -> dict:
-        """The legacy dict, carrying `all_year` only when it is set."""
+        """The legacy dict, carrying `all_year`/`only_month` only when set."""
         cfg = {'key': self.key, 'label': self.label, 'dir': self.dir}
         if self.all_year:
             cfg['all_year'] = True
+        if self.only_month is not None:
+            cfg['only_month'] = self.only_month
         return cfg
 
 
@@ -173,7 +198,8 @@ FINANCE_REPORT_SPECS: tuple[FinanceReportSpec, ...] = (
                       dir='platinum_business_credit_card_for_the_year',
                       all_year=True),
     FinanceReportSpec(key='diners-club-0587', label='Diners Club 0587',
-                      dir='diners_club__january_25_statements-MONTHLY-0587'),
+                      dir='diners_club__january_25_statements-MONTHLY-0587',
+                      only_month='jan-2025'),
     FinanceReportSpec(key='diners-0587-year', label='Diners 0587 Year',
                       dir='diners_0587_whole_year_2025', all_year=True),
     FinanceReportSpec(key='bank-3119-pdf', label='Bank 3119 PDF',
@@ -206,6 +232,11 @@ def _check_the_registry_hangs_together() -> None:
         values = [getattr(r, field) for r in FINANCE_REPORT_SPECS]
         if len(set(values)) != len(values):
             raise ValueError(f'two report cards share a {field}: {values}')
+    for r in FINANCE_REPORT_SPECS:
+        if r.only_month is not None and r.only_month not in month_keys:
+            raise ValueError(
+                f'{r.key!r} has only_month={r.only_month!r}, which is not one '
+                f'of the month tabs {month_keys} — the card would never render')
 
 
 _check_the_registry_hangs_together()
@@ -230,10 +261,18 @@ ROL_FINANCE_REPORTS: list[dict] = [r.as_config() for r in FINANCE_REPORT_SPECS]
 
 
 def reports_for_month(month_key: str) -> list[dict]:
-    """Document cards for a month; all-year cards live only under January."""
-    if month_key == DEFAULT_MONTH_KEY:
-        return ROL_FINANCE_REPORTS
-    return [r for r in ROL_FINANCE_REPORTS if not r.get('all_year')]
+    """Document cards for a month; all-year cards live only under January.
+
+    A card with `only_month` set (a statement that stopped being scanned after
+    one month) is filtered out everywhere except that one tab.
+    """
+    cards = ROL_FINANCE_REPORTS if month_key == DEFAULT_MONTH_KEY else [
+        r for r in ROL_FINANCE_REPORTS if not r.get('all_year')
+    ]
+    return [
+        r for r in cards
+        if r.get('only_month') is None or r.get('only_month') == month_key
+    ]
 
 
 def resolve_month_key(requested: str | None) -> str:

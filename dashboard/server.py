@@ -244,9 +244,13 @@ def _rol_finance_reports_for_month(month_key):
     registry's copy is for callers that want the real list; this one is the one
     server.py's own readers and their patch target share.
     """
-    if month_key == ROL_FINANCES_REPORTS_DEFAULT_MONTH:
-        return ROL_FINANCE_REPORTS
-    return [r for r in ROL_FINANCE_REPORTS if not r.get('all_year')]
+    cards = ROL_FINANCE_REPORTS if month_key == ROL_FINANCES_REPORTS_DEFAULT_MONTH else [
+        r for r in ROL_FINANCE_REPORTS if not r.get('all_year')
+    ]
+    return [
+        r for r in cards
+        if r.get('only_month') is None or r.get('only_month') == month_key
+    ]
 
 
 ROL_FINANCES_REPORTS_BASE = os.path.join(

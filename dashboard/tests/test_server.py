@@ -407,7 +407,8 @@ def test_all_year_report_cards_only_appear_in_january():
     assert any(r.get('all_year') for r in january)
     assert not any(r.get('all_year') for r in march)
     assert {r['key'] for r in march} == {
-        r['key'] for r in server.ROL_FINANCE_REPORTS if not r.get('all_year')
+        r['key'] for r in server.ROL_FINANCE_REPORTS
+        if not r.get('all_year') and r.get('only_month') is None
     }
 
 
