@@ -5216,6 +5216,22 @@ def _resolve_reporting_category(name):
     return node.id, (node.css_class or 'cat-uncategorized')
 
 
+def _document_report_for_path(path):
+    """Which report card (tab) a stored document/receipt path belongs to, keyed
+    off the report dir folder name embedded in the path — so an uncategorized
+    expense's reason can say which tab to fix it on. None when the path falls
+    under no known report card's folder (e.g. a raw receipt scan with no
+    matching statement directory).
+    """
+    if not path:
+        return None
+    parts = path.split('/')
+    for r in ROL_FINANCE_REPORTS:
+        if r.get('dir') in parts:
+            return {'key': r['key'], 'label': r['label']}
+    return None
+
+
 def _fetch_recent_scans(limit=5, month_key=None):
     """The most-recently-scanned expenses that are still uncategorized, newest
     first — the 'recently scanned viewing area'. Returning only up to `limit`
@@ -5277,6 +5293,9 @@ def _fetch_recent_scans(limit=5, month_key=None):
                 if amt is not None else False),
             'receipt_url': r.get('receipt_url') or '',
             'document_url': r.get('document_url') or '',
+            'document_report': (
+                _document_report_for_path(r.get('document_url'))
+                or _document_report_for_path(r.get('receipt_url'))),
             'moms_ledger': r.get('moms_ledger') or '',
         })
     return {'rows': out, 'queue_total': total, 'limit': limit, 'month_key': month_key}

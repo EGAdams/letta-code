@@ -1707,6 +1707,14 @@ summary {
 .rol-overview-table tr.rol-status-fail:hover {
   background: rgba(198, 40, 40, 0.5);
 }
+.rol-attention-tab-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.rol-attention-tab-link:hover {
+  color: #0d6efd;
+}
 
 /* New Records (Project Plans → ROL Finance → Reports → <month>, above
    Document Status) — same clickable color-coded-row pattern as the

@@ -3992,6 +3992,33 @@ def test_fetch_recent_scans_reason_prefers_expense_notes(monkeypatch):
     assert out['rows'][0]['reason'] == 'Vendor not in the map — needs a manual rule'
 
 
+def test_fetch_recent_scans_reports_which_tab_the_document_came_from(monkeypatch):
+    known_dir = server.ROL_FINANCE_REPORTS[0]['dir']
+    known_label = server.ROL_FINANCE_REPORTS[0]['label']
+    known_key = server.ROL_FINANCE_REPORTS[0]['key']
+    rows = [
+        {'id': 1, 'id_light': 'x_01_01_25_1_00', 'description': 'X',
+         'expense_date': '2025-01-01', 'amount': '1.00', 'category_id': None,
+         'receipt_url': '', 'created_at': '2025-01-01 00:00:00',
+         'document_url': f'/home/adamsl/rol_finances/readable_documents/'
+                          f'bank_statements/january/{known_dir}/statement.pdf'},
+        {'id': 2, 'id_light': 'y_01_02_25_1_00', 'description': 'Y',
+         'expense_date': '2025-01-02', 'amount': '1.00', 'category_id': None,
+         'receipt_url': '', 'created_at': '2025-01-02 00:00:00',
+         'document_url': ''},
+    ]
+
+    def router(sql, _params):
+        return {'n': 2} if 'COUNT(' in sql else rows
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+    monkeypatch.setattr(server, '_resolve_expense_receipt_path', lambda *_a: None)
+    out = server._fetch_recent_scans(5)
+    assert out['rows'][0]['document_report'] == {'key': known_key, 'label': known_label}
+    assert out['rows'][1]['document_report'] is None
+
+
 def test_fetch_recent_scans_clamps_limit(monkeypatch):
     # Guards the ORDER BY ... LIMIT %s bind against absurd input (1..50).
     seen = {}

@@ -468,7 +468,14 @@ export class RolFinanceReportsController {
         const reason =
           r.reason ||
           "Categorization incomplete — no reporting category was assigned.";
-        return `<li><strong>${TextUtils.esc(r.expense_date || "Date unavailable")} — ${TextUtils.esc(description)}${TextUtils.esc(amount)}</strong>: ${TextUtils.esc(reason)}</li>`;
+        const tab = r.document_report;
+        const tabAttr = tab?.key
+          ? ` class="rol-attention-tab-link" data-report-key="${TextUtils.esc(tab.key)}"`
+          : "";
+        const tabNote = tab?.label
+          ? ` <span${tabAttr}>[${TextUtils.esc(tab.label)}]</span>`
+          : "";
+        return `<li><strong>${TextUtils.esc(r.expense_date || "Date unavailable")} — ${TextUtils.esc(description)}${TextUtils.esc(amount)}</strong>${tabNote}: ${TextUtils.esc(reason)}</li>`;
       })
       .join("");
     const notShown = Math.max(0, Number(total) - rows.length);
@@ -482,6 +489,11 @@ export class RolFinanceReportsController {
       `<tr class="rol-status-review"><td><strong>Why this month needs attention</strong></td>` +
       `<td><strong>${subject} ${verb} a category.</strong>` +
       `<ul>${reasons}${remainder}</ul></td></tr></tbody></table>`;
+    attention.querySelectorAll("[data-report-key]").forEach((el) => {
+      el.addEventListener("click", () =>
+        this.selectReport(el.dataset.reportKey),
+      );
+    });
     attention.style.display = "";
   }
 
