@@ -55,6 +55,7 @@ export { AgentsRouterRenderer } from "./agents-router-renderer.js";
 export { BrowserSpeechRecognitionListener } from "./browser-speech-recognition-listener.js";
 export { BrowserSpeechSynthesizer } from "./browser-speech-synthesizer.js";
 export { DomChatGptProviderAccountController } from "./chatgpt-provider-account-panel.js";
+export { ClaudeSdkActivityController } from "./claude-sdk-activity-controller.js";
 export { CodeChangeAlert } from "./code-change-alert.js";
 export { DomCodexSyncController } from "./codex-sync-panel.js";
 export {

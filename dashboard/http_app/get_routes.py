@@ -17,7 +17,7 @@ import codex_sync_status
 import document_annotation
 import model_stats_mute
 import statement_review
-from health import failures, frita, mazda_tools
+from health import claude_sdk_activity, failures, frita, mazda_tools
 from model_stats import assignments as model_stats_assignments
 from model_stats import reader as model_stats_reader
 from model_stats.sources import MODEL_STAT_SOURCES
@@ -72,6 +72,9 @@ class GetRoutesMixin:
 
         if path == '/api/claude-sdk-account':
             return self.json_response(frita.claude_sdk_account_payload())
+
+        if path == '/api/claude-sdk-activity':
+            return self.json_response(claude_sdk_activity.activity_payload())
 
         if path == '/api/router-agent':
             from router.classify import build_router_strategy

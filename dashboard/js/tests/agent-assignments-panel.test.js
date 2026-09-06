@@ -51,6 +51,7 @@ describe("AgentAssignmentsController tool rows", () => {
         assignment_kind: "tool",
         token_status: "up",
         token_status_detail: "",
+        weekly_percent_remaining: 64,
       },
     ]);
 
@@ -62,6 +63,32 @@ describe("AgentAssignmentsController tool rows", () => {
     expect(row.children[2].children[1].textContent).toBe("");
     expect(row.children[2].children[1].classList.contains("is-up")).toBe(true);
     expect(row.querySelector("select")).not.toBe(null);
+    expect(row.children[3].children[0].children[0].style.width).toBe("64%");
+    expect(row.children[3].children[0].children[1].textContent).toBe("64%");
+  });
+
+  test("renders SDK usage-report throttling as a countdown, not a dash", async () => {
+    const { container, controller } = setup([
+      {
+        id: "tool-run-claude-code-sdk",
+        name: "run_claude_code_sdk",
+        model: "Claude Code SDK",
+        assignment_kind: "tool",
+        token_status: "up",
+        weekly_percent_remaining: null,
+        token_reset_at: 1700001494,
+      },
+    ]);
+
+    await controller.poll();
+
+    const bar = container.querySelector("tbody").children[0].children[3];
+    expect(bar.children[0].children[0].classList.contains("is-pending")).toBe(
+      true,
+    );
+    expect(bar.children[0].children[1].innerHTML).toContain(
+      'data-countdown-until="1700001494"',
+    );
   });
 
   test("renders an expired SDK token red", async () => {

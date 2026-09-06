@@ -30,6 +30,7 @@ def build_claude_sdk_assignment(
     account: str = '',
     account_label: str = 'Executor OAuth token',
     weekly_percent_remaining: float | None = None,
+    token_reset_at: float | None = None,
 ) -> dict[str, Any]:
     """Build the read-only Agent Assignments row for the shared SDK tool.
 
@@ -71,6 +72,7 @@ def build_claude_sdk_assignment(
         'account': account,
         'account_label': account_label,
         'weekly_percent_remaining': weekly_percent_remaining,
+        'token_reset_at': token_reset_at,
         'assignment_kind': 'tool',
         'token_status': token_status,
         'token_status_detail': detail,

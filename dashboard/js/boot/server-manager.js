@@ -6,6 +6,7 @@
 
 import { TextUtils } from "../abstract/text-utils.js";
 import {
+  ClaudeSdkActivityController,
   DomConsoleView,
   ServerActionController,
   ServerHealthMonitor,
@@ -31,6 +32,7 @@ export function createServerManager({
 }) {
   const serverHealth = new ServerHealthMonitor(http);
   const serverAction = new ServerActionController({ http });
+  const sdkActivity = new ClaudeSdkActivityController({ http, doc });
 
   serverHealth.subscribe((health) => {
     const tab = doc.getElementById("btn-server-mgmt");
@@ -89,6 +91,7 @@ export function createServerManager({
     served: location.protocol === "http:" || location.protocol === "https:",
 
     stopPoll() {
+      sdkActivity.stop();
       if (this.logController) {
         this.logController.stop();
         this.logController = null;
@@ -109,6 +112,7 @@ export function createServerManager({
       this.current = null;
       nav.servers.classList.remove("hidden");
       viewNav.activateView("server-management");
+      void sdkActivity.start();
       this.loadServerTabs();
       this.pollHealth();
       this.healthPollTimer = setInterval(() => this.pollHealth(), 5000);

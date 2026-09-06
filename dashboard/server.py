@@ -7151,12 +7151,14 @@ def model_stats_agents_payload(force_refresh=False):
     # provider row (cached alongside every other row's) rather than leaving
     # this the one row on the tab with no Weekly Remaining bar.
     sdk_provider = _claude_provider_for_account(sdk_account.get('current', ''))
+    sdk_remaining, sdk_reset_at = (
+        _weekly_percent_remaining(sdk_provider) if sdk_provider else (None, None))
     rows.append(build_claude_sdk_assignment(
         claude_sdk_token_status(), now=time.time(),
         account=sdk_account.get('current', ''),
         account_label=sdk_option.get('label', 'Executor OAuth token'),
-        weekly_percent_remaining=(
-            _weekly_percent_remaining(sdk_provider) if sdk_provider else None)))
+        weekly_percent_remaining=sdk_remaining,
+        token_reset_at=sdk_reset_at))
 
     with _model_stats_agents_cache_lock:
         _model_stats_agents_cache['value'] = rows

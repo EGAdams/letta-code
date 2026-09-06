@@ -116,6 +116,7 @@ DIRECT_SERVICES = {
                           'toggle_codex_sync'),
     'document_annotation': ('render_excel_for_browser',),
     'health.failures': ('classify_failure',),
+    'health.claude_sdk_activity': ('activity_payload',),
     'health.frita': ('claude_sdk_account_payload', 'set_claude_sdk_account'),
     'model_stats.reader': ('model_stats',),
     'model_stats_mute': ('apply_mute_overlay', 'set_muted'),

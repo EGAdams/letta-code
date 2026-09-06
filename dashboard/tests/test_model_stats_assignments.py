@@ -62,9 +62,11 @@ def test_sdk_tool_assignment_carries_the_weekly_bar_of_its_account():
         now=1_700_000_000,
         account='mom',
         weekly_percent_remaining=41.5,
+        token_reset_at=1_700_001_500,
     )
 
     assert row['weekly_percent_remaining'] == 41.5
+    assert row['token_reset_at'] == 1_700_001_500
 
 
 def test_agent_assignments_payload_includes_the_sdk_tool_row(monkeypatch):
@@ -124,7 +126,7 @@ def test_agent_assignments_payload_reads_the_sdk_row_quota_from_its_account(monk
 
     def fake_weekly(provider):
         probed.append(provider)
-        return 73.0 if provider == 'claude-pro-max-eg' else 12.0
+        return (73.0, None) if provider == 'claude-pro-max-eg' else (12.0, None)
 
     monkeypatch.setattr(server, '_weekly_percent_remaining', fake_weekly)
     monkeypatch.setitem(server._model_stats_agents_cache, 'value', None)

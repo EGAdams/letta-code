@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/css/dashboard.css?v=20260829agentblocksmarkers" />
   <link rel="stylesheet" href="/css/model-stats-agents.css?v=20260824sdk" />
   <link rel="stylesheet" href="/css/scanner-report-controls.css?v=20260903" />
+  <link rel="stylesheet" href="/css/claude-sdk-activity.css?v=20260906" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -213,7 +214,31 @@
 
     <section id="server-management" class="view">
       <h2>Server Management</h2>
-      <p>Click a server above to view its logs and health status.</p>
+      <div class="claude-sdk-installer" aria-live="polite">
+        <div class="claude-sdk-titlebar">Claude Code SDK Status</div>
+        <div class="claude-sdk-installer-body">
+          <div id="claude-sdk-live-status" class="claude-sdk-live-status is-idle">
+            Ready — waiting for the next run_claude_code_sdk call.
+          </div>
+          <div class="claude-sdk-progress-track" aria-hidden="true">
+            <div id="claude-sdk-live-progress" class="claude-sdk-progress-fill"></div>
+          </div>
+          <div class="claude-sdk-dialog-grid">
+            <section class="claude-sdk-dialog">
+              <div class="claude-sdk-dialog-title">Thoughts</div>
+              <div id="claude-sdk-thoughts" class="claude-sdk-scroll-pane"></div>
+            </section>
+            <section class="claude-sdk-dialog">
+              <div class="claude-sdk-dialog-title">Tool Calls</div>
+              <div id="claude-sdk-tool-calls" class="claude-sdk-scroll-pane"></div>
+            </section>
+            <section class="claude-sdk-dialog">
+              <div class="claude-sdk-dialog-title">Messages</div>
+              <div id="claude-sdk-messages" class="claude-sdk-scroll-pane"></div>
+            </section>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section id="servers-detail" class="view">
