@@ -48,8 +48,8 @@ def test_amount_or_description_drift_is_not_treated_as_exact_evidence():
 
 def test_missing_report_dialog_gets_the_exact_destination_path():
     assert expected_report_path(
-        "/home/adamsl/rol_finances", "mar-2025", "december_january_personal_bank_statement"
+        "/home/adamsl/rol_finances", "mar-2025", "bank_5938_pdf1"
     ) == (
         "/home/adamsl/rol_finances/readable_documents/bank_statements/march/"
-        "december_january_personal_bank_statement/report.html"
+        "bank_5938_pdf1/report.html"
     )

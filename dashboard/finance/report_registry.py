@@ -188,7 +188,7 @@ FINANCE_REPORT_SPECS: tuple[FinanceReportSpec, ...] = (
     FinanceReportSpec(key='amex-personal-year', label='Amex 1006',
                       dir='amex_personal_whole_2025', all_year=True),
     FinanceReportSpec(key='bank-5938-pdf1', label='Bank 5938 PDF 1',
-                      dir='december_january_personal_bank_statement'),
+                      dir='bank_5938_pdf1'),
     FinanceReportSpec(key='bank-6285-pdf1', label='Bank 6285 PDF 1',
                       dir='non_profit_rol_Statement_december_january_6285'),
     FinanceReportSpec(key='bank-6285-pdf2', label='Bank 6285 PDF 2',
