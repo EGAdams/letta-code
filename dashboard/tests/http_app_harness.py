@@ -117,6 +117,7 @@ DIRECT_SERVICES = {
     'document_annotation': ('render_excel_for_browser',),
     'health.failures': ('classify_failure',),
     'health.claude_sdk_activity': ('activity_payload',),
+    'health.claude_sdk_token_rate': ('ingest_activity', 'token_rate_payload'),
     'health.frita': ('claude_sdk_account_payload', 'set_claude_sdk_account'),
     'model_stats.reader': ('model_stats',),
     'model_stats_mute': ('apply_mute_overlay', 'set_muted'),

@@ -6684,6 +6684,7 @@ def server_status_kind(cfg, health):
 # silent KeyError deep in a background thread), and the module constants.
 # SERVERS and server_health are this module's, so they're injected rather than
 # imported back, keeping the poller's own tests independent of live config.
+from health import claude_sdk_token_rate  # noqa: E402
 from health.poller import (
     HealthPoller,
     HEALTH_POLL_INTERVAL,
@@ -7488,6 +7489,12 @@ def startup_tasks():
             label='report-verdict-warm',
             target=_warm_report_verdicts,
             banner='Auditing statement reports once to warm tab verdicts'),
+        BackgroundTask(
+            label='claude-sdk-token-rate-sample',
+            target=claude_sdk_token_rate.SAMPLER.run_forever,
+            banner=(f'Sampling Claude Code SDK token usage every '
+                    f'{claude_sdk_token_rate.SAMPLER_INTERVAL_SECONDS:.0f}s '
+                    f'(the executor keeps no running total)')),
         BackgroundTask(
             label='model-usage-sample',
             target=_model_usage_sample_loop,

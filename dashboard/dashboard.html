@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/css/dashboard.css?v=20260829agentblocksmarkers" />
   <link rel="stylesheet" href="/css/model-stats-agents.css?v=20260824sdk" />
   <link rel="stylesheet" href="/css/scanner-report-controls.css?v=20260903" />
-  <link rel="stylesheet" href="/css/claude-sdk-activity.css?v=20260906" />
+  <link rel="stylesheet" href="/css/claude-sdk-activity.css?v=20260906b" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -222,6 +222,19 @@
           </div>
           <div class="claude-sdk-progress-track" aria-hidden="true">
             <div id="claude-sdk-live-progress" class="claude-sdk-progress-fill"></div>
+          </div>
+          <div class="claude-sdk-rate" aria-live="polite">
+            <div class="claude-sdk-rate-headline">
+              <span class="claude-sdk-rate-caption">Token rate</span>
+              <span id="claude-sdk-rate-primary" class="claude-sdk-rate-primary">&mdash;</span>
+              <span id="claude-sdk-rate-current" class="claude-sdk-rate-current"></span>
+            </div>
+            <div class="claude-sdk-rate-meter" aria-hidden="true">
+              <div id="claude-sdk-rate-fill" class="claude-sdk-rate-fill"></div>
+              <span class="claude-sdk-rate-scale">100k tok/min</span>
+            </div>
+            <div id="claude-sdk-rate-windows" class="claude-sdk-rate-windows"></div>
+            <div id="claude-sdk-rate-note" class="claude-sdk-rate-note"></div>
           </div>
           <div class="claude-sdk-dialog-grid">
             <section class="claude-sdk-dialog">

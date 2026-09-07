@@ -137,3 +137,116 @@
     animation: none;
   }
 }
+
+/* ── Token rate ────────────────────────────────────────────────────────────
+   The executor reports tokens per finished run and keeps no total, so this
+   strip is the dashboard's own accumulated history: a headline rate, a meter
+   against a fixed 100k tok/min full scale, and the four trailing windows. */
+
+.claude-sdk-rate {
+  margin-bottom: 10px;
+  padding: 7px 8px;
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+}
+
+.claude-sdk-rate-headline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.claude-sdk-rate-caption {
+  font-weight: 700;
+}
+
+.claude-sdk-rate-primary {
+  font-family: "Lucida Console", Consolas, monospace;
+  font-size: 17px;
+  font-weight: 700;
+  color: #000080;
+}
+
+.claude-sdk-rate-primary.is-idle {
+  color: #404040;
+}
+
+.claude-sdk-rate-primary.is-error {
+  color: #8b0000;
+}
+
+.claude-sdk-rate-current {
+  color: #202020;
+  font-size: 12px;
+}
+
+.claude-sdk-rate-meter {
+  position: relative;
+  height: 16px;
+  margin: 6px 0;
+  overflow: hidden;
+  background: #fff;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+}
+
+.claude-sdk-rate-fill {
+  width: 0;
+  height: 100%;
+  background: repeating-linear-gradient(
+    90deg,
+    #000080 0 8px,
+    transparent 8px 11px
+  );
+  transition: width 0.4s linear;
+}
+
+.claude-sdk-rate-fill.is-hot {
+  background: repeating-linear-gradient(
+    90deg,
+    #8b0000 0 8px,
+    transparent 8px 11px
+  );
+}
+
+.claude-sdk-rate-scale {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  font-size: 10px;
+  color: #606060;
+  line-height: 16px;
+}
+
+.claude-sdk-rate-windows {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 5px;
+}
+
+.claude-sdk-rate-window {
+  padding: 4px 5px;
+  background: #fff;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  font-size: 11px;
+}
+
+.claude-sdk-rate-window.is-partial {
+  color: #606060;
+}
+
+.claude-sdk-rate-window b {
+  display: block;
+  font-family: "Lucida Console", Consolas, monospace;
+  font-size: 13px;
+}
+
+.claude-sdk-rate-note {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #404040;
+}
