@@ -550,6 +550,20 @@ Grade the run against the contract above. Specifically confirm:
   transfer/pay records dated inside the statement period that are absent from the PDF are
   clearly marked review rows, checked against the database, and excluded from the PDF's
   printed counts and balance reconciliation. Canceled/pending records must not be added.
+  **Added 2026-09-07:** before accepting any such record as a genuine "Orphaned
+  Transfer," require that it was also checked against the very next statement
+  period's own PDF (a check written near a period's cutoff routinely doesn't clear
+  until the next statement — normal, not a defect). `transfer_pay_reconciler.py`'s
+  `find_orphaned_transfers()` now takes an optional `next_period_rows` argument for
+  exactly this, fed by its new `verified_rows_from_statement_pdf(next_pdf_path)`
+  helper (or `--next-period-pdf` on the CLI), which parses the raw next PDF directly
+  so the check works even before that period's own report.html is built. A record
+  matched there is not an orphan and gets no note in this statement at all. This was
+  missed by hand in Bank 6285 PDF 4 (check 11081, only confirmed after the fact in
+  PDF 5) and PDF 5 (checks 11086/11087/11088, corrected the same day once the
+  June-July PDF was checked) — grade a report FAIL-worthy-of-rework, not just
+  review-needed, if an "Orphaned Transfer" was never checked against the next
+  period's PDF at all.
   Do not accept `Bank 6285 PDF 1` or `PDF 2` as the document identity: those are reusable
   dashboard slots, and the same PDF may appear in adjacent month folders under opposite
   numbers. Verify the period printed in the source PDF and compare SHA-256 with nearby
