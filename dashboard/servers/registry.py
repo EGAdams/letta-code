@@ -51,6 +51,7 @@ CheckName = Literal[
     'document_vision_health',
     'chatgpt_provider_health',
     'mazda_categorizer_fallback_health',
+    'scanner_intake_watchdog_health',
 ]
 
 CHECK_NAMES: tuple[str, ...] = (
@@ -59,6 +60,7 @@ CHECK_NAMES: tuple[str, ...] = (
     'document_vision_health',
     'chatgpt_provider_health',
     'mazda_categorizer_fallback_health',
+    'scanner_intake_watchdog_health',
 )
 
 
@@ -389,6 +391,19 @@ def build_server_specs(
                  'working, worth a look). RED = every tracked tier failed on its last '
                  'attempt. Built 2026-07-20 after the gemini CLI broke silently for '
                  '3+ days.',
+        ),
+        ServerSpec(
+            key='scanner-intake-watchdog',
+            name='Scanner Intake Watchdog',
+            probe=NamedCheckProbe(check='scanner_intake_watchdog_health'),
+            note='RED means a scanner intake was handed to the Trainer and the '
+                 'Trainer process went dark — no report, no completion callback — '
+                 'so the scanner stays blocked (up to 35 min) and nobody would '
+                 'otherwise be told. Built 2026-09-07 after a Window Scanner '
+                 'Trainer run vanished mid-run with no report and no running '
+                 'process, silently stalling manual scans. No restart here: fix '
+                 'whatever killed Trainer, or use "Clear Verification Lock" on '
+                 'that scanner.',
         ),
     )
     _check_the_registry_hangs_together(specs)

@@ -6141,6 +6141,17 @@ def restart_document_vision():
                         f'Gemini/OpenAI keys must be fixed by hand in rol_finances/.env.'}
 
 
+def restart_scanner_intake_watchdog():
+    """"Restart" for the watchdog tile: there is no process behind it — it
+    only reads recent_report.json. Nothing here can revive a dead Trainer run
+    or safely decide a stuck intake is done, so this just re-reports current
+    status; the actual remedy is fixing whatever killed Trainer (see
+    health/scanner_intake_watchdog.py) or "Clear Verification Lock" on the
+    affected scanner's own dialog."""
+    health = scanner_intake_watchdog_health()
+    return {'ok': health['ok'], 'text': health['text']}
+
+
 # server key → restart handler (returns {ok, text}). Covers ALL SERVERS so every
 # Server Management tab can be restarted from the UI.
 def chatgpt_provider_health(timeout=None):
@@ -6301,6 +6312,8 @@ RESTART_REGISTRY = RestartRegistry([
     RestartCommand(key='document-vision', handler=restart_document_vision),
     RestartCommand(key='mazda-categorizer-llm',
                    handler=lambda: restart_mazda_categorizer_llm()),
+    RestartCommand(key='scanner-intake-watchdog',
+                   handler=lambda: restart_scanner_intake_watchdog()),
     # Its tile was retired on 2026-08-19; the handler is kept deliberately, so
     # the registry covers the tiles rather than equalling them.
     RestartCommand(key='chatgpt-provider', handler=restart_chatgpt_provider,
@@ -6564,6 +6577,9 @@ from health.document_vision import (  # noqa: E402
     split_provider_health_state, unresolved_fallbacks,
     vision_provider_fallbacks,
 )
+from health.scanner_intake_watchdog import (  # noqa: E402
+    scanner_intake_watchdog_health,
+)
 
 
 
@@ -6575,6 +6591,7 @@ HEALTH_CHECKS = {
     'document_vision_health': document_vision_health,
     'chatgpt_provider_health': chatgpt_provider_health,
     'mazda_categorizer_fallback_health': mazda_categorizer_fallback_health,
+    'scanner_intake_watchdog_health': scanner_intake_watchdog_health,
 }
 
 

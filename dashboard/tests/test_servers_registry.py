@@ -97,7 +97,9 @@ def _spec(**overrides) -> dict:
 #: hidden a real order/shape regression in the *original* fifteen). Add the
 #: new key here alongside its ServerSpec so this stays a deliberate list, not
 #: a growing blind spot.
-KNOWN_POST_BASELINE_ADDITIONS = {'agent-blocks', 'chatgpt-provider'}
+KNOWN_POST_BASELINE_ADDITIONS = {
+    'agent-blocks', 'chatgpt-provider', 'scanner-intake-watchdog',
+}
 
 
 def _servers_minus_post_baseline_additions() -> list[dict]:

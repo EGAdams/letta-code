@@ -105,10 +105,15 @@ def _wait_for_scan(
                     return frame
             except Exception:
                 pass
-        if text.startswith("Scan failed:") or text in {
-            "Restart the Scanner Please",
-            "Previous scan is still being verified.",
-        }:
+        if (
+            text.startswith("Scan failed:")
+            or text.startswith("The previous document from this scanner")
+            or text
+            in {
+                "Restart the Scanner Please",
+                "Previous scan is still being verified.",
+            }
+        ):
             raise AssertionError(text)
         page.wait_for_timeout(200)
     raise TimeoutError(f"Scan did not finish within {timeout:g} seconds")
