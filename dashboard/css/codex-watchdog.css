@@ -1,0 +1,109 @@
+/* ── Codex CLI quota watchdog ─────────────────────────────────────────────
+   Read-only mirror of health/codex_watchdog.py's own policy: a session's
+   colour here must always agree with what the daemon would do about it, so
+   sessionStatusClass() in codex-watchdog-controller.js mirrors evaluate()'s
+   thresholds rather than inventing its own. Built after the 2026-09-07
+   incident where an unattended Codex CLI session burned 14.6M tokens
+   unnoticed. */
+
+.codex-watchdog-panel {
+  margin-top: 10px;
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #808080 #808080 #fff;
+}
+
+.codex-watchdog-summary {
+  margin: 6px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #000080;
+}
+
+.codex-watchdog-summary.is-warning {
+  color: #8b0000;
+}
+
+.codex-watchdog-summary.is-error {
+  color: #8b0000;
+}
+
+.codex-watchdog-sessions,
+.codex-watchdog-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.codex-watchdog-session,
+.codex-watchdog-action {
+  padding: 4px 6px;
+  background: #fff;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  font-size: 11px;
+}
+
+.codex-watchdog-session b,
+.codex-watchdog-action b {
+  display: block;
+  font-family: "Lucida Console", Consolas, monospace;
+  font-size: 12px;
+}
+
+.codex-watchdog-session span,
+.codex-watchdog-action span {
+  color: #404040;
+  word-break: break-all;
+}
+
+/* Status reads follow the same bands the daemon itself kills/warns on. */
+.codex-watchdog-session.is-ok b {
+  color: #006400;
+}
+
+.codex-watchdog-session.is-watched b {
+  color: #000080;
+}
+
+.codex-watchdog-session.is-warning {
+  background: #fffbe0;
+}
+
+.codex-watchdog-session.is-warning b {
+  color: #8a6d00;
+}
+
+.codex-watchdog-session.is-critical,
+.codex-watchdog-session.is-stopped {
+  background: #ffe8e8;
+}
+
+.codex-watchdog-session.is-critical b,
+.codex-watchdog-session.is-stopped b {
+  color: #8b0000;
+}
+
+.codex-watchdog-action.is-kill {
+  background: #ffe8e8;
+}
+
+.codex-watchdog-action.is-kill b {
+  color: #8b0000;
+}
+
+.codex-watchdog-action.is-warn b {
+  color: #8a6d00;
+}
+
+.codex-watchdog-empty {
+  padding: 4px 2px;
+  font-size: 11px;
+  color: #606060;
+}
+
+.codex-watchdog-note {
+  font-size: 11px;
+  color: #404040;
+}

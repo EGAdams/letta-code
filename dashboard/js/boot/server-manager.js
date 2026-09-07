@@ -8,6 +8,7 @@ import { TextUtils } from "../abstract/text-utils.js";
 import {
   ClaudeSdkActivityController,
   ClaudeSdkTokenRateController,
+  CodexWatchdogController,
   DomConsoleView,
   ServerActionController,
   ServerHealthMonitor,
@@ -38,6 +39,9 @@ export function createServerManager({
   // 1Hz, the rate is an accumulated history that nothing changes between
   // runs, so 5s is plenty and halves the executor traffic this panel costs.
   const sdkTokenRate = new ClaudeSdkTokenRateController({ http, doc });
+  // Local safety net, not a live narration -- 10s is plenty, and it reports
+  // on whatever box serves this dashboard (see codex_watchdog_status.py).
+  const codexWatchdog = new CodexWatchdogController({ http, doc });
 
   serverHealth.subscribe((health) => {
     const tab = doc.getElementById("btn-server-mgmt");
@@ -98,6 +102,7 @@ export function createServerManager({
     stopPoll() {
       sdkActivity.stop();
       sdkTokenRate.stop();
+      codexWatchdog.stop();
       if (this.logController) {
         this.logController.stop();
         this.logController = null;
@@ -120,6 +125,7 @@ export function createServerManager({
       viewNav.activateView("server-management");
       void sdkActivity.start();
       void sdkTokenRate.start();
+      void codexWatchdog.start();
       this.loadServerTabs();
       this.pollHealth();
       this.healthPollTimer = setInterval(() => this.pollHealth(), 5000);

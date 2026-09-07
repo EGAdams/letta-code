@@ -59,6 +59,7 @@ export { ClaudeSdkActivityController } from "./claude-sdk-activity-controller.js
 export { ClaudeSdkTokenRateController } from "./claude-sdk-token-rate-controller.js";
 export { CodeChangeAlert } from "./code-change-alert.js";
 export { DomCodexSyncController } from "./codex-sync-panel.js";
+export { CodexWatchdogController } from "./codex-watchdog-controller.js";
 export {
   ConnectionLogController,
   ConnectionTestController,

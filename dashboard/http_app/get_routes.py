@@ -20,6 +20,7 @@ import statement_review
 from health import (
     claude_sdk_activity,
     claude_sdk_token_rate,
+    codex_watchdog_status,
     failures,
     frita,
     mazda_tools,
@@ -89,6 +90,9 @@ class GetRoutesMixin:
 
         if path == '/api/claude-sdk-token-rate':
             return self.json_response(claude_sdk_token_rate.token_rate_payload())
+
+        if path == '/api/codex-watchdog-status':
+            return self.json_response(codex_watchdog_status.status_payload())
 
         if path == '/api/router-agent':
             from router.classify import build_router_strategy

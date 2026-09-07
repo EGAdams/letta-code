@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/css/model-stats-agents.css?v=20260824sdk" />
   <link rel="stylesheet" href="/css/scanner-report-controls.css?v=20260903" />
   <link rel="stylesheet" href="/css/claude-sdk-activity.css?v=20260906b" />
+  <link rel="stylesheet" href="/css/codex-watchdog.css?v=20260907" />
 </head>
 <body class="startup-loading">
   <div id="startup-overlay" class="startup-overlay" role="dialog" aria-modal="true" aria-live="polite">
@@ -250,6 +251,18 @@
               <div id="claude-sdk-messages" class="claude-sdk-scroll-pane"></div>
             </section>
           </div>
+        </div>
+      </div>
+
+      <div class="codex-watchdog-panel" aria-live="polite">
+        <div class="claude-sdk-titlebar">Codex Watchdog</div>
+        <div class="claude-sdk-installer-body">
+          <p class="srv-note">Kills local, unattended Codex CLI sessions before they burn through quota. Reports on whichever box serves this dashboard.</p>
+          <div id="codex-watchdog-summary" class="codex-watchdog-summary">Checking&hellip;</div>
+          <div id="codex-watchdog-sessions" class="codex-watchdog-sessions"></div>
+          <div class="claude-sdk-dialog-title">Recent actions</div>
+          <div id="codex-watchdog-actions" class="codex-watchdog-actions"></div>
+          <div id="codex-watchdog-note" class="codex-watchdog-note"></div>
         </div>
       </div>
     </section>
