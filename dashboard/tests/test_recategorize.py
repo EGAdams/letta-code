@@ -42,11 +42,14 @@ def _write_report(tmp_path, cls):
 
 
 def _write_verified_row(report_dir, vendor_key, date_str, amount_str,
-                        cls='cat-uncategorized'):
+                        cls='cat-uncategorized', expense_id=None):
     report_dir.mkdir(parents=True, exist_ok=True)
+    expense_attr = (
+        f' data-expense-id="{expense_id}"' if expense_id is not None else '')
     (report_dir / 'report.html').write_text(
         f'<table><tbody>\n'
-        f'<tr class="{cls}" data-vendor-key="{vendor_key}" onclick="openCategoryPicker(this)">'
+        f'<tr class="{cls}"{expense_attr} data-vendor-key="{vendor_key}" '
+        f'onclick="openCategoryPicker(this)">'
         f'<td>DESC</td><td class="number">{amount_str}</td><td>{date_str}</td></tr>\n'
         f'</tbody></table>',
         encoding='utf-8',
@@ -574,21 +577,27 @@ def test_recategorize_expense_still_succeeds_when_the_journal_write_fails(monkey
 
 def test_recategorize_expense_no_report_path_finds_and_patches_matching_report(tmp_path):
     """The core New Records ask: categorizing with no report_path must still land
-    the color in the report.html the transaction actually belongs to, when found."""
+    the color by expense id even when overview/report amount formats differ."""
     report_dir = tmp_path / 'february' / 'platinum_year'
-    _write_verified_row(report_dir, 'kum_go_2608r_walker', '2025-04-03', '28.10')
+    _write_verified_row(
+        report_dir, 'kum_go_2608r_walker', '2025-04-03', '-$28.10', expense_id=990)
     url = '/rol_finances_reports/feb-2025/platinum_year/report.html'
     found = ReportRowMatch(report_path=url, label='Platinum Year',
                            row_vendor_key='kum_go_2608r_walker')
 
     expense = {'id': 990, 'id_light': 'kum_go_2608r_04_03_25_28_10',
-               'description': 'KUM&GO', 'category_id': None}
+               'description': 'KUM&GO', 'category_id': None,
+               'expense_role': 'STANDALONE'}
+
+    def find_by_id(_date, _amount, _vendor, expense_id):
+        return found if expense_id == 990 else None
 
     result = recategorize_expense(
         '2025-04-03', '28.10', 'kum_go_2608r', 'Travel & Vehicle',
+        expense_id=990,
         deps=_deps(_FakeConnection([expense]),
                    report_file_for_url=lambda _p: str(report_dir / 'report.html'),
-                   find_matching_report_row=lambda *_a, **_kw: found))
+                   find_matching_report_row=find_by_id))
 
     assert result['ok'] is True
     assert result['file_updated'] is True

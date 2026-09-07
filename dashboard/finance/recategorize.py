@@ -402,8 +402,11 @@ def recategorize_expense(date_str, signed_amount, vendor_key, reporting_category
         # often diverges, so a plain report_path lookup can't be done client-side).
         try:
             new_cls = _target_cls
-            report_expense_id = (
-                chosen['id'] if chosen.get('expense_role') == 'LINE_ITEM' else None)
+            # Every current report row carries data-expense-id, including
+            # STANDALONE rows. New Records shows an unsigned amount while a
+            # statement row shows a signed/currency-formatted amount, so the
+            # row id is the reliable identity for both roles.
+            report_expense_id = chosen['id']
             found = deps.find_matching_report_row(
                 date_str, signed_amount, vendor_key, report_expense_id) if new_cls else None
             if found:
