@@ -27,6 +27,20 @@ from contracts import StrictModel
 #: actively approving prompts in does not carry this flag.
 AUTONOMOUS_FLAG = '--dangerously-bypass-approvals-and-sandbox'
 
+#: `--cd <trainer dir>` appears verbatim in the cmd of every Codex session
+#: the Mazda Trainer (trainer/run_mazda_trainer.mjs) dispatches as its
+#: Claude-failure fallback. Found 2026-09-07: two concurrent scanner intakes
+#: each fell back to Codex at the same moment a third, unrelated autonomous
+#: Codex session was already running; MAX_CONCURRENT_AUTONOMOUS=1 terminated
+#: both Trainer sessions to make room for it, wiping both intakes with no
+#: report. Trainer already time-boxes and retry-limits its own Codex calls
+#: (MAX_ATTEMPTS, TRAINER_ATTEMPT_TIMEOUT_MS) and writes an emergency report
+#: if every attempt fails -- it is a supervised, bounded use of Codex, not
+#: the unattended-and-forgotten session this watchdog's concurrency cap
+#: exists to catch, so it should never compete for that single slot. It is
+#: still subject to the quota kill/warn checks below.
+TRAINER_CWD_MARKER = '/dashboard/trainer'
+
 #: Primary (5-hour) quota usage at which a session is killed outright.
 KILL_PRIMARY_PERCENT = 90.0
 
@@ -69,6 +83,11 @@ class CodexProcessGroup(StrictModel):
     @property
     def stopped(self) -> bool:
         return self.state.startswith('T')
+
+    @property
+    def supervised(self) -> bool:
+        """Dispatched by the Mazda Trainer, not a human or another agent."""
+        return TRAINER_CWD_MARKER in self.cmd
 
 
 class CodexUsageSample(StrictModel):

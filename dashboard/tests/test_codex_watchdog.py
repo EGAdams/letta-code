@@ -11,6 +11,7 @@ from __future__ import annotations
 from health.codex_watchdog import CodexWatchdog, evaluate
 from health.codex_watchdog_contracts import (
     AUTONOMOUS_FLAG,
+    TRAINER_CWD_MARKER,
     CodexProcessGroup,
     CodexUsageSample,
     WatchdogAction,
@@ -19,6 +20,8 @@ from health.codex_watchdog_store import InMemoryWatchdogActionStore
 
 WATCHED_CMD = 'node bin/codex'  # no AUTONOMOUS_FLAG: a person is watching it
 AUTO_CMD = f'node bin/codex {AUTONOMOUS_FLAG}'
+TRAINER_CMD = (f'codex exec {AUTONOMOUS_FLAG} --cd /home/adamsl/letta-code'
+               f'{TRAINER_CWD_MARKER} --output-last-message /tmp/x.txt -')
 
 
 def _group(pgid, cmd=AUTO_CMD, state='Sl+', elapsed=60.0, session_path=None):
@@ -114,6 +117,37 @@ def test_concurrency_limit_kills_only_the_newer_sessions():
     assert len(decisions) == 1
     assert decisions[0].action == 'terminate_concurrency'
     assert decisions[0].group.pgid == 2
+
+
+def test_trainer_session_is_exempt_from_the_concurrency_cap():
+    """2026-09-07: two Trainer-dispatched Codex fallbacks running alongside
+    one unrelated autonomous session must not cost the Trainer sessions the
+    single concurrency slot -- only a non-Trainer session ever should."""
+    human = _group(1, elapsed=200.0, session_path='/s/human.jsonl')
+    trainer_a = _group(2, cmd=TRAINER_CMD, elapsed=60.0, session_path=None)
+    trainer_b = _group(3, cmd=TRAINER_CMD, elapsed=30.0, session_path=None)
+    decisions, _ = evaluate(
+        [human, trainer_a, trainer_b], {}, {}, now=1000.0, max_concurrent=1)
+    assert decisions == []
+
+
+def test_two_human_sessions_still_cap_at_one_even_with_a_trainer_session_running():
+    older_human = _group(1, elapsed=200.0, session_path='/s/a.jsonl')
+    newer_human = _group(2, elapsed=50.0, session_path='/s/b.jsonl')
+    trainer = _group(3, cmd=TRAINER_CMD, elapsed=60.0, session_path=None)
+    decisions, _ = evaluate(
+        [older_human, newer_human, trainer], {}, {}, now=1000.0, max_concurrent=1)
+    assert len(decisions) == 1
+    assert decisions[0].action == 'terminate_concurrency'
+    assert decisions[0].group.pgid == 2
+
+
+def test_trainer_session_is_still_killed_for_excessive_quota_use():
+    trainer = _group(2, cmd=TRAINER_CMD, elapsed=60.0, session_path='/s/t.jsonl')
+    usage = {'/s/t.jsonl': _usage('/s/t.jsonl', 97.0)}
+    decisions, _ = evaluate([trainer], usage, {}, now=1000.0)
+    assert len(decisions) == 1
+    assert decisions[0].action == 'terminate_quota'
 
 
 def test_incident_shape_kills_stopped_and_quota_sessions_leaving_one_survivor():

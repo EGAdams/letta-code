@@ -101,13 +101,18 @@ def evaluate(
     killed_pgids = {d.group.pgid for d in decisions
                      if d.action.startswith('terminate')}
     survivors = [g for g in survivors if g.pgid not in killed_pgids]
-    if len(survivors) > max_concurrent:
-        oldest_first = sorted(survivors, key=lambda g: -g.elapsed_seconds)
+    # Trainer-dispatched sessions (see TRAINER_CWD_MARKER) never count toward
+    # or lose the concurrency slot -- Trainer already bounds and retries its
+    # own Codex calls, so it is not the unattended-session risk this cap
+    # exists for, and must not compete with a human's session for it.
+    concurrency_candidates = [g for g in survivors if not g.supervised]
+    if len(concurrency_candidates) > max_concurrent:
+        oldest_first = sorted(concurrency_candidates, key=lambda g: -g.elapsed_seconds)
         for group in oldest_first[max_concurrent:]:
             decisions.append(WatchdogDecision(
                 group=group,
                 action='terminate_concurrency',
-                reason=(f'{len(survivors)} concurrent autonomous Codex '
+                reason=(f'{len(concurrency_candidates)} concurrent autonomous Codex '
                         f'sessions running (limit {max_concurrent})'),
             ))
 

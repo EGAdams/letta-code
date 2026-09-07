@@ -169,8 +169,15 @@ async function runClaudeAttempt(prompt, timeoutMs, args, completionObserved) {
 
 async function runCodexAttempt(prompt, timeoutMs, attempt, args) {
   const summaryPath = `/tmp/mazda_trainer_summary_${process.pid}_${attempt}.txt`;
+  // 'setsid' puts codex in its own process group, separate from this Trainer
+  // process's. Found 2026-09-07: the dashboard's codex-watchdog SIGKILLs
+  // "the codex process group" (os.killpg) whenever more than one autonomous
+  // codex session runs at once anywhere on the box. Without setsid, codex
+  // inherited THIS process's group, so that killpg took the whole Trainer
+  // run down with it -- silently, no report, no error, no emergency report --
+  // instead of just failing the one attempt the way a normal codex crash does.
   const proc = Bun.spawn([
-    CODEX_BIN, 'exec', '--ephemeral', '--skip-git-repo-check',
+    'setsid', CODEX_BIN, 'exec', '--ephemeral', '--skip-git-repo-check',
     '--dangerously-bypass-approvals-and-sandbox', '--color', 'never',
     '--model', TRAINER_CODEX_MODEL, '--cd', HERE,
     '--output-last-message', summaryPath, '-',
@@ -195,7 +202,9 @@ async function runCodexAttempt(prompt, timeoutMs, attempt, args) {
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
-    proc.kill();
+    // setsid makes proc.pid the new group's pgid too, so -pid signals the
+    // whole group (codex + any wrapper it spawns), not just the setsid shim.
+    try { process.kill(-proc.pid, 'SIGKILL'); } catch { proc.kill(); }
   }, timeoutMs);
   const exitCode = await proc.exited;
   clearTimeout(timer);
