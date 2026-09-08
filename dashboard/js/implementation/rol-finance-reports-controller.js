@@ -75,6 +75,8 @@ export class RolFinanceReportsController {
       { key: "mar-2025", label: "March 2025" },
       { key: "apr-2025", label: "April 2025" },
       { key: "may-2025", label: "May 2025" },
+      { key: "jun-2025", label: "June 2025" },
+      { key: "jul-2025", label: "July 2025" },
     ],
     setInterval: _setInterval = null,
     clearInterval: _clearInterval = null,

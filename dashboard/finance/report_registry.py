@@ -178,6 +178,10 @@ REPORT_MONTHS: tuple[ReportMonth, ...] = (
                 start='2025-04-01', end='2025-04-30'),
     ReportMonth(key='may-2025', folder='may',
                 start='2025-05-01', end='2025-05-31'),
+    ReportMonth(key='jun-2025', folder='june',
+                start='2025-06-01', end='2025-06-30'),
+    ReportMonth(key='jul-2025', folder='july',
+                start='2025-07-01', end='2025-07-31'),
 )
 
 DEFAULT_MONTH_KEY = 'jan-2025'
