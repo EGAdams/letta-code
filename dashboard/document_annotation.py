@@ -31,7 +31,7 @@ from document_annotation_contracts import (
     ImageRegionMatch,
 )
 
-ANNOTATION_SCHEMA_VERSION = 23
+ANNOTATION_SCHEMA_VERSION = 25
 
 
 def _valid_image_region(
@@ -1182,6 +1182,63 @@ class PdfExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
     def supports(self, source_path: str) -> bool:
         return Path(source_path).suffix.lower() == ".pdf"
 
+    @staticmethod
+    def _check_image_region(document, evidence: ExpenseEvidence):
+        """Locate one cleared check by its printed metadata row.
+
+        Fifth Third check-image PDFs place two check reproductions side by side
+        and print ``date / check number / amount`` directly beneath each one.
+        The PDF text layer exposes only that metadata, so use its coordinates to
+        select the check rectangle immediately above it. Requiring all three
+        fields keeps repeated dates and repeated amounts unambiguous.
+        """
+        if not evidence.reference_terms:
+            return None
+        amount = _amount_decimal(evidence.amount)
+        reference_terms = {str(term).strip() for term in evidence.reference_terms if term}
+        for page_index, page in enumerate(document):
+            words = list(page.get_text("words"))
+            if not words:
+                continue
+            tolerance = max(
+                3.0,
+                statistics.median(max(1.0, word[3] - word[1]) for word in words) * 0.8,
+            )
+            for amount_word in words:
+                if not _amount_matches(str(amount_word[4]), amount):
+                    continue
+                center_y = (amount_word[1] + amount_word[3]) / 2
+                row = [
+                    word for word in words
+                    if abs(((word[1] + word[3]) / 2) - center_y) <= tolerance
+                ]
+                column_midpoint = page.rect.width / 2
+                left_column = amount_word[0] < column_midpoint
+                column_row = [
+                    word for word in row
+                    if (word[0] < column_midpoint) == left_column
+                ]
+                if not any(
+                    _date_matches(str(word[4]), evidence.expense_date)
+                    for word in column_row
+                ):
+                    continue
+                if not any(
+                    str(word[4]).strip() in reference_terms for word in column_row
+                ):
+                    continue
+                x0 = page.rect.x0 + 24 if left_column else column_midpoint + 8
+                x1 = column_midpoint - 8 if left_column else page.rect.x1 - 24
+                metadata_top = min(word[1] for word in row)
+                rect = type(page.rect)(
+                    x0,
+                    max(page.rect.y0 + 72, metadata_top - 92),
+                    x1,
+                    min(page.rect.y1, metadata_top + 14),
+                )
+                return page_index, rect
+        return None
+
     def annotate(
         self,
         source_path: str,
@@ -1196,6 +1253,15 @@ class PdfExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
         document = fitz.open(source_path)
         candidates: list[tuple[str, tuple[int, object]]] = []
         try:
+            check_image_region = self._check_image_region(document, evidence)
+            if check_image_region is not None:
+                page_index, rect = check_image_region
+                document[page_index].draw_rect(
+                    rect, color=(1, 0, 0), width=3, overlay=True
+                )
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                document.save(output_path, garbage=3, deflate=True)
+                return AnnotationResult(output_path, True, page=page_index + 1)
             for page_index, page in enumerate(document):
                 page_words = list(page.get_text("words"))
                 amount = _amount_decimal(evidence.amount)

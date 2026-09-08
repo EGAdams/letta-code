@@ -4431,6 +4431,14 @@ def _expense_annotation_evidence(chosen, document_type=''):
             _resolve_local_supporting_document(
                 chosen.get('document_url'), 'source') or ''
         )
+    reference_terms = ()
+    if document_type == 'check_image':
+        reference_terms = tuple(
+            re.findall(
+                r'\bcheck\s*#?\s*(\d{3,})\b',
+                str(chosen.get('description') or ''), re.I,
+            )
+        )
     return ExpenseEvidence(
         expense_id=int(chosen['id']),
         expense_date=str(chosen.get('expense_date') or ''),
@@ -4438,6 +4446,7 @@ def _expense_annotation_evidence(chosen, document_type=''):
         description=str(chosen.get('description') or ''),
         vendor_key=_vendor_prefix(chosen.get('id_light')),
         related_document_path=related_document_path,
+        reference_terms=reference_terms,
     )
 
 
@@ -4584,11 +4593,30 @@ def _report_scanned_statement_reference(report_path):
     return _supporting_document_pages().scanned_statement_reference(report_path)
 
 
+def _check_image_document_path(report_path):
+    """Return the statement's separate cleared-check image PDF, if present."""
+    source_path = _source_document_path(report_path)
+    if not source_path or not os.path.isfile(source_path):
+        return ''
+    stem, extension = os.path.splitext(source_path)
+    if extension.lower() != '.pdf' or stem.lower().endswith('_images'):
+        return ''
+    candidate = f'{stem}_images{extension}'
+    return candidate if os.path.isfile(candidate) else ''
+
+
 def _slot_reference(chosen, kind, report_path=''):
     """The reference to offer for one supporting-document slot."""
     slot = SUPPORTING_DOCUMENT_CATALOG.slot_for_kind(kind)
     if slot is None:
         return ''
+    if kind == 'check_image':
+        chosen = chosen or {}
+        if not re.search(
+                r'\bcheck\s*#?\s*\d{3,}\b',
+                str(chosen.get('description') or ''), re.I):
+            return ''
+        return _check_image_document_path(report_path)
     if kind == 'source':
         return _source_document_reference(chosen, report_path)
     return slot_reference(

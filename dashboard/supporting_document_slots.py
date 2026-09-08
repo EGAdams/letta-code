@@ -46,6 +46,7 @@ class SupportingDocumentCatalog:
     _slots = (
         SupportingDocumentSlot("receipt", "receipt_url", "View Receipt"),
         SupportingDocumentSlot("source", "document_url", "View Source Document"),
+        SupportingDocumentSlot("check_image", "", "View Check Image"),
         SupportingDocumentSlot(
             "scanned_statement",
             "scanned_statement_url",

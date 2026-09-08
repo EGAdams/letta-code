@@ -152,9 +152,61 @@ def test_picker_has_two_rows_and_no_receipt_fallback():
     assert [item["label"] for item in descriptors] == [
         "View Receipt",
         "View Source Document",
+        "View Check Image",
         "View Scanned Statement",
         "View Mom’s Ledger",
     ]
+
+
+def test_check_image_descriptor_uses_companion_pdf_for_check_rows(monkeypatch):
+    chosen = {
+        "id": 793,
+        "description": "Check 3987",
+        "expense_date": "2025-03-18",
+        "amount": "80.00",
+        "receipt_url": "",
+        "document_url": "",
+        "scanned_statement_url": "",
+        "moms_ledger": "",
+    }
+    companion = "/tmp/fifth_third_bank_5938_march_images.pdf"
+    monkeypatch.setattr(server, "_check_image_document_path", lambda path: companion)
+    monkeypatch.setattr(
+        server,
+        "_resolve_local_supporting_document",
+        lambda reference, kind: reference if reference == companion else None,
+    )
+
+    descriptors = server._supporting_document_descriptors(chosen, "/reports/report.html")
+    check_image = next(item for item in descriptors if item["type"] == "check_image")
+
+    assert check_image == {
+        "type": "check_image",
+        "label": "View Check Image",
+        "field": "",
+        "available": True,
+    }
+
+
+def test_check_image_descriptor_is_unavailable_for_non_check_rows(monkeypatch):
+    chosen = {
+        "id": 769,
+        "description": "PURCHASE AT APPLEBEES",
+        "expense_date": "2025-02-28",
+        "amount": "40.88",
+        "receipt_url": "",
+        "document_url": "",
+        "scanned_statement_url": "",
+        "moms_ledger": "",
+    }
+    monkeypatch.setattr(
+        server, "_check_image_document_path", lambda path: "/tmp/checks.pdf"
+    )
+
+    descriptors = server._supporting_document_descriptors(chosen, "/reports/report.html")
+    check_image = next(item for item in descriptors if item["type"] == "check_image")
+
+    assert check_image["available"] is False
 
 
 def test_unusable_document_references_are_not_available():
@@ -681,7 +733,8 @@ def test_scanned_statement_never_appears_as_downloaded_source(
     )
 
     assert documents[1]["available"] is False
-    assert documents[2]["available"] is True
+    assert documents[2]["available"] is False
+    assert documents[3]["available"] is True
 
 
 def test_last_freezer_scan_appears_only_as_scanned_statement(
@@ -708,7 +761,8 @@ def test_last_freezer_scan_appears_only_as_scanned_statement(
     )
 
     assert documents[1]["available"] is False
-    assert documents[2]["available"] is True
+    assert documents[2]["available"] is False
+    assert documents[3]["available"] is True
 
 
 def test_stored_document_url_still_wins_while_it_resolves(tmp_path, monkeypatch):

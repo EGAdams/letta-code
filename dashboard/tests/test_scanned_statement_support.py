@@ -6,6 +6,7 @@ def test_catalog_exposes_scanned_statement_between_source_and_moms_ledger():
     assert [slot.kind for slot in SUPPORTING_DOCUMENT_CATALOG.slots()] == [
         "receipt",
         "source",
+        "check_image",
         "scanned_statement",
         "moms_ledger",
     ]

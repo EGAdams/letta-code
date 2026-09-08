@@ -44,6 +44,45 @@ class FakeAnnotator(IExpenseDocumentAnnotator):
         return AnnotationResult(output_path, True, page=2)
 
 
+def test_pdf_check_image_boxes_the_matching_check_column(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    source = tmp_path / "statement_images.pdf"
+    output = tmp_path / "annotated.pdf"
+    document = fitz.open()
+    page = document.new_page(width=612, height=792)
+    # Two checks share one metadata row; the requested one is on the right.
+    page.insert_text((60, 268), "3/18/2025")
+    page.insert_text((158, 268), "3987")
+    page.insert_text((250, 268), "$80.00")
+    page.insert_text((360, 268), "3/14/2025")
+    page.insert_text((458, 268), "4068")
+    page.insert_text((535, 268), "$400.00")
+    document.save(source)
+    document.close()
+
+    result = PdfExpenseDocumentAnnotator().annotate(
+        str(source),
+        str(output),
+        ExpenseEvidence(
+            expense_id=790,
+            expense_date="2025-03-14",
+            amount="400.00",
+            description="Check 4068",
+            reference_terms=("4068",),
+        ),
+    )
+
+    assert result.highlighted is True
+    assert result.page == 1
+    annotated = fitz.open(output)
+    drawings = annotated[0].get_drawings()
+    assert drawings
+    box = drawings[-1]["rect"]
+    assert box.x0 > annotated[0].rect.width / 2
+    assert box.y1 >= 268
+    annotated.close()
+
+
 def evidence():
     return ExpenseEvidence(
         expense_id=42,
