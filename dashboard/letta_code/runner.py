@@ -75,7 +75,7 @@ def _letta_code_command():
 
 
 def run_letta_code_message(agent_id, prompt, letta_id_for,
-                           timeout=900, conversation_id=None):
+                           timeout=1770, conversation_id=None):
     """Run one Letta Code turn and expose only its final JSON result.
 
     Without `conversation_id`, headless mode's default behavior creates a

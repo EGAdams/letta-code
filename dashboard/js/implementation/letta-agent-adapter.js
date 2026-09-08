@@ -12,10 +12,11 @@ import {
  * It exists to move three transport facts out of UI code, where they have no
  * business being:
  *
- *  - **the 930s timeout.** `run_letta_code_message` gets a 900s server budget
- *    because a real Mazda turn can run for minutes; the client default is 30s,
- *    so without the override the browser aborts an answer the backend goes on
- *    to produce. Every caller currently has to remember that number.
+ *  - **the 1800s timeout.** `run_letta_code_message` gets a 1770s server budget
+ *    because a real Mazda turn (e.g. a report-repair pass) can run 15+ minutes;
+ *    the client default is 30s, so without the override the browser aborts an
+ *    answer the backend goes on to produce. Every caller currently has to
+ *    remember that number.
  *  - **conversation resume.** The reply carries `run.conversation_id`, and the
  *    next turn must send it back or the CLI silently starts a fresh session.
  *  - **the reply shape.** `{ ok, reply }`, with `ok: false` carrying `error`.
@@ -27,7 +28,7 @@ import {
  */
 
 /** The server-side budget for one turn, plus headroom. */
-export const LETTA_TURN_TIMEOUT_MS = 930000;
+export const LETTA_TURN_TIMEOUT_MS = 1800000;
 
 export class LettaAgentAdapter extends ConversationAgent {
   /**

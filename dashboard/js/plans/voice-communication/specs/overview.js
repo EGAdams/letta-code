@@ -109,7 +109,7 @@ Still only a plan
       "Generation fencing exists and is tested, and protects nothing yet: no renderer holds a session, so a late reply from a superseded turn is still spoken. Barge-in needs that adoption plus one interrupt() call from ContinuousListener.",
       "The IConversationAgent port exists with two adapters, but renderers still call POST /api/letta-code-message directly, so nothing in production benefits from it yet.",
       "Cancellation is delivery-side only — the endpoint has no server-side cancel, so a cancelled Letta call still runs to completion.",
-      "The Letta adapter is request/response only — no streaming, so replies arrive in one lump after up to 900 seconds.",
+      "The Letta adapter is request/response only — no streaming, so replies arrive in one lump after up to 1770 seconds.",
       "Every finalized speech fragment costs one 3-6s LLM round-trip to the completeness detector. That, not model choice, is the dominant latency in the loop — see the Note Command Channel tab.",
     ],
   },
@@ -286,7 +286,7 @@ Still only a plan
     },
     {
       title: "Cancellation here means 'do not deliver', not 'stop working'.",
-      body: "/api/letta-code-message has no server-side cancel. LettaAgentAdapter.cancel() suppresses the result and nothing more — the Letta run continues to completion and still costs its tokens and its 900 seconds. That is a real guarantee and a useful one, but do not build a UI that promises the user it stopped the agent.",
+      body: "/api/letta-code-message has no server-side cancel. LettaAgentAdapter.cancel() suppresses the result and nothing more — the Letta run continues to completion and still costs its tokens and its 1770 seconds. That is a real guarantee and a useful one, but do not build a UI that promises the user it stopped the agent.",
     },
     {
       title: "Adoption moves state; it does not just add a constructor call.",
@@ -299,7 +299,7 @@ Still only a plan
   ],
   nextWork: [
     "READ FIRST — the objects below all exist and are tested; none of them has a caller. Do the steps in order. Each one names the file to edit and the assertion that means you are done. Do not start step 2 before step 1 is live, because step 1 is the one that proves the port survives contact with a real renderer.",
-    "1 · Adopt the port in InputOptionsRenderer.send() (js/implementation/detail-renderers.js — search for the 930000 literal, it is the only one). Construct a LettaAgentAdapter in js/boot/agent-detail-renderers.js and inject it, then delete send()'s inline fetch, its 930000 timeout literal, and its msi-conv-<id> localStorage bookkeeping — the adapter already owns all three. DONE WHEN: js/tests/detail-renderers.test.js still passes with its HTTP stub replaced by a FakeConversationAgent, and the Input Options tab still answers in a browser.",
+    "1 · Adopt the port in InputOptionsRenderer.send() (js/implementation/detail-renderers.js — search for the 1800000 literal, it is the only one). Construct a LettaAgentAdapter in js/boot/agent-detail-renderers.js and inject it, then delete send()'s inline fetch, its 1800000 timeout literal, and its msi-conv-<id> localStorage bookkeeping — the adapter already owns all three. DONE WHEN: js/tests/detail-renderers.test.js still passes with its HTTP stub replaced by a FakeConversationAgent, and the Input Options tab still answers in a browser.",
     "2 · Give that renderer a VoiceSession and gate its speech. Construct the session in the same boot module, call beginTurn() before submit and completeTurn() after, and replace `this._speech.speak(composeSpokenText(replies), ...)` with a SpokenOutputPolicy verdict. DONE WHEN: a renderer test asserts that a reply arriving after session.interrupt() is never handed to the synthesizer — the VoiceSession unit test's headline case, one layer up.",
     "3 · Wire barge-in. ContinuousListener already reports speech start; have it call session.interrupt() when speech begins while the session is SPEAKING. This is the payoff the whole first slice was for, and it is unreachable until steps 1 and 2 land. DONE WHEN: talking over an answer stops it, live.",
     "4 · Repeat for AgentsRouterRenderer, then ChatDetailRenderer. ChatDetailRenderer needs a SECOND adapter, not the same one — it POSTs /api/test and gets back { replies: [{type, text}] }, a different shape. Writing that adapter is the real test of the port: map each reply's `type` onto an AgentEvent kind and let SPEAKABLE_KINDS decide what is spoken, instead of composeSpokenText's regex. DONE WHEN: composeSpokenText has no callers and is deleted.",

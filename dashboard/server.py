@@ -7474,7 +7474,7 @@ from letta_code.runner import run_letta_code_message as _run_letta_code_message 
 from terminal.pty_session import _session_pids  # noqa: E402
 
 
-def run_letta_code_message(agent_id, prompt, timeout=900, conversation_id=None):
+def run_letta_code_message(agent_id, prompt, timeout=1770, conversation_id=None):
     """Composition root for the headless runner: this module's id resolver.
 
     The lambda keeps the binding late. Handing `letta_id_for` over directly

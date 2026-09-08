@@ -57,7 +57,7 @@ describe("LettaAgentAdapter — the call the renderers used to make by hand", ()
       conversation_id: null,
     });
     expect(http.posts[0].opts).toEqual({ timeout: LETTA_TURN_TIMEOUT_MS });
-    expect(LETTA_TURN_TIMEOUT_MS).toBe(930000);
+    expect(LETTA_TURN_TIMEOUT_MS).toBe(1800000);
   });
 
   test("a reply becomes assistant text then terminal", async () => {

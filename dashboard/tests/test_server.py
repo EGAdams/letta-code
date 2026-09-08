@@ -1244,7 +1244,7 @@ def test_run_letta_code_message_returns_only_final_result(monkeypatch):
         '/home/test/.bun/bin/bun', 'run', 'dev', '--']
     assert '--output-format' in seen['argv'] and 'json' in seen['argv']
     assert seen['cwd'] == server.REPO_ROOT
-    assert seen['timeout'] == 900
+    assert seen['timeout'] == 1770
     assert seen['env']['PATH'].split(server.os.pathsep)[0] == '/home/test/.bun/bin'
     # Headless auto-denies gated tools, so without a raised permission mode the
     # agent can never apply an edit it says it made.

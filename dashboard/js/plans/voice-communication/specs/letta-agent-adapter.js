@@ -28,7 +28,7 @@ LettaAgentAdapter   js/implementation/letta-agent-adapter.js   (shipped)
                                  assistant_text, then terminal
   cancel(generationId)        -> void   delivery-side only
 
-  LETTA_TURN_TIMEOUT_MS = 930000   the 900s server budget, plus headroom
+  LETTA_TURN_TIMEOUT_MS = 1800000   the 1770s server budget, plus headroom
   conversation resume: storage["msi-conv-<agent>"], per agent`,
     note: "send_message hardcodes stream:false. Letta v0.16.7 on this server has streaming and background mode broken, which is why — but the limitation is currently invisible to callers.",
   },

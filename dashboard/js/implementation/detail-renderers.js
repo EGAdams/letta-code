@@ -1267,16 +1267,19 @@ export class InputOptionsRenderer extends DetailRenderer {
       const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
       this._onStatus(id, "active");
       try {
-        // The server gives this endpoint a 900s budget (run_letta_code_message)
-        // because a real Mazda turn can run for minutes. The client default is
-        // 30s - without this override the browser aborts and reports a timeout
-        // for an answer the backend goes on to produce successfully.
+        // The server gives this endpoint a 1770s budget (run_letta_code_message)
+        // because a real Mazda turn -- e.g. a report-repair pass -- can run for
+        // 15+ minutes. 900s used to be the ceiling here and a real report-repair
+        // request blew through it (504 "Mazda took too long to answer" logged
+        // 2026-09-08 16:28 after exactly 900s). The client default is 30s -
+        // without this override the browser aborts and reports a timeout for an
+        // answer the backend goes on to produce successfully.
         const convKey = `msi-conv-${id}`;
         const conversationId = this._storage?.getItem?.(convKey) || null;
         const r = await this._http.postJSON(
           "/api/letta-code-message",
           { agent: id, text, conversation_id: conversationId },
-          { timeout: 930000 },
+          { timeout: 1800000 },
         );
         if (!r?.ok || !r.reply)
           throw new Error(r?.error || "Mazda returned no answer.");
