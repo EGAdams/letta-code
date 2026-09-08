@@ -344,8 +344,10 @@ export class RolFinanceReportsController {
   }
 
   /**
-   * Color each month tab green (caught up) or yellow (its most-recently-scanned
-   * expense is still uncategorized), from /api/rol-finance-month-status.
+   * Color each month tab from /api/rol-finance-month-status: red if any of
+   * its report.html cards is missing or fails verification (outranks the
+   * signal below), else yellow if its most-recently-scanned expense is
+   * still uncategorized, else green (caught up).
    */
   async _refreshMonthStatus() {
     let data;
@@ -361,8 +363,13 @@ export class RolFinanceReportsController {
     const byKey = new Map(data.months.map((m) => [m.month_key, m]));
     this._nav.querySelectorAll(".tab.month-tab").forEach((t) => {
       const m = byKey.get(t.dataset.monthKey);
-      t.classList.remove("status-green", "status-yellow");
+      t.classList.remove("status-green", "status-yellow", "report-missing");
       if (!m) return;
+      if (m.status === "red") {
+        t.classList.add("report-missing");
+        t.title = `${m.broken_report_label || "A report"} needs attention`;
+        return;
+      }
       t.classList.add(m.status === "yellow" ? "status-yellow" : "status-green");
       t.title =
         m.status === "yellow"

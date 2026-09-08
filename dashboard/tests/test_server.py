@@ -4090,6 +4090,7 @@ def test_fetch_month_status_yellow_when_newest_scan_uncategorized(monkeypatch):
 
     monkeypatch.setattr(server, '_rol_get_connection',
                         lambda: _RoutingConnection(router))
+    monkeypatch.setattr(server, '_month_broken_report_label', lambda month_key: None)
 
     by = {m['month_key']: m for m in server._fetch_month_status()}
     assert by['jan-2025']['status'] == 'green'
@@ -4123,9 +4124,30 @@ def test_fetch_month_status_green_when_no_expenses(monkeypatch):
 
     monkeypatch.setattr(server, '_rol_get_connection',
                         lambda: _RoutingConnection(router))
+    monkeypatch.setattr(server, '_month_broken_report_label', lambda month_key: None)
     for m in server._fetch_month_status():
         assert m['status'] == 'green'
         assert m['most_recent_unfinished'] is None
+        assert m['broken_report_label'] is None
+
+
+def test_fetch_month_status_red_when_a_report_card_is_broken(monkeypatch):
+    # Even a fully-categorized month (would otherwise be green) turns red
+    # when one of its report.html cards is missing or fails verification —
+    # a document problem outranks the expense-based signal.
+    def router(sql, _params):
+        return {'n': 0} if 'COUNT(' in sql else None
+
+    monkeypatch.setattr(server, '_rol_get_connection',
+                        lambda: _RoutingConnection(router))
+    monkeypatch.setattr(
+        server, '_month_broken_report_label',
+        lambda month_key: 'Bank 5938 PDF 1' if month_key == 'jun-2025' else None)
+    by = {m['month_key']: m for m in server._fetch_month_status()}
+    assert by['jun-2025']['status'] == 'red'
+    assert by['jun-2025']['broken_report_label'] == 'Bank 5938 PDF 1'
+    assert by['jan-2025']['status'] == 'green'
+    assert by['jan-2025']['broken_report_label'] is None
 
 
 # ── Web terminal (Input Options → letta-code terminal) ────────────────────────

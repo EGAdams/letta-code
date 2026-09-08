@@ -482,6 +482,23 @@ def _rol_reports_base_dir(month_key):
     return os.path.join(ROL_FINANCES_REPORTS_PARENT, sub)
 
 
+def _month_broken_report_label(month_key):
+    """Label of the first report in this month whose file is missing or fails
+    verification, or None if every report card is healthy. Backs the month
+    tab's red state: the uncategorized-expense signal in _fetch_month_status
+    says nothing about whether the month's report.html files are correct, so
+    a month with all-green expenses could still hide a red report tab."""
+    base_dir = _rol_reports_base_dir(month_key)
+    for r in _rol_finance_reports_for_month(month_key):
+        report_file = os.path.join(base_dir, r['dir'], 'report.html')
+        status = (
+            _classify_report_status(report_file)
+            if os.path.isfile(report_file) else 'missing')
+        if status in ('missing', 'fail'):
+            return r['label']
+    return None
+
+
 def _rol_finance_recent_reports(limit=5):
     """Gather every existing report.html across all months, newest-first, with
     the most recently processed shown as 'latest' and the top `limit` entries
@@ -5371,10 +5388,12 @@ def _fetch_recent_scans(limit=5, month_key=None):
 
 
 def _fetch_month_status():
-    """Per-month green/yellow status for the report month tabs. A month is
-    'yellow' (work to do) when its most-recently-scanned expense is still
-    uncategorized, else 'green'. Keys off the most-recent scan to match the
-    spec: the tab reacts to the newest document's unfinished business."""
+    """Per-month status for the report month tabs. 'red' when any of the
+    month's report.html cards is missing or fails verification — a document
+    problem outranks the expense signal below. Otherwise 'yellow' (work to
+    do) when the most-recently-scanned expense is still uncategorized, else
+    'green'. The yellow/green check keys off the most-recent scan to match
+    the spec: the tab reacts to the newest document's unfinished business."""
     result = []
     with _rol_get_connection() as cnx:
         with cnx.cursor() as cur:
@@ -5410,10 +5429,14 @@ def _fetch_month_status():
                         'amount': str(newest['amount']),
                         'uncategorized': unfinished,
                     }
+                broken_report_label = _month_broken_report_label(month_key)
+                if broken_report_label:
+                    status = 'red'
                 result.append({
                     'month_key': month_key,
                     'status': status,
                     'uncategorized_count': uncat,
+                    'broken_report_label': broken_report_label,
                     'most_recent_unfinished': most_recent,
                 })
     return result

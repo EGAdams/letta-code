@@ -1392,6 +1392,22 @@ summary {
 .tab.month-tab.active.status-yellow {
   box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.55);
 }
+/* Red = at least one report.html card in the month is missing or failed
+   verification. Takes priority over the yellow/green expense-based classes
+   above (JS clears them before adding this one), mirroring the document-tab
+   report-missing color below. */
+.tab.month-tab.report-missing {
+  background: #e53935;
+  color: #fff;
+  font-weight: 700;
+}
+.tab.month-tab.report-missing:hover,
+.tab.month-tab.report-missing:focus-visible {
+  background: #c62828;
+}
+.tab.month-tab.active.report-missing {
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.55);
+}
 
 /* Document-level completion states mirror the month colors so individual report
    tabs read consistently with the month summary row. Receipt-only progress stays

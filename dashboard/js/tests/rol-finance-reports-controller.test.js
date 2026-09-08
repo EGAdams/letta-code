@@ -865,6 +865,36 @@ describe("RolFinanceReportsController", () => {
     expect(feb.title).toContain("3");
   });
 
+  test("refreshStatus colors a month tab red when one of its reports is broken", async () => {
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-month-status")) {
+        return {
+          months: [
+            { month_key: "jan-2025", status: "green", uncategorized_count: 0 },
+            {
+              month_key: "jun-2025",
+              status: "red",
+              uncategorized_count: 0,
+              broken_report_label: "Bank 5938 PDF 1",
+            },
+          ],
+        };
+      }
+      if (url.startsWith("/api/rol-finance-recent-scans")) {
+        return { rows: [], queue_total: 0, limit: 5 };
+      }
+      return []; // report list
+    });
+    await ctx.rf.openReports();
+    await ctx.rf.refreshStatus();
+
+    const jun = ctx.nav.querySelector('[data-month-key="jun-2025"]');
+    expect(jun.classList.contains("report-missing")).toBe(true);
+    expect(jun.classList.contains("status-yellow")).toBe(false);
+    expect(jun.classList.contains("status-green")).toBe(false);
+    expect(jun.title).toContain("Bank 5938 PDF 1");
+  });
+
   test("Document Status lists the expense reasons that make a month yellow", async () => {
     const reports = [
       {
