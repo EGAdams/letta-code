@@ -300,6 +300,7 @@ function inputOptionsSetup({
   voiceInfo,
   storage,
   conversationIds,
+  speechOverride,
 } = {}) {
   const doc = new FakeDocument();
   const container = doc.createElement("section");
@@ -349,12 +350,16 @@ function inputOptionsSetup({
   const speech = {
     supported: true,
     cancel: () => {},
-    speak: (t, name) => spoken.push({ t, name }),
+    speak: (t, name) => {
+      spoken.push({ t, name });
+      return { text: t, pending: Promise.resolve("edge-tts") };
+    },
     setVoice: (voice, agentName) => {
       if (voice) selectedVoices.set(agentName, voice);
       else selectedVoices.delete(agentName);
     },
     getVoice: (agentName) => selectedVoices.get(agentName) || null,
+    ...speechOverride,
   };
   const statuses = [];
   let recorder;
@@ -456,6 +461,22 @@ describe("InputOptionsRenderer (Strategy)", () => {
     expect(input.value).toBe("");
     const out = ctx.container.querySelector(".msi-turn").innerHTML;
     expect(out).toContain('<span class="hdr">user:</span> hello there');
+  });
+
+  test("Send surfaces a blocked/failed voice playback instead of staying silently mute", async () => {
+    const ctx = inputOptionsSetup({
+      speechOverride: {
+        speak: () => ({ text: "hi", pending: Promise.resolve(null) }),
+        lastError: "NotAllowedError: play() failed",
+      },
+    });
+    ctx.container.querySelector(".am-test-input").value = "hello there";
+    await ctx.api.send();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ctx.container.querySelector(".msi-status").textContent).toContain(
+      "voice playback failed: NotAllowedError: play() failed",
+    );
   });
 
   test("Send appends each turn instead of replacing earlier ones", async () => {

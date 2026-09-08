@@ -28,6 +28,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 
 from hosts import LETTA_BASE_URL
@@ -36,6 +37,15 @@ from paths import LETTA_CODE_BUN, REPO_ROOT
 
 _LETTA_CODE_MAX_PROMPT_CHARS = 20000
 _LETTA_CODE_FORBIDDEN_INPUT_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+
+
+class ConversationBusyError(RuntimeError):
+    """Another request is already being processed for this conversation.
+
+    Expected/benign -- happens when a follow-up is sent before the previous
+    turn's reply has come back. Callers should surface this as a clear,
+    short message rather than the generic Letta Code failure path.
+    """
 
 
 def validate_letta_code_prompt(value):
@@ -111,18 +121,49 @@ def run_letta_code_message(agent_id, prompt, letta_id_for,
     # acceptEdits auto-allows the edit tools + Bash and nothing else - narrower
     # than --yolo/bypassPermissions, which this web-reachable endpoint should
     # not hand out.
-    proc = subprocess.run(
+    # `bun run dev` forks a further `bun ... run src/index.ts` child rather
+    # than exec'ing into it, so a plain subprocess.run(timeout=...) only
+    # kills that outer wrapper on timeout -- the real worker underneath
+    # survives as an orphan, reparented to init, and keeps running (still
+    # holding the Letta conversation "busy") indefinitely. Confirmed live
+    # 2026-09-08: a timed-out run's worker was still going 30+ minutes after
+    # the dashboard had already told the caller it timed out, CONFLICT-ing
+    # every later message into that same conversation. start_new_session=True
+    # puts the whole tree in its own process group so a timeout can reap all
+    # of it with killpg, not just the one PID subprocess.run knows about.
+    proc = subprocess.Popen(
         [*command, *session_args, '--prompt', clean_prompt,
          '--output-format', 'json', '--memfs-startup', 'skip',
          '--permission-mode', 'acceptEdits'],
-        cwd=REPO_ROOT, text=True, capture_output=True, timeout=timeout,
+        cwd=REPO_ROOT, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True,
         env={**os.environ, 'PATH': child_path, 'LETTA_BASE_URL': LETTA_BASE_URL},
     )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        proc.communicate()  # reap the group; this run is being abandoned
+        raise
     if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or 'Letta Code failed').strip()
+        detail = (stderr or stdout or 'Letta Code failed').strip()
+        # A second message sent into a conversation while the first is still
+        # running (e.g. a follow-up typed before the previous reply lands)
+        # gets this exact CONFLICT from the Letta server. It is not a real
+        # failure, but the raw CLI output around it is dominated by unrelated
+        # skill-listing noise -- `detail[-1000:]` below keeps the true error
+        # near its end, and the dashboard's HTTP error unwrap then shows only
+        # the first 120 chars of THAT, which lands back on the noise instead
+        # of the one sentence that actually explains what happened. Replace
+        # it with a clean, specific message instead of raising the raw dump.
+        if 'CONFLICT' in detail and 'currently being processed for this conversation' in detail:
+            raise ConversationBusyError(
+                "Mazda is still working on your previous message in this "
+                'conversation. Wait for that reply, then try again.')
         raise RuntimeError(detail[-1000:])
     try:
-        payload = json.loads(proc.stdout)
+        payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError('Letta Code returned invalid JSON') from exc
     result = payload.get('result')

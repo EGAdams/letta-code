@@ -35,6 +35,18 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     this._audio = null;
     this._audioUrl = null;
     this._generation = 0;
+    this._lastError = null;
+  }
+
+  /**
+   * Why the most recent speak() produced no audio (e.g. a mobile browser's
+   * autoplay policy rejecting `audio.play()`, or `/api/tts` being
+   * unreachable). speak() itself never surfaces this — deliberately silent,
+   * per the class doc — so a caller that wants to explain a quiet reply to
+   * the user reads it after `pending` resolves to null.
+   */
+  get lastError() {
+    return this._lastError;
   }
 
   /** Change the server-side edge-tts voice used by the next speak(). */
@@ -71,8 +83,10 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     if (!say) return null;
     this.cancel();
     const generation = this._generation;
-    const pending = this._speakRemote(say, generation, agentName).catch(() => {
-      if (generation !== this._generation) return null;
+    this._lastError = null;
+    const pending = this._speakRemote(say, generation, agentName).catch((e) => {
+      if (generation === this._generation)
+        this._lastError = e?.message || String(e);
       return null;
     });
     return { text: say, pending };

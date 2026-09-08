@@ -1221,22 +1221,37 @@ def test_validate_letta_code_prompt_rejects_terminal_control_characters(text):
         server.validate_letta_code_prompt(text)
 
 
+class _FakeCompletedPopen:
+    """Stands in for subprocess.Popen -- the runner uses Popen, not
+    subprocess.run, so a timeout can killpg() the whole process group
+    instead of leaving `bun run dev`'s real worker running as an orphan."""
+
+    def __init__(self, argv, stdout='', stderr='', returncode=0):
+        self.args = argv
+        self.pid = 4242
+        self.returncode = returncode
+        self._stdout = stdout
+        self._stderr = stderr
+
+    def communicate(self, timeout=None):
+        return self._stdout, self._stderr
+
+
 def test_run_letta_code_message_returns_only_final_result(monkeypatch):
     monkeypatch.setattr(_letta_runner, 'LETTA_CODE_BUN', '/home/test/.bun/bin/bun')
     monkeypatch.setattr(server.os.path, 'isfile',
                         lambda path: path == '/home/test/.bun/bin/bun')
     seen = {}
 
-    def fake_run(argv, **kwargs):
+    def fake_popen(argv, **kwargs):
         seen['argv'] = argv
         seen.update(kwargs)
-        return server.subprocess.CompletedProcess(
-            argv, 0,
-            stdout=json.dumps({'result': 'The clean answer.',
+        return _FakeCompletedPopen(
+            argv, stdout=json.dumps({'result': 'The clean answer.',
                                'agent_id': 'agent-ok',
                                'conversation_id': 'conv-ok'}), stderr='')
 
-    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    monkeypatch.setattr(server.subprocess, 'Popen', fake_popen)
     agent_id = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
     result = server.run_letta_code_message(agent_id, 'question?')
     assert result['reply'] == 'The clean answer.'
@@ -1244,7 +1259,7 @@ def test_run_letta_code_message_returns_only_final_result(monkeypatch):
         '/home/test/.bun/bin/bun', 'run', 'dev', '--']
     assert '--output-format' in seen['argv'] and 'json' in seen['argv']
     assert seen['cwd'] == server.REPO_ROOT
-    assert seen['timeout'] == 1770
+    assert seen['start_new_session'] is True
     assert seen['env']['PATH'].split(server.os.pathsep)[0] == '/home/test/.bun/bin'
     # Headless auto-denies gated tools, so without a raised permission mode the
     # agent can never apply an edit it says it made.
@@ -1265,15 +1280,14 @@ def test_run_letta_code_message_resumes_a_given_conversation(monkeypatch):
                         lambda path: path == '/home/test/.bun/bin/bun')
     seen = {}
 
-    def fake_run(argv, **kwargs):
+    def fake_popen(argv, **kwargs):
         seen['argv'] = argv
-        return server.subprocess.CompletedProcess(
-            argv, 0,
-            stdout=json.dumps({'result': 'Still remember.',
+        return _FakeCompletedPopen(
+            argv, stdout=json.dumps({'result': 'Still remember.',
                                'agent_id': 'agent-ok',
                                'conversation_id': 'conv-abc123'}), stderr='')
 
-    monkeypatch.setattr(server.subprocess, 'run', fake_run)
+    monkeypatch.setattr(server.subprocess, 'Popen', fake_popen)
     agent_id = 'agent-6b536cf4-ec88-4290-b595-fed21d14bd8e'
     result = server.run_letta_code_message(
         agent_id, 'and then?', conversation_id='conv-abc123')

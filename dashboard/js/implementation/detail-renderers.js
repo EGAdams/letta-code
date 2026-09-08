@@ -564,9 +564,23 @@ export class ChatDetailRenderer extends DetailRenderer {
         const hasError = replies.some((x) => x.type === "error");
         this._onStatus(id, hasError ? "error" : "idle");
         appendRow(renderReplyRows(replies, this._agentName));
-        // Read the agent's reply aloud in the agent's own voice.
+        // Read the agent's reply aloud in the agent's own voice. speak()
+        // fails silently by design (never falls back to a different voice),
+        // so a blocked/failed playback would otherwise look identical to a
+        // normal, silent success — surface it instead of guessing why later.
         if (speakReplies && this._speech && replies.length) {
-          this._speech.speak(composeSpokenText(replies), this._agentName);
+          const spoken = this._speech.speak(
+            composeSpokenText(replies),
+            this._agentName,
+          );
+          spoken?.pending?.then((engine) => {
+            if (!engine) {
+              const why = this._speech.lastError;
+              appendRow(
+                `<span class="msi-line dim">(voice playback unavailable${why ? `: ${TextUtils.esc(why)}` : ""} — reply above is text-only)</span>`,
+              );
+            }
+          });
         }
       } catch (e) {
         this._onStatus(id, "error");
@@ -1043,7 +1057,7 @@ export class InputOptionsRenderer extends DetailRenderer {
     autoSendBtn.style.cssText = `${bs}background:#6c757d;`;
     const copyBtn = this._el("button", { textContent: "Copy to Clipboard" });
     copyBtn.style.cssText = `${bs}background:#6c757d;`;
-    const statusEl = this._el("div");
+    const statusEl = this._el("div", { className: "msi-status" });
     statusEl.style.cssText = "min-height:1.4em;font-size:0.9rem;color:#555;";
     const outEl = this._el("div", { className: "am-test-out" });
 
@@ -1292,8 +1306,23 @@ export class InputOptionsRenderer extends DetailRenderer {
         const replies = [{ type: "assistant_message", text: r.reply }];
         appendTurn(userRow, renderReplyRows(replies, this._agentName));
         showStatus("Answer received.");
+        // speak() fails silently by design (never substitutes a different
+        // voice), so a blocked/failed playback would otherwise look
+        // identical to a normal, silent success — surface it via status
+        // instead of leaving "voice isn't coming through" unexplainable.
         if (this._speech?.supported) {
-          this._speech.speak(composeSpokenText(replies), this._agentName);
+          const spoken = this._speech.speak(
+            composeSpokenText(replies),
+            this._agentName,
+          );
+          spoken?.pending?.then((engine) => {
+            if (!engine) {
+              const why = this._speech.lastError;
+              showStatus(
+                `Answer received (voice playback failed${why ? `: ${why}` : " or was blocked"}).`,
+              );
+            }
+          });
         }
       } catch (e) {
         this._onStatus(id, "error");

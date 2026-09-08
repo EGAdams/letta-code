@@ -12,6 +12,7 @@ eager binding, the tests that replace `server.letta_id_for` keep passing while
 the runner talks to whatever agent the registry held at import time.
 """
 import json
+import subprocess
 
 import pytest
 
@@ -19,11 +20,31 @@ import server
 from letta_code import runner
 
 
-class FakeCompleted:
-    def __init__(self, stdout='', stderr='', returncode=0):
-        self.stdout = stdout
-        self.stderr = stderr
+class FakePopen:
+    """Stands in for subprocess.Popen. The runner uses Popen (not
+    subprocess.run) so a timeout can killpg() the whole process group --
+    `bun run dev` forks a further worker rather than exec'ing into it, and a
+    plain subprocess.run(timeout=...) only ever kills that outer wrapper."""
+
+    _next_pid = 9000
+
+    def __init__(self, argv, stdout='', stderr='', returncode=0,
+                 raise_timeout=False, **kwargs):
+        self.args = argv
+        self.kwargs = kwargs
+        FakePopen._next_pid += 1
+        self.pid = FakePopen._next_pid
         self.returncode = returncode
+        self._stdout = stdout
+        self._stderr = stderr
+        self._raise_timeout = raise_timeout
+        self.communicate_calls = []
+
+    def communicate(self, timeout=None):
+        self.communicate_calls.append(timeout)
+        if self._raise_timeout and len(self.communicate_calls) == 1:
+            raise subprocess.TimeoutExpired(cmd=self.args, timeout=timeout)
+        return self._stdout, self._stderr
 
 
 def ok_payload(reply='done', conversation_id='conv-1'):
@@ -35,12 +56,15 @@ def spy(monkeypatch):
     """Capture the argv and kwargs the runner would have executed."""
     seen = {}
 
-    def fake_run(argv, **kwargs):
+    def fake_popen(argv, **kwargs):
         seen['argv'] = argv
         seen['kwargs'] = kwargs
-        return FakeCompleted(stdout=ok_payload())
+        real_kwargs = {k: v for k, v in kwargs.items() if k not in ('stdout', 'stderr')}
+        proc = FakePopen(argv, stdout=ok_payload(), **real_kwargs)
+        seen['proc'] = proc
+        return proc
 
-    monkeypatch.setattr(runner.subprocess, 'run', fake_run)
+    monkeypatch.setattr(runner.subprocess, 'Popen', fake_popen)
     monkeypatch.setattr(runner, '_letta_code_command', lambda: ['/bun', 'run', 'dev', '--'])
     return seen
 
@@ -180,7 +204,33 @@ class TestTheCommandItBuilds:
 
     def test_the_timeout_is_honoured(self, spy):
         runner.run_letta_code_message(AGENT, 'hi', lambda a: a, timeout=42)
-        assert spy['kwargs']['timeout'] == 42
+        assert spy['proc'].communicate_calls == [42]
+
+    def test_a_fresh_process_group_is_started(self, spy):
+        """So a timeout can killpg() the whole tree instead of leaving the
+        real worker behind as an orphan (see the module docstring above the
+        Popen call)."""
+        runner.run_letta_code_message(AGENT, 'hi', lambda a: a)
+        assert spy['kwargs']['start_new_session'] is True
+
+    def test_timeout_kills_the_whole_process_group_not_just_the_wrapper(
+            self, monkeypatch):
+        """`bun run dev` forks a further worker rather than exec'ing into it,
+        so killing only the direct child (plain subprocess.run(timeout=...))
+        leaves that worker running as an orphan -- still holding the Letta
+        conversation "busy" -- indefinitely. Confirmed live 2026-09-08: an
+        orphaned worker was still running 30+ minutes after its request had
+        already been reported back to the caller as timed out."""
+        monkeypatch.setattr(runner, '_letta_code_command', lambda: ['/bun'])
+        proc = FakePopen(['/bun'], raise_timeout=True)
+        monkeypatch.setattr(runner.subprocess, 'Popen', lambda *a, **k: proc)
+        killed = []
+        monkeypatch.setattr(runner.os, 'getpgid', lambda pid: pid * 10)
+        monkeypatch.setattr(runner.os, 'killpg',
+                            lambda pgid, sig: killed.append((pgid, sig)))
+        with pytest.raises(runner.subprocess.TimeoutExpired):
+            runner.run_letta_code_message(AGENT, 'hi', lambda a: a, timeout=5)
+        assert killed == [(proc.pid * 10, runner.signal.SIGKILL)]
 
 
 class TestWhatItReturns:
@@ -188,8 +238,8 @@ class TestWhatItReturns:
         """The CLI's JSON also carries the whole turn. Passing that through
         would put tool calls and file contents on a web response."""
         monkeypatch.setattr(runner, '_letta_code_command', lambda: ['/bun'])
-        monkeypatch.setattr(runner.subprocess, 'run', lambda *a, **k: FakeCompleted(
-            stdout=json.dumps({'result': 'the answer', 'conversation_id': 'conv-9',
+        monkeypatch.setattr(runner.subprocess, 'Popen', lambda *a, **k: FakePopen(
+            a[0], stdout=json.dumps({'result': 'the answer', 'conversation_id': 'conv-9',
                                'messages': [{'secret': 'internal'}]})))
         out = runner.run_letta_code_message(AGENT, 'hi', lambda a: a)
         assert out['run']['conversation_id'] == 'conv-9'
@@ -198,18 +248,44 @@ class TestWhatItReturns:
 
     def test_a_nonzero_exit_raises_with_the_tail_of_the_error(self, monkeypatch):
         monkeypatch.setattr(runner, '_letta_code_command', lambda: ['/bun'])
-        monkeypatch.setattr(runner.subprocess, 'run', lambda *a, **k: FakeCompleted(
-            stderr='x' * 3000 + 'THE REAL CAUSE', returncode=1))
+        monkeypatch.setattr(runner.subprocess, 'Popen', lambda *a, **k: FakePopen(
+            a[0], stderr='x' * 3000 + 'THE REAL CAUSE', returncode=1))
         with pytest.raises(RuntimeError) as exc:
             runner.run_letta_code_message(AGENT, 'hi', lambda a: a)
         assert 'THE REAL CAUSE' in str(exc.value)
         assert len(str(exc.value)) <= 1000
 
+    def test_a_conversation_busy_conflict_gets_a_clean_message_not_the_raw_dump(
+            self, monkeypatch):
+        """Sending a follow-up before the previous turn's reply lands hits
+        this exact CONFLICT from the Letta server. It is expected/benign, but
+        the raw CLI stderr around it is dominated by unrelated skill-listing
+        noise that the dashboard's client-side error unwrap (first 120 chars)
+        would show instead of the one sentence that actually explains it --
+        this must surface as a clean message, not that dump. Reproduces the
+        real failure logged 2026-09-08 17:54 (curl'd against a live server)."""
+        monkeypatch.setattr(runner, '_letta_code_command', lambda: ['/bun'])
+        raw = (
+            'skills/spotify-player/SKILL.md), spreadsheet, state-change-debugger, '
+            'syncing-memory-filesystem, transcribe, visual-identity, working-in-parallel\n'
+            'Error: CONFLICT: Cannot send a new message: Another request '
+            '(run_id=run-70b829fd) is currently being processed for this '
+            'conversation. Please wait for it to complete.\n'
+            'View agent: agent-6b536cf4 (run: run-70b829fd)\n'
+            'error: script "dev" exited with code 1'
+        )
+        monkeypatch.setattr(runner.subprocess, 'Popen', lambda *a, **k: FakePopen(
+            a[0], stderr=raw, returncode=1))
+        with pytest.raises(runner.ConversationBusyError) as exc:
+            runner.run_letta_code_message(AGENT, 'hi', lambda a: a, conversation_id='conv-9')
+        assert 'still working on your previous message' in str(exc.value)
+        assert 'spotify-player' not in str(exc.value)
+
     def test_unparseable_output_is_named_rather_than_leaking_a_decode_error(
             self, monkeypatch):
         monkeypatch.setattr(runner, '_letta_code_command', lambda: ['/bun'])
-        monkeypatch.setattr(runner.subprocess, 'run',
-                            lambda *a, **k: FakeCompleted(stdout='not json'))
+        monkeypatch.setattr(runner.subprocess, 'Popen',
+                            lambda *a, **k: FakePopen(a[0], stdout='not json'))
         with pytest.raises(RuntimeError, match='invalid JSON'):
             runner.run_letta_code_message(AGENT, 'hi', lambda a: a)
 
@@ -241,8 +317,8 @@ class TestTheCompositionRoot:
         `letta_id_for` existed at import, and the registry it reads is a cache
         that tests and the running server both replace."""
         monkeypatch.setattr(runner, '_letta_code_command', lambda: ['/bun'])
-        monkeypatch.setattr(runner.subprocess, 'run',
-                            lambda *a, **k: FakeCompleted(stdout=ok_payload()))
+        monkeypatch.setattr(runner.subprocess, 'Popen',
+                            lambda *a, **k: FakePopen(a[0], stdout=ok_payload()))
         seen = []
         monkeypatch.setattr(server, 'letta_id_for',
                             lambda aid: seen.append(aid) or AGENT)
