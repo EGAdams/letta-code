@@ -39,6 +39,7 @@ class ReportRepairWorkflow:
         finance_root: str = "/home/adamsl/rol_finances",
         confidence_threshold: float = 0.90,
         emit: Emit = print,
+        skip_yellow_months: bool = False,
     ) -> None:
         self.api = api
         self.navigator = navigator
@@ -46,6 +47,7 @@ class ReportRepairWorkflow:
         self.finance_root = finance_root
         self.threshold = confidence_threshold
         self.emit = emit
+        self.skip_yellow_months = skip_yellow_months
 
     def _report_dir(self, target: RepairTarget) -> str:
         assert target.report is not None
@@ -189,14 +191,22 @@ class ReportRepairWorkflow:
 
     def run(self, max_repairs: int = 100) -> int:
         self.navigator.open()
+        skipped_months: set[str] = set()
         for _ in range(max_repairs):
-            target = self.navigator.next_unhealthy()
+            target = self.navigator.next_unhealthy(frozenset(skipped_months))
             if target is None:
                 self.emit("ROL Finance Reports: no yellow or red tabs remain.")
                 return 0
             self.emit(
                 f"NEXT {target.month_label} -> {target.tab_label} ({target.kind})"
             )
+            if target.kind == "month" and self.skip_yellow_months:
+                self.emit(
+                    f"SKIPPED {target.tab_label}: yellow (uncategorized expense) "
+                    "left for manual review"
+                )
+                skipped_months.add(target.month_key)
+                continue
             continued = (
                 self._handle_report(target)
                 if target.kind == "report"

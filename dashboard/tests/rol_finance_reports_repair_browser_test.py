@@ -35,6 +35,15 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--max-repairs", type=int, default=100)
     parser.add_argument("--browser-executable")
     parser.add_argument("--headless", action="store_true")
+    parser.add_argument(
+        "--skip-yellow-months", action="store_true",
+        help=(
+            "Pass over yellow month tabs (newest scanned expense still "
+            "uncategorized) without stopping, so red/missing report tabs "
+            "later in the year still get repaired. Never skips a report "
+            "tab itself, only the month-level yellow signal."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -65,6 +74,7 @@ def main() -> int:
             page,
             finance_root=args.finance_root,
             confidence_threshold=args.confidence,
+            skip_yellow_months=args.skip_yellow_months,
         ).run(args.max_repairs)
     finally:
         manager.stop()

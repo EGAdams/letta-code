@@ -65,7 +65,18 @@ class ReportsNavigator:
             timeout=30_000,
         )
 
-    def next_unhealthy(self) -> RepairTarget | None:
+    def next_unhealthy(
+        self, skip_month_keys: frozenset[str] = frozenset()
+    ) -> RepairTarget | None:
+        """The next unhealthy tab in visual order, or None once clean.
+
+        `skip_month_keys` lets a caller pass over a month-level (yellow)
+        target it already decided to leave for manual review, without that
+        month's still-broken report cards being skipped too: a report-kind
+        target is always found and returned before this month's own
+        yellow/red status is even consulted, so skipping a month here can
+        never hide a missing or failed report.html inside it.
+        """
         statuses = {item.month_key: item for item in self._api.month_statuses()}
         for month in self.month_tabs():
             reports = self._api.reports(month["key"])
@@ -87,6 +98,8 @@ class ReportsNavigator:
                     tab_label=report.label,
                     report=report,
                 )
+            if month["key"] in skip_month_keys:
+                continue
             status = statuses.get(month["key"])
             if status and status.status in {"yellow", "red"}:
                 return RepairTarget(
