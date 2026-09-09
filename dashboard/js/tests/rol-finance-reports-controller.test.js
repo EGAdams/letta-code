@@ -81,7 +81,7 @@ describe("RolFinanceReportsController", () => {
     expect(ctx.nav.querySelectorAll("[data-report-key]").length).toBe(0);
     expect(ctx.requestedUrls).toEqual([]);
     const monthTabs = ctx.nav.querySelectorAll(".tab.month-tab");
-    expect(monthTabs.length).toBe(11);
+    expect(monthTabs.length).toBe(12);
     expect(monthTabs.map((t) => t.textContent)).toEqual([
       "January 2025",
       "February 2025",
@@ -94,6 +94,7 @@ describe("RolFinanceReportsController", () => {
       "September 2025",
       "October 2025",
       "November 2025",
+      "December 2025",
     ]);
     expect(monthTabs.every((t) => !t.classList.contains("hidden"))).toBe(true);
 
@@ -323,7 +324,7 @@ describe("RolFinanceReportsController", () => {
     ]);
     await ctx.rf.openReports();
     await ctx.rf.openReports();
-    expect(ctx.nav.querySelectorAll(".tab.month-tab").length).toBe(11);
+    expect(ctx.nav.querySelectorAll(".tab.month-tab").length).toBe(12);
     expect(ctx.nav.querySelectorAll(".tab[data-recent-report]").length).toBe(1);
     expect(ctx.nav.querySelectorAll(".tab[data-months-back]").length).toBe(1);
     expect(ctx.requestedUrls.length).toBe(0);
