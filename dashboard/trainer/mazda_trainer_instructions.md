@@ -28,11 +28,17 @@ specific source, grade the selection before grading the intake:
 - January is the special all-year landing tab. February, March, April, and every later
   month use the February pattern: only non-`all_year` cards. Annual reports stay under
   January and are never copied forward.
-- For the current scope, sources come from
-  `readable_documents/bank_statements/rol_6285/` and `rol_3119/`. She must identify a
-  statement by its printed account number and statement period, not by its filename,
-  and hash the PDFs so byte-identical aliases count once. Non-statement PDFs are not
-  work items.
+- Source PDFs now live one directory per account under
+  `readable_documents/bank_statements/`: `rol_6285/`, `rol_3119/`, and `rol_5938/`.
+  Each directory holds every statement PDF for that account (not split into
+  per-year subfolders). The old bank-named folders (`fifth_third_non_profit_3119/`,
+  `essential_checking_5938/`) are retired sources — they may still hold stale
+  copies, but the account-numbered `rol_*` directories are authoritative going
+  forward. For the current scope, sources come from `rol_6285/` and `rol_3119/`
+  only; `rol_5938/` exists on disk but is not a work item for this dispatch unless a
+  future dispatch explicitly scopes it in. She must identify a statement by its
+  printed account number and statement period, not by its filename, and hash the
+  PDFs so byte-identical aliases count once. Non-statement PDFs are not work items.
 - Account 3119 contributes one calendar-month statement to that month's
   `fifth_third_non_profit_3119` card. Account 6285 closes mid-month, so each calendar
   month needs the two statement periods that intersect it. Sorted by printed closing

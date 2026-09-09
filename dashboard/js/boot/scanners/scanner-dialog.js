@@ -24,7 +24,6 @@ export function wireScannerDialog({
   dialog,
   http,
   printerRepair,
-  monitored,
   doc = document,
   win = window,
 }) {
@@ -160,7 +159,7 @@ export function wireScannerDialog({
   // Observation-only recovery polling (see scanner-status-monitor.js).
   const monitor = createScannerStatusMonitor({
     scanner,
-    enabled: monitored,
+    enabled: true,
     progress,
     applyResult,
   });
@@ -200,11 +199,9 @@ export function wireScannerDialog({
         body: JSON.stringify({ scanner }),
       });
       const status = applyResult(await res.json());
-      // A monitored scanner that came back busy/offline: resume polling so it
-      // auto-recovers once power-cycled.
-      if (monitored && (status === "busy" || status === "offline")) {
-        monitor.start();
-      }
+      // Busy/offline came from this physical POST attempt. Poll only the
+      // read-only status endpoint until lock ownership returns to idle.
+      if (status === "busy" || status === "offline") monitor.start();
     } catch (err) {
       progress.setFailed(`Scan failed: ${err.message}`);
     } finally {

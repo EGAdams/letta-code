@@ -696,6 +696,63 @@ describe("ManualEntryForm._saveAll", () => {
     expect(form._statusEl.textContent).toContain("All 2 expense(s) saved");
   });
 
+  test("successful Save All reloads exactly once after the full batch", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/manual-receipt-entry": (body) => ({
+        ok: true,
+        expense_id: body.merchant_name === "Kroger" ? 1 : 2,
+        duplicate: false,
+      }),
+    });
+    const { form, doc } = setup({ http });
+    let reloads = 0;
+    doc.location.reload = () => {
+      reloads += 1;
+    };
+    await form.mount();
+    form.items = [validItem(), validItem({ merchantName: "Walgreens" })];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+
+    await form._saveAll();
+
+    expect(reloads).toBe(1);
+    expect(
+      http.calls.filter((call) => call[1] === "/api/manual-receipt-entry"),
+    ).toHaveLength(2);
+    expect(form.root.textContent).not.toContain("Reload page");
+  });
+
+  test("a partial Save All failure does not reload", async () => {
+    let saves = 0;
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: [] },
+      "/api/manual-receipt-entry": () => {
+        saves += 1;
+        return saves === 1
+          ? { ok: true, expense_id: 1, duplicate: false }
+          : { ok: false, error: "database unavailable" };
+      },
+    });
+    const { form, doc } = setup({ http });
+    let reloads = 0;
+    doc.location.reload = () => {
+      reloads += 1;
+    };
+    await form.mount();
+    form.items = [validItem(), validItem({ merchantName: "Walgreens" })];
+    form.currentIndex = 0;
+    form._renderCurrentItem();
+
+    await form._saveAll();
+
+    expect(reloads).toBe(0);
+    expect(form._statusEl.textContent).toContain("1 failed");
+  });
+
   test("saving after Next updates a newly stored GFL item without duplicating its vendor key", async () => {
     const insertCalls = [];
     const editCalls = [];

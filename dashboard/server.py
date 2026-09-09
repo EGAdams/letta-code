@@ -1229,8 +1229,12 @@ def _update_recent_receipt_references(expense_ids, path, old_path=''):
                     if os.path.basename(current_source) != old_basename:
                         continue
 
-                # Check receipt_metadata for matching id_light
+                # Check receipt_metadata against the pre-rename identity. The
+                # repository may already have written expenses.id_light by the
+                # time this aggregate-image synchronization runs; comparing to
+                # that new value was the stale-ID ordering bug.
                 current_id_light = str(row.get('id_light') or '')
+                old_id_light = os.path.splitext(old_basename)[0]
                 receipt_metadata = row.get('receipt_metadata') or ''
                 try:
                     import json
@@ -1242,7 +1246,8 @@ def _update_recent_receipt_references(expense_ids, path, old_path=''):
 
                 # Only update if metadata id_light matches current id_light
                 if schema.has('id_light') and schema.has('receipt_metadata'):
-                    if current_id_light and metadata_id_light != current_id_light:
+                    owned_id_light = old_id_light or current_id_light
+                    if metadata_id_light and owned_id_light and metadata_id_light != owned_id_light:
                         continue
 
                 # Build update for this specific row
@@ -1384,6 +1389,7 @@ def _edit_stored_expense(data, repository=None, namer=None, report_sync=None):
         transaction_date=edit.transaction_date,
         fallback_vendor_key=_vendor_prefix(result.record.id_light),
         fallback_date=result.record.transaction_date,
+        replace_identity='expense_date' in result.changed_fields,
     )
     warnings = list(result.warnings)
     if before is not None:
@@ -2785,8 +2791,8 @@ def fix_deskjet_printer(runner=subprocess.run, device_status=None):
 
 
 # Serialize all device access: two concurrent WIA transfers self-induce the very
-# "device is busy" error we are trying to detect. Both the manual scan and the
-# Freezer's 5s status poll go through this lock.
+# "device is busy" error we are trying to detect. Manual scans own this lock;
+# status requests only observe its ownership and never touch scanner hardware.
 _SCAN_LOCK = threading.Lock()
 # A real flatbed scan (OfficeJet, 300dpi) takes ~33s; allow headroom but cap it
 # so a hung WIA call doesn't tie up the lock indefinitely.
@@ -2831,13 +2837,11 @@ def _invoke_scanner(key):
       not_configured — no script wired for this scanner
       error          — anything else (interop missing, timeout, script error)
 
-    The same call backs both the manual scan (POST /api/scanner-scan) and the
-    Freezer's 5s status poll (GET /api/scanner-status). Because "busy" errors at
-    Transfer return immediately, polling does NOT repeatedly run the scanner — a
-    real scan (~33s on the OfficeJet at 300dpi) only happens on the one poll where
-    the device has recovered. Blocking; ReusableHTTPServer is threaded so the
-    dashboard's other pollers are unaffected, and `_SCAN_LOCK` keeps two transfers
-    from colliding (concurrent transfers self-induce the "busy" error).
+    This call backs only the manual scan (POST /api/scanner-scan). Runtime status
+    polling is read-only and must never call it. Blocking; ReusableHTTPServer is
+    threaded so the dashboard's other pollers are unaffected, and `_SCAN_LOCK`
+    keeps two transfers from colliding (concurrent transfers self-induce the
+    "busy" error).
 
     Critically, every scan is preceded by `_reap_stale_scans()`: on a Python
     timeout we can only kill the bash wrapper, not the Windows powershell.exe it
@@ -3335,11 +3339,11 @@ def run_scanner(key):
             (SCANNERS.get(key) or {}).get('name'),
             status='fail', status_detail=result.get('error') or '')
     with _scanner_runtime_status_lock:
-        # GET /api/scanner-status is observation-only. A completed scan is
-        # represented as idle there; only this POST response carries `ready`
-        # and can cause the frontend to launch intake.
-        _scanner_runtime_status[key] = (
-            {'status': 'idle', 'ok': True} if result['ok'] else dict(result))
+        # Keep compatibility for code that inspects this runtime map, but GET
+        # derives live state from intake and lock ownership. In particular, a
+        # physical-attempt busy/offline failure remains in this POST response
+        # only and cannot leave status indefinitely wedged.
+        _scanner_runtime_status[key] = {'status': 'idle', 'ok': True}
     if result['ok']:
         threading.Thread(
             target=process_scanned_document, args=(key,), daemon=True,
@@ -3359,8 +3363,13 @@ def scanner_status(key):
                       'verified. Wait for intake completion or a problem-triggered '
                       'Trainer verdict before scanning another.'),
         }
-    with _scanner_runtime_status_lock:
-        return dict(_scanner_runtime_status.get(key, {'status': 'idle', 'ok': True}))
+    if _SCAN_LOCK.locked():
+        return {
+            'status': 'busy',
+            'ok': False,
+            'error': 'A scanner transfer is currently in progress.',
+        }
+    return {'status': 'idle', 'ok': True}
 
 
 def clear_scanner_verification_lock(key):

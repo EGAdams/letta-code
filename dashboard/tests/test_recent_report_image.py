@@ -11,7 +11,8 @@ def _service(tmp_path, rows, pointer, destination_policy=None):
         read_pointer=lambda: pointer,
         write_pointer=lambda data: written.append(data) or True,
         fetch_rows=lambda ids: [row for row in rows if row['id'] in ids],
-        update_references=lambda ids, path: updated.append((list(ids), path)),
+        update_references=lambda ids, path, old_path: updated.append(
+            (list(ids), path, old_path)),
         destination_policy=destination_policy,
     )
     service.updated = updated
@@ -35,7 +36,7 @@ def test_amount_change_renames_image_to_sum_of_document_rows(tmp_path):
     assert expected.read_bytes() == b'image'
     assert not old.exists()
     assert written[0]['intake']['archive_paths'] == [str(expected)]
-    assert service.updated == [([1, 2], str(expected))]
+    assert service.updated == [([1, 2], str(expected), str(old))]
 
 
 def test_delete_recalculates_total_from_remaining_rows(tmp_path):
@@ -105,7 +106,7 @@ def test_explicit_date_correction_refiles_image_and_pointer_to_new_day(tmp_path)
     assert expected.read_bytes() == b'at&t'
     assert not old.exists()
     assert written[0]['intake']['archive_paths'] == [str(expected)]
-    assert service.updated == [([2547], str(expected))]
+    assert service.updated == [([2547], str(expected), str(old))]
 
 
 def test_repository_moved_image_seeds_missing_archive_pointer(tmp_path):
@@ -128,7 +129,7 @@ def test_repository_moved_image_seeds_missing_archive_pointer(tmp_path):
 
     assert result == {'renamed': False, 'path': str(moved)}
     assert written[0]['intake']['archive_paths'] == [str(moved)]
-    assert service.updated == [([2547], str(moved))]
+    assert service.updated == [([2547], str(moved), str(moved))]
 
 
 def test_adding_sprite_to_meijer_changes_only_aggregate_amount(tmp_path):

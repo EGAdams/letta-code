@@ -20,6 +20,7 @@ schema and a missing ``id_light`` must not fail the whole search.
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional
 
@@ -51,7 +52,9 @@ from finance.receipt_relocation import IReceiptFileRelocator, NullReceiptFileRel
 _where_clauses = where_clauses
 
 #: Columns the search reads only if the live table actually has them.
-OPTIONAL_COLUMNS = ('id_light', 'receipt_url', 'document_url', 'source_file')
+OPTIONAL_COLUMNS = (
+    'id_light', 'receipt_url', 'document_url', 'source_file', 'receipt_metadata',
+)
 #: The itemization link, probed separately from the SELECT list because it is
 #: never displayed -- a delete only needs to know whether this deployment can
 #: have line items hanging off the row it is about to remove.
@@ -135,7 +138,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                 rows = cur.fetchall() or []
         return [self._to_record(row) for row in rows]
 
-    def _read_one(self, cur: Any, expense_id: int) -> tuple[ExpenseRecord, bool]:
+    def _read_one(self, cur: Any, expense_id: int) -> tuple[ExpenseRecord, bool, dict]:
         """The row plus whether its stored amount is negative.
 
         ExpenseRecord carries the absolute amount -- that is what the operator
@@ -152,12 +155,110 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
             negative = float(row['amount']) < 0
         except (TypeError, ValueError, KeyError):
             negative = False
-        return self._to_record(row), negative
+        return self._to_record(row), negative, row
+
+    @staticmethod
+    def _synchronized_receipt_metadata(raw_metadata: Any, *,
+                                       old_id_light: str,
+                                       new_id_light: str,
+                                       edit: ExpenseEdit) -> str:
+        """Synchronize metadata only when it owns the pre-edit receipt identity."""
+        if not raw_metadata or not old_id_light or not new_id_light:
+            return ''
+        try:
+            metadata = (json.loads(raw_metadata)
+                        if isinstance(raw_metadata, str) else dict(raw_metadata))
+        except (TypeError, ValueError):
+            return ''
+        if not isinstance(metadata, dict) or metadata.get('id_light') != old_id_light:
+            return ''
+        metadata['id_light'] = new_id_light
+        raw_response = metadata.get('raw_response')
+        raw_was_string = isinstance(raw_response, str)
+        try:
+            response = json.loads(raw_response) if raw_was_string else dict(raw_response)
+        except (TypeError, ValueError):
+            response = None
+        if isinstance(response, dict):
+            response['transaction_date'] = edit.transaction_date
+            totals = response.get('totals')
+            if isinstance(totals, dict):
+                totals['total_amount'] = edit.total_amount
+            elif 'total_amount' in response:
+                response['total_amount'] = edit.total_amount
+            metadata['raw_response'] = (json.dumps(response)
+                                        if raw_was_string else response)
+        return json.dumps(metadata)
+
+    @staticmethod
+    def _synchronized_raw_response(raw_response: Any, edit: ExpenseEdit) -> str | None:
+        """Return corrected parser JSON, or ``None`` when it is not an object.
+
+        ``receipt_metadata.id_light`` is independent ownership evidence, so a
+        malformed historical parser payload must not prevent that relational
+        identity from following an otherwise-valid receipt rename.  In that
+        case the caller updates only ``id_light`` and preserves ``raw_response``
+        byte-for-byte.
+        """
+        try:
+            response = (json.loads(raw_response)
+                        if isinstance(raw_response, str) else dict(raw_response))
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(response, dict):
+            return None
+        response['transaction_date'] = edit.transaction_date
+        totals = response.get('totals')
+        if isinstance(totals, dict):
+            totals['total_amount'] = edit.total_amount
+        elif 'total_amount' in response:
+            response['total_amount'] = edit.total_amount
+        return json.dumps(response)
+
+    def _sync_receipt_metadata_table(self, cur: Any, *, before: ExpenseRecord,
+                                     edit: ExpenseEdit,
+                                     new_id_light: str) -> None:
+        """Synchronize the canonical metadata row in the current transaction.
+
+        Some deployments do not have this optional table.  Where it exists,
+        both ``expense_id`` and the pre-edit filing identity must prove
+        ownership before anything is rewritten.
+        """
+        if not before.id_light or not new_id_light or new_id_light == before.id_light:
+            return
+        cur.execute(
+            'SELECT 1 AS present FROM INFORMATION_SCHEMA.TABLES '
+            'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+            ('receipt_metadata',),
+        )
+        if not cur.fetchone():
+            return
+        cur.execute(
+            'SELECT id_light, raw_response FROM receipt_metadata '
+            'WHERE expense_id = %s FOR UPDATE',
+            (edit.expense_id,),
+        )
+        metadata = cur.fetchone()
+        if not metadata or str(metadata.get('id_light') or '') != before.id_light:
+            return
+        synchronized = self._synchronized_raw_response(
+            metadata.get('raw_response'), edit)
+        assignments = ['id_light = %s']
+        params: list[Any] = [new_id_light]
+        if synchronized is not None:
+            assignments.append('raw_response = %s')
+            params.append(synchronized)
+        params.extend((edit.expense_id, before.id_light))
+        cur.execute(
+            f'UPDATE receipt_metadata SET {", ".join(assignments)} '
+            'WHERE expense_id = %s AND id_light = %s',
+            tuple(params),
+        )
 
     def apply_edit(self, edit: ExpenseEdit) -> ExpenseEditResult:
         with self._connect() as cnx:
             with cnx.cursor() as cur:
-                before, was_negative = self._read_one(cur, edit.expense_id)
+                before, was_negative, raw_row = self._read_one(cur, edit.expense_id)
                 changed = describe_changes(before, edit)
                 references = self._receipt_sync.synchronize(before, edit, changed)
                 if changed:
@@ -175,17 +276,30 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                         ('receipt_url', references.receipt_url),
                         ('document_url', references.document_url),
                         ('source_file', references.source_file),
+                        ('receipt_metadata', self._synchronized_receipt_metadata(
+                            raw_row.get('receipt_metadata'),
+                            old_id_light=before.id_light,
+                            new_id_light=references.id_light,
+                            edit=edit,
+                        )),
                     ):
                         if value and schema.has(column):
                             assignments.append(f'{column} = %s')
                             params.append(value)
                     params.append(edit.expense_id)
-                    cur.execute(
-                        f'UPDATE expenses SET {", ".join(assignments)} '
-                        'WHERE id = %s',
-                        tuple(params),
-                    )
-                    cnx.commit()
+                    try:
+                        cur.execute(
+                            f'UPDATE expenses SET {", ".join(assignments)} '
+                            'WHERE id = %s',
+                            tuple(params),
+                        )
+                        self._sync_receipt_metadata_table(
+                            cur, before=before, edit=edit,
+                            new_id_light=references.id_light)
+                        cnx.commit()
+                    except Exception:
+                        cnx.rollback()
+                        raise
                 after = ExpenseRecord(
                     id=before.id,
                     transaction_date=edit.transaction_date,
@@ -207,7 +321,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
     def read(self, expense_id: int) -> ExpenseRecord:
         with self._connect() as cnx:
             with cnx.cursor() as cur:
-                record, _ = self._read_one(cur, expense_id)
+                record, _, _ = self._read_one(cur, expense_id)
         return record
 
     def _line_item_ids(self, cur: Any, expense_id: int) -> tuple[int, ...]:
@@ -237,7 +351,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
         """
         with self._connect() as cnx:
             with cnx.cursor() as cur:
-                record, _ = self._read_one(cur, expense_id)
+                record, _, _ = self._read_one(cur, expense_id)
                 line_item_ids = self._line_item_ids(cur, expense_id)
                 if line_item_ids:
                     placeholders = ','.join(['%s'] * len(line_item_ids))

@@ -27,13 +27,14 @@ class RecentReportImageSynchronizer:
     def __init__(self, *, read_pointer: Callable[[], dict],
                  write_pointer: Callable[[dict], bool],
                  fetch_rows: Callable[[Sequence[int]], Sequence[Mapping]],
-                 update_references: Callable[[Sequence[int], str], None] | None = None,
+                 update_references: Callable[[Sequence[int], str, str], None] | None = None,
                  destination_policy: IReceiptDestinationPolicy | None = None,
                  replace: Callable[[str, str], None] = os.replace):
         self._read_pointer = read_pointer
         self._write_pointer = write_pointer
         self._fetch_rows = fetch_rows
-        self._update_references = update_references or (lambda _ids, _path: None)
+        self._update_references = (update_references
+                                   or (lambda _ids, _path, _old_path: None))
         self._destination = (destination_policy
                              or SameDirectoryReceiptDestinationPolicy())
         self._replace = replace
@@ -150,7 +151,10 @@ class RecentReportImageSynchronizer:
                             'warning': f'Image rename target already exists: {new_path}'}
                 return {'renamed': False,
                         'warning': f'Image rename failed: {outcome.detail}'}
-        self._update_references(ids, new_path)
+        # Pass the pre-rename identity explicitly. Reading the row after the
+        # repository edit sees its new id_light already; ownership checks must
+        # compare metadata/source references against the old file instead.
+        self._update_references(ids, new_path, old_path)
 
         for intake in matched:
             existing_paths = list(intake.get('archive_paths') or [])

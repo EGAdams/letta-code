@@ -1,0 +1,343 @@
+Introduction
+[music] There's a pull request sitting open in my public repo right now. I didn't write
+it. An AI model wrote it after finding a bug in the coding agent we have been building this whole series. And the fix
+doesn't touch the agent's model at all. It changes the hardness the software we
+wrote around that model. It passed every test that I threw at it. I still haven't
+merged it though. People call this kind of thing self- evvolving AI or self-improving AI and the label gets
+slapped on everything. Model that retrains themselves, workflows that tune
+What is self-evolving AI?
+their own prompts, systems that rewrite their own code, or maybe even work that
+you do uh on a continuous basis forming a loop. This video is about the version
+that matters the most if you are a builder. A loop that improves the harness and leaves the model alone.
+Here's what that buys you. Your agent gets better on your schedule, not on the
+model providers. Every improvement is a change you can read, test, and undo. And
+The importance of the harness
+failure once caught can turn into a permanent tested fix instead of a patch
+that you might forget about. So over 15 chapters in the last uh video, we built
+this agent by hand. Model plus harness plus UI. This video is about what happens after you have built your agent.
+the harness keeps improving even when no one is editing it by hand. This is the
+story of that pull request and of why it's still waiting to be merged. So
+we're going to go through this video in acts. This one is act one plain question
+and why. Now here's the idea in plain terms. Your agent is a frozen model
+that's wrapped in a hardness that we wrote. Frozen means weights. The
+billions of numbers inside the model that training produced never change. So what if a second stronger model could
+watch your agent fail, figure out why, and then propose a fix to the harness
+instead of the model? And what if you could actually check whether that fix helped before you trusted it? There's no
+retraining in that sentence and no writing a better prompt. uh and hoping
+you edit the software wrapped around the model the same way you would edit any
+other software and you prove that the edit worked before you ship it. And here's what actually happened in the
+experiment that I did. One number in a configuration file went from a number
+4,000 to 12,000. That's it. The part worth the rest of the video is
+everything around that number. how the bug got found, how the fix got proposed,
+and how it got proven safe. And this isn't hypothetical. Right now, it's one
+of the most talked about ideas in the field. Lilian Wang, a researcher who spent years thinking about exactly this,
+calls the practice loop engineering. We have heard the word loop engineering. You might have heard that from so many
+different avenues. We have heard that same coming from Peter Steinberger. We have heard the same thing coming from
+Boris from Anthropic. So clearly it is something that everyone is talking about. But Lilian Wang argues that the
+hardness is where self-improvement actually lives rather than in a bigger model. Wang slices it into a ladder of
+five levels. Safest at the bottom and riskiest at the top. Level one improve
+the prompt, the instructions that you hand the model, the system prompt, the agent MD. Level two is improve the
+context, the material you feed it alongside those instructions. Level three is improve the workflow, the steps
+the agent takes. Level four is improve the harness code itself. That includes all of those in some ways. And then
+level five is improve the thing that does the improving. So it can get meta. Each level up is a bigger riskier kind
+of change than the one below it. The steps above encompasses the steps below
+Act 1: The question of improvement
+in some ways. This video sits at level four, editing the harness score. It's
+worth knowing where you are on that ladder before you start climbing. So, if you have not seen the video about the
+custom agent that we built from scratch, here's one sentence you need to know. An agent is a model plus harness plus a UI.
+The model rarely changes and almost everything that makes a good agent or
+bad lives in the harness around it. Everything from here assumes that's already true and ask the next question.
+Once we have built the harness by hand, can something else improve it safely
+without us sitting there ret rewriting the code ourselves? And here's the failure to keep in your head for the
+rest of the video. I asked my agent a question whose answer sits near the end
+of a very long log file and it will fail every single time. Every idea coming up
+points back at that particular failure. Keep that in mind as we talk about how
+the approach was going from here to what that pull request is. Now, one word that
+is doing a lot of work in that last uh slide that we talked about safely. It's easy to build something that edits its
+own hardness, but it's much harder to build something that only ever makes changes you can inspect or reject, undo,
+and do so every single time. That pull request is a proof of that difference.
+It has passed every test and it still hasn't shipped. That gap between passing
+and shipping is what safely means here. And by the end of this video, you will have something you can take with you.
+The checklist are used on anyone who claims their agent improves itself. That
+brings us to act two. Meet the idea one term at a time. Three things anchor this
+video. A paper from Ant Group uh HKUSD um and Singha called Aal or Ariel about
+self- evvolving agents at enterprise scale. Second is a paper from Shangghai AI lab called selfh harness about
+harnesses that improve themselves. And then there is Lilian Wang's own post connecting both of them to a wider
+landscape. Three different altitudes if you will. One says why this matters. The
+other says exactly how to do it. And the third one says where it fits in the
+bigger scheme of things. And I'll be honest about which idea came from which source as we go because misquoting a
+paper here is worse than not quoting it at all. Step one in that self harness paper's own words is weakness mining.
+This is pretty interesting. In this one, you run your agent normally. You let it fail and then you look at the failures
+and ask whether they are the same problem showing up twice or a bunch of unrelated one-off mistakes. And you only
+group failures that share a real cause. The one flaky slip should not count.
+Now you take that log failure from the earlier example. Every time it happened,
+the agent described what went wrong in almost the same sentence. Repeated failures like that with one provable
+cause is uh something that we should group together. And that group of
+failures is what's referred to as cluster. A cluster is what the rest of
+this pipeline works on. Now, here's an idea from a real paper that's easy to miss and actually does a lot of work.
+Not every failure should get the same kind of fix. If the agent is missing a
+plain fact, it should just remember. The cheapest move is usually the right one and that would be drop that fact into
+its memory. If the failure is in how it routes a tool call or reads back a
+result or follows a guard rail, that is a harness problem and a harness edit is
+the right place to fix it. And if a failure keeps showing up no matter what you do to the memory or harness across
+every task, every user, every project, that's a signal you'd actually need to
+touch the model itself. This video is entirely about the middle one. Everything you're about to see is a
+harness edit because that's what the failure we found turned out to be. Later, I'll show you exactly how the
+diagnosis got made instead of just assuming it. One more distinction, this one isn't in either paper by name, but
+it matters a lot once you actually build one of these. Not every test in your suit is there to find something broken.
+Some task you write expecting them to fail on purpose because you already know the harness has a gap there because
+remember you found it by actually looking at the actual failures. Those feed the mining stage. Other task you
+write expecting them to already pass and their whole job is to sit there quietly
+and complain loudly if a fix for one of the issue accidentally breaks something
+else. So let's call the first kind the miners and the second kind the
+regression guards. And we'll need both. A suit made only of expected failures
+can't catch a fix that helps one thing while breaking another. Once you've got a cluster, you don't want to test a fix
+only on the failures that caused it. You want to know if the fix actually understood the problem or just memorized
+it. So you split your test into two piles. The pile the fixer gets to see is
+called held in. The pile you hide from the fixer on purpose, let's call it held
+out. Afterward, you check the fix against both. In this project, two different tasks trip over that same log
+file problem. The fixer got to see one of them. The other stayed hidden. That
+hidden pile is the only thing standing between a real fix and a fix that just
+games the test it was shown. Now the small local quantized models like the
+one I'm running the Gemma model these models aren't perfectly consistent. You
+ask the same question twice you might get two different answers. So every task in this suite gets run several times and
+what gets recorded is a fraction. Two passes out of three isn't a pass or a
+fail. It's 2/3. And when you compare a fixed fraction against the original
+fraction, you average them instead of taking whichever answer showed up most. That detail comes straight from the
+The role of weakness mining
+self-h harness paper's own methodology. And it adds up fast. 13 tasks, a few
+tries each. Every single candidate fix gets measured with 49 separate runs
+against the live model. So how do you decide if a fix counts? Simple rule
+straight from again the paper. It has to be at least as good as both piles seen
+and hidden and it has to be strictly bad better at one at least. If it's better
+in one place and worse in another, it gets rejected. There is no partial credit here. The AIAL paper adds a
+warning worth carrying alongside that root. A self- evvolving system that can't explain what changed isn't self-
+evvolving, it's drifting. And the rolling back a bad change shouldn't be
+some manual emergency procedure you invoke in a pandemic. It should be a normal first class thing the system can
+just do. Keep both of those in mind. They come back later. One more idea and it matters a lot for what comes later.
+Before anything outside your agent can safely propose a change, your harness has to say exactly what's allowed to
+change. A short named versioned list. And that list is called the editable
+surface. Everything outside that list stays exactly as untouchable as it was
+before. Now one departure before we go further. In the self harness paper, the
+Act 2: Meet the idea
+same model diagnoses its own mistakes and proposes its own fix. Here I split
+that in two. Gemma, the small model we have been running locally this whole series stays completely frozen. It only
+ever gets tested. A second external model in this case fable because had
+some time to use it does the diagnosing and the proposing. Why? Because Gemma is
+small enough that asking it to fix its own blind spot means asking it to see past something it can't see. An outside
+model doesn't share the same blind spot. So this isn't the paper's experiment anymore. It's a fair disclosed variation
+on it. And I'll say so again when it matters. There's a real cost to that choice. and it's worth naming now. A
+stronger model proposing fixes for a smaller one can overshoot. It can
+suggest something clever, worldy uh or nuanced that a small quantized model
+might just not be able to follow. So, it's something worth keeping in mind. I
+call that a capability mismatch. It's a real risk with this setup. one the
+original paper never had to deal with because its proposer and its patient
+were always the same model. So watch for it later. It shows up uh just not quite where you'd expect. Okay. So one more
+check before we move on because getting this wrong here would undercut the whole point. Cluster weakness mining held in
+and held out the acceptance rule all of that is coming from the selfarnness
+paper's own language. The bigger picture, an agent as a model wrapped in a harness with memory tools, guardrails,
+choosing the right kind of mix and roll back as a normal first class action. All of that is coming from the aerial paper
+loop engineering and the fivelevel ladder that we talked about, they all coming from Linen Wang's post. And a
+couple of words that I've used, minor versus a guard, capability mismatch, I made up those to describe what I was
+actually building. Okay, so let's put the whole idea back together before we build it. Something fails repeatedly
+when using your agent for a shared reason. Those group failures are a cluster. You show some of those affected
+task to whoever is fixing it and hide the rest. That's held in and held out.
+The fixer, the external AI, proposes a change, but only within a short named
+list of things it's actually allowed to touch. That is the hardness's editable surface. You test that change against
+everything, not just what it was aimed at. And it only counts if nothing got
+worse anywhere and something got strictly better somewhere. That is our
+acceptance rule. That's the whole mechanism. Everything from here is that mechanism run for real against my actual
+agent and that log file failure from the start. That brings us to act three, the
+build. Before any of this could work, the harness we built had to change um
+without changing behavior. Of course, every knob that governed how it acted
+used to be scattered across uh multiple files. In this case, five files to be precise. I collected all of it into one
+place. 35 lines, 11 values, and one version number. The old code still reads
+from it. So the agent continues to behave exactly the same as before. What changed is the harness can now honestly
+answer the question what exactly is editable about itself. That file is the
+only thing an outside editor is ever allowed to touch. Nothing else. And
+here's the diff in the public repository for Gemma, the coding agent we've been building that makes that change. If you
+go check out the commit, you will see one place where I have submitted this change. Exactly. The new file's own dock
+string says it plainly. One JSON file is the entire editable surface of that
+particular harness or agent. Now, here's the trap worth naming out loud because
+it's the kind of thing that looks fine until it isn't. If the test that grade
+of fix live um sits anywhere near the thing being edited, the editor can
+cheat. Not maliciously, just efficiently. It's easier to edit the
+test than to fix the real problem. So the task to it and everything that
+grades a candidate fix lives somewhere else entirely in a completely separate
+part of the project that the editor never even sees. One more thing that we should borrow from the um aerial paper
+is is that that paper argues that a pass or fail number by itself isn't enough to
+learn from. You need the actual trace. You need to see what the agent saw, what
+it did, what came back stamped with exactly which version of the harness produced it. So every single run this
+project does gets recorded in full. Every tool call, every reply tied to that exact commit of the agent and the
+exact version of the config that is being tested. That pays off in a few
+minutes when I quote this model's actual words to you from a failing run. This is
+the file. those words come from and this wasn't built in one sitting right and it's worth looking at how this was built
+in the first place because that journey is an interesting one as well one AI
+session read and synthesized the three sources that I talked about the papers and the article a separate AI session
+with none of the first one's context came in specifically to check its work and to check the tasks it adversarily
+looking for the same kind of mistake um tired author misses in their own writing. The other sessions built the
+config file and the runner that actually measures pass rate. Each handed a self-contained brief instead of a
+shoulder tap. That's the same discipline the earlier chapters taught. Split work into isolated pieces and check your own
+output before trusting it. So I didn't build the thing that improves the agent any differently than how we build the
+agent itself. And that adversarial review wasn't a formality. It found five
+real problems in how I would written the checks before a single real test run happened. One test could pass even if
+the agent did nothing at all. So a do nothing agent would quietly get credit for succeeding. Another had a sharper
+problem. Nothing stopped a candidate fix from rewriting the answer key itself,
+the actual file the test checks against instead of fixing the real bug. The fix was simple. record a fingerprint of
+every seeded test file the moment it's written and if that fingerprint ever changes the task fails outright no
+matter what else happened editing the answer key has to count as a failure not a loophole both of those got closed uh
+before I ran any live run instead of discovered after one so until a suit has been checked this hard it isn't a yard
+stick uh it it's just a guess so the finished suit is 13 small tasks written
+by hand in four groups. Ones that test whether the harness loses information
+across a long session. One that test whether the agent ever claims success it
+can't prove. Third one that test whether if uh if it leaks something it shouldn't. And the ones that test
+whether it reaches for a tool instead of guessing. Every one of those is grounded in something that my agent actually did
+while using that agent earlier in the series. Nothing is invented here. And before letting anything propose a fix, I
+measured what this harness actually does today as it is right now. 13 tasks,
+three to five tries each, real runs against the real local model. And the result was almost entirely green. Just
+two tasks failed every single attempt. And they are exactly the log file failure from the start of the video. A2,
+the one the fixer will later get to see fail. Three out of three. A4, that's the
+hidden one, failed five out of five. So, two red rows, one shared cause. That's
+the cluster this whole video is about. The other 10 task were passing every single time, which means 15 chapters of
+deliberate harness engineering held up to quite a lot of adversarial test suit. And I'll take that. That brings us to
+running it for real. That's our act four. And here's the actual piece of code. This whole story turns on. The
+entire function is six lines. This, if you remember, is the clamp function.
+When something the agent reads is too big, the harness keeps the beginning up to a limit and drops everything after
+it, leaving a small marker behind saying how much got cut. That's it. Simple on
+purpose, easy to reason about, and it has exactly the weakness you would expect from something that simple. If
+the part that matters happens to live past that limit, it's gone before the
+model ever sees a single token of it. So here's that log file failure up close. I
+ask the agent a question whose answer sits near the end of a log file and
+every single time it fails to answer. But look at what it actually says. The
+log ends abruptly with a truncated sequence. I cannot determine the password from the information provided.
+It knew. It noticed the content was cut off and it refused to guess. A model
+that lies confidently would be a much harder problem to diagnose. This one honestly said it didn't have enough
+information which tells us in plain language exactly where the real bug is. It is in the plumbing around the model
+and nowhere in the model itself. Remember mining is supposed to separate a real recurring cause from a one-off
+slip. And here it is doing exactly that. One other task in the suit came back flaky, passing most of the time, failing
+occasionally, no clear pattern. Those failures didn't get grouped into anything and nothing got proposed
+against them. They got noted and set aside as noise. Only the failures that happened the same way every single time
+for one provable shared cause formed the cluster this loop worked on. It's an
+important thing to note when creating such clusters for your own agent uh and agent harnesses. And remember the fork
+from earlier memory harness or the model itself. The missing fact would point at
+memory. A failure showing up everywhere would point at model and a tool result getting cut off before it ever reaches
+the agent point squarely at the harness. Okay. So from this point on the fixer gets to work. So Fable looked at the
+failure and proposed three fixes. All three of them to do exactly the same kind of thing. Raise one number. And in
+its own reasoning, it said almost exactly this. No instruction edit can ever recover data that never enters the
+window. That's the right diagnosis. Remember the editable surface. There is no field in the configuration for change
+the strategy of how the content is uh clipped uh or clamped only change the
+value. So every fix fable could possibly propose here was always going to be a
+bigger number. One more thing worth noticing, each proposal came with its
+own written risk assessment. And the third one actually calls out in advance the exact task that it might hurt. Hold
+on to that thought. It's worth being precise about what actually happens when a candidate gets tested because it's way
+less dramatic than it sounds. The configuration file gets edited right there in the working copy of the
+repository exactly as if a person had typed the change by hand. Then a full 13
+task uh test suit runs against that edited copy. Every task, not just the
+one that failed, not just A2, it's all clusters, all test within that. Then
+whatever the result, the edit gets reverted. You can see it in the record itself. Same commit as the baseline. One
+extra flag, dirty, true, and a fingerprint of exactly what the dirt
+was. A rejected candidate never becomes a commit. It never touches the actual history of the repository at all. It
+existed for exactly as long as it took to measure it and then it was gone. Only
+a candidate that clears the bar, our acceptance criteria gets to a permanent.
+But again, there is more to it. It caught its own bugs. Before trusting any of this, the very first dry run error
+out. One of my own test files had a bug. it was quietly comparing itself against the live editable version of the very
+number being changed. So any fix that raised that number far enough to work would have errored out um the test
+instead of passing it. The switch's own predicted best fix was structurally unpossible. Think about what that means.
+The measuring stick was coupled to the thing it was measuring. Of course, I fixed it by pinning the test to the
+value recorded the day it was written. And because fixing it changed the measuring tool itself, the whole
+baseline had to be re-recorded um before anything else could be trusted. So let's
+look at the results. Three candidates tested against the full 13 tasks, not
+just the one that was failing. The first raising the limit to 8,000 characters.
+This is again remember for the context. When you read a file, how many characters should be read? So raising it
+Act 3: The build
+from 4,000 to 8,000 helped one thing but didn't reach far enough to fix the
+actual failure that we had written. And it was a near miss. The password line starts at the character 8,690
+and the first candidate stopped reading at 8,000. The second went till 12,000 characters. Fixed it completely and
+didn't cost anything anywhere else in the suit. Now look at what the agent says now. Same question, same model,
+same weights. And the whole reply all three times is the password that was look was looked for in the test. The
+failing runs took each about 19 seconds to explain what they couldn't see. The
+fixed one answers in under two. The third candidate is one worth slowing down for again. So that third candidate
+genuinely broke something. One task that used to pass every time started failing
+every time because a side effect changed how the harness manages its memory of a
+long conversation. And it didn't fail loudly. Each attempt ran for over a minute and came back with an empty
+reply. Here's that uncomfortable part. That task went from always passing to always failing. But another flaky pass
+rate happened to tick up by roughly the same amount on that same run. add everything into one total and the total
+barely moved. The rule taken at face value on the aggregate number alone would have accepted this. It only got
+caught because I insisted on looking at every task individually, not just the
+total. And that limitation is disclosed in the paper the rule comes from. So not
+my idea. I followed the paper to the tea. So it isn't a bug in this project.
+It's just worth knowing about if you ever build one of these yourself. Even the fix that won gets the same
+disclosure. Its overall improvement wasn't purely the real fix. A good chunk
+of it was real. The failing task actually recovered completely. So in that way it is a real fix but a smaller
+sliver was noise. Another flaky pass rate happening to take up slightly on this particular run. Reporting only the
+total would have overstated the win. And separating the two is what makes the number trustworthy. As for the risk I
+flagged earlier, the stronger model proposing something too clever for the smaller one to follow. It didn't bite me
+this time, but only because the winning fix happened to be a number rather than a sentence or a clever strategy or code.
+Numbers don't get lost in translation the way pros does or code does. The other two candidates still show fable
+guessing wrong about how big a number needed to be and about a side effect it
+didn't fully anticipate. So the risk is real. This particular fix just wasn't the shape that exposed that. Okay. So
+the second candidate won three technically passed but this was the only
+one that helped without hiding a cost anywhere. The pipeline opened a real pull request and the one from the top of
+this video against my public repository on its own branch not on main. The title
+says it plainly. It evolving the harness iteration one max item characters change
+from 4,000 to 12,000. And here's what happens next. Nothing. Automatically
+nothing. It did not merge. It's sitting there right now waiting for me to actually read it and decide. That brings
+me to act five. close that pause is deliberate. The aerial paper has a
+phrase for this safe audited staged deployment. Every one of these changes
+changes should carry its own promotion path reviewed before it ships not after.
+It would have been easy to make the whole loop automated mining proposing validating and merging start to finish
+with no human in it at all. I didn't build it that way on purpose. A fix that can explain itself with real numbers in
+a pull request and still waits for a person to actually read it is a fundamentally different kind of a thing
+than one that just ships. It's the same discipline as the roll back idea from earlier. Being able to undo a change and
+choosing not to ship one automatically are really the same instinct pointed in two different directions. But let's talk
+about what actually happens when I read this. What does actually reviewing this look like in practice? More than reading
+the summary and clicking merge, I check whether the stated reason for the fix actually matches the per task numbers
+underneath it. The way we just did together with the third candidate, I check whether the change is the smallest
+one that explains the improvement or whether it's doing more than it needs to. And I check whether I'd have uh
+proposed the same fix myself. And if not, why would I not have proposed that? The whole design of this pipeline, one
+PR perfix, a full table instead of a single number was built specifically to
+make these reviews a few minutes of reading and and not more. Now, one quiet
+cost uh that we should look at even though it didn't change today's outcome, the task that was hidden from the fixer
+still ended up shaping which candidate got picked because it was part of the
+score used to compare all three. The fixer never read it, but using it to pick up the winner leaks information
+about it into whichever fix survives. So, it's not purely hidden anymore. Not
+the way it was before this run at least. So, do this once and it's okay. Do this
+over and over again, many iterations, and your hidden pile slowly stops being hidden with one acceptance edit at a
+time. The fix is simple. retire and replace the held out task occasionally. But it only starts to matter once you
+are running this loop many times not once. So if I were to run this kind of improvement loops on a regular basis
+that would be the work that I'll have to keep doing retiring some and adding a few more. Now what this can't still do
+um yet and this is again talking about the limitation before I close the fix that one is real but it's very narrow.
+It works because this specific piece of test content happened to fit under the 12,000 characters. All it really did was
+raise the size of the bucket. Not exciting at all. The harness is not smarter about what to keep. A genuinely
+better fix exists here, right? Keep the beginning and the end of something long instead of just the beginning. And it's
+exactly the same trick this harness already uses elsewhere. If you remember compaction for a long conversation
+follows that exact technique. The answer was already in the building, right? It was already there in the code for some
+other component, but that trick is code, not a number. And I didn't deliberately
+let anything outside of that configuration file be touched. That's the actual edge of what this version can
+do. And I'd rather name it than hide it. It's an honest shape of what this first version of the self-improvement or
+self-evolving loop is. So what can we do next? If there is a next version to
+this, here's honestly what it would look like. First, widen what the editors
+allowed to touch beyond just the values. which means that increase the editable
+surface of the agent or harness that we wrote so that the next time it could propose an actual strategy for the same
+kind of failures we already found instead of just a bigger number. Second, that flaky task mining set aside as
+noise deserves a harder look with more attempts to find out whether there's a
+second real cluster hiding under the noise floor. And third, this whole suit only test what this agent has already
+caught while my usage. So if I increase the scope to what I know about my
+harness and what are all the places where I would want to improve and then make the surface editable to that extent
+that would widen what the self-improvement loop would and how it would benefit me. None of that h needs
+to happen before the results come. It's just the list of what's left. So here's
+the checklist that I promised in the order it ran. A real failure found by
+looking at the logs. The observability helped in that aspect. Then grouped with
+the other that shared its cause. Then separated from the one that didn't.
+Tested against the work the fixer never saw, not just against the work that it was shown. Fixed inside a short named
+list of what was actually allowed to change. The editable surface checked against every task in the so not just
+the one that was broken caught once gaming its own test and corrected before
+that mattered and landed as a real open pull request against a real public
+repository waiting on a person instead of shipping itself. Ask those questions of any system that claims to improve
+itself and you'll know in minutes whether it's engineering or marketing. So 15 chapters the agent that we built
+by hand. Then this one asked whether something else could improve it without ever touching the model. And the answer
+today based on my experience and experiments is yes. Carefully narrowly
+and honestly the model stayed exactly as capable as it was. The harness around it
+got better. And that's the whole thesis of the papers that we talked about and
+the blog post from Lilian Wang. Model plus harness plus UI. It just turns out the harness can keep improving even
+after you have stopped changing the model itself. Hope this was helpful. Thanks for watching.

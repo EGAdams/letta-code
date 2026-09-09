@@ -17,11 +17,6 @@ import {
 } from "../../implementation/index.js";
 import { wireScannerDialog } from "./scanner-dialog.js";
 
-// Scanners whose tab keeps polling for recovery after a busy/offline result.
-// Empty by design: background polling must never start a transfer, so only an
-// explicitly monitored scanner may re-probe on a timer.
-const MONITORED_SCANNERS = new Set();
-
 /* A statement Mazda could not store waits in bank_statements/_needs_review/.
    The dialog polls for those and asks EG for the one missing piece — a
    workbook row, or an unreadable amount — then re-runs the store. It is built
@@ -107,7 +102,6 @@ export function setupScanners({
       dialog,
       http,
       printerRepair,
-      monitored: MONITORED_SCANNERS.has(dialog.dataset.scanner),
       doc,
       win,
     });

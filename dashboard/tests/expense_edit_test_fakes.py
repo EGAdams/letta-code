@@ -30,14 +30,30 @@ class FakeProbe(IExpenseSchemaProbe):
 
 
 class FakeCursor:
-    def __init__(self, rows):
+    def __init__(self, rows, receipt_metadata_rows=None,
+                 fail_on_metadata_update=None):
         self._rows = list(rows)
+        self._receipt_metadata_rows = list(receipt_metadata_rows or [])
+        self._fail_on_metadata_update = fail_on_metadata_update
         self.executed = []
         self._result = []
 
     def execute(self, sql, params=()):
-        self.executed.append((' '.join(sql.split()), tuple(params)))
-        if sql.lstrip().upper().startswith('UPDATE'):
+        normalized = ' '.join(sql.split())
+        self.executed.append((normalized, tuple(params)))
+        if normalized.startswith('SELECT 1 AS present FROM INFORMATION_SCHEMA.TABLES'):
+            self._result = ([{'present': 1}]
+                            if self._receipt_metadata_rows is not None else [])
+            return
+        if normalized.startswith('SELECT id_light, raw_response FROM receipt_metadata'):
+            self._result = list(self._receipt_metadata_rows)
+            return
+        if normalized.startswith('UPDATE receipt_metadata'):
+            if self._fail_on_metadata_update:
+                raise self._fail_on_metadata_update
+            self._result = []
+            return
+        if normalized.startswith('UPDATE'):
             self._result = []
             return
         self._result = list(self._rows)
@@ -56,15 +72,21 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, rows):
-        self.cur = FakeCursor(rows)
+    def __init__(self, rows, receipt_metadata_rows=None,
+                 fail_on_metadata_update=None):
+        self.cur = FakeCursor(
+            rows, receipt_metadata_rows, fail_on_metadata_update)
         self.commits = 0
+        self.rollbacks = 0
 
     def cursor(self):
         return self.cur
 
     def commit(self):
         self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
 
     def __enter__(self):
         return self
@@ -87,8 +109,10 @@ def row(**overrides):
     return value
 
 
-def repository(rows, probe=None, relocator=None):
-    connection = FakeConnection(rows)
+def repository(rows, probe=None, relocator=None, receipt_metadata_rows=None,
+               fail_on_metadata_update=None):
+    connection = FakeConnection(
+        rows, receipt_metadata_rows, fail_on_metadata_update)
     repo = MySqlExpenseRecordRepository(
         lambda: connection,
         FakeNamer(),

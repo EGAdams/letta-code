@@ -22,7 +22,9 @@ export function createScannerStatusMonitor({
   let inFlight = false;
 
   const readStatus = async () => {
-    const res = await fetch(`/api/scanner-status?scanner=${scanner}`);
+    const res = await fetch(
+      `/api/scanner-status?scanner=${encodeURIComponent(scanner)}`,
+    );
     return res.json();
   };
 
@@ -49,8 +51,9 @@ export function createScannerStatusMonitor({
         progress.stopProgress();
         return;
       }
-      // On recovery the status probe's transfer succeeds -> stop polling.
-      if (applyResult(data) === "ready") {
+      // Idle means no intake or physical scan owns the scanner. Ready is kept
+      // for compatibility with older servers; neither status starts intake.
+      if (["idle", "ready"].includes(applyResult(data))) {
         stop();
         return;
       }

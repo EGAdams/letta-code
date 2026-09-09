@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { createScannerStatusMonitor } from "../boot/scanners/scanner-status-monitor.js";
 import { ScannerDiagnosticsController } from "../implementation/scanner-diagnostics-controller.js";
 
 // Minimal esc double — good enough to prove escaping happens without a DOM.
@@ -120,5 +121,78 @@ describe("ScannerDiagnosticsController", () => {
     await ctrl.refresh(el);
     expect(el.innerHTML).toContain("diag-unknown");
     expect(el.innerHTML).toContain("boom");
+  });
+});
+
+describe("scanner status recovery monitor", () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const flush = () => new Promise((resolve) => originalSetTimeout(resolve, 0));
+  const progress = {
+    setProbing() {},
+    runProgress() {},
+    stopProgress() {},
+    setBusy() {},
+  };
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  });
+
+  test("URL-encodes the scanner key and uses read-only GET", async () => {
+    const requests = [];
+    globalThis.fetch = async (...args) => {
+      requests.push(args);
+      return { json: async () => ({ status: "idle", ok: true }) };
+    };
+    const monitor = createScannerStatusMonitor({
+      scanner: "window & freezer",
+      enabled: true,
+      progress,
+      applyResult: (data) => data.status,
+    });
+
+    monitor.start();
+    await flush();
+
+    expect(requests).toEqual([
+      ["/api/scanner-status?scanner=window%20%26%20freezer"],
+    ]);
+  });
+
+  test("preserves intake_busy polling and stops on idle", async () => {
+    const statuses = ["intake_busy", "idle"];
+    const scheduled = [];
+    const applied = [];
+    globalThis.fetch = async () => ({
+      json: async () => ({ status: statuses.shift(), ok: false }),
+    });
+    globalThis.setTimeout = (callback) => {
+      scheduled.push(callback);
+      return scheduled.length;
+    };
+    globalThis.clearTimeout = () => {};
+    const monitor = createScannerStatusMonitor({
+      scanner: "window",
+      enabled: true,
+      progress,
+      applyResult: (data) => {
+        applied.push(data.status);
+        return data.status;
+      },
+    });
+
+    monitor.start();
+    await flush();
+    expect(applied).toEqual(["intake_busy"]);
+    expect(scheduled).toHaveLength(1);
+
+    scheduled.shift()();
+    await flush();
+    expect(applied).toEqual(["intake_busy", "idle"]);
+    expect(scheduled).toHaveLength(0);
   });
 });

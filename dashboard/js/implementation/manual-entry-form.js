@@ -1205,7 +1205,10 @@ export class ManualEntryForm {
       this._renderCurrentItem();
     }
     this._setStatus(statusText);
-    this._showReloadButton();
+    // Reload only after every item and post-save dropdown refresh completed.
+    // This replaces the stale in-memory finding IDs with the server's canonical
+    // rows and guarantees one refresh for the whole batch, never one per item.
+    this.doc.location.reload();
   }
 
   /**
@@ -1263,17 +1266,7 @@ export class ManualEntryForm {
         result.problems.length ? ` Notes: ${result.problems.join("; ")}` : ""
       }`,
     );
-    this._showReloadButton();
-  }
-
-  _showReloadButton() {
-    const button = this._el("button", {
-      text: "Reload page (shows in Verified Transactions)",
-    });
-    button.type = "button";
-    button.addEventListener("click", () => this.doc.location.reload());
-    this._statusEl.appendChild(this.doc.createElement("br"));
-    this._statusEl.appendChild(button);
+    this.doc.location.reload();
   }
 
   async _showArchiveVerification() {

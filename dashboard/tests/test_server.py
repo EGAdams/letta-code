@@ -5024,12 +5024,15 @@ def test_run_scanner_auto_dispatches_intake_when_ready(monkeypatch):
 
 
 def test_run_scanner_does_not_dispatch_on_busy(monkeypatch):
-    monkeypatch.setattr(server, '_invoke_scanner', lambda key: {'status': 'busy'})
+    monkeypatch.setattr(server, '_invoke_scanner', lambda key: {
+        'status': 'busy', 'error': 'The WIA device is busy.'})
     spawned = []
     monkeypatch.setattr(server.threading, 'Thread',
                         lambda *a, **k: spawned.append(a) or type('T', (), {'start': lambda s: None})())
     result = server.run_scanner('window')
-    assert result['ok'] is False
+    assert result == {
+        'status': 'busy', 'error': 'The WIA device is busy.', 'ok': False}
+    assert server._scanner_runtime_status['window'] == {'status': 'idle', 'ok': True}
     assert spawned == []
 
 
@@ -5074,6 +5077,35 @@ def test_scanner_status_is_read_only(monkeypatch):
     server._scanner_runtime_status.clear()
 
     assert server.scanner_status('freezer') == {'status': 'idle', 'ok': True}
+
+
+def test_scanner_status_ignores_cached_attempt_failure_when_idle(monkeypatch):
+    monkeypatch.setattr(server, 'SCANNERS', {'window': {'name': 'Window Scanner'}})
+    monkeypatch.setattr(server, '_scanner_intake_in_progress', lambda _key: False)
+    monkeypatch.setattr(
+        server, '_SCAN_LOCK', type('IdleLock', (), {'locked': lambda self: False})())
+    server._scanner_runtime_status['window'] = {
+        'status': 'offline', 'ok': False, 'error': 'physical attempt failed'}
+
+    assert server.scanner_status('window') == {'status': 'idle', 'ok': True}
+
+
+def test_scanner_status_exposes_active_scan_lock_without_scanning(monkeypatch):
+    monkeypatch.setattr(server, 'SCANNERS', {'window': {'name': 'Window Scanner'}})
+    monkeypatch.setattr(server, '_scanner_intake_in_progress', lambda _key: False)
+    monkeypatch.setattr(
+        server, '_SCAN_LOCK', type('BusyLock', (), {'locked': lambda self: True})())
+    monkeypatch.setattr(
+        server, '_invoke_scanner',
+        lambda _key: (_ for _ in ()).throw(AssertionError('status GET started a scan')))
+
+    result = server.scanner_status('window')
+
+    assert result == {
+        'status': 'busy',
+        'ok': False,
+        'error': 'A scanner transfer is currently in progress.',
+    }
 
 
 def test_scanner_status_exposes_active_intake_lock_without_scanning(monkeypatch):
