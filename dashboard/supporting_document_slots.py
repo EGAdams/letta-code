@@ -53,7 +53,8 @@ class SupportingDocumentCatalog:
             "View Scanned Statement",
             falls_back_to_page_scan=True,
         ),
-        SupportingDocumentSlot("moms_ledger", "moms_ledger", "View Mom’s Ledger"),
+        SupportingDocumentSlot("moms_ledger", "moms_ledger", "View Mom's Ledger"),
+        SupportingDocumentSlot("check_image", "check_number", "View Check Image"),
     )
 
     def slots(self):

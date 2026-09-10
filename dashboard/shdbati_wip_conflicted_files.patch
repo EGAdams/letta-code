@@ -1,0 +1,413 @@
+diff --git a/dashboard/finance/expense_edit_repository.py b/dashboard/finance/expense_edit_repository.py
+index 262be287..e2632259 100644
+--- a/dashboard/finance/expense_edit_repository.py
++++ b/dashboard/finance/expense_edit_repository.py
+@@ -155,43 +155,81 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
+         return self._to_record(row), negative
+ 
+     def apply_edit(self, edit: ExpenseEdit) -> ExpenseEditResult:
++        import json
++        from finance.archive_path import build_id_light, vendor_prefix_from_id_light
++
+         with self._connect() as cnx:
+             with cnx.cursor() as cur:
+                 before, was_negative = self._read_one(cur, edit.expense_id)
+                 changed = describe_changes(before, edit)
+                 references = self._receipt_sync.synchronize(before, edit, changed)
++
++                # Calculate new id_light if date/amount changed AND:
++                # 1. File was successfully relocated (references.id_light is set), OR
++                # 2. There's no receipt file to relocate (before.receipt_url is empty)
++                # This ensures we don't update id_light when file relocation fails.
++                new_id_light = references.id_light
++                if not new_id_light and before.id_light and not before.receipt_url and any(field in changed for field in ('expense_date', 'amount')):
++                    vendor_prefix = vendor_prefix_from_id_light(before.id_light)
++                    new_id_light = build_id_light(vendor_prefix, edit.transaction_date, edit.total_amount)
++
+                 if changed:
+-                    # Keep the row's original sign: an expense stored as
+-                    # -42.00 stays negative once its magnitude is corrected,
+-                    # so the report totals it exactly as it did before.
+-                    signed = -edit.total_amount if was_negative else edit.total_amount
+-                    schema = self._probe.read(cur, OPTIONAL_COLUMNS)
+-                    assignments = ['description = %s', 'expense_date = %s',
+-                                   'amount = %s', 'category_id = %s']
+-                    params = [edit.merchant_name, edit.transaction_date,
+-                              signed, edit.category_id]
+-                    for column, value in (
+-                        ('id_light', references.id_light),
+-                        ('receipt_url', references.receipt_url),
+-                        ('document_url', references.document_url),
+-                        ('source_file', references.source_file),
+-                    ):
+-                        if value and schema.has(column):
+-                            assignments.append(f'{column} = %s')
+-                            params.append(value)
+-                    params.append(edit.expense_id)
+-                    cur.execute(
+-                        f'UPDATE expenses SET {", ".join(assignments)} '
+-                        'WHERE id = %s',
+-                        tuple(params),
+-                    )
+-                    cnx.commit()
++                    try:
++                        # Keep the row's original sign: an expense stored as
++                        # -42.00 stays negative once its magnitude is corrected,
++                        # so the report totals it exactly as it did before.
++                        signed = -edit.total_amount if was_negative else edit.total_amount
++                        schema = self._probe.read(cur, OPTIONAL_COLUMNS + ('receipt_metadata',))
++                        assignments = ['description = %s', 'expense_date = %s',
++                                       'amount = %s', 'category_id = %s']
++                        params = [edit.merchant_name, edit.transaction_date,
++                                  signed, edit.category_id]
++                        for column, value in (
++                            ('id_light', new_id_light or references.id_light),
++                            ('receipt_url', references.receipt_url),
++                            ('document_url', references.document_url),
++                            ('source_file', references.source_file),
++                        ):
++                            if value and schema.has(column):
++                                assignments.append(f'{column} = %s')
++                                params.append(value)
++                        # Synchronize inline expenses.receipt_metadata.id_light with id_light
++                        if new_id_light and schema.has('receipt_metadata'):
++                            # Read current metadata to preserve other fields
++                            cur.execute('SELECT receipt_metadata FROM expenses WHERE id = %s',
++                                        (edit.expense_id,))
++                            meta_row = cur.fetchone()
++                            try:
++                                metadata = json.loads(meta_row['receipt_metadata']) if meta_row and meta_row.get('receipt_metadata') else {}
++                            except (ValueError, TypeError, KeyError):
++                                metadata = {}
++                            metadata['id_light'] = new_id_light
++                            assignments.append('receipt_metadata = %s')
++                            params.append(json.dumps(metadata))
++                        params.append(edit.expense_id)
++                        cur.execute(
++                            f'UPDATE expenses SET {", ".join(assignments)} '
++                            'WHERE id = %s',
++                            tuple(params),
++                        )
++
++                        # Synchronize separate receipt_metadata table if it exists and id_light changed
++                        if new_id_light and before.id_light and new_id_light != before.id_light:
++                            self._sync_separate_receipt_metadata_table(
++                                cur, edit.expense_id, before.id_light, new_id_light,
++                                edit.transaction_date, edit.total_amount
++                            )
++
++                        cnx.commit()
++                    except Exception:
++                        cnx.rollback()
++                        raise
+                 after = ExpenseRecord(
+                     id=before.id,
+                     transaction_date=edit.transaction_date,
+                     total_amount=edit.total_amount,
+                     description=edit.merchant_name,
+-                    id_light=references.id_light or before.id_light,
++                    id_light=new_id_light or references.id_light or before.id_light,
+                     receipt_url=references.receipt_url or before.receipt_url,
+                     document_url=references.document_url or before.document_url,
+                     source_file=references.source_file or before.source_file,
+@@ -204,6 +242,97 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
+             warnings=references.warnings,
+         )
+ 
++    def _sync_separate_receipt_metadata_table(
++        self, cur: Any, expense_id: int, old_id_light: str,
++        new_id_light: str, transaction_date: str, total_amount: float
++    ) -> None:
++        """Synchronize the separate receipt_metadata table row when id_light changes.
++
++        The separate receipt_metadata table has columns:
++        - expense_id (unique)
++        - raw_response (JSON)
++        - id_light (unique)
++
++        This method:
++        1. Checks if the table exists (fail gracefully if not)
++        2. Verifies the row exists and old_id_light matches (ownership check)
++        3. Updates id_light and raw_response transaction_date/total_amount
++        4. Preserves other raw_response JSON fields
++        5. Handles missing/mismatched/malformed rows safely
++        """
++        import json
++
++        # Check if receipt_metadata table exists
++        try:
++            cur.execute(
++                "SELECT COUNT(*) as cnt FROM INFORMATION_SCHEMA.TABLES "
++                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'receipt_metadata'"
++            )
++            table_exists = cur.fetchone()['cnt'] > 0
++            if not table_exists:
++                return  # Table doesn't exist, nothing to sync
++        except Exception:  # noqa: BLE001
++            return  # Can't check table existence, skip sync
++
++        # Read the existing row for this expense_id
++        try:
++            cur.execute(
++                'SELECT id_light, raw_response FROM receipt_metadata WHERE expense_id = %s',
++                (expense_id,)
++            )
++            meta_row = cur.fetchone()
++        except Exception:  # noqa: BLE001
++            # Table might not exist or query failed, skip sync
++            return
++
++        if not meta_row:
++            # No metadata row for this expense_id, nothing to update
++            return
++
++        # Verify old id_light matches (ownership check)
++        stored_id_light = (meta_row.get('id_light') or '').strip()
++        if stored_id_light != old_id_light:
++            # Mismatch: this expense doesn't own this metadata row
++            return
++
++        # Parse and update raw_response JSON
++        raw_response = meta_row.get('raw_response')
++        try:
++            if isinstance(raw_response, str):
++                response_data = json.loads(raw_response)
++            elif isinstance(raw_response, dict):
++                response_data = raw_response
++            else:
++                response_data = {}
++        except (ValueError, TypeError):
++            # Malformed JSON: preserve the raw payload as-is, only update id_light
++            # This allows the relational id_light update even when raw_response is broken
++            try:
++                cur.execute(
++                    'UPDATE receipt_metadata SET id_light = %s WHERE expense_id = %s',
++                    (new_id_light, expense_id)
++                )
++            except Exception:  # noqa: BLE001
++                pass  # Update failed, but we tried
++            return
++
++        # Update transaction_date and total amount in raw_response
++        if 'transaction_date' in response_data or transaction_date:
++            response_data['transaction_date'] = transaction_date
++        if 'total' in response_data or total_amount is not None:
++            response_data['total'] = float(total_amount)
++
++        # Update the separate table row
++        try:
++            cur.execute(
++                'UPDATE receipt_metadata SET id_light = %s, raw_response = %s WHERE expense_id = %s',
++                (new_id_light, json.dumps(response_data), expense_id)
++            )
++        except Exception:  # noqa: BLE001
++            # Unique constraint violation on id_light, or other SQL error
++            # Rollback will be triggered by the outer try/except
++            raise
++
+     def read(self, expense_id: int) -> ExpenseRecord:
+         with self._connect() as cnx:
+             with cnx.cursor() as cur:
+diff --git a/dashboard/js/implementation/manual-entry-form.js b/dashboard/js/implementation/manual-entry-form.js
+index ab8c6cf9..37fbf3fb 100644
+--- a/dashboard/js/implementation/manual-entry-form.js
++++ b/dashboard/js/implementation/manual-entry-form.js
+@@ -1204,8 +1204,9 @@ export class ManualEntryForm {
+       await this._loadDropdownOptions();
+       this._renderCurrentItem();
+     }
+-    this._setStatus(statusText);
+-    this._showReloadButton();
++    this._setStatus(statusText + " Reloading page…");
++    // Automatic reload on successful Save All
++    this.doc.location.reload();
+   }
+ 
+   /**
+@@ -1261,9 +1262,10 @@ export class ManualEntryForm {
+     this._setStatus(
+       `${summary}${
+         result.problems.length ? ` Notes: ${result.problems.join("; ")}` : ""
+-      }`,
++      }. Reloading page…`,
+     );
+-    this._showReloadButton();
++    // Automatic reload on successful Save All
++    this.doc.location.reload();
+   }
+ 
+   _showReloadButton() {
+diff --git a/dashboard/server.py b/dashboard/server.py
+index 4027e562..993affcb 100644
+--- a/dashboard/server.py
++++ b/dashboard/server.py
+@@ -1361,12 +1361,15 @@ def _edit_stored_expense(data, repository=None, namer=None, report_sync=None):
+     # row and the receipt index key off -- drop the cached index so "View
+     # Receipt" re-resolves against the new values, same as a fresh save does.
+     _invalidate_receipt_index()
++    # Pass replace_identity=True when date changed to make the edit authoritative
++    date_changed = before and before.transaction_date != edit.transaction_date
+     image_sync = _synchronize_recent_report_image(
+         expense_id,
+         vendor_key=str(data.get('vendor_key') or ''),
+         transaction_date=edit.transaction_date,
+         fallback_vendor_key=_vendor_prefix(result.record.id_light),
+         fallback_date=result.record.transaction_date,
++        replace_identity=date_changed,
+     )
+     warnings = list(result.warnings)
+     if before is not None:
+@@ -4431,6 +4434,19 @@ def _expense_annotation_evidence(chosen, document_type=''):
+             _resolve_local_supporting_document(
+                 chosen.get('document_url'), 'source') or ''
+         )
++
++    reference_terms = ()
++    if document_type == 'check_image':
++        check_number = str(chosen.get('check_number') or '').strip()
++        if not check_number:
++            import re
++            description = str(chosen.get('description') or '')
++            match = re.search(r'check\s*#?\s*([0-9]{3,})', description, re.I)
++            if match:
++                check_number = match.group(1)
++        if check_number:
++            reference_terms = (check_number,)
++
+     return ExpenseEvidence(
+         expense_id=int(chosen['id']),
+         expense_date=str(chosen.get('expense_date') or ''),
+@@ -4438,6 +4454,7 @@ def _expense_annotation_evidence(chosen, document_type=''):
+         description=str(chosen.get('description') or ''),
+         vendor_key=_vendor_prefix(chosen.get('id_light')),
+         related_document_path=related_document_path,
++        reference_terms=reference_terms,
+     )
+ 
+ 
+@@ -4584,6 +4601,50 @@ def _report_scanned_statement_reference(report_path):
+     return _supporting_document_pages().scanned_statement_reference(report_path)
+ 
+ 
++def _check_image_reference(chosen, report_path=''):
++    """Locate check-images PDF for this expense's statement report.
++
++    Check images are stored alongside the statement PDF in report directories.
++    Only return a reference when the expense has a check number and a
++    corresponding check-images file exists.
++    """
++    chosen = chosen or {}
++    check_number = str(chosen.get('check_number') or '').strip()
++
++    # Try extracting check number from description if not in field
++    if not check_number:
++        import re
++        description = str(chosen.get('description') or '')
++        match = re.search(r'check\s*#?\s*([0-9]{3,})', description, re.I)
++        if match:
++            check_number = match.group(1)
++
++    if not check_number:
++        return ''
++
++    # Find check-images PDF in report directory
++    if not report_path:
++        return ''
++
++    split = _split_report_url(unquote(report_path.split('?', 1)[0]))
++    if not split:
++        return ''
++
++    base, rel = split
++    report_dir = os.path.dirname(os.path.abspath(os.path.join(base, rel)))
++
++    # Look for check-images PDF in the report directory
++    if os.path.isdir(report_dir):
++        for filename in os.listdir(report_dir):
++            lower = filename.lower()
++            if 'check' in lower and 'image' in lower and filename.endswith('.pdf'):
++                check_images_path = os.path.join(report_dir, filename)
++                if os.path.isfile(check_images_path):
++                    return check_images_path
++
++    return ''
++
++
+ def _slot_reference(chosen, kind, report_path=''):
+     """The reference to offer for one supporting-document slot."""
+     slot = SUPPORTING_DOCUMENT_CATALOG.slot_for_kind(kind)
+@@ -4591,6 +4652,8 @@ def _slot_reference(chosen, kind, report_path=''):
+         return ''
+     if kind == 'source':
+         return _source_document_reference(chosen, report_path)
++    if kind == 'check_image':
++        return _check_image_reference(chosen, report_path)
+     return slot_reference(
+         chosen, slot, report_path,
+         normalize=normalize_supporting_document_reference,
+diff --git a/dashboard/tests/expense_edit_test_fakes.py b/dashboard/tests/expense_edit_test_fakes.py
+index 927a39bd..e390ceff 100644
+--- a/dashboard/tests/expense_edit_test_fakes.py
++++ b/dashboard/tests/expense_edit_test_fakes.py
+@@ -30,13 +30,37 @@ class FakeProbe(IExpenseSchemaProbe):
+ 
+ 
+ class FakeCursor:
+-    def __init__(self, rows):
++    def __init__(self, rows, connection=None):
+         self._rows = list(rows)
+         self.executed = []
+         self._result = []
++        self._connection = connection
+ 
+     def execute(self, sql, params=()):
+         self.executed.append((' '.join(sql.split()), tuple(params)))
++
++        # Handle separate receipt_metadata table queries
++        if self._connection and 'receipt_metadata' in sql:
++            if 'INFORMATION_SCHEMA.TABLES' in sql:
++                # Table existence check - always return true for testing
++                self._result = [{'cnt': 1}]
++                return
++            elif 'SELECT id_light, raw_response FROM receipt_metadata' in sql:
++                # Query for metadata row
++                expense_id = params[0] if params else None
++                metadata = getattr(self._connection, 'separate_receipt_metadata', {})
++                if expense_id in metadata:
++                    self._result = [metadata[expense_id]]
++                else:
++                    self._result = []
++                return
++            elif 'UPDATE receipt_metadata SET id_light' in sql:
++                # Check if we should fail on metadata update
++                if getattr(self._connection, 'fail_on_metadata_update', False):
++                    raise Exception('Simulated unique constraint violation')
++                self._result = []
++                return
++
+         if sql.lstrip().upper().startswith('UPDATE'):
+             self._result = []
+             return
+@@ -57,8 +81,11 @@ class FakeCursor:
+ 
+ class FakeConnection:
+     def __init__(self, rows):
+-        self.cur = FakeCursor(rows)
++        self.cur = FakeCursor(rows, connection=self)
+         self.commits = 0
++        self.rolled_back = False
++        self.separate_receipt_metadata = {}
++        self.fail_on_metadata_update = False
+ 
+     def cursor(self):
+         return self.cur
+@@ -66,6 +93,9 @@ class FakeConnection:
+     def commit(self):
+         self.commits += 1
+ 
++    def rollback(self):
++        self.rolled_back = True
++
+     def __enter__(self):
+         return self
+ 

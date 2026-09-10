@@ -1422,6 +1422,190 @@ class PdfCheckNumberResolver(IExpenseReferenceResolver):
         return ()
 
 
+def _check_header_score(text: str, check_number: str, amount: Decimal | None) -> int:
+    """Score a check-image panel by its header content."""
+    score = 0
+    # Check number match in header
+    if check_number and re.search(rf'\b{re.escape(check_number)}\b', text):
+        score += 15
+    # Amount match in header (checks often show amount in header)
+    if _amount_matches(text, amount):
+        score += 8
+    return score
+
+
+class PdfCheckImageAnnotator(IExpenseDocumentAnnotator):
+    """Highlight a specific check image panel in a check-images PDF."""
+
+    def supports(self, source_path: str) -> bool:
+        path_lower = source_path.lower()
+        return Path(source_path).suffix.lower() == ".pdf" and (
+            "check" in path_lower and "image" in path_lower
+        )
+
+    def annotate(
+        self,
+        source_path: str,
+        output_path: str,
+        evidence: ExpenseEvidence,
+    ) -> AnnotationResult:
+        try:
+            import fitz
+        except ImportError:
+            return AnnotationResult(source_path, False, "PyMuPDF is not installed.")
+
+        # Extract check number from evidence
+        check_number = None
+        if evidence.reference_terms:
+            check_number = evidence.reference_terms[0]
+        if not check_number:
+            # Try extracting from description
+            match = re.search(r'check\s*#?\s*([0-9]{3,})', evidence.description, re.I)
+            if match:
+                check_number = match.group(1)
+
+        if not check_number:
+            return AnnotationResult(
+                source_path,
+                False,
+                "No check number found in expense data."
+            )
+
+        amount = _amount_decimal(evidence.amount)
+        document = fitz.open(source_path)
+        candidates: list[tuple[str, tuple[int, object], int]] = []
+
+        try:
+            for page_index, page in enumerate(document):
+                page_words = list(page.get_text("words"))
+                if not page_words:
+                    continue
+
+                # Group words into spatial regions (check panels are visual units)
+                grouped: dict[tuple[int, int], list[tuple]] = {}
+                for word in page_words:
+                    # Use block/par/line structure first
+                    key = (int(word[5]), int(word[6]))
+                    grouped.setdefault(key, []).append(word)
+
+                # Build check panel candidates from spatial clustering
+                median_height = statistics.median(
+                    max(1.0, word[3] - word[1]) for word in page_words
+                ) if page_words else 1.0
+
+                # Check images are typically laid out in a grid
+                # Group by vertical position to find rows of checks
+                y_centers = sorted(set(
+                    (word[1] + word[3]) / 2 for word in page_words
+                ))
+
+                row_tolerance = max(40.0, median_height * 8)
+                check_regions: list[tuple[str, object]] = []
+
+                # Build check panel regions by clustering words spatially
+                # Group words by approximate grid position to identify distinct check panels
+                x_positions = sorted(set(word[0] for word in page_words))
+                y_positions = sorted(set(word[1] for word in page_words))
+
+                # Cluster x and y positions to identify panel boundaries
+                def cluster_positions(positions, tolerance):
+                    if not positions:
+                        return []
+                    clusters = []
+                    current = [positions[0]]
+                    for pos in positions[1:]:
+                        if pos - current[-1] <= tolerance:
+                            current.append(pos)
+                        else:
+                            clusters.append(sum(current) / len(current))
+                            current = [pos]
+                    if current:
+                        clusters.append(sum(current) / len(current))
+                    return clusters
+
+                x_clusters = cluster_positions(x_positions, 200)
+                y_clusters = cluster_positions(y_positions, row_tolerance)
+
+                # Create panels from grid cells
+                panel_regions = []
+                for y_center in y_clusters:
+                    for x_center in x_clusters:
+                        panel_words = [
+                            w for w in page_words
+                            if abs(w[0] - x_center) <= 150
+                            and abs(w[1] - y_center) <= row_tolerance
+                        ]
+                        if len(panel_words) >= 2:
+                            panel_words.sort(key=lambda w: (w[1], w[0]))
+                            text = " ".join(str(w[4]) for w in panel_words)
+                            rect = fitz.Rect(
+                                min(w[0] for w in panel_words),
+                                min(w[1] for w in panel_words),
+                                max(w[2] for w in panel_words),
+                                max(w[3] for w in panel_words),
+                            )
+                            score = _check_header_score(text, check_number, amount)
+                            if score > 0:
+                                panel_regions.append((text, (page_index, rect), score))
+
+                # Deduplicate overlapping panels - keep highest scoring
+                seen_regions = []
+                for text, (pg_idx, rect), score in sorted(panel_regions, key=lambda x: -x[2]):
+                    is_duplicate = False
+                    for _, (_, seen_rect), _ in seen_regions:
+                        # Check if rects significantly overlap
+                        overlap_x = min(rect.x1, seen_rect.x1) - max(rect.x0, seen_rect.x0)
+                        overlap_y = min(rect.y1, seen_rect.y1) - max(rect.y0, seen_rect.y0)
+                        if overlap_x > 0 and overlap_y > 0:
+                            rect_area = (rect.x1 - rect.x0) * (rect.y1 - rect.y0)
+                            seen_area = (seen_rect.x1 - seen_rect.x0) * (seen_rect.y1 - seen_rect.y0)
+                            overlap_area = overlap_x * overlap_y
+                            if overlap_area > 0.5 * min(rect_area, seen_area):
+                                is_duplicate = True
+                                break
+                    if not is_duplicate:
+                        seen_regions.append((text, (pg_idx, rect), score))
+                        candidates.append((text, (pg_idx, rect), score))
+
+            if not candidates:
+                return AnnotationResult(
+                    source_path,
+                    False,
+                    f"No check panel found for check #{check_number}."
+                )
+
+            # Select best candidate
+            candidates.sort(key=lambda x: x[2], reverse=True)
+            best_text, (page_index, rect), best_score = candidates[0]
+
+            # Check for ambiguity - fail closed if multiple checks match equally
+            if len(candidates) > 1 and candidates[1][2] == best_score:
+                return AnnotationResult(
+                    source_path,
+                    False,
+                    f"Multiple check panels match check #{check_number} with equal confidence."
+                )
+
+            # Expand the region to include the entire check panel
+            # Check panels typically extend below the header text
+            page = document[page_index]
+            panel_height = max(rect.height * 2.5, 200)
+            expanded_rect = fitz.Rect(
+                max(page.rect.x0, rect.x0 - 10),
+                max(page.rect.y0, rect.y0 - 5),
+                min(page.rect.x1, rect.x1 + 10),
+                min(page.rect.y1, rect.y1 + panel_height),
+            )
+
+            # Draw red box around the check panel
+            page.draw_rect(expanded_rect, color=(1, 0, 0), width=3, overlay=True)
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            document.save(output_path, garbage=3, deflate=True)
+            return AnnotationResult(output_path, True, page=page_index + 1)
+        finally:
+            document.close()
+
+
 class ImageExpenseDocumentAnnotator(IExpenseDocumentAnnotator):
     _EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
     _MIN_FALLBACK_CONFIDENCE = 0.9
@@ -1757,6 +1941,7 @@ def build_document_annotation_service(
     """Composition root: wire format implementations to the application port."""
     return ExpenseDocumentAnnotationService(
         (
+            PdfCheckImageAnnotator(),
             PdfExpenseDocumentAnnotator(),
             ImageExpenseDocumentAnnotator(
                 PdfCheckNumberResolver(),
