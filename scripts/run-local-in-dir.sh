@@ -7,6 +7,7 @@ if [[ $# -lt 1 ]]; then
   exit 1
 fi
 
+# export LETTA_DEBUG=1
 TARGET_DIR="$1"
 shift || true
 
