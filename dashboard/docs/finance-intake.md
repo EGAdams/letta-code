@@ -42,6 +42,10 @@ cancels) against itself.
 Bookkeeping in `dashboard/recent_report.json` (gitignored), folded by `merge_recent_intake_event()`
 / `_fold_event_into_intake`. Mazda's STEP 8 callback must fire even when `stored:0` (a correct
 re-scan of an already-processed statement) so the page shows real state instead of stale/empty data.
+Callback routing is fail-closed: `intake/recent_intake_contracts.py` parses the explicit document /
+conversation / dispatch identity, and `IRecentIntakeEventRouter` selects matching intake records.
+An event without any such identity remains on the event bus for diagnostics but cannot alter the
+current shared or per-scanner report.
 `duplicate_expense_ids` applies to receipts/invoices too, not just statements — a duplicate-only
 event with no ids falls back to resolving them from the DB by `(expense_date, amount)`, bailing if
 >3 rows share that pair.

@@ -5201,6 +5201,7 @@ def test_merge_recent_intake_event_folds_ids_and_counts(tmp_path, monkeypatch):
         'kind': 'statement', 'expense_id': 101, 'expense_ids': [101, 102],
         'parsed': 10, 'stored': 2,
         'expense_date': '2025-06-01', 'amount': '12.34',
+        'document_path': '/staged/scan_freezer.jpg',
     })
     intake = server._read_recent_pointer_file()['intake']
     assert intake['expense_ids'] == [101, 102]
@@ -5227,7 +5228,9 @@ def _reader_visible_html(html):
 def test_recent_intake_html_lists_expenses_with_picker(tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
-    server.merge_recent_intake_event({'expense_ids': [7], 'parsed': 1, 'stored': 1})
+    server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
+        'expense_ids': [7], 'parsed': 1, 'stored': 1})
     monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
         'date': '2025-06-01', 'amount': '-12.34', 'vendor_key': 'kum_go',
         'description': 'Kum & Go', 'reporting_category': 'Travel & Vehicle',
@@ -5252,7 +5255,9 @@ def test_recent_intake_html_seeds_the_review_dialog_with_stored_findings(
     Prev/Next has something to walk (see manual-entry-form.js's _navigate)."""
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
-    server.merge_recent_intake_event({'expense_ids': [7, 8], 'parsed': 2, 'stored': 2})
+    server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
+        'expense_ids': [7, 8], 'parsed': 2, 'stored': 2})
     monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [
         {'id': 7, 'date': '2025-06-01', 'amount': '-12.34', 'vendor_key': 'kum_go',
          'description': 'Kum & Go', 'reporting_category': 'Travel & Vehicle',
@@ -5293,7 +5298,9 @@ def test_recent_intake_html_duplicates_note_when_nothing_stored(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
-    server.merge_recent_intake_event({'expense_ids': [], 'parsed': 10, 'stored': 0})
+    server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
+        'expense_ids': [], 'parsed': 10, 'stored': 0})
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '', ''))
     html = server.build_recent_report_html()
@@ -5312,7 +5319,9 @@ def test_recent_intake_html_empty_scan_still_shows_verified_section(
     # rather than the section vanishing entirely.
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
-    server.merge_recent_intake_event({'expense_ids': [], 'parsed': 0, 'stored': 0})
+    server.merge_recent_intake_event({
+        'document_path': '/staged/window_scan.jpg',
+        'expense_ids': [], 'parsed': 0, 'stored': 0})
     monkeypatch.setattr(server, '_receipt_only_picker_assets', lambda: ('', '', ''))
     data = server._read_recent_pointer_file()
     html = server.build_recent_intake_html(data['scanner_intakes']['Window Scanner'])
@@ -5352,7 +5361,9 @@ def test_recent_intake_html_finished_hides_mazda_working_panel(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
-    server.merge_recent_intake_event({'expense_ids': [], 'parsed': 0, 'stored': 0})
+    server.merge_recent_intake_event({
+        'document_path': '/staged/window_scan.jpg',
+        'expense_ids': [], 'parsed': 0, 'stored': 0})
     monkeypatch.setattr(server, '_receipt_only_picker_assets',
                         lambda: ('', '', ''))
 
@@ -5822,14 +5833,15 @@ def test_merge_dispatch_only_event_keeps_mirror_when_path_is_unrecognized(
     assert data['intake']['expense_ids'] == [4243]
 
 
-def test_merge_without_document_path_updates_intake_and_its_mirror(
+def test_merge_without_explicit_identity_is_rejected(
         tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
-    server.merge_recent_intake_event({'expense_ids': [7], 'parsed': 1, 'stored': 1})
+    assert server.merge_recent_intake_event({
+        'expense_ids': [7], 'parsed': 1, 'stored': 1}) is False
     data = server._read_recent_pointer_file()
-    assert data['intake']['expense_ids'] == [7]
-    assert data['scanner_intakes']['Window Scanner']['expense_ids'] == [7]
+    assert data['intake']['expense_ids'] == []
+    assert data['scanner_intakes']['Window Scanner']['expense_ids'] == []
 
 
 def test_get_scanner_intake_reads_per_scanner_then_legacy(tmp_path, monkeypatch):
@@ -5989,6 +6001,7 @@ def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
         '/incoming_scans/scan_freezer_1786536321_7340d041.jpg',
         'Freezer Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/incoming_scans/scan_freezer_1786536321_7340d041.jpg',
         'expense_ids': [], 'parsed': None, 'stored': None,
         'doc_kind': 'unknown', 'vendor': 'unknown', 'status': 'stalled',
         'status_detail': 'Verification lock cleared manually.',
@@ -6095,6 +6108,7 @@ def test_recent_intake_collapses_check_evidence_row_into_real_expense(tmp_path, 
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/freezer_scan.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/freezer_scan.jpg',
         'expense_ids': [101, 102],
         'duplicate_expense_ids': [102],
         'parsed': 1,
@@ -6153,6 +6167,7 @@ def test_recent_intake_html_omits_document_metadata(tmp_path, monkeypatch):
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
         'expense_ids': [], 'duplicate_expense_ids': [7], 'parsed': 10, 'stored': 0,
         'doc_kind': 'statement', 'vendor': 'chase',
     })
@@ -6225,6 +6240,7 @@ def test_recent_intake_prefers_statement_archive_over_raw_scan_url(
     monkeypatch.setattr(server, '_supporting_document_roots', lambda: [str(base)])
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
         'expense_ids': [], 'duplicate_expense_ids': [1, 2, 3], 'parsed': 5, 'stored': 0,
     })
     raw_scan = base / 'scanned_statements' / '2025' / 'window_scan_raw.jpg'
@@ -6276,6 +6292,7 @@ def test_recent_intake_html_shows_archived_scan_copy_from_callback(tmp_path, mon
                         lambda: [str(tmp_path), str(base)])
     server.record_recent_intake(str(staged), 'Window Scanner')
     server.merge_recent_intake_event({
+        'document_path': str(staged),
         'expense_ids': [7], 'parsed': 1, 'stored': 1,
         'doc_kind': 'statement', 'vendor': 'chase',
         'archive_paths': [archived],
@@ -6302,6 +6319,7 @@ def test_recent_receipt_uses_canonical_archive_name_and_not_statement_slot(
         'march_18/intercessors_for_america_03_18_25_30_50.jpg')
     server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/window_scan.jpg',
         'expense_ids': [], 'duplicate_expense_ids': [1547],
         'parsed': 1, 'stored': 0, 'doc_kind': 'receipt',
         'vendor': 'Intercessors for America',
@@ -6337,6 +6355,7 @@ def test_scanner_report_hides_staged_image_when_archive_is_missing(
     _scanner_registry(monkeypatch)
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
         'expense_ids': [], 'parsed': 0, 'stored': 0, 'doc_kind': 'statement',
     })
     monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [])
@@ -6379,6 +6398,7 @@ def test_merge_recent_intake_event_includes_duplicate_ids(tmp_path, monkeypatch)
         'kind': 'statement', 'expense_ids': [],
         'duplicate_expense_ids': [1490, 1491, 1492],
         'parsed': 10, 'stored': 0,
+        'document_path': '/staged/scan_freezer.jpg',
     })
     intake = server._read_recent_pointer_file()['intake']
     assert intake['expense_ids'] == [1490, 1491, 1492]
@@ -6394,6 +6414,7 @@ def test_duplicate_only_event_without_ids_recovers_row_from_db(tmp_path, monkeyp
         server, '_rol_get_connection', lambda: _FakeConnection([{'id': 1521}]))
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
         'expense_ids': [], 'duplicate_expense_ids': [], 'expense_id': None,
         'parsed': 1, 'stored': 0,
         'expense_date': '2025-01-23', 'amount': '222.65',
@@ -6412,6 +6433,7 @@ def test_duplicate_recovery_skips_ambiguous_date_amount(tmp_path, monkeypatch):
         [{'id': i} for i in (10, 11, 12, 13)]))
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
         'parsed': 1, 'stored': 0,
         'expense_date': '2025-01-23', 'amount': '20.00'})
     intake = server._read_recent_pointer_file()['intake']
@@ -6438,6 +6460,7 @@ def test_duplicate_recovery_leaves_reported_ids_alone(tmp_path, monkeypatch):
     monkeypatch.setattr(server, '_rol_get_connection', _boom)
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
         'duplicate_expense_ids': [1490], 'parsed': 1, 'stored': 0,
         'expense_date': '2025-01-23', 'amount': '222.65'})
     intake = server._read_recent_pointer_file()['intake']
@@ -6448,6 +6471,7 @@ def test_recent_intake_html_duplicates_run_still_lists_rows(tmp_path, monkeypatc
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/scan_freezer.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer.jpg',
         'duplicate_expense_ids': [1490], 'parsed': 10, 'stored': 0})
     monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [{
         'date': '2025-05-30', 'amount': '26.32', 'id_light': 'amazon_com_05_30_25_26_32',
@@ -6468,6 +6492,7 @@ def test_recent_intake_html_collapses_equivalent_duplicate_ids(tmp_path, monkeyp
     _recent_report_env(tmp_path, monkeypatch, docs=())
     server.record_recent_intake('/staged/window_scan.jpg', 'Window Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/window_scan.jpg',
         'duplicate_expense_ids': [561, 1519], 'parsed': 1, 'stored': 0})
     monkeypatch.setattr(server, '_fetch_expenses_by_ids', lambda ids: [
         {
@@ -7039,6 +7064,7 @@ def test_scanner_report_stalled_scan_still_reads_clearly(tmp_path, monkeypatch):
     server.record_recent_intake(
         '/staged/scan_freezer_1786536321_7340d041.jpg', 'Freezer Scanner')
     server.merge_recent_intake_event({
+        'document_path': '/staged/scan_freezer_1786536321_7340d041.jpg',
         'expense_ids': [], 'parsed': None, 'stored': None,
         'doc_kind': 'unknown', 'vendor': 'unknown', 'status': 'stalled',
         'status_detail': 'Verification lock cleared manually.',

@@ -131,6 +131,8 @@ from intake.trainer_notifier import (
     DetachedTrainerNotifier,
 )
 from intake.trainer_recovery import recover_pending_trainer_watches
+from intake.recent_intake_contracts import RecentIntakeEventIdentity
+from intake.recent_intake_routing import ExactRecentIntakeEventRouter
 from finance.statement_dashboard_adapters import (
     CallableStatementPreflight,
     CallbackStatementIntakeRecorder,
@@ -850,12 +852,7 @@ def _fold_event_into_intake(intake, event):
             event['trainer_escalation_reason'])
 
 
-def _event_document_path(event):
-    """The source document an event refers to. document_path is explicit in
-    the (extended) STEP 8 payload; receipt_url has always carried the scan
-    image path for scanner intakes, so it doubles as a fallback for events
-    from agents still using the older message template."""
-    return (event.get('document_path') or event.get('receipt_url') or '').strip()
+_recent_intake_event_router = ExactRecentIntakeEventRouter()
 
 
 def merge_recent_intake_event(event):
@@ -864,64 +861,23 @@ def merge_recent_intake_event(event):
     per-scanner records — so the Recent Report and per-scanner views can list
     the actual transactions once Mazda reports them.
 
-    Routing: when the event names its source document (document_path /
-    receipt_url) and that path matches stored intake(s), only those records
-    are updated — this is what keeps two concurrently-running scanners from
-    folding each other's results together. An event with no recognizable
-    document path falls back to the previous behavior: it updates the current
-    shared intake (and its per-scanner mirror, when they are the same
-    dispatch)."""
+    Routing is fail-closed: a callback must carry a conversation id, dispatch
+    timestamp, or document path. The injected router then selects only records
+    proven to belong to that callback. An uncorrelated event remains available
+    on the event bus but cannot mutate the latest scanner report."""
     with _recent_report_lock:
         data = _read_recent_pointer_file()
         main = data.get('intake') if isinstance(data.get('intake'), dict) else None
         scanner_intakes = data.get('scanner_intakes')
         scanners = ([i for i in scanner_intakes.values() if isinstance(i, dict)]
                     if isinstance(scanner_intakes, dict) else [])
-        path = _event_document_path(event)
-        conversation_id = str(event.get('conversation_id') or '').strip()
-        try:
-            dispatched_at = float(event.get('dispatched_at') or 0)
-        except (TypeError, ValueError):
-            dispatched_at = 0.0
         candidates = ([main] if main else []) + scanners
-        targets = []
-        if conversation_id or dispatched_at:
-            for intake in candidates:
-                if conversation_id and intake.get('conversation_id') != conversation_id:
-                    continue
-                if dispatched_at:
-                    try:
-                        if abs(float(intake.get('dispatched_at') or 0) - dispatched_at) >= 2.0:
-                            continue
-                    except (TypeError, ValueError):
-                        continue
-                targets.append(intake)
-            # Two scanners dispatched within 2s of each other both satisfy a
-            # dispatched_at-only callback, so it would fold the Freezer's
-            # transactions into Last Window Scan. The document path decides
-            # between them -- but only as a tie-breaker, never a filter: a
-            # callback naming a renamed or archived copy matches nothing here
-            # and must still update the dispatch it was correlated to.
-            if path and len(targets) > 1:
-                named = [i for i in targets if i.get('image_path') == path]
-                if named:
-                    targets = named
-            # An identified callback must never fall through to filename-only
-            # routing: scanner files are reused, so a late prior-run callback
-            # would otherwise overwrite the current dispatch.
-            if not targets:
-                return False
-        else:
-            targets = [i for i in candidates
-                       if path and i.get('image_path') == path]
+        identity = RecentIntakeEventIdentity.from_mapping(event)
+        if identity is None:
+            return False
+        targets = _recent_intake_event_router.select_targets(identity, candidates)
         if not targets:
-            if not main:
-                return False
-            targets = [main]
-            for si in scanners:
-                if (si.get('image_path') == main.get('image_path')
-                        and si.get('dispatched_at') == main.get('dispatched_at')):
-                    targets.append(si)
+            return False
         for intake in targets:
             _fold_event_into_intake(intake, event)
         return _write_recent_pointer_file(data)
@@ -961,12 +917,12 @@ def merge_recent_intake_status(update):
     status = str(update.get('status') or '').strip().lower()
     if status not in _TERMINAL_INTAKE_STATUSES:
         return False
-    conversation_id = str(update.get('conversation_id') or '').strip()
-    document_path = _event_document_path(update)
-    try:
-        dispatched_at = float(update.get('dispatched_at') or 0)
-    except (TypeError, ValueError):
-        dispatched_at = 0.0
+    identity = RecentIntakeEventIdentity.from_mapping(update)
+    if identity is None:
+        return False
+    conversation_id = identity.conversation_id
+    document_path = identity.document_path
+    dispatched_at = identity.dispatched_at or 0.0
     with _recent_report_lock:
         data = _read_recent_pointer_file()
         main = data.get('intake') if isinstance(data.get('intake'), dict) else None
