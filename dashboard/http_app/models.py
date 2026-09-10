@@ -81,7 +81,7 @@ class TerminalGeometry(BaseModel):
 
 
 class TerminalSessionRequest(TerminalGeometry):
-    """Parsed `GET /api/terminal?agent=&cols=&rows=` query string.
+    """Parsed ``GET /api/terminal?agent=&conversation=&cols=&rows=`` query.
 
     Fails soft, not closed: a garbled geometry is a cosmetic problem, so it
     falls back to 80x24 rather than refusing the session. A garbled *agent*
@@ -89,6 +89,7 @@ class TerminalSessionRequest(TerminalGeometry):
     doesn't survive validation in server.py is dropped entirely.
     """
     agent: str = ''
+    conversation: str = ''
 
     @classmethod
     def from_query(cls, query: dict[str, list[str]]) -> 'TerminalSessionRequest':
@@ -96,10 +97,12 @@ class TerminalSessionRequest(TerminalGeometry):
             return (query.get(key) or [default])[0] or default
         try:
             return cls(agent=one('agent', ''),
+                       conversation=one('conversation', ''),
                        cols=int(one('cols', str(DEFAULT_COLS))),
                        rows=int(one('rows', str(DEFAULT_ROWS))))
         except (TypeError, ValueError):
-            return cls(agent=one('agent', ''))
+            return cls(agent=one('agent', ''),
+                       conversation=one('conversation', ''))
 
 
 class TerminalResizeFrame(TerminalGeometry):

@@ -42,6 +42,7 @@ import {
   IntakeHaltAlert,
   PrinterRepairController,
   VisionHaltAlert,
+  XtermTerminalLauncher,
 } from "./implementation/index.js";
 import { VoiceCommunicationNavigationController } from "./implementation/voice-communication-navigation-controller.js";
 import { voiceCommunicationSpecs } from "./plans/voice-communication/index.js";
@@ -59,6 +60,7 @@ const poller = new ActivePoller();
 // Builds sidebar agent/server/connection tabs with the right dataset+classes.
 const tabFactory = new DomTabFactory();
 const printerRepair = new PrinterRepairController({ http });
+const terminalLauncher = new XtermTerminalLauncher();
 // The agents speak with the same edge-tts en-GB-SoniaNeural voice the
 // pickle_cpp scoreboard uses: EdgeTtsSpeechSynthesizer (Decorator over the
 // BrowserSpeechSynthesizer facade) POSTs the reply text to /api/tts and plays
@@ -99,6 +101,7 @@ const AM = createAgentManager({
   agentGate,
   tabFactory,
   speech,
+  terminalLauncher,
   setAgentTabStatus: agentTabStatus.setAgentTabStatus,
 });
 const MS = createModelStats({ doc, http, nav, viewNav });

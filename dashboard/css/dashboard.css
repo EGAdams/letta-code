@@ -2321,44 +2321,6 @@ body.startup-loading #provider-token-sync-modal button {
   cursor: not-allowed;
 }
 
-/* Detail sections stacked below the scanner report iframe (Mazda's
-   Thoughts, archive-verification terminal) need a visible gap from the
-   iframe above them - the fullbleed .content wrapper has padding:0. */
-.agent-detail-section {
-  margin-top: 20px;
-  padding: 0 16px;
-}
-.archive-terminal-section {
-  margin-left: 16px;
-  margin-right: 16px;
-}
-
-/* Archive terminal section (shown after scan completes) */
-.archive-terminal-section {
-  margin-top: 20px;
-  padding: 16px;
-  background: #0b0e14;
-  border-radius: 8px;
-}
-.archive-terminal-section.hidden {
-  display: none;
-}
-.archive-terminal-section h3 {
-  margin: 0 0 12px;
-  color: #fff;
-  font-size: 1rem;
-}
-.archive-terminal-section .terminal-host {
-  height: 300px;
-  border-radius: 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  background: #000;
-}
-.archive-terminal-section .terminal-host .xterm {
-  min-width: max-content;
-}
-
 /* Start/Stop Listening pulse. The button carries an inline background (set by
    InputOptionsRenderer), which a plain class rule could not override — an
    animation can, so the red pulse is expressed as keyframes. */

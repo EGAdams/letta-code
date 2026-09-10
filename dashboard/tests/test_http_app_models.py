@@ -80,8 +80,10 @@ class TestTerminalGeometry:
 class TestTerminalSessionRequest:
     def test_reads_a_well_formed_query(self):
         r = TerminalSessionRequest.from_query(
-            {'agent': ['Mazda'], 'cols': ['120'], 'rows': ['40']})
-        assert (r.agent, r.cols, r.rows) == ('Mazda', 120, 40)
+            {'agent': ['Mazda'], 'conversation': ['conv-scan-1'],
+             'cols': ['120'], 'rows': ['40']})
+        assert (r.agent, r.conversation, r.cols, r.rows) == (
+            'Mazda', 'conv-scan-1', 120, 40)
 
     def test_missing_query_is_all_defaults(self):
         r = TerminalSessionRequest.from_query({})
@@ -129,8 +131,10 @@ class TestTerminalSessionRequest:
         assert MIN_ROWS <= r.rows <= MAX_ROWS
 
     def test_garbled_geometry_still_keeps_the_agent(self):
-        r = TerminalSessionRequest.from_query({'agent': ['Suzuki'], 'cols': ['abc']})
+        r = TerminalSessionRequest.from_query({
+            'agent': ['Suzuki'], 'conversation': ['conv-scan'], 'cols': ['abc']})
         assert r.agent == 'Suzuki'
+        assert r.conversation == 'conv-scan'
         assert (r.cols, r.rows) == (DEFAULT_COLS, DEFAULT_ROWS)
 
     @pytest.mark.parametrize('query', [

@@ -21,6 +21,10 @@ import pytest
 
 import server
 from terminal import pty_session as ptys
+from terminal.contracts import TerminalTarget
+
+
+PLAIN_SHELL = TerminalTarget()
 
 
 class TestFindingASession:
@@ -76,7 +80,7 @@ class TestFindingASession:
 
 class TestSpawningTheShell:
     def test_it_returns_a_live_child_and_a_readable_master(self):
-        pid, fd = ptys._terminal_spawn_shell(80, 24, None)
+        pid, fd = ptys._terminal_spawn_shell(80, 24, PLAIN_SHELL)
         try:
             assert pid > 0 and fd > 2
             os.kill(pid, 0)              # raises if it is not there
@@ -88,7 +92,7 @@ class TestSpawningTheShell:
         """The whole teardown strategy rests on sid == pid, which is what
         pty.fork() guarantees. If that stopped holding, the reaper would be
         looking up a session nobody is in."""
-        pid, fd = ptys._terminal_spawn_shell(80, 24, None)
+        pid, fd = ptys._terminal_spawn_shell(80, 24, PLAIN_SHELL)
         try:
             assert os.getsid(pid) == pid
         finally:
@@ -101,7 +105,7 @@ class TestSpawningTheShell:
         20480x6144 — which the shell believes, and then wraps every line."""
         import fcntl
         import termios
-        pid, fd = ptys._terminal_spawn_shell(100, 30, None)
+        pid, fd = ptys._terminal_spawn_shell(100, 30, PLAIN_SHELL)
         try:
             packed = fcntl.ioctl(fd, termios.TIOCGWINSZ, b'\0' * 8)
             rows, cols, _, _ = struct.unpack('HHHH', packed)
@@ -113,7 +117,8 @@ class TestSpawningTheShell:
     def test_an_agent_id_is_typed_into_the_pty_so_it_is_visible(self):
         """Typed rather than exec'd on purpose: the operator sees the command
         that opened their session, and exiting letta drops back to bash."""
-        pid, fd = ptys._terminal_spawn_shell(80, 24, 'agent-abc123')
+        target = TerminalTarget(agent_id='agent-abc123')
+        pid, fd = ptys._terminal_spawn_shell(80, 24, target)
         try:
             deadline = time.time() + 5
             seen = b''
@@ -133,13 +138,24 @@ class TestSpawningTheShell:
         monkeypatch.setattr(ptys.pty, 'fork', lambda: (4242, 9))
         monkeypatch.setattr(ptys.fcntl, 'ioctl', lambda *a: None)
         monkeypatch.setattr(ptys.os, 'write', lambda fd, b: written.append(b))
-        ptys._terminal_spawn_shell(80, 24, None)
+        ptys._terminal_spawn_shell(80, 24, PLAIN_SHELL)
         assert written == []
+
+    def test_a_conversation_id_opens_that_exact_letta_code_session(self, monkeypatch):
+        written = []
+        monkeypatch.setattr(ptys.pty, 'fork', lambda: (4242, 9))
+        monkeypatch.setattr(ptys.fcntl, 'ioctl', lambda *a: None)
+        monkeypatch.setattr(ptys.os, 'write', lambda fd, b: written.append(b))
+
+        target = TerminalTarget(conversation_id='conv-scan-123')
+        ptys._terminal_spawn_shell(80, 24, target)
+
+        assert written == [b'letta --conversation conv-scan-123\n']
 
 
 class TestReaping:
     def test_a_real_shell_is_gone_afterwards(self):
-        pid, fd = ptys._terminal_spawn_shell(80, 24, None)
+        pid, fd = ptys._terminal_spawn_shell(80, 24, PLAIN_SHELL)
         ptys._terminal_reap(pid)
         os.close(fd)
         with pytest.raises(OSError):

@@ -23,7 +23,13 @@ So this is a vocabulary, not a list of magic strings, and it is spelled once.
 
 from __future__ import annotations
 
-from typing import Literal, get_args
+from collections.abc import Mapping
+from typing import Any, Literal, get_args
+
+from pydantic import Field
+
+from contracts import StrictModel
+from letta_ids import TERMINAL_ID_RE
 
 #: A status that ends this run of an intake. Nothing more will happen for it.
 TerminalIntakeStatus = Literal[
@@ -53,3 +59,33 @@ def is_terminal(status: str | None) -> bool:
     membership of a set is not a match when the caller did not.
     """
     return str(status or '').strip().lower() in TERMINAL_INTAKE_STATUSES
+
+
+class ScannerIntakeStatusResponse(StrictModel):
+    """Browser-facing state for one scanner's latest isolated intake."""
+
+    ok: Literal[True] = True
+    status: str = Field(min_length=1)
+    conversation_id: str | None = Field(
+        default=None, pattern=r'^[A-Za-z0-9_-]+$')
+    dispatched_at: float | None = Field(default=None, gt=0)
+
+    @classmethod
+    def from_intake(
+        cls, intake: Mapping[str, Any] | None
+    ) -> 'ScannerIntakeStatusResponse':
+        if not intake:
+            return cls(status='idle')
+        status = str(intake.get('status') or 'processing').strip().lower()
+        conversation_id = str(intake.get('conversation_id') or '').strip()
+        if not TERMINAL_ID_RE.fullmatch(conversation_id):
+            conversation_id = None
+        try:
+            dispatched_at = float(intake.get('dispatched_at') or 0)
+        except (TypeError, ValueError):
+            dispatched_at = 0
+        return cls(
+            status=status or 'processing',
+            conversation_id=conversation_id,
+            dispatched_at=dispatched_at if dispatched_at > 0 else None,
+        )

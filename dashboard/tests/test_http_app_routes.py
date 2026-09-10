@@ -78,6 +78,22 @@ class TestResponseEnvelope:
         assert live.get('/api/code-status').json['note'] == 'Rosemary ≥ 46 — ⚠ ok'
 
 
+class TestScannerIntakeStatusContract:
+    def test_returns_the_exact_scan_conversation(self, live, svc, stub):
+        stub('get_scanner_intake', lambda key: {
+            'status': 'PASS',
+            'conversation_id': 'conv-window-123',
+            'dispatched_at': 1725900000.25,
+        })
+
+        assert live.get('/api/scanner-intake-status?scanner=window').json == {
+            'ok': True,
+            'status': 'pass',
+            'conversation_id': 'conv-window-123',
+            'dispatched_at': 1725900000.25,
+        }
+
+
 # ==========================================================================
 # /api/agents — documented to be a bare array
 # ==========================================================================

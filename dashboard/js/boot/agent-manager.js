@@ -21,9 +21,10 @@ export function createAgentManager({
   agentGate,
   tabFactory,
   speech,
+  terminalLauncher,
   setAgentTabStatus,
 }) {
-  const scannerViews = createScannerAgentViews({ doc, http });
+  const scannerViews = createScannerAgentViews({ doc, http, terminalLauncher });
   const { detailRenderers, renderAgentsRouter } = createAgentDetailRenderers({
     http,
     poller,
@@ -187,7 +188,10 @@ export function createAgentManager({
     },
 
     renderMazdaThoughtsInto: scannerViews.renderMazdaThoughtsInto,
-    showArchiveTerminalForScanner: scannerViews.showArchiveTerminalForScanner,
+    clearScannerCompletionViews: scannerViews.clearScannerCompletionViews,
+    showMazdaTerminalForScanner: scannerViews.showMazdaTerminalForScanner,
+    showArchiveVerificationForScanner:
+      scannerViews.showArchiveVerificationForScanner,
   };
 
   return AM;

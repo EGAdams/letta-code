@@ -118,8 +118,95 @@
   height: calc(100vh - 60px + 20vh);
 }
 
+/* Scan diagnostics are stacked in evidence order: report, Mazda's thoughts,
+   the exact Letta Code conversation, then durable archive confirmation. */
+#scanners-last-window .agent-detail-section,
+#scanners-last-freezer .agent-detail-section {
+  margin-top: 20px;
+  padding: 0 16px;
+}
+
+.mazda-terminal-section,
+.archive-verification-section {
+  margin: 20px 16px 0;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.mazda-terminal-section {
+  color: #d3d7de;
+  background: #0b0e14;
+}
+
+.mazda-terminal-section.hidden,
+.archive-verification-section.hidden {
+  display: none;
+}
+
+.mazda-terminal-section h2,
+.archive-verification-section h3 {
+  margin: 0 0 10px;
+}
+
+.mazda-terminal-context,
+.mazda-terminal-status {
+  margin: 6px 0;
+  color: #aeb6c2;
+  font: 13px/1.4 "Courier New", Courier, monospace;
+}
+
+.mazda-terminal-status.error {
+  color: #ff8a8a;
+}
+
+.mazda-terminal-section .terminal-host {
+  height: 420px;
+  margin: 10px 0;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #000;
+}
+
+.mazda-terminal-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 84px;
+  padding: 10px;
+  color: #111827;
+  background: #fff;
+  border: 1px solid #64748b;
+  border-radius: 4px;
+  font: 15px/1.4 Arial, sans-serif;
+  resize: vertical;
+}
+
+.mazda-terminal-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.archive-verification-section {
+  color: #e2e8f0;
+  background: #172033;
+}
+
+.archive-verification-path {
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 10px;
+  color: #102a13;
+  background: #a7f3b2;
+  font: 14px/1.4 "Courier New", Courier, monospace;
+}
+
 @media (max-width: 640px) {
   .scanner-report-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mazda-terminal-controls {
     align-items: stretch;
     flex-direction: column;
   }

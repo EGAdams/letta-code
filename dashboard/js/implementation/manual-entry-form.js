@@ -78,9 +78,9 @@ import {
   validateStatementRow,
 } from "../abstract/statement-breakup.interface.js";
 import { indexAfterRemoval } from "../abstract/verified-transaction-actions.interface.js";
-import { mountTerminal } from "./detail-renderers.js";
 import { FetchHttpClient } from "./fetch-http-client.js";
 import { ReceiptReadControls } from "./receipt-read-controls.js";
+import { mountTerminal } from "./xterm-terminal-launcher.js";
 
 const NEW_VENDOR_OPTION = "__new__";
 const NO_CATEGORY_OPTION = "";

@@ -72,7 +72,6 @@ export {
   ChatDetailRenderer,
   composeSpokenText,
   InputOptionsRenderer,
-  mountTerminal,
   renderReplyRows,
   StreamDetailRenderer,
 } from "./detail-renderers.js";
@@ -131,3 +130,8 @@ export {
 export { TranscriptSyncedNote } from "./transcript-synced-note.js";
 export { VendorReviewController } from "./vendor-review-controller.js";
 export { VisionHaltAlert } from "./vision-halt-alert.js";
+export {
+  loadXterm,
+  mountTerminal,
+  XtermTerminalLauncher,
+} from "./xterm-terminal-launcher.js";

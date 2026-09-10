@@ -1,36 +1,38 @@
 // scanner-agent-views.js — the two agent-driven panels the scanner report tabs
-// mount: Mazda's live Thoughts, and the archive-verification terminal.
+// mount: Mazda's live Thoughts, its scan-scoped Letta Code terminal, and the
+// archive-verification evidence.
 //
 // They live outside the agent-detail fanout (a scanner report tab is not an
-// agent tab), but they drive the same AgentStreamController / mountTerminal
+// agent tab), but they drive the same AgentStreamController / TerminalLauncher
 // collaborators, so they are grouped here rather than in agent-manager.js.
 
-import {
-  buildArchiveVerifyCommand,
-  readArchivePathResponse,
-} from "../abstract/archive-verify-command.js";
+import { readArchivePathResponse } from "../abstract/archive-verify-command.js";
 import { TextUtils } from "../abstract/text-utils.js";
 import {
   AgentStreamController,
   DomConsoleView,
-  mountTerminal,
 } from "../implementation/index.js";
+import { ScannerConversationTerminal } from "../implementation/scanner-conversation-terminal.js";
 
 const esc = TextUtils.esc;
 const MAZDA_AGENT_ID = "agent-6b536cf4-ec88-4290-b595-fed21d14bd8e";
 
-export function createScannerAgentViews({ doc = document, http }) {
-  // xterm.js's DOM renderer only reliably paints one live Terminal instance
-  // per page — a second concurrent instance (e.g. switching from "Last Window
-  // Scan" to "Last Freezer Scan") writes to its internal buffer correctly but
-  // never repaints the DOM, even under an explicit term.refresh(). Keep at
-  // most one archive-verification terminal mounted at a time.
-  let archiveTerminalSession = null;
+export function createScannerAgentViews({
+  doc = document,
+  http,
+  terminalLauncher,
+}) {
+  const thoughtControllers = new Map();
+  const conversationTerminal = new ScannerConversationTerminal({
+    launcher: terminalLauncher,
+    doc,
+  });
 
   // Render Mazda's Thoughts into a specific DOM container (for scanner report
   // tabs).
   function renderMazdaThoughtsInto(container, scannerKey = "") {
     if (!container) return;
+    thoughtControllers.get(container)?.stop();
     container.innerHTML = "";
     const heading = doc.createElement("h2");
     heading.textContent = "Mazda's Thoughts";
@@ -55,22 +57,29 @@ export function createScannerAgentViews({ doc = document, http }) {
       label: "thoughts",
       intervalMs: 3000,
     });
-    // Don't use the shared poller; run independently with error handling.
-    const poll = async () => {
-      try {
-        await controller.poll();
-      } catch (e) {
-        consoleView.replaceHtml(
-          `<div class="msi-line err">! Failed to load thoughts: ${esc(e.message)}</div>`,
-        );
-      }
-    };
-    setInterval(poll, controller.intervalMs || 3000);
-    poll(); // Initial poll
+    thoughtControllers.set(container, controller);
+    void controller.start();
   }
 
-  // Show archive verification terminal for a completed scanner report.
-  function showArchiveTerminalForScanner(
+  function showMazdaTerminalForScanner(containerSelector, conversationId) {
+    conversationTerminal.mount(
+      doc.querySelector(containerSelector),
+      conversationId,
+    );
+  }
+
+  function clearScannerCompletionViews(terminalSelector, archiveSelector) {
+    conversationTerminal.dispose();
+    for (const selector of [terminalSelector, archiveSelector]) {
+      const container = doc.querySelector(selector);
+      if (!container) continue;
+      container.innerHTML = "";
+      container.classList.add("hidden");
+    }
+  }
+
+  // Show archive evidence without starting a second shell/xterm process.
+  function showArchiveVerificationForScanner(
     scannerKey,
     containerSelector,
     expenseId = null,
@@ -78,21 +87,6 @@ export function createScannerAgentViews({ doc = document, http }) {
     const container = doc.querySelector(containerSelector);
     if (!container) return;
 
-    // Dispose any previously-mounted archive terminal AND remove its DOM
-    // element (see archiveTerminalSession comment) — disposing the xterm
-    // session alone leaves the old .terminal-host element in the document,
-    // which is enough to stop a newly-mounted instance's DOM renderer from
-    // ever painting, even though it keeps writing into its own buffer fine.
-    if (archiveTerminalSession) {
-      try {
-        archiveTerminalSession.session.dispose();
-      } catch {
-        /* already disposed */
-      }
-      archiveTerminalSession.hostEl.remove();
-      archiveTerminalSession = null;
-    }
-    // Clear this container too, in case the same tab is revisited.
     container.innerHTML = "";
 
     http
@@ -109,24 +103,12 @@ export function createScannerAgentViews({ doc = document, http }) {
         }
         container.classList.remove("hidden");
         const heading = doc.createElement("h3");
-        heading.textContent = `Archive Verification (${result.archivePath})`;
+        heading.textContent = "Archive Verification";
         container.appendChild(heading);
-        const hostEl = doc.createElement("div");
-        hostEl.className = "terminal-host";
-        container.appendChild(hostEl);
-
-        mountTerminal({ hostEl, doc, onStatus: () => {} }).then((session) => {
-          archiveTerminalSession = { session, hostEl };
-          if (session?.sendLine) {
-            // -a1 forces one entry per line instead of ls's default
-            // multi-column layout, which was wrapping across several rows.
-            // ANSI 102 is a light-green background; the exact durable archive
-            // file returned by the server is highlighted in the listing.
-            session.sendLine(
-              buildArchiveVerifyCommand(result.archivePath, result.archiveName),
-            );
-          }
-        });
+        const proof = doc.createElement("p");
+        proof.className = "archive-verification-path";
+        proof.textContent = `✓ ${result.archivePath}/${result.archiveName}`;
+        container.appendChild(proof);
       })
       .catch((e) => {
         container.classList.remove("hidden");
@@ -134,5 +116,10 @@ export function createScannerAgentViews({ doc = document, http }) {
       });
   }
 
-  return { renderMazdaThoughtsInto, showArchiveTerminalForScanner };
+  return {
+    renderMazdaThoughtsInto,
+    clearScannerCompletionViews,
+    showMazdaTerminalForScanner,
+    showArchiveVerificationForScanner,
+  };
 }

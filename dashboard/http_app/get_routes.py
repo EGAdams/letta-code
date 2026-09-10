@@ -33,6 +33,7 @@ from monitoring.pc_metrics import PC_MONITORS
 from monitoring.ssh_checks import SSH_CONNECTIONS
 from monitoring.win10_node import WIN10_CONTAINERS
 from paths import HERE, REPO_ROOT
+from intake.statuses import ScannerIntakeStatusResponse
 
 from . import services as srv
 from .registry import current_ports
@@ -549,10 +550,8 @@ class GetRoutesMixin:
         if path == '/api/scanner-intake-status':
             key = query.get('scanner', [''])[0]
             intake = srv.get_scanner_intake(key)
-            if intake:
-                status = str(intake.get('status') or 'processing').lower()
-                return self.json_response({'ok': True, 'status': status})
-            return self.json_response({'ok': True, 'status': 'idle'})
+            response = ScannerIntakeStatusResponse.from_intake(intake)
+            return self.json_response(response.model_dump(exclude_none=True))
 
         if path == current_ports().scanner.image_url_prefix:
             fp = current_ports().scanner.image_path(query.get('scanner', [''])[0])

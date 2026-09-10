@@ -12,8 +12,8 @@ import struct
 import termios
 import threading
 
-from letta_ids import _TERMINAL_ID_RE
 from terminal.pty_session import _terminal_reap, _terminal_spawn_shell
+from terminal.contracts import TerminalTarget
 
 from . import services as srv
 
@@ -30,12 +30,8 @@ class TerminalWebSocketMixin:
             return self.error_response('expected a websocket upgrade', 400)
 
         request = TerminalSessionRequest.from_query(query)
-        letta_agent_id = ''
-        if request.agent:
-            lid = srv.letta_id_for(request.agent)
-            # letta_id_for returns the id as-is for Letta agents; guard the exec.
-            if lid and _TERMINAL_ID_RE.match(lid):
-                letta_agent_id = lid
+        target = TerminalTarget.from_browser_values(
+            request.agent, request.conversation, srv.letta_id_for)
         cols, rows = request.cols, request.rows
 
         # Write the 101 by hand: a WebSocket upgrade must be HTTP/1.1, but this
@@ -55,7 +51,7 @@ class TerminalWebSocketMixin:
             return
 
         sock = self.connection
-        pid, master_fd = _terminal_spawn_shell(cols, rows, letta_agent_id)
+        pid, master_fd = _terminal_spawn_shell(cols, rows, target)
         alive = threading.Event()
         alive.set()
 

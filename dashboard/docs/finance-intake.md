@@ -49,6 +49,12 @@ event with no ids falls back to resolving them from the DB by `(expense_date, am
 Dispatch is server-side and deduped: `run_scanner()` spawns intake processing itself the instant a
 scan reports ready; `_claim_scan_dispatch()` prevents double-dispatch from the frontend's own POST.
 
+Each Last Window/Freezer Scan page exposes a real Letta Code terminal below Mazda's Thoughts after
+the intake reaches a terminal status. The browser receives that scanner intake's persisted
+`conversation_id`, validates it at both JavaScript and Pydantic boundaries, and starts
+`letta --conversation <id>`—never Mazda's default conversation. Messages are sent as complete lines
+from the text box below xterm, avoiding the redraw jitter of forwarding individual keystrokes.
+
 ### Manual receipt-reading actions
 
 The manual-entry dialog exposes three explicit jobs through `POST /api/receipt-read`:

@@ -37,7 +37,7 @@ js/
 | `agent-manager.js` | the `AM` facade: roster, per-agent detail fanout, deep-link `openById` |
 | `agent-detail-renderers.js` | the Strategy table behind `AM.renderDetail()` |
 | `agent-tab-status.js` | activity + structural-health colouring of agent tabs |
-| `scanner-agent-views.js` | Mazda's Thoughts + the archive-verification terminal on scanner report tabs |
+| `scanner-agent-views.js` | Mazda's Thoughts + scan-scoped Letta Code terminal + archive evidence |
 | `model-stats.js`, `pc-monitor.js` | the `MS` / `PCM` facades (card HTML lives in `abstract/`) |
 | `server-manager.js`, `ssh-manager.js` | the `SM` / `SSHM` facades; they share `log-panel.js` |
 | `rol-finance.js` | the `RF` controller + its on-screen-only status poll |
@@ -74,6 +74,7 @@ bun test js/tests
 | `voice-session.js`                 | State                    | — (new: one conversation's lifecycle + generation fencing) |
 | `session-clock.js`                 | Strategy (injected ports)| — (new: `Clock` / `IdSource`, so lifecycle tests need no sleeps) |
 | `conversation-agent.interface.js`  | Adapter / Strategy       | the raw `POST /api/letta-code-message` in `detail-renderers.js` |
+| `terminal-launcher.interface.js`   | Abstract Factory         | xterm/WebSocket construction hidden from scanner views |
 | `spoken-output-policy.js`          | Strategy                 | per-renderer "is this speakable?" filtering |
 | `model-stats-render.js`            | pure renderer            | `renderModelStats()` / `renderRateOfChange()` |
 | `pc-metrics-render.js`             | pure renderer            | `renderPcMetrics()` |

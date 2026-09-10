@@ -21,11 +21,14 @@ import struct
 import termios
 import time
 
-def _terminal_spawn_shell(cols, rows, letta_agent_id):
+from .contracts import TerminalTarget
+
+
+def _terminal_spawn_shell(cols: int, rows: int, target: TerminalTarget):
     """pty.fork() a login shell sized cols×rows; returns (child_pid, master_fd).
 
-    When letta_agent_id is set the command to open that agent is typed into the
-    pty so it shows up in the terminal and runs as soon as bash is up.
+    When the target selects a Letta session, its validated command is typed into
+    the pty so it stays visible and runs as soon as bash is up.
     """
     pid, master_fd = pty.fork()
     if pid == 0:  # child
@@ -37,8 +40,8 @@ def _terminal_spawn_shell(cols, rows, letta_agent_id):
     # Native byte order, not '!': TIOCSWINSZ takes a C `struct winsize`, so
     # big-endian packing byte-swaps every field (80x24 arrives as 20480x6144).
     fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
-    if letta_agent_id:
-        os.write(master_fd, f'letta --agent {letta_agent_id}\n'.encode())
+    if target.command_line:
+        os.write(master_fd, f'{target.command_line}\n'.encode())
     return pid, master_fd
 
 

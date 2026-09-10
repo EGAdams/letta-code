@@ -52,29 +52,14 @@ export function createAgentDetailRenderers({
       onStatus: setAgentTabStatus,
     }).render(target, am.current.id);
 
-  // The Input Options panel auto-starts a background letta-code pty session
-  // (see attachTerminalPanel), so its previous session must be torn down
-  // before rebuilding — otherwise every reopen of the tab leaks another
-  // bash+letta process/websocket.
-  let activeInputOptionsTerminal = null;
   const renderInputOptions = (am, target) => {
-    if (activeInputOptionsTerminal) {
-      try {
-        activeInputOptionsTerminal.dispose();
-      } catch {
-        /* already gone */
-      }
-      activeInputOptionsTerminal = null;
-    }
-    const api = new InputOptionsRenderer({
+    return new InputOptionsRenderer({
       http,
       speech,
       agentName: am.current.name,
       agentId: am.current.id,
       onStatus: setAgentTabStatus,
     }).render(target, am.current.id);
-    if (api) activeInputOptionsTerminal = api.terminal;
-    return api;
   };
 
   // Long-lived across renders/navigation (unlike the renderers above, which are

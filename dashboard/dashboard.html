@@ -6,7 +6,7 @@
   <title>Dashboard</title>
   <link rel="stylesheet" href="/css/dashboard.css?v=20260829agentblocksmarkers" />
   <link rel="stylesheet" href="/css/model-stats-agents.css?v=20260824sdk" />
-  <link rel="stylesheet" href="/css/scanner-report-controls.css?v=20260903" />
+  <link rel="stylesheet" href="/css/scanner-report-controls.css?v=20260910" />
   <link rel="stylesheet" href="/css/claude-sdk-activity.css?v=20260906b" />
   <link rel="stylesheet" href="/css/codex-watchdog.css?v=20260907" />
 </head>
@@ -496,13 +496,15 @@
     </section>
     <section id="scanners-last-window" class="view">
       <iframe class="plan-frame" title="Last Window Scan"></iframe>
-      <div id="scanners-last-window-archive-terminal" class="archive-terminal-section hidden"></div>
       <div id="scanners-last-window-mazda-detail" class="agent-detail-section"></div>
+      <div id="scanners-last-window-mazda-terminal" class="mazda-terminal-section hidden"></div>
+      <div id="scanners-last-window-archive-verification" class="archive-verification-section hidden"></div>
     </section>
     <section id="scanners-last-freezer" class="view">
       <iframe class="plan-frame" title="Last Freezer Scan"></iframe>
-      <div id="scanners-last-freezer-archive-terminal" class="archive-terminal-section hidden"></div>
       <div id="scanners-last-freezer-mazda-detail" class="agent-detail-section"></div>
+      <div id="scanners-last-freezer-mazda-terminal" class="mazda-terminal-section hidden"></div>
+      <div id="scanners-last-freezer-archive-verification" class="archive-verification-section hidden"></div>
     </section>
     <section id="scanners-edit-expense" class="view">
       <iframe class="plan-frame" src="/edit_expense.html" title="Edit Expense"></iframe>
