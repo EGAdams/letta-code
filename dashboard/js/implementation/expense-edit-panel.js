@@ -87,7 +87,54 @@ export class ExpenseEditPanel {
     }
 
     await this._loadCategoryNames();
+    // Categories must be loaded first: _select fills the category dropdown
+    // from them, and an empty list would show the row as uncategorized.
+    await this._openRequestedExpense();
     return launcher;
+  }
+
+  /**
+   * Open one expense straight away when the URL names it, e.g.
+   * `edit_expense.html?expense_id=2431&date=2025-07-14`.
+   *
+   * The 2025 daily spreadsheet links every description cell here, so a click
+   * in Excel lands on that row with its fields populated and editable.
+   *
+   * `date` is required because /api/expense-search takes filing criteria, not
+   * an id -- searchByDate loads that day, then the id picks the row out of it.
+   * Callers that have the id have the date too, so this stays a link rather
+   * than a new endpoint.
+   */
+  async _openRequestedExpense() {
+    const params = this._requestedParams();
+    if (!params) return;
+    const { expenseId, date } = params;
+    try {
+      const records = await this.dialog.searchByDate(date);
+      if (!records.some((record) => record.id === expenseId)) {
+        this.dialog.setStatusMessage(
+          `Expense #${expenseId} is not among the ${records.length} stored on ${date}. ` +
+            "It may have been deleted, or the spreadsheet may be out of date.",
+        );
+        return;
+      }
+      this.dialog.selectStoredExpense(expenseId);
+    } catch {
+      // A failed deep link must still leave a usable panel to search by hand.
+      this.dialog.setStatusMessage(`Could not load expense #${expenseId}.`);
+    }
+  }
+
+  /** @returns {{expenseId: number, date: string} | null} */
+  _requestedParams() {
+    const search = this.doc?.defaultView?.location?.search;
+    if (!search) return null;
+    const query = new URLSearchParams(search);
+    const expenseId = Number.parseInt(query.get("expense_id") ?? "", 10);
+    const date = (query.get("date") ?? "").trim();
+    if (!Number.isInteger(expenseId) || expenseId <= 0) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    return { expenseId, date };
   }
 
   async _loadCategoryNames() {

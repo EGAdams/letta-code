@@ -102,3 +102,79 @@ describe("category taxonomy", () => {
     expect(findButton(root, "Edit Expense")).toBeDefined();
   });
 });
+
+describe("deep link from the daily spreadsheet", () => {
+  // The 2025 workbook links every description cell to
+  // edit_expense.html?expense_id=..&date=.., so a click in Excel must land on
+  // that row already populated rather than on an empty search form.
+  function fakeDialog(records, holder) {
+    return class {
+      constructor() {
+        this.selected = null;
+        this.status = null;
+        this.searchedDate = null;
+        holder.last = this;
+      }
+      render() {}
+      toggle() {}
+      async searchByDate(date) {
+        this.searchedDate = date;
+        return records;
+      }
+      selectStoredExpense(id) {
+        this.selected = id;
+      }
+      setStatusMessage(text) {
+        this.status = text;
+      }
+    };
+  }
+
+  function mountWith(search, records) {
+    const { doc, root, http } = setup();
+    doc.defaultView = { location: { search } };
+    const holder = {};
+    const panel = new ExpenseEditPanel({
+      http,
+      root,
+      doc,
+      EditDialog: fakeDialog(records, holder),
+      expanded: true,
+    });
+    return { panel, holder };
+  }
+
+  test("selects the expense the URL names", async () => {
+    const { panel, holder } = mountWith("?expense_id=2431&date=2025-07-14", [
+      { id: 2431 },
+      { id: 99 },
+    ]);
+    await panel.mount();
+    expect(holder.last.searchedDate).toBe("2025-07-14");
+    expect(holder.last.selected).toBe(2431);
+  });
+
+  test("explains itself when the id is not on that date", async () => {
+    const { panel, holder } = mountWith("?expense_id=2431&date=2025-07-14", [
+      { id: 99 },
+    ]);
+    await panel.mount();
+    expect(holder.last.selected).toBeNull();
+    expect(holder.last.status).toContain("2431");
+  });
+
+  test("ignores a malformed or absent link and stays a plain search form", async () => {
+    for (const search of [
+      "",
+      "?expense_id=abc&date=2025-07-14",
+      "?expense_id=2431",
+      "?expense_id=2431&date=07/14/2025",
+      "?expense_id=-5&date=2025-07-14",
+    ]) {
+      const { panel, holder } = mountWith(search, [{ id: 2431 }]);
+      await panel.mount();
+      expect(holder.last.searchedDate).toBeNull();
+      expect(holder.last.selected).toBeNull();
+    }
+  });
+});

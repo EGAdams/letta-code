@@ -258,6 +258,13 @@ export class ExpenseEditDialog {
     this._select(expenseId);
   }
 
+  /** Public alias for _setStatus -- lets a caller outside this panel explain
+   * why it could not select a record, in the same line the panel uses for its
+   * own messages (the deep link from the daily spreadsheet). */
+  setStatusMessage(text) {
+    this._setStatus(text);
+  }
+
   _renderResults() {
     this.resultsEl.innerHTML = "";
     for (const record of this.records) {
