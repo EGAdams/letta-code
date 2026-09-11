@@ -43,6 +43,7 @@ export class CodexSyncController {
     this._status = null;
     this._tickTimer = null;
     this._containerId = null;
+    this._reauthAlertShown = false;
   }
 
   /**
@@ -72,6 +73,7 @@ export class CodexSyncController {
       this._status = { error: e.message };
     }
     this._render();
+    this._maybeAlertReauth();
   }
 
   /**
@@ -100,6 +102,7 @@ export class CodexSyncController {
       };
     }
     this._render(); // replaces the button markup, clearing the busy state
+    this._maybeAlertReauth();
   }
 
   /**
@@ -145,6 +148,25 @@ export class CodexSyncController {
       bar.style.width = `${pct}%`;
     }
     if (this._status.seconds_remaining <= 0) void this.refresh();
+  }
+
+  /**
+   * The server tried an on-the-spot resync and the fallback slot is still
+   * wrong — surface a blocking dialog rather than leaving it as small print
+   * in the panel. Edge-triggered on `needs_reauth` so it fires once per
+   * failure episode, not on every poll while the condition persists.
+   */
+  _maybeAlertReauth() {
+    const needsReauth = Boolean(this._status?.needs_reauth);
+    if (needsReauth && !this._reauthAlertShown) {
+      this._reauthAlertShown = true;
+      globalThis.alert?.(
+        this._status.reauth_message ||
+          "Token not synced. Try authenticating again.",
+      );
+    } else if (!needsReauth) {
+      this._reauthAlertShown = false;
+    }
   }
 
   _setSwapButtonsBusy(busy) {

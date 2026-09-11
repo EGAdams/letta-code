@@ -74,6 +74,8 @@ export function assertCodexSyncStatus(status) {
     source: status.source ?? null,
     sync_enabled: status.sync_enabled !== false,
     toggle_error: status.toggle_error ?? null,
+    needs_reauth: Boolean(status.needs_reauth),
+    reauth_message: status.reauth_message ?? null,
   };
 }
 
@@ -152,6 +154,9 @@ export function renderCodexSyncPanel(rawStatus) {
   h += "</div>";
   h += "</div>"; // .cs-panel-body
 
+  if (status.needs_reauth) {
+    h += `<p class="am-warn">${escHtml(status.reauth_message || "Token not synced. Try authenticating again.")}</p>`;
+  }
   if (status.toggle_error) {
     h += `<p class="am-warn">toggle failed: ${escHtml(status.toggle_error)}</p>`;
   }

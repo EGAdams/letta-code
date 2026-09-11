@@ -28,6 +28,15 @@ CODEX_MOMS_SYNC_INTERVAL_SECONDS = 4 * 3600  # keep in sync with
 CODEX_PRIMARY_AUTH_JSON = os.path.expanduser('~/.codex/auth.json')
 CODEX_MOMS_AUTH_JSON = os.path.expanduser('~/.codex-moms/auth.json')
 CODEX_MOMS_SYNC_TIMER = 'codex-moms-token-sync.timer'
+CODEX_MOMS_LAST_SOURCE_FILE = os.path.expanduser('~/.codex-moms/.last_sync_source')
+
+# The timer only pulls every 4h, which let the fallback slot sit stale/wrong
+# for weeks (2026-09-11 incident: r46-codex silently held EG's own account).
+# Every status check now also self-heals the collapse on the spot, throttled
+# by this cooldown so a page left open doesn't SSH to R46 on every poll.
+CODEX_AUTO_RECOVER_COOLDOWN_SECONDS = 300
+REAUTH_MESSAGE = 'Token not synced. Try authenticating again.'
+_last_auto_recover_attempt_epoch: Optional[float] = None
 
 
 class CodexTokenSlot(StrictModel):
@@ -53,6 +62,8 @@ class CodexSyncStatus(StrictModel):
     source: Optional[str] = None
     sync_enabled: bool = True
     toggle_error: Optional[str] = None
+    needs_reauth: bool = False
+    reauth_message: Optional[str] = None
 
 
 def _codex_auth_email(path: str) -> Optional[str]:
@@ -84,6 +95,59 @@ def _codex_token_slots() -> tuple[CodexTokenSlot, CodexTokenSlot]:
             email=_codex_auth_email(CODEX_MOMS_AUTH_JSON),
         ),
     )
+
+
+def _last_recorded_source() -> Optional[str]:
+    """Which source last successfully filled the fallback slot. Used to tell
+    a deliberate 'Copy from W11' collapse (leave it alone) apart from the
+    slot merely having gone stale/wrong (self-heal it) — both look identical
+    as 'w11 email == r46 email'."""
+    try:
+        with open(CODEX_MOMS_LAST_SOURCE_FILE, encoding='utf-8') as fh:
+            return fh.read().strip() or None
+    except Exception:
+        return None
+
+
+def _record_last_source(source: str) -> None:
+    try:
+        os.makedirs(os.path.dirname(CODEX_MOMS_LAST_SOURCE_FILE), exist_ok=True)
+        with open(CODEX_MOMS_LAST_SOURCE_FILE, 'w', encoding='utf-8') as fh:
+            fh.write(source)
+    except Exception:
+        pass  # advisory only — worst case a future auto-recover fights a deliberate w11 copy
+
+
+def _slots_collapsed(slots: tuple[CodexTokenSlot, CodexTokenSlot]) -> bool:
+    w11, r46 = slots
+    return bool(w11.email) and w11.email == r46.email
+
+
+def _auto_recover(slots: tuple[CodexTokenSlot, CodexTokenSlot]) -> tuple[tuple[CodexTokenSlot, CodexTokenSlot], bool, Optional[str]]:
+    """Called on every status read. If the fallback slot has collapsed onto
+    the primary account and that wasn't a deliberate 'Copy from W11' click,
+    try an R46 pull right away instead of waiting for the 4h timer. Returns
+    (possibly-refreshed slots, needs_reauth, reauth_message)."""
+    global _last_auto_recover_attempt_epoch
+    if not _slots_collapsed(slots):
+        return slots, False, None
+    if _last_recorded_source() == 'w11':
+        return slots, False, None  # deliberate collapse — not our problem to fix
+    now = time.time()
+    if (
+        _last_auto_recover_attempt_epoch is not None
+        and now - _last_auto_recover_attempt_epoch < CODEX_AUTO_RECOVER_COOLDOWN_SECONDS
+    ):
+        return slots, True, REAUTH_MESSAGE  # already tried recently and it's still collapsed
+    _last_auto_recover_attempt_epoch = now
+    strategy = SYNC_SOURCES.get('r46')
+    ok, _output = strategy.sync() if strategy else (False, 'no r46 sync source')
+    if ok:
+        _record_last_source('r46')
+    new_slots = _codex_token_slots()
+    if _slots_collapsed(new_slots) and _last_recorded_source() != 'w11':
+        return new_slots, True, REAUTH_MESSAGE
+    return new_slots, False, None
 
 
 def codex_sync_timer_enabled() -> bool:
@@ -129,13 +193,16 @@ def codex_sync_status() -> CodexSyncStatus:
         last_sync + CODEX_MOMS_SYNC_INTERVAL_SECONDS if last_sync else None
     )
     seconds_remaining = max(0.0, next_sync - time.time()) if next_sync else None
+    slots, needs_reauth, reauth_message = _auto_recover(_codex_token_slots())
     return CodexSyncStatus(
         interval_seconds=CODEX_MOMS_SYNC_INTERVAL_SECONDS,
         last_sync_epoch=last_sync,
         next_sync_epoch=next_sync,
         seconds_remaining=seconds_remaining,
-        slots=_codex_token_slots(),
+        slots=slots,
         sync_enabled=codex_sync_timer_enabled(),
+        needs_reauth=needs_reauth,
+        reauth_message=reauth_message,
     )
 
 
@@ -177,6 +244,8 @@ def run_codex_sync_now(source: str = 'r46') -> CodexSyncStatus:
         ok, output = False, f'unknown sync source: {source!r}'
     else:
         ok, output = strategy.sync()
+        if ok:
+            _record_last_source(source)
     status = codex_sync_status()
     return status.model_copy(update={
         'ran': True,
