@@ -47,8 +47,15 @@ def model_stats(source_key):
     (used_percent + reset), a tokens summary, and a status (up/concern/down) so the
     tab can go red at 100%."""
     cached = _model_stats_cache.get(source_key)
-    if cached and time.time() - cached[0] < MODEL_STATS_CACHE_TTL:
-        return cached[1]
+    if cached:
+        cached_at, cached_out = cached
+        # A known Retry-After from a prior 429 wins over the flat TTL -- the
+        # last thing a throttled reporting endpoint needs is another probe
+        # every MODEL_STATS_CACHE_TTL seconds until its own cooldown ends.
+        backoff_until = cached_out.get('rate_limited_until')
+        still_backing_off = backoff_until and time.time() < backoff_until
+        if still_backing_off or time.time() - cached_at < MODEL_STATS_CACHE_TTL:
+            return cached_out
     src = MODEL_STAT_SOURCES.get(source_key)
     if not src:
         return {'ok': False, 'error': f'unknown source {source_key}'}

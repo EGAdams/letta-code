@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass
 from typing import Optional
 
-from .ports import AgentsPort, IntakePort, ReportsPort, ScannerPort, ServersPort
+from .ports import AgentsPort, CategoryPort, IntakePort, ReportsPort, ScannerPort, ServersPort
 
 
 def _server():
@@ -148,6 +148,13 @@ class _ServerIntakePort:
         return _server().intake_state_token()
 
 
+class _ServerCategoryPort:
+    """The category-dialog commands still composed by server.py."""
+
+    def mark_human_verified(self, request: object) -> object:
+        return _server().mark_expense_human_verified(request)
+
+
 @dataclass(frozen=True)
 class Ports:
     """Everything the route ladders are allowed to depend on.
@@ -163,6 +170,7 @@ class Ports:
     servers: ServersPort
     agents: AgentsPort
     intake: IntakePort
+    category: CategoryPort
 
 
 def current_ports() -> Ports:
@@ -173,4 +181,5 @@ def current_ports() -> Ports:
         servers=_ServerServersPort(),
         agents=_ServerAgentsPort(),
         intake=_ServerIntakePort(),
+        category=_ServerCategoryPort(),
     )

@@ -1621,6 +1621,7 @@ def _fetch_expenses_by_ids(ids):
             optional_columns = (
                 'id_light', 'receipt_url', 'document_url',
                 'scanned_statement_url', 'moms_ledger', 'source_file',
+                'human_verified',
             )
             schema = InformationSchemaProbe().read(cur, optional_columns)
             select_sql = schema.select_clause(
@@ -1647,6 +1648,7 @@ def _fetch_expenses_by_ids(ids):
                     "SELECT id, expense_date, amount, id_light, description, category_id, "
                     "receipt_url, document_url, scanned_statement_url, moms_ledger, "
                     f"{('source_file' if schema.has('source_file') else 'NULL AS source_file')}, "
+                    f"{('human_verified' if schema.has('human_verified') else '0 AS human_verified')}, "
                     "expense_role, parent_expense_id "
                     f"FROM expenses WHERE parent_expense_id IN ({ph2}) "
                     "AND expense_role='LINE_ITEM' "
@@ -1700,6 +1702,7 @@ def _fetch_expenses_by_ids(ids):
             'scanned_statement_url': (r.get('scanned_statement_url') or '').strip(),
             'moms_ledger': (r.get('moms_ledger') or '').strip(),
             'source_file': (r.get('source_file') or '').strip(),
+            'human_verified': bool(r.get('human_verified')),
         })
     return out
 
@@ -2555,6 +2558,27 @@ def _vendor_prefix(id_light):
 # binding that a test can patch while the real one keeps running
 # (tests/test_recategorize.py asserts they are absent).
 from finance import recategorize as _recategorize  # noqa: E402
+from finance.human_verification import (  # noqa: E402
+    HumanVerificationService,
+    MySqlHumanVerificationRepository,
+)
+
+_human_verification_service = HumanVerificationService(
+    MySqlHumanVerificationRepository(lambda: _rol_get_connection()))
+
+
+def mark_expense_human_verified(request):
+    """Persist the review gesture received through CategoryPort."""
+    return _human_verification_service.mark_verified(request)
+
+
+def _decorate_human_verified_rows(report_html):
+    """Hydrate static report markers without mutating the report on disk."""
+    try:
+        return _human_verification_service.decorate_report(report_html)
+    except Exception as exc:
+        print(f'[human-verification] report hydration failed: {exc}', flush=True)
+        return report_html
 
 
 def _recategorize_deps():
@@ -5077,7 +5101,7 @@ def _fetch_receipt_only_rows(month_key=None):
             cur.execute(
                 "SELECT e.id, e.expense_date, e.amount, e.id_light, e.description, "
                 "       e.category_id, e.receipt_url, e.document_url, "
-                "       e.moms_ledger, e.expense_role "
+                "       e.moms_ledger, e.expense_role, e.human_verified "
                 "FROM expenses e "
                 "WHERE e.expense_role <> 'PARENT' "
                 "AND NOT EXISTS (SELECT 1 FROM transactions t "
@@ -5112,6 +5136,7 @@ def _fetch_receipt_only_rows(month_key=None):
             'receipt_url': r.get('receipt_url'),
             'document_url': r.get('document_url'),
             'moms_ledger': r.get('moms_ledger'),
+            'human_verified': bool(r.get('human_verified')),
         })
     return out
 
@@ -5450,13 +5475,46 @@ def _receipt_only_picker_assets():
     return assets.css, assets.html, assets.clickable_row_css
 
 
-def _report_html_with_current_picker(report_file):
+
+# Same hide-the-other-sections behavior as
+# RolFinanceReportsController.showOnlyVerifiedTransactions() in
+# rol-finance-reports-controller.js, ported inline so a report.html opened
+# directly (not inside the dashboard's own iframe, e.g. from Mom's SmartMenu)
+# can still land on just the Verified Transactions table via ?verified=1.
+_VERIFIED_ONLY_SCRIPT = (
+    '<script>(function(){'
+    'var vt=document.getElementById("verified-transactions");'
+    'if(!vt)return;'
+    'var keep=vt.closest("section");'
+    'if(keep&&keep.parentElement){'
+    'for(var i=0;i<keep.parentElement.children.length;i++){'
+    'var c=keep.parentElement.children[i];'
+    'if(c!==keep&&c.tagName==="SECTION"){c.style.display="none";}'
+    '}'
+    '}'
+    # Mom doesn't need the raw JSON dump either — it's outside the
+    # Verified Transactions <section> so the loop above never reaches it.
+    'var summaries=document.querySelectorAll("details > summary");'
+    'for(var j=0;j<summaries.length;j++){'
+    'if(summaries[j].textContent.indexOf("Machine-Readable")!==-1){'
+    'summaries[j].parentElement.style.display="none";'
+    '}'
+    '}'
+    '})();</script>'
+)
+
+
+def _report_html_with_current_picker(report_file, verified_only=False):
     """Refresh only the picker assets in memory; never rewrite row categories."""
     rv = _picker_module()
     with open(report_file, encoding='utf-8', errors='ignore') as handle:
         # Pass the categories in: the injector would otherwise HTTP-fetch them
         # from this very server, from inside one of its own request handlers.
-        return rv.add_category_picker(handle.read(), _rol_finance_categories())
+        hydrated = _decorate_human_verified_rows(handle.read())
+        html = rv.add_category_picker(hydrated, _rol_finance_categories())
+    if verified_only:
+        html = html.replace('</body>', _VERIFIED_ONLY_SCRIPT + '</body>', 1)
+    return html
 
 
 def _receipt_only_cat_css():
@@ -5475,12 +5533,13 @@ def build_receipt_only_report_html(month_key=None):
     trs = []
     for r in rows:
         trs.append(
-            '<tr class="%s" data-expense-id="%s" data-vendor-key="%s" data-description="%s" '
+            '<tr class="%s%s" data-expense-id="%s" data-human-verified="%s" data-vendor-key="%s" data-description="%s" '
             'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
             'title="Click row to set category / view receipt">'
             '<td>%s</td><td class="number">%s</td><td>%s</td></tr>' % (
-                r['cat_class'],
+                r['cat_class'], ' human-verified' if r.get('human_verified') else '',
                 _esc(str(r['id']), quote=True),
+                'true' if r.get('human_verified') else 'false',
                 _esc(str(r['vendor_key']), quote=True),
                 _esc(str(r['description']), quote=True),
                 _esc(str(r['amount']), quote=True),
@@ -6974,8 +7033,15 @@ def _weekly_percent_remaining(provider_name):
     now = time.time()
     with _weekly_remaining_cache_lock:
         cached = _weekly_remaining_cache.get(provider_name)
-        if cached and now - cached[2] < WEEKLY_REMAINING_CACHE_TTL:
-            return cached[0], cached[1]
+        if cached:
+            cached_remaining, cached_reset_at, cached_at = cached
+            # Same backoff as model_stats/reader.py's model_stats(): once a
+            # 429 tells us exactly when the reporting endpoint's cooldown
+            # ends, keep serving that reading instead of re-probing every
+            # WEEKLY_REMAINING_CACHE_TTL seconds and extending the throttle.
+            still_backing_off = cached_reset_at and now < cached_reset_at
+            if still_backing_off or now - cached_at < WEEKLY_REMAINING_CACHE_TTL:
+                return cached_remaining, cached_reset_at
 
     creds, provider_type = _fetch_provider_oauth_creds(provider_name)
     remaining = None

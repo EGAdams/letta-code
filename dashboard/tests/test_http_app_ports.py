@@ -107,7 +107,7 @@ class TestThePortVocabulary:
         ports.py and stay out of the bundle until the round that fills them.
         """
         assert set(Ports.__dataclass_fields__) == {
-            'scanner', 'reports', 'servers', 'agents', 'intake'}
+            'scanner', 'reports', 'servers', 'agents', 'intake', 'category'}
 
 
 # ── the tax that must not come back ─────────────────────────────────────────

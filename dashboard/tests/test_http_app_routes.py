@@ -218,6 +218,16 @@ class TestPostBodyHandling:
     def test_a_null_field_is_refused(self, live, svc):
         assert live.post('/api/note-command-complete', {'text': None}).status == 400
 
+    def test_human_verification_requires_a_numeric_expense_id(self, live, svc):
+        response = live.post('/api/human-verify-expense', {'expense_id': '42'})
+        assert response.status == 400
+        assert 'invalid request' in response.json['error']
+
+    def test_human_verification_reaches_the_category_port(self, live, svc):
+        response = live.post('/api/human-verify-expense', {'expense_id': 42})
+        assert response.status == 200
+        assert svc.called('mark_expense_human_verified')
+
     def test_a_json_array_body_drops_only_that_connection(self, live, svc):
         """Known gap, pinned deliberately.
 

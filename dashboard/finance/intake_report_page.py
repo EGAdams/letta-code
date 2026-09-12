@@ -108,7 +108,7 @@ def transactions_table_html(rows, *, source_document_url='', empty_note=''):
         badge = (' <strong class="duplicate-badge">DUPLICATE</strong>'
                  if row['duplicate'] else '')
         trs.append(
-            '<tr class="%s%s%s" data-expense-id="%s" '
+            '<tr class="%s%s%s%s" data-expense-id="%s" data-human-verified="%s" '
             'data-source-document="%s" data-is-duplicate="%s" '
             'data-vendor-key="%s" data-id-light="%s" data-description="%s" '
             'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
@@ -117,7 +117,9 @@ def transactions_table_html(rows, *, source_document_url='', empty_note=''):
             '<td class="category-cell" data-category-cell="true">%s</td>%s</tr>' % (
                 row['cat_class'], ' duplicate-row' if row['duplicate'] else '',
                 ' has-receipt' if source_document_url else '',
+                ' human-verified' if row.get('human_verified') else '',
                 row['id'],
+                'true' if row.get('human_verified') else 'false',
                 _esc(source_document_url, quote=True),
                 'true' if row['duplicate'] else 'false',
                 _esc(row['vendor_key'], quote=True),

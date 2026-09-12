@@ -223,8 +223,10 @@ class TerminalPort(Protocol):
 
 
 class CategoryPort(Protocol):
-    """5 names. Recategorize, undo, vendor review. Already behind
-    `finance/recategorize.py`."""
+    """Category and human-review gestures from a transaction row."""
+
+    def mark_human_verified(self, request: object) -> object:
+        ...
 
 
 class MazdaPort(Protocol):

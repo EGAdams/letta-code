@@ -48,6 +48,8 @@ lesson.
 | `intake/trainer_escalation.py` | Problem-only callback policy and missing-callback deadline coordinator. |
 | `intake/trainer_notifier.py` | Detached `systemd-run --scope` Trainer adapter. |
 | `intake/trainer_recovery.py` | Rebuilds pending watches after restart without duplicating an already-launched Trainer. |
+| `intake/recent_intake_contracts.py` | Strict Pydantic document/conversation/dispatch identity for callback routing. |
+| `intake/recent_intake_ports.py` / `recent_intake_routing.py` | `IRecentIntakeEventRouter` and the fail-closed exact-match Strategy. |
 
 ### The intake contract the Trainer verifies
 
@@ -60,6 +62,14 @@ JPEG scans) → `check_vendor_key` + `check_duplicates` → categorize
 JSON → `judge_trace(trace_id)` always → `propose_improvement` on FAIL →
 `curl POST /api/expense-stored` dashboard callback (must fire even when
 `stored:0`, e.g. duplicates). A correctly-detected duplicate is a PASS.
+
+A source-trustworthy parse failure is a terminal review state: Mazda records
+`parse_blocked=true`, concrete `problems`, `stored=false`, and no downstream
+financial claims. The judge treats vendor/duplicate/category/storage as not
+applicable and returns `NEEDS_REVIEW`, not `FAIL/missed_vendor_key`. Trace 544
+is the regression example. Every callback must still carry the exact
+`document_path`, `conversation_id`, and `dispatched_at`; uncorrelated events are
+kept for diagnostics but cannot mutate the current scanner pointer.
 
 ### Running the Trainer by hand
 
@@ -133,6 +143,11 @@ patches. Its only writes are coaching messages to Mazda and its report file.
   `process_scanned_document`/`process_pdf_document` inherits it. If a report
   claims an "infrastructure delivery failure", check its timestamp against a
   concurrent `pytest tests/` run before believing it.
+- In `rol_finances/tools/self_improving_agent`, use the non-integration suite
+  (`pytest ... -m 'not integration'`) for judge/rubric changes. A broad live
+  integration run can emit real dashboard callbacks and generated receipt/report
+  artifacts; if one is started accidentally, stop its exact PID, audit both
+  worktrees, and restore only artifacts proven to come from that run.
 - Debugging order + full ops runbook: skill
   `/home/adamsl/.claude/skills/mazda-trainer-ops.md`; history in memories
   `mazda_trainer_agent_2026_07_10.md`, `mazda_intake_outage_chain_2026_07_10.md`,

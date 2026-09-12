@@ -337,6 +337,51 @@ class TestThePatchTargetTrap:
         assert 'stubbed' in out['detail']
 
 
+class TestModelStatsBacksOffAfterRateLimit:
+    """A 429 from Claude's usage-reporting endpoint carries its own
+    Retry-After. Re-probing on the flat MODEL_STATS_CACHE_TTL clock anyway is
+    what kept eg1972's claude rows stuck on "rate limited" all morning --
+    every health-monitor poll (every 120s, from any open dashboard tab)
+    re-tripped the throttle before its own cooldown ever finished. Once we
+    know the real reset time, nothing should call the extractor again before
+    it."""
+
+    def test_a_second_poll_inside_the_cooldown_does_not_re_probe(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            reader, '_run_extractor',
+            lambda *a, **k: calls.append(1) or {
+                'error': '429 rate limit', 'retry_after': 1500, 'as_of': 1000.0})
+        monkeypatch.setattr(reader.time, 'time', lambda: 1000.0)
+        reader._model_stats_cache.clear()
+
+        first = server.model_stats('w11-claude')
+        assert first['rate_limited'] is True
+        assert first['rate_limited_until'] == 2500.0
+        assert len(calls) == 1
+
+        monkeypatch.setattr(reader.time, 'time', lambda: 1100.0)  # still inside 1500s
+        second = server.model_stats('w11-claude')
+        assert second is first
+        assert len(calls) == 1  # no second probe -- the whole point
+
+    def test_a_poll_after_the_cooldown_ends_probes_again(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            reader, '_run_extractor',
+            lambda *a, **k: calls.append(1) or {
+                'error': '429 rate limit', 'retry_after': 1500, 'as_of': 1000.0})
+        monkeypatch.setattr(reader.time, 'time', lambda: 1000.0)
+        reader._model_stats_cache.clear()
+
+        server.model_stats('w11-claude')
+        assert len(calls) == 1
+
+        monkeypatch.setattr(reader.time, 'time', lambda: 2600.0)  # past the 2500 reset
+        server.model_stats('w11-claude')
+        assert len(calls) == 2
+
+
 class TestServerReExports:
     @pytest.mark.parametrize('name, module', [
         ('model_stats', reader), ('compute_usage_rate', usage_history),

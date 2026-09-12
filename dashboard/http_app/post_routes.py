@@ -22,6 +22,7 @@ from agent_thoughts import message_text as _msg_text
 from chatgpt_provider_status import ChatGptProviderSwapRequest
 from codex_sync_status import CodexSyncRequest, CodexSyncToggleRequest
 from finance import manual_entry
+from finance.human_verification import HumanVerificationRequest
 from health import frita
 from hosts import LETTA_BASE_URL
 from letta_code.runner import ConversationBusyError
@@ -620,6 +621,15 @@ class PostRoutesMixin:
                 return self.json_response(srv.run_letta_headless(agent_id, prompt_text))
             except json.JSONDecodeError:
                 return self.error_response('Invalid JSON', 400)
+
+        if path == '/api/human-verify-expense':
+            try:
+                request = HumanVerificationRequest.model_validate(json.loads(body))
+            except (json.JSONDecodeError, ValidationError) as exc:
+                return self.error_response(f'invalid request: {exc}', 400)
+            result = current_ports().category.mark_human_verified(request)
+            return self.json_response(
+                result.model_dump(mode='json') if hasattr(result, 'model_dump') else result)
 
         if path == '/api/recategorize-expense':
             try:

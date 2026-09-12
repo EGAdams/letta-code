@@ -2305,6 +2305,42 @@ def test_weekly_percent_remaining_reports_reset_time_on_429(monkeypatch):
     assert abs(reset_at - (time.time() + 1494)) < 5
 
 
+def test_weekly_percent_remaining_backs_off_until_the_reset_time(monkeypatch):
+    # The 429 case's whole point is a live countdown, not a renewed probe --
+    # the Agent Assignments row polls every 20s (cached 60s server-side) and
+    # the Model Stats health monitor polls the same account every 120s
+    # independently. Re-probing on the flat WEEKLY_REMAINING_CACHE_TTL clock
+    # instead of the Retry-After we were actually given is what kept
+    # re-tripping this same endpoint's own throttle all morning.
+    monkeypatch.setattr(server, '_weekly_remaining_cache', {})
+    monkeypatch.setattr(
+        server, '_fetch_provider_oauth_creds',
+        lambda provider: ({'access_token': 'tok'}, 'anthropic'))
+
+    calls = []
+
+    def boom(req, timeout=0):
+        calls.append(1)
+        raise urllib.error.HTTPError(
+            req.full_url, 429, 'Too Many Requests', {'Retry-After': '1494'}, None)
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', boom)
+    monkeypatch.setattr(server.time, 'time', lambda: 1000.0)
+
+    _remaining, first_reset = server._weekly_percent_remaining('claude-pro-max-eg')
+    assert first_reset == 1000.0 + 1494
+    assert len(calls) == 1
+
+    monkeypatch.setattr(server.time, 'time', lambda: 1100.0)  # still inside the cooldown
+    _remaining, second_reset = server._weekly_percent_remaining('claude-pro-max-eg')
+    assert second_reset == first_reset
+    assert len(calls) == 1  # no second probe -- the whole point
+
+    monkeypatch.setattr(server.time, 'time', lambda: 1000.0 + 1494 + 1)  # cooldown over
+    server._weekly_percent_remaining('claude-pro-max-eg')
+    assert len(calls) == 2
+
+
 def test_weekly_percent_remaining_reports_no_reset_time_for_other_failures(monkeypatch):
     monkeypatch.setattr(server, '_weekly_remaining_cache', {})
     monkeypatch.setattr(

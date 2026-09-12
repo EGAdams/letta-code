@@ -528,7 +528,9 @@ class GetRoutesMixin:
         if path.startswith(current_ports().reports.url_prefix + '/'):
             fp = srv._report_file_for_url(path)
             if fp:
-                data = srv._report_html_with_current_picker(fp).encode('utf-8')
+                verified_only = query.get('verified', ['0'])[0] == '1'
+                data = srv._report_html_with_current_picker(
+                    fp, verified_only=verified_only).encode('utf-8')
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.send_header('Content-Length', str(len(data)))

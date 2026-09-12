@@ -180,6 +180,7 @@ def presentation_rows(rows, duplicate_ids, *, stored=None, parsed=None):
             'amount': row.get('amount') or '',
             'date': row.get('date') or '',
             'reporting_category': row.get('reporting_category') or '',
+            'human_verified': bool(row.get('human_verified')),
             'duplicate': row_id in duplicate_ids or everything_was_a_duplicate,
         })
     return prepared

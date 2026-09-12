@@ -9,6 +9,14 @@ injected/re-injected idempotently by `restructure_verified_transactions.py`. End
 `recategorize-expense`, `receipt-lookup`, `receipts-present`, `rol_finances_receipts/<rel>`.
 Receipt matching prefers (date, amount) parsed from filename over the DB's `receipt_url` string.
 
+Opening a row's **Set Category** dialog POSTs its numeric expense ID to
+`/api/human-verify-expense`. `HumanVerificationService` sets
+`expenses.human_verified=1`; the field is `TINYINT(1) NOT NULL DEFAULT 0` and never returns to
+zero through the report UI. Static reports are decorated from the database when served, while
+Recent Report and Receipt Only rows carry the flag from their normal expense queries. A true
+flag adds `human-verified`, rendered as the green Excel-style triangle in the row's lower-right
+corner. Rows without a valid stored expense ID fail closed and are not marked.
+
 **Injector gotcha:** head CSS is injected once and not refreshed on re-run; put dialog CSS changes
 in the marker-block `<style>` instead. `window.open(..., "noopener")` returns `null` by spec — not
 proof of a popup blocker.

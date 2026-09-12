@@ -113,6 +113,20 @@ gap in a rebuilt report rather than re-discovering this from scratch.
   malformed `<head>`, not just missing CSS) is a different, deeper bug; don't force this fix
   onto it.
 
+## Human-review triangle
+
+The Set Category picker also owns the persisted human-review gesture. When it opens for a
+stored expense, it POSTs `{expense_id}` to `/api/human-verify-expense`, which sets
+`expenses.human_verified=1`. `HumanVerificationService` hydrates static report rows from that
+database field at serve time, and dynamic report builders emit it directly. The row gets class
+`human-verified`; the refreshable picker CSS draws its green triangle in
+`td:last-child::before` at `bottom:0; right:0`. Keep that marker in the picker-owned refreshable
+CSS block, not a hand-authored report style, so old reports receive it on their next load.
+
+The schema migration is
+`~/rol_finances/migrations/2026_09_10_008_expenses_add_human_verified.sql`, and
+`hydrate_report_categories_from_db.py` preserves the same state during report regeneration.
+
 Related: `dashboard_rol_finance_category_picker_2026_06_13` and
 `reference_rol_finance_reports_data_model_2026_06_14` project memory (the existing
 picker/data-model write-up; this skill covers the missing-CSS failure mode specifically, not
