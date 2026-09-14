@@ -286,6 +286,74 @@ def test_health_recovers_immediately_on_success(monkeypatch):
         'a single success must clear the fail count immediately'
 
 
+def test_recovery_strategy_runs_once_threshold_is_hit_and_clears_a_fixed_link(monkeypatch):
+    cfg = _cfg(recovery='wake_derp_via_windows')
+    monkeypatch.setattr(ssh_checks, 'SSH_CONNECTIONS', [cfg])
+    calls = []
+    monkeypatch.setattr(ssh_checks, 'RECOVERY_STRATEGIES',
+                        {'wake_derp_via_windows': lambda c: calls.append(c['key']) or True})
+
+    probes = iter([{'ok': False, 'text': 'timed out'},
+                   {'ok': False, 'text': 'timed out'},
+                   {'ok': True, 'text': 'CONNECTED — after wake ping'}])
+    monkeypatch.setattr(ssh_checks, 'connection_test', lambda c, timeout=None: next(probes))
+
+    ssh_checks._poll_all_ssh_once()
+    assert calls == [], 'recovery must not fire before the fail threshold is reached'
+    ssh_checks._poll_all_ssh_once()
+    assert calls == ['__test_ssh_conn'], 'recovery should fire once the threshold trips'
+    assert ssh_checks.cached_ssh_health(cfg)['ok'] is True, \
+        'a successful recovery probe should publish as up immediately, not wait another poll'
+
+
+def test_recovery_strategy_leaves_status_down_when_it_does_not_help(monkeypatch):
+    cfg = _cfg(recovery='wake_derp_via_windows')
+    monkeypatch.setattr(ssh_checks, 'SSH_CONNECTIONS', [cfg])
+    monkeypatch.setattr(ssh_checks, 'RECOVERY_STRATEGIES',
+                        {'wake_derp_via_windows': lambda c: True})
+    monkeypatch.setattr(ssh_checks, 'connection_test',
+                        lambda c, timeout=None: {'ok': False, 'text': 'still timed out'})
+
+    ssh_checks._poll_all_ssh_once()
+    ssh_checks._poll_all_ssh_once()
+    assert ssh_checks.cached_ssh_health(cfg)['ok'] is False
+    rows = ssh_checks.connection_log_rows(cfg['key'])
+    assert 'recovery attempted, still down' in rows[-1]['text']
+
+
+def test_connections_without_a_recovery_key_never_call_a_strategy(monkeypatch):
+    cfg = _cfg()  # no 'recovery' field, e.g. win11/win10-host
+    monkeypatch.setattr(ssh_checks, 'SSH_CONNECTIONS', [cfg])
+    strategy = pytest.importorskip('unittest.mock').Mock(return_value=True)
+    monkeypatch.setattr(ssh_checks, 'RECOVERY_STRATEGIES', {'wake_derp_via_windows': strategy})
+    monkeypatch.setattr(ssh_checks, 'connection_test',
+                        lambda c, timeout=None: {'ok': False, 'text': 'timed out'})
+
+    ssh_checks._poll_all_ssh_once()
+    ssh_checks._poll_all_ssh_once()
+    strategy.assert_not_called()
+
+
+def test_wake_derp_via_windows_hops_through_the_recovery_host(monkeypatch):
+    cfg = _cfg(recovery_host='100.106.176.58', recovery_user='rbarn')
+    monkeypatch.setattr(ssh_checks, '_own_tailscale_ip', lambda: '100.72.34.99')
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen['cmd'] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout='pong', stderr='')
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    assert ssh_checks._wake_derp_via_windows(cfg) is True
+    assert 'rbarn@100.106.176.58' in seen['cmd']
+    assert any('100.72.34.99' in part for part in seen['cmd'])
+
+
+def test_wake_derp_via_windows_fails_closed_without_a_recovery_host(monkeypatch):
+    monkeypatch.setattr(ssh_checks, '_own_tailscale_ip', lambda: '100.72.34.99')
+    assert ssh_checks._wake_derp_via_windows(_cfg()) is False
+
+
 def test_the_first_failure_is_published_when_nothing_is_cached_yet(monkeypatch):
     """A box that is already down when the dashboard boots has no previous
     result to protect, so the threshold must not hide the first answer."""

@@ -91,6 +91,15 @@ SSH_CONNECTIONS = [
         'name': 'Rosemary46',
         'host': '100.72.34.38',
         'user': 'adamsl',
+        # The DERP(ord) relay between this box and rosemary46-24 (mom's WSL node) goes
+        # one-sided-stale after a period of no traffic, most mornings — a real outage,
+        # not a slow probe, so the fail-threshold debounce alone doesn't cover it. A
+        # ping initiated from the *other* end re-establishes the session in ~5s (see
+        # rosemary46-ssh-stale-tailscale-recovery memory); 'recovery' wires that fix
+        # into the poll loop instead of leaving it as a manual runbook step.
+        'recovery': 'wake_derp_via_windows',
+        'recovery_host': '100.106.176.58',
+        'recovery_user': 'rbarn',
         'note': 'Rosemary46 Linux box (100.72.34.38)',
     },
     {
@@ -263,6 +272,47 @@ def tailscale_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
     return {'ok': False, 'text': f"{status_text}; {ping['text']}"}
 
 
+def _own_tailscale_ip():
+    """This box's own tailnet IPv4, or None if the CLI is unavailable."""
+    try:
+        result = subprocess.run([_tailscale_cli(), 'ip', '-4'], capture_output=True, text=True, timeout=5)
+        lines = result.stdout.strip().splitlines()
+        return lines[0].strip() if lines else None
+    except Exception:
+        return None
+
+
+def _wake_derp_via_windows(cfg):
+    """Re-establish a stale DERP session by pinging this box from the far end.
+
+    NAT traversal between two tailnet peers idles out and goes one-sided after
+    inactivity; the fix isn't "wait" or "retry harder" from this side, it's a
+    ping *from the other side*. `cfg['recovery_host']`/`cfg['recovery_user']` name
+    an always-on peer next to the flaky one (rosemary46's Windows host, next to its
+    WSL node) that can be hopped through to issue that ping.
+    """
+    own_ip = _own_tailscale_ip()
+    host = cfg.get('recovery_host')
+    if not own_ip or not host:
+        return False
+    user = cfg.get('recovery_user', 'root')
+    cmd = ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes',
+           f'{user}@{host}', f'wsl -e sh -lc "tailscale ping --c 2 {own_ip}"']
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+# Recovery strategies, keyed by cfg['recovery'] — same dispatch shape as
+# connection_test's cfg['check'], for the same reason: a fixed enum of known
+# failure-mode fixes, dispatched by name from the roster rather than an if/elif.
+RECOVERY_STRATEGIES = {
+    'wake_derp_via_windows': _wake_derp_via_windows,
+}
+
+
 def connection_test(cfg, timeout=None):
     """Dispatch to the right health check based on cfg['check'] (default 'ssh').
 
@@ -307,8 +357,22 @@ def _poll_all_ssh_once():
                 if entry['result'] is None or entry['fails'] >= SSH_HEALTH_FAIL_THRESHOLD:
                     entry['result'] = h
             _ssh_health_cache[cfg['key']] = entry
+            fails = entry['fails']
+
+        recovered_note = ''
+        strategy = RECOVERY_STRATEGIES.get(cfg.get('recovery')) if not h.get('ok') else None
+        if strategy and fails >= SSH_HEALTH_FAIL_THRESHOLD and strategy(cfg):
+            h = connection_test(cfg)
+            recovered_note = ' (auto-recovered)' if h.get('ok') else ' (recovery attempted, still down)'
+            with _ssh_health_lock:
+                entry = _ssh_health_cache[cfg['key']]
+                if h.get('ok'):
+                    entry['fails'] = 0
+                entry['result'] = h
+                _ssh_health_cache[cfg['key']] = entry
+
         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        _record_ssh_log(cfg['key'], f"[{ts}] {'OK' if h['ok'] else 'FAIL'} — {h['text']}")
+        _record_ssh_log(cfg['key'], f"[{ts}] {'OK' if h['ok'] else 'FAIL'} — {h['text']}{recovered_note}")
 
 
 def _ssh_poll_loop():
