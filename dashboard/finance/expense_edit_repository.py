@@ -54,6 +54,7 @@ _where_clauses = where_clauses
 #: Columns the search reads only if the live table actually has them.
 OPTIONAL_COLUMNS = (
     'id_light', 'receipt_url', 'document_url', 'source_file', 'receipt_metadata',
+    'address', 'distance', 'map_link',
 )
 #: The itemization link, probed separately from the SELECT list because it is
 #: never displayed -- a delete only needs to know whether this deployment can
@@ -115,6 +116,11 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
             receipt_url=(row.get('receipt_url') or '').strip(),
             document_url=(row.get('document_url') or '').strip(),
             source_file=(row.get('source_file') or '').strip(),
+            address=(row.get('address') or '').strip(),
+            distance_miles=(
+                float(row['distance']) if row.get('distance') is not None else None
+            ),
+            map_link=(row.get('map_link') or '').strip(),
             category_id=category_id,
             category_name=self._namer.name_for(category_id),
         )
@@ -309,6 +315,9 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                     receipt_url=references.receipt_url or before.receipt_url,
                     document_url=references.document_url or before.document_url,
                     source_file=references.source_file or before.source_file,
+                    address=before.address,
+                    distance_miles=before.distance_miles,
+                    map_link=before.map_link,
                     category_id=edit.category_id,
                     category_name=self._namer.name_for(edit.category_id),
                 )

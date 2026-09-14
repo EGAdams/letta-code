@@ -155,6 +155,36 @@ describe("picking a row", () => {
     expect(dialog.editEl.style.display).toBe("");
   });
 
+  test("an address with a map_link renders as a clickable link", async () => {
+    const withMapLink = {
+      ...RECORD,
+      address: "3999 Alpine Ave NW, Comstock Park, MI 49321",
+      distance_miles: 3.4,
+      map_link: "https://maps.example/alpine",
+    };
+    const { dialog } = await pickOne({
+      "/api/expense-search": { ok: true, records: [withMapLink] },
+    });
+    const link = dialog.editMileageEl.children.find((c) => c.tagName === "A");
+    expect(link).toBeTruthy();
+    expect(link.href).toBe("https://maps.example/alpine");
+    expect(link.textContent).toBe(
+      "3999 Alpine Ave NW, Comstock Park, MI 49321",
+    );
+  });
+
+  test("an address without a map_link stays plain text, not a link", async () => {
+    const noMapLink = {
+      ...RECORD,
+      address: "233 S Wacker Dr, Chicago, IL 60606",
+    };
+    const { dialog } = await pickOne({
+      "/api/expense-search": { ok: true, records: [noMapLink] },
+    });
+    const link = dialog.editMileageEl.children.find((c) => c.tagName === "A");
+    expect(link).toBeUndefined();
+  });
+
   test("a category the taxonomy no longer offers falls back to unresolved", async () => {
     const doc = new FakeDocument();
     const root = doc.createElement("div");

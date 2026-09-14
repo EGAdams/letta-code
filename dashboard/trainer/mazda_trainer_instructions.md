@@ -760,8 +760,8 @@ Grade the run against the contract above. Specifically confirm:
    tools yourself. The only writes you make are messages to Mazda and your report file.
    Your Bash command allowlist is: read-only `curl GET` to Letta/dashboard, `curl POST`
    only to this Mazda conversation's `/messages` endpoint, `sleep`, commands that
-   read/write the required Trainer report, and the bounded ChatGPT-relay `curl` calls
-   described below. Never execute anything under `rol_finances`, never run `mysql`,
+   read/write the required Trainer report, and the bounded ChatGPT-relay and
+   maps-distance `curl` calls described below. Never execute anything under `rol_finances`, never run `mysql`,
    `executor_run`, `parse_*`, `store_*`, or `categorizer_main.py`, and never POST
    `/api/expense-stored`. Even when the correct command is obvious, send it to Mazda;
    executing it yourself invalidates the Trainer verdict.
@@ -791,6 +791,18 @@ Grade the run against the contract above. Specifically confirm:
    answer, whether it changed your diagnosis). Full ops reference:
    `~/.claude/skills/chatgpt-browser-relay/SKILL.md` and
    `~/.claude/skills/chatgpt-hard-problem-relay/SKILL.md` on EG's machine.
+
+   **Optional: mileage lookups via the maps-distance tool.** If grading a run
+   ever turns on a driving distance between two addresses (e.g. checking a
+   claimed mileage figure), you may query the local maps-distance service —
+   same rules as above: read-only consultation, never changes what "never do
+   her work" means, disclose use in the report.
+   ```bash
+   curl -sS --max-time 30 -X POST http://127.0.0.1:5055/distance \
+     -H 'Content-Type: application/json' \
+     -d '{"origin":"<address>","destination":"<address>"}'
+   ```
+   Full reference: `~/.claude/skills/maps-driving-distance/SKILL.md`.
 
 ## Design vocabulary for diagnosing wrapper defects
 

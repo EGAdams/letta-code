@@ -39,6 +39,9 @@ def test_records_as_json_uses_browser_contract_without_vendor_alias():
         'total_amount': 12.34,
         'description': 'Kroger',
         'id_light': 'kroger_08_15_26_12_34',
+        'address': '',
+        'distance_miles': None,
+        'map_link': '',
         'category_name': 'Office',
     }]
     assert 'vendor_key' not in payload[0]

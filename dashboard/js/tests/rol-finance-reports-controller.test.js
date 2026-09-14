@@ -1167,8 +1167,8 @@ describe("RolFinanceReportsController", () => {
     const dialog = ctx.doc.getElementById("rol-newrec-picker");
     expect(dialog).not.toBe(null);
     expect(dialog.classList.contains("open")).toBe(true);
-    expect(dialog.querySelector(".cp-target").textContent).toBe(
-      "MEIJER  •  18.40  •  2025-01-22  •  Travel & Vehicle",
+    expect(dialog.querySelector(".cp-target").innerHTML).toBe(
+      "MEIJER  •  18.40  •  2025-01-22  •  Travel &amp; Vehicle",
     );
     expect(dialog.querySelector(".cp-reason").textContent).toContain(
       "Categorization incomplete",
@@ -1177,6 +1177,61 @@ describe("RolFinanceReportsController", () => {
     expect(squares.length).toBe(2);
     // The row's current category is marked as the current selection.
     expect(squares[0].classList.contains("current")).toBe(true);
+  });
+
+  test("a card-statement description with a map_link becomes a clickable merchant span", async () => {
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-categories")) {
+        return { categories: [] };
+      }
+      return [];
+    });
+    const card = ctx.doc.createElement("div");
+    card.className = "rol-recent-card cat-uncategorized";
+    card.dataset = {
+      expenseId: "77",
+      description:
+        "DEBIT CARD PURCHASE AT APPLEBEES 8382, COMSTOCK P, MI ON 032025 FROM CARD#:",
+      signedAmount: "-37.29",
+      date: "2025-03-27",
+      reportingCategory: "Food & Hospitality",
+      mapLink:
+        "https://www.google.com/maps/dir/?api=1&origin=home&destination=applebees",
+    };
+    await ctx.rf._openPicker(card);
+
+    const target = ctx.doc
+      .getElementById("rol-newrec-picker")
+      .querySelector(".cp-target");
+    expect(target.innerHTML).toBe(
+      'DEBIT CARD PURCHASE AT <a href="https://www.google.com/maps/dir/?api=1&amp;origin=home&amp;destination=applebees" target="_blank" rel="noopener noreferrer">APPLEBEES 8382, COMSTOCK P, MI</a> ON 032025 FROM CARD#:  •  -37.29  •  2025-03-27  •  Food &amp; Hospitality',
+    );
+  });
+
+  test("no map_link keeps the heading as plain escaped text", async () => {
+    const ctx = setup((url) => {
+      if (url.startsWith("/api/rol-finance-categories")) {
+        return { categories: [] };
+      }
+      return [];
+    });
+    const card = ctx.doc.createElement("div");
+    card.className = "rol-recent-card cat-uncategorized";
+    card.dataset = {
+      expenseId: "78",
+      description:
+        "DEBIT CARD PURCHASE AT APPLEBEES 8382, COMSTOCK P, MI ON 032025 FROM CARD#:",
+      signedAmount: "-37.29",
+      date: "2025-03-27",
+      reportingCategory: "Food & Hospitality",
+    };
+    await ctx.rf._openPicker(card);
+
+    const target = ctx.doc
+      .getElementById("rol-newrec-picker")
+      .querySelector(".cp-target");
+    expect(target.innerHTML).not.toContain("<a ");
+    expect(target.innerHTML).toContain("APPLEBEES 8382, COMSTOCK P, MI");
   });
 
   test("picking a category posts a DB-only recategorize, closes, and backfills", async () => {

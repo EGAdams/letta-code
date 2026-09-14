@@ -112,6 +112,21 @@ class ExpenseRecord(StrictModel):
     document_url: str = ''
     #: Absolute provenance path when the receipt image itself produced the row.
     source_file: str = ''
+    #: Merchant address Mazda read off the receipt, for IRS mileage records.
+    #: Not operator-editable here -- ExpenseEdit has no address field, so this
+    #: always round-trips unchanged (see apply_edit's `after` construction).
+    address: str = ''
+    #: Driving miles from the Gratiot home address, populated only for a
+    #: Michigan merchant address (see receipt_parsing_tools/mileage.py).
+    #: None both when there is no address yet and when the address is known
+    #: but out of state -- the edit dialog shows either case as blank.
+    distance_miles: Optional[float] = None
+    #: Google Maps directions URL for `address`, from the map-distance-tool
+    #: (see receipt_parsing_tools/mileage.py). Empty until Mazda's intake
+    #: pipeline populates it -- the dashboard never calls the map tool
+    #: itself, so a receipt's merchant text only becomes a link once this
+    #: is set.
+    map_link: str = ''
     category_id: Optional[int] = None
     category_name: str = ''
 

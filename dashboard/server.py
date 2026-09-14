@@ -4368,7 +4368,7 @@ def _matching_expense(cur, date_str, amount_str, vendor_key, description,
     """
     optional_columns = (
         'id_light', 'document_url', 'scanned_statement_url', 'moms_ledger',
-        'notes', 'expense_role', 'parent_expense_id',
+        'notes', 'expense_role', 'parent_expense_id', 'address', 'map_link',
     )
     schema = ShowColumnsProbe().read(cur, optional_columns)
     select_sql = schema.select_clause(
@@ -4914,6 +4914,8 @@ def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_p
         'receipt_url': '',
         'receipt_path': '',
         'notes': (chosen.get('notes') or '') if chosen else '',
+        'address': (chosen.get('address') or '') if chosen else '',
+        'map_link': (chosen.get('map_link') or '') if chosen else '',
         'machine_origin': _document_machine_origin(),
         # Ask Mazda must use the expense's database-backed source association.
         # The report directory is only a legacy fallback for old rows.
@@ -5325,7 +5327,7 @@ def _fetch_recent_scans(limit=5, month_key=None):
             cur.execute(
                 "SELECT id, id_light, description, expense_date, amount, "
                 "       category_id, receipt_url, document_url, source_file, "
-                "       moms_ledger, created_at, notes "
+                "       moms_ledger, created_at, notes, address, map_link "
                 "FROM expenses "
                 "WHERE (category_id IS NULL OR category_id IN (%s, %s))"
                 " AND expense_role <> 'PARENT'"
@@ -5368,6 +5370,8 @@ def _fetch_recent_scans(limit=5, month_key=None):
                 if amt is not None else False),
             'receipt_url': r.get('receipt_url') or '',
             'document_url': r.get('document_url') or '',
+            'address': r.get('address') or '',
+            'map_link': r.get('map_link') or '',
             'document_report': (
                 _document_report_for_path(r.get('document_url'), month_key)
                 or _document_report_for_path(r.get('receipt_url'), month_key)

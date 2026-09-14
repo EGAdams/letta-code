@@ -4,11 +4,13 @@ import {
   buildEditPayload,
   buildSearchPayload,
   describeEditResult,
+  formatMileageDetail,
   formatRecordLabel,
   readEditResponse,
   readExpenseRecord,
   readSearchResponse,
   recordToFields,
+  splitCardStatementMerchant,
   validateSearchCriteria,
 } from "../abstract/expense-edit.interface.js";
 
@@ -107,6 +109,9 @@ describe("readExpenseRecord", () => {
       totalAmount: 12.34,
       description: "Kroger",
       idLight: "kroger_08_15_26_12_34",
+      address: "",
+      distanceMiles: null,
+      mapLink: "",
       categoryName: "Office",
     });
   });
@@ -137,7 +142,60 @@ describe("readExpenseRecord", () => {
     });
     expect(record.description).toBe("");
     expect(record.idLight).toBe("");
+    expect(record.address).toBe("");
+    expect(record.distanceMiles).toBe(null);
+    expect(record.mapLink).toBe("");
     expect(record.categoryName).toBe("");
+  });
+});
+
+describe("formatMileageDetail", () => {
+  test("blank address reads as no detail at all", () => {
+    expect(formatMileageDetail({ address: "", distanceMiles: null })).toBe("");
+  });
+
+  test("a Michigan address includes its distance", () => {
+    expect(
+      formatMileageDetail({
+        address: "3999 Alpine Ave NW, Comstock Park, MI 49321",
+        distanceMiles: 3.4,
+      }),
+    ).toBe("3999 Alpine Ave NW, Comstock Park, MI 49321 · 3.4 mi from home");
+  });
+
+  test("an out-of-state address has no distance to show", () => {
+    expect(
+      formatMileageDetail({
+        address: "233 S Wacker Dr, Chicago, IL 60606",
+        distanceMiles: null,
+      }),
+    ).toBe("233 S Wacker Dr, Chicago, IL 60606");
+  });
+});
+
+describe("splitCardStatementMerchant", () => {
+  test("splits a debit-card statement description around the merchant text", () => {
+    const result = splitCardStatementMerchant(
+      "DEBIT CARD PURCHASE AT APPLEBEES 8382, COMSTOCK P, MI ON 032025 FROM CARD#:",
+    );
+    expect(result).toEqual({
+      before: "DEBIT CARD PURCHASE AT ",
+      merchant: "APPLEBEES 8382, COMSTOCK P, MI",
+      after: " ON 032025 FROM CARD#:",
+    });
+  });
+
+  test("returns null for a description with no card-statement shape", () => {
+    expect(splitCardStatementMerchant("Kroger")).toBe(null);
+    expect(splitCardStatementMerchant("")).toBe(null);
+    expect(splitCardStatementMerchant(null)).toBe(null);
+  });
+
+  test("is case-insensitive on the AT/ON keywords", () => {
+    const result = splitCardStatementMerchant(
+      "debit card purchase at Kum Go 1234 on 041025 from card#:",
+    );
+    expect(result.merchant).toBe("Kum Go 1234");
   });
 });
 

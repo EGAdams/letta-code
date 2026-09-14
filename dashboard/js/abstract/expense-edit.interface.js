@@ -26,6 +26,14 @@
  *   server's business, not the operator's
  * @property {string} description
  * @property {string} idLight immutable transaction filing key, not a vendor
+ * @property {string} address merchant address Mazda read off the receipt,
+ *   for IRS mileage records; "" when none was captured
+ * @property {?number} distanceMiles driving miles from the Gratiot home
+ *   address; null when there is no address yet, or the address is known but
+ *   outside Michigan
+ * @property {string} mapLink Google Maps directions URL for `address`, from
+ *   the map-distance-tool; "" until Mazda's intake pipeline populates it --
+ *   never derived or looked up client-side
  * @property {string} categoryName
  *
  * @typedef {Object} ExpenseSearchResult
@@ -155,8 +163,114 @@ export function readExpenseRecord(raw) {
     totalAmount: Math.abs(totalAmount),
     description: asString(raw.description),
     idLight: asString(raw.id_light),
+    address: asString(raw.address),
+    distanceMiles: asFiniteNumber(raw.distance_miles),
+    mapLink: asString(raw.map_link),
     categoryName: asString(raw.category_name),
   };
+}
+
+/**
+ * How the read-only Address / Distance line reads in the edit panel.
+ * @param {ExpenseRecord} record
+ */
+export function formatMileageDetail(record) {
+  if (!record.address) return "";
+  const distance =
+    record.distanceMiles === null
+      ? ""
+      : ` · ${record.distanceMiles.toFixed(1)} mi from home`;
+  return `${record.address}${distance}`;
+}
+
+/**
+ * DOM-ready parts for the read-only Address / Distance line: the address
+ * text, the " · N.N mi from home" suffix (or ""), and the Google Maps URL to
+ * link the address to -- null when there's no `map_link` yet, in which case
+ * the caller renders plain text instead of an anchor. Returns null entirely
+ * when there's no address at all.
+ *
+ * @typedef {Object} MileageDisplayParts
+ * @property {string} address
+ * @property {string} distanceSuffix
+ * @property {?string} mapLink
+ *
+ * @param {ExpenseRecord} record
+ * @returns {?MileageDisplayParts}
+ */
+export function mileageDisplayParts(record) {
+  if (!record.address) return null;
+  const distanceSuffix =
+    record.distanceMiles === null
+      ? ""
+      : ` · ${record.distanceMiles.toFixed(1)} mi from home`;
+  return {
+    address: record.address,
+    distanceSuffix,
+    mapLink: record.mapLink || null,
+  };
+}
+
+/**
+ * A card-statement description line, split around its merchant/address text
+ * so the caller can render that middle span as a link. Matches lines like
+ * "DEBIT CARD PURCHASE AT APPLEBEES 8382, COMSTOCK P, MI ON 032025 FROM
+ * CARD#:" -- the merchant text sits between "AT " and " ON <digits>".
+ * Returns null when the description doesn't match that shape, so a caller
+ * never has to guess whether `merchant` is meaningful.
+ *
+ * @typedef {Object} DescriptionMerchantSpan
+ * @property {string} before  text before the merchant span, includes "AT "
+ * @property {string} merchant  the merchant/address text itself
+ * @property {string} after  text from " ON <digits>" onward
+ *
+ * @param {string} description
+ * @returns {?DescriptionMerchantSpan}
+ */
+const CARD_STATEMENT_MERCHANT_RE = /^(.*\bAT\s+)(.+?)(\s+ON\s+\d+\b.*)$/i;
+
+export function splitCardStatementMerchant(description) {
+  const text = asString(description);
+  const match = CARD_STATEMENT_MERCHANT_RE.exec(text);
+  if (!match) return null;
+  const [, before, merchant, after] = match;
+  return { before, merchant, after };
+}
+
+/**
+ * Builds the "Set Category" dialog's heading as safe HTML: description,
+ * amount, date, category joined with bullets, same as before -- except when
+ * the description matches a card-statement line and `mapLink` is already
+ * populated, in which case the merchant/address span becomes an
+ * `<a href={mapLink}>` around that text. `mapLink` empty or the description
+ * not matching the pattern both fall back to the plain, unlinked heading.
+ *
+ * `escapeHtml` is injected (rather than imported) because this module is
+ * pure decision logic with no DOM dependency -- the only reason it needs an
+ * escaper at all is that this one function, unlike the rest of the file,
+ * returns markup instead of a plain string.
+ *
+ * @param {{description: string, signedAmount: string, date: string,
+ *   reportingCategory: string, mapLink: string}} fields
+ * @param {(s: string) => string} escapeHtml
+ * @returns {string}
+ */
+export function buildCategoryPickerHeadingHtml(fields, escapeHtml) {
+  const description = asString(fields.description);
+  const amount = asString(fields.signedAmount);
+  const date = asString(fields.date);
+  const category = asString(fields.reportingCategory) || "Uncategorized";
+  const mapLink = asString(fields.mapLink);
+  const span = mapLink ? splitCardStatementMerchant(description) : null;
+  const descriptionHtml = span
+    ? `${escapeHtml(span.before)}<a href="${escapeHtml(mapLink)}" target="_blank" rel="noopener noreferrer">${escapeHtml(span.merchant)}</a>${escapeHtml(span.after)}`
+    : escapeHtml(description);
+  return [
+    descriptionHtml,
+    escapeHtml(amount),
+    escapeHtml(date),
+    escapeHtml(category),
+  ].join("  •  ");
 }
 
 /**

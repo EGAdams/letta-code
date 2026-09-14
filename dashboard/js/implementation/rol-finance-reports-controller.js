@@ -1,3 +1,4 @@
+import { buildCategoryPickerHeadingHtml } from "../abstract/expense-edit.interface.js";
 import { TextUtils } from "../abstract/text-utils.js";
 import { describePipelineStage } from "./document-pipeline-controller.js";
 
@@ -435,6 +436,7 @@ export class RolFinanceReportsController {
               ` data-date="${TextUtils.esc(r.expense_date || "")}"` +
               ` data-reporting-category="${TextUtils.esc(r.reporting_category || "Uncategorized")}"` +
               ` data-reason="${TextUtils.esc(r.reason || "")}"` +
+              ` data-map-link="${TextUtils.esc(r.map_link || "")}"` +
               ` data-receipt-present="${r.receipt_present ? "1" : "0"}">` +
               `<td>${TextUtils.esc(r.expense_date || "")}</td>` +
               `<td>${TextUtils.esc(r.description || r.vendor_key || r.id_light || "—")}</td>` +
@@ -620,7 +622,16 @@ export class RolFinanceReportsController {
     const pk = this._ensurePickerDialog();
     pk.msg.textContent = "";
     pk.msg.style.color = "";
-    pk.target.textContent = `${d.description || ""}  •  ${d.signedAmount || ""}  •  ${d.date || ""}  •  ${d.reportingCategory || "Uncategorized"}`;
+    pk.target.innerHTML = buildCategoryPickerHeadingHtml(
+      {
+        description: d.description || "",
+        signedAmount: d.signedAmount || "",
+        date: d.date || "",
+        reportingCategory: d.reportingCategory || "",
+        mapLink: d.mapLink || "",
+      },
+      TextUtils.esc,
+    );
     // The reason this record failed to auto-process — shown so mom can fix it
     // here or tell Mazda what to do.
     pk.reason.textContent = d.reason

@@ -21,6 +21,7 @@ import {
   buildSearchPayload,
   describeEditResult,
   formatRecordLabel,
+  mileageDisplayParts,
   readEditResponse,
   readSearchResponse,
   recordToFields,
@@ -115,6 +116,14 @@ export class ExpenseEditDialog {
     );
     this.editDateInput = this._field(this.editEl, "Date", "date");
     this.editAmountInput = this._field(this.editEl, "Amount", "text");
+
+    // Mazda-captured, not operator-editable: no ExpenseEdit field carries a
+    // correction for these back to the server, so this is display only.
+    const mileageWrap = this._el("div", { className: "manual-entry-field" });
+    this.editEl.appendChild(mileageWrap);
+    mileageWrap.appendChild(this._el("label", { text: "Address / mileage" }));
+    this.editMileageEl = this._el("div", { className: "expense-edit-mileage" });
+    mileageWrap.appendChild(this.editMileageEl);
 
     const categoryWrap = this._el("div", { className: "manual-entry-field" });
     this.editEl.appendChild(categoryWrap);
@@ -267,7 +276,10 @@ export class ExpenseEditDialog {
 
   _renderResults() {
     this.resultsEl.innerHTML = "";
-    for (const record of this.records) {
+    const sorted = [...this.records].sort(
+      (a, b) => b.totalAmount - a.totalAmount,
+    );
+    for (const record of sorted) {
       const button = this._el("button", { text: formatRecordLabel(record) });
       button.type = "button";
       button.dataset.action = "expense-pick";
@@ -285,6 +297,7 @@ export class ExpenseEditDialog {
     this.editMerchantInput.value = fields.merchantName;
     this.editDateInput.value = fields.transactionDate;
     this.editAmountInput.value = fields.totalAmount;
+    this._renderMileageDetail(record);
     this._renderCategoryOptions();
     this.editCategorySelect.value = this._categoryNames().includes(
       fields.categoryName,
@@ -421,6 +434,36 @@ export class ExpenseEditDialog {
     button.dataset.action = action;
     parent.appendChild(button);
     return button;
+  }
+
+  /**
+   * Renders the read-only Address / Distance line. When `mapLink` is already
+   * on the record, the address itself becomes a link to it -- never derived
+   * or looked up here, only displayed if Mazda's intake pipeline already set
+   * it. Otherwise the address (or a placeholder) is plain text.
+   */
+  _renderMileageDetail(record) {
+    this.editMileageEl.textContent = "";
+    this.editMileageEl.innerHTML = "";
+    const parts = mileageDisplayParts(record);
+    if (!parts) {
+      this.editMileageEl.textContent = "No address on record for this receipt.";
+      return;
+    }
+    if (parts.mapLink) {
+      const link = this._el("a", { text: parts.address });
+      link.href = parts.mapLink;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      this.editMileageEl.appendChild(link);
+    } else {
+      this.editMileageEl.appendChild(this._el("span", { text: parts.address }));
+    }
+    if (parts.distanceSuffix) {
+      this.editMileageEl.appendChild(
+        this._el("span", { text: parts.distanceSuffix }),
+      );
+    }
   }
 
   _el(tag, { className, text } = {}) {
