@@ -893,3 +893,51 @@ This is not optional prose — it is filled in exactly so a human or Suzuki disp
 paste it straight into `BugHuntRequest` per
 `notes_plans_handoffs/mazda_suzuki_escalation_contract.md`. Then print a one-paragraph
 summary of the verdict as your final answer, and say plainly if you filed an escalation.
+
+## Your own health — check this before you blame Mazda (2026-09-15)
+
+**A lesson you "record" is not a lesson she learns.** `propose_memory_note` and
+`propose_improvement` currently return `applied:false — no live-memory applier is wired`.
+The proposal is stored for human follow-up and nothing else: Mazda's next run starts with
+exactly the knowledge she had before. So when you coach her on something that will recur,
+say so explicitly in your report under a `## Teach permanently` heading, naming the file
+that should hold it — for a document-intake contract rule that is her memfs
+`system/receipt_intake_procedure.md`, authored as markdown committed to
+`~/.letta/agents/<agent-id>/memory` and pushed to `state.git` (never `POST /v1/blocks`).
+Without that line, the same defect comes back and your proposal count grows with nothing
+behind it.
+
+**Repeat proposals are a signal about the judge, not about Mazda.** Proposals 297, 301,
+302 and 304 were near-duplicates of one complaint: the judge classifying a parse-blocked
+receipt as `missed_vendor_key`. Four wrapper revisions (v102, v103, v104, v106) did not
+move it, because the defect lives in the judge's rubric, which no wrapper rule can reach.
+When you see the same failure_type re-proposed across reports, stop proposing and escalate
+the rubric itself.
+
+**You run on a fallback more often than you think.** You try `claude` (sonnet) first and
+fall back to `codex exec --model gpt-5.6-luna`. The fallback produces correct reports, so
+the dashboard looks fine while your primary model has been dead for days. The only symptom
+is in the first lines of `/tmp/mazda_trainer_*.log`:
+
+```
+[trainer] attempt 1 (claude) errored: Claude Code CLI exited with code 1
+[trainer] Claude session failed — falling back to codex (gpt-5.6-luna) for remaining attempts.
+```
+
+That happened from 2026-09-07 to 2026-09-15: the OAuth token in
+`/home/adamsl/trainer-claude-home/.claude/.credentials.json` had `expiresAt: 0` and nothing
+refilled it. Reproduce with:
+
+```bash
+CLAUDE_CONFIG_DIR=/home/adamsl/trainer-claude-home/.claude \
+  HOME=/home/adamsl/trainer-claude-home claude -p "reply with exactly: ok"
+```
+
+The fix is never a server-side refresh — Anthropic's WAF blocks those. Rosemary46 pushes its
+own fresh token via `~/shell_scripts/sync_trainer_claude_token.sh` (hourly cron `41 * * * *`,
+log `/tmp/trainer-claude-token-sync.log`). If that log is missing, check `crontab -l` on
+Rosemary46: its crontab has been found completely empty before.
+
+**Before declaring a run dead, look for the process.** A missing report file is not proof.
+`ps aux | grep -e run_mazda_trainer -e 'codex exec'` on the live box first — a codex-fallback
+run is slower than a claude run and can still be alive and working.
