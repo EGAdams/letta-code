@@ -203,6 +203,17 @@ only `.withSignal()` reaches the child process, so `trainer/claude-attempt.ts` s
 AbortSignal + hard deadline. A 0-byte trainer log means "still running" (bun block-buffers stdout to
 a file), not "never started" — check `systemctl --user list-units 'mazda-trainer-*'`.
 
+**The Trainer has its own Claude credentials, and they rot silently (2026-09-15).** The Trainer
+spawns the `claude` CLI with `CLAUDE_CONFIG_DIR=/home/adamsl/trainer-claude-home/.claude` and falls
+back to `codex exec --model gpt-5.6-luna` when that fails. The fallback writes correct reports, so a
+dead login is invisible from the dashboard — the only symptom is the first two lines of
+`/tmp/mazda_trainer_*.log` (`attempt 1 (claude) errored: Claude Code CLI exited with code 1`).
+That token expired 2026-09-07 and went unnoticed for eight days. Rosemary46 now pushes a fresh one
+hourly via `~/shell_scripts/sync_trainer_claude_token.sh` (cron `41 * * * *`, log
+`/tmp/trainer-claude-token-sync.log`); never let the live box try to refresh the token itself, as
+Anthropic's WAF blocks server-side refresh. Reproduce a suspected failure with
+`CLAUDE_CONFIG_DIR=/home/adamsl/trainer-claude-home/.claude HOME=/home/adamsl/trainer-claude-home claude -p "reply with exactly: ok"`.
+
 **Wrapper defect vs. application defect (2026-08-01).** Before coaching, the Trainer classifies the
 failure: a *wrapper defect* (Mazda's instructions/tools/memory — coach her, unchanged) or an
 *application defect* (a real bug in this repo's or `rol_finances`' code — she cannot fix it by
