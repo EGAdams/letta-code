@@ -64,6 +64,42 @@ def test_the_derp_relayed_box_keeps_its_own_generous_timeout():
     assert cfg['timeout'] > ssh_checks.SSH_CONNECT_TIMEOUT * 4
 
 
+def test_win10_host_resolves_its_ip_by_hostname_instead_of_a_pinned_literal():
+    """A Tailscale node-key reset changes this box's IP (2026-09-15 incident);
+    resolve_hostname is what lets the roster self-heal instead of going stale."""
+    cfg = ssh_checks.get_ssh_connection('win10-host')
+    assert cfg['resolve_hostname'] == 'DESKTOP-SHDBATI'
+
+
+def test_ssh_test_targets_the_resolved_ip_when_resolve_hostname_is_set(monkeypatch):
+    monkeypatch.setattr(ssh_checks, 'resolve_peer_ip', lambda hostname, fallback=None: '100.1.2.3')
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, 'CONNECTED\nTESTBOX\n', '')
+    monkeypatch.setattr(ssh_checks.subprocess, 'run', fake_run)
+
+    result = ssh_checks.ssh_test(_cfg(resolve_hostname='DESKTOP-SHDBATI', host='100.69.80.89'), timeout=5)
+
+    assert result['ok'] is True
+    assert calls[0][-2] == 'nobody@100.1.2.3'
+
+
+def test_ssh_test_falls_back_to_the_pinned_host_if_resolution_fails(monkeypatch):
+    monkeypatch.setattr(ssh_checks, 'resolve_peer_ip', lambda hostname, fallback=None: fallback)
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, 'CONNECTED\nTESTBOX\n', '')
+    monkeypatch.setattr(ssh_checks.subprocess, 'run', fake_run)
+
+    ssh_checks.ssh_test(_cfg(resolve_hostname='DESKTOP-SHDBATI', host='100.69.80.89'), timeout=5)
+
+    assert calls[0][-2] == 'nobody@100.69.80.89'
+
+
 # ── ssh_test: the identity fallback chain ────────────────────────────────────
 
 @pytest.mark.parametrize('identity_key', ['identity_files', 'identity_file'])
@@ -155,22 +191,8 @@ def test_ssh_test_truncates_a_long_error_to_one_line(monkeypatch):
 
 
 # ── tailscale_test ───────────────────────────────────────────────────────────
-
-def test_tailscale_cli_falls_back_to_windows_host_client(monkeypatch):
-    def which(name):
-        return '/mnt/c/Program Files/Tailscale/tailscale.exe' if name == 'tailscale.exe' else None
-    monkeypatch.setattr(ssh_checks.shutil, 'which', which)
-    assert ssh_checks._tailscale_cli() == '/mnt/c/Program Files/Tailscale/tailscale.exe'
-
-
-def test_tailscale_cli_falls_back_to_the_interop_path_systemd_cannot_see(monkeypatch):
-    """A systemd user unit has a Linux-only PATH, so shutil.which finds nothing
-    even though the Windows binary is runnable."""
-    monkeypatch.setattr(ssh_checks.shutil, 'which', lambda name: None)
-    monkeypatch.setattr(ssh_checks.os.path, 'isfile',
-                        lambda p: p == '/mnt/c/Program Files/Tailscale/tailscale.exe')
-    assert ssh_checks._tailscale_cli() == '/mnt/c/Program Files/Tailscale/tailscale.exe'
-
+# (tailscale_cli's own fallback-path tests moved to test_tailscale_peer_resolver.py,
+# its owning module since the 2026-09-15 resolve-by-hostname refactor.)
 
 def test_tailscale_test_accepts_ping_when_status_is_stale_offline(monkeypatch):
     monkeypatch.setattr(ssh_checks, '_tailscale_cli', lambda: 'tailscale')

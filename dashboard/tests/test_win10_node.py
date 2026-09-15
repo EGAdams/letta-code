@@ -200,6 +200,7 @@ class TestRestartWin10Node:
     def test_it_restarts_tailscaled_from_the_windows_side(self, monkeypatch, tmp_path):
         """The WSL node is unreachable by definition when this button is
         pressed, so the command has to go to the Windows host."""
+        monkeypatch.setenv('WIN10_WINDOWS_HOST', 'NewUser@100.96.120.127')
         spawned = self._fake_popen(monkeypatch)
         log = tmp_path / 'restarts.log'
 
@@ -207,12 +208,13 @@ class TestRestartWin10Node:
             deps=Collaborators(log_restart=lambda line: None, restart_log_path=str(log)))
 
         assert result['ok'] is True
-        assert spawned['cmd'][-2] == win10_node.WIN10_WINDOWS_HOST
+        assert spawned['cmd'][-2] == 'NewUser@100.96.120.127'
         assert win10_node.WIN10_WSL_DISTRO in spawned['cmd'][-1]
         assert 'systemctl restart tailscaled' in spawned['cmd'][-1]
         assert spawned['kw']['start_new_session'] is True
 
     def test_it_journals_the_command_before_running_it(self, monkeypatch, tmp_path):
+        monkeypatch.setenv('WIN10_WINDOWS_HOST', 'NewUser@100.96.120.127')
         self._fake_popen(monkeypatch)
         lines = []
 
@@ -222,7 +224,15 @@ class TestRestartWin10Node:
 
         assert len(lines) == 1
         assert lines[0].startswith('win10-node: ssh ')
-        assert win10_node.WIN10_WINDOWS_HOST in lines[0]
+        assert 'NewUser@100.96.120.127' in lines[0]
+
+    def test_windows_host_falls_back_to_tailscale_lookup_when_unset(self, monkeypatch):
+        """No env override -- resolves by hostname via the shared resolver,
+        not a pinned IP (see tailscale_peer_resolver's 2026-09-15 incident note)."""
+        monkeypatch.delenv('WIN10_WINDOWS_HOST', raising=False)
+        monkeypatch.setattr(win10_node, 'resolve_peer_ip',
+                             lambda hostname, fallback=None: '100.1.2.3')
+        assert win10_node._win10_windows_host() == 'NewUser@100.1.2.3'
 
     def test_it_marks_the_server_starting(self, monkeypatch, tmp_path):
         self._fake_popen(monkeypatch)

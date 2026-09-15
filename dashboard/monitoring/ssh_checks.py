@@ -36,12 +36,14 @@ disk, which is the bug `ssh_test` exists to avoid.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import threading
 import time
 from collections import deque
 from datetime import datetime
+
+from monitoring.tailscale_peer_resolver import resolve_peer_ip
+from monitoring.tailscale_peer_resolver import tailscale_cli as _tailscale_cli
 
 # ── The roster ───────────────────────────────────────────────────────────────
 # SSH connections this dashboard can reach for remote administration. Each
@@ -52,13 +54,17 @@ SSH_CONNECTIONS = [
     {
         'key': 'win10-host',
         'name': 'Windows 10 Host',
-        'host': '100.96.120.127',
+        'host': '100.96.120.127',   # last-known-good fallback only -- see 'resolve_hostname'
+        'resolve_hostname': 'DESKTOP-SHDBATI',   # re-resolved via Tailscale on every check;
+                                                  # a node-key reset changes the IP but not this
         'user': 'NewUser',
         # Prefer the dedicated key on the remote WSL dashboard host. The
         # fallback is the normal key on this WSL host, where that dedicated
         # key is not installed.
         'identity_files': ('~/.ssh/id_win10_host', '~/.ssh/id_ed25519_win10', '~/.ssh/id_ed25519'),
-        'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.96.120.127) -- IP changed 2026-09-15 after a Tailscale node-key reset re-registered this box under a new node',
+        'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c. IP is '
+                're-resolved by hostname each check (see resolve_hostname) so a Tailscale '
+                'node-key reset (2026-09-15 incident) no longer requires a code change.',
     },
     {
         'key': 'win10-wsl-letta',
@@ -177,7 +183,10 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
     (mirrors the categorizer's provider fallback chain) and return the first
     one that actually authenticates.
     """
-    target = f"{cfg['user']}@{cfg['host']}"
+    host = cfg['host']
+    if cfg.get('resolve_hostname'):
+        host = resolve_peer_ip(cfg['resolve_hostname'], fallback=cfg['host'])
+    target = f"{cfg['user']}@{host}"
     identity_files = cfg.get('identity_files') or (cfg.get('identity_file', ''),)
     candidates = [
         os.path.expanduser(f) for f in identity_files
@@ -191,25 +200,6 @@ def ssh_test(cfg, timeout=SSH_CONNECT_TIMEOUT):
         if last['ok']:
             return last
     return last
-
-
-def _tailscale_cli():
-    """Return the available Tailscale CLI, including the WSL host fallback.
-
-    A freshly migrated WSL distro may not have the Linux package installed
-    even though the Windows host is connected to the same tailnet.  WSL
-    interop exposes that host client as ``tailscale.exe``; using it keeps the
-    peer-only entries in SSH Connections meaningful during/after migration.
-    """
-    discovered = shutil.which('tailscale') or shutil.which('tailscale.exe')
-    if discovered:
-        return discovered
-    # systemd user units intentionally use a Linux-only PATH, so WSL interop
-    # executables are not discoverable there even though they remain runnable.
-    windows_cli = '/mnt/c/Program Files/Tailscale/tailscale.exe'
-    if os.path.isfile(windows_cli):
-        return windows_cli
-    return 'tailscale'
 
 
 def _tailscale_ping_test(host, timeout):

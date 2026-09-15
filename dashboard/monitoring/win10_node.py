@@ -42,6 +42,7 @@ from pydantic import BaseModel, ConfigDict
 
 from hosts import LETTA_DOCKER_HOST
 from monitoring.server_lifecycle import mark_server_starting
+from monitoring.tailscale_peer_resolver import resolve_peer_ip
 
 import os
 
@@ -51,8 +52,25 @@ WIN10_NODE_HOST = (
     LETTA_DOCKER_HOST.split('@')[-1] if '@' in LETTA_DOCKER_HOST else '100.80.49.10')
 #: The Windows side of the same box. It stays online when the WSL node drops,
 #: which is the whole reason the Restart button can work at all.
-WIN10_WINDOWS_HOST = os.environ.get('WIN10_WINDOWS_HOST', 'NewUser@100.96.120.127')
+#: Last-known-good IP, used only if the live Tailscale lookup below fails.
+WIN10_WINDOWS_HOST_FALLBACK_IP = '100.96.120.127'
 WIN10_WSL_DISTRO = os.environ.get('WIN10_WSL_DISTRO', 'Ubuntu-24.04')
+
+
+def _win10_windows_host() -> str:
+    """`user@ip` for the Windows side of the box, resolved fresh each call.
+
+    A pinned IP goes stale the moment that machine's Tailscale node gets reset
+    (see tailscale_peer_resolver's docstring for the 2026-09-15 incident this
+    fixes) -- resolving by hostname on every call means the next reset fixes
+    itself instead of needing a code change. `WIN10_WINDOWS_HOST` remains as an
+    explicit override for anyone who needs to pin it deliberately.
+    """
+    override = os.environ.get('WIN10_WINDOWS_HOST')
+    if override:
+        return override
+    ip = resolve_peer_ip('DESKTOP-SHDBATI', fallback=WIN10_WINDOWS_HOST_FALLBACK_IP)
+    return f'NewUser@{ip}'
 
 #: Which containers back which server key. Indicator #2: Docker's own status
 #: string carries the exit code and restart count, so "Exited (139) 54m ago"
@@ -183,15 +201,16 @@ def restart_win10_node(*, deps: Collaborators):
     """Revive the Win10 WSL node by restarting tailscaled inside the distro from
     the (still-online) Windows host -- yesterday's manual recovery, as a button."""
     cmd = f'wsl.exe -d {WIN10_WSL_DISTRO} -u root -- bash -lc "systemctl restart tailscaled"'
-    deps.log_restart(f'win10-node: ssh {WIN10_WINDOWS_HOST} {cmd}')
+    windows_host = _win10_windows_host()
+    deps.log_restart(f'win10-node: ssh {windows_host} {cmd}')
     try:
         with open(deps.restart_log_path, 'a') as logf:
             subprocess.Popen(
-                ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes', WIN10_WINDOWS_HOST, cmd],
+                ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes', windows_host, cmd],
                 stdout=logf, stderr=subprocess.STDOUT, start_new_session=True)
         mark_server_starting('win10-node')
         _NODE_CACHE.invalidate()   # force a fresh probe next poll
-        return {'ok': True, 'text': f'Restarting tailscaled in WSL via {WIN10_WINDOWS_HOST} — '
+        return {'ok': True, 'text': f'Restarting tailscaled in WSL via {windows_host} — '
                                     'node should reappear within ~15s.'}
     except Exception as e:
         return {'ok': False, 'text': f'win10-node restart error: {e}'}
