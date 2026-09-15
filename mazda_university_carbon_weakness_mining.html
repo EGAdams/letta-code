@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mazda University — Carbon Weakness Mining Integration</title>
+<style>
+:root{
+  --ink:#172033;
+  --muted:#5f6b7a;
+  --paper:#f7f5ef;
+  --panel:#ffffff;
+  --navy:#17365d;
+  --blue:#295f9e;
+  --blue2:#3e78b2;
+  --gold:#b58b36;
+  --gold2:#d9bd78;
+  --line:#d9dee7;
+  --soft:#eef3f8;
+  --soft-blue:#eaf2fb;
+  --soft-gold:#f8f2e4;
+  --soft-green:#edf7f1;
+  --green:#24734a;
+  --soft-red:#fff1f0;
+  --red:#9b3434;
+  --code:#111a28;
+  --code-line:#22334b;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  color:var(--ink);
+  font-family:Georgia,"Times New Roman",serif;
+  line-height:1.72;
+  background:
+    linear-gradient(90deg,rgba(23,54,93,.035) 1px,transparent 1px),
+    linear-gradient(rgba(23,54,93,.025) 1px,transparent 1px),
+    var(--paper);
+  background-size:32px 32px;
+}
+.page{
+  width:min(1100px,calc(100% - 32px));
+  margin:34px auto 70px;
+  background:rgba(255,255,255,.98);
+  border:1px solid #d7dce4;
+  border-radius:14px;
+  box-shadow:0 18px 50px rgba(17,32,52,.12);
+  overflow:hidden;
+}
+.masthead{
+  position:relative;
+  padding:58px 70px 52px;
+  color:white;
+  background:
+    radial-gradient(circle at 85% 18%,rgba(255,255,255,.11),transparent 28%),
+    linear-gradient(135deg,#102844 0%,#173f6b 60%,#295f9e 100%);
+}
+.masthead:after{
+  content:"";
+  position:absolute;
+  left:70px; bottom:28px;
+  width:126px; height:4px;
+  background:var(--gold);
+}
+.kicker{
+  font-family:Arial,Helvetica,sans-serif;
+  text-transform:uppercase;
+  letter-spacing:.18em;
+  font-size:.74rem;
+  opacity:.82;
+  margin-bottom:10px;
+}
+.chapter-badge{
+  display:inline-block;
+  margin:0 0 14px;
+  padding:7px 11px;
+  border-radius:999px;
+  background:var(--gold);
+  font-family:Arial,Helvetica,sans-serif;
+  text-transform:uppercase;
+  letter-spacing:.13em;
+  font-size:.72rem;
+  font-weight:700;
+}
+.masthead h1{
+  margin:0 0 12px;
+  color:white;
+  font-size:clamp(2.3rem,6vw,4.45rem);
+  line-height:1.02;
+  letter-spacing:-.03em;
+}
+.masthead .edition{
+  max-width:800px;
+  margin:0;
+  font-size:1.22rem;
+  opacity:.92;
+}
+.content{padding:44px 70px 68px}
+h1,h2,h3,h4{color:var(--navy);line-height:1.2}
+h2{
+  margin-top:2.65em;
+  padding-bottom:.38em;
+  border-bottom:2px solid var(--navy);
+  font-size:2rem;
+}
+h3{margin-top:2em;font-size:1.38rem}
+h4{margin-top:1.5em;color:var(--blue);font-size:1.08rem}
+p{margin:.82em 0}
+a{color:var(--blue)}
+strong{color:#102844}
+code{
+  font-family:Consolas,"Courier New",monospace;
+  font-size:.92em;
+}
+p code,li code,td code{
+  padding:.08em .3em;
+  color:#163d68;
+  background:#edf3f8;
+  border-radius:4px;
+}
+pre{
+  margin:1.4em 0;
+  padding:20px 22px;
+  overflow:auto;
+  color:#eaf2ff;
+  background:var(--code);
+  border:1px solid var(--code-line);
+  border-radius:9px;
+  line-height:1.52;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.025);
+}
+pre .kw{color:#ffcb6b}
+pre .ty{color:#82aaff}
+pre .fn{color:#c3e88d}
+pre .st{color:#c792ea}
+pre .cm{color:#718096;font-style:italic}
+pre .nu{color:#f78c6c}
+blockquote,.callout{
+  margin:1.45em 0;
+  padding:20px 24px;
+  border-left:5px solid var(--blue);
+  background:var(--soft);
+  border-radius:0 9px 9px 0;
+}
+.callout.key{background:var(--soft-blue);border-left-color:var(--navy)}
+.callout.principle{background:var(--soft-gold);border-left-color:var(--gold)}
+.callout.success{background:var(--soft-green);border-left-color:var(--green)}
+.callout.warning{background:var(--soft-red);border-left-color:var(--red)}
+.callout-label{
+  display:block;
+  margin-bottom:5px;
+  color:var(--muted);
+  font-family:Arial,Helvetica,sans-serif;
+  font-size:.72rem;
+  font-weight:700;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+.grid{display:grid;gap:18px;margin:1.25em 0}
+.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.card{
+  padding:20px 22px;
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:10px;
+  box-shadow:0 4px 14px rgba(24,45,70,.05);
+}
+.card h3,.card h4{margin-top:0}
+.card p:last-child,.card ul:last-child{margin-bottom:0}
+.stat{
+  display:flex;
+  gap:12px;
+  align-items:flex-start;
+}
+.stat .num{
+  flex:0 0 auto;
+  min-width:42px;height:42px;
+  display:grid;place-items:center;
+  border-radius:50%;
+  color:white;background:var(--navy);
+  font-family:Arial,Helvetica,sans-serif;
+  font-weight:800;
+}
+.table-wrap{
+  overflow-x:auto;
+  margin:1.35em 0 1.9em;
+  border:1px solid var(--line);
+  border-radius:9px;
+}
+table{
+  width:100%;
+  border-collapse:collapse;
+  background:white;
+  font-family:Arial,Helvetica,sans-serif;
+  font-size:.93rem;
+}
+th{
+  padding:12px 14px;
+  text-align:left;
+  color:white;
+  background:var(--navy);
+}
+td{
+  padding:12px 14px;
+  vertical-align:top;
+  border-top:1px solid var(--line);
+}
+tbody tr:nth-child(even){background:#f8fafc}
+.pill{
+  display:inline-block;
+  padding:3px 8px;
+  border-radius:999px;
+  font-family:Arial,Helvetica,sans-serif;
+  font-size:.76rem;
+  font-weight:700;
+  white-space:nowrap;
+}
+.pill.keep{background:#eaf6ef;color:#236b45}
+.pill.change{background:#fff2d9;color:#7a581c}
+.pill.new{background:#e8f1fb;color:#1c568e}
+.pill.stop{background:#feeceb;color:#963838}
+.toc{
+  padding:22px 26px;
+  margin:1.2em 0 2.2em;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:linear-gradient(180deg,#fff,#f8fafc);
+  font-family:Arial,Helvetica,sans-serif;
+}
+.toc h3{margin:.1em 0 .8em}
+.toc ol{
+  columns:2;
+  column-gap:38px;
+  margin:0;
+  padding-left:1.3em;
+}
+.toc li{break-inside:avoid;margin:.34em 0}
+.toc a{text-decoration:none}
+.diagram{
+  margin:1.6em 0;
+  padding:22px;
+  border:1px solid #cfd7e3;
+  border-radius:11px;
+  background:linear-gradient(180deg,#fcfdff,#f5f8fb);
+}
+.diagram-title{
+  margin-bottom:15px;
+  color:var(--muted);
+  font-family:Arial,Helvetica,sans-serif;
+  font-size:.76rem;
+  font-weight:700;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+}
+.flow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+  justify-content:center;
+}
+.node{
+  min-width:112px;
+  padding:11px 13px;
+  text-align:center;
+  border:1px solid #b9c8da;
+  border-radius:8px;
+  background:white;
+  font-family:Arial,Helvetica,sans-serif;
+  font-weight:700;
+  color:#16385f;
+  box-shadow:0 3px 8px rgba(20,45,75,.05);
+}
+.node.new{border-color:#c5a760;background:#fffaf0}
+.arrow{
+  color:var(--gold);
+  font-family:Arial,Helvetica,sans-serif;
+  font-weight:900;
+  font-size:1.2rem;
+}
+.stage{
+  margin:1.4em 0;
+  padding:0;
+  list-style:none;
+  counter-reset:stage;
+}
+.stage>li{
+  position:relative;
+  margin:0 0 15px 0;
+  padding:18px 20px 18px 66px;
+  border:1px solid var(--line);
+  border-radius:9px;
+  background:#fff;
+}
+.stage>li:before{
+  counter-increment:stage;
+  content:counter(stage);
+  position:absolute;
+  left:18px; top:17px;
+  width:34px;height:34px;
+  display:grid;place-items:center;
+  border-radius:50%;
+  color:white;background:var(--navy);
+  font-family:Arial,Helvetica,sans-serif;
+  font-weight:800;
+}
+.stage strong:first-child{display:block;margin-bottom:3px}
+.small{font-size:.92rem;color:var(--muted)}
+.rule{
+  height:1px;border:0;
+  background:linear-gradient(90deg,transparent,var(--gold),transparent);
+  margin:2.7em 0;
+}
+.folder{
+  padding:18px 21px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:#fbfcfe;
+  font-family:Consolas,"Courier New",monospace;
+  font-size:.92rem;
+  white-space:pre-wrap;
+  overflow:auto;
+}
+.compare{
+  display:grid;
+  grid-template-columns:1fr 56px 1fr;
+  align-items:stretch;
+  gap:12px;
+  margin:1.5em 0;
+}
+.compare .mid{
+  display:grid;place-items:center;
+  color:var(--gold);font-size:2rem;font-weight:900;
+}
+.checklist{padding-left:1.3em}
+.checklist li{margin:.45em 0}
+.checklist li::marker{color:var(--gold)}
+.footer{
+  padding:24px 70px 34px;
+  border-top:1px solid var(--line);
+  color:var(--muted);
+  font-family:Arial,Helvetica,sans-serif;
+  font-size:.88rem;
+}
+.print-note{
+  float:right;
+  font-size:.82rem;
+  opacity:.8;
+}
+@media(max-width:760px){
+  .masthead,.content,.footer{padding-left:26px;padding-right:26px}
+  .masthead:after{left:26px}
+  .grid.two,.grid.three,.compare{grid-template-columns:1fr}
+  .compare .mid{transform:rotate(90deg)}
+  .toc ol{columns:1}
+}
+@media print{
+  body{background:white}
+  .page{width:100%;margin:0;border:0;box-shadow:none}
+  .masthead{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  pre,table,.card,.diagram{break-inside:avoid}
+  h2,h3{break-after:avoid}
+  .print-note{display:none}
+}
+</style>
+</head>
+<body>
+<article class="page">
+<header class="masthead">
+  <div class="kicker">Mazda University • Architecture & Self-Improvement</div>
+  <div class="chapter-badge">Team Design Chapter</div>
+  <h1>Weakness Mining Before Proposal Generation</h1>
+  <p class="edition">How to integrate Carbon's failure-pattern detection, clustering, and common-cause analysis into Mazda's existing self-improvement system — without rewriting the parts that already work.</p>
+</header>
+
+<main class="content">
+  <div class="callout key">
+    <span class="callout-label">Executive conclusion</span>
+    <strong>Do not replace Mazda's self-improvement loop.</strong> Insert a new weakness-mining subsystem between <em>Judge</em> and <em>Propose</em>. Mazda should stop proposing fixes from a repeated failure label alone. It should first collect failure observations, detect recurrence, build defensible clusters, determine the likely common cause, and create a structured <code>DiagnosedWeaknessCluster</code>. Only that diagnosed object should be eligible to reach <code>MazdaProposalGenerator</code>.
+  </div>
+
+  <div class="toc">
+    <h3>Contents</h3>
+    <ol>
+      <li><a href="#current">What Mazda already has</a></li>
+      <li><a href="#newloop">The new loop</a></li>
+      <li><a href="#observation">Failure observations</a></li>
+      <li><a href="#pattern">Failure-pattern detection</a></li>
+      <li><a href="#cluster">Clustering rules</a></li>
+      <li><a href="#cause">Common-cause analysis</a></li>
+      <li><a href="#contracts">New interfaces and value objects</a></li>
+      <li><a href="#factories">Factory and persistence changes</a></li>
+      <li><a href="#proposal">Changes to proposal generation</a></li>
+      <li><a href="#sequence">End-to-end runtime sequence</a></li>
+      <li><a href="#tests">Test strategy</a></li>
+      <li><a href="#rollout">Safe rollout plan</a></li>
+      <li><a href="#team">Team decision summary</a></li>
+    </ol>
+  </div>
+
+  <h2 id="current">1. What Mazda already has</h2>
+
+  <p>Mazda's present architecture is already the right foundation. The kernel records a <code>TraceRecord</code>; the evaluation family turns finance evidence into a <code>ScoreCard</code>, a PASS / FAIL / NEEDS_REVIEW verdict, and a finance <code>FailureType</code>; the improvement family generates a reviewable proposal; the experiment runner compares baseline versus candidate; four gates protect safety, cost, regressions, and usefulness; and activation remains human-approved and rollback-safe.</p>
+
+  <div class="diagram">
+    <div class="diagram-title">Current Mazda loop</div>
+    <div class="flow">
+      <div class="node">RUN<br><span class="small">trace</span></div><div class="arrow">→</div>
+      <div class="node">JUDGE<br><span class="small">verdict</span></div><div class="arrow">→</div>
+      <div class="node">PROPOSE<br><span class="small">edit</span></div><div class="arrow">→</div>
+      <div class="node">EXPERIMENT<br><span class="small">A/B</span></div><div class="arrow">→</div>
+      <div class="node">GATE<br><span class="small">4 gates</span></div><div class="arrow">→</div>
+      <div class="node">ACTIVATE<br><span class="small">rollback-safe</span></div>
+    </div>
+  </div>
+
+  <p>The current proposal milestone already contains <code>MazdaProposalGenerator</code> and <code>FailurePatternSuggester</code>. Its present pattern logic is intentionally simple: repeated failure patterns produce a proposal, and the current tests prove that repeated failure types collapse to one proposal per type.</p>
+
+  <div class="callout principle">
+    <span class="callout-label">The gap Carbon exposes</span>
+    A <code>FailureType</code> is a <strong>symptom class</strong>, not necessarily a root cause. Ten <code>wrong_category</code> failures can come from ten different causes: a missing vendor alias, a mixed-purpose retailer, a stale memory note, a context-selection problem, a misleading tool description, or an ambiguous receipt. Grouping by the label alone is too coarse for safe self-improvement.
+  </div>
+
+  <div class="compare">
+    <div class="card">
+      <h3>Today</h3>
+      <p><strong>Repeated failure type</strong></p>
+      <p>↓</p>
+      <p><code>FailurePatternSuggester</code></p>
+      <p>↓</p>
+      <p>Proposal</p>
+    </div>
+    <div class="mid">→</div>
+    <div class="card">
+      <h3>Recommended</h3>
+      <p><strong>Failure observations</strong></p>
+      <p>↓ pattern detection ↓ clustering ↓ cause analysis</p>
+      <p><code>DiagnosedWeaknessCluster</code></p>
+      <p>↓</p>
+      <p>Proposal</p>
+    </div>
+  </div>
+
+  <h2 id="newloop">2. The new loop: add three stations, not a rewrite</h2>
+
+  <p>Carbon's weakness-mining idea should be represented explicitly in Mazda's pipeline. The proposal agent should never be the component that decides whether three failures are actually the same problem; that would mix diagnosis and solution generation.</p>
+
+  <div class="diagram">
+    <div class="diagram-title">Recommended Mazda loop</div>
+    <div class="flow">
+      <div class="node">RUN</div><div class="arrow">→</div>
+      <div class="node">JUDGE</div><div class="arrow">→</div>
+      <div class="node new">DETECT<br><span class="small">patterns</span></div><div class="arrow">→</div>
+      <div class="node new">CLUSTER<br><span class="small">same weakness?</span></div><div class="arrow">→</div>
+      <div class="node new">DIAGNOSE<br><span class="small">common cause</span></div><div class="arrow">→</div>
+      <div class="node">PROPOSE</div><div class="arrow">→</div>
+      <div class="node">EXPERIMENT</div><div class="arrow">→</div>
+      <div class="node">GATE</div><div class="arrow">→</div>
+      <div class="node">ACTIVATE</div>
+    </div>
+  </div>
+
+  <ol class="stage">
+    <li><strong>Observe every non-passing run.</strong> Convert the trace, scorecard, verdict, and classifier output into a durable <code>FailureObservation</code>.</li>
+    <li><strong>Detect recurrence cheaply.</strong> Use deterministic fingerprints and structured features first. Do not call an LLM merely to notice that the same verifier, field, tool, and workflow stage keep failing.</li>
+    <li><strong>Build candidate clusters.</strong> Group failures that are plausibly the same weakness while preserving the evidence for why they were grouped.</li>
+    <li><strong>Validate a common cause.</strong> Ask whether one mechanism actually explains the cluster. Similar-looking symptoms without a shared cause must be split or rejected.</li>
+    <li><strong>Check cluster eligibility.</strong> Require recurrence, adequate confidence, diversity across cases, and sufficiently low flakiness before improvement work begins.</li>
+    <li><strong>Generate a proposal from the diagnosed cluster.</strong> The proposer receives a cause hypothesis and bounded evidence, not a bag of unrelated failed runs.</li>
+  </ol>
+
+  <h2 id="observation">3. First new object: <code>FailureObservation</code></h2>
+
+  <p>Mazda already preserves traces and verdicts. Weakness mining needs a smaller, normalized record designed for comparison across runs. Think of it as the forensic index card created from a failed run.</p>
+
+<pre><code><span class="kw">class</span> <span class="ty">FailureObservation</span>(BaseModel):
+    observation_id: FailureObservationId
+    trace_id: TraceId
+    agent_name: <span class="st">str</span>
+    occurred_at: datetime
+
+    verdict_status: VerdictStatus
+    failure_type: FailureType
+
+    task_type: <span class="st">str</span> | None
+    workflow_stage: <span class="st">str</span> | None
+    document_family: <span class="st">str</span> | None
+    minion_name: <span class="st">str</span> | None
+
+    verifier_code: <span class="st">str</span> | None
+    tool_name: <span class="st">str</span> | None
+    operation_name: <span class="st">str</span> | None
+    field_name: <span class="st">str</span> | None
+    normalized_error: <span class="st">str</span> | None
+
+    wrapper_revision_ids: dict[<span class="st">str</span>, <span class="st">str</span>]
+    evidence_refs: list[EvidenceRef]
+
+    fingerprint: <span class="st">str</span>
+    repeat_attempt: <span class="st">int</span> = <span class="nu">1</span>
+    deterministic: <span class="st">bool</span> = <span class="kw">True</span></code></pre>
+
+  <h3>3.1 What belongs in the fingerprint?</h3>
+
+  <p>The fingerprint should describe the <em>shape of the failure</em>, not the accidental particulars of one transaction. A useful first version can hash a canonical tuple such as:</p>
+
+<pre><code>(
+    failure_type,
+    task_type,
+    workflow_stage,
+    verifier_code,
+    tool_name,
+    field_name,
+    normalized_error_code,
+)</code></pre>
+
+  <div class="grid two">
+    <div class="card">
+      <h3>Usually include</h3>
+      <ul>
+        <li>Failure type</li>
+        <li>Workflow stage</li>
+        <li>Verifier/check that failed</li>
+        <li>Tool or operation involved</li>
+        <li>Field being resolved</li>
+        <li>Normalized error or reason code</li>
+        <li>Agent/minion role when relevant</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Usually do not include</h3>
+      <ul>
+        <li>Exact dollar amount</li>
+        <li>Exact transaction date</li>
+        <li>Trace ID</li>
+        <li>Raw prose wording from the model</li>
+        <li>Vendor name unless the vendor is part of the hypothesized cause</li>
+        <li>Random session identifiers</li>
+      </ul>
+    </div>
+  </div>
+
+  <p>If exact values are put into the fingerprint too early, every failure becomes unique and no cluster forms. If the fingerprint is too broad, unrelated failures collapse together. Store the detailed values as evidence, but keep the first-stage signature intentionally structural.</p>
+
+  <h2 id="pattern">4. Failure-pattern detection: cheap code first</h2>
+
+  <p>The first mining pass should be deterministic and inexpensive. Mazda's existing design already prefers deterministic verification before LLM judgment; weakness mining should follow the same rule.</p>
+
+  <div class="callout success">
+    <span class="callout-label">Recommended trigger</span>
+    After every non-passing verdict, persist the <code>FailureObservation</code> immediately. Then run a cheap incremental pattern check. Only when a candidate pattern reaches an eligibility threshold should Mazda spend tokens on common-cause analysis.
+  </div>
+
+  <h3>4.1 Suggested detection policy</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Rule</th><th>Purpose</th><th>Suggested initial default</th></tr></thead>
+      <tbody>
+        <tr><td>Minimum occurrences</td><td>Ignore isolated mistakes</td><td>3 observations</td></tr>
+        <tr><td>Distinct traces</td><td>Prevent one retry storm from looking like recurrence</td><td>3 traces</td></tr>
+        <tr><td>Distinct tasks/documents</td><td>Favor real general weaknesses over one corrupted input</td><td>2 cases where possible</td></tr>
+        <tr><td>Time window</td><td>Keep mining relevant to current behavior</td><td>Configurable; e.g. recent 30–90 days</td></tr>
+        <tr><td>Wrapper compatibility</td><td>Avoid mixing failures from materially different champions without recording that fact</td><td>Same major wrapper family by default</td></tr>
+        <tr><td>Flake ceiling</td><td>Set aside nondeterministic noise</td><td>Configurable; do not promote unstable patterns automatically</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Those numbers are engineering defaults, not Carbon doctrine. Put them in a versioned <code>MiningPolicy</code>, not in procedural code.</p>
+
+<pre><code><span class="kw">class</span> <span class="ty">MiningPolicy</span>(BaseModel):
+    version: <span class="st">str</span>
+    min_occurrences: <span class="st">int</span> = <span class="nu">3</span>
+    min_distinct_traces: <span class="st">int</span> = <span class="nu">3</span>
+    min_distinct_cases: <span class="st">int</span> = <span class="nu">2</span>
+    lookback_days: <span class="st">int</span> = <span class="nu">60</span>
+    max_flake_ratio: <span class="st">float</span> = <span class="nu">0.34</span>
+    require_common_cause: <span class="st">bool</span> = <span class="kw">True</span></code></pre>
+
+  <h3>4.2 Two-pass pattern detection</h3>
+
+  <p>Use two passes so the cheap system catches obvious patterns and a more capable analyzer is reserved for the residue.</p>
+
+  <div class="grid two">
+    <div class="card">
+      <h3>Pass A — exact / deterministic</h3>
+      <p>Group by fingerprint or strict structured compatibility. This catches repeated failures such as the same verifier failure at the same workflow stage.</p>
+      <span class="pill keep">cheap</span>
+      <span class="pill keep">repeatable</span>
+    </div>
+    <div class="card">
+      <h3>Pass B — fuzzy candidate discovery</h3>
+      <p>For unassigned observations, compare structured features and optionally ask a semantic/LLM strategy whether two groups appear related. This only creates a <em>candidate</em> cluster; it does not prove common cause.</p>
+      <span class="pill change">bounded LLM use</span>
+    </div>
+  </div>
+
+  <h2 id="cluster">5. Clustering: similarity is necessary but not sufficient</h2>
+
+  <p>Carbon's crucial rule is that repeated failures should be grouped only when they share a real cause. Mazda should therefore distinguish a <strong>candidate cluster</strong> from a <strong>validated weakness cluster</strong>.</p>
+
+<pre><code><span class="kw">class</span> <span class="ty">WeaknessCluster</span>(BaseModel):
+    cluster_id: WeaknessClusterId
+    status: ClusterStatus
+    observation_ids: list[FailureObservationId]
+
+    dominant_failure_type: FailureType
+    fingerprint_family: <span class="st">str</span> | None
+    similarity_score: <span class="st">float</span>
+
+    distinct_trace_count: <span class="st">int</span>
+    distinct_case_count: <span class="st">int</span>
+    flake_ratio: <span class="st">float</span>
+
+    created_at: datetime
+    updated_at: datetime
+    mining_policy_version: <span class="st">str</span></code></pre>
+
+  <h3>5.1 Cluster lifecycle</h3>
+
+  <div class="diagram">
+    <div class="diagram-title">Cluster state machine</div>
+    <div class="flow">
+      <div class="node">CANDIDATE</div><div class="arrow">→</div>
+      <div class="node new">VALIDATING</div><div class="arrow">→</div>
+      <div class="node new">DIAGNOSED</div><div class="arrow">→</div>
+      <div class="node">ELIGIBLE</div><div class="arrow">→</div>
+      <div class="node">PROPOSED</div><div class="arrow">→</div>
+      <div class="node">RESOLVED</div>
+    </div>
+    <p class="small">Alternate exits: CANDIDATE → NOISE, VALIDATING → SPLIT, DIAGNOSED → INSUFFICIENT_EVIDENCE, RESOLVED → REOPENED if the weakness returns.</p>
+  </div>
+
+  <h3>5.2 Hard compatibility filters before fuzzy similarity</h3>
+
+  <p>Do not compute one giant semantic similarity score over every failure. First apply hard compatibility rules that prevent obviously bad merges.</p>
+
+  <ul>
+    <li>A totals-verification failure should not cluster with a missing vendor key merely because both occurred on the same statement.</li>
+    <li>A tool-routing error and a malformed tool result should remain separate unless evidence shows one causes the other.</li>
+    <li>A failure introduced after a wrapper revision should be marked separately from the same-looking failure under an older revision.</li>
+    <li>A single document that fails repeatedly under retries should not automatically count as several independent occurrences.</li>
+  </ul>
+
+  <h3>5.3 Similarity strategy</h3>
+
+<pre><code><span class="kw">class</span> <span class="ty">IFailureSimilarityStrategy</span>(ABC):
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">score</span>(
+        self,
+        left: FailureObservation,
+        right: FailureObservation,
+    ) -> SimilarityResult:
+        ...</code></pre>
+
+  <p>The first implementation should be a weighted structured strategy, not an embedding-first strategy. For example:</p>
+
+<pre><code>score =
+    <span class="nu">0.30</span> * same_failure_type +
+    <span class="nu">0.20</span> * same_workflow_stage +
+    <span class="nu">0.20</span> * same_verifier_or_tool +
+    <span class="nu">0.15</span> * same_field +
+    <span class="nu">0.10</span> * same_normalized_error +
+    <span class="nu">0.05</span> * same_document_family</code></pre>
+
+  <p>The exact weights belong in a versioned policy and tests. Later, a semantic strategy can be added behind the same interface without changing the mining coordinator.</p>
+
+  <h2 id="cause">6. Common-cause analysis: the most important new boundary</h2>
+
+  <p>A cluster is not ready for Suzuki or any proposal generator until Mazda can state, in structured form, <em>why these failures belong together</em>. This is the difference between “several things went wrong” and “we have identified one weakness worth fixing.”</p>
+
+  <h3>6.1 Root-cause taxonomy</h3>
+
+  <p>Use a small, explicit taxonomy. It should map naturally to Mazda's editable surface and existing command objects.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Cause class</th><th>Meaning</th><th>Likely improvement target</th></tr></thead>
+      <tbody>
+        <tr><td><code>MEMORY_GAP</code></td><td>A stable fact or mapping is missing</td><td><code>MemoryNoteCommand</code></td></tr>
+        <tr><td><code>PROMPT_INSTRUCTION</code></td><td>The instruction is absent, ambiguous, or ordered poorly</td><td><code>PromptPatchCommand</code></td></tr>
+        <tr><td><code>TOOL_CONTRACT</code></td><td>Tool meaning, parameters, or result interpretation are unclear</td><td><code>ToolDescriptionPatchCommand</code></td></tr>
+        <tr><td><code>CONTEXT_SELECTION</code></td><td>Needed evidence exists but is not placed into the working context</td><td><code>ContextRulePatchCommand</code></td></tr>
+        <tr><td><code>WORKFLOW_ROUTING</code></td><td>The wrong agent/tool/path is selected</td><td>Future bounded workflow command or deterministic code strategy</td></tr>
+        <tr><td><code>DETERMINISTIC_CODE_GAP</code></td><td>The job should be done by code rather than model judgment</td><td>Interface-backed deterministic strategy; usually human-engineered initially</td></tr>
+        <tr><td><code>MODEL_CAPABILITY</code></td><td>The weakness persists despite adequate memory/harness support</td><td>Not an automatic Mazda wrapper proposal</td></tr>
+        <tr><td><code>UNKNOWN</code></td><td>Evidence is insufficient</td><td>No proposal</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>6.2 A diagnosis must explain mechanism, evidence, and counterevidence</h3>
+
+<pre><code><span class="kw">class</span> <span class="ty">CauseHypothesis</span>(BaseModel):
+    cause_type: RootCauseType
+    summary: <span class="st">str</span>
+    mechanism: <span class="st">str</span>
+
+    supporting_observation_ids: list[FailureObservationId]
+    counterexample_observation_ids: list[FailureObservationId]
+
+    confidence: <span class="st">float</span>
+    editable_targets: list[EditableTarget]
+    recommended_test_shape: <span class="st">str</span>
+
+    analyzer_name: <span class="st">str</span>
+    analyzer_version: <span class="st">str</span></code></pre>
+
+  <div class="callout warning">
+    <span class="callout-label">Do not accept symptom restatement as diagnosis</span>
+    “Mazda gets categories wrong” is not a root cause. “The categorizer receives merchant-level context but loses line-item descriptions for mixed-purpose retailers, causing the category rule to over-weight the vendor default” is a testable cause hypothesis.
+  </div>
+
+  <h3>6.3 Deterministic-first cause analysis</h3>
+
+  <p>Just like Mazda's verdict system, diagnosis should be layered:</p>
+
+  <ol class="stage">
+    <li><strong>Rule-based cause recognizers.</strong> Obvious mappings can be recognized without an LLM. Example: repeated <code>missed_vendor_key</code> failures where the vendor exists in the mapping source but is absent from the selected context strongly indicate <code>CONTEXT_SELECTION</code>.</li>
+    <li><strong>Evidence-bundle builder.</strong> Construct a compact bundle of representative failures, their successful near-neighbors, wrapper revisions, tool calls, and verifier evidence.</li>
+    <li><strong>LLM cause analyzer as fallback.</strong> Ask Suzuki or another stronger model for a structured cause hypothesis only when deterministic rules cannot resolve the cluster.</li>
+    <li><strong>Cause validation policy.</strong> Reject hypotheses that lack evidence, contradict cluster members, have low confidence, or merely repeat the failure label.</li>
+  </ol>
+
+  <h3>6.4 Use successful near-neighbors</h3>
+
+  <p>A cause analyzer should see not only failures but also a few similar cases that passed. These “negative controls” are often what distinguish correlation from cause.</p>
+
+  <div class="card">
+    <h3>Example</h3>
+    <p><strong>Failures:</strong> Check descriptions containing only a check number fail to gain payee information.</p>
+    <p><strong>Passes:</strong> Checks with a matching record in <code>transfer_pay_activity.txt</code> succeed when that file was present in context.</p>
+    <p><strong>Diagnosis:</strong> The likely weakness is not “checks are hard.” It is that the context-building/routing path does not consistently consult the transfer-pay activity evidence before declaring the payee unknown.</p>
+  </div>
+
+  <h2 id="contracts">7. Recommended contracts: keep the system interface-first</h2>
+
+  <p>The most maintainable design is to make weakness mining its own bounded subsystem rather than burying new behavior inside <code>MazdaProposalGenerator</code>.</p>
+
+<pre><code><span class="kw">class</span> <span class="ty">IFailureObservationBuilder</span>(ABC):
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">build</span>(
+        self,
+        trace: TraceRecord,
+        verdict: VerdictRecord,
+        scorecard: ScoreCard,
+    ) -> FailureObservation:
+        ...
+
+
+<span class="kw">class</span> <span class="ty">IWeaknessMiner</span>(ABC):
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">mine</span>(
+        self,
+        observations: Sequence[FailureObservation],
+        policy: MiningPolicy,
+    ) -> MiningResult:
+        ...
+
+
+<span class="kw">class</span> <span class="ty">IFailureClusterer</span>(ABC):
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">cluster</span>(
+        self,
+        observations: Sequence[FailureObservation],
+    ) -> Sequence[WeaknessCluster]:
+        ...
+
+
+<span class="kw">class</span> <span class="ty">ICommonCauseAnalyzer</span>(ABC):
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">analyze</span>(
+        self,
+        cluster: WeaknessCluster,
+        evidence: CauseEvidenceBundle,
+    ) -> CauseHypothesis:
+        ...
+
+
+<span class="kw">class</span> <span class="ty">IClusterEligibilityPolicy</span>(ABC):
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">evaluate</span>(
+        self,
+        cluster: WeaknessCluster,
+        cause: CauseHypothesis,
+    ) -> ClusterEligibility:
+        ...</code></pre>
+
+  <h3>7.1 The object proposal generation should consume</h3>
+
+<pre><code><span class="kw">class</span> <span class="ty">DiagnosedWeaknessCluster</span>(BaseModel):
+    cluster: WeaknessCluster
+    cause: CauseHypothesis
+    eligibility: ClusterEligibility
+    representative_observation_ids: list[FailureObservationId]
+    held_out_observation_ids: list[FailureObservationId] = []</code></pre>
+
+  <p>This becomes the new upstream contract for proposal generation. The proposer is no longer responsible for discovering the problem; it is responsible for proposing a bounded change to a diagnosed problem.</p>
+
+  <h2 id="factories">8. Factory and persistence changes</h2>
+
+  <h3>8.1 Recommended GoF shape: add an eleventh factory family</h3>
+
+  <p>Mazda currently separates persistence, evaluation, improvement, reporting, and other concerns into factory families. Weakness mining is neither verdict evaluation nor proposal execution; it is the bridge between them. For Single Responsibility and future reuse by Scissari/Frita, the cleanest architecture is a dedicated family.</p>
+
+<pre><code><span class="kw">class</span> <span class="ty">IWeaknessMiningFactory</span>(ABC):
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">create_observation_builder</span>(self) -> IFailureObservationBuilder: ...
+
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">create_similarity_strategy</span>(self) -> IFailureSimilarityStrategy: ...
+
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">create_clusterer</span>(self) -> IFailureClusterer: ...
+
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">create_cause_analyzer</span>(self) -> ICommonCauseAnalyzer: ...
+
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">create_eligibility_policy</span>(self) -> IClusterEligibilityPolicy: ...
+
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">create_coordinator</span>(self) -> IWeaknessMiningCoordinator: ...</code></pre>
+
+  <div class="callout key">
+    <span class="callout-label">Lowest-blast-radius alternative</span>
+    If the team wants the smallest initial diff, these creators can temporarily live on <code>IImprovementFactory</code>. But the long-term design should move them to <code>IWeaknessMiningFactory</code>; otherwise the improvement factory becomes responsible for both diagnosing failures and producing changes.
+  </div>
+
+  <h3>8.2 Changes to <code>IAgentRuntimeFamily</code></h3>
+
+  <p>Add a read-only <code>weakness_mining_factory</code> property. The composition root chooses the concrete mining family exactly as it already chooses persistence, evaluation, and improvement. Existing direct-construction paths can remain supported, preserving Mazda's additive factory philosophy.</p>
+
+  <h3>8.3 Persistence contracts</h3>
+
+  <p>Weakness mining must be durable. If clustering lives only in memory, Mazda forgets its accumulated evidence on restart and cannot audit why a proposal was created.</p>
+
+<pre><code><span class="kw">class</span> <span class="ty">IFailureObservationRepository</span>(ABC):
+    <span class="kw">def</span> <span class="fn">save</span>(self, observation: FailureObservation) -> None: ...
+    <span class="kw">def</span> <span class="fn">list_unassigned</span>(self, policy: MiningPolicy) -> list[FailureObservation]: ...
+    <span class="kw">def</span> <span class="fn">list_for_cluster</span>(self, cluster_id: WeaknessClusterId) -> list[FailureObservation]: ...
+
+
+<span class="kw">class</span> <span class="ty">IWeaknessClusterRepository</span>(ABC):
+    <span class="kw">def</span> <span class="fn">save</span>(self, cluster: WeaknessCluster) -> None: ...
+    <span class="kw">def</span> <span class="fn">get</span>(self, cluster_id: WeaknessClusterId) -> WeaknessCluster: ...
+    <span class="kw">def</span> <span class="fn">list_by_status</span>(self, status: ClusterStatus) -> list[WeaknessCluster]: ...
+
+
+<span class="kw">class</span> <span class="ty">ICauseHypothesisRepository</span>(ABC):
+    <span class="kw">def</span> <span class="fn">save</span>(self, cluster_id: WeaknessClusterId, cause: CauseHypothesis) -> None: ...
+    <span class="kw">def</span> <span class="fn">history</span>(self, cluster_id: WeaknessClusterId) -> list[CauseHypothesis]: ...</code></pre>
+
+  <h3>8.4 Suggested SQLite tables</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Table</th><th>Purpose</th><th>Important fields</th></tr></thead>
+      <tbody>
+        <tr><td><code>failure_observations</code></td><td>One normalized record per non-passing run</td><td>trace_id, failure_type, fingerprint, stage, tool, verifier, wrapper revisions</td></tr>
+        <tr><td><code>weakness_clusters</code></td><td>Cluster identity and lifecycle</td><td>status, similarity score, counts, flake ratio, policy version</td></tr>
+        <tr><td><code>cluster_members</code></td><td>Many-to-many observation membership with auditability</td><td>cluster_id, observation_id, membership_reason, similarity score</td></tr>
+        <tr><td><code>cause_hypotheses</code></td><td>Versioned common-cause analyses</td><td>cause_type, summary, mechanism, confidence, analyzer version</td></tr>
+        <tr><td><code>mining_runs</code></td><td>Audit each mining pass</td><td>policy version, observations scanned, clusters created/split, token/cost use</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>8.5 Proposed package layout</h3>
+
+  <div class="folder">agent_self_improvement/
+├── contracts/
+│   ├── weakness_mining.py          # interfaces
+│   ├── weakness_models.py          # Pydantic value objects
+│   └── factories.py                # add IWeaknessMiningFactory
+│
+├── implementations/
+│   ├── weakness_mining/
+│   │   ├── observation_builder.py
+│   │   ├── fingerprint.py
+│   │   ├── similarity.py
+│   │   ├── clusterer.py
+│   │   ├── cause_rules.py
+│   │   ├── cause_analyzer.py
+│   │   ├── eligibility.py
+│   │   └── coordinator.py
+│   │
+│   └── persistence/
+│       ├── sqlite_failure_observation_repository.py
+│       ├── sqlite_weakness_cluster_repository.py
+│       └── sqlite_cause_hypothesis_repository.py
+│
+└── tests/
+    ├── test_phase_04b_failure_observations.py
+    ├── test_phase_04c_weakness_clustering.py
+    └── test_phase_04d_common_cause_analysis.py</div>
+
+  <p class="small">The exact filenames are recommendations; the architectural boundary matters more than the names.</p>
+
+  <h2 id="proposal">9. Change proposal generation so it cannot skip diagnosis</h2>
+
+  <p>The present system's critical behavior change should be enforced by the type system and interfaces, not by a comment saying “please mine first.”</p>
+
+  <h3>9.1 Old contract shape</h3>
+
+<pre><code><span class="cm"># Conceptually</span>
+proposal = proposal_generator.generate(failing_verdicts)</code></pre>
+
+  <h3>9.2 New contract shape</h3>
+
+<pre><code><span class="kw">class</span> <span class="ty">IProposalGenerator</span>(ABC):
+    <span class="kw">@abstractmethod</span>
+    <span class="kw">def</span> <span class="fn">generate</span>(
+        self,
+        weakness: DiagnosedWeaknessCluster,
+    ) -> ImprovementProposal:
+        ...</code></pre>
+
+  <div class="callout principle">
+    <span class="callout-label">Compile-time architectural rule</span>
+    A raw <code>VerdictRecord</code> or list of <code>FailureType</code> values should no longer satisfy the main proposal-generator contract. That makes it structurally difficult to bypass mining by accident.
+  </div>
+
+  <h3>9.3 What to do with <code>FailurePatternSuggester</code></h3>
+
+  <p>Do not throw it away immediately. Migrate it in one of two ways:</p>
+
+  <div class="grid two">
+    <div class="card">
+      <h3>Preferred</h3>
+      <p>Replace its responsibility with <code>DiagnosedClusterSuggester</code>. It maps a validated cause type to the appropriate proposal/command family.</p>
+      <span class="pill new">clean responsibility</span>
+    </div>
+    <div class="card">
+      <h3>Compatibility path</h3>
+      <p>Keep <code>FailurePatternSuggester</code> as a deprecated adapter that accepts only diagnosed clusters and forwards them to the new suggester. Existing imports survive while behavior becomes safer.</p>
+      <span class="pill change">low blast radius</span>
+    </div>
+  </div>
+
+  <h3>9.4 Mapping diagnosed causes to editable commands</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Diagnosed cause</th><th>Proposal target</th><th>Existing/new command</th></tr></thead>
+      <tbody>
+        <tr><td>Missing stable vendor/category fact</td><td>Memory/notes</td><td><code>MemoryNoteCommand</code></td></tr>
+        <tr><td>Ambiguous or incomplete instruction</td><td>System/task prompt</td><td><code>PromptPatchCommand</code></td></tr>
+        <tr><td>Tool use misunderstood</td><td>Tool description</td><td><code>ToolDescriptionPatchCommand</code></td></tr>
+        <tr><td>Evidence omitted from context</td><td>Context selection rule</td><td><code>ContextRulePatchCommand</code></td></tr>
+        <tr><td>Problem belongs in deterministic code</td><td>Strategy/interface implementation</td><td><span class="pill new">future bounded command</span> or human engineering ticket</td></tr>
+        <tr><td>Unknown/model capability</td><td>None</td><td><span class="pill stop">do not auto-propose</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="sequence">10. End-to-end sequence inside Mazda</h2>
+
+  <div class="diagram">
+    <div class="diagram-title">Runtime sequence for one new failure</div>
+<pre><code>DefaultAgentKernel
+      |
+      | run task
+      v
+TraceRecord -------------------------------> SQLite trace repository
+      |
+      | judge
+      v
+VerdictRecord + ScoreCard -----------------> evaluation repository
+      |
+      | only if non-passing
+      v
+FailureObservationBuilder
+      |
+      v
+FailureObservation ------------------------> failure_observations
+      |
+      | cheap incremental scan
+      v
+WeaknessMiningCoordinator
+      |
+      +--> Fingerprint / similarity strategy
+      |
+      +--> FailureClusterer ----------------> weakness_clusters + cluster_members
+      |
+      | if recurrence threshold reached
+      v
+CommonCauseAnalyzer
+      |
+      +--> deterministic cause rules first
+      +--> LLM/Suzuki fallback if ambiguous
+      |
+      v
+CauseHypothesis ---------------------------> cause_hypotheses
+      |
+      | eligibility policy
+      v
+DiagnosedWeaknessCluster
+      |
+      | only now
+      v
+MazdaProposalGenerator --------------------> existing improvement repository
+      |
+      v
+EXPERIMENT -> GATES -> HUMAN APPROVAL -> ACTIVATE / ROLLBACK</code></pre>
+  </div>
+
+  <h3>10.1 Batch versus immediate mining</h3>
+
+  <p>The best hybrid is:</p>
+  <ul>
+    <li><strong>Immediate:</strong> save every observation and perform deterministic fingerprint assignment.</li>
+    <li><strong>Threshold-triggered:</strong> when a candidate reaches recurrence criteria, run common-cause analysis.</li>
+    <li><strong>Periodic sweep:</strong> occasionally rescan unassigned/noisy observations to discover fuzzy clusters missed by exact fingerprints.</li>
+  </ul>
+
+  <p>This keeps normal Mazda execution cheap while still letting patterns emerge over time.</p>
+
+  <h2 id="tests">11. Tests that should exist before proposal generation is rewired</h2>
+
+  <p>This feature is ideal for Mazda's TDD approach. Build the contracts and acceptance tests first; implementation can then be split among agents safely.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Test family</th><th>What must be proven</th></tr></thead>
+      <tbody>
+        <tr><td>Observation tests</td><td>A failing verdict creates exactly one normalized observation; passing verdicts do not create weakness observations.</td></tr>
+        <tr><td>Fingerprint tests</td><td>Irrelevant details such as amount/date do not fragment identical failure shapes; structurally different failures do not collide.</td></tr>
+        <tr><td>Recurrence tests</td><td>One-off failures remain noise; repeated independent failures become candidate patterns.</td></tr>
+        <tr><td>Retry-storm tests</td><td>Five retries of one document cannot impersonate five independent cases.</td></tr>
+        <tr><td>Cluster separation tests</td><td>Two <code>wrong_category</code> groups with different mechanisms stay separate.</td></tr>
+        <tr><td>Cluster merge tests</td><td>Different surface wording with the same structural cause can converge into one candidate cluster.</td></tr>
+        <tr><td>Cause validation tests</td><td>Symptom restatements and unsupported causes are rejected.</td></tr>
+        <tr><td>Counterexample tests</td><td>A proposed common cause must survive nearby passing examples or lower its confidence.</td></tr>
+        <tr><td>Eligibility tests</td><td>Low-count, flaky, unknown-cause, or low-confidence clusters cannot reach the proposer.</td></tr>
+        <tr><td>Proposal-boundary tests</td><td><code>MazdaProposalGenerator</code> accepts a diagnosed eligible cluster and rejects raw failure lists.</td></tr>
+        <tr><td>Persistence tests</td><td>Clusters and diagnoses survive restart and retain full audit history.</td></tr>
+        <tr><td>Factory tests</td><td>The new factory family creates all mining ports and composes without breaking direct construction.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>11.1 High-value adversarial test</h3>
+
+<pre><code><span class="cm"># Three failures share FailureType.WRONG_CATEGORY.</span>
+<span class="cm"># Only two share the same cause.</span>
+
+A = wrong_category(
+    vendor=<span class="st">"Meijer"</span>,
+    cause=<span class="st">"line_item_context_missing"</span>,
+)
+
+B = wrong_category(
+    vendor=<span class="st">"Walmart"</span>,
+    cause=<span class="st">"line_item_context_missing"</span>,
+)
+
+C = wrong_category(
+    vendor=<span class="st">"Unknown Contractor"</span>,
+    cause=<span class="st">"vendor_mapping_missing"</span>,
+)
+
+<span class="cm"># Correct result:</span>
+cluster_1 = [A, B]
+cluster_2_or_noise = [C]
+
+<span class="cm"># Incorrect Carbon/Mazda integration:</span>
+cluster = [A, B, C]   <span class="cm"># grouped only because FailureType matched</span></code></pre>
+
+  <h2 id="rollout">12. Safe rollout plan</h2>
+
+  <p>Implement this in layers so the team can inspect the evidence at each step. Do not connect it to proposal generation on day one.</p>
+
+  <ol class="stage">
+    <li><strong>Phase A — Observation only.</strong> Add <code>FailureObservation</code>, builder, repository, schema, and reports. Mazda behavior is unchanged.</li>
+    <li><strong>Phase B — Shadow mining.</strong> Run deterministic fingerprints and clustering, but do not create proposals. Compare clusters with team judgment.</li>
+    <li><strong>Phase C — Common-cause diagnosis.</strong> Add deterministic cause rules and an LLM fallback. Persist diagnoses; still no automatic proposal creation.</li>
+    <li><strong>Phase D — Eligibility gate.</strong> Add recurrence, confidence, diversity, and flake policies. Review what would have been allowed through.</li>
+    <li><strong>Phase E — Rewire proposals.</strong> Change <code>IProposalGenerator</code> to consume <code>DiagnosedWeaknessCluster</code>. Keep human approval and all existing experiment/promotion gates unchanged.</li>
+    <li><strong>Phase F — Add held-in/held-out partitioning.</strong> Once cluster quality is trusted, hide part of each cluster from the fixer so proposal quality is measured on unseen examples rather than memorized cases.</li>
+  </ol>
+
+  <div class="callout success">
+    <span class="callout-label">Why this rollout is safe</span>
+    Phases A–D are observational. They can be deployed without changing Mazda's production decisions or wrapper. The first behavior-changing step is Phase E, and even then the existing experiment runner, regression detector, four promotion gates, approval gateway, snapshot, and rollback remain in control.
+  </div>
+
+  <h2 id="team">13. Team decision summary</h2>
+
+  <div class="grid three">
+    <div class="card">
+      <div class="stat"><div class="num">1</div><div><strong>Keep</strong><br><span class="small">Trace capture, verdicts, finance failure types, experiments, gates, approval, rollback.</span></div></div>
+    </div>
+    <div class="card">
+      <div class="stat"><div class="num">2</div><div><strong>Insert</strong><br><span class="small">Observation → pattern detection → clustering → common-cause analysis.</span></div></div>
+    </div>
+    <div class="card">
+      <div class="stat"><div class="num">3</div><div><strong>Change</strong><br><span class="small">Proposal generator input from raw failures to diagnosed eligible clusters.</span></div></div>
+    </div>
+  </div>
+
+  <h3>13.1 Architectural decisions I recommend</h3>
+
+  <ul class="checklist">
+    <li>Create a dedicated <code>IWeaknessMiningFactory</code> rather than making <code>IEvaluationFactory</code> or <code>IImprovementFactory</code> own the entire mining process.</li>
+    <li>Use Pydantic value objects for observations, clusters, policies, evidence bundles, and cause hypotheses.</li>
+    <li>Persist every mining decision in SQLite so a proposal can always answer: “Which failures caused me to exist, and why were they considered the same weakness?”</li>
+    <li>Run deterministic fingerprints and rule-based cause recognizers before any LLM analysis.</li>
+    <li>Keep semantic/LLM clustering as a strategy behind an interface, not as the core definition of a cluster.</li>
+    <li>Require a common-cause hypothesis with supporting evidence before a cluster is proposal-eligible.</li>
+    <li>Treat <code>FailureType</code> as one clustering feature, never as proof that two failures share a cause.</li>
+    <li>Use successful near-neighbor cases as counterevidence during diagnosis.</li>
+    <li>Keep the existing human approval, A/B experiment, regression gate, and rollback system untouched.</li>
+    <li>Introduce held-out examples immediately after the mining layer is trusted, so Suzuki cannot overfit the cases used to describe the weakness.</li>
+  </ul>
+
+  <div class="callout key">
+    <span class="callout-label">The mental model to carry forward</span>
+    <strong>Mazda should not improve from failures; Mazda should improve from diagnosed recurring weaknesses.</strong><br>
+    A failure is one event. A pattern is repeated evidence. A cluster is a candidate shared weakness. A common-cause diagnosis explains the mechanism. A proposal is allowed only after that chain exists.
+  </div>
+
+  <hr class="rule">
+
+  <h2>Appendix A — Before and after at the factory boundary</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Factory</th><th>Before</th><th>After</th></tr></thead>
+      <tbody>
+        <tr><td><code>IEvaluationFactory</code></td><td>Evaluator, verdict judge, failure classifier, regression detector, gates, finance verifiers</td><td><span class="pill keep">unchanged</span> except it continues producing the evidence mining consumes</td></tr>
+        <tr><td><code>IWeaknessMiningFactory</code></td><td>Does not exist</td><td><span class="pill new">new</span> observation builder, fingerprint/similarity, clusterer, cause analyzer, eligibility, coordinator</td></tr>
+        <tr><td><code>IImprovementFactory</code></td><td>Proposal generator, experiment runner, approval, snapshot, activation, rollback</td><td><span class="pill keep">mostly unchanged</span>; proposal generator now consumes diagnosed clusters</td></tr>
+        <tr><td><code>IPersistenceFactory</code></td><td>Trace, wrapper, prompt/tool, evaluation, improvement repositories</td><td><span class="pill change">extend</span> with failure-observation, cluster, and cause-hypothesis repositories</td></tr>
+        <tr><td><code>IReportingFactory</code></td><td>Trace/dashboard/regression reports</td><td><span class="pill change">extend later</span> with weakness-mining report/dashboard view</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Appendix B — Recommended first implementation ticket</h2>
+
+  <div class="card">
+    <h3>Phase A: Observation-only milestone</h3>
+    <p><strong>Goal:</strong> create zero production behavior change while preparing trustworthy data for Carbon-style mining.</p>
+    <ol>
+      <li>Add <code>FailureObservation</code>, typed IDs, and <code>MiningPolicy</code> value objects.</li>
+      <li>Add <code>IFailureObservationBuilder</code> and <code>IFailureObservationRepository</code>.</li>
+      <li>Add SQLite table/migration and repository implementation.</li>
+      <li>Wire observation creation after every non-passing verdict.</li>
+      <li>Add unit tests proving normalization and persistence.</li>
+      <li>Add a small report showing counts grouped by fingerprint and failure type.</li>
+      <li>Do <strong>not</strong> change <code>MazdaProposalGenerator</code> yet.</li>
+    </ol>
+    <p><strong>Milestone exit:</strong> the team can inspect a month of Mazda failures as structured, comparable observations without changing any proposal or production behavior.</p>
+  </div>
+
+  <h2>Sources used for this design</h2>
+  <p class="small"><strong>Mazda Developers Manual:</strong> current six-station self-improvement loop, deterministic-rules-first evaluation, factory-family boundaries, four promotion gates, and human-approved activation/rollback. <strong>Self-Evolving Carbon:</strong> weakness mining, recurring same-cause clusters, setting aside flaky one-offs, held-in/held-out cases, and bounded editable surface. <strong>Agent Self-Improvement System Design:</strong> current <code>MazdaProposalGenerator</code>, <code>FailurePatternSuggester</code>, deterministic finance failure types, and proposal/approval persistence.</p>
+
+</main>
+
+<footer class="footer">
+  <span>Mazda University • Carbon Weakness Mining Integration • Team Review Edition</span>
+  <span class="print-note">Print-friendly: use the browser's Print → Save as PDF if desired.</span>
+</footer>
+</article>
+</body>
+</html>
