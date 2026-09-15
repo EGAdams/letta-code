@@ -51,7 +51,7 @@ WIN10_NODE_HOST = (
     LETTA_DOCKER_HOST.split('@')[-1] if '@' in LETTA_DOCKER_HOST else '100.80.49.10')
 #: The Windows side of the same box. It stays online when the WSL node drops,
 #: which is the whole reason the Restart button can work at all.
-WIN10_WINDOWS_HOST = os.environ.get('WIN10_WINDOWS_HOST', 'NewUser@100.69.80.89')
+WIN10_WINDOWS_HOST = os.environ.get('WIN10_WINDOWS_HOST', 'NewUser@100.96.120.127')
 WIN10_WSL_DISTRO = os.environ.get('WIN10_WSL_DISTRO', 'Ubuntu-24.04')
 
 #: Which containers back which server key. Indicator #2: Docker's own status

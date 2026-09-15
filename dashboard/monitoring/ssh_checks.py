@@ -52,13 +52,13 @@ SSH_CONNECTIONS = [
     {
         'key': 'win10-host',
         'name': 'Windows 10 Host',
-        'host': '100.69.80.89',
+        'host': '100.96.120.127',
         'user': 'NewUser',
         # Prefer the dedicated key on the remote WSL dashboard host. The
         # fallback is the normal key on this WSL host, where that dedicated
         # key is not installed.
         'identity_files': ('~/.ssh/id_win10_host', '~/.ssh/id_ed25519_win10', '~/.ssh/id_ed25519'),
-        'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.69.80.89)',
+        'note': 'Windows side of the WSL host, for admin scripts run from /mnt/c (100.96.120.127) -- IP changed 2026-09-15 after a Tailscale node-key reset re-registered this box under a new node',
     },
     {
         'key': 'win10-wsl-letta',
