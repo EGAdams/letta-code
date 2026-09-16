@@ -32,6 +32,13 @@ from statement_review import RF_PYPATH, RF_VENV_PY
 PARSE_AND_CATEGORIZE_SCRIPT = os.path.expanduser(
     '~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/'
     'parse_and_categorize.py')
+#: manual_expense_entry.py's sibling: parse_and_categorize.py --save minus
+#: everything that requires a real file (hashing, archiving). Used by the
+#: Add Expense page, which has no document to attach at all -- see
+#: ManualExpenseEntry and finance/manual_expense_intake.py.
+MANUAL_EXPENSE_ENTRY_SCRIPT = os.path.expanduser(
+    '~/rol_finances/tools/receipt_scanning_tools/receipt_parsing_tools/'
+    'manual_expense_entry.py')
 MANUAL_ENTRY_TIMEOUT_SEC = 90
 #: Preview-only engines a read of one document may request: 'local' (the
 #: zero-token OCR pass, no longer offered by any button -- see
@@ -57,7 +64,29 @@ PREVIEW_ENGINES = frozenset({'local', 'gemini-only', 'haiku-only', 'codex-only'}
 LOCAL_FALLBACK_MODEL_NAME = 'local-fallback'
 
 
-class ManualReceiptEntry(ExpenseFieldRules):
+class _VendoredExpenseEntry(ExpenseFieldRules):
+    """Fields/rules ManualReceiptEntry and ManualExpenseEntry both need: a
+    category, an org, and an optional vendor to store/remember. Split out so
+    the document-less Add Expense page (ManualExpenseEntry) shares this
+    exactly rather than re-declaring it -- the only thing that differs between
+    the two is whether there is a file at all.
+    """
+
+    category_id: Optional[int] = None
+    org_id: int = 1
+    vendor_key: str = ''
+    learn_vendor: bool = False
+
+    @field_validator('vendor_key')
+    @classmethod
+    def _vendor_key_is_canonical(cls, value):
+        cleaned = value.strip().lower()
+        if cleaned and not re.fullmatch(r'[a-z0-9]+(?:_[a-z0-9]+)*', cleaned):
+            raise ValueError('vendor_key must use lowercase letters, numbers, and underscores')
+        return cleaned
+
+
+class ManualReceiptEntry(_VendoredExpenseEntry):
     """One human-entered receipt line item.
 
     The merchant/date/amount rules come from ExpenseFieldRules -- the same
@@ -69,10 +98,6 @@ class ManualReceiptEntry(ExpenseFieldRules):
     """
 
     image_path: str
-    category_id: Optional[int] = None
-    org_id: int = 1
-    vendor_key: str = ''
-    learn_vendor: bool = False
 
     @field_validator('image_path')
     @classmethod
@@ -81,13 +106,12 @@ class ManualReceiptEntry(ExpenseFieldRules):
             raise ValueError('image_path is required')
         return value
 
-    @field_validator('vendor_key')
-    @classmethod
-    def _vendor_key_is_canonical(cls, value):
-        cleaned = value.strip().lower()
-        if cleaned and not re.fullmatch(r'[a-z0-9]+(?:_[a-z0-9]+)*', cleaned):
-            raise ValueError('vendor_key must use lowercase letters, numbers, and underscores')
-        return cleaned
+
+class ManualExpenseEntry(_VendoredExpenseEntry):
+    """One human-entered expense with no document at all (see
+    finance/manual_expense_intake.py and rol_finances'
+    manual_expense_entry.py -- the --save sibling that skips every step that
+    touches a file: no hashing, no archiving, no receipt_url/source_file)."""
 
 
 def build_preview_command(image_path: str, engine: str = 'local') -> list[str]:
@@ -192,6 +216,42 @@ def submit_manual_receipt_entry(entry: ManualReceiptEntry, runner=None):
     """Store one manually-entered receipt. Returns (ok, payload)."""
     run = runner or (lambda cmd: _run_parse_and_categorize(cmd, required_key='success'))
     result = run(build_save_command(entry))
+    report = result.get('report') or {}
+    if result.get('returncode') != 0 or not report.get('success', False):
+        return False, {
+            'error': (report.get('error') or result.get('stderr')
+                      or result.get('stdout') or 'store failed'),
+            'report': report,
+        }
+    return True, {'report': report}
+
+
+def build_add_expense_command(entry: ManualExpenseEntry) -> list[str]:
+    """Pure builder for manual_expense_entry.py's argv -- the --save sibling
+    with no --file at all. Mirrors build_save_command; see that docstring for
+    why the two free-text values use `--opt=value`."""
+    cmd = [
+        RF_VENV_PY, MANUAL_EXPENSE_ENTRY_SCRIPT,
+        f'--merchant-name-override={entry.merchant_name}',
+        '--transaction-date-override', entry.transaction_date,
+        '--total-amount-override', str(entry.total_amount),
+        '--org-id', str(entry.org_id),
+        '--json',
+    ]
+    if entry.category_id is not None:
+        cmd += ['--category-id', str(entry.category_id)]
+    if entry.vendor_key:
+        cmd += [f'--vendor-key-override={entry.vendor_key}']
+    if entry.learn_vendor:
+        cmd += ['--remember-vendor']
+    return cmd
+
+
+def submit_manual_expense_entry(entry: ManualExpenseEntry, runner=None):
+    """Store one document-less expense (the Add Expense page's Save All).
+    Returns (ok, payload), same shape as submit_manual_receipt_entry."""
+    run = runner or (lambda cmd: _run_parse_and_categorize(cmd, required_key='success'))
+    result = run(build_add_expense_command(entry))
     report = result.get('report') or {}
     if result.get('returncode') != 0 or not report.get('success', False):
         return False, {

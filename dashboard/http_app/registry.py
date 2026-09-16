@@ -29,7 +29,10 @@ import sys
 from dataclasses import dataclass
 from typing import Optional
 
-from .ports import AgentsPort, CategoryPort, IntakePort, ReportsPort, ScannerPort, ServersPort
+from .ports import (
+    AgentsPort, CategoryPort, ExpensePort, IntakePort, ReportsPort, ScannerPort,
+    ServersPort,
+)
 
 
 def _server():
@@ -155,6 +158,14 @@ class _ServerCategoryPort:
         return _server().mark_expense_human_verified(request)
 
 
+class _ServerExpensePort:
+    """`ExpensePort`'s single populated method, ahead of round 21: the Add
+    Expense page's Save All (see finance/manual_expense_intake.py)."""
+
+    def submit_manual_expense_entry(self, data: object) -> dict:
+        return _server().submit_manual_expense_entry(data)
+
+
 @dataclass(frozen=True)
 class Ports:
     """Everything the route ladders are allowed to depend on.
@@ -171,6 +182,7 @@ class Ports:
     agents: AgentsPort
     intake: IntakePort
     category: CategoryPort
+    expense: ExpensePort
 
 
 def current_ports() -> Ports:
@@ -182,4 +194,5 @@ def current_ports() -> Ports:
         agents=_ServerAgentsPort(),
         intake=_ServerIntakePort(),
         category=_ServerCategoryPort(),
+        expense=_ServerExpensePort(),
     )

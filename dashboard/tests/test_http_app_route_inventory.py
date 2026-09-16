@@ -21,6 +21,7 @@ from tests.http_app_harness import DashboardClient, ServiceRecorder, start_serve
 # deleted by mistake.
 # --------------------------------------------------------------------------
 GET_ROUTES = [
+    '/add_expense.html',
     '/api/agent-activity', '/api/agent-card', '/api/agent-health',
     '/api/agent-model', '/api/agent-oauth-account', '/api/agent-voice',
     '/api/agents', '/api/chatgpt-provider-account-status',
@@ -42,6 +43,7 @@ GET_ROUTES = [
 ]
 
 POST_ROUTES = [
+    '/api/add-expense-entry',
     '/api/agent-model', '/api/agent-oauth-account', '/api/agent-voice',
     '/api/claude-sdk-account',
     '/api/chatgpt-provider-account', '/api/claude-log', '/api/claude-toollog',

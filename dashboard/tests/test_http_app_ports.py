@@ -103,11 +103,14 @@ class TestThePortVocabulary:
         Round 12 populated `scanner`; round 13 added the config halves of
         `reports`, `servers` and `agents`. `intake` carries only its single
         `intake_state_token` method, pulled forward of round 15 for the
-        Recent Report poll loop. The remaining nine are declared in
-        ports.py and stay out of the bundle until the round that fills them.
+        Recent Report poll loop. `expense` likewise carries only
+        `submit_manual_expense_entry`, pulled forward of round 21 for the Add
+        Expense page. The remaining eight are declared in ports.py and stay
+        out of the bundle until the round that fills them.
         """
         assert set(Ports.__dataclass_fields__) == {
-            'scanner', 'reports', 'servers', 'agents', 'intake', 'category'}
+            'scanner', 'reports', 'servers', 'agents', 'intake', 'category',
+            'expense'}
 
 
 # ── the tax that must not come back ─────────────────────────────────────────

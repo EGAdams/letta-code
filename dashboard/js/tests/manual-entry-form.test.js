@@ -43,6 +43,9 @@ function setup({ http, dataset = {}, delay = async () => {} } = {}) {
   root.dataset.imagePath = dataset.imagePath ?? "/staged/scan.jpg";
   root.dataset.conversationId = dataset.conversationId ?? "conv-1";
   root.dataset.scannerKey = dataset.scannerKey ?? "";
+  if (dataset.addExpenseMode !== undefined) {
+    root.dataset.addExpenseMode = dataset.addExpenseMode;
+  }
   if (dataset.mazdaFindings !== undefined) {
     root.dataset.mazdaFindings = dataset.mazdaFindings;
   }
@@ -136,6 +139,149 @@ describe("ManualEntryForm.mount", () => {
     form.receiptReadControls.resetProgress();
     expect(form.mazdaFillProgressShell.style.display).toBe("none");
     expect(form.mazdaFillProgressBar.style.width).toBe("0%");
+  });
+});
+
+describe("ManualEntryForm addExpenseMode (the Add Expense page)", () => {
+  function labelTexts(root) {
+    return root.querySelectorAll("label").map((el) => el.textContent);
+  }
+
+  test("mount omits Image Path, Show Image..Mazda Automatic, File As and Will Be Filed As", async () => {
+    const { form, root } = setup({ dataset: { addExpenseMode: "true" } });
+    await form.mount();
+    const labels = labelTexts(root);
+    expect(labels).not.toContain("Image path");
+    expect(labels).not.toContain("File as");
+    expect(labels).not.toContain("Will be filed as");
+    expect(root.querySelector('[data-action="show-image"]')).toBeNull();
+    // Kept: the expense-entry fields Add Expense still needs.
+    expect(labels).toContain("Merchant / vendor");
+    expect(labels).toContain("Description");
+    expect(labels).toContain("Category");
+    expect(root.querySelector('[data-action="save-all"]')).not.toBeNull();
+  });
+
+  test("a normal (non-add-expense) mount keeps every scan-related field", async () => {
+    const { form, root } = setup();
+    await form.mount();
+    const labels = labelTexts(root);
+    expect(labels).toContain("Image path");
+    expect(labels).toContain("File as");
+    expect(labels).toContain("Will be filed as");
+  });
+
+  test("Save All posts to /api/add-expense-entry with no image_path/conversation_id", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: ["Food"] },
+      "/api/add-expense-entry": {
+        ok: true,
+        expense_id: 501,
+        duplicate: false,
+        record: {
+          id: 501,
+          transaction_date: "2026-02-03",
+          total_amount: 5,
+          description: "Cash Tip",
+          id_light: "cash_tip_02_03_26_5_00",
+          category_name: "Food",
+        },
+      },
+    });
+    const { form } = setup({ http, dataset: { addExpenseMode: "true" } });
+    await form.mount();
+    form.merchantNameInput.value = "Cash Tip";
+    form.transactionDateInput.value = "2026-02-03";
+    form.totalAmountInput.value = "5.00";
+    form.categorySelect.value = "Food";
+
+    await form._saveAll();
+
+    const call = http.calls.find(([, url]) => url === "/api/add-expense-entry");
+    expect(call).toBeDefined();
+    const [, , body] = call;
+    expect(body.image_path).toBeUndefined();
+    expect(body.conversation_id).toBeUndefined();
+    expect(body.merchant_name).toBe("Cash Tip");
+    expect(
+      http.calls.some(([, url]) => url === "/api/manual-receipt-entry"),
+    ).toBe(false);
+  });
+
+  test("Save All never reloads the page and resets the form for the next expense", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: ["Food"] },
+      "/api/add-expense-entry": {
+        ok: true,
+        expense_id: 501,
+        duplicate: false,
+        record: {
+          id: 501,
+          transaction_date: "2026-02-03",
+          total_amount: 5,
+          description: "Cash Tip",
+          id_light: "cash_tip_02_03_26_5_00",
+          category_name: "Food",
+        },
+      },
+    });
+    const { form, doc } = setup({ http, dataset: { addExpenseMode: "true" } });
+    let reloaded = false;
+    doc.location.reload = () => {
+      reloaded = true;
+    };
+    await form.mount();
+    form.merchantNameInput.value = "Cash Tip";
+    form.transactionDateInput.value = "2026-02-03";
+    form.totalAmountInput.value = "5.00";
+
+    await form._saveAll();
+
+    expect(reloaded).toBe(false);
+    expect(form.items).toHaveLength(1);
+    expect(form.merchantNameInput.value).toBe("");
+  });
+
+  test("Save All appends the new row to Verified Transactions immediately", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: ["Food"] },
+      "/api/add-expense-entry": {
+        ok: true,
+        expense_id: 501,
+        duplicate: false,
+        record: {
+          id: 501,
+          transaction_date: "2026-02-03",
+          total_amount: 5,
+          description: "Cash Tip",
+          id_light: "cash_tip_02_03_26_5_00",
+          category_name: "Food",
+        },
+      },
+    });
+    const { form } = setup({ http, dataset: { addExpenseMode: "true" } });
+    let added = null;
+    verifiedTransactionRowsRegistry.publish({
+      addExpense: (record, vendorKey) => {
+        added = { record, vendorKey };
+      },
+    });
+    try {
+      await form.mount();
+      form.merchantNameInput.value = "Cash Tip";
+      form.transactionDateInput.value = "2026-02-03";
+      form.totalAmountInput.value = "5.00";
+
+      await form._saveAll();
+
+      expect(added).not.toBeNull();
+      expect(added.record.id).toBe(501);
+    } finally {
+      verifiedTransactionRowsRegistry.reset();
+    }
   });
 });
 

@@ -115,6 +115,7 @@
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-current-status">Current Status</button>
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-taxes">Taxes</button>
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-reports">Reports</button>
+      <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-add-expense">Add Expense</button>
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-scanners">Scanners</button>
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-mazda-objects">Mazda Objects</button>
       <button type="button" class="tab" data-nav="rol-finance" data-target="rol-finance-red-box-project">Red Box Project</button>
@@ -403,6 +404,10 @@
 
     <!-- ROL Finance report views injected dynamically by RF.init() -->
     <section id="rol-finance-reports-views"></section>
+
+    <section id="rol-finance-add-expense" class="view">
+      <iframe class="plan-frame" data-refresh-on-show src="/add_expense.html" title="Add Expense"></iframe>
+    </section>
 
     <section id="scanners-freezer" class="view">
       <div class="scanner-dialog" data-scanner="freezer">

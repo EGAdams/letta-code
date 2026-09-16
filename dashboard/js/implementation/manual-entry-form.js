@@ -39,6 +39,7 @@ import {
 import {
   ARCHIVE_KIND,
   blankManualEntryFields,
+  buildAddExpensePayload,
   buildArchivePreviewPayload,
   buildSubmitPayload,
   defaultArchiveKind,
@@ -104,6 +105,14 @@ export class ManualEntryForm {
     this._delay = delay;
     this.conversationId = root.dataset.conversationId || "";
     this.scannerKey = root.dataset.scannerKey || "";
+    // The Add Expense page (finance/add_expense_page.py): no document at
+    // all, so the form hides Image Path, Show Image..Mazda Automatic, File
+    // As and Will Be Filed As, saves through /api/add-expense-entry instead
+    // of /api/manual-receipt-entry, and never reloads the page after Save
+    // All (there is no server-rendered state tied to any document for a
+    // reload to pick up) -- it resets to a blank item instead, so a second
+    // expense can be typed right away.
+    this.addExpenseMode = root.dataset.addExpenseMode === "true";
     // Mazda's own findings for this document (STEP 8's stored rows, stamped
     // server-side onto the mount point) seed the review dialog on an
     // automatic scan instead of leaving it blank -- see
@@ -136,7 +145,13 @@ export class ManualEntryForm {
     shell.className = "manual-entry-form";
 
     const imagePathWrap = this._el("div", { className: "manual-entry-field" });
-    shell.appendChild(imagePathWrap);
+    // Add Expense has no document at all: Image Path, the whole Show
+    // Image..Mazda Automatic row, and the statement-metadata prompt they
+    // carry are built exactly as before (so every field/handler this class
+    // already relies on still exists) but simply never attached to the
+    // page. See _updateArchivePathPreview and _saveOneItem for the other two
+    // places this mode changes behavior, not just visibility.
+    if (!this.addExpenseMode) shell.appendChild(imagePathWrap);
     imagePathWrap.appendChild(this._el("label", { text: "Image path" }));
     this.imagePathInput = this._el("input");
     this.imagePathInput.type = "text";
@@ -322,7 +337,8 @@ export class ManualEntryForm {
     const archiveKindWrap = this._el("div", {
       className: "manual-entry-field",
     });
-    shell.appendChild(archiveKindWrap);
+    // Same reasoning as imagePathWrap above: built, never attached.
+    if (!this.addExpenseMode) shell.appendChild(archiveKindWrap);
     archiveKindWrap.appendChild(this._el("label", { text: "File as" }));
     this.archiveKindSelect = this._el("select");
     for (const [value, text] of [
@@ -344,7 +360,8 @@ export class ManualEntryForm {
     const archivePreviewWrap = this._el("div", {
       className: "manual-entry-field",
     });
-    shell.appendChild(archivePreviewWrap);
+    // Same reasoning as imagePathWrap above: built, never attached.
+    if (!this.addExpenseMode) shell.appendChild(archivePreviewWrap);
     archivePreviewWrap.appendChild(
       this._el("label", { text: "Will be filed as" }),
     );
@@ -1002,6 +1019,12 @@ export class ManualEntryForm {
   }
 
   async _updateArchivePathPreview() {
+    if (this.addExpenseMode) {
+      // No File As / Will Be Filed As field exists on this page (see mount())
+      // and there is no document to file -- nothing to preview, and this
+      // must never fire the archive-preview request in the background.
+      return;
+    }
     if (this.statementHeader) {
       // This preview answers "where would the Receipts archive file this?",
       // which is the wrong question for a statement: store_statement_
@@ -1092,10 +1115,15 @@ export class ManualEntryForm {
       }
     }
     try {
-      const json = await this.http.postJSON(
-        "/api/manual-receipt-entry",
-        buildSubmitPayload(item, intakeRef),
-      );
+      const json = this.addExpenseMode
+        ? await this.http.postJSON(
+            "/api/add-expense-entry",
+            buildAddExpensePayload(item),
+          )
+        : await this.http.postJSON(
+            "/api/manual-receipt-entry",
+            buildSubmitPayload(item, intakeRef),
+          );
       return { ...readSubmitResponse(json), isUpdate: false };
     } catch (err) {
       return {
@@ -1203,6 +1231,17 @@ export class ManualEntryForm {
       // the next page load.
       await this._loadDropdownOptions();
       this._renderCurrentItem();
+    }
+    if (this.addExpenseMode) {
+      // No reload: there is no document behind this page for a reload to
+      // re-render, and the newly saved row is already live in Verified
+      // Transactions (see addExpense above) -- the operator just needs a
+      // blank form to type the next expense into.
+      this.items = [blankManualEntryFields()];
+      this.currentIndex = 0;
+      this._renderCurrentItem();
+      this._setStatus(statusText);
+      return;
     }
     this._setStatus(statusText);
     // Reload only after every item and post-save dropdown refresh completed.

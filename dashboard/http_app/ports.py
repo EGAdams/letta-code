@@ -189,7 +189,15 @@ class DocumentPort(Protocol):
 
 class ExpensePort(Protocol):
     """10 names. Manual entry, stored-expense edit and search, notes.
-    Populated by round 21."""
+    Populated by round 21.
+
+    `submit_manual_expense_entry` was pulled forward ahead of the round, same
+    reason as `IntakePort.intake_state_token`: the Add Expense page's Save
+    button is new, and the srv. ceiling blocks a new srv name, not early,
+    partial port population."""
+
+    def submit_manual_expense_entry(self, data: object) -> dict:
+        ...
 
 
 class IntakePort(Protocol):

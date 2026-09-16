@@ -165,7 +165,8 @@ def mazda_working_html(progress):
 
 def manual_entry_form_html(image_path, conversation_id, scanner_key='',
                            mazda_mode=None,
-                           stored_items: Sequence[StoredFinding] = ()):
+                           stored_items: Sequence[StoredFinding] = (),
+                           add_expense_mode=False):
     """The Save-by-hand / review dialog's mount point, on every report page.
 
     All rendering and behavior live in js/implementation/manual-entry-form.js
@@ -177,6 +178,13 @@ def manual_entry_form_html(image_path, conversation_id, scanner_key='',
     scanner_key (blank for a PDF-kind intake, no scanner involved) lets the
     form's post-save archive-verification terminal reuse the exact same
     /api/scanner-archive-path lookup the Scanner tabs already use.
+
+    add_expense_mode is for the Add Expense page (finance/add_expense_page.py)
+    only: there is no document at all, so the form skips Image Path, the
+    Show Image/receipt-read/Mazda Automatic row, File As, and Will Be Filed
+    As, and saves through /api/add-expense-entry instead of
+    /api/manual-receipt-entry. Always paired with a blank image_path and
+    scanner_key -- see manual-entry-form.js's addExpenseMode branch.
 
     mazda_mode is the MazdaModeState in force (intake/mazda_mode.py). It is
     stamped here rather than fetched by the browser so the Automatic /
@@ -211,6 +219,7 @@ def manual_entry_form_html(image_path, conversation_id, scanner_key='',
         f'data-conversation-id="{_esc(conversation_id or "", quote=True)}" '
         f'{mode_attrs}'
         f'{findings_attr}'
+        f'data-add-expense-mode="{"true" if add_expense_mode else "false"}" '
         f'data-scanner-key="{_esc(scanner_key or "", quote=True)}"></div>\n'
         '<script type="module" src="/js/implementation/manual-entry-form.js"></script>\n'
     )
@@ -241,7 +250,7 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
                          status_tone, table_html, working_html='',
                          auto_refresh=False, extra_css='', picker_html='',
                          manual_entry_html='', expense_edit_html='',
-                         archive_path=''):
+                         archive_path='', window_title='Recent Report'):
     """Assemble the page. Every argument is already-decided content, so this
     function only ever answers "where does it go on the page?".
 
@@ -252,13 +261,20 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
     test_recent_intake_html_omits_document_metadata. The single exception is
     the archived-copy path, which comes in as `archive_path` and is filing
     evidence rather than metadata -- see archive_evidence_html.
+
+    `window_title` is the only thing that changes between this dialog's
+    callers: the Recent Report / scanner report pages keep the default, and
+    the document-less Add Expense page (finance/add_expense_page.py) names
+    itself instead, since it is a different page reached from its own nav
+    button, not another view of "the most recently processed document".
     """
     refresh = '<meta http-equiv="refresh" content="30">' if auto_refresh else ''
+    window_title_html = _esc(window_title)
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         + refresh +
-        '<title>Recent Report</title>'
+        f'<title>{window_title_html}</title>'
         '<link rel="stylesheet" href="/css/vendor/98css/98.css">'
         + _PAGE_CSS_LINK +
         '<style>'
@@ -266,7 +282,7 @@ def render_intake_report(*, headline, subtitle, meta_fields, status_text,
         '\n  </style></head><body>\n'
         '<section class="card window">\n'
         '  <div class="title-bar">\n'
-        '    <div class="title-bar-text">Recent Report</div>\n'
+        f'    <div class="title-bar-text">{window_title_html}</div>\n'
         '    <div class="title-bar-controls">'
         '<button aria-label="Minimize"></button>'
         '<button aria-label="Maximize"></button>'

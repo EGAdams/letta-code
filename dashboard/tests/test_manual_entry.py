@@ -145,6 +145,95 @@ def test_submit_manual_receipt_entry_transport_failure_never_raises():
     assert 'OSError' in payload['error']
 
 
+def _expense_entry(**overrides):
+    fields = dict(
+        merchant_name='Kroger',
+        transaction_date='2026-08-15',
+        total_amount=12.34,
+        category_id=None,
+        org_id=1,
+    )
+    fields.update(overrides)
+    return manual_entry.ManualExpenseEntry(**fields)
+
+
+def test_manual_expense_entry_has_no_image_path_field():
+    entry = _expense_entry()
+    assert not hasattr(entry, 'image_path')
+
+
+def test_manual_expense_entry_rejects_empty_merchant_name():
+    with pytest.raises(ValidationError):
+        _expense_entry(merchant_name='   ')
+
+
+def test_manual_expense_entry_rejects_non_iso_date():
+    with pytest.raises(ValidationError):
+        _expense_entry(transaction_date='08/15/2026')
+
+
+@pytest.mark.parametrize('bad_amount', [0, -5.0])
+def test_manual_expense_entry_rejects_non_positive_amount(bad_amount):
+    with pytest.raises(ValidationError):
+        _expense_entry(total_amount=bad_amount)
+
+
+def test_manual_expense_entry_rejects_a_noncanonical_vendor_key():
+    with pytest.raises(ValidationError):
+        _expense_entry(vendor_key='Cracker Barrel #428', learn_vendor=True)
+
+
+def test_build_add_expense_command_has_no_file_flag():
+    cmd = manual_entry.build_add_expense_command(_expense_entry())
+    assert '--file' not in cmd
+    assert not any(arg.startswith('--file=') for arg in cmd)
+    assert '--merchant-name-override=Kroger' in cmd
+    assert cmd[cmd.index('--transaction-date-override') + 1] == '2026-08-15'
+    assert cmd[cmd.index('--total-amount-override') + 1] == '12.34'
+    assert cmd[cmd.index('--org-id') + 1] == '1'
+    assert '--json' in cmd
+    assert '--category-id' not in cmd
+
+
+def test_build_add_expense_command_includes_category_id_when_given():
+    cmd = manual_entry.build_add_expense_command(_expense_entry(category_id=42))
+    assert cmd[cmd.index('--category-id') + 1] == '42'
+
+
+def test_build_add_expense_command_keeps_vendor_and_learn_flags():
+    cmd = manual_entry.build_add_expense_command(_expense_entry(
+        vendor_key='cracker_barrel', learn_vendor=True))
+    assert '--vendor-key-override=cracker_barrel' in cmd
+    assert '--remember-vendor' in cmd
+
+
+def test_submit_manual_expense_entry_success(monkeypatch):
+    calls = []
+
+    def fake_runner(command):
+        calls.append(command)
+        return {
+            'returncode': 0,
+            'stdout': '{"success": true, "expense_id": 9002, "duplicate": false}',
+            'stderr': '',
+            'report': {'success': True, 'expense_id': 9002, 'duplicate': False},
+        }
+
+    ok, payload = manual_entry.submit_manual_expense_entry(_expense_entry(), runner=fake_runner)
+    assert ok is True
+    assert payload['report']['expense_id'] == 9002
+    assert len(calls) == 1
+
+
+def test_submit_manual_expense_entry_transport_failure_never_raises():
+    def boom_runner(command):
+        return {'returncode': 1, 'stderr': 'OSError: no such file', 'stdout': '', 'report': {}}
+
+    ok, payload = manual_entry.submit_manual_expense_entry(_expense_entry(), runner=boom_runner)
+    assert ok is False
+    assert 'OSError' in payload['error']
+
+
 def test_build_preview_command_uses_local_engine_and_json_no_save():
     cmd = manual_entry.build_preview_command('/staged/scan_freezer.jpg')
     assert cmd[cmd.index('--engine') + 1] == 'local'

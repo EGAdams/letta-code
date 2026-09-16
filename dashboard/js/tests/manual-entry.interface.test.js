@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ARCHIVE_KIND,
   blankManualEntryFields,
+  buildAddExpensePayload,
   buildArchivePreviewPayload,
   buildPreviewPayload,
   buildSubmitPayload,
@@ -110,6 +111,40 @@ describe("buildSubmitPayload", () => {
       { imagePath: "/x.jpg", conversationId: "c" },
     );
     expect(payload.category_name).toBe("Food");
+  });
+});
+
+describe("buildAddExpensePayload", () => {
+  test("carries no image_path/conversation_id at all", () => {
+    const payload = buildAddExpensePayload(validFields);
+    expect(payload).toEqual({
+      merchant_name: "Kroger",
+      transaction_date: "2026-08-15",
+      total_amount: 12.34,
+      category_name: "",
+    });
+    expect(payload).not.toHaveProperty("image_path");
+    expect(payload).not.toHaveProperty("conversation_id");
+    expect(typeof payload.total_amount).toBe("number");
+  });
+
+  test("a new vendor still learns, same as buildSubmitPayload", () => {
+    const payload = buildAddExpensePayload({
+      ...validFields,
+      knownVendorKey: "__new__",
+      newVendorKey: "cracker_barrel",
+    });
+    expect(payload.vendor_key).toBe("cracker_barrel");
+    expect(payload.learn_vendor).toBe(true);
+  });
+
+  test("an existing selected vendor passes through without learning", () => {
+    const payload = buildAddExpensePayload({
+      ...validFields,
+      knownVendorKey: "kroger",
+    });
+    expect(payload.vendor_key).toBe("kroger");
+    expect(payload.learn_vendor).toBe(false);
   });
 });
 

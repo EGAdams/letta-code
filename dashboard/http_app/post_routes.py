@@ -280,6 +280,17 @@ class PostRoutesMixin:
                 return self.error_response('Invalid JSON', 400)
             return self.json_response(srv.submit_manual_receipt_entry(data))
 
+        # The Add Expense page's Save All -- the same insert rules as
+        # /api/manual-receipt-entry, minus everything that requires a file
+        # (see finance/manual_expense_intake.py).
+        if path == '/api/add-expense-entry':
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                return self.error_response('Invalid JSON', 400)
+            return self.json_response(
+                current_ports().expense.submit_manual_expense_entry(data))
+
         # The Edit Expense button's two calls: find an already-stored row, then
         # correct it. Save All only ever inserts, so these are the write path
         # for everything that was typed wrong the first time.

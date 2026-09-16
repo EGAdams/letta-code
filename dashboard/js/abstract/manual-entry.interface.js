@@ -150,6 +150,30 @@ export function buildSubmitPayload(fields, intakeRef) {
   };
 }
 
+/**
+ * Field values -> the exact JSON shape POST /api/add-expense-entry expects.
+ * Same rules as buildSubmitPayload (only called after validateManualEntry
+ * reports valid:true) minus image_path/conversation_id -- the Add Expense
+ * page has no document and nothing to fold into an intake record.
+ * @param {ManualEntryFields} fields
+ */
+export function buildAddExpensePayload(fields) {
+  return {
+    merchant_name: fields.merchantName.trim(),
+    transaction_date: fields.transactionDate,
+    total_amount: Number(fields.totalAmount),
+    category_name: (fields.categoryName || "").trim(),
+    ...(fields.knownVendorKey === "__new__"
+      ? {
+          vendor_key: (fields.newVendorKey || "").trim(),
+          learn_vendor: true,
+        }
+      : fields.knownVendorKey
+        ? { vendor_key: fields.knownVendorKey, learn_vendor: false }
+        : {}),
+  };
+}
+
 //: The three engines POST /api/manual-receipt-entry-preview accepts -- the
 //: server's own PREVIEW_ENGINES allow-list is the enforcement point (never
 //: trust the client alone), this just keeps a caller from typing a stray

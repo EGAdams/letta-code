@@ -1078,6 +1078,23 @@ def submit_manual_receipt_entry(data):
     }
 
 
+from finance import manual_expense_intake as _manual_expense_intake  # noqa: E402
+
+
+def _manual_expense_intake_deps():
+    return _manual_expense_intake.Collaborators(
+        resolve_reporting_category=_resolve_reporting_category,
+        get_expense_edit_repository=_get_expense_edit_repository,
+    )
+
+
+def submit_manual_expense_entry(data):
+    """POST /api/add-expense-entry: the Add Expense page's Save All button.
+    See finance/manual_expense_intake.py."""
+    return _manual_expense_intake.submit_manual_expense_entry(
+        _manual_expense_intake_deps(), data)
+
+
 def preview_manual_entry_archive_path(data):
     """POST /api/manual-receipt-entry-archive-preview: live path preview as
     the operator fills in vendor/date/amount, so they can see where a Save

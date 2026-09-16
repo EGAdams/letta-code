@@ -17,6 +17,7 @@ import codex_sync_status
 import document_annotation
 import model_stats_mute
 import statement_review
+from finance import add_expense_page
 from health import (
     claude_sdk_activity,
     claude_sdk_token_rate,
@@ -503,6 +504,22 @@ class GetRoutesMixin:
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', str(len(data)))
             # Always re-resolved — a cached copy would pin an older document.
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        if path == '/add_expense.html':
+            try:
+                body = add_expense_page.build_add_expense_html()
+            except Exception as e:
+                from html import escape as _esc
+                body = ('<!doctype html><meta charset="utf-8"><body>'
+                        '<pre>Add Expense build error: %s</pre>' % _esc(str(e)))
+            data = body.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'no-store')
             self.end_headers()
             self.wfile.write(data)
