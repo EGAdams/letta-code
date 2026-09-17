@@ -109,6 +109,7 @@ describe("Verified Transactions row rules", () => {
           totalAmount: 11.25,
           idLight: "meijer_07_14_25_11_25",
           categoryName: "Food",
+          categoryClass: "cat-food",
         },
         "meijer",
       ),
@@ -119,7 +120,39 @@ describe("Verified Transactions row rules", () => {
     expect(row.dataset.signedAmount).toBe("11.25");
     expect(row.querySelector("td").textContent).toBe("Meijer");
     expect(row.querySelectorAll("[data-vt-action]")).toHaveLength(3);
+    // Matches the server-rendered row's own class (see
+    // finance/intake_report_page.py's transactions_table_html) -- without it
+    // a row Save All appends live renders uncolored until the next reload.
+    expect(row.className).toBe("cat-food");
     expect(controller.addExpense({ id: 2301 }, "meijer")).toBe(false);
+    verifiedTransactionRowsRegistry.reset();
+  });
+
+  test("a saved insert with no resolved category still gets a colorable class", () => {
+    const doc = new FakeDocument();
+    const table = doc.createElement("table");
+    const body = doc.createElement("tbody");
+    table.appendChild(body);
+    const controller = new VerifiedTransactionRows({
+      http: {},
+      table,
+      doc,
+    }).mount();
+
+    controller.addExpense(
+      {
+        id: 2302,
+        description: "Cash Tip",
+        transactionDate: "2025-07-14",
+        totalAmount: 5,
+        idLight: "cash_tip_07_14_25_5_00",
+        categoryName: "",
+      },
+      "",
+    );
+
+    const row = body.querySelector("tr[data-expense-id]");
+    expect(row.className).toBe("cat-uncategorized");
     verifiedTransactionRowsRegistry.reset();
   });
 });

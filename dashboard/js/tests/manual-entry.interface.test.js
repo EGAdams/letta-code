@@ -377,6 +377,7 @@ describe("blankManualEntryFields", () => {
       categoryName: "",
       knownVendorKey: "",
       newVendorKey: "",
+      notes: "",
       expenseId: null,
     });
   });
@@ -415,6 +416,7 @@ describe("readStoredFindings", () => {
         categoryName: "Travel & Vehicle",
         knownVendorKey: "kum_go",
         newVendorKey: "",
+        notes: "",
         expenseId: 1391,
       },
       {
@@ -424,6 +426,7 @@ describe("readStoredFindings", () => {
         categoryName: "",
         knownVendorKey: "",
         newVendorKey: "",
+        notes: "",
         expenseId: null,
       },
     ]);

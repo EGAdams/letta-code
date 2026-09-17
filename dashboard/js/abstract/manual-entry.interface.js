@@ -314,6 +314,15 @@ export function readSubmitResponse(json) {
                 typeof json.record.category_name === "string"
                   ? json.record.category_name
                   : "",
+              // The cat-* class Verified Transactions colors a row by (see
+              // finance/reporting_category_lookup.css_class_for_report_name) --
+              // server-rendered rows already carry it on the <tr>; a row this
+              // form appends live needs it explicitly, or it renders
+              // uncolored until the next full page load.
+              categoryClass:
+                typeof json.record.category_class === "string"
+                  ? json.record.category_class
+                  : "",
             }
           : null,
       vendorRemembered: readVendorRememberedResponse(json.vendor_remembered),
@@ -396,6 +405,7 @@ export function blankManualEntryFields() {
     categoryName: "",
     knownVendorKey: "",
     newVendorKey: "",
+    notes: "",
     expenseId: null,
   };
 }
@@ -438,6 +448,7 @@ export function readStoredFindings(raw) {
         typeof row?.known_vendor_key === "string" ? row.known_vendor_key : "",
       newVendorKey:
         typeof row?.new_vendor_key === "string" ? row.new_vendor_key : "",
+      notes: typeof row?.notes === "string" ? row.notes : "",
       expenseId:
         Number.isInteger(row?.expense_id) && row.expense_id > 0
           ? row.expense_id

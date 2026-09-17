@@ -171,6 +171,85 @@ describe("ManualEntryForm addExpenseMode (the Add Expense page)", () => {
     expect(labels).toContain("Will be filed as");
   });
 
+  test("mount adds a Notes field, only on the Add Expense page", async () => {
+    const addExpense = await setup({ dataset: { addExpenseMode: "true" } });
+    await addExpense.form.mount();
+    expect(labelTexts(addExpense.root)).toContain("Notes");
+    expect(
+      addExpense.root.querySelector('[data-field="notes"]'),
+    ).not.toBeNull();
+
+    const recentReport = await setup();
+    await recentReport.form.mount();
+    expect(labelTexts(recentReport.root)).not.toContain("Notes");
+  });
+
+  test("Save All writes typed Notes through /api/save-expense-notes by the new expense_id", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: ["Food"] },
+      "/api/add-expense-entry": {
+        ok: true,
+        expense_id: 501,
+        duplicate: false,
+        record: {
+          id: 501,
+          transaction_date: "2026-02-03",
+          total_amount: 5,
+          description: "Cash Tip",
+          id_light: "cash_tip_02_03_26_5_00",
+          category_name: "Food",
+        },
+      },
+    });
+    const { form } = setup({ http, dataset: { addExpenseMode: "true" } });
+    await form.mount();
+    form.merchantNameInput.value = "Cash Tip";
+    form.transactionDateInput.value = "2026-02-03";
+    form.totalAmountInput.value = "5.00";
+    form.notesInput.value = "Reimbursed by Sam";
+
+    await form._saveAll();
+
+    const call = http.calls.find(
+      ([, url]) => url === "/api/save-expense-notes",
+    );
+    expect(call).toBeDefined();
+    const [, , body] = call;
+    expect(body).toEqual({ expense_id: 501, notes: "Reimbursed by Sam" });
+  });
+
+  test("Save All skips the notes call when Notes was left blank", async () => {
+    const http = fakeHttp({
+      "/api/vendor-keys": { ok: true, vendor_keys: [] },
+      "/api/rol-finance-categories": { ok: true, categories: ["Food"] },
+      "/api/add-expense-entry": {
+        ok: true,
+        expense_id: 501,
+        duplicate: false,
+        record: {
+          id: 501,
+          transaction_date: "2026-02-03",
+          total_amount: 5,
+          description: "Cash Tip",
+          id_light: "cash_tip_02_03_26_5_00",
+          category_name: "Food",
+        },
+      },
+    });
+    const { form } = setup({ http, dataset: { addExpenseMode: "true" } });
+    await form.mount();
+    form.merchantNameInput.value = "Cash Tip";
+    form.transactionDateInput.value = "2026-02-03";
+    form.totalAmountInput.value = "5.00";
+
+    await form._saveAll();
+
+    expect(
+      http.calls.some(([, url]) => url === "/api/save-expense-notes"),
+    ).toBe(false);
+  });
+
   test("Save All posts to /api/add-expense-entry with no image_path/conversation_id", async () => {
     const http = fakeHttp({
       "/api/vendor-keys": { ok: true, vendor_keys: [] },

@@ -128,6 +128,9 @@ export class VerifiedTransactionRows {
     const body = this.table.querySelector("tbody");
     if (!body) return false;
     const row = this.doc.createElement("tr");
+    // Matches finance/intake_report_page.py's server-rendered <tr class="...">
+    // -- a row appended here without it renders uncolored until reload.
+    row.className = record.categoryClass || "cat-uncategorized";
     const amount = Number(record.totalAmount).toFixed(2);
     Object.assign(row.dataset, {
       expenseId: String(record.id),

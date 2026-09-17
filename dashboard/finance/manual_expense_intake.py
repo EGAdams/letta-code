@@ -44,6 +44,9 @@ def submit_manual_expense_entry(deps: Collaborators, data):
         return {'ok': False, 'error': str(exc)}
     category_name = str(data.get('category_name') or '').strip()
     category_id = None
+    # Matches css_class_for_report_name's own fallback: an unresolved/blank
+    # category renders exactly as an explicit "Uncategorized" pick.
+    category_cls = 'cat-uncategorized'
     if category_name:
         category_id, category_cls = deps.resolve_reporting_category(category_name)
         if category_cls is None:
@@ -78,6 +81,14 @@ def submit_manual_expense_entry(deps: Collaborators, data):
             record = records_as_json([stored])[0]
         except Exception:  # noqa: BLE001 - retain the validated saved values
             pass
+        if record is not None:
+            # ExpenseRecord/records_as_json carry no notion of CSS -- that is
+            # a browser-only concern -- so the class this same save already
+            # resolved above is merged onto the plain dict here rather than
+            # widening the shared record shape for one field. See
+            # verified-transaction-rows.js's addExpense, which colors the row
+            # this record backs the moment Save All appends it live.
+            record['category_class'] = category_cls
     return {
         'ok': True,
         'expense_id': expense_id,

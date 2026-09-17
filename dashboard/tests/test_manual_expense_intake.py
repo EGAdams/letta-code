@@ -43,7 +43,10 @@ def test_success_reads_back_the_stored_record(monkeypatch):
     assert result['ok'] is True
     assert result['expense_id'] == 501
     assert result['duplicate'] is False
-    assert result['record'] == {'id': 501, 'description': 'Cash Tip', 'category_name': 'Food'}
+    assert result['record'] == {
+        'id': 501, 'description': 'Cash Tip', 'category_name': 'Food',
+        'category_class': 'cat-food',
+    }
 
 
 def test_unknown_category_is_rejected_before_any_save(monkeypatch):
@@ -111,3 +114,4 @@ def test_no_category_still_saves_with_null_category_id(monkeypatch):
     })
     assert result['ok'] is True
     assert captured['entry'].category_id is None
+    assert result['record']['category_class'] == 'cat-uncategorized'

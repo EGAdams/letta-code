@@ -334,6 +334,20 @@ export class ManualEntryForm {
     this.categorySelect.dataset.field = "categoryName";
     categoryWrap.appendChild(this.categorySelect);
 
+    const notesWrap = this._el("div", { className: "manual-entry-field" });
+    // Add Expense only, per the request this was built for -- the Recent
+    // Report dialog's Save All already has a document (and, on a scanned
+    // page, Mazda's own findings) to carry context; the Add Expense page has
+    // neither, so this is the one place an operator can leave a note about
+    // why they are hand-entering the line.
+    if (this.addExpenseMode) shell.appendChild(notesWrap);
+    notesWrap.appendChild(this._el("label", { text: "Notes" }));
+    this.notesInput = this._el("textarea");
+    this.notesInput.dataset.field = "notes";
+    this.notesInput.rows = 3;
+    this.notesInput.className = "manual-entry-field-wide";
+    notesWrap.appendChild(this.notesInput);
+
     const archiveKindWrap = this._el("div", {
       className: "manual-entry-field",
     });
@@ -389,6 +403,7 @@ export class ManualEntryForm {
       this.newVendorKeyInput,
       this.transactionDateInput,
       this.totalAmountInput,
+      this.notesInput,
     ]) {
       input.addEventListener("input", () => this._captureCurrentItem());
       input.addEventListener("blur", () => this._updateArchivePathPreview());
@@ -701,6 +716,7 @@ export class ManualEntryForm {
       categoryName: this.categorySelect.value,
       knownVendorKey: this.vendorSelect.value,
       newVendorKey: this.newVendorKeyInput.value,
+      notes: this.notesInput.value,
       expenseId,
     };
   }
@@ -746,6 +762,7 @@ export class ManualEntryForm {
     this.newVendorKeyInput.value = isUnknownFinding
       ? item.newVendorKey || ""
       : "";
+    this.notesInput.value = item.notes || "";
     this._showNewVendorKey(isUnknownFinding && !knownVendorKey);
     this._positionEl.textContent = this._positionText();
     this._renderErrors({});
@@ -1124,13 +1141,40 @@ export class ManualEntryForm {
             "/api/manual-receipt-entry",
             buildSubmitPayload(item, intakeRef),
           );
-      return { ...readSubmitResponse(json), isUpdate: false };
+      const result = { ...readSubmitResponse(json), isUpdate: false };
+      // Notes has no place in manual_expense_entry.py's argv (see
+      // buildAddExpensePayload) -- it rides the existing, already-wired
+      // /api/save-expense-notes endpoint the report page's Notes column
+      // already uses, by the expense_id this save just minted. A failure here
+      // must never read as the expense itself failing to save.
+      if (
+        this.addExpenseMode &&
+        result.ok &&
+        result.expenseId &&
+        item.notes.trim()
+      ) {
+        await this._saveNotes(result.expenseId, item.notes.trim());
+      }
+      return result;
     } catch (err) {
       return {
         ok: false,
         error: err && err.message ? err.message : String(err),
         isUpdate: false,
       };
+    }
+  }
+
+  /** Best-effort: the expense itself is already saved either way. */
+  async _saveNotes(expenseId, notes) {
+    try {
+      await this.http.postJSON("/api/save-expense-notes", {
+        expense_id: expenseId,
+        notes,
+      });
+    } catch {
+      // Same posture as the archive-verification terminal below -- a
+      // confirmation nicety on top of an already-successful save.
     }
   }
 
