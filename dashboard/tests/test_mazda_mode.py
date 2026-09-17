@@ -245,10 +245,21 @@ def test_only_one_place_decides_whether_mazda_runs():
     comparing the module-level EXECUTION_MODE would still be resolved at
     process start, so the switch would appear to work while one kind of
     document quietly ignored it.
+
+    Both entry points now live one layer further from server.py than the
+    comparison itself: process_scanned_document is in
+    intake/document_processing.py, and process_pdf_document is in
+    intake/pdf_document_processing.py. Each reaches _dispatch_mazda_or_block
+    through its own `deps.dispatch_mazda_or_block`, a collaborator server.py
+    builds fresh per call and points at its own `_dispatch_mazda_or_block`
+    name. So the call count is split across all three files rather than
+    several literal occurrences in server.py alone.
     """
     import inspect
 
+    import intake.document_processing as document_processing_mod
     import intake.mazda_dispatch as dispatch_mod
+    import intake.pdf_document_processing as pdf_document_processing_mod
     import server
 
     fork = inspect.getsource(dispatch_mod)
@@ -260,7 +271,16 @@ def test_only_one_place_decides_whether_mazda_runs():
     assert "EXECUTION_MODE == 'human_only'" not in source
     assert "EXECUTION_MODE == 'auto'" not in source
     assert 'current_execution_mode() ==' not in source
-    assert source.count('_dispatch_mazda_or_block(') >= 3  # def + scan + pdf
+    # Just the def now — both call sites moved out to their own modules.
+    assert source.count('_dispatch_mazda_or_block(') == 1
+    # ...plus each deps builder handing server.py's own name over by
+    # reference (never re-implemented) for its call site to use...
+    assert source.count('dispatch_mazda_or_block=_dispatch_mazda_or_block,') == 2
+    # ...which are the scan and PDF entry points' actual call sites.
+    scan_source = inspect.getsource(document_processing_mod)
+    assert 'deps.dispatch_mazda_or_block(' in scan_source
+    pdf_source = inspect.getsource(pdf_document_processing_mod)
+    assert 'deps.dispatch_mazda_or_block(' in pdf_source
 
 
 # ── the env var behind the switch ──────────────────────────────────────────

@@ -21,6 +21,9 @@ indices in `server.py` are guarded by the data they index into.
 
 from __future__ import annotations
 
+import json
+import re
+
 from pydantic import field_validator
 
 from contracts import StrictModel
@@ -90,3 +93,101 @@ _check_the_steps_are_in_order()
 #: The legacy view: the nine labels, in order.
 MAZDA_PROGRESS_LABELS: tuple[str, ...] = tuple(
     s.label for s in MAZDA_PROGRESS_STEPS)
+
+
+def mazda_progress_from_messages(intake, messages):
+    """Derive intake progress only from successful tool returns.
+
+    Indexes a parallel ``statuses`` list BY POSITION (statuses[1], [2], [7]),
+    which is only correct because MAZDA_PROGRESS_STEPS is in STEP order --
+    guarded by ``_check_the_steps_are_in_order()`` above.
+    """
+    calls = {}
+    returns = {}
+    for message in messages or []:
+        call = message.get('tool_call') or {}
+        call_id = call.get('tool_call_id') or message.get('tool_call_id')
+        if message.get('message_type') == 'tool_call_message' and call_id:
+            calls[call_id] = call
+        if message.get('message_type') == 'tool_return_message' and call_id:
+            returns[call_id] = message
+
+    statuses = ['pending'] * len(MAZDA_PROGRESS_LABELS)
+    doc_kind = str((intake or {}).get('doc_kind') or 'unknown').lower()
+    if doc_kind != 'unknown':
+        statuses[1] = 'skipped'
+    if doc_kind in ('statement', 'bank_statement'):
+        statuses[2] = 'done'  # dashboard preflight validated metadata/rows
+
+    def classify(call):
+        name = str(call.get('name') or '')
+        args = call.get('arguments') or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except ValueError:
+                args = {}
+        command = str(
+            args.get('command') or args.get('cmd') or args.get('input') or '')
+        if name == 'load_wrapper_revision':
+            return 0
+        if name == 'executor_run':
+            if ('classify_scan.py' in command
+                    or 'parse_and_categorize.py' in command
+                    and '--save' not in command
+                    or 'parse_statement_scan.py' in command):
+                return 1
+            if 'categorizer_main.py' in command:
+                return 3
+            if ('parse_and_categorize.py' in command and '--save' in command
+                    or 'store_statement_transactions.py' in command):
+                return 4
+            if '/api/expense-stored' in command:
+                return 8
+        if name in ('check_vendor_key', 'check_duplicates'):
+            return 2
+        if name == 'record_trace':
+            return 5
+        if name == 'judge_trace':
+            return 6
+        if name in ('propose_improvement', 'apply_proposal'):
+            return 7
+        return None
+
+    judge_passed = False
+    for call_id, call in calls.items():
+        index = classify(call)
+        if index is None:
+            continue
+        returned = returns.get(call_id)
+        successful = bool(
+            returned and str(returned.get('status') or 'success').lower()
+            in ('success', 'ok', 'completed'))
+        if successful:
+            statuses[index] = 'done'
+            if index == 6:
+                content = returned.get('tool_return') or returned.get('content') or ''
+                if isinstance(content, dict):
+                    verdict = content.get('verdict')
+                else:
+                    match = re.search(r'"verdict"\s*:\s*"([^"]+)"', str(content))
+                    verdict = match.group(1) if match else ''
+                judge_passed = str(verdict).upper() == 'PASS'
+        elif statuses[index] == 'pending':
+            statuses[index] = 'active'
+    if judge_passed:
+        statuses[7] = 'skipped'
+
+    steps = [
+        {'label': label, 'status': status}
+        for label, status in zip(MAZDA_PROGRESS_LABELS, statuses)
+    ]
+    completed = sum(status == 'done' for status in statuses)
+    required = sum(status != 'skipped' for status in statuses)
+    percent = round(completed * 100 / required) if required else 100
+    return {
+        'steps': steps,
+        'completed': completed,
+        'required': required,
+        'percent': percent,
+    }

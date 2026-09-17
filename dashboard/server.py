@@ -7,7 +7,6 @@ Then open: http://localhost:8765/
 """
 import json
 import glob
-import hashlib
 import os
 import re
 import shutil
@@ -16,10 +15,8 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from collections import deque
 import urllib.request
-import urllib.error
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, unquote
@@ -68,40 +65,29 @@ from agent_thoughts import select_thoughts
 from background_result_proxy import BackgroundResultProxy
 from category_picker import category_row_css, render_assets
 from recent_intake_view import collapse_check_evidence_rows
-from supporting_document_service import (
-    normalize_supporting_document_reference,
-    references_same_underlying_document,
-    should_suppress_source_document,
-)
+from supporting_document_service import normalize_supporting_document_reference
 from supporting_document_slots import SUPPORTING_DOCUMENT_CATALOG
-from finance.expense_schema import InformationSchemaProbe, ShowColumnsProbe
 from finance.report_verdict import (
     AuditorReportVerdictSource,
     IReportVerdictSource,
     NullReportVerdictSource,
     worst_status,
 )
-from finance.expense_edit_model import ExpenseEdit, ExpenseNotFound
 from finance.expense_edit_audit import (
     AuditedExpenseEditCommand,
     CallableExpenseEditCommand,
     DEFAULT_EXPENSE_EDIT_AUDIT_PATH,
     JsonlExpenseEditAuditLog,
 )
-from finance.http_coercion import as_float, as_int
+from finance.http_coercion import as_float
 from finance.category_naming import ICategoryNamer, TaxonomyCategoryNamer
-from finance.expense_edit_repository import (
-    MySqlExpenseRecordRepository,
-    readable_validation_error,
-    records_as_json,
-    search_criteria_from_request,
-)
+from finance.expense_edit_repository import MySqlExpenseRecordRepository
 from finance.expense_report_sync import StaticExpenseReportSynchronizer
 from finance.receipt_relocation import FilesystemReceiptFileRelocator
 from finance.receipt_destination import CanonicalReceiptDestinationPolicy
-from finance.report_page import ReportPageRoutes, ReportRowMatch
+from finance.report_page import ReportPageRoutes
 from finance import (archive_path, intake_report_model, intake_report_page,
-                     manual_entry, sales_tax, vendor_lookup)
+                     manual_entry, vendor_lookup)
 from finance.intake_report_model import (
     META_EMPTY,
     document_type_label as _document_type_label,
@@ -119,7 +105,6 @@ from supporting_document_application import (
     SupportingDocumentRequest,
     SupportingDocumentService,
 )
-from scanner_state import intake_is_in_progress
 from intake.trainer_contracts import IntakeCallback, TrainerLaunchRequest
 from intake.trainer_escalation import (
     CallbackTrainerEscalationRecorder,
@@ -131,7 +116,6 @@ from intake.trainer_notifier import (
     DetachedTrainerNotifier,
 )
 from intake.trainer_recovery import recover_pending_trainer_watches
-from intake.recent_intake_contracts import RecentIntakeEventIdentity
 from intake.recent_intake_routing import ExactRecentIntakeEventRouter
 from finance.statement_dashboard_adapters import (
     CallableStatementPreflight,
@@ -346,130 +330,17 @@ def _classify_report_status(report_file, verdict_source=None):
     return worst_status(badge, source.verdict(report_file)) or badge
 
 
-def _strip_html_text(fragment):
-    """Collapse an HTML fragment to its visible text (tags dropped,
-    whitespace normalized)."""
-    return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', fragment)).strip()
+from finance import report_attention as _report_attention  # noqa: E402
 
 
 def _auditor_attention_detail(report_file, verdict_source=None):
-    """The explanation for a report the auditor overruled.
-
-    A report failed by the auditor while still claiming PASS inside has no
-    explanation of its own to show — the red tab would otherwise say only "this
-    needs attention". These lines are the auditor's actual findings, e.g.
-    "beginning_balance 51,105.41 does not appear in <its own PDF>". Returns None
-    when the auditor has no complaint.
-    """
-    source = REPORT_VERDICT_SOURCE if verdict_source is None else verdict_source
-    if source.verdict(report_file) != 'fail':
-        return None
-    findings = source.findings(report_file)
-    return {
-        'badge': 'FAILED VERIFICATION',
-        'summary': ('The report claims to pass, but checking it against the '
-                    'source document in its own folder contradicts it.'),
-        'issues': [{'section': 'Source document check', 'status': 'FAIL', 'text': f}
-                   for f in findings],
-        'recommended_action': ('Re-parse the source PDF in this folder and '
-                               'regenerate the report from it; do not patch the '
-                               'generated HTML.'),
-    }
+    return _report_attention.auditor_attention_detail(
+        report_file, REPORT_VERDICT_SOURCE if verdict_source is None else verdict_source)
 
 
 def _extract_report_attention_detail(report_file, verdict_source=None):
-    """Pull the human-facing explanation out of a fail/review report.html.
-
-    The dashboard iframe hides everything except Verified Transactions, so the
-    parent view needs the hero badge, summary, unresolved sections, and the
-    report author's required/recommended next action. Returns a detail dict or
-    None when the report has no recognizable attention information.
-
-    When the auditor overruled the report's own badge, its findings lead —
-    whatever a contradicted report says about itself is not the explanation the
-    reader needs.
-    """
-    overruled = _auditor_attention_detail(report_file, verdict_source)
-    if overruled:
-        return overruled
-    try:
-        with open(report_file, 'r', encoding='utf-8', errors='replace') as f:
-            html = f.read()
-    except OSError:
-        return None
-    detail = {}
-    m = re.search(r'<div class="badge[^"]*">(.*?)</div>', html, re.S)
-    if m:
-        detail['badge'] = _strip_html_text(m.group(1))
-    m = re.search(r'<div class="summary-box">(.*?)</div>', html, re.S)
-    if m:
-        detail['summary'] = _strip_html_text(m.group(1))
-    # Older reports use a flat <h2> + <p class="warn"> layout instead of
-    # hero/card wrappers. Their final-status paragraph is both the badge and
-    # the best available summary.
-    if not detail.get('badge'):
-        m = re.search(
-            r'<h2[^>]*>Final[^<]*Status</h2>\s*<p[^>]*class=["\'](?:warn|fail)["\'][^>]*>(.*?)</p>',
-            html,
-            re.S | re.I,
-        )
-        if m:
-            final_text = _strip_html_text(m.group(1))
-            detail['badge'] = final_text
-            detail.setdefault('summary', final_text)
-    issues = []
-    for sec in re.finditer(r'<section class="card">(.*?)</section>', html, re.S):
-        body = sec.group(1)
-        sm = re.search(r'<span class="status-(fail|warn)[^"]*">(.*?)</span>',
-                       body, re.S)
-        if not sm:
-            continue
-        hm = re.search(r'<h2[^>]*>(.*?)</h2>', body, re.S)
-        # First paragraph of the section, with the status pill itself removed
-        # so its label isn't duplicated in the text.
-        pm = re.search(r'<p>(.*?)</p>', body, re.S)
-        text = ''
-        if pm:
-            text = _strip_html_text(
-                re.sub(r'<span class="status-[^"]*">.*?</span>', '', pm.group(1), flags=re.S))
-        issues.append({
-            'section': _strip_html_text(hm.group(1)) if hm else '',
-            'status': _strip_html_text(sm.group(2)),
-            'text': text,
-        })
-    if issues:
-        detail['issues'] = issues
-    else:
-        # Legacy flat reports put each warning immediately after its heading.
-        for sec in re.finditer(
-            r'<h2[^>]*>([^<]+)</h2>\s*<p[^>]*class=["\'](warn|fail)["\'][^>]*>(.*?)</p>',
-            html,
-            re.S | re.I,
-        ):
-            section = _strip_html_text(sec.group(1))
-            if section.lower().startswith('final '):
-                continue
-            raw_text = _strip_html_text(sec.group(3))
-            status_match = re.match(r'([A-Z_ ]+)\s*[—-]\s*(.*)', raw_text)
-            issues.append({
-                'section': section,
-                'status': (status_match.group(1).replace('_', ' ').strip()
-                           if status_match else sec.group(2).upper()),
-                'text': status_match.group(2).strip() if status_match else raw_text,
-            })
-        if issues:
-            detail['issues'] = issues
-    for paragraph in re.finditer(r'<p[^>]*>(.*?)</p>', html, re.S):
-        paragraph_text = _strip_html_text(paragraph.group(1))
-        action = re.match(
-            r'(?:Required|Recommended) next actions?\s*:\s*(.+)',
-            paragraph_text,
-            re.I,
-        )
-        if action:
-            detail['recommended_action'] = action.group(1).strip()
-            break
-    return detail or None
+    return _report_attention.extract_report_attention_detail(
+        report_file, REPORT_VERDICT_SOURCE if verdict_source is None else verdict_source)
 
 
 def _extract_report_failure_detail(report_file):
@@ -484,55 +355,27 @@ def _rol_reports_base_dir(month_key):
     return os.path.join(ROL_FINANCES_REPORTS_PARENT, sub)
 
 
+from finance import recent_reports_index as _recent_reports_index  # noqa: E402
+
+
+def _recent_reports_index_deps():
+    return _recent_reports_index.Collaborators(
+        reports_months=ROL_FINANCES_REPORTS_MONTHS,
+        reports_url_prefix=ROL_FINANCES_REPORTS_URL_PREFIX,
+        rol_reports_base_dir=_rol_reports_base_dir,
+        rol_finance_reports_for_month=_rol_finance_reports_for_month,
+        classify_report_status=_classify_report_status,
+    )
+
+
 def _month_broken_report_label(month_key):
-    """Label of the first report in this month whose file is missing or fails
-    verification, or None if every report card is healthy. Backs the month
-    tab's red state: the uncategorized-expense signal in _fetch_month_status
-    says nothing about whether the month's report.html files are correct, so
-    a month with all-green expenses could still hide a red report tab."""
-    base_dir = _rol_reports_base_dir(month_key)
-    for r in _rol_finance_reports_for_month(month_key):
-        report_file = os.path.join(base_dir, r['dir'], 'report.html')
-        status = (
-            _classify_report_status(report_file)
-            if os.path.isfile(report_file) else 'missing')
-        if status in ('missing', 'fail'):
-            return r['label']
-    return None
+    return _recent_reports_index.month_broken_report_label(
+        _recent_reports_index_deps(), month_key)
 
 
 def _rol_finance_recent_reports(limit=5):
-    """Gather every existing report.html across all months, newest-first, with
-    the most recently processed shown as 'latest' and the top `limit` entries
-    (needs-attention reports — status 'review'/'fail' — sorted ahead of clean
-    'pass' ones, each bucket newest-first) returned as 'items'. Backs the
-    dashboard's "New Records" section so a human sees the documents most
-    likely to need a look first, not just whatever was touched most recently."""
-    candidates = []
-    for month_key in ROL_FINANCES_REPORTS_MONTHS:
-        base_dir = _rol_reports_base_dir(month_key)
-        for r in _rol_finance_reports_for_month(month_key):
-            report_file = os.path.join(base_dir, r['dir'], 'report.html')
-            try:
-                mtime = os.path.getmtime(report_file)
-            except OSError:
-                continue
-            status = _classify_report_status(report_file)
-            candidates.append({
-                'key': r['key'],
-                'label': r['label'],
-                'month_key': month_key,
-                'status': status,
-                'needs_attention': status in ('review', 'fail'),
-                'mtime': mtime,
-                'url': f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html',
-            })
-    latest = max(candidates, key=lambda c: c['mtime']) if candidates else None
-    items = sorted(
-        candidates,
-        key=lambda c: (0 if c['needs_attention'] else 1, -c['mtime']),
-    )[:limit]
-    return {'latest': latest, 'items': items}
+    return _recent_reports_index.rol_finance_recent_reports(
+        _recent_reports_index_deps(), limit=limit)
 
 
 # ── Recent Report (/recent_report.html) ──────────────────────────────────
@@ -565,291 +408,75 @@ INTAKE_HALT_FILE = os.path.join(HERE, 'intake_halt.json')
 _intake_halt_lock = threading.Lock()
 
 
+from intake import recent_report_store as _recent_report_store  # noqa: E402
+
+
+def _recent_report_store_deps():
+    return _recent_report_store.Collaborators(
+        pointer_file=RECENT_REPORT_POINTER_FILE,
+        lock=_recent_report_lock,
+        report_file_for_url=_report_file_for_url,
+        rol_finance_recent_reports=_rol_finance_recent_reports,
+        current_execution_mode=current_execution_mode,
+        fold_event_into_intake=_fold_event_into_intake,
+        recent_intake_event_router=_recent_intake_event_router,
+        merge_recent_intake_event=merge_recent_intake_event,
+    )
+
+
 def _read_recent_pointer_file():
-    """Raw pointer-file contents ({} when missing/corrupt). The file holds BOTH
-    the report pointer ({report_path, updated_at}) and the last intake dispatch
-    ({intake: {...}}) — scanned documents usually have no report.html, so the
-    intake record is what lets /recent_report.html reflect them at all."""
-    try:
-        with open(RECENT_REPORT_POINTER_FILE, encoding='utf-8') as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return _recent_report_store.read_recent_pointer_file(_recent_report_store_deps())
 
 
 def _write_recent_pointer_file(data):
-    try:
-        with open(RECENT_REPORT_POINTER_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f)
-        return True
-    except OSError:
-        return False
+    return _recent_report_store.write_recent_pointer_file(_recent_report_store_deps(), data)
 
 
 def set_recent_report_pointer(report_path):
-    """Persist <url path> of the report.html for the most recently processed
-    document. No-op (False) when the path doesn't resolve to a real report."""
-    if not _report_file_for_url(report_path):
-        return False
-    with _recent_report_lock:
-        data = _read_recent_pointer_file()
-        data['report_path'] = report_path
-        data['updated_at'] = time.time()
-        return _write_recent_pointer_file(data)
+    return _recent_report_store.set_recent_report_pointer(
+        _recent_report_store_deps(), report_path)
 
 
 def intake_state_token():
-    """Cheap change-token for the Recent Report dialog's poll loop: the
-    pointer file's mtime, which record_recent_intake/merge_recent_intake_event
-    bump on every write (dispatch, and later Mazda's STEP 8 report-back).
-    A missing file (nothing scanned yet) gets a stable '0' token."""
-    try:
-        return str(os.path.getmtime(RECENT_REPORT_POINTER_FILE))
-    except OSError:
-        return '0'
+    return _recent_report_store.intake_state_token(_recent_report_store_deps())
 
 
 def record_recent_intake(image_path, label, kind='scan', facade=None,
                          conversation_id=None, dispatched_at=None,
                          content_sha256=None, status='processing',
                          status_detail=''):
-    """Record an intake dispatch (scan or PDF) the moment Mazda is notified,
-    so /recent_report.html can show the document even before — or without —
-    any report.html existing for it. Called from process_scanned_document /
-    process_pdf_document.
+    """Record an intake dispatch (scan or PDF). See
+    intake/recent_report_store.py."""
+    return _recent_report_store.record_recent_intake(
+        _recent_report_store_deps(), image_path, label, kind=kind, facade=facade,
+        conversation_id=conversation_id, dispatched_at=dispatched_at,
+        content_sha256=content_sha256, status=status, status_detail=status_detail)
 
-    `facade` is the deterministic classify+parse result (run_intake_facade),
-    already computed at dispatch time for every doc — seeds doc_kind/vendor
-    for the 'Document Type' field. It's frequently 'unknown' for scanned
-    images (no extractable text), in which case merge_recent_intake_event
-    overwrites it once Mazda reports her own vision classification back."""
-    facade = facade or {}
-    with _recent_report_lock:
-        data = _read_recent_pointer_file()
-        intake = {
-            'document': os.path.basename(image_path or ''),
-            'image_path': image_path or '',
-            'label': label or '',
-            'kind': kind,
-            'dispatched_at': float(dispatched_at or time.time()),
-            'expense_ids': [],
-            'duplicate_expense_ids': [],
-            'parsed': None,
-            'stored': None,
-            'doc_kind': facade.get('doc_kind'),
-            'vendor': facade.get('vendor'),
-            'conversation_id': conversation_id,
-            'content_sha256': content_sha256 or '',
-            'archive_paths': [],
-            'archive_years': [],
-            # Usually 'processing' -- a dispatch that Mazda will report back
-            # on. A capture rejected before dispatch (blank page, empty scanner
-            # output) records its own terminal 'fail' here instead, so the
-            # scanner's tab shows the failure rather than going on displaying
-            # the previous document.
-            'status': status,
-            'status_detail': status_detail,
-            'execution_mode': current_execution_mode(),
-        }
-        data['intake'] = intake
-        # Scans are ALSO recorded per-scanner (keyed by the scanner's human
-        # name), so the Window Scanner / Freezer Scanner tabs keep showing each
-        # scanner's own last document while both scanners run concurrently —
-        # the shared 'intake' slot above only ever shows whichever dispatch
-        # happened last.
-        if kind == 'scan' and label:
-            scanner_intakes = data.get('scanner_intakes')
-            if not isinstance(scanner_intakes, dict):
-                scanner_intakes = {}
-            scanner_intakes[label] = dict(intake)
-            data['scanner_intakes'] = scanner_intakes
-        return _write_recent_pointer_file(data)
+
+from intake import intake_folding as _intake_folding  # noqa: E402
+
+
+def _intake_folding_deps():
+    """Rebuilt per call, never captured -- see intake/intake_folding.py's
+    module docstring for why `duplicate_event_rows` and
+    `resolve_duplicate_expense_ids` route back through this module's own
+    names instead of calling their real implementation directly."""
+    return _intake_folding.Collaborators(
+        get_connection=_rol_get_connection,
+        duplicate_event_rows=_duplicate_event_rows,
+        resolve_duplicate_expense_ids=_resolve_duplicate_expense_ids,
+    )
 
 
 def _duplicate_event_rows(ids):
-    """Raw date/amount identity for duplicate callback validation."""
-    clean = []
-    for value in ids or []:
-        try:
-            value = int(value)
-        except (TypeError, ValueError):
-            continue
-        if value not in clean:
-            clean.append(value)
-    if not clean:
-        return []
-    placeholders = ','.join(['%s'] * len(clean))
-    with _rol_get_connection() as cnx:
-        with cnx.cursor() as cur:
-            cur.execute(
-                "SELECT id, expense_date, amount FROM expenses "
-                f"WHERE id IN ({placeholders})",
-                tuple(clean),
-            )
-            return list(cur.fetchall())
-
-
-def _duplicate_callback_integrity_error(event):
-    """Reject a duplicate ID whose stored date/amount is not this receipt."""
-    duplicate_ids = event.get('duplicate_expense_ids') or []
-    try:
-        duplicate_only = int(event.get('stored')) == 0 and bool(duplicate_ids)
-    except (TypeError, ValueError):
-        duplicate_only = False
-    date_s = str(event.get('expense_date') or '').strip()
-    amount_s = str(event.get('amount') or '').strip()
-    if not duplicate_only or not date_s or not amount_s:
-        return ''
-    try:
-        expected_amount = abs(float(
-            amount_s.replace(',', '').replace('$', '')))
-        clean_ids = [int(value) for value in duplicate_ids]
-        rows = _duplicate_event_rows(clean_ids)
-    except Exception as exc:
-        print(f'[expense-stored] duplicate callback validation skipped: {exc}')
-        return ''
-    by_id = {int(row['id']): row for row in rows}
-    for expense_id in clean_ids:
-        row = by_id.get(expense_id)
-        if row is None:
-            return f'Duplicate callback named missing expense {expense_id}.'
-        try:
-            stored_amount = abs(float(row.get('amount')))
-        except (TypeError, ValueError):
-            return f'Duplicate expense {expense_id} has an unreadable amount.'
-        stored_date = str(row.get('expense_date') or '').strip()
-        if stored_date != date_s or abs(stored_amount - expected_amount) >= 0.005:
-            return (
-                f'Duplicate callback mismatch: current parse is {date_s} '
-                f'${expected_amount:.2f}, but expense {expense_id} is '
-                f'{stored_date or "unknown date"} ${stored_amount:.2f}.'
-            )
-    return ''
+    return _intake_folding.duplicate_event_rows(_intake_folding_deps(), ids)
 
 
 def _fold_event_into_intake(intake, event):
-    """Fold one STEP 8 event's fields (expense ids + parsed/stored counts +
-    doc_kind/vendor) into one intake record, in place."""
-    integrity_error = _duplicate_callback_integrity_error(event)
-    if integrity_error:
-        # Never let a coincidental/old DB row become this scan's displayed
-        # receipt. Preserve the current source document and surface the failed
-        # correlation for the Trainer instead.
-        event = dict(event)
-        event['expense_id'] = None
-        event['expense_ids'] = []
-        event['duplicate_expense_ids'] = []
-        intake['expense_ids'] = []
-        intake['duplicate_expense_ids'] = []
-        intake['integrity_error'] = integrity_error
-        intake['status'] = 'fail'
-        intake['status_detail'] = integrity_error
-    ids = list(intake.get('expense_ids') or [])
-    duplicate_ids = list(intake.get('duplicate_expense_ids') or [])
-    # A corrected duplicate-only callback supersedes any earlier bad store
-    # from the same isolated run. Keep only the canonical existing rows named
-    # by the final callback instead of permanently unioning a deleted/bad ID
-    # into the scanner view.
-    try:
-        duplicate_only = (int(event.get('stored')) == 0 and
-                          bool(event.get('duplicate_expense_ids')))
-    except (TypeError, ValueError):
-        duplicate_only = False
-    if duplicate_only:
-        ids = []
-        duplicate_ids = []
-    # Duplicates matter as much as newly-stored rows here: a re-scan that
-    # stores nothing still shows its transactions so they can be
-    # recategorized before the next scan.
-    for eid in (list(event.get('expense_ids') or [])
-                + list(event.get('duplicate_expense_ids') or [])
-                + list(event.get('scanned_statement_attached') or [])
-                + [event.get('expense_id')]):
-        try:
-            eid = int(eid)
-        except (TypeError, ValueError):
-            continue
-        if eid not in ids:
-            ids.append(eid)
-    intake['expense_ids'] = ids
-    for eid in event.get('duplicate_expense_ids') or []:
-        try:
-            eid = int(eid)
-        except (TypeError, ValueError):
-            continue
-        if eid not in duplicate_ids:
-            duplicate_ids.append(eid)
-    intake['duplicate_expense_ids'] = duplicate_ids
-    for k in ('parsed', 'stored', 'rolled_back_row_count'):
-        if event.get(k) is not None:
-            try:
-                intake[k] = int(event[k])
-            except (TypeError, ValueError):
-                pass
-    # Safety net for a duplicate run that named no ids. The receipt/invoice
-    # branch of Mazda's STEP 8 has more than once posted
-    # duplicate_expense_ids:[] even though check_duplicates knew the existing
-    # row's id, which left the Recent Report page with nothing to render — the
-    # user sees "already in the database" and no Verified Transactions table at
-    # all. The event still carries the date/amount it matched on, so resolve
-    # the pre-existing row here rather than depending on the agent's payload.
-    if (not ids and not duplicate_ids
-            and intake.get('stored') == 0 and (intake.get('parsed') or 0) > 0):
-        recovered = _resolve_duplicate_expense_ids(
-            event.get('expense_date'), event.get('amount'))
-        if recovered:
-            intake['expense_ids'] = list(recovered)
-            intake['duplicate_expense_ids'] = list(recovered)
-    # doc_kind/vendor: Mazda's own classification (STEP 8 payload) beats the
-    # facade's dispatch-time guess (often 'unknown' for scanned images) —
-    # accept either her doc_kind (statement/receipt/unknown, matching the
-    # facade's vocabulary) or classify_scan.py's doc_type/merchant naming.
-    doc_kind = event.get('doc_kind') or event.get('doc_type')
-    if doc_kind and doc_kind != 'unknown':
-        intake['doc_kind'] = doc_kind
-    vendor = event.get('vendor') or event.get('merchant')
-    if vendor and vendor != 'unknown':
-        intake['vendor'] = vendor
-    if event.get('archive_paths') is not None:
-        intake['archive_paths'] = [
-            str(path).strip() for path in (event.get('archive_paths') or [])
-            if str(path).strip()
-        ]
-    if event.get('archive_years') is not None:
-        cleaned_years = []
-        for year in event.get('archive_years') or []:
-            try:
-                cleaned_years.append(int(year))
-            except (TypeError, ValueError):
-                continue
-        intake['archive_years'] = cleaned_years
-    intake['reported_at'] = time.time()
-    event_status = str(event.get('status') or '').strip().lower()
-    # STEP 8 and Trainer updates can race. A late expense-stored callback has
-    # no status of its own and must not downgrade an already-terminal Trainer
-    # PASS/FAIL back to "complete", which would re-lock the scanner after a
-    # service restart.
-    if event_status:
-        intake['status'] = event_status
-    elif intake.get('status_source') == 'transport':
-        # A synchronous Letta POST can time out after the isolated
-        # conversation accepted the message. Its later STEP 8 callback is
-        # authoritative proof of delivery; clear only that provisional
-        # transport failure, never a Trainer verdict.
-        intake['status'] = 'complete'
-        intake['status_detail'] = ''
-        intake['status_source'] = 'callback'
-    elif str(intake.get('status') or '').lower() not in {
-            'pass', 'corrected', 'fail', 'stalled'}:
-        intake['status'] = 'complete'
-    if event.get('status_detail'):
-        intake['status_detail'] = str(event['status_detail'])
-    if event.get('trainer_dispatched') is not None:
-        intake['trainer_dispatched'] = bool(event['trainer_dispatched'])
-    if event.get('trainer_escalation_reason'):
-        intake['trainer_escalation_reason'] = str(
-            event['trainer_escalation_reason'])
+    """Fold one STEP 8 event's fields into one intake record, in place.
+    The merge rule lives in intake/intake_folding.py."""
+    return _intake_folding.fold_event_into_intake(
+        _intake_folding_deps(), intake, event)
 
 
 _recent_intake_event_router = ExactRecentIntakeEventRouter()
@@ -857,225 +484,49 @@ _recent_intake_event_router = ExactRecentIntakeEventRouter()
 
 def merge_recent_intake_event(event):
     """Fold a STEP 8 /api/expense-stored event into every intake record it
-    belongs to — the shared 'last processed document' record and/or the
-    per-scanner records — so the Recent Report and per-scanner views can list
-    the actual transactions once Mazda reports them.
-
-    Routing is fail-closed: a callback must carry a conversation id, dispatch
-    timestamp, or document path. The injected router then selects only records
-    proven to belong to that callback. An uncorrelated event remains available
-    on the event bus but cannot mutate the latest scanner report."""
-    with _recent_report_lock:
-        data = _read_recent_pointer_file()
-        main = data.get('intake') if isinstance(data.get('intake'), dict) else None
-        scanner_intakes = data.get('scanner_intakes')
-        scanners = ([i for i in scanner_intakes.values() if isinstance(i, dict)]
-                    if isinstance(scanner_intakes, dict) else [])
-        candidates = ([main] if main else []) + scanners
-        identity = RecentIntakeEventIdentity.from_mapping(event)
-        if identity is None:
-            return False
-        targets = _recent_intake_event_router.select_targets(identity, candidates)
-        if not targets:
-            return False
-        for intake in targets:
-            _fold_event_into_intake(intake, event)
-        return _write_recent_pointer_file(data)
+    belongs to. See intake/recent_report_store.py."""
+    return _recent_report_store.merge_recent_intake_event(
+        _recent_report_store_deps(), event)
 
 
 def merge_statement_review_result(payload):
     """Publish a successful review retry through the normal report event path."""
-    report = (payload or {}).get('report') or {}
-    if not report.get('ok') or not report.get('source_file'):
-        return False
-    return merge_recent_intake_event({
-        'document_path': report.get('source_file'),
-        'doc_kind': 'statement',
-        'vendor': report.get('bank_name'),
-        'parsed': report.get('transactions_parsed'),
-        'stored': report.get('stored'),
-        'expense_ids': report.get('expense_ids') or [],
-        'duplicate_expense_ids': report.get('duplicate_expense_ids') or [],
-        'status': 'complete',
-    })
-
-
-# The terminal-status vocabulary moved to intake/statuses.py as a Literal.
-# merge_recent_intake_status() DROPS any update whose status is not in this set,
-# silently, so a status the Trainer sends that this set does not know leaves the
-# document on `processing` forever — round 11's defect.
-from intake.statuses import TERMINAL_INTAKE_STATUSES as _TERMINAL_INTAKE_STATUSES  # noqa: E402
+    return _recent_report_store.merge_statement_review_result(
+        _recent_report_store_deps(), payload)
 
 
 def merge_recent_intake_status(update):
-    """Apply a Trainer terminal status to the exact dispatched intake.
-
-    Conversation id is the primary correlation key; document path plus dispatch
-    timestamp is the compatibility fallback. Never update the merely-latest
-    intake when no exact match exists, because Window and Freezer can overlap.
-    """
-    status = str(update.get('status') or '').strip().lower()
-    if status not in _TERMINAL_INTAKE_STATUSES:
-        return False
-    identity = RecentIntakeEventIdentity.from_mapping(update)
-    if identity is None:
-        return False
-    conversation_id = identity.conversation_id
-    document_path = identity.document_path
-    dispatched_at = identity.dispatched_at or 0.0
-    with _recent_report_lock:
-        data = _read_recent_pointer_file()
-        main = data.get('intake') if isinstance(data.get('intake'), dict) else None
-        scanner_intakes = data.get('scanner_intakes')
-        scanners = ([i for i in scanner_intakes.values() if isinstance(i, dict)]
-                    if isinstance(scanner_intakes, dict) else [])
-        candidates = ([main] if main else []) + scanners
-        targets = []
-        for intake in candidates:
-            if conversation_id and intake.get('conversation_id') == conversation_id:
-                targets.append(intake)
-                continue
-            same_path = document_path and intake.get('image_path') == document_path
-            try:
-                same_dispatch = (dispatched_at and
-                                 abs(float(intake.get('dispatched_at') or 0) -
-                                     dispatched_at) < 2.0)
-            except (TypeError, ValueError):
-                same_dispatch = False
-            if same_path and same_dispatch:
-                targets.append(intake)
-        if not targets:
-            return False
-        for intake in targets:
-            integrity_error = str(
-                intake.get('integrity_error') or '').strip()
-            if status in {'pass', 'corrected'} and integrity_error:
-                intake['status'] = 'fail'
-                intake['status_detail'] = integrity_error
-            else:
-                intake['status'] = status
-                intake['status_detail'] = str(
-                    update.get('detail') or '').strip()
-            intake['status_source'] = str(
-                update.get('status_source') or 'trainer').strip()
-            intake['trainer_report'] = str(update.get('report_path') or '').strip()
-            intake['reported_at'] = time.time()
-        return _write_recent_pointer_file(data)
+    """Apply a Trainer terminal status to the exact dispatched intake. See
+    intake/recent_report_store.py."""
+    return _recent_report_store.merge_recent_intake_status(
+        _recent_report_store_deps(), update)
 
 
 def record_intake_status(data):
     """Dashboard endpoint used by the Trainer runner after writing its report."""
-    merged = merge_recent_intake_status(data or {})
-    return {'ok': merged, 'status': (data or {}).get('status', '')}
+    return _recent_report_store.record_intake_status(
+        _recent_report_store_deps(), data)
+
+
+from finance import manual_receipt_intake as _manual_receipt_intake  # noqa: E402
+
+
+def _manual_receipt_intake_deps():
+    return _manual_receipt_intake.Collaborators(
+        resolve_reporting_category=_resolve_reporting_category,
+        invalidate_receipt_index=_invalidate_receipt_index,
+        merge_recent_intake_event=merge_recent_intake_event,
+        get_expense_edit_repository=_get_expense_edit_repository,
+        synchronize_recent_report_image=_synchronize_recent_report_image,
+        vendor_prefix=_vendor_prefix,
+    )
 
 
 def submit_manual_receipt_entry(data):
-    """POST /api/manual-receipt-entry: the needs_human_review form's Save button.
-
-    Stores the human-entered fields through manual_entry.py (the exact tool
-    Mazda's own pipeline uses, just with --engine local instead of her LLM
-    turn), then folds a STEP-8-shaped event into the intake record — same as
-    Mazda's own /api/expense-stored callback — so expense_ids populate (the
-    Verified Transactions table and the archive-verification terminal both
-    key off that), and status flips from needs_human_review to complete. A
-    failure leaves the intake queued so the form reappears, same as the
-    statement review dialog's "pops up again" contract.
-    """
-    data = data or {}
-    # HTTP JSON is untrusted shape, not just untrusted value: coerce here, at
-    # the boundary, before the strict Pydantic model — ManualReceiptEntry's
-    # strict=True deliberately rejects a numeric field arriving as a string
-    # rather than silently coercing it.
-    try:
-        total_amount = as_float(data.get('total_amount'), 'total_amount')
-    except ValueError as exc:
-        return {'ok': False, 'error': str(exc)}
-    category_name = str(data.get('category_name') or '').strip()
-    category_id = None
-    if category_name:
-        category_id, category_cls = _resolve_reporting_category(category_name)
-        if category_cls is None:
-            return {'ok': False, 'error': f'Unknown category: {category_name!r}'}
-    try:
-        org_id = as_int(data.get('org_id') or 1, 'org_id')
-    except ValueError as exc:
-        return {'ok': False, 'error': str(exc)}
-    try:
-        entry = manual_entry.ManualReceiptEntry(
-            image_path=data.get('image_path', ''),
-            merchant_name=data.get('merchant_name', ''),
-            transaction_date=data.get('transaction_date', ''),
-            total_amount=total_amount,
-            category_id=category_id,
-            org_id=org_id,
-            vendor_key=str(data.get('vendor_key') or '').strip(),
-            learn_vendor=bool(data.get('learn_vendor')),
-        )
-    except ValidationError as exc:
-        return {'ok': False, 'error': str(exc)}
-
-    ok, payload = manual_entry.submit_manual_receipt_entry(entry)
-    if not ok:
-        return {'ok': False, **payload}
-
-    # A successful --save just moved a receipt file into readable_documents/
-    # out-of-process (the parse_and_categorize.py subprocess), invisible to
-    # this process's in-memory index until the 300s TTL expires. Without this,
-    # the archive-verification terminal and the View Receipt button that fire
-    # immediately after this call see a stale index and report no receipt at
-    # all -- same as record_stored_expense (Mazda's callback) and
-    # reprocess_report already do for their own out-of-process receipt writes.
-    _invalidate_receipt_index()
-    report = payload.get('report') or {}
-    expense_id = report.get('expense_id')
-    duplicate = bool(report.get('duplicate'))
-    conversation_id = str(data.get('conversation_id') or '').strip()
-    merge_recent_intake_event({
-        'conversation_id': conversation_id,
-        'document_path': entry.image_path,
-        'expense_ids': [] if expense_id is None else [expense_id],
-        'duplicate_expense_ids': [expense_id] if duplicate and expense_id is not None else [],
-        'parsed': 1,
-        'stored': 0 if duplicate else 1,
-        'doc_kind': 'receipt',
-        'vendor': entry.merchant_name,
-        'status': 'complete',
-        'status_detail': (f'Entered manually by operator — expense_id={expense_id}'
-                          if not duplicate
-                          else f'Matched an existing expense (id={expense_id}); not double-entered.'),
-    })
-    record = {
-        'id': int(expense_id),
-        'transaction_date': entry.transaction_date,
-        'total_amount': entry.total_amount,
-        'description': entry.merchant_name,
-        'id_light': '',
-        'category_id': category_id,
-        'category_name': category_name,
-    } if expense_id is not None else None
-    image_sync = {'renamed': False}
-    if expense_id is not None:
-        try:
-            stored = _get_expense_edit_repository().read(int(expense_id))
-            record = records_as_json([stored])[0]
-        except Exception:  # noqa: BLE001 - retain the validated saved values
-            pass
-        image_sync = _synchronize_recent_report_image(
-            int(expense_id),
-            vendor_key=entry.vendor_key,
-            transaction_date=entry.transaction_date,
-            fallback_vendor_key=_vendor_prefix(
-                str((record or {}).get('id_light') or '')),
-            fallback_date=entry.transaction_date,
-        )
-    return {
-        'ok': True,
-        'expense_id': expense_id,
-        'duplicate': duplicate,
-        'vendor_remembered': report.get('vendor_remembered'),
-        'record': record,
-        'image': image_sync,
-    }
+    """POST /api/manual-receipt-entry: the needs_human_review form's Save
+    button. See finance/manual_receipt_intake.py."""
+    return _manual_receipt_intake.submit_manual_receipt_entry(
+        _manual_receipt_intake_deps(), data)
 
 
 from finance import manual_expense_intake as _manual_expense_intake  # noqa: E402
@@ -1152,105 +603,13 @@ def _get_expense_edit_repository():
     return _expense_edit_repository
 
 
+from finance import receipt_reference_sync as _receipt_reference_sync  # noqa: E402
+
+
 def _update_recent_receipt_references(expense_ids, path, old_path=''):
-    """Keep every row on one receipt pointed at its newly renamed image.
-
-    Synchronizes expenses.id_light, receipt_url, and source_file only when
-    source_file references the same old receipt (matching old_path basename),
-    and matching receipt_metadata.id_light exists.
-    """
-    ids = tuple(dict.fromkeys(int(value) for value in expense_ids if int(value) > 0))
-    if not ids:
-        return
-    with _rol_get_connection() as cnx:
-        with cnx.cursor() as cur:
-            schema = InformationSchemaProbe().read(
-                cur, ('receipt_url', 'source_file', 'id_light', 'receipt_metadata'))
-
-            # Read current state for conditional updates
-            placeholders = ','.join(['%s'] * len(ids))
-            select_parts = ['id']
-            if schema.has('source_file'):
-                select_parts.append('source_file')
-            if schema.has('id_light'):
-                select_parts.append('id_light')
-            if schema.has('receipt_metadata'):
-                select_parts.append('receipt_metadata')
-
-            cur.execute(
-                f"SELECT {', '.join(select_parts)} FROM expenses "
-                f"WHERE id IN ({placeholders})",
-                ids,
-            )
-            current_rows = {int(row['id']): row for row in cur.fetchall()}
-
-            # Build new id_light from the new path
-            new_basename = os.path.basename(path)
-            new_id_light = os.path.splitext(new_basename)[0]
-            old_basename = os.path.basename(old_path) if old_path else ''
-
-            # Update each row conditionally
-            for expense_id in ids:
-                row = current_rows.get(expense_id)
-                if not row:
-                    continue
-
-                # Only update if source_file matches old receipt
-                current_source = str(row.get('source_file') or '')
-                if old_basename and current_source:
-                    # Check if source_file references the same old receipt
-                    if os.path.basename(current_source) != old_basename:
-                        continue
-
-                # Check receipt_metadata against the pre-rename identity. The
-                # repository may already have written expenses.id_light by the
-                # time this aggregate-image synchronization runs; comparing to
-                # that new value was the stale-ID ordering bug.
-                current_id_light = str(row.get('id_light') or '')
-                old_id_light = os.path.splitext(old_basename)[0]
-                receipt_metadata = row.get('receipt_metadata') or ''
-                try:
-                    import json
-                    metadata = json.loads(receipt_metadata) if receipt_metadata else {}
-                except (ValueError, TypeError):
-                    metadata = {}
-
-                metadata_id_light = str(metadata.get('id_light') or '')
-
-                # Only update if metadata id_light matches current id_light
-                if schema.has('id_light') and schema.has('receipt_metadata'):
-                    owned_id_light = old_id_light or current_id_light
-                    if metadata_id_light and owned_id_light and metadata_id_light != owned_id_light:
-                        continue
-
-                # Build update for this specific row
-                assignments = []
-                values = []
-
-                if schema.has('receipt_url'):
-                    assignments.append('receipt_url = %s')
-                    values.append(new_basename)
-
-                if schema.has('source_file'):
-                    assignments.append('source_file = %s')
-                    values.append(path)
-
-                if schema.has('id_light'):
-                    assignments.append('id_light = %s')
-                    values.append(new_id_light)
-
-                if schema.has('receipt_metadata') and metadata:
-                    metadata['id_light'] = new_id_light
-                    assignments.append('receipt_metadata = %s')
-                    values.append(json.dumps(metadata))
-
-                if assignments:
-                    cur.execute(
-                        f"UPDATE expenses SET {', '.join(assignments)} WHERE id = %s",
-                        tuple(values) + (expense_id,),
-                    )
-
-            cnx.commit()
+    return _receipt_reference_sync.update_recent_receipt_references(
+        _receipt_reference_sync.Collaborators(get_connection=_rol_get_connection),
+        expense_ids, path, old_path)
 
 
 def _synchronize_recent_report_image(expense_id, **changes):
@@ -1272,121 +631,44 @@ def _synchronize_recent_report_image(expense_id, **changes):
         }
 
 
-def search_stored_expenses(data, repository=None):
-    """POST /api/expense-search: rows behind the Edit Expense button.
+from finance import expense_commands as _expense_commands  # noqa: E402
 
-    Read-only. A criteria error is the operator's to fix ("enter a merchant, a
-    date range, or an amount"), so it comes back as a message rather than a
-    500; a database failure does not, so it is reported as itself.
-    """
-    repo = repository or _get_expense_edit_repository()
-    try:
-        criteria = search_criteria_from_request(data)
-    except (ValueError, ValidationError) as exc:
-        return {'ok': False, 'error': readable_validation_error(exc)}
-    try:
-        records = repo.search(criteria)
-    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
-        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
-    return {'ok': True, 'records': records_as_json(records)}
+
+def _expense_commands_deps():
+    return _expense_commands.Collaborators(
+        get_expense_edit_repository=_get_expense_edit_repository,
+        invalidate_receipt_index=_invalidate_receipt_index,
+        synchronize_recent_report_image=_synchronize_recent_report_image,
+        vendor_prefix=_vendor_prefix,
+    )
+
+
+def search_stored_expenses(data, repository=None):
+    """POST /api/expense-search: rows behind the Edit Expense button."""
+    return _expense_commands.search_stored_expenses(
+        _expense_commands_deps(), data, repository=repository)
+
+
+from finance import expense_edit_service as _expense_edit_service  # noqa: E402
+
+
+def _expense_edit_service_deps():
+    return _expense_edit_service.Collaborators(
+        get_expense_edit_repository=_get_expense_edit_repository,
+        taxonomy_category_namer=taxonomy_category_namer,
+        invalidate_receipt_index=_invalidate_receipt_index,
+        synchronize_recent_report_image=_synchronize_recent_report_image,
+        vendor_prefix=_vendor_prefix,
+        static_expense_report_synchronizer=StaticExpenseReportSynchronizer,
+        rol_finances_reports_parent=ROL_FINANCES_REPORTS_PARENT,
+    )
 
 
 def _edit_stored_expense(data, repository=None, namer=None, report_sync=None):
-    """Apply one correction; the public command wraps this with auditing.
-
-    Mirrors submit_manual_receipt_entry's boundary discipline exactly -- coerce
-    the untrusted JSON shape here, then let the strict Pydantic model be the
-    single place the three field rules are enforced.
-    """
-    data = data or {}
-    repo = repository or _get_expense_edit_repository()
-    resolver = namer or taxonomy_category_namer()
-    try:
-        expense_id = as_int(data.get('expense_id'), 'expense_id')
-        total_amount = as_float(data.get('total_amount'), 'total_amount')
-        category_id = resolver.id_for(data.get('category_name'))
-    except ValueError as exc:
-        return {'ok': False, 'error': str(exc)}
-    try:
-        edit = ExpenseEdit(
-            expense_id=expense_id,
-            merchant_name=data.get('merchant_name', ''),
-            transaction_date=data.get('transaction_date', ''),
-            total_amount=total_amount,
-            category_id=category_id,
-        )
-    except ValidationError as exc:
-        return {'ok': False, 'error': readable_validation_error(exc)}
-    learning_vendor_key = ''
-    vendor_remembered = None
-    if data.get('learn_vendor'):
-        learning_vendor_key = str(data.get('vendor_key') or '').strip()
-        if not learning_vendor_key or category_id is None:
-            return {
-                'ok': False,
-                'error': 'A new vendor requires vendor_key and category.',
-            }
-        try:
-            vendor_remembered = vendor_lookup.remember_vendor(
-                edit.merchant_name, category_id,
-                learning_vendor_key).model_dump()
-        except Exception as exc:  # noqa: BLE001 - no DB write happened yet
-            return {
-                'ok': False,
-                'error': f'Could not learn vendor: {type(exc).__name__}: {exc}',
-            }
-        if not vendor_remembered.get('remembered'):
-            reason = vendor_remembered.get('reason') or 'the vendor rule was not persisted'
-            returned_key = vendor_remembered.get('vendor_key')
-            # remember() may return an existing stored key chosen from a broad
-            # human entry. Accept that safe repeat only when a real key and
-            # the precise "already known" result are both present.
-            if not returned_key or reason != 'vendor_key already known':
-                return {'ok': False, 'error': f'Could not learn vendor: {reason}'}
-    before = None
-    try:
-        if hasattr(repo, 'read'):
-            before = repo.read(expense_id)
-        result = repo.apply_edit(edit)
-    except ExpenseNotFound as exc:
-        return {'ok': False, 'error': str(exc)}
-    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
-        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
-    # An edit can move a row's date/amount, which is what every report.html
-    # row and the receipt index key off -- drop the cached index so "View
-    # Receipt" re-resolves against the new values, same as a fresh save does.
-    _invalidate_receipt_index()
-    image_sync = _synchronize_recent_report_image(
-        expense_id,
-        vendor_key=str(data.get('vendor_key') or ''),
-        transaction_date=edit.transaction_date,
-        fallback_vendor_key=_vendor_prefix(result.record.id_light),
-        fallback_date=result.record.transaction_date,
-        replace_identity='expense_date' in result.changed_fields,
-    )
-    warnings = list(result.warnings)
-    if before is not None:
-        try:
-            synchronizer = report_sync or StaticExpenseReportSynchronizer(
-                ROL_FINANCES_REPORTS_PARENT)
-            synchronizer.synchronize(before, result.record)
-        except Exception as exc:  # the database edit already succeeded
-            warnings.append(
-                f'Expense saved, but static reports were not updated: '
-                f'{type(exc).__name__}: {exc}')
-    if image_sync.get('path'):
-        warnings = [warning for warning in warnings
-                    if 'receipt file on disk was not renamed' not in warning]
-    if image_sync.get('warning'):
-        warnings.append(image_sync['warning'])
-    return {
-        'ok': True,
-        'record': records_as_json([result.record])[0],
-        'changed_fields': list(result.changed_fields),
-        'warnings': warnings,
-        'vendor_remembered': vendor_remembered,
-        'image': image_sync,
-    }
+    """Apply one correction; the public command wraps this with auditing."""
+    return _expense_edit_service.edit_stored_expense(
+        _expense_edit_service_deps(), data, repository=repository, namer=namer,
+        report_sync=report_sync)
 
 
 def edit_stored_expense(data, repository=None, namer=None, report_sync=None,
@@ -1403,649 +685,126 @@ def edit_stored_expense(data, repository=None, namer=None, report_sync=None,
 
 
 def delete_stored_expense(data, repository=None):
-    """POST /api/expense-delete: remove one stored row.
-
-    The Delete button on a Verified Transactions row. Deliberately narrower
-    than edit_stored_expense: the only thing an operator can say here is
-    *which* row, so the only thing to coerce is an id. Confirmation is the
-    browser's job (a dialog naming the merchant), not this function's -- a
-    request that reaches here has already been agreed to.
-    """
-    data = data or {}
-    repo = repository or _get_expense_edit_repository()
-    try:
-        expense_id = as_int(data.get('expense_id'), 'expense_id')
-    except ValueError as exc:
-        return {'ok': False, 'error': str(exc)}
-    if expense_id <= 0:
-        return {'ok': False, 'error': 'expense_id must be a positive row id'}
-    try:
-        deletion = repo.delete(expense_id)
-    except ExpenseNotFound as exc:
-        return {'ok': False, 'error': str(exc)}
-    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
-        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
-    # The receipt index keys off (date, amount) per row; a removed row must
-    # stop answering "View Receipt" for the file it used to claim.
-    _invalidate_receipt_index()
-    image_sync = _synchronize_recent_report_image(
-        expense_id, deleted=True,
-        fallback_vendor_key=_vendor_prefix(deletion.record.id_light),
-        fallback_date=deletion.record.transaction_date,
-    )
-    response = {'ok': True,
-        'record': records_as_json([deletion.record])[0],
-        'line_item_ids': list(deletion.line_item_ids)}
-    if image_sync.get('path') or image_sync.get('warning'):
-        response['image'] = image_sync
-    return response
+    """POST /api/expense-delete: remove one stored row."""
+    return _expense_commands.delete_stored_expense(
+        _expense_commands_deps(), data, repository=repository)
 
 
 def add_sales_tax_to_expense(data, repository=None):
-    """POST /api/expense-add-tax: put sales tax back on one stored row.
+    """POST /api/expense-add-tax: put sales tax back on one stored row."""
+    return _expense_commands.add_sales_tax_to_expense(
+        _expense_commands_deps(), data, repository=repository)
 
-    The "Add 6%" button. The row is re-read here and the new amount computed
-    here rather than sent up from the browser, for two reasons that are really
-    the same reason: the rate is a fact about Michigan (finance/sales_tax.py
-    owns it, so it cannot drift between the page and the reports), and the
-    arithmetic is exact Decimal rather than a float multiply in a script tag.
-    The write then goes through the ordinary edit path, so a taxed row picks up
-    the same id_light linkage warning any other amount change earns.
-    """
-    data = data or {}
-    repo = repository or _get_expense_edit_repository()
-    try:
-        expense_id = as_int(data.get('expense_id'), 'expense_id')
-        # This endpoint is the concrete "Add 6%" command, not a general tax
-        # calculator.  Ignore no caller-controlled rate because allowing one
-        # would let the button's invariant be bypassed by a crafted request.
-        rate = sales_tax.MICHIGAN_SALES_TAX_RATE
-    except ValueError as exc:
-        return {'ok': False, 'error': str(exc)}
-    if expense_id <= 0:
-        return {'ok': False, 'error': 'expense_id must be a positive row id'}
-    try:
-        before = repo.read(expense_id)
-    except ExpenseNotFound as exc:
-        return {'ok': False, 'error': str(exc)}
-    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
-        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
-    taxed = sales_tax.with_sales_tax(before.total_amount, rate)
-    # Preserve the stored category id directly. Sending its display name back
-    # through today's taxonomy can reject an otherwise valid historical row
-    # after a category rename, even though this command changes only amount.
-    try:
-        result = repo.apply_edit(ExpenseEdit(
-            expense_id=expense_id,
-            merchant_name=before.description,
-            transaction_date=before.transaction_date,
-            total_amount=float(taxed),
-            category_id=before.category_id,
-        ))
-    except (ExpenseNotFound, ValidationError) as exc:
-        return {'ok': False, 'error': readable_validation_error(exc)}
-    except Exception as exc:  # noqa: BLE001 - surfaced to the operator verbatim
-        return {'ok': False, 'error': f'{type(exc).__name__}: {exc}'}
-    _invalidate_receipt_index()
-    image_sync = _synchronize_recent_report_image(
-        expense_id,
-        fallback_vendor_key=_vendor_prefix(result.record.id_light),
-        fallback_date=result.record.transaction_date,
-    )
-    return {
-        'ok': True,
-        'record': records_as_json([result.record])[0],
-        'changed_fields': list(result.changed_fields),
-        'warnings': list(result.warnings),
-        'tax_added': float(sales_tax.tax_on(before.total_amount, rate)),
-        'rate': float(rate),
-        'previous_amount': before.total_amount,
-        'image': image_sync,
-    }
+
+from intake import intake_halt as _intake_halt  # noqa: E402
+
+
+def _intake_halt_deps():
+    return _intake_halt.Collaborators(halt_file=INTAKE_HALT_FILE, lock=_intake_halt_lock)
 
 
 def record_intake_halt(data):
     """Persist a fail-loud intake halt so the dashboard can raise the alert.
-
-    Called by rol_finances' DashboardIntakeHaltNotifier. Stores the single most
-    recent halt as active; a human clears it via /api/intake-halt-ack. Kept as a
-    discrete event (not merged) because each halt is a distinct fault to see."""
-    event = data or {}
-    record = {
-        'active': True,
-        'halted_at': time.time(),
-        'step': str(event.get('step', '')),
-        'cause': str(event.get('cause', '')),
-        'exception_type': str(event.get('exception_type', '')),
-        'document_path': str(event.get('document_path', '')),
-        'repo_path': str(event.get('repo_path', '')),
-        'metadata': event.get('metadata') if isinstance(event.get('metadata'), dict) else {},
-    }
-    with _intake_halt_lock:
-        try:
-            with open(INTAKE_HALT_FILE, 'w') as fh:
-                json.dump(record, fh)
-        except OSError as exc:
-            return {'ok': False, 'error': str(exc)}
-    return {'ok': True, 'active': True}
+    See intake/intake_halt.py."""
+    return _intake_halt.record_intake_halt(_intake_halt_deps(), data)
 
 
 def read_intake_halt():
     """Current intake-halt state for the front-end poller."""
-    with _intake_halt_lock:
-        try:
-            with open(INTAKE_HALT_FILE) as fh:
-                record = json.load(fh)
-        except (OSError, ValueError):
-            return {'ok': True, 'active': False}
-    if not isinstance(record, dict) or not record.get('active'):
-        return {'ok': True, 'active': False}
-    return {'ok': True, 'active': True, 'event': record}
+    return _intake_halt.read_intake_halt(_intake_halt_deps())
 
 
 def acknowledge_intake_halt():
     """Clear the active halt once a human has seen it (the alert's Acknowledge)."""
-    with _intake_halt_lock:
-        try:
-            with open(INTAKE_HALT_FILE) as fh:
-                record = json.load(fh)
-        except (OSError, ValueError):
-            return {'ok': True, 'active': False}
-        if isinstance(record, dict):
-            record['active'] = False
-            try:
-                with open(INTAKE_HALT_FILE, 'w') as fh:
-                    json.dump(record, fh)
-            except OSError as exc:
-                return {'ok': False, 'error': str(exc)}
-    return {'ok': True, 'active': False}
+    return _intake_halt.acknowledge_intake_halt(_intake_halt_deps())
 
 
 def _load_recent_report_pointer():
-    data = _read_recent_pointer_file()
-    rp = data.get('report_path')
-    if not rp or not _report_file_for_url(rp):
-        return None
-    try:
-        updated_at = float(data.get('updated_at') or 0)
-    except (TypeError, ValueError):
-        updated_at = 0.0
-    return {'report_path': rp, 'updated_at': updated_at}
+    return _recent_report_store.load_recent_report_pointer(_recent_report_store_deps())
 
 
 def resolve_recent_report():
-    """The most recently processed document, as one of:
-      {'mode': 'report', 'url', 'file'}   — a report.html to mirror, or
-      {'mode': 'intake', 'intake': {...}} — a dispatch with no report.html
-                                            (typical for scanned documents).
-    Picks the newest among the explicit report pointer, the newest report.html
-    mtime, and the last intake dispatch. Returns None when nothing exists."""
-    candidates = []
-    pointer = _load_recent_report_pointer()
-    if pointer:
-        candidates.append((pointer['updated_at'], 'report', pointer['report_path']))
-    latest = _rol_finance_recent_reports(limit=1).get('latest')
-    if latest:
-        candidates.append((latest['mtime'], 'report', latest['url']))
-    intake = _read_recent_pointer_file().get('intake')
-    if isinstance(intake, dict) and intake.get('dispatched_at'):
-        candidates.append((float(intake['dispatched_at']), 'intake', intake))
-    for _ts, mode, payload in sorted(candidates, key=lambda c: c[0], reverse=True):
-        if mode == 'intake':
-            return {'mode': 'intake', 'intake': payload}
-        fp = _report_file_for_url(payload)
-        if fp:
-            return {'mode': 'report', 'url': payload, 'file': fp}
-    return None
+    """The most recently processed document. See
+    intake/recent_report_store.py."""
+    return _recent_report_store.resolve_recent_report(_recent_report_store_deps())
+
+
+from finance import expense_lookup as _expense_lookup  # noqa: E402
+
+
+def _expense_lookup_deps():
+    return _expense_lookup.Collaborators(
+        get_connection=_rol_get_connection,
+        reporting_category_for_id=_reporting_category_for_id,
+        css_class_for_report_name=_css_class_for_report_name,
+    )
 
 
 def _fetch_expenses_by_ids(ids):
-    """Rows for the synthetic recent-intake view — same shape as the Receipt
-    Only rows so the shared picker markup drives them identically.
-
-    A PARENT is a reconciliation anchor and carries no category of its own, so
-    the picker refuses it (see recategorize_expense). When STEP 8 reports a
-    PARENT id we therefore substitute its LINE_ITEM children — those are the
-    rows that actually hold the category — so the intake page shows something
-    the user can click and set. The child description is prefixed with the
-    parent's (e.g. "Consumers Energy — Amount Due") so the vendor is still
-    recognizable in the table."""
-    clean = []
-    for i in ids or []:
-        try:
-            clean.append(int(i))
-        except (TypeError, ValueError):
-            continue
-    clean = clean[:200]
-    if not clean:
-        return []
-    placeholders = ','.join(['%s'] * len(clean))
-    with _rol_get_connection() as cnx:
-        with cnx.cursor() as cur:
-            cur.execute('SELECT id, parent_id FROM categories')
-            parent_of = {
-                int(r['id']): (int(r['parent_id']) if r['parent_id'] is not None else None)
-                for r in cur.fetchall()
-            }
-            cur.execute(
-                "SELECT 1 AS present FROM INFORMATION_SCHEMA.COLUMNS "
-                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'expenses' "
-                "AND COLUMN_NAME = 'expense_role' LIMIT 1")
-            has_expense_roles = bool(cur.fetchone())
-            role_select = ', expense_role' if has_expense_roles else ''
-            # A narrower live schema must not fail the whole page: absent
-            # optional columns come back as NULL (see finance.expense_schema).
-            optional_columns = (
-                'id_light', 'receipt_url', 'document_url',
-                'scanned_statement_url', 'moms_ledger', 'source_file',
-                'human_verified',
-            )
-            schema = InformationSchemaProbe().read(cur, optional_columns)
-            select_sql = schema.select_clause(
-                ('id', 'expense_date', 'amount', 'description', 'category_id'),
-                optional_columns,
-            )
-            cur.execute(
-                f"SELECT {select_sql}{role_select} "
-                f"FROM expenses WHERE id IN ({placeholders}) "
-                "ORDER BY expense_date, id",
-                tuple(clean),
-            )
-            rows = cur.fetchall()
-
-            # Expand each PARENT anchor into its categorizable LINE_ITEM children.
-            parent_ids = [int(r['id']) for r in rows
-                          if has_expense_roles
-                          and (r.get('expense_role') or '') == 'PARENT']
-            if parent_ids:
-                parent_desc = {int(r['id']): (r.get('description') or '').strip()
-                               for r in rows}
-                ph2 = ','.join(['%s'] * len(parent_ids))
-                cur.execute(
-                    "SELECT id, expense_date, amount, id_light, description, category_id, "
-                    "receipt_url, document_url, scanned_statement_url, moms_ledger, "
-                    f"{('source_file' if schema.has('source_file') else 'NULL AS source_file')}, "
-                    f"{('human_verified' if schema.has('human_verified') else '0 AS human_verified')}, "
-                    "expense_role, parent_expense_id "
-                    f"FROM expenses WHERE parent_expense_id IN ({ph2}) "
-                    "AND expense_role='LINE_ITEM' "
-                    "ORDER BY expense_date, id",
-                    tuple(parent_ids),
-                )
-                children = cur.fetchall()
-                child_by_parent = {}
-                for ch in children:
-                    pdesc = parent_desc.get(int(ch.get('parent_expense_id') or 0), '')
-                    cdesc = (ch.get('description') or '').strip()
-                    if pdesc and cdesc and pdesc.lower() not in cdesc.lower():
-                        ch['description'] = f'{pdesc} — {cdesc}'
-                    child_by_parent.setdefault(
-                        int(ch['parent_expense_id']), []).append(ch)
-                # STEP 8 reports the anchor AND the children it created, so a
-                # child is usually in `rows` already. Keyed by id, the spliced
-                # copy wins: it is the one carrying the parent's vendor prefix.
-                expanded = {}
-                for r in rows:
-                    if (r.get('expense_role') or '') == 'PARENT':
-                        # Drop the anchor; show its children instead. A parent
-                        # with no children left (data anomaly) is simply omitted
-                        # rather than shown as an uncategorizable dead row.
-                        for ch in child_by_parent.get(int(r['id']), []):
-                            expanded[int(ch['id'])] = ch
-                    else:
-                        expanded.setdefault(int(r['id']), r)
-                rows = sorted(
-                    expanded.values(),
-                    key=lambda r: (str(r.get('expense_date') or ''), int(r['id'])),
-                )
-    out = []
-    for r in rows:
-        cid = r.get('category_id')
-        rep = _reporting_category_for_id(
-            int(cid) if cid is not None else None, parent_of)
-        out.append({
-            'id': int(r['id']),
-            'date': str(r['expense_date']),
-            'amount': str(r['amount']),
-            'id_light': (r.get('id_light') or '').strip(),
-            # Filled from the display/source description immediately before
-            # rendering; never conflate id_light with a reusable vendor key.
-            'vendor_key': '',
-            'description': (r.get('description') or '').strip(),
-            'reporting_category': rep,
-            'cat_class': _css_class_for_report_name(rep),
-            'receipt_url': (r.get('receipt_url') or '').strip(),
-            'document_url': (r.get('document_url') or '').strip(),
-            'scanned_statement_url': (r.get('scanned_statement_url') or '').strip(),
-            'moms_ledger': (r.get('moms_ledger') or '').strip(),
-            'source_file': (r.get('source_file') or '').strip(),
-            'human_verified': bool(r.get('human_verified')),
-        })
-    return out
+    """Rows for the synthetic recent-intake view. See finance/expense_lookup.py."""
+    return _expense_lookup.fetch_expenses_by_ids(_expense_lookup_deps(), ids)
 
 
 def _resolve_duplicate_expense_ids(expense_date, amount, limit=3):
-    """Ids of already-stored expenses matching (expense_date, |amount|).
+    """Last-resort recovery for a duplicate-only callback that named no ids.
+    See intake/intake_folding.py's resolve_duplicate_expense_ids."""
+    return _intake_folding.resolve_duplicate_expense_ids(
+        _intake_folding_deps(), expense_date, amount, limit)
 
-    Used only as the last-resort recovery in _fold_event_into_intake when a
-    duplicate-only callback named no ids at all. Deliberately narrow:
 
-    - (date, amount) is the same join this codebase already trusts for
-      receipt↔row linkage (see _resolve_expense_receipt_path), and it is the only
-      identifying pair a duplicate callback reliably carries — vendor_key is
-      NOT usable here, because check_duplicates reports the stored row's
-      id_light (e.g. consumers_energy_01_23_25_222_65) while STEP 8 reports the
-      normalized vendor key (consumers_7996); requiring them to agree would
-      reject every real match.
-    - More than `limit` hits means the pair is ambiguous (a common round amount
-      on a busy day), so return nothing rather than showing rows that may
-      belong to an unrelated document. Guessing wrong here is worse than the
-      empty table this is trying to fix.
+from finance import document_association as _document_association  # noqa: E402
 
-    Best-effort: any DB problem yields [] and the caller renders as before.
-    """
-    date_s = str(expense_date or '').strip()
-    amount_s = str(amount or '').strip()
-    if not date_s or not amount_s:
-        return []
-    try:
-        amount_f = abs(float(amount_s.replace(',', '').replace('$', '')))
-    except ValueError:
-        return []
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                cur.execute(
-                    'SELECT id FROM expenses '
-                    'WHERE expense_date = %s AND ABS(ABS(amount) - %s) < 0.005 '
-                    'ORDER BY id LIMIT %s',
-                    (date_s, amount_f, limit + 1),
-                )
-                rows = cur.fetchall()
-    except Exception as exc:
-        print(f'[expense-stored] duplicate id recovery failed: {exc}')
-        return []
-    ids = [int(r['id']) for r in rows]
-    return [] if len(ids) > limit else ids
+
+def _document_association_deps():
+    return _document_association.Collaborators(
+        find_matching_report_row=_find_matching_report_row,
+        source_document_path=_source_document_path,
+        resolve_local_supporting_document=_resolve_local_supporting_document,
+        resolve_expense_receipt_path=_resolve_expense_receipt_path,
+        report_file_for_url=_report_file_for_url,
+        readable_docs_base=READABLE_DOCS_BASE,
+        associated_source_paths=_associated_source_paths,
+        associated_evidence_paths=_associated_evidence_paths,
+        statement_archive_path=_statement_archive_path,
+        recent_intake_archive_path=_recent_intake_archive_path,
+    )
+
+
+STATEMENT_INTAKE_DOC_KINDS = _document_association.STATEMENT_INTAKE_DOC_KINDS
 
 
 def _associated_source_paths(rows):
-    """Resolve the source PDF and receipt file backing a set of transactions
-    (the rows shown on the synthetic Recent Report intake view).
-
-    Reuses the same (date, amount) matching primitives the Set Category
-    dialog's View Receipt button and recategorize's report-row search already
-    use, rather than re-deriving document/transaction linkage from scratch:
-      - _find_matching_report_row + _source_document_path locate the PDF/xlsx
-        an existing report.html's row for the same (date, amount) traces back
-        to — i.e. this transaction was originally imported from there.
-      - _resolve_expense_receipt_path locates a receipt file on disk for a
-        row that has a non-empty receipt_url.
-    Returns (pdf_path or '', receipt_path or ''), stopping at the first row
-    that yields each (rows of one intake are assumed to share one source doc).
-    """
-    pdf_path, receipt_path = '', ''
-    for r in rows or []:
-        if not pdf_path:
-            match = _find_matching_report_row(
-                r.get('date'), r.get('amount'), r.get('vendor_key'))
-            if match:
-                pdf_path = _source_document_path(match.report_path) or ''
-            if not pdf_path:
-                # No report.html traces back to this row, but the expense may
-                # still carry its own document_url (e.g. a bank-downloaded
-                # statement/xlsx attached directly, never via a report row).
-                du = (r.get('document_url') or '').strip()
-                if du:
-                    pdf_path = _resolve_local_supporting_document(du, 'source') or ''
-        if not receipt_path:
-            ru = (r.get('receipt_url') or '').strip()
-            if ru:
-                receipt_path = _resolve_expense_receipt_path(
-                    r.get('date'), r.get('amount'), ru) or ''
-        if pdf_path and receipt_path:
-            break
-    return pdf_path, receipt_path
+    return _document_association.associated_source_paths(_document_association_deps(), rows)
 
 
 def _associated_evidence_paths(rows):
-    """Resolve the remaining two supporting-document evidence slots
-    (`scanned_statement_url`, `moms_ledger`) backing a set of transactions —
-    the counterparts to `_associated_source_paths`'s PDF/receipt.
-
-    Scanner intakes routinely populate `scanned_statement_url` (the archived
-    photo of the printed statement) without ever touching `document_url` or
-    `receipt_url`, so these are surfaced separately rather than folded into
-    _associated_source_paths's two slots. See the 4-evidence-slot model.
-    Returns (scanned_statement_path or '', moms_ledger_path or ''), stopping at
-    the first row that yields each.
-    """
-    scanned_statement_path, moms_ledger_path = '', ''
-    for r in rows or []:
-        if not scanned_statement_path:
-            ref = (r.get('scanned_statement_url') or '').strip()
-            if ref:
-                scanned_statement_path = (
-                    _resolve_local_supporting_document(ref, 'scanned_statement')
-                    or ref)
-        if not moms_ledger_path:
-            ref = (r.get('moms_ledger') or '').strip()
-            if ref:
-                moms_ledger_path = (
-                    _resolve_local_supporting_document(ref, 'moms_ledger') or ref)
-        if scanned_statement_path and moms_ledger_path:
-            break
-    return scanned_statement_path, moms_ledger_path
-
-
-STATEMENT_INTAKE_DOC_KINDS = {'statement', 'bank_statement', 'credit_card_statement'}
+    return _document_association.associated_evidence_paths(_document_association_deps(), rows)
 
 
 def _rows_are_statement_rows(rows):
-    """Do these transactions come off a scanned statement page?
-
-    scanned_statement_url is set for statement rows and for nothing else, so it
-    identifies the document even when the intake record forgot to.
-    """
-    return any((r.get('scanned_statement_url') or '').strip() for r in rows or [])
+    return _document_association.rows_are_statement_rows(rows)
 
 
 def _statement_archive_path(rows, vendor_key=''):
-    """Locate the canonically-named bank_statements archive copy of a scanned
-    statement — readable_documents/bank_statements/<year>/<month>/
-    <vendor>_<slug>/<vendor>_<slug>.<ext>, where slug is built from the
-    statement's own date range (e.g. 'july_31__august_15').
-
-    Scanner intakes only ever populate scanned_statement_url with the raw
-    scan filename (e.g. window_scan_...jpg) — the properly-named copy filed
-    under bank_statements/ isn't linked from the DB anywhere, so it has to be
-    found by matching this slug against every year/month folder rather than
-    looked up directly. Vendor tokens disambiguate when more than one folder
-    shares a date range; an unresolved ambiguity returns '' rather than
-    guessing (same fail-closed shape as _find_matching_report_row).
-    """
-    dates = sorted({r.get('date') for r in rows or [] if r.get('date')})
-    if not dates:
-        return ''
-    try:
-        start = datetime.strptime(dates[0], '%Y-%m-%d')
-        end = datetime.strptime(dates[-1], '%Y-%m-%d')
-    except ValueError:
-        return ''
-    slug = (f'{start.strftime("%B").lower()}_{start.day:02d}__'
-            f'{end.strftime("%B").lower()}_{end.day:02d}')
-    pattern = os.path.join(
-        READABLE_DOCS_BASE, 'bank_statements', str(start.year), '*', f'*{slug}')
-    folders = sorted(glob.glob(pattern))
-    if len(folders) > 1 and vendor_key:
-        tokens = [t for t in vendor_key.lower().split('_') if t.isalpha()]
-        narrowed = [f for f in folders
-                    if any(t in os.path.basename(f).lower() for t in tokens)]
-        if narrowed:
-            folders = narrowed
-    if len(folders) != 1:
-        return ''
-    folder = folders[0]
-    name = os.path.basename(folder)
-    for ext in ('.jpg', '.jpeg', '.png', '.pdf', '.xlsx'):
-        candidate = os.path.join(folder, name + ext)
-        if os.path.isfile(candidate):
-            return candidate
-    return ''
+    return _document_association.statement_archive_path(
+        _document_association_deps(), rows, vendor_key=vendor_key)
 
 
 def _recent_intake_archive_path(intake, rows, receipt_path=''):
-    """Return this intake's durable filed scan, never its staging name."""
-    archive_paths = [
-        str(path).strip() for path in (intake.get('archive_paths') or [])
-        if str(path).strip()
-    ]
-    if archive_paths:
-        return archive_paths[0]
-    # A receipt scan can arrive with doc_kind=unknown because the scanner
-    # facade dispatches before Mazda's classifier reports back. The rows' own
-    # receipt path is still authoritative and must win before the statement
-    # fallback below; otherwise archive verification reports "Archive path not
-    # found" even though the receipt file is present on disk.
-    if receipt_path and os.path.isfile(receipt_path):
-        return str(receipt_path).strip()
-    doc_kind = str(intake.get('doc_kind') or '').strip().lower()
-    if doc_kind in {'receipt', 'invoice'}:
-        return str(receipt_path or '').strip()
-    if doc_kind in STATEMENT_INTAKE_DOC_KINDS or _rows_are_statement_rows(rows):
-        # doc_kind is frequently absent: a scan dispatched with no facade, or
-        # one whose only outcome was duplicates, never records one. The rows
-        # themselves settle it -- scanned_statement_url is populated for
-        # statement transactions and nothing else -- so an unlabelled intake
-        # still finds its filed copy instead of showing no archive at all.
-        return _statement_archive_path(
-            rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
-    return ''
+    return _document_association.recent_intake_archive_path(
+        _document_association_deps(), intake, rows, receipt_path=receipt_path)
 
 
 def scanner_intake_archive_path(intake, rows):
-    """Resolve the durable archive file used by scanner verification.
-
-    Prefer the canonical ``bank_statements`` copy for statements. Older and
-    corrected duplicate-only intakes may only have the DB-backed
-    ``scanned_statement_url`` copy, so use that existing file as a safe
-    fallback instead of reporting that no archive exists.
-    """
-    doc_kind = str((intake or {}).get('doc_kind') or '').strip().lower()
-    archive_file = ''
-    if doc_kind in STATEMENT_INTAKE_DOC_KINDS:
-        archive_file = _statement_archive_path(
-            rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))
-    if archive_file:
-        return archive_file
-    if doc_kind in STATEMENT_INTAKE_DOC_KINDS:
-        scanned_statement_path, _moms_ledger_path = _associated_evidence_paths(rows)
-        if scanned_statement_path and os.path.isfile(scanned_statement_path):
-            return scanned_statement_path
-    _pdf_path, receipt_path = _associated_source_paths(rows)
-    return _recent_intake_archive_path(
-        intake or {}, rows, receipt_path=receipt_path)
+    return _document_association.scanner_intake_archive_path(
+        _document_association_deps(), intake, rows)
 
 
-# The nine intake steps moved to intake/progress.py as typed
-# `MazdaProgressStep`s. _mazda_progress_from_messages() below indexes a parallel
-# statuses list BY POSITION (statuses[1], [2], [7]), which is only correct
-# because the labels are in STEP order; the module now asserts position == step
-# number, so those indices are guarded by the data they index into.
-from intake.progress import MAZDA_PROGRESS_LABELS as _MAZDA_PROGRESS_LABELS  # noqa: E402
-
-
-def _mazda_progress_from_messages(intake, messages):
-    """Derive intake progress only from successful tool returns."""
-    calls = {}
-    returns = {}
-    for message in messages or []:
-        call = message.get('tool_call') or {}
-        call_id = call.get('tool_call_id') or message.get('tool_call_id')
-        if message.get('message_type') == 'tool_call_message' and call_id:
-            calls[call_id] = call
-        if message.get('message_type') == 'tool_return_message' and call_id:
-            returns[call_id] = message
-
-    statuses = ['pending'] * len(_MAZDA_PROGRESS_LABELS)
-    doc_kind = str((intake or {}).get('doc_kind') or 'unknown').lower()
-    if doc_kind != 'unknown':
-        statuses[1] = 'skipped'
-    if doc_kind in ('statement', 'bank_statement'):
-        statuses[2] = 'done'  # dashboard preflight validated metadata/rows
-
-    def classify(call):
-        name = str(call.get('name') or '')
-        args = call.get('arguments') or {}
-        if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except ValueError:
-                args = {}
-        command = str(
-            args.get('command') or args.get('cmd') or args.get('input') or '')
-        if name == 'load_wrapper_revision':
-            return 0
-        if name == 'executor_run':
-            if ('classify_scan.py' in command
-                    or 'parse_and_categorize.py' in command
-                    and '--save' not in command
-                    or 'parse_statement_scan.py' in command):
-                return 1
-            if 'categorizer_main.py' in command:
-                return 3
-            if ('parse_and_categorize.py' in command and '--save' in command
-                    or 'store_statement_transactions.py' in command):
-                return 4
-            if '/api/expense-stored' in command:
-                return 8
-        if name in ('check_vendor_key', 'check_duplicates'):
-            return 2
-        if name == 'record_trace':
-            return 5
-        if name == 'judge_trace':
-            return 6
-        if name in ('propose_improvement', 'apply_proposal'):
-            return 7
-        return None
-
-    judge_passed = False
-    for call_id, call in calls.items():
-        index = classify(call)
-        if index is None:
-            continue
-        returned = returns.get(call_id)
-        successful = bool(
-            returned and str(returned.get('status') or 'success').lower()
-            in ('success', 'ok', 'completed'))
-        if successful:
-            statuses[index] = 'done'
-            if index == 6:
-                content = returned.get('tool_return') or returned.get('content') or ''
-                if isinstance(content, dict):
-                    verdict = content.get('verdict')
-                else:
-                    match = re.search(r'"verdict"\s*:\s*"([^"]+)"', str(content))
-                    verdict = match.group(1) if match else ''
-                judge_passed = str(verdict).upper() == 'PASS'
-        elif statuses[index] == 'pending':
-            statuses[index] = 'active'
-    if judge_passed:
-        statuses[7] = 'skipped'
-
-    steps = [
-        {'label': label, 'status': status}
-        for label, status in zip(_MAZDA_PROGRESS_LABELS, statuses)
-    ]
-    completed = sum(status == 'done' for status in statuses)
-    required = sum(status != 'skipped' for status in statuses)
-    percent = round(completed * 100 / required) if required else 100
-    return {
-        'steps': steps,
-        'completed': completed,
-        'required': required,
-        'percent': percent,
-    }
+# The nine intake steps and the progress-from-messages derivation moved to
+# intake/progress.py as typed `MazdaProgressStep`s -- the module asserts
+# position == step number, so the indices _mazda_progress_from_messages()
+# relies on are guarded by the data they index into.
+from intake.progress import mazda_progress_from_messages as _mazda_progress_from_messages  # noqa: E402
 
 
 def mazda_intake_progress(intake):
@@ -2064,177 +823,29 @@ def mazda_intake_progress(intake):
     return _mazda_progress_from_messages(intake, messages)
 
 
+from finance import intake_report_builder as _intake_report_builder  # noqa: E402
+from finance.intake_report_builder import INTAKE_DOCUMENT_URL_PREFIX  # noqa: E402
+
+
+def _intake_report_builder_deps():
+    return _intake_report_builder.Collaborators(
+        fetch_expenses_by_ids=_fetch_expenses_by_ids,
+        associated_source_paths=_associated_source_paths,
+        associated_evidence_paths=_associated_evidence_paths,
+        recent_intake_archive_path=_recent_intake_archive_path,
+        statement_archive_path=_statement_archive_path,
+        receipt_only_picker_assets=_receipt_only_picker_assets,
+        receipt_only_cat_css=_receipt_only_cat_css,
+        mazda_intake_progress=mazda_intake_progress,
+        mazda_mode_current=lambda: _MAZDA_MODE_SERVICE.current(),
+    )
+
+
 def build_recent_intake_html(intake):
     """Synthetic recent-report page for an intake whose document has no
-    report.html (the normal case for scanner scans — they store expenses in
-    MySQL but never generate a report file). Mirrors the Receipt Only page:
-    a #verified-transactions table of the intake's expenses with the same
-    embedded category-picker dialog, so recategorize / view-receipt work
-    exactly like on a real report.
-
-    This function's one job is to gather the intake's data. What that data
-    *means* belongs to finance.intake_report_model, and how it looks belongs
-    to finance.intake_report_page."""
-    from html import escape as _esc
-    label = intake.get('label') or ''
-    dispatched_at = intake.get('dispatched_at')
-    when = ''
-    if dispatched_at:
-        when = datetime.fromtimestamp(float(dispatched_at)).strftime('%Y-%m-%d %H:%M')
-    reported = intake.get('reported_at')
-    intake_status = str(intake.get('status') or 'processing').lower()
-    duplicate_ids = {
-        int(i) for i in (intake.get('duplicate_expense_ids') or [])
-        if str(i).isdigit()
-    }
-
-    rows, row_error = [], None
-    try:
-        rows = _fetch_expenses_by_ids(intake.get('expense_ids') or [])
-        rows, promoted_duplicate_ids = collapse_check_evidence_rows(
-            rows, duplicate_ids)
-        duplicate_ids |= promoted_duplicate_ids
-    except Exception as exc:
-        row_error = str(exc)
-
-    pdf_path, receipt_path = _associated_source_paths(rows)
-    if intake.get('kind') == 'pdf':
-        # Rule 2: the currently-processed document IS the PDF — it's the
-        # source regardless of what (date, amount) matching finds elsewhere.
-        pdf_display = '<b>this.</b>'
-    else:
-        pdf_display = _esc(pdf_path) if pdf_path else META_EMPTY
-    scanned_statement_path, moms_ledger_path = _associated_evidence_paths(rows)
-    # Resolve the durable archive copy once: it is the ONLY scan-image path the
-    # report is allowed to print. The intake's own image_path is a temporary
-    # staging location, so showing it advertises a path that will not exist
-    # tomorrow (and leaks the staging tree) — the file name still appears as
-    # "Most Recent Document", which is the part a reader can act on.
-    archive_path = _recent_intake_archive_path(
-        intake, rows, receipt_path=receipt_path)
-    # The scanned statement is its own evidence slot, but for statement intakes
-    # it resolves to the same archived copy — print it only when it adds a path
-    # the reader cannot already see.
-    if archive_path and (
-            scanned_statement_path == archive_path
-            or archive_path == _statement_archive_path(
-                rows, vendor_key=(rows[0].get('vendor_key') if rows else ''))):
-        # For a statement these are two names for one page: scanned_statement_url
-        # holds the raw scanner filename the DB happened to record, archive_path
-        # the canonically-named copy actually filed. Printing both offers the
-        # reader a stale path beside the real one.
-        scanned_statement_path = ''
-
-    def _path_field(path):
-        return _esc(path) if path else META_EMPTY
-
-    meta_fields = [
-        ('Document Type', _esc(_document_type_label(
-            intake.get('doc_kind'), intake.get('vendor')))),
-        ('Month Range', _esc(_format_month_range(rows))),
-        ('Associated PDF', pdf_display),
-        ('Associated Receipt', _path_field(receipt_path)),
-        ('Associated Scanned Statement', _path_field(scanned_statement_path)),
-        ('Archived Scan Image', _path_field(archive_path)),
-        ('Associated Mom’s Ledger', _path_field(moms_ledger_path)),
-    ]
-
-    picker_css, picker_html, click_css = '', '', ''
-    try:
-        picker_css, picker_html, click_css = _receipt_only_picker_assets()
-    except Exception:
-        pass  # picker unavailable → page still renders, rows just aren't clickable
-
-    scanner_key = next((key for key, cfg in SCANNERS.items()
-                        if cfg.get('name') == label), '')
-    source_document_url = (
-        f'{INTAKE_DOCUMENT_URL_PREFIX}?scanner={scanner_key}'
-        if intake.get('kind') == 'scan' and scanner_key else '')
-    # Refresh while we're still waiting on Mazda's STEP 8 report-back.
-    terminal = intake_status in _TERMINAL_INTAKE_STATUSES
-    working = ('' if (reported or terminal)
-               else intake_report_page.mazda_working_html(
-                   mazda_intake_progress(intake)))
-    # Unconditional since 2026-08-19. It used to appear only on a
-    # needs_human_review intake -- i.e. only while Mazda was switched off --
-    # so turning her back on took the review dialog away with her. The two are
-    # separate questions: the switch decides who READS the next document, this
-    # form is where a human CHECKS and corrects whatever was read, and that is
-    # worth having in either mode. Save All still only inserts, so on a
-    # document Mazda already filed it is the way to add an expense she missed;
-    # correcting one she got wrong is Edit Expense's job, in the same dialog.
-    presentation_rows_list = intake_report_model.presentation_rows(
-        rows, duplicate_ids,
-        stored=intake.get('stored'), parsed=intake.get('parsed'))
-    source_descriptions = {}
-    doc_kind = str(intake.get('doc_kind') or '').lower()
-    if doc_kind in ('statement', 'bank_statement'):
-        source_descriptions = intake_report_model.recover_statement_source_descriptions(
-            f"{intake.get('image_path')}.statement.json"
-            if intake.get('image_path') else '',
-            presentation_rows_list,
-        )
-    elif doc_kind == 'receipt':
-        receipt_token = hashlib.sha256(
-            str(intake.get('image_path') or '').encode('utf-8')).hexdigest()[:12]
-        source_descriptions = intake_report_model.recover_receipt_source_descriptions(
-            f'/tmp/mazda_receipt_{receipt_token}.json'
-            if intake.get('image_path') else '',
-            presentation_rows_list,
-        )
-    presentation_rows_list = intake_report_model.apply_source_descriptions(
-        presentation_rows_list, source_descriptions)
-    presentation_rows_list = intake_report_model.apply_canonical_vendor_keys(
-        presentation_rows_list,
-        lambda description: manual_entry.resolve_vendor_match(
-            description).get('vendor_key'),
-    )
-    # Mazda's own findings (whatever STEP 8 already stored for this document)
-    # seed the review dialog instead of leaving it blank -- an auto-scan used
-    # to only ever populate Verified Transactions, so checking/correcting what
-    # she read meant running a manual receipt-reading command. resolve_vendor resolves
-    # each row's *canonical* vendor_key (manual_entry.resolve_vendor_match)
-    # so the dialog's vendor dropdown preselects a known merchant even though
-    # the DB's own vendor_key column can hold a one-off, transaction-specific
-    # slug rather than the reusable key the dropdown lists.
-    stored_items = intake_report_model.stored_findings(
-        presentation_rows_list,
-        resolve_vendor=lambda description: manual_entry.resolve_vendor_match(
-            description).get('vendor_key'),
-        guess_vendor=vendor_lookup.guess_vendor_key,
-        vendor_is_known=vendor_lookup.vendor_is_known)
-    manual_entry_html = intake_report_page.manual_entry_form_html(
-        intake.get('image_path'), intake.get('conversation_id'), scanner_key,
-        mazda_mode=_MAZDA_MODE_SERVICE.current(), stored_items=stored_items)
-    # Unconditional, unlike the form above. Save All inserts, so it belongs
-    # only to a scan nobody has typed in yet; Edit Expense corrects a row that
-    # is already stored, so gating it on the same status made it unreachable
-    # at exactly the moment it was needed.
-    expense_edit_html = intake_report_page.expense_edit_panel_html()
-    return intake_report_page.render_intake_report(
-        headline=intake_report_model.display_document_name(
-            archive_path, intake.get('document') or 'document'),
-        subtitle=(f'{label} — ' if label else '') + f'dispatched {when}',
-        meta_fields=meta_fields,
-        status_text=intake_report_model.status_sentence(
-            intake, rows, row_error=row_error,
-            status_detail=intake.get('status_detail')),
-        status_tone=intake_report_model.status_tone(
-            intake_status, reported, rows),
-        table_html=intake_report_page.transactions_table_html(
-            presentation_rows_list,
-            source_document_url=source_document_url,
-            empty_note=intake_report_model.empty_table_note(
-                intake_status, reported)),
-        working_html=working,
-        expense_edit_html=expense_edit_html,
-        archive_path=archive_path,
-        auto_refresh=not (rows or reported or terminal),
-        extra_css=('\n' + _receipt_only_cat_css() + '\n' + click_css + '\n'
-                   + picker_css + '\n'),
-        picker_html=picker_html,
-        manual_entry_html=manual_entry_html,
-    )
+    report.html. See finance/intake_report_builder.py."""
+    return _intake_report_builder.build_recent_intake_html(
+        _intake_report_builder_deps(), intake)
 
 
 def build_recent_report_html():
@@ -2272,42 +883,8 @@ def _embed_report_html(report_url, report_file):
 
 
 def _scanner_statement_report(scanner_key, intake):
-    """Prefer the canonical archived statement report for one scanner intake.
-
-    When a statement scan already has a real archived report.html that contains
-    one of this intake's expense ids, serve that report directly instead of the
-    synthetic intake page. This keeps the scanner tab aligned with the verified
-    canonical artifact and avoids collapsing a statement down to whatever subset
-    of ids happened to be forwarded in the intake callback.
-    """
-    if not isinstance(intake, dict):
-        return None
-    doc_kind = str(intake.get('doc_kind') or '').strip().lower()
-    if doc_kind not in {'statement', 'bank_statement', 'tax_document'}:
-        return None
-    expense_ids = []
-    for source in (intake.get('expense_ids') or [],
-                   intake.get('duplicate_expense_ids') or [],
-                   intake.get('scanned_statement_attached') or []):
-        for value in source:
-            try:
-                expense_ids.append(int(value))
-            except (TypeError, ValueError):
-                continue
-    if not expense_ids:
-        return None
-    seen = set()
-    for expense_id in expense_ids:
-        if expense_id in seen:
-            continue
-        seen.add(expense_id)
-        found = _find_matching_report_row('', '', expense_id=expense_id)
-        if not found:
-            continue
-        report_file = _report_file_for_url(found.report_path)
-        if report_file:
-            return {'url': found.report_path, 'file': report_file, 'expense_id': expense_id}
-    return None
+    return _document_association.scanner_statement_report(
+        _document_association_deps(), scanner_key, intake)
 
 
 def get_scanner_intake(scanner_key):
@@ -2391,122 +968,47 @@ def scanner_intake_document_path(scanner_key):
     return ''
 
 
-def _resolve_report_path_alias(report_path):
-    """The Recent Report view serves a real report.html at /recent_report.html,
-    so the picker dialog injected in that report posts
-    report_path='/recent_report.html' (it uses location.pathname). Translate
-    the alias to the underlying report URL so row recolor, receipt lookup and
-    reprocess hit the actual file on disk.
+from finance import report_file_lookup as _report_file_lookup  # noqa: E402
 
-    The dialog now posts location.search too (the scanner report needs it to say
-    WHICH scanner), so every synthetic page is matched on its path alone and
-    answers without its query string."""
-    base = str(report_path or '').split('?', 1)[0]
-    if base == RECENT_REPORT_PATH:
-        recent = resolve_recent_report()
-        if recent and recent.get('mode') == 'report':
-            return recent['url']
-        # Intake mode (or nothing yet): no report.html backs the page — return
-        # '' so recategorize does its search-every-report / DB-only fallback,
-        # exactly like the New Records dialog.
-        return ''
-    if base == SCANNER_REPORT_PATH:
-        # Scanner reports are always synthetic DB-backed pages. There is no
-        # report.html to recolor, so an empty path intentionally selects
-        # recategorize_expense's search/static-row-or-DB-only success path.
-        return ''
-    if base == RECEIPT_ONLY_REPORT_PATH:
-        # Synthetic too, but its own code path keys off this exact constant.
-        return base
-    return report_path
+
+def _report_file_lookup_deps():
+    return _report_file_lookup.Collaborators(
+        reports_url_prefix=ROL_FINANCES_REPORTS_URL_PREFIX,
+        reports_months=ROL_FINANCES_REPORTS_MONTHS,
+        rol_reports_base_dir=_rol_reports_base_dir,
+        reports=ROL_FINANCE_REPORTS,
+        recent_report_path=RECENT_REPORT_PATH,
+        scanner_report_path=SCANNER_REPORT_PATH,
+        receipt_only_report_path=RECEIPT_ONLY_REPORT_PATH,
+        resolve_recent_report=resolve_recent_report,
+        viewable_document_extensions=_VIEWABLE_DOCUMENT_EXTENSIONS,
+        supporting_document_annotation_cache=SUPPORTING_DOCUMENT_ANNOTATION_CACHE,
+        render_excel_for_browser=render_excel_for_browser,
+        source_document_path=_source_document_path,
+    )
+
+
+def _resolve_report_path_alias(report_path):
+    return _report_file_lookup.resolve_report_path_alias(
+        _report_file_lookup_deps(), report_path)
 
 
 def _split_report_url(report_path):
-    """Map '/rol_finances_reports/<month>/<rel>' -> (base_dir, rel), or None if
-    malformed or the month key isn't recognized."""
-    prefix = ROL_FINANCES_REPORTS_URL_PREFIX + '/'
-    if not report_path or not report_path.startswith(prefix):
-        return None
-    month_key, sep, rel = report_path[len(prefix):].partition('/')
-    if not sep or month_key not in ROL_FINANCES_REPORTS_MONTHS:
-        return None
-    return _rol_reports_base_dir(month_key), rel
+    return _report_file_lookup.split_report_url(_report_file_lookup_deps(), report_path)
 
 
 def _report_file_for_url(report_path):
-    """Map a /rol_finances_reports/<month>/<dir>/report.html URL path to its file on disk."""
-    split = _split_report_url(report_path)
-    if not split:
-        return None
-    base, rel = split
-    fp = os.path.abspath(os.path.join(base, rel))
-    base = os.path.abspath(base)
-    if os.path.commonpath([fp, base]) == base and os.path.isfile(fp):
-        return fp
-    return None
+    return _report_file_lookup.report_file_for_url(_report_file_lookup_deps(), report_path)
 
 
 def _iter_existing_report_files():
-    """Yield (url, file_path, label) for every report.html that actually exists on
-    disk, across every month x report-dir combination. Mirrors the nested loop in
-    _rol_finance_recent_reports but returns file paths instead of status info."""
-    for month_key in ROL_FINANCES_REPORTS_MONTHS:
-        base_dir = _rol_reports_base_dir(month_key)
-        for r in ROL_FINANCE_REPORTS:
-            report_file = os.path.join(base_dir, r['dir'], 'report.html')
-            if os.path.isfile(report_file):
-                url = f'{ROL_FINANCES_REPORTS_URL_PREFIX}/{month_key}/{r["dir"]}/report.html'
-                yield url, report_file, r['label']
+    return _report_file_lookup.iter_existing_report_files(_report_file_lookup_deps())
 
 
 def _find_matching_report_row(date_str, amount_str, vendor_key='', expense_id=None):
-    """Search every existing report.html's Verified-Transactions rows for the one
-    matching (date, amount) — used by recategorize_expense when it is called with
-    no report_path (the New Records dialog's case: it only knows the DB row, not
-    which static report.html — if any — already carries a <tr> for the same
-    transaction). Report-file vendor_keys are parsed from the bank statement and
-    often diverge from the DB's id_light-derived vendor_key (e.g. 'kum_go_2608r'
-    vs 'kum_go_2608r_walker'), so vendor_key is NOT required to match — only used
-    to disambiguate when more than one row shares the same date+amount.
-
-    Returns a ReportRowMatch for exactly one match, or None when zero or
-    unresolvably-many rows matched (leaves report files alone in the
-    ambiguous case rather than guessing wrong).
-    """
-    d = (date_str or '').strip()
-    a = (amount_str or '').strip()
-    eid = str(expense_id or '').strip()
-    if not eid and (not d or not a):
-        return None
-    matches: list[ReportRowMatch] = []
-    for url, file_path, label in _iter_existing_report_files():
-        try:
-            with open(file_path, encoding='utf-8', errors='replace') as f:
-                html = f.read()
-        except OSError:
-            continue
-        for m in re.finditer(r'<tr([^>]*)>(.*?)</tr>', html, re.S):
-            open_tag, inner = m.group(1), m.group(2)
-            vk_m = re.search(r'data-vendor-key="([^"]*)"', open_tag)
-            if not vk_m:
-                continue  # not a Verified-Transactions row (e.g. a summary table)
-            if eid:
-                if ('data-expense-id="%s"' % eid) not in open_tag:
-                    continue
-            elif ('>%s<' % d) not in inner or ('>%s<' % a) not in inner:
-                continue
-            matches.append(ReportRowMatch(
-                report_path=url, label=label, row_vendor_key=vk_m.group(1),
-            ))
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1 and vendor_key:
-        vk = vendor_key.strip()
-        narrowed = [mch for mch in matches if mch.row_vendor_key and (
-            vk.startswith(mch.row_vendor_key) or mch.row_vendor_key.startswith(vk))]
-        if len(narrowed) == 1:
-            return narrowed[0]
-    return None
+    return _report_file_lookup.find_matching_report_row(
+        _report_file_lookup_deps(), date_str, amount_str, vendor_key=vendor_key,
+        expense_id=expense_id)
 
 
 # _update_report_row_color moved to finance/recategorize.py, with the two
@@ -2735,7 +1237,9 @@ def _invalidate_receipt_index():
 SCAN_TOOLS_DIR = os.path.expanduser(
     '~/planner/nonprofit_finance_db/receipt_scanning_tools')
 SCANNER_IMAGE_URL_PREFIX = '/api/scanner-image'
-INTAKE_DOCUMENT_URL_PREFIX = '/api/intake-document'
+# INTAKE_DOCUMENT_URL_PREFIX now lives in finance/intake_report_builder.py,
+# imported above (near build_recent_intake_html) and re-exported under this
+# name for http_app/get_routes.py's `srv.INTAKE_DOCUMENT_URL_PREFIX`.
 # The two scanners moved to hardware/scanners.py as typed `ScannerSpec`s, and
 # `SCANNERS` is now a derived view of them — same keys, same nested dicts, same
 # order. The specs cross-check what the dict never could: that `namelike` and
@@ -2796,22 +1300,6 @@ _SCAN_LOCK = threading.Lock()
 SCAN_TIMEOUT_SEC = 90
 
 
-def _reap_stale_scans(scan_env):
-    """Kill leaked scan_device.ps1 Windows processes (see _invoke_scanner)."""
-    reaper = os.path.join(SCAN_TOOLS_DIR, 'reap_scans.ps1')
-    if not os.path.isfile(reaper):
-        return
-    try:
-        subprocess.run(
-            ['/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
-             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', './reap_scans.ps1'],
-            cwd=SCAN_TOOLS_DIR, capture_output=True, text=True, timeout=20,
-            env=scan_env,
-        )
-    except Exception:  # noqa: BLE001 — reaping is best-effort
-        pass
-
-
 # Reading a scan script's outcome, and judging whether the page has anything on
 # it, moved to hardware/scan_result.py. Both are pure and neither touches this
 # module's state; the optional Pillow import went with them, so nothing else
@@ -2822,78 +1310,27 @@ from hardware.scan_result import (  # noqa: E402
     classify_scan_result,
     inspect_scan_image_quality,
 )
+from hardware import scanner_invoke as _scanner_invoke  # noqa: E402
+
+
+def _scanner_invoke_deps():
+    return _scanner_invoke.Collaborators(
+        scanners=SCANNERS,
+        scan_tools_dir=SCAN_TOOLS_DIR,
+        scan_lock=_SCAN_LOCK,
+        scan_timeout_sec=SCAN_TIMEOUT_SEC,
+        scanner_image_url_prefix=SCANNER_IMAGE_URL_PREFIX,
+        wsl_interop_socket=_wsl_interop_socket,
+        scan_output_ready=_scan_output_ready,
+    )
+
+
+def _reap_stale_scans(scan_env):
+    return _scanner_invoke.reap_stale_scans(_scanner_invoke_deps(), scan_env)
 
 
 def _invoke_scanner(key):
-    """Run a scanner's script and classify the outcome.
-
-    Returns {status, ...} where status is one of:
-      ready          — transfer succeeded, scan image written (includes image_url)
-      busy           — WIA device busy (needs power-cycle); reported FAST (no scan)
-      offline        — named device not enumerated (powered off / disconnected)
-      not_configured — no script wired for this scanner
-      error          — anything else (interop missing, timeout, script error)
-
-    This call backs only the manual scan (POST /api/scanner-scan). Runtime status
-    polling is read-only and must never call it. Blocking; ReusableHTTPServer is
-    threaded so the dashboard's other pollers are unaffected, and `_SCAN_LOCK`
-    keeps two transfers from colliding (concurrent transfers self-induce the
-    "busy" error).
-
-    Critically, every scan is preceded by `_reap_stale_scans()`: on a Python
-    timeout we can only kill the bash wrapper, not the Windows powershell.exe it
-    launched via interop, so a hung scan leaks a Windows process that keeps the
-    device busy and — if they pile up — wedges the whole WIA service (stisvc).
-    Reaping under the lock (where no scan of ours is legitimately running) caps
-    leaks at zero before each attempt.
-    """
-    cfg = SCANNERS.get(key)
-    if not cfg:
-        return {'status': 'error', 'error': f'Unknown scanner: {key}'}
-    if not cfg.get('script'):
-        return {'status': 'not_configured',
-                'error': f"{cfg['name']} ({cfg['device']}) is not wired up yet."}
-    script_path = os.path.join(SCAN_TOOLS_DIR, cfg['script'])
-    if not os.path.isfile(script_path):
-        return {'status': 'error',
-                'error': f'Scanner script not found: {script_path}'}
-    uses_airscan = bool(cfg.get('airscan_device'))
-    interop = _wsl_interop_socket()
-    if not interop and not uses_airscan:
-        return {'status': 'error',
-                'error': 'No usable WSL interop socket — open a WSL session so the '
-                         'service can launch the scanner.'}
-    scan_env = os.environ.copy()
-    if interop:
-        scan_env['WSL_INTEROP'] = interop
-    with _SCAN_LOCK:
-        if not uses_airscan:
-            _reap_stale_scans(scan_env)
-        try:
-            proc = subprocess.run(
-                ['bash', cfg['script']],
-                cwd=SCAN_TOOLS_DIR,
-                capture_output=True, text=True, timeout=SCAN_TIMEOUT_SEC,
-                env=scan_env,
-            )
-        except subprocess.TimeoutExpired:
-            # The bash wrapper is dead, but the Windows powershell.exe is not —
-            # reap it so its WIA handle can't wedge the device/service.
-            if not uses_airscan:
-                _reap_stale_scans(scan_env)
-            return {'status': 'error',
-                    'error': f'Scan timed out after {SCAN_TIMEOUT_SEC}s '
-                             '(scanner not responding).'}
-        except Exception as exc:  # noqa: BLE001 — surface launch failures to the UI
-            return {'status': 'error', 'error': f'Failed to start scan: {exc}'}
-    log = ((proc.stdout or '') + (proc.stderr or '')).strip()
-    img = os.path.join(SCAN_TOOLS_DIR, cfg['output'])
-    result = classify_scan_result(proc.returncode, log, _scan_output_ready(img))
-    if result['status'] == 'ready':
-        # Cache-bust so the browser reloads the freshly scanned image each time.
-        result['image_url'] = (
-            f'{SCANNER_IMAGE_URL_PREFIX}?scanner={key}&t={int(time.time())}')
-    return result
+    return _scanner_invoke.invoke_scanner(_scanner_invoke_deps(), key)
 
 
 # ── Scanner workflow diagnostics (the health LEDs) ──────────────────────────
@@ -2958,79 +1395,25 @@ SCAN_STAGING_REMOTE_DIR = (
     '/home/adamsl/rol_finances/tools/receipt_scanning_tools/incoming_scans')
 
 
-def _stage_scan_for_mazda(local_image_path):
-    """Copy a scanned image to where Mazda's executor tools can actually read it.
+from intake import scan_staging as _scan_staging  # noqa: E402
 
-    Copies into this box's rol_finances incoming_scans (executor_run's view —
-    required) and mirrors to the Win10 box (run_claude_code_sdk's view —
-    best-effort). Returns the staged path (identical on both boxes) or None
-    when even the local copy failed — the caller must not hand Mazda a path
-    she can't reach.
-    """
-    if not _scan_output_ready(local_image_path):
-        print('[scan→mazda] Refusing to stage a missing or empty scan output')
-        return None
-    # Scanner output names are reusable (window_scan.jpg / scan_freezer.jpg), while a
-    # Mazda conversation can remain active for minutes.  Never give two runs
-    # the same mutable path: a late tool call from the older run could otherwise
-    # read and store the newer scan.  Keep the scanner prefix for diagnostics,
-    # and add both a dispatch-unique timestamp and a content fingerprint.
-    source_name = os.path.basename(local_image_path)
-    stem, suffix = os.path.splitext(source_name)
-    try:
-        with open(local_image_path, 'rb') as src:
-            content_hash = hashlib.sha256(src.read()).hexdigest()[:12]
-    except OSError as exc:
-        print(f'[scan→mazda] Failed to fingerprint scan: {exc}')
-        return None
-    staged_name = f'{stem}_{time.time_ns()}_{content_hash}{suffix}'
-    staged_path = f'{SCAN_STAGING_REMOTE_DIR}/{staged_name}'
-    try:
-        os.makedirs(SCAN_STAGING_REMOTE_DIR, exist_ok=True)
-        shutil.copyfile(local_image_path, staged_path)
-    except Exception as exc:
-        print(f'[scan→mazda] Failed to stage scan locally for executor: {exc}')
-        return None
-    try:
-        subprocess.run(
-            ['ssh', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes',
-             SCAN_STAGING_HOST, 'mkdir', '-p', SCAN_STAGING_REMOTE_DIR],
-            capture_output=True, text=True, timeout=15, check=True,
-        )
-        subprocess.run(
-            ['scp', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=yes',
-             local_image_path, f'{SCAN_STAGING_HOST}:{staged_path}'],
-            capture_output=True, text=True, timeout=30, check=True,
-        )
-    except Exception as exc:
-        print(f'[scan→mazda] Win10 mirror of scan failed (non-fatal — '
-              f'executor_run reads the local copy): {exc}')
-    return staged_path
+
+def _scan_staging_deps():
+    return _scan_staging.Collaborators(
+        scan_output_ready=_scan_output_ready,
+        scan_staging_host=SCAN_STAGING_HOST,
+        scan_staging_remote_dir=SCAN_STAGING_REMOTE_DIR,
+        letta_base_url=LETTA_BASE_URL,
+        mazda_agent_id=MAZDA_AGENT_ID,
+    )
+
+
+def _stage_scan_for_mazda(local_image_path):
+    return _scan_staging.stage_scan_for_mazda(_scan_staging_deps(), local_image_path)
 
 
 def _create_mazda_conversation():
-    """Create one isolated Letta conversation for one intake dispatch.
-
-    Never fall back to Mazda's agent-default conversation: that would allow
-    simultaneous Window and Freezer scans to share compacted context again.
-    """
-    try:
-        agent_id = quote(MAZDA_AGENT_ID, safe='')
-        req = urllib.request.Request(
-            f'{LETTA_BASE_URL}/v1/conversations/?agent_id={agent_id}',
-            data=b'{}',
-            headers={'Content-Type': 'application/json'},
-            method='POST',
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            conversation = json.loads(resp.read().decode())
-        conversation_id = conversation.get('id')
-        if not isinstance(conversation_id, str) or not conversation_id:
-            raise ValueError('Letta returned no conversation id')
-        return conversation_id
-    except Exception as exc:
-        print(f'[scan→mazda] Failed to create isolated conversation: {exc}')
-        return None
+    return _scan_staging.create_mazda_conversation(_scan_staging_deps())
 
 
 # ── Execution mode (human-only decision gate) ──────────────────────────────
@@ -3178,44 +1561,18 @@ def _observe_intake_callback(payload):
     return _trainer_escalation_service.observe(callback)
 
 
+from intake import pdf_dispatch as _pdf_dispatch  # noqa: E402
+
+
 def _notify_mazda_of_pdf(file_path, label=None, conversation_id=None,
                          dispatched_at=None, facade_result=None):
     """Background: send a PDF document to Mazda for intake processing."""
-    if not conversation_id:
-        print('[pdf→mazda] Refusing shared/default conversation dispatch')
-        return False
-    try:
-        label_str = f' "{label}"' if label else ''
-        msg = (
-            f'A PDF document{label_str} is ready for processing.\n'
-            f'The file is at: {file_path}\n\n'
-            f'Please process this document through your intake pipeline:\n'
-            f'1. Call load_wrapper_revision to load your active wrapper.\n'
-            f'2. Classify and parse the document (cheapest reliable tool first).\n'
-            f'3. Call record_trace when done to log this run.\n'
-            f'4. If anything fails, call propose_improvement with the failure details.'
-            f' Every /api/expense-stored callback must include '
-            f'"conversation_id":"{conversation_id}" and '
-            f'"dispatched_at":{float(dispatched_at or 0)}.'
-        )
-        payload = json.dumps({
-            'messages': [{'role': 'user', 'content': msg}],
-            'streaming': False,
-        }).encode()
-        req = urllib.request.Request(
-            f'{LETTA_BASE_URL}/v1/conversations/{quote(conversation_id, safe="")}/messages',
-            data=payload,
-            headers={'Content-Type': 'application/json'},
-            method='POST',
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            print(f'[pdf→mazda] Mazda notified of PDF{label_str}: HTTP {resp.status}; '
-                  f'conversation={conversation_id}')
-        return True
-    except Exception as exc:
-        print(f'[pdf→mazda] Failed to notify Mazda: {exc}')
-        return False
+    return _pdf_dispatch.notify_mazda_of_pdf(
+        LETTA_BASE_URL, file_path, label=label, conversation_id=conversation_id,
+        dispatched_at=dispatched_at, facade_result=facade_result)
 
+
+from intake import scan_dispatch_claim as _scan_dispatch_claim  # noqa: E402
 
 # Intake-dispatch claim: exactly one Mazda dispatch per (scanner, image file,
 # image mtime). Both the server's own post-scan auto-dispatch and the
@@ -3223,173 +1580,77 @@ def _notify_mazda_of_pdf(file_path, label=None, conversation_id=None,
 # whichever arrives second sees the claim and skips the dispatch.
 _scan_dispatch_claims = {}
 _scan_dispatch_claim_lock = threading.Lock()
+SCAN_DISPATCH_DEDUP_WINDOW_SEC = _scan_dispatch_claim.SCAN_DISPATCH_DEDUP_WINDOW_SEC
+
+
+def _scan_dispatch_claim_deps():
+    return _scan_dispatch_claim.Collaborators(
+        get_scanner_intake=get_scanner_intake,
+        claims=_scan_dispatch_claims,
+        claims_lock=_scan_dispatch_claim_lock,
+        dedup_window_sec=SCAN_DISPATCH_DEDUP_WINDOW_SEC,
+    )
 
 
 def _scan_content_sha256(image_path):
-    try:
-        digest = hashlib.sha256()
-        with open(image_path, 'rb') as src:
-            for chunk in iter(lambda: src.read(1024 * 1024), b''):
-                digest.update(chunk)
-        return digest.hexdigest()
-    except OSError:
-        return ''
-
-
-
-# How long a byte-identical rescan is treated as "the same dispatch action
-# retried" (the frontend's own POST racing the server's auto-dispatch, or an
-# old browser retrying after a mid-scan restart) rather than "the operator
-# genuinely rescanned this page again". Past this window a matching hash no
-# longer proves it's the same action, so the scan must reach Mazda and go
-# through the real (date, amount) duplicate check like any other document —
-# suppressing it here forever, silently, is the bug this guards against.
-SCAN_DISPATCH_DEDUP_WINDOW_SEC = 300
+    return _scan_dispatch_claim.scan_content_sha256(image_path)
 
 
 def _may_retry_terminal_scan(previous, content_sha256):
-    """Retry-policy Strategy for a byte-identical scanner document.
-
-    A successful or active intake owns its fingerprint *for a short window*
-    (see SCAN_DISPATCH_DEDUP_WINDOW_SEC) — long enough to absorb the known
-    same-action double-fire, not long enough to permanently swallow a later,
-    legitimate rescan. A terminal failure never owns its fingerprint:
-    operators must always be able to retry the same legitimate page after
-    its infrastructure or orchestration failure is repaired.
-    """
-    if not previous or previous.get('content_sha256') != content_sha256:
-        return True
-    if str(previous.get('status') or '').lower() in {'fail', 'stalled'}:
-        return True
-    dispatched_at = previous.get('dispatched_at')
-    if not dispatched_at:
-        return False
-    return (time.time() - dispatched_at) > SCAN_DISPATCH_DEDUP_WINDOW_SEC
+    return _scan_dispatch_claim.may_retry_terminal_scan(
+        _scan_dispatch_claim_deps(), previous, content_sha256)
 
 
 def _claim_scan_dispatch(key, image_path, content_sha256=None):
-    """Claim a scanner image once, including across dashboard restarts."""
-    try:
-        stat = os.stat(image_path)
-    except OSError:
-        return False
-    content_sha256 = content_sha256 or _scan_content_sha256(image_path)
-    claim = (image_path, stat.st_mtime_ns, stat.st_size, content_sha256)
-    with _scan_dispatch_claim_lock:
-        if _scan_dispatch_claims.get(key) == claim:
-            return False
-        # The in-memory claim is lost on a service restart. The per-scanner
-        # intake pointer persists the immutable content fingerprint, so an old
-        # browser cannot redispatch the same output file after the restart.
-        cfg = SCANNERS.get(key) or {}
-        previous = get_scanner_intake(key)
-        if (content_sha256 and
-                not _may_retry_terminal_scan(previous, content_sha256)):
-            return False
-        _scan_dispatch_claims[key] = claim
-        return True
+    return _scan_dispatch_claim.claim_scan_dispatch(
+        _scan_dispatch_claim_deps(), key, image_path, content_sha256=content_sha256)
 
 
 def _release_scan_dispatch(key, image_path):
-    """Undo a claim whose dispatch failed (e.g. staging error) so a retry of
-    the same image can dispatch."""
-    with _scan_dispatch_claim_lock:
-        claimed = _scan_dispatch_claims.get(key)
-        if claimed and claimed[0] == image_path:
-            del _scan_dispatch_claims[key]
+    return _scan_dispatch_claim.release_scan_dispatch(
+        _scan_dispatch_claim_deps(), key, image_path)
 
+
+from intake import scanner_control as _scanner_control  # noqa: E402
 
 _scanner_runtime_status = {}
 _scanner_runtime_status_lock = threading.Lock()
 
 
+def _scanner_control_deps():
+    return _scanner_control.Collaborators(
+        scanners=SCANNERS,
+        scan_tools_dir=SCAN_TOOLS_DIR,
+        get_scanner_intake=get_scanner_intake,
+        scanner_intake_in_progress=_scanner_intake_in_progress,
+        invoke_scanner=_invoke_scanner,
+        record_recent_intake=record_recent_intake,
+        process_scanned_document=process_scanned_document,
+        merge_recent_intake_status=merge_recent_intake_status,
+        scan_lock=_SCAN_LOCK,
+        scanner_runtime_status=_scanner_runtime_status,
+        scanner_runtime_status_lock=_scanner_runtime_status_lock,
+    )
+
+
 def _scanner_intake_in_progress(key, max_age_seconds=35 * 60):
-    return intake_is_in_progress(
-        get_scanner_intake(key), max_age_seconds=max_age_seconds)
+    return _scanner_control.scanner_intake_in_progress(
+        _scanner_control_deps(), key, max_age_seconds=max_age_seconds)
 
 
 def run_scanner(key):
-    """Manual scan (POST /api/scanner-scan). Adds back-compat `ok` to the status.
-
-    When the scan finishes ready, the SERVER dispatches the intake pipeline in a
-    background thread. The frontend still POSTs /api/process-document for its
-    inline stage display, but that call no longer carries the dispatch: on
-    2026-07-12 a scan's intake was lost because dispatch relied on the browser
-    surviving the scan. _claim_scan_dispatch keeps the two paths from ever
-    double-dispatching Mazda for the same image.
-    """
-    if _scanner_intake_in_progress(key):
-        return {
-            'ok': False,
-            'status': 'intake_busy',
-            'error': ('The previous document from this scanner is still being '
-                      'verified. Wait for its Trainer PASS/FAIL before scanning another.'),
-        }
-    result = _invoke_scanner(key)
-    result['ok'] = (result.get('status') == 'ready')
-    if result.get('empty_output'):
-        # Nothing was dispatched, so no STEP 8 callback is ever coming. Record
-        # the failure against this scanner ourselves -- same reason as the
-        # blank-page rejection in process_scanned_document.
-        record_recent_intake(
-            os.path.join(SCAN_TOOLS_DIR, (SCANNERS.get(key) or {}).get('output', '')),
-            (SCANNERS.get(key) or {}).get('name'),
-            status='fail', status_detail=result.get('error') or '')
-    with _scanner_runtime_status_lock:
-        # Keep compatibility for code that inspects this runtime map, but GET
-        # derives live state from intake and lock ownership. In particular, a
-        # physical-attempt busy/offline failure remains in this POST response
-        # only and cannot leave status indefinitely wedged.
-        _scanner_runtime_status[key] = {'status': 'idle', 'ok': True}
-    if result['ok']:
-        threading.Thread(
-            target=process_scanned_document, args=(key,), daemon=True,
-        ).start()
-    return result
+    """Manual scan (POST /api/scanner-scan). See intake/scanner_control.py."""
+    return _scanner_control.run_scanner(_scanner_control_deps(), key)
 
 
 def scanner_status(key):
     """Read-only scanner state. Never starts WIA or writes a scan image."""
-    if key not in SCANNERS:
-        return {'status': 'error', 'ok': False, 'error': f'Unknown scanner: {key}'}
-    if _scanner_intake_in_progress(key):
-        return {
-            'status': 'intake_busy',
-            'ok': False,
-            'error': ('The previous document from this scanner is still being '
-                      'verified. Wait for intake completion or a problem-triggered '
-                      'Trainer verdict before scanning another.'),
-        }
-    if _SCAN_LOCK.locked():
-        return {
-            'status': 'busy',
-            'ok': False,
-            'error': 'A scanner transfer is currently in progress.',
-        }
-    return {'status': 'idle', 'ok': True}
+    return _scanner_control.scanner_status(_scanner_control_deps(), key)
 
 
 def clear_scanner_verification_lock(key):
     """Terminal-out one scanner's stuck intake lock without changing finance data."""
-    if key not in SCANNERS:
-        return {'ok': False, 'error': f'Unknown scanner: {key}'}
-    intake = get_scanner_intake(key)
-    if not intake or not _scanner_intake_in_progress(key):
-        return {'ok': True, 'cleared': False,
-                'message': 'No active verification lock was found.'}
-    update = {
-        'conversation_id': intake.get('conversation_id'),
-        'document_path': intake.get('image_path'),
-        'dispatched_at': intake.get('dispatched_at'),
-        'status': 'stalled',
-        'detail': ('Verification lock cleared manually from the scanner view; '
-                   'the scan and financial records were left unchanged.'),
-    }
-    if not merge_recent_intake_status(update):
-        return {'ok': False, 'error': 'The active verification lock could not be matched.'}
-    with _scanner_runtime_status_lock:
-        _scanner_runtime_status[key] = {'status': 'idle', 'ok': True}
-    return {'ok': True, 'cleared': True, 'status': 'idle'}
+    return _scanner_control.clear_scanner_verification_lock(_scanner_control_deps(), key)
 
 
 # ── Document intake pipeline (the "Process Document" action) ────────────────
@@ -3404,325 +1665,57 @@ from paths import ROL_FINANCES_DIR  # noqa: E402
 MAZDA_INTAKE_FACADE = os.path.join(ROL_FINANCES_DIR, 'tools', 'mazda_intake.py')
 MAZDA_INTAKE_PYTHON = os.path.join(ROL_FINANCES_DIR, '.venv', 'bin', 'python3')
 INTAKE_FACADE_TIMEOUT_SEC = 120
-STATEMENT_PARSE_SCRIPT = os.path.join(
-    ROL_FINANCES_DIR, 'tools', 'receipt_scanning_tools', 'parse_statement_scan.py')
-STATEMENT_PREFLIGHT_TIMEOUT_SEC = 180
+# STATEMENT_PARSE_SCRIPT/STATEMENT_PREFLIGHT_TIMEOUT_SEC now live in
+# finance/statement_preflight.py, the only place that used them.
 
 # The pipeline stages the deterministic facade does NOT run — delegated to Mazda.
 MAZDA_DELEGATED_STAGES = ('investigate', 'categorize', 'store')
 
 
+from intake import intake_facade as _intake_facade  # noqa: E402
+
+MAZDA_DELEGATED_STAGES = _intake_facade.MAZDA_DELEGATED_STAGES
+
+
 def run_intake_facade(image_path, org_id=1, engine='gemini'):
     """Run the deterministic intake facade (classify + parse) on one document.
-
-    Returns the facade's structured JSON dict (always carrying an `ok` key).
-    Never raises — a missing facade, bad exit, or unparseable stdout becomes
-    {'ok': False, 'error': ...} so the caller can always render something inline.
-    """
-    if not os.path.isfile(image_path):
-        return {'ok': False, 'error': f'Scanned image not found: {image_path}'}
-    if not os.path.isfile(MAZDA_INTAKE_FACADE):
-        return {'ok': False,
-                'error': f'Intake facade not found: {MAZDA_INTAKE_FACADE}'}
-    python = MAZDA_INTAKE_PYTHON if os.path.isfile(MAZDA_INTAKE_PYTHON) else 'python3'
-    try:
-        proc = subprocess.run(
-            [python, MAZDA_INTAKE_FACADE, image_path,
-             f'--org-id={org_id}', '--enable-parse', f'--engine={engine}'],
-            cwd=ROL_FINANCES_DIR,
-            capture_output=True, text=True,
-            timeout=INTAKE_FACADE_TIMEOUT_SEC,
-        )
-    except subprocess.TimeoutExpired:
-        return {'ok': False,
-                'error': f'Intake facade timed out after {INTAKE_FACADE_TIMEOUT_SEC}s'}
-    except Exception as exc:
-        return {'ok': False, 'error': f'Failed to run intake facade: {exc}'}
-    out = (proc.stdout or '').strip()
-    # Sub-modules (e.g. LlmPdfParser) may print progress lines to stdout before
-    # the final JSON object.  Find the first '{' so those stray lines don't
-    # poison json.loads.
-    json_start = out.find('{')
-    if json_start > 0:
-        out = out[json_start:]
-    try:
-        return json.loads(out)
-    except json.JSONDecodeError:
-        err = (proc.stderr or '').strip() or out or f'exit {proc.returncode}'
-        return {'ok': False, 'error': f'Intake facade returned no JSON: {err[:300]}'}
+    See intake/intake_facade.py."""
+    deps = _intake_facade.Collaborators(
+        mazda_intake_facade=MAZDA_INTAKE_FACADE,
+        mazda_intake_python=MAZDA_INTAKE_PYTHON,
+        rol_finances_dir=ROL_FINANCES_DIR,
+        timeout_sec=INTAKE_FACADE_TIMEOUT_SEC,
+    )
+    return _intake_facade.run_intake_facade(deps, image_path, org_id=org_id, engine=engine)
 
 
 def build_pipeline_result(facade, mazda_dispatched):
-    """Pure shaper: facade dict + dispatch flag → the inline pipeline result.
-
-    Mirrors classify_scan_result — pure, no I/O, unit-tested. Produces an
-    ordered `stages` list so the UI can render the full classify → parse →
-    investigate → categorize → store pipeline, with the deterministic front half
-    filled in and the agentic back half marked delegated (Mazda) or pending.
-    """
-    facade = facade or {}
-    ok = bool(facade.get('ok'))
-    classify = {
-        'name': 'classify',
-        'status': 'done' if ok else 'error',
-        'doc_kind': facade.get('doc_kind'),
-        'routing_key': facade.get('routing_key'),
-        'vendor': facade.get('vendor'),
-        'confidence': facade.get('confidence'),
-        'method': facade.get('classification_method'),
-        'recommended_action': facade.get('recommended_action'),
-    }
-    parsed = facade.get('parsed')
-    parse = {
-        'name': 'parse',
-        'status': 'done' if (ok and parsed) else ('skipped' if ok else 'error'),
-        'parsed': parsed,
-    }
-    delegated = [
-        {'name': stage,
-         'status': 'delegated' if mazda_dispatched else 'pending',
-         'owner': 'mazda' if mazda_dispatched else None}
-        for stage in MAZDA_DELEGATED_STAGES
-    ]
-    return {
-        'ok': ok,
-        'error': facade.get('error'),
-        'mazda_dispatched': bool(mazda_dispatched),
-        'stages': [classify, parse, *delegated],
-    }
+    return _intake_facade.build_pipeline_result(facade, mazda_dispatched)
 
 
-def _statement_last4(value):
-    text = str(value or '').strip()
-    match = re.search(r'(?:^|\D)(\d{4})$', text)
-    if match:
-        return match.group(1)
-    # Some statements print the complete account number and vision returns it
-    # despite the parser contract asking for the final four. Six or more plain
-    # digits are unambiguously a full account number; retain its final four.
-    # Deliberately do not truncate five-digit values: malformed five-digit Amex
-    # workbook cells are a known trap and must continue to fail closed.
-    if re.fullmatch(r'\d{6,}', text):
-        return text[-4:]
-    return None
+from finance import statement_preflight as _statement_preflight  # noqa: E402
 
 
 def _default_statement_account_directory():
-    """Build the workbook-backed last-four resolver without a hard import."""
-    _ensure_sys_path(ROL_FINANCES_DIR)
-    from tools.receipt_scanning_tools.known_accounts import KnownCardsWorkbook
-    return KnownCardsWorkbook()
+    """Build the workbook-backed last-four resolver without a hard import.
 
-
-def _complete_statement_transactions(rows):
-    """Keep only rows carrying a valid date, description, and numeric amount."""
-    complete = []
-    for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict):
-            continue
-        description = ' '.join(str(row.get('description') or '').split())
-        try:
-            datetime.strptime(str(row.get('date') or ''), '%Y-%m-%d')
-            amount = float(row['amount'])
-        except (KeyError, TypeError, ValueError):
-            continue
-        normalized = dict(row)
-        normalized.update(description=description, amount=amount)
-        if description:
-            complete.append(normalized)
-    return complete
-
-
-def _statement_records(parsed):
-    """Normalize parse_statement_scan.py's output to a list of statement dicts.
-
-    The script grew a multi-statement envelope on 2026-07-22 (one scanned page
-    can hold two cards): {'statements': [{bank_name, account_number,
-    transactions, ...}, ...]}. It previously put those fields at the top level.
-    Both shapes are accepted here so the preflight keeps working whichever
-    version of the script is deployed — reading only the old flat keys against
-    the new envelope silently yielded no bank, no last4 and no transactions,
-    which rejected every statement scan before it could be dispatched.
-    """
-    if not isinstance(parsed, dict):
-        return []
-    statements = parsed.get('statements')
-    if isinstance(statements, list):
-        return [s for s in statements if isinstance(s, dict)]
-    if any(parsed.get(key) is not None
-           for key in ('bank_name', 'account_number', 'transactions')):
-        return [parsed]
-    return []
-
-
-def _statement_records_summary(statements):
-    """Human-readable 'Chase 1234, Amex 5678' for a multi-statement rejection."""
-    labels = []
-    for statement in statements:
-        bank = ' '.join(str(statement.get('bank_name') or '').split())
-        last4 = _statement_last4(statement.get('account_number'))
-        labels.append(' '.join(part for part in (bank, last4) if part)
-                      or 'unidentified account')
-    return ', '.join(labels)
+    Kept as a `server.` thin wrapper (tests/test_server.py calls it directly
+    to check the real workbook import) even though `run_statement_preflight`
+    itself always calls its own module-private copy in
+    finance/statement_preflight.py -- every call site that reaches this
+    fallback passes `account_directory=` explicitly instead, so the two never
+    need to be the same object at runtime."""
+    return _statement_preflight._default_statement_account_directory()
 
 
 def run_statement_preflight(
         image_path, facade_result, metadata=None, account_directory=None,
         engine='auto'):
     """Extract and validate statement metadata before dispatch or storage.
-
-    `engine`: 'auto' (default, unchanged behavior) is parse_statement_scan.py's
-    own full Gemini/Codex/ChatGPT/OpenAI fallback chain, used for every
-    automatic Mazda dispatch. 'gemini-only'/'haiku-only' name one provider with
-    no fallback -- the dashboard's "Read with Gemini"/"Read with Haiku"
-    buttons, where an operator who chose a provider must get exactly that one,
-    not a silent fallback to a different one on failure.
-    """
-    if (facade_result or {}).get('doc_kind') not in ('statement', 'bank_statement'):
-        return None
-    metadata = metadata if isinstance(metadata, dict) else {}
-    command = [MAZDA_INTAKE_PYTHON, STATEMENT_PARSE_SCRIPT, image_path]
-    bank_override = ' '.join(str(metadata.get('bank_name') or '').split())
-    last4_override = _statement_last4(metadata.get('account_last4'))
-    if bank_override:
-        command.extend(['--bank-name', bank_override])
-    if last4_override:
-        command.extend(['--account-last4', last4_override])
-    if engine and engine != 'auto':
-        command.extend(['--engine', engine])
-    try:
-        proc = subprocess.run(
-            command, cwd=ROL_FINANCES_DIR, capture_output=True, text=True,
-            timeout=STATEMENT_PREFLIGHT_TIMEOUT_SEC)
-    except subprocess.TimeoutExpired:
-        return {'ok': False, 'rejected': True,
-                'error': 'statement extraction timed out before storage'}
-    except Exception as exc:
-        return {'ok': False, 'rejected': True,
-                'error': f'statement extraction failed before storage: {exc}'}
-    output = (proc.stdout or '').strip()
-    try:
-        json_start = output.find('{')
-        if json_start < 0:
-            raise ValueError('no JSON object')
-        parsed = json.loads(output[json_start:])
-    except (ValueError, json.JSONDecodeError):
-        detail = (proc.stderr or output or f'exit {proc.returncode}')[:300]
-        return {'ok': False, 'rejected': True,
-                'error': f'statement extraction returned no JSON: {detail}'}
-    if not parsed.get('ok'):
-        return {'ok': False, 'rejected': True,
-                'error': parsed.get('error') or 'statement extraction failed'}
-
-    statements = _statement_records(parsed)
-    if len(statements) > 1:
-        # The parser can split one scanned page into several accounts, but every
-        # stage after this point — the --bank-name/--account-last4 flags in
-        # build_mazda_scan_message, the single per-scanner intake record, the
-        # store script — describes ONE account. Attributing two accounts'
-        # transactions to statements[0] would file real money under the wrong
-        # card silently, so halt and ask for one statement per pass instead.
-        return {
-            'ok': False, 'rejected': True, 'needs_statement_metadata': False,
-            'error': ('Statement rejected: this scan holds '
-                      f'{len(statements)} separate statements '
-                      f'({_statement_records_summary(statements)}). Storage '
-                      'handles one account per scan — rescan them one at a '
-                      'time.'),
-        }
-    statement = statements[0] if statements else {}
-    parsed_bank_name = ' '.join(
-        str(statement.get('bank_name') or '').split())
-    facade_issuer = ' '.join(
-        str((facade_result or {}).get('vendor') or '').split())
-    if facade_issuer.lower() in ('unknown', 'none', 'null'):
-        facade_issuer = ''
-    bank_name = bank_override or parsed_bank_name or facade_issuer
-    statement_last4 = _statement_last4(statement.get('account_number'))
-    account_last4 = last4_override or statement_last4
-    last4_source = 'operator' if last4_override else (
-        'statement' if account_last4 else 'unknown')
-    workbook_ambiguous_last4 = []
-    workbook_matched_names = []
-    # The primary branded letterhead identifies the account family more safely
-    # than OCR of marked-over digits.  Always try that identity even when vision
-    # emitted four digits; a unique workbook row is authoritative.  If there is
-    # no branded identity, retain the older missing-last4 lookup by bank name.
-    lookup_candidates = []
-    if not last4_override and facade_issuer:
-        lookup_candidates.append(facade_issuer)
-    if not account_last4 and bank_name and bank_name not in lookup_candidates:
-        lookup_candidates.append(bank_name)
-    lookup = None
-    lookup_name = ''
-    for candidate in lookup_candidates:
-        try:
-            candidate_lookup = (
-                account_directory or _default_statement_account_directory()
-            ).lookup_last4(candidate)
-        except Exception:
-            candidate_lookup = None
-        if not candidate_lookup:
-            continue
-        candidate_last4 = _statement_last4(
-            getattr(candidate_lookup, 'last4', None))
-        candidate_ambiguity = list(
-            getattr(candidate_lookup, 'ambiguous_last4', ()) or ())
-        if candidate_last4 or candidate_ambiguity:
-            lookup = candidate_lookup
-            lookup_name = candidate
-            break
-    if lookup:
-        workbook_last4 = _statement_last4(getattr(lookup, 'last4', None))
-        workbook_ambiguous_last4 = list(
-            getattr(lookup, 'ambiguous_last4', ()) or ())
-        workbook_matched_names = list(
-            getattr(lookup, 'matched_names', ()) or ())
-        if workbook_last4:
-            account_last4 = workbook_last4
-            last4_source = 'known_cards_workbook'
-            if lookup_name == facade_issuer:
-                bank_name = facade_issuer
-        elif workbook_ambiguous_last4:
-            account_last4 = None
-            last4_source = 'unknown'
-    transactions = _complete_statement_transactions(statement.get('transactions'))
-    if not transactions:
-        return {
-            'ok': False, 'rejected': True, 'needs_statement_metadata': False,
-            'error': ('Statement rejected: no complete transaction with date, '
-                      'vendor/description, and amount was found.'),
-        }
-    missing = []
-    if not bank_name:
-        missing.append('bank_name')
-    if not account_last4:
-        missing.append('account_last4')
-    result = dict(parsed)
-    result.update({
-        'bank_name': bank_name or None,
-        'account_last4': account_last4,
-        'account_number': account_last4,
-        'transactions': transactions,
-        'transaction_count': len(transactions),
-        'last4_source': last4_source,
-        'workbook_ambiguous_last4': workbook_ambiguous_last4,
-        'workbook_matched_names': workbook_matched_names,
-    })
-    if missing:
-        ambiguity = (
-            ' Candidates in the known-cards workbook: '
-            + ', '.join(workbook_ambiguous_last4) + '.'
-            if workbook_ambiguous_last4 else '')
-        result.update({
-            'ok': False,
-            'needs_statement_metadata': True,
-            'missing_fields': missing,
-            'error': (
-                'Statement needs bank name and account last four before storage.'
-                + ambiguity),
-        })
-    return result
+    See finance/statement_preflight.py."""
+    return _statement_preflight.run_statement_preflight(
+        image_path, facade_result, metadata=metadata,
+        account_directory=account_directory, engine=engine)
 
 
 def _statement_preflight_payload(image_path, preflight):
@@ -3774,8 +1767,10 @@ def _write_statement_preflight_payload(image_path, preflight):
 #: doc_kind values run_statement_preflight() will actually act on -- kept in
 #: sync with its own `(facade_result or {}).get('doc_kind') not in (...)`
 #: check so an operator's override can only ever route into that same branch,
-#: never invent a doc_kind the rest of the pipeline doesn't understand.
-STATEMENT_DOC_KINDS = ('statement', 'bank_statement')
+#: never invent a doc_kind the rest of the pipeline doesn't understand. Owned
+#: by intake/document_processing.py (the only other reader) and re-exported
+#: here.
+from intake.document_processing import STATEMENT_DOC_KINDS  # noqa: E402
 
 
 def _human_override_facade(doc_kind):
@@ -3883,275 +1878,85 @@ def submit_manual_statement_entry(data):
     return _STATEMENT_BREAKUP_SERVICE.store(request).to_http()
 
 
+from intake import document_processing as _document_processing  # noqa: E402
+
+
+def _document_processing_deps():
+    """Rebuilt per call, never captured. Several fields (`scanners`,
+    `scan_tools_dir`, `document_vision_health`, `inspect_scan_image_quality`,
+    `run_statement_preflight`, `run_intake_facade`) have an owning module of
+    their own, but route back through this module's bare names anyway --
+    tests/test_server.py monkeypatches each of them by its `server.` name to
+    drive process_scanned_document through its branches without a real
+    scanner, vision provider, or statement parse."""
+    return _document_processing.Collaborators(
+        scanners=SCANNERS,
+        scan_tools_dir=SCAN_TOOLS_DIR,
+        scan_locked=lambda: _SCAN_LOCK.locked(),
+        record_recent_intake=record_recent_intake,
+        human_override_facade=_human_override_facade,
+        run_intake_facade=run_intake_facade,
+        document_vision_health=document_vision_health,
+        inspect_scan_image_quality=inspect_scan_image_quality,
+        run_statement_preflight=run_statement_preflight,
+        build_pipeline_result=build_pipeline_result,
+        scan_content_sha256=_scan_content_sha256,
+        claim_scan_dispatch=_claim_scan_dispatch,
+        stage_scan_for_mazda=_stage_scan_for_mazda,
+        write_statement_preflight_payload=_write_statement_preflight_payload,
+        create_mazda_conversation=_create_mazda_conversation,
+        dispatch_mazda_or_block=_dispatch_mazda_or_block,
+        notify_mazda_of_scan_and_record_failure=_notify_mazda_of_scan_and_record_failure,
+        release_scan_dispatch=_release_scan_dispatch,
+        current_execution_mode=current_execution_mode,
+    )
+
+
 def process_scanned_document(
         key, org_id=1, engine='gemini', statement_metadata=None,
         doc_kind_override=None):
-    """Orchestrate the Process Document action for one scanner's latest image.
+    """Orchestrate the Process Document action for one scanner's latest
+    image. See intake/document_processing.py."""
+    return _document_processing.process_scanned_document(
+        _document_processing_deps(), key, org_id=org_id, engine=engine,
+        statement_metadata=statement_metadata,
+        doc_kind_override=doc_kind_override)
 
-    1. Resolve the scanner's output image.
-    2. Run the deterministic facade (classify + parse) for the inline result
-       -- or, when `doc_kind_override` names a statement kind, skip that paid
-       classify call and use the operator's own assertion instead (see
-       _human_override_facade).
-    3. Dispatch Mazda fire-and-forget for investigate → categorize → store.
-    No polling: the deeper stages run in Mazda's own time and surface in her
-    own agent transcript, not here.
-    """
-    cfg = SCANNERS.get(key)
-    if not cfg:
-        return {'ok': False, 'error': f'Unknown scanner: {key}', 'stages': []}
-    image_path = os.path.join(SCAN_TOOLS_DIR, cfg.get('output', ''))
-    if _SCAN_LOCK.locked():
-        return {
-            'ok': False,
-            'error': 'The scanner is still scanning. Processing will start when the image is complete.',
-            'stage_error': 'Scanner transfer still in progress.',
-            'scanner': key,
-            'image_path': image_path,
-            'mazda_dispatched': False,
-            'trainer_dispatched': False,
-            'stages': [],
-        }
-    if not _scan_output_ready(image_path):
-        return {
-            'ok': False,
-            'error': 'The scanner did not produce a usable image. Please scan the document again.',
-            'stage_error': 'The scanner output image is missing or empty.',
-            'scanner': key,
-            'image_path': image_path,
-            'mazda_dispatched': False,
-            'trainer_dispatched': False,
-            'stages': [],
-        }
-    image_quality = inspect_scan_image_quality(image_path)
-    if not image_quality.get('ok'):
-        # Before the facade, before vision health, before Mazda: a page with
-        # nothing on it cannot become an expense, and every stage past here
-        # costs either an API call or an agent's turn. Recorded as this
-        # scanner's own last intake so the rejection is visible on its tab --
-        # otherwise a failed capture reads as a stuck scanner still showing
-        # the previous document.
-        reason = image_quality.get('reason') or 'The scan is not readable.'
-        record_recent_intake(image_path, cfg.get('name'), status='fail',
-                             status_detail=reason)
-        return {
-            'ok': False,
-            'error': reason,
-            'stage_error': reason,
-            'scanner': key,
-            'image_path': image_path,
-            'image_quality': image_quality,
-            'mazda_dispatched': False,
-            'trainer_dispatched': False,
-            'stages': [],
-        }
-    if doc_kind_override is not None:
-        if doc_kind_override not in STATEMENT_DOC_KINDS:
-            return {
-                'ok': False,
-                'error': f'Unsupported doc_kind_override: {doc_kind_override}',
-                'scanner': key, 'image_path': image_path,
-                'mazda_dispatched': False, 'trainer_dispatched': False,
-                'stages': [],
-            }
-        facade = _human_override_facade(doc_kind_override)
-    else:
-        facade = run_intake_facade(image_path, org_id=org_id, engine=engine)
-    mazda_dispatched = False
-    trainer_dispatched = False
-    stage_error = None
-    conversation_id = None
-    vision_health = document_vision_health()
-    if not vision_health.get('ok'):
-        # All 3 classify_scan.py vision tiers are down — dispatching Mazda would
-        # just strand her mid-trace with nothing that can read the image (see
-        # DOCUMENT_VISION_HALT_MESSAGE). Halt here instead: /api/server-health
-        # already reports 'document-vision' red for the same reason, and the
-        # frontend's VisionHaltAlert modal/tab-red state is driven by that,
-        # not by this response.
-        result = build_pipeline_result(facade, mazda_dispatched=False)
-        result['trainer_dispatched'] = False
-        result['vision_halted'] = True
-        result['stage_error'] = DOCUMENT_VISION_HALT_MESSAGE
-        result['scanner'] = key
-        result['image_path'] = image_path
-        return result
-    statement_preflight = run_statement_preflight(
-        image_path, facade, metadata=statement_metadata)
-    if statement_preflight is not None:
-        if not statement_preflight.get('ok'):
-            result = build_pipeline_result(facade, mazda_dispatched=False)
-            result['trainer_dispatched'] = False
-            result['scanner'] = key
-            result['image_path'] = image_path
-            result['stage_error'] = statement_preflight.get('error')
-            result['needs_statement_metadata'] = bool(
-                statement_preflight.get('needs_statement_metadata'))
-            result['statement_rejected'] = bool(statement_preflight.get('rejected'))
-            result['missing_fields'] = statement_preflight.get('missing_fields', [])
-            result['statement_metadata'] = {
-                'bank_name': statement_preflight.get('bank_name'),
-                'account_last4': statement_preflight.get('account_last4'),
-            }
-            return result
-        facade = dict(facade)
-        facade['statement_preflight'] = statement_preflight
-        facade['vendor'] = statement_preflight['bank_name']
-    if os.path.isfile(image_path):
-        content_sha256 = _scan_content_sha256(image_path)
-        if not _claim_scan_dispatch(key, image_path, content_sha256):
-            # This exact image was already dispatched (the server auto-fires
-            # intake when a scan finishes AND the frontend still POSTs
-            # /api/process-document) — never send Mazda the same document twice.
-            result = build_pipeline_result(facade, mazda_dispatched=True)
-            result['trainer_dispatched'] = False
-            result['already_dispatched'] = True
-            result['scanner'] = key
-            result['image_path'] = image_path
-            return result
-        remote_image_path = _stage_scan_for_mazda(image_path)
-        if remote_image_path:
-            if facade.get('statement_preflight'):
-                payload_path = _write_statement_preflight_payload(
-                    remote_image_path, facade['statement_preflight'])
-                if payload_path:
-                    facade = dict(facade)
-                    facade['statement_preflight'] = dict(
-                        facade['statement_preflight'], payload_path=payload_path)
-            conversation_id = _create_mazda_conversation()
-            if conversation_id:
-                dispatched_at = time.time()
-                # Persist first: a fast transport failure in the worker must
-                # have an exact intake record to mark terminal.
-                record_recent_intake(
-                    remote_image_path, cfg.get('name', key), kind='scan',
-                    facade=facade, conversation_id=conversation_id,
-                    dispatched_at=dispatched_at,
-                    content_sha256=content_sha256)
-                mazda_dispatched = _dispatch_mazda_or_block(
-                    remote_image_path, cfg.get('name', key), facade,
-                    conversation_id, dispatched_at,
-                    _notify_mazda_of_scan_and_record_failure,
-                    (remote_image_path, cfg.get('name', key), facade,
-                     conversation_id, dispatched_at))
-                if not mazda_dispatched:
-                    stage_error = HUMAN_ONLY_MODE_STAGE_MESSAGE
-            else:
-                _release_scan_dispatch(key, image_path)
-                stage_error = ('Could not create an isolated Mazda conversation; '
-                               'the scan was not dispatched into shared context.')
-        else:
-            _release_scan_dispatch(key, image_path)
-            stage_error = ('Could not copy the scan to where Mazda can read it '
-                            '(SSH/copy to the executor machine failed) — Mazda was not notified.')
-    result = build_pipeline_result(facade, mazda_dispatched)
-    result['trainer_dispatched'] = trainer_dispatched
-    result['execution_mode'] = current_execution_mode()
-    if conversation_id:
-        result['conversation_id'] = conversation_id
-    if stage_error:
-        result['stage_error'] = stage_error
-    result['scanner'] = key
-    result['image_path'] = image_path
-    return result
+
+from intake import pdf_document_processing as _pdf_document_processing  # noqa: E402
+
+
+def _pdf_document_processing_deps():
+    return _pdf_document_processing.Collaborators(
+        rol_finances_dir=ROL_FINANCES_DIR,
+        run_intake_facade=run_intake_facade,
+        document_vision_health=document_vision_health,
+        create_mazda_conversation=_create_mazda_conversation,
+        record_recent_intake=record_recent_intake,
+        dispatch_mazda_or_block=_dispatch_mazda_or_block,
+        notify_mazda_of_pdf=_notify_mazda_of_pdf,
+        build_pipeline_result=build_pipeline_result,
+        current_execution_mode=current_execution_mode,
+        source_document_path=_source_document_path,
+        invalidate_receipt_index=_invalidate_receipt_index,
+        set_recent_report_pointer=set_recent_report_pointer,
+        process_pdf_document=process_pdf_document,
+    )
 
 
 def process_pdf_document(file_path, label=None, org_id=1, engine='gemini'):
-    """Orchestrate the Process Document action for an existing PDF file.
-
-    Mirrors process_scanned_document but accepts an absolute file path instead
-    of a scanner key. The path must resolve inside ROL_FINANCES_DIR.
-    """
-    try:
-        real = os.path.realpath(os.path.expanduser(file_path))
-        base = os.path.realpath(ROL_FINANCES_DIR)
-        if not (real.startswith(base + os.sep) or real == base):
-            return {'ok': False,
-                    'error': 'File path must be inside the ROL finances directory.',
-                    'stages': []}
-    except Exception as exc:
-        return {'ok': False, 'error': f'Invalid path: {exc}', 'stages': []}
-    if not os.path.isfile(real):
-        return {'ok': False, 'error': f'File not found: {file_path}', 'stages': []}
-    facade = run_intake_facade(real, org_id=org_id, engine=engine)
-    doc_label = label or os.path.basename(real)
-    vision_health = document_vision_health()
-    if not vision_health.get('ok'):
-        result = build_pipeline_result(facade, mazda_dispatched=False)
-        result['trainer_dispatched'] = False
-        result['vision_halted'] = True
-        result['stage_error'] = DOCUMENT_VISION_HALT_MESSAGE
-        result['file_path'] = real
-        result['label'] = doc_label
-        return result
-    conversation_id = _create_mazda_conversation()
-    if not conversation_id:
-        result = build_pipeline_result(facade, mazda_dispatched=False)
-        result['trainer_dispatched'] = False
-        result['stage_error'] = ('Could not create an isolated Mazda conversation; '
-                                 'the PDF was not dispatched into shared context.')
-        result['file_path'] = real
-        result['label'] = doc_label
-        return result
-    dispatched_at = time.time()
-    record_recent_intake(real, doc_label, kind='pdf', facade=facade,
-                         conversation_id=conversation_id,
-                         dispatched_at=dispatched_at)
-    # PDFs already live inside ROL_FINANCES_DIR (enforced above), so no staging
-    # is needed — executor_run on this box reads them directly. This also
-    # covers reprocess_report, which delegates here.
-    mazda_dispatched = _dispatch_mazda_or_block(
-        real, f'PDF intake ({doc_label})', facade, conversation_id, dispatched_at,
-        _notify_mazda_of_pdf,
-        (real, doc_label, conversation_id, dispatched_at, facade))
-    result = build_pipeline_result(facade, mazda_dispatched)
-    result['trainer_dispatched'] = False
-    result['execution_mode'] = current_execution_mode()
-    result['file_path'] = real
-    result['label'] = doc_label
-    result['conversation_id'] = conversation_id
-    if not mazda_dispatched:
-        result['stage_error'] = HUMAN_ONLY_MODE_STAGE_MESSAGE
-    return result
+    """Orchestrate the Process Document action for an existing PDF file. See
+    intake/pdf_document_processing.py."""
+    return _pdf_document_processing.process_pdf_document(
+        _pdf_document_processing_deps(), file_path, label=label, org_id=org_id,
+        engine=engine)
 
 
 def reprocess_report(report_url):
-    """Re-run the full intake pipeline (facade + Mazda) for a report's source document.
-
-    Accepts the iframe URL of a report.html (e.g.
-    /rol_finances_reports/jan-2025/fifth_third_non_profit_3119/report.html),
-    resolves the source PDF/xlsx in the same directory, and delegates to
-    process_pdf_document — which runs the deterministic facade inline and
-    dispatches Mazda fire-and-forget for categorize→store→judge.
-    """
-    if not report_url:
-        return {'ok': False, 'error': 'report_url is required.', 'stages': []}
-    source_path = _source_document_path(report_url)
-    if not source_path:
-        return {
-            'ok': False,
-            'error': 'Could not resolve a source document (PDF/xlsx) for that report URL.',
-            'stages': [],
-        }
-    if not os.path.isfile(source_path):
-        return {
-            'ok': False,
-            'error': f'Source document not found on disk: {source_path}',
-            'stages': [],
-        }
-    label = os.path.basename(os.path.dirname(source_path))
-    # A reprocess can add/move receipt files; drop the index so the very next
-    # receipts-present / Receipt-Only fetch reflects them without the 300s TTL wait.
-    _invalidate_receipt_index()
-    result = process_pdf_document(source_path, label=label)
-    # This document is now the most recently processed one — point
-    # /recent_report.html at it regardless of how the pipeline run ends.
-    # Set AFTER process_pdf_document so this report pointer is newer than the
-    # intake record written inside it: a reprocessed document HAS a report.html
-    # to show, so report mode must win the recency race.
-    set_recent_report_pointer(report_url)
-    result['report_url'] = report_url
-    return result
+    """Re-run the full intake pipeline (facade + Mazda) for a report's source
+    document. See intake/pdf_document_processing.py."""
+    return _pdf_document_processing.reprocess_report(
+        _pdf_document_processing_deps(), report_url)
 
 
 # ── Expense-stored event bus ─────────────────────────────────────────────────
@@ -4164,78 +1969,24 @@ _stored_expense_events = deque(maxlen=200)
 _stored_expense_lock = threading.Lock()
 
 
+from intake import expense_stored_callback as _expense_stored_callback  # noqa: E402
+
+
+def _expense_stored_callback_deps():
+    return _expense_stored_callback.Collaborators(
+        invalidate_receipt_index=_invalidate_receipt_index,
+        observe_intake_callback=_observe_intake_callback,
+        merge_recent_intake_event=merge_recent_intake_event,
+        set_recent_report_pointer=set_recent_report_pointer,
+        stored_expense_lock=_stored_expense_lock,
+        stored_expense_events=_stored_expense_events,
+    )
+
+
 def record_stored_expense(data):
-    """Append one document-intake event (called from POST /api/expense-stored).
-
-    Also drops the receipt-index cache so a receipt stored by this same intake is
-    visible to the NEXT /api/receipts-present / Receipt-Only fetch the frontend makes
-    when it reloads — no waiting out the 300s TTL, no manual refresh.
-
-    `kind` distinguishes what changed so the frontend can refresh the right views:
-      receipt   — a receipt was stored (default; row marker + Receipt-Only tab)
-      statement — a bank statement was imported (transaction rows changed)
-      reprocess — a document was re-run end to end
-    `report_path`, when present, names the specific report.html that changed so the
-    frontend can target just that view instead of reloading every open iframe.
-    """
-    _invalidate_receipt_index()
-    event = {
-        'stored_at': time.time(),
-        'kind': (data.get('kind') or 'receipt'),
-        'expense_id': data.get('expense_id'),
-        'expense_date': data.get('expense_date', ''),
-        'amount': data.get('amount', ''),
-        'vendor_key': data.get('vendor_key', ''),
-        'description': data.get('description', ''),
-        'receipt_url': data.get('receipt_url', ''),
-        'report_path': data.get('report_path', ''),
-        'document_path': data.get('document_path', ''),
-        'expense_ids': data.get('expense_ids') or [],
-        'duplicate_expense_ids': data.get('duplicate_expense_ids') or [],
-        'deposits_stored': data.get('deposits_stored') or 0,
-        'parsed': data.get('parsed'),
-        'stored': data.get('stored'),
-        'doc_kind': data.get('doc_kind') or data.get('doc_type') or '',
-        'vendor': data.get('vendor') or data.get('merchant') or '',
-        'archive_paths': data.get('archive_paths') or [],
-        'archive_years': data.get('archive_years') or [],
-        # Preserve exact dispatch identity.  Reusable scanner filenames are
-        # insufficient routing keys when an older conversation reports late.
-        'conversation_id': data.get('conversation_id', ''),
-        'dispatched_at': data.get('dispatched_at'),
-    }
-    escalation = _observe_intake_callback(event)
-    if escalation and escalation.summon_required:
-        event['trainer_dispatched'] = escalation.summoned
-        event['trainer_escalation_reason'] = escalation.reason
-        event['status'] = 'processing' if escalation.summoned else 'fail'
-        event['status_detail'] = (
-            f'Trainer summoned: {escalation.reason}'
-            if escalation.summoned
-            else f'Trainer launch failed: {escalation.reason}'
-        )
-    with _stored_expense_lock:
-        _stored_expense_events.append(event)
-    # Keep /recent_report.html current. Best-effort: the callback must succeed
-    # even if the recent-report bookkeeping can't.
-    try:
-        # Fold ids/counts into the last intake record so the synthetic recent
-        # view can list this run's transactions.
-        merge_recent_intake_event(event)
-        # Only move the recent-report pointer when the event itself names its
-        # source report (a real reprocess of that report's document) — NOT
-        # when a report is merely found via date/amount coincidence. A
-        # coincidental match (e.g. a scanned receipt whose expense happens to
-        # land on the same date/amount as some row in an unrelated bank
-        # statement) must never hijack "most recent" away from the actual
-        # intake, or /recent_report.html shows that statement's full
-        # transaction table instead of the scan's own 1-row view.
-        rp = event['report_path']
-        if rp:
-            set_recent_report_pointer(rp)
-    except Exception as exc:
-        print(f'[expense-stored] recent-report update failed: {exc}')
-    return {'ok': True}
+    """POST /api/expense-stored: append one document-intake event."""
+    return _expense_stored_callback.record_stored_expense(
+        _expense_stored_callback_deps(), data)
 
 
 def get_stored_expense_events(since_ts=0.0):
@@ -4245,170 +1996,57 @@ def get_stored_expense_events(since_ts=0.0):
     return [e for e in events if e['stored_at'] > since_ts]
 
 
+from finance import receipt_index as _receipt_index_mod  # noqa: E402
+
+
+def _receipt_index_deps():
+    return _receipt_index_mod.Collaborators(
+        receipt_mounts=RECEIPT_MOUNTS,
+        readable_docs_base=READABLE_DOCS_BASE,
+        receipts_url_prefix=ROL_FINANCES_RECEIPTS_URL_PREFIX,
+        cache=_RECEIPT_INDEX_CACHE,
+        cache_ttl=_RECEIPT_INDEX_TTL,
+        vendor_prefix=_vendor_prefix,
+        receipt_index=_receipt_index,
+        resolve_receipt_url_path=_resolve_receipt_url_path,
+    )
+
+
 def _build_receipt_index():
-    from finance.receipt_filename import parse_receipt_filename
-    by_da, by_stem = {}, {}
-    seen = set()
-    # Walk every receipt index subtree (canonical readable_documents/receipts plus
-    # any external store such as the Windows-side live-pipeline destination). The
-    # canonical tree is walked first, so a file present in both keeps its canonical
-    # path (and dedupe below prevents the external copy from being added twice).
-    for _prefix, _base, subtree in RECEIPT_MOUNTS:
-        if not os.path.isdir(subtree):
-            continue
-        for root, _dirs, files in os.walk(subtree):
-            for fn in files:
-                fp = os.path.join(root, fn)
-                rp = os.path.realpath(fp)
-                if rp in seen:
-                    continue
-                seen.add(rp)
-                by_stem.setdefault(os.path.splitext(fn)[0].lower(), []).append(fp)
-                match = parse_receipt_filename(fn)
-                if match:
-                    by_da.setdefault(match.index_key(), []).append(fp)
-    return by_da, by_stem
+    return _receipt_index_mod.build_receipt_index(_receipt_index_deps())
 
 
 def _receipt_index():
-    now = time.time()
-    if (_RECEIPT_INDEX_CACHE['by_da'] is None
-            or now - _RECEIPT_INDEX_CACHE['ts'] > _RECEIPT_INDEX_TTL):
-        by_da, by_stem = _build_receipt_index()
-        _RECEIPT_INDEX_CACHE.update(ts=now, by_da=by_da, by_stem=by_stem)
-    return _RECEIPT_INDEX_CACHE['by_da'], _RECEIPT_INDEX_CACHE['by_stem']
+    return _receipt_index_mod.receipt_index(_receipt_index_deps())
 
 
 def _norm_amount(signed_amount):
-    from decimal import Decimal, InvalidOperation
-    raw = str(signed_amount or '').replace('$', '').replace(',', '').strip()
-    try:
-        return str(abs(Decimal(raw)))
-    except (InvalidOperation, ValueError):
-        return None
+    return _receipt_index_mod.norm_amount(signed_amount)
 
 
 def _resolve_receipt_url_path(receipt_url):
-    """Resolve one expense's non-empty receipt_url to a local receipt file.
-
-    Searches every receipt mount (canonical readable_documents store + any external
-    store such as the live-pipeline Windows destination), so a receipt_url that
-    names a file in either tree resolves.
-    """
-    _by_da, by_stem = _receipt_index()
-    ru = (receipt_url or '').strip().lstrip('/')
-    if not ru:
-        return None
-    # Direct path under any serve base (path-traversal guarded).
-    for _prefix, serve_base, _subtree in RECEIPT_MOUNTS:
-        base = os.path.abspath(serve_base)
-        direct = os.path.abspath(os.path.join(base, ru))
-        if os.path.commonpath([direct, base]) == base and os.path.isfile(direct):
-            return direct
-    stem = os.path.splitext(os.path.basename(ru))[0].lower()
-    if stem in by_stem:
-        return by_stem[stem][0]
-    # by_stem already indexes every basename under every receipt subtree. Do
-    # not repeat recursive glob walks for missing files: a month can contain
-    # dozens of stale receipt_url values and those redundant scans made the
-    # Receipt Only page appear blank for 10+ seconds.
-    return None
+    return _receipt_index_mod.resolve_receipt_url_path(_receipt_index_deps(), receipt_url)
 
 
 def _resolve_expense_receipt_path(date_str, amount_str, receipt_url):
-    """Resolve a receipt only for an expense that owns a non-empty receipt_url.
-
-    Stored receipt_url values are not always byte-for-byte file paths, so after
-    trying the URL directly we retain the established date/amount filename
-    fallback. The non-empty URL guard is what prevents a receipt from leaking
-    onto a different or receipt-less expense: a bare (date, amount) collision
-    is common (e.g. two same-day purchases of the same round amount), and only
-    an expense that is itself known to own a receipt (non-empty receipt_url)
-    is allowed to use that weaker match as a second attempt.
-    """
-    if not (receipt_url or '').strip():
-        return None
-    direct = _resolve_receipt_url_path(receipt_url)
-    if direct:
-        return direct
-    by_da, _by_stem = _receipt_index()
-    hits = by_da.get((date_str, amount_str)) if date_str and amount_str else None
-    return hits[0] if hits else None
+    return _receipt_index_mod.resolve_expense_receipt_path(
+        _receipt_index_deps(), date_str, amount_str, receipt_url)
 
 
 def _receipt_url_for_path(fp):
-    """Build the dashboard URL that serves a receipt file, choosing the mount whose
-    serve_base contains the file so external-store receipts get the right prefix."""
-    ap = os.path.abspath(fp)
-    for prefix, serve_base, _subtree in RECEIPT_MOUNTS:
-        base = os.path.abspath(serve_base)
-        if os.path.commonpath([ap, base]) == base:
-            rel = os.path.relpath(ap, base)
-            return prefix + '/' + '/'.join(quote(part) for part in rel.split(os.sep))
-    # Fallback: canonical mount (preserves prior behaviour for unexpected paths).
-    rel = os.path.relpath(ap, os.path.abspath(READABLE_DOCS_BASE))
-    return ROL_FINANCES_RECEIPTS_URL_PREFIX + '/' + '/'.join(
-        quote(part) for part in rel.split(os.sep))
+    return _receipt_index_mod.receipt_url_for_path(_receipt_index_deps(), fp)
 
 
 def _select_matching_expense(rows, vendor_key, description):
-    """Select one expense from same-date/same-amount candidates."""
-    if not rows:
-        return None
-    if len(rows) == 1:
-        chosen = rows[0]
-    else:
-        chosen = None
-        vk = (vendor_key or '').strip()
-        for r in rows:
-            vp = _vendor_prefix(r.get('id_light'))
-            if vk and vp and (vk.startswith(vp) or vp.startswith(vk)):
-                chosen = r
-                break
-        if chosen is None and description:
-            for r in rows:
-                if (r.get('description') or '').strip() == description.strip():
-                    chosen = r
-                    break
-        if chosen is None:
-            chosen = rows[0]
-    return chosen
+    return _receipt_index_mod.select_matching_expense(
+        _receipt_index_deps(), rows, vendor_key, description)
 
 
 def _matching_expense(cur, date_str, amount_str, vendor_key, description,
                       expense_id=None):
-    """Return the expense matching a report row using the recategorization rules.
-
-    Direct expense_id lookups must return that exact row, including LINE_ITEM
-    children. Date/amount lookups intentionally remain parent-biased so report-row
-    recategorization does not ambiguously land on an itemized sibling.
-    """
-    optional_columns = (
-        'id_light', 'document_url', 'scanned_statement_url', 'moms_ledger',
-        'notes', 'expense_role', 'parent_expense_id', 'address', 'map_link',
-    )
-    schema = ShowColumnsProbe().read(cur, optional_columns)
-    select_sql = schema.select_clause(
-        ('id', 'description', 'receipt_url', 'expense_date', 'amount'),
-        optional_columns,
-        quote='`',
-    )
-    role_filter = (
-        " AND `expense_role` <> 'LINE_ITEM'" if schema.has('expense_role') else ''
-    )
-    if expense_id not in (None, ''):
-        try:
-            eid = int(expense_id)
-        except (TypeError, ValueError):
-            return None
-        cur.execute(f"SELECT {select_sql} FROM expenses WHERE id=%s", (eid,))
-        rows = cur.fetchall()
-        return rows[0] if rows else None
-    cur.execute(
-        f"SELECT {select_sql} FROM expenses WHERE expense_date=%s AND amount=%s"
-        f"{role_filter}", (date_str, amount_str)
-    )
-    return _select_matching_expense(cur.fetchall(), vendor_key, description)
+    return _receipt_index_mod.matching_expense(
+        _receipt_index_deps(), cur, date_str, amount_str, vendor_key, description,
+        expense_id=expense_id)
 
 
 def _lookup_expense_row(date_str, signed_amount, vendor_key, description='',
@@ -4649,73 +2287,20 @@ def _slot_reference(chosen, kind, report_path=''):
     )
 
 
+from finance import source_document_reference as _source_document_reference_mod  # noqa: E402
+
+
 def _source_document_reference(chosen, report_path=''):
-    """The source-document reference to offer for one expense row.
-
-    The stored `document_url` wins, but only while it still resolves. A scan
-    image that disappears after storage (2026-07-29: a concurrent agent's
-    `git add -A` swept two in-flight scans off disk) otherwise left the dialog
-    with no View Source Document button at all, even on a scanner report that
-    knows exactly which image it came from.
-    """
-    chosen = chosen or {}
-    reference = chosen.get('document_url') or ''
-    reference = str(reference).strip()
-    receipt_reference = str(chosen.get('receipt_url') or '').strip()
-    if should_suppress_source_document(
-            reference,
-            receipt_reference,
-            resolve_local_path=lambda ref: _resolve_local_supporting_document(
-                ref, 'source'
-            ) or _resolve_local_supporting_document(ref, 'receipt')):
-        return ''
-    scanned_statement_reference = str(
-        chosen.get('scanned_statement_url') or '').strip()
-    if not scanned_statement_reference:
-        scanned_statement_reference = _report_scanned_statement_reference(report_path)
-
-    # Resolve the effective source candidate before comparing it with the
-    # scanned statement.  The old order only compared the stored
-    # ``document_url``; when that field was empty, the report-directory
-    # fallback could resolve to the exact same JPG and expose two buttons for
-    # one document.
-    source_reference = reference
-    if not (_usable_document_reference(source_reference) and (
-            urlparse(source_reference).scheme in {'http', 'https'}
-            or _resolve_local_supporting_document(source_reference, 'source'))):
-        source_reference = _report_source_document_reference(report_path) or ''
-
-    if not source_reference:
-        # Scanner and Recent-Report intake pages are synthetic - they have no
-        # report.html of their own, so _report_source_document_reference always
-        # comes back empty for them (see SupportingDocumentPageResolver). But
-        # the row's own (date, amount) may still match an existing month
-        # report's transaction row - the exact match _associated_source_paths
-        # already uses to print "Associated PDF" on the intake page header.
-        # Reuse it here instead of leaving a real downloaded statement
-        # undiscoverable just because this row surfaced via a scan.
-        match = _find_matching_report_row(
-            str(chosen.get('expense_date') or ''),
-            str(chosen.get('amount') or ''))
-        if match:
-            source_reference = _source_document_path(match.report_path) or ''
-
-    if references_same_underlying_document(
-            source_reference,
-            scanned_statement_reference,
-            resolve_local_path=lambda ref: (
-                _resolve_local_supporting_document(ref, 'source')
-                or _resolve_local_supporting_document(ref, 'scanned_statement')
-            )):
-        return ''
-    if _usable_document_reference(source_reference) and (
-            urlparse(source_reference).scheme in {'http', 'https'}
-            or _resolve_local_supporting_document(source_reference, 'source')):
-        return source_reference
-    # A stale stored path is not evidence.  In particular, never return a
-    # missing scanner image as a downloaded source document; the scanner page's
-    # paper copy is resolved through the separate scanned-statement slot.
-    return ''
+    deps = _source_document_reference_mod.Collaborators(
+        resolve_local_supporting_document=_resolve_local_supporting_document,
+        report_scanned_statement_reference=_report_scanned_statement_reference,
+        usable_document_reference=_usable_document_reference,
+        report_source_document_reference=_report_source_document_reference,
+        find_matching_report_row=_find_matching_report_row,
+        source_document_path=_source_document_path,
+    )
+    return _source_document_reference_mod.source_document_reference(
+        deps, chosen, report_path=report_path)
 
 
 def _supporting_document_descriptors(chosen, report_path=''):
@@ -4803,81 +2388,13 @@ def _supporting_document_view_for_expense(
 
 
 def _source_document_path(report_path, receipt_path=None):
-    """Resolve the original statement document represented by a report URL."""
-    raw = unquote((report_path or '').split('?', 1)[0])
-    report_file = None
-    split = _split_report_url(raw)
-    if split:
-        base, rel = split
-        candidate = os.path.abspath(os.path.join(base, rel))
-        base = os.path.abspath(base)
-        if os.path.commonpath([candidate, base]) == base:
-            report_file = candidate
-    if report_file:
-        directory = os.path.dirname(report_file)
-        def preferred_source(candidate_directory):
-            preferred = []
-            if not os.path.isdir(candidate_directory):
-                return ''
-            for name in os.listdir(candidate_directory):
-                fp = os.path.join(candidate_directory, name)
-                ext = os.path.splitext(name)[1].lower()
-                if (os.path.isfile(fp)
-                        and ext in _VIEWABLE_DOCUMENT_EXTENSIONS):
-                    preferred.append(fp)
-            priority = {
-                '.pdf': 0, '.xlsx': 1, '.xlsm': 2,
-                '.jpg': 3, '.jpeg': 3, '.png': 3, '.webp': 3,
-                '.tif': 3, '.tiff': 3, '.bmp': 3, '.gif': 3,
-            }
-            preferred.sort(
-                key=lambda fp: (
-                    priority.get(os.path.splitext(fp)[1].lower(), 99),
-                    os.path.basename(fp).lower(),
-                )
-            )
-            return preferred[0] if preferred else ''
-
-        source = preferred_source(directory)
-        if source:
-            return source
-
-        # A statement may be listed under more than one month while only one
-        # canonical month directory contains the source file. Search the same
-        # report directory across configured month roots before giving up.
-        split = _split_report_url(raw)
-        if split:
-            _base, rel = split
-            report_directory = os.path.dirname(rel)
-            for month_key in ROL_FINANCES_REPORTS_MONTHS:
-                candidate_directory = os.path.join(
-                    _rol_reports_base_dir(month_key), report_directory)
-                if os.path.abspath(candidate_directory) == os.path.abspath(directory):
-                    continue
-                source = preferred_source(candidate_directory)
-                if source:
-                    return source
-        if os.path.isfile(report_file):
-            return report_file
-    return receipt_path or ''
+    return _report_file_lookup.source_document_path(
+        _report_file_lookup_deps(), report_path, receipt_path)
 
 
 def _report_source_document_view(report_path):
-    """Return a browser-viewable copy of the document behind a report."""
-    source_path = _source_document_path(report_path)
-    if not source_path or not os.path.isfile(source_path):
-        return ''
-    ext = os.path.splitext(source_path)[1].lower()
-    if ext not in _VIEWABLE_DOCUMENT_EXTENSIONS:
-        return ''
-    if ext in {'.xlsx', '.xlsm'}:
-        cache_key = hashlib.sha256(source_path.encode('utf-8')).hexdigest()[:16]
-        browser_path = os.path.join(
-            SUPPORTING_DOCUMENT_ANNOTATION_CACHE,
-            f'{cache_key}-{os.path.basename(source_path)}.html',
-        )
-        return render_excel_for_browser(source_path, browser_path)
-    return source_path
+    return _report_file_lookup.report_source_document_view(
+        _report_file_lookup_deps(), report_path)
 
 
 def _document_machine_origin():
@@ -4886,77 +2403,29 @@ def _document_machine_origin():
     return "Mom's machine" if 'rosemary' in hostname else 'Win 11'
 
 
+from finance import receipt_lookup as _receipt_lookup  # noqa: E402
+
+
+def _receipt_lookup_deps():
+    return _receipt_lookup.Collaborators(
+        get_connection=_rol_get_connection,
+        norm_amount=_norm_amount,
+        matching_expense=_matching_expense,
+        resolve_local_supporting_document=_resolve_local_supporting_document,
+        viewable_supporting_document=_viewable_supporting_document,
+        document_machine_origin=_document_machine_origin,
+        source_document_path=_source_document_path,
+        resolve_expense_receipt_path=_resolve_expense_receipt_path,
+        receipt_url_for_path=_receipt_url_for_path,
+    )
+
+
 def lookup_receipt(date_str, signed_amount, vendor_key, description='', report_path='',
                    expense_id=None):
     """Return receipt and source-document metadata for one report row."""
-    amt = _norm_amount(signed_amount)
-    if amt is None and expense_id in (None, ''):
-        return {'ok': False, 'error': f'Bad amount: {signed_amount!r}'}
-    chosen = None
-    resolve_date = date_str
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                chosen = _matching_expense(
-                    cur, date_str, amt, vendor_key, description, expense_id)
-                if chosen is not None and expense_id not in (None, ''):
-                    resolve_date = str(chosen.get('expense_date') or date_str)
-                    amt = _norm_amount(chosen.get('amount')) or amt
-                if chosen is None and date_str and expense_id in (None, ''):
-                    try:
-                        base = datetime.strptime(date_str, '%Y-%m-%d').date()
-                        for delta in (-1, 1, -2, 2, -3, 3):
-                            alt = (base + timedelta(days=delta)).isoformat()
-                            c = _matching_expense(cur, alt, amt, vendor_key, description)
-                            if c:
-                                chosen = c
-                                resolve_date = alt
-                                break
-                    except (ValueError, AttributeError):
-                        pass
-    except Exception as e:
-        return {'ok': False, 'error': f'DB error: {e}'}
-
-    document_reference = (
-        (chosen.get('document_url') or '').strip() if chosen else '')
-    resolved_document = (
-        _resolve_local_supporting_document(document_reference, 'source')
-        if document_reference else None)
-    if (not resolved_document and document_reference
-            and urlparse(document_reference).scheme in {'http', 'https'}
-            and _viewable_supporting_document(document_reference)):
-        resolved_document = document_reference
-    metadata = {
-        'expense_id': chosen['id'] if chosen else '',
-        'receipt_url': '',
-        'receipt_path': '',
-        'notes': (chosen.get('notes') or '') if chosen else '',
-        'address': (chosen.get('address') or '') if chosen else '',
-        'map_link': (chosen.get('map_link') or '') if chosen else '',
-        'machine_origin': _document_machine_origin(),
-        # Ask Mazda must use the expense's database-backed source association.
-        # The report directory is only a legacy fallback for old rows.
-        'source_document_path': (
-            resolved_document or _source_document_path(report_path)),
-    }
-    if chosen is None:
-        return dict(metadata, ok=False,
-                    error='No matching expense in DB for that date/amount (bank-only row).')
-    ru = (chosen.get('receipt_url') or '').strip()
-    if not ru:
-        return dict(metadata, ok=False, error='No receipt on file for this expense.')
-    fp = _resolve_expense_receipt_path(resolve_date, amt, ru)
-    if not fp:
-        return dict(metadata, ok=False,
-                    error=f'Receipt recorded ({ru}) but the file was not found on disk.')
-    metadata.update(
-        ok=True,
-        receipt_url=_receipt_url_for_path(fp),
-        receipt_path=fp,
-        source_document_path=(
-            resolved_document or _source_document_path(report_path, fp)),
-    )
-    return metadata
+    return _receipt_lookup.lookup_receipt(
+        _receipt_lookup_deps(), date_str, signed_amount, vendor_key,
+        description=description, report_path=report_path, expense_id=expense_id)
 
 
 # ── ROL Finance: save a free-text note for a Verified-Transactions row ────────
@@ -4981,91 +2450,25 @@ def save_expense_notes(date_str, signed_amount, vendor_key, description, notes,
     return {'ok': True, 'expense_id': chosen['id']}
 
 
+from finance import receipts_present as _receipts_present  # noqa: E402
+
+
+def _receipts_present_deps():
+    return _receipts_present.Collaborators(
+        get_connection=_rol_get_connection,
+        norm_amount=_norm_amount,
+        select_matching_expense=_select_matching_expense,
+        resolve_expense_receipt_path=_resolve_expense_receipt_path,
+        resolve_local_supporting_document=_resolve_local_supporting_document,
+    )
+
+
 def receipts_present(rows):
-    """Given [{date, signed_amount, vendor_key, description}, ...] return
-    {'ok': True, 'present': [bool, ...]} -- True where a receipt file resolves for the
-    row. Drives the red 'has a receipt' corner marker. One FS index + one DB read total."""
-    expense_map = {}
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                cur.execute(
-                    "SELECT id, expense_date, amount, id_light, description, receipt_url "
-                    "FROM expenses"
-                )
-                for r in cur.fetchall():
-                    key = (str(r['expense_date']), str(r['amount']))
-                    expense_map.setdefault(key, []).append(r)
-    except Exception:
-        expense_map = {}
-    out = []
-    for row in rows or []:
-        amt = _norm_amount(row.get('signed_amount'))
-        date_str = (row.get('date') or '').strip()
-        present = False
-        if amt is not None:
-            vk = row.get('vendor_key', '')
-            desc = row.get('description', '')
-            chosen = _select_matching_expense(
-                expense_map.get((date_str, amt), []), vk, desc)
-            resolve_date = date_str
-            # Credit-card posting dates are often 1-3 days after the purchase date
-            # stored in the DB (from the actual receipt). Try nearby dates when exact
-            # lookup finds nothing.
-            if chosen is None and date_str:
-                try:
-                    base = datetime.strptime(date_str, '%Y-%m-%d').date()
-                    for delta in (-1, 1, -2, 2, -3, 3):
-                        alt = (base + timedelta(days=delta)).isoformat()
-                        candidates = expense_map.get((alt, amt), [])
-                        if candidates:
-                            c = _select_matching_expense(candidates, vk, desc)
-                            if c:
-                                chosen = c
-                                resolve_date = alt
-                                break
-                except (ValueError, AttributeError):
-                    pass
-            ru = (chosen.get('receipt_url') or '').strip() if chosen else ''
-            present = bool(_resolve_expense_receipt_path(resolve_date, amt, ru))
-        out.append(present)
-    return {'ok': True, 'present': out}
+    return _receipts_present.receipts_present(_receipts_present_deps(), rows)
 
 
 def scanned_statements_present(rows):
-    """Same shape/contract as receipts_present, for the SCANNED_STATEMENT slot.
-
-    Drives a row marker distinct from the receipt corner: a row backed by a
-    scan of a printed statement EG has physically reviewed, independent of
-    whether it also has a receipt or the bank's own downloaded source."""
-    expense_map = {}
-    try:
-        with _rol_get_connection() as cnx:
-            with cnx.cursor() as cur:
-                cur.execute(
-                    "SELECT id, expense_date, amount, id_light, description, "
-                    "scanned_statement_url FROM expenses"
-                )
-                for r in cur.fetchall():
-                    key = (str(r['expense_date']), str(r['amount']))
-                    expense_map.setdefault(key, []).append(r)
-    except Exception:
-        expense_map = {}
-    out = []
-    for row in rows or []:
-        amt = _norm_amount(row.get('signed_amount'))
-        date_str = (row.get('date') or '').strip()
-        present = False
-        if amt is not None:
-            vk = row.get('vendor_key', '')
-            desc = row.get('description', '')
-            chosen = _select_matching_expense(
-                expense_map.get((date_str, amt), []), vk, desc)
-            ref = (chosen.get('scanned_statement_url') or '').strip() if chosen else ''
-            present = bool(
-                ref and _resolve_local_supporting_document(ref, 'scanned_statement'))
-        out.append(present)
-    return {'ok': True, 'present': out}
+    return _receipts_present.scanned_statements_present(_receipts_present_deps(), rows)
 
 
 # ── ROL Finance: "Receipt Only" tab ───────────────────────────────────────────
@@ -5085,79 +2488,42 @@ def scanned_statements_present(rows):
 # on disk (the known data gap) and must be excluded so every row shown has a receipt
 # (and a marker). This also catches rows whose receipt_url is blank but whose receipt
 # file is still found by (date, amount).
-def _reporting_category_for_id(category_id, parent_of=None):
-    """Walk a leaf category_id up its parent chain to a reporting-bucket name.
+from finance import reporting_category_lookup as _reporting_categories  # noqa: E402
 
-    Delegates to ICategoryTaxonomy, which sources the same walk from the DB's
-    is_report_category / report_category_id columns. `parent_of` is retained
-    for call-site compatibility and ignored: the taxonomy carries the parentage
-    itself, so callers no longer need to pre-load the tree.
-    """
-    return _get_category_taxonomy().label_for(category_id)
+
+def _reporting_categories_deps():
+    return _reporting_categories.Collaborators(
+        get_category_taxonomy=_get_category_taxonomy,
+        reporting_category_class=REPORTING_CATEGORY_CLASS,
+        reporting_category_db_map=REPORTING_CATEGORY_DB_MAP,
+    )
+
+
+def _reporting_category_for_id(category_id, parent_of=None):
+    return _reporting_categories.reporting_category_for_id(
+        _reporting_categories_deps(), category_id, parent_of=parent_of)
+
+
+from finance import recent_scans as _recent_scans  # noqa: E402
+
+
+def _recent_scans_deps():
+    return _recent_scans.Collaborators(
+        get_connection=_rol_get_connection,
+        norm_amount=_norm_amount,
+        resolve_expense_receipt_path=_resolve_expense_receipt_path,
+        reporting_category_for_id=_reporting_category_for_id,
+        css_class_for_report_name=_css_class_for_report_name,
+        vendor_prefix=_vendor_prefix,
+        month_broken_report_label=_month_broken_report_label,
+        reports=ROL_FINANCE_REPORTS,
+        month_ranges=ROL_FINANCES_MONTH_RANGES,
+        reports_default_month=ROL_FINANCES_REPORTS_DEFAULT_MONTH,
+    )
 
 
 def _fetch_receipt_only_rows(month_key=None):
-    """expenses with no matching bank-statement transaction (same date + abs amount)
-    AND a receipt file that actually resolves on disk, each tagged with its current
-    reporting category. The resolve check keeps the tab in lockstep with the red
-    has-receipt marker so every row shown genuinely has a receipt."""
-    # January is the intentionally special all-year receipt display. Every
-    # other configured month is restricted to its own calendar date range.
-    month_range = None if month_key == ROL_FINANCES_REPORTS_DEFAULT_MONTH else \
-        ROL_FINANCES_MONTH_RANGES.get(month_key)
-    date_clause = ''
-    date_params = ()
-    if month_range:
-        date_clause = ' AND e.expense_date BETWEEN %s AND %s'
-        date_params = month_range
-    with _rol_get_connection() as cnx:
-        with cnx.cursor() as cur:
-            cur.execute('SELECT id, parent_id FROM categories')
-            parent_of = {
-                int(r['id']): (int(r['parent_id']) if r['parent_id'] is not None else None)
-                for r in cur.fetchall()
-            }
-            cur.execute(
-                "SELECT e.id, e.expense_date, e.amount, e.id_light, e.description, "
-                "       e.category_id, e.receipt_url, e.document_url, "
-                "       e.moms_ledger, e.expense_role, e.human_verified "
-                "FROM expenses e "
-                "WHERE e.expense_role <> 'PARENT' "
-                "AND NOT EXISTS (SELECT 1 FROM transactions t "
-                "                  WHERE t.transaction_date=e.expense_date "
-                "                    AND ABS(t.amount)=ABS(e.amount)) "
-                f"{date_clause} "
-                "ORDER BY e.expense_date, e.id",
-                date_params,
-            )
-            rows = cur.fetchall()
-    out = []
-    for r in rows:
-        date_str = str(r['expense_date'])
-        amt = _norm_amount(r['amount'])
-        if amt is None:
-            continue
-        # Only include rows whose receipt file actually exists (same resolution the
-        # has-receipt marker uses). Excludes the receipt_url-but-no-file data gap.
-        if not _resolve_expense_receipt_path(date_str, amt, r.get('receipt_url')):
-            continue
-        cid = r.get('category_id')
-        rep = _reporting_category_for_id(
-            int(cid) if cid is not None else None, parent_of)
-        out.append({
-            'id': int(r['id']),
-            'date': date_str,
-            'amount': str(r['amount']),
-            'vendor_key': (r.get('id_light') or '').strip(),
-            'description': (r.get('description') or '').strip(),
-            'reporting_category': rep,
-            'cat_class': _css_class_for_report_name(rep),
-            'receipt_url': r.get('receipt_url'),
-            'document_url': r.get('document_url'),
-            'moms_ledger': r.get('moms_ledger'),
-            'human_verified': bool(r.get('human_verified')),
-        })
-    return out
+    return _recent_scans.fetch_receipt_only_rows(_recent_scans_deps(), month_key)
 
 
 # ── ROL Finance: recently-scanned queue + green/yellow month status ──────────
@@ -5168,289 +2534,49 @@ def _fetch_receipt_only_rows(month_key=None):
 # Uncategorized == category_id NULL, or 1/364 which both resolve to 'Uncategorized'
 # in REPORTING_CATEGORY_ANCESTOR_MAP (the same buckets the picker's "Uncategorized"
 # choice writes back, i.e. category_id -> None).
-_UNCATEGORIZED_CATEGORY_IDS = (1, 364)
+_UNCATEGORIZED_CATEGORY_IDS = _recent_scans.UNCATEGORIZED_CATEGORY_IDS
 
 
 def _is_uncategorized(category_id):
-    """True when an expense row still needs a category (the 'unfinished' state)."""
-    return category_id is None or int(category_id) in _UNCATEGORIZED_CATEGORY_IDS
+    return _recent_scans.is_uncategorized(category_id)
 
 
 def _rol_finance_categories():
-    """The reporting-category palette (name/cls/bg/fg) in display order for the
-    Set Category dialog. Sourced from ICategoryTaxonomy — i.e. from the
-    `categories` table — so a category added by a migration shows up without a
-    code change. Previously this iterated REPORTING_CATEGORY_CLASS, which meant
-    new buckets (e.g. Money Movement, 402) were invisible no matter how many
-    times the service was restarted.
-
-    /api/recategorize-expense resolves picks through the same taxonomy, so the
-    picker still cannot offer a category the writer would reject.
-    """
-    cats = []
-    for node in _get_category_taxonomy().selectable_report_categories():
-        cats.append({
-            'name': node.label,
-            'cls': node.css_class or 'cat-uncategorized',
-            'bg': node.report_bg or '#BFBFBF',
-            'fg': node.report_fg or '#000000',
-            'excluded': bool(node.excluded_from_nonprofit_totals),
-        })
-    # "Uncategorized" is a sentinel, not a row: picking it clears category_id.
-    # Only append it when the taxonomy did not already supply it — LEGACY_TAXONOMY
-    # (the offline fallback) lists it as selectable, and appending unconditionally
-    # showed it twice in the dialog whenever the DB was unreachable.
-    if not any(c['name'] == 'Uncategorized' for c in cats):
-        cats.append({'name': 'Uncategorized', 'cls': 'cat-uncategorized',
-                     'bg': '#BFBFBF', 'fg': '#000000', 'excluded': False})
-    return cats
+    return _reporting_categories.rol_finance_categories(_reporting_categories_deps())
 
 
 def _rol_finance_category_for_ids(category_ids):
-    """Resolve raw (often leaf) `category_id` values to the reporting bucket
-    they total under -- {name, cls, bg, fg} per id, keyed by the id as a string
-    so the JSON round-trips cleanly.
-
-    Report generators (e.g. rol_finances' e_two_e_processing/process.py) store
-    a leaf category_id per transaction, not a reporting-bucket id, so they
-    cannot pick a row color by looking the id up in `_rol_finance_categories()`
-    (which only lists the ~24 selectable buckets). This walks each id up to
-    its bucket via the same ICategoryTaxonomy used everywhere else, so a
-    report baked from this endpoint always agrees with the live picker.
-    """
-    taxonomy = _get_category_taxonomy()
-    out = {}
-    for raw_id in category_ids:
-        try:
-            cid = int(raw_id) if raw_id not in (None, '') else None
-        except (TypeError, ValueError):
-            cid = None
-        style = taxonomy.style_for(cid)
-        out[str(raw_id)] = {
-            'name': taxonomy.label_for(cid),
-            'cls': style.css_class,
-            'bg': style.background,
-            'fg': style.font,
-        }
-    return out
+    return _reporting_categories.rol_finance_category_for_ids(
+        _reporting_categories_deps(), category_ids)
 
 
 def _report_category_node_by_name(name, selectable_only=True):
-    """Resolve a report/dialog label back to its category node.
-
-    selectable_only=False also finds buckets the dialog does not offer — notably
-    'Uncategorized' (node 1), which reports use as a label but which must never
-    appear as a choice.
-    """
-    wanted = str(name or '').strip()
-    taxonomy = _get_category_taxonomy()
-    nodes = (taxonomy.selectable_report_categories() if selectable_only
-             else [n for n in taxonomy.all_nodes() if n.is_report_category])
-    for node in nodes:
-        if node.label == wanted:
-            return node
-    return None
+    return _reporting_categories.report_category_node_by_name(
+        _reporting_categories_deps(), name, selectable_only=selectable_only)
 
 
 def _css_class_for_report_name(name):
-    """The cat-* class for a reporting-bucket label, from the categories table.
-
-    Reports bake this class into each <tr> on disk, so it must stay stable for
-    existing buckets and must exist for new ones (a bucket with no class would
-    render unstyled).
-    """
-    node = _report_category_node_by_name(name, selectable_only=False)
-    if node is not None and node.css_class:
-        return node.css_class
-    return REPORTING_CATEGORY_CLASS.get(name, 'cat-uncategorized')
+    return _reporting_categories.css_class_for_report_name(_reporting_categories_deps(), name)
 
 
 def _resolve_reporting_category(name):
-    """(target_category_id, css_class) for a dialog pick, or (None, None) if the
-    name is not a selectable report category. 'Uncategorized' clears the id."""
-    if str(name or '').strip() == 'Uncategorized':
-        return None, 'cat-uncategorized'
-    node = _report_category_node_by_name(name)
-    if node is None:
-        # Fall back to the legacy maps so a stale client (or a report.html
-        # injected before this change) keeps working.
-        if name in REPORTING_CATEGORY_DB_MAP:
-            return (REPORTING_CATEGORY_DB_MAP[name],
-                    REPORTING_CATEGORY_CLASS.get(name, 'cat-uncategorized'))
-        return None, None
-    return node.id, (node.css_class or 'cat-uncategorized')
+    return _reporting_categories.resolve_reporting_category(_reporting_categories_deps(), name)
 
 
 def _account_number_in_label(label):
-    """The 3-4 digit account number a report card's label is built around
-    ('Bank 3119 PDF' -> '3119'), or None for a label with no such number."""
-    m = re.search(r'\d{3,4}', label or '')
-    return m.group(0) if m else None
+    return _reporting_categories.account_number_in_label(label)
 
 
 def _document_report_for_path(path, month_key=None):
-    """Which report card (tab) a stored document/receipt path belongs to — so an
-    uncategorized expense's reason can say which tab to fix it on.
-
-    The source PDF for a bank/card statement usually does NOT live under the
-    report card's own `dir` (that folder holds the generated report.html,
-    built separately); it is a flat file under scanned_statements/ named after
-    the account, e.g. `fifth_third_bank_3119_february_14__february_28.pdf`.
-    So the primary signal is the account number embedded in both the filename
-    and the card's label — falling back to a `dir` match for the cases (e.g.
-    supporting documents) where the path genuinely does pass through it.
-    Several numbers repeat across cards (a monthly card and its year-summary
-    twin, or two PDFs off the same account); among ties this prefers the card
-    scoped to `month_key`, then a monthly (non all-year) card, over guessing.
-    None when nothing matches.
-    """
-    if not path:
-        return None
-    filename = path.rsplit('/', 1)[-1]
-    numbers = set(re.findall(r'\d{3,4}', filename))
-    if numbers:
-        candidates = [
-            r for r in ROL_FINANCE_REPORTS
-            if _account_number_in_label(r['label']) in numbers
-        ]
-        if candidates:
-            chosen = (
-                next((c for c in candidates if c.get('only_month') == month_key), None)
-                or next((c for c in candidates if not c.get('all_year')), None)
-                or candidates[0])
-            return {'key': chosen['key'], 'label': chosen['label']}
-    parts = path.split('/')
-    for r in ROL_FINANCE_REPORTS:
-        if r.get('dir') in parts:
-            return {'key': r['key'], 'label': r['label']}
-    return None
+    return _recent_scans.document_report_for_path(_recent_scans_deps(), path, month_key)
 
 
 def _fetch_recent_scans(limit=5, month_key=None):
-    """The most-recently-scanned expenses that are still uncategorized, newest
-    first — the 'recently scanned viewing area'. Returning only up to `limit`
-    unfinished rows IS the 'keep the view at <=5, backfill the next one' rule:
-    as each row gets categorized it drops out and the next surfaces. Also returns
-    queue_total = how many uncategorized rows are waiting overall."""
-    limit = max(1, min(int(limit or 5), 50))
-    month_range = ROL_FINANCES_MONTH_RANGES.get(month_key)
-    where_suffix = ''
-    where_params = ()
-    if month_range:
-        where_suffix = ' AND expense_date BETWEEN %s AND %s'
-        where_params = month_range
-    with _rol_get_connection() as cnx:
-        with cnx.cursor() as cur:
-            cur.execute(
-                "SELECT id, id_light, description, expense_date, amount, "
-                "       category_id, receipt_url, document_url, source_file, "
-                "       moms_ledger, created_at, notes, address, map_link "
-                "FROM expenses "
-                "WHERE (category_id IS NULL OR category_id IN (%s, %s))"
-                " AND expense_role <> 'PARENT'"
-                f"{where_suffix} "
-                "ORDER BY created_at DESC, id DESC LIMIT %s",
-                (*_UNCATEGORIZED_CATEGORY_IDS, *where_params, limit),
-            )
-            rows = cur.fetchall()
-            cur.execute(
-                "SELECT COUNT(*) AS n FROM expenses "
-                "WHERE (category_id IS NULL OR category_id IN (%s, %s))"
-                " AND expense_role <> 'PARENT'"
-                f"{where_suffix}",
-                (*_UNCATEGORIZED_CATEGORY_IDS, *where_params),
-            )
-            total = int(cur.fetchone()['n'])
-    out = []
-    for r in rows:
-        date_str = str(r['expense_date'])
-        amt = _norm_amount(r['amount'])
-        # Why this record is in "New Records": prefer a specific note written by
-        # the intake pipeline / Mazda (expenses.notes); otherwise the generic
-        # reason it lands here — categorization never completed.
-        notes = (r.get('notes') or '').strip()
-        reason = notes or (
-            'Categorization incomplete — no reporting category was assigned. '
-            'Pick one, or ask Mazda how to resolve it.')
-        out.append({
-            'id': int(r['id']),
-            'vendor_key': _vendor_prefix(r.get('id_light')),
-            'id_light': (r.get('id_light') or '').strip(),
-            'description': (r.get('description') or '').strip(),
-            'expense_date': date_str,
-            'amount': str(r['amount']),
-            'created_at': str(r.get('created_at') or ''),
-            'reporting_category': 'Uncategorized',
-            'reason': reason,
-            'receipt_present': bool(
-                _resolve_expense_receipt_path(date_str, amt, r.get('receipt_url'))
-                if amt is not None else False),
-            'receipt_url': r.get('receipt_url') or '',
-            'document_url': r.get('document_url') or '',
-            'address': r.get('address') or '',
-            'map_link': r.get('map_link') or '',
-            'document_report': (
-                _document_report_for_path(r.get('document_url'), month_key)
-                or _document_report_for_path(r.get('receipt_url'), month_key)
-                or _document_report_for_path(r.get('source_file'), month_key)),
-            'moms_ledger': r.get('moms_ledger') or '',
-        })
-    return {'rows': out, 'queue_total': total, 'limit': limit, 'month_key': month_key}
+    return _recent_scans.fetch_recent_scans(_recent_scans_deps(), limit=limit, month_key=month_key)
 
 
 def _fetch_month_status():
-    """Per-month status for the report month tabs. 'red' when any of the
-    month's report.html cards is missing or fails verification — a document
-    problem outranks the expense signal below. Otherwise 'yellow' (work to
-    do) when the most-recently-scanned expense is still uncategorized, else
-    'green'. The yellow/green check keys off the most-recent scan to match
-    the spec: the tab reacts to the newest document's unfinished business."""
-    result = []
-    with _rol_get_connection() as cnx:
-        with cnx.cursor() as cur:
-            for month_key, (start, end) in ROL_FINANCES_MONTH_RANGES.items():
-                cur.execute(
-                    "SELECT id, id_light, description, expense_date, amount, "
-                    "       category_id, created_at "
-                    "FROM expenses WHERE expense_date BETWEEN %s AND %s "
-                    "AND expense_role <> 'PARENT' "
-                    "ORDER BY created_at DESC, id DESC LIMIT 1",
-                    (start, end),
-                )
-                newest = cur.fetchone()
-                cur.execute(
-                    "SELECT COUNT(*) AS n FROM expenses "
-                    "WHERE expense_date BETWEEN %s AND %s "
-                    "AND expense_role <> 'PARENT' "
-                    "AND (category_id IS NULL OR category_id IN (%s, %s))",
-                    (start, end, *_UNCATEGORIZED_CATEGORY_IDS),
-                )
-                uncat = int(cur.fetchone()['n'])
-                if newest is None:
-                    status = 'green'
-                    most_recent = None
-                else:
-                    unfinished = _is_uncategorized(newest.get('category_id'))
-                    status = 'yellow' if unfinished else 'green'
-                    most_recent = {
-                        'id': int(newest['id']),
-                        'vendor_key': _vendor_prefix(newest.get('id_light')),
-                        'description': (newest.get('description') or '').strip(),
-                        'expense_date': str(newest['expense_date']),
-                        'amount': str(newest['amount']),
-                        'uncategorized': unfinished,
-                    }
-                broken_report_label = _month_broken_report_label(month_key)
-                if broken_report_label:
-                    status = 'red'
-                result.append({
-                    'month_key': month_key,
-                    'status': status,
-                    'uncategorized_count': uncat,
-                    'broken_report_label': broken_report_label,
-                    'most_recent_unfinished': most_recent,
-                })
-    return result
+    return _recent_scans.fetch_month_status(_recent_scans_deps())
 
 
 def _ensure_sys_path(*dirs):
@@ -5542,62 +2668,18 @@ def _receipt_only_cat_css():
     return category_row_css(_rol_finance_categories())
 
 
+from finance import receipt_only_report_page as _receipt_only_report_page  # noqa: E402
+
+
 def build_receipt_only_report_html(month_key=None):
-    """A standalone, same-origin report page for receipt-only records. Mirrors the
-    restructured Verified Transactions table (Description | Amount | Date, clickable
-    rows with data-* attrs) and embeds the identical category picker, so the existing
-    /api/receipts-present marker, /api/recategorize-expense and /api/receipt-lookup
-    all drive it without change."""
-    from html import escape as _esc
-    picker_css, picker_html, click_css = _receipt_only_picker_assets()
-    rows = _fetch_receipt_only_rows(month_key)
-    trs = []
-    for r in rows:
-        trs.append(
-            '<tr class="%s%s" data-expense-id="%s" data-human-verified="%s" data-vendor-key="%s" data-description="%s" '
-            'data-signed-amount="%s" data-date="%s" onclick="openCategoryPicker(this)" '
-            'title="Click row to set category / view receipt">'
-            '<td>%s</td><td class="number">%s</td><td>%s</td></tr>' % (
-                r['cat_class'], ' human-verified' if r.get('human_verified') else '',
-                _esc(str(r['id']), quote=True),
-                'true' if r.get('human_verified') else 'false',
-                _esc(str(r['vendor_key']), quote=True),
-                _esc(str(r['description']), quote=True),
-                _esc(str(r['amount']), quote=True),
-                _esc(str(r['date']), quote=True),
-                _esc(str(r['description'])), _esc(str(r['amount'])), _esc(str(r['date'])),
-            ))
-    body_rows = '\n'.join(trs) if trs else (
-        '<tr><td colspan="3" class="muted">No receipt-only records.</td></tr>')
-    head = (
-        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        '<title>Receipt Only</title><style>\n'
-        '    body { font-family: Arial, sans-serif; margin:0; padding:20px; '
-        'background:#f1f5f9; color:#0f172a; }\n'
-        '    section.card { background:#fff; border-radius:12px; padding:18px 20px; '
-        'margin:0 auto; max-width:1100px; box-shadow:0 1px 3px rgba(0,0,0,.08); }\n'
-        '    h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:18px 0 8px; }\n'
-        '    table { width:100%; border-collapse:collapse; overflow:hidden; '
-        'border-radius:12px; font-size:0.95rem; }\n'
-        '    th, td { padding:8px 10px; border-bottom:1px solid #e5e7eb; text-align:left; }\n'
-        '    th { background:#0f172a; color:#fff; }\n'
-        '    th.number, td.number { text-align:right; }\n'
-        '    .muted { color:#6b7280; }\n'
-        + _receipt_only_cat_css() + '\n'
-        + click_css + '\n'
-        + picker_css + '\n'
-        + '  </style></head><body>\n'
-        '<section class="card">\n'
-        '  <h1>Receipt Only</h1>\n'
-        '  <p class="muted">Receipts not associated with any bank-statement '
-        'transaction. Click a row to set its category or view the receipt.</p>\n'
-        '  <h2>Verified Transactions</h2>\n'
-        '  <table id="verified-transactions"><thead><tr>'
-        '<th>Description</th><th class="number">Amount</th><th>Date</th>'
-        '</tr></thead><tbody>\n'
+    """A standalone, same-origin report page for receipt-only records. See
+    finance/receipt_only_report_page.py."""
+    deps = _receipt_only_report_page.Collaborators(
+        receipt_only_picker_assets=_receipt_only_picker_assets,
+        fetch_receipt_only_rows=_fetch_receipt_only_rows,
+        receipt_only_cat_css=_receipt_only_cat_css,
     )
-    return head + body_rows + '\n</tbody></table>\n</section>\n' + picker_html + '\n</body></html>'
+    return _receipt_only_report_page.build_receipt_only_report_html(deps, month_key)
 
 
 # Letta API base URL — override with LETTA_BASE_URL env var; defined in hosts.py
@@ -6691,95 +3773,34 @@ HEALTH_CHECKS = {
 }
 
 
+from monitoring import server_status as _server_status  # noqa: E402
+
+
+def _server_status_deps():
+    return _server_status.Collaborators(
+        health_checks=HEALTH_CHECKS,
+        restartable_keys=RESTARTABLE_KEYS,
+        is_server_starting=is_server_starting,
+        win10_docker_ok=win10_docker_ok,
+    )
+
+
 def server_health(cfg, timeout=None):
-    """Ping a server's health_url or tcp_check. Returns {ok, text} (or None if neither set).
-
-    A cfg may instead provide 'check': <name> referencing HEALTH_CHECKS for a
-    custom, body-aware probe (e.g. verifying the SDK executor, not just HTTP up).
-
-    tcp_check: (host, port) — used for MCP proxies and other non-HTTP servers that
-    only need a TCP connection test (no HTTP response to parse)."""
-    check = cfg.get('check')
-    if check:
-        fn = HEALTH_CHECKS.get(check)
-        if fn is None:
-            return {'ok': False, 'text': f'unknown check: {check}'}
-        return fn(timeout=timeout)
-    tcp = cfg.get('tcp_check')
-    url = cfg.get('health_url')
-    if not url and not tcp:
-        return None
-    if tcp:
-        host, port = tcp
-        try:
-            s = socket.create_connection((host, port), timeout=timeout or 3)
-            s.close()
-            return {'ok': True, 'text': f'port {port} accepting connections'}
-        except Exception as e:
-            return {'ok': False, 'text': f'port {port} unreachable: {e}'}
-    try:
-        req = urllib.request.Request(url, method='GET')
-        with urllib.request.urlopen(req, timeout=timeout or 4) as r:
-            code = r.getcode()
-            body = r.read(400).decode('utf-8', errors='replace').strip()
-        snippet = (' — ' + body.replace('\n', ' ')[:160]) if body else ''
-        return {'ok': 200 <= code < 400, 'text': f'HTTP {code}{snippet}'}
-    except urllib.error.HTTPError as e:
-        return {'ok': False, 'text': f'HTTP {e.code} {e.reason}'}
-    except Exception as e:
-        return {'ok': False, 'text': f'unreachable: {e}'}
+    """Ping a server's health_url or tcp_check. See monitoring/server_status.py."""
+    return _server_status.server_health(_server_status_deps(), cfg, timeout=timeout)
 
 
 def compute_server_status(health, *, starting=False, restartable=False,
                           host_unreachable=False, dependency_down=False):
-    """Reduce a health result to a tab status: 'up' | 'concern' | 'starting' | 'down'.
-
-    Yellow ('concern') is the "needs attention, but you can fix it here" state and
-    covers the four cases the dashboard surfaces:
-      1. reachable-but-degraded  — health ok but with a `concern` flag (e.g. the
-         Frita executor is up on :8799 but a ghost shadows :8797);
-      2. dependency needs a reboot — e.g. the Win10 dockerd is down;
-      3. down-but-restartable-here — a restart handler exists and the host is
-         reachable, so a Restart button can recover it;
-      4. recently-restarted — the 'starting' grace window after a Restart.
-    Red ('down') is reserved for genuinely-stuck servers: down with no restart
-    path, a remote whose host we can't even reach (host_unreachable) to attempt
-    a fix, or a health result flagged 'hard': True — a failure a restart click
-    cannot fix by itself (e.g. a dead OAuth token that needs human re-auth). host_unreachable is derived from an actual host probe (e.g. the SSH/
-    docker check), not from guessing at the health-text wording."""
-    if health is not None and health.get('ok'):
-        return 'concern' if health.get('concern') else 'up'
-    if starting:
-        return 'starting'
-    if dependency_down:
-        return 'concern'
-    if restartable and not host_unreachable and not (health or {}).get('hard'):
-        return 'concern'
-    return 'down'
-
-
+    return _server_status.compute_server_status(
+        health, starting=starting, restartable=restartable,
+        host_unreachable=host_unreachable, dependency_down=dependency_down)
 
 
 def server_status_kind(cfg, health):
-    """Shared 4-state classification ('up'|'concern'|'starting'|'down', or None
-    when there's nothing to check) used by BOTH the sidebar tab
-    (/api/server-health) and the detail panel (/api/server-logs) so the two never
-    disagree. dependency_down/host_unreachable come from the cached Win10 docker
-    probe for win10_docker servers."""
-    if health is None:
-        return None
-    key = cfg['key']
-    dependency_down = host_unreachable = False
-    if cfg.get('win10_docker') and not health.get('ok'):
-        d = win10_docker_ok()
-        dependency_down = (d is False)
-        host_unreachable = (d is None)
-    return compute_server_status(
-        health,
-        starting=is_server_starting(key),
-        restartable=key in RESTARTABLE_KEYS,
-        host_unreachable=host_unreachable,
-        dependency_down=dependency_down)
+    """Shared 4-state classification used by both the sidebar tab and the
+    detail panel. See monitoring/server_status.py."""
+    return _server_status.server_status_kind(_server_status_deps(), cfg, health)
 
 
 # ── Health-check caching ─────────────────────────────────────────────────────
@@ -6852,77 +3873,32 @@ def server_log_rows(cfg, q=''):
 
 # ── Agent registry ────────────────────────────────────────────────────────────
 
+from monitoring import agent_activity as _agent_activity  # noqa: E402
+
+
+def _agent_activity_deps():
+    return _agent_activity.Collaborators(
+        letta_agents=LETTA_AGENTS,
+        get_letta_id=get_letta_id,
+        letta_messages=letta_messages,
+        cache=_agent_activity_cache,
+        cache_lock=_agent_activity_cache_lock,
+        cache_ttl=AGENT_ACTIVITY_CACHE_TTL,
+    )
+
+
 def _msg_age_seconds(m, now):
-    """Return how many seconds ago a message was created, or None on parse error."""
-    from datetime import timezone
-    raw = str(m.get('created_at') or m.get('date') or '').strip()
-    if not raw:
-        return None
-    if raw.endswith('Z'):
-        raw = raw[:-1] + '+00:00'
-    elif len(raw) >= 19 and '+' not in raw and 'T' in raw:
-        raw += '+00:00'
-    try:
-        ts = datetime.fromisoformat(raw[:32])
-        if ts.tzinfo is None:
-            from datetime import timezone
-            ts = ts.replace(tzinfo=timezone.utc)
-        return (now - ts).total_seconds()
-    except Exception:
-        return None
+    return _agent_activity.msg_age_seconds(m, now)
 
 
 def _agent_activity_one(cfg, now):
-    """Compute the activity status for a single agent config. Returns (dash_id, status)."""
-    real_id = get_letta_id(cfg)
-    dash_id = real_id or f'unknown-{cfg["name"].lower()}'
-    if not real_id:
-        return dash_id, 'idle'
-    msgs = letta_messages(real_id, limit=5)
-    if not msgs:
-        return real_id, 'idle'
-    # Sort ascending so last item is most recent message
-    msgs_sorted = sorted(msgs, key=lambda m: str(m.get('created_at') or m.get('date') or ''))
-    last = msgs_sorted[-1]
-    age = _msg_age_seconds(last, now)
-    if age is None or age > 60:
-        return real_id, 'idle'
-    mt = last.get('message_type', '')
-    if mt in ('user_message', 'tool_call_message', 'reasoning_message'):
-        return real_id, 'active'
-    if mt == 'tool_return_message':
-        tr = last.get('tool_return', {})
-        if isinstance(tr, dict) and tr.get('status') == 'error':
-            return real_id, 'error'
-        return real_id, 'active'
-    # assistant_message or unknown — agent just finished responding
-    return real_id, 'idle'
+    return _agent_activity.agent_activity_one(_agent_activity_deps(), cfg, now)
 
 
 def agent_activity_status():
-    """Return {agent_id: 'active'|'error'|'idle'} for every configured Letta agent.
-
-    Each agent's status requires a DERP-relayed round trip to the Letta API
-    (3-8s). Fetched in parallel (not serially) and cached briefly so the
-    frontend's 5s poll doesn't pile up dozens of concurrent multi-agent sweeps."""
-    # Hold the lock for the whole get-or-compute so concurrent pollers share
-    # one sweep instead of each starting their own.
-    with _agent_activity_cache_lock:
-        now_ts = time.time()
-        cached = _agent_activity_cache.get('value')
-        if cached is not None and now_ts - _agent_activity_cache.get('ts', 0.0) < AGENT_ACTIVITY_CACHE_TTL:
-            return cached
-
-        from datetime import timezone
-        now = datetime.now(timezone.utc)
-        results = {}
-        with ThreadPoolExecutor(max_workers=max(1, len(LETTA_AGENTS))) as pool:
-            for dash_id, status in pool.map(lambda cfg: _agent_activity_one(cfg, now), LETTA_AGENTS):
-                results[dash_id] = status
-
-        _agent_activity_cache['value'] = results
-        _agent_activity_cache['ts'] = time.time()
-        return results
+    """Return {agent_id: 'active'|'error'|'idle'} for every configured Letta
+    agent. See monitoring/agent_activity.py."""
+    return _agent_activity.agent_activity_status(_agent_activity_deps())
 
 
 # ── Agent health checks ───────────────────────────────────────────────────────
@@ -6981,7 +3957,6 @@ from monitoring.provider_usage import (  # noqa: E402
     PROVIDER_USAGE_PROBES,
     fetch_provider_oauth_creds as _fetch_provider_oauth_creds,
 )
-from model_stats.windows import _human_reset  # noqa: E402
 
 # The zero-token provider quota probes moved to monitoring/provider_usage.py:
 # the fleet lookup, the provider-token read, the two vendor probes and the two
@@ -7034,89 +4009,22 @@ def _default_model_id_for_family(family):
     handle = next((h for h in AGENT_MODEL_OPTIONS if h.startswith(prefix)), None)
     return handle.partition('/')[2] if handle else ''
 
+from model_stats import agents_payload as _agents_payload  # noqa: E402
+
 _weekly_remaining_cache = {}
 _weekly_remaining_cache_lock = threading.Lock()
 WEEKLY_REMAINING_CACHE_TTL = 60  # seconds; keeps the tab's poll from re-hitting 4 usage APIs every refresh
 
 
 def _weekly_percent_remaining(provider_name):
-    """(remaining, rate_limited_until) -- 100 - the 7-day/weekly window's
-    used_percent for a provider's live token, via the same zero-token usage
-    probes as the health system (never an LLM call).
-
-    `remaining` is None on any failure -- caller renders that as unknown, not
-    0%. `rate_limited_until` is an absolute epoch, set only when the failure
-    was specifically an HTTP 429 with a `Retry-After` header: this usage-*
-    reporting* endpoint throttles independently of the account's real quota
-    (see model_stats/reader.py's _fill_rate_limited for the same judgement
-    call on the same endpoint), so the caller can render a live countdown to
-    the real cause instead of a bare "unavailable"."""
-    now = time.time()
-    with _weekly_remaining_cache_lock:
-        cached = _weekly_remaining_cache.get(provider_name)
-        if cached:
-            cached_remaining, cached_reset_at, cached_at = cached
-            # Same backoff as model_stats/reader.py's model_stats(): once a
-            # 429 tells us exactly when the reporting endpoint's cooldown
-            # ends, keep serving that reading instead of re-probing every
-            # WEEKLY_REMAINING_CACHE_TTL seconds and extending the throttle.
-            still_backing_off = cached_reset_at and now < cached_reset_at
-            if still_backing_off or now - cached_at < WEEKLY_REMAINING_CACHE_TTL:
-                return cached_remaining, cached_reset_at
-
-    creds, provider_type = _fetch_provider_oauth_creds(provider_name)
-    remaining = None
-    rate_limited_until = None
-    if creds:
-        try:
-            if provider_type in ('anthropic', 'anthropic_oauth'):
-                token = creds.get('access_token') or (creds.get('claudeAiOauth') or {}).get('accessToken') or ''
-                req = urllib.request.Request(
-                    'https://api.anthropic.com/api/oauth/usage',
-                    headers={'Authorization': 'Bearer ' + token,
-                             'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'claude-code/2.0.32'})
-                with urllib.request.urlopen(req, timeout=15) as r:
-                    usage = json.loads(r.read().decode())
-                used = float((usage.get('seven_day') or {}).get('utilization') or 0)
-                remaining = round(100 - used, 1)
-            elif provider_type == 'chatgpt_oauth':
-                req = urllib.request.Request(
-                    'https://chatgpt.com/backend-api/wham/usage',
-                    headers={'Authorization': 'Bearer ' + (creds.get('access_token') or ''),
-                             'ChatGPT-Account-Id': creds.get('account_id', ''),
-                             'OpenAI-Beta': 'codex-1', 'originator': 'codex_cli_rs', 'User-Agent': 'codex'})
-                with urllib.request.urlopen(req, timeout=15) as r:
-                    usage = json.loads(r.read().decode())
-                rl = usage.get('rate_limit') or {}
-                # The weekly window isn't reliably "secondary_window" -- its
-                # position shifts (see monitoring/provider_usage.py's
-                # codex_window_label and its 2026-08-19 note:
-                # primary_window was the 7-day window with no secondary at
-                # all). Pick whichever window's own limit_window_seconds is
-                # actually ~7 days, not a fixed key.
-                w = None
-                for key in ('primary_window', 'secondary_window'):
-                    candidate = rl.get(key)
-                    if isinstance(candidate, dict) and abs((candidate.get('limit_window_seconds') or 0) - 604800) < 3600:
-                        w = candidate
-                        break
-                used = float((w or {}).get('used_percent') or 0)
-                remaining = round(100 - used, 1)
-        except urllib.error.HTTPError as e:
-            remaining = None
-            if e.code == 429:
-                retry_after = e.headers.get('Retry-After') if e.headers else None
-                try:
-                    if retry_after is not None:
-                        rate_limited_until = now + int(retry_after)
-                except ValueError:
-                    pass
-        except Exception:
-            remaining = None
-
-    with _weekly_remaining_cache_lock:
-        _weekly_remaining_cache[provider_name] = (remaining, rate_limited_until, now)
-    return remaining, rate_limited_until
+    return _agents_payload.weekly_percent_remaining(
+        _agents_payload.WeeklyRemainingCollaborators(
+            fetch_provider_oauth_creds=_fetch_provider_oauth_creds,
+            cache=_weekly_remaining_cache,
+            cache_lock=_weekly_remaining_cache_lock,
+            cache_ttl=WEEKLY_REMAINING_CACHE_TTL,
+        ),
+        provider_name)
 
 
 def agent_oauth_account_payload(letta_id, pending_model=''):
@@ -7184,86 +4092,22 @@ MODEL_STATS_AGENTS_CACHE_TTL = 20  # seconds; one bulk /v1/agents/ fetch backs e
 def model_stats_agents_payload(force_refresh=False):
     """One row per LETTA_AGENTS entry for the Agent Assignments tab: current
     model, current OAuth account label, and that account's weekly-remaining %."""
-    now = time.time()
-    if not force_refresh:
-        with _model_stats_agents_cache_lock:
-            cached = _model_stats_agents_cache.get('value')
-            if cached is not None and now - _model_stats_agents_cache.get('ts', 0.0) < MODEL_STATS_AGENTS_CACHE_TTL:
-                return cached
-
-    req = urllib.request.Request(f'{LETTA_BASE_URL}/v1/agents/?limit=200')
-    with urllib.request.urlopen(req, timeout=20) as r:
-        all_agents = json.loads(r.read().decode())
-    by_id = {a['id']: a for a in all_agents}
-
-    chatgpt_status = get_chatgpt_provider_account_status()
-    rows = []
-    referenced_providers = set()
-    for cfg in LETTA_AGENTS:
-        real_id = get_letta_id(cfg)
-        agent_data = by_id.get(real_id) if real_id else None
-        llm = (agent_data or {}).get('llm_config') or {}
-        provider = llm.get('provider_name') or ''
-        model_id = llm.get('model') or ''
-        info = OAUTH_PROVIDER_ACCOUNTS.get(provider)
-        if provider:
-            referenced_providers.add(provider)
-        provider_state = (chatgpt_status.provider_token_state
-                          if provider == CHATGPT_PLUS_PRO else None)
-        remaining, rate_limited_until = (
-            _weekly_percent_remaining(provider) if provider else (None, None))
-        rows.append({
-            'id': real_id or f'unknown-{cfg["name"].lower()}',
-            'name': cfg['name'],
-            'model': model_id,
-            'account': info['account'] if info else '',
-            'account_label': info['label'] if info else (provider or 'unknown'),
-            'weekly_percent_remaining': remaining,
-            'token_reset_at': rate_limited_until,
-            'token_status': ('up' if provider_state == 'valid' else
-                             'down' if provider_state in ('expired', 'stale') else None),
-            'token_status_detail': (chatgpt_status.token_status_detail
-                                    if provider_state else
-                                    (f'Usage reporting rate limited — resets {_human_reset(rate_limited_until)}'
-                                     if rate_limited_until else '')),
-        })
-
-    # Accounts (e.g. rbarnesrol@aol.com / chatgpt-plus-pro-mom) that exist in
-    # OAUTH_PROVIDER_ACCOUNTS but back no current agent's provider would
-    # otherwise never appear on this tab -- surface them read-only so an
-    # unused token's expiry is still visible.
-    rows.extend(build_unassigned_account_rows(
-        OAUTH_PROVIDER_ACCOUNTS, referenced_providers, _weekly_percent_remaining))
-
-    # Mazda's run_claude_code_sdk tool is not a Letta agent, but it runs the
-    # work that makes her minions useful and authenticates with its own mounted
-    # Claude OAuth credential. Keep it in this list so an expired executor
-    # token cannot hide behind healthy Letta-agent rows. This probe is
-    # read-only and does not submit a Claude job or trigger auto-repair.
-    sdk_account = claude_sdk_account_payload()
-    sdk_option = next(
-        (item for item in sdk_account.get('options', [])
-         if item.get('account') == sdk_account.get('current')),
-        {},
+    deps = _agents_payload.Collaborators(
+        letta_base_url=LETTA_BASE_URL,
+        letta_agents=LETTA_AGENTS,
+        get_letta_id=get_letta_id,
+        get_chatgpt_provider_account_status=get_chatgpt_provider_account_status,
+        oauth_provider_accounts=OAUTH_PROVIDER_ACCOUNTS,
+        chatgpt_plus_pro=CHATGPT_PLUS_PRO,
+        weekly_percent_remaining=_weekly_percent_remaining,
+        claude_sdk_account_payload=claude_sdk_account_payload,
+        claude_sdk_token_status=claude_sdk_token_status,
+        claude_provider_for_account=_claude_provider_for_account,
+        cache=_model_stats_agents_cache,
+        cache_lock=_model_stats_agents_cache_lock,
+        cache_ttl=MODEL_STATS_AGENTS_CACHE_TTL,
     )
-    # The executor runs on a copy of one human's ordinary Claude OAuth token,
-    # so it spends that account's weekly quota -- read it from the matching
-    # provider row (cached alongside every other row's) rather than leaving
-    # this the one row on the tab with no Weekly Remaining bar.
-    sdk_provider = _claude_provider_for_account(sdk_account.get('current', ''))
-    sdk_remaining, sdk_reset_at = (
-        _weekly_percent_remaining(sdk_provider) if sdk_provider else (None, None))
-    rows.append(build_claude_sdk_assignment(
-        claude_sdk_token_status(), now=time.time(),
-        account=sdk_account.get('current', ''),
-        account_label=sdk_option.get('label', 'Executor OAuth token'),
-        weekly_percent_remaining=sdk_remaining,
-        token_reset_at=sdk_reset_at))
-
-    with _model_stats_agents_cache_lock:
-        _model_stats_agents_cache['value'] = rows
-        _model_stats_agents_cache['ts'] = now
-    return rows
+    return _agents_payload.agents_payload(deps, force_refresh=force_refresh)
 
 
 # ── ChatGPT provider auto-failover ────────────────────────────────────────────
@@ -7296,152 +4140,57 @@ def _chatgpt_provider_poll_loop():
     chatgpt_failover.poll_loop(_poll_chatgpt_provider_once)
 
 
+from monitoring import agent_health as _agent_health  # noqa: E402
+
+
+def _agent_health_deps():
+    return _agent_health.Collaborators(
+        letta_agents=LETTA_AGENTS,
+        get_letta_id=get_letta_id,
+        letta_get=letta_get,
+        agent_send_errors=_agent_send_errors,
+        agent_send_errors_lock=_agent_send_errors_lock,
+        probe_claude_sdk_endpoint=_probe_claude_sdk_endpoint,
+        frita_exec_work_url=FRITA_EXEC_WORK_URL,
+        cache=_agent_health_cache,
+        cache_lock=_agent_health_cache_lock,
+        cache_ttl=AGENT_HEALTH_CACHE_TTL,
+    )
+
+
 def _uses_claude_sdk(cfg):
-    """True for agents whose tool calls hit the /claude_sdk WORK endpoint — either
-    flagged explicitly (Frita, who has no required_tools) or via run_claude_code_sdk
-    in required_tools (the Mazda minions)."""
-    return bool(cfg.get('uses_claude_sdk')) or 'run_claude_code_sdk' in cfg.get('required_tools', [])
+    return _agent_health.uses_claude_sdk(cfg)
 
 
 def agent_health_check(cfg, timeout=15, sdk_status=None):
-    """Check if an agent is structurally healthy: ID resolvable + required tools attached.
-    Also checks _agent_send_errors for functional failures recorded by /api/test, and
-    (for Claude-SDK agents) that the /claude_sdk work endpoint isn't 404ing.
-
-    Returns {ok, text, name} — ok=False turns the agent's tab red in the dashboard.
-    Uses a longer timeout than letta_get's default (6s) because the /tools endpoint
-    returns verbose JSON for agents with many tools over the DERP relay.
-
-    sdk_status, when provided, is a pre-computed _probe_claude_sdk_endpoint() result
-    shared across a health sweep so the work endpoint is probed once, not per-agent."""
-    name = cfg.get('name', '?')
-    real_id = get_letta_id(cfg)
-    if not real_id:
-        return {'ok': False, 'text': f'{name}: agent not found in Letta', 'name': name}
-
-    # Functional failure recorded by a recent /api/test call?
-    with _agent_send_errors_lock:
-        send_err = _agent_send_errors.get(real_id)
-    if send_err:
-        return {'ok': False,
-                'text': f'{name}: last send failed — {send_err["text"][:80]}',
-                'name': name}
-
-    # Claude-SDK work endpoint reachable? The dashboard's Frita-Executor LED only
-    # watches /claude_sdk_status; this catches a 404 on /claude_sdk itself — the
-    # route the tool actually POSTs to (Frita's "HTTP Error 404: Not Found").
-    if _uses_claude_sdk(cfg):
-        st = sdk_status if sdk_status is not None else _probe_claude_sdk_endpoint(FRITA_EXEC_WORK_URL, timeout)
-        if st == 'not_found':
-            return {'ok': False,
-                    'text': f'{name}: Claude SDK endpoint /claude_sdk returns 404 — '
-                            f'run_claude_code_sdk tool calls will fail',
-                    'name': name}
-        if st == 'unreachable':
-            return {'ok': False,
-                    'text': f'{name}: Claude SDK executor unreachable on :8799 — '
-                            f'run_claude_code_sdk tool calls will fail',
-                    'name': name}
-
-    required = cfg.get('required_tools', [])
-    if not required:
-        return {'ok': True, 'text': f'{name}: agent found', 'name': name}
-
-    # Letta paginates this endpoint at 10 by default; agents with more tools
-    # would falsely report required tools as missing without an explicit limit.
-    tools_data = letta_get(f'/v1/agents/{real_id}/tools?limit=100', timeout=timeout)
-    if tools_data is None:
-        return {'ok': False, 'text': f'{name}: could not fetch tool list from Letta', 'name': name}
-
-    tool_names = {t.get('name') for t in (tools_data if isinstance(tools_data, list) else [])}
-    missing = [t for t in required if t not in tool_names]
-    if missing:
-        return {'ok': False,
-                'text': f'{name}: missing required tools: {", ".join(missing)}',
-                'name': name}
-    return {'ok': True,
-            'text': f'{name}: {", ".join(required)} present',
-            'name': name}
+    return _agent_health.agent_health_check(
+        _agent_health_deps(), cfg, timeout=timeout, sdk_status=sdk_status)
 
 
 def agent_health_status():
-    """Return {agent_id: {ok, text, name}} for every agent that declares required_tools.
-
-    Fetches tool lists via the Letta API (one request per agent with required_tools);
-    results cached for AGENT_HEALTH_CACHE_TTL seconds."""
-    with _agent_health_cache_lock:
-        now_ts = time.time()
-        cached = _agent_health_cache.get('value')
-        if cached is not None and now_ts - _agent_health_cache.get('ts', 0.0) < AGENT_HEALTH_CACHE_TTL:
-            return cached
-
-        checked = [cfg for cfg in LETTA_AGENTS
-                   if cfg.get('required_tools') or _uses_claude_sdk(cfg)]
-        # Probe the shared /claude_sdk work endpoint ONCE for the whole sweep — a
-        # 404/outage there is infrastructure-wide, so every SDK agent reflects the
-        # same result (mirrors the chatgpt-provider canary turning the fleet red).
-        sdk_status = (_probe_claude_sdk_endpoint(FRITA_EXEC_WORK_URL, 6)
-                      if any(_uses_claude_sdk(c) for c in checked) else None)
-        results = {}
-        with ThreadPoolExecutor(max_workers=max(1, len(checked))) as pool:
-            for result in pool.map(lambda c: agent_health_check(c, timeout=15, sdk_status=sdk_status), checked):
-                name = result['name']
-                # Find the agent's real ID to use as the map key
-                cfg = next((c for c in checked if c['name'] == name), None)
-                if cfg:
-                    real_id = get_letta_id(cfg) or f'unknown-{name.lower()}'
-                    results[real_id] = result
-
-        _agent_health_cache['value'] = results
-        _agent_health_cache['ts'] = time.time()
-        return results
+    """Return {agent_id: {ok, text, name}} for every agent that declares
+    required_tools. See monitoring/agent_health.py."""
+    return _agent_health.agent_health_status(_agent_health_deps())
 
 
-def _refresh_agent_list_bg():
-    """Background stale-while-revalidate refresh for build_agent_list."""
-    try:
-        build_agent_list(force_refresh=True)
-    finally:
-        with _agent_list_cache_lock:
-            _agent_list_cache['refreshing'] = False
+from monitoring import agent_list as _agent_list_mod  # noqa: E402
+
+
+def _agent_list_deps():
+    return _agent_list_mod.Collaborators(
+        letta_agents=LETTA_AGENTS,
+        get_letta_id=get_letta_id,
+        cache=_agent_list_cache,
+        cache_lock=_agent_list_cache_lock,
+        cache_ttl=AGENT_LIST_CACHE_TTL,
+        build_agent_list=build_agent_list,
+    )
 
 
 def build_agent_list(force_refresh=False):
-    """Return the agent list for /api/agents, combining Letta agents + Claude."""
-    now = time.time()
-    if not force_refresh:
-        with _agent_list_cache_lock:
-            cached = _agent_list_cache.get('value')
-            if cached is not None:
-                if now - _agent_list_cache.get('ts', 0.0) < AGENT_LIST_CACHE_TTL:
-                    return cached
-                # Stale: serve it immediately and refresh in the background —
-                # a cold rebuild can block >10s on the Letta roster fetch,
-                # which trips the browser's fetch timeout.
-                if not _agent_list_cache.get('refreshing'):
-                    _agent_list_cache['refreshing'] = True
-                    threading.Thread(target=_refresh_agent_list_bg, daemon=True).start()
-                return cached
-
-    agents = []
-    for cfg in LETTA_AGENTS:
-        real_id = get_letta_id(cfg)
-        agents.append({
-            'id': real_id or f'unknown-{cfg["name"].lower()}',
-            'name': cfg['name'],
-            'model': '',   # could fetch from Letta but keep it fast
-            'letta': True,
-        })
-    agents.append({
-        'id': 'agent-claude',
-        'name': 'Claude',
-        'model': 'claude-sonnet-4-6',
-        'letta': False,
-    })
-    with _agent_list_cache_lock:
-        _agent_list_cache['value'] = agents
-        _agent_list_cache['ts'] = now
-    return agents
+    """Return the agent list for /api/agents, combining Letta agents + Claude.
+    See monitoring/agent_list.py."""
+    return _agent_list_mod.build_agent_list(_agent_list_deps(), force_refresh=force_refresh)
 
 def letta_id_for(agent_id):
     """Given a dashboard agent ID, return the Letta agent ID (or None if not Letta)."""
@@ -7473,10 +4222,6 @@ from model_stats.reader import (  # noqa: E402
     _model_stats_cache, _model_stats_uncached, model_stats,
 )
 from model_stats.sources import ModelStatSource, R46_SSH_HOST  # noqa: E402
-from model_stats.assignments import (  # noqa: E402
-    build_claude_sdk_assignment,
-    build_unassigned_account_rows,
-)
 from model_stats.usage_history import (  # noqa: E402
     LEAK_BUCKET_MINUTES, LEAK_LOOKBACK_MINUTES, LEAK_MIN_RISE_PCT,
     LEAK_MIN_RISING_BUCKETS, MODEL_USAGE_HISTORY_FILE,
