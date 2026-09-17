@@ -134,9 +134,9 @@ export class ExpenseEditDialog {
 
     // Same purpose as the Add Expense page's Notes field, and the same
     // /api/save-expense-notes endpoint -- but this row is already stored, so
-    // there is no prior value to preload (the read side of that endpoint's
-    // note isn't modeled on any record this dialog receives). The box starts
-    // blank on every pick rather than showing a stale or misleading value.
+    // _select preloads whatever is already on the record (see ExpenseRecord's
+    // `notes` field), and Save only re-POSTs it when the box no longer
+    // matches what was loaded.
     const notesWrap = this._el("div", { className: "manual-entry-field" });
     this.editEl.appendChild(notesWrap);
     notesWrap.appendChild(this._el("label", { text: "Notes" }));
@@ -318,7 +318,11 @@ export class ExpenseEditDialog {
     )
       ? fields.categoryName
       : NO_CATEGORY_OPTION;
-    this.editNotesInput.value = "";
+    this.editNotesInput.value = record.notes;
+    // The baseline Save compares the box against, so re-saving without
+    // touching Notes never fires a spurious write, but clearing it out is
+    // still recognized as a real change to save.
+    this._loadedNotes = record.notes;
     this.editEl.style.display = "";
     this.errorsEl.textContent = "";
     this._setStatus(`Editing expense #${record.id}.`);
@@ -382,7 +386,10 @@ export class ExpenseEditDialog {
       this.saveButton.classList.remove("is-pressed");
     }
     const notes = this.editNotesInput.value.trim();
-    if (editSucceeded && notes) await this._saveNotes(this.selectedId, notes);
+    if (editSucceeded && notes !== this._loadedNotes) {
+      await this._saveNotes(this.selectedId, notes);
+      this._loadedNotes = notes;
+    }
   }
 
   /** Best-effort: the corrected expense itself is already saved either way. */

@@ -19,6 +19,7 @@ def records_as_json(records: Sequence[ExpenseRecord]) -> list[dict]:
             'distance_miles': record.distance_miles,
             'map_link': record.map_link,
             'category_name': record.category_name,
+            'notes': record.notes,
         }
         for record in records
     ]

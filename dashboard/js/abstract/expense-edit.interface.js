@@ -35,6 +35,8 @@
  *   the map-distance-tool; "" until Mazda's intake pipeline populates it --
  *   never derived or looked up client-side
  * @property {string} categoryName
+ * @property {string} notes free-text note from `expenses.notes`; "" when none
+ *   was ever saved
  *
  * @typedef {Object} ExpenseSearchResult
  * @property {boolean} ok
@@ -167,6 +169,7 @@ export function readExpenseRecord(raw) {
     distanceMiles: asFiniteNumber(raw.distance_miles),
     mapLink: asString(raw.map_link),
     categoryName: asString(raw.category_name),
+    notes: asString(raw.notes),
   };
 }
 

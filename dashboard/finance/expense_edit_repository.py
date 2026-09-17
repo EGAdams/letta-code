@@ -54,7 +54,7 @@ _where_clauses = where_clauses
 #: Columns the search reads only if the live table actually has them.
 OPTIONAL_COLUMNS = (
     'id_light', 'receipt_url', 'document_url', 'source_file', 'receipt_metadata',
-    'address', 'distance', 'map_link',
+    'address', 'distance', 'map_link', 'notes',
 )
 #: The itemization link, probed separately from the SELECT list because it is
 #: never displayed -- a delete only needs to know whether this deployment can
@@ -123,6 +123,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
             map_link=(row.get('map_link') or '').strip(),
             category_id=category_id,
             category_name=self._namer.name_for(category_id),
+            notes=(row.get('notes') or '').strip(),
         )
 
     def _select_clause(self, cur: Any) -> tuple[str, bool]:
@@ -320,6 +321,7 @@ class MySqlExpenseRecordRepository(IExpenseRecordRepository):
                     map_link=before.map_link,
                     category_id=edit.category_id,
                     category_name=self._namer.name_for(edit.category_id),
+                    notes=before.notes,
                 )
         return ExpenseEditResult(
             record=after,

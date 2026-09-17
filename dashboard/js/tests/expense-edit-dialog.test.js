@@ -185,6 +185,19 @@ describe("picking a row", () => {
     expect(link).toBeUndefined();
   });
 
+  test("preloads an existing note", async () => {
+    const withNotes = { ...RECORD, notes: "Reimbursed by Sam" };
+    const { dialog } = await pickOne({
+      "/api/expense-search": { ok: true, records: [withNotes] },
+    });
+    expect(dialog.editNotesInput.value).toBe("Reimbursed by Sam");
+  });
+
+  test("a row with no saved note leaves Notes blank", async () => {
+    const { dialog } = await pickOne();
+    expect(dialog.editNotesInput.value).toBe("");
+  });
+
   test("a category the taxonomy no longer offers falls back to unresolved", async () => {
     const doc = new FakeDocument();
     const root = doc.createElement("div");
@@ -338,6 +351,52 @@ describe("saving an edit", () => {
     expect(http.calls.some(([url]) => url === "/api/save-expense-notes")).toBe(
       false,
     );
+  });
+
+  test("re-saving without touching a preloaded note does not resend it", async () => {
+    const withNotes = { ...RECORD, notes: "Reimbursed by Sam" };
+    const ctx = setup({
+      responses: {
+        "/api/expense-search": { ok: true, records: [withNotes] },
+        "/api/expense-edit": {
+          ok: true,
+          record: withNotes,
+          changed_fields: ["amount"],
+          warnings: [],
+        },
+      },
+    });
+    ctx.dialog.merchantInput.value = "Kroger";
+    await ctx.dialog._search();
+    click(ctx.root.querySelector('[data-action="expense-pick"]'));
+    await ctx.dialog._save();
+    expect(
+      ctx.http.calls.some(([url]) => url === "/api/save-expense-notes"),
+    ).toBe(false);
+  });
+
+  test("clearing a preloaded note saves the empty string", async () => {
+    const withNotes = { ...RECORD, notes: "Reimbursed by Sam" };
+    const ctx = setup({
+      responses: {
+        "/api/expense-search": { ok: true, records: [withNotes] },
+        "/api/expense-edit": {
+          ok: true,
+          record: withNotes,
+          changed_fields: ["amount"],
+          warnings: [],
+        },
+      },
+    });
+    ctx.dialog.merchantInput.value = "Kroger";
+    await ctx.dialog._search();
+    click(ctx.root.querySelector('[data-action="expense-pick"]'));
+    ctx.dialog.editNotesInput.value = "";
+    await ctx.dialog._save();
+    const call = ctx.http.calls.find(
+      ([url]) => url === "/api/save-expense-notes",
+    );
+    expect(call[1]).toEqual({ expense_id: 501, notes: "" });
   });
 });
 

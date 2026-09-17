@@ -113,7 +113,14 @@ describe("readExpenseRecord", () => {
       distanceMiles: null,
       mapLink: "",
       categoryName: "Office",
+      notes: "",
     });
+  });
+
+  test("carries an existing note through", () => {
+    expect(
+      readExpenseRecord({ ...RECORD_JSON, notes: "Reimbursed by Sam" }).notes,
+    ).toBe("Reimbursed by Sam");
   });
 
   test("a negative amount reads as positive", () => {

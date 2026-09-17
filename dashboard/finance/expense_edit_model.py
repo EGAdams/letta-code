@@ -129,6 +129,11 @@ class ExpenseRecord(StrictModel):
     map_link: str = ''
     category_id: Optional[int] = None
     category_name: str = ''
+    #: Free-text note from `expenses.notes` (see server.py's
+    #: save_expense_notes). Not operator-editable through ExpenseEdit -- it
+    #: has its own save endpoint -- so this always round-trips unchanged (see
+    #: apply_edit's `after` construction).
+    notes: str = ''
 
 
 class ExpenseEdit(ExpenseFieldRules):

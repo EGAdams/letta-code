@@ -43,6 +43,7 @@ def test_records_as_json_uses_browser_contract_without_vendor_alias():
         'distance_miles': None,
         'map_link': '',
         'category_name': 'Office',
+        'notes': '',
     }]
     assert 'vendor_key' not in payload[0]
 

@@ -2,7 +2,7 @@
 import pytest
 
 from finance.expense_edit_model import ExpenseNotFound, ExpenseSearchCriteria
-from tests.expense_edit_test_fakes import edit, repository, row
+from tests.expense_edit_test_fakes import FakeProbe, edit, repository, row
 
 
 def test_edit_reports_only_actual_changes_and_commits_once():
@@ -48,6 +48,28 @@ def test_edit_returns_corrected_record():
     record = repo.apply_edit(edit(category_id=243)).record
     assert record.description == 'Kroger Fuel'
     assert record.category_name == 'Rosemary'
+
+
+def test_search_and_read_carry_an_existing_note():
+    probe = FakeProbe(available=('id_light', 'notes'))
+    repo, _ = repository(
+        [row(notes='Reimbursed by Sam')], probe=probe)
+    assert repo.search(ExpenseSearchCriteria(merchant='Kroger'))[0].notes == (
+        'Reimbursed by Sam')
+    assert repo.read(501).notes == 'Reimbursed by Sam'
+
+
+def test_a_deployment_without_the_notes_column_reads_a_blank_note():
+    repo, _ = repository([row()])  # FakeProbe() only exposes id_light
+    assert repo.read(501).notes == ''
+
+
+def test_edit_preserves_the_existing_note_unchanged():
+    probe = FakeProbe(available=('id_light', 'notes'))
+    repo, _ = repository(
+        [row(notes='Reimbursed by Sam')], probe=probe)
+    record = repo.apply_edit(edit(category_id=243)).record
+    assert record.notes == 'Reimbursed by Sam'
 
 
 def test_read_and_delete_commands():
