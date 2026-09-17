@@ -132,6 +132,20 @@ export class ExpenseEditDialog {
     this.editCategorySelect.dataset.field = "editCategoryName";
     categoryWrap.appendChild(this.editCategorySelect);
 
+    // Same purpose as the Add Expense page's Notes field, and the same
+    // /api/save-expense-notes endpoint -- but this row is already stored, so
+    // there is no prior value to preload (the read side of that endpoint's
+    // note isn't modeled on any record this dialog receives). The box starts
+    // blank on every pick rather than showing a stale or misleading value.
+    const notesWrap = this._el("div", { className: "manual-entry-field" });
+    this.editEl.appendChild(notesWrap);
+    notesWrap.appendChild(this._el("label", { text: "Notes" }));
+    this.editNotesInput = this._el("textarea");
+    this.editNotesInput.dataset.field = "editNotes";
+    this.editNotesInput.rows = 3;
+    this.editNotesInput.className = "manual-entry-field-wide";
+    notesWrap.appendChild(this.editNotesInput);
+
     this.editAmountInput.addEventListener("blur", () => {
       this.editAmountInput.value = formatAmountForDisplay(
         this.editAmountInput.value,
@@ -304,6 +318,7 @@ export class ExpenseEditDialog {
     )
       ? fields.categoryName
       : NO_CATEGORY_OPTION;
+    this.editNotesInput.value = "";
     this.editEl.style.display = "";
     this.errorsEl.textContent = "";
     this._setStatus(`Editing expense #${record.id}.`);
@@ -339,6 +354,7 @@ export class ExpenseEditDialog {
     this.saveButton.disabled = true;
     this.saveButton.classList.add("is-pressed");
     this._setStatus("Saving changes…");
+    let editSucceeded = false;
     try {
       const result = readEditResponse(
         await this.http.postJSON("/api/expense-edit", payload),
@@ -347,6 +363,7 @@ export class ExpenseEditDialog {
         [describeEditResult(result), ...result.warnings].join(" "),
       );
       if (result.ok) {
+        editSucceeded = true;
         // The list still shows the pre-edit values; refreshing it from the
         // saved record keeps a second edit of the same row honest.
         if (result.record) {
@@ -359,9 +376,25 @@ export class ExpenseEditDialog {
       }
     } catch (err) {
       this._setStatus(`Edit request failed: ${this._message(err)}`);
+      return;
     } finally {
       this.saveButton.disabled = false;
       this.saveButton.classList.remove("is-pressed");
+    }
+    const notes = this.editNotesInput.value.trim();
+    if (editSucceeded && notes) await this._saveNotes(this.selectedId, notes);
+  }
+
+  /** Best-effort: the corrected expense itself is already saved either way. */
+  async _saveNotes(expenseId, notes) {
+    try {
+      await this.http.postJSON("/api/save-expense-notes", {
+        expense_id: expenseId,
+        notes,
+      });
+    } catch {
+      // Same posture as ManualEntryForm's own _saveNotes on the Add Expense
+      // page -- a confirmation nicety on top of an already-successful save.
     }
   }
 

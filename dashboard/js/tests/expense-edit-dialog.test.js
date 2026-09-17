@@ -297,6 +297,48 @@ describe("saving an edit", () => {
     expect(saved).toEqual([]);
     expect(dialog.saveButton.disabled).toBe(false);
   });
+
+  test("Notes starts blank on a pick and is not sent when left blank", async () => {
+    const { dialog, http } = await pickThenSave({
+      ok: true,
+      record: RECORD,
+      changed_fields: ["amount"],
+      warnings: [],
+    });
+    expect(dialog.editNotesInput.value).toBe("");
+    expect(http.calls.some(([url]) => url === "/api/save-expense-notes")).toBe(
+      false,
+    );
+  });
+
+  test("a successful save writes typed Notes through /api/save-expense-notes", async () => {
+    const { dialog, http } = await pickThenSave(
+      {
+        ok: true,
+        record: RECORD,
+        changed_fields: ["amount"],
+        warnings: [],
+      },
+      (d) => {
+        d.editNotesInput.value = "Reimbursed by Sam";
+      },
+    );
+    expect(dialog.editNotesInput.value).toBe("Reimbursed by Sam");
+    const call = http.calls.find(([url]) => url === "/api/save-expense-notes");
+    expect(call[1]).toEqual({ expense_id: 501, notes: "Reimbursed by Sam" });
+  });
+
+  test("a failed edit does not save Notes", async () => {
+    const { http } = await pickThenSave(
+      { ok: false, error: "no expense with id 501" },
+      (d) => {
+        d.editNotesInput.value = "Reimbursed by Sam";
+      },
+    );
+    expect(http.calls.some(([url]) => url === "/api/save-expense-notes")).toBe(
+      false,
+    );
+  });
 });
 
 describe("deleting a row", () => {
