@@ -85,8 +85,8 @@ describe("Input Options renderer navigation", () => {
     doc.add(container);
     const finished = deferred();
     let cancellations = 0;
-    const { detailRenderers, interruptInputOptions } =
-      createAgentDetailRenderers({
+    const { detailRenderers, interruptVoiceTurns } = createAgentDetailRenderers(
+      {
         http: {
           getJSON: async () => ({ ok: false, options: [] }),
           postJSON: async () => ({
@@ -111,14 +111,15 @@ describe("Input Options renderer navigation", () => {
         getAgentManager: () => ({ agents: [] }),
         storage: { getItem: () => null, setItem() {} },
         doc,
-      });
+      },
+    );
     const ui = detailRenderers["agent-detail-input-options"](
       { current: { id: "agent-mazda", name: "Mazda" } },
       "input-options",
     );
     await ui.send({ textOverride: "April" });
-    interruptInputOptions();
-    interruptInputOptions();
+    interruptVoiceTurns();
+    interruptVoiceTurns();
     expect(cancellations).toBe(1);
   });
 });

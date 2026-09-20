@@ -187,9 +187,9 @@ What exists instead (each a separate, narrow Letta strategy):
     },
   ],
   nextWork: [
-    "InputOptionsRenderer now uses the port. Next give it a VoiceSession and SpokenOutputPolicy so late replies cannot be spoken.",
-    "Do the same for AgentsRouterRenderer.",
-    "Thread a VoiceSession generation id through both, so replies pass SpokenOutputPolicy before reaching the synthesizer.",
+    "Input Options and Chat now use the port with VoiceSession generations and SpokenOutputPolicy. Chat has a distinct typed adapter for /api/test.",
+    "AgentsRouterRenderer only classifies and transfers text to Input Options; it has no agent-reply or speech path.",
+    "Characterize /api/voice and the browser microphone lifecycle before adding a Pipecat media adapter.",
     "Give the adapter real streaming once the Letta server's streaming is usable — the port shape already allows it, so that becomes an adapter change and nothing else.",
   ],
 };

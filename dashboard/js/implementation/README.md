@@ -4,7 +4,7 @@ Each abstract interface in `js/abstract/` has a concrete subclass here that
 binds its abstract *primitive operations* to a real browser API. The
 Template-Method skeletons and shared policy still live in `js/abstract/`; these
 classes only fill in the primitives. Every one has a matching test in
-`js/tests/` (run `bun test js/tests` — 160 green).
+`js/tests/` (run `bun test js/tests`).
 
 **These classes are the live code.** `dashboard.html` loads
 `/js/dashboard-boot.js`, which imports everything below from `./index.js` and
@@ -13,7 +13,8 @@ binds it to the page. (The cutover is done — there is no inline `<script>` lef
 | Concrete class              | Extends                | Wires to | File |
 |-----------------------------|------------------------|----------|------|
 | `FetchHttpClient`           | `HttpClient`           | `window.fetch` | `fetch-http-client.js` |
-| `LettaAgentAdapter`         | `ConversationAgent`    | `POST /api/letta-code-message` (owns the 930s budget + per-agent conversation resume) | `letta-agent-adapter.js` |
+| `LettaAgentAdapter`         | `ConversationAgent`    | `POST /api/letta-code-message` (owns the 1800s budget + per-agent conversation resume) | `letta-agent-adapter.js` |
+| `TestChatAgentAdapter`      | `ConversationAgent`    | typed `/api/test` adapter with runtime reply validation | `chat_test_agent/` |
 | `FakeConversationAgent`     | `ConversationAgent`    | nothing — scripted; passes the same contract suite | `fake-conversation-agent.js` |
 | `SystemClock` / `RandomIdSource` | `Clock` / `IdSource` | `Date`, `crypto.randomUUID` (degrades to a counter) | `system-session-primitives.js` |
 | `DomConsoleView`            | `ConsoleView`          | a `.msi-console` element (+ `mount()` helper) | `dom-console-view.js` |
@@ -30,8 +31,8 @@ binds it to the page. (The cutover is done — there is no inline `<script>` lef
 | `ConnectionTestController`  | — (Command)            | `GET /api/ssh-connection-test` | `connection-controllers.js` |
 | `StreamDetailRenderer`      | `DetailRenderer`       | mounts a console + `AgentStreamController` | `detail-renderers.js` |
 | `AgentCardRenderer`         | `DetailRenderer`       | `/api/agent-card` → identity/system-message/lists | `detail-renderers.js` |
-| `ChatDetailRenderer`        | `DetailRenderer`       | chat UI + voice + per-agent speech + `/api/test` | `detail-renderers.js` |
-| `InputOptionsRenderer`      | `DetailRenderer`       | Input Options UI (textarea/voice/auto-send) + `/api/test` | `detail-renderers.js` |
+| `ChatDetailRenderer`        | `DetailRenderer`       | chat UI + voice + per-agent session and speech policy | `detail-renderers.js` |
+| `InputOptionsRenderer`      | `DetailRenderer`       | Input Options UI (textarea/voice/auto-send) + `/api/letta-code-message` | `detail-renderers.js` |
 | `StatementReviewDialog` | `PollingController` + `StatementReviewActions` collaborator | Polls/renders pending reviews while delegating Mazda/document actions through a port | `statement-review-dialog.js` |
 | `DashboardStatementReviewActions` | `StatementReviewActions` | Adapter that opens Mazda Input Options and review documents without coupling the dialog to AM or browser globals | `dashboard-statement-review-actions.js` |
 | `RolFinanceReportsController`| — (controller)        | `/api/rol-finance-reports` → report tabs + same-origin iframe reach | `rol-finance-reports-controller.js` |
@@ -42,7 +43,7 @@ Supporting pieces:
 - `ActivePoller` (`active-poller.js`) — reproduces the old single-`pollTimer`
   guarantee: `run(controller)` stops the previously-active stream before
   starting a new one.
-- `classifyServerStatus` / `classifyConnectionStatus` / `composeSpokenText` /
+- `classifyServerStatus` / `classifyConnectionStatus` /
   `renderReplyRows` / `buildServerActionRequest` — pure helpers extracted from
   the original inline JS so they are tested directly.
 - `index.js` — barrel re-export of everything above.

@@ -112,6 +112,14 @@ The typed session source and its ports live in
 `js/abstract/voice_session/src/`; its module-local `tsconfig.json` compiles
 browser-loadable JS into `dist/`. See that module's README for the build command.
 
+The Chat tab also uses a per-agent `VoiceSession` and `SpokenOutputPolicy`.
+Its typed `TestChatAgentAdapter` keeps the existing `/api/test` behavior,
+which resets agent messages on each send, and maps only assistant replies to
+speech. Reasoning, tool, and error rows remain visible but silent. Navigation,
+another Send, push-to-talk, or turning Speak off interrupts active playback.
+The Agents-home router only classifies and hands text to Input Options; it
+does not send an agent turn or synthesize a reply, so it has no speech policy.
+
 Shells out to this checkout's `letta` CLI headlessly (`--output-format json --memfs-startup skip
 --permission-mode acceptEdits`). Two invariants (both from a 2026-07-22 failure where Mazda's
 correct answer looked like "no answer"):

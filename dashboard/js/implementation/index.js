@@ -70,7 +70,6 @@ export {
   AgentCardRenderer,
   buildModelRow,
   ChatDetailRenderer,
-  composeSpokenText,
   InputOptionsRenderer,
   renderReplyRows,
   StreamDetailRenderer,
@@ -122,6 +121,7 @@ export {
   RandomIdSource,
   SystemClock,
 } from "./system-session-primitives.js";
+export { TestChatAgentAdapter } from "./test-chat-agent-adapter.js";
 export {
   EditableDarkNoteSurface,
   EditableTextareaSurface,

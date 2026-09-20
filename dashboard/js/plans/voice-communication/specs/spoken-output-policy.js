@@ -41,16 +41,14 @@ export const spokenOutputPolicySpec = {
       note: "The policy itself. No DOM, no synthesizer, no HTTP.",
     },
     {
-      name: "composeSpokenText",
+      name: "composeSpokenText (removed)",
       kind: "deprecated",
       file: "js/implementation/detail-renderers.js",
-      note: "What stands in today: a per-renderer helper that filters reply rows by type. Knows nothing about generations, so it cannot reject a stale reply.",
+      note: "Removed after Chat adopted the session-aware policy. The old fallback could speak tool or reasoning rows.",
     },
   ],
   dependencies: {
-    usedBy: [
-      "Nothing yet. InputOptionsRenderer and the agents-home router still decide inline.",
-    ],
+    usedBy: ["InputOptionsRenderer and ChatDetailRenderer"],
     dependsOn: [
       "VoiceSession — for accepts(generationId)",
       "AgentEventKind / isSpeakable — the speakable vocabulary",
@@ -64,8 +62,7 @@ export const spokenOutputPolicySpec = {
       "Non-events (null, a bare string, a number) are rejected rather than thrown on — output arrives from a network, so the gate cannot assume it is well formed.",
     ],
     gaps: [
-      "No caller. Speech still goes out through composeSpokenText in detail-renderers.js.",
-      "No barge-in: something has to call session.interrupt() when the user speaks over the agent, and nothing does yet.",
+      "Automatic microphone echo detection has not been verified with real devices.",
       "The verdict is not surfaced anywhere a user can see, so a discarded answer is currently invisible rather than explained.",
     ],
   },
@@ -78,11 +75,9 @@ export const spokenOutputPolicySpec = {
           "Current assistant text is spoken and trimmed; reasoning/tool_call/tool_result/status/terminal never are; the March-then-April case discards the superseded answer and speaks the current one; a stale blank event reports SUPERSEDED not EMPTY; junk is rejected; admitAll preserves order.",
       },
     ],
-    untested: [
-      "Any real speech path — no renderer calls the policy, so nothing proves the live UI obeys it.",
-    ],
+    untested: ["Real microphone and speaker echo behavior remains unverified."],
     next: [
-      "A renderer test asserting that a reply arriving after an interrupt is never handed to the synthesizer.",
+      "Characterize media events and test the same speech gate with a future Pipecat adapter.",
     ],
   },
   diagrams: [
@@ -101,8 +96,8 @@ export const spokenOutputPolicySpec = {
     },
   ],
   nextWork: [
-    "Give InputOptionsRenderer a VoiceSession and route its speech through the policy, deleting composeSpokenText's type filtering.",
-    "Call session.interrupt() from ContinuousListener when speech starts during SPEAKING — that is barge-in, and the policy is the half of it that already exists.",
+    "Input Options and Chat now route speech through the policy; composeSpokenText was removed.",
+    "Verify continuous-listener interruption with a real microphone and distinguish speaker echo from new user speech.",
     "Show the rejection: a one-line 'answer discarded — you asked something else' beats silence.",
   ],
 };

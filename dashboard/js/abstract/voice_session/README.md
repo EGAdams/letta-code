@@ -17,9 +17,12 @@ bun test dashboard/js/tests/voice-session.test.js dashboard/js/tests/system-sess
 `src/` and `dist/` directories; the repo root config builds the separate CLI.
 The session owns state and generation fencing. `SpokenOutputPolicy` remains a
 separate Strategy that consumes the session's `accepts()` method.
-The dashboard boot modules inject both into `InputOptionsRenderer`. Its Send
-path uses session-issued generation ids and asks the policy before speaking;
-agent sessions survive renderer rebuilds. A speaking turn owns a cancellable
+The dashboard boot modules inject both into `InputOptionsRenderer` and
+`ChatDetailRenderer`. Their Send paths use session-issued generation ids and
+ask the policy before speaking; per-agent sessions survive renderer rebuilds.
+Chat uses a separate session and typed `/api/test` adapter because its endpoint
+resets message history, while Input Options resumes a Letta Code conversation.
+A speaking turn owns a cancellable
 `SpeechPlayback` handle. `interrupt()`, `close()`, or starting another turn
 cancels that handle; the turn completes when the speech adapter's `finished`
 promise settles after audio ends. The edge-tts adapter also returns `pending`

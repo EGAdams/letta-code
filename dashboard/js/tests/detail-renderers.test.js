@@ -4,30 +4,16 @@ import { VoiceSession } from "../abstract/voice-session.js";
 import {
   AgentCardRenderer,
   ChatDetailRenderer,
-  composeSpokenText,
   InputOptionsRenderer,
   renderReplyRows,
   StreamDetailRenderer,
 } from "../implementation/detail-renderers.js";
 import { FakeConversationAgent } from "../implementation/fake-conversation-agent.js";
 import { LettaAgentAdapter } from "../implementation/letta-agent-adapter.js";
+import { TestChatAgentAdapter } from "../implementation/test-chat-agent-adapter.js";
 import { FakeDocument } from "./_fake-dom.js";
 
 describe("chat pure helpers", () => {
-  test("composeSpokenText prefers assistant/send_message replies", () => {
-    const replies = [
-      { type: "reasoning_message", text: "thinking" },
-      { type: "assistant_message", text: "Hello" },
-      { type: "send_message", text: "there" },
-    ];
-    expect(composeSpokenText(replies)).toBe("Hello. there");
-  });
-
-  test("composeSpokenText falls back to all replies when none preferred", () => {
-    expect(composeSpokenText([{ type: "tool_call", text: "x" }])).toBe("x");
-    expect(composeSpokenText([])).toBe("");
-  });
-
   test("renderReplyRows escapes and labels rows", () => {
     expect(renderReplyRows([])).toContain("no reply content");
     const html = renderReplyRows([{ type: "assistant_message", text: "<b>" }]);
@@ -138,8 +124,11 @@ function chatSetup({ replies = [] } = {}) {
     return recorder;
   };
 
+  const voiceSession = new VoiceSession();
   const r = new ChatDetailRenderer({
-    http,
+    conversationAgent: new TestChatAgentAdapter({ http }),
+    voiceSession,
+    spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
     speech,
     agentName: "Scissari",
     onStatus,

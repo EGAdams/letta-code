@@ -25,7 +25,7 @@ export function createAgentManager({
   setAgentTabStatus,
 }) {
   const scannerViews = createScannerAgentViews({ doc, http, terminalLauncher });
-  const { detailRenderers, renderAgentsRouter, interruptInputOptions } =
+  const { detailRenderers, renderAgentsRouter, interruptVoiceTurns } =
     createAgentDetailRenderers({
       http,
       poller,
@@ -48,8 +48,9 @@ export function createAgentManager({
     // Show the agent-list landing in the sidebar and (re)load the agent tabs.
     showAgentsHome() {
       this.stopPoll();
-      interruptInputOptions();
+      interruptVoiceTurns();
       this.current = null;
+      this._activeDetailTarget = null;
       nav.agentDetail.classList.add("hidden");
       nav.agents.classList.remove("hidden");
       const homeTab = nav.agents.querySelector(
@@ -126,8 +127,9 @@ export function createAgentManager({
 
     // Switch the sidebar to the per-agent detail fanout, Thoughts first.
     openAgent(id, name) {
-      interruptInputOptions();
+      interruptVoiceTurns();
       this.current = { id, name };
+      this._activeDetailTarget = null;
       this.stopPoll();
       viewNav.setAgentDetailContent(name);
 
@@ -153,7 +155,8 @@ export function createAgentManager({
     // router can reach the freshly-rendered panel without touching DOM globals.
     renderDetail(target) {
       this.stopPoll();
-      if (target !== "agent-detail-input-options") interruptInputOptions();
+      if (target !== this._activeDetailTarget) interruptVoiceTurns();
+      this._activeDetailTarget = target;
       if (!this.current) return undefined;
       if (target === "agent-detail-home") {
         viewNav.setAgentDetailContent(this.current.name);

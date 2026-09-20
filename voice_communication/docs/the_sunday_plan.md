@@ -30,8 +30,9 @@ standalone prototype and is superseded by this integration direction.
   `speech-synthesizer.interface.js` define the browser capture and output seams.
 - `VoiceSession`, `ConversationAgent`, `LettaAgentAdapter`, and
   `SpokenOutputPolicy` exist under `dashboard/js/` with tests. Input Options
-  uses all four through its boot composition roots, with a session per agent
-  retained across renderer rebuilds.
+  uses all four through its boot composition roots. Chat uses a typed
+  `TestChatAgentAdapter` for its distinct `/api/test` reply shape. Each path
+  retains a session per agent across renderer rebuilds.
 - This checkout's `voice_communication/` directory currently contains only
   this plan. Earlier references to `voice_communication/ts/`, `py/`,
   `contracts/`, `CLAUDE.md`, `build_plan.md`, and `recent_activity.md` are not
@@ -72,12 +73,13 @@ flowchart LR
 1. **Adopt the existing agent port — done.** `InputOptionsRenderer` receives
    `LettaAgentAdapter` from its boot modules; its duplicate direct request and
    conversation bookkeeping are gone. Renderer tests use the fake adapter.
-2. **Make interruption safe in the live UI — Input Options done.** Input Options
-   receives `VoiceSession` and `SpokenOutputPolicy`, so a superseded reply is
-   silent. The session owns a cancellable playback handle and remains speaking
-   until audio ends. Navigation, a new Send, push-to-talk, and Toyota's
-   continuous listener interrupt playback. Next adopt the same session and
-   speech policy in the other renderer send paths.
+2. **Make interruption safe in the live UI — done for both reply paths.**
+   Input Options and Chat receive `VoiceSession` and `SpokenOutputPolicy`, so
+   superseded replies stay silent. A session owns cancellable playback until
+   audio ends. Navigation, a new Send, and push-to-talk interrupt playback;
+   Toyota's continuous listener interrupts its Input Options turn. The
+   Agents-home router classifies and hands text to Input Options; it does not
+   produce an agent reply or speech output.
 3. **Characterize the media boundary.** Record the current `/api/voice` request
    and response contract, browser microphone lifecycle, audio format, and
    speech-output behavior in tests. Define the smallest Python media port and
@@ -94,8 +96,9 @@ flowchart LR
 
 ## Immediate next slice
 
-Continue step 2: adopt the session and speech policy in ChatDetailRenderer and
-AgentsRouterRenderer, then characterize the media boundary.
+Begin step 3: characterize `/api/voice`, the browser microphone lifecycle,
+audio format, and current speech output in tests before defining the Python
+media port and Pydantic wire models.
 
 ## Working rules
 
@@ -172,3 +175,22 @@ repo typecheck passed. The compiled module is served at its dashboard URL.
   empty recognition text. The dashboard JS suite passed (2564 pass, 2 skip),
   and the repository typecheck passed. Browser assets returned HTTP 200 from
   the live checkout. A real microphone or agent send was not used.
+
+## Chat adoption green phase — 2026-09-20
+
+- Failing renderer tests showed Chat still bypassed the conversation port and
+  could speak a reasoning-only or tool-only `/api/test` reply. Chat now sends
+  through a typed `TestChatAgentAdapter`, while preserving that endpoint's
+  message-reset behavior. The adapter validates reply rows and passes the
+  shared `ConversationAgent` contract suite.
+- Chat now holds per-agent session state across renderer rebuilds, rejects late
+  replies, and retains a cancellable playback handle until audio ends. Its
+  Speak toggle, a new Send, push-to-talk, and agent navigation stop active
+  playback. The old `composeSpokenText` fallback was removed.
+- Inspection corrected an earlier plan assumption: `AgentsRouterRenderer`
+  calls `/api/route-detect` and hands text to Input Options; it does not call
+  `/api/letta-code-message` or speak an agent response. No speech policy belongs
+  in that renderer. Its capture path is part of the next media-boundary slice.
+- The dashboard JavaScript suite passed (2582 pass, 2 skip), both typed modules
+  compiled, repository typecheck passed, and the live dashboard served the new
+  adapter (HTTP 200). No real microphone or agent send was used.

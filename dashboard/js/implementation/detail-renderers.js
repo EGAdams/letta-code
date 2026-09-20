@@ -67,16 +67,6 @@ export function setToggleButtonActive(btn, active, { idleLabel, activeLabel }) {
  * without a DOM. ───────────────────────────────────────────────────────────
  */
 
-/** Pick the text to read aloud: prefer assistant/send_message replies. */
-export function composeSpokenText(replies) {
-  if (!replies || !replies.length) return "";
-  const preferred = replies
-    .filter((x) => /assistant|send_message/i.test(x.type || "") || !x.type)
-    .map((x) => x.text)
-    .join(". ");
-  return preferred || replies.map((x) => x.text).join(". ");
-}
-
 /**
  * Render an array of {type,text} replies to MSI console HTML.
  * When agentName is given, "assistant" rows are labeled with it instead of
@@ -203,7 +193,7 @@ export class AgentCardRenderer extends DetailRenderer {
  * ChatDetailRenderer — Strategy for the chat-interface tab.
  *
  * render(target, agentId): build the chat UI inside the section, then wire:
- *   • Send / textarea           → POST /api/test via the HttpClient
+ *   • Send / textarea           → ConversationAgent port (/api/test adapter)
  *   • mic button                → MediaRecorderVoiceRecorder (state → button)
  *   • Speak-replies toggle      → SpeechSynthesizer (+ localStorage preference)
  *   • Auto / Review mode toggle → whether cleaned transcript auto-sends
@@ -213,7 +203,9 @@ export class AgentCardRenderer extends DetailRenderer {
  */
 export class ChatDetailRenderer extends DetailRenderer {
   constructor({
-    http,
+    conversationAgent,
+    voiceSession,
+    spokenOutputPolicy,
     speech,
     agentName = "the agent",
     agentId = null,
@@ -221,11 +213,15 @@ export class ChatDetailRenderer extends DetailRenderer {
     doc = globalThis.document,
     storage = globalThis.localStorage,
     recorderFactory = (opts) => new MediaRecorderVoiceRecorder(opts),
-    endpoint = "/api/test",
   }) {
     super();
-    if (!http) throw new Error("ChatDetailRenderer requires an HttpClient");
-    this._http = http;
+    if (!conversationAgent || !voiceSession || !spokenOutputPolicy)
+      throw new Error(
+        "ChatDetailRenderer requires { conversationAgent, voiceSession, spokenOutputPolicy }",
+      );
+    this._conversationAgent = conversationAgent;
+    this._voiceSession = voiceSession;
+    this._spokenOutputPolicy = spokenOutputPolicy;
     this._speech = speech;
     this._agentName = agentName;
     this._agentId = agentId;
@@ -233,7 +229,6 @@ export class ChatDetailRenderer extends DetailRenderer {
     this._doc = doc;
     this._storage = storage;
     this._recorderFactory = recorderFactory;
-    this._endpoint = endpoint;
   }
 
   _el(tag, props = {}) {
@@ -332,6 +327,14 @@ export class ChatDetailRenderer extends DetailRenderer {
       appendRow(
         `<div class="msi-entry"><span class="hdr">You:</span> ${TextUtils.esc(text)}</div>`,
       );
+    const interruptCurrentTurn = () => {
+      const state = this._voiceSession.state;
+      if (state !== SessionState.THINKING && state !== SessionState.SPEAKING)
+        return;
+      if (state === SessionState.THINKING)
+        this._conversationAgent.cancel(this._voiceSession.currentGeneration);
+      this._voiceSession.interrupt();
+    };
 
     // ── Speak-replies toggle (preference persists) ─────────────────────────
     let speakReplies =
@@ -350,24 +353,51 @@ export class ChatDetailRenderer extends DetailRenderer {
       speakReplies = !speakReplies;
       if (this._storage)
         this._storage.setItem("dash-speak-replies", speakReplies ? "1" : "0");
-      if (!speakReplies && this._speech) this._speech.cancel();
+      if (!speakReplies) {
+        if (this._voiceSession.state === SessionState.SPEAKING)
+          interruptCurrentTurn();
+      }
       renderSpeakBtn();
     });
     renderSpeakBtn();
 
-    // ── Send text to the agent through /api/test ───────────────────────────
+    // ── Send through the conversation port ────────────────────────────────
     const sendText = async (text) => {
       if (!text || !text.trim() || sendBtn.disabled) return;
       sendBtn.disabled = true;
       appendUserMessage(text.trim());
       setConsole('<div class="msi-entry dim">sending&hellip;</div>');
       this._onStatus(id, "active");
+      let generationId = null;
       try {
-        const r = await this._http.postJSON(this._endpoint, {
-          agent: id,
-          text,
-        });
-        const replies = r.replies || [];
+        const superseded = this._voiceSession.currentGeneration;
+        if (superseded && this._voiceSession.state === SessionState.THINKING)
+          this._conversationAgent.cancel(superseded);
+        if (this._voiceSession.state !== SessionState.LISTENING)
+          this._voiceSession.startListening();
+        generationId = this._voiceSession.beginTurn();
+        const replies = [];
+        const events = [];
+        for await (const event of this._conversationAgent.submit(
+          { agent: id, text },
+          generationId,
+        )) {
+          if (!this._voiceSession.accepts(generationId)) break;
+          if (event.generationId !== generationId) continue;
+          events.push(event);
+          if (event.kind === AgentEventKind.TERMINAL) continue;
+          const type =
+            event.detail?.replyType ||
+            {
+              [AgentEventKind.ASSISTANT_TEXT]: "assistant_message",
+              [AgentEventKind.REASONING]: "reasoning_message",
+              [AgentEventKind.TOOL_CALL]: "tool_call_message",
+              [AgentEventKind.TOOL_RESULT]: "tool_return_message",
+              [AgentEventKind.STATUS]: "status",
+            }[event.kind];
+          if (type) replies.push({ type, text: event.text });
+        }
+        if (!this._voiceSession.accepts(generationId)) return;
         const hasError = replies.some((x) => x.type === "error");
         this._onStatus(id, hasError ? "error" : "idle");
         appendRow(renderReplyRows(replies, this._agentName));
@@ -375,21 +405,38 @@ export class ChatDetailRenderer extends DetailRenderer {
         // fails silently by design (never falls back to a different voice),
         // so a blocked/failed playback would otherwise look identical to a
         // normal, silent success — surface it instead of guessing why later.
-        if (speakReplies && this._speech && replies.length) {
-          const spoken = this._speech.speak(
-            composeSpokenText(replies),
-            this._agentName,
-          );
-          spoken?.pending?.then((engine) => {
-            if (!engine) {
+        const spokenText = this._spokenOutputPolicy.admitAll(events).join(". ");
+        if (
+          speakReplies &&
+          this._speech?.supported &&
+          spokenText &&
+          this._voiceSession.beginSpeaking(generationId)
+        ) {
+          const spoken = this._speech.speak(spokenText, this._agentName);
+          if (spoken?.cancel)
+            this._voiceSession.trackPlayback(generationId, spoken);
+          const reportPlaybackFailure = (engine) => {
+            if (!engine && this._voiceSession.accepts(generationId)) {
               const why = this._speech.lastError;
               appendRow(
                 `<span class="msi-line dim">(voice playback unavailable${why ? `: ${TextUtils.esc(why)}` : ""} — reply above is text-only)</span>`,
               );
             }
-          });
-        }
+          };
+          spoken?.pending?.then(reportPlaybackFailure, () =>
+            reportPlaybackFailure(null),
+          );
+          const finished = spoken?.finished || spoken?.pending;
+          if (finished)
+            Promise.resolve(finished).then(
+              () => this._voiceSession.completeTurn(generationId),
+              () => this._voiceSession.completeTurn(generationId),
+            );
+          else this._voiceSession.completeTurn(generationId);
+        } else this._voiceSession.completeTurn(generationId);
       } catch (e) {
+        if (generationId && !this._voiceSession.accepts(generationId)) return;
+        if (generationId) this._voiceSession.completeTurn(generationId);
         this._onStatus(id, "error");
         setConsole(
           `<div class="msi-line err">! ${TextUtils.esc(e.message)}</div>`,
@@ -461,6 +508,7 @@ export class ChatDetailRenderer extends DetailRenderer {
         setConsole(info);
         if (modeBtn.dataset.mode === "auto") await sendText(cleaned);
       } else {
+        interruptCurrentTurn();
         const ok = await recorder.start();
         if (!ok) {
           const reason =

@@ -8,7 +8,7 @@ export const overviewSpec = {
     "What the voice system is, what actually shipped, and what is still only a plan.",
   status: Status.PARTIAL,
   statusNote:
-    "The dashboard voice stack is the production foundation. InputOptionsRenderer uses the ConversationAgent port; session and speech gating still need live callers. Pipecat will be integrated at media boundaries in later slices.",
+    "The dashboard voice stack is the production foundation. Input Options and Chat use the ConversationAgent port, session fencing, and speech policy. The media boundary is next; Pipecat will be integrated there in later slices.",
   links: [
     {
       label: "Current integration decision and delivery order",
@@ -22,7 +22,7 @@ export const overviewSpec = {
   responsibility: [
     "Voice Communication is the path from a spoken sentence to a Letta agent doing something about it, and back to speech. Today that path is: browser captures audio → text arrives (whisper.cpp for push-to-talk, browser SpeechRecognition for continuous listening) → a narrow Letta-backed strategy decides what the text means → an agent acts → edge-tts speaks the reply.",
     "The original plan (2026-08-01) designed a standalone Pipecat system in /home/adamsl/talking_agent_parts. A working voice system grew inside dashboard/ with narrower, tested seams. EG chose the dashboard as the production foundation on 2026-09-20; Pipecat is a future adapter for media capabilities the dashboard needs.",
-    "The browser-side VoiceSession, ConversationAgent port, and SpokenOutputPolicy are built and tested. InputOptionsRenderer now uses the conversation port through an injected LettaAgentAdapter; VoiceSession and SpokenOutputPolicy still need live callers before interruption is safe.",
+    "The browser-side VoiceSession, ConversationAgent port, and SpokenOutputPolicy are built and tested. Input Options uses LettaAgentAdapter; Chat uses the typed TestChatAgentAdapter for its distinct reply shape. Both renderers fence stale turns and own cancellable speech playback.",
     "This workspace documents the code that exists, marks each object honestly, and shows where the two designs meet. Where the shipped code has a real seam the plan never named, it gets a tab. Where the plan named an object nobody built, it gets a tab that says so and explains what stands in for it today.",
   ],
   contract: {
@@ -95,7 +95,7 @@ Still only a plan
       "edge-tts (server-side speech synthesis)",
       "Browser SpeechRecognition + MediaRecorder APIs",
     ],
-    note: "InputOptionsRenderer now sends through ConversationAgent; its settings requests still use HttpClient. AgentsRouterRenderer and ChatDetailRenderer still send directly, and the live UI has not adopted VoiceSession or SpokenOutputPolicy.",
+    note: "Input Options and Chat send through ConversationAgent adapters and use VoiceSession plus SpokenOutputPolicy. The Agents-home router only classifies and hands text to Input Options.",
   },
   developmentStatus: {
     done: [
@@ -109,9 +109,8 @@ Still only a plan
       "This guide is the shipped documentation: 14 tabs served at Project Plans → Voice Communication, navigated from the dashboard's own sub-nav, with the interface list driven by the same specs that render each page so the tabs cannot drift from the content.",
     ],
     gaps: [
-      "The session object exists but nothing constructs one, so in the live UI conversation state is still split across ListenerState, RecorderState and per-render closures.",
-      "Generation fencing exists and is tested, and protects nothing yet: no renderer holds a session, so a late reply from a superseded turn is still spoken. Barge-in needs that adoption plus one interrupt() call from ContinuousListener.",
-      "AgentsRouterRenderer and ChatDetailRenderer still send directly; they need their own adoption slices after InputOptionsRenderer's session and speech policy are wired.",
+      "The existing /api/voice media contract still needs tests before a Pipecat adapter can share it.",
+      "Automatic microphone echo detection is unverified; recognized speaker echo can interrupt the current answer.",
       "Cancellation is delivery-side only — the endpoint has no server-side cancel, so a cancelled Letta call still runs to completion.",
       "The Letta adapter is request/response only — no streaming, so replies arrive in one lump after up to 1770 seconds.",
       "Every finalized speech fragment costs one 3-6s LLM round-trip to the completeness detector. That, not model choice, is the dominant latency in the loop — see the Note Command Channel tab.",
@@ -283,13 +282,12 @@ Still only a plan
   gotchas: [
     {
       title:
-        "The agent port runs; the session and speech fence do not yet run.",
-      body: "InputOptionsRenderer now uses ConversationAgent, but VoiceSession and SpokenOutputPolicy still have no live caller. A stale answer can still be spoken until the renderer adopts those objects and handles interruption.",
+        "The reply paths are fenced; the media path needs characterization.",
+      body: "Input Options and Chat use VoiceSession and SpokenOutputPolicy. The current /api/voice upload and browser microphone lifecycle still need contract tests before a Pipecat adapter can implement the same boundary.",
     },
     {
-      title:
-        "There are three send paths, not one, and they do not share a reply shape.",
-      body: "InputOptionsRenderer and AgentsRouterRenderer talk to /api/letta-code-message, which returns { ok, reply } — one lump. ChatDetailRenderer talks to /api/test, which returns { replies: [{type, text}] } — an array with kinds. LettaAgentAdapter covers only the first shape. Pointing ChatDetailRenderer at it will look like it works and will silently drop every reply, because the parse fails closed. Write the second adapter.",
+      title: "The two reply paths have different HTTP shapes.",
+      body: "InputOptionsRenderer uses /api/letta-code-message, which returns { ok, reply }. ChatDetailRenderer uses /api/test, which returns { replies: [{type, text}] }; its typed TestChatAgentAdapter maps those rows to events. AgentsRouterRenderer only calls /api/route-detect and hands text to Input Options.",
     },
     {
       title: "Cancellation here means 'do not deliver', not 'stop working'.",
@@ -305,10 +303,9 @@ Still only a plan
     },
   ],
   nextWork: [
-    "Start with step 2. Step 1 adopted LettaAgentAdapter in InputOptionsRenderer, removed its direct Send request, and added a fake-agent renderer test. A live agent send has not been exercised during this slice.",
-    "2 · Give that renderer a VoiceSession and gate its speech. Construct the session in the same boot module, call beginTurn() before submit and completeTurn() after, and replace `this._speech.speak(composeSpokenText(replies), ...)` with a SpokenOutputPolicy verdict. DONE WHEN: a renderer test asserts that a reply arriving after session.interrupt() is never handed to the synthesizer — the VoiceSession unit test's headline case, one layer up.",
-    "3 · Wire barge-in. ContinuousListener already reports speech start; have it call session.interrupt() when speech begins while the session is SPEAKING. This is the payoff the whole first slice was for, and it is unreachable until steps 1 and 2 land. DONE WHEN: talking over an answer stops it, live.",
-    "4 · Repeat for AgentsRouterRenderer, then ChatDetailRenderer. ChatDetailRenderer needs a SECOND adapter, not the same one — it POSTs /api/test and gets back { replies: [{type, text}] }, a different shape. Writing that adapter is the real test of the port: map each reply's `type` onto an AgentEvent kind and let SPEAKABLE_KINDS decide what is spoken, instead of composeSpokenText's regex. DONE WHEN: composeSpokenText has no callers and is deleted.",
+    "1–2 · DONE: Input Options and Chat use ConversationAgent, VoiceSession, and SpokenOutputPolicy. Late replies are silent in renderer tests; real agent sends have not been exercised in this slice.",
+    "3 · IN PROGRESS: a new recognized utterance interrupts Toyota's active answer. Verify barge-in with a real microphone and check for speaker echo before claiming acoustic interruption is reliable.",
+    "4 · DONE: ChatDetailRenderer uses typed TestChatAgentAdapter and SpokenOutputPolicy. AgentsRouterRenderer only routes text to Input Options and has no reply or speaker path. composeSpokenText was deleted.",
     "5 · Give VoiceCommandChannel a session and generation ids (js/abstract/voice-command-channel.js). It already serialises work, so it needs no new concurrency — it needs the fence, so a superseded command's result can be discarded rather than merely not started. See the ConversationCoordinator tab.",
     "6 · Only then consider ConversationCoordinator, the last unbuilt core object. It is the one place where waiting was right: with steps 1-5 done, its job is visible in real code rather than guessed at from the plan.",
     "Independent of all of the above — cut the completeness round-trip. A cheap local pre-filter that skips the LLM for obviously-incomplete fragments would remove most of the 3-6s wait per spoken pause. This is the single biggest user-visible win on this page and it touches none of the work above, so it can run in parallel.",

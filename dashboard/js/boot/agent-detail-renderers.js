@@ -15,6 +15,7 @@ import {
   SessionState,
   SpokenOutputPolicy,
   StreamDetailRenderer,
+  TestChatAgentAdapter,
   VoiceSession,
 } from "../implementation/index.js";
 
@@ -50,37 +51,54 @@ export function createAgentDetailRenderers({
   const agentCardRenderer = new AgentCardRenderer({ http });
   const voiceSessions = new Map();
   const conversationAgents = new Map();
-  const sessionFor = (id) => {
-    let session = voiceSessions.get(id);
+  const chatSessions = new Map();
+  const chatAgents = new Map();
+  const sessionFor = (sessions, id) => {
+    let session = sessions.get(id);
     if (!session || session.closed) {
       session = new VoiceSession();
-      voiceSessions.set(id, session);
+      sessions.set(id, session);
     }
     return session;
   };
-  const interruptInputOptions = () => {
-    for (const [id, session] of voiceSessions) {
+  const interruptSessions = (sessions, adapters) => {
+    for (const [id, session] of sessions) {
       if (
         [SessionState.THINKING, SessionState.SPEAKING].includes(session.state)
       ) {
         if (session.state === SessionState.THINKING)
-          conversationAgents.get(id)?.cancel(session.currentGeneration);
+          adapters.get(id)?.cancel(session.currentGeneration);
         session.interrupt();
       }
     }
   };
+  const interruptVoiceTurns = () => {
+    interruptSessions(voiceSessions, conversationAgents);
+    interruptSessions(chatSessions, chatAgents);
+  };
 
-  const renderChat = (am, target) =>
-    new ChatDetailRenderer({
-      http,
+  const renderChat = (am, target) => {
+    const voiceSession = sessionFor(chatSessions, am.current.id);
+    let conversationAgent = chatAgents.get(am.current.id);
+    if (!conversationAgent) {
+      conversationAgent = new TestChatAgentAdapter({ http });
+      chatAgents.set(am.current.id, conversationAgent);
+    }
+    return new ChatDetailRenderer({
+      conversationAgent,
+      voiceSession,
+      spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
       speech,
       agentName: am.current.name,
       agentId: am.current.id,
       onStatus: setAgentTabStatus,
+      storage,
+      doc,
     }).render(target, am.current.id);
+  };
 
   const renderInputOptions = (am, target) => {
-    const voiceSession = sessionFor(am.current.id);
+    const voiceSession = sessionFor(voiceSessions, am.current.id);
     let conversationAgent = conversationAgents.get(am.current.id);
     if (!conversationAgent) {
       conversationAgent = new LettaAgentAdapter({ http, storage });
@@ -138,5 +156,5 @@ export function createAgentDetailRenderers({
     "agent-detail-input-options": (am, id) => renderInputOptions(am, id),
   };
 
-  return { detailRenderers, renderAgentsRouter, interruptInputOptions };
+  return { detailRenderers, renderAgentsRouter, interruptVoiceTurns };
 }
