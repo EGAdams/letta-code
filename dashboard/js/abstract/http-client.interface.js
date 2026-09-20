@@ -57,7 +57,9 @@ export class HttpClient {
     if (!res.ok) {
       let detail = "";
       try {
-        detail = (await res.json()).detail || "";
+        const body = await res.json();
+        const message = body?.detail || body?.error;
+        detail = typeof message === "string" ? message : "";
       } catch {
         /* body was not JSON — ignore */
       }

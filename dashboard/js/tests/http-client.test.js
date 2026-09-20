@@ -52,6 +52,15 @@ describe("HttpClient (Template Method)", () => {
     );
   });
 
+  test("non-OK with dashboard error body shows the cause", async () => {
+    const c = new FakeHttpClient(() =>
+      errJson(502, { error: "model provider rejected credentials" }),
+    );
+    await expect(c.postJSON("/api/letta-code-message", {})).rejects.toThrow(
+      "HTTP 502 — model provider rejected credentials",
+    );
+  });
+
   test("non-OK with non-JSON body still throws status", async () => {
     const c = new FakeHttpClient(() => ({
       ok: false,
