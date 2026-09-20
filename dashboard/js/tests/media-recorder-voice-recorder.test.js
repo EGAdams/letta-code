@@ -58,7 +58,9 @@ function makeDeps({
 describe("MediaRecorderVoiceRecorder (concrete VoiceRecorder)", () => {
   test("full capture: idle -> recording -> processing -> idle", async () => {
     const states = [];
-    const deps = makeDeps({ voiceResult: { ok: true, cleaned_text: "hello" } });
+    const deps = makeDeps({
+      voiceResult: { ok: true, raw_transcript: "hello", cleaned_text: "hello" },
+    });
     const r = new MediaRecorderVoiceRecorder({
       ...deps,
       onStateChange: (s) => states.push(s),
@@ -68,7 +70,11 @@ describe("MediaRecorderVoiceRecorder (concrete VoiceRecorder)", () => {
     expect(r.state).toBe(RecorderState.RECORDING);
 
     const result = await r.stop();
-    expect(result).toEqual({ ok: true, cleaned_text: "hello" });
+    expect(result).toEqual({
+      ok: true,
+      raw_transcript: "hello",
+      cleaned_text: "hello",
+    });
     expect(r.state).toBe(RecorderState.IDLE);
     expect(deps._tracks.stopped).toBe(true); // stream released
     expect(states).toEqual([
@@ -113,5 +119,96 @@ describe("MediaRecorderVoiceRecorder (concrete VoiceRecorder)", () => {
     await r.start();
     await expect(r.stop()).rejects.toThrow("whisper down");
     expect(r.state).toBe(RecorderState.IDLE); // base class restores idle
+  });
+
+  test("uploads the actual MP4 recording format in X-Filename", async () => {
+    const deps = makeDeps({
+      voiceResult: { ok: true, raw_transcript: "raw", cleaned_text: "clean" },
+    });
+    const sent = [];
+    class Mp4Recorder extends FakeMediaRecorder {
+      constructor(stream) {
+        super(stream);
+        this.mimeType = "audio/mp4;codecs=mp4a.40.2";
+      }
+    }
+    const r = new MediaRecorderVoiceRecorder({
+      ...deps,
+      MediaRecorder: Mp4Recorder,
+      fetch: async (url, options) => {
+        sent.push({ url, options });
+        return {
+          json: async () => ({
+            ok: true,
+            raw_transcript: "raw",
+            cleaned_text: "clean",
+          }),
+        };
+      },
+    });
+    await r.start();
+    await r.stop();
+    expect(sent[0].url).toBe("/api/voice");
+    expect(sent[0].options.method).toBe("POST");
+    expect(sent[0].options.headers["X-Filename"]).toBe("voice.mp4");
+    expect(sent[0].options.body.type).toBe("audio/mp4;codecs=mp4a.40.2");
+  });
+
+  test("releases the microphone if MediaRecorder start fails", async () => {
+    const deps = makeDeps();
+    class FailingRecorder extends FakeMediaRecorder {
+      start() {
+        throw new Error("capture failed");
+      }
+    }
+    const r = new MediaRecorderVoiceRecorder({
+      ...deps,
+      MediaRecorder: FailingRecorder,
+    });
+    await expect(r.start()).rejects.toThrow("capture failed");
+    expect(r.state).toBe(RecorderState.IDLE);
+    expect(deps._tracks.stopped).toBe(true);
+  });
+
+  test("releases the microphone if MediaRecorder construction fails", async () => {
+    const deps = makeDeps();
+    class FailingRecorder {
+      constructor() {
+        throw new Error("unsupported encoder");
+      }
+    }
+    const r = new MediaRecorderVoiceRecorder({
+      ...deps,
+      MediaRecorder: FailingRecorder,
+    });
+    await expect(r.start()).rejects.toThrow("unsupported encoder");
+    expect(r.state).toBe(RecorderState.IDLE);
+    expect(deps._tracks.stopped).toBe(true);
+  });
+
+  test("releases the microphone and returns idle if MediaRecorder stop fails", async () => {
+    const deps = makeDeps();
+    class FailingRecorder extends FakeMediaRecorder {
+      stop() {
+        throw new Error("device disconnected");
+      }
+    }
+    const r = new MediaRecorderVoiceRecorder({
+      ...deps,
+      MediaRecorder: FailingRecorder,
+    });
+    await r.start();
+    await expect(r.stop()).rejects.toThrow("device disconnected");
+    expect(r.state).toBe(RecorderState.IDLE);
+    expect(deps._tracks.stopped).toBe(true);
+  });
+
+  test("rejects a malformed successful voice response", async () => {
+    const r = new MediaRecorderVoiceRecorder(
+      makeDeps({ voiceResult: { ok: true, cleaned_text: null } }),
+    );
+    await r.start();
+    await expect(r.stop()).rejects.toThrow(/invalid voice response/i);
+    expect(r.state).toBe(RecorderState.IDLE);
   });
 });

@@ -76,6 +76,18 @@ describe("VoiceRecorder (State machine)", () => {
     expect(r.state).toBe(RecorderState.IDLE);
   });
 
+  test("returns to idle if stopping capture fails before transcription", async () => {
+    class Boom extends FakeRecorder {
+      async endCapture() {
+        throw new Error("device disconnected");
+      }
+    }
+    const r = new Boom();
+    await r.start();
+    await expect(r.stop()).rejects.toThrow("device disconnected");
+    expect(r.state).toBe(RecorderState.IDLE);
+  });
+
   test("toggle flips between start and stop", async () => {
     const r = new FakeRecorder();
     await r.toggle();

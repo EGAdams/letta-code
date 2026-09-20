@@ -1,5 +1,6 @@
 """TDD: VoicePipeline composition + the /api/voice request handler."""
 from voice.pipeline import VoicePipeline, handle_voice_upload
+from voice.media.models import AudioUpload, VoiceTranscript
 
 
 class FakeTranscriber:
@@ -26,21 +27,20 @@ def test_pipeline_returns_raw_and_cleaned():
         FakeTranscriber("Tell Friday about this."),
         FakeCleanup({"Tell Friday about this.": "Tell Frita about this."}),
     )
-    out = pipe.process(b"audio")
-    assert out["raw_transcript"] == "Tell Friday about this."
-    assert out["cleaned_text"] == "Tell Frita about this."
+    out = pipe.process(AudioUpload(audio_bytes=b"audio"))
+    assert out == VoiceTranscript(raw_transcript="Tell Friday about this.", cleaned_text="Tell Frita about this.")
 
 
 def test_pipeline_cleanup_failure_falls_back_to_raw():
     pipe = VoicePipeline(FakeTranscriber("raw words"), FakeCleanup(raise_=True))
-    out = pipe.process(b"audio")
-    assert out["cleaned_text"] == "raw words"
+    out = pipe.process(AudioUpload(audio_bytes=b"audio"))
+    assert out.cleaned_text == "raw words"
 
 
 def test_handle_voice_upload_ok():
     class P:
-        def process(self, audio, filename="audio.webm"):
-            return {"raw_transcript": "r", "cleaned_text": "c"}
+        def process(self, upload):
+            return VoiceTranscript(raw_transcript="r", cleaned_text="c")
 
     res = handle_voice_upload(P(), b"audio-bytes")
     assert res["ok"] is True
@@ -55,7 +55,7 @@ def test_handle_voice_upload_rejects_empty():
 
     res = handle_voice_upload(P(), b"")
     assert res["ok"] is False
-    assert "error" in res
+    assert res == {"ok": False, "error": "empty audio upload"}
 
 
 def test_handle_voice_upload_reports_pipeline_error():

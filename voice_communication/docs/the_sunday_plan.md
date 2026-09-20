@@ -80,7 +80,7 @@ flowchart LR
    Toyota's continuous listener interrupts its Input Options turn. The
    Agents-home router classifies and hands text to Input Options; it does not
    produce an agent reply or speech output.
-3. **Characterize the media boundary.** Record the current `/api/voice` request
+3. **Characterize the media boundary — done.** Record the current `/api/voice` request
    and response contract, browser microphone lifecycle, audio format, and
    speech-output behavior in tests. Define the smallest Python media port and
    Pydantic wire models needed by a second implementation.
@@ -96,9 +96,10 @@ flowchart LR
 
 ## Immediate next slice
 
-Begin step 3: characterize `/api/voice`, the browser microphone lifecycle,
-audio format, and current speech output in tests before defining the Python
-media port and Pydantic wire models.
+Begin step 4: verify the current Pipecat API, pin a version, and add one
+adapter behind `VoiceMediaPort` for one dashboard user and one Letta agent.
+The port currently handles a complete recording per request; streaming media
+will need a separate, explicit contract when it is introduced.
 
 ## Working rules
 
@@ -194,3 +195,22 @@ repo typecheck passed. The compiled module is served at its dashboard URL.
 - The dashboard JavaScript suite passed (2582 pass, 2 skip), both typed modules
   compiled, repository typecheck passed, and the live dashboard served the new
   adapter (HTTP 200). No real microphone or agent send was used.
+
+## Media boundary green phase — 2026-09-20
+
+- Red tests captured the fixed `voice.webm` upload label for MP4 recordings,
+  an unvalidated success response, and microphone streams left open after
+  recorder failures. `voice/media/` now owns Pydantic upload/transcript shapes
+  and the batch `VoiceMediaPort`; the existing Whisper pipeline implements it.
+  The browser's new TypeScript `voice_media` module derives `X-Filename` from
+  the recording MIME type and validates `/api/voice` JSON at runtime.
+- `/api/voice` still receives raw audio bytes and returns HTTP 200 JSON with
+  `{ok, raw_transcript, cleaned_text}` on success or `{ok, error}` on failure.
+  Empty uploads keep the previous error text; successful transcripts alone are
+  logged. Recorder construction, start, and stop failures release mic tracks,
+  and the capture state returns to idle. Existing edge-tts tests characterize
+  `/api/tts` audio playback and cancellation.
+- Focused tests passed; full dashboard Python tests passed (3421 pass, 2 skip)
+  from `dashboard/`; dashboard JavaScript tests passed (2595 pass, 2 skip).
+  The module TypeScript builds and repository typecheck passed. No real
+  microphone or agent send was used.

@@ -30,6 +30,27 @@ GoF: Strategy (transcription/cleanup swap), Adapter (`LettaClient`), Factory (`b
 | `voice/cleanup.py` | `LettaAgentCleanup` — clears the cleanup agent's history each call; raw-text fallback |
 | `voice/letta_client.py` | thin Letta HTTP adapter |
 | `voice/pipeline.py` | `VoicePipeline.process` + `handle_voice_upload` (the `/api/voice` handler logic) |
+| `voice/media/` | Pydantic `AudioUpload` / `VoiceTranscript` models and the `VoiceMediaPort` batch-media protocol |
+
+`POST /api/voice` receives the recorded audio bytes as its body, with
+`X-Filename` describing the actual MediaRecorder format (`voice.webm`,
+`voice.mp4`, `voice.ogg`, etc.). The route returns HTTP 200 JSON:
+`{ok:true, raw_transcript:string, cleaned_text:string}` or
+`{ok:false, error:string}`. Empty audio preserves the existing
+`empty audio upload` error. `AudioUpload` rejects unsafe filenames and
+unsupported extensions before the transcriber runs; `VoiceTranscript`
+validates the successful result before it reaches the browser. The current
+`VoicePipeline` implements `VoiceMediaPort` with a complete recording as one
+request. The TypeScript browser contract lives in
+`js/implementation/voice_media/`; it derives the filename from the blob MIME
+type and checks the response at runtime.
+
+Microphone capture follows idle → recording → processing → idle. The stream's
+tracks are released when capture stops and when recorder construction, start,
+or stop fails. The existing speech output is separate: `POST /api/tts` returns
+MP3 audio to `EdgeTtsSpeechSynthesizer`, whose playback token is cancellable
+through the voice session. Its tests cover non-audio responses, blocked
+playback, cancellation during fetch/playback, and audio-end completion.
 
 It reuses lettabot's binaries rather than reinventing them — `whisper-cli` at
 `~/whisper.cpp/build/bin/whisper-cli`, model `~/whisper.cpp/models/ggml-small.en.bin` (upgraded

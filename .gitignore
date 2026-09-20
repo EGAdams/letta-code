@@ -107,6 +107,9 @@ dist
 !dashboard/js/abstract/voice_session/dist/
 !dashboard/js/abstract/voice_session/dist/*.js
 !dashboard/js/abstract/voice_session/dist/*.d.ts
+!dashboard/js/implementation/voice_media/dist/
+!dashboard/js/implementation/voice_media/dist/*.js
+!dashboard/js/implementation/voice_media/dist/*.d.ts
 
 # Gatsby files
 .cache/

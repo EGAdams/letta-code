@@ -78,6 +78,34 @@ class TestResponseEnvelope:
         assert live.get('/api/code-status').json['note'] == 'Rosemary ≥ 46 — ⚠ ok'
 
 
+class TestVoiceMediaContract:
+    def test_binary_body_and_filename_reach_the_media_handler(self, live, svc, monkeypatch):
+        seen = []
+
+        def handle(media, audio, filename):
+            seen.append((audio, filename))
+            return {'ok': True, 'raw_transcript': 'heard', 'cleaned_text': 'cleaned'}
+
+        monkeypatch.setattr(post_routes.pipeline, 'handle_voice_upload', handle)
+        response = live.post('/api/voice', b'\x00\xffaudio', headers={
+            'Content-Type': 'audio/mp4', 'X-Filename': 'voice.mp4'})
+
+        assert response.status == 200
+        assert response.headers['Content-Type'] == 'application/json'
+        assert response.json == {
+            'ok': True, 'raw_transcript': 'heard', 'cleaned_text': 'cleaned'}
+        assert seen == [(b'\x00\xffaudio', 'voice.mp4')]
+        assert svc.called('_append_json')
+
+    def test_failed_upload_stays_json_and_does_not_log_transcript(self, live, svc, monkeypatch):
+        monkeypatch.setattr(post_routes.pipeline, 'handle_voice_upload',
+                            lambda media, audio, filename: {'ok': False, 'error': 'invalid audio upload'})
+        response = live.post('/api/voice', b'')
+        assert response.status == 200
+        assert response.json == {'ok': False, 'error': 'invalid audio upload'}
+        assert not svc.called('_append_json')
+
+
 class TestScannerIntakeStatusContract:
     def test_returns_the_exact_scan_conversation(self, live, svc, stub):
         stub('get_scanner_intake', lambda key: {

@@ -1,4 +1,8 @@
 import { VoiceRecorder } from "../abstract/voice-recorder.interface.js";
+import {
+  parseVoiceUploadResponse,
+  recordingFilename,
+} from "./voice_media/dist/voice-media-contract.js";
 
 /**
  * MediaRecorderVoiceRecorder — concrete VoiceRecorder bound to the browser
@@ -53,8 +57,18 @@ export class MediaRecorderVoiceRecorder extends VoiceRecorder {
             : `Microphone unavailable: ${e?.message || e?.name || "unknown error"}`;
       return false;
     }
-    this._recorder = new this._Recorder(this._stream);
+    try {
+      this._recorder = new this._Recorder(this._stream);
+    } catch (error) {
+      this._releaseStream();
+      throw error;
+    }
     return true;
+  }
+
+  _releaseStream() {
+    for (const track of this._stream?.getTracks?.() || []) track.stop();
+    this._stream = null;
   }
 
   /** @override Start buffering audio chunks. */
@@ -63,34 +77,44 @@ export class MediaRecorderVoiceRecorder extends VoiceRecorder {
     this._recorder.ondataavailable = (e) => {
       if (e?.data?.size) this._chunks.push(e.data);
     };
-    this._recorder.start();
+    try {
+      this._recorder.start();
+    } catch (error) {
+      this._releaseStream();
+      this._recorder = null;
+      throw error;
+    }
   }
 
   /** @override Stop the recorder, release tracks, resolve the recorded blob. */
   endCapture() {
     return new Promise((resolve) => {
       const finish = () => {
-        if (this._stream?.getTracks) {
-          for (const t of this._stream.getTracks()) t.stop();
-        }
+        this._releaseStream();
         const type = this._recorder?.mimeType || "audio/webm";
         resolve(new this._Blob(this._chunks, { type }));
       };
       this._recorder.onstop = finish;
-      if (this._recorder.state !== "inactive") this._recorder.stop();
-      else finish();
+      if (this._recorder.state !== "inactive") {
+        try {
+          this._recorder.stop();
+        } catch (error) {
+          this._releaseStream();
+          throw error;
+        }
+      } else finish();
     });
   }
 
   /** @override Upload the blob; resolve the parsed voice payload or throw. */
   async transcribe(blob) {
+    const filename = recordingFilename(blob.type, this._filename);
     const res = await this._fetch(this._endpoint, {
       method: "POST",
-      headers: { "X-Filename": this._filename },
+      headers: { "X-Filename": filename },
       body: blob,
     });
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error || "voice processing failed");
-    return data;
+    return parseVoiceUploadResponse(data);
   }
 }

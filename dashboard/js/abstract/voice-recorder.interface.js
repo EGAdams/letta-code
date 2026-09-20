@@ -89,8 +89,8 @@ export class VoiceRecorder {
   async stop() {
     if (this._state !== RecorderState.RECORDING) return null;
     this._setState(RecorderState.PROCESSING);
-    const blob = await this.endCapture();
     try {
+      const blob = await this.endCapture();
       return await this.transcribe(blob);
     } finally {
       this._setState(RecorderState.IDLE);
