@@ -29,9 +29,9 @@ standalone prototype and is superseded by this integration direction.
 - `dashboard/js/abstract/voice-recorder.interface.js` and
   `speech-synthesizer.interface.js` define the browser capture and output seams.
 - `VoiceSession`, `ConversationAgent`, `LettaAgentAdapter`, and
-  `SpokenOutputPolicy` exist under `dashboard/js/` with tests. The live renderers
-  have not adopted them yet; the dashboard's Voice Communication workspace
-  lists the adoption order.
+  `SpokenOutputPolicy` exist under `dashboard/js/` with tests. Input Options
+  now uses the conversation port; session and spoken-output policy adoption
+  remain the next live slices.
 - This checkout's `voice_communication/` directory currently contains only
   this plan. Earlier references to `voice_communication/ts/`, `py/`,
   `contracts/`, `CLAUDE.md`, `build_plan.md`, and `recent_activity.md` are not
@@ -69,9 +69,9 @@ flowchart LR
 
 ## Delivery order
 
-1. **Adopt the existing agent port.** Inject `LettaAgentAdapter` into
-   `InputOptionsRenderer`; remove its duplicate direct request and conversation
-   bookkeeping. Use the shared fake adapter in renderer tests.
+1. **Adopt the existing agent port — done.** `InputOptionsRenderer` receives
+   `LettaAgentAdapter` from its boot modules; its duplicate direct request and
+   conversation bookkeeping are gone. Renderer tests use the fake adapter.
 2. **Make interruption safe in the live UI.** Give the renderer a `VoiceSession`
    and `SpokenOutputPolicy`. A superseded reply must never be spoken. Then wire
    speech-start interruption and repeat the adoption for the other renderers.
@@ -91,10 +91,10 @@ flowchart LR
 
 ## Immediate next slice
 
-Implement step 1 in `dashboard/js/implementation/detail-renderers.js` and its
-boot wiring, following the existing Voice Communication workspace's specific
-adoption notes. This is the smallest live change that proves the agent port
-works before Pipecat is attached to the media side.
+Implement step 2: give Input Options a `VoiceSession` and
+`SpokenOutputPolicy`, then prove a reply arriving after interruption cannot
+reach speech. Keep the session alive across renderer rebuilds so navigation
+cannot bypass that protection.
 
 ## Working rules
 
@@ -117,7 +117,14 @@ works before Pipecat is attached to the media side.
 ## Session handoff — 2026-09-20
 
 - Completed: recorded the runtime decision and reconciled this plan with the
-  files present in the current checkout.
-- Tests run: documentation validation only.
-- Next smallest task: adopt `LettaAgentAdapter` in `InputOptionsRenderer` with
-  a fake-adapter renderer test, then verify the live dashboard path.
+  files present in the current checkout. Committed and pushed that checkpoint
+  as `2937e690` before writing a failing test. Added a failing renderer test,
+  then adopted the conversation port in Input Options and updated the live
+  architecture guide.
+- Tests run: the new test failed before the change and passed afterward;
+  `bun test dashboard/js/tests` passed (2546 pass, 2 skip), and the Project
+  Plans Python tests passed (17 pass). `bun run typecheck` passed, and all 14
+  Voice Communication workspace specs validated. A real agent send was not
+  used.
+- Next smallest task: adopt `VoiceSession` and `SpokenOutputPolicy` in Input
+  Options, starting with a late-reply renderer test.

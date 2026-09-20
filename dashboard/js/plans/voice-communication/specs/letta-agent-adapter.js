@@ -8,11 +8,11 @@ export const lettaAgentAdapterSpec = {
     "Two adapters now: LettaClient isolates Python's HTTP, and a browser LettaAgentAdapter satisfies IConversationAgent. Still no streaming.",
   status: Status.PARTIAL,
   statusNote:
-    "Python transport adapter + five strategies, plus js/implementation/letta-agent-adapter.js (18 tests). No caller for the browser one yet; nothing streams.",
+    "Python transport adapter + five strategies, plus the browser LettaAgentAdapter used by InputOptionsRenderer. Nothing streams yet.",
   responsibility: [
     "Translate the Letta API into whatever contract the application actually needs, so no policy object ever learns Letta's URL shapes, payload keys, or response envelope.",
     "Today one small piece of this is real and load-bearing: LettaClient wraps urllib with three methods, and every Letta-backed strategy in the voice system goes through it. Swapping the transport (or faking it in tests) is a one-object change, and all five strategies' tests do exactly that.",
-    "The conversation-shaped adapter now exists on the browser side: LettaAgentAdapter turns one turn into typed AgentEvents carrying a generation identity, and owns the two transport facts renderers keep having to remember — the 930-second budget and the conversation_id that must be echoed back or the CLI silently starts a fresh session. What it still cannot do is stream or cancel server-side work; the endpoint offers neither.",
+    "The browser LettaAgentAdapter now serves InputOptionsRenderer. It turns one turn into typed AgentEvents, owns the 1800-second client timeout and the conversation_id needed to resume a CLI session. The endpoint still cannot stream or cancel server-side work.",
   ],
   contract: {
     language: "python",
@@ -97,13 +97,13 @@ LettaAgentAdapter   js/implementation/letta-agent-adapter.js   (shipped)
       "Agent-id resolution is centralised, and the note-command factory now degrades to a fail-closed service when Letta is unreachable instead of raising into the request handler.",
       "Every adapter is tested with an injected fake client — no test touches the network.",
       "The browser adapter exists and passes the shared IConversationAgent contract suite, so a fake and the real thing are interchangeable to a caller.",
-      "The 930s timeout and per-agent conversation resume now live in one object instead of being re-remembered by each renderer, and a failed turn no longer risks overwriting a good conversation id.",
+      "The 1800s timeout and per-agent conversation resume live in the adapter; InputOptionsRenderer no longer duplicates them.",
     ],
     gaps: [
       "No streaming: send_message pins stream:false, so a long reply arrives as one lump.",
       "No cancellation of server-side work — LettaAgentAdapter.cancel() suppresses delivery only, because the endpoint offers nothing else. That is a narrower guarantee than the name suggests and is documented at the call site.",
       "Generation identity exists in the browser adapter but on none of the five Python strategies, so a late reply from those still cannot be fenced.",
-      "Nothing calls the browser adapter yet — the renderers keep their own fetch.",
+      "Other renderer send paths have not adopted a conversation adapter yet.",
       "resolve_agent_id fetches up to 200 agents and scans linearly on every cold build.",
       "A provider auth failure is indistinguishable from 'still thinking' at the UI. The lc-gemini 401 below went unnoticed for a day because every adapter correctly failed closed and the dashboard simply looked idle.",
     ],
@@ -138,7 +138,7 @@ LettaAgentAdapter   js/implementation/letta-agent-adapter.js   (shipped)
         path: "js/tests/letta-agent-adapter.test.js",
         count: 18,
         proves:
-          "The shared contract suite, plus the characterization of the live call: exact POST body, the 930s timeout, per-agent conversation resume, ok:false surfacing the server error, and no network call at all for an empty turn.",
+          "The shared contract suite, plus the characterization of the live call: exact POST body, the 1800s timeout, per-agent conversation resume, ok:false surfacing the server error, and no network call at all for an empty turn.",
       },
     ],
     untested: [
@@ -148,7 +148,7 @@ LettaAgentAdapter   js/implementation/letta-agent-adapter.js   (shipped)
     ],
     next: [
       "A LettaClient test against a stubbed urlopen, pinning URL shapes and the clear_messages-never-raises guarantee.",
-      "A test that the browser adapter is what the renderer actually calls — meaningful only once the renderer is moved onto it.",
+      "A renderer test for each remaining send path when its adapter is introduced.",
       "A test asserting a provider auth failure produces a distinguishable status, so the dashboard can show 'LLM auth failed' instead of silently waiting.",
     ],
   },

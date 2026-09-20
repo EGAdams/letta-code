@@ -7,6 +7,8 @@ import {
   renderReplyRows,
   StreamDetailRenderer,
 } from "../implementation/detail-renderers.js";
+import { FakeConversationAgent } from "../implementation/fake-conversation-agent.js";
+import { LettaAgentAdapter } from "../implementation/letta-agent-adapter.js";
 import { FakeDocument } from "./_fake-dom.js";
 
 describe("chat pure helpers", () => {
@@ -301,6 +303,7 @@ function inputOptionsSetup({
   storage,
   conversationIds,
   speechOverride,
+  conversationAgent,
 } = {}) {
   const doc = new FakeDocument();
   const container = doc.createElement("section");
@@ -398,6 +401,9 @@ function inputOptionsSetup({
     storage: storagePort,
     recorderFactory,
     terminalFactory,
+    conversationAgent:
+      conversationAgent ??
+      new LettaAgentAdapter({ http, storage: storagePort }),
   });
   const api = r.render("io", "a9");
   return {
@@ -422,6 +428,48 @@ function inputOptionsSetup({
 }
 
 describe("InputOptionsRenderer (Strategy)", () => {
+  test("Send uses the injected conversation agent instead of posting directly", async () => {
+    const agent = new FakeConversationAgent({
+      events: [{ kind: "assistant_text", text: "Reply from fake agent." }],
+    });
+    const ctx = inputOptionsSetup({ conversationAgent: agent });
+    ctx.container.querySelector(".am-test-input").value = "hello there";
+
+    await ctx.api.send();
+
+    expect(agent.submitted).toHaveLength(1);
+    expect(agent.submitted[0].turn).toEqual({
+      agent: "a9",
+      text: "hello there",
+    });
+    expect(
+      ctx.posts.some((post) => post.url === "/api/letta-code-message"),
+    ).toBe(false);
+    expect(ctx.container.querySelector(".msi-turn").innerHTML).toContain(
+      "Reply from fake agent.",
+    );
+  });
+
+  test("Send keeps reasoning and tool events out of the reply and speech", async () => {
+    const agent = new FakeConversationAgent({
+      events: [
+        { kind: "reasoning", text: "private reasoning" },
+        { kind: "tool_result", text: "private tool output" },
+        { kind: "assistant_text", text: "Public answer." },
+      ],
+    });
+    const ctx = inputOptionsSetup({ conversationAgent: agent });
+    ctx.container.querySelector(".am-test-input").value = "hello there";
+
+    await ctx.api.send();
+
+    const reply = ctx.container.querySelector(".msi-turn").innerHTML;
+    expect(reply).toContain("Public answer.");
+    expect(reply).not.toContain("private reasoning");
+    expect(reply).not.toContain("private tool output");
+    expect(ctx.spoken).toEqual([{ t: "Public answer.", name: "Mazda" }]);
+  });
+
   test("Send uses the clean Letta Code endpoint, never /api/test or terminal keystrokes", async () => {
     const ctx = inputOptionsSetup();
     ctx.container.querySelector(".am-test-input").value = "hello there";

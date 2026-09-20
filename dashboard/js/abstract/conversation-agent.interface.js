@@ -3,11 +3,9 @@ import { abstractMethod } from "./not-implemented.js";
 /**
  * IConversationAgent — the port for "something that can hold a conversation".
  *
- * Documented as Planned on Project Plans -> Voice Communication ->
- * IConversationAgent. Today `InputOptionsRenderer.send()` POSTs
- * `/api/letta-code-message` itself, so high-level UI policy imports a
- * Letta-shaped HTTP call and no other engine can be substituted. This contract
- * is what removes that dependency: policy talks to `ConversationAgent`, and
+ * InputOptionsRenderer sends through this port. Other renderer paths still
+ * need adoption. This contract removes their dependency on a Letta-shaped
+ * HTTP call: policy talks to `ConversationAgent`, and
  * LettaAgentAdapter / FakeConversationAgent / a future local model all satisfy
  * it identically.
  *

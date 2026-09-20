@@ -93,6 +93,14 @@ wake-word listener can be swapped in later.
 
 ## Input Options "Send" → `/api/letta-code-message`
 
+`InputOptionsRenderer` now sends through the injected `ConversationAgent`
+port. The dashboard composition roots select `LettaAgentAdapter`, which owns
+the 1800-second client timeout and per-agent conversation resume. The renderer
+handles only assistant-text events; its fake-adapter test confirms that
+reasoning and tool events never reach the visible reply or speaker.
+`VoiceSession` and `SpokenOutputPolicy` still need live adoption before a late
+reply can be suppressed after interruption.
+
 Shells out to this checkout's `letta` CLI headlessly (`--output-format json --memfs-startup skip
 --permission-mode acceptEdits`). Two invariants (both from a 2026-07-22 failure where Mazda's
 correct answer looked like "no answer"):

@@ -19,6 +19,7 @@ import {
   BrowserSpeechRecognitionListener,
   EditableDarkNoteSurface,
   InputOptionsRenderer,
+  LettaAgentAdapter,
 } from "../implementation/index.js";
 
 export async function startReceptionist({ http, speech }) {
@@ -32,6 +33,10 @@ export async function startReceptionist({ http, speech }) {
   }
   new InputOptionsRenderer({
     http,
+    conversationAgent: new LettaAgentAdapter({
+      http,
+      storage: globalThis.localStorage,
+    }),
     speech,
     agentName: "Toyota",
     agentId,

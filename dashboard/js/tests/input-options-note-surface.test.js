@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { InputOptionsRenderer } from "../implementation/detail-renderers.js";
+import { LettaAgentAdapter } from "../implementation/letta-agent-adapter.js";
 import { ReadOnlyNoteSurface } from "../implementation/textarea-note-surfaces.js";
 import { FakeDocument } from "./_fake-dom.js";
 
@@ -9,14 +10,16 @@ function render({ surfaceFactory } = {}) {
   container.id = "box";
   doc.add(container);
   const posts = [];
-  const api = new InputOptionsRenderer({
-    http: {
-      getJSON: async () => ({ ok: false, options: [] }),
-      postJSON: async (url, body) => {
-        posts.push({ url, body });
-        return { ok: true, reply: "ack" };
-      },
+  const http = {
+    getJSON: async () => ({ ok: false, options: [] }),
+    postJSON: async (url, body) => {
+      posts.push({ url, body });
+      return { ok: true, reply: "ack" };
     },
+  };
+  const api = new InputOptionsRenderer({
+    http,
+    conversationAgent: new LettaAgentAdapter({ http }),
     speech: { supported: false },
     agentName: "Toyota",
     agentId: "toyota-id",

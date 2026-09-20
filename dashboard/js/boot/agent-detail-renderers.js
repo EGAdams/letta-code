@@ -11,6 +11,7 @@ import {
   BrowserSpeechRecognitionListener,
   ChatDetailRenderer,
   InputOptionsRenderer,
+  LettaAgentAdapter,
   StreamDetailRenderer,
 } from "../implementation/index.js";
 
@@ -20,6 +21,7 @@ export function createAgentDetailRenderers({
   speech,
   setAgentTabStatus,
   getAgentManager,
+  storage = globalThis.localStorage,
 }) {
   const streamRenderers = {
     "agent-detail-thoughts": new StreamDetailRenderer({
@@ -55,10 +57,12 @@ export function createAgentDetailRenderers({
   const renderInputOptions = (am, target) => {
     return new InputOptionsRenderer({
       http,
+      conversationAgent: new LettaAgentAdapter({ http, storage }),
       speech,
       agentName: am.current.name,
       agentId: am.current.id,
       onStatus: setAgentTabStatus,
+      storage,
     }).render(target, am.current.id);
   };
 

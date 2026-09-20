@@ -1,4 +1,5 @@
 import { ListenerState } from "../abstract/continuous-listener.interface.js";
+import { AgentEventKind } from "../abstract/conversation-agent.interface.js";
 import { DetailRenderer } from "../abstract/detail-renderer.interface.js";
 import { ReceptionistTranscriptController } from "../abstract/receptionist-transcript-controller.js";
 import { TextUtils } from "../abstract/text-utils.js";
@@ -657,6 +658,7 @@ export function buildModelRow({
 export class InputOptionsRenderer extends DetailRenderer {
   constructor({
     http,
+    conversationAgent,
     speech,
     agentName = "the agent",
     agentId = null,
@@ -670,7 +672,10 @@ export class InputOptionsRenderer extends DetailRenderer {
   }) {
     super();
     if (!http) throw new Error("InputOptionsRenderer requires an HttpClient");
+    if (!conversationAgent)
+      throw new Error("InputOptionsRenderer requires a ConversationAgent");
     this._http = http;
+    this._conversationAgent = conversationAgent;
     this._speech = speech;
     this._agentName = agentName;
     this._agentId = agentId;
@@ -984,7 +989,8 @@ export class InputOptionsRenderer extends DetailRenderer {
       consoleEl.scrollTop = consoleEl.scrollHeight;
     };
 
-    // ── Send: forwards text into the letta-code session above ──────────────
+    // ── Send: forwards text through the ConversationAgent port ─────────────
+    let turnNumber = 0;
     const send = async ({
       textOverride = null,
       preserveInput = false,
@@ -1003,29 +1009,16 @@ export class InputOptionsRenderer extends DetailRenderer {
       const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
       this._onStatus(id, "active");
       try {
-        // The server gives this endpoint a 1770s budget (run_letta_code_message)
-        // because a real Mazda turn -- e.g. a report-repair pass -- can run for
-        // 15+ minutes. 900s used to be the ceiling here and a real report-repair
-        // request blew through it (504 "Mazda took too long to answer" logged
-        // 2026-09-08 16:28 after exactly 900s). The client default is 30s -
-        // without this override the browser aborts and reports a timeout for an
-        // answer the backend goes on to produce successfully.
-        const convKey = `msi-conv-${id}`;
-        const conversationId = this._storage?.getItem?.(convKey) || null;
-        const r = await this._http.postJSON(
-          "/api/letta-code-message",
-          { agent: id, text, conversation_id: conversationId },
-          { timeout: 1800000 },
-        );
-        if (!r?.ok || !r.reply)
-          throw new Error(r?.error || "Mazda returned no answer.");
-        // Remember which conversation this turn landed in so the next Send
-        // resumes it instead of the CLI silently starting a fresh one.
-        const newConversationId = r.run?.conversation_id;
-        if (newConversationId && this._storage) {
-          this._storage.setItem(convKey, newConversationId);
+        const replies = [];
+        const generationId = `${id}:${++turnNumber}`;
+        for await (const event of this._conversationAgent.submit(
+          { agent: id, text },
+          generationId,
+        )) {
+          if (event.kind === AgentEventKind.ASSISTANT_TEXT)
+            replies.push({ type: "assistant_message", text: event.text });
         }
-        const replies = [{ type: "assistant_message", text: r.reply }];
+        if (!replies.length) throw new Error("Agent returned no answer.");
         appendTurn(userRow, renderReplyRows(replies, this._agentName));
         showStatus("Answer received.");
         // speak() fails silently by design (never substitutes a different

@@ -6,6 +6,7 @@ import {
   LISTEN_ACTIVE_BG,
   LISTEN_IDLE_BG,
 } from "../implementation/detail-renderers.js";
+import { LettaAgentAdapter } from "../implementation/letta-agent-adapter.js";
 import { FakeDocument } from "./_fake-dom.js";
 
 class FakeListener {
@@ -60,6 +61,7 @@ function setup({ policy } = {}) {
   });
   const api = new InputOptionsRenderer({
     http,
+    conversationAgent: new LettaAgentAdapter({ http }),
     speech: { supported: false },
     agentName: "Toyota",
     agentId: "toyota-id",
