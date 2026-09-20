@@ -104,6 +104,9 @@ out
 # Nuxt.js build / generate output
 .nuxt
 dist
+!dashboard/js/abstract/voice_session/dist/
+!dashboard/js/abstract/voice_session/dist/*.js
+!dashboard/js/abstract/voice_session/dist/*.d.ts
 
 # Gatsby files
 .cache/

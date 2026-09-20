@@ -71,8 +71,8 @@ bun test js/tests
 | `tab-factory.interface.js`         | Factory Method           | agent/server/connection `createElement` blocks |
 | `agent-voice-catalog.interface.js` | Strategy / Registry      | per-agent `voiceFor()` + `AGENT_VOICE_PREFERENCES` |
 | `startup-gate.js`                  | Template Method          | the two 135-line copy-pasted `startupGate` / `agentGate` IIFEs |
-| `voice-session.js`                 | State                    | — (new: one conversation's lifecycle + generation fencing) |
-| `session-clock.js`                 | Strategy (injected ports)| — (new: `Clock` / `IdSource`, so lifecycle tests need no sleeps) |
+| `voice_session/src/voice-session.ts` | State                  | one conversation's lifecycle + generation fencing; compiled into `voice_session/dist/` |
+| `voice_session/src/session-clock.ts` | Strategy (injected ports) | `Clock` / `IdSource`, so lifecycle tests need no sleeps |
 | `conversation-agent.interface.js`  | Adapter / Strategy       | the raw `POST /api/letta-code-message` in `detail-renderers.js` |
 | `terminal-launcher.interface.js`   | Abstract Factory         | xterm/WebSocket construction hidden from scanner views |
 | `spoken-output-policy.js`          | Strategy                 | per-renderer "is this speakable?" filtering |
@@ -85,6 +85,12 @@ Concrete classes that have no separate `abstract/` interface live directly in
 `AgentActivityPoller`, `ConnectionLogController`/`ConnectionTestController`
 (in `connection-controllers.js`), `RolFinanceReportsController`, and
 `CodeChangeAlert`.
+
+`abstract/voice_session/` is the first TypeScript module. It has its own
+`tsconfig.json`, `src/`, compiled `dist/`, and class/flow/sequence diagrams.
+Run `./node_modules/.bin/tsc -p dashboard/js/abstract/voice_session/tsconfig.json`
+from the repo root after editing its TypeScript source. The old `.js` entry
+points re-export the compiled modules so existing browser imports keep working.
 
 ## Design rule
 

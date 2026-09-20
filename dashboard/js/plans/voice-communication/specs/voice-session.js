@@ -8,15 +8,15 @@ export const voiceSessionSpec = {
     "The object that owns one conversation. Built in the browser layer; no caller has adopted it yet.",
   status: Status.WORKING,
   statusNote:
-    "js/abstract/voice-session.js, 13 tests. The lifecycle and the fence are real; nothing in the live UI holds a session yet.",
+    "Typed source: js/abstract/voice_session/src/voice-session.ts, 13 tests. The lifecycle and fence are real; nothing in the live UI holds a session yet.",
   responsibility: [
     "Own the identity and legal lifecycle of one voice conversation: which session this is, which agent turn ('generation') is currently live, and which state transitions are allowed — idle, listening, thinking, speaking, interrupted, closed.",
     "Its real job is generation fencing. When a user interrupts, the turn in flight becomes stale, and everything downstream needs one authoritative answer to 'is this output still wanted?'. Without that, a slow reply from an abandoned turn arrives late and gets spoken over the new one.",
     "It is deliberately framework-free: no Pipecat, no Letta, no browser APIs. That is what makes lifecycle rules testable without sleeps or a microphone.",
   ],
   contract: {
-    language: "js",
-    code: `VoiceSession   js/abstract/voice-session.js   (shipped)
+    language: "ts",
+    code: `VoiceSession   js/abstract/voice_session/src/voice-session.ts   (shipped)
 
   id                        -> SessionId     stable for the conversation
   state                     -> idle | listening | thinking | speaking
@@ -33,7 +33,7 @@ export const voiceSessionSpec = {
   issued(gen)               -> bool          did this session ever mint it
 
   injected collaborators:
-    clock       Clock       session-clock.js — no Date.now() inside
+    clock       Clock       voice_session/src/session-clock.ts — no Date.now() inside
     idSource    IdSource    so a test can name the generation it expects
     onStateChange(change)   { session, from, to, generation, at }`,
     note: "An illegal transition throws IllegalTransitionError; a superseded generation does not. That split is deliberate: a caller can prevent the first by writing correct code, but the second IS the race the object exists for, so it returns false instead.",
@@ -42,13 +42,13 @@ export const voiceSessionSpec = {
     {
       name: "VoiceSession",
       kind: "current",
-      file: "js/abstract/voice-session.js",
+      file: "js/abstract/voice_session/src/voice-session.ts",
       note: "The session and the fence. Framework-free: no Letta, no Pipecat, no browser API, no timer.",
     },
     {
       name: "ManualClock / SequentialIdSource",
       kind: "current",
-      file: "js/abstract/session-clock.js",
+      file: "js/abstract/voice_session/src/session-clock.ts",
       note: "The deterministic primitives. Tests advance the clock instead of sleeping and assert on ids like gen-2.",
     },
     {

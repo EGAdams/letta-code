@@ -100,6 +100,9 @@ handles only assistant-text events; its fake-adapter test confirms that
 reasoning and tool events never reach the visible reply or speaker.
 `VoiceSession` and `SpokenOutputPolicy` still need live adoption before a late
 reply can be suppressed after interruption.
+The typed session source and its ports live in
+`js/abstract/voice_session/src/`; its module-local `tsconfig.json` compiles
+browser-loadable JS into `dist/`. See that module's README for the build command.
 
 Shells out to this checkout's `letta` CLI headlessly (`--output-format json --memfs-startup skip
 --permission-mode acceptEdits`). Two invariants (both from a 2026-07-22 failure where Mazda's

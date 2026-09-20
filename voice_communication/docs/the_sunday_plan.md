@@ -49,11 +49,11 @@ specific boundary it improves.
 - Python: ABC or `Protocol` for behavior; Pydantic models at untrusted HTTP,
   process, or Pipecat event boundaries. Keep schemas separate from policy
   objects and validate before the data crosses into them.
-- Browser: preserve the dashboard's existing vanilla JS interface modules and
-  injected collaborators. Use TypeScript `interface` and runtime validation if
-  a new typed TypeScript package is introduced; a compile-time type alone does
-  not validate HTTP or media-service data. Do not convert working dashboard JS
-  solely to claim TypeScript coverage.
+- Browser: keep the existing vanilla JS callers and injected collaborators.
+  New module work starts in TypeScript: `dashboard/js/abstract/voice_session/`
+  is the first module, with typed source, a module-local `tsconfig.json`, and
+  checked-in browser JS output. Keep runtime validation at HTTP and media
+  boundaries; TypeScript interfaces alone do not validate external data.
 - One agent-turn contract must decide conversation identity, event filtering,
   one active turn, interruption, and stale-output suppression for both media
   paths. Only assistant-facing text may reach speech output.
@@ -128,3 +128,15 @@ cannot bypass that protection.
   used.
 - Next smallest task: adopt `VoiceSession` and `SpokenOutputPolicy` in Input
   Options, starting with a late-reply renderer test.
+
+## Module setup — 2026-09-20
+
+EG requested one directory per module and TypeScript for new module work.
+`dashboard/js/abstract/voice_session/` now owns the typed lifecycle and its
+clock/id ports, diagrams, `tsconfig.json`, and compiled browser modules.
+The original JavaScript paths are compatibility re-exports. This organizes
+the session contract; Input Options still needs to adopt the session and
+spoken-output policy in the next behavior slice.
+Verification: module TypeScript compilation, 28 focused session/policy tests,
+the dashboard JS suite (2546 pass, 2 skip), 17 Project Plans tests, and the
+repo typecheck passed. The compiled module is served at its dashboard URL.

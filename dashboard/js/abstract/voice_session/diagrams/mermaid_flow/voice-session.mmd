@@ -1,0 +1,18 @@
+stateDiagram-v2
+  [*] --> idle
+  idle --> listening: startListening()
+  listening --> thinking: beginTurn() issues generation
+  thinking --> speaking: beginSpeaking(current generation)
+  thinking --> listening: completeTurn(current generation)
+  speaking --> listening: completeTurn(current generation)
+  thinking --> listening: startListening() supersedes turn
+  speaking --> listening: startListening() supersedes turn
+  listening --> interrupted: interrupt()
+  thinking --> interrupted: interrupt() retires generation
+  speaking --> interrupted: interrupt() retires generation
+  interrupted --> listening: startListening()
+  idle --> closed: close()
+  listening --> closed: close()
+  thinking --> closed: close()
+  speaking --> closed: close()
+  interrupted --> closed: close()
