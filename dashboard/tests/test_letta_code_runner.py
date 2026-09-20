@@ -234,6 +234,72 @@ class TestTheCommandItBuilds:
 
 
 class TestWhatItReturns:
+    def test_a_completed_resumed_turn_is_recovered_when_the_cli_stays_open(
+            self, monkeypatch):
+        """A final assistant message can persist while the headless SSE worker
+        keeps the browser request open. Once the final run is settled, return
+        that answer and reap the worker instead of waiting 1770 seconds."""
+        clock = [0]
+        killed = []
+        seen = []
+
+        class HungPopen(FakePopen):
+            def communicate(self, timeout=None):
+                self.communicate_calls.append(timeout)
+                if not killed:
+                    clock[0] += timeout
+                    raise subprocess.TimeoutExpired(cmd=self.args, timeout=timeout)
+                return '', ''
+
+        proc = HungPopen(['/bun'])
+
+        class Probe:
+            def completed_reply(self, agent_id, conversation_id, started_at):
+                seen.append((agent_id, conversation_id, started_at))
+                return 'The system check passed.'
+
+        monkeypatch.setattr(runner, '_letta_code_command', lambda: ['/bun'])
+        monkeypatch.setattr(runner.subprocess, 'Popen', lambda *a, **k: proc)
+        monkeypatch.setattr(runner.time, 'monotonic', lambda: clock[0])
+        monkeypatch.setattr(runner.os, 'getpgid', lambda pid: pid)
+        monkeypatch.setattr(runner.os, 'killpg',
+                            lambda pgid, sig: killed.append((pgid, sig)))
+
+        out = runner.run_letta_code_message(
+            AGENT, 'check', lambda a: a, timeout=120,
+            conversation_id='conv-9', reply_probe=Probe())
+
+        assert out['reply'] == 'The system check passed.'
+        assert out['run']['conversation_id'] == 'conv-9'
+        assert seen[0][:2] == (AGENT, 'conv-9')
+        assert killed == [(proc.pid, runner.signal.SIGKILL)]
+
+    def test_a_probe_failure_does_not_discard_the_normal_cli_result(
+            self, monkeypatch):
+        clock = [0]
+
+        class SlowPopen(FakePopen):
+            def communicate(self, timeout=None):
+                self.communicate_calls.append(timeout)
+                if len(self.communicate_calls) == 1:
+                    clock[0] += timeout
+                    raise subprocess.TimeoutExpired(cmd=self.args, timeout=timeout)
+                return ok_payload('normal answer'), ''
+
+        class FailingProbe:
+            def completed_reply(self, *args):
+                raise OSError('Letta read API unavailable')
+
+        monkeypatch.setattr(runner, '_letta_code_command', lambda: ['/bun'])
+        monkeypatch.setattr(runner.subprocess, 'Popen',
+                            lambda *a, **k: SlowPopen(a[0]))
+        monkeypatch.setattr(runner.time, 'monotonic', lambda: clock[0])
+
+        out = runner.run_letta_code_message(
+            AGENT, 'check', lambda a: a, timeout=120,
+            conversation_id='conv-9', reply_probe=FailingProbe())
+        assert out['reply'] == 'normal answer'
+
     def test_only_the_final_result_is_exposed(self, monkeypatch):
         """The CLI's JSON also carries the whole turn. Passing that through
         would put tool calls and file contents on a web response."""

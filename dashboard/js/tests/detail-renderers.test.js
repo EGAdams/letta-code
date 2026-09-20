@@ -505,6 +505,47 @@ describe("InputOptionsRenderer (Strategy)", () => {
     expect(out).toContain('<span class="hdr">user:</span> hello there');
   });
 
+  test("Send shows a pending turn while the agent works, then replaces it with the answer", async () => {
+    let release;
+    const waiting = new Promise((resolve) => {
+      release = resolve;
+    });
+    const agent = new FakeConversationAgent({
+      events: [{ kind: "assistant_text", text: "System check complete." }],
+      beforeEach: () => waiting,
+    });
+    const ctx = inputOptionsSetup({ conversationAgent: agent });
+    ctx.container.querySelector(".am-test-input").value = "Check your systems";
+
+    const sending = ctx.api.send();
+    const pending = ctx.container.querySelector(".msi-turn");
+    expect(pending.innerHTML).toContain("Check your systems");
+    expect(pending.innerHTML).toContain("is working");
+    expect(pending.innerHTML).not.toContain("System check complete.");
+
+    release();
+    await sending;
+    expect(ctx.container.querySelectorAll(".msi-turn")).toHaveLength(1);
+    expect(pending.innerHTML).toContain("System check complete.");
+    expect(pending.innerHTML).not.toContain("is working");
+  });
+
+  test("Send replaces a pending turn with an error without duplicating the user message", async () => {
+    const agent = new FakeConversationAgent({
+      events: [{ kind: "assistant_text", text: "unreachable" }],
+      beforeEach: () => Promise.reject(new Error("Letta connection closed")),
+    });
+    const ctx = inputOptionsSetup({ conversationAgent: agent });
+    ctx.container.querySelector(".am-test-input").value = "hello";
+
+    await ctx.api.send();
+
+    const turns = ctx.container.querySelectorAll(".msi-turn");
+    expect(turns).toHaveLength(1);
+    expect(turns[0].innerHTML).toContain("Letta connection closed");
+    expect(turns[0].innerHTML).not.toContain("is working");
+  });
+
   test("Send surfaces a blocked/failed voice playback instead of staying silently mute", async () => {
     const ctx = inputOptionsSetup({
       speechOverride: {

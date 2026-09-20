@@ -131,7 +131,11 @@ wake-word listener can be swapped in later.
 `InputOptionsRenderer` now sends through the injected `ConversationAgent`
 port. The dashboard composition roots select `LettaAgentAdapter`, which owns
 the 1800-second client timeout and per-agent conversation resume. The renderer
-uses a per-agent `VoiceSession` for turn ids across renderer rebuilds and asks
+shows a working row immediately and replaces it with the answer or error. For
+resumed conversations, the Python runner checks the persisted Letta answer if
+the headless CLI stays open after a completed run; it waits for outstanding
+tool returns before stopping that process. The renderer uses a per-agent
+`VoiceSession` for turn ids across renderer rebuilds and asks
 `SpokenOutputPolicy` before speaking assistant text. The agent adapter is also
 retained per agent, so cancelling an older turn cannot overwrite the newer
 conversation id. Interrupted, closed, or superseded turns cannot put a late
@@ -159,8 +163,8 @@ Shells out to this checkout's `letta` CLI headlessly (`--output-format json --me
 --permission-mode acceptEdits`). Two invariants (both from a 2026-07-22 failure where Mazda's
 correct answer looked like "no answer"):
 
-1. Server budget is 900s but `FetchHttpClient`'s default abort is 30s — callers of long-running
-   endpoints must pass `{timeout: 930000}` explicitly rather than raising the global default.
+1. Server budget is 1770s but `FetchHttpClient`'s default abort is 30s — the
+   `LettaAgentAdapter` passes a 1800s timeout for this endpoint.
 2. Headless mode auto-denies gated tools with nobody to approve them, so `--permission-mode
    acceptEdits` is required (not `--yolo`/`bypassPermissions` — `acceptEdits` already auto-allows
    Write/Edit/MultiEdit/Bash without handing blanket access to a `0.0.0.0`-bound endpoint).

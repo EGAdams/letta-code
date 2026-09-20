@@ -30,8 +30,11 @@ import re
 import shutil
 import signal
 import subprocess
+import time
+from datetime import datetime, timezone
 
 from hosts import LETTA_BASE_URL
+from letta_code.completed_reply import LettaCompletedReplyProbe
 from letta_ids import _TERMINAL_ID_RE
 from paths import LETTA_CODE_BUN, REPO_ROOT
 
@@ -85,7 +88,7 @@ def _letta_code_command():
 
 
 def run_letta_code_message(agent_id, prompt, letta_id_for,
-                           timeout=1770, conversation_id=None):
+                           timeout=1770, conversation_id=None, reply_probe=None):
     """Run one Letta Code turn and expose only its final JSON result.
 
     Without `conversation_id`, headless mode's default behavior creates a
@@ -131,6 +134,8 @@ def run_letta_code_message(agent_id, prompt, letta_id_for,
     # every later message into that same conversation. start_new_session=True
     # puts the whole tree in its own process group so a timeout can reap all
     # of it with killpg, not just the one PID subprocess.run knows about.
+    started_at = datetime.now(timezone.utc)
+    started_mono = time.monotonic()
     proc = subprocess.Popen(
         [*command, *session_args, '--prompt', clean_prompt,
          '--output-format', 'json', '--memfs-startup', 'skip',
@@ -141,7 +146,45 @@ def run_letta_code_message(agent_id, prompt, letta_id_for,
         env={**os.environ, 'PATH': child_path, 'LETTA_BASE_URL': LETTA_BASE_URL},
     )
     try:
-        stdout, stderr = proc.communicate(timeout=timeout)
+        if conversation_id:
+            # A completed Letta run can leave the headless SSE worker alive,
+            # which keeps communicate() and the browser waiting despite a
+            # persisted final answer. Poll only after a minute, and recover
+            # only after the newest run has settled for 30 seconds. The probe
+            # reads this exact conversation, never the agent's other runs.
+            probe = reply_probe or LettaCompletedReplyProbe()
+            while True:
+                elapsed = time.monotonic() - started_mono
+                remaining = timeout - elapsed
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(cmd=proc.args, timeout=timeout)
+                wait_for = min(remaining, 60 - elapsed if elapsed < 60 else 15)
+                try:
+                    stdout, stderr = proc.communicate(timeout=wait_for)
+                    break
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() - started_mono < 60:
+                        continue
+                    try:
+                        recovered = probe.completed_reply(
+                            lid, conversation_id, started_at)
+                    except Exception:
+                        # Recovery is optional; an API/read failure must not
+                        # abort a CLI turn that may still finish normally.
+                        recovered = None
+                    if recovered:
+                        try:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                        except ProcessLookupError:
+                            # The CLI may exit during the read-only probe.
+                            pass
+                        proc.communicate()  # close pipes and reap the worker
+                        return {'ok': True, 'reply': recovered, 'run': {
+                            'agent_id': lid,
+                            'conversation_id': conversation_id,
+                        }}
+        else:
+            stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         proc.communicate()  # reap the group; this run is being abandoned

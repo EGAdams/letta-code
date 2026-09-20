@@ -1053,6 +1053,7 @@ export class InputOptionsRenderer extends DetailRenderer {
       turn.innerHTML = `${userRow}<div class="msi-gap"></div>${bodyHtml}`;
       consoleEl.appendChild(turn);
       consoleEl.scrollTop = consoleEl.scrollHeight;
+      return turn;
     };
 
     // ── Send: forwards text through the ConversationAgent port ─────────────
@@ -1072,6 +1073,14 @@ export class InputOptionsRenderer extends DetailRenderer {
       // surface decides.
       if (!preserveInput && note.editable) note.setText("");
       const userRow = `<div class="msi-entry"><span class="hdr">user:</span> ${TextUtils.esc(text)}</div>`;
+      const turn = appendTurn(
+        userRow,
+        `<span class="msi-line">${TextUtils.esc(this._agentName || "Agent")} is working…</span>`,
+      );
+      const showTurn = (bodyHtml) => {
+        turn.innerHTML = `${userRow}<div class="msi-gap"></div>${bodyHtml}`;
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+      };
       this._onStatus(id, "active");
       let generationId = null;
       try {
@@ -1093,9 +1102,12 @@ export class InputOptionsRenderer extends DetailRenderer {
           if (event.kind === AgentEventKind.ASSISTANT_TEXT)
             replies.push({ type: "assistant_message", text: event.text });
         }
-        if (!this._voiceSession.accepts(generationId)) return;
+        if (!this._voiceSession.accepts(generationId)) {
+          showTurn('<span class="msi-line">Turn interrupted.</span>');
+          return;
+        }
         if (!replies.length) throw new Error("Agent returned no answer.");
-        appendTurn(userRow, renderReplyRows(replies, this._agentName));
+        showTurn(renderReplyRows(replies, this._agentName));
         showStatus("Answer received.");
         // speak() fails silently by design (never substitutes a different
         // voice), so a blocked/failed playback would otherwise look
@@ -1131,11 +1143,13 @@ export class InputOptionsRenderer extends DetailRenderer {
           this._voiceSession.completeTurn(generationId);
         }
       } catch (e) {
-        if (generationId && !this._voiceSession.accepts(generationId)) return;
+        if (generationId && !this._voiceSession.accepts(generationId)) {
+          showTurn('<span class="msi-line">Turn interrupted.</span>');
+          return;
+        }
         if (generationId) this._voiceSession.completeTurn(generationId);
         this._onStatus(id, "error");
-        appendTurn(
-          userRow,
+        showTurn(
           `<span class="msi-line err">! ${TextUtils.esc(e.message)}</span>`,
         );
       } finally {
