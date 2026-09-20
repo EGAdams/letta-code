@@ -19,5 +19,12 @@ The session owns state and generation fencing. `SpokenOutputPolicy` remains a
 separate Strategy that consumes the session's `accepts()` method.
 The dashboard boot modules inject both into `InputOptionsRenderer`. Its Send
 path uses session-issued generation ids and asks the policy before speaking;
-agent sessions survive renderer rebuilds. Run the module's renderer tests with
+agent sessions survive renderer rebuilds. A speaking turn owns a cancellable
+`SpeechPlayback` handle. `interrupt()`, `close()`, or starting another turn
+cancels that handle; the turn completes when the speech adapter's `finished`
+promise settles after audio ends. The edge-tts adapter also returns `pending`
+for playback-start or failure status. A token can cancel only its own utterance,
+so an old session cannot stop a newer agent's audio.
+
+Run the module's renderer tests with
 `bun test dashboard/js/abstract/voice_session/tests`.

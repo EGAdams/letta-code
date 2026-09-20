@@ -824,6 +824,15 @@ export class InputOptionsRenderer extends DetailRenderer {
       statusEl.textContent = msg;
     };
 
+    const interruptCurrentTurn = () => {
+      const state = this._voiceSession.state;
+      if (state !== SessionState.THINKING && state !== SessionState.SPEAKING)
+        return;
+      if (state === SessionState.THINKING)
+        this._conversationAgent.cancel(this._voiceSession.currentGeneration);
+      this._voiceSession.interrupt();
+    };
+
     // ── Model selector — which LLM handle this agent runs on ──────────────
     // Options come from /api/agent-model (the probed-working Codex OAuth
     // handles); changing it PATCHes the agent's llm_config through server.py.
@@ -1051,17 +1060,25 @@ export class InputOptionsRenderer extends DetailRenderer {
           this._voiceSession.beginSpeaking(generationId)
         ) {
           const spoken = this._speech.speak(spokenText, this._agentName);
-          spoken?.pending?.then((engine) => {
-            if (!this._voiceSession.accepts(generationId)) return;
-            if (!engine) {
-              const why = this._speech.lastError;
-              showStatus(
-                `Answer received (voice playback failed${why ? `: ${why}` : " or was blocked"}).`,
-              );
-            }
-            this._voiceSession.completeTurn(generationId);
+          if (spoken?.cancel)
+            this._voiceSession.trackPlayback(generationId, spoken);
+          const reportPlaybackFailure = (engine) => {
+            if (!this._voiceSession.accepts(generationId) || engine) return;
+            const why = this._speech.lastError;
+            showStatus(
+              `Answer received (voice playback failed${why ? `: ${why}` : " or was blocked"}).`,
+            );
+          };
+          spoken?.pending?.then(reportPlaybackFailure, () => {
+            reportPlaybackFailure(null);
           });
-          if (!spoken?.pending) this._voiceSession.completeTurn(generationId);
+          const finished = spoken?.finished || spoken?.pending;
+          if (finished) {
+            Promise.resolve(finished).then(
+              () => this._voiceSession.completeTurn(generationId),
+              () => this._voiceSession.completeTurn(generationId),
+            );
+          } else this._voiceSession.completeTurn(generationId);
         } else {
           this._voiceSession.completeTurn(generationId);
         }
@@ -1118,6 +1135,7 @@ export class InputOptionsRenderer extends DetailRenderer {
         showStatus("Transcribed & cleaned. Tap Send or enable Auto Send.");
         if (autoSendOn) await send();
       } else {
+        interruptCurrentTurn();
         showStatus("Listening…");
         const ok = await recorder.start();
         if (!ok) {
@@ -1147,6 +1165,7 @@ export class InputOptionsRenderer extends DetailRenderer {
       this._listener.setCallbacks({
         onStateChange: syncListenBtn,
         onResult: (text, isFinal) => {
+          if (text?.trim()) interruptCurrentTurn();
           const snapshot = transcript.accept(text, isFinal);
           if (!isFinal || !this._receptionistIntentPolicy) return;
           // The policy sees the accumulated finalized transcript, not merely
@@ -1223,6 +1242,7 @@ export class InputOptionsRenderer extends DetailRenderer {
         if (this._listener.isListening) {
           this._listener.stop();
         } else {
+          interruptCurrentTurn();
           showStatus("Listening…");
           const ok = await this._listener.start();
           if (!ok) {

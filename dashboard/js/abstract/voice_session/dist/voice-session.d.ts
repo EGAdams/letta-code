@@ -23,6 +23,10 @@ export interface VoiceSessionDependencies {
   idSource?: IdSource;
   onStateChange?: (change: SessionStateChange) => void;
 }
+/** A handle for the one utterance owned by a speaking turn. */
+export interface SpeechPlayback {
+  cancel(): void;
+}
 export declare class IllegalTransitionError extends Error {
   readonly from: SessionStateValue;
   readonly to: SessionStateValue;
@@ -38,6 +42,7 @@ export declare class VoiceSession {
   private generation;
   private readonly startTime;
   private readonly generations;
+  private playback;
   constructor({ clock, idSource, onStateChange }?: VoiceSessionDependencies);
   get id(): SessionId;
   get state(): SessionStateValue;
@@ -50,6 +55,7 @@ export declare class VoiceSession {
   startListening(): SessionStateValue;
   beginTurn(): GenerationId;
   beginSpeaking(generationId: unknown): boolean;
+  trackPlayback(generationId: unknown, playback: SpeechPlayback): boolean;
   completeTurn(generationId: unknown): boolean;
   interrupt(): GenerationId | null;
   close(): void;

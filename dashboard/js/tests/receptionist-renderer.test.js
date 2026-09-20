@@ -37,7 +37,7 @@ class FakeListener {
   }
 }
 
-function setup({ policy } = {}) {
+function setup({ policy, speech = { supported: false } } = {}) {
   const doc = new FakeDocument();
   const container = doc.createElement("section");
   container.id = "receptionist-box";
@@ -67,7 +67,7 @@ function setup({ policy } = {}) {
     voiceSession,
     spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
     conversationAgent: new LettaAgentAdapter({ http }),
-    speech: { supported: false },
+    speech,
     agentName: "Toyota",
     agentId: "toyota-id",
     doc,
@@ -76,10 +76,61 @@ function setup({ policy } = {}) {
     listener,
     receptionistIntentPolicy: policy,
   }).render("receptionist-box", "toyota-id");
-  return { container, listener, posts, api };
+  return { container, listener, posts, api, voiceSession };
+}
+
+function playingSpeech() {
+  let cancellations = 0;
+  let finish;
+  const finished = new Promise((resolve) => {
+    finish = resolve;
+  });
+  return {
+    speech: {
+      supported: true,
+      speak: () => ({
+        pending: Promise.resolve("edge-tts"),
+        finished,
+        cancel: () => {
+          cancellations += 1;
+          finish();
+        },
+      }),
+    },
+    get cancellations() {
+      return cancellations;
+    },
+  };
 }
 
 describe("Toyota receptionist renderer", () => {
+  test("new recognized words interrupt an answer already playing", async () => {
+    const audio = playingSpeech();
+    const ctx = setup({ speech: audio.speech });
+    await ctx.api.send({ textOverride: "First question" });
+    expect(ctx.voiceSession.state).toBe("speaking");
+    ctx.listener.emit(" ", false);
+    expect(audio.cancellations).toBe(0);
+    ctx.listener.emit("Second question", false);
+    expect(audio.cancellations).toBe(1);
+    expect(ctx.voiceSession.state).toBe("interrupted");
+  });
+
+  test("starting push-to-talk stops an answer already playing", async () => {
+    const audio = playingSpeech();
+    const ctx = setup({ speech: audio.speech });
+    await ctx.api.send({ textOverride: "First question" });
+    const startBtn = ctx.container.querySelector(".voice-btn");
+    // The continuous-listening button is first; push-to-talk is the next one.
+    const pushToTalk = ctx.container
+      .querySelectorAll("button")
+      .find((button) => button.textContent === "Start");
+    expect(startBtn).not.toBeNull();
+    pushToTalk.click();
+    await Promise.resolve();
+    expect(audio.cancellations).toBe(1);
+    expect(ctx.voiceSession.state).toBe("interrupted");
+  });
   test("keeps every heard interim and final word in the text box", () => {
     const ctx = setup();
     const input = ctx.container.querySelector(".am-test-input");

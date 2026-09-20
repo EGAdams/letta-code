@@ -72,10 +72,12 @@ flowchart LR
 1. **Adopt the existing agent port — done.** `InputOptionsRenderer` receives
    `LettaAgentAdapter` from its boot modules; its duplicate direct request and
    conversation bookkeeping are gone. Renderer tests use the fake adapter.
-2. **Make interruption safe in the live UI — late replies done.** Input Options
-   receives `VoiceSession` and `SpokenOutputPolicy`, and a superseded reply is
-   silent. Next wire interruption of speech already playing and repeat the
-   adoption for the other renderers.
+2. **Make interruption safe in the live UI — Input Options done.** Input Options
+   receives `VoiceSession` and `SpokenOutputPolicy`, so a superseded reply is
+   silent. The session owns a cancellable playback handle and remains speaking
+   until audio ends. Navigation, a new Send, push-to-talk, and Toyota's
+   continuous listener interrupt playback. Next adopt the same session and
+   speech policy in the other renderer send paths.
 3. **Characterize the media boundary.** Record the current `/api/voice` request
    and response contract, browser microphone lifecycle, audio format, and
    speech-output behavior in tests. Define the smallest Python media port and
@@ -92,8 +94,8 @@ flowchart LR
 
 ## Immediate next slice
 
-Continue step 2: make an interruption stop speech already playing, then adopt
-the same session and speech policy in the other renderer send paths.
+Continue step 2: adopt the session and speech policy in ChatDetailRenderer and
+AgentsRouterRenderer, then characterize the media boundary.
 
 ## Working rules
 
@@ -153,3 +155,20 @@ repo typecheck passed. The compiled module is served at its dashboard URL.
   because the old reply overwrote the newer conversation id; sharing and
   cancelling the agent adapter fixes that race. Active playback interruption
   remains the next behavior slice.
+
+## Active playback green phase — 2026-09-20
+
+- Red tests showed that `InputOptionsRenderer` completed a turn when
+  `audio.play()` started and `EdgeTtsSpeechSynthesizer` returned no cancellable
+  utterance handle. The session could therefore reject late text but could not
+  stop audio already playing.
+- `VoiceSession` now owns one `SpeechPlayback` handle per speaking turn. The
+  edge-tts token exposes `pending`, `finished`, and utterance-scoped `cancel`;
+  the renderer completes the turn after `finished`. Interrupt, close, a new
+  Send, and navigation cancel the active handle. Toyota's push-to-talk and
+  recognized speech interrupt a current turn.
+- Focused tests cover audio end, interruption, close, a second send, navigation,
+  cancellation during fetch, stale token isolation, blocked playback, and
+  empty recognition text. The dashboard JS suite passed (2564 pass, 2 skip),
+  and the repository typecheck passed. Browser assets returned HTTP 200 from
+  the live checkout. A real microphone or agent send was not used.

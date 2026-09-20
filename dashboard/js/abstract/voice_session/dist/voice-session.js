@@ -39,6 +39,7 @@ export class VoiceSession {
   generation = null;
   startTime;
   generations = new Set();
+  playback = null;
   constructor({
     clock = new ManualClock(),
     idSource = new SequentialIdSource(),
@@ -80,6 +81,12 @@ export class VoiceSession {
     );
   }
   startListening() {
+    if (this.currentState === SessionState.SPEAKING) {
+      const playback = this.playback;
+      this.playback = null;
+      this.generation = null;
+      playback?.cancel();
+    }
     this.transition(SessionState.LISTENING);
     return this.currentState;
   }
@@ -94,22 +101,38 @@ export class VoiceSession {
     this.transition(SessionState.SPEAKING);
     return true;
   }
+  trackPlayback(generationId, playback) {
+    if (
+      !this.accepts(generationId) ||
+      this.currentState !== SessionState.SPEAKING
+    )
+      return false;
+    this.playback = playback;
+    return true;
+  }
   completeTurn(generationId) {
     if (!this.accepts(generationId)) return false;
     this.transition(SessionState.LISTENING);
     this.generation = null;
+    this.playback = null;
     return true;
   }
   interrupt() {
     const superseded = this.generation;
     this.transition(SessionState.INTERRUPTED);
     this.generation = null;
+    const playback = this.playback;
+    this.playback = null;
+    playback?.cancel();
     return superseded;
   }
   close() {
     if (this.closed) return;
     this.apply(SessionState.CLOSED);
     this.generation = null;
+    const playback = this.playback;
+    this.playback = null;
+    playback?.cancel();
   }
   transition(to) {
     if (!LEGAL[this.currentState].includes(to)) {

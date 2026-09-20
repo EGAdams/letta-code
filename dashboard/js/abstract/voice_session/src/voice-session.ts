@@ -34,6 +34,11 @@ export interface VoiceSessionDependencies {
   onStateChange?: (change: SessionStateChange) => void;
 }
 
+/** A handle for the one utterance owned by a speaking turn. */
+export interface SpeechPlayback {
+  cancel(): void;
+}
+
 const LEGAL: Record<SessionStateValue, readonly SessionStateValue[]> =
   Object.freeze({
     [SessionState.IDLE]: [SessionState.LISTENING],
@@ -68,6 +73,7 @@ export class VoiceSession {
   private generation: GenerationId | null = null;
   private readonly startTime: number;
   private readonly generations = new Set<GenerationId>();
+  private playback: SpeechPlayback | null = null;
 
   constructor({
     clock = new ManualClock(),
@@ -118,6 +124,12 @@ export class VoiceSession {
   }
 
   startListening(): SessionStateValue {
+    if (this.currentState === SessionState.SPEAKING) {
+      const playback = this.playback;
+      this.playback = null;
+      this.generation = null;
+      playback?.cancel();
+    }
     this.transition(SessionState.LISTENING);
     return this.currentState;
   }
@@ -135,10 +147,21 @@ export class VoiceSession {
     return true;
   }
 
+  trackPlayback(generationId: unknown, playback: SpeechPlayback): boolean {
+    if (
+      !this.accepts(generationId) ||
+      this.currentState !== SessionState.SPEAKING
+    )
+      return false;
+    this.playback = playback;
+    return true;
+  }
+
   completeTurn(generationId: unknown): boolean {
     if (!this.accepts(generationId)) return false;
     this.transition(SessionState.LISTENING);
     this.generation = null;
+    this.playback = null;
     return true;
   }
 
@@ -146,6 +169,9 @@ export class VoiceSession {
     const superseded = this.generation;
     this.transition(SessionState.INTERRUPTED);
     this.generation = null;
+    const playback = this.playback;
+    this.playback = null;
+    playback?.cancel();
     return superseded;
   }
 
@@ -153,6 +179,9 @@ export class VoiceSession {
     if (this.closed) return;
     this.apply(SessionState.CLOSED);
     this.generation = null;
+    const playback = this.playback;
+    this.playback = null;
+    playback?.cancel();
   }
 
   private transition(to: SessionStateValue): void {

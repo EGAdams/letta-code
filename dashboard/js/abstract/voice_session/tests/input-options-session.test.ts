@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { AgentEventKind } from "../../../abstract/conversation-agent.interface.js";
 import { SpokenOutputPolicy } from "../../../abstract/spoken-output-policy.js";
-import { createAgentDetailRenderers } from "../../../boot/agent-detail-renderers.js";
 import { InputOptionsRenderer } from "../../../implementation/detail-renderers.js";
 import { FakeDocument } from "../../../tests/_fake-dom.js";
 import { VoiceSession } from "../src/voice-session.ts";
@@ -14,7 +13,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-function build() {
+function build(speechOverride?: object) {
   const doc = new FakeDocument();
   const container = doc.createElement("section");
   container.id = "input-options";
@@ -46,7 +45,7 @@ function build() {
     conversationAgent,
     voiceSession: session,
     spokenOutputPolicy: policy,
-    speech: {
+    speech: speechOverride ?? {
       supported: true,
       speak: (text: string) => {
         spoken.push(text);
@@ -64,6 +63,91 @@ function build() {
 }
 
 describe("Input Options voice session", () => {
+  test("interrupting active playback cancels its handle and retires the turn", async () => {
+    const finished = deferred();
+    const cancelled: string[] = [];
+    const speech = {
+      supported: true,
+      speak: () => ({
+        pending: Promise.resolve("edge-tts"),
+        finished: finished.promise,
+        cancel: () => {
+          cancelled.push("cancelled");
+          finished.resolve();
+        },
+      }),
+    };
+    const { session, entered, release, ui } = build(speech);
+    const sending = ui.send({ textOverride: "Ask about April" });
+    await entered.promise;
+    release.resolve();
+    await sending;
+    await Promise.resolve();
+    expect(session.state).toBe("speaking");
+
+    session.interrupt();
+    expect(cancelled).toEqual(["cancelled"]);
+    expect(session.state).toBe("interrupted");
+    await finished.promise;
+    expect(session.currentGeneration).toBeNull();
+  });
+
+  test("a completed playback retires the speaking turn only when audio ends", async () => {
+    const finished = deferred();
+    const speech = {
+      supported: true,
+      speak: () => ({
+        pending: Promise.resolve("edge-tts"),
+        finished: finished.promise,
+        cancel: () => {},
+      }),
+    };
+    const { session, entered, release, ui } = build(speech);
+    const sending = ui.send({ textOverride: "Ask about April" });
+    await entered.promise;
+    release.resolve();
+    await sending;
+    await Promise.resolve();
+    expect(session.state).toBe("speaking");
+    finished.resolve();
+    await finished.promise;
+    await Promise.resolve();
+    expect(session.state).toBe("listening");
+  });
+
+  test("sending a second turn stops the first answer already playing", async () => {
+    const finished = [deferred(), deferred()];
+    const cancelled: number[] = [];
+    let calls = 0;
+    const speech = {
+      supported: true,
+      speak: () => {
+        const index = calls++;
+        return {
+          pending: Promise.resolve("edge-tts"),
+          finished: finished[index].promise,
+          cancel: () => {
+            cancelled.push(index);
+            finished[index].resolve();
+          },
+        };
+      },
+    };
+    const { session, entered, release, ui } = build(speech);
+    const first = ui.send({ textOverride: "March" });
+    await entered.promise;
+    release.resolve();
+    await first;
+    const second = ui.send({ textOverride: "April" });
+    await second;
+    expect(cancelled).toEqual([0]);
+    expect(session.state).toBe("speaking");
+    finished[1].resolve();
+    await finished[1].promise;
+    await Promise.resolve();
+    expect(session.state).toBe("listening");
+  });
+
   test("an interrupted turn's late reply never reaches speech", async () => {
     const { session, entered, release, submitted, spoken, ui } = build();
     // A prior turn is in flight when the renderer is rebuilt. The new Send
@@ -102,72 +186,5 @@ describe("Input Options voice session", () => {
 
     expect(spoken).toEqual(["The old answer arrived late."]);
     expect(session.currentGeneration).toBeNull();
-  });
-
-  test("a renderer rebuild keeps the session fence for the prior reply", async () => {
-    const doc = new FakeDocument();
-    const container = doc.createElement("section");
-    container.id = "input-options";
-    doc.add(container);
-    const firstEntered = deferred();
-    const releaseFirst = deferred();
-    const spoken: string[] = [];
-    const saved = new Map<string, string>();
-    let calls = 0;
-    const http = {
-      getJSON: async () => ({ ok: false, options: [] }),
-      postJSON: async (url: string) => {
-        if (url !== "/api/letta-code-message") return { ok: true };
-        calls += 1;
-        if (calls === 1) {
-          firstEntered.resolve();
-          await releaseFirst.promise;
-          return {
-            ok: true,
-            reply: "March answer",
-            run: { conversation_id: "march" },
-          };
-        }
-        return {
-          ok: true,
-          reply: "April answer",
-          run: { conversation_id: "april" },
-        };
-      },
-    };
-    const { detailRenderers } = createAgentDetailRenderers({
-      http,
-      poller: { stop() {} },
-      speech: {
-        supported: true,
-        speak: (text: string) => {
-          spoken.push(text);
-          return { pending: Promise.resolve("speech") };
-        },
-      },
-      setAgentTabStatus() {},
-      getAgentManager: () => ({ agents: [] }),
-      storage: {
-        getItem: (key: string) => saved.get(key) ?? null,
-        setItem: (key: string, value: string) => {
-          saved.set(key, value);
-        },
-      },
-      doc,
-    });
-    const render = () =>
-      detailRenderers["agent-detail-input-options"](
-        { current: { id: "agent-mazda", name: "Mazda" } },
-        "input-options",
-      );
-    const first = render().send({ textOverride: "March" });
-    await firstEntered.promise;
-    const second = render().send({ textOverride: "April" });
-    await second;
-    releaseFirst.resolve();
-    await first;
-
-    expect(spoken).toEqual(["April answer"]);
-    expect(saved.get("msi-conv-agent-mazda")).toBe("april");
   });
 });

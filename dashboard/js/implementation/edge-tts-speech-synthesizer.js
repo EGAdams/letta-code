@@ -36,6 +36,7 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     this._audioUrl = null;
     this._generation = 0;
     this._lastError = null;
+    this._finishPlayback = null;
   }
 
   /**
@@ -74,8 +75,8 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
 
   /**
    * Speak via the server voice. Returns a
-   * `{ text, pending }` token synchronously; `pending` resolves to the engine
-   * that actually spoke ("edge-tts" | null).
+   * A per-utterance token. `pending` resolves when playback starts (or fails),
+   * while `finished` settles after audio ends or the token is cancelled.
    */
   speak(text, agentName = null) {
     if (!this.supported) return null;
@@ -84,17 +85,46 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     this.cancel();
     const generation = this._generation;
     this._lastError = null;
-    const pending = this._speakRemote(say, generation, agentName).catch((e) => {
-      if (generation === this._generation)
-        this._lastError = e?.message || String(e);
-      return null;
+    let resolveFinished;
+    const finished = new Promise((resolve) => {
+      resolveFinished = resolve;
     });
-    return { text: say, pending };
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (this._finishPlayback === finish) this._finishPlayback = null;
+      resolveFinished();
+    };
+    this._finishPlayback = finish;
+    const pending = this._speakRemote(say, generation, agentName, finish)
+      .catch((e) => {
+        if (generation === this._generation) {
+          this._lastError = e?.message || String(e);
+          this.cancel();
+        }
+        return null;
+      })
+      .then((engine) => {
+        if (!engine) finish();
+        return engine;
+      });
+    return {
+      text: say,
+      pending,
+      finished,
+      cancel: () => {
+        if (generation === this._generation) this.cancel();
+      },
+    };
   }
 
   /** Stop server audio AND any in-flight fetch/browser speech. */
   cancel() {
     this._generation += 1;
+    const finish = this._finishPlayback;
+    this._finishPlayback = null;
+    finish?.();
     if (this._audio) {
       try {
         this._audio.pause();
@@ -107,7 +137,7 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
     if (this._engine) super.cancel();
   }
 
-  async _speakRemote(say, generation, agentName = null) {
+  async _speakRemote(say, generation, agentName = null, finish = () => {}) {
     if (!this._fetchFn || !this._audioFactory) throw new Error("no server tts");
     const voice = this.getVoice(agentName);
     const res = await this._fetchFn("/api/tts", {
@@ -131,9 +161,12 @@ export class EdgeTtsSpeechSynthesizer extends BrowserSpeechSynthesizer {
       if (this._audio === audio) {
         this._audio = null;
         this._releaseUrl();
+        finish();
       }
     };
+    audio.onerror = audio.onended;
     await audio.play();
+    if (generation !== this._generation) return null;
     return "edge-tts";
   }
 

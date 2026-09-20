@@ -102,8 +102,12 @@ retained per agent, so cancelling an older turn cannot overwrite the newer
 conversation id. Interrupted, closed, or superseded turns cannot put a late
 reply in the transcript or speaker. Leaving Input Options through the agent
 tabs interrupts the pending turn. Speech already playing is
-still controlled by the synthesizer; interrupting active playback is the next
-voice slice.
+cancelled through the session's per-utterance playback handle. A speaking
+turn stays active until audio ends. A new Send, leaving Input Options,
+starting push-to-talk, or a new recognized utterance interrupts current
+playback; Toyota's continuous listener also interrupts a pending reply when
+new speech arrives. Automatic microphone echo detection is not part of this
+contract, so a recognized echo can count as a new utterance.
 The typed session source and its ports live in
 `js/abstract/voice_session/src/`; its module-local `tsconfig.json` compiles
 browser-loadable JS into `dist/`. See that module's README for the build command.

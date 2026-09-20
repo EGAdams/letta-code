@@ -217,7 +217,10 @@ describe("EdgeTtsSpeechSynthesizer", () => {
         pause: () => {},
       }),
     });
-    expect(await s.speak("hello", "Mazda").pending).toBeNull();
+    const token = s.speak("hello", "Mazda");
+    expect(await token.pending).toBeNull();
+    await token.finished;
+    expect(s.lastError).toBe("autoplay blocked");
     expect(win.spoken.length).toBe(0);
   });
 
@@ -255,5 +258,102 @@ describe("EdgeTtsSpeechSynthesizer", () => {
     expect(created.length).toBe(2);
     expect(created[0].paused).toBe(1);
     expect(created[1].played).toBe(1);
+  });
+
+  test("playback finishes on audio end, after play has started", async () => {
+    const { created, factory } = fakeAudioFactory();
+    const s = new EdgeTtsSpeechSynthesizer(
+      {},
+      { fetchFn: async () => okAudioResponse(), audioFactory: factory },
+    );
+    const token = s.speak("one");
+    await token.pending;
+    let finished = false;
+    token.finished.then(() => {
+      finished = true;
+    });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    created[0].onended();
+    await token.finished;
+    expect(finished).toBe(true);
+  });
+
+  test("a token cancels only its own audio and settles when cancelled", async () => {
+    const { created, factory } = fakeAudioFactory();
+    const s = new EdgeTtsSpeechSynthesizer(
+      {},
+      { fetchFn: async () => okAudioResponse(), audioFactory: factory },
+    );
+    const first = s.speak("one");
+    await first.pending;
+    const second = s.speak("two");
+    await second.pending;
+    first.cancel();
+    expect(created[1].paused).toBe(0);
+    second.cancel();
+    second.cancel();
+    await second.finished;
+    expect(created[1].paused).toBe(1);
+  });
+
+  test("cancel during a pending fetch settles playback and prevents audio creation", async () => {
+    const { created, factory } = fakeAudioFactory();
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const s = new EdgeTtsSpeechSynthesizer(
+      {},
+      {
+        fetchFn: async () => {
+          await gate;
+          return okAudioResponse();
+        },
+        audioFactory: factory,
+      },
+    );
+    const token = s.speak("one");
+    token.cancel();
+    await token.finished;
+    release();
+    expect(await token.pending).toBeNull();
+    expect(created).toHaveLength(0);
+  });
+
+  test("cancel while audio.play is pending cannot report a late start", async () => {
+    let releasePlay;
+    let audio;
+    let audioCreated;
+    const created = new Promise((resolve) => {
+      audioCreated = resolve;
+    });
+    const s = new EdgeTtsSpeechSynthesizer(
+      {},
+      {
+        fetchFn: async () => okAudioResponse(),
+        audioFactory: () => {
+          audio = {
+            paused: 0,
+            play: () =>
+              new Promise((resolve) => {
+                releasePlay = resolve;
+              }),
+            pause() {
+              this.paused += 1;
+            },
+          };
+          audioCreated();
+          return audio;
+        },
+      },
+    );
+    const token = s.speak("one");
+    await created;
+    token.cancel();
+    await token.finished;
+    releasePlay();
+    expect(await token.pending).toBeNull();
+    expect(audio.paused).toBe(1);
   });
 });
