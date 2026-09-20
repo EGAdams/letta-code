@@ -20,6 +20,8 @@ import {
   EditableDarkNoteSurface,
   InputOptionsRenderer,
   LettaAgentAdapter,
+  SpokenOutputPolicy,
+  VoiceSession,
 } from "../implementation/index.js";
 
 export async function startReceptionist({ http, speech }) {
@@ -31,12 +33,15 @@ export async function startReceptionist({ http, speech }) {
   } catch {
     return;
   }
+  const voiceSession = new VoiceSession();
   new InputOptionsRenderer({
     http,
     conversationAgent: new LettaAgentAdapter({
       http,
       storage: globalThis.localStorage,
     }),
+    voiceSession,
+    spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
     speech,
     agentName: "Toyota",
     agentId,

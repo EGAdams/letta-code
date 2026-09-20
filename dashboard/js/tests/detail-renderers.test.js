@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { SpokenOutputPolicy } from "../abstract/spoken-output-policy.js";
+import { VoiceSession } from "../abstract/voice-session.js";
 import {
   AgentCardRenderer,
   ChatDetailRenderer,
@@ -392,8 +394,11 @@ function inputOptionsSetup({
     },
     sendLine: (text) => sentLines.push(text),
   });
+  const voiceSession = new VoiceSession();
   const r = new InputOptionsRenderer({
     http,
+    voiceSession,
+    spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
     speech,
     agentName: "Mazda",
     onStatus: (agentId, status) => statuses.push({ agentId, status }),

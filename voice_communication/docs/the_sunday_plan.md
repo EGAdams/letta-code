@@ -30,8 +30,8 @@ standalone prototype and is superseded by this integration direction.
   `speech-synthesizer.interface.js` define the browser capture and output seams.
 - `VoiceSession`, `ConversationAgent`, `LettaAgentAdapter`, and
   `SpokenOutputPolicy` exist under `dashboard/js/` with tests. Input Options
-  now uses the conversation port; session and spoken-output policy adoption
-  remain the next live slices.
+  uses all four through its boot composition roots, with a session per agent
+  retained across renderer rebuilds.
 - This checkout's `voice_communication/` directory currently contains only
   this plan. Earlier references to `voice_communication/ts/`, `py/`,
   `contracts/`, `CLAUDE.md`, `build_plan.md`, and `recent_activity.md` are not
@@ -72,9 +72,10 @@ flowchart LR
 1. **Adopt the existing agent port — done.** `InputOptionsRenderer` receives
    `LettaAgentAdapter` from its boot modules; its duplicate direct request and
    conversation bookkeeping are gone. Renderer tests use the fake adapter.
-2. **Make interruption safe in the live UI.** Give the renderer a `VoiceSession`
-   and `SpokenOutputPolicy`. A superseded reply must never be spoken. Then wire
-   speech-start interruption and repeat the adoption for the other renderers.
+2. **Make interruption safe in the live UI — late replies done.** Input Options
+   receives `VoiceSession` and `SpokenOutputPolicy`, and a superseded reply is
+   silent. Next wire interruption of speech already playing and repeat the
+   adoption for the other renderers.
 3. **Characterize the media boundary.** Record the current `/api/voice` request
    and response contract, browser microphone lifecycle, audio format, and
    speech-output behavior in tests. Define the smallest Python media port and
@@ -91,10 +92,8 @@ flowchart LR
 
 ## Immediate next slice
 
-Implement step 2: give Input Options a `VoiceSession` and
-`SpokenOutputPolicy`, then prove a reply arriving after interruption cannot
-reach speech. Keep the session alive across renderer rebuilds so navigation
-cannot bypass that protection.
+Continue step 2: make an interruption stop speech already playing, then adopt
+the same session and speech policy in the other renderer send paths.
 
 ## Working rules
 
@@ -135,8 +134,22 @@ EG requested one directory per module and TypeScript for new module work.
 `dashboard/js/abstract/voice_session/` now owns the typed lifecycle and its
 clock/id ports, diagrams, `tsconfig.json`, and compiled browser modules.
 The original JavaScript paths are compatibility re-exports. This organizes
-the session contract; Input Options still needs to adopt the session and
-spoken-output policy in the next behavior slice.
+the session contract. Input Options now adopts the session and spoken-output
+policy through its boot modules.
 Verification: module TypeScript compilation, 28 focused session/policy tests,
 the dashboard JS suite (2546 pass, 2 skip), 17 Project Plans tests, and the
 repo typecheck passed. The compiled module is served at its dashboard URL.
+
+## Input Options green phase — 2026-09-20
+
+- The renderer's late-reply tests failed before the change because Send spoke
+  the response directly. Both pass after Send takes a generation id from the
+  injected session and asks the policy before speaking.
+- `agent-detail-renderers.js` retains one session per agent across renderer
+  rebuilds. Agent navigation interrupts active Input Options turns. Toyota's
+  home box gets its own session at its composition root.
+- A renderer-rebuild test proves that a slow first reply stays silent after a
+  second send, while the current answer is spoken. The same test first failed
+  because the old reply overwrote the newer conversation id; sharing and
+  cancelling the agent adapter fixes that race. Active playback interruption
+  remains the next behavior slice.

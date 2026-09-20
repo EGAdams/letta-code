@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { SpokenOutputPolicy } from "../abstract/spoken-output-policy.js";
+import { VoiceSession } from "../abstract/voice-session.js";
 import { InputOptionsRenderer } from "../implementation/detail-renderers.js";
 import { LettaAgentAdapter } from "../implementation/letta-agent-adapter.js";
 import { ReadOnlyNoteSurface } from "../implementation/textarea-note-surfaces.js";
@@ -17,8 +19,11 @@ function render({ surfaceFactory } = {}) {
       return { ok: true, reply: "ack" };
     },
   };
+  const voiceSession = new VoiceSession();
   const api = new InputOptionsRenderer({
     http,
+    voiceSession,
+    spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
     conversationAgent: new LettaAgentAdapter({ http }),
     speech: { supported: false },
     agentName: "Toyota",

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { ListenerState } from "../abstract/continuous-listener.interface.js";
+import { SpokenOutputPolicy } from "../abstract/spoken-output-policy.js";
 import { RecorderState } from "../abstract/voice-recorder.interface.js";
+import { VoiceSession } from "../abstract/voice-session.js";
 import {
   InputOptionsRenderer,
   LISTEN_ACTIVE_BG,
@@ -59,8 +61,11 @@ function setup({ policy } = {}) {
     },
     stop: async () => ({ cleaned_text: "" }),
   });
+  const voiceSession = new VoiceSession();
   const api = new InputOptionsRenderer({
     http,
+    voiceSession,
+    spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
     conversationAgent: new LettaAgentAdapter({ http }),
     speech: { supported: false },
     agentName: "Toyota",

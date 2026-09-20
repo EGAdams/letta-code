@@ -17,3 +17,7 @@ bun test dashboard/js/tests/voice-session.test.js dashboard/js/tests/system-sess
 `src/` and `dist/` directories; the repo root config builds the separate CLI.
 The session owns state and generation fencing. `SpokenOutputPolicy` remains a
 separate Strategy that consumes the session's `accepts()` method.
+The dashboard boot modules inject both into `InputOptionsRenderer`. Its Send
+path uses session-issued generation ids and asks the policy before speaking;
+agent sessions survive renderer rebuilds. Run the module's renderer tests with
+`bun test dashboard/js/abstract/voice_session/tests`.

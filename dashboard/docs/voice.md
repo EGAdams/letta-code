@@ -96,10 +96,14 @@ wake-word listener can be swapped in later.
 `InputOptionsRenderer` now sends through the injected `ConversationAgent`
 port. The dashboard composition roots select `LettaAgentAdapter`, which owns
 the 1800-second client timeout and per-agent conversation resume. The renderer
-handles only assistant-text events; its fake-adapter test confirms that
-reasoning and tool events never reach the visible reply or speaker.
-`VoiceSession` and `SpokenOutputPolicy` still need live adoption before a late
-reply can be suppressed after interruption.
+uses a per-agent `VoiceSession` for turn ids across renderer rebuilds and asks
+`SpokenOutputPolicy` before speaking assistant text. The agent adapter is also
+retained per agent, so cancelling an older turn cannot overwrite the newer
+conversation id. Interrupted, closed, or superseded turns cannot put a late
+reply in the transcript or speaker. Leaving Input Options through the agent
+tabs interrupts the pending turn. Speech already playing is
+still controlled by the synthesizer; interrupting active playback is the next
+voice slice.
 The typed session source and its ports live in
 `js/abstract/voice_session/src/`; its module-local `tsconfig.json` compiles
 browser-loadable JS into `dist/`. See that module's README for the build command.
