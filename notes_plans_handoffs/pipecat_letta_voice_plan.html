@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Pipecat Voice for Letta Agents — Future Project Plan</title>
+<title>Pipecat Voice for Letta Agents — Original Proposal</title>
 <style>
   :root {
     --paper: #fbf8f1; --paper2: #f3ede0; --ink: #1c1a17; --soft: #5b5447;
@@ -36,13 +36,13 @@
 </head>
 <body>
 <div class="wrap"><main class="leaf">
-  <div class="kicker">Letta Agents — Future Project</div>
+  <div class="kicker">Letta Agents — Original Proposal</div>
   <h1>Pipecat Voice Interface</h1>
   <p class="sub">Give our existing Letta agents natural, interruptible voice conversations across browser, phone, and local devices.</p>
-  <p><span class="tag">Proposed</span> Added July 21, 2026. This is a future project, not an active implementation.</p>
+  <p><span class="tag">Superseded</span> Added July 21, 2026. On September 20, EG chose the working dashboard voice stack as the production foundation, with Pipecat added incrementally behind its media interfaces. The current delivery order is in <a href="/voice_communication/docs/the_sunday_plan.md">The Sunday Plan</a>. The standalone sequence below remains as historical context.</p>
 
   <h2>Decision</h2>
-  <div class="box good"><strong>Use Pipecat as the real-time media shell around Letta.</strong> Letta remains the agent brain and source of truth for memory, identity, tools, skills, and conversation state. Pipecat handles microphone input, speech recognition, turn detection, interruption, streaming speech, and client transports.</div>
+  <div class="box good"><strong>Current direction: extend the dashboard stack through interfaces.</strong> Letta remains the agent brain and source of truth for memory, identity, tools, skills, and conversation state. Pipecat can supply real-time media features through adapters as each feature is integrated and verified.</div>
 
   <h2>Target architecture</h2>
   <pre>Browser / phone / microphone

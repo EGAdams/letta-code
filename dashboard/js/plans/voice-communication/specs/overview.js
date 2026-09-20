@@ -8,8 +8,12 @@ export const overviewSpec = {
     "What the voice system is, what actually shipped, and what is still only a plan.",
   status: Status.PARTIAL,
   statusNote:
-    "A working voice stack ships inside the dashboard. The plan's browser-side core objects now exist and are tested, but no live caller uses them yet. The Pipecat rebuild has not been started.",
+    "The dashboard voice stack is the production foundation. Its browser-side core objects exist and are tested but still need live callers. Pipecat will be integrated at media boundaries in later slices.",
   links: [
+    {
+      label: "Current integration decision and delivery order",
+      href: "/voice_communication/docs/the_sunday_plan.md",
+    },
     {
       label: "Original plan document (v1, verbatim)",
       href: "/voice_communication_plan_v1.html",
@@ -17,7 +21,7 @@ export const overviewSpec = {
   ],
   responsibility: [
     "Voice Communication is the path from a spoken sentence to a Letta agent doing something about it, and back to speech. Today that path is: browser captures audio → text arrives (whisper.cpp for push-to-talk, browser SpeechRecognition for continuous listening) → a narrow Letta-backed strategy decides what the text means → an agent acts → edge-tts speaks the reply.",
-    "The single most important thing to understand before working here: there are TWO architectures in play. The original plan (2026-08-01) designed a Pipecat-based system in /home/adamsl/talking_agent_parts around VoiceSession, ConversationCoordinator, IConversationAgent and LettaAgentAdapter. That directory still contains only the plan document. Meanwhile a different, working voice system grew inside dashboard/, and its seams turned out narrower and differently named.",
+    "The original plan (2026-08-01) designed a standalone Pipecat system in /home/adamsl/talking_agent_parts. A working voice system grew inside dashboard/ with narrower, tested seams. EG chose the dashboard as the production foundation on 2026-09-20; Pipecat is a future adapter for media capabilities the dashboard needs.",
     "As of 2026-08-26 the plan's browser-side core objects have been built inside dashboard/js/ rather than in talking_agent_parts/ — VoiceSession, the ConversationAgent port with two adapters, and SpokenOutputPolicy, with 57 tests. They are correct and they are unused: not one renderer constructs a session or calls the port. Read that sentence twice before planning work here, because it is the whole state of the project. The design questions are answered; the remaining work is adoption, and adoption is the part that changes what a user hears.",
     "This workspace documents the code that exists, marks each object honestly, and shows where the two designs meet. Where the shipped code has a real seam the plan never named, it gets a tab. Where the plan named an object nobody built, it gets a tab that says so and explains what stands in for it today.",
   ],
@@ -67,10 +71,10 @@ Still only a plan
       note: "The system that actually runs. 8 Python ports + 6 browser ports, ~180 tests.",
     },
     {
-      name: "Pipecat rebuild",
+      name: "Pipecat media integration",
       kind: "planned",
       file: "/home/adamsl/talking_agent_parts/",
-      note: "Plan document only. Phase 0 (baseline, ADR-001, pyproject) never started.",
+      note: "Planned incremental adapter behind the dashboard's media ports; no live Pipecat implementation yet.",
     },
     {
       name: "voice_agent prototype",
@@ -306,6 +310,6 @@ Still only a plan
     "5 · Give VoiceCommandChannel a session and generation ids (js/abstract/voice-command-channel.js). It already serialises work, so it needs no new concurrency — it needs the fence, so a superseded command's result can be discarded rather than merely not started. See the ConversationCoordinator tab.",
     "6 · Only then consider ConversationCoordinator, the last unbuilt core object. It is the one place where waiting was right: with steps 1-5 done, its job is visible in real code rather than guessed at from the plan.",
     "Independent of all of the above — cut the completeness round-trip. A cheap local pre-filter that skips the LLM for obviously-incomplete fragments would remove most of the 3-6s wait per spoken pause. This is the single biggest user-visible win on this page and it touches none of the work above, so it can run in parallel.",
-    "Also independent, and overdue — decide explicitly whether the Pipecat rebuild is still the direction or whether the shipped dashboard stack is now the system. The first slice was built in dashboard/js/, not in talking_agent_parts/, which is a de facto answer nobody has written down. Right now the plan and the code disagree, and that ambiguity is itself a risk.",
+    "After adopting the live session and agent ports, characterize the current media contract. Add Pipecat as an adapter behind that contract, validate external events with Pydantic, and select it at the composition root. Keep the existing dashboard path available until parity is proven.",
   ],
 };
