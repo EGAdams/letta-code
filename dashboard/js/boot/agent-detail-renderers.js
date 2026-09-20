@@ -18,6 +18,7 @@ import {
   TestChatAgentAdapter,
   VoiceSession,
 } from "../implementation/index.js";
+import { recorderFactoryForAgent } from "./pipecat-voice-pilot.js";
 
 export function createAgentDetailRenderers({
   http,
@@ -115,6 +116,7 @@ export function createAgentDetailRenderers({
       onStatus: setAgentTabStatus,
       storage,
       doc,
+      recorderFactory: recorderFactoryForAgent(am.current.id, storage),
     }).render(target, am.current.id);
   };
 

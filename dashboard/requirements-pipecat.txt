@@ -1,0 +1,3 @@
+# Optional batch Pipecat pilot. Install alongside requirements.txt before
+# setting PIPECAT_PILOT_AGENT_ID in the dashboard service environment.
+pipecat-ai[whisper]==1.11.0

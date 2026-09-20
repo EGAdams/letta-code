@@ -74,3 +74,7 @@ KNOWN_AGENT_NAMES = [
 WHISPER_PROMPT = os.environ.get(
     "WHISPER_PROMPT", "Agent names: " + ", ".join(KNOWN_AGENT_NAMES) + "."
 )
+
+# Optional batch Pipecat pilot. Only uploads bearing this agent id may opt in.
+PIPECAT_PILOT_AGENT_ID = os.environ.get("PIPECAT_PILOT_AGENT_ID")
+PIPECAT_WHISPER_MODEL = os.environ.get("PIPECAT_WHISPER_MODEL", "small.en")

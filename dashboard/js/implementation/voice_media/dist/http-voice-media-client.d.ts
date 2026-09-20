@@ -19,12 +19,19 @@ export interface HttpVoiceMediaClientOptions {
   fetch?: VoiceFetch;
   endpoint?: string;
   filename?: string;
+  pilotAgentId?: string;
 }
 /** Adapts the dashboard's batch /api/voice wire format to VoiceMediaClient. */
 export declare class HttpVoiceMediaClient implements VoiceMediaClient {
   private readonly fetch;
   private readonly endpoint;
   private readonly filename;
-  constructor({ fetch, endpoint, filename }?: HttpVoiceMediaClientOptions);
+  private readonly pilotAgentId;
+  constructor({
+    fetch,
+    endpoint,
+    filename,
+    pilotAgentId,
+  }?: HttpVoiceMediaClientOptions);
   transcribe(recording: Blob): Promise<VoiceTranscript>;
 }

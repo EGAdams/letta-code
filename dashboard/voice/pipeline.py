@@ -43,11 +43,20 @@ def handle_voice_upload(pipeline: VoiceMediaPort, audio_bytes: bytes,
 
 
 _pipeline = None
+_pipecat_pipeline = None
 
 
-def build_pipeline() -> VoicePipeline:
-    """Factory: lazily build the real pipeline once (whisper + Letta cleanup)."""
-    global _pipeline
-    if _pipeline is None:
-        _pipeline = VoicePipeline(build_transcriber(), build_cleanup())
-    return _pipeline
+def build_pipeline(backend: str = "whisper") -> VoiceMediaPort:
+    """Select the batch media Strategy at the composition root."""
+    global _pipeline, _pipecat_pipeline
+    if backend == "whisper":
+        if _pipeline is None:
+            _pipeline = VoicePipeline(build_transcriber(), build_cleanup())
+        return _pipeline
+    if backend == "pipecat":
+        if _pipecat_pipeline is None:
+            from .pipecat_media.adapter import build_pipecat_transcriber
+
+            _pipecat_pipeline = VoicePipeline(build_pipecat_transcriber(), build_cleanup())
+        return _pipecat_pipeline
+    raise ValueError(f"unsupported voice media backend: {backend}")

@@ -54,6 +54,20 @@ describe("HttpVoiceMediaClient batch upload", () => {
     expect(calls[0]?.init.headers["X-Filename"]).toBe("voice.webm");
   });
 
+  test("marks an opted-in agent's upload for the Pipecat pilot", async () => {
+    let headers: Record<string, string> = {};
+    const media = client({
+      pilotAgentId: "agent-pilot",
+      fetch: async (_url: unknown, init: UploadInit) => {
+        headers = init.headers;
+        return reply(transcript);
+      },
+    });
+    await media.transcribe(audio());
+    expect(headers["X-Voice-Media-Backend"]).toBe("pipecat");
+    expect(headers["X-Voice-Agent-Id"]).toBe("agent-pilot");
+  });
+
   test.each([
     ["audio/webm;codecs=opus", "voice.webm"],
     ["audio/ogg;codecs=opus", "voice.ogg"],

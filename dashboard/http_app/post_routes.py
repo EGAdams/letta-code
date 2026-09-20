@@ -29,7 +29,7 @@ from letta_code.runner import ConversationBusyError
 from model_stats import reader as model_stats_reader
 from model_stats_mute import ModelStatsMuteRequest
 from pydantic import ValidationError
-from voice import note_factory, note_repository, pipeline, receptionist
+from voice import config, note_factory, note_repository, pipeline, receptionist
 from voice.note_models import NoteEditRequest, PartialVoiceCommand
 
 from . import services as srv
@@ -754,8 +754,19 @@ class PostRoutesMixin:
 
     def _handle_voice(self, audio_bytes):
         filename = self.headers.get('X-Filename', 'audio.webm')
+        requested_backend = self.headers.get('X-Voice-Media-Backend')
+        if requested_backend:
+            agent_id = self.headers.get('X-Voice-Agent-Id')
+            if (requested_backend != 'pipecat' or not config.PIPECAT_PILOT_AGENT_ID
+                    or agent_id != config.PIPECAT_PILOT_AGENT_ID):
+                return self.json_response({
+                    'ok': False, 'error': 'voice media pilot is unavailable for this agent',
+                })
+            media = pipeline.build_pipeline('pipecat')
+        else:
+            media = pipeline.build_pipeline()
         result = pipeline.handle_voice_upload(
-            pipeline.build_pipeline(), audio_bytes, filename)
+            media, audio_bytes, filename)
         if result.get('ok'):
             srv._append_json(srv.VOICE_LOG_FILE, srv._voice_log_lock, {
                 'date': datetime.now().isoformat(),

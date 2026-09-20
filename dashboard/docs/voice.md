@@ -31,6 +31,7 @@ GoF: Strategy (transcription/cleanup swap), Adapter (`LettaClient`), Factory (`b
 | `voice/letta_client.py` | thin Letta HTTP adapter |
 | `voice/pipeline.py` | `VoicePipeline.process` + `handle_voice_upload` (the `/api/voice` handler logic) |
 | `voice/media/` | Pydantic `AudioUpload` / `VoiceTranscript` models and the `VoiceMediaPort` batch-media protocol |
+| `voice/pipecat_media/` | optional Pipecat 1.11.0 batch STT adapter; decoded PCM and frame mapping |
 
 `POST /api/voice` receives the recorded audio bytes as its body, with
 `X-Filename` describing the actual MediaRecorder format (`voice.webm`,
@@ -46,6 +47,17 @@ The recorder delegates completed recordings to its injected
 `VoiceMediaClient`; the default HTTP adapter in `js/implementation/voice_media/`
 derives the filename from the blob MIME type, checks HTTP status and response
 data at runtime, and returns only the transcript fields to capture.
+
+For the one-agent Pipecat pilot, install `requirements-pipecat.txt`, set
+`PIPECAT_PILOT_AGENT_ID` in the dashboard service environment, and restart.
+In one browser, set `localStorage.voicePipecatPilotAgentId` to that agent ID
+and reload its Input Options page. The upload then carries the agent ID and
+Pipecat opt-in headers. The route rejects a mismatched ID; all unmarked
+uploads continue through whisper.cpp. Pipecat uses a separate Faster Whisper
+model (default `small.en`, override with `PIPECAT_WHISPER_MODEL`) and reuses
+the existing Letta cleanup, agent turn, and speech output. The first pilot
+request may download the model. The live Frita pilot currently selects
+`tiny.en` in the dashboard service drop-in. See `voice/pipecat_media/README.md`.
 
 Microphone capture follows idle → recording → processing → idle. The stream's
 tracks are released when capture stops and when recorder construction, start,

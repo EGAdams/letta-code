@@ -84,11 +84,12 @@ flowchart LR
    and response contract, browser microphone lifecycle, audio format, and
    speech-output behavior in tests. Define the smallest Python media port and
    Pydantic wire models needed by a second implementation.
-4. **Add one Pipecat adapter.** Verify current Pipecat APIs and select a pinned
-   version before coding. Start with one dashboard user and one existing Letta
-   agent. Connect Pipecat at the media port; keep agent-turn policy and Letta
-   ownership in the existing application layer. Select the adapter at the
-   composition root and retain the current path while evaluating it.
+4. **Add one Pipecat adapter — batch pilot implemented.** Pipecat 1.11.0 is
+   pinned in `dashboard/requirements-pipecat.txt`. One browser and one existing
+   Letta agent can opt in through matched browser/server agent IDs. Pipecat's
+   local Whisper service feeds the existing `VoicePipeline` media port and
+   cleanup; the default remains whisper.cpp. Real browser/agent parity is
+   still the next step.
 5. **Prove parity before expanding.** Test microphone → transcript → agent →
    speech, interruption during each stage, stale events, reconnect, errors,
    and whether tool/internal events remain silent. Compare latency and recovery
@@ -96,10 +97,10 @@ flowchart LR
 
 ## Immediate next slice
 
-Begin step 4: verify the current Pipecat API, pin a version, and add one
-adapter behind `VoiceMediaPort` for one dashboard user and one Letta agent.
-The port currently handles a complete recording per request; streaming media
-will need a separate, explicit contract when it is introduced.
+Begin step 5: enable the one-agent pilot, compare real microphone → transcript
+→ Letta agent → speech behavior with the current path, and measure latency and
+recovery. The port still handles a complete recording per request; streaming
+media needs a separate, explicit contract.
 
 ## Working rules
 
@@ -231,3 +232,37 @@ repo typecheck passed. The compiled module is served at its dashboard URL.
   adapter (HTTP 200). No real microphone or agent send was used.
 - Next: verify and pin a current Pipecat version, then implement the Python
   batch adapter behind `VoiceMediaPort` for one dashboard user and agent.
+
+## Pipecat batch pilot — 2026-09-20
+
+- Verified [Pipecat 1.11.0 on PyPI](https://pypi.org/project/pipecat-ai/1.11.0/)
+  and the [local Whisper STT API](https://docs.pipecat.ai/api-reference/server/services/stt/whisper).
+  The pinned wheel's `WhisperSTTService.run_stt()` accepts signed 16-bit PCM;
+  its `TranscriptionFrame` is emitted with `finalized=False` before the normal
+  Pipecat frame pipeline marks it final. The batch adapter reads that returned
+  frame directly and ignores unrelated frames.
+- `dashboard/voice/pipecat_media/` decodes validated uploads to 16 kHz mono
+  PCM, calls the local Pipecat Whisper service, and maps transcript/error frames
+  to the existing `TranscriptionStrategy`. `VoicePipeline` still owns Letta
+  cleanup and the `VoiceMediaPort` result. The first pilot request loads a
+  separate Faster Whisper model; no model is loaded on the default path.
+- The server accepts Pipecat headers only when `PIPECAT_PILOT_AGENT_ID` matches
+  the upload's agent ID. In one browser, the same ID in
+  `localStorage.voicePipecatPilotAgentId` opts only that agent's Input Options
+  recorder in. Unmarked uploads keep whisper.cpp; mismatched pilot requests
+  fail closed. The pilot does not change agent-turn or speech policy.
+- Red tests first reproduced the missing adapter and the missing pilot header
+  routing. The green phase passed 13 focused Python tests, 18 focused browser
+  tests, the full dashboard Python suite (3434 pass, 2 skip), and the dashboard
+  browser suite (2557 pass, 2 skip). Repository TypeScript typecheck and the
+  abstract media type fixture passed. A real `espeak-ng` WAV upload through
+  Pipecat 1.11.0's `tiny.en` model returned a transcript.
+- Deployed on the live `DESKTOP-2OBSQMC` checkout. The service's
+  `80-pipecat-voice-pilot.conf` drop-in selects Frita
+  (`agent-881a883f-edd0-4963-bf67-6ef178b8f018`) and `tiny.en` for the
+  pilot, leaving the browser opt-in unset. After restart, the live
+  `/api/voice` route rejected a mismatched agent and accepted a synthetic
+  Frita WAV upload: raw `Hello, Frita, this is a moist test.` and cleaned
+  `Hello, Frita, this is a voice test.` The compiled browser adapter was
+  served with HTTP 200. No browser microphone, Frita agent turn, or speech
+  playback was exercised yet.

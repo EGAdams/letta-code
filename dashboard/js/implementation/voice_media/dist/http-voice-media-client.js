@@ -7,21 +7,29 @@ export class HttpVoiceMediaClient {
   fetch;
   endpoint;
   filename;
+  pilotAgentId;
   constructor({
     fetch = globalThis.fetch.bind(globalThis),
     endpoint = "/api/voice",
     filename = "voice.webm",
+    pilotAgentId,
   } = {}) {
     this.fetch = fetch;
     this.endpoint = endpoint;
     this.filename = filename;
+    this.pilotAgentId = pilotAgentId;
   }
   async transcribe(recording) {
     if (recording.size === 0) throw new Error("empty audio recording");
     const filename = recordingFilename(recording.type, this.filename);
+    const headers = { "X-Filename": filename };
+    if (this.pilotAgentId) {
+      headers["X-Voice-Media-Backend"] = "pipecat";
+      headers["X-Voice-Agent-Id"] = this.pilotAgentId;
+    }
     const response = await this.fetch(this.endpoint, {
       method: "POST",
-      headers: { "X-Filename": filename },
+      headers,
       body: recording,
     });
     if (!response.ok) {
