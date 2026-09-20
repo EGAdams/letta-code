@@ -11,7 +11,8 @@ sequenceDiagram
   UI->>Agent: submit(turn, A)
   User->>UI: Interrupt and ask April question
   UI->>Session: interrupt()
-  UI->>Session: startListening(); beginTurn()
+  UI->>Session: startListening()
+  UI->>Session: beginTurn()
   Session-->>UI: generation B
   Agent-->>UI: late March answer (A)
   UI->>Policy: admit(answer A)
