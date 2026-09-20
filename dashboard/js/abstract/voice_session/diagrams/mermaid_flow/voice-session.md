@@ -1,3 +1,4 @@
+```mermaid
 stateDiagram-v2
   [*] --> idle
   idle --> listening: startListening()
@@ -16,3 +17,4 @@ stateDiagram-v2
   thinking --> closed: close()
   speaking --> closed: close()
   interrupted --> closed: close()
+```
