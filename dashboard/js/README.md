@@ -73,6 +73,7 @@ bun test js/tests
 | `startup-gate.js`                  | Template Method          | the two 135-line copy-pasted `startupGate` / `agentGate` IIFEs |
 | `voice_session/src/voice-session.ts` | State                  | one conversation's lifecycle + generation fencing; compiled into `voice_session/dist/` |
 | `voice_session/src/session-clock.ts` | Strategy (injected ports) | `Clock` / `IdSource`, so lifecycle tests need no sleeps |
+| `voice_media/src/voice-media-client.ts` | Adapter port | one complete recording becomes a validated transcript, independent of `/api/voice` |
 | `conversation-agent.interface.js`  | Adapter / Strategy       | the raw `POST /api/letta-code-message` in `detail-renderers.js` |
 | `terminal-launcher.interface.js`   | Abstract Factory         | xterm/WebSocket construction hidden from scanner views |
 | `spoken-output-policy.js`          | Strategy                 | per-renderer "is this speakable?" filtering |
@@ -91,6 +92,9 @@ Concrete classes that have no separate `abstract/` interface live directly in
 Run `./node_modules/.bin/tsc -p dashboard/js/abstract/voice_session/tsconfig.json`
 from the repo root after editing its TypeScript source. The old `.js` entry
 points re-export the compiled modules so existing browser imports keep working.
+
+`abstract/voice_media/` is the typed batch media port; its HTTP adapter lives
+in `implementation/voice_media/`. Build the abstract module before that adapter.
 
 ## Design rule
 

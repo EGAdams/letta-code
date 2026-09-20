@@ -41,9 +41,11 @@ GoF: Strategy (transcription/cleanup swap), Adapter (`LettaClient`), Factory (`b
 unsupported extensions before the transcriber runs; `VoiceTranscript`
 validates the successful result before it reaches the browser. The current
 `VoicePipeline` implements `VoiceMediaPort` with a complete recording as one
-request. The TypeScript browser contract lives in
-`js/implementation/voice_media/`; it derives the filename from the blob MIME
-type and checks the response at runtime.
+request. The TypeScript browser port lives in `js/abstract/voice_media/`.
+The recorder delegates completed recordings to its injected
+`VoiceMediaClient`; the default HTTP adapter in `js/implementation/voice_media/`
+derives the filename from the blob MIME type, checks HTTP status and response
+data at runtime, and returns only the transcript fields to capture.
 
 Microphone capture follows idle → recording → processing → idle. The stream's
 tracks are released when capture stops and when recorder construction, start,

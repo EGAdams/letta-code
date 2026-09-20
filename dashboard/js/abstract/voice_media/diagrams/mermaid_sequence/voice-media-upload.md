@@ -1,14 +1,14 @@
 # One recording through the voice media boundary
 
-The browser client extraction and Pipecat branch are planned. The current
-`MediaRecorderVoiceRecorder` already handles the capture, upload, and response
-validation steps. The server currently selects `VoicePipeline`.
+The browser recorder now delegates upload and response validation to the HTTP
+client. The server currently selects `VoicePipeline`; the Pipecat branch is
+planned.
 
 ```mermaid
 sequenceDiagram
   participant User
   participant Recorder as MediaRecorderVoiceRecorder
-  participant Client as VoiceMediaClient (planned)
+  participant Client as VoiceMediaClient
   participant API as /api/voice
   participant Media as VoiceMediaPort adapter
   participant UI

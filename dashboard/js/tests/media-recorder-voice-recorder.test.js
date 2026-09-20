@@ -50,7 +50,11 @@ function makeDeps({
         this.size = parts.length;
       }
     },
-    fetch: async () => ({ json: async () => voiceResult }),
+    fetch: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => voiceResult,
+    }),
     _tracks: tracks,
   };
 }
@@ -71,7 +75,6 @@ describe("MediaRecorderVoiceRecorder (concrete VoiceRecorder)", () => {
 
     const result = await r.stop();
     expect(result).toEqual({
-      ok: true,
       raw_transcript: "hello",
       cleaned_text: "hello",
     });
@@ -138,6 +141,8 @@ describe("MediaRecorderVoiceRecorder (concrete VoiceRecorder)", () => {
       fetch: async (url, options) => {
         sent.push({ url, options });
         return {
+          ok: true,
+          status: 200,
           json: async () => ({
             ok: true,
             raw_transcript: "raw",

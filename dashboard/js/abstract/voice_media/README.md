@@ -1,11 +1,16 @@
 # Voice Media
 
-This module will hold the provider neutral TypeScript voice media contract used
-by the dashboard browser. It sits beside `voice_session/` in `js/abstract/`.
-Concrete browser behavior remains in `js/implementation/voice_media/`.
+`src/voice-media-client.ts` defines the provider neutral batch
+`VoiceMediaClient` port and `VoiceTranscript` shape. It sits beside
+`voice_session/` in `js/abstract/`. The browser recorder receives this port;
+the HTTP adapter lives in `js/implementation/voice_media/`.
 
-`src/` is reserved for typed interfaces, `tests/` for their contract tests,
-and `diagrams/` for class, flow, and sequence diagrams. The module-local
-`tsconfig.json` will compile `src/` to checked-in `dist/` when TypeScript
-source is added. The Pipecat adapter itself belongs on the Python side of the
-media port in `dashboard/voice/media/ports.py`.
+`tsconfig.json` compiles `src/` to checked-in `dist/`; `tsconfig.tests.json`
+checks the TypeScript port agreement. The Pipecat adapter belongs on the Python
+side of the media port in `dashboard/voice/media/ports.py`.
+
+```bash
+./node_modules/.bin/tsc -p dashboard/js/abstract/voice_media/tsconfig.json
+./node_modules/.bin/tsc -p dashboard/js/abstract/voice_media/tsconfig.tests.json
+bun test dashboard/js/abstract/voice_media/tests
+```

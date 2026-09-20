@@ -1,8 +1,8 @@
 # Voice media flow
 
-This shows the intended shared batch upload path. The Pipecat branch is planned;
-the current branch uses Whisper. A separate contract will be needed for live
-streaming media.
+This is the shared batch upload path. The current Python branch uses Whisper;
+the Pipecat branch is planned. Live streaming media will need a separate
+contract.
 
 ```mermaid
 flowchart TD

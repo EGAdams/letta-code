@@ -1,8 +1,5 @@
 import { VoiceRecorder } from "../abstract/voice-recorder.interface.js";
-import {
-  parseVoiceUploadResponse,
-  recordingFilename,
-} from "./voice_media/dist/voice-media-contract.js";
+import { HttpVoiceMediaClient } from "./voice_media/dist/http-voice-media-client.js";
 
 /**
  * MediaRecorderVoiceRecorder — concrete VoiceRecorder bound to the browser
@@ -12,7 +9,7 @@ import {
  *   openStream   → navigator.mediaDevices.getUserMedia({ audio:true })
  *   beginCapture → new MediaRecorder(stream).start()
  *   endCapture   → recorder.stop() → assemble a Blob from the chunks
- *   transcribe   → POST the blob to /api/voice, return the parsed payload
+ *   transcribe   → pass the blob to an injected VoiceMediaClient
  *
  * Every browser dependency is injectable so the whole flow is unit-testable.
  */
@@ -25,14 +22,15 @@ export class MediaRecorderVoiceRecorder extends VoiceRecorder {
     fetch: fetchFn = globalThis.fetch?.bind(globalThis),
     endpoint = "/api/voice",
     filename = "voice.webm",
+    mediaClient = null,
   } = {}) {
     super({ onStateChange });
     this._navigator = nav;
     this._Recorder = Recorder;
     this._Blob = BlobCtor;
-    this._fetch = fetchFn;
-    this._endpoint = endpoint;
-    this._filename = filename;
+    this._mediaClient =
+      mediaClient ||
+      new HttpVoiceMediaClient({ fetch: fetchFn, endpoint, filename });
     this._stream = null;
     this._recorder = null;
     this._chunks = [];
@@ -106,15 +104,8 @@ export class MediaRecorderVoiceRecorder extends VoiceRecorder {
     });
   }
 
-  /** @override Upload the blob; resolve the parsed voice payload or throw. */
+  /** @override Resolve a validated transcript through the media port. */
   async transcribe(blob) {
-    const filename = recordingFilename(blob.type, this._filename);
-    const res = await this._fetch(this._endpoint, {
-      method: "POST",
-      headers: { "X-Filename": filename },
-      body: blob,
-    });
-    const data = await res.json();
-    return parseVoiceUploadResponse(data);
+    return this._mediaClient.transcribe(blob);
   }
 }

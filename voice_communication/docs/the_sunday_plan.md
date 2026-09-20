@@ -214,3 +214,20 @@ repo typecheck passed. The compiled module is served at its dashboard URL.
   from `dashboard/`; dashboard JavaScript tests passed (2595 pass, 2 skip).
   The module TypeScript builds and repository typecheck passed. No real
   microphone or agent send was used.
+
+## Browser media client green phase — 2026-09-20
+
+- `dashboard/js/abstract/voice_media/` now defines the typed batch
+  `VoiceMediaClient` and `VoiceTranscript` port. The HTTP adapter in
+  `dashboard/js/implementation/voice_media/` owns `/api/voice` upload, format
+  naming, status checks, and runtime response validation.
+- `MediaRecorderVoiceRecorder` delegates completed recordings to an injected
+  client. Its default client preserves the current dashboard upload path and
+  returns transcript fields without the wire-level `ok` flag. The previous
+  direct fetch and duplicated response handling were removed from capture.
+- The 19 new runtime tests and TypeScript port check are green. Focused voice
+  tests passed (36). The dashboard JavaScript suite passed (2556 pass, 2 skip),
+  repository typecheck passed, and the live dashboard served the compiled HTTP
+  adapter (HTTP 200). No real microphone or agent send was used.
+- Next: verify and pin a current Pipecat version, then implement the Python
+  batch adapter behind `VoiceMediaPort` for one dashboard user and agent.

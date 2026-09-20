@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import {
+  HttpVoiceMediaClient,
+  type HttpVoiceMediaClientOptions,
+} from "../../../implementation/voice_media/src/http-voice-media-client.ts";
 
 const transcript = {
   ok: true,
@@ -24,12 +28,7 @@ interface UploadInit {
   headers: Record<string, string>;
 }
 
-async function client(options: Record<string, unknown>) {
-  // Dynamic import lets each behavior stay visible as a red test while this
-  // concrete adapter has not yet been written.
-  const { HttpVoiceMediaClient } = await import(
-    "../../../implementation/voice_media/src/http-voice-media-client.ts"
-  );
+function client(options: HttpVoiceMediaClientOptions) {
   return new HttpVoiceMediaClient(options);
 }
 
@@ -37,7 +36,7 @@ describe("HttpVoiceMediaClient batch upload", () => {
   test("posts exactly one recording and returns only the transcript fields", async () => {
     const recording = audio();
     const calls: Array<{ url: unknown; init: UploadInit }> = [];
-    const media = await client({
+    const media = client({
       fetch: async (url: unknown, init: UploadInit) => {
         calls.push({ url, init });
         return reply(transcript);
@@ -62,7 +61,7 @@ describe("HttpVoiceMediaClient batch upload", () => {
     ["audio/wav", "voice.wav"],
   ])("labels a %s recording as %s", async (mime, filename) => {
     let sentFilename: string | undefined;
-    const media = await client({
+    const media = client({
       fetch: async (_url: unknown, init: UploadInit) => {
         sentFilename = init.headers["X-Filename"];
         return reply(transcript);
@@ -74,7 +73,7 @@ describe("HttpVoiceMediaClient batch upload", () => {
 
   test("uses an injected endpoint and preserves the configured filename stem", async () => {
     const calls: Array<{ url: unknown; filename: unknown }> = [];
-    const media = await client({
+    const media = client({
       endpoint: "/api/voice-preview",
       filename: "meeting.webm",
       fetch: async (url: unknown, init: UploadInit) => {
@@ -90,7 +89,7 @@ describe("HttpVoiceMediaClient batch upload", () => {
 
   test("rejects an empty recording before calling fetch", async () => {
     let calls = 0;
-    const media = await client({
+    const media = client({
       fetch: async () => {
         calls += 1;
         return reply(transcript);
@@ -104,7 +103,7 @@ describe("HttpVoiceMediaClient batch upload", () => {
 
   test("rejects an unsupported MIME type before calling fetch", async () => {
     let calls = 0;
-    const media = await client({
+    const media = client({
       fetch: async () => {
         calls += 1;
         return reply(transcript);
@@ -117,7 +116,7 @@ describe("HttpVoiceMediaClient batch upload", () => {
   });
 
   test("surfaces a server-declared processing error", async () => {
-    const media = await client({
+    const media = client({
       fetch: async () => reply({ ok: false, error: "transcriber unavailable" }),
     });
     await expect(media.transcribe(audio())).rejects.toThrow(
@@ -126,12 +125,12 @@ describe("HttpVoiceMediaClient batch upload", () => {
   });
 
   test("rejects HTTP failure even if the body claims success", async () => {
-    const media = await client({ fetch: async () => reply(transcript, 503) });
+    const media = client({ fetch: async () => reply(transcript, 503) });
     await expect(media.transcribe(audio())).rejects.toThrow();
   });
 
   test("rejects a non-JSON response", async () => {
-    const media = await client({
+    const media = client({
       fetch: async () => ({
         ok: true,
         status: 200,
@@ -149,14 +148,14 @@ describe("HttpVoiceMediaClient batch upload", () => {
     { ok: true, raw_transcript: "raw", cleaned_text: null },
     { ok: "true", raw_transcript: "raw", cleaned_text: "cleaned" },
   ])("rejects an incomplete or malformed success: %p", async (body) => {
-    const media = await client({ fetch: async () => reply(body) });
+    const media = client({ fetch: async () => reply(body) });
     await expect(media.transcribe(audio())).rejects.toThrow(
       /invalid voice response/i,
     );
   });
 
   test("propagates a network failure without fabricating a transcript", async () => {
-    const media = await client({
+    const media = client({
       fetch: async () => {
         throw new TypeError("network offline");
       },

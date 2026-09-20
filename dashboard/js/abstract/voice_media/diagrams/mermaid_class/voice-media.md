@@ -1,8 +1,8 @@
 # Voice media class boundary
 
-`VoiceMediaClient` and `HttpVoiceMediaClient` show the proposed TypeScript seam.
-The recorder, wire helpers, Python port, and Whisper pipeline already exist.
-The Pipecat adapter is planned and will live on the Python side.
+`VoiceMediaClient` and `HttpVoiceMediaClient` now form the TypeScript batch
+media seam used by the recorder. The Python port and Whisper pipeline already
+exist. The Pipecat adapter is planned on the Python side.
 
 ```mermaid
 classDiagram
@@ -31,7 +31,7 @@ classDiagram
   VoiceRecorder <|-- MediaRecorderVoiceRecorder
   VoiceMediaClient <|.. HttpVoiceMediaClient
   VoiceMediaClient --> VoiceTranscript : returns
-  MediaRecorderVoiceRecorder --> VoiceMediaClient : proposed injection
+  MediaRecorderVoiceRecorder --> VoiceMediaClient : injected
   HttpVoiceMediaClient ..> VoiceMediaPort : POST /api/voice
   VoiceMediaPort <|.. VoicePipeline
   VoiceMediaPort <|.. PipecatMediaAdapter
