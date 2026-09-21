@@ -5,31 +5,35 @@ export const conversationCoordinatorSpec = {
   name: "ConversationCoordinator",
   group: "Planned core",
   tagline:
-    "Plan: one finalized turn → one agent run. Reality: VoiceCommandChannel does this, for note commands only.",
+    "Typed Mediator design for streamed agent text, sentence-level speech, and interruption.",
   status: Status.PARTIAL,
   statusNote:
-    "A real, tested coordinator exists — but it coordinates note edits, not agent conversation turns.",
+    "The typed dialogue coordinator contract and transport design now live in js/abstract/conversation_coordinator/. Runtime behavior is the next TDD slice.",
   responsibility: [
     "Coordinate one finalized user turn into exactly one agent run, and make sure overlapping speech never produces overlapping responses. It is the Mediator between capture, the agent, and output.",
     "The shipped VoiceCommandChannel already owns a meaningful piece of this: it serialises work onto a promise chain, dedupes identical finalized transcripts, and decides when an instruction is complete enough to act on. That last decision — completeness judged from accumulated text rather than a silence timer — is the part worth keeping in any rebuild.",
-    "What it does not do is coordinate a conversation with an agent. It routes note-edit commands. Turn coordination for actual dialogue still lives in renderer closures.",
+    "The new typed contract now defines dialogue coordination without DOM, HTTP, Letta, or audio-provider dependencies. Runtime turn coordination still lives in renderer closures until the next TDD slice implements and adopts the contract.",
   ],
   contract: {
-    language: "js",
-    code: `VoiceCommandChannel   js/abstract/voice-command-channel.js   (shipped)
+    language: "ts",
+    code: `ConversationCoordinatorPort
+  js/abstract/conversation_coordinator/src/conversation-coordinator.ts
 
-  handleSpeech(text, isFinal)  -> Promise   buffer, then assess when final
-  submit(text)                 -> Promise   typed command; skips the detector
-  clear()                      -> void      forget the accumulated instruction
-  get busy                     -> boolean   work in flight
-  get commandText              -> string
+  start(turn, { agentName, speak }) -> Promise<ConversationTurnOutcome>
+  interrupt()                       -> GenerationId | null
+  close()                           -> void
 
   injected collaborators:
-    note                 NoteDocument
-    completenessDetector { assess(text) -> {complete, reason} }
-    commandInterpreter   { apply(note, command) -> NoteCommandOutcome }
-    buffer               TranscriptBuffer`,
-    note: "No DOM and no HTTP in this class — both collaborators are duck-typed ports supplied by the composition root.",
+    agent                ConversationAgentPort
+    session              VoiceSessionPort
+    spokenOutputPolicy   SpokenOutputPolicyPort
+    sentenceSegmenter    SentenceSegmenterPort
+    speechQueue          SpeechQueuePort
+    observer             ConversationCoordinatorObserver
+
+Existing note-edit mediator:
+  VoiceCommandChannel.handleSpeech(text, isFinal) -> Promise`,
+    note: "The coordinator knows normalized events, generations, sentences, and queue order. Concrete DOM, HTTP, Letta wire, and audio-provider behavior is injected.",
   },
   implementations: [
     {
@@ -47,22 +51,31 @@ export const conversationCoordinatorSpec = {
     {
       name: "ConversationCoordinator",
       kind: "planned",
-      file: "/home/adamsl/talking_agent_parts/",
-      note: "The dialogue-turn coordinator — the last of the plan's core objects with no code. Would consult VoiceSession, which now exists, for generation fencing.",
+      file: "js/abstract/conversation_coordinator/src/conversation-coordinator.ts",
+      note: "Typed Mediator contract for agent events, generation fencing, sentence segmentation, ordered speech, observers, and interruption. Implementation is intentionally waiting on failing tests.",
     },
   ],
   dependencies: {
-    usedBy: ["NoteCommandPanelRenderer (browser)"],
-    dependsOn: [
-      "NoteDocument — the surface being edited",
-      "A completeness detector port — { assess(text) }",
-      "A command interpreter port — { apply(note, command) }",
-      "TranscriptBuffer — final/interim accumulation",
+    usedBy: [
+      "InputOptionsRenderer (planned adoption)",
+      "ChatDetailRenderer (planned adoption)",
+      "VoiceCommandChannel remains the note-edit coordinator",
     ],
-    note: "Dependency direction is correct here: the channel depends only on injected contracts, and the HTTP adapters that satisfy them live in js/implementation/. This is the cleanest boundary in the whole voice system and is the model the rest should follow.",
+    dependsOn: [
+      "ConversationAgentPort — normalized async agent events",
+      "VoiceSessionPort — state and generation fencing",
+      "SpokenOutputPolicyPort — current public assistant text only",
+      "SentenceSegmenterPort — deterministic sentence boundary Strategy",
+      "SpeechQueuePort — ordered preparation, playback, and cancellation",
+      "ConversationCoordinatorObserver — UI and timing notifications",
+    ],
+    note: "All collaborators are injected ports. Streaming HTTP, Letta wire parsing, DOM updates, and speech-provider details stay in concrete adapters outside the coordinator.",
   },
   developmentStatus: {
     done: [
+      "The dialogue Mediator has a strict TypeScript contract and reuses the existing ConversationTurn, AgentEvent, and VoiceSession types.",
+      "The first-sentence, streaming transport, and barge-in flows are documented as Mermaid diagrams beside the module.",
+      "The transport design uses the CLI's existing stream-json output and requires browser abort to terminate the server-side process group.",
       "Work is serialised on a promise chain, so an in-flight edit cannot interleave with the next speech fragment.",
       "Identical finalized text is never assessed twice — important because the recognizer re-flushes its tail on every silence restart.",
       "Completeness is judged from accumulated text via an injected detector, never from a silence timeout.",
@@ -70,10 +83,10 @@ export const conversationCoordinatorSpec = {
       "Errors from either collaborator surface as status without wedging the queue.",
     ],
     gaps: [
-      "Coordinates note edits only. There is no coordinator for a dialogue turn with an agent.",
-      "No generation fencing — it cannot discard a superseded result, only refuse to start overlapping work. VoiceSession now exists to fix this; the channel does not hold one yet.",
-      "Cancellation does not exist; a queued command cannot be abandoned once enqueued.",
-      "The pending-work counter is not exposed to the UI, so a long interpretation shows no progress indicator.",
+      "The dialogue coordinator has a typed contract and diagrams but no runtime implementation yet.",
+      "There is no streaming dashboard endpoint or browser adapter yet; the current Letta adapter still yields one complete answer.",
+      "The sentence boundary Strategy and ordered speech queue are contracts only.",
+      "Input Options and Chat still coordinate turns in renderer closures.",
     ],
   },
   tests: {
@@ -92,16 +105,45 @@ export const conversationCoordinatorSpec = {
       },
     ],
     untested: [
-      "Cancellation — there is nothing to test yet.",
-      "Behaviour when the detector never resolves (a hung Letta call rather than a failing one).",
+      "First-sentence speech before the terminal event.",
+      "Ordered sentence playback and terminal-tail flushing.",
+      "Cancellation of agent transport, prepared audio, active playback, and late events.",
       "Two coordinators sharing one microphone.",
     ],
     next: [
-      "'A superseded command's result is discarded' — now writable against the real VoiceSession rather than blocked on it.",
-      "A hung-collaborator test using a promise that never settles, asserting the UI is not left permanently busy.",
+      "Write the failing contract suite for first-sentence speech, ordered later sentences, terminal-tail flushing, and generation cancellation.",
+      "Write the failing transport tests for fragmented NDJSON, malformed records, cumulative-message normalization, and aborting the child process.",
     ],
   },
   diagrams: [
+    {
+      title: "Designed first-sentence path",
+      caption:
+        "The coordinator can release sentence one while Toyota is still generating sentence two. Speech preparation and later text generation overlap, while VoiceSession remains the authoritative generation fence.",
+      code: `sequenceDiagram
+  participant UI
+  participant CC as ConversationCoordinator
+  participant VS as VoiceSession
+  participant Agent as ConversationAgent
+  participant Seg as SentenceSegmenter
+  participant SQ as SpeechQueue
+
+  UI->>CC: start turn with speech enabled
+  CC->>VS: beginTurn
+  VS-->>CC: generation 7
+  CC->>Agent: submit turn and generation 7
+  Agent-->>CC: assistant text delta with sentence 1
+  CC->>Seg: push delta
+  Seg-->>CC: complete sentence 1
+  CC->>SQ: enqueue sentence 1
+  SQ-->>UI: speech starts
+  Agent-->>CC: assistant text delta with sentence 2
+  CC->>SQ: enqueue sentence 2
+  Agent-->>CC: terminal
+  CC->>SQ: finish generation 7
+  SQ-->>CC: playback drained
+  CC->>VS: completeTurn generation 7`,
+    },
     {
       title: "Where the coordinator sits",
       caption:
@@ -147,9 +189,9 @@ export const conversationCoordinatorSpec = {
     },
   ],
   nextWork: [
-    "Expose `busy` to the panel so a long interpretation shows a spinner instead of looking dead.",
-    "Add cancellation: an AbortSignal threaded through both collaborator ports.",
-    "Give the channel a VoiceSession and tag enqueued work with a generation id, then discard results whose generation was superseded. The session and the fence exist; the channel is the natural first caller because it already serialises work.",
-    "Extract the queue/dedupe logic once a second coordinator (dialogue turns) needs it — not before.",
+    "Add failing tests under js/abstract/conversation_coordinator/tests before implementing runtime behavior.",
+    "Implement a deterministic SentenceSegmenter Strategy and ordered SpeechQueue behind their typed ports.",
+    "Implement StreamingLettaAgentAdapter over a validated NDJSON endpoint backed by the CLI's stream-json output.",
+    "Adopt the coordinator in Toyota's InputOptionsRenderer, then add microphone speech-start barge-in.",
   ],
 };

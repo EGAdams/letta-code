@@ -52,7 +52,7 @@ Replaced by (each one question, one answer):
     },
     {
       name: "LettaReceptionistIntentStrategy",
-      kind: "available",
+      kind: "current",
       file: "voice/receptionist.py",
       note: "Optional model-based policy selected only with RECEPTIONIST_INTENT_MODE=letta.",
     },
