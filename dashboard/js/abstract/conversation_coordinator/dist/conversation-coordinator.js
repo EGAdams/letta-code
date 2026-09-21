@@ -1,6 +1,8 @@
 const SENTENCE_END = /[.!?]["')\]]?(?=\s)/u;
 const NON_TERMINAL_ABBREVIATION =
   /(?:\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc)|\b[A-Z])\.$/u;
+const CHUNK_END_SENTENCE = /[.!?]["')\]]?$/u;
+const CHUNK_END_NUMBER = /\d\.$/u;
 /** Deterministic Strategy that turns arbitrary text deltas into speakable phrases. */
 export class DeterministicSentenceSegmenter {
   maxCharacters;
@@ -43,6 +45,16 @@ export class DeterministicSentenceSegmenter {
       const candidate = this.buffer.slice(0, end).trim();
       if (!candidate || NON_TERMINAL_ABBREVIATION.test(candidate)) continue;
       this.buffer = this.buffer.slice(end).replace(/^\s+/u, "");
+      return candidate;
+    }
+    const candidate = this.buffer.trim();
+    if (
+      candidate &&
+      CHUNK_END_SENTENCE.test(candidate) &&
+      !CHUNK_END_NUMBER.test(candidate) &&
+      !NON_TERMINAL_ABBREVIATION.test(candidate)
+    ) {
+      this.buffer = "";
       return candidate;
     }
     return null;

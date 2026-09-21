@@ -175,6 +175,8 @@ def stream_letta_code_message(
             if event.get("type") == "result":
                 saw_result = True
             yield ConversationStreamRecord.provider_event(event)
+            if saw_result:
+                return
 
         returncode = proc.wait(timeout=1)
         stderr_thread.join(timeout=1)

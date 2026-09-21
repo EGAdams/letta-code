@@ -10,15 +10,17 @@ import {
 describe("DeterministicSentenceSegmenter", () => {
   test("emits a sentence split across arbitrary provider deltas", () => {
     const segmenter = new DeterministicSentenceSegmenter();
-    expect(segmenter.push("Hello there.")).toEqual([]);
-    expect(segmenter.push(" How are")).toEqual(["Hello there."]);
-    expect(segmenter.push(" you?")).toEqual([]);
-    expect(segmenter.flush()).toBe("How are you?");
+    expect(segmenter.push("Hello there.")).toEqual(["Hello there."]);
+    expect(segmenter.push(" How are")).toEqual([]);
+    expect(segmenter.push(" you?")).toEqual(["How are you?"]);
+    expect(segmenter.flush()).toBeNull();
   });
 
   test("does not split decimal numbers or common abbreviations", () => {
     const segmenter = new DeterministicSentenceSegmenter();
-    expect(segmenter.push("Dr. Rivera paid 3.50 today. Next item ")).toEqual([
+    expect(segmenter.push("Dr.")).toEqual([]);
+    expect(segmenter.push(" Rivera paid 3.")).toEqual([]);
+    expect(segmenter.push("50 today. Next item ")).toEqual([
       "Dr. Rivera paid 3.50 today.",
     ]);
     expect(segmenter.flush()).toBe("Next item");
