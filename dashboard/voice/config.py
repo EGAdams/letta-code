@@ -85,3 +85,6 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 PIPECAT_GROQ_MODEL = os.environ.get(
     "PIPECAT_GROQ_MODEL", "whisper-large-v3-turbo"
 )
+RECEPTIONIST_INTENT_MODE = os.environ.get(
+    "RECEPTIONIST_INTENT_MODE", "deterministic"
+).strip().lower()

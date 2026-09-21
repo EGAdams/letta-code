@@ -45,10 +45,16 @@ Replaced by (each one question, one answer):
       note: "Successor for transcript tidying.",
     },
     {
-      name: "LettaReceptionistIntentStrategy",
+      name: "DeterministicReceptionistIntentStrategy",
       kind: "current",
       file: "voice/receptionist.py",
-      note: "Successor for 'is Toyota being addressed'.",
+      note: "Default successor for 'is Toyota being addressed'; recognizes an explicit wake phrase locally without an LLM call.",
+    },
+    {
+      name: "LettaReceptionistIntentStrategy",
+      kind: "available",
+      file: "voice/receptionist.py",
+      note: "Optional model-based policy selected only with RECEPTIONIST_INTENT_MODE=letta.",
     },
     {
       name: "LettaAgentRouteStrategy",

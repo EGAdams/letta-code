@@ -71,6 +71,17 @@ MP3 audio to `EdgeTtsSpeechSynthesizer`, whose playback token is cancellable
 through the voice session. Its tests cover non-audio responses, blocked
 playback, cancellation during fetch/playback, and audio-end completion.
 
+Toyota has two distinct microphone buttons. **Start** records an audio upload
+and uses the Pipecat/Groq path above. **Start Listening** uses Chrome's native
+continuous speech recognition, so it does not call Groq or `/api/voice`.
+Final Start Listening text goes through `/api/receptionist-intent`. That route
+now uses `DeterministicReceptionistIntentStrategy` by default: an explicit
+`Toyota`, `Hey Toyota`, or similar wake phrase is stripped locally and the
+remaining request is sent to Toyota. This removes the former cleanup-agent
+round trip and its 15-second browser timeout. Set
+`RECEPTIONIST_INTENT_MODE=letta` only if model-based intent detection is
+deliberately required.
+
 It reuses lettabot's binaries rather than reinventing them — `whisper-cli` at
 `~/whisper.cpp/build/bin/whisper-cli`, model `~/whisper.cpp/models/ggml-small.en.bin` (upgraded
 2026-08-08 from `base.en` for better accuracy on agent names; adds a bit of latency per

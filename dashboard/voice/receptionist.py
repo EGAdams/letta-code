@@ -1,9 +1,11 @@
-"""Toyota receptionist intent policy (Strategy).
+"""Toyota receptionist intent policies (Strategy).
 
-The policy fails closed: uncertain or malformed model output never triggers an
-automatic send, and raw speech remains available to the user.
+The default policy recognizes an explicit Toyota wake phrase locally. The
+legacy Letta policy remains opt-in. Both fail closed, and raw speech remains
+available to the user.
 """
 import json
+import re
 from abc import ABC, abstractmethod
 
 from . import config
@@ -15,6 +17,25 @@ class ReceptionistIntentStrategy(ABC):
     def evaluate(self, transcript: str) -> dict:
         """Return {addressed: bool, cleaned_text: str}."""
         ...
+
+
+class DeterministicReceptionistIntentStrategy(ReceptionistIntentStrategy):
+    """Recognize an explicit Toyota wake phrase without a model round trip."""
+
+    _WAKE_PHRASE = re.compile(
+        r"^\s*(?:(?:hey|hi|hello|ok|okay)\b[\s,.:;!?-]*)?"
+        r"toyota\b[\s,.:;!?-]*(?P<request>.+?)\s*$",
+        re.IGNORECASE,
+    )
+
+    def evaluate(self, transcript: str) -> dict:
+        if not isinstance(transcript, str):
+            return {"addressed": False, "cleaned_text": ""}
+        match = self._WAKE_PHRASE.fullmatch(transcript)
+        request = match.group("request").strip() if match else ""
+        if not request:
+            return {"addressed": False, "cleaned_text": ""}
+        return {"addressed": True, "cleaned_text": request}
 
 
 def build_receptionist_prompt(transcript: str) -> str:
@@ -78,6 +99,14 @@ class LettaReceptionistIntentStrategy(ReceptionistIntentStrategy):
 
 
 def build_receptionist_strategy() -> ReceptionistIntentStrategy:
+    if config.RECEPTIONIST_INTENT_MODE == "deterministic":
+        return DeterministicReceptionistIntentStrategy()
+    if config.RECEPTIONIST_INTENT_MODE != "letta":
+        raise ValueError(
+            "unsupported receptionist intent mode: "
+            f"{config.RECEPTIONIST_INTENT_MODE}"
+        )
+
     from .letta_client import LettaClient
 
     client = LettaClient(config.LETTA_BASE_URL)

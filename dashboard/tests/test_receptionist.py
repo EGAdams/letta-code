@@ -1,5 +1,9 @@
+import pytest
+
 from voice.receptionist import (
+    DeterministicReceptionistIntentStrategy,
     LettaReceptionistIntentStrategy,
+    build_receptionist_strategy,
     build_receptionist_prompt,
     parse_receptionist_reply,
 )
@@ -64,3 +68,58 @@ def test_strategy_returns_cleaned_addressed_request():
     assert strategy.evaluate("Hey Toyota what is on the agenda") == {
         "addressed": True, "cleaned_text": "What is on the agenda?"
     }
+
+
+@pytest.mark.parametrize(
+    ("transcript", "expected_text"),
+    [
+        ("Toyota, what are we working on?", "what are we working on?"),
+        ("Hey Toyota what is next", "what is next"),
+        ("hello, TOYOTA: please send this", "please send this"),
+        ("Okay Toyota - check the agenda", "check the agenda"),
+    ],
+)
+def test_deterministic_strategy_strips_a_clear_toyota_wake_phrase(
+    transcript, expected_text
+):
+    assert DeterministicReceptionistIntentStrategy().evaluate(transcript) == {
+        "addressed": True,
+        "cleaned_text": expected_text,
+    }
+
+
+@pytest.mark.parametrize(
+    "transcript",
+    [
+        "",
+        "Toyota",
+        "I was thinking about Toyota yesterday",
+        "Tell Mazda what Toyota said",
+        "Hey Mazda, what is next?",
+    ],
+)
+def test_deterministic_strategy_fails_closed_without_a_toyota_request(transcript):
+    assert DeterministicReceptionistIntentStrategy().evaluate(transcript) == {
+        "addressed": False,
+        "cleaned_text": "",
+    }
+
+
+def test_factory_defaults_to_deterministic_strategy_without_a_letta_call(monkeypatch):
+    from voice import config, letta_client
+
+    monkeypatch.setattr(config, "RECEPTIONIST_INTENT_MODE", "deterministic")
+    monkeypatch.setattr(
+        letta_client,
+        "LettaClient",
+        lambda *args: (_ for _ in ()).throw(AssertionError("must stay local")),
+    )
+    assert isinstance(build_receptionist_strategy(), DeterministicReceptionistIntentStrategy)
+
+
+def test_factory_rejects_unknown_receptionist_intent_mode(monkeypatch):
+    from voice import config
+
+    monkeypatch.setattr(config, "RECEPTIONIST_INTENT_MODE", "typo")
+    with pytest.raises(ValueError, match="unsupported receptionist intent mode"):
+        build_receptionist_strategy()
