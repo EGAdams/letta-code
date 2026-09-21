@@ -15,13 +15,11 @@ started:
   live dashboard on 2026-08-26. `AGENT_CARDS` had the same duplicate as a
   repeated dict key, where Python silently kept the last one, so the card text
   looked fine and hid the roster bug.
-* `voice/config.py`'s `KNOWN_AGENT_NAMES` claims to be "kept in sync with
-  LETTA_AGENTS" and is not — see `ROSTER_NAMES_MISSING_FROM_VOICE_CONFIG`.
+* `voice/config.py`'s `KNOWN_AGENT_NAMES` had drifted from `LETTA_AGENTS`.
 
 The duplicate is **fixed** here (plan rule 11: this one is a fix, not a
-defence). The voice drift is recorded, not fixed — changing the whisper prompt
-is a voice-pipeline behaviour change and does not belong in a config-typing
-commit.
+defence). The voice drift was fixed with the Groq voice-pipeline slice on
+2026-09-21.
 """
 
 from __future__ import annotations
@@ -463,22 +461,11 @@ AGENT_CARDS: dict[str, dict] = {
 AGENT_VOICE_OPTIONS: list[str] = [v.voice_id for v in VOICE_OPTION_SPECS]
 
 
-# Recorded, not fixed: `voice/config.py`'s KNOWN_AGENT_NAMES says it is "kept in
-# sync with LETTA_AGENTS in server.py" and has drifted. It feeds the whisper
-# prompt and the cleanup model's mishear correction, so changing it changes what
-# the voice pipeline hears — a behaviour change that does not belong in a
-# config-typing commit (plan rule 15: things that fail differently do not travel
-# together). `tests/test_agents_registry.py` pins the exact drift so it cannot
-# widen, and the round-13 report hands it on.
-#
-# Two divergences: the receptionist (Toyota) has no mishear correction at all,
-# and one minion is spelled 'Suzuki Patch' on the roster but 'Suzuki Patcher' in
-# the voice list — so a spoken "Suzuki Patcher" is corrected TO a name no agent
-# answers to.
-ROSTER_NAMES_MISSING_FROM_VOICE_CONFIG: frozenset[str] = frozenset(
-    {'Toyota', 'Suzuki Patch'})
-VOICE_CONFIG_NAMES_NOT_ON_THE_ROSTER: frozenset[str] = frozenset(
-    {'Suzuki Patcher'})
+# Voice behavior depends on this exact agreement: the names bias STT and feed
+# cleanup correction. These empty sets make any future roster drift explicit in
+# `tests/test_agents_registry.py`.
+ROSTER_NAMES_MISSING_FROM_VOICE_CONFIG: frozenset[str] = frozenset()
+VOICE_CONFIG_NAMES_NOT_ON_THE_ROSTER: frozenset[str] = frozenset()
 
 
 def by_name(name: str) -> LettaAgentSpec | None:

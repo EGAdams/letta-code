@@ -15,6 +15,13 @@ class CleanupStrategy(ABC):
         ...
 
 
+class PassThroughCleanup(CleanupStrategy):
+    """Use a provider's transcript directly when it is already high quality."""
+
+    def clean(self, transcript: str) -> str:
+        return transcript
+
+
 def build_cleanup_prompt(transcript, known_names):
     names = ", ".join(known_names) if known_names else "(none provided)"
     return (
@@ -72,3 +79,14 @@ def build_cleanup() -> CleanupStrategy:
     client = LettaClient(config.LETTA_BASE_URL)
     agent_id = config.CLEANUP_AGENT_ID or client.resolve_agent_id(config.CLEANUP_AGENT_NAME)
     return LettaAgentCleanup(client, agent_id, known_names=config.KNOWN_AGENT_NAMES)
+
+
+def build_pipecat_cleanup() -> CleanupStrategy:
+    """Select cleanup independently from the Pipecat STT provider."""
+    if config.PIPECAT_CLEANUP_MODE == "direct":
+        return PassThroughCleanup()
+    if config.PIPECAT_CLEANUP_MODE == "letta":
+        return build_cleanup()
+    raise ValueError(
+        f"unsupported Pipecat cleanup mode: {config.PIPECAT_CLEANUP_MODE}"
+    )

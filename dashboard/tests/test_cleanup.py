@@ -2,8 +2,12 @@
 
 A fake Letta client stands in for the network so we assert behaviour, not HTTP.
 """
+import pytest
+
 from voice.cleanup import (
     LettaAgentCleanup,
+    PassThroughCleanup,
+    build_pipecat_cleanup,
     build_cleanup_prompt,
     extract_assistant_text,
 )
@@ -79,3 +83,24 @@ def test_clean_empty_transcript_is_passthrough_without_network():
     cleanup = LettaAgentCleanup(client, "agent-cleanup")
     assert cleanup.clean("   ") == "   "
     assert client.sent == []   # no pointless round-trip
+
+
+def test_pass_through_cleanup_returns_the_groq_transcript_without_network():
+    assert PassThroughCleanup().clean("Toyota voice pilot is ready.") == (
+        "Toyota voice pilot is ready."
+    )
+
+
+def test_pipecat_cleanup_factory_selects_direct_mode(monkeypatch):
+    from voice import config
+
+    monkeypatch.setattr(config, "PIPECAT_CLEANUP_MODE", "direct")
+    assert isinstance(build_pipecat_cleanup(), PassThroughCleanup)
+
+
+def test_pipecat_cleanup_factory_rejects_unknown_mode(monkeypatch):
+    from voice import config
+
+    monkeypatch.setattr(config, "PIPECAT_CLEANUP_MODE", "typo")
+    with pytest.raises(ValueError, match="unsupported Pipecat cleanup mode"):
+        build_pipecat_cleanup()

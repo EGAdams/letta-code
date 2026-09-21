@@ -37,6 +37,22 @@ def test_pipeline_cleanup_failure_falls_back_to_raw():
     assert out.cleaned_text == "raw words"
 
 
+def test_pipeline_reports_transcription_and_cleanup_timings():
+    observed = []
+
+    class Observer:
+        def observe(self, stage, duration_seconds):
+            observed.append((stage, duration_seconds))
+
+    pipe = VoicePipeline(
+        FakeTranscriber("raw words"), FakeCleanup(), timing_observer=Observer()
+    )
+    pipe.process(AudioUpload(audio_bytes=b"audio"))
+
+    assert [stage for stage, _ in observed] == ["transcription", "cleanup"]
+    assert all(duration >= 0 for _, duration in observed)
+
+
 def test_handle_voice_upload_ok():
     class P:
         def process(self, upload):

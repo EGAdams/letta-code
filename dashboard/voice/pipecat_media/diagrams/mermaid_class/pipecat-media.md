@@ -11,7 +11,7 @@ classDiagram
     class TranscriptionStrategy {
         +transcribe(bytes, filename) str
     }
-    class PipecatWhisperTranscriber {
+    class PipecatBatchTranscriber {
         +transcribe(bytes, filename) str
     }
     class PcmTranscriber {
@@ -20,9 +20,27 @@ classDiagram
     class PipecatWhisperSttAdapter {
         +transcribe_pcm(bytes) str
     }
+    class PipecatGroqSttAdapter {
+        +transcribe_pcm(bytes) str
+    }
+    class FallbackPcmTranscriber {
+        +transcribe_pcm(bytes) str
+    }
+    class CleanupStrategy {
+        +clean(str) str
+    }
+    class PassThroughCleanup {
+        +clean(str) str
+    }
     VoiceMediaPort <|.. VoicePipeline
-    TranscriptionStrategy <|-- PipecatWhisperTranscriber
+    TranscriptionStrategy <|-- PipecatBatchTranscriber
     PcmTranscriber <|.. PipecatWhisperSttAdapter
+    PcmTranscriber <|.. PipecatGroqSttAdapter
+    PcmTranscriber <|.. FallbackPcmTranscriber
+    CleanupStrategy <|-- PassThroughCleanup
     VoicePipeline o-- TranscriptionStrategy
-    PipecatWhisperTranscriber o-- PcmTranscriber
+    VoicePipeline o-- CleanupStrategy
+    PipecatBatchTranscriber o-- PcmTranscriber
+    FallbackPcmTranscriber o-- PipecatGroqSttAdapter
+    FallbackPcmTranscriber o-- PipecatWhisperSttAdapter
 ```

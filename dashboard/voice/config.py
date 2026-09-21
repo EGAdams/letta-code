@@ -51,6 +51,7 @@ NOTES_DIR = os.environ.get("NOTES_DIR", os.path.join(HOME, "notes"))
 KNOWN_AGENT_NAMES = [
     "Scissari",
     "Frita",
+    "Toyota",
     "Shelia",
     "Hailey",
     "Jeri",
@@ -64,7 +65,7 @@ KNOWN_AGENT_NAMES = [
     "Suzuki Router",
     "Suzuki Reproducer",
     "Suzuki Static Analysis",
-    "Suzuki Patcher",
+    "Suzuki Patch",
     "Suzuki Test Runner",
     "Suzuki Regression",
 ]
@@ -78,3 +79,9 @@ WHISPER_PROMPT = os.environ.get(
 # Optional batch Pipecat pilot. Only uploads bearing this agent id may opt in.
 PIPECAT_PILOT_AGENT_ID = os.environ.get("PIPECAT_PILOT_AGENT_ID")
 PIPECAT_WHISPER_MODEL = os.environ.get("PIPECAT_WHISPER_MODEL", "small.en")
+PIPECAT_STT_PROVIDER = os.environ.get("PIPECAT_STT_PROVIDER", "local").strip().lower()
+PIPECAT_CLEANUP_MODE = os.environ.get("PIPECAT_CLEANUP_MODE", "letta").strip().lower()
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+PIPECAT_GROQ_MODEL = os.environ.get(
+    "PIPECAT_GROQ_MODEL", "whisper-large-v3-turbo"
+)

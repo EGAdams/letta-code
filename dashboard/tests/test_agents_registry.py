@@ -257,17 +257,7 @@ class TestAVoiceThatWouldFailOnABackgroundThread:
 
 
 class TestTheVoiceConfigDrift:
-    """Recorded, not fixed — and pinned so it cannot widen.
-
-    `voice/config.py`'s `KNOWN_AGENT_NAMES` says it is "kept in sync with
-    LETTA_AGENTS in server.py". It is not. It feeds the whisper prompt and the
-    cleanup model's mishear correction, so editing it changes what the voice
-    pipeline hears; that is a behaviour change and does not belong in a
-    config-typing commit (plan rule 15). Round 13 hands this on.
-
-    If you fix the drift, these tests are where you say so: empty both frozensets
-    in `agents/registry.py` and the assertions below start requiring agreement.
-    """
+    """The roster and STT vocabulary stay in exact agreement."""
 
     def test_the_drift_is_exactly_what_the_registry_records(self):
         from voice.config import KNOWN_AGENT_NAMES
@@ -277,10 +267,10 @@ class TestTheVoiceConfigDrift:
         assert roster - voice == ar.ROSTER_NAMES_MISSING_FROM_VOICE_CONFIG
         assert voice - roster == ar.VOICE_CONFIG_NAMES_NOT_ON_THE_ROSTER
 
-    def test_the_receptionist_is_the_agent_missing_a_mishear_correction(self):
-        """Toyota is the receptionist `/api/receptionist-agent` resolves, so it
-        is the one name the voice path most needs whisper to get right."""
-        assert 'Toyota' in ar.ROSTER_NAMES_MISSING_FROM_VOICE_CONFIG
+    def test_the_receptionist_has_a_mishear_correction(self):
+        from voice.config import KNOWN_AGENT_NAMES
+
+        assert 'Toyota' in KNOWN_AGENT_NAMES
         assert ar.by_name('Toyota') is not None
 
 

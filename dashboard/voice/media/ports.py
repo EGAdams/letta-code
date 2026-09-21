@@ -9,3 +9,13 @@ from .models import AudioUpload, VoiceTranscript
 class VoiceMediaPort(Protocol):
     def process(self, upload: AudioUpload) -> VoiceTranscript:
         ...
+
+
+class VoiceTimingObserver(Protocol):
+    def observe(self, stage: str, duration_seconds: float) -> None:
+        ...
+
+
+class SttFallbackObserver(Protocol):
+    def observe(self, error: Exception) -> None:
+        ...

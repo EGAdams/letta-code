@@ -1,12 +1,24 @@
 """The opt-in Pipecat batch adapter keeps the existing voice HTTP contract."""
 
+import io
+import wave
+
 import pytest
 
 from voice.media.models import AudioUpload, VoiceTranscript
 from voice.media.ports import VoiceMediaPort
-from voice.pipecat_media.adapter import PipecatWhisperTranscriber
+from voice.pipecat_media.adapter import (
+    FallbackPcmTranscriber,
+    PipecatBatchTranscriber,
+    PipecatWhisperTranscriber,
+    build_pcm_transcriber,
+)
 from voice.pipecat_media.decoder import decode_recording_to_pcm
-from voice.pipecat_media.stt import PipecatWhisperSttAdapter
+from voice.pipecat_media.stt import (
+    PipecatGroqSttAdapter,
+    PipecatWhisperSttAdapter,
+    build_groq_service,
+)
 from voice.pipeline import VoicePipeline, handle_voice_upload
 
 
@@ -25,6 +37,129 @@ def test_pipecat_transcriber_decodes_upload_then_sends_pcm_to_stt():
     transcriber = PipecatWhisperTranscriber(Stt(), decode)
     assert transcriber.transcribe(b"webm bytes", "voice.webm") == "hello Mazda"
     assert seen == [("decode", "voice.webm", b"webm bytes"), ("stt", b"\0\0")]
+
+
+def test_batch_transcriber_is_named_for_its_interface_instead_of_one_provider():
+    transcriber = PipecatBatchTranscriber(
+        type("Stt", (), {"transcribe_pcm": lambda self, pcm: "heard"})(),
+        lambda upload: b"\0\0",
+    )
+    assert transcriber.transcribe(b"webm bytes", "voice.webm") == "heard"
+
+
+def test_groq_stt_wraps_pcm_in_a_valid_16khz_mono_wav():
+    client_closed = []
+
+    class Transcript:
+        def __init__(self, text):
+            self.text = text
+
+    class Service:
+        class Client:
+            async def close(self):
+                client_closed.append(True)
+
+        _client = Client()
+
+        async def run_stt(self, audio):
+            with wave.open(io.BytesIO(audio), "rb") as wav:
+                assert wav.getnchannels() == 1
+                assert wav.getsampwidth() == 2
+                assert wav.getframerate() == 16000
+                assert wav.readframes(wav.getnframes()) == b"\x01\x00\x02\x00"
+            yield Transcript("Toyota voice pilot is ready.")
+
+    stt = PipecatGroqSttAdapter(
+        lambda: Service(), transcript_type=Transcript, error_type=()
+    )
+    assert stt.transcribe_pcm(b"\x01\x00\x02\x00") == "Toyota voice pilot is ready."
+    assert client_closed == [True]
+
+
+def test_fallback_pcm_transcriber_uses_local_only_when_groq_fails():
+    calls = []
+    failures = []
+
+    class Primary:
+        def transcribe_pcm(self, pcm):
+            calls.append(("groq", pcm))
+            raise RuntimeError("network unavailable")
+
+    class Fallback:
+        def transcribe_pcm(self, pcm):
+            calls.append(("local", pcm))
+            return "local result"
+
+    class Observer:
+        def observe(self, error):
+            failures.append(str(error))
+
+    transcriber = FallbackPcmTranscriber(Primary(), Fallback(), Observer())
+    assert transcriber.transcribe_pcm(b"\0\0") == "local result"
+    assert calls == [("groq", b"\0\0"), ("local", b"\0\0")]
+    assert failures == ["network unavailable"]
+
+
+def test_fallback_pcm_transcriber_does_not_load_local_after_groq_succeeds():
+    class Primary:
+        def transcribe_pcm(self, pcm):
+            return "fast result"
+
+    class Fallback:
+        def transcribe_pcm(self, pcm):
+            raise AssertionError("local fallback should stay cold")
+
+    assert FallbackPcmTranscriber(Primary(), Fallback()).transcribe_pcm(b"\0\0") == "fast result"
+
+
+def test_pcm_factory_selects_groq_with_local_fallback(monkeypatch):
+    from voice import config
+    from voice.pipecat_media import adapter
+
+    groq = object()
+    local = object()
+    monkeypatch.setattr(config, "PIPECAT_STT_PROVIDER", "groq")
+    monkeypatch.setattr(adapter, "PipecatGroqSttAdapter", lambda: groq)
+    monkeypatch.setattr(adapter, "PipecatWhisperSttAdapter", lambda: local)
+
+    selected = build_pcm_transcriber()
+    assert isinstance(selected, FallbackPcmTranscriber)
+    assert selected.primary is groq
+    assert selected.fallback is local
+
+
+def test_pcm_factory_rejects_unknown_provider(monkeypatch):
+    from voice import config
+
+    monkeypatch.setattr(config, "PIPECAT_STT_PROVIDER", "typo")
+    with pytest.raises(ValueError, match="unsupported Pipecat STT provider"):
+        build_pcm_transcriber()
+
+
+def test_groq_service_requires_an_api_key(monkeypatch):
+    from voice import config
+
+    monkeypatch.setattr(config, "GROQ_API_KEY", None)
+    with pytest.raises(RuntimeError, match="GROQ_API_KEY"):
+        build_groq_service()
+
+
+def test_groq_service_uses_fast_model_english_and_vocabulary_prompt(monkeypatch):
+    import asyncio
+
+    from pipecat.transcriptions.language import Language
+    from voice import config
+
+    monkeypatch.setattr(config, "GROQ_API_KEY", "test-key")
+    monkeypatch.setattr(config, "PIPECAT_GROQ_MODEL", "whisper-large-v3-turbo")
+    monkeypatch.setattr(config, "WHISPER_PROMPT", "Agent names: Toyota.")
+
+    service = build_groq_service()
+    assert service._settings.model == "whisper-large-v3-turbo"
+    assert service._settings.language == Language.EN
+    assert service._settings.prompt == "Agent names: Toyota."
+    assert service._settings.temperature == 0.0
+    asyncio.run(service._client.close())
 
 
 def test_pipecat_pipeline_preserves_voice_media_port_and_cleanup_fallback():

@@ -19,7 +19,7 @@ the IP, or the cert won't validate. This is `desktop-2obsqmc` (the primary Linux
 
 ## Voice pipeline (`voice/`)
 
-`MediaRecorder → POST /api/voice → whisper.cpp → cleanup agent → fills message box → /api/test`.
+`MediaRecorder → POST /api/voice → selected STT Strategy → selected cleanup Strategy → fills message box → /api/test`.
 GoF: Strategy (transcription/cleanup swap), Adapter (`LettaClient`), Factory (`build_*`), Pipeline
 (`VoicePipeline`), State (recorder idle→recording→processing).
 
@@ -27,11 +27,11 @@ GoF: Strategy (transcription/cleanup swap), Adapter (`LettaClient`), Factory (`b
 |---|---|
 | `voice/config.py` | paths/ids from env; bakes in lettabot's whisper defaults; `KNOWN_AGENT_NAMES` |
 | `voice/transcription.py` | `WhisperCppTranscriber` (ffmpeg → 16k wav → `whisper-cli`) |
-| `voice/cleanup.py` | `LettaAgentCleanup` — clears the cleanup agent's history each call; raw-text fallback |
+| `voice/cleanup.py` | `LettaAgentCleanup` and `PassThroughCleanup` Strategies |
 | `voice/letta_client.py` | thin Letta HTTP adapter |
 | `voice/pipeline.py` | `VoicePipeline.process` + `handle_voice_upload` (the `/api/voice` handler logic) |
 | `voice/media/` | Pydantic `AudioUpload` / `VoiceTranscript` models and the `VoiceMediaPort` batch-media protocol |
-| `voice/pipecat_media/` | optional Pipecat 1.11.0 batch STT adapter; decoded PCM and frame mapping |
+| `voice/pipecat_media/` | Pipecat 1.11.0 batch adapters for local Faster Whisper and Groq |
 
 `POST /api/voice` receives the recorded audio bytes as its body, with
 `X-Filename` describing the actual MediaRecorder format (`voice.webm`,
@@ -55,12 +55,14 @@ home-screen recorder automatically. Agent Management remains browser-local:
 set `localStorage.voicePipecatPilotAgentId` to the same ID and reload that
 agent's Input Options page. Pilot uploads carry the agent ID and Pipecat
 headers. The route rejects a mismatched ID; all unmarked uploads continue
-through whisper.cpp. Pipecat uses a separate Faster Whisper model (default
-`small.en`, override with `PIPECAT_WHISPER_MODEL`) and reuses the existing
-Letta cleanup, agent turn, and speech output. The first request may download
-the model. The live Toyota pilot currently selects `base.en`; its cleanup
-result matched the production path during the 2026-09-21 generated-speech
-probe. See `voice/pipecat_media/README.md`.
+through whisper.cpp. `PIPECAT_STT_PROVIDER` selects `local` or `groq`. Groq
+defaults to `whisper-large-v3-turbo`, receives English plus the known-agent
+prompt, and falls back to the local model if its request fails.
+`PIPECAT_CLEANUP_MODE` selects `letta` or `direct`. Direct mode removes the
+second network/model call and returns the STT result in both transcript fields.
+The live Toyota pilot uses Groq plus direct cleanup; other voice paths retain
+their existing behavior. Separate stage timings appear in the dashboard log.
+See `voice/pipecat_media/README.md`.
 
 Microphone capture follows idle → recording → processing → idle. The stream's
 tracks are released when capture stops and when recorder construction, start,
