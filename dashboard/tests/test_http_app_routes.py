@@ -12,6 +12,7 @@ import pytest
 
 import server
 from http_app import post_routes
+from letta_code import streaming as conversation_streaming
 from voice import config as voice_config
 from tests.http_app_harness import (
     DashboardClient,
@@ -133,6 +134,51 @@ class TestReceptionistVoiceMediaContract:
         assert response.json['voice_media_backend'] == 'whisper'
 
 
+class TestConversationStreamContract:
+    def test_streams_validated_ndjson_without_waiting_for_a_content_length(
+            self, live, svc, monkeypatch):
+        seen = []
+
+        def stream(request):
+            seen.append(request)
+            yield conversation_streaming.ConversationStreamRecord.provider_event({
+                'type': 'stream_event',
+                'event': {'message_type': 'assistant_message', 'content': 'Hello. '},
+            })
+            yield conversation_streaming.ConversationStreamRecord.provider_event({
+                'type': 'result', 'conversation_id': 'conv-123', 'result': 'Hello.'})
+
+        monkeypatch.setattr(conversation_streaming, 'stream_letta_code_message', stream)
+        response = live.post('/api/letta-code-stream', json.dumps({
+            'agent': 'toyota', 'text': 'hello', 'conversation_id': None,
+        }).encode())
+
+        assert response.status == 200
+        assert response.headers['Content-Type'] == 'application/x-ndjson'
+        assert response.headers.get('Content-Length') is None
+        records = [json.loads(line) for line in response.body.splitlines()]
+        assert [record['event']['type'] for record in records] == [
+            'stream_event', 'result']
+        assert seen[0].text == 'hello'
+
+    def test_rejects_extra_request_fields_before_starting_a_process(
+            self, live, svc, monkeypatch):
+        called = False
+
+        def stream(*_args):
+            nonlocal called
+            called = True
+            return iter(())
+
+        monkeypatch.setattr(conversation_streaming, 'stream_letta_code_message', stream)
+        response = live.post('/api/letta-code-stream', json.dumps({
+            'agent': 'toyota', 'text': 'hello', 'surprise': True,
+        }).encode())
+
+        assert response.status == 400
+        assert called is False
+
+
 class TestScannerIntakeStatusContract:
     def test_returns_the_exact_scan_conversation(self, live, svc, stub):
         stub('get_scanner_intake', lambda key: {
@@ -252,7 +298,8 @@ class TestQueryParameters:
 class TestPostBodyHandling:
     @pytest.mark.parametrize('path', [
         '/api/note-command-complete', '/api/receptionist-intent',
-        '/api/letta-code-message', '/api/route-detect', '/api/note-save',
+        '/api/letta-code-message', '/api/letta-code-stream',
+        '/api/route-detect', '/api/note-save',
     ])
     def test_malformed_json_is_a_400_not_a_500(self, live, svc, path):
         resp = live.post(path, body='{not json')

@@ -142,7 +142,7 @@ ambiguity/error → "no agent detected", never a guess). `openWakeWord` was eval
 deferred (real ML training work); `ContinuousListener` stays provider-agnostic so a future
 wake-word listener can be swapped in later.
 
-## Input Options "Send" → `/api/letta-code-message`
+## Input Options "Send" → batch or streaming Letta Code
 
 `InputOptionsRenderer` now sends through the injected `ConversationAgent`
 port. The dashboard composition roots select `LettaAgentAdapter`, which owns
@@ -167,6 +167,16 @@ The typed session source and its ports live in
 `js/abstract/voice_session/src/`; its module-local `tsconfig.json` compiles
 browser-loadable JS into `dist/`. See that module's README for the build command.
 
+Toyota's receptionist selects `StreamingLettaAgentAdapter` and
+`POST /api/letta-code-stream`. The endpoint starts Letta Code with
+`stream-json` plus partial messages and writes validated NDJSON records as
+they arrive. `ConversationCoordinator` publishes each assistant delta to the
+UI, uses `DeterministicSentenceSegmenter` to release complete sentences, and
+sends them through `SequentialSpeechQueue`. Toyota can therefore start saying
+the first sentence while later text is still being generated. A browser abort
+closes the response and reaps the CLI process group. Other Input Options pages
+remain on the batch adapter during this pilot.
+
 The Chat tab also uses a per-agent `VoiceSession` and `SpokenOutputPolicy`.
 Its typed `TestChatAgentAdapter` keeps the existing `/api/test` behavior,
 which resets agent messages on each send, and maps only assistant replies to
@@ -175,8 +185,9 @@ another Send, push-to-talk, or turning Speak off interrupts active playback.
 The Agents-home router only classifies and hands text to Input Options; it
 does not send an agent turn or synthesize a reply, so it has no speech policy.
 
-Shells out to this checkout's `letta` CLI headlessly (`--output-format json --memfs-startup skip
---permission-mode acceptEdits`). Two invariants (both from a 2026-07-22 failure where Mazda's
+The batch endpoint shells out to this checkout's `letta` CLI headlessly
+(`--output-format json --memfs-startup skip --permission-mode acceptEdits`).
+Two invariants (both from a 2026-07-22 failure where Mazda's
 correct answer looked like "no answer"):
 
 1. Server budget is 1770s but `FetchHttpClient`'s default abort is 30s — the

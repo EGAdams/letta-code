@@ -107,6 +107,7 @@ export {
 } from "./printer-repair-controller.js";
 export { RolFinanceReportsController } from "./rol-finance-reports-controller.js";
 export { ScannerDiagnosticsController } from "./scanner-diagnostics-controller.js";
+export { SequentialSpeechQueue } from "./sequential-speech-queue.js";
 export {
   buildServerActionRequest,
   ServerActionController,
@@ -117,6 +118,7 @@ export {
   ServerLogController,
 } from "./server-log-controller.js";
 export { StatementReviewDialog } from "./statement-review-dialog.js";
+export { StreamingLettaAgentAdapter } from "./streaming-letta-agent-adapter.js";
 export {
   RandomIdSource,
   SystemClock,

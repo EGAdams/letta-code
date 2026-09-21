@@ -93,6 +93,7 @@ def default_returns():
         # Strategy objects
         'build_receptionist_strategy': lambda *a, **k: FakeStrategy(),
         'note_command_service': lambda *a, **k: FakeStrategy(),
+        'stream_letta_code_message': lambda *a, **k: iter(()),
         # Routes that serve a file and 404 when the lookup comes back empty
         '_report_source_document_view': lambda *a, **k: an_existing_file,
     }
@@ -122,6 +123,7 @@ DIRECT_SERVICES = {
     'health.frita': ('claude_sdk_account_payload', 'set_claude_sdk_account'),
     'model_stats.reader': ('model_stats',),
     'model_stats_mute': ('apply_mute_overlay', 'set_muted'),
+    'letta_code.streaming': ('stream_letta_code_message',),
     'monitoring.log_files': ('log_activity_health',),
     'monitoring.pc_metrics': ('pc_metrics',),
     'monitoring.server_lifecycle': ('clear_server_starting',

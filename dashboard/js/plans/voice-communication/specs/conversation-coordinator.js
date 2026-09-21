@@ -5,14 +5,14 @@ export const conversationCoordinatorSpec = {
   name: "ConversationCoordinator",
   group: "Planned core",
   tagline:
-    "Typed Mediator design for streamed agent text, sentence-level speech, and interruption.",
+    "Typed Mediator for streamed agent text, sentence-level speech, and interruption.",
   status: Status.PARTIAL,
   statusNote:
-    "The typed dialogue coordinator contract and transport design now live in js/abstract/conversation_coordinator/. Runtime behavior is the next TDD slice.",
+    "Toyota now uses the typed coordinator, streaming NDJSON Letta adapter, deterministic sentence segmentation, and ordered cancellable speech queue.",
   responsibility: [
     "Coordinate one finalized user turn into exactly one agent run, and make sure overlapping speech never produces overlapping responses. It is the Mediator between capture, the agent, and output.",
     "The shipped VoiceCommandChannel already owns a meaningful piece of this: it serialises work onto a promise chain, dedupes identical finalized transcripts, and decides when an instruction is complete enough to act on. That last decision — completeness judged from accumulated text rather than a silence timer — is the part worth keeping in any rebuild.",
-    "The new typed contract now defines dialogue coordination without DOM, HTTP, Letta, or audio-provider dependencies. Runtime turn coordination still lives in renderer closures until the next TDD slice implements and adopts the contract.",
+    "The typed coordinator defines dialogue coordination without DOM, HTTP, Letta, or audio-provider dependencies. Input Options delegates its turn lifecycle to this Mediator; Toyota injects the streaming adapter while other agents retain the batch adapter during the pilot.",
   ],
   contract: {
     language: "ts",
@@ -50,14 +50,27 @@ Existing note-edit mediator:
     },
     {
       name: "ConversationCoordinator",
-      kind: "planned",
+      kind: "current",
       file: "js/abstract/conversation_coordinator/src/conversation-coordinator.ts",
-      note: "Typed Mediator contract for agent events, generation fencing, sentence segmentation, ordered speech, observers, and interruption. Implementation is intentionally waiting on failing tests.",
+      note: "Typed Mediator implementation for agent events, generation fencing, sentence segmentation, ordered speech, observers, and interruption.",
+    },
+    {
+      name: "StreamingLettaAgentAdapter",
+      kind: "current",
+      file: "js/implementation/conversation_stream_agent/src/streaming-letta-agent-adapter.ts",
+      note: "Maps validated NDJSON provider records into assistant deltas and propagates browser cancellation through AbortController.",
+    },
+    {
+      name: "SequentialSpeechQueue",
+      kind: "current",
+      file: "js/implementation/conversation_coordinator/src/sequential-speech-queue.ts",
+      note: "Keeps sentence playback ordered and registers cancellation ownership with VoiceSession.",
     },
   ],
   dependencies: {
     usedBy: [
-      "InputOptionsRenderer (planned adoption)",
+      "InputOptionsRenderer",
+      "Toyota receptionist streaming pilot",
       "ChatDetailRenderer (planned adoption)",
       "VoiceCommandChannel remains the note-edit coordinator",
     ],
@@ -76,6 +89,9 @@ Existing note-edit mediator:
       "The dialogue Mediator has a strict TypeScript contract and reuses the existing ConversationTurn, AgentEvent, and VoiceSession types.",
       "The first-sentence, streaming transport, and barge-in flows are documented as Mermaid diagrams beside the module.",
       "The transport design uses the CLI's existing stream-json output and requires browser abort to terminate the server-side process group.",
+      "Toyota's response text now renders incrementally and complete sentences enter TTS before the terminal result.",
+      "The Pydantic NDJSON endpoint validates requests and outgoing envelopes without adding behavior to server.py.",
+      "AbortController cancellation closes the HTTP stream; the generator then kills and reaps the CLI process group.",
       "Work is serialised on a promise chain, so an in-flight edit cannot interleave with the next speech fragment.",
       "Identical finalized text is never assessed twice — important because the recognizer re-flushes its tail on every silence restart.",
       "Completeness is judged from accumulated text via an injected detector, never from a silence timeout.",
@@ -83,10 +99,9 @@ Existing note-edit mediator:
       "Errors from either collaborator surface as status without wedging the queue.",
     ],
     gaps: [
-      "The dialogue coordinator has a typed contract and diagrams but no runtime implementation yet.",
-      "There is no streaming dashboard endpoint or browser adapter yet; the current Letta adapter still yields one complete answer.",
-      "The sentence boundary Strategy and ordered speech queue are contracts only.",
-      "Input Options and Chat still coordinate turns in renderer closures.",
+      "Streaming is piloted on Toyota; other Input Options agents still use the batch adapter.",
+      "Edge TTS still synthesizes one sentence per HTTP request, so later work can add audio preparation overlap if sentence gaps remain audible.",
+      "Chat retains its existing turn closure and batch /api/test adapter.",
     ],
   },
   tests: {
@@ -103,16 +118,32 @@ Existing note-edit mediator:
         proves:
           "The DOM binding: the command box is separate from the note, Run executes typed text without the detector, Clear empties the command without touching the note, listener errors are reported.",
       },
+      {
+        path: "js/abstract/conversation_coordinator/tests/conversation-coordinator.test.ts",
+        count: 5,
+        proves:
+          "Split sentence boundaries, abbreviation and decimal handling, maximum phrase latency, first-sentence speech before terminal, and stale generation cancellation.",
+      },
+      {
+        path: "js/implementation/conversation_stream_agent/tests/streaming-letta-agent-adapter.test.ts",
+        count: 3,
+        proves:
+          "Fragmented NDJSON parsing, malformed record rejection, conversation resume persistence, and request abort.",
+      },
+      {
+        path: "js/implementation/conversation_coordinator/tests/sequential-speech-queue.test.ts",
+        count: 2,
+        proves:
+          "Sentence playback remains ordered and cancellation prevents queued late speech.",
+      },
     ],
     untested: [
-      "First-sentence speech before the terminal event.",
-      "Ordered sentence playback and terminal-tail flushing.",
-      "Cancellation of agent transport, prepared audio, active playback, and late events.",
       "Two coordinators sharing one microphone.",
+      "Measured first-audio latency over the live Tailscale browser path.",
     ],
     next: [
-      "Write the failing contract suite for first-sentence speech, ordered later sentences, terminal-tail flushing, and generation cancellation.",
-      "Write the failing transport tests for fragmented NDJSON, malformed records, cumulative-message normalization, and aborting the child process.",
+      "Measure Toyota's time to first text and first audio over the live secure URL.",
+      "If sentence gaps are audible, add a speech preparation port so sentence N+1 can synthesize while sentence N is playing.",
     ],
   },
   diagrams: [
@@ -189,9 +220,8 @@ Existing note-edit mediator:
     },
   ],
   nextWork: [
-    "Add failing tests under js/abstract/conversation_coordinator/tests before implementing runtime behavior.",
-    "Implement a deterministic SentenceSegmenter Strategy and ordered SpeechQueue behind their typed ports.",
-    "Implement StreamingLettaAgentAdapter over a validated NDJSON endpoint backed by the CLI's stream-json output.",
-    "Adopt the coordinator in Toyota's InputOptionsRenderer, then add microphone speech-start barge-in.",
+    "Measure Toyota's time to first text and first audio through the secure browser URL.",
+    "Add optional concurrent TTS preparation if sentence-to-sentence gaps remain visible in that trace.",
+    "After the pilot is stable, select the streaming adapter for other Input Options agents.",
   ],
 };

@@ -19,8 +19,8 @@ import {
   BrowserSpeechRecognitionListener,
   EditableDarkNoteSurface,
   InputOptionsRenderer,
-  LettaAgentAdapter,
   SpokenOutputPolicy,
+  StreamingLettaAgentAdapter,
   VoiceSession,
 } from "../implementation/index.js";
 import { recorderFactoryForAgent } from "./pipecat-voice-pilot.js";
@@ -47,8 +47,7 @@ export async function startReceptionist({
   const voiceSession = new VoiceSession();
   return rendererFactory({
     http,
-    conversationAgent: new LettaAgentAdapter({
-      http,
+    conversationAgent: new StreamingLettaAgentAdapter({
       storage,
     }),
     voiceSession,

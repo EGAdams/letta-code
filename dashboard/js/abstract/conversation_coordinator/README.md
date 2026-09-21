@@ -1,6 +1,6 @@
 # Conversation Coordinator
 
-This module designs the browser-side Mediator for one conversational turn. It
+This module contains the browser-side Mediator for one conversational turn. It
 coordinates existing ports without depending on the DOM, `fetch`, Letta, or a
 specific speech provider.
 
@@ -18,14 +18,14 @@ The design deliberately keeps five responsibilities separate:
 - `SpeechQueuePort` prepares and plays speech in order.
 - `ConversationCoordinatorObserver` reports text, status, and errors to a UI.
 
-The future Letta adapter will consume the CLI's existing
+The `StreamingLettaAgentAdapter` consumes the CLI's existing
 `--output-format stream-json --include-partial-messages` NDJSON output through
-a streaming HTTP endpoint. That cross-process boundary will use Pydantic
-request and stream-record models on the Python side. The browser adapter owns
-conversion from cumulative or delta wire messages to non-duplicated
-`assistant_text` deltas. The coordinator never parses Letta wire shapes.
+a streaming HTTP endpoint. The cross-process boundary uses Pydantic request and
+stream-record models in `dashboard/letta_code/streaming.py`. The browser
+adapter owns conversion from provider wire messages to `assistant_text`
+deltas. The coordinator never parses Letta wire shapes.
 
-The first implementation slice should be test driven. Its acceptance case is:
+The first implementation slice now provides this acceptance case:
 
 1. Toyota emits a partial answer containing one complete sentence.
 2. That sentence enters the speech queue before the agent turn finishes.
@@ -34,6 +34,14 @@ The first implementation slice should be test driven. Its acceptance case is:
 5. The browser abort reaches the server and reaps the CLI process group.
 6. Any late event from the interrupted generation is discarded.
 
+Toyota's receptionist composition root selects the streaming adapter. Other
+agent surfaces retain the batch adapter while this pilot is measured.
+
 ```bash
 ./node_modules/.bin/tsc -p dashboard/js/abstract/conversation_coordinator/tsconfig.json
+./node_modules/.bin/tsc -p dashboard/js/implementation/conversation_coordinator/tsconfig.json
+./node_modules/.bin/tsc -p dashboard/js/implementation/conversation_stream_agent/tsconfig.json
+bun test dashboard/js/abstract/conversation_coordinator/tests \
+  dashboard/js/implementation/conversation_coordinator/tests \
+  dashboard/js/implementation/conversation_stream_agent/tests
 ```

@@ -121,3 +121,31 @@ export interface ConversationCoordinatorPort {
   interrupt(): GenerationId | null;
   close(): void;
 }
+/** Deterministic Strategy that turns arbitrary text deltas into speakable phrases. */
+export declare class DeterministicSentenceSegmenter
+  implements SentenceSegmenterPort
+{
+  private readonly maxCharacters;
+  private buffer;
+  constructor(maxCharacters?: number);
+  push(delta: string): readonly string[];
+  flush(): string | null;
+  reset(): void;
+  private takeSentence;
+  private takeLengthBoundedPhrase;
+}
+/** Mediator for agent streaming, turn fencing, segmentation, and ordered speech. */
+export declare class ConversationCoordinator
+  implements ConversationCoordinatorPort
+{
+  private readonly dependencies;
+  private activeGeneration;
+  private closed;
+  constructor(dependencies: ConversationCoordinatorDependencies);
+  start(
+    turn: ConversationTurn,
+    options: ConversationTurnOptions,
+  ): Promise<ConversationTurnOutcome>;
+  interrupt(): GenerationId | null;
+  close(): void;
+}

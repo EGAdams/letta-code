@@ -48,6 +48,25 @@ class HttpTransportMixin:
         self._write(body, 'application/json',
                     extra_headers=(('Access-Control-Allow-Origin', '*'),))
 
+    def ndjson_response(self, records):
+        """Write records as they arrive; HTTP/1.0 connection close terminates the body."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/x-ndjson')
+        self.send_header('Connection', 'close')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self._send_no_cache_headers()
+        self.end_headers()
+        self.close_connection = True
+        try:
+            for record in records:
+                line = record.model_dump_json().encode('utf-8') + b'\n'
+                self.wfile.write(line)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            close = getattr(records, 'close', None)
+            if close:
+                close()
+
     def error_response(self, message, code=400):
         body = ErrorResponse(error=message).model_dump_json().encode('utf-8')
         self._write(body, 'application/json', code=code)

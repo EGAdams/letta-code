@@ -26,6 +26,7 @@ from finance.human_verification import HumanVerificationRequest
 from health import frita
 from hosts import LETTA_BASE_URL
 from letta_code.runner import ConversationBusyError
+from letta_code import streaming as conversation_streaming
 from model_stats import reader as model_stats_reader
 from model_stats_mute import ModelStatsMuteRequest
 from pydantic import ValidationError
@@ -618,6 +619,17 @@ class PostRoutesMixin:
                 return self.error_response('Mazda took too long to answer', 504)
             except ConversationBusyError as e:
                 return self.error_response(str(e), 409)
+            except Exception as e:
+                return self.error_response(str(e), 502)
+        if path == '/api/letta-code-stream':
+            try:
+                request = conversation_streaming.ConversationStreamRequest.model_validate_json(body)
+                records = conversation_streaming.stream_letta_code_message(request)
+                return self.ndjson_response(records)
+            except ValidationError as e:
+                return self.error_response(f'invalid request: {e}', 400)
+            except ValueError as e:
+                return self.error_response(str(e), 400)
             except Exception as e:
                 return self.error_response(str(e), 502)
         if path == '/api/headless-prompt':

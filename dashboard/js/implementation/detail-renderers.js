@@ -1,5 +1,9 @@
 import { ListenerState } from "../abstract/continuous-listener.interface.js";
 import { AgentEventKind } from "../abstract/conversation-agent.interface.js";
+import {
+  ConversationCoordinator,
+  DeterministicSentenceSegmenter,
+} from "../abstract/conversation-coordinator.js";
 import { DetailRenderer } from "../abstract/detail-renderer.interface.js";
 import { ReceptionistTranscriptController } from "../abstract/receptionist-transcript-controller.js";
 import { TextUtils } from "../abstract/text-utils.js";
@@ -8,6 +12,7 @@ import { SessionState } from "../abstract/voice-session.js";
 import { AgentStreamController } from "./agent-stream-controller.js";
 import { DomConsoleView } from "./dom-console-view.js";
 import { MediaRecorderVoiceRecorder } from "./media-recorder-voice-recorder.js";
+import { SequentialSpeechQueue } from "./sequential-speech-queue.js";
 import { EditableTextareaSurface } from "./textarea-note-surfaces.js";
 import { TranscriptSyncedNote } from "./transcript-synced-note.js";
 
@@ -720,6 +725,9 @@ export class InputOptionsRenderer extends DetailRenderer {
     listener = null,
     receptionistIntentPolicy = null,
     surfaceFactory = (opts) => new EditableTextareaSurface(opts),
+    coordinatorFactory = (deps) => new ConversationCoordinator(deps),
+    sentenceSegmenterFactory = () => new DeterministicSentenceSegmenter(),
+    speechQueueFactory = (deps) => new SequentialSpeechQueue(deps),
   }) {
     super();
     if (!http) throw new Error("InputOptionsRenderer requires an HttpClient");
@@ -743,6 +751,9 @@ export class InputOptionsRenderer extends DetailRenderer {
     this._listener = listener;
     this._receptionistIntentPolicy = receptionistIntentPolicy;
     this._surfaceFactory = surfaceFactory;
+    this._coordinatorFactory = coordinatorFactory;
+    this._sentenceSegmenterFactory = sentenceSegmenterFactory;
+    this._speechQueueFactory = speechQueueFactory;
   }
 
   _el(tag, props = {}) {
@@ -872,10 +883,16 @@ export class InputOptionsRenderer extends DetailRenderer {
       statusEl.textContent = msg;
     };
 
+    let activeCoordinator = null;
     const interruptCurrentTurn = () => {
       const state = this._voiceSession.state;
       if (state !== SessionState.THINKING && state !== SessionState.SPEAKING)
         return;
+      if (activeCoordinator) {
+        activeCoordinator.interrupt();
+        activeCoordinator = null;
+        return;
+      }
       if (state === SessionState.THINKING)
         this._conversationAgent.cancel(this._voiceSession.currentGeneration);
       this._voiceSession.interrupt();
@@ -1082,72 +1099,55 @@ export class InputOptionsRenderer extends DetailRenderer {
         consoleEl.scrollTop = consoleEl.scrollHeight;
       };
       this._onStatus(id, "active");
-      let generationId = null;
       try {
-        const replies = [];
-        const events = [];
-        const superseded = this._voiceSession.currentGeneration;
-        if (superseded && this._voiceSession.state === SessionState.THINKING)
-          this._conversationAgent.cancel(superseded);
-        if (this._voiceSession.state !== SessionState.LISTENING)
-          this._voiceSession.startListening();
-        generationId = this._voiceSession.beginTurn();
-        for await (const event of this._conversationAgent.submit(
+        activeCoordinator?.interrupt();
+        let replyText = "";
+        const coordinator = this._coordinatorFactory({
+          agent: this._conversationAgent,
+          session: this._voiceSession,
+          spokenOutputPolicy: this._spokenOutputPolicy,
+          sentenceSegmenter: this._sentenceSegmenterFactory(),
+          speechQueue: this._speechQueueFactory({
+            speech: this._speech,
+            session: this._voiceSession,
+          }),
+          observer: {
+            onAssistantDelta: (_generationId, delta) => {
+              replyText += delta;
+              showTurn(
+                renderReplyRows(
+                  [{ type: "assistant_message", text: replyText }],
+                  this._agentName,
+                ),
+              );
+            },
+            onError: (_generationId, error) => {
+              showStatus(`Answer received (${error.message}).`, true);
+            },
+          },
+        });
+        activeCoordinator = coordinator;
+        const outcome = await coordinator.start(
           { agent: id, text },
-          generationId,
-        )) {
-          if (!this._voiceSession.accepts(generationId)) break;
-          if (event.generationId !== generationId) continue;
-          events.push(event);
-          if (event.kind === AgentEventKind.ASSISTANT_TEXT)
-            replies.push({ type: "assistant_message", text: event.text });
-        }
-        if (!this._voiceSession.accepts(generationId)) {
+          { agentName: this._agentName, speak: !!this._speech?.supported },
+        );
+        if (outcome.status === "interrupted") {
           showTurn('<span class="msi-line">Turn interrupted.</span>');
           return;
         }
-        if (!replies.length) throw new Error("Agent returned no answer.");
-        showTurn(renderReplyRows(replies, this._agentName));
+        showTurn(
+          renderReplyRows(
+            [{ type: "assistant_message", text: outcome.text }],
+            this._agentName,
+          ),
+        );
         showStatus("Answer received.");
-        // speak() fails silently by design (never substitutes a different
-        // voice), so a blocked/failed playback would otherwise look
-        // identical to a normal, silent success — surface it via status
-        // instead of leaving "voice isn't coming through" unexplainable.
-        const spokenText = this._spokenOutputPolicy.admitAll(events).join(". ");
-        if (
-          this._speech?.supported &&
-          spokenText &&
-          this._voiceSession.beginSpeaking(generationId)
-        ) {
-          const spoken = this._speech.speak(spokenText, this._agentName);
-          if (spoken?.cancel)
-            this._voiceSession.trackPlayback(generationId, spoken);
-          const reportPlaybackFailure = (engine) => {
-            if (!this._voiceSession.accepts(generationId) || engine) return;
-            const why = this._speech.lastError;
-            showStatus(
-              `Answer received (voice playback failed${why ? `: ${why}` : " or was blocked"}).`,
-            );
-          };
-          spoken?.pending?.then(reportPlaybackFailure, () => {
-            reportPlaybackFailure(null);
-          });
-          const finished = spoken?.finished || spoken?.pending;
-          if (finished) {
-            Promise.resolve(finished).then(
-              () => this._voiceSession.completeTurn(generationId),
-              () => this._voiceSession.completeTurn(generationId),
-            );
-          } else this._voiceSession.completeTurn(generationId);
-        } else {
-          this._voiceSession.completeTurn(generationId);
-        }
       } catch (e) {
-        if (generationId && !this._voiceSession.accepts(generationId)) {
+        activeCoordinator = null;
+        if (this._voiceSession.state === SessionState.INTERRUPTED) {
           showTurn('<span class="msi-line">Turn interrupted.</span>');
           return;
         }
-        if (generationId) this._voiceSession.completeTurn(generationId);
         this._onStatus(id, "error");
         showTurn(
           `<span class="msi-line err">! ${TextUtils.esc(e.message)}</span>`,
