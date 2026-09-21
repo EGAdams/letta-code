@@ -35,6 +35,7 @@ from monitoring.ssh_checks import SSH_CONNECTIONS
 from monitoring.win10_node import WIN10_CONTAINERS
 from paths import HERE, REPO_ROOT
 from intake.statuses import ScannerIntakeStatusResponse
+from voice import config as voice_config
 
 from . import services as srv
 from .registry import current_ports
@@ -109,7 +110,12 @@ class GetRoutesMixin:
                 return self.json_response({'ok': False, 'error': 'receptionist agent not found'})
             return self.json_response({
                 'ok': True, 'agent_id': receptionist['agent_id'],
-                'name': receptionist['name']})
+                'name': receptionist['name'],
+                'voice_media_backend': (
+                    'pipecat'
+                    if receptionist['agent_id'] == voice_config.PIPECAT_PILOT_AGENT_ID
+                    else 'whisper'),
+            })
 
         if path == '/api/agent-voice':
             return self.json_response(srv.agent_voice_payload(agent_id))

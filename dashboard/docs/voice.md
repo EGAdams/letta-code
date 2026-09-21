@@ -50,14 +50,17 @@ data at runtime, and returns only the transcript fields to capture.
 
 For the one-agent Pipecat pilot, install `requirements-pipecat.txt`, set
 `PIPECAT_PILOT_AGENT_ID` in the dashboard service environment, and restart.
-In one browser, set `localStorage.voicePipecatPilotAgentId` to that agent ID
-and reload its Input Options page. The upload then carries the agent ID and
-Pipecat opt-in headers. The route rejects a mismatched ID; all unmarked
-uploads continue through whisper.cpp. Pipecat uses a separate Faster Whisper
-model (default `small.en`, override with `PIPECAT_WHISPER_MODEL`) and reuses
-the existing Letta cleanup, agent turn, and speech output. The first pilot
-request may download the model. The live Frita pilot currently selects
-`tiny.en` in the dashboard service drop-in. See `voice/pipecat_media/README.md`.
+When that ID is Toyota, `/api/receptionist-agent` selects Pipecat for Toyota's
+home-screen recorder automatically. Agent Management remains browser-local:
+set `localStorage.voicePipecatPilotAgentId` to the same ID and reload that
+agent's Input Options page. Pilot uploads carry the agent ID and Pipecat
+headers. The route rejects a mismatched ID; all unmarked uploads continue
+through whisper.cpp. Pipecat uses a separate Faster Whisper model (default
+`small.en`, override with `PIPECAT_WHISPER_MODEL`) and reuses the existing
+Letta cleanup, agent turn, and speech output. The first request may download
+the model. The live Toyota pilot currently selects `base.en`; its cleanup
+result matched the production path during the 2026-09-21 generated-speech
+probe. See `voice/pipecat_media/README.md`.
 
 Microphone capture follows idle → recording → processing → idle. The stream's
 tracks are released when capture stops and when recorder construction, start,

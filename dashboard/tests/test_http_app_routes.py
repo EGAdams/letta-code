@@ -12,6 +12,7 @@ import pytest
 
 import server
 from http_app import post_routes
+from voice import config as voice_config
 from tests.http_app_harness import (
     DashboardClient,
     FakeUrllib,
@@ -104,6 +105,32 @@ class TestVoiceMediaContract:
         assert response.status == 200
         assert response.json == {'ok': False, 'error': 'invalid audio upload'}
         assert not svc.called('_append_json')
+
+
+class TestReceptionistVoiceMediaContract:
+    def test_server_selects_pipecat_for_the_configured_toyota_pilot(
+            self, live, svc, stub, monkeypatch):
+        stub('get_letta_id', lambda cfg: cfg['id'])
+        monkeypatch.setattr(
+            voice_config, 'PIPECAT_PILOT_AGENT_ID',
+            'agent-38cf768e-e1eb-4c29-978a-c6bb64282d25')
+
+        response = live.get('/api/receptionist-agent')
+
+        assert response.status == 200
+        assert response.json['name'] == 'Toyota'
+        assert response.json['voice_media_backend'] == 'pipecat'
+
+    def test_receptionist_keeps_whisper_when_another_agent_is_the_pilot(
+            self, live, svc, stub, monkeypatch):
+        stub('get_letta_id', lambda cfg: cfg['id'])
+        monkeypatch.setattr(
+            voice_config, 'PIPECAT_PILOT_AGENT_ID', 'another-agent')
+
+        response = live.get('/api/receptionist-agent')
+
+        assert response.status == 200
+        assert response.json['voice_media_backend'] == 'whisper'
 
 
 class TestScannerIntakeStatusContract:

@@ -84,12 +84,14 @@ flowchart LR
    and response contract, browser microphone lifecycle, audio format, and
    speech-output behavior in tests. Define the smallest Python media port and
    Pydantic wire models needed by a second implementation.
-4. **Add one Pipecat adapter — batch pilot implemented.** Pipecat 1.11.0 is
-   pinned in `dashboard/requirements-pipecat.txt`. One browser and one existing
-   Letta agent can opt in through matched browser/server agent IDs. Pipecat's
+4. **Add one Pipecat adapter — Toyota batch pilot active.** Pipecat 1.11.0 is
+   pinned in `dashboard/requirements-pipecat.txt`. One existing Letta agent is
+   selected through a server-side ID allowlist; Agent Management can add a
+   matching browser-local opt-in. Pipecat's
    local Whisper service feeds the existing `VoicePipeline` media port and
    cleanup; the default remains whisper.cpp. Real browser/agent parity is
-   still the next step.
+   now proven through generated speech, Toyota, and TTS; real microphone and
+   interruption parity remain the next step.
 5. **Prove parity before expanding.** Test microphone → transcript → agent →
    speech, interruption during each stage, stale events, reconnect, errors,
    and whether tool/internal events remain silent. Compare latency and recovery
@@ -97,10 +99,12 @@ flowchart LR
 
 ## Immediate next slice
 
-Begin step 5: enable the one-agent pilot, compare real microphone → transcript
-→ Letta agent → speech behavior with the current path, and measure latency and
-recovery. The port still handles a complete recording per request; streaming
-media needs a separate, explicit contract.
+Continue step 5 with a real microphone: compare microphone → transcript →
+Toyota → speech behavior with the current path, then exercise interruption
+during capture, transcription, the agent turn, and playback. The generated
+speech probe is green, but it does not prove browser microphone permissions,
+speaker echo, or acoustic barge-in. The port still handles a complete
+recording per request; streaming media needs a separate, explicit contract.
 
 ## Working rules
 
@@ -258,7 +262,7 @@ repo typecheck passed. The compiled module is served at its dashboard URL.
   abstract media type fixture passed. A real `espeak-ng` WAV upload through
   Pipecat 1.11.0's `tiny.en` model returned a transcript.
 - Deployed on the live `DESKTOP-2OBSQMC` checkout. The service's
-  `80-pipecat-voice-pilot.conf` drop-in selects Frita
+  `80-pipecat-voice-pilot.conf` drop-in selected Frita
   (`agent-881a883f-edd0-4963-bf67-6ef178b8f018`) and `tiny.en` for the
   pilot, leaving the browser opt-in unset. After restart, the live
   `/api/voice` route rejected a mismatched agent and accepted a synthetic
@@ -266,3 +270,21 @@ repo typecheck passed. The compiled module is served at its dashboard URL.
   `Hello, Frita, this is a voice test.` The compiled browser adapter was
   served with HTTP 200. No browser microphone, Frita agent turn, or speech
   playback was exercised yet.
+
+## Toyota pilot parity slice — 2026-09-21
+
+- Corrected the pilot target from Frita to Toyota. Toyota's home-screen
+  composition had not received `recorderFactoryForAgent`, so it silently kept
+  using the default Whisper client even when selected. A red composition test
+  captured that missing boundary before the fix.
+- `/api/receptionist-agent` now reports the server-selected media backend.
+  Toyota's home-screen recorder honors that selection without requiring a
+  manual browser storage edit. Agent Management keeps its browser-local opt-in.
+- The live service allowlists Toyota (`agent-38cf768e-e1eb-4c29-978a-c6bb64282d25`)
+  and uses `base.en`. On the same generated WAV, production Whisper returned
+  the expected cleaned text in 25.77 seconds. Warm Pipecat returned the same
+  cleaned text in 10.93 seconds. `tiny.en` was rejected after mishearing
+  "voice pilot" as "moist island."
+- The remainder of the live chain passed: Toyota returned the exact marker
+  `TOYOTA_PIPECAT_READY` in 6.44 seconds, and `/api/tts` returned a 13,248-byte
+  `audio/mpeg` response. Real microphone, echo, and interruption checks remain.

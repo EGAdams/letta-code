@@ -23,29 +23,45 @@ import {
   SpokenOutputPolicy,
   VoiceSession,
 } from "../implementation/index.js";
+import { recorderFactoryForAgent } from "./pipecat-voice-pilot.js";
 
-export async function startReceptionist({ http, speech }) {
+export async function startReceptionist({
+  http,
+  speech,
+  storage = globalThis.localStorage,
+  doc = globalThis.document,
+  recorderFactoryBuilder = recorderFactoryForAgent,
+  rendererFactory = (options) => new InputOptionsRenderer(options),
+  listenerFactory = () => new BrowserSpeechRecognitionListener(),
+}) {
   let agentId;
+  let voiceMediaBackend = "whisper";
   try {
     const d = await http.getJSON("/api/receptionist-agent");
     if (!d?.ok || !d.agent_id) return;
     agentId = d.agent_id;
+    voiceMediaBackend = d.voice_media_backend;
   } catch {
     return;
   }
   const voiceSession = new VoiceSession();
-  new InputOptionsRenderer({
+  return rendererFactory({
     http,
     conversationAgent: new LettaAgentAdapter({
       http,
-      storage: globalThis.localStorage,
+      storage,
     }),
     voiceSession,
     spokenOutputPolicy: new SpokenOutputPolicy({ session: voiceSession }),
     speech,
     agentName: "Toyota",
     agentId,
-    listener: new BrowserSpeechRecognitionListener(),
+    storage,
+    doc,
+    recorderFactory: recorderFactoryBuilder(agentId, storage, {
+      serverSelected: voiceMediaBackend === "pipecat",
+    }),
+    listener: listenerFactory(),
     receptionistIntentPolicy: {
       evaluate: (text) =>
         http.postJSON("/api/receptionist-intent", { text }, { timeout: 15000 }),

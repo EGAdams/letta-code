@@ -5,9 +5,14 @@ import { HttpVoiceMediaClient } from "../implementation/voice_media/dist/http-vo
 
 export const PIPECAT_PILOT_AGENT_KEY = "voicePipecatPilotAgentId";
 
-export function recorderFactoryForAgent(agentId, storage) {
+export function recorderFactoryForAgent(
+  agentId,
+  storage,
+  { serverSelected = false } = {},
+) {
   const isPilot =
-    Boolean(agentId) && storage?.getItem?.(PIPECAT_PILOT_AGENT_KEY) === agentId;
+    Boolean(agentId) &&
+    (serverSelected || storage?.getItem?.(PIPECAT_PILOT_AGENT_KEY) === agentId);
   return (options) =>
     new MediaRecorderVoiceRecorder({
       ...options,
