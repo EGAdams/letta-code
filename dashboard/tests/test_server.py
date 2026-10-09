@@ -7842,3 +7842,113 @@ def test_a_numeric_string_is_still_accepted_after_the_boolean_guard():
         repository=repo, namer=_StubNamer())
     assert out['ok'] is True
     assert repo.edits[0].expense_id == 501
+
+
+# ── A dropped scan must never read as a stuck scanner (2026-10-09) ──────────
+# The Letta server stopped answering, _create_mazda_conversation() timed out on
+# seven consecutive scans, and process_scanned_document returned a stage_error
+# to a browser that had already navigated away -- recording nothing. Both
+# scanner tabs went on rendering 14:46's receipt for the rest of the hour.
+# Two independent guards, tested independently: intake records the failure,
+# and the report view refuses a record that predates the current scan anyway.
+
+def _single_scanner_intake_env(tmp_path, monkeypatch, pointer_name='pointer.json'):
+    scan_dir = tmp_path / 'scans'
+    scan_dir.mkdir()
+    image = scan_dir / 'window_scan.jpg'
+    write_scan_image(image)
+    monkeypatch.setattr(server, 'SCAN_TOOLS_DIR', str(scan_dir))
+    monkeypatch.setattr(server, 'SCANNERS', {
+        'window': {'name': 'Window Scanner', 'script': 'window.sh',
+                   'output': 'window_scan.jpg'},
+    })
+    monkeypatch.setattr(server, 'RECENT_REPORT_POINTER_FILE',
+                        str(tmp_path / pointer_name))
+    monkeypatch.setattr(server, 'run_intake_facade',
+                        lambda *a, **kw: {'ok': True, 'doc_kind': 'unknown'})
+    monkeypatch.setattr(server, 'document_vision_health', lambda *a, **kw: {'ok': True})
+    monkeypatch.setattr(
+        server.threading, 'Thread', lambda *a, **k: _NoThread())
+    return str(image)
+
+
+class _NoThread:
+    def start(self):
+        pass
+
+
+def test_conversation_failure_records_the_scan_as_failed(tmp_path, monkeypatch):
+    """Without this record the scanner tab shows the PREVIOUS document."""
+    _single_scanner_intake_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(server, '_stage_scan_for_mazda',
+                        lambda path: '/staged/window_scan.jpg')
+    monkeypatch.setattr(server, '_create_mazda_conversation', lambda: None)
+
+    server.process_scanned_document('window')
+
+    intake = server.get_scanner_intake('window')
+    assert intake is not None, 'the dropped scan left no record on its scanner'
+    assert intake['status'] == 'fail'
+    assert 'Letta server' in intake['status_detail']
+
+
+def test_staging_failure_records_the_scan_as_failed(tmp_path, monkeypatch):
+    _single_scanner_intake_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(server, '_stage_scan_for_mazda', lambda path: None)
+
+    server.process_scanned_document('window')
+
+    intake = server.get_scanner_intake('window')
+    assert intake is not None, 'the dropped scan left no record on its scanner'
+    assert intake['status'] == 'fail'
+
+
+def test_a_failed_scan_may_be_rescanned_byte_identically(tmp_path, monkeypatch):
+    """`fail` is the status that lets may_retry_terminal_scan through, so the
+    operator can scan the same page again once Letta is back."""
+    image = _single_scanner_intake_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(server, '_stage_scan_for_mazda',
+                        lambda path: '/staged/window_scan.jpg')
+    monkeypatch.setattr(server, '_create_mazda_conversation', lambda: None)
+    server.process_scanned_document('window')
+    server._scan_dispatch_claims.pop('window', None)
+
+    sha = server._scan_content_sha256(image)
+    assert server._claim_scan_dispatch('window', image, sha) is True
+
+
+def test_scanner_report_refuses_an_intake_older_than_the_current_scan(
+        tmp_path, monkeypatch):
+    """The backstop: whatever a future branch forgets to record, the report
+    view still will not present the wrong document as this scanner's page."""
+    _single_scanner_intake_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(server, '_scanner_output_mtime',
+                        lambda key: time.time())
+    monkeypatch.setattr(
+        server, 'get_scanner_intake',
+        lambda key: {'label': 'Window Scanner', 'kind': 'scan',
+                     'dispatched_at': time.time() - 3600, 'status': 'complete'})
+    rendered = []
+    monkeypatch.setattr(server, 'build_recent_intake_html',
+                        lambda intake: rendered.append(intake) or '<html>old</html>')
+
+    html = server.build_scanner_report_html('window')
+
+    assert rendered == [], 'the stale intake was rendered as this scan'
+    assert 'never recorded' in html
+
+
+def test_scanner_report_still_renders_a_current_intake(tmp_path, monkeypatch):
+    _single_scanner_intake_env(tmp_path, monkeypatch)
+    now = time.time()
+    monkeypatch.setattr(server, '_scanner_output_mtime', lambda key: now)
+    monkeypatch.setattr(
+        server, 'get_scanner_intake',
+        lambda key: {'label': 'Window Scanner', 'kind': 'scan',
+                     'dispatched_at': now + 2, 'status': 'complete'})
+    monkeypatch.setattr(server, '_scanner_statement_report',
+                        lambda key, intake: None)
+    monkeypatch.setattr(server, 'build_recent_intake_html',
+                        lambda intake: '<html>current</html>')
+
+    assert server.build_scanner_report_html('window') == '<html>current</html>'

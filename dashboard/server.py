@@ -909,6 +909,27 @@ def get_scanner_intake(scanner_key):
     return None
 
 
+def _scanner_output_mtime(scanner_key):
+    """When this scanner last wrote its output image, or None if it never has.
+
+    The physical truth about what was scanned most recently, independent of
+    whether intake managed to record anything about it.
+    """
+    path = _scanners.image_path(scanner_key, SCAN_TOOLS_DIR)
+    if not path:
+        return None
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
+def _scanner_intake_is_current(scanner_key, intake):
+    """Whether `intake` describes the image now in this scanner's output."""
+    return intake_describes_current_scan(
+        intake, _scanner_output_mtime(scanner_key))
+
+
 def build_scanner_report_html(scanner_key):
     """Body for GET /scanner_report.html?scanner=<key> — the Verified
     Transactions of the LAST document scanned on that specific scanner,
@@ -931,6 +952,23 @@ def build_scanner_report_html(scanner_key):
                 f'<p>No document has been scanned on the {name} yet. '
                 'Scan a document and this page will show its Verified '
                 'Transactions.</p>')
+    if not _scanner_intake_is_current(scanner_key, intake):
+        # Backstop for the 2026-10-09 outage: an intake dispatched before the
+        # scanner's output file was written cannot be about the document now
+        # in it. Rather than render the previous receipt — which reads as a
+        # scanner stuck an hour in the past — say plainly that the newer scan
+        # was never recorded. See scanner_state.intake_describes_current_scan.
+        from html import escape as _esc
+        name = _esc(cfg.get('name', scanner_key))
+        return ('<!doctype html><meta charset="utf-8">'
+                '<body style="font-family:sans-serif;padding:2em">'
+                f'<h2>{name}</h2>'
+                '<p><b>A newer scan was never recorded.</b> This scanner has '
+                'produced a page since its last recorded intake, so the report '
+                'below it would be the wrong document and is not shown.</p>'
+                '<p>Scan the page again. If it keeps happening, check '
+                'Server Management — intake stops here when the Letta server '
+                'or the executor machine cannot be reached.</p>')
     canonical = _scanner_statement_report(scanner_key, intake)
     if canonical:
         return _embed_report_html(canonical['url'], canonical['file'])
@@ -1252,6 +1290,11 @@ SCANNER_IMAGE_URL_PREFIX = '/api/scanner-image'
 # Imported here because server.py's own scan paths, hardware/scanner_diagnostics
 # and tests/ all still name `SCANNERS` through `server`.
 from hardware.scanners import SCANNERS  # noqa: E402
+# The module itself as well as the derived dict: `image_path` is how
+# _scanner_output_mtime finds a scanner's output file without re-deriving the
+# os.path.join that hardware/scanners.py already owns.
+from hardware import scanners as _scanners  # noqa: E402
+from scanner_state import intake_describes_current_scan  # noqa: E402
 
 # Finding a WSL_INTEROP socket that actually relays to Windows moved to
 # hardware/wsl_interop.py -- it is not scanner logic, and the printer repair

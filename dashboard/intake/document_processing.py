@@ -62,6 +62,36 @@ class Collaborators:
     current_execution_mode: Callable
 
 
+def _abandon_scan(deps: Collaborators, cfg, key, image_path,
+                  content_sha256, reason):
+    """Give up on a scanned document, leaving a record that says so.
+
+    One policy, stated once: when intake cannot carry a scan any further, the
+    scan still has to appear on its own scanner's tab as a failure. The
+    blank-page rejection above already explained why -- "otherwise a failed
+    capture reads as a stuck scanner still showing the previous document" --
+    but it applied that reasoning to its own branch only, and the two
+    infrastructure branches below (staging, conversation creation) just set a
+    `stage_error` on an HTTP response nobody was still listening to. On
+    2026-10-09 the Letta server stopped answering and seven consecutive scans
+    went the conversation-creation way: no record, no notice, both scanner
+    tabs rendering a receipt from an hour earlier as though nothing had
+    happened.
+
+    `status='fail'` is deliberate and is what makes the next attempt work:
+    `may_retry_terminal_scan` lets a byte-identical rescan through once the
+    previous intake is terminally failed, so the operator can simply scan the
+    same page again after the infrastructure is repaired.
+
+    Returns `reason`, so a caller reads as "the error I record is the error I
+    report" rather than recording one string and surfacing another.
+    """
+    deps.record_recent_intake(
+        image_path, cfg.get('name', key), kind='scan', status='fail',
+        status_detail=reason, content_sha256=content_sha256)
+    return reason
+
+
 def process_scanned_document(
         deps: Collaborators, key, org_id=1, engine='gemini',
         statement_metadata=None, doc_kind_override=None):
@@ -217,12 +247,17 @@ def process_scanned_document(
                     stage_error = HUMAN_ONLY_MODE_STAGE_MESSAGE
             else:
                 deps.release_scan_dispatch(key, image_path)
-                stage_error = ('Could not create an isolated Mazda conversation; '
-                               'the scan was not dispatched into shared context.')
+                stage_error = _abandon_scan(
+                    deps, cfg, key, image_path, content_sha256,
+                    'Could not create an isolated Mazda conversation (the Letta '
+                    'server did not answer); the scan was not dispatched. '
+                    'Scan again once the Letta server is back.')
         else:
             deps.release_scan_dispatch(key, image_path)
-            stage_error = ('Could not copy the scan to where Mazda can read it '
-                            '(SSH/copy to the executor machine failed) — Mazda was not notified.')
+            stage_error = _abandon_scan(
+                deps, cfg, key, image_path, content_sha256,
+                'Could not copy the scan to where Mazda can read it '
+                '(SSH/copy to the executor machine failed) — Mazda was not notified.')
     result = deps.build_pipeline_result(facade, mazda_dispatched)
     result['trainer_dispatched'] = trainer_dispatched
     result['execution_mode'] = deps.current_execution_mode()
