@@ -690,6 +690,12 @@ def delete_stored_expense(data, repository=None):
         _expense_commands_deps(), data, repository=repository)
 
 
+def neighbor_stored_expense(data, repository=None):
+    """POST /api/expense-neighbor: the Prev/Next Record buttons."""
+    return _expense_commands.neighbor_stored_expense(
+        _expense_commands_deps(), data, repository=repository)
+
+
 def add_sales_tax_to_expense(data, repository=None):
     """POST /api/expense-add-tax: put sales tax back on one stored row."""
     return _expense_commands.add_sales_tax_to_expense(
@@ -2816,6 +2822,11 @@ def patch_agent_voice(agent_id, voice):
         resp = json.loads(r.read().decode())
     return {'ok': True, 'voice': agent_voice_from_metadata(resp)}
 
+# agent_context_payload / compact_agent_messages / reset_agent_messages moved
+# to agents/conversation_management.py -- the route ladders import that
+# module directly instead of reaching through `srv.`, per the ports doctrine
+# in http_app/ports.py (see tests/test_http_app_ports.py's `srv.` ceiling).
+
 # The agent roster moved to agents/registry.py as typed `LettaAgentSpec`s, and
 # `LETTA_AGENTS` is a derived view of them. Add a new Letta agent there.
 #
@@ -4034,6 +4045,12 @@ OAUTH_PROVIDER_ACCOUNTS = {
 # provider in a *different* family (its current model id has no meaning there).
 FAMILY_MODEL_PREFIX = {'claude': 'claude-pro-max', 'chatgpt': 'chatgpt-plus-pro'}
 
+# account → the model_stats/sources.py source_key that same human's Model
+# Stats tab already reads. Claude's weekly-remaining % on Agent Assignments
+# reuses that reader instead of a second probe against Letta's own copy of
+# the OAuth token (see model_stats.agents_payload._claude_weekly_remaining).
+CLAUDE_MODEL_STATS_SOURCE_BY_ACCOUNT = {'eg': 'w11-claude', 'mom': 'r46-claude'}
+
 
 def _claude_provider_for_account(account):
     """The OAUTH_PROVIDER_ACCOUNTS provider whose Claude token belongs to
@@ -4063,6 +4080,9 @@ def _weekly_percent_remaining(provider_name):
     return _agents_payload.weekly_percent_remaining(
         _agents_payload.WeeklyRemainingCollaborators(
             fetch_provider_oauth_creds=_fetch_provider_oauth_creds,
+            oauth_provider_accounts=OAUTH_PROVIDER_ACCOUNTS,
+            claude_model_stats_source_by_account=CLAUDE_MODEL_STATS_SOURCE_BY_ACCOUNT,
+            model_stats_reader=model_stats,
             cache=_weekly_remaining_cache,
             cache_lock=_weekly_remaining_cache_lock,
             cache_ttl=WEEKLY_REMAINING_CACHE_TTL,

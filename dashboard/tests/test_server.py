@@ -2280,17 +2280,79 @@ def test_probe_claude_sdk_endpoint_405_means_route_exists(monkeypatch):
     assert server._probe_claude_sdk_endpoint('http://x/claude_sdk', 1) == 'ok'
 
 
-def test_weekly_percent_remaining_reports_reset_time_on_429(monkeypatch):
-    # Anthropic's usage-reporting endpoint (api/oauth/usage) throttles
-    # independently of the account's real quota -- a 429 there with
-    # Retry-After should surface an absolute reset epoch, not just None,
-    # so the Agent Assignments row can show a countdown instead of a bare
-    # "Unavailable" (see model_stats/reader.py's _fill_rate_limited for the
-    # same judgement call on the same endpoint).
+def test_weekly_percent_remaining_claude_reads_the_model_stats_reader(monkeypatch):
+    # Claude rows must show the exact same number as that account's own
+    # Model Stats tab, not a second probe against Letta's own copy of the
+    # OAuth token (which goes stale silently and/or trips the usage-
+    # reporting endpoint's own throttle independent of real account health).
+    # No urlopen call should happen at all for a Claude provider.
     monkeypatch.setattr(server, '_weekly_remaining_cache', {})
     monkeypatch.setattr(
         server, '_fetch_provider_oauth_creds',
         lambda provider: ({'access_token': 'tok'}, 'anthropic'))
+
+    def no_network(req, timeout=0):
+        raise AssertionError('must not probe the network for a Claude provider')
+
+    monkeypatch.setattr(server.urllib.request, 'urlopen', no_network)
+
+    seen = []
+
+    def fake_model_stats(source_key):
+        seen.append(source_key)
+        return {'windows': [{'label': 'weekly', 'used_percent': 74.0}]}
+
+    monkeypatch.setattr(server, 'model_stats', fake_model_stats)
+
+    remaining, reset_at = server._weekly_percent_remaining('claude-pro-max-eg')
+
+    assert remaining == 26.0
+    assert reset_at is None
+    assert seen == ['w11-claude']
+
+
+def test_weekly_percent_remaining_claude_never_blinks_on_a_429(monkeypatch):
+    # Even if the Model Stats reader itself hit a 429 on the usage-reporting
+    # endpoint, that reader already owns its own backoff/last-good fallback
+    # (model_stats/reader.py) -- Agent Assignments must never set
+    # rate_limited_until / show a countdown for Claude a second time.
+    monkeypatch.setattr(server, '_weekly_remaining_cache', {})
+    monkeypatch.setattr(
+        server, '_fetch_provider_oauth_creds',
+        lambda provider: ({'access_token': 'tok'}, 'anthropic'))
+    monkeypatch.setattr(
+        server, 'model_stats',
+        lambda source_key: {'windows': [], 'rate_limited': True, 'rate_limited_until': time.time() + 500})
+
+    remaining, reset_at = server._weekly_percent_remaining('claude-pro-max-eg')
+
+    assert remaining is None
+    assert reset_at is None
+
+
+def test_weekly_percent_remaining_claude_unknown_account_is_none(monkeypatch):
+    monkeypatch.setattr(server, '_weekly_remaining_cache', {})
+    monkeypatch.setattr(
+        server, '_fetch_provider_oauth_creds',
+        lambda provider: ({'access_token': 'tok'}, 'anthropic'))
+    monkeypatch.setattr(server, 'model_stats', lambda source_key: {'windows': [{'label': 'weekly', 'used_percent': 1.0}]})
+
+    remaining, reset_at = server._weekly_percent_remaining('some-unmapped-anthropic-provider')
+
+    assert remaining is None
+    assert reset_at is None
+
+
+def test_weekly_percent_remaining_reports_reset_time_on_429(monkeypatch):
+    # chatgpt_oauth providers still probe their own usage endpoint directly.
+    # Anthropic's usage-reporting endpoint throttles independently of the
+    # account's real quota -- a 429 there with Retry-After should surface an
+    # absolute reset epoch, not just None, so the Agent Assignments row can
+    # show a countdown instead of a bare "Unavailable".
+    monkeypatch.setattr(server, '_weekly_remaining_cache', {})
+    monkeypatch.setattr(
+        server, '_fetch_provider_oauth_creds',
+        lambda provider: ({'access_token': 'tok'}, 'chatgpt_oauth'))
 
     def boom(req, timeout=0):
         raise urllib.error.HTTPError(
@@ -2298,7 +2360,7 @@ def test_weekly_percent_remaining_reports_reset_time_on_429(monkeypatch):
 
     monkeypatch.setattr(server.urllib.request, 'urlopen', boom)
 
-    remaining, reset_at = server._weekly_percent_remaining('claude-pro-max-eg')
+    remaining, reset_at = server._weekly_percent_remaining('chatgpt-plus-pro')
 
     assert remaining is None
     assert reset_at is not None
@@ -2315,7 +2377,7 @@ def test_weekly_percent_remaining_backs_off_until_the_reset_time(monkeypatch):
     monkeypatch.setattr(server, '_weekly_remaining_cache', {})
     monkeypatch.setattr(
         server, '_fetch_provider_oauth_creds',
-        lambda provider: ({'access_token': 'tok'}, 'anthropic'))
+        lambda provider: ({'access_token': 'tok'}, 'chatgpt_oauth'))
 
     calls = []
 
@@ -2327,17 +2389,17 @@ def test_weekly_percent_remaining_backs_off_until_the_reset_time(monkeypatch):
     monkeypatch.setattr(server.urllib.request, 'urlopen', boom)
     monkeypatch.setattr(server.time, 'time', lambda: 1000.0)
 
-    _remaining, first_reset = server._weekly_percent_remaining('claude-pro-max-eg')
+    _remaining, first_reset = server._weekly_percent_remaining('chatgpt-plus-pro')
     assert first_reset == 1000.0 + 1494
     assert len(calls) == 1
 
     monkeypatch.setattr(server.time, 'time', lambda: 1100.0)  # still inside the cooldown
-    _remaining, second_reset = server._weekly_percent_remaining('claude-pro-max-eg')
+    _remaining, second_reset = server._weekly_percent_remaining('chatgpt-plus-pro')
     assert second_reset == first_reset
     assert len(calls) == 1  # no second probe -- the whole point
 
     monkeypatch.setattr(server.time, 'time', lambda: 1000.0 + 1494 + 1)  # cooldown over
-    server._weekly_percent_remaining('claude-pro-max-eg')
+    server._weekly_percent_remaining('chatgpt-plus-pro')
     assert len(calls) == 2
 
 
@@ -2345,14 +2407,14 @@ def test_weekly_percent_remaining_reports_no_reset_time_for_other_failures(monke
     monkeypatch.setattr(server, '_weekly_remaining_cache', {})
     monkeypatch.setattr(
         server, '_fetch_provider_oauth_creds',
-        lambda provider: ({'access_token': 'tok'}, 'anthropic'))
+        lambda provider: ({'access_token': 'tok'}, 'chatgpt_oauth'))
 
     def boom(req, timeout=0):
         raise urllib.error.HTTPError(req.full_url, 500, 'Server Error', {}, None)
 
     monkeypatch.setattr(server.urllib.request, 'urlopen', boom)
 
-    remaining, reset_at = server._weekly_percent_remaining('claude-pro-max-eg')
+    remaining, reset_at = server._weekly_percent_remaining('chatgpt-plus-pro')
 
     assert remaining is None
     assert reset_at is None
@@ -4714,6 +4776,10 @@ def test_patch_agent_voice_rejects_unlisted_voice(monkeypatch):
     result = server.patch_agent_voice('agent-frita', 'en-US-NopeNeural')
     assert result['ok'] is False
     assert 'allowed list' in result['error']
+
+
+# agent_context_payload / compact_agent_messages / reset_agent_messages moved
+# to agents/conversation_management.py -- see tests/test_conversation_management.py.
 
 
 # The auto-failover gate (failover_should_trigger, standby_probe_verdict,
@@ -7469,6 +7535,13 @@ class _StubEditRepository:
         self.edits.append(edit)
         return self._result
 
+    def neighbor(self, expense_id, step):
+        if self._error:
+            raise self._error
+        self.neighbor_calls = getattr(self, 'neighbor_calls', [])
+        self.neighbor_calls.append((expense_id, step))
+        return self._result
+
 
 class _StubNamer:
     def __init__(self, mapping=None):
@@ -7520,6 +7593,39 @@ def test_expense_search_surfaces_a_database_failure_verbatim():
     assert 'connection refused' in out['error']
 
 
+def test_expense_neighbor_next_returns_the_record_as_json():
+    repo = _StubEditRepository(result=_stub_record(id=510))
+    out = server.neighbor_stored_expense(
+        {'expense_id': 501, 'direction': 'next'}, repository=repo)
+    assert out['ok'] is True
+    assert out['record']['id'] == 510
+    assert repo.neighbor_calls == [(501, 1)]
+
+
+def test_expense_neighbor_prev_steps_backward():
+    repo = _StubEditRepository(result=_stub_record(id=490))
+    out = server.neighbor_stored_expense(
+        {'expense_id': 501, 'direction': 'prev'}, repository=repo)
+    assert out['ok'] is True
+    assert repo.neighbor_calls == [(501, -1)]
+
+
+def test_expense_neighbor_rejects_a_non_positive_id():
+    out = server.neighbor_stored_expense(
+        {'expense_id': 0, 'direction': 'next'}, repository=_StubEditRepository())
+    assert out['ok'] is False
+    assert 'positive' in out['error']
+
+
+def test_expense_neighbor_surfaces_not_found():
+    from finance.expense_edit_model import ExpenseNotFound
+    repo = _StubEditRepository(error=ExpenseNotFound('no expense with id 501'))
+    out = server.neighbor_stored_expense(
+        {'expense_id': 501, 'direction': 'next'}, repository=repo)
+    assert out['ok'] is False
+    assert '501' in out['error']
+
+
 def _edit_body(**overrides):
     body = dict(expense_id=501, merchant_name='Kroger Fuel',
                 transaction_date='2026-08-15', total_amount=20.0,
@@ -7536,6 +7642,22 @@ def _edit_result(**overrides):
                   warnings=('vendor key is stale',))
     fields.update(overrides)
     return ExpenseEditResult(**fields)
+
+
+def test_expense_edit_passes_map_link_through_to_the_repository(monkeypatch):
+    monkeypatch.setattr(server, '_invalidate_receipt_index', lambda: None)
+    repo = _StubEditRepository(result=_edit_result())
+    server.edit_stored_expense(
+        _edit_body(map_link='https://maps.example/new'),
+        repository=repo, namer=_StubNamer())
+    assert repo.edits[0].map_link == 'https://maps.example/new'
+
+
+def test_expense_edit_defaults_a_missing_map_link_to_blank(monkeypatch):
+    monkeypatch.setattr(server, '_invalidate_receipt_index', lambda: None)
+    repo = _StubEditRepository(result=_edit_result())
+    server.edit_stored_expense(_edit_body(), repository=repo, namer=_StubNamer())
+    assert repo.edits[0].map_link == ''
 
 
 def test_expense_edit_resolves_the_category_name_to_an_id(monkeypatch):

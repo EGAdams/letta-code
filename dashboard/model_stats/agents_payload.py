@@ -30,23 +30,57 @@ class WeeklyRemainingCollaborators:
     """What stays behind in server.py, handed over per call."""
 
     fetch_provider_oauth_creds: Callable
+    oauth_provider_accounts: dict
+    claude_model_stats_source_by_account: dict
+    model_stats_reader: Callable
     cache: dict
     cache_lock: object
     cache_ttl: float
 
 
+def _claude_weekly_remaining(deps, provider_name):
+    """100 - the weekly window's used_percent, read from the exact same
+    model_stats.reader.model_stats(source_key) call that account's own Model
+    Stats tab already shows.
+
+    This used to instead probe api.anthropic.com/api/oauth/usage a second
+    time with Letta's own copy of that account's OAuth token -- a second,
+    independently-failing source of truth for the same number. Letta's copy
+    is never refreshed by ordinary use the way ~/.claude/.credentials.json is
+    (so it could 401 while the Model Stats tab stayed healthy), and even once
+    valid, that usage-*reporting* endpoint throttles on its own schedule
+    independent of whether Claude itself works -- Agent Assignments was then
+    showing a live, healthy account as "Unavailable" or blinking a countdown
+    while the account's own tab read clean. Reusing that tab's reader removes
+    the second source entirely instead of patching around its failures."""
+    account = (deps.oauth_provider_accounts.get(provider_name) or {}).get('account')
+    source_key = deps.claude_model_stats_source_by_account.get(account) if account else None
+    if not source_key:
+        return None
+    stats = deps.model_stats_reader(source_key)
+    for window in stats.get('windows') or []:
+        if window.get('label') == 'weekly' and window.get('used_percent') is not None:
+            return round(100 - window['used_percent'], 1)
+    return None
+
+
 def weekly_percent_remaining(deps: WeeklyRemainingCollaborators, provider_name):
     """(remaining, rate_limited_until) -- 100 - the 7-day/weekly window's
-    used_percent for a provider's live token, via the same zero-token usage
-    probes as the health system (never an LLM call).
+    used_percent for a provider's live token.
+
+    Claude providers read `remaining` straight from that account's own Model
+    Stats reader (see `_claude_weekly_remaining`) and never set
+    `rate_limited_until` -- that reader already owns its own cache/backoff/
+    last-good fallback, so Agent Assignments just displays its number rather
+    than running a second probe with a second failure mode. Chatgpt_oauth
+    providers still probe their own usage endpoint directly with the
+    provider's live token (never an LLM call); `rate_limited_until` there is
+    an absolute epoch, set only when that probe got an HTTP 429 with a
+    `Retry-After` header, so the caller can render a live countdown to the
+    real cause instead of a bare "unavailable".
 
     `remaining` is None on any failure -- caller renders that as unknown, not
-    0%. `rate_limited_until` is an absolute epoch, set only when the failure
-    was specifically an HTTP 429 with a `Retry-After` header: this usage-*
-    reporting* endpoint throttles independently of the account's real quota
-    (see model_stats/reader.py's _fill_rate_limited for the same judgement
-    call on the same endpoint), so the caller can render a live countdown to
-    the real cause instead of a bare "unavailable"."""
+    0%."""
     now = time.time()
     with deps.cache_lock:
         cached = deps.cache.get(provider_name)
@@ -63,41 +97,32 @@ def weekly_percent_remaining(deps: WeeklyRemainingCollaborators, provider_name):
     creds, provider_type = deps.fetch_provider_oauth_creds(provider_name)
     remaining = None
     rate_limited_until = None
-    if creds:
+    if provider_type in ('anthropic', 'anthropic_oauth'):
+        remaining = _claude_weekly_remaining(deps, provider_name)
+    elif creds and provider_type == 'chatgpt_oauth':
         try:
-            if provider_type in ('anthropic', 'anthropic_oauth'):
-                token = creds.get('access_token') or (creds.get('claudeAiOauth') or {}).get('accessToken') or ''
-                req = urllib.request.Request(
-                    'https://api.anthropic.com/api/oauth/usage',
-                    headers={'Authorization': 'Bearer ' + token,
-                             'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'claude-code/2.0.32'})
-                with urllib.request.urlopen(req, timeout=15) as r:
-                    usage = json.loads(r.read().decode())
-                used = float((usage.get('seven_day') or {}).get('utilization') or 0)
-                remaining = round(100 - used, 1)
-            elif provider_type == 'chatgpt_oauth':
-                req = urllib.request.Request(
-                    'https://chatgpt.com/backend-api/wham/usage',
-                    headers={'Authorization': 'Bearer ' + (creds.get('access_token') or ''),
-                             'ChatGPT-Account-Id': creds.get('account_id', ''),
-                             'OpenAI-Beta': 'codex-1', 'originator': 'codex_cli_rs', 'User-Agent': 'codex'})
-                with urllib.request.urlopen(req, timeout=15) as r:
-                    usage = json.loads(r.read().decode())
-                rl = usage.get('rate_limit') or {}
-                # The weekly window isn't reliably "secondary_window" -- its
-                # position shifts (see monitoring/provider_usage.py's
-                # codex_window_label and its 2026-08-19 note:
-                # primary_window was the 7-day window with no secondary at
-                # all). Pick whichever window's own limit_window_seconds is
-                # actually ~7 days, not a fixed key.
-                w = None
-                for key in ('primary_window', 'secondary_window'):
-                    candidate = rl.get(key)
-                    if isinstance(candidate, dict) and abs((candidate.get('limit_window_seconds') or 0) - 604800) < 3600:
-                        w = candidate
-                        break
-                used = float((w or {}).get('used_percent') or 0)
-                remaining = round(100 - used, 1)
+            req = urllib.request.Request(
+                'https://chatgpt.com/backend-api/wham/usage',
+                headers={'Authorization': 'Bearer ' + (creds.get('access_token') or ''),
+                         'ChatGPT-Account-Id': creds.get('account_id', ''),
+                         'OpenAI-Beta': 'codex-1', 'originator': 'codex_cli_rs', 'User-Agent': 'codex'})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                usage = json.loads(r.read().decode())
+            rl = usage.get('rate_limit') or {}
+            # The weekly window isn't reliably "secondary_window" -- its
+            # position shifts (see monitoring/provider_usage.py's
+            # codex_window_label and its 2026-08-19 note:
+            # primary_window was the 7-day window with no secondary at
+            # all). Pick whichever window's own limit_window_seconds is
+            # actually ~7 days, not a fixed key.
+            w = None
+            for key in ('primary_window', 'secondary_window'):
+                candidate = rl.get(key)
+                if isinstance(candidate, dict) and abs((candidate.get('limit_window_seconds') or 0) - 604800) < 3600:
+                    w = candidate
+                    break
+            used = float((w or {}).get('used_percent') or 0)
+            remaining = round(100 - used, 1)
         except urllib.error.HTTPError as e:
             remaining = None
             if e.code == 429:
