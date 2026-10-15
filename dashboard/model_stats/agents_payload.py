@@ -94,46 +94,59 @@ def weekly_percent_remaining(deps: WeeklyRemainingCollaborators, provider_name):
             if still_backing_off or now - cached_at < deps.cache_ttl:
                 return cached_remaining, cached_reset_at
 
-    creds, provider_type = deps.fetch_provider_oauth_creds(provider_name)
     remaining = None
     rate_limited_until = None
-    if provider_type in ('anthropic', 'anthropic_oauth'):
+    # Claude never needs a Letta provider row at all -- oauth_provider_accounts
+    # (a static local map, see server.OAUTH_PROVIDER_ACCOUNTS) already names
+    # the family, so a Claude row costs zero calls to Letta's own API and
+    # cannot be taken down by Letta being unreachable, unlike the fetch below.
+    family = (deps.oauth_provider_accounts.get(provider_name) or {}).get('family')
+    if family == 'claude':
         remaining = _claude_weekly_remaining(deps, provider_name)
-    elif creds and provider_type == 'chatgpt_oauth':
+    else:
         try:
-            req = urllib.request.Request(
-                'https://chatgpt.com/backend-api/wham/usage',
-                headers={'Authorization': 'Bearer ' + (creds.get('access_token') or ''),
-                         'ChatGPT-Account-Id': creds.get('account_id', ''),
-                         'OpenAI-Beta': 'codex-1', 'originator': 'codex_cli_rs', 'User-Agent': 'codex'})
-            with urllib.request.urlopen(req, timeout=15) as r:
-                usage = json.loads(r.read().decode())
-            rl = usage.get('rate_limit') or {}
-            # The weekly window isn't reliably "secondary_window" -- its
-            # position shifts (see monitoring/provider_usage.py's
-            # codex_window_label and its 2026-08-19 note:
-            # primary_window was the 7-day window with no secondary at
-            # all). Pick whichever window's own limit_window_seconds is
-            # actually ~7 days, not a fixed key.
-            w = None
-            for key in ('primary_window', 'secondary_window'):
-                candidate = rl.get(key)
-                if isinstance(candidate, dict) and abs((candidate.get('limit_window_seconds') or 0) - 604800) < 3600:
-                    w = candidate
-                    break
-            used = float((w or {}).get('used_percent') or 0)
-            remaining = round(100 - used, 1)
-        except urllib.error.HTTPError as e:
-            remaining = None
-            if e.code == 429:
-                retry_after = e.headers.get('Retry-After') if e.headers else None
-                try:
-                    if retry_after is not None:
-                        rate_limited_until = now + int(retry_after)
-                except ValueError:
-                    pass
+            creds, provider_type = deps.fetch_provider_oauth_creds(provider_name)
         except Exception:
-            remaining = None
+            # Letta unreachable (e.g. its host is offline on the tailnet) --
+            # fetch_provider_oauth_creds has no guard of its own (its other
+            # callers each wrap it individually), and an unguarded call here
+            # used to crash the whole Agent Assignments request thread.
+            creds, provider_type = None, None
+        if creds and provider_type == 'chatgpt_oauth':
+            try:
+                req = urllib.request.Request(
+                    'https://chatgpt.com/backend-api/wham/usage',
+                    headers={'Authorization': 'Bearer ' + (creds.get('access_token') or ''),
+                             'ChatGPT-Account-Id': creds.get('account_id', ''),
+                             'OpenAI-Beta': 'codex-1', 'originator': 'codex_cli_rs', 'User-Agent': 'codex'})
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    usage = json.loads(r.read().decode())
+                rl = usage.get('rate_limit') or {}
+                # The weekly window isn't reliably "secondary_window" -- its
+                # position shifts (see monitoring/provider_usage.py's
+                # codex_window_label and its 2026-08-19 note:
+                # primary_window was the 7-day window with no secondary at
+                # all). Pick whichever window's own limit_window_seconds is
+                # actually ~7 days, not a fixed key.
+                w = None
+                for key in ('primary_window', 'secondary_window'):
+                    candidate = rl.get(key)
+                    if isinstance(candidate, dict) and abs((candidate.get('limit_window_seconds') or 0) - 604800) < 3600:
+                        w = candidate
+                        break
+                used = float((w or {}).get('used_percent') or 0)
+                remaining = round(100 - used, 1)
+            except urllib.error.HTTPError as e:
+                remaining = None
+                if e.code == 429:
+                    retry_after = e.headers.get('Retry-After') if e.headers else None
+                    try:
+                        if retry_after is not None:
+                            rate_limited_until = now + int(retry_after)
+                    except ValueError:
+                        pass
+            except Exception:
+                remaining = None
 
     with deps.cache_lock:
         deps.cache[provider_name] = (remaining, rate_limited_until, now)
@@ -146,6 +159,7 @@ class Collaborators:
 
     letta_base_url: str
     letta_agents: list
+    fetch_all_agents: Callable
     get_letta_id: Callable
     get_chatgpt_provider_account_status: Callable
     oauth_provider_accounts: dict
@@ -169,9 +183,14 @@ def agents_payload(deps: Collaborators, force_refresh=False):
             if cached is not None and now - deps.cache.get('ts', 0.0) < deps.cache_ttl:
                 return cached
 
-    req = urllib.request.Request(f'{deps.letta_base_url}/v1/agents/?limit=200')
-    with urllib.request.urlopen(req, timeout=20) as r:
-        all_agents = json.loads(r.read().decode())
+    # fetch_all_agents fails closed (None on any error, including Letta
+    # being unreachable) -- an empty roster still renders every row, just
+    # with no live model/account for it, instead of crashing the request
+    # thread the way an unguarded urlopen used to when the Letta server was
+    # down (every agent row simply vanished with no response at all).
+    all_agents = deps.fetch_all_agents() or []
+    if not isinstance(all_agents, list):
+        all_agents = all_agents.get('agents', [])
     by_id = {a['id']: a for a in all_agents}
 
     chatgpt_status = deps.get_chatgpt_provider_account_status()

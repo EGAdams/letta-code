@@ -151,5 +151,15 @@ def build_router_strategy() -> RouteStrategy:
     from voice.letta_client import LettaClient
 
     client = LettaClient(config.LETTA_BASE_URL)
-    agent_id = config.ROUTER_AGENT_ID or client.resolve_agent_id(config.ROUTER_AGENT_NAME)
+    if config.ROUTER_AGENT_ID:
+        agent_id = config.ROUTER_AGENT_ID
+    else:
+        try:
+            agent_id = client.resolve_agent_id(config.ROUTER_AGENT_NAME)
+        except Exception:
+            # Letta unreachable (e.g. its host is offline on the tailnet) --
+            # classify() already fails closed on agent_id=None, so build the
+            # strategy anyway rather than crashing the request thread (same
+            # fix as voice/cleanup.py's build_cleanup()).
+            agent_id = None
     return LettaAgentRouteStrategy(client, agent_id, known_names=config.ROUTER_AGENT_NAMES)

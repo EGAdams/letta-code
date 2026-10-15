@@ -4158,6 +4158,7 @@ def model_stats_agents_payload(force_refresh=False):
     deps = _agents_payload.Collaborators(
         letta_base_url=LETTA_BASE_URL,
         letta_agents=LETTA_AGENTS,
+        fetch_all_agents=lambda: letta_get('/v1/agents/?limit=200', timeout=20),
         get_letta_id=get_letta_id,
         get_chatgpt_provider_account_status=get_chatgpt_provider_account_status,
         oauth_provider_accounts=OAUTH_PROVIDER_ACCOUNTS,
